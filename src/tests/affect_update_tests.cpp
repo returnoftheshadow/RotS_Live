@@ -16,7 +16,7 @@
 // an NPC -- heap-allocated, clear_char()'d, and register_npc_char()'d
 // into character_list and a real room -- so extract_char()/free_char() can
 // run for real, following the fireball-fumble precedent at
-// src/tests/mage_tests.cpp (make_fireball_caster / ScopedFireballMobIndex /
+// src/tests/mage_tests.cpp (make_fireball_caster / test_support::ScopedMobIndex /
 // release_fireball_corpse). The fixture reproduces the freed-node order
 // literally: [blaze room, dying occupant, sentinel]. Against the unfixed
 // walk this is a use-after-free (ASan reports it; the plain build reads
@@ -30,7 +30,10 @@
 #include "../spells.h"
 #include "../test_harness.h"
 #include "../utils.h"
+#include "scoped_mob_index.h"
+#include "test_affect_support.h"
 #include "test_character_support.h"
+#include "test_world_support.h"
 #include "test_random_utils.h"
 #include <algorithm>
 #include <cstring>
@@ -41,7 +44,6 @@ extern struct char_data* character_list;
 extern struct obj_data* object_list;
 extern struct room_data world;
 extern int top_of_world;
-extern struct index_data* mob_index;
 extern universal_list* affected_list;
 extern universal_list* affected_list_pool;
 extern struct skill_data skills[];
@@ -60,15 +62,6 @@ ASPELL(spell_blaze);
 
 namespace {
 
-void ensure_test_world(int minimum_room_number) {
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
-
 // Saves/restores a room's occupant chain so a test's fixture leaves the
 // shared world[] state exactly as it found it for later tests in this binary.
 struct RoomOccupantGuard {
@@ -77,33 +70,12 @@ struct RoomOccupantGuard {
 
     explicit RoomOccupantGuard(int room)
         : room_number(room), original_people(nullptr) {
-        ensure_test_world(room);
+        test_support::ensure_test_world(room);
         original_people = world[room].people;
     }
     ~RoomOccupantGuard() { world[room_number].people = original_people; }
     RoomOccupantGuard(const RoomOccupantGuard&) = delete;
     RoomOccupantGuard& operator=(const RoomOccupantGuard&) = delete;
-};
-
-// The death pipeline reads the NPC's prototype (raw_kill()'s SPECIAL_DEATH
-// probe via activate_char_special, and make_corpse()'s corpse-owner lookup)
-// unconditionally for any IS_NPC() character; publish a one-entry table for
-// the scope, matching src/tests/mage_tests.cpp's ScopedFireballMobIndex.
-class ScopedAffectUpdateMobIndex {
-public:
-    ScopedAffectUpdateMobIndex()
-        : m_previous(mob_index) {
-        m_entry = index_data {};
-        m_entry.virt = 1;
-        mob_index = &m_entry;
-    }
-    ~ScopedAffectUpdateMobIndex() { mob_index = m_previous; }
-    ScopedAffectUpdateMobIndex(const ScopedAffectUpdateMobIndex&) = delete;
-    ScopedAffectUpdateMobIndex& operator=(const ScopedAffectUpdateMobIndex&) = delete;
-
-private:
-    index_data* m_previous; // whatever this suite found installed (normally null)
-    index_data m_entry {}; // the single prototype slot the occupant's nr = 0 names
 };
 
 // gtest_main does not run the real spell-pointer assignment pass; install
@@ -146,8 +118,8 @@ private:
 
 // do_fame_war_bonuses()'s pkill_get_rank_by_character() reads
 // player_table[player_index]; publish a one-entry table for the scope and
-// restore whatever was installed before, mirroring ScopedAffectUpdateMobIndex
-// above. The destructor runs even if a test assertion fails partway through,
+// restore whatever was installed before, mirroring test_support::ScopedMobIndex.
+// The destructor runs even if a test assertion fails partway through,
 // so a failure here cannot leak the table or leave the process-global
 // player_table dangling for later tests in this binary.
 class ScopedFameWarPlayerTable {
@@ -199,30 +171,24 @@ void release_corpse_from_room(int room_number, obj_data* previous_object_list) {
     object_list = previous_object_list;
 }
 
-// Builds a normal, alive, stack-local NPC that never dies in these tests --
-// the sentinel/imposter/victim roles below. Mirrors mage_tests.cpp's
-// MageTestContext-style member setup.
-void make_npc(char_data& ch, char_prof_data& profs, int hit) {
-    ch.profs = &profs;
-    ch.specials2.act = MOB_ISNPC;
-    ch.nr = -1;
-    ch.player.race = RACE_HUMAN;
-    ch.player.level = 10;
+// A stack-local NPC that never dies in these tests (the sentinel/imposter/victim
+// roles below): make_stack_npc() with intelligence 20 and `hit` as both its
+// current and maximum hit points.
+void make_npc_with_hit_points(char_data& ch, char_prof_data& profs, int hit) {
+    test_support::make_stack_npc(ch, profs);
     ch.tmpabilities.intel = 20;
     ch.abilities.hit = hit;
     ch.tmpabilities.hit = hit;
-    ch.specials.position = POSITION_STANDING;
-    ch.specials.fighting = nullptr;
 }
 
 // Builds the heap-allocated, registered NPC occupant the death pipeline
 // needs (see the file comment above): clear_char() + register_npc_char() the
 // way the game constructs an NPC, with nr = 0 naming the
-// ScopedAffectUpdateMobIndex slot above.
+// test_support::ScopedMobIndex slot.
 char_data* make_blaze_occupant(int hit_points, char* short_descr, int room) {
     char_data* occupant = test_support::allocate_test_character(MOB_ISNPC);
     occupant->specials2.act = MOB_ISNPC;
-    occupant->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
+    occupant->nr = 0; // prototype slot 0 of the scoped one-entry mob_index
     occupant->player.race = RACE_HUMAN;
     occupant->player.short_descr = short_descr; // make_corpse() reads GET_NAME() for the corpse text
     occupant->player.level = 30;
@@ -235,16 +201,6 @@ char_data* make_blaze_occupant(int hit_points, char* short_descr, int room) {
     occupant->in_room = room;
     register_npc_char(occupant);
     return occupant;
-}
-
-affected_type inert_affect(int duration) {
-    affected_type af {};
-    af.type = SPELL_INFRAVISION; // inert for the damage path; only its affected_list node matters
-    af.duration = duration;
-    af.modifier = 0;
-    af.location = 0;
-    af.bitvector = 0;
-    return af;
 }
 
 constexpr int kBlazeRoom = 27;
@@ -284,14 +240,14 @@ constexpr int kStaleNodeSlot = MAX_CHARACTERS - 205; // the stale-entry housekee
 } // namespace
 
 TEST(AffectUpdateWalk, SurvivesAnOccupantDyingToTheBlazeTickItIsProcessing) {
-    ScopedAffectUpdateMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     ScopedBlazeSpellPointer blaze_cell;
     RoomOccupantGuard blaze_room_guard(kBlazeRoom);
     RoomOccupantGuard quiet_room_guard(kQuietRoom);
 
     char_data sentinel {};
     char_prof_data sentinel_profs {};
-    make_npc(sentinel, sentinel_profs, 500);
+    make_npc_with_hit_points(sentinel, sentinel_profs, 500);
     sentinel.in_room = kQuietRoom;
     ScopedCharExists sentinel_exists { sentinel, kSentinelSlot };
 
@@ -312,9 +268,11 @@ TEST(AffectUpdateWalk, SurvivesAnOccupantDyingToTheBlazeTickItIsProcessing) {
 
     // Creation order decides affected_list order (head insertion):
     // sentinel first (tail), occupant second, the room last (head).
-    affected_type sentinel_af = inert_affect(50);
+    // Infravision is inert for the damage path; only each affect's
+    // affected_list node matters here and in the pins below.
+    affected_type sentinel_af = test_support::inert_affect(SPELL_INFRAVISION, 50);
     affect_to_char(&sentinel, &sentinel_af);
-    affected_type occupant_af = inert_affect(50);
+    affected_type occupant_af = test_support::inert_affect(SPELL_INFRAVISION, 50);
     affect_to_char(occupant, &occupant_af);
     affected_type blaze {};
     blaze.type = ROOMAFF_SPELL;
@@ -383,11 +341,11 @@ TEST(AffectUpdateWalk, SurvivesAnOccupantDyingToTheBlazeTickItIsProcessing) {
 TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseAbsNumberSlotWasRecycled) {
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs, 500);
+    make_npc_with_hit_points(victim, victim_profs, 500);
     victim.abs_number = kRecycledSlot;
     set_char_exists(kRecycledSlot, &victim);
 
-    affected_type victim_af = inert_affect(50);
+    affected_type victim_af = test_support::inert_affect(SPELL_INFRAVISION, 50);
     affect_to_char(&victim, &victim_af);
     ASSERT_TRUE(affected_list_holds(&victim)) << "the victim must be on the walk";
     ASSERT_NE(victim.affected, nullptr);
@@ -396,7 +354,7 @@ TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseAbsNumberSlotWasRecycled) {
     // number to a brand-new mob. The bit is set again -- for somebody else.
     char_data imposter {};
     char_prof_data imposter_profs {};
-    make_npc(imposter, imposter_profs, 500);
+    make_npc_with_hit_points(imposter, imposter_profs, 500);
     ScopedCharExists imposter_exists { imposter, kRecycledSlot };
     ASSERT_EQ(char_by_abs_number(kRecycledSlot), &imposter);
     ASSERT_NE(char_exists(kRecycledSlot), 0) << "the slot's bit is set -- for the new owner";
@@ -427,11 +385,11 @@ TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseAbsNumberSlotWasRecycled) {
 TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseSlotWasReRegisteredAtTheSameAddress) {
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs, 500);
+    make_npc_with_hit_points(victim, victim_profs, 500);
     victim.abs_number = kReRegisteredSlot;
     set_char_exists(kReRegisteredSlot, &victim);
 
-    affected_type victim_af = inert_affect(50);
+    affected_type victim_af = test_support::inert_affect(SPELL_INFRAVISION, 50);
     affect_to_char(&victim, &victim_af);
     ASSERT_TRUE(affected_list_holds(&victim)) << "the victim must be on the walk";
     ASSERT_NE(victim.affected, nullptr);
@@ -470,12 +428,12 @@ TEST(AffectUpdateWalk, DoesNotUpdateACharacterWhoseSlotWasReRegisteredAtTheSameA
 TEST(AffectUpdateWalk, RetiringAStaleEntryKeepsTheSameAddressNewRegistrationsNode) {
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs, 500);
+    make_npc_with_hit_points(victim, victim_profs, 500);
     victim.abs_number = kStaleNodeSlot;
     set_char_exists(kStaleNodeSlot, &victim);
     const long stale_serial = victim.registration_serial;
 
-    affected_type victim_af = inert_affect(50);
+    affected_type victim_af = test_support::inert_affect(SPELL_INFRAVISION, 50);
     affect_to_char(&victim, &victim_af);
 
     remove_char_exists(kStaleNodeSlot);
@@ -533,7 +491,7 @@ TEST(AffectUpdateWalk, DoesNotDereferenceAFreedCharacterThroughARecycledSlot) {
     // ...and the brand-new mob that register_npc_char() handed the same slot.
     char_data imposter {};
     char_prof_data imposter_profs {};
-    make_npc(imposter, imposter_profs, 500);
+    make_npc_with_hit_points(imposter, imposter_profs, 500);
     ScopedCharExists imposter_exists { imposter, kRecycledSlot };
 
     testing::internal::CaptureStderr();
@@ -555,11 +513,11 @@ TEST(AffectUpdateWalk, DoesNotDereferenceAFreedCharacterThroughARecycledSlot) {
 TEST(AffectUpdateWalk, RehashRebuildsCharacterEntriesWithTheirRegistrationSerial) {
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs, 500);
+    make_npc_with_hit_points(victim, victim_profs, 500);
     ScopedCharExists victim_exists { victim, kRehashSlot };
     ASSERT_NE(victim.registration_serial, 0L) << "registration must have stamped a serial";
 
-    affected_type victim_af = inert_affect(50);
+    affected_type victim_af = test_support::inert_affect(SPELL_INFRAVISION, 50);
     affect_to_char(&victim, &victim_af);
     ASSERT_TRUE(affected_list_holds(&victim));
 

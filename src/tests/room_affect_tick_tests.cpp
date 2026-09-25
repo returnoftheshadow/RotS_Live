@@ -38,38 +38,35 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "carried_gear.h"
+#include "scoped_combat_list.h"
+#include "scoped_mob_index.h"
 #include "test_character_support.h"
+#include "test_descriptor_support.h"
 #include "test_random_utils.h"
 #include "test_spell_support.h"
+#include "test_world_support.h"
 
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
 
+using test_support::CarriedGear;
+using test_support::ensure_test_world;
+using test_support::prepare_capture_descriptor;
 using test_support::ScopedCharExists;
+using test_support::ScopedCombatList;
+using test_support::ScopedMobIndex;
 
 extern struct room_data world;
 extern struct weather_data weather_info;
-extern int top_of_world;
 extern struct char_data* character_list;
-extern struct char_data* combat_list;
 extern struct obj_data* object_list;
-extern struct index_data* mob_index;
 extern struct skill_data skills[];
 
 void affect_update_room(struct room_data* room);
 
 namespace {
-
-void ensure_test_world(int minimum_room_number)
-{
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
 
 // Rooms this suite claims within the shared test-binary world[] -- high,
 // out-of-band values whose caster-store keys (2000 + N) are distinct from every
@@ -290,28 +287,6 @@ private:
     room_direction_data* m_original_exits[NUM_OF_DIRS]; // per-direction exits found before the test; restored on scope exit
 };
 
-// The death pipeline reads an NPC's prototype twice (raw_kill()'s
-// SPECIAL_DEATH probe and make_physical_corpse()'s corpse-owner id); publish
-// a one-entry table with no spec-proc for the scope. Mirrors
-// fight_credit_tests.cpp's ScopedMobIndex.
-class ScopedMobIndex {
-public:
-    ScopedMobIndex()
-        : m_previous(mob_index)
-    {
-        m_entry = index_data {};
-        m_entry.virt = 1;
-        mob_index = &m_entry;
-    }
-    ~ScopedMobIndex() { mob_index = m_previous; }
-    ScopedMobIndex(const ScopedMobIndex&) = delete;
-    ScopedMobIndex& operator=(const ScopedMobIndex&) = delete;
-
-private:
-    index_data* m_previous; // whatever this suite found installed (normally null)
-    index_data m_entry {}; // the single prototype slot the death-path NPC's nr = 0 names
-};
-
 // Installs a spell pointer into skills[slot] for the scope and restores
 // whatever was there -- gtest_main does not run assign_spell_pointers().
 class ScopedSpellPointer {
@@ -329,41 +304,6 @@ public:
 private:
     int m_slot; // the skills[] cell this scope owns
     spell_function m_previous; // the cell's prior value; restored on scope exit
-};
-
-// Saves and clears the global combat_list for a test whose tick damages, and restores it on
-// scope exit, so a fight the tick starts between stack characters never reaches another test.
-struct CombatListGuard {
-    char_data* previous; // combat_list found before the test; restored on scope exit
-    CombatListGuard()
-        : previous(combat_list)
-    {
-        combat_list = nullptr;
-    }
-    ~CombatListGuard() { combat_list = previous; }
-    CombatListGuard(const CombatListGuard&) = delete;
-    CombatListGuard& operator=(const CombatListGuard&) = delete;
-};
-
-// A one-item container carried (not worn) by a corpse's owner:
-// make_physical_corpse() always moves carried objects into the corpse intact,
-// but only recurses into containers -- pulling the wearable out to sit
-// directly in the corpse -- when move_wearables_to_corpse() runs, which is
-// the death_strips_corpse_containers() rule; for the legacy class these NPC
-// deaths take, that is the `!IS_NPC(killer)` (or SPELL_POISON) condition. Mirrors
-// fight_credit_tests.cpp's CarriedGear.
-struct CarriedGear {
-    obj_data container {};
-    obj_data item {};
-
-    void attach_to(char_data& owner)
-    {
-        container.obj_flags.type_flag = ITEM_CONTAINER;
-        item.obj_flags.type_flag = ITEM_ARMOR;
-        container.contains = &item;
-        item.in_obj = &container;
-        owner.carrying = &container;
-    }
 };
 
 // make_corpse() CREATE()s a heap corpse and pushes it onto world[].contents
@@ -384,19 +324,6 @@ void release_corpse(room_data& room, obj_data* previous_object_list)
     RELEASE(corpse->description);
     RELEASE(corpse);
     object_list = previous_object_list;
-}
-
-// Points a descriptor's output at its OWN small_outbuf so act()/send_to_char()
-// output can be read back instead of going to a socket. Mirrors
-// spell_pa_tests.cpp's make_descriptor().
-descriptor_data make_descriptor()
-{
-    descriptor_data descriptor {};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    return descriptor;
 }
 
 // The room affect's victim: a plain NPC with no specialization and no mage
@@ -503,7 +430,7 @@ affected_type dummy_affect()
 // snapshot instead makes the first occupant take much more.
 TEST(RoomAffectTick, BlazeTickDamageComesFromTheSnapshotNotTheCastersCurrentStats)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     RoomFixture room_a(kBlazeRoomA);
     RoomFixture room_b(kBlazeRoomB);
 
@@ -565,7 +492,7 @@ void ensure_big_brother()
 
 TEST(RoomAffectTick, LethalBlazeTickCreditsTheRecordedCaster)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     ensure_big_brother();
     ScopedMobIndex prototype_table;
     RoomFixture occupant_room(kBlazeRoomA);
@@ -628,7 +555,7 @@ TEST(RoomAffectTick, LethalBlazeTickCreditsTheRecordedCaster)
 // same-side looter unprotected.
 TEST(RoomAffectTick, BlazeTickWithAnUnresolvableCasterCreditsNobody)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     ensure_big_brother();
     ScopedMobIndex prototype_table;
     RoomFixture occupant_room(kBlazeRoomA);
@@ -682,7 +609,7 @@ TEST(RoomAffectTick, BlazeTickWithAnUnresolvableCasterCreditsNobody)
 // opponent, which would hide an engagement.
 TEST(RoomAffectTick, BlazeTickNeverEngagesACasterStandingInTheRoom)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     ensure_big_brother();
     RoomFixture room(kBlazeRoomA);
 
@@ -719,7 +646,7 @@ TEST(RoomAffectTick, BlazeTickNeverEngagesACasterStandingInTheRoom)
 
 TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     RoomFixture room(kPoisonRoom);
 
     char_data occupant {};
@@ -748,7 +675,7 @@ TEST(RoomAffectTick, PoisonTickRecordsTheResolvedCasterAsPoisoner)
 // same level. Both casters are cleric level 10, so each tick's poison lasts 16 ticks.
 TEST(RoomAffectTick, PoisonTickExtendsAnEqualPoisonAndKeepsItsRecordedCaster)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     RoomFixture room(kPoisonRoom);
 
     char_data occupant {};
@@ -789,7 +716,7 @@ TEST(RoomAffectTick, PoisonTickExtendsAnEqualPoisonAndKeepsItsRecordedCaster)
 // record to the tick's own resolved caster.
 TEST(RoomAffectTick, PoisonTickHandsTheRecordToItsCasterWhenThePoisonerIsGone)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     RoomFixture room(kPoisonRoom);
 
     char_data occupant {};
@@ -829,7 +756,7 @@ TEST(RoomAffectTick, PoisonTickHandsTheRecordToItsCasterWhenThePoisonerIsGone)
 // the poison landed.
 TEST(RoomAffectTick, LethalPoisonTickCreditsTheRecordedCaster)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     ensure_big_brother();
     ScopedMobIndex prototype_table;
     RoomFixture occupant_room(kPoisonRoom);
@@ -881,7 +808,7 @@ TEST(RoomAffectTick, LethalPoisonTickCreditsTheRecordedCaster)
 // for the same reason.
 TEST(RoomAffectTick, PoisonTickNeverEngagesACasterStandingInTheRoom)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     ensure_big_brother();
     RoomFixture room(kPoisonRoom);
 
@@ -916,7 +843,7 @@ TEST(RoomAffectTick, PoisonTickNeverEngagesACasterStandingInTheRoom)
 
 TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRecordsNoPoisoner)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     RoomFixture room(kPoisonNoRecordRoom);
     // No set_room_affect_caster() call at all: room_affect_caster() answers nullptr.
 
@@ -944,7 +871,7 @@ TEST(RoomAffectTick, PoisonTickWithNoRecordedCasterFallsBackToOccupantStatsAndRe
 
 TEST(RoomAffectTick, PoisonTickWithAnExplicitNoneRecordRecordsNoPoisoner)
 {
-    CombatListGuard combat_list_guard;
+    ScopedCombatList combat_list_guard;
     RoomFixture room(kPoisonNoneRoom);
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::none());
 
@@ -970,12 +897,14 @@ TEST(RoomAffectTick, PoisonTickSavedArmMessagesTheOccupantAndThePresentCaster)
     make_weak_occupant(occupant, occupant_profs, 500);
     occupant.tmpabilities.con = 100; // defense = 500, so saves_poison()'s comparison is never zero
     occupant.in_room = kPoisonSavedPresentRoom;
-    descriptor_data occupant_descriptor = make_descriptor();
+    descriptor_data occupant_descriptor {};
+    prepare_capture_descriptor(occupant_descriptor);
     occupant.desc = &occupant_descriptor;
 
     CasterFixture caster(0, 10, game_types::PS_None, kPoisonSavedPresentRoom); // same room: "present"
     ScopedCharExists caster_registration(caster.ch, kCasterASlot);
-    descriptor_data caster_descriptor = make_descriptor();
+    descriptor_data caster_descriptor {};
+    prepare_capture_descriptor(caster_descriptor);
     caster.ch.desc = &caster_descriptor;
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(caster.ch));
 
@@ -1003,12 +932,14 @@ TEST(RoomAffectTick, PoisonTickSavedArmOmitsTheCasterLineWhenTheCasterHasWalkedA
     make_weak_occupant(occupant, occupant_profs, 500);
     occupant.tmpabilities.con = 100;
     occupant.in_room = kPoisonSavedAwayRoom;
-    descriptor_data occupant_descriptor = make_descriptor();
+    descriptor_data occupant_descriptor {};
+    prepare_capture_descriptor(occupant_descriptor);
     occupant.desc = &occupant_descriptor;
 
     CasterFixture caster(0, 10, game_types::PS_None, kAwayRoom); // recorded in the poison room, standing elsewhere
     ScopedCharExists caster_registration(caster.ch, kCasterBSlot);
-    descriptor_data caster_descriptor = make_descriptor();
+    descriptor_data caster_descriptor {};
+    prepare_capture_descriptor(caster_descriptor);
     caster.ch.desc = &caster_descriptor;
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(caster.ch));
 
@@ -1038,7 +969,8 @@ TEST(RoomAffectTick, PoisonTickSavedArmSendsTheVictimLineDirectlyWhenThereIsNoCa
     char_prof_data occupant_profs {};
     make_weak_occupant(occupant, occupant_profs, 500);
     occupant.tmpabilities.con = 100;
-    descriptor_data occupant_descriptor = make_descriptor();
+    descriptor_data occupant_descriptor {};
+    prepare_capture_descriptor(occupant_descriptor);
     occupant.desc = &occupant_descriptor;
 
     affected_type affect = dummy_affect();
@@ -1066,12 +998,14 @@ TEST(RoomAffectTick, PoisonTickSavedArmReachesABlindOccupantWhenTheCasterIsPrese
     occupant.tmpabilities.con = 100; // defense = 500, so saves_poison()'s comparison is never zero
     occupant.in_room = kPoisonSavedBlindRoom;
     SET_BIT(occupant.specials.affected_by, AFF_BLIND);
-    descriptor_data occupant_descriptor = make_descriptor();
+    descriptor_data occupant_descriptor {};
+    prepare_capture_descriptor(occupant_descriptor);
     occupant.desc = &occupant_descriptor;
 
     CasterFixture caster(0, 10, game_types::PS_None, kPoisonSavedBlindRoom); // same room: "present"
     ScopedCharExists caster_registration(caster.ch, kCasterASlot);
-    descriptor_data caster_descriptor = make_descriptor();
+    descriptor_data caster_descriptor {};
+    prepare_capture_descriptor(caster_descriptor);
     caster.ch.desc = &caster_descriptor;
     set_room_affect_caster(room.room(), SPELL_POISON, caster_snapshot::capture(caster.ch));
 

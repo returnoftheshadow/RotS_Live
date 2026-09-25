@@ -1,6 +1,7 @@
 #include "../interpre.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_descriptor_support.h"
 
 #include <gtest/gtest.h>
 
@@ -12,22 +13,11 @@ void clear_char(struct char_data* ch, int mode);
 
 namespace {
 
-descriptor_data make_descriptor()
-{
-    descriptor_data descriptor {};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    descriptor.connected = CON_PLYNG;
-    return descriptor;
-}
-
 class AliasingCharacter {
 public:
     AliasingCharacter()
-        : m_descriptor(make_descriptor())
     {
+        test_support::prepare_capture_descriptor(m_descriptor);
         clear_char(&m_character, MOB_VOID);
         m_character.player.name = strdup("Aliaser");
         m_character.player.level = 10;
@@ -57,7 +47,7 @@ public:
     std::string output() const { return std::string(m_descriptor.small_outbuf); }
 
 private:
-    descriptor_data m_descriptor;
+    descriptor_data m_descriptor {};
     char_data m_character {};
 };
 

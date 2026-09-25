@@ -2,6 +2,7 @@
 #include "../interpre.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_descriptor_support.h"
 
 #include <gtest/gtest.h>
 
@@ -21,16 +22,6 @@ void initialize_player_character(char_data* character)
 {
     clear_char(character, MOB_VOID);
     SET_BIT(PRF_FLAGS(character), PRF_COLOR);
-}
-
-descriptor_data make_descriptor()
-{
-    descriptor_data descriptor {};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    return descriptor;
 }
 
 } // namespace
@@ -113,7 +104,8 @@ TEST(Color, MapsKnownTrueColorToNearestAnsiFallback)
 TEST(Color, LegacyCommandSyntaxStillSetsAnsiForegroundSelection)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
 
@@ -129,7 +121,8 @@ TEST(Color, LegacyCommandSyntaxStillSetsAnsiForegroundSelection)
 TEST(Color, CommandSupportsTrueColorForegroundRgbSelection)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
 
@@ -147,7 +140,8 @@ TEST(Color, CommandSupportsTrueColorForegroundRgbSelection)
 TEST(Color, CommandSupportsTrueColorBackgroundHexSelection)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
 
@@ -165,7 +159,8 @@ TEST(Color, CommandSupportsTrueColorBackgroundHexSelection)
 TEST(Color, CommandCanClearBackgroundToDefault)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
     set_truecolor_background(&character, COLOR_MAGIC, 10, 20, 35);
@@ -181,7 +176,8 @@ TEST(Color, CommandCanClearBackgroundToDefault)
 TEST(Color, CommandListsStructuredForegroundAndBackgroundSelections)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
     set_truecolor_foreground(&character, COLOR_MAGIC, 180, 80, 255);
@@ -200,7 +196,8 @@ TEST(Color, CommandListsStructuredForegroundAndBackgroundSelections)
 TEST(Color, CommandRejectsOutOfRangeRgbValues)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
 
@@ -229,7 +226,8 @@ TEST(Color, InterpreterAcceptsColorAsAliasForColour)
 TEST(Color, MobSlotIsConfigurableThroughTheCommand)
 {
     char_data character {};
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     initialize_player_character(&character);
     character.desc = &descriptor;
 

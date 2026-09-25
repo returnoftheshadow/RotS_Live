@@ -9,20 +9,19 @@
 #include "../structs.h"
 #include "../test_harness.h"
 #include "../utils.h"
+#include "scoped_combat_list.h"
+#include "scoped_room_occupants.h"
 #include "test_character_support.h"
 
 #include <gtest/gtest.h>
-
-extern struct room_data world;
-extern int top_of_world;
-extern struct char_data* combat_list;
 
 void affect_update_person(struct char_data* i, int mode);
 
 namespace {
 
 // A world[] index no other suite claims; the wearer stands here so the poison damage's room
-// messages have a valid occupant list to walk.
+// messages have a valid occupant list to walk. That damage also engages the wearer with itself,
+// which puts it on combat_list, so each test scopes the combat list too.
 constexpr int kWearerRoom = 29;
 
 // The APPLY_BITVECTOR modifier that names AFF_POISON: affect_modify() sets bit 1 << modifier.
@@ -31,39 +30,6 @@ constexpr int kPoisonBitNumber = 11;
 // Bound on affect_update_person() calls for a 1-tick poison: one tick spends the duration, the
 // next removes the affect.
 constexpr int kExpiryTickBudget = 3;
-
-void ensure_test_world(int minimum_room_number) {
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
-
-// Saves and restores the wearer's room occupant list and the global combat list: the poison
-// damage engages the wearer with itself, which puts it on combat_list.
-class ScopedWearerRoom {
-public:
-    explicit ScopedWearerRoom(char_data& wearer)
-        : m_previous_people(nullptr), m_previous_combat_list(combat_list) {
-        ensure_test_world(kWearerRoom);
-        m_previous_people = world[kWearerRoom].people;
-        world[kWearerRoom].people = &wearer;
-        wearer.next_in_room = nullptr;
-        wearer.in_room = kWearerRoom;
-    }
-    ~ScopedWearerRoom() {
-        world[kWearerRoom].people = m_previous_people;
-        combat_list = m_previous_combat_list;
-    }
-    ScopedWearerRoom(const ScopedWearerRoom&) = delete;
-    ScopedWearerRoom& operator=(const ScopedWearerRoom&) = delete;
-
-private:
-    char_data* m_previous_people; // the room's occupant list before the test
-    char_data* m_previous_combat_list; // combat_list before the test
-};
 
 // Forces every slow affect to tick on each affect_update_person() call for the scope.
 class ScopedForcedAffectPhase {
@@ -107,18 +73,6 @@ private:
     obj_data m_amulet; // the item itself, owned by this scope
 };
 
-void make_wearer(char_data& wearer, char_prof_data& profs) {
-    wearer.profs = &profs;
-    wearer.specials2.act = MOB_ISNPC;
-    wearer.nr = -1;
-    wearer.player.race = RACE_HUMAN;
-    wearer.player.level = 10;
-    wearer.abilities.hit = 500;
-    wearer.tmpabilities.hit = 500; // far above the 5 a poison tick or a wear/remove deals
-    wearer.specials.position = POSITION_STANDING;
-    wearer.specials.fighting = nullptr;
-}
-
 // The mystic poison's shape (poison_victim_affect_at_level(), poison.cpp) with a 1-tick duration.
 affected_type one_tick_poison() {
     affected_type poison {};
@@ -146,8 +100,9 @@ bool is_poisoned(const char_data& character) { return IS_AFFECTED(&character, AF
 TEST(GearPoison, AWornPoisonItemSetsThePoisonFlag) {
     char_data wearer {};
     char_prof_data wearer_profs {};
-    make_wearer(wearer, wearer_profs);
-    ScopedWearerRoom room(wearer);
+    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    test_support::ScopedCombatList combat;
+    test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
     ASSERT_FALSE(is_poisoned(wearer)) << "precondition: the wearer starts unpoisoned";
 
@@ -162,8 +117,9 @@ TEST(GearPoison, AWornPoisonItemSetsThePoisonFlag) {
 TEST(GearPoison, TheWearerStaysPoisonedAfterATimedPoisonExpires) {
     char_data wearer {};
     char_prof_data wearer_profs {};
-    make_wearer(wearer, wearer_profs);
-    ScopedWearerRoom room(wearer);
+    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    test_support::ScopedCombatList combat;
+    test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
     WornPoisonAmulet amulet(wearer);
     ASSERT_TRUE(amulet.is_worn()) << "precondition: equip_char() put the amulet on the neck";
@@ -185,8 +141,9 @@ TEST(GearPoison, TheWearerStaysPoisonedAfterATimedPoisonExpires) {
 TEST(GearPoison, WithoutTheItemTheFlagEndsWithThePoison) {
     char_data wearer {};
     char_prof_data wearer_profs {};
-    make_wearer(wearer, wearer_profs);
-    ScopedWearerRoom room(wearer);
+    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    test_support::ScopedCombatList combat;
+    test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
 
     affected_type poison = one_tick_poison();
@@ -203,8 +160,9 @@ TEST(GearPoison, WithoutTheItemTheFlagEndsWithThePoison) {
 TEST(GearPoison, RemovingTheItemClearsTheFlag) {
     char_data wearer {};
     char_prof_data wearer_profs {};
-    make_wearer(wearer, wearer_profs);
-    ScopedWearerRoom room(wearer);
+    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    test_support::ScopedCombatList combat;
+    test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
     WornPoisonAmulet amulet(wearer);
     ASSERT_TRUE(is_poisoned(wearer)) << "precondition: the worn amulet sets AFF_POISON";
@@ -220,8 +178,9 @@ TEST(GearPoison, RemovingTheItemClearsTheFlag) {
 TEST(GearPoison, CuringTheTimedPoisonLeavesTheItemsFlag) {
     char_data wearer {};
     char_prof_data wearer_profs {};
-    make_wearer(wearer, wearer_profs);
-    ScopedWearerRoom room(wearer);
+    test_support::make_sturdy_stack_npc(wearer, wearer_profs);
+    test_support::ScopedCombatList combat;
+    test_support::ScopedRoomOccupants room(kWearerRoom, {&wearer});
     test_support::ScopedAffectCleanup wearer_affects(wearer);
     WornPoisonAmulet amulet(wearer);
     ASSERT_TRUE(amulet.is_worn()) << "precondition: equip_char() put the amulet on the neck";

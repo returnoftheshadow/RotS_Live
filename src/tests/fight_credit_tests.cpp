@@ -56,8 +56,12 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "carried_gear.h"
+#include "scoped_combat_list.h"
+#include "scoped_mob_index.h"
 #include "test_character_support.h"
 #include "test_random_utils.h"
+#include "test_world_support.h"
 #include <algorithm>
 #include <gtest/gtest.h>
 
@@ -66,9 +70,7 @@
 // poison.h, both included above.
 
 extern room_data world;
-extern int top_of_world;
 extern char_data* character_list;
-extern index_data* mob_index;
 extern obj_data* object_list;
 extern char_data* combat_list;
 
@@ -84,16 +86,6 @@ extern int pkill_valid_killer(struct char_data* killer, struct char_data* victim
 obj_data* make_corpse(char_data* character, char_data* killer, int attack_type, death_punishment punishment);
 
 namespace {
-
-void ensure_test_world(int minimum_room_number)
-{
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
 
 // Room numbers this file claims within the shared test-binary `world[]` --
 // high, out-of-band values distinct from other suites' rooms (damage_tests.cpp:
@@ -111,28 +103,6 @@ constexpr int kCorpseStripRoom = 908; // 904-907 are claimed further down this f
 // comment.
 constexpr int kPoisonerSlot = MAX_CHARACTERS - 801;
 
-// One-entry mob prototype table: raw_kill()'s SPECIAL_DEATH probe
-// (activate_char_special) and make_physical_corpse() both read
-// mob_index[character->nr] unconditionally for any IS_NPC() character.
-// Mirrors mage_tests.cpp's ScopedFireballMobIndex.
-class ScopedMobIndex {
-public:
-    ScopedMobIndex()
-        : m_previous(mob_index)
-    {
-        m_entry = index_data {};
-        m_entry.virt = 1;
-        mob_index = &m_entry;
-    }
-    ~ScopedMobIndex() { mob_index = m_previous; }
-    ScopedMobIndex(const ScopedMobIndex&) = delete;
-    ScopedMobIndex& operator=(const ScopedMobIndex&) = delete;
-
-private:
-    index_data* m_previous; // whatever this suite found installed (normally null)
-    index_data m_entry {}; // the single prototype slot the victim's nr = 0 names
-};
-
 // Saves/restores a room's occupant and content lists for one death-path test.
 struct RoomGuard {
     int room_number; // the world[] slot this guard owns for the scope
@@ -142,7 +112,7 @@ struct RoomGuard {
     explicit RoomGuard(int room)
         : room_number(room)
     {
-        ensure_test_world(room);
+        test_support::ensure_test_world(room);
         original_people = world[room].people;
         original_contents = world[room].contents;
     }
@@ -177,14 +147,14 @@ void release_corpse(int room_number, obj_data* previous_object_list)
 
 // Builds the heap-allocated, registered NPC victim the death pipeline needs
 // (see the file comment above): clear_char() + register_npc_char() the way
-// the game constructs an NPC, with nr = 0 naming the ScopedMobIndex slot
-// above. `hit_points` is both the current and max hit total, so any nonzero
+// the game constructs an NPC, with nr = 0 naming the test_support::ScopedMobIndex
+// slot. `hit_points` is both the current and max hit total, so any nonzero
 // damage is lethal.
 char_data* make_npc_victim(int room, char* short_descr, int hit_points)
 {
     char_data* victim = test_support::allocate_test_character(MOB_ISNPC);
     victim->specials2.act = MOB_ISNPC;
-    victim->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
+    victim->nr = 0; // prototype slot 0 of the scoped one-entry mob_index
     victim->player.race = RACE_HUMAN;
     victim->player.short_descr = short_descr; // GET_NAME()/make_physical_corpse() read this for an NPC
     victim->player.level = 5;
@@ -195,28 +165,6 @@ char_data* make_npc_victim(int room, char* short_descr, int hit_points)
     register_npc_char(victim);
     return victim;
 }
-
-// A one-item container carried (not worn) by `victim`: make_physical_corpse()
-// always moves `victim`'s carried objects into the corpse's top level intact,
-// but only recurses into containers -- pulling the wearable item out to sit
-// directly in the corpse -- when `move_wearables_to_corpse()` runs, which is
-// the death_strips_corpse_containers() rule; for the legacy class the death
-// pipeline pins drive, that is the `!IS_NPC(killer)` (or SPELL_POISON)
-// condition. `container`/`item` are stack objects; they are never RELEASE()'d
-// because make_corpse() never allocated them, only linked them.
-struct CarriedGear {
-    obj_data container {};
-    obj_data item {};
-
-    void attach_to(char_data& victim)
-    {
-        container.obj_flags.type_flag = ITEM_CONTAINER;
-        item.obj_flags.type_flag = ITEM_ARMOR; // wearable, per obj_flag_data::is_wearable()
-        container.contains = &item;
-        item.in_obj = &container;
-        victim.carrying = &container;
-    }
-};
 
 } // namespace
 
@@ -229,7 +177,7 @@ TEST(FightCredit, RemoteCreditedKillerIsNeverEngaged)
     // damage_credited() never dereferences world[] on this (non-lethal, no
     // death branch) path, but growing the shared test-binary world[] up
     // front costs nothing and removes any doubt.
-    ensure_test_world(kFallbackRoom);
+    test_support::ensure_test_world(kFallbackRoom);
 
     char_data attacker {};
     char_data victim {};
@@ -295,7 +243,7 @@ TEST(FightCredit, RemoteCreditedKillerIsNeverEngaged)
 // finish crediting them.
 TEST(FightCredit, DamageForwardsCreditAndAppliesThePetMasterRedirectOnDeath)
 {
-    ScopedMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomGuard room_guard(kRedirectRoom);
 
     char victim_short_descr[] = "a testing credit victim";
@@ -334,7 +282,7 @@ TEST(FightCredit, DamageForwardsCreditAndAppliesThePetMasterRedirectOnDeath)
     victim->specials.fighting = &pet;
     pet.specials.fighting = victim;
 
-    CarriedGear gear;
+    test_support::CarriedGear gear;
     gear.attach_to(*victim);
 
     world[kRedirectRoom].people = victim;
@@ -374,7 +322,7 @@ TEST(FightCredit, DamageForwardsCreditAndAppliesThePetMasterRedirectOnDeath)
 // above and the companion pin below for the contrasting case.
 TEST(FightCredit, NullCreditFallsBackToTheEngagedOpponent)
 {
-    ScopedMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomGuard room_guard(kFallbackRoom);
 
     char victim_short_descr[] = "a testing tick victim";
@@ -402,7 +350,7 @@ TEST(FightCredit, NullCreditFallsBackToTheEngagedOpponent)
     // nullptr once the recorded poisoner is gone.
     victim->specials.fighting = &opponent;
 
-    CarriedGear gear;
+    test_support::CarriedGear gear;
     gear.attach_to(*victim);
 
     obj_data* const previous_object_list = object_list;
@@ -429,7 +377,7 @@ TEST(FightCredit, NullCreditFallsBackToTheEngagedOpponent)
 // take the gear-move branch (a null killer reads as non-NPC).
 TEST(FightCredit, NullCreditWithNoEngagedOpponentCreditsNobody)
 {
-    ScopedMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomGuard room_guard(kNobodyRoom);
 
     char victim_short_descr[] = "a testing unengaged tick victim";
@@ -440,7 +388,7 @@ TEST(FightCredit, NullCreditWithNoEngagedOpponentCreditsNobody)
     victim->next_in_room = nullptr;
     victim->specials.fighting = nullptr; // fighting nobody at the instant of the tick
 
-    CarriedGear gear;
+    test_support::CarriedGear gear;
     gear.attach_to(*victim);
 
     obj_data* const previous_object_list = object_list;
@@ -474,7 +422,7 @@ TEST(FightCredit, NullCreditWithNoEngagedOpponentCreditsNobody)
 // poisoner is `credited_killer`, never `attacker`.
 TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 {
-    ScopedMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomGuard room_guard(kPoisonRoom);
     RoomGuard poisoner_room_guard(kNobodyRoom);
 
@@ -573,23 +521,6 @@ TEST(FightCredit, PoisonTickCreditsTheResolvedPoisonerWithoutEngagingIt)
 //     already pins "a fighting victim's sourceless death credits the engaged
 //     opponent" for an NPC victim at the damage_credited() layer that feeds die()'s `killer`
 //     argument; not duplicated here.
-namespace {
-
-// Saves/restores the global combat_list around a kill_contributors() pin, so
-// one test's fighters never leak into another's (or into an unrelated
-// suite's) walk of the list. Mirrors damage_tests.cpp's
-// `combat_list = nullptr;` TearDown reset, scoped per-test via RAII instead.
-struct CombatListGuard {
-    char_data* previous; // combat_list found before the test; restored on scope exit
-    CombatListGuard()
-        : previous(combat_list)
-    {
-        combat_list = nullptr;
-    }
-    ~CombatListGuard() { combat_list = previous; }
-};
-
-} // namespace
 
 // Pin: kill_contributor_list::add() refuses a null candidate and a duplicate
 // without growing count, and contains() answers accordingly. No death or
@@ -647,7 +578,7 @@ TEST(KillContributorList, AddRefusesPastCapacityAndLatchesOverflowOnce)
 // linkage), via the combat_list walk kill_contributors() performs.
 TEST(KillContributors, PetFightingTheVictimIsRedirectedToItsSameRoomMaster)
 {
-    CombatListGuard combat_list_guard;
+    test_support::ScopedCombatList combat_list_guard;
 
     char_data victim {};
     victim.specials2.act = 0; // a PC victim -- NPC-ness is irrelevant to this pin
@@ -681,7 +612,7 @@ TEST(KillContributors, PetFightingTheVictimIsRedirectedToItsSameRoomMaster)
 // contributes as itself.
 TEST(KillContributors, PetFightingTheVictimContributesAsItselfWhenMasterIsElsewhere)
 {
-    CombatListGuard combat_list_guard;
+    test_support::ScopedCombatList combat_list_guard;
 
     char_data victim {};
     victim.player.level = 20;
@@ -712,7 +643,7 @@ TEST(KillContributors, PetFightingTheVictimContributesAsItselfWhenMasterIsElsewh
 // immortals specially.
 TEST(KillContributors, ImmortalCandidateIsAContributor)
 {
-    CombatListGuard combat_list_guard;
+    test_support::ScopedCombatList combat_list_guard;
 
     char_data victim {};
     victim.player.level = 20;
@@ -735,7 +666,7 @@ TEST(KillContributors, ImmortalCandidateIsAContributor)
 // offer_kill_contributor() applies to every candidate uniformly).
 TEST(KillContributors, VictimItselfIsNeverAContributor)
 {
-    CombatListGuard combat_list_guard;
+    test_support::ScopedCombatList combat_list_guard;
 
     char_data victim {};
     victim.player.level = 20;
@@ -751,7 +682,7 @@ TEST(KillContributors, VictimItselfIsNeverAContributor)
 // both a combat_list fighter AND the `primary` argument).
 TEST(KillContributors, UnionsFightersPoisonerAndPrimaryWithoutDuplicates)
 {
-    CombatListGuard combat_list_guard;
+    test_support::ScopedCombatList combat_list_guard;
     // Distinct from every other abs_number slot this test binary's suites
     // claim (see this file's own kPoisonerSlot comment above and
     // poison_origin_tests.cpp's list); kPoisonerSlot (-801) is already used
@@ -805,7 +736,7 @@ TEST(KillContributors, UnionsFightersPoisonerAndPrimaryWithoutDuplicates)
 // `primary == nullptr`).
 TEST(KillContributors, EmptyWhenNoPoisonerAndNoFightersRecordsNothing)
 {
-    CombatListGuard combat_list_guard;
+    test_support::ScopedCombatList combat_list_guard;
 
     char_data victim {};
     victim.player.level = 20;
@@ -1084,7 +1015,7 @@ TEST(GroupGain, ExtendsRemoteCreditPayoutToSameRoomGroupmates)
 // through it.
 TEST(FightCredit, RemoteCreditedKillerDeathStillPaysEngagedRoomFighters)
 {
-    ScopedMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomGuard room_guard(kPayoutDeathRoom);
 
     char victim_short_descr[] = "a testing remote-credit death victim";
@@ -1165,14 +1096,14 @@ TEST(GroupGain, PaysRoomFightersTheirShareWhenNobodyIsCredited)
 // pulls it out into the corpse, whoever (or nobody) landed the blow.
 TEST(FightCredit, CorpseStripFollowsThePunishmentClass)
 {
-    ScopedMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomGuard room_guard(kCorpseStripRoom);
     obj_data* const previous_object_list = object_list;
 
     {
         char victim_short_descr[] = "a mob-death poison victim";
         char_data* victim = make_npc_victim(kCorpseStripRoom, victim_short_descr, 1);
-        CarriedGear gear;
+        test_support::CarriedGear gear;
         gear.attach_to(*victim);
 
         obj_data* const corpse = make_corpse(victim, nullptr, SPELL_POISON, death_punishment::mob_death);
@@ -1185,7 +1116,7 @@ TEST(FightCredit, CorpseStripFollowsThePunishmentClass)
     {
         char victim_short_descr[] = "a player-death poison victim";
         char_data* victim = make_npc_victim(kCorpseStripRoom, victim_short_descr, 1);
-        CarriedGear gear;
+        test_support::CarriedGear gear;
         gear.attach_to(*victim);
 
         obj_data* const corpse = make_corpse(victim, nullptr, SPELL_POISON, death_punishment::player_death);

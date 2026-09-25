@@ -5,9 +5,12 @@
 #include "../spells.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "scoped_mob_index.h"
 #include "test_character_support.h"
+#include "test_descriptor_support.h"
 #include "test_random_utils.h"
 #include "test_spell_support.h"
+#include "test_world_support.h"
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
@@ -34,22 +37,12 @@ int loclife_add_rooms(loclife_coord room, loclife_coord *roomlist, int *roomnum,
 extern room_data world;
 extern int top_of_world;
 extern struct char_data* character_list;
-extern struct index_data* mob_index;
 extern struct obj_data* object_list;
 extern struct char_data* combat_list;
 extern struct char_data* combat_next_dude;
 extern short spllog_save;
 
 namespace {
-
-void ensure_test_world(int minimum_room_number) {
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
 
 struct ZoneGuard {
     int room_a;
@@ -59,7 +52,7 @@ struct ZoneGuard {
 
     ZoneGuard(int first_room, int second_room)
         : room_a(first_room), room_b(second_room), original_zone_a(0), original_zone_b(0) {
-        ensure_test_world(std::max(first_room, second_room));
+        test_support::ensure_test_world(std::max(first_room, second_room));
         original_zone_a = world[first_room].zone;
         original_zone_b = world[second_room].zone;
     }
@@ -78,7 +71,7 @@ struct RoomExitGuard {
 
     explicit RoomExitGuard(int room)
         : room_number(room), original_room_flags(0), original_people(nullptr) {
-        ensure_test_world(room);
+        test_support::ensure_test_world(room);
         original_room_flags = world[room].room_flags;
         original_people = world[room].people;
         for (int i = 0; i < NUM_OF_DIRS; ++i) {
@@ -197,23 +190,11 @@ struct ZoneTableGuard {
     }
 };
 
-// Matches spell_pa_tests.cpp's make_descriptor(): a descriptor whose output
-// buffer is the small inline buffer rather than a real socket, so act()/
-// send_to_char() output can be asserted on directly.
-descriptor_data make_descriptor() {
-    descriptor_data descriptor{};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    return descriptor;
-}
-
 } // namespace
 
 class MageProcTest : public ::testing::Test {
   protected:
-    void SetUp() override { ensure_test_world(32); }
+    void SetUp() override { test_support::ensure_test_world(32); }
 
     // The spell pins engage stack-local casters and victims through damage()'s
     // set_fighting() and never stop_fighting() them, so the global combat_list
@@ -1049,28 +1030,6 @@ void queue_fireball_rolls(double roll, int count = 60)
     }
 }
 
-// raw_kill()'s SPECIAL_DEATH probe (activate_char_special -> IS_MOB()) and
-// make_physical_corpse() both read mob_index[character->nr] unconditionally for any IS_NPC()
-// character; this suite has no mob table, so publish a one-entry one (matching the caster's
-// nr = 0 below) for the test's scope and restore whatever was installed before.
-class ScopedFireballMobIndex {
-public:
-    ScopedFireballMobIndex()
-        : m_previous(mob_index)
-    {
-        m_entry = index_data {};
-        m_entry.virt = 1;
-        mob_index = &m_entry;
-    }
-    ~ScopedFireballMobIndex() { mob_index = m_previous; }
-    ScopedFireballMobIndex(const ScopedFireballMobIndex &) = delete;
-    ScopedFireballMobIndex &operator=(const ScopedFireballMobIndex &) = delete;
-
-private:
-    index_data *m_previous; // whatever this suite found installed (normally null)
-    index_data m_entry {}; // the single prototype slot the caster's nr = 0 names
-};
-
 // make_corpse() CREATE()s a heap corpse and pushes it onto world[].contents and object_list; take
 // both back out so a fireball test leaves no residue for later tests in this binary.
 void release_fireball_corpse(int room_number, obj_data *previous_object_list)
@@ -1092,12 +1051,12 @@ void release_fireball_corpse(int room_number, obj_data *previous_object_list)
 
 // Builds the heap-allocated, registered orc NPC caster the death pipeline needs (see the file
 // comment above): clear_char() + register_npc_char() the way the game constructs an NPC, with
-// nr = 0 naming the ScopedFireballMobIndex slot above.
+// nr = 0 naming the test_support::ScopedMobIndex slot.
 char_data *make_fireball_caster(int hit_points, char *short_descr)
 {
     char_data *caster = test_support::allocate_test_character(MOB_ISNPC);
     caster->specials2.act = MOB_ISNPC;
-    caster->nr = 0; // prototype slot 0 of the scoped one-entry mob_index above
+    caster->nr = 0; // prototype slot 0 of the scoped one-entry mob_index
     caster->player.race = RACE_ORC;
     caster->player.short_descr = short_descr; // make_physical_corpse() reads GET_NAME() for the corpse text
     caster->player.level = 30;
@@ -1114,7 +1073,7 @@ char_data *make_fireball_caster(int hit_points, char *short_descr)
 } // namespace
 
 TEST_F(MageProcTest, FireballSplashesTheRoomBeforeASelfFumbleKillsTheCaster) {
-    ScopedFireballMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomExitGuard room_guard(kFireballRoom);
 
     char caster_short_descr[] = "a testing fireball orc";
@@ -1169,7 +1128,7 @@ TEST_F(MageProcTest, FireballSplashesTheRoomBeforeASelfFumbleKillsTheCaster) {
 }
 
 TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaster) {
-    ScopedFireballMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomExitGuard room_guard(kFireballRoom);
 
     char caster_short_descr[] = "a testing fireball orc";
@@ -1729,7 +1688,7 @@ TEST_F(MageProcTest, BlazeFromAnOrcFollowerBurnsAMobFightingItsMaster) {
 // The caster's own lethal self-fall is the same self-damage shape the fireball test
 // above already exercises (apply_spell_damage(caster, caster, ...) -> damage() -> die()
 // -> raw_kill() -> extract_char()), so this test reuses that fixture wholesale
-// (make_fireball_caster, ScopedFireballMobIndex, release_fireball_corpse,
+// (make_fireball_caster, test_support::ScopedMobIndex, release_fireball_corpse,
 // queue_fireball_rolls, kFireballRoom as the quake room): this depot has no
 // extract_char test seam, so the fix is proven by driving the real death pipeline
 // rather than stubbing it.
@@ -1775,7 +1734,7 @@ constexpr int kEarthquakeCrackRoom = 8;
 } // namespace
 
 TEST_F(MageProcTest, EarthquakeLetsEveryOtherOccupantFallBeforeTheCastersOwnFall) {
-    ScopedFireballMobIndex prototype_table;
+    test_support::ScopedMobIndex prototype_table;
     RoomExitGuard quake_room_guard(kFireballRoom);
     RoomExitGuard crack_room_guard(kEarthquakeCrackRoom);
 
@@ -1904,7 +1863,8 @@ TEST_F(MageProcTest, SummonMovesAWillingPlayerVictimToTheCastersRoom) {
     char_to_room(&context.caster, 7);
     char_to_room(&context.victim, 8);
 
-    descriptor_data caster_descriptor = make_descriptor();
+    descriptor_data caster_descriptor{};
+    test_support::prepare_capture_descriptor(caster_descriptor);
     context.caster.desc = &caster_descriptor;
 
     // new_saves_spell(): casting_dc = 10 + 0 (zero mage-prof level) +
@@ -1961,7 +1921,8 @@ bool summon_across_zones(int victim_x, int victim_y, int save_roll) {
     char_to_room(&context.caster, 7);
     char_to_room(&context.victim, 8);
 
-    descriptor_data caster_descriptor = make_descriptor();
+    descriptor_data caster_descriptor{};
+    test_support::prepare_capture_descriptor(caster_descriptor);
     context.caster.desc = &caster_descriptor;
 
     push_test_random_value((save_roll - 0.5) / 20); // midpoint of the save_roll bucket

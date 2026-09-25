@@ -19,6 +19,7 @@
 #include "../handler.h"
 #include "../spells.h"
 #include "../structs.h"
+#include "test_world_support.h"
 
 #include <gtest/gtest.h>
 
@@ -29,7 +30,6 @@ extern struct skill_data skills[MAX_SKILLS];
 // The process-global character list get_char_vis() walks.
 extern struct char_data* character_list;
 extern struct room_data world;
-extern int top_of_world;
 
 // interpre.cpp's target-string parser and delayed-cast re-validation gate --
 // neither is declared in any header (checked interpre.h); same local-extern
@@ -43,16 +43,6 @@ int target_check_one(struct char_data* ch, int mask, struct target_data* t1);
 int get_number(char** name);
 
 namespace {
-
-void ensure_test_world(int minimum_room_number)
-{
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
 
 // Real world[] array indices this suite claims within the shared
 // test-binary world[] -- high, out-of-band values above the other suites'
@@ -98,7 +88,7 @@ struct DarkRoomSummonContext {
 
     DarkRoomSummonContext()
     {
-        ensure_test_world(kDarkRoom);
+        test_support::ensure_test_world(kDarkRoom);
 
         caster.player.race = RACE_HUMAN;
         caster.player.level = 30;

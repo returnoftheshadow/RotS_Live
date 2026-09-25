@@ -29,6 +29,7 @@
 #include "test_character_support.h"
 #include <gtest/gtest.h>
 
+using test_support::make_stack_npc;
 using test_support::ScopedCharExists;
 
 namespace {
@@ -41,24 +42,10 @@ namespace {
 // MAX_CHARACTERS - 17/-18).
 constexpr int kPoisonerSlot = MAX_CHARACTERS - 601;
 
-// A minimal, stack-local NPC good enough to run affect_to_char()/
-// affect_remove() -- profs pointer, race, and position, mirroring
-// affect_update_tests.cpp's make_npc().
-void make_npc(char_data& ch, char_prof_data& profs)
-{
-    ch.profs = &profs;
-    ch.specials2.act = MOB_ISNPC;
-    ch.nr = -1;
-    ch.player.race = RACE_HUMAN;
-    ch.player.level = 10;
-    ch.specials.position = POSITION_STANDING;
-    ch.specials.fighting = nullptr;
-}
-
 // A SPELL_POISON affected_type with an inert location/bitvector (APPLY_NONE,
 // 0), so affect_modify()'s stat-apply switch has nothing to do beyond the
 // type-independent affected_by/race_affect bookkeeping already proven safe by
-// affect_update_tests.cpp's own inert_affect(). Only the `type` field matters
+// affect_update_tests.cpp's inert affects. Only the `type` field matters
 // to affect_remove()'s poison-clearing check.
 affected_type inert_poison_affect(int duration)
 {
@@ -205,7 +192,7 @@ TEST(PoisonOrigin, AffectRemoveOfTheLastSpellPoisonAffectClearsTheRecord)
 
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs);
+    make_stack_npc(victim, victim_profs);
 
     affected_type af = inert_poison_affect(10);
     affect_to_char(&victim, &af);
@@ -231,7 +218,7 @@ TEST(PoisonOrigin, AffectRemoveKeepsTheRecordWhileAConcurrentSpellPoisonAffectRe
 
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs);
+    make_stack_npc(victim, victim_profs);
 
     // Two independent SPELL_POISON affects on the victim at once --
     // affect_to_char() (unlike affect_join()) never merges same-type
@@ -280,7 +267,7 @@ TEST(PoisonOrigin, ConsumedPoisonCannotTouchASpellPoison)
     ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs);
+    make_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type spell_poison = poison_victim_affect_at_level(19);
     affect_to_char(&victim, &spell_poison);
@@ -303,7 +290,7 @@ TEST(PoisonOrigin, AnEqualConsumedPoisonExtendsAndKeepsAResolvablePoisoner)
     ScopedCharExists poisoner_exists { poisoner, kPoisonerSlot };
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs);
+    make_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     affected_type running = consumed_poison_affect(10);
     running.counter = 10;
@@ -327,7 +314,7 @@ TEST(PoisonOrigin, ConsumedPoisonOnAnUnpoisonedCharacterAppliesAndRecordsNobody)
 {
     char_data victim {};
     char_prof_data victim_profs {};
-    make_npc(victim, victim_profs);
+    make_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
 
     apply_poison(&victim, consumed_poison_affect(8), nullptr);

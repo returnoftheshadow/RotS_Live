@@ -7,13 +7,12 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "scoped_combat_list.h"
+#include "scoped_room_occupants.h"
+#include "test_affect_support.h"
 #include "test_character_support.h"
 
 #include <gtest/gtest.h>
-
-extern struct room_data world;
-extern int top_of_world;
-extern struct char_data* combat_list;
 
 namespace {
 
@@ -23,82 +22,6 @@ constexpr int kVictimRoom = 940;
 
 // An abs_number slot no other suite claims, for the recorded poisoner.
 constexpr int kPoisonerSlot = MAX_CHARACTERS - 611;
-
-void ensure_test_world(int minimum_room_number) {
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
-
-// Saves and restores the victim's room occupant list and the global combat list: the poison
-// damage engages the victim with itself, which puts it on combat_list.
-class ScopedVictimRoom {
-  public:
-    explicit ScopedVictimRoom(char_data& victim)
-        : m_previous_people(nullptr), m_previous_combat_list(combat_list) {
-        ensure_test_world(kVictimRoom);
-        m_previous_people = world[kVictimRoom].people;
-        world[kVictimRoom].people = &victim;
-        victim.next_in_room = nullptr;
-        victim.in_room = kVictimRoom;
-    }
-    ~ScopedVictimRoom() {
-        world[kVictimRoom].people = m_previous_people;
-        combat_list = m_previous_combat_list;
-    }
-    ScopedVictimRoom(const ScopedVictimRoom&) = delete;
-    ScopedVictimRoom& operator=(const ScopedVictimRoom&) = delete;
-
-  private:
-    char_data* m_previous_people;      // the room's occupant list before the test
-    char_data* m_previous_combat_list; // combat_list before the test
-};
-
-// A stack-local NPC with enough state for affect_to_char(), affect_remove() and a poison tick.
-void make_npc(char_data& character, char_prof_data& profs) {
-    character.profs = &profs;
-    character.specials2.act = MOB_ISNPC;
-    character.nr = -1;
-    character.player.race = RACE_HUMAN;
-    character.player.level = 10;
-    character.abilities.hit = 500;
-    character.tmpabilities.hit = 500; // far above the 5 a poison tick deals
-    character.specials.position = POSITION_STANDING;
-    character.specials.fighting = nullptr;
-}
-
-// An affect of `affect_type` that changes no stat and sets no flag.
-affected_type inert_affect(int affect_type, int duration) {
-    affected_type affect{};
-    affect.type = affect_type;
-    affect.duration = duration;
-    affect.modifier = 0;
-    affect.location = APPLY_NONE;
-    affect.bitvector = 0;
-    return affect;
-}
-
-// Adds `filler_count` inert armor affects ahead of everything already on the character.
-void add_filler_affects(char_data& character, int filler_count) {
-    for (int filler = 0; filler < filler_count; ++filler) {
-        affected_type armor = inert_affect(SPELL_ARMOR, 10);
-        affect_to_char(&character, &armor);
-    }
-}
-
-int count_affects_of_type(const char_data& character, int affect_type) {
-    int matches = 0;
-    for (const affected_type* affect = character.affected; affect != nullptr;
-         affect = affect->next) {
-        if (affect->type == affect_type) {
-            ++matches;
-        }
-    }
-    return matches;
-}
 
 } // namespace
 
@@ -125,30 +48,31 @@ TEST(PoisonLibrary, AConsumedPoisonHasNoStrengthMalusAndTheGivenDuration) {
 TEST(PoisonLibrary, CurePoisonRemovesAPoisonBuriedPastMaxAffectEntries) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type poison = inert_affect(SPELL_POISON, 20);
+    affected_type poison = test_support::inert_affect(SPELL_POISON, 20);
     affect_to_char(&victim, &poison);
-    add_filler_affects(victim, 2 * MAX_AFFECT);
+    test_support::add_filler_affects(victim, 2 * MAX_AFFECT);
     ASSERT_EQ(affected_by_spell(&victim, SPELL_POISON), nullptr)
         << "precondition: the poison sits past affected_by_spell()'s " << MAX_AFFECT << " entries";
 
     EXPECT_TRUE(cure_poison(&victim)) << "the victim carried a poison, so the cure reports one";
     EXPECT_EQ(get_affect_unbounded(&victim, SPELL_POISON), nullptr)
         << "the cure must remove a poison buried under " << 2 * MAX_AFFECT << " fillers";
-    EXPECT_EQ(count_affects_of_type(victim, SPELL_ARMOR), 2 * MAX_AFFECT)
+    EXPECT_EQ(test_support::count_affects_of_type(victim, SPELL_ARMOR), 2 * MAX_AFFECT)
         << "the cure removes only poison affects";
 }
 
 TEST(PoisonLibrary, CurePoisonOnAnUnpoisonedCharacterReturnsFalse) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    add_filler_affects(victim, 3);
+    test_support::add_filler_affects(victim, 3);
 
     EXPECT_FALSE(cure_poison(&victim)) << "an unpoisoned character has nothing to cure";
-    EXPECT_EQ(count_affects_of_type(victim, SPELL_ARMOR), 3) << "the other affects stay";
+    EXPECT_EQ(test_support::count_affects_of_type(victim, SPELL_ARMOR), 3)
+        << "the other affects stay";
 }
 
 TEST(PoisonLibrary, ForgettingTheOriginKeepsTheRecordWhileABuriedSecondPoisonRemains) {
@@ -156,12 +80,12 @@ TEST(PoisonLibrary, ForgettingTheOriginKeepsTheRecordWhileABuriedSecondPoisonRem
     test_support::ScopedCharExists poisoner_exists{poisoner, kPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type buried_poison = inert_affect(SPELL_POISON, 20);
+    affected_type buried_poison = test_support::inert_affect(SPELL_POISON, 20);
     affect_to_char(&victim, &buried_poison);
-    add_filler_affects(victim, 2 * MAX_AFFECT);
-    affected_type newest_poison = inert_affect(SPELL_POISON, 5);
+    test_support::add_filler_affects(victim, 2 * MAX_AFFECT);
+    affected_type newest_poison = test_support::inert_affect(SPELL_POISON, 5);
     affect_to_char(&victim, &newest_poison);
     record_poison_origin(&victim, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "precondition: the poisoner resolves";
@@ -180,7 +104,7 @@ TEST(PoisonLibrary, ForgettingTheOriginClearsTheRecordOnceNoPoisonRemains) {
     test_support::ScopedCharExists poisoner_exists{poisoner, kPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
     record_poison_origin(&victim, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "precondition: the poisoner resolves";
@@ -194,7 +118,7 @@ TEST(PoisonLibrary, ForgettingTheOriginClearsTheRecordOnceNoPoisonRemains) {
 TEST(PoisonLibrary, ResistingWithoutAPoisonChangesNothing) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
 
     EXPECT_EQ(start_poison_resistance(&victim, 17), poison_resistance_outcome::not_poisoned);
@@ -204,9 +128,9 @@ TEST(PoisonLibrary, ResistingWithoutAPoisonChangesNothing) {
 TEST(PoisonLibrary, ResistingARunningPoisonMatchesItsDurationAtTheClericLevel) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type poison = inert_affect(SPELL_POISON, 12);
+    affected_type poison = test_support::inert_affect(SPELL_POISON, 12);
     affect_to_char(&victim, &poison);
 
     EXPECT_EQ(start_poison_resistance(&victim, 17), poison_resistance_outcome::started);
@@ -223,16 +147,16 @@ TEST(PoisonLibrary, ResistingARunningPoisonMatchesItsDurationAtTheClericLevel) {
 TEST(PoisonLibrary, ResistingTwiceLeavesTheFirstResistanceAlone) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type poison = inert_affect(SPELL_POISON, 12);
+    affected_type poison = test_support::inert_affect(SPELL_POISON, 12);
     affect_to_char(&victim, &poison);
     ASSERT_EQ(start_poison_resistance(&victim, 17), poison_resistance_outcome::started)
         << "precondition: the first attempt starts resisting";
 
     EXPECT_EQ(start_poison_resistance(&victim, 25), poison_resistance_outcome::already_resisting);
 
-    EXPECT_EQ(count_affects_of_type(victim, SPELL_RESIST_POISON), 1)
+    EXPECT_EQ(test_support::count_affects_of_type(victim, SPELL_RESIST_POISON), 1)
         << "a second attempt adds no resist-poison affect";
     const affected_type* const resistance = get_affect_unbounded(&victim, SPELL_RESIST_POISON);
     ASSERT_NE(resistance, nullptr) << "the first resistance is still running";
@@ -242,12 +166,13 @@ TEST(PoisonLibrary, ResistingTwiceLeavesTheFirstResistanceAlone) {
 TEST(PoisonLibrary, AResistedTickShortensThePoisonByTheModifierAndSyncsTheResistance) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
-    ScopedVictimRoom room(victim);
+    test_support::make_sturdy_stack_npc(victim, victim_profs);
+    test_support::ScopedCombatList combat; // the tick's damage engages the victim with itself
+    test_support::ScopedRoomOccupants room(kVictimRoom, {&victim});
     test_support::ScopedAffectCleanup victim_affects(victim);
-    affected_type poison = inert_affect(SPELL_POISON, 9);
+    affected_type poison = test_support::inert_affect(SPELL_POISON, 9);
     affect_to_char(&victim, &poison);
-    affected_type resistance = inert_affect(SPELL_RESIST_POISON, 9);
+    affected_type resistance = test_support::inert_affect(SPELL_RESIST_POISON, 9);
     resistance.modifier = 5;
     affect_to_char(&victim, &resistance);
     affected_type* const running_poison = get_affect_unbounded(&victim, SPELL_POISON);

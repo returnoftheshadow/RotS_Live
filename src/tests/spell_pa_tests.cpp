@@ -2,6 +2,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_descriptor_support.h"
 
 #include <gtest/gtest.h>
 
@@ -15,16 +16,6 @@ void say_spell(struct char_data* caster, int spell_index);
 void send_magic_room_message(struct char_data* caster, const char* message);
 
 namespace {
-
-descriptor_data make_descriptor()
-{
-    descriptor_data descriptor {};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    return descriptor;
-}
 
 void ensure_test_world_room(int room_number)
 {
@@ -57,7 +48,8 @@ TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 
     char_data caster {};
     char_data observer {};
-    descriptor_data observer_descriptor = make_descriptor();
+    descriptor_data observer_descriptor {};
+    test_support::prepare_capture_descriptor(observer_descriptor);
 
     initialize_player_character(&caster, "caster");
     initialize_player_character(&observer, "observer");
@@ -83,7 +75,8 @@ TEST(SpellParser, MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled
 
     char_data caster {};
     char_data observer {};
-    descriptor_data observer_descriptor = make_descriptor();
+    descriptor_data observer_descriptor {};
+    test_support::prepare_capture_descriptor(observer_descriptor);
 
     initialize_player_character(&caster, "caster");
     initialize_player_character(&observer, "observer");

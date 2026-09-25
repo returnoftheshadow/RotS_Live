@@ -7,24 +7,12 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "scoped_combat_list.h"
 #include <gtest/gtest.h>
 
 extern char_data* combat_list;
 
 namespace {
-
-// Saves/restores the global combat_list around an engagement pin, so one
-// test's fighters never leak into another suite's walk. Per-suite copy,
-// following fight_credit_tests.cpp's stated precedent.
-struct CombatListGuard {
-    char_data* previous; // combat_list found before the test; restored on scope exit
-    CombatListGuard()
-        : previous(combat_list)
-    {
-        combat_list = nullptr;
-    }
-    ~CombatListGuard() { combat_list = previous; }
-};
 
 void make_plain_mob(char_data& mob)
 {
@@ -115,7 +103,7 @@ TEST(DeathCreditFallsBackToOpponent, OnlyAnUncreditedNonPoisonTickKeepsNobody)
 
 TEST(FindEngagedRealMob, EngagedOpponentRealMobIsFound)
 {
-    CombatListGuard combat_guard;
+    test_support::ScopedCombatList combat_guard;
     char_data victim { };
     char_data mob { };
     make_plain_mob(mob);
@@ -126,7 +114,7 @@ TEST(FindEngagedRealMob, EngagedOpponentRealMobIsFound)
 
 TEST(FindEngagedRealMob, EngagedOpponentPetOrPlayerDoesNotEngage)
 {
-    CombatListGuard combat_guard;
+    test_support::ScopedCombatList combat_guard;
     char_data victim { };
 
     char_data pet { };
@@ -142,7 +130,7 @@ TEST(FindEngagedRealMob, EngagedOpponentPetOrPlayerDoesNotEngage)
 
 TEST(FindEngagedRealMob, CombatListMobFightingTheVictimEngagesWithoutBeingTargeted)
 {
-    CombatListGuard combat_guard;
+    test_support::ScopedCombatList combat_guard;
     char_data victim { };
     char_data mob { };
     make_plain_mob(mob);
@@ -156,7 +144,7 @@ TEST(FindEngagedRealMob, CombatListMobFightingTheVictimEngagesWithoutBeingTarget
 
 TEST(FindEngagedRealMob, CombatListWalkSkipsPetsOrcFriendsPlayersAndMobsFightingOthers)
 {
-    CombatListGuard combat_guard;
+    test_support::ScopedCombatList combat_guard;
     char_data victim { };
     char_data bystander { };
 
@@ -187,7 +175,7 @@ TEST(FindEngagedRealMob, CombatListWalkSkipsPetsOrcFriendsPlayersAndMobsFighting
 
 TEST(FindEngagedRealMob, EngagedOpponentIsPreferredOverCombatListMob)
 {
-    CombatListGuard combat_guard;
+    test_support::ScopedCombatList combat_guard;
     char_data victim { };
     char_data targeted_mob { };
     make_plain_mob(targeted_mob);
@@ -203,7 +191,7 @@ TEST(FindEngagedRealMob, EngagedOpponentIsPreferredOverCombatListMob)
 
 TEST(FindEngagedRealMob, IgnoresTheVictimsOwnFightingPointer)
 {
-    CombatListGuard combat_guard;
+    test_support::ScopedCombatList combat_guard;
     char_data victim { };
     char_data mob { };
     make_plain_mob(mob);

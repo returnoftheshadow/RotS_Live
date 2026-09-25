@@ -1,6 +1,7 @@
 #pragma once
 
 struct char_data;
+struct char_prof_data;
 
 namespace test_support {
 
@@ -12,6 +13,14 @@ char_data* allocate_test_character(int clear_mode);
 // Releases a character from allocate_test_character through free_char, the server's own release
 // path, so the calloc/free pairing AddressSanitizer checks is the same one production uses.
 void release_test_character(char_data* character);
+
+// Sets up a stack-local, human, level-10 standing NPC with no fight, using `profs` as its
+// profession data: enough state for affect_to_char() and affect_remove().
+void make_stack_npc(char_data& character, char_prof_data& profs);
+
+// make_stack_npc() with 500 hit points, far above the damage any single poison tick, wear or
+// removal in the poison suites deals.
+void make_sturdy_stack_npc(char_data& character, char_prof_data& profs);
 
 // Registers `character` under `abs_number` (pointer and slot, as register_npc_char() does)
 // for the scope and unregisters it on exit, so an early ASSERT_ return cannot leave a

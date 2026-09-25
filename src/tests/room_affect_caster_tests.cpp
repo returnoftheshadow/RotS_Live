@@ -13,22 +13,12 @@
 #include "../handler.h"
 #include "../spells.h"
 #include "../structs.h"
+#include "test_world_support.h"
 #include <gtest/gtest.h>
 
 extern struct room_data world;
-extern int top_of_world;
 
 namespace {
-
-void ensure_test_world(int minimum_room_number)
-{
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
 
 // Room numbers this file claims within the shared test-binary `world[]` --
 // high, out-of-band values distinct from the other suites' rooms
@@ -61,7 +51,7 @@ struct RoomAffectGuard {
         , original_affected(nullptr)
         , original_number(-1)
     {
-        ensure_test_world(room);
+        test_support::ensure_test_world(room);
         original_affected = world[room].affected;
         original_number = world[room].number;
         world[room].number = room;

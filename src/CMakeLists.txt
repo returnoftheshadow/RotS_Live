@@ -189,6 +189,10 @@ set(ROTS_TEST_SOURCES
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp
     tests/test_character_support.cpp
+    tests/test_affect_support.cpp
+    tests/test_descriptor_support.cpp
+    tests/test_world_support.cpp
+    tests/scoped_room_occupants.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
     tests/xp_formula_tests.cpp

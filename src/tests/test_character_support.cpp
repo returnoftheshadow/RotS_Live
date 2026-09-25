@@ -20,6 +20,24 @@ void release_test_character(char_data* character)
     free_char(character);
 }
 
+void make_stack_npc(char_data& character, char_prof_data& profs)
+{
+    character.profs = &profs;
+    character.specials2.act = MOB_ISNPC;
+    character.nr = -1;
+    character.player.race = RACE_HUMAN;
+    character.player.level = 10;
+    character.specials.position = POSITION_STANDING;
+    character.specials.fighting = nullptr;
+}
+
+void make_sturdy_stack_npc(char_data& character, char_prof_data& profs)
+{
+    make_stack_npc(character, profs);
+    character.abilities.hit = 500;
+    character.tmpabilities.hit = 500;
+}
+
 ScopedCharExists::ScopedCharExists(char_data& character, int abs_number)
     : m_character(character)
 {

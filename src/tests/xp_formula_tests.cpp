@@ -27,6 +27,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_world_support.h"
 #include <ctime>
 #include <gtest/gtest.h>
 
@@ -45,19 +46,6 @@ extern int top_of_world;
 extern int average_mob_life;
 
 namespace {
-
-void ensure_test_world(int minimum_room_number)
-{
-    if (!room_data::BASE_WORLD)
-    {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    }
-    else if (top_of_world < minimum_room_number)
-    {
-        top_of_world = minimum_room_number;
-    }
-}
 
 // Room number this file claims within the shared test-binary world[] -- an out-of-band value
 // distinct from every other suite's claimed rooms (fight_credit_tests.cpp: 900-908;
@@ -86,7 +74,7 @@ struct ZoneTableGuard
         , previous_top(top_of_zone_table)
         , previous_top_of_world(top_of_world)
     {
-        ensure_test_world(kXpFormulaRoom);
+        test_support::ensure_test_world(kXpFormulaRoom);
         previous_room_zone = world[kXpFormulaRoom].zone;
         world[kXpFormulaRoom].zone = 0;
         zone_table = stub;

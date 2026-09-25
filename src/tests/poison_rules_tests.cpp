@@ -8,19 +8,24 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "scoped_combat_list.h"
+#include "scoped_room_occupants.h"
+#include "test_affect_support.h"
 #include "test_character_support.h"
+#include "test_descriptor_support.h"
 
 #include <gtest/gtest.h>
 
 #include <initializer_list>
 #include <string>
 
-extern struct room_data world;
-extern int top_of_world;
-extern struct char_data* combat_list;
-
+using test_support::count_affects_of_type;
+using test_support::inert_affect;
+using test_support::prepare_capture_descriptor;
 using test_support::ScopedAffectCleanup;
 using test_support::ScopedCharExists;
+using test_support::ScopedCombatList;
+using test_support::ScopedRoomOccupants;
 
 namespace {
 
@@ -29,62 +34,14 @@ constexpr int kFirstPoisonerSlot = MAX_CHARACTERS - 1301;
 constexpr int kSecondPoisonerSlot = MAX_CHARACTERS - 1302;
 
 // A world[] index no other suite claims. Poisoners stand here so resolve_poisoner() accepts them;
-// the tick and message tests also light it and list its occupants.
+// the tick and message tests also light it and list its occupants. A poison tick engages its
+// victim with itself, so those tests scope the combat list too.
 constexpr int kPoisonRoom = 941;
 
-void ensure_test_world(int minimum_room_number) {
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
-
-// Lights kPoisonRoom and makes `occupants` its only people for the scope, restoring the room and
-// the global combat list after: a poison tick engages its victim with itself.
-class ScopedPoisonRoom {
-  public:
-    explicit ScopedPoisonRoom(std::initializer_list<char_data*> occupants)
-        : m_previous_people(nullptr), m_previous_light(0), m_previous_combat_list(combat_list) {
-        ensure_test_world(kPoisonRoom);
-        room_data& room = world[kPoisonRoom];
-        m_previous_people = room.people;
-        m_previous_light = room.light;
-        room.light = 1; // act() drops a line whose subject stands in a dark room
-        room.people = nullptr;
-        for (char_data* occupant : occupants) {
-            occupant->in_room = kPoisonRoom;
-            occupant->next_in_room = room.people;
-            room.people = occupant;
-        }
-    }
-    ~ScopedPoisonRoom() {
-        world[kPoisonRoom].people = m_previous_people;
-        world[kPoisonRoom].light = m_previous_light;
-        combat_list = m_previous_combat_list;
-    }
-    ScopedPoisonRoom(const ScopedPoisonRoom&) = delete;
-    ScopedPoisonRoom& operator=(const ScopedPoisonRoom&) = delete;
-
-  private:
-    char_data* m_previous_people;      // the room's occupant list before the test
-    int m_previous_light;              // the room's light count before the test
-    char_data* m_previous_combat_list; // combat_list before the test
-};
-
-// A stack-local NPC with enough state for affect_to_char(), affect_remove() and a poison tick.
-void make_npc(char_data& character, char_prof_data& profs) {
-    character.profs = &profs;
-    character.specials2.act = MOB_ISNPC;
-    character.nr = -1;
-    character.player.race = RACE_HUMAN;
-    character.player.level = 10;
-    character.abilities.hit = 500;
-    character.tmpabilities.hit = 500; // far above the 5 a poison tick deals
-    character.specials.position = POSITION_STANDING;
-    character.specials.fighting = nullptr;
-    character.in_room = kPoisonRoom; // in the game, so resolve_poisoner() accepts it
+// A sturdy stack NPC standing in kPoisonRoom: in the game, so resolve_poisoner() accepts it.
+void make_npc_in_poison_room(char_data& character, char_prof_data& profs) {
+    test_support::make_sturdy_stack_npc(character, profs);
+    character.in_room = kPoisonRoom;
 }
 
 // A SPELL_POISON template with the given strength malus (0 means no malus, like food).
@@ -108,43 +65,9 @@ void give_running_poison(char_data& victim, int strength, int initial_duration, 
     record_poison_origin(&victim, poisoner);
 }
 
-// An affect of `affect_type` that changes no stat and sets no flag.
-affected_type inert_affect(int affect_type, int duration) {
-    affected_type affect{};
-    affect.type = affect_type;
-    affect.duration = duration;
-    affect.modifier = 0;
-    affect.location = APPLY_NONE;
-    affect.bitvector = 0;
-    return affect;
-}
-
-// The number of SPELL_POISON affects on `character`, over the whole list.
-int count_poisons(const char_data& character) {
-    int poisons = 0;
-    for (const affected_type* affect = character.affected; affect != nullptr;
-         affect = affect->next) {
-        if (affect->type == SPELL_POISON) {
-            ++poisons;
-        }
-    }
-    return poisons;
-}
-
 // The single running poison, which a test must already have asserted exists.
 const affected_type& running_poison(const char_data& victim) {
     return *get_affect_unbounded(&victim, SPELL_POISON);
-}
-
-// A descriptor whose output lands in its own small buffer, so sent lines can be read back.
-descriptor_data make_descriptor() {
-    descriptor_data descriptor{};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    descriptor.connected = CON_PLYNG;
-    return descriptor;
 }
 
 // Empties `descriptor`'s buffer between the calls of one test.
@@ -182,17 +105,18 @@ TEST(PoisonRules, PoisonStrengthIsTheStrengthMalusOrZero) {
 TEST(PoisonRules, AFreshPoisonAppliesAndRecordsItsSource) {
     char_data poisoner{};
     char_prof_data poisoner_profs{};
-    make_npc(poisoner, poisoner_profs);
+    make_npc_in_poison_room(poisoner, poisoner_profs);
     ScopedCharExists poisoner_exists{poisoner, kFirstPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
-    ASSERT_EQ(count_poisons(victim), 0) << "precondition: the victim starts unpoisoned";
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 0)
+        << "precondition: the victim starts unpoisoned";
 
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 10), &poisoner), poison_outcome::applied);
 
-    ASSERT_EQ(count_poisons(victim), 1) << "exactly one poison runs";
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1) << "exactly one poison runs";
     EXPECT_EQ(running_poison(victim).duration, 10);
     EXPECT_EQ(running_poison(victim).counter, 10) << "the counter keeps the initial duration, 10";
     EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "the source is recorded as the poisoner";
@@ -201,15 +125,15 @@ TEST(PoisonRules, AFreshPoisonAppliesAndRecordsItsSource) {
 TEST(PoisonRules, AWeakerPoisonIsBlockedAndChangesNothing) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 4, 24, 24, &first);
     ASSERT_EQ(resolve_poisoner(victim), &first) << "precondition: the first poisoner resolves";
@@ -218,7 +142,7 @@ TEST(PoisonRules, AWeakerPoisonIsBlockedAndChangesNothing) {
               poison_outcome::blocked_by_stronger)
         << "a strength-2 poison cannot touch a strength-4 one, however long it lasts";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 24) << "the running poison keeps its 24 ticks";
     EXPECT_EQ(running_poison(victim).modifier, -4) << "the running poison stays -4 STR";
     EXPECT_EQ(resolve_poisoner(victim), &first) << "the first poisoner keeps the record";
@@ -227,11 +151,11 @@ TEST(PoisonRules, AWeakerPoisonIsBlockedAndChangesNothing) {
 TEST(PoisonRules, FoodCannotTouchASpellPoison) {
     char_data poisoner{};
     char_prof_data poisoner_profs{};
-    make_npc(poisoner, poisoner_profs);
+    make_npc_in_poison_room(poisoner, poisoner_profs);
     ScopedCharExists poisoner_exists{poisoner, kFirstPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 10, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "precondition: the poisoner resolves";
@@ -240,7 +164,7 @@ TEST(PoisonRules, FoodCannotTouchASpellPoison) {
               poison_outcome::blocked_by_stronger)
         << "food (strength 0) is weaker than a strength-2 spell poison";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 10) << "the spell poison keeps its 10 ticks";
     EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "food must not clear the poisoner";
 }
@@ -248,22 +172,23 @@ TEST(PoisonRules, FoodCannotTouchASpellPoison) {
 TEST(PoisonRules, AStrongerPoisonReplacesAndTakesTheRecord) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 30, 30, &first);
     ASSERT_EQ(resolve_poisoner(victim), &first) << "precondition: the first poisoner resolves";
 
     EXPECT_EQ(apply_poison(&victim, poison_of(4, 24), &second), poison_outcome::replaced);
 
-    ASSERT_EQ(count_poisons(victim), 1) << "the weaker poison is gone, not stacked";
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1)
+        << "the weaker poison is gone, not stacked";
     EXPECT_EQ(running_poison(victim).modifier, -4);
     EXPECT_EQ(running_poison(victim).duration, 24)
         << "the stronger poison runs its own 24 ticks, even though the weaker had 30 left";
@@ -274,15 +199,15 @@ TEST(PoisonRules, AStrongerPoisonReplacesAndTakesTheRecord) {
 TEST(PoisonRules, AnEqualPoisonOutlastingTheInitialDurationReplaces) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, &first);
     ASSERT_EQ(resolve_poisoner(victim), &first) << "precondition: the first poisoner resolves";
@@ -290,7 +215,7 @@ TEST(PoisonRules, AnEqualPoisonOutlastingTheInitialDurationReplaces) {
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 12), &second), poison_outcome::replaced)
         << "12 ticks outlast the running poison's initial 10";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 12);
     EXPECT_EQ(running_poison(victim).counter, 12);
     EXPECT_EQ(resolve_poisoner(victim), &second) << "the new source takes the record";
@@ -299,15 +224,15 @@ TEST(PoisonRules, AnEqualPoisonOutlastingTheInitialDurationReplaces) {
 TEST(PoisonRules, AnEqualPoisonMatchingTheInitialDurationExtends) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, &first);
     ASSERT_EQ(resolve_poisoner(victim), &first) << "precondition: the first poisoner resolves";
@@ -315,7 +240,7 @@ TEST(PoisonRules, AnEqualPoisonMatchingTheInitialDurationExtends) {
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 10), &second), poison_outcome::extended)
         << "10 ticks only match the initial 10, so the poison extends";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 9) << "4 remaining + 10 / 2 = 9";
     EXPECT_EQ(running_poison(victim).counter, 10) << "the initial duration stays 10";
     EXPECT_EQ(resolve_poisoner(victim), &first) << "the resolving first poisoner keeps the record";
@@ -324,14 +249,14 @@ TEST(PoisonRules, AnEqualPoisonMatchingTheInitialDurationExtends) {
 TEST(PoisonRules, AnExtensionIsCappedAtTheInitialDuration) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 8, nullptr);
     ASSERT_EQ(running_poison(victim).duration, 8) << "precondition: 8 ticks remain";
 
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 9), nullptr), poison_outcome::extended);
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 10)
         << "8 remaining + 9 / 2 = 12, capped at the initial duration 10";
 }
@@ -339,33 +264,33 @@ TEST(PoisonRules, AnExtensionIsCappedAtTheInitialDuration) {
 TEST(PoisonRules, AnExtensionRoundsHalfTheDurationDown) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, nullptr);
     ASSERT_EQ(running_poison(victim).duration, 4) << "precondition: 4 ticks remain";
 
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 7), nullptr), poison_outcome::extended);
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 7) << "4 remaining + 7 / 2 (3) = 7";
 
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 1), nullptr), poison_outcome::extended)
         << "a 1-tick equal poison is still an extension";
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 7) << "1 / 2 rounds down to 0 extra ticks";
 }
 
 TEST(PoisonRules, AnExtensionKeepsAPoisonerThatStillResolves) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, &first);
     ASSERT_EQ(resolve_poisoner(victim), &first) << "precondition: the first poisoner resolves";
@@ -379,15 +304,15 @@ TEST(PoisonRules, AnExtensionKeepsAPoisonerThatStillResolves) {
 TEST(PoisonRules, AnExtensionHandsTheRecordToTheNewSourceWhenThePoisonerIsGone) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, &first);
     remove_char_exists(kFirstPoisonerSlot); // what extract_char() does for the first poisoner
@@ -403,11 +328,11 @@ TEST(PoisonRules, AnExtensionHandsTheRecordToTheNewSourceWhenThePoisonerIsGone) 
 TEST(PoisonRules, AnExtensionFromNobodyKeepsAPoisonerThatStillResolves) {
     char_data poisoner{};
     char_prof_data poisoner_profs{};
-    make_npc(poisoner, poisoner_profs);
+    make_npc_in_poison_room(poisoner, poisoner_profs);
     ScopedCharExists poisoner_exists{poisoner, kFirstPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "precondition: the poisoner resolves";
@@ -421,11 +346,11 @@ TEST(PoisonRules, AnExtensionFromNobodyKeepsAPoisonerThatStillResolves) {
 TEST(PoisonRules, ReplacementByNobodyClearsTheRecord) {
     char_data poisoner{};
     char_prof_data poisoner_profs{};
-    make_npc(poisoner, poisoner_profs);
+    make_npc_in_poison_room(poisoner, poisoner_profs);
     ScopedCharExists poisoner_exists{poisoner, kFirstPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 0, 5, 5, &poisoner);
     ASSERT_EQ(resolve_poisoner(victim), &poisoner) << "precondition: the poisoner resolves";
@@ -433,7 +358,7 @@ TEST(PoisonRules, ReplacementByNobodyClearsTheRecord) {
     EXPECT_EQ(apply_poison(&victim, poison_of(0, 20), nullptr), poison_outcome::replaced)
         << "20 ticks of food outlast the running food's initial 5";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 20);
     EXPECT_EQ(resolve_poisoner(victim), nullptr)
         << "a poison from nobody replaces the record with nobody";
@@ -442,7 +367,7 @@ TEST(PoisonRules, ReplacementByNobodyClearsTheRecord) {
 TEST(PoisonRules, AZeroCounterFallsBackToTheRemainingDuration) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     affected_type saved = poison_of(2, 6);
     saved.counter = 0;
@@ -452,7 +377,7 @@ TEST(PoisonRules, AZeroCounterFallsBackToTheRemainingDuration) {
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 6), nullptr), poison_outcome::extended)
         << "the initial duration falls back to the remaining 6, which 6 ticks only match";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 6) << "6 + 6 / 2 = 9, capped at 6";
     EXPECT_EQ(running_poison(victim).counter, 6) << "the fallback initial duration is stored";
 }
@@ -460,7 +385,7 @@ TEST(PoisonRules, AZeroCounterFallsBackToTheRemainingDuration) {
 TEST(PoisonRules, ACounterBelowTheRemainingDurationFallsBackToIt) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     affected_type saved = poison_of(2, 6);
     saved.counter = 3;
@@ -470,7 +395,7 @@ TEST(PoisonRules, ACounterBelowTheRemainingDurationFallsBackToIt) {
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 6), nullptr), poison_outcome::extended)
         << "the initial duration is the remaining 6, not the counter's 3, and 6 only matches it";
 
-    ASSERT_EQ(count_poisons(victim), 1);
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, 6) << "6 + 6 / 2 = 9, capped at 6, not at 3";
     EXPECT_EQ(running_poison(victim).counter, 6) << "the fallback initial duration is stored";
 }
@@ -478,7 +403,7 @@ TEST(PoisonRules, ACounterBelowTheRemainingDurationFallsBackToIt) {
 TEST(PoisonRules, ReplacementRemovesEveryPoisonAffect) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     affected_type buried = poison_of(2, 20);
     affect_to_char(&victim, &buried);
@@ -488,12 +413,12 @@ TEST(PoisonRules, ReplacementRemovesEveryPoisonAffect) {
     }
     affected_type newest = poison_of(2, 20);
     affect_to_char(&victim, &newest);
-    ASSERT_EQ(count_poisons(victim), 2) << "precondition: two poisons, one under "
-                                        << 2 * MAX_AFFECT << " fillers";
+    ASSERT_EQ(count_affects_of_type(victim, SPELL_POISON), 2)
+        << "precondition: two poisons, one under " << 2 * MAX_AFFECT << " fillers";
 
     EXPECT_EQ(apply_poison(&victim, poison_of(4, 24), nullptr), poison_outcome::replaced);
 
-    EXPECT_EQ(count_poisons(victim), 1)
+    EXPECT_EQ(count_affects_of_type(victim, SPELL_POISON), 1)
         << "replacement must remove every poison, including the buried one";
     ASSERT_NE(get_affect_unbounded(&victim, SPELL_POISON), nullptr);
     EXPECT_EQ(running_poison(victim).modifier, -4) << "the survivor is the new -4 STR poison";
@@ -502,15 +427,15 @@ TEST(PoisonRules, ReplacementRemovesEveryPoisonAffect) {
 TEST(PoisonRules, APermanentPoisonOfEqualStrengthIsLeftAlone) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 0, -1, &first);
     ASSERT_EQ(running_poison(victim).duration, -1) << "precondition: the poison is permanent";
@@ -518,7 +443,7 @@ TEST(PoisonRules, APermanentPoisonOfEqualStrengthIsLeftAlone) {
 
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 50), &second), poison_outcome::extended);
 
-    EXPECT_EQ(count_poisons(victim), 1);
+    EXPECT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, -1)
         << "an equal poison must neither shorten nor replace a permanent one";
     EXPECT_EQ(resolve_poisoner(victim), &first)
@@ -528,15 +453,15 @@ TEST(PoisonRules, APermanentPoisonOfEqualStrengthIsLeftAlone) {
 TEST(PoisonRules, APermanentPoisonHandsTheRecordToTheNewSourceWhenThePoisonerIsGone) {
     char_data first{};
     char_prof_data first_profs{};
-    make_npc(first, first_profs);
+    make_npc_in_poison_room(first, first_profs);
     ScopedCharExists first_exists{first, kFirstPoisonerSlot};
     char_data second{};
     char_prof_data second_profs{};
-    make_npc(second, second_profs);
+    make_npc_in_poison_room(second, second_profs);
     ScopedCharExists second_exists{second, kSecondPoisonerSlot};
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 0, -1, &first);
     remove_char_exists(kFirstPoisonerSlot); // what extract_char() does for the first poisoner
@@ -546,7 +471,7 @@ TEST(PoisonRules, APermanentPoisonHandsTheRecordToTheNewSourceWhenThePoisonerIsG
 
     EXPECT_EQ(apply_poison(&victim, poison_of(2, 50), &second), poison_outcome::extended);
 
-    EXPECT_EQ(count_poisons(victim), 1);
+    EXPECT_EQ(count_affects_of_type(victim, SPELL_POISON), 1);
     EXPECT_EQ(running_poison(victim).duration, -1) << "the permanent poison stays permanent";
     EXPECT_EQ(resolve_poisoner(victim), &second)
         << "with the recorded poisoner gone, the extending source takes the record";
@@ -555,8 +480,9 @@ TEST(PoisonRules, APermanentPoisonHandsTheRecordToTheNewSourceWhenThePoisonerIsG
 TEST(PoisonRules, AResistedPoisonKeepsItsResistanceWhenExtended) {
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
-    ScopedPoisonRoom room{&victim};
+    make_npc_in_poison_room(victim, victim_profs);
+    ScopedCombatList combat;
+    ScopedRoomOccupants room{kPoisonRoom, {&victim}};
     ScopedAffectCleanup victim_affects(victim);
     give_running_poison(victim, 2, 10, 4, nullptr);
     constexpr int kClericLevel = 2;
@@ -585,16 +511,19 @@ TEST(PoisonRules, MergeMessagesReachTheVictimAndCaster) {
     char victim_short_descr[] = "a poisoned victim";
     char_data victim{};
     char_prof_data victim_profs{};
-    make_npc(victim, victim_profs);
+    make_npc_in_poison_room(victim, victim_profs);
     victim.player.short_descr = victim_short_descr;
-    descriptor_data victim_descriptor = make_descriptor();
+    descriptor_data victim_descriptor{};
+    prepare_capture_descriptor(victim_descriptor);
     victim.desc = &victim_descriptor;
     char_data caster{};
     char_prof_data caster_profs{};
-    make_npc(caster, caster_profs);
-    descriptor_data caster_descriptor = make_descriptor();
+    make_npc_in_poison_room(caster, caster_profs);
+    descriptor_data caster_descriptor{};
+    prepare_capture_descriptor(caster_descriptor);
     caster.desc = &caster_descriptor;
-    ScopedPoisonRoom room{&victim, &caster};
+    ScopedCombatList combat;
+    ScopedRoomOccupants room{kPoisonRoom, {&victim, &caster}};
 
     send_poison_outcome_messages(poison_outcome::extended, &victim, &caster, "fresh line\n\r");
     EXPECT_EQ(std::string(victim_descriptor.small_outbuf),
