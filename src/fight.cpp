@@ -1146,6 +1146,9 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_pun
             GET_MOVE(dead_man) = 0;
         }
 
+        // Clear before extract_char(): it saves the player and can free it.
+        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+
         if (GET_LEVEL(dead_man) < LEVEL_IMMORT) {
             // Note, these are two different int arrays.
             dead_man->specials2.load_room = mortal_start_room[race];
@@ -1154,8 +1157,6 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_pun
             dead_man->specials2.load_room = immort_start_room;
             extract_char(dead_man, r_immort_start_room);
         }
-
-        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
     } else {
         extract_char(dead_man);
     }
@@ -1223,8 +1224,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type, char_data* eng
     }
 
     /* the following piece is moved here, might cause problems... */
-    // Only grant gains for kills on NPCs and connected players. group_gain()
-    // handles a remote or absent `killer` on its own (see its definition).
+    // group_gain() handles a remote or absent `killer` on its own (see its definition).
     if (IS_NPC(dead_man) || dead_man->desc) {
         group_gain(killer, dead_man);
     }

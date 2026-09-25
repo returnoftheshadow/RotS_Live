@@ -162,6 +162,7 @@ set(ROTS_TEST_SOURCES
     tests/exploits_json_tests.cpp
     tests/fight_credit_tests.cpp
     tests/flee_path_tests.cpp
+    tests/raw_kill_tests.cpp
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
     tests/gear_poison_tests.cpp

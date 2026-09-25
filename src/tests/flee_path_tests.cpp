@@ -252,8 +252,7 @@ TEST_F(FleePath, AWimpyNpcKilledDuringTheFleeItsWoundsSetOffMakesDamageReturnOne
 }
 
 // damage_credited()'s check after a wimpy player's flee. The player has no link, so the special
-// that extracts it frees it (raw_kill() is not used: for a linkless player it reads the player
-// after extract_char() has freed it, a use-after-free of its own).
+// that extracts it frees it.
 TEST_F(FleePath, AWimpyPlayerExtractedDuringItsFleeMakesDamageReturnOne) {
     char attacker_name[] = "a test attacker";
     char_data attacker{};
