@@ -50,6 +50,7 @@ Level 93s (Maias):
   and 5 or 10 rooms east-west. It makes zones easier to connect.
 
 SEE ALSO: MAN SHAPE SHAPE, SHAPE FAQ, SHAPE ROOM, SHAPE GENERAL
+
 #
 OBJLIST
    Objects are grouped by type in zones. Please make sure that the object
@@ -83,9 +84,14 @@ SHAPE
    The world here is built by builders through an online interface.
 For help on how to start shaping, read help on SHAPE GENERAL.
 For rules on shaping rooms read MAN SHAPE GUIDELINES
-For shaping room/mobile/object/zone read help on SHAPE ROOM/MOB/OBJ/ZONE
+For shaping room/mobile/object/zone/script read help on
+SHAPE ROOM/MOB/OBJ/ZONE/SCRIPT
 For FAQ, read help on SHAPE FAQ
 For current updates, read the shaper boards in room 1102.
+
+Zone files are created outside the game. You shape a vnum that belongs
+to your zone; if it is not in the file yet, the editor starts a blank one
+and /save puts it in. 'new', '/add' and '/delete' are disabled.
 
 See also: SHAPE OBJECT, SHAPE MOB, SHAPE ZONE
 #
@@ -94,8 +100,12 @@ GENERAL
 To find out how to load/save/quit shaping, type /help, while shaping.
 To get a list of commands for shaping itself, type /0.
 /free will quit shaping, but remember to /save your work!
-/done will save and quit shaping, so it is generally the best option.
-Also to view what you have done, type /imp.
+/done will save, implement and quit shaping, so it is generally the best
+option. If the save fails, /done stops and keeps your work.
+/implement (/imp) puts your changes into the game; then look at them.
+
+A command that has been turned off repeats what you typed, e.g.
+  "/delete" has been disabled due to a bug.
 
 See also: FAQ, GUIDELINES, EDIT
 #
@@ -140,7 +150,8 @@ Text data is changed using the built-in line text editor, see
 Line text data are one-line messages, such as room titles or keyword lists.
           If you enter empty line there, the previous version of the data
           remains; if you enter "%q" as the line, empty line will be kept
-          instead.
+          instead. Some lines (names, keywords of mobs and objects) cannot
+          be emptied.
 
 Numeric data in shaping is most often contains flags, and the interface
           is modified to accommodate this. The key symbols '+','-','p', 'm'
@@ -151,16 +162,20 @@ Numeric data in shaping is most often contains flags, and the interface
          'p17' will set the flag 17 in the data value (bit vector)
          'm17' will remove the flag 17 in the data value (bit vector)
           Entering empty line will leave the data unchanged.
-
+          Only the first word counts: 'p0 p4' sets only flag 0.
+          Where a negative value means something (a room exit's key or
+          destination, a mob's alignment or saving throw), the prompt
+          says "-N sets negative" and '-1' sets -1.
+          Out-of-range values are refused with "... must be ... dropped."
 #
 ROOM
 
-  To start shaping a room go to that room and type'shape room current'
-When you start shaping a zone it already contains 40 empty rooms.
-(first two digits of the room number is always zone number, so, for example,
-zone 16 would contain rooms 1600-1699, and rooms 1600-1639 will already exist
-when you start shaping). Do /0 and /help to see available commands. Each
-numerical command has a help on SHAPE ROOM <NUMBER> for /<number> command.
+  To start shaping a room go to that room and type 'shape room current',
+or type 'shape room <vnum>'. Zone 16 holds rooms 1600-1699. If the vnum is
+not in the zone file yet, the editor starts a blank room with that number
+and /save puts it in the file. 'shape room new', /add and /delete are
+disabled. Do /0 and /help to see available commands. Each numerical
+command has a help on SHAPE ROOM <NUMBER> for /<number> command.
 
 Don't forget to read MAN SHAPE GENERAL, MAN SHAPE FAQ, MAN SHAPE GUIDELINES.
 #
@@ -205,10 +220,11 @@ See Also: man shape mob 5, man shape mob 6, man shape mob 11.
 #
 OBJECT OBJ
 
-   You can use  'shape obj <obj vnum>' to design new objects and to edit
-current objects. If you are designing a new object, you are advised to use
-'register' command to get a vnum. When doing SHAPE OBJECT, try /0 and
-/help for available commands as in SHAPE ROOM.
+   Use 'shape obj <obj vnum>' to edit an object. To make a new object, pick
+a free vnum in the zone's range and shape it by number: the editor creates
+it, and /save writes it into the zone file. The zone file must already
+exist. Try /0 for the field list and /help for the editor commands.
+'new', /add <file> and /delete are disabled.
 
 Use 'MAN SHAPE OBJ <number>' to obtain help on /<number> command.
 
@@ -220,8 +236,8 @@ Command /0 lists possible fields.
 
 1 - alias(es);
 2 - reference description;
-3 - full description;
-4 - action description;
+3 - full description (the room line);
+4 - action description (the look text);
 5 - add extra description;
 6 - edit keyword of the last extra description;
 7 - edit text of the last extra description;
@@ -235,8 +251,10 @@ Command /0 lists possible fields.
 15 - cost per day;
 16 - level;
 17 - rarity;
-18 - affections;
-19 - program number (for special cases only);
+18 - material;
+19 - affections;
+20 - program (not saved);
+21 - script number;
 49 - object creation sequence;
 50 - list;
 
@@ -244,20 +262,18 @@ See also: MAN SHAPE OBJ <number of the field>
 #
 "OBJ 1"
 
-/1 assignes the aliases how players can address the object e.g. sword, shirt,
+/1 assigns the aliases how players can address the object e.g. sword, shirt,
 fountain.  For example, Huge two-handed mithril axe should have aliases huge,
 mithril, axe.  Drink containers should have their contents put as the first
 alias, e.g. a mug of beer should have keyword beer put first. The input is a
-string with keywords without commas.
-
+string of keywords separated by spaces, without commas. It can't be empty.
 #
 "OBJ 2"
 
-/2 assigns the reference description of an object, e.g. a steel longsword, 
+/2 assigns the reference description of an object, e.g. a steel longsword,
 a grey fountain, a mug of beer. The reference description is used when a
-player gets/drops an object, and is used by "inventory" command. The input 
-is a string, and does not have a period (.) at the end.
-
+player gets/drops an object, and is used by "inventory" command. The input
+is a string, and does not have a period (.) at the end. It can't be empty.
 #
 "OBJ 3" 
 
@@ -284,22 +300,18 @@ it. There is no input.
 #
 "OBJ 6"
 
-/6 is used to assign and change the keywords of current extra description. 
-See /5 for examples. The input is a string of lower case words without spaces,
-commas, etc.
-
+/6 is used to assign and change the keywords of the last extra description.
+See /5 for examples. The input is lower case words separated by spaces,
+without commas.
 #
 "OBJ 7"
 
-/7 edits the text of current "extra description". This should be a paragraph
-of any length. 
-
+/7 edits the text of the last extra description. This should be a paragraph
+of any length.
 #
 "OBJ 8"
 
-/8 erases the current extra description, or the last extra desc, if none 
-are selected as current. See 'SHAPE OBJ 5'. No input.
-
+/8 erases the last extra description. See 'SHAPE OBJ 5'. No input.
 #
 "OBJ 9" "OBJECT FLAGS"
 
@@ -307,28 +319,35 @@ are selected as current. See 'SHAPE OBJ 5'. No input.
 
 ITEM_TYPE          TYPE
 LIGHT              1    -- LIGHT SOURCE
+SCROLL             2
+WAND               3
+STAFF              4
 WEAPON             5
+FIRE WEAPON        6
+MISSILE            7    -- ARROW
 TREASURE           8
 ARMOR              9    -- NOT A SHIELD
+POTION             10
+WORN               11
 OTHER              12
 TRASH              13
+TRAP               14
 CONTAINER          15   -- ITEM CONTAINER
 NOTE               16
 DRINKCON           17   -- DRINK CONTAINER
 KEY                18
 FOOD               19
 MONEY              20
-PEN                21 
+PEN                21
 BOAT               22
 FOUNTAIN           23
 SHIELD             24
 LEVER              25
 
 Depending on this type, object values (/12) are different.
-See 'SHAPE OBJ ITEM_TYPE' for meaning of the values. 
+See 'SHAPE OBJ ITEM_TYPE' for meaning of the values.
 See 'SHAPE OBJLIST' for the list of appropriate zones for objects.
-The default value is 13 (Change!), the input is an integer.
-
+The default value is 13 (Change!), the input is an integer from 1 to 25.
 #
 "OBJ 10"
 
@@ -336,29 +355,36 @@ The default value is 13 (Change!), the input is an integer.
 these extra flags. Extra flag is a BITVECTOR with the following values:
 
 Flag	Flag meaning	Flag      Comments
-number			Values    
+number			Values
 0	GLOW		1
 1	HUMMING		2
 2	DARK		4
 3	BREAKABLE	8         Used to make an obj breakable, usually keys
-4	EVIL		16  
+4	EVIL		16
 5	INVISIBLE	32
 6	MAGIC		64
 7	NODROP		128
-8	BROKEN		256
+8	BROKEN		256       a broken key does not work
 9	ANTI_GOOD	512       not usable by good people -- DO NOT USE
 10	ANTI_EVIL	1024      not usable by evil people -- DO NOT USE
 11	ANTI_NEUTRAL	2048      not usable by neutral people -- DO NOT USE
-12	NORENt		4096      not allowed to rent the item
+12	NORENT		4096      not allowed to rent the item
+13	(unused)
+14	NOINVIS
+15	WILLPOWER                 can hit wraiths
+16	IMM
+17-27	race locks: HUMAN, DWARF, WOODELF, HOBBIT, BEORNING, URUK, ORC,
+	MOBORC, MAGUS, OLOGHAI, HARADRIM (a wrong race is zapped on wear)
+28	STAY_ZONE
 
-The default value is 0. The input is a bit vector.
-See MAN SHAPE BITVECTOR for details.
-# 
+The default value is 0. The input is a bit vector; pN sets bit N and mN
+clears it, one bit per answer. See MAN SHAPE BITVECTOR for details.
+#
 "OBJ 11"
 
 /11 assigns a wearing flag.  Wearing flag is a BITVECTOR with the following
-values: 
-Flag	Flag	Flag meaning 
+values:
+Flag	Flag	Flag meaning
 number	value
 0	1	TAKE  - give it to all objects that you can take!
 1	2	FINGER - rings.
@@ -369,28 +395,29 @@ number	value
 6	64	FEET - boots, sandals.
 7	128	HANDS - gloves, gauntlets.
 8	256	ARMS - sleeves, braces.
-9	512	SHIELD 
+9	512	SHIELD
 10	1024	ABOUT BODY - cloaks.
 11	2048	WAIST - belts, pouches.
-12	4096	WRIST - bracelets. 
+12	4096	WRIST - bracelets.
 13	8192	WIELD - give this flag to all weapons!
 14	16384	HOLD - will add effects if item is held. note that all items
      can be held, but items without this flag will not affect player if held.
 15	32768	THROW - not sure about that.
-16	65536	LIGHT-SOURCE - lantern, torch.
+16	65536	BACK - worn on the back (quivers).
 17	131072	BELT - worn on belt.
 
-The default value is 0, and should stay if the object is notake, e.g. a
-fountain.  Otherwise the value must be changed. The input is a bit vector.
+The default value is 1 (TAKE); set it to 0 if the object is notake, e.g. a
+fountain. The input is a bit vector; pN sets bit N and mN clears it.
 See MAN SHAPE BITVECTOR for details.
 #
 "OBJ 12"
 
 /12 assigns 5 values for the object. WARNING: This values depend on
-ITEM_TYPE! For meaning, see SHAPE OBJ ITEM_TYPE. 
-The default values are 5 zeros, and should be changed unless ITEM_TYPE=13. 
-The input is 5 integers without commas. 
-
+ITEM_TYPE! For meaning, see SHAPE OBJ ITEM_TYPE. The prompt names the
+values for the current type and shows the current numbers.
+The default values are 5 zeros, and should be changed unless ITEM_TYPE=13.
+The input is up to 5 integers without commas. Typing fewer changes only
+the first ones and keeps the rest; a blank line keeps them all.
 #
 "OBJ ITEM_TYPE"
 
@@ -402,12 +429,11 @@ Specify ITEM_TYPE, e.g. see help SHAPE OBJ DRINKCON.
 LIGHT (1)
 Value[0]: Not Used
 Value[1]: Not Used
-Value[2]: Number of hours the light can be used for. Zero hours means that
-          the light has gone out. A negative number will create an eternal
-          light source.
-Value[3]: Not Used
+Value[2]: Number of hours the light can be used for. It counts down while
+          lit; at zero the light burns out and is destroyed. Zero means it
+          can't be lit. A negative number will create an eternal light.
+Value[3]: Lit state, set by the game. Negative: can't be blown out.
 Value[4]: Not Used
-
 #
 "OBJ WEAPON"
 
@@ -416,8 +442,9 @@ Value[0]: OB.  See guidelines for boards.
 Value[1]: Parry bonus.  See guidelines for boards.
 Value[2]: Bulk is the distance between handle of the weapon, and it's center
           of mass, in 2/3 feet. (20 cm). Round to the closest integer.
-          Normal bulks are: dagger: 1, shortsword: 2, longsword: 3, 
-          two-handed sword: 6, Halberd: 7-8.
+          Normal bulks are: dagger: 1, shortsword: 2, longsword: 3,
+          two-handed sword: 6, Halberd: 7-8. Above 4 it takes two hands
+          unless a shield is worn.
 Value[3]:
           NUMBER  CATEGORY   Message type
             2  : Whip          "whip/whips"
@@ -430,10 +457,12 @@ Value[3]:
             9  : Two-axe       "cleave/cleaves"
            10  : Spear         "stab/stabs"
            11  : Pierce        "pierce/pierces"
- 
+           12  : Smite         "smite/smites"
+           13  : Bow
+           14  : Crossbow
+
           New types can be added as needed.
-Value[4]: Damage.
- 
+Value[4]: Not used. Damage comes from level, OB, parry, bulk and weight.
 #
 "OBJ ARMOR"
 
@@ -441,12 +470,11 @@ ARMOR (9)
 Value[0]: Set this to 0 for armour which has absorb % (it will be
 automatically calculated), and to -1 for armour which you don't want
 to have absorb %)
-Value[1]: Min. absorb
+Value[1]: Min. absorb (a flat reduction on every hit)
 Value[2]: Encumbrance of arms/hands. affects thief's skills, OB, and spells.
 Value[3]: Dodging bonus on an item.
-Value[4]: NOT USED (reserved for condition)
+Value[4]: NOT USED
 See guidelines on boards or ask Dim. Shield is NOT an armour.
-
 #
 "OBJ WORN"
  
@@ -484,30 +512,29 @@ Useless item. For enjoyment of players.
 "OBJ CONTAINER"
 
 ITEM_CONTAINER (15)
-Value[0]: Maximum weight the container can contain. Weight is measured in
-          1/100 kg (i.e. use 100 for 1 kg, 45 for 1 lb).
+Value[0]: Maximum weight the container can hold, INCLUDING its own weight.
+          Weight is measured in 1/100 lb (i.e. use 100 for 1 lb).
 Value[1]: Container flags:
- 
+
    CLOSEABLE     1
    PICKPROOF     2
    CLOSED        4
    LOCKED        8
- 
-Value[2]: The item-number of the object which can open the object. -1 means
-          no lockability.
-Value[3]: Internal use for Corpses that must "rot".
-Value[4]: -
- 
+
+Value[2]: The vnum of the key object which can open the container. -1
+          means no lockability.
+Value[3]: 1 marks a corpse. Leave it at 0.
+Value[4]: Set by the game from Value[1] (the lock state it resets to).
+A container named "quiver" holds arrows.
 #
 "OBJ NOTE"
 
 ITEM_NOTE      (16)
-Value[0]: Tounge (language of writing).
+Value[0]: - (shown as the language in stat, but not used)
 Value[1]: -
 Value[2]: -
 Value[3]: -
-Value[4]: - 
-
+Value[4]: -
 #
 "OBJ DRINKCON"
 
@@ -543,33 +570,30 @@ Value[4]: -
 "OBJ KEY"
 
 ITEM_KEY       (18)
-Value[0]: The key-type. This value must match the lock-type the door
-          that the key can open. Set this value to vnum of a key.
+Value[0]: -  A lock matches the key object's vnum, which is stored on the
+             door or the container (Value[2]). The key's values are unused.
 Value[1]: -
 Value[2]: -
 Value[3]: -
 Value[4]: -
- 
 #
 "OBJ FOOD"
 
 ITEM_FOOD      (19)
-Value[0]: The number of hours, that this food will fill the stomach
+Value[0]: How much it fills the stomach (full above 20).
 Value[1]: -
 Value[2]: -
 Value[3]: If this value is non-zero, the food is poisoned.
 Value[4]: -
- 
 #
 "OBJ MONEY"
 
 ITEM_MONEY     (20)
-Value[0]: The number of gold coins "in the pile of coins".
+Value[0]: The amount in copper (100 = 1 silver, 1000 = 1 gold).
 Value[1]: -
 Value[2]: -
 Value[3]: -
 Value[4]: -
- 
 #
 "OBJ BOAT"
 
@@ -598,10 +622,9 @@ ITEM_SHIELD (24)
 Value[0]: Dodge bonus when wearing the shield
 Value[1]: Parry bonus when wearing the shield
 Value[2]: Encumbrance
-Value[3]: Shield block coefficient.
-Value[4]: NOT USED (reserved for condition)
-See boards for guidelines, or ask Dim. 
-
+Value[3]: NOT USED
+Value[4]: NOT USED
+See boards for guidelines, or ask Dim.
 #
 "OBJ LEVER"
 
@@ -620,36 +643,38 @@ flag on the corresponding door.
 "OBJ 13"
 
 /13 assigns a weight of an object. An object MUST have nonzero weight if it's
-pickable. Weight is measured in 1/100 of kg (i.e. use 100 for 1 kg, 45 for 1
-lb). Weights of weapons: strength of a person should be equal to # of kg to
-wield a weapon two handed, and equal to 2* # of kg to wield it one-handed. 
+pickable. Weight is measured in 1/100 lb (i.e. use 100 for 1 lb; identify
+shows weight/100 as lbs). Wielding: over 50 * strength is too heavy for one
+hand, over 100 * strength too heavy, over 150 * strength can't be wielded.
 Use common sense. The input is an integer.
 
 See also: ONE TWO
 #
-"OBJ 14" 
+"OBJ 14"
 
-This value should be about 10 * level ^2 for levels up to 10, double for
-every level thereafter.
+Cost in copper coins. This value should be about 10 * level ^2 for levels
+up to 10, double for every level thereafter. 0 means shops won't trade it.
 #
 "OBJ 15"
 
-Set this value to level ^ 2 for levels 1-5,
+Rent per day. Set this value to level ^ 2 for levels 1-5,
 and (level ^3)/5 for levels > 5.
-
+-1 means use cost/100. Below -1 the item can't be rented.
+Type -1 directly: at this prompt a leading - sets a negative number.
 #
-"OBJ 16" 
+"OBJ 16"
 
-Level denoted 'quality' of an item. Items of a given level should usually
-not be found on mobs lower then item level.
+Level denoted 'quality' of an item, 0-255. Items of a given level should
+usually not be found on mobs lower then item level. It is not a level
+needed to use the item.
 #
 "OBJ 17"
 
-Leave this value at 0 for now. It will be used in random item generation later.
+Rarity is not used by the game. Leave this value at 0.
 #
 "OBJ 18"
 
-Material of an object.
+Material of an object, 0-13.
 0   Usual stuff
 1   cloth
 2   leather
@@ -664,64 +689,75 @@ Material of an object.
 11  fur
 12  glass
 13  plant
-
 #
 "OBJ 19"
 
 These are extra affects of an object. Do not change, if in doubt.
-If you know what you need, then put 
-parenthesis space number space modifier space parenthesis
-like ( 18 10 ) would give +10 ob
+An object has at most 2. Put
+parenthesis number space modifier parenthesis for each,
+like (18 10) would give +10 ob. A slot you don't type keeps its value;
+a blank line keeps both. (0 0) is an empty slot.
 The numbers are:
 
 APPLY_NONE              0
 APPLY_STR               1
 APPLY_DEX               2
 APPLY_INT               3
-APPLY_WIS               4
+APPLY_WILL              4
 APPLY_CON               5
 APPLY_LEA               6
-APPLY_PROF              7
-APPLY_LEVEL             8
+APPLY_PROF              7  (no effect)
+APPLY_LEVEL             8  (no effect)
 APPLY_AGE               9
 APPLY_CHAR_WEIGHT      10
 APPLY_CHAR_HEIGHT      11
 APPLY_MANA             12
 APPLY_HIT              13
 APPLY_MOVE             14
-APPLY_GOLD             15
-APPLY_EXP              16
+APPLY_GOLD             15  (no effect)
+APPLY_EXP              16  (no effect)
 APPLY_DODGE            17
 APPLY_OB               18
 APPLY_DAMROLL          19
 APPLY_SAVING_SPELL     20
 APPLY_WILLPOWER        21
-APPLY_REGEN            22
+APPLY_REGEN            22  (no effect - use 24)
 APPLY_VISION           23 - if >0, will give infravision
                             if <0, will render the wearer blind
-APPLY_SPEED            24
+APPLY_SPEED            24  (energy regen)
 APPLY_PERCEPTION       25
-APPLY_ARMOR            26
-APPLY_SPELL            27 (modifier: 256*spell_level + spell_number)
+APPLY_ARMOR            26  (no effect)
+APPLY_SPELL            27 (modifier: spell_number; a level part is ignored)
 APPLY_BITVECTOR        28 (adds a bit number 'modifier' to the 'affected_by')
 APPLY_MANA_REGEN       29 (adds 'modifier' mana to the mana regen )
-APPLY_RESISTANCE       30 | these two are bit vectors, see
+APPLY_RESISTANCE       30 | these two are bit numbers, see
 APPLY_VULNERABILITY    31 | SHAPE MOB 36 for the values
+APPLY_MAUL             32  (does nothing on items)
+APPLY_BEND             33
+APPLY_PK_*          34-37  (not for items)
+APPLY_SPELL_PEN        38
+APPLY_SPELL_POW        39
 
 But if you are not sure, ask higher gods, or leave it at (0 0) (0 0).
 For a list of bit vectors (for #28), see MAN SHAPE OBJ BITVECTOR.
 #
 "OBJ 20"
 
-Program on an object is extremely rare event. Do not use it unless
-you really know what you are doing.
+The program number is not saved and has no effect. Leave it alone.
+#
+"OBJ 21"
+
+/21 assigns a script (a world/scr script vnum, not mudlle) to the object.
+0 means none. Object triggers: ON_DAMAGE, ON_EAT, ON_ENTER,
+ON_EXAMINE_OBJECT, ON_DRINK, ON_PULL, ON_WEAR. The number is not checked.
+See MAN SHAPE SCRIPT.
 #
 "OBJ 49"
 
 /49 is convenience command which will lead you through the object creation
-sequence to create an object. It is useful to do this command in the
-beginning and edit the parameters of an object later with other commands.
-
+sequence: aliases, descriptions, type, wear flags, values, weight, cost and
+rent. Edit the other fields (extra flags, level, material, affects) with
+their own commands afterwards.
 #
 "OBJ 50"
 
@@ -742,13 +778,13 @@ AFF_TWOHANDED		8
 AFF_INVISIBLE		9
 AFF_MOONVISION		10
 AFF_POISON		11
-AFF_PROTECT_EVIL	12
-AFF_PARALYSIS		13
-AFF_GROUP		14
+AFF_SHIELD		12
+BREATHE			13
+(unused)		14
 AFF_CONFUSE		15
 AFF_SLEEP		16
 AFF_BASH		17
-AFF_DETECT_EVIL		18
+AFF_FLYING		18
 AFF_DETECT_INVISIBLE	19
 AFF_FEAR		20
 AFF_BLIND		21
@@ -758,9 +794,10 @@ AFF_HUNT		24
 AFF_EVASION		25
 AFF_WAITING		26
 AFF_WAITWHEEL		27
-AFF_ORC_DELAY		28
+(unused)		28
 AFF_CONCENTRATION	29
 AFF_HAZE		30
+AFF_HALLUCINATE		31
 
 WARNING:  BE CAREFUL WITH THESE.  They don't all work as expected.
 #
@@ -778,13 +815,17 @@ See MAN SHAPE GUIDELINES what should be there. Use command:
 /20 - change zone name
 /21 - change zone description 
 /22 - change zone map 
-/23 - change zone reset time (in ticks, 10 is default)
+/23 - change zone reset time (in minutes)
 /24 - change zone reset mode (see MAN SHAPE ZON 24)
 /25 - change zone level (see MAN SHAPE ZON 25)
 /51 - show zone name, description, map.
 
+   Zones cannot be created, added or deleted from the editor; talk to the
+Implementors.
+
    What is the rest of the zone file?  It is a sequence of commands that mud 
-follows to regen your zone.  Help on shape zone is continued in MAN SHAPE ZONE2
+follows to regen your zone.  Help on shape zone is continued in
+MAN SHAPE ZONE2
 #
 ZONE2 ZON2
    
@@ -812,18 +853,20 @@ have if flag 2 on equipment you give to your mobile.
 4) /50 shows you what zone commands you already have in your room.
 5) Do /0
 6) Use commands /6, /7 and /8  to navigate between commands.
-7) Use /11 or /12 to create a new zone empty zone command.
-8) Use /3 to define the zone command (see above for details).
+7) Use /10 (after) or /11 (before) to create a new empty zone command.
+8) Use /3 to define the zone command. /3 lists the letters; /4 then names
+   every number for that letter and shows the current ones (blank keeps).
    For example:
    Zone: 11> /3 
-   ENTER COMMAND TYPE <AKMOGEPD>:
+   Enter command type:
    Lin]D
-   Enter <if_flag> <room> <dir> <state(0-2)>:
-   Lin]0 1101 5 1
-   Enter line COMMENT:
+   D - set a door open/closed/locked. Enter 4 numbers:
+     if_flag room_vnum dir state
+   Dgt]0 1101 5 1
+   Enter line COMMENT (blank = keep, %q = empty):
    Lin]Closing door down from room 1101
 9) Double check what you did with either /1 or /50
-10) Save you work with /done or /save or /imp
+10) Save you work with /done or /save; /imp puts it into the game.
 
 Make sure you "zreset <your zone>" after you shape zone and 
 check if your zone file works!
@@ -858,6 +901,7 @@ These are available:
 9 = set butcher item that were not set in shape mob
 10 = remove. "10 1" removes mobile; "10 2" removes object.
 11 = set race aggression
+12 = set the script number of the last loaded mobile
 ----------------------------
 ----------------------------
 syntax:
@@ -942,6 +986,10 @@ using the if flag. Watch carefully what you do with <if> flag.
 Also, full race aggression value is required (read: 2^race), e.g.
 2048 to make it aggressive to uruks.
 
+-----
+A 12 (b)
+
+Sets the script number of the last loaded mobile to (b).
 #
 "ZONE D" "ZON D"
 Sets Door State.
@@ -1021,6 +1069,8 @@ Eq Positions :
 15 = Left Wrist
 16 = Wield
 17 = Hold
+18 = Back
+19-21 = Belt 1-3
 #
 "ZONE G" "ZON G"
 
@@ -1042,7 +1092,7 @@ arguments:
 
 The Kit Command, takes up to 7 arguments, all obj numbers, loads them 
 on the last mobile loaded, and performs "wear all". In 99% of the cases,
-use if_flag 2.
+use if_flag 2. Use -1 for unused slots (0 is a real object vnum).
 
 Simple.
 
@@ -1065,7 +1115,8 @@ arguments :
 (d) = max existing in the world. For non-unique mobs, set this to 0.
 (e) = probability
 (f) = difficult (modifier for xp given) -- set to 100% unless told otherwise
-(g) = max line (how many mobiles can be loaded by this single command)
+(g) = max line (how many mobiles loaded by this command may be alive at
+      once; 0 = no limit)
 (h) = trophy (set to 1 unless told otherwise)
 #
 "ZONE O" "ZON O"
@@ -1102,10 +1153,10 @@ arguments:
 (g) = maximum number of objects to be placed in the container (arg d)
 
 
- Changes in the P command. If you set the room and the container numbers
-to zero (or other non-existing number), the last loaded object will be
+ Changes in the P command. If you set the room or the container number
+to -1 (or a number that does not exist), the last loaded object will be
 used instead. Thus, you can give a chest with a sword to that spider,
-or whatever you meant to do.
+or whatever you meant to do. 0 is a real vnum, not "last object".
 
 Note that this command does NOT load a container. Make sure you load
 container with command O before command P.
@@ -1124,12 +1175,12 @@ object" to an item from the world.  The format is:
 1: the num-th object #obj_number in the room.
 2: the num-th object #obj_number in the last loaded object's contents.
 3: the num-th object #obj_number in the last loaded mobile's inventory.
-4: the object from the num-th position in the last loaded mobile's
-       equipment. if obj_number is non-zero, the returned object must
-       have that object_number.
---: any other suggestions for modes?
+4: the object worn in position num (see ZONE E) on the last loaded
+       mobile. It must have vnum obj_number, or use -1 for any object.
+5: the num-th mobile #mob_number anywhere in the world (room ignored).
+6: the num-th mobile #mob_number in the zone that holds <room>.
 ----------------
-  Please note that modes 2-4 ignore the <room> parameter, but will be
+  Please note that modes 2-5 ignore the <room> parameter, but will be
 listed in shape zone according to the number there. If no room is stated,
 the command will be listed in shape zone together with the previous
 command in the list.
@@ -1216,16 +1267,19 @@ There are no guidelines for setting this level, just ask someone who
 gave you the zone about zone level. 
 #
 "MOB"
-   You can use  'shape mob <mob vnum>' to design new mobs and to edit
-current mobs. If you are designing a new mob, you are advised to use
-'register' command to get a vnum. When using SHAPE MOB, use /0 and
-/help as in SHAPE ROOM.
+   Use 'shape mob <mob vnum>' to edit a mob. Zone files are made outside
+the game: if the file has no mob with that vnum yet, a blank one is started
+with that number and /save puts it in the file. 'shape mob new <zone>',
+/new, /add <file>, /delete and 'shape recalc_mobile' are disabled.
 
-The default values are given by /recalc using the level of mobile.
-Use it for now, as details can change.
-Use 'help SHAPE MOB <number>' to obtain help on /<number> command in simple
-interface, and 'help SHAPE MOB2 <number>' in extended interface.
+The editor opens in simple mode; /simple switches between simple and
+extended. /0 lists the fields; a word such as /help lists the commands.
+Type the field number on one line and the value on the next.
+Blank keeps the current value. /done stops if the save fails.
 
+The default values are given by /recalculate (at least /recalc) from the
+level. Use 'help SHAPE MOB <number>' for /<number> in the simple interface,
+and 'help SHAPE MOB2 <number>' in the extended interface.
 #
 "MOB 0" "MOB2 0"
 
@@ -1235,30 +1289,27 @@ interface.
 #
 "MOB 1" "MOB2 1"
 
-/1 assignes the aliases how players can address the mobile e.g. man, guard,
-elrond.  For example, Grim the Bartender should have aliases grim,
-bartender, man, waiter.  The input to this command should be a string with
-keywords without commas. Unless it is a proper name, do not capitalize the
-word.
-
+/1 assigns the aliases players use to address the mobile, e.g. man, guard,
+elrond. For example, Grim the Bartender should have aliases grim
+bartender man waiter. Separate the keywords with spaces, not commas.
+Unless it is a proper name, do not capitalize the word.
+Blank keeps the aliases; %q is refused (aliases can't be empty).
 #
 "MOB 2" "MOB2 2"
 
 /2 assigns the reference description of mobiles, e.g. a grey mouse, the
-Innkeeper, Elrond.  The reference description is used in acts done by
-mobiles.  The input for this command should be a string. Unless it is a
+Innkeeper, Elrond. The reference description is used in acts done by
+mobiles. The input for this command should be a string. Unless it is a
 proper name, do not capitalize the first word.
-
+Blank keeps it; %q is refused (it can't be empty).
 #
 "MOB 3" "MOB2 3"
 
-/3 assigns the main description of mobiles, e.g. A citizen is standing
-here; Elrond the Half-Elf is here, smiling at you; A large orc is here
-looking at you with disgust.  The description is used when a player
-enters a room, or uses 'look' (without parameters).  The input for this
-command should be a string, starting with a capital letter, and ending
-with a period.
-
+/3 assigns the room line of mobiles, e.g. A citizen is standing here;
+Elrond the Half-Elf is here, smiling at you. It is shown in the room
+only while the mob is in its default position (MOB2 17); otherwise the
+reference description plus the position is shown. Start with a capital
+letter and end with a period.
 #
 "MOB 4" "MOB2 4"
 
@@ -1270,76 +1321,74 @@ The input uses the standard editor.
 #
 "MOB 5" "MOB2 5" "MOB FLAGS" "MOB FLAGS"
 
-/5 assigns the mob flag value to the mobile. It is a BITVECTOR
-with the following values:
+/5 assigns the mob flags. It is a BITVECTOR; the prompt lists all bits.
 
-  Flag          Flag 
+  Flag          Flag
   meaning       number
-  SPEC             0  Set if special procedure exists. See MAN SHAPE MOB2 29
+  SPEC             0  Run the special procedure. See MAN SHAPE MOB2 29
   SENTINEL         1  Mob will stay in one room.
-  SCAVENGER        2  Mob will pick items up and wear/wield them.
-  ISNPC            3  Always set this bit!!!    RESERVED FOR INTERNAL USE
+  SCAVENGER        2  Mob will pick up items lying around.
+  ISNPC            3  Always set; the editor forces it on.
   NOBASH           4  Noone can bash the mob
-  AGGRESSIVE       5  :). It will attack players it sees
-  STAY_ZONE        6  Mob will stay in zone
-  WIMPY            7  It will flee if badly hurt, and attack sleeping players.
-  STAY_TYPE        8  It will stay in the sector it is in (i.e. water, forest).
-  IS_MOUNT         9  It can be ridden
+  AGGR             5  It will attack players it sees
+  STAY-ZONE        6  Mob will stay in zone
+  WIMPY            7  Flees if badly hurt; if AGGR, attacks only sleepers.
+  STAY-TYPE        8  Stays in rooms of its sector type (water, forest...).
+  MOUNT            9  It can be ridden
   CAN_SWIM        10  Mob doesn't need a boat to swim
-  ACT_MEMORY      11  Mob will remember attackers, and be agg to them.
-  ACT_HELPER      12  Mob will assist another mob.
-  MOB_BODYGUARD   16  Assists and rescues his master, if any
-  WRAITH          17  a ghost, a spirit, all that stuff, mob won't have corpse 
-  MOB_SWITCHING   18  Mob will switch opponents during fight.
-  MOB_NORECALC    19  Prevents mob from being recalculated on global recalc.
-                      SET ON CUSTOMIZED MOBS.
-  MOB_ACTIVE      20  When you enter the room mob will do instantly what it 
-                      knows. Agg mob will attack. Active has 50% chance to work
-  MOB_PET         21  Not to be used, normally - the flag means this mobile
-                      was tamed
-  MOB_HUNTER      22  Mob will remember attackers and hunt them down;
-                      this includes the effect of ACT_MEMORY
-  MOB_ORC_FRIEND  23  This mob can be recruited by common orcs.
+  MEMORY          11  Mob will remember attackers, and be agg to them.
+  HELPER          12  Attacks characters fighting a PC in the room.
+  AGGR_EVIL       13  With AGGR: attacks only evil players.
+  AGGR_NEUT       14  With AGGR: attacks only neutral players.
+  AGGR_GOOD       15  With AGGR: attacks only good players.
+  BODYGUARD       16  Assists and rescues his master, if any
+  WRAITH          17  A ghost, a spirit; perception is always 100.
+  SWITCH          18  Mob will not switch opponents.
+  NORECALC        19  Skipped by the global recalc. SET ON CUSTOMIZED MOBS.
+                      (The per-mob /recalculate ignores it.)
+  ACTIVE          20  Acts when someone enters the room.
+  IS_PET          21  Not to be used - the flag means this mobile was tamed
+  HUNTER          22  Remembers attackers and hunts them down;
+                      this includes the effect of MEMORY
+  ORC_FRIEND      23  This mob can be recruited by common orcs.
+  RACE_GUARD      24  Will not let players of a different race into the room.
+  ASSISTANT       25  Assists its master in combat.
+  GUARDIAN        26  Guardian mob.
 
 If you set flag number 5 check /11 about race specific aggression.
 
 The default value of this command is 8. The input is a sum of flag values
-(which you don't want to do), or P/M<flag number>. See MAN SHAPE BITVECTOR
+(which you don't want to do), or P/M<flag number>, one per answer.
+See MAN SHAPE BITVECTOR
 #
 "MOB 6" "MOB2 6"
 
-/6 assigns an affection for a mobile. For now, the affections are the
-following, but they are subject to change in the near future, and
-builders are strongly advised against using them. Affection is a BITVECTOR
-with the following values:
-  Flag            Flag  Flag 
-  meaning        number value
-  AFF_SENSE_LIFE   0     1         Mob will sense hidden players (?)
-  AFF_INFRARED     1     2         Allows mob to see in the dark.
-  AFF_SNEAK        2     4         The message "The xxx leaves direction" will
-                                  not be displayed when the mob moves
-                                  out/in to a room.
-  AFF_HIDE         3     8         The monster will be hidden, and can only
-                                  be detected by a "sense life" spell
-  AFF_DETECT_MAGIC 4     16        RESERVED PLAYERS
-  AFF_CHARM        5     32        The monster will act as charmed when a
-                                  "follow <player>" is entered. Note that
-                                  players can't force monsters to follow
-                                  them.
-  AFF_CURSE        6     64        ??? DO NOT USE
-  AFF_SANCTUARY    7     128      The monster has sanctuary (prevents attacks)
-  AFF_TWOHANDED    8     256      The monster will wield it's weapon two-handed
-  AFF_BREATHE     13    8192      Allows a mob to breathe underwater.
-  AFF_FLYING      18      X       The mob will fly and leave no tracks.
+/6 assigns permanent affects to a mobile. Builders are advised against
+using most of them. It is a BITVECTOR; the prompt lists bits 0-31:
+  Flag           Flag  Flag
+  meaning       number value
+  SENSE           0     1      Mob will sense hidden characters.
+  INFRA           1     2      Allows mob to see in the dark.
+  SNEAK           2     4      No "The xxx leaves direction" messages.
+  HIDE            3     8      The mob starts hidden.
+  DET-MAGIC       4     16     RESERVED PLAYERS
+  CHARM           5     32     Acts as charmed. DO NOT USE
+  CURSE           6     64     DO NOT USE
+  SANCT           7     128    The mob has sanctuary.
+  TWO-HANDED      8     256    Wields its weapon two-handed.
+  INVIS           9     512    The mob is invisible.
+  BREATHE        13    8192    Allows a mob to breathe underwater.
+  FLYING         18  262144    The mob flies and leaves no tracks.
 
 The default value is 0, the input is a BITVECTOR.
 See MAN SHAPE BITVECTOR for details.
 #
 "MOB2 7"
 
-/7 in extended assigns the alignment of mobile. 0 is neutral, -1000 is totally
-evil, +1000 is totally good.  Usage of alignments above 500 and below -500 is
-strongly discouraged except special mobiles.
+/7 in extended assigns the alignment of mobile. 0 is neutral, -1000 is
+totally evil, +1000 is totally good (good >= 100, evil <= -100). Type -300
+to set -300; +N adds. Alignments above 500 and below -500 are strongly
+discouraged except for special mobiles.
 Alignment ranges based on race type:
 Race Type            Alignment Ranges
 ---------            -----------------
@@ -1349,30 +1398,29 @@ Humans               100 to 200
 Neutral Mobs         -100 to 100
 Wargs                -100 to -200
 Orcs and Uruks       -200 to -350
-Undead               -300 to -450 (if evil, reverse for good) 
-
+Undead               -300 to -450 (if evil, reverse for good)
 #
 "MOB 7" "MOB2 8"
 
-/7 (simple), /8 (extended) sets a level of mobile. This should be dependent 
-on mobile itself, and the zone. The level of mobile is used by /recalc.  The
-input is an integer, which is recommended to be between 0 and 30 (except
-special cases). See guidelines posted on boards.
-
+/7 (simple), /8 (extended) sets the level of mobile. This should depend on
+the mobile itself and the zone. Changing it does not recalculate the stats;
+/recalculate does that from the level. The input is an integer, recommended
+between 0 and 30 (except special cases). See guidelines posted on boards.
 #
 "MOB2 9" "MOB2 10" "MOB2 10" "MOB2 11" "MOB2 12"
 
-These values set the fight values of a mobile: offensive bonus, parry, dodge,
-hitpoints, damage, and energy regen (hit frequency). Default values are given
-by /recalc command depending on the level of mobile and should be changed ONLY
-for special mobiles.  If in doubt, don't change them.
-   The inputs are integers.
+These values set the fight values of a mobile. Default values are given by
+/recalculate from the level and should be changed ONLY for special mobiles.
+If in doubt, don't change them.
+  /9  OB PARRY DODGE, three numbers. Shows Current; blank keeps.
+  /10 MIN_HIT MAX_HIT; each copy rolls between them. Blank keeps.
+  /11 damage, added x10 to each hit.
+  /12 energy regen: higher = faster attacks.
 #
 "MOB2 13"
 
-/13 (extended) gives gold to mobile. Maximum should be level^2. Set
-less than maximum for most mobs. 
-
+/13 (extended) gives gold to mobile, in copper coins (1000 = 1 gold).
+Maximum should be level^2. Set less than maximum for most mobs.
 #
 "MOB2 14"
 
@@ -1397,85 +1445,88 @@ which can be m, f, or n.
 "MOB 9" "MOB2 19" "MOB RACE"
 
 /9 (simple), /19 (extended) assigns the race of mobile. The default value is
-0, and should be changed for any humanoid mob. The input is an integer.
+0, and should be changed for any humanoid mob. It must be 0-20.
      The following options are available:
-          animal                0
-          human			1
-          dwarf			2
-          wood elf		3
-          hobbit		4
-          high elf		5
-          beorn                 6 
-          uruk			11
-          haradrim		12
-	  common orc		13
-	  easterling		14
+          god/animal            0
+          human                 1
+          dwarf                 2
+          wood elf              3
+          hobbit                4
+          high elf              5
+          beorning              6
+          uruk-hai              11
+          harad                 12
+          common orc            13
+          easterling            14
           uruk-lhuth            15
           undead                16
-          olog                  17
+          olog-hai              17
+          haradrim              18
           troll                 20
 
 Make sure you set correct bodytype depending on race. See 'MAN SHAPE MOB 10'
 #
 "MOB 10" "MOB2 26"
 
-/10 (simple), /26 (extended) sets the bodytype. The value is:
-    
-	0	Animals which are too small to be hit at individual body parts
-		or mobs that don't have bodyparts. No humanoid can have this
-		bodytype. Example: a mole, a snake.
-	1	Humaniods. Mobs with heads, two arms and two legs.
-	2	Medium sizes and larger animals. Assumes a mob has four legs
-		and a head. Only these animals can be tamed by rangers. No
-		humaniod can have this bodytype. Example: a wolf, a cat.
-        3       Something with tentacles. Mob with head, body and 8 legs.
-        4       Birds. Mobs with head, two wings, two legs and two claws.
+/10 (simple), /26 (extended) sets the bodytype, 0-15. The value is:
+
+        0       Too small to be hit at individual body parts, or no
+                bodyparts. No humanoid can have this. Example: a snake.
+        1       Humanoids. Head, body, two arms and two legs.
+        2       Medium sized and larger animals: four legs and a head.
+                No humanoid can have this. Example: a wolf, a cat.
+        3       Head, body and 8 legs.
+        4       Birds. Head, body, two wings, two legs and two claws.
+        5-14    Unused; the same as 0.
+        15      Bear form.
 
 Make sure you set correct race on your mobile. See 'MAN SHAPE MOB 9'
 #
 "MOB 11" "MOB2 20"
 
-/11 (simple), /26 (extended) sets the race aggression, that is to which race
-the mobile should attack on sight. The value is a BITVECTOR, listed as follows
-	
+/11 (simple), /20 (extended) sets the race aggression, that is which races
+the mobile attacks on sight - players and mobs alike. The value is a
+BITVECTOR, listed as follows
+
           Not aggressive        Value   Flag number
-          to any special race	0.       
+          to any special race   0.
           Agressive to:
-          god			1           0   NOT a good idea.
-          human			2           1
-          dwarf			4           2
-          wood elf		8           3
-          hobbit		16          4
-          high elf		32          5
-          beorn                 64          6
-          uruk			2048        11
-          haradrim		4096        12
-	  common orc		8192	    13
-	  easterling		16384       14
-          magus			32768       15
-          olog                  131072      17
-          harad (player)        262144      18
- 
-Any value of this flag can be set independently of AGGRESSIVE mob flag,
-although if mob is aggressive, this flag doesn't matter. Agg to whities is
-flag value 126, agg to darkies is flag value 456704. Agg to 3rd side is 294912. Agg to whities and 3rd side is 295038.
+          god                   1           0   NOT a good idea.
+          human                 2           1
+          dwarf                 4           2
+          wood elf              8           3
+          hobbit                16          4
+          high elf              32          5
+          beorning              64          6
+          uruk-hai              2048        11
+          harad                 4096        12
+          common orc            8192        13
+          easterling            16384       14
+          uruk-lhuth            32768       15
+          undead                65536       16
+          olog-hai              131072      17
+          haradrim              262144      18
+          troll                 1048576     20
+
+This check runs before the AGGR mob flag, so it matters even on AGGR mobs.
+Agg to whities is flag value 126, agg to darkies is flag value 456704.
+Agg to 3rd side is 294912. Agg to whities and 3rd side is 295038.
 
 The default value is 0, and the input is a BITVECTOR.
 See MAN SHAPE BITVECTOR for details.
 #
 "MOB 12" "MOB2 31"
 
-/12 (simple), /31 (extended) sets the vnum of an item that a player gets from
-butchering a mobile's corpse. The input in an integer. For humanoid and other
-mobs that do not have a butchered item, set this value as 17.
-
+/12 (simple), /31 (extended) sets the vnum of an item that a player gets
+from butchering a mobile's corpse. The input is an integer.
+0 means "nothing of value" - use it for humanoids and other mobs without
+a butchered item.
 #
 "MOB2 21"
 
-/21 (extended) assigns the weight of a mobile. Units are 1/100 of kg.
-The default value is 5000 (50 kg), set automatically by /recalc. 
+/21 (extended) assigns the weight of a mobile, in 1/100 lb ('score' shows
+weight/100 as lb). The default value is 5000.
 Use reasonable values. The input is an integer.
-
 #
 "MOB2 22"
 
@@ -1486,29 +1537,33 @@ Use reasonable values. The input is an integer.
 #
 "MOB2 23"
 
-/23 (extended) is unused now. Default value is 0, and should stay this way.
-
+/23 (extended) is one number (0-255). For mobs it only shows in 'stat'
+(Normal/Undead). Default value is 0, and should stay this way.
 #
-"MOB2 24" "MOB2 25" "MOB2 27" 
+"MOB2 24" "MOB2 25" "MOB2 27"
 
-Assign mana, movepoints and saving throw to a mobile. Default values are
-given via /recalc. The inputs are integers. If in doubt, don't change them.
-
+Assign stamina (mana), movepoints and saving throw to a mobile. Default
+values are given via /recalculate. The inputs are integers. If in doubt,
+don't change them. A positive saving throw means less spell damage; type
+-N to set a negative saving throw.
 #
 "MOB2 28"
 
-/28 (extended) assigns stats to a mobile. The default values are given by
-/recalc. Use common sense when changing these values. The input are 6 integers
-without commas between them.
-
+/28 (extended) assigns stats to a mobile: STR INT WILL DEX CON LEA, six
+integers without commas. The default values are given by /recalculate.
+Shows Current; blank keeps. A stat of 0 or less becomes 17 when the mob
+loads; above 127 wraps. Use common sense when changing these values.
 #
 "MOB2 29"
 
-/29 (extended) assigns special program for a mobile, e.g. procedure to rent
-players for innkeeper, to sell stuff for shopkeepers. Consult high gods about
-usage of special procedures.
+/29 (extended) assigns special program for a mobile. With flag SPEC (bit 0)
+set it is a special procedure number; without SPEC it is a mudlle program
+vnum (0 = none). Consult high gods about usage of special procedures.
+Procedures that the code attaches by vnum (guildmasters, receptionists,
+shopkeepers) are not changed here; for a guildmaster /29 is its guild list.
+/implement applies a changed /29 to mobs loaded from then on, every time.
 
-Some special procedures:
+Special procedures:
 1: snake. will bite to poison
 2: friendly gatekeeper. will open the door during daytime, will open knocks
 3: caster-mystic. randomly casts healing, armor etc
@@ -1519,11 +1574,13 @@ Some special procedures:
 8-13: blocking exit {n e s w u d}.
     Mobile that jig or block exits can be stopped from it - by making it
     flee, for one, and won't resume its occupation again.
-    You do not have to make 6 different mobiles to block in different 
-    directions,
-just use command A in the shape zone (MAN SHAPE ZONE2).
-14: resetter. pracresets a player if receives a tell. 
-15: ranger. will ambush enemies and may do more nasty things.
+    You do not have to make 6 different mobiles to block in different
+    directions, just use command A in the shape zone (MAN SHAPE ZONE2).
+14: resetter. pracresets a player if receives a tell.
+15: ranger (old). will ambush enemies and may do more nasty things.
+16: react trap          17: gatekeeper, no knock   18: ar-tarthalon
+19: ghoul               20-23: vampire huntress/thuringwethil/doorkeep/killer
+24: healing plant       25: vortex elevator
 26: summoner. While fighting, will summon up to lvl/3 followers of type
     mob_vnum+1. The summoned mob's "other room deathcry" is heard within the
     room upon summoning.
@@ -1533,42 +1590,45 @@ just use command A in the shape zone (MAN SHAPE ZONE2).
     beginning with a + will be echoed instead.
 28: herald. Herald announces the arrival of a person to the room. The message
     displayed is taken from the mob's "other room deathcry". For example,
-    "%s of %s seeks audience!" will echo to the room "PLAYERNAME of 
+    "%s of %s seeks audience!" will echo to the room "PLAYERNAME of
     PLAYERTITLE seeks audience!".
-    Important Note:  This spec_prog will NOT work with act_memory flag (#11).
+    Important Note:  This spec_prog will NOT work with MEMORY flag (#11).
+29: postmaster          30: dragon
+31: caster/mage (spec)  32: ranger (new)
 
-Make sure to add flag SPECIAL to mobile.
+Make sure to add flag SPEC to mobile.
 
 See also: MAN SHAPE MOB 5
 #
 "MOB2 30" LANGUAGE "MOB LANGUAGE"
 
 /30 (extended) sets the language that mobile speaks. The values are:
-0 common 
-1 animal 
-2 human 
+0 common
+1 animal
+2 human
 3 orcish
+Anything above 3 is stored as 3. /recalculate sets it from the race.
 #
 "MOB2 32"
 
-/32 sets the mob's perception. For most mobs leave this at -1 and the code
-will automatically assign a value based on the mob's race type.  Below is
-a chart of racial values:
-Elves                =50
-Other Humanoids      =30
-Undead (non-wraith)  =60
-Wraiths              =100
-
+/32 sets the mob's perception, 0-100. For most mobs leave this at -1
+(type -1) and the code assigns a value from the mob's race:
+High elves           =100
+Wood elves           =50
+Undead               =60
+Orcs                 =10
+Dwarves, race 0      =0
+Other races          =30
+WRAITH mobs (flag 17) always have 100.
 #
 "MOB2 33" "MOB2 34"
 
    These options set the mobile "death cry" - the message to give when it
-dies. The default message is "Your blood freezes as you hear its death cry".
+dies. $n is the mob. The default message is "Your blood freezes as you
+hear <mob>'s death cry" ("someone's" in other rooms).
 The /33 defines the message to produce in the room where it dies, the
 /34 message is sent to adjacent rooms.
-   You cannot send no message at all. If you define here empty lines, the
-default text will be used.
-
+   %q stores an empty death cry, which sends no message at all.
 #
 "MOB2 35"
 
@@ -1610,12 +1670,33 @@ at all.
 See also: SHAPE OBJ 11, GENERAL SPECIALIZATION
 
 #
+"MOB 13" "MOB2 40" "MOB SPIRIT"
+
+/13 (simple), /40 (extended) sets the mob's spirit points, spent when it
+casts cleric or mystic spells and by curse. The input is an integer.
+#
+"MOB2 38"
+
+/38 (extended) sets the script vnum (world/scr, see SHAPE SCRIPT) the mob
+runs. 0 means none. It is separate from the program in /29.
+#
+"MOB2 39"
+
+/39 (extended) sets the roleplay flag, a race BITVECTOR used by
+guildmasters: when it is not 0, only races whose bit is set may practice.
+0 means no restriction. See 'MAN SHAPE MOB 11' for race bits.
+#
+"MOB2 41"
+
+/41 (extended) sets which races a guildmaster will teach, as a race
+BITVECTOR (see 'MAN SHAPE MOB 11'). It only matters for guildmaster mobs.
+#
 "MOB 49" "MOB2 49"
 
-/49 is convenience command which will lead you through the mob creation
-sequence to create a mob. It is useful to do this command in the
-beginning and edit the parameters of a mob later with other commands.
-
+/49 leads you through the mob creation sequence: /1, /2, /3, /4, level,
+the list, then /recalculate. The stats are reset from the level BEFORE it
+asks "Edit them now?" - answering N does not undo it, so don't run /49 on
+a finished mob. On Y it goes on with /23-/28, /9, /10 and /29.
 #
 "MOB 50" "MOB2 50"
 
@@ -1629,12 +1710,11 @@ The default position is the position at which the full description
 (/3) is shown, in all other positions reference description (/2) +
 mobile position is shown. When in doubt, set both to 8.
 
-Positions:
+Positions (only these are accepted):
 4 -sleeping
 5 -resting
 6 -sitting
 8 -standing
-
 #
 "ROOM 0"
 
@@ -1658,8 +1738,8 @@ save it (%e), do %f to format the description in a nice way.
 #
 "ROOM 3" "ROOM FLAGS" "ROOM FLAGS"
 
-/3 sets the room flags in the current room. The room flags is a 
-BITVECTOR with the following values:
+/3 sets the room flags in the current room. The prompt lists them. The
+room flags is a BITVECTOR with the following values:
  Flag       Flag  Flag   Flag 
  name       value Number meaning
  DARK          1   0   Light must be used to see anything.
@@ -1667,10 +1747,13 @@ BITVECTOR with the following values:
  NO_MOB        4   2   No monsters may walk around in here
  INDOORS       8   3   This is inside (a house,cave or dungeon for example)
  NORIDE       16   4   Cannot ride into this room
+ (internal)   32   5   Set by the game. Do not use.
  SHADOWY      64   6   Sun can be seen, but Darkies do not get sundelay.
- NO_MAGIC    128   7   Not implemented.
+ NO_MAGIC    128   7   Cannot be the target of a teleport.
  TUNNEL      256   8   Not implemented.
+ PRIVATE     512   9   Imms cannot goto here when two people are in it.
  GODROOM    1024   10  Mortals are not supposed to be in this room.
+ (internal) 2048   11  Set by the game. Do not use.
  WATER      4096   12  Drinking water available in this room. (e.g on shores)
  POISON     8192   13  Can drink water, but water is poisoned.
  SECURITY  16384   14  Do not use! (to be used for shop store rooms, etc).
@@ -1679,7 +1762,7 @@ BITVECTOR with the following values:
  HIDE_VNUM 131072  17  Hides VNUMs from advancedview (for mazes)
 
 The use of flag 2 should be avoided. The default value is 8. The input
-is a BITVECTOR.
+is a BITVECTOR. Only one p/m per answer: 'p0 p3' sets only flag 0.
 
 Example: you want to make a room with poisoned water, dark and indoors.
 Flag:      Flag number:     Flag value:
@@ -1691,23 +1774,23 @@ You can do in 3 different ways, from simplest to hardest:
   1) EASIEST way. By default, the room will have NOFLAGS. You need to input
 flags _numbers_. You have to use P/M (plus/minus). Here is how you do it:
 Shape>/3
-Dig]P0
+Dgt]P0
 Shape>/3
-Dig]P3
+Dgt]P3
 Shape>/3
-Dig]P13
+Dgt]P13
   2) Same as 1, but you input flag values, not number. You have to use
 +/- not P/M.
 Shape>/3
-Dig]+1
+Dgt]+1
 Shape>/3
-Dig]+8
+Dgt]+8
 Shape>/3
-Dig]+8192
+Dgt]+8192
   3) HARDEST. Add up values yourself and input the result. Good for
 experienced users. 1+8+8192=8201.
 Shape>/3
-Dig]8201
+Dgt]8201
 
 See MAN SHAPE BITVECTOR for details on how flags add up.
 #
@@ -1730,8 +1813,8 @@ following: (mainly for movement usage)
   SECT_DENSE_FOREST   11  For very dense forest, such as Mirkwood at places.
   SECT_SWAMP          12  For swamps and such
 
-The default value is 0. The input is an integer.
-
+The default value is 0. The input is an integer 0-12; anything else is
+refused ("Sector type must be 0-12. dropped.").
 #
 "ROOM 5"
 
@@ -1739,7 +1822,9 @@ The default value is 0. The input is an integer.
 w (west), s (south), e (east), u (up) and d (down). The commands /6, /8 to 
 /12 are unavailable until the current exit is selected.
 
-Make sure you set up /11 after you do /5.
+If there is no exit in that direction, one is created and leads nowhere:
+set /11 next, or remove it with /7. Selecting a direction by mistake still
+creates the exit, so remove it before you save.
 
 The input is a char.
 
@@ -1747,7 +1832,8 @@ See also: MAN SHAPE ROOM 11
 #
 "ROOM 6" "EXIT FLAGS"
 
-/6 selects flags for the current exit. The following values are available:
+/6 selects flags for the current exit. The prompt lists them. The following
+values are available:
 
 Flag   Flag Flag  Flag 
 number name value meaning
@@ -1756,7 +1842,7 @@ number name value meaning
  1    CLOSED  2
  2    LOCKED  4
  3    NOFLEE  8
- 4    LOCKED  16
+ 4    (unused) 16
  5    NOPICK  32
  6    ISHEAVY 64     - cannot be bashed, cannot blink through it
  7    NOBREAK 128
@@ -1770,7 +1856,8 @@ number name value meaning
 
 The default value is 0, and the input is an integer.
 Note that some flags will be overwritten by the program (e.g. CLOSED),
-or can not be used with some other flags.
+or can not be used with some other flags. CLOSED and LOCKED are only the
+state at boot; a zone D command sets them at every reset.
 
 Make SURE you do not have exit keyword (/8) if your exit flag is 0, and
 you MUST have exit keyword (see MAN SHAPE ROOM 8) if exit flag is a DOOR.
@@ -1786,11 +1873,12 @@ saved room, you can use /free (without /save) and then start shaping again.
 #
 "ROOM 8"
 
-/8 assigns an exit keyword (e.g. rock, door, gate) to the selected direction.
-The input is a lower case word without articles, commas and spaces. NEVER
-assign exit keywords to exits which are not doors (those which do not have
-flag number 0 DOOR -- see MAN SHAPE ROOM 6). If your exit is a door, you MUST
-have an exit keyword which is the name of your door.
+/8 assigns the exit keywords (e.g. door, oak door, gate) to the selected
+direction. Separate words with spaces, no articles or commas. The first word
+is the one shown in messages ("The door is closed."). NEVER assign exit
+keywords to exits which are not doors (those which do not have flag number
+0 DOOR -- see MAN SHAPE ROOM 6). If your exit is a door, you MUST have an
+exit keyword which is the name of your door.
 
 See also: MAN SHAPE ROOM 5, MAN SHAPE ROOM 6
 #
@@ -1807,22 +1895,20 @@ descriptions when they either "look" or "examine".
 #
 "ROOM 10"
 
-/10 assigns a number of an object to unlock/lock the current exit. A first 
-value of the key should be the same with this value. It is common to set this
-value to vnum of the key.  If a player carries/holds this object, he can
-lock/unlock.  Key_Number == -1 means no keyhole. If exit_type is 0, the 
-value of this field is ignored.
+/10 sets the vnum of the key object that locks/unlocks the current exit.
+If a player carries/holds an object with this vnum, he can lock/unlock.
+-1 means no keyhole: typing -1 sets -1. 0 is the object with vnum 0, not
+"no key". If exit_type is 0, the value of this field is ignored.
    The input is an integer.
-
 #
 "ROOM 11"
 
-/11 sets the room number where the exit leads. If you want your exit to lead
-anywhere, do not set this value to zero.
-If this value is 0 (then exit_type should be zero, and no exit keyword, and 
-there must be exit description), then description is displayed when 
-'look <direction>' is used. The input is an integer.
-
+/11 sets the room vnum where the exit leads. The exit back is not made for
+you; shape the other room too.
+-1 means the exit leads nowhere (typing -1 sets -1): then exit_type should
+be zero, there should be no exit keyword, and there must be an exit
+description, which is displayed when 'look <direction>' is used.
+The input is an integer.
 #
 "ROOM 12"
 
@@ -1837,14 +1923,14 @@ following:
 	5 - Forest, Hills
 	6 - Plains
 
-This value will be used in "block exit".
+This value will be used in "block exit": a wider exit is harder to block.
+Values outside 0-255 are refused.
 #
 "ROOM 13"
 
-/13 is used to change the keyword of current exit description. The current 
-exit description is selected by /15. The input is a lower case word without
-spaces, commas, etc. 
-
+/13 changes the keywords of the top (last added) extra description, the
+words players use with 'look <word>'. Separate words with spaces, no
+commas. Only the top extra description can be edited.
 #
 "ROOM 14"
 
@@ -1854,36 +1940,34 @@ paragraph of any length.
 #
 "ROOM 15"
 
-/15 created a new extra description. "Extra description" is something in the
-room which is not an object, nor a mob, but does exist there, e.g. wall, rock
-(no need to create object), sky, ground. The extra description should be used
-if needed, but not overused. 
-   Also, this command assigns a keyword for the extra description. The 
-input is a lower case word without spaces, commas, etc. 
-
+/15 creates a new extra description on top of the list. "Extra
+description" is something in the room which is not an object, nor a mob,
+but does exist there, e.g. wall, rock (no need to create object), sky,
+ground. The extra description should be used if needed, but not overused.
+   After /15 the editor asks for its keywords (/13). Use /14 for the text.
 #
 "ROOM 16"
 
-/16 erases the current extra description, or the last extra desc, if none 
-are selected as current. See 'SHAPE ROOM 15'. No input.
-
+/16 erases the top (last added) extra description. See 'SHAPE ROOM 15'.
+No input.
 #
 "ROOM 17"
 
-/17 sets the room level... The feature is currently not used, so best to
-leave its value at 0.
-
+/17 sets the room level, 0-255. Its only use is mortal 'where', which
+finds players in the same zone and the same room level. Best to leave it
+at 0.
 #
 "ROOM 18"
 
 /18 modifies the top room affection (use /19, /20 to add or remove one).
+The prompt shows the current four numbers; a blank answer keeps them.
 It requires four numbers as its input, namely:
 <arg1> - Affection type. Currently supported only the value 1,
          which is Spell affection.
 
 <arg2> - Spell number. Which spell to use on the room. The affected room
          will cast this spell on all people present from time to time.
-         Use -1 here if you only want to set the room flags.
+         127 means no spell (only the room flags).
 
 <arg3> - Spell level.
 
@@ -1899,16 +1983,15 @@ ask a greater god about the spell number you want to use. Consider it as
 a safeguard against unreasonable spells place in inappropriate rooms.
 
 SEE ALSO: "ROOM 19", "ROOM 20"
-
 #
 "ROOM 19", "ROOM 20"
 
-/19 will add an affection to the room you are shaping. 
+/19 will add an affection to the room you are shaping: a spell affection
+(type 1) with no spell (127), until you change it with /18.
 /20 will remove the top affection of the room.
 
 You can currently modify only the top affection of the room, by 
 using /18.
-
 #
 "ROOM 50"
 
