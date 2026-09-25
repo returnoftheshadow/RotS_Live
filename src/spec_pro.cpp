@@ -280,8 +280,8 @@ SPECIAL(guild) {
 
                 if ((skills[tmp].level <= level) && (!IS_SET(skills[tmp].learn_type, LEARN_SPEC) || (GET_SPEC(ch) == skills[tmp].skill_spec))) {
 
-                    sprintf(str, "%-25s %3d%%     Taught to: %-12s\n\r", skills[tmp].name,
-                        ch->knowledge[tmp], how_good(guildmasters[prog].knowledge[tmp]));
+                    sprintf(str, "%-25s %3d%%  %2d  Taught to: %-12s\n\r", skills[tmp].name,
+                        ch->knowledge[tmp], ch->skills[tmp], how_good(guildmasters[prog].knowledge[tmp]));
                     send_to_char(str, ch);
                 }
             }
@@ -414,7 +414,7 @@ ACMD(do_practice)
                 strcpy(str2, "");
             }
 
-            sprintf(str, "%-25s %-12s %s\n\r", skills[tmp].name, how_good(ch->knowledge[tmp]),
+            sprintf(str, "%-25s %2d %-12s %s\n\r", skills[tmp].name, ch->skills[tmp], how_good(ch->knowledge[tmp]),
                 str2);
             send_to_char(str, ch);
         }
