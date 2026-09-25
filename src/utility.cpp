@@ -1103,6 +1103,20 @@ void mudlog(char* str, char type, sh_int level, byte file)
     return;
 }
 
+/* Whether mudlog(..., type, level, ...) would show a message to ch.  Mirrors
+ * mudlog's own test, so a caller that also tells a builder directly does not
+ * tell them the same thing twice. */
+bool mudlog_reaches(struct char_data* ch, int level, int type)
+{
+    if (!ch || !ch->desc || ch->desc->connected || PLR_FLAGGED(ch, PLR_WRITING))
+        return false;
+    if (level < LEVEL_AREAGOD)
+        level = LEVEL_AREAGOD;
+    int tp = (PRF_FLAGGED(ch, PRF_LOG1) ? 1 : 0) + (PRF_FLAGGED(ch, PRF_LOG2) ? 2 : 0)
+        + (PRF_FLAGGED(ch, PRF_LOG3) ? 4 : 0);
+    return GET_LEVEL(ch) >= level && tp >= type;
+}
+
 void mudlog_debug_mob(char* buf, char_data* ch)
 {
     mudlog_aliased_mob(buf, ch, "debug");

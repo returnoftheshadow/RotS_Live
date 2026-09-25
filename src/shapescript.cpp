@@ -561,6 +561,9 @@ void implement_script(struct char_data* ch)
         }
         last_command = newscript;
     }
+
+    /* Tell the builder about any vnum in the script that names nothing. */
+    check_script_vnums(SHAPE_SCRIPT(ch)->index_pos, ch);
 }
 
 void show_command(char_data* ch, script_data* script)

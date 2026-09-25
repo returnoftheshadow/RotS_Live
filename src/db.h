@@ -177,6 +177,14 @@ struct reset_com {
     int arg7;
     int existing;
     /*
+     * Set by renum_zone_one when one of the args above did not resolve and the
+     * command was left enabled anyway (a K equipment slot, a P room or
+     * container): 0 if none, else 1 + the zone_ref_kind that failed.  It
+     * runs at every reset and quietly loads nothing; reset_zone reports that
+     * each time it happens, so the log shows how often it is actually hit.
+     */
+    char bad_arg;
+    /*
      *  Commands:
      *  'M': Read a mobile
      *  'O': Read an object

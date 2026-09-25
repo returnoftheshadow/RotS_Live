@@ -47,6 +47,7 @@ int str_cmp(char* arg1, char* arg2);
 int strn_cmp(char* arg1, char* arg2, int n);
 void log(const char* str);
 void mudlog(char* str, char type, sh_int level, byte file);
+bool mudlog_reaches(struct char_data* ch, int level, int type);
 void mudlog_debug_mob(char* buf, char_data* ch);
 void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias);
 void vmudlog(char type, char* format, ...);

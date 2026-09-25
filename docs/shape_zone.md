@@ -12,7 +12,8 @@ or building regen scripts.
   (granted via `get_permission`). Use `shape zone <zone#>` or `shape zone current`
   while standing in the area.
 - **Reset testing** – after saving, use `zreset <zone#>` (or `zreset current`) to
-  validate the file. Watch for errors in the log.
+  validate the file. Watch for errors in the log (see
+  [Error messages](#error-messages)).
 - **General builder rules** – keep the zone description/map/name up to date,
   follow the room writing guidelines documented in `shape_room.md`, and avoid
   ad-hoc hacks when a real zone command (`A`, `L`, etc.) suffices.
@@ -70,7 +71,9 @@ owners/implementors.
    commands in a room.
 8. **Save / exit**: `/save` writes the `.zon` file (after backing up),
    `/implement` syncs the live world, `/done` does both and exits, `/free`
-   abandons the session without saving.
+   abandons the session without saving. `/implement` lists every command that
+   names a room, mobile or object that does not exist, and says how many
+   commands were disabled (see [Error messages](#error-messages)).
 
 > Tip: zone commands run as a script every reset, top to bottom. Keep related
 > commands grouped (load mob → kit/equip/give → tweak with `A` commands) and use
@@ -228,6 +231,8 @@ Modes:
 | `2` | Select the Nth object inside the last loaded object’s contents. |
 | `3` | Select the Nth object in the last loaded mobile’s inventory. |
 | `4` | Select the object worn in the Nth slot on the last mobile (optionally restrict to a specific vnum). |
+| `5` | Select the Nth instance of the mob vnum anywhere in the world. The room is ignored. |
+| `6` | Select the Nth instance of the mob vnum anywhere in the zone that contains `room_vnum`. |
 
 `L` updates the “last mobile/object” pointers so subsequent commands (like `A`,
 `E`, or `G`) operate on existing instances. Example: use `L` to find mounts in a
@@ -277,6 +282,50 @@ M 10 5001 1820 0 100 50 0 1      ; if that horse is missing, spawn a new one
 The `L` command updates the “last mobile” pointer. The `M` command uses
 `if_flag 10` (“last mobile NOT loaded”) so it only fires when the mount count
 dips below the desired number.
+
+## Error messages
+
+A command that names a room, mobile or object that does not exist is reported
+with its zone number and command number (its position in the zone's command
+list, counting from 1). The line also goes to the log, and to anyone at area god or above
+with `syslog` set to `normal` or higher. On `/implement` the builder sees the
+lines directly as well (once, even if they already see syslog).
+
+**When the zone is implemented, and at boot:**
+
+```
+ZONE ERROR: zone #23, command 39 (M): mobile vnum 2156 not found - command disabled
+ZONE ERROR: zone #73, command 6 (K): object vnum 7312 not found
+```
+
+- `- command disabled`: the vnum the command needs (the mob of `M`, the object
+  of `O`/`G`/`E`/`P`, the room of `M`/`O`/`D`, the target of `L`/`A`) does not
+  exist, so the command is turned off and does nothing until it is fixed and
+  implemented again. `/implement` ends with "N command(s) were DISABLED".
+- No suffix: an optional vnum (a `K` slot, the room or container of `P`, the
+  room of `L`) does not exist. The command still runs.
+- `unknown command - does nothing`: the command letter is not one the zone reset
+  runs (`N`, `X`, `H` and `Q` are read from the file but never run). The row is
+  skipped at every reset. A row with no letter (`.`) is empty and not reported.
+- Unused slots (`0`) are never reported.
+
+**At every zone reset, each time it happens:**
+
+| Message | Meaning |
+|---------|---------|
+| `(K): object not loaded` | The mob loaded, but a `K` slot names an object that does not exist, so it goes without it. |
+| `(P): room not found - put in last object loaded` | The object loaded, but into the last object loaded instead of the named room. |
+| `(P): container not found - put in last object loaded` | Same, for a container that does not exist. |
+| `(P): room not found - nothing loaded`, `(P): container not found - nothing loaded` | As above, and there was no last object to fall back on. |
+| `(L): room not found - searched room 0 instead` | The `L` room does not exist; the search looked at room 0. |
+| `(<letter>): negative room lookup while running this command` | Something the command set off (loading or equipping a mob, and so on) looked up a room that does not exist. |
+
+A command whose if-flag, max count or probability stopped it is not an error
+and is not reported.
+
+**Vnums in the file are 16-bit.** A negative number reads back as 65536 minus
+it (`-4425` becomes `61111`), and a vnum of `65535` is treated as empty and never
+reported. The messages show the number as it was read.
 
 ## Best practices
 

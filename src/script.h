@@ -165,4 +165,9 @@ int find_script_by_number(int number);
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 void continue_char_script(char_data* ch);
 
+/* Report script lines whose vnums name nothing -- informational only. */
+void check_script_vnums(int script_index, struct char_data* to);
+void check_script_table(void);
+bool report_script_negative_room(void);
+
 #endif /* SCRIPT_H */

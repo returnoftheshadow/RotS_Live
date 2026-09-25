@@ -75,6 +75,251 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
 int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch);
 
+/*
+ * Script lines that name a mobile, object or room by vnum.  Scripts keep the
+ * vnum as written and look it up only when the line runs, so a vnum that does
+ * not exist can be reported with the script number and line number -- the
+ * address the builder needs to fix it.  Reporting only: a bad line still runs
+ * exactly as it did before.
+ */
+enum script_ref_kind { SREF_MOB,
+    SREF_OBJ,
+    SREF_ROOM };
+static const char* sref_name[] = { "mobile", "object", "room" };
+
+static const char* script_cmd_name(int command)
+{
+    switch (command) {
+    case SCRIPT_ASSIGN_EQ:
+        return "assign eq";
+    case SCRIPT_ASSIGN_INV:
+        return "assign inv";
+    case SCRIPT_ASSIGN_ROOM:
+        return "assign room";
+    case SCRIPT_CHANGE_EXIT_TO:
+        return "change exit to";
+    case SCRIPT_DO_REMOVE:
+        return "do remove";
+    case SCRIPT_EQUIP_CHAR:
+        return "equip char";
+    case SCRIPT_LOAD_MOB:
+        return "load mob";
+    case SCRIPT_LOAD_OBJ:
+        return "load obj";
+    case SCRIPT_SET_EXIT_STATE:
+        return "set exit state";
+    case SCRIPT_TELEPORT_CHAR:
+        return "teleport";
+    case SCRIPT_TELEPORT_CHAR_X:
+        return "teleport x";
+    case SCRIPT_TELEPORT_CHAR_XL:
+        return "teleport xl";
+    }
+    return "?";
+}
+
+static void report_script_vnum(int script_index, script_data* cmd, int kind, int vnum,
+    char_data* to)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s vnum %d not found",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), sref_name[kind], vnum);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    /* The builder who implemented it sees it straight away -- unless mudlog
+     * already reached them, which would duplicate it. */
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
+/* A change exit to line whose room has no exit in that direction, or whose
+ * direction is not 0-5.  Writing to it would crash, so the line is skipped. */
+static void report_script_bad_exit(int script_index, script_data* cmd, int room_vnum, int dir)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room %d has no exit %d",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), room_vnum, dir);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
+/* A line whose room parameter names no room (an unset room variable, or the
+ * room of a character that is not set).  Using it would crash, so the line
+ * is skipped. */
+static void report_script_no_room(int script_index, script_data* cmd)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room not found",
+        script_no, cmd->number, script_cmd_name(cmd->command_type));
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
+/* A slot or direction typed into the line that is outside the range the
+ * command indexes with (0 to limit - 1).  The line is skipped when it runs. */
+static void report_script_range(int script_index, script_data* cmd, const char* what, int value,
+    int limit, char_data* to)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s %d is not 0-%d",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), what, value, limit - 1);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
+/* The equipment slot or exit direction a line names, checked at boot and on
+ * implement like the vnums below. */
+static void check_script_ranges(int script_index, script_data* cmd, char_data* to)
+{
+    int p, limit;
+    const char* what;
+
+    switch (cmd->command_type) {
+    case SCRIPT_ASSIGN_EQ:
+        p = 2;
+        what = "slot";
+        limit = MAX_WEAR;
+        break;
+    case SCRIPT_DO_REMOVE:
+        p = 1;
+        what = "slot";
+        limit = MAX_WEAR;
+        break;
+    case SCRIPT_SET_EXIT_STATE:
+        p = 0;
+        what = "direction";
+        limit = NUM_OF_DIRS;
+        break;
+    case SCRIPT_CHANGE_EXIT_TO:
+        p = 1;
+        what = "direction";
+        limit = NUM_OF_DIRS;
+        break;
+    default:
+        return;
+    }
+    if (cmd->param[p] < 0 || cmd->param[p] >= limit)
+        report_script_range(script_index, cmd, what, cmd->param[p], limit, to);
+}
+
+/* Report every vnum in one script that names nothing.  Run at boot, once
+ * rooms, mobiles and objects exist, and when a builder implements a script.
+ * A 0 parameter names nothing, so there is nothing to report. */
+void check_script_vnums(int script_index, char_data* to)
+{
+    script_data* cmd;
+    int first, last, kind, p, v, found;
+
+    for (cmd = script_table[script_index].script; cmd; cmd = cmd->next) {
+        check_script_ranges(script_index, cmd, to);
+        switch (cmd->command_type) {
+        case SCRIPT_LOAD_MOB:
+            first = last = 0;
+            kind = SREF_MOB;
+            break;
+        case SCRIPT_LOAD_OBJ:
+        case SCRIPT_ASSIGN_INV:
+        case SCRIPT_ASSIGN_ROOM:
+            first = last = 0;
+            kind = SREF_OBJ;
+            break;
+        case SCRIPT_TELEPORT_CHAR:
+        case SCRIPT_TELEPORT_CHAR_X:
+            first = last = 0;
+            kind = SREF_ROOM;
+            break;
+        case SCRIPT_CHANGE_EXIT_TO:
+            first = last = 2;
+            kind = SREF_ROOM;
+            break;
+        case SCRIPT_EQUIP_CHAR:
+            first = 1;
+            last = 5;
+            kind = SREF_OBJ;
+            break;
+        default:
+            continue;
+        }
+        for (p = first; p <= last; p++) {
+            if (!(v = cmd->param[p]))
+                continue;
+            found = (kind == SREF_MOB) ? real_mobile(v)
+                : (kind == SREF_OBJ)   ? real_object(v)
+                                       : real_room(v);
+            if (found < 0)
+                report_script_vnum(script_index, cmd, kind, v, to);
+        }
+    }
+}
+
+/*
+ * The script line run_script is executing, so a failure several calls deep
+ * (world[] given a negative room) can name the script and line.  A guard in
+ * run_script saves and restores it, so nested scripts and every exit path
+ * leave the outer script's line in place.
+ */
+static int running_script_index = -1;
+static script_data* running_script_cmd = 0;
+
+struct running_script_guard {
+    int index;
+    script_data* cmd;
+    running_script_guard()
+        : index(running_script_index)
+        , cmd(running_script_cmd)
+    {
+    }
+    ~running_script_guard()
+    {
+        running_script_index = index;
+        running_script_cmd = cmd;
+    }
+};
+
+/* world[] was given a negative room while a script line is running. */
+bool report_script_negative_room(void)
+{
+    char errbuf[256];
+    int script_no;
+
+    if (!running_script_cmd)
+        return false;
+
+    script_no = (running_script_index >= 0 && running_script_index <= top_of_script_table)
+        ? script_table[running_script_index].number
+        : -1;
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d: negative room lookup",
+        script_no, running_script_cmd->number);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    return true;
+}
+
+void check_script_table(void)
+{
+    int i;
+
+    for (i = 0; i <= top_of_script_table; i++)
+        check_script_vnums(i, 0);
+}
+
 // Returns the index position of a script in the script_table when supplied with a vnum
 // -1 == script not found (0 is a valid position in the script_table)
 
@@ -810,10 +1055,15 @@ int run_script(struct info_script* info, struct script_data* position)
     int tmpint, tmpint2;
     struct follow_type *k, *next_fol;
 
+    running_script_guard script_context;
+
     curr = position;
     if (!position)
         exit = TRUE;
     while (!exit) {
+        running_script_index = info->index;
+        running_script_cmd = curr;
+
         switch (curr->command_type) {
 
         case SCRIPT_ABORT:
@@ -822,6 +1072,19 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_ASSIGN_EQ:
             if (curr->param[0] && curr->param[1]) {
+                /* The slot indexes equipment[]; outside it, skip the line. */
+                if (curr->param[2] < 0 || curr->param[2] >= MAX_WEAR) {
+                    report_script_range(info->index, curr, "slot", curr->param[2], MAX_WEAR, 0);
+                    /* A miss, like an empty slot: the result reads "not found". */
+                    ptrint = get_int_param(curr->param[3], info);
+                    if (ptrint == &info->ints[0] || ptrint == &info->ints[1] || ptrint == &info->ints[2])
+                        *ptrint = 0;
+                    curr = curr->next;
+                    break;
+                }
+                /* Cleared first, as ASSIGN_INV and ASSIGN_ROOM do: with no
+                 * character it used to keep an earlier line's object. */
+                tmpobj = 0;
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     tmpobj = tmpch->equipment[curr->param[2]];
@@ -847,6 +1110,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 if (tmpch) {
                     tmpobj = get_obj_in_list_num_containers(real_object(curr->param[0]), tmpch->carrying);
                     tobjcnt = count_obj_in_list(real_object(curr->param[0]), tmpch->carrying);
+                    if (real_object(curr->param[0]) < 0)
+                        report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
                 }
                 ptrint = get_int_param(curr->param[3], info);
 
@@ -870,6 +1135,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 if (tmprm) {
                     tmpobj = get_obj_in_list_vnum(curr->param[0], tmprm->contents);
                     tobjcnt = count_obj_in_list(real_object(curr->param[0]), tmprm->contents);
+                    if (real_object(curr->param[0]) < 0)
+                        report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
                 }
                 ptrint = get_int_param(curr->param[3], info);
 
@@ -903,8 +1170,17 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[2]) {
                 tmprm = get_room_param(curr->param[0], info);
                 tmpint = real_room(curr->param[2]);
-                if (tmprm && (tmpint != NOWHERE) && (-1 < curr->param[1] < 6))
-                    tmprm->dir_option[curr->param[1]]->to_room = tmpint;
+                if (tmpint == NOWHERE)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[2], 0);
+                if (tmprm && (tmpint != NOWHERE)) {
+                    /* The old check (-1 < dir < 6) was always true, and a
+                     * missing exit is a null pointer: either one crashed. */
+                    if (curr->param[1] < 0 || curr->param[1] >= NUM_OF_DIRS
+                        || !tmprm->dir_option[curr->param[1]])
+                        report_script_bad_exit(info->index, curr, tmprm->number, curr->param[1]);
+                    else
+                        tmprm->dir_option[curr->param[1]]->to_room = tmpint;
+                }
             }
             curr = curr->next;
             break;
@@ -983,11 +1259,17 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_DO_REMOVE:
-            if (curr->param[0] && curr->param[1]) {
-                tmpch = get_char_param(curr->param[0], info);
-                if (tmpch && (-1 < curr->param[1] < MAX_WEAR))
-                    if (tmpch->equipment[curr->param[1]])
+            /* param[1] is the slot, and 0 is the light: testing it for
+             * non-zero made the light impossible to remove, and the old range
+             * check (-1 < slot < MAX_WEAR) was always true. */
+            if (curr->param[0]) {
+                if (curr->param[1] < 0 || curr->param[1] >= MAX_WEAR)
+                    report_script_range(info->index, curr, "slot", curr->param[1], MAX_WEAR, 0);
+                else {
+                    tmpch = get_char_param(curr->param[0], info);
+                    if (tmpch && tmpch->equipment[curr->param[1]])
                         perform_remove(tmpch, curr->param[1]);
+                }
             }
             curr = curr->next;
             break;
@@ -1067,10 +1349,16 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch) {
                     for (tmpint = 1; tmpint < 6; tmpint++) {
-                        if ((tmpint2 = real_object(curr->param[tmpint])) > 0) {
+                        /* A 0 slot is empty.  Skip it before the lookup: real
+                         * number 0 is a valid object, so an object with vnum 0
+                         * would otherwise load into every empty slot. */
+                        if (!curr->param[tmpint])
+                            continue;
+                        if ((tmpint2 = real_object(curr->param[tmpint])) >= 0) {
                             tmpobj = read_object(tmpint2, REAL);
                             obj_to_char(tmpobj, tmpch);
-                        }
+                        } else
+                            report_script_vnum(info->index, curr, SREF_OBJ, curr->param[tmpint], 0);
                     }
                     do_wear(tmpch, "all", 0, 0, 0);
                 }
@@ -1349,7 +1637,12 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_MOB:
             if (curr->param[0] && curr->param[1]) {
-                tmpch = read_mobile(real_mobile(curr->param[0]), REAL);
+                /* Its own variable: tmpint is read by later commands (see
+                 * TELEPORT_CHAR_XL), so the report must not change it. */
+                int rnum = real_mobile(curr->param[0]);
+                if (rnum < 0)
+                    report_script_vnum(info->index, curr, SREF_MOB, curr->param[0], 0);
+                tmpch = read_mobile(rnum, REAL);
                 if (tmpch)
                     assign_char_param(curr->param[1], info, tmpch);
             }
@@ -1358,7 +1651,11 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_OBJ:
             if (curr->param[0] && curr->param[1]) {
-                tmpobj = read_object(real_object(curr->param[0]), REAL);
+                /* Its own variable, for the same reason as SCRIPT_LOAD_MOB. */
+                int rnum = real_object(curr->param[0]);
+                if (rnum < 0)
+                    report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
+                tmpobj = read_object(rnum, REAL);
                 if (tmpobj)
                     assign_obj_param(curr->param[1], info, tmpobj);
             }
@@ -1484,7 +1781,10 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_SET_EXIT_STATE:
-            if (curr->param[0]) {
+            /* param[0] is the direction, and 0 is north: testing it for
+             * non-zero made every north door impossible to set.  Check the
+             * range instead, since set_exit_state indexes the exits with it. */
+            if (curr->param[0] >= 0 && curr->param[0] < NUM_OF_DIRS) {
                 tmprm = get_room_param(curr->param[2], info);
                 if (set_exit_state(tmprm, curr->param[0], curr->param[1])) {
                     tmpint = tmprm->dir_option[curr->param[0]]->to_room;
@@ -1492,7 +1792,8 @@ int run_script(struct info_script* info, struct script_data* position)
                     if ((tmprm2) && (tmprm2->dir_option[rev_dir[curr->param[0]]]) && (tmprm2->dir_option[rev_dir[curr->param[0]]]->to_room == real_room(tmprm->number)))
                         set_exit_state(tmprm2, rev_dir[curr->param[0]], curr->param[1]);
                 }
-            }
+            } else
+                report_script_range(info->index, curr, "direction", curr->param[0], NUM_OF_DIRS, 0);
             curr = curr->next;
             break;
 
@@ -1540,6 +1841,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[1], info);
                 tmpint = real_room(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[0], 0);
                 if ((tmpch) && (tmpint > -1)) {
                     if (IS_RIDING(tmpch))
                         stop_riding(tmpch);
@@ -1563,6 +1866,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[1], info);
                 tmpint = real_room(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[0], 0);
                 if ((tmpch) && (tmpint > -1)) {
                     if (IS_RIDING(tmpch))
                         stop_riding(tmpch);
@@ -1578,11 +1883,17 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[1], info);
                 tmprm = get_room_param(curr->param[0], info);
                 if ((tmpch) && (tmpint > -1)) {
-                    if (IS_RIDING(tmpch)) {
-                        stop_riding(tmpch);
+                    /* Crash guard only: a missing room was a null pointer.
+                     * The tmpint test above is left exactly as it was. */
+                    if (!tmprm)
+                        report_script_no_room(info->index, curr);
+                    else {
+                        if (IS_RIDING(tmpch)) {
+                            stop_riding(tmpch);
+                        }
+                        char_from_room(tmpch);
+                        char_to_room(tmpch, real_room(tmprm->number));
                     }
-                    char_from_room(tmpch);
-                    char_to_room(tmpch, real_room(tmprm->number));
                 }
             }
             curr = curr->next;
