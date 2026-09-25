@@ -447,6 +447,9 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
 
 #define GET_AMBUSHED(ch) ((ch)->specials.was_ambushed)
 #define GET_LOADLINE(ch) ((ch)->specials.load_line)
+/* The room a zone 'M' line loaded a mob into (real room + 1).  Not
+ * GET_LOADROOM: that is the player's start room (specials2.load_room). */
+#define GET_MOB_LOADROOM(ch) ((ch)->specials.load_room)
 
 #define GET_LOADZONE(ch) ((ch)->specials.homezone)
 

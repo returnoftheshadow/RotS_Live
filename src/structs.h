@@ -1172,6 +1172,7 @@ struct char_special_data {
     /* or zon_table index for NPC */
     int homezone; /* zone where it was loaded */
     int load_line; /* the line in zone that loaded the mob */
+    int load_room; /* real room + 1 that line loaded the mob into; 0 if none */
 
     byte trophy_line; /* for mobs, 0-4 in each zone */
 
