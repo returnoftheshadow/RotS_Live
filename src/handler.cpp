@@ -789,7 +789,6 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
 {
     struct affected_type* hjp;
     universal_list *tmplist, *tmplist2;
-    int tmp;
 
     //   assert(ch->affected);
     // Looks as though the following line is "just in case", but where did af come from in this case?
@@ -801,17 +800,14 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     // forgotten when the last one goes (see the tail of this function).
     const int removed_type = af->type;
 
-    affect_modify(ch, af->location, af->modifier, af->bitvector,
-        AFFECT_MODIFY_REMOVE, af->counter);
-
     /* remove structure *af from linked list */
     if (ch->affected == af) {
         /* remove head of list */
         ch->affected = af->next;
     } else {
-        for (hjp = ch->affected, tmp = 0;
-             (hjp->next) && (hjp->next != af) && (tmp < MAX_AFFECT);
-             hjp = hjp->next, tmp++) {
+        // Unbounded, like get_affect_unbounded(): affect_join() can hand over an affect sitting past
+        // MAX_AFFECT entries, and it must be removable.
+        for (hjp = ch->affected; (hjp->next) && (hjp->next != af); hjp = hjp->next) {
         }
         if (hjp->next != af) {
             log("SYSERR: FATAL : Could not locate affected_type in ch->affected. (handler.c, affect_remove)");
@@ -820,6 +816,11 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
         }
         hjp->next = af->next; /* skip the af element */
     }
+
+    // Only once the node is unlinked: a failed search above leaves the affect on the list, so its
+    // stats and bits must stay applied too.
+    affect_modify(ch, af->location, af->modifier, af->bitvector,
+        AFFECT_MODIFY_REMOVE, af->counter);
 
     //   RELEASE(af);
     put_to_affected_type_pool(af);
