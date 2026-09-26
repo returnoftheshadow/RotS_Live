@@ -68,9 +68,10 @@ def _stage_lesson(imp: GameSession, learner: GameSession, learner_name: str, tra
 
 
 def _listed_knowledge(listing: str, spell: str) -> int | None:
-    """The learner's knowledge of `spell` from the guild list (`%-25s %3d%%     Taught to:`,
-    SPECIAL(guild)), or None when the list leaves the spell out."""
-    match = re.search(rf"^\r?{re.escape(spell)}\s+(\d+)%\s+Taught to:", listing, flags=re.MULTILINE)
+    """The learner's knowledge of `spell` from the guild list (SPECIAL(guild): the name, the
+    knowledge percentage, then on newer builds the sessions spent, then `Taught to:`), or None
+    when the list leaves the spell out."""
+    match = re.search(rf"^\r?{re.escape(spell)}\s+(\d+)%\s+(?:\d+\s+)?Taught to:", listing, flags=re.MULTILINE)
     return None if match is None else int(match.group(1))
 
 

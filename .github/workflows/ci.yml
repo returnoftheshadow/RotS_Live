@@ -69,10 +69,10 @@ jobs:
   integration-asan:
     name: Integration Suite under AddressSanitizer
     runs-on: ubuntu-24.04
-    # Measured at 12 min 40 s end to end with the slice 2 suite (68 scenarios, 615 s) on
-    # 2026-09-21; sanitized gtest 27 s and build 40 s are carried over from the earlier
-    # 59-scenario run, not re-measured here. 30 leaves room for a slow runner.
-    timeout-minutes: 30
+    # Measured at 30 min end to end on 2026-09-26, the integration suite (135 tests) taking
+    # 27 of them; it was 27 min before the guildmaster scenarios. 45 leaves room for a slow
+    # runner and some growth.
+    timeout-minutes: 45
     env:
       # detect_leaks=0: both binaries exit normally (the server's SIGTERM handler ends in
       # exit(0)), so LeakSanitizer would otherwise scan the heap at every teardown; leaks
