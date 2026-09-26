@@ -43,6 +43,20 @@ TEST(SpellLearning, OnlyFireSpecialistsCanLearnBlaze) {
     EXPECT_EQ(blaze.skill_spec, PLRSPEC_FIRE);
 }
 
+// SPECIAL(guild) refuses a skill whose level exceeds the learner's mage level; mist's level of 0
+// passes that check for every mage level, so only the specialization gate applies.
+TEST(SpellLearning, MistOfBaazungaHasNoMageLevelRequirement) {
+    const skill_data& mist = skills[SPELL_MIST_OF_BAAZUNGA];
+    constexpr int kLowestMageLevel = 0;
+    EXPECT_LE(mist.level, kLowestMageLevel);
+    EXPECT_EQ(mist.skill_spec, PLRSPEC_DARK) << "the specialization gate is the only one left";
+}
+
+TEST(SpellLearning, BlazeStillRequiresMageLevelEighteen) {
+    constexpr int kBlazeMageLevel = 18;
+    EXPECT_EQ(skills[SPELL_BLAZE].level, kBlazeMageLevel);
+}
+
 TEST(SpellLearning, DarkSideMageTrainersTeachMistToTheFull) {
     EXPECT_EQ(taught_to(kMagusTable, SPELL_MIST_OF_BAAZUNGA), kTaughtToTheFull);
     EXPECT_EQ(taught_to(kUrukMageTable, SPELL_MIST_OF_BAAZUNGA), kTaughtToTheFull);

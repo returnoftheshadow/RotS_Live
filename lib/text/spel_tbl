@@ -526,16 +526,11 @@ the spell will fail.
 [Minimum Cost] 15
 [Offensive   ] Yes
 [Description ]
----Casting "Blaze" with no target breathes a cloud of fire over the room.
-Everyone present who is not friendly to the caster is burnt at once, and the
-room then bursts into a firestorm that burns anyone who stays, friend or foe,
-for a time that grows with the caster's level.  Each burn uses the level of
-the caster who lit the blaze, and a successful save halves it.  A stronger
-blaze cast on the same room takes the firestorm over; a weaker one still
-bursts and can lengthen it, but changes neither its strength nor its owner.
-Firestorm kills credit the caster who lit it while that caster is in the game.
----Casting "Blaze" on a <target> breathes fire on that one creature instead,
-without lighting the room.
+---Casting "Blaze" with no target breathes a cloud of fire over the room,
+burning everyone who is not friendly to the caster, and leaves behind a
+firestorm that keeps burning anyone who stays in it, friend or foe.  Cast on a
+<target>, it breathes fire on that one creature instead, without lighting the
+room.
   Only people specializing in Fire can learn it.
 
 See: SPECIALIZATIONS, FIRE
@@ -545,7 +540,7 @@ See: SPECIALIZATIONS, FIRE
 
 [Syntax      ] cast 'mist of baazunga'
 [Group       ] Magic-User
-[Level       ] 27
+[Level       ] 0
 [Minimum Cost] 50
 [Offensive   ] No
 [Description ]

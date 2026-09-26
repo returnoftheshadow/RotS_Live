@@ -1,5 +1,6 @@
 """A guildmaster teaches mist of baazunga and blaze only to a player of a race it will teach,
-with the spell's specialization and a mage level at or above the spell's level.
+with the spell's specialization and a mage level at or above the spell's level. Mist's level is 0,
+so any darkness specialist qualifies whatever their mage level.
 
 SPECIAL(guild) (spec_pro.cpp) refuses a race outside the mob's will_teach mask, then, for a named
 spell, refuses a LEARN_SPEC spell to a player of another specialization and any spell above the
@@ -95,7 +96,7 @@ def _saved_practices(server, learner: GameSession, learner_name: str, skill_key:
 )
 def test_a_qualified_learner_is_taught_the_spell(server, imp, pupil, trainer_vnum, race, spell, skill_key, specialization) -> None:
     """Pins that each trainer lists the spell to a learner of an allowed race, the spell's
-    specialization and mage level 27 (at mist's level, above blaze's), and that practising it
+    specialization and mage level 27 (above blaze's level), and that practising it
     spends one session and raises the learner's knowledge."""
     _stage_lesson(imp, pupil, "harnpupil", trainer_vnum, race, specialization)
 
@@ -133,14 +134,13 @@ def test_another_specialization_is_not_taught_the_spell(server, imp, pupil, trai
 @pytest.mark.parametrize(
     ("trainer_vnum", "race", "spell", "skill_key", "specialization"),
     [
-        pytest.param(MAGUS, fixtures.RACE_MAGUS, MIST, MIST_KEY, PLRSPEC_DARK, id="mist-magus"),
         pytest.param(TRAVELLER, fixtures.RACE_HUMAN, BLAZE, BLAZE_KEY, PLRSPEC_FIRE, id="blaze-traveller"),
     ],
 )
 def test_a_low_mage_level_is_not_taught_the_spell(server, imp, novice, trainer_vnum, race, spell, skill_key, specialization) -> None:
     """Pins the level gate: a learner of the right race and specialization at mage level 17
-    (below mist's 27 and blaze's 18) does not see the spell listed, is refused as not
-    experienced, and its knowledge stays at zero."""
+    (below blaze's 18) does not see the spell listed, is refused as not experienced, and its
+    knowledge stays at zero."""
     _stage_lesson(imp, novice, "harnnovice", trainer_vnum, race, specialization)
 
     listing = novice.command("practice")
@@ -151,9 +151,27 @@ def test_a_low_mage_level_is_not_taught_the_spell(server, imp, novice, trainer_v
     assert _saved_practices(server, novice, "Harnnovice", skill_key) == 0
 
 
+def test_a_low_mage_level_darkness_specialist_is_taught_mist(server, imp, novice) -> None:
+    """Pins that mist has no level gate: the Magus lists mist to an Uruk-Lhuth darkness
+    specialist of mage level 17 (below blaze's 18), and practising it spends one session and
+    raises the learner's knowledge."""
+    _stage_lesson(imp, novice, "harnnovice", MAGUS, fixtures.RACE_MAGUS, PLRSPEC_DARK)
+
+    before = novice.command("practice")
+    assert _listed_knowledge(before.text, MIST) == 0, f"{MIST} missing from the Magus's list:\n{before.text}"
+
+    reply = novice.command(f"practice {MIST}")
+    assert not reply.contains(NOT_EXPERIENCED), reply.text
+
+    after = novice.command("practice")
+    knowledge = _listed_knowledge(after.text, MIST)
+    assert knowledge is not None and knowledge > 0, f"{MIST} knowledge did not rise:\n{after.text}"
+    assert _saved_practices(server, novice, "Harnnovice", MIST_KEY) == 1
+
+
 def test_the_magus_turns_a_human_away(server, imp, pupil) -> None:
     """Pins the will_teach race gate: the Magus teaches Uruk-Lhuth only, so a Human dark mage
-    of mist's level is sent away and learns nothing."""
+    is sent away and learns nothing."""
     _stage_lesson(imp, pupil, "harnpupil", MAGUS, fixtures.RACE_HUMAN, PLRSPEC_DARK)
 
     refusal = pupil.command(f"practice {MIST}")
