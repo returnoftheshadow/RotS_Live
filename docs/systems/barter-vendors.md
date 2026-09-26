@@ -73,16 +73,36 @@ reaches. The player gets one answer.
 - With `deduct`, the zone's load lines decide how many can be sold and how often stock
   returns.
 - To convert an old keeper, remove his `.shp` entry.
+- **Keep him where he can see buyers.** A vendor in a dark room refuses everyone ("I don't
+  trade with someone I can't see!"). Keep his room lit.
+
+## Side-specific vendors
+
+- Race does **not** make a vendor refuse the other side. `IS_AGGR_TO` only refuses a side
+  through `other_side()`, which is always 0 for an NPC — the same as the old shops.
+- To restrict who may trade, use **`rp_flag`** (allowed races; 0 = everyone). Anyone else
+  gets "Sorry, I can't serve you!".
+- **Don't use `pref`.** `pref` makes the mob aggressive: he attacks those races on sight,
+  and once he is fighting someone that player's hits land and he fights back — the
+  protection below no longer holds. A vendor with `pref` set is warned (`pref set - vendor
+  attacks and can be hurt`).
 
 ## The options field
 
 - Comments: a line starting with `//` is ignored and never produces a warning.
-- The text can't contain `#` or `~` anywhere, and can't start with `$` — those characters
-  would corrupt the mob file when it's saved (the editor's record scanner treats a `#`
-  anywhere in the file as the start of the next mob record). The editor refuses to save such
-  text (`Options not changed: options can't contain # or ~.` /
-  `Options not changed: options can't start with $.`) and keeps the old value.
-- Up to 4,000 characters.
+- The stored text can't contain `#` or `~` anywhere, and can't start with `$` — those
+  characters would corrupt the mob file when it's saved (the editor's record scanner treats
+  a `#` anywhere in the file as the start of the next mob record). What the editor does when
+  you finish the text:
+  - **Silently changed:** every `~` becomes `-`, and a `#` at the very start of the text
+    becomes `+` (the editor's text cleaner, the same as for descriptions).
+  - **Refused**, keeping the old value: a `#` anywhere else (`Options not changed: options
+    can't contain # or ~.`), a leading `$` (`Options not changed: options can't start with
+    $.`), or more than 4,000 characters (`Options not changed: options are too long (max
+    4000 characters).`).
+  - Leading blank lines are dropped, so the line numbers in warnings are the same at
+    `/save` and at boot. Blank lines inside the text are kept.
+- `stat` on a loaded copy shows the prototype's current options (what `list`/`buy` use).
 
 ## The vendor needs to talk
 
@@ -92,8 +112,9 @@ or he can't speak at all. This is warned (see below), not special-cased in `say`
 
 ## Warnings you may see
 
-Reported at boot, on `save`, and on `implement` for every program-33 vendor, in the house
-style (type + vnum + line, no prose):
+Reported for every program-33 vendor at boot, and in the shaping editor on `/save`, `/add`,
+`/implement`, and `/done` (which saves and implements, and reports once), in the house style
+(type + vnum + line, no prose):
 
 ```
 MOB ERROR: mobile #1234, options line 3: price: bad format - line skipped
@@ -117,6 +138,7 @@ The full set of messages you can see:
 - `price: more than 30 lines - line skipped`
 - `unknown setting - line ignored`
 - `intelligence below 6 - vendor can't speak`
+- `pref set - vendor attacks and can be hurt`
 
 **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade ("I'm not
 trading right now.") and logs the `bad options - vendor disabled` warning **every time**
@@ -124,11 +146,24 @@ someone tries to buy or list. A broken vendor in play is meant to be noisy — t
 setting to silence it. Price-line warnings never fire during play, only at boot/save/
 implement.
 
+## Rolling back to a server without vendors
+
+A server binary from before this feature can't handle vendor mobs. Before rolling back:
+1. Remove every options block from the mob files. Otherwise the old binary stops the boot
+   with `SYSERR: Format error in mob file`.
+2. On every vendor mob, change field 29 off 33 (or clear `MOB_SPEC`). Otherwise the old
+   binary boots but crashes the first time a player looks at a room holding the vendor (it
+   reads `spec_pro_message[33]`, past the end of its table).
+
 ## What players see
 
 - `list` shows every in-stock, priced item once, with its cost(s); `(N left)` only on
-  `deduct` items.
-- `buy <name>` / `buy <number>` checks the player can carry the item, then checks every
+  `deduct` items. The cost column starts at column 44 or earlier (names wrap at 38), so a
+  currency short description of up to 28 characters keeps every line within 78 columns; a
+  longer one makes that line longer and the player's client wraps it.
+- `buy <number>` is a list number only when the argument is all digits. Anything else is a
+  keyword: `buy belt` is the first listed item matching `belt`, `buy 2.belt` the second.
+- `buy` checks the player can carry the item, then checks every
   currency is covered in the player's **loose inventory** — not inside a bag, not worn, and
   not a currency item that is itself a container with something inside it (that copy is
   skipped so its contents can never be destroyed). If anything is short, nothing is taken and
@@ -138,4 +173,6 @@ implement.
 - Giving the vendor an item is refused ("I don't take gifts.") — exactly the cases where
   `give` would hand it to him.
 - Attacking him (melee, spells, skills) is cancelled; he says "Don't even think about it."
-  and never fights back.
+  and never fights back (unless `pref` is set — see Side-specific vendors).
+- Bash: the damage is cancelled and he stays standing, but he still picks up the bash state
+  (a short delay, then "has recovered from a bash"). Harmless; trading still works.

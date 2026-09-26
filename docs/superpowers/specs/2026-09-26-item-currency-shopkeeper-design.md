@@ -45,8 +45,11 @@ vendors.
   warned about. Lines that are blank or that no program recognises are ignored at use.
   The text can't contain `#` or `~` anywhere, and can't start with `$`, since the shape
   editor's record scanner treats any `#` in a mob file as the start of the next mob record,
-  and a leading `$`/embedded `~` would be read as an end-of-string terminator. The editor
-  refuses such text and keeps the old value.
+  and a leading `$`/embedded `~` would be read as an end-of-string terminator. The editor's
+  text cleaner silently turns every `~` into `-` and a `#` at the very start into `+`; a `#`
+  anywhere else, a leading `$`, or more than 4,000 characters is refused ("Options not
+  changed: ...") and the old value kept. Leading blank lines are dropped on entry, so the
+  stored text is what a reload reads.
 - **Size:** up to 4,000 characters. Edited with the same multi-line editor as descriptions.
   `stat` and the editor always show the whole value.
 - **File format:** one extra `~`-ended string after the mob record's last number line. The
@@ -60,7 +63,10 @@ vendors.
   `mob_option(mob, "key")` helper). This replaces the practice of putting program switches in
   the mob's aliases (`has_alias(host, "conj")` in `mob_magic_user_spec`).
 - **Rollback note:** an older server binary can't read a mob file containing an options
-  block. Only files with vendor (or other options-using) mobs are affected.
+  block ("Format error in mob file"; the boot stops). Rolling back also needs field 29 moved
+  off 33 (or `MOB_SPEC` cleared) on every vendor mob: otherwise the old binary crashes when a
+  player looks at a program-33 mob (it reads `spec_pro_message[33]`, past the end). See
+  `docs/systems/barter-vendors.md`.
 
 ## Vendor settings
 
@@ -120,14 +126,17 @@ price line** for this vendor, once each, in the order of his price lines:
 - Names are the items' short descriptions. List numbers are right-aligned (` 1.` … `30.`).
 - The cost column starts where the longest name on this list ends. Each extra currency goes on
   its own line under the first, with the name column blank.
-- The name column is capped at 38 columns; a longer name wraps onto a second line so the costs
-  always fit within 78 columns.
+- The name column is capped at 38 columns; a longer name wraps onto a second line, so the cost
+  column starts at column 44 or earlier. Currency short descriptions of up to 28 characters
+  keep every line within 78 columns; a longer name makes that line longer (the client wraps
+  it).
 - `(N left)` shows only on `deduct` items, where N is the number of copies in the store room.
 - Only items the player can see are listed. If nothing qualifies, the vendor says he has
   nothing to sell right now.
 
 ### `buy <name>` / `buy <number>`
-1. Find the item by keyword or list number among the items `list` would show.
+1. Find the item among the items `list` would show: by list number only when the argument is
+   all digits, otherwise by keyword (`2.belt` = the second listed item matching `belt`).
 2. Check the player can carry it (item count and weight).
 3. For **each** currency, count the copies in the player's **loose inventory** (not inside
    containers, not worn). A currency copy that is itself a container with something inside it
@@ -142,15 +151,18 @@ All of this happens within one command; nothing can change between the steps.
 
 ### Who the vendor refuses
 The same checks as the old shops (`is_ok` in `shop.cpp`), reused as they are:
-- A vendor with a race refuses the other side, and anyone he's set aggressive to
-  (`IS_AGGR_TO`: race side and `pref`).
+- Anyone he's aggressive to (`IS_AGGR_TO`). In practice that is only `pref`: the macro's
+  side test goes through `other_side()`, which is always 0 for an NPC, so a vendor's race
+  does **not** make him refuse the other side (the same as the old shops). `pref` also makes
+  him attack those races, after which he can be hurt, so it isn't a safe way to restrict a
+  vendor; a vendor with `pref` set is warned.
 - If `rp_flag` is set, only those races may trade (`RP_RACE_CHECK`). 0 means everyone.
 - Shadows (`IS_SHADOW`).
-- Anyone he can't see.
+- Anyone he can't see — including everyone, if his room is dark. Keep a vendor's room lit.
 - Anyone who comes outside `hours=`. When closed he only refuses to trade: no pushing people
   out and no locking doors.
 
-Side-specific vendors therefore need no new setting.
+Side-specific vendors therefore use `rp_flag` (allowed races); no new setting is needed.
 
 ### Messages
 Fixed built-in wording; no per-vendor message text. Every message we write is 78 columns or
@@ -160,13 +172,16 @@ less.
 - **Lines about the buyer's own inventory go only to the buyer**: shortfalls ("You need 2 x a
   grey wolf hide and have 1."), carry limits, and the purchase summary ("You hand over 1 x a
   leather belt, 2 x a grey wolf hide. You now have a hunter's belt.").
-- `say` refuses mobs with INT below 6, so a vendor needs INT 6 or more. This is warned at
-  boot, `/save` and `/implement` (see Builder warnings) rather than special-cased in `say`.
+- `say` refuses mobs with INT below 6, so a vendor needs INT 6 or more. This is warned (see
+  Builder warnings) rather than special-cased in `say`.
 
 ### Protection
 - **Attacks:** handled through the same hook as the old keeper (`SPECIAL_DAMAGE`,
   `fight.cpp:1648`). Damage is cancelled, he says "Don't even think about it.", the attacker
-  stops fighting, and he never fights back.
+  stops fighting, and he never fights back — unless `pref` is set: then he attacks those
+  races himself, and once he is fighting a player that player's hits land.
+- **Bash:** the damage is cancelled and he stays standing, but he still picks up the bash
+  state (a short delay). Harmless.
 - **Given items:** `give` to the vendor is refused with a message and nothing changes hands.
 
 ### Location
@@ -185,9 +200,10 @@ as a setting.
 ## Builder warnings
 
 Reported like the other boot misconfiguration warnings (type + vnum + line, no prose):
-- **At boot, `/save` and `/implement`:** for each program-33 prototype, a missing or bad
-  `store=`, a bad `hours=`, each skipped price line, unrecognised lines (to catch typos), and
-  INT below 6 ("vendor can't speak"). Comment lines are never warned about.
+- **At boot, and in the editor on `/save`, `/add`, `/implement` and `/done` (once):** for each
+  program-33 prototype, a missing or bad `store=`, a bad `hours=`, each skipped price line,
+  unrecognised lines (to catch typos), INT below 6 ("vendor can't speak"), and `pref` set
+  ("vendor attacks and can be hurt"). Comment lines are never warned about.
 - A mob that has a hard-coded special procedure (`.shp` file or `ASSIGNMOB`) is never treated
   as a vendor, regardless of what's in field 29 (program number), and gets no vendor
   warnings: for those mobs field 29 is just data the hard-coded procedure reads for its own

@@ -152,7 +152,11 @@ Notes:
   non-space character isn't `#` or `$` (`read_mob_options`, `src/mob_options.cpp`). Text
   can't contain `~` or `#` anywhere, and can't start with `$`; max 4000 characters. Used by
   mob programs; see `docs/systems/barter-vendors.md`. **Rollback:** a server older than
-  this change can't read a mob file containing an options block.
+  this change can't read a mob file containing an options block (`Format error in mob
+  file`, the boot stops). To roll back, (a) remove every options block from the mob files
+  **and** (b) move field 29 (program number) off 33, or clear `MOB_SPEC`, on every vendor
+  mob — otherwise the old binary crashes when a player looks at a program-33 mob (it reads
+  `spec_pro_message[33]`, past the end of its table).
 
 ---
 
