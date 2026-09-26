@@ -72,6 +72,7 @@ set(ROTS_SERVER_SOURCES
     mail.cpp
     mob_csv_extract.cpp
     mob_options.cpp
+    mob_progs/passive.cpp
     mobact.cpp
     modify.cpp
     mudlle.cpp
@@ -110,6 +111,7 @@ set(ROTS_SERVER_SOURCES
 )
 
 set(ROTS_TEST_SOURCES
+    tests/barter_vendor_tests.cpp
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
     tests/account_cache_tests.cpp
