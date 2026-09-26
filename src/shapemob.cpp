@@ -14,6 +14,8 @@
 #include "utils.h"
 #include "zone.h"
 
+#include <limits>
+
 extern struct room_data world;
 extern struct char_data* character_list;
 extern struct char_data* mob_proto; /* prototypes for mobs    */
@@ -44,6 +46,137 @@ void shape_disabled(struct char_data* ch, const char* prefix, const char* typed)
         len--;
     snprintf(buf, sizeof(buf), "\"%s%.*s\" has been disabled due to a bug.\n\r", prefix, len, typed);
     send_to_char(buf, ch);
+}
+
+/* The /52 list range of the zone and script editors: /50 shows only the
+ * commands numbered start..end. start 0 = the whole list, end 0 = to the end. */
+static void shape_range_text(int start, int end, char* out)
+{
+    if (start <= 0)
+        strcpy(out, "all");
+    else if (end <= 0)
+        sprintf(out, "from %d", start);
+    else
+        sprintf(out, "%d-%d", start, end);
+}
+
+void shape_range_prompt(struct char_data* ch, int start, int end)
+{
+    char range[40], line[120];
+
+    shape_range_text(start, end, range);
+    sprintf(line, "Enter list range: start [end] (0 = all, blank keeps) [%s]:\n\r", range);
+    send_to_char(line, ch);
+}
+
+/* Reads "start [end]" typed at the /52 prompt. Blank keeps the range, 0 alone
+ * clears it; anything else wrong leaves it as it was. */
+void shape_range_set(struct char_data* ch, const char* arg, int* start, int* end)
+{
+    const long INT_LIMIT = std::numeric_limits<int>::max();
+    long num[2];
+    int count = 0;
+    char* stop;
+    char range[40], line[80];
+
+    for (;;) {
+        while (*arg && isspace((unsigned char)*arg))
+            arg++;
+        if (!*arg)
+            break;
+        if (count == 2) {
+            send_to_char("Enter at most two numbers. Range not changed.\n\r", ch);
+            return;
+        }
+        num[count] = strtol(arg, &stop, 10);
+        if (stop == arg || (*stop && !isspace((unsigned char)*stop))) {
+            send_to_char("Numbers only. Range not changed.\n\r", ch);
+            return;
+        }
+        count++;
+        arg = stop;
+    }
+
+    if (count == 0)
+        return;
+    if (count == 1 && num[0] == 0) {
+        *start = 0;
+        *end = 0;
+        send_to_char("List range cleared.\n\r", ch);
+        return;
+    }
+    if (num[0] < 1 || (count == 2 && num[1] < 1) || num[0] > INT_LIMIT
+        || (count == 2 && num[1] > INT_LIMIT)) {
+        send_to_char("Use numbers 1 or more, or 0 alone to clear. Range not changed.\n\r", ch);
+        return;
+    }
+    if (count == 2 && num[1] < num[0]) {
+        send_to_char("End must not be below start. Range not changed.\n\r", ch);
+        return;
+    }
+
+    *start = num[0];
+    *end = (count == 2) ? num[1] : 0;
+    shape_range_text(*start, *end, range);
+    sprintf(line, "List range set: %s.\n\r", range);
+    send_to_char(line, ch);
+}
+
+bool shape_range_includes(int start, int end, int number)
+{
+    return (start <= 0 || number >= start) && (end <= 0 || number <= end);
+}
+
+/* The last line of a /50 list; out needs room for 80 characters. */
+void shape_range_footer(int start, int end, char* out)
+{
+    char range[40];
+
+    shape_range_text(start, end, range);
+    sprintf(out, "List range: %s (/52 to change).\n\r", range);
+}
+
+/* What line wrap will add to the output already waiting to be sent: the
+ * starting value of the running total that shape_list_fits keeps. */
+int shape_list_begin(struct char_data* ch)
+{
+    if (!ch->desc || ch->desc->bufptr < 0 || !ch->desc->character
+        || !PRF_FLAGGED(ch->desc->character, PRF_WRAP))
+        return 0;
+    return wrap_added_length(ch->desc->output);
+}
+
+/* True if line and then the footer still fit in this pulse's output. A list
+ * stops at the first line that does not, so the footer is not lost unless
+ * the output was already full before the list began.
+ * wrapped carries, from line to line, what line wrap adds to the output already
+ * queued; start it with shape_list_begin(). */
+bool shape_list_fits(struct char_data* ch, const char* line, const char* footer, int* wrapped)
+{
+    struct char_data* reader;
+    int line_added = 0, footer_added = 0;
+
+    if (!ch->desc)
+        return true;
+    reader = ch->desc->character;
+    if (reader && PRF_FLAGGED(reader, PRF_WRAP)) {
+        line_added = wrap_added_length(line);
+        footer_added = wrap_added_length(footer);
+    }
+    if ((int)(strlen(line) + strlen(footer)) + *wrapped + line_added + footer_added
+        > output_space_left(ch->desc))
+        return false;
+    *wrapped += line_added;
+    return true;
+}
+
+/* Ends a /50 list with the footer. cut = the list stopped early for lack of
+ * room: the output then overflows as it would have, showing "**OVERFLOW**". */
+void shape_list_finish(struct char_data* ch, const char* footer, bool cut)
+{
+    send_to_char(footer, ch);
+    if (cut && ch->desc)
+        output_mark_overflow(ch->desc);
 }
 
 int proto_chain[51] = {

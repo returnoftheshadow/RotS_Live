@@ -851,6 +851,8 @@ have if flag 2 on equipment you give to your mobile.
 1) Enter shape zone interface:  shape zone current
 3) Use /current to see regen command in your particular room
 4) /50 shows you what zone commands you already have in your room.
+   A long list stops with **OVERFLOW**; /52 picks which command numbers
+   /50 shows (see MAN SHAPE ZON 52).
 5) Do /0
 6) Use commands /6, /7 and /8  to navigate between commands.
 7) Use /10 (after) or /11 (before) to create a new empty zone command.
@@ -1265,6 +1267,22 @@ The default value is 2.
 warning system (to warn whities of high level darkie in zone and such).
 There are no guidelines for setting this level, just ask someone who
 gave you the zone about zone level. 
+#
+"ZONE 52" "ZON 52"
+
+   /52 sets which zone commands /50 lists, by command number: the number
+at the left of each command in the list. Enter a start and, if you want,
+an end:
+   40      list from command 40 to the end
+   40 80   list commands 40 to 80
+   0       list every command again
+   blank   keep the current range
+The prompt shows the current range. The mask (/2) and current room (/12)
+still apply inside the range, and the range lasts until you stop shaping.
+
+/50 ends with a line naming the range. A list too long to send at once
+still stops with **OVERFLOW**; set a start past the last command shown to
+see the rest.
 #
 "MOB"
    Use 'shape mob <mob vnum>' to edit a mob. Zone files are made outside
