@@ -414,7 +414,7 @@ ACMD(do_practice)
                 strcpy(str2, "");
             }
 
-            sprintf(str, "%-25s %2d %-12s %s\n\r", skills[tmp].name, ch->skills[tmp], how_good(ch->knowledge[tmp]),
+            sprintf(str, "%-25s %-12s %s\n\r", skills[tmp].name, how_good(ch->knowledge[tmp]),
                 str2);
             send_to_char(str, ch);
         }
