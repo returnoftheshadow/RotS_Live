@@ -8,12 +8,20 @@
 #include "../utils.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <unordered_map>
 
 extern struct char_data* mob_proto;
 extern struct index_data* mob_index;
 extern int top_of_mobt;
+extern struct room_data world;
+extern struct obj_data* obj_proto;
+extern struct index_data* obj_index;
+extern struct time_info_data time_info;
+
+ACMD(do_say);
 
 namespace {
 
@@ -184,7 +192,245 @@ void vendor_config_boot()
     }
 }
 
+namespace {
+
+/* The vendor speaks with the normal `say`, heard by the room, like any mob.
+ * (A vendor with INT < 6 can't; that's warned at boot/save/implement.)
+ * Messages about the buyer's own inventory go to the buyer with send_to_char. */
+void vendor_say(struct char_data* vendor, const char* text)
+{
+    char buf[MAX_INPUT_LENGTH];
+    snprintf(buf, sizeof(buf), "%s", text);
+    do_say(vendor, buf, 0, 0, 0);
+}
+
+bool vendor_serves(struct char_data* vendor, struct char_data* ch, const vendor_config& config)
+{
+    if (IS_AGGR_TO(vendor, ch)) {
+        vendor_say(vendor, "Go away, I won't deal with you!");
+        return false;
+    }
+    if (IS_SHADOW(ch)) {
+        vendor_say(vendor, "Ugh! I'm not serving you!");
+        return false;
+    }
+    if (!RP_RACE_CHECK(vendor, ch)) {
+        vendor_say(vendor, "Sorry, I can't serve you!");
+        return false;
+    }
+    if (!CAN_SEE(vendor, ch)) {
+        vendor_say(vendor, "I don't trade with someone I can't see!");
+        return false;
+    }
+    if (!vendor_is_open(config, time_info.hours)) {
+        vendor_say(vendor, "I'm closed. Come back later.");
+        return false;
+    }
+    return true;
+}
+
+struct stock_row {
+    const vendor_price* price;
+    struct obj_data* copy; /* first visible copy in the store room */
+    int count;
+};
+
+std::vector<stock_row> vendor_stock(struct char_data* ch, const vendor_config& config)
+{
+    std::vector<stock_row> rows;
+    int room = real_room(config.store_vnum);
+    if (room < 0)
+        return rows;
+    for (const vendor_price& price : config.prices) {
+        int item_rnum = real_object(price.item_vnum);
+        if (item_rnum < 0)
+            continue;
+        stock_row row { &price, 0, 0 };
+        for (struct obj_data* obj = world[room].contents; obj; obj = obj->next_content)
+            if (obj->item_number == item_rnum && CAN_SEE_OBJ(ch, obj)) {
+                if (!row.copy)
+                    row.copy = obj;
+                ++row.count;
+            }
+        if (row.copy)
+            rows.push_back(row);
+    }
+    return rows;
+}
+
+const char* obj_vnum_short(int vnum)
+{
+    int rnum = real_object(vnum);
+    return rnum >= 0 ? obj_proto[rnum].short_description : "something";
+}
+
+/* Loose, EMPTY copies only: a container with things in it is never taken
+ * as payment, so its contents can't be destroyed. */
+std::vector<struct obj_data*> payable_copies(struct char_data* ch, int vnum)
+{
+    std::vector<struct obj_data*> copies;
+    int rnum = real_object(vnum);
+    for (struct obj_data* obj = ch->carrying; obj && rnum >= 0; obj = obj->next_content)
+        if (obj->item_number == rnum && !obj->contains)
+            copies.push_back(obj);
+    return copies;
+}
+
+void vendor_list(struct char_data* vendor, struct char_data* ch, const vendor_config& config)
+{
+    std::vector<stock_row> stock = vendor_stock(ch, config);
+    if (stock.empty()) {
+        vendor_say(vendor, "I have nothing to sell right now.");
+        return;
+    }
+    std::vector<vendor_list_row> rows;
+    for (const stock_row& s : stock) {
+        vendor_list_row row { s.copy->short_description, s.price->deduct ? s.count : -1, {} };
+        for (const vendor_cost& cost : s.price->costs)
+            row.costs.push_back({ cost.qty, obj_vnum_short(cost.obj_vnum) });
+        rows.push_back(row);
+    }
+    send_to_char(format_vendor_list(rows).c_str(), ch);
+}
+
+void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const vendor_config& config)
+{
+    char want[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
+    one_argument(arg, want);
+    if (!*want) {
+        vendor_say(vendor, "What do you want to buy?");
+        return;
+    }
+    std::vector<stock_row> stock = vendor_stock(ch, config);
+    const stock_row* pick = 0;
+    if (isdigit((unsigned char)*want)) {
+        int n = atoi(want);
+        if (n >= 1 && n <= (int)stock.size())
+            pick = &stock[n - 1];
+    } else {
+        for (const stock_row& s : stock)
+            if (isname(want, s.copy->name)) {
+                pick = &s;
+                break;
+            }
+    }
+    if (!pick) {
+        vendor_say(vendor, "I don't have that. Try 'list'.");
+        return;
+    }
+    if (IS_CARRYING_N(ch) + 1 > CAN_CARRY_N(ch)) {
+        send_to_char("You can't carry that many items.\n\r", ch);
+        return;
+    }
+    if (IS_CARRYING_W(ch) + GET_OBJ_WEIGHT(pick->copy) > CAN_CARRY_W(ch)) {
+        send_to_char("You can't carry that much weight.\n\r", ch);
+        return;
+    }
+
+    std::vector<vendor_shortfall> short_of = vendor_shortfalls(pick->price->costs,
+        [ch](int vnum) { return (int)payable_copies(ch, vnum).size(); });
+    if (!short_of.empty()) {
+        for (const vendor_shortfall& s : short_of) {
+            snprintf(buf, sizeof(buf), "You need %d x %s and have %d.\n\r", s.need, obj_vnum_short(s.obj_vnum), s.have);
+            send_to_char(buf, ch);
+        }
+        return;
+    }
+
+    /* Gather every payment object first; destroy nothing until all are in hand. */
+    std::vector<struct obj_data*> payment;
+    for (const vendor_cost& cost : pick->price->costs) {
+        std::vector<struct obj_data*> copies = payable_copies(ch, cost.obj_vnum);
+        if ((int)copies.size() < cost.qty) {
+            snprintf(buf, sizeof(buf), "SYSERR: barter_vendor: payment count changed for obj #%d", cost.obj_vnum);
+            mudlog(buf, NRM, LEVEL_IMMORT, TRUE);
+            return;
+        }
+        payment.insert(payment.end(), copies.begin(), copies.begin() + cost.qty);
+    }
+    for (struct obj_data* obj : payment) {
+        obj_from_char(obj);
+        extract_obj(obj);
+    }
+
+    std::string paid;
+    for (const vendor_cost& cost : pick->price->costs) {
+        if (!paid.empty())
+            paid += ", ";
+        paid += std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum);
+    }
+    struct obj_data* bought = read_object(pick->copy->item_number, REAL);
+    obj_to_char(bought, ch);
+    snprintf(buf, sizeof(buf), "You hand over %s.\n\rYou now have %s.\n\r", paid.c_str(), bought->short_description);
+    send_to_char(buf, ch);
+    act("$n buys $p.", FALSE, ch, bought, 0, TO_ROOM);
+
+    if (pick->price->deduct) {
+        struct obj_data* copy = pick->copy;
+        obj_from_room(copy);
+        extract_obj(copy);
+    }
+}
+
+/* True if `give ... <target>` names this vendor: the target is the last word. */
+bool give_targets(struct char_data* vendor, struct char_data* ch, char* arg)
+{
+    char buf[MAX_INPUT_LENGTH];
+    strncpy(buf, arg, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = 0;
+    char* end = buf + strlen(buf);
+    while (end > buf && isspace((unsigned char)end[-1]))
+        *--end = 0;
+    char* last = end;
+    while (last > buf && !isspace((unsigned char)last[-1]))
+        --last;
+    return *last && get_char_room_vis(ch, last, 0) == vendor;
+}
+
+} // namespace
+
 SPECIAL(barter_vendor)
 {
-    return FALSE; /* Task 6 fills this in */
+    /* Only a registered vendor mob is ever a vendor. The old program path can
+     * call program 33 for a player or an unregistered mob; neither may become
+     * invulnerable or intercept commands. */
+    if (!host || !IS_NPC(host))
+        return FALSE;
+    const vendor_config* config = vendor_config_for(host->nr);
+    if (!config)
+        return FALSE;
+    if (!ch || ch == host)
+        return FALSE;
+
+    if (callflag == SPECIAL_DAMAGE) {
+        vendor_say(host, "Don't even think about it.");
+        return TRUE;
+    }
+    if (callflag != SPECIAL_COMMAND)
+        return FALSE;
+    if (cmd != CMD_LIST && cmd != CMD_BUY && cmd != CMD_GIVE)
+        return FALSE;
+
+    if (cmd == CMD_GIVE) {
+        if (!arg || !give_targets(host, ch, arg))
+            return FALSE;
+        vendor_say(host, "I don't take gifts.");
+        return TRUE;
+    }
+
+    if (!config->usable()) {
+        vendor_send(vendor_problem_line(host->nr >= 0 ? mob_index[host->nr].virt : -1,
+                        { 0, "bad options - vendor disabled" }),
+            nullptr);
+        vendor_say(host, "I'm not trading right now.");
+        return TRUE;
+    }
+    if (!vendor_serves(host, ch, *config))
+        return TRUE;
+
+    if (cmd == CMD_LIST)
+        vendor_list(host, ch, *config);
+    else
+        vendor_buy(host, ch, arg ? arg : (char*)"", *config);
+    return TRUE;
 }
