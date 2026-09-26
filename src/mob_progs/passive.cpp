@@ -353,15 +353,12 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
         extract_obj(obj);
     }
 
-    std::string paid;
-    for (const vendor_cost& cost : pick->price->costs) {
-        if (!paid.empty())
-            paid += ", ";
-        paid += std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum);
-    }
+    std::string paid; /* one currency per line, so it stays within 78 columns */
+    for (const vendor_cost& cost : pick->price->costs)
+        paid += "  " + std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum) + "\n\r";
     struct obj_data* bought = read_object(pick->copy->item_number, REAL);
     obj_to_char(bought, ch);
-    snprintf(buf, sizeof(buf), "You hand over %s.\n\rYou now have %s.\n\r", paid.c_str(), bought->short_description);
+    snprintf(buf, sizeof(buf), "You hand over:\n\r%sYou now have %s.\n\r", paid.c_str(), bought->short_description);
     send_to_char(buf, ch);
     act("$n buys $p.", FALSE, ch, bought, 0, TO_ROOM);
 
@@ -372,19 +369,26 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
     }
 }
 
-/* True if `give ... <target>` names this vendor: the target is the last word. */
+/* True exactly when do_give (act_obj1.cpp) would pick this vendor as the
+ * recipient. It parses the same way: half_chop off the first word; after a
+ * number ("give 10 coins trader") the target comes from the rest, otherwise
+ * from the whole argument; either way argument_interpreter takes the object
+ * word, then the target word (skipping fill words like "to"), and
+ * give_find_vict looks the target up with get_char_room_vis. */
 bool give_targets(struct char_data* vendor, struct char_data* ch, char* arg)
 {
-    char buf[MAX_INPUT_LENGTH];
-    strncpy(buf, arg, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = 0;
-    char* end = buf + strlen(buf);
-    while (end > buf && isspace((unsigned char)end[-1]))
-        *--end = 0;
-    char* last = end;
-    while (last > buf && !isspace((unsigned char)last[-1]))
-        --last;
-    return *last && get_char_room_vis(ch, last, 0) == vendor;
+    char whole[MAX_INPUT_LENGTH], first[MAX_INPUT_LENGTH], rest[MAX_INPUT_LENGTH];
+    char what[MAX_INPUT_LENGTH], target[MAX_INPUT_LENGTH];
+
+    strncpy(whole, arg, sizeof(whole) - 1);
+    whole[sizeof(whole) - 1] = 0;
+    half_chop(whole, first, rest);
+    if (!*first)
+        return false;
+    argument_interpreter(is_number(first) ? rest : whole, what, target);
+    if (!*what || !*target)
+        return false;
+    return get_char_room_vis(ch, target) == vendor;
 }
 
 } // namespace

@@ -93,6 +93,7 @@ extern struct obj_data* object_list;
 extern struct room_data world;
 extern int top_of_world;
 extern struct descriptor_data* descriptor_list;
+extern struct time_info_data time_info;
 void clear_char(struct char_data* ch, int mode);
 void clear_object(struct obj_data* obj);
 
@@ -101,6 +102,7 @@ namespace {
 constexpr int kStoreVnum = 5000;
 constexpr int kBeltVnum = 100;
 constexpr int kHideVnum = 200;
+constexpr int kLeatherVnum = 300;
 constexpr int kVendorVnum = 7000;
 
 class BarterVendorTest : public ::testing::Test {
@@ -140,11 +142,16 @@ protected:
         m_obj_proto[1].name = m_hide_name;
         m_obj_proto[1].short_description = m_hide_short;
         m_obj_proto[1].obj_flags.weight = 10;
+        m_obj_proto[2].item_number = 2;
+        m_obj_proto[2].name = m_leather_name;
+        m_obj_proto[2].short_description = m_leather_short;
+        m_obj_proto[2].obj_flags.weight = 10;
         m_obj_index[0].virt = kBeltVnum;
         m_obj_index[1].virt = kHideVnum;
+        m_obj_index[2].virt = kLeatherVnum;
         obj_proto = m_obj_proto;
         obj_index = m_obj_index;
-        top_of_objt = 1;
+        top_of_objt = 2;
 
         m_mob_proto[0].specials2.act = MOB_ISNPC | MOB_SPEC;
         m_mob_proto[0].specials.store_prog_number = PROG_BARTER_VENDOR;
@@ -249,13 +256,15 @@ protected:
     char m_belt_short[20] = "a hunter's belt";
     char m_hide_name[16] = "hide wolf";
     char m_hide_short[20] = "a wolf hide";
+    char m_leather_name[16] = "leather belt";
+    char m_leather_short[20] = "a leather belt";
     char m_vendor_name[16] = "trader vendor";
     char m_vendor_short[16] = "the trader";
     char m_buyer_name[16] = "Buyer";
     char m_arg[MAX_INPUT_LENGTH] = "";
 
-    obj_data m_obj_proto[2] {};
-    index_data m_obj_index[2] {};
+    obj_data m_obj_proto[3] {};
+    index_data m_obj_index[3] {};
     char_data m_mob_proto[1] {};
     index_data m_mob_index[1] {};
     char_data m_vendor {};
@@ -322,7 +331,7 @@ TEST_F(BarterVendorTest, BuyPaysDeductsAndHandsOverTheItem)
     EXPECT_EQ(carried(0), 1);
     EXPECT_EQ(carried(1), 1);
     EXPECT_EQ(floor_belts(), 1);
-    EXPECT_NE(output().find("You hand over 2 x a wolf hide."), std::string::npos) << output();
+    EXPECT_EQ(output(), "You hand over:\n\r  2 x a wolf hide\n\rYou now have a hunter's belt.\n\r");
 }
 
 TEST_F(BarterVendorTest, BuyByKeyword)
@@ -367,12 +376,72 @@ TEST_F(BarterVendorTest, SoldOutItemIsNotListedOrSold)
     EXPECT_EQ(carried(0), 0);
 }
 
-TEST_F(BarterVendorTest, RefusesGiftsOnlyWhenTheVendorIsTheTarget)
+TEST_F(BarterVendorTest, PurchaseSummaryListsOneCurrencyPerLine)
 {
-    give_hides(1);
-    EXPECT_TRUE(call(CMD_GIVE, "hide trader"));
-    EXPECT_FALSE(call(CMD_GIVE, "hide buyer"));
-    EXPECT_EQ(carried(1), 1);
+    std::strcpy(m_options, "store=5000\nprice 100 300x1 200x2 deduct");
+    vendor_config_rebuild(0, nullptr);
+    give_hides(2);
+    obj_to_char(read_object(2, REAL), &m_buyer);
+
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(output(), "You hand over:\n\r"
+                        "  1 x a leather belt\n\r"
+                        "  2 x a wolf hide\n\r"
+                        "You now have a hunter's belt.\n\r");
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_EQ(carried(1), 0);
+    EXPECT_EQ(carried(2), 0);
+}
+
+TEST_F(BarterVendorTest, ClosedVendorRefusesTrade)
+{
+    int saved_hours = time_info.hours;
+    std::strcpy(m_options, "store=5000\nhours=6-12\nprice 100 200x2 deduct");
+    vendor_config_rebuild(0, nullptr);
+    give_hides(2);
+
+    time_info.hours = 20;
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 0);
+    EXPECT_EQ(carried(1), 2);
+    EXPECT_EQ(floor_belts(), 2);
+
+    time_info.hours = 8;
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 1);
+    time_info.hours = saved_hours;
+}
+
+/* The vendor refuses a gift exactly when do_give would hand it to the vendor. */
+TEST_F(BarterVendorTest, GiveToTheVendorIsIntercepted)
+{
+    for (const char* arg : { "sword trader", "sword to trader", "sword trader x", "10 coins trader",
+             "10 coins trader junk", "all trader", "all.sword trader" })
+        EXPECT_TRUE(call(CMD_GIVE, arg)) << arg;
+}
+
+TEST_F(BarterVendorTest, GiveToAnyoneElseOrNobodyPassesThrough)
+{
+    for (const char* arg : { "sword someoneelse", "sword", "", "sword buyer", "10 coins" })
+        EXPECT_FALSE(call(CMD_GIVE, arg)) << arg;
+}
+
+TEST_F(BarterVendorTest, GiveByNumberedNameFindsTheRightTrader)
+{
+    char_data other {};
+    clear_char(&other, MOB_ISNPC);
+    other.specials2.act = MOB_ISNPC;
+    other.player.name = m_vendor_name; /* another "trader" ahead of the vendor */
+    other.player.short_descr = m_vendor_short;
+    other.in_room = 0;
+    other.next_in_room = world[0].people;
+    world[0].people = &other;
+
+    EXPECT_TRUE(call(CMD_GIVE, "sword 2.trader"));
+    EXPECT_FALSE(call(CMD_GIVE, "sword 1.trader"));
+    EXPECT_FALSE(call(CMD_GIVE, "sword trader")) << "plain 'trader' is the other one";
+
+    world[0].people = other.next_in_room;
 }
 
 TEST_F(BarterVendorTest, UnusableConfigRefusesTrade)
