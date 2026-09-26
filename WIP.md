@@ -7,7 +7,9 @@
   "Integration Test Harness" sections at the end of this file, newest last.
 - Follow-up complete (`docs/superpowers/plans/2026-09-21-harness-follow-up.md`, 2026-09-21): 74 scenarios
   and 821/821 unit tests green in CI at 1031941 (run 35675288166). Added test_summon_distance.py (zone 12 at map
-  (4,2), squared distance 20, deterministic failure plus an in-zone control) and test_fireball_splash.py
+  (4,2), squared distance 20, deterministic failure plus an in-zone control; since 2026-09-26 the zone sits at
+  (3,4) and the scenario pins a landing at straight-line distance 5, which the old squared formula would
+  refuse) and test_fireball_splash.py
   (Harnvictim as the melee partner because Big Brother refuses a level-30 caster's splash on a level-10
   player); fixed the four fix-wave findings (host field terminator and width, alias writer skipping an
   empty-command entry whole, MageTestContext contract comment, dead ScopedPlayerTableEntry) and two
