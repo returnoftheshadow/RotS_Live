@@ -768,14 +768,17 @@ void msdp_update()
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, std::to_string(GET_LEVEL(opponent)).c_str());
+            MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
         } else if (opponent && utils::is_pc(*opponent)) {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");
+            MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
         } else {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, 0);
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, "");
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "");
+            MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
         }
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
@@ -1016,7 +1019,13 @@ void game_loop(SocketType s)
                         point->character->specials.timer = 0;
                     }
                     if (point->character && IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
-                        string_add(point, comm);
+                        /* The flag is saved with the character; after a fresh
+                         * load there is no text being edited.  Players only: on
+                         * a mob these bits are its own flags (NOBASH, AGGR). */
+                        if (!point->str && !IS_NPC(point->character))
+                            REMOVE_BIT(PLR_FLAGS(point->character), PLR_MAILING | PLR_WRITING);
+                        else
+                            string_add(point, comm);
                     }
 
                     point->prompt_mode = 1;
@@ -1125,6 +1134,11 @@ void game_loop(SocketType s)
                         if (PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
                             sprintf(prompt, "%s [", prompt);
                             add_prompt(prompt, point->character, PROMPT_ADVANCED);
+                            /* what is being shaped, as the normal prompt shows it */
+                            if (PRF_FLAGGED(point->character, PRF_DISPTEXT)) {
+                                strcat(prompt, " ");
+                                add_prompt(prompt, point->character, PRF_DISPTEXT);
+                            }
                         } else if (((GET_HIT(point->character) < GET_MAX_HIT(point->character)) || point->character->specials.fighting) && PRF_FLAGGED(point->character, PRF_PROMPT)) {
                             sprintf(prompt, "%s HP:", prompt);
                         }
@@ -1376,6 +1390,27 @@ void write_to_output(const char* txt, struct descriptor_data* t)
         t->bufspace = LARGE_BUFSIZE - 1 - strlen(t->output);
         t->bufptr = strlen(t->output);
     }
+}
+
+/* How many more characters write_to_output will take this pulse before it
+   switches to the overflow state. */
+int output_space_left(struct descriptor_data* t)
+{
+    if (t->bufptr < 0)
+        return 0;
+    if (t->large_outbuf)
+        return t->bufspace;
+    return LARGE_BUFSIZE - 1 - strlen(t->output);
+}
+
+/* Put the output into the overflow state now: the rest of this pulse's
+   output is dropped and "**OVERFLOW**" is shown, as when the buffer fills. */
+void output_mark_overflow(struct descriptor_data* t)
+{
+    if (t->bufptr < 0)
+        return;
+    t->bufptr = -1;
+    buf_overflows++;
 }
 
 struct txt_block* get_from_txt_block_pool(char* line)
@@ -1744,6 +1779,26 @@ bool append_lines(char* target, char* source, int* len, size_t space)
     *len = tmp;
     *target = 0;
     return fitted;
+}
+
+/* How many characters append_lines adds when it wraps text, for text that
+   starts at the beginning of a line. */
+int wrap_added_length(const char* text)
+{
+    int col = 0, added = 0;
+
+    for (; *text; text++) {
+        col++;
+        if (*text == '\r')
+            col = 0;
+        if (*text == '\n')
+            col--;
+        if (col > screen_width) {
+            added += 2;
+            col = 0;
+        }
+    }
+    return added;
 }
 
 char process_output_buffer[LARGE_BUFSIZE + 20];

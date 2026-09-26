@@ -21,6 +21,7 @@ extern room_data world;
 extern weather_data weather_info;
 extern char* pc_races[];
 extern char* pc_star_types[];
+extern int average_mob_life;
 
 void clear_char(struct char_data* ch, int mode);
 void msdp_update();
@@ -1565,10 +1566,11 @@ TEST(MSDPProtocol, MsdpUpdateClearsOpponentFieldsWhenNotFighting)
 
     initialize_msdp_player(&context.character, "Aragorn");
     enable_msdp_reports(context.descriptor.pProtocol,
-        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_NAME, eMSDP_OPPONENT_LEVEL });
+        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_NAME, eMSDP_OPPONENT_LEVEL, eMSDP_OPPONENT_AGE });
     MSDPSetNumber(&context.descriptor, eMSDP_OPPONENT_HEALTH, 88);
     MSDPSetString(&context.descriptor, eMSDP_OPPONENT_NAME, "stale opponent");
     MSDPSetString(&context.descriptor, eMSDP_OPPONENT_LEVEL, "44");
+    MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "Stale has been here for a little while.");
     descriptor_list = &context.descriptor;
 
     msdp_update();
@@ -1577,9 +1579,10 @@ TEST(MSDPProtocol, MsdpUpdateClearsOpponentFieldsWhenNotFighting)
     EXPECT_EQ(protocol->pVariables[eMSDP_OPPONENT_HEALTH]->ValueInt, 0);
     EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_NAME]->pValueString, "");
     EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_LEVEL]->pValueString, "");
+    EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_AGE]->pValueString, "");
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "0") + expected_msdp_pair("OPPONENT_LEVEL", "")
-            + expected_msdp_pair("OPPONENT_NAME", ""));
+            + expected_msdp_pair("OPPONENT_NAME", "") + expected_msdp_pair("OPPONENT_AGE", ""));
 }
 
 TEST(MSDPProtocol, MsdpUpdatePublishesNothingForDescriptorAtCharacterMenu)
@@ -1638,11 +1641,12 @@ TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
     SET_BIT(opponent.specials2.act, MOB_ISNPC);
     opponent.player.short_descr = strdup("a snarling orc");
     opponent.player.level = 12;
+    opponent.player.time.logon = time(0);
     opponent.abilities.hit = 200;
     opponent.tmpabilities.hit = 50;
     context.character.specials.fighting = &opponent;
     enable_msdp_reports(context.descriptor.pProtocol,
-        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_NAME, eMSDP_OPPONENT_LEVEL });
+        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_NAME, eMSDP_OPPONENT_LEVEL, eMSDP_OPPONENT_AGE });
     descriptor_list = &context.descriptor;
 
     msdp_update();
@@ -1651,9 +1655,72 @@ TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
     EXPECT_EQ(protocol->pVariables[eMSDP_OPPONENT_HEALTH]->ValueInt, 25);
     EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_NAME]->pValueString, "a snarling orc");
     EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_LEVEL]->pValueString, "12");
+    EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_AGE]->pValueString,
+        "A snarling orc has just arrived to this place.");
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25") + expected_msdp_pair("OPPONENT_LEVEL", "12")
-            + expected_msdp_pair("OPPONENT_NAME", "a snarling orc"));
+            + expected_msdp_pair("OPPONENT_NAME", "a snarling orc")
+            + expected_msdp_pair("OPPONENT_AGE", "A snarling orc has just arrived to this place."));
+}
+
+TEST(MSDPProtocol, MsdpUpdateUsesDiagnoseAgeBandsForNpcOpponent)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+    char_data opponent {};
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    clear_char(&opponent, MOB_ISNPC);
+    SET_BIT(opponent.specials2.act, MOB_ISNPC);
+    opponent.player.short_descr = strdup("a snarling orc");
+    opponent.abilities.hit = 200;
+    opponent.tmpabilities.hit = 50;
+    context.character.specials.fighting = &opponent;
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_OPPONENT_AGE });
+    descriptor_list = &context.descriptor;
+
+    const struct {
+        int ticks;
+        const char* expected;
+    } cases[] = {
+        { average_mob_life / 4, "A snarling orc has arrived but recently." },
+        { average_mob_life * 3 / 4, "A snarling orc has been here for a little while." },
+        { average_mob_life, "A snarling orc has been here for quite a while." },
+        { average_mob_life * 3 / 2, "A snarling orc has been here for a long time already." },
+        { average_mob_life * 2, "A snarling orc has been here for a very long time." },
+    };
+    for (const auto& c : cases) {
+        opponent.player.time.logon = time(0) - c.ticks * SECS_PER_MUD_HOUR;
+        msdp_update();
+        EXPECT_STREQ(
+            context.descriptor.pProtocol->pVariables[eMSDP_OPPONENT_AGE]->pValueString, c.expected);
+        EXPECT_EQ(context.read_output(), expected_msdp_pair("OPPONENT_AGE", c.expected));
+    }
+}
+
+TEST(MSDPProtocol, MsdpUpdateHidesAgeOfOrcFriendPetOpponent)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+    char_data opponent {};
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    clear_char(&opponent, MOB_ISNPC);
+    SET_BIT(opponent.specials2.act, MOB_ISNPC | MOB_ORC_FRIEND | MOB_PET);
+    opponent.player.short_descr = strdup("a tame warg");
+    opponent.abilities.hit = 200;
+    opponent.tmpabilities.hit = 50;
+    context.character.specials.fighting = &opponent;
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_OPPONENT_AGE });
+    MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "stale");
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_OPPONENT_AGE]->pValueString, "");
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("OPPONENT_AGE", ""));
 }
 
 TEST(MSDPProtocol, MsdpUpdateHandlesOpponentWithInvalidMaxHealth)
@@ -1696,7 +1763,8 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
     opponent.tmpabilities.hit = 30;
     context.character.specials.fighting = &opponent;
     enable_msdp_reports(context.descriptor.pProtocol,
-        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_NAME, eMSDP_OPPONENT_LEVEL });
+        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_NAME, eMSDP_OPPONENT_LEVEL, eMSDP_OPPONENT_AGE });
+    MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "stale");
     descriptor_list = &context.descriptor;
 
     msdp_update();
@@ -1706,9 +1774,11 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
     EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_NAME]->pValueString,
         pc_star_types[RACE_HUMAN]);
     EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_LEVEL]->pValueString, "???");
+    EXPECT_STREQ(protocol->pVariables[eMSDP_OPPONENT_AGE]->pValueString, "");
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25") + expected_msdp_pair("OPPONENT_LEVEL", "???")
-            + expected_msdp_pair("OPPONENT_NAME", pc_star_types[RACE_HUMAN]));
+            + expected_msdp_pair("OPPONENT_NAME", pc_star_types[RACE_HUMAN])
+            + expected_msdp_pair("OPPONENT_AGE", ""));
 }
 
 // --- Regression tests for the "dirty flag dropped while MSDP is off" bug -------------------------

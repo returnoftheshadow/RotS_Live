@@ -1,16 +1,19 @@
 # Shape Mob Command
 
 `shape mob` is the in-game tool for creating or modifying mobile prototypes.
-Mob definitions live in `world/mob/<zone>.mob` (or the alternate `world/prx`
-paths for special zones). This guide describes the shaping interface, every
-editable field, and the conventions expected by Return of the Shadow so you can
-retire the old `shap_tbl` excerpts.
+Mob definitions live in `world/mob/<zone>.mob`. This guide describes the
+shaping interface, every editable field, and the conventions expected by
+Return of the Shadow. The in-game `help shape mob <n>` entries (`shap_tbl`)
+cover the same fields in short form.
 
 ## Prerequisites
 
 - **Permissions**: you must have builder rights for the zone (`get_permission`).
-- **Vnum assignment**: reserve a mob number via `register` before creating a new
-  entry (`shape mob new <zone>` automatically targets the right file).
+- **Files and vnums**: zone files are created outside the game. You shape a mob
+  by its vnum: `shape mob 1350` loads #1350, or, if the file `13.mob` has no
+  #1350 yet, starts a blank mob with that number ("could not find mob #1350,
+  created it"). `/save` then writes it into its place in the file. A mistyped
+  vnum therefore starts a new mob instead of reporting an error.
 - **Reference mob**: for quick sanity checks, keep another mob with similar
   behaviour handy and compare stats with `/50`.
 
@@ -18,139 +21,193 @@ retire the old `shap_tbl` excerpts.
 
 | Action | Command |
 |--------|---------|
-| Load/create | `shape mob <vnum>` to edit an existing mob, or `shape mob new <zone>` to start from a blank template. |
-| Mode toggle | `/simple` switches between simple (fields 1–12 + spirit) and extended editing; `/extended` switches back. |
-| Show menu | `/0` (or any non-numeric input) prints the numeric command list for the current mode. |
-| Edit field | `/<number>` runs the field editor described below. |
-| List current values | `/50` dumps the whole mob definition (or `/49` to run the guided creation sequence). |
-| Save & implement | `/save` writes to disk (after a backup); `/implement` pushes the temp mob into memory for live testing; `/done` performs save → implement → free. |
+| Load/create | `shape mob <vnum>` (see Prerequisites). |
+| Mode toggle | The editor opens in simple mode. `/simple` toggles between simple (fields 1–13) and extended editing. |
+| Show menu | `/0` (or any unused field number) prints the field list for the current mode. A word that is not a command (e.g. `/help`) prints the command list. |
+| Edit field | `/<number>` asks for the field on the **next** line. Anything typed after `/N` on the same line is ignored. |
+| List current values | `/50` lists the whole mob; `/49` runs the guided creation sequence. |
+| Save & implement | `/save` writes to disk (after a backup); `/implement` pushes the mob into the running game; `/done` does save → implement → free. |
 | Exit without saving | `/free`. |
 
-Editing uses the standard editor syntax:
+`/done` stops if the save fails (no permission, missing backup folder, file
+error): it prints `Not saved - still shaping. Fix the problem and /done again,
+or /free to discard.` and keeps your edits.
 
-- Multiline text: enter text, `%f` to format, `%e` to finish (`%q` aborts).
-- Numeric fields: enter the full value (e.g., `42`), apply offsets (`+5`, `-2`),
-  or toggle bit numbers (`p7` sets bit 7, `m7` clears). Blank input keeps the
-  previous value.
+### Disabled commands
+
+These commands did harm and are turned off. Each one answers with exactly what
+was typed, e.g. `"/delete" has been disabled due to a bug.`:
+
+- `/delete` (any arguments)
+- `/new <zone>` and `shape mobile new <zone>` (picked last vnum + 1, which could
+  run past the zone's range)
+- `/add <anything>` (could write the mob into any file). Plain `/add` still
+  works and simply saves.
+- `shape recalc_mobile` (rewrote every mob file from level and shut down)
+
+`shape master_mobile <idnum>` / `shape master_object <idnum>` (Greater God and
+up) set the one player who may shape any mob / object. With no number they now
+change nothing and show the current master and the usage line.
+
+`/recalculate` needs at least `/recalc`; `/r` alone shows the command list.
+
+### Answering prompts
+
+- Single-line text: the whole line is stored. A blank line keeps the old value.
+  `%q` empties the field (refused for `/1` and `/2`, see below). `#` becomes
+  `+` and `~` becomes `-`.
+- Multi-line text (`/4`): the shared editor. `%e` saves, `%q` aborts and keeps
+  the old text, `%f` formats, `%h` shows help.
+- Numbers: a plain number sets the value; `+5` adds; `-5` **subtracts** (except
+  the fields that accept negatives, below); `p7` sets bit 7 and `m7` clears it
+  (one toggle per answer). A blank line keeps the value. A word keeps the value
+  silently.
+- Negative values: `/7` alignment, `/27` saving throw and `/32` perception take
+  `-N` as the value `-N` (e.g. `-300`), not as "subtract N".
+- Every prompt shows the current value; the fields with several numbers
+  (`/9`, `/10`, `/28`) show a `Current:` line.
 
 ## Simple-mode fields
 
-Simple mode exposes the minimum set needed for quick tuning:
-
 | `/n` | Field | Notes |
 |------|-------|-------|
-| `/1` | Aliases | Lowercase keywords players type (`orc guard orc guard`). |
-| `/2` | Reference description | Short desc (`a surly orc guard`). Used in lists. |
-| `/3` | Full room description | The long description players see when entering the room. Must end in a newline and period. |
-| `/4` | Detailed description | The text shown when someone `look <mob>`. |
-| `/5` | Mob flags | Bitvector of behaviour flags (see “Mob flags” below). Input accepts sums or `p<n>` toggles. |
-| `/6` | Affects | Bitvector of permanent affects applied to the mob (see “Affect flags”). |
-| `/7` | Level | Combat level. Keep within expected zone ranges (check `/50` on similar mobs). |
-| `/8` | Sex | `0` neutral, `1` male, `2` female. |
-| `/9` | Race | Use the `RACE_*` constants from `src/structs.h` (see table in `docs/shape_script.md`). |
-| `/10` | Body type | Determines hit locations (0 tiny, 1 humanoid, 2 quadruped, 3 tentacled, 4 bird). |
-| `/11` | Race aggression | Bitvector built from race IDs (`1 << RACE_HUMAN`, etc.). Aggressive mobs attack those races on sight even without the `AGGRESSIVE` flag. |
-| `/12` | Butcher item | Vnum of the object dropped when butchering the corpse (`0` for none). |
-| `/40` | Mob spirit | Role-play marker shown in prompts (`docs/shape_script.md` lists the titles). Use the constants from `prompt_spirit` in `src/consts.cpp`. |
+| `/1` | Aliases | Keywords separated by spaces (`gate guard human`), not commas. Can't be emptied with `%q` ("Aliases can't be empty."). |
+| `/2` | Reference description | The name used in messages (`a surly orc guard`). Can't be emptied with `%q`. Boot lowercases a leading A/An/The; `/implement` does not. |
+| `/3` | Room line | Shown in the room only while the mob is in its **default position** (`/17`); otherwise the game shows the reference description plus the position. Capitalise and end with a period. |
+| `/4` | Detailed description | The text shown by `look <mob>`. |
+| `/5` | Mob flags | Bitvector; the prompt lists all bits (see "Mob flags"). Bit 3 ISNPC is always forced on. |
+| `/6` | Affects | Bitvector; the prompt lists all bits (see "Affect flags"). |
+| `/7` | Level | Does **not** recalculate stats; use `/recalculate` for that. |
+| `/8` | Sex | Letter: `n`, `m` or `f`. The prompt shows the current letter; blank keeps it; digits are rejected ("Unrecognized sex."). |
+| `/9` | Race | Must be 0–20 ("Race must be 0-20. dropped."). The prompt lists the races. |
+| `/10` | Body type | Must be 0–15 (see "Body types"). |
+| `/11` | Race aggression | Race bitvector (`p<race#>`). |
+| `/12` | Butcher item | Object vnum given by butchering; `0` = none. |
+| `/13` | Spirit | Spirit points (see extended `/40`). |
+| `/49` | Guided creation sequence | See below. |
+| `/50` | List | Prints the simple-mode fields. |
 
 ## Extended-mode field reference
 
 | `/n` | Field | Description / Notes |
 |------|-------|---------------------|
 | `/1` – `/6` | Same as simple mode. |
-| `/7` | Alignment | Stored in `specials2.alignment`, range roughly `-1000..1000`. Positive = good. |
-| `/8` | Level | Combat level. |
-| `/9` | Combat stats | Prompts for OB, parry, and dodge (three integers). Check balance against existing mobs. |
-| `/10` | Hit points | Prompts for min and max hit (`min_hit`, `max_hit`). |
-| `/11` | Damage | Base damage per swing (affects `points.damage`). |
-| `/12` | Energy regen | Controls `points.ENE_regen`, which is used by `char_utils::get_energy_regen` and combat systems to determine both how quickly the mob regains energy and how fast it cycles attacks. Higher values shorten weapon recovery times (see ranger special shots, wild fighting handler, and `profs.cpp` multipliers), while lower values slow its swing rate. Defaults to roughly `70 + level * 2` in `new_mob`. |
-| `/13` | Gold | Coins carried. Keep small unless the mob is meant to be a bank. |
-| `/14` | Experience | Raw XP value. Use `/recalc` as a starting point and adjust sparingly. |
-| `/16` | Current position | See `structs.h` `POSITION_*` defines (`POSITION_STANDING`, etc.). Determines the mob’s immediate pose when spawned. |
-| `/17` | Default position | Fallback pose when not engaged (often `POSITION_STANDING` or `POSITION_RESTING`). |
-| `/18` | Sex | 0 neutral, 1 male, 2 female. |
-| `/19` | Race | `RACE_*` constant. Drives stat caps, languages, sunlight penalties. |
-| `/20` | Race aggression | Bitvector of target races (see simple mode). |
-| `/21` | Weight | Stored in hundredths of kg (`5000` = 50 kg). |
-| `/22` | Height | Centimetres. |
-| `/23` | Profession points | `GET_PROF_POINTS` per class (wizard/cleric/ranger/warrior). Enter four integers separated by spaces. |
-| `/24` | Stamina (mana) | `constabilities.mana`. Use `/recalc` as reference when raising above default. |
-| `/25` | Move points | `constabilities.move`. |
-| `/26` | Body type | Same as `/10` in simple mode (0–4). |
-| `/27` | Saving throw | Base save modifier (`GET_SAVE`). Negative is better. |
-| `/28` | Stats | Enter `STR INT WILL DEX CON LEA` in that order. Range 0–40. |
-| `/29` | Program number | ASIMA program ID (see `docs/shape_mudlle.md`). Clears `MOB_SPEC` when used. |
-| `/30` | Language | The skill ID from `language_skills[]`/`LANG_*`. `LANG_BASIC` = common. |
-| `/31` | Butcher item | Same as simple `/12`. |
-| `/32` | Perception | `specials2.perception`; affects search/hide detection. |
-| `/33` | Room death cry | Text shown in the room when the mob dies. |
-| `/34` | Other-room death cry | Text broadcast to adjacent rooms. |
-| `/35` | Corpse number | Vnum of the corpse object to spawn (`0` uses default). |
-| `/36` | Resistances | Bitvector; see `MAN SHAPE MOB 36` (values align with spell schools such as fire, cold). |
-| `/37` | Vulnerabilities | Bitvector, same mapping as resistances. |
-| `/38` | Script number | Script vnum (see `docs/shape_script.md`). Works alongside ASIMA programs. |
-| `/39` | RP flag | Bitmask of races allowed to roleplay with this mob (`specials2.rp_flag`). |
-| `/40` | Mob spirit | Same as simple `/40`. |
-| `/41` | Will teach | Toggles teaching capabilities (which skills/specs this trainer handles). Use bitmask defined in the training subsystem (`TRAIN_*`). |
-| `/49` | Guided creation | Runs the field sequence recommended for new mobs. |
-| `/50` | List | Prints every field (`/imp` plus `/50` is a good sanity check). |
+| `/7` | Alignment | `specials2.alignment`, `-1000..1000`; good is `>= 100`, evil `<= -100`. `-N` sets a negative value. |
+| `/8` | Level | Combat level. Does not recalculate stats. |
+| `/9` | OB, parry, dodge | Three numbers (`OB PARRY DODGE`). Shows `Current:`; blank keeps. Negatives work here. Fewer than three numbers: "three numbers required. dropped". |
+| `/10` | Hit points | `MIN_HIT MAX_HIT`; each copy rolls between the two when it loads. Shows `Current:`; blank keeps. |
+| `/11` | Damage | Added ×10 to each melee hit (`points.damage`). |
+| `/12` | Energy regen | `points.ENE_regen`: energy gained per pulse; higher = faster attacks. `/recalculate` sets `70 + 2 × level`; a new mob starts at 0. |
+| `/13` | Gold | Coins moved to the corpse, in **copper** (1000 = 1 gold). |
+| `/14` | Experience | Base kill experience (`points.exp`). Use `/recalculate` as a starting point. |
+| `/16` | Position | The pose it loads in. Only `4` sleeping, `5` resting, `6` sitting, `8` standing are accepted ("Position must be 4, 5, 6 or 8. dropped."). |
+| `/17` | Default position | The pose it returns to, and the pose in which `/3` is shown. Same four values. Below standing cuts exp by 1/20. |
+| `/18` | Sex | Letter `n`, `m`, `f` (as simple `/8`). |
+| `/19` | Race | 0–20 (as simple `/9`). Drives side-based aggression, racial perception and race-bit checks. |
+| `/20` | Race aggression | Race bitvector (see "Race aggression"). |
+| `/21` | Weight | In 1/100 lb (`score` shows weight/100 as lb). Corpse weight, mount load, bash, block. |
+| `/22` | Height | Centimetres. Display only for mobs. |
+| `/23` | Prof | One number (`player.prof`, 0–255). For NPCs it only shows in `stat` (Normal/Undead). |
+| `/24` | Stamina (mana) | `abilities.mana`, the pool for mage-type spells. |
+| `/25` | Move points | `abilities.move`. |
+| `/26` | Body type | 0–15 (as simple `/10`). |
+| `/27` | Saving throw | Positive = less spell damage (damage × 20/(20+s)); negative = more. `-N` sets a negative value. |
+| `/28` | Stats | `STR INT WILL DEX CON LEA`, six numbers. Shows `Current:`; blank keeps. Stored as signed bytes (above 127 wraps); `0` or less becomes 17 when the mob loads. |
+| `/29` | Program number | If flag bit 0 (SPEC) is set: a spec-proc number (see "Special procedures"). Otherwise a mudlle program vnum; `0` = none. For hard-coded guildmasters it is the guild list number instead. |
+| `/30` | Language | Index: `0` common, `1` animal, `2` human, `3` orc. Anything above 3 is stored as 3. |
+| `/31` | Butcher item | Object vnum given by butchering; `0` = nothing of value. |
+| `/32` | Perception | `0`–`100`, or `-1` for the racial default (see "Perception defaults"). `-1` can be typed directly. |
+| `/33` | Room death cry | `act()` text sent to the room on death (`$n` = the mob). `%q` = no message. |
+| `/34` | Adjacent-room death cry | Sent to rooms reachable through open exits. `%q` = no message. Spec procs herald (28) and wolf summoner (26) reuse this text. |
+| `/35` | Corpse | Object vnum used as the corpse; `0` (or a vnum that doesn't exist) = the generic corpse. |
+| `/36` | Resistances | Bitvector of groups; the prompt lists them (see "Resistances"). |
+| `/37` | Vulnerabilities | Same groups as `/36`. |
+| `/38` | Script | Script vnum (`world/scr`, see `docs/shape_script.md`); `0` = none. Separate from `/29`. |
+| `/39` | Roleplay flag | Race bitmask used by guildmasters (`RP_RACE_CHECK`): when non-zero, only races whose bit is set may practise. `0` = no restriction. |
+| `/40` | Spirit | Spirit points spent when the mob casts cleric/mystic spells and curse. |
+| `/41` | Will teach | Race bitmask for guildmasters (`WILL_TEACH`): the races this guildmaster teaches. Only matters for guildmaster mobs. |
+| `/49` | Guided creation | See below. |
+| `/50` | List | Prints every field. |
+
+## The `/49` sequence
+
+`/49` walks: `/1` aliases → `/2` → `/3` → `/4` → `/8` level → `/50` list →
+recalculate. **The recalculation is applied before it asks** "Stats were reset
+from level. Edit them now?" — answering N does not undo it, so running `/49` on
+an existing mob wipes its hand-set stats. On Y it continues in extended mode
+with `/23`–`/28`, `/9`, `/10`, `/29`. A blank answer to `/9`, `/10` or `/28`
+keeps the values and moves on. It never visits flags, affects, alignment,
+damage/regen/gold/xp, positions, sex, race, aggression, weight/height or
+`/30`–`/41`.
+
+## `/recalculate`
+
+Resets from level: stamina, moves, hit points, OB/parry/dodge, damage, energy
+regen, experience, saving throw, all six stats (`7 + level/2`), both positions
+(standing) and language. Language by race: human/dwarf/elves/hobbit → 2 human,
+beorning → 1 animal, uruk/harad/orc/magus → 3 orc, easterling → 0 common,
+anything else → 1 animal. The per-mob `/recalculate` ignores `MOB_NORECALC`.
 
 ## Mob flags (`/5`)
 
-Bit numbers live in `src/structs.h` (`MOB_*`). Key ones:
+Bit numbers are the `MOB_*` values in `src/structs.h`; the names are what
+`stat` shows. The `/5` prompt lists all of them.
 
 | Bit # | Flag | Description |
 |-------|------|-------------|
-| 0 | `MOB_SPEC` | Hard-coded special procedure. Clear when using ASIMA. |
-| 1 | `MOB_SENTINEL` | Never roams. |
-| 2 | `MOB_SCAVENGER` | Picks up/wears gear. |
-| 3 | `MOB_ISNPC` | Always set. |
-| 4 | `MOB_NOBASH` | Immune to bash. |
-| 5 | `MOB_AGGRESSIVE` | Attacks any PC entering the room. |
-| 6 | `MOB_STAY_ZONE` | Won’t leave its zone. |
-| 7 | `MOB_WIMPY` | Flees when low on HP. |
-| 8 | `MOB_STAY_SECT` (`STAY_TYPE`) | Only wanders within its sector type (e.g., water). |
-| 9 | `MOB_IS_MOUNT` | Can be ridden. |
-| 10 | `MOB_CAN_SWIM` | Doesn’t need a boat. |
-| 11 | `MOB_MEMORY` | Remembers attackers and re-aggros them. |
-| 12 | `MOB_HELPER` | Assists friends during fights. |
-| 16 | `MOB_BODYGUARD` | Rescues its master. |
-| 17 | `MOB_WRAITH` | Ghost-like (no corpse). |
-| 18 | `MOB_SWITCHING` | Switches targets mid-fight. |
-| 19 | `MOB_NORECALC` | Prevents `/recalc` from overwriting handcrafted stats. |
-| 20 | `MOB_ACTIVE` | Acts immediately on room entry (50% chance). |
-| 21 | `MOB_PET` | Tamed pet (usually set automatically). |
-| 22 | `MOB_HUNTER` | Hunts down remembered attackers. |
-| 23 | `MOB_ORC_FRIEND` | Recruitable by common orcs. |
+| 0 | SPEC | Run the spec proc in `/29`. |
+| 1 | SENTINEL | Never roams. |
+| 2 | SCAVENGER | Picks up items lying around. |
+| 3 | ISNPC | Always set (forced on by the editor). |
+| 4 | NOBASH | Immune to bash. |
+| 5 | AGGR | Attacks on sight. |
+| 6 | STAY-ZONE | Won't leave its zone. |
+| 7 | WIMPY | Flees when hurt; if aggressive, only attacks sleepers. |
+| 8 | STAY-TYPE | Only wanders rooms of the same sector type. |
+| 9 | MOUNT | Can be ridden. |
+| 10 | CAN_SWIM | Doesn't need a boat. |
+| 11 | MEMORY | Remembers attackers. |
+| 12 | HELPER | Attacks characters fighting a PC in the room. |
+| 13 | AGGR_EVIL | With AGGR (bit 5): attack only evil players. No effect without AGGR. |
+| 14 | AGGR_NEUT | With AGGR (bit 5): attack only neutral players. No effect without AGGR. |
+| 15 | AGGR_GOOD | With AGGR (bit 5): attack only good players. No effect without AGGR. |
+| 16 | BODYGUARD | Rescues its master. |
+| 17 | WRAITH (`MOB_SHADOW`) | A spirit; perception forced to 100. |
+| 18 | SWITCH | Won't switch opponents. |
+| 19 | NORECALC | The global recalc skips it (per-mob `/recalculate` does not). |
+| 20 | FAST (`stat`: ACTIVE) | Acts when someone enters. |
+| 21 | IS_PET | Pet of a player (set automatically). |
+| 22 | HUNTER | Memory + hunts its enemies. |
+| 23 | ORC_FRIEND | Recruitable by common orcs. |
+| 24 | RACE_GUARD | Blocks players of a different race. |
+| 25 | ASSISTANT | Assists its master in combat. |
+| 26 | GUARDIAN | Guardian mob. |
 
-Use `p<number>` / `m<number>` to toggle bits or enter the summed integer.
+Use `p<number>` / `m<number>` to toggle bits, or enter the summed integer.
 
 ## Affect flags (`/6`)
 
-These map to the `AFF_*` bitvector (`src/structs.h`). Frequently used bits from
-the old MAN SHAPE MOB 6 reference:
+These map to the `AFF_*` bitvector (`src/structs.h`); names as `stat` shows
+them. The `/6` prompt lists bits 0–31. Frequently used:
 
 | Bit # | Flag | Effect |
 |-------|------|--------|
-| 0 | `AFF_SENSE_LIFE` | Detect hidden/invisible players. |
-| 1 | `AFF_INFRARED` | See in the dark. |
-| 2 | `AFF_SNEAK` | Suppresses “leaves” messages when moving. |
-| 3 | `AFF_HIDE` | Mob starts hidden (requires sense life to spot). |
-| 4 | `AFF_DETECT_MAGIC` | Reserved for players; avoid setting. |
-| 5 | `AFF_CHARM` | Acts as charmed (follows whoever issued `follow`). |
-| 6 | `AFF_CURSE` | Broken—do not use. |
-| 7 | `AFF_SANCTUARY` | Permanent sanctuary—heavily reduces damage. Use sparingly. |
-| 8 | `AFF_TWOHANDED` | Forces two-handed wielding. |
-| 13 | `AFF_BREATHE` | Breathe underwater. |
-| 18 | `AFF_FLYING` | Leaves no tracks, immune to ground effects. |
+| 0 | SENSE (`AFF_DETECT_HIDDEN`) | Detects hidden characters. |
+| 1 | INFRA | See in the dark. |
+| 2 | SNEAK | No "leaves" messages when moving. |
+| 3 | HIDE | Starts hidden. |
+| 7 | SANCT | Permanent sanctuary — heavily reduces damage. Use sparingly. |
+| 8 | TWO-HANDED | Two-handed wielding. |
+| 9 | INVIS | Invisible. |
+| 13 | BREATHE | Breathes underwater. |
+| 18 | FLYING | Flying. |
 
-Setting an affect grants the mob the corresponding spell permanently—use with
-caution, especially for sanctuary, flying, or invisibility.
+Setting an affect grants it permanently — use with caution.
 
-## Alignment guidelines (MAN SHAPE MOB 7)
+## Alignment guidelines
 
-Alignment (`/7` in extended mode) is a flavour stat used by scripts and some
-combat checks. Use these rough ranges when tuning mobs:
+Alignment (`/7`) is used by the AGGR_EVIL/NEUT/GOOD flags and by exp scaling.
+Rough ranges:
 
 | Race type | Recommended range |
 |-----------|-------------------|
@@ -161,13 +218,14 @@ combat checks. Use these rough ranges when tuning mobs:
 | Wargs | `-100` to `-200` |
 | Orcs / Uruks | `-200` to `-350` |
 
-Avoid values beyond ±500 unless the mob is a unique lore figure.
+Type `-300` to set -300 directly. Avoid values beyond ±500 unless the mob is a
+unique lore figure.
 
-## Race aggression table (MAN SHAPE MOB 11)
+## Race aggression (`/20`, simple `/11`)
 
-Race-aggression bits (field `/20`) let you target specific races even if the
-mob lacks the global `AGGRESSIVE` flag. Add the bit value to the bitvector (or
-`p<bit#>`):
+A bitvector over race numbers: the mob attacks anyone, PC or NPC, whose race bit
+is set (`p<race#>`). This check runs before the AGGR flags, so it also targets
+NPCs.
 
 | Target | Bit # | Value |
 |--------|-------|-------|
@@ -177,82 +235,96 @@ mob lacks the global `AGGRESSIVE` flag. Add the bit value to the bitvector (or
 | Wood elf | 3 | 8 |
 | Hobbit | 4 | 16 |
 | High elf | 5 | 32 |
+| Beorning | 6 | 64 |
 | Uruk | 11 | 2048 |
-| Haradrim | 12 | 4096 |
+| Harad | 12 | 4096 |
 | Orc | 13 | 8192 |
 | Easterling | 14 | 16384 |
-| Magus | 15 | 32768 |
+| Uruk-Lhuth (Magus) | 15 | 32768 |
+| Undead | 16 | 65536 |
+| Olog-hai | 17 | 131072 |
+| Haradrim | 18 | 262144 |
+| Troll | 20 | 1048576 |
 
-`62` makes a mob hostile to the “whitie” races, and `63488` to the “darkie”
-factions. These bits stack with the global `AGGRESSIVE` flag.
+`126` (bits 1–6) targets every "whitie" race including Beornings; `456704`
+(bits 11–15, 17, 18) targets the "darkie" races including Olog-hai and
+Haradrim. The same bits are used by `/41` and `/39`.
 
-## Body types (MAN SHAPE MOB 10)
+## Races (`/19`, simple `/9`)
 
-Field `/26` chooses the hit-location template:
+`0` god/animal, `1` human, `2` dwarf, `3` wood elf, `4` hobbit, `5` high elf,
+`6` beorning, `11` uruk-hai, `12` harad, `13` orc, `14` easterling,
+`15` uruk-lhuth, `16` undead, `17` olog-hai, `18` haradrim, `20` troll.
+7–10 and 19 are unused. Values outside 0–20 are refused by the editor; a mob
+file with a race outside 0–20 logs `MOB ERROR: mobile #N: race R out of range
+0-20` at boot (the file is left as it is).
+
+## Body types (`/26`, simple `/10`)
 
 | Value | Description |
 |-------|-------------|
-| 0 | Tiny/limbless creatures (snakes, slimes). |
-| 1 | Humanoids (head, two arms, two legs). |
-| 2 | Quadrupeds (four legs + head). Only these can be tamed as mounts. |
-| 3 | Tentacled (octopi, aberrations). |
-| 4 | Birds (wings + talons). |
+| 0 | No hit locations. |
+| 1 | Humanoid (head, body, arms, hands, legs, feet). Required by some mental spells. |
+| 2 | Quadruped (the animal type): no skills, bonus move regeneration. |
+| 3 | Head, body and eight legs. |
+| 4 | Bird (wings and claws). |
+| 5–14 | Unused; behave like 0. |
+| 15 | Bear form. |
 
-Pick the number that best matches the mob’s anatomy; scripts and combat tables
-use it for butcher parts and hit messages.
+Values above 15 are refused ("Body type must be 0-15. dropped.").
 
-## Butcher items (MAN SHAPE MOB 12)
+## Butcher items (`/31`, simple `/12`)
 
-Field `/31` sets the vnum dropped from butchering the corpse. Humanoids with no
-special drop should use vnum `17` (the “body parts” placeholder). Non-humanoids
-can point to custom meat/pelt objects. Use `0` to disable butchering entirely.
+The object vnum copied to the corpse for butchering. `0` gives "nothing of
+value". The corpse stores it as a short, so vnums above 32767 do not work.
 
-## Languages (MAN SHAPE MOB 30)
+## Languages (`/30`)
 
-Field `/30` controls the language the mob speaks/listens for. The code currently
-supports the three entries in `language_skills[]`:
+The editor stores an index into `language_skills[]`:
 
-| Value | Constant | Notes |
-|-------|----------|-------|
-| 0 | `LANG_BASIC` | Westron/common. |
-| 121 | `LANG_ANIMAL` | Used by beasts. |
-| 122 | `LANG_HUMAN` | Human dialect (legacy). |
-| 123 | `LANG_ORC` | Black-speech. |
+| Value | Language |
+|-------|----------|
+| 0 | Common (everyone understands) |
+| 1 | Animal |
+| 2 | Human |
+| 3 | Orc |
 
-Mobs default to `LANG_BASIC`. Only change this if you have scripts that check
-for specific dialects.
+Boot reads anything outside 1–3 as 0 (common). Many older mobs have 121–123
+saved (an old `/recalculate` bug); they play as common, and the editor now
+loads them as 0 so a re-save keeps them common.
 
-## Perception defaults (MAN SHAPE MOB 32)
+## Perception defaults (`/32`)
 
-Leaving `/32` at `-1` lets the engine assign a racial default:
+`-1` uses the racial default from `get_race_perception`:
 
-| Race type | Default perception |
-|-----------|--------------------|
-| Elves | 50 |
-| Other humanoids | 30 |
-| Undead (non-wraith) | 60 |
-| Wraiths | 100 |
+| Race | Default |
+|------|---------|
+| High elf | 100 |
+| Wood elf | 50 |
+| Undead | 60 |
+| Orc | 10 |
+| Dwarf, god/animal (0) | 0 |
+| Other races | 30 |
 
-Set an explicit number if you need sharper senses (higher) or dulled senses
-(lower). Values feed the hide/search routines.
+`MOB_SHADOW` (flag 17) forces 100. Any other value is clamped to 0–100.
 
-## Death cries & corpses (MAN SHAPE MOB 33–35)
+## Death cries & corpses (`/33`–`/35`)
 
-- `/33` – in-room death cry. Defaults to “Your blood freezes as you hear its
-  death cry.” Enter a custom string to override.
-- `/34` – other-room death cry echoed to adjacent rooms.
-- `/35` – corpse vnum. `0` uses the generic corpse, which is a zero-capacity
-  container that inherits the mob’s weight. Custom corpses must still be
-  containers if you want loot to remain accessible.
+- `/33` – in-room death cry, an `act()` string (`$n` = the mob). With no text
+  set, the game sends "Your blood freezes as you hear <mob>'s death cry."
+  `%q` stores an empty cry, which sends **no** message.
+- `/34` – sent to each room reachable through an open exit. Default "Your blood
+  freezes as you hear someone's death cry." `%q` = no message.
+- `/35` – corpse vnum. `0` uses the generic corpse.
 
-## Resistances and vulnerabilities (MAN SHAPE MOB 36/37)
+## Resistances and vulnerabilities (`/36`/`/37`)
 
-Fields `/36` (resistance) and `/37` (vulnerability) are bitvectors that map to
-the specialization attack groups. Bits are shared with object resist/vuln flags:
+Bitvectors over specialization groups (`resistance_name[]`); the prompts list
+them:
 
 | Bit # | Group | Value |
 |-------|-------|-------|
-| 0 | None / general | 1 |
+| 0 | Ungrouped | 1 |
 | 1 | Fire | 2 |
 | 2 | Cold | 4 |
 | 3 | Regeneration | 8 |
@@ -265,138 +337,133 @@ the specialization attack groups. Bits are shared with object resist/vuln flags:
 | 10 | Lightning | 1024 |
 | 11 | Mind | 2048 |
 
-Most of these hooks are only consulted by a handful of spells/skills; when in
-doubt, leave both vectors at 0.
+The fields are shorts: bits 16 and up are lost. When in doubt, leave both at 0.
 
-## Special procedures (MAN SHAPE MOB2 29)
+## Special procedures (`/29` with flag bit 0)
 
-Field `/29` can reference built-in hard-coded behaviours instead of ASIMA
-programs. Common IDs:
+With SPEC set, `/29` picks a built-in behaviour:
 
 | ID | Behaviour |
 |----|-----------|
 | 1 | Snake (poisons on hit). |
-| 2 | Friendly gatekeeper (opens doors during day / on knock). |
-| 3 | Caster-mystic (buffs/heals). |
-| 4 | Caster/mage (offensive spells). |
-| 5 | Warrior (bashes frequently). |
-| 6 | Paranoid gatekeeper (keeps doors shut). |
-| 7 | Jig (performs the jig command). |
+| 2 | Gatekeeper. |
+| 3 | Cleric caster. |
+| 4 | Mage caster. |
+| 5 | Warrior. |
+| 6 | Gatekeeper 2. |
+| 7 | Jig. |
 | 8–13 | Exit blockers (north/east/south/west/up/down). |
-| 14 | Resetter (practice resetter). |
-| 15 | Ranger ambusher. |
-| 26 | Summoner (calls adds during fights). |
-| 27 | Reciter (reads textscrolls). |
-| 28 | Herald (announces arrivals). |
+| 14 | Resetter. |
+| 15 | Ranger (old). |
+| 16 | Trap reactor. |
+| 17 | Gatekeeper (no knock). |
+| 18 | Ar-Tarthalon. |
+| 19 | Ghoul. |
+| 20–23 | Vampire huntress / Thuringwethil / vampire doorkeeper / vampire killer. |
+| 24 | Healing plant. |
+| 25 | Vortex elevator. |
+| 26 | Wolf summoner. |
+| 27 | Reciter. |
+| 28 | Herald. |
+| 29 | Postmaster. |
+| 30 | Dragon. |
+| 31 | Mage caster (spec). |
+| 32 | Ranger (new). |
 
-If you use a spec proc, remember to set the `SPECIAL` flag (`/5` bit 0). For
-anything beyond these stock options, use ASIMA (`/29` with a program number) or
-scripts (`/38`).
+`/implement` puts a changed `/29` into play for mobs loaded from then on, every
+time you implement (it used to take effect only on the first implement after a
+reboot). Copies already in the game keep what they have. Spec procs attached by
+vnum in the code (guildmasters, receptionists, postmasters, shopkeepers) are
+not changed by shaping; for a hard-coded guildmaster `/29` is the guild list
+number.
 
 ## Best practices
 
-- **Use `/recalc` cautiously**: the command recalculates combat stats from the
-  level. It’s useful when starting but will wipe custom OB/hp/damage unless the
-  mob carries `MOB_NORECALC`.
-- **Match zone expectations**: compare your mob’s `/50` output with similar
-  creatures already in the zone. Keep OB/HP/damage roughly aligned.
-- **Body type matters**: choose the right `/26` for hit locations (humanoid vs
-  quadruped). Only body type 2 (quadruped) mobs can be tamed as mounts.
-- **Race + sunlight**: orcs, uruks, and olog-hai suffer daylight penalties. If
-  your mob roams outside, consider equipping them with cloaks or scheduling
-  behaviour via scripts.
-- **Programs vs scripts**: `/29` ASIMA programs run before `/38` script
-  triggers. Avoid using both unless you know which behaviour fires first.
-- **Training mobs**: when using `/41`, ensure the trainer actually offers
-  corresponding lessons via the spec code—setting random bits does nothing if
-  the spec isn’t implemented.
+- **Use `/recalculate` cautiously**: it resets combat stats, stats, positions
+  and language from the level, and ignores `MOB_NORECALC`.
+- **Match zone expectations**: compare your mob's `/50` with similar creatures
+  already in the zone.
+- **Body type matters**: choose the right `/26` for hit locations.
+- **Programs vs scripts**: `/29` and `/38` are separate systems; check which one
+  a mob uses before changing behaviour (`docs/data-formats/mudlle-and-scripts.md`).
+- **Training mobs**: `/41` and `/39` only matter for hard-coded guildmasters.
 
 ## Example: Updating a city guard
 
-Goal: create a level-40 human guard who challenges orcs at the gate, carries a
-halberd, and speaks Westron.
+Goal: a level-40 human guard who attacks orcs, standing at the gate. Each field
+number is typed on its own line; the value goes on the **next** line.
 
 ```text
 shape mob 4005
-/1 gate guard guard human guard
-/2 a vigilant gate guard
-/3 A vigilant gate guard watches the traffic.
-/4    The guard scans every traveler before waving them through.
-/5 p1 p6 p12                # SENTINEL + STAY_ZONE + HELPER
-/6 p1                       # AFF_SENSE_LIFE
-/7 200                      # alignment
-/8 40                       # level
-/9 95 60 20                 # OB, parry, dodge
-/10 1200 1500               # min/max hit
-/11 28
-/12 30
-/13 15                      # gold
-/14 250000                  # experience
-/16 8                       # current position (standing)
-/17 8                       # default position
-/18 1                       # male
-/19 1                       # RACE_HUMAN
-/20 p13                     # aggressive to orcs
-/21 8500
-/22 185
-/23 10 10 10 10             # prof pools
-/24 200
-/25 300
-/26 1                       # humanoid
-/27 -10
-/28 35 20 25 30 32 25
-/29 0                       # no ASIMA program
-/30 0                       # LANG_BASIC
-/31 0                       # no butcher drop
-/32 15
-/33 The guard crumples with a surprised gasp.
-/34 You hear a guard fall nearby!
-/35 0
-/36 0
-/37 0
-/38 4206                    # gatekeeper script
-/40 Master
-/41 0
+/simple                     (switch to extended mode)
+/1
+gate guard human
+/2
+a vigilant gate guard
+/3
+A vigilant gate guard watches the traffic.
+/5
+p1                          (SENTINEL; one toggle per answer)
+/5
+p6                          (STAY-ZONE)
+/5
+p12                         (HELPER)
+/7
+200
+/8
+40
+/9
+95 60 20                    (OB parry dodge)
+/10
+1200 1500                   (min/max hit)
+/11
+28
+/12
+150
+/16
+8                           (standing)
+/17
+8
+/18
+m
+/19
+1                           (human)
+/20
+p13                         (aggressive to orcs)
+/26
+1                           (humanoid)
+/27
+-10                         (sets -10)
+/28
+35 20 25 30 32 25
+/38
+4206                        (gatekeeper script)
 /50
 /save
 /implement
 ```
 
-After shaping, add the mob to the zone file with an `M` command and kit it with
-a halberd via `K`/`E`.
+After shaping, add the mob to the zone file with an `M` command and kit it
+with `K`/`E`.
 
 ## Example: Mountable warg for an orc patrol
 
 ```text
 shape mob 4802
-/1 warg mount patrol mount
-/2 a hulking warg mount
-/3 A hulking warg patiently waits for an orc rider.
-/4    Slaver dripping from its jaws, the beast paws at the ground.
-/5 p1 p6 p9 p10 p22          # ISNPC + STAY_ZONE + IS_MOUNT + CAN_SWIM + HUNTER
-/8 32                        # level
-/9 85 20 10
-/10 900 1100
-/11 22
-/12 40
-/18 0                        # neutral sex
-/19 13                       # RACE_ORC (shares penalties)
-/21 18000
-/22 150
-/24 150
-/25 250
-/26 2                        # quadruped
-/32 5                        # low perception
-/29 0
-/38 0                        # optional script for bucking non-orcs
+/simple
+/5
+p9                          (MOUNT)
+/5
+p22                         (HUNTER)
+/8
+32
+/19
+13                          (orc)
+/26
+2                           (quadruped)
+/32
+5
 /50
 /save
 /implement
 ```
-
-Use the `/49` guided sequence whenever you start a new mob; it steps through
-aliases → descriptions → combat stats → loot → extras, mirroring the logical
-order outlined above.
-
-Refer back to this document whenever you need the exact field semantics—the goal
-is to keep shaping knowledge in one place so we can finally retire `shap_tbl`.

@@ -12,13 +12,26 @@ commands are available, and what each numeric editor option changes.
 
 ## Prerequisites
 
-- Builder permissions: `do_shape` only lets non-gods shape rooms. Higher level
-  staff can shape any prototype, but you still need zone permissions before
-  writing (`get_permission` in `create_room()` / `replace_room()`).
+- Builder permissions: players below god level may shape rooms only. Higher
+  levels can shape any prototype, but you still need zone permission to save.
 - Location: `shape room current` uses your current room number, so ensure you
   are standing in the room you want to copy before starting.
-- Prompt: once shaping, your prompt changes to include the builder mode number
-  so you know which interpreter is active.
+- Prompt: once shaping, your prompt shows `Shaping: <vnum>`.
+
+## The `shape` command (all editors)
+
+`shape <mobile|object|room|zone|script|program> <vnum>` starts an editor
+(`shape room current` / `shape zone current` use where you stand). Words can be
+shortened (`shape mob 1300`). One editor at a time: `/free` or `/done` first.
+
+| Form | Result |
+|------|--------|
+| `shape <mobile\|object\|room\|script> new <zone>` | Disabled: `"shape mobile new 13" has been disabled due to a bug.` World files are created outside the game; shape the vnum you want instead. |
+| `shape recalc_mobile` (implementor) | Disabled: `"shape recalc_mobile" has been disabled due to a bug.` It rewrote every mob in every file from its level and shut the game down. |
+| `shape master_mobile <idnum>` / `shape master_object <idnum>` (greater god) | Gives that player permission to shape any mob / object. With no number nothing changes and the current master is shown: `Mobile master is player #51566.` / `Usage: shape master_mobile <idnum>`. |
+
+Disabled commands always repeat exactly what you typed, so it is clear which one
+was turned off.
 
 ## Room Writing Guidelines
 
@@ -31,7 +44,7 @@ commands are available, and what each numeric editor option changes.
 - Keep a neutral voice and avoid second-person pronouns, exclamation points, or
   sentence fragments.
 - Ensure descriptions are at least four lines long, each indented with three
-  spaces. Run `%f` to wrap them neatly.
+  spaces. Run `%f` to wrap them neatly (lines stay under 79 columns).
 - Stay lore-friendly: Fourth Age Middle-earth allows creative flora/fauna but
   not cars, firearms, or modern tech. Death traps are banned.
 - Door keywords should be single lowercase words. Use the `exit_width` field for
@@ -47,165 +60,94 @@ commands are available, and what each numeric editor option changes.
 
 | Command | When to use | Notes |
 |---------|-------------|-------|
-| `shape room current` | Edit the room you are standing in | `do_shape` converts `current` into the real room number and runs `load <vnum>` for you (`src/shapemob.cpp:1998-2015`). |
-| `shape room 1234` | Edit any existing room by vnum | Replace `1234` with the virtual room number. The loader reads from `world/wld/<zone>.wld` (see `SHAPE_ROM_DIR`). |
-| `shape room new <zone#>` | Create a blank room at the end of a zone file | Calls `create_room()` which checks zone permissions, opens `world/wld/<zone>.wld`, and prepares a new `room_data`. Immediately `/add <zone#>` afterward to persist it. |
+| `shape room current` | Edit the room you are standing in | `do_shape` turns `current` into your room's vnum and loads it. |
+| `shape room 1234` | Edit any room by vnum | The loader reads `world/wld/<vnum/100>.wld`. If that vnum is not in the file yet, the editor makes a blank room with that number ("could not find room #1234, created it.") and `/save` puts it into the file in number order. This is how new rooms are made. |
+| `shape room new <zone#>` | Disabled | Prints `"shape room new 16" has been disabled due to a bug.` Zone files are created outside the game, and `new` picked "last room + 1" itself. Shape the vnum you want instead. |
 
-Once executed, you receive “You start shaping a room.” and your prompt number
-switches to `4` to indicate the room editor is active. All subsequent commands
-must be prefixed with `/` (per the builder manual’s GENERAL section).
+Non-gods may shape **only** rooms (`You are permitted to shape rooms only.`).
+Once a room is loaded you see "You start shaping a room." and your prompt shows
+`Shaping: <vnum>`. Every command while shaping starts with `/`.
 
 ## Session control commands
 
-While shaping, entering any non-numeric `/command` routes through
-`extra_coms_room()` (`src/shaperom.cpp:1629-1778`). These drive the lifecycle:
+While shaping, a non-numeric `/word` is matched by prefix against: create, new,
+load, save, add, free, done, delete, implement (in that order, so `/d` is
+`/done`, not `/delete`).
 
 | Command | Purpose & behaviour |
 |---------|---------------------|
-| `/load <vnum>` | Calls `load_room()` to populate `SHAPE_ROOM(ch)->room` with another vnum while leaving the editor running. Useful for quickly hopping between adjacent rooms. |
-| `/create <zone#>` | Allocates a blank `room_data`, remembers `world/wld/<zone>.wld` as the working file, and marks the slot as dirty so `/add` or `/save` knows where to write. |
-| `/save` | Runs `replace_room()`: copies the source `.wld` file to `world/wld/oldroms/<zone>.wld`, then rewrites the original entry with your edited data. Keeps the existing vnum. |
-| `/add <zone#>` | Runs `append_room()`: same backup process as `/save`, but appends your new room to the end of the zone file and assigns the next available vnum. |
-| `/delete` | First invocation arms deletion and prompts for confirmation. Typing `yes` immediately afterward toggles `SHAPE_DELETE_ACTIVE`, so the next `/save` removes the room from disk. Any other response cancels the delete. |
-| `/implement` | Calls `implement_room()` to push the in-memory struct into the live `world[]` array without touching disk. Use this after `/save` to see your updates instantly in game. |
-| `/done` | Convenience macro: if a room is loaded it performs `/save`, then `/implement`, then `/free`. Ends the session with one command. |
-| `/free` | Calls `free_room()`, releases all allocated descriptions/exits/affects, resets prompts, and moves your character back to their previous position. Always free the editor before switching to another shaper target. |
+| `/save` | Copies `world/wld/<zone>.wld` to `world/wld/oldroms/<zone>.wld` (a whole-file backup, overwritten on every save), then rewrites the file with your room. Prints `Saved as room #N`. |
+| `/implement` | Pushes the room into the live world without touching disk. Flags the room booted with (DARK, and so on) are kept. |
+| `/done` | `/save`, then `/implement`, then `/free`. **If the save fails** (no permission, missing backup folder, file error) it stops, keeps your edits and says `Not saved - still shaping. Fix the problem and /done again, or /free to discard.` |
+| `/free` | Ends shaping. Unsaved changes are thrown away. |
+| `/delete`, `/add`, `/new`, `/create` | **Disabled.** Each prints exactly what you typed, e.g. `"/delete" has been disabled due to a bug.`, and changes nothing. Rooms are removed from (or added to) zone files outside the game. |
+| `/load <vnum>` | Only works when no room is loaded, which never happens inside a session. Use `/free` and `shape room <vnum>` instead. |
 
-If you enter something else, the helper prints the allowed keywords (“save,
-delete, implement, done, free”) and leaves you in edit mode.
-
-## Shaping workflow tips
-
-- Every shaping command (besides the initial `shape room …`) must start with `/`.
-  `/help`, `/0`, and `/50` are always available reminders.
-- `/imp` shows what you’ve built; `/50` prints the current field values.
-- `/free` quits without saving. `/save` writes to disk, `/implement` syncs the
-  live world, and `/done` performs save → implement → free in one shot.
-- Always `/save` before `/free` unless you intend to discard edits.
-- FAQ nuggets:
-  - `%e` must be on its own line to finish multiline text. `%q` aborts an edit.
-  - `/50` lists most commands and field states; `/help` or `/0` lists the rest.
-  - `/save` followed by `/done` is redundant because `/done` already saves and
-    implements, but running `/save` first gives you an explicit confirmation.
-- `/free` ends shaping immediately—use `/done` if you want to save as you exit.
-- Always indent descriptions manually (three spaces), run `%f`, then `%e`.
-- Mob/object population limits are defined in the zone script (`L` commands).
-  If you need “exactly one mob” logic, update the zone data rather than the
-  room itself.
+Any other word prints the command list.
 
 ## Editing workflow
 
-Type `/0` or any non-digit to display all numeric editor commands (handled by
-`list_help_room()`), then use `/<number>` to edit a field. Inputs fall into three
-categories:
+`/0` (or any unused number) prints the field list; `/50` prints the current
+values. Prompts fall into three kinds:
 
-1. Text entry (`LINECHANGE` / `DESCRCHANGE` macros) uses the standard `%f`/`%e`
-   editor; `%q` keeps the previous value.
-2. Numeric entry (`DIGITCHANGE`) accepts absolute numbers, delta modifiers
-   (`+17`, `-2`), or bit toggles (`p5`, `m3`) just like the rest of the shaping
-   system.
-3. Selection prompts temporarily change your prompt to ask for an exit
-   direction (letters `N`, `S`, `E`, `W`, `U`, `D`).
-
-`string_to_new_value()` backs every numeric prompt, so inputs like `p1` or `m4`
-edit individual bits, while plain integers overwrite the whole field. Leaving
-the prompt blank keeps the previous value.
-
-### Bitvector input cheat sheet
-
-Use these formats to manipulate flags:
-
-- `17` — set the full value to 17.
-- `+17` / `-17` — add or subtract.
-- `p17` — set bit 17 (`1 << 17`).
-- `m17` — clear bit 17.
-
-Example: to set SENTINEL (`2`) and WIMPY (`128`) on a mob flag, either enter
-`138` once or run `p1` then `p7`. `/50` after each change to confirm the result.
+1. **Single line** (`/1`, `/8`, `/13`): `Enter line <FIELD> (blank = keep, %q = empty):`
+   followed by the current text in brackets. A blank line keeps the value, `%q`
+   empties it. `#` becomes `+` and `~` becomes `-`.
+2. **Multi-line** (`/2`, `/9`, `/14`): the text editor. Your old text is kept
+   and new lines are added after it. `%e` saves, `%q` aborts and keeps the old
+   text, `%f` formats, `%h` shows help.
+3. **Number** (`Enter <field> [current]:`): `N` sets, `+N` adds, `-N`
+   subtracts, `pN` sets bit N, `mN` clears bit N, blank keeps the value. Only
+   the first word counts (`p0 p4` applies only `p0`), and a word the editor
+   does not understand leaves the value unchanged. Exception: the key (`/10`)
+   and destination (`/11`) prompts take `-N` as a negative value (see below).
 
 ### Room field commands
 
 | `/n` | Field | Description |
 |------|-------|-------------|
-| `/1` | Name | One-line room title. Stored verbatim, so follow `GUIDELINES` (title case, no trailing punctuation). |
-| `/2` | Description | Multiline description. The editor swaps `#`→`+` and `~`→`-` automatically to keep `.wld` files intact; run `%f` before `%e` for proper wrapping. |
-| `/3` | Room flags | Bitvector; use `p<n>`/`m<n>` to toggle individual bits or enter summed values directly (see `ROOM_*` in `structs.h`). `p7` sets flag 7, `m2` clears flag 2, `+4` adds 4, etc. |
-| `/4` | Sector type | Numeric sector id from `sector_types` (inside, city, forest, mountain...). Values live in `constants.cpp`. |
-| `/17` | Room level | Integer stored in `room_data::level` for quest tooling and scaling. |
-| `/18` | Top room affect | Rewrites the first `struct affected_type` entry using four integers: `type location modifier bitvector`. Duration is forced to `-1`, so the effect is permanent until removed. |
-| `/19` | Add affect | Pushes a fresh affect struct onto the list and enables chaining so `/18` runs next. |
-| `/20` | Remove affect | Pops the top affect entry. Repeat to remove multiple entries. |
-| `/50` | List | Prints the current state of every editable field, including the selected exit, extra descriptions, and the first affect block. |
-
-Text commands (`/1`, `/2`, `/13`, `/14`) honour the `%q` shortcut to cancel
-edits. Numeric commands remember the previous value, so submitting a blank line
-keeps the old value.
+| `/1` | Name | One-line room title. Follow `GUIDELINES` (title case, no trailing period). |
+| `/2` | Description | Multi-line. Indent with three spaces, `%f`, then `%e`. |
+| `/3` | Room flags | Shows the list: 0 dark, 1 death, 2 no_mob, 3 indoors, 4 noride, 5 (internal), 6 shadowy, 7 no_magic, 8 tunnel, 9 private, 10 godroom, 11 (internal), 12 water, 13 poison, 14 security, 15 peace, 16 no_teleport, 17 hide_vnum. Use `pN`/`mN` one bit per answer. Do not set 5 or 11. |
+| `/4` | Sector type | Shows the list (0 floor, 1 city, 2 field, 3 forest, 4 hills, 5 mountain, 6 water, 7 water_noswim, 8 underwater, 9 road, 10 crack, 11 dense_forest, 12 swamp). Anything outside 0-12 is refused: `Sector type must be 0-12. dropped.` |
+| `/17` | Room level | 0-255 (anything else is refused). Its only game use is mortal `where`, which finds players in the same zone and the same room level. |
+| `/18` | Top room affect | `Enter room affect: type spell_number level room_flag_bits` with the current four values shown. Type 1 = spell. Blank keeps the values; 1-3 numbers print `four numbers required. dropped`. Duration is always permanent. |
+| `/19` | Add affect | Adds a new affect on top: type 1 (spell), spell 127 (none), permanent. Then use `/18` to fill it in. |
+| `/20` | Remove affect | Removes the top affect. |
+| `/50` | List | Prints every field, the selected exit, the top extra description, the room level and the top affect. |
 
 ### Exit commands
 
-1. `/5` — Select exit direction (must run this before editing exit-specific
-   fields). Accepts `n`, `s`, `e`, `w`, `u`, or `d`. If no exit exists the
-   editor allocates empty keyword/description strings so you can build it from
-   scratch.
-2. `/6` — Exit flags (`room_direction_data::exit_info`). Supports all
-   combinations including hidden/no-look/heavy doors. Flag bits live in
-   `src/structs.h` (`EX_ISDOOR`, `EX_CLOSED`, `EX_LOCKED`, `EX_NOFLEE`,
-   `EX_PICKPROOF`, `EX_DOORISHEAVY`, `EX_NO_LOOK`, `EX_ISHIDDEN`, etc.). Use
-   numeric additions or `p<n>`/`m<n>` to toggle bits—for example `p0 p1 p9`
-   makes a closed, hidden, no-flee door.
-3. `/7` — Remove the selected exit entirely and clear `exit_chosen`. Use this
-   when deleting links or cleaning up auto-generated exits.
-4. `/8` — Exit keyword list. Provide space-separated words (e.g., `door hatch
-   trapdoor`).
-5. `/9` — Exit description text (shows when players look at the door). `%f`
-   works here as well.
-6. `/10` — Key vnum for locked exits. Set to `0` if no key is required.
-7. `/11` — Destination room vnum. Enter the virtual number of the target room.
-   Remember to create the reverse exit manually.
-8. `/12` — Exit width. Defaults to `0` (derived from sector type). Override
-   when you need narrow crawlways or oversized gates.
-
-Selecting an exit automatically creates placeholder `room_direction_data`
-structures if one does not exist (`src/shaperom.cpp:718-734`), so you can
-configure brand-new doors without leaving the editor.
+1. `/5` — `Enter exit to edit (n e s w u d):`. Only the first letter counts. If
+   there is no exit in that direction one is created and you are told:
+   `New exit: it leads nowhere until you set its destination with /11. Use /7 to remove it.`
+   Selecting a direction you do not want still creates it, so `/7` it before
+   saving.
+2. `/6` — Exit flags, with the list shown: 0 door, 1 closed, 2 locked, 3 noflee,
+   4 (unused), 5 nopick, 6 isheavy, 7 nobreak, 8 nolook, 9 hidden, 10 broken,
+   11 noride, 12 noblink, 13 lever, 14 nowalk. `pN`/`mN` one bit per answer.
+   Closed/locked are only the boot state; a zone `D` command sets them at reset.
+3. `/7` — `Enter exit to remove (n e s w u d):`. It asks for a direction; it does
+   not use the selected exit.
+4. `/8` — `EXIT KEYWORDS, first one is shown`: space-separated words used by
+   open/close/lock. The first word appears in messages ("The door is closed.").
+5. `/9` — Exit description (multi-line), shown on `look <direction>`. Empty
+   means the game shows the room it leads to.
+6. `/10` — `key object vnum, -1 = no keyhole`. Typing `-1` sets -1 (no lock can
+   be used); `0` means the key with vnum 0.
+7. `/11` — `destination room vnum, -1 = nowhere`. Typing `-1` sets -1. The
+   reverse exit is not created for you.
+8. `/12` — `exit width 1-6, 0 = sector default`. Only blocking mobs use it; a
+   bigger number is harder to block. 0-255 is accepted, anything else refused.
 
 ### Extra description commands
 
-| `/13` | Edit keyword (space-separated) for the current extra description record. |
-| `/14` | Edit the corresponding description text. |
-| `/15` | Push a new extra description onto the stack. The editor automatically sets `SHAPE_CHAIN`, so `/13` and `/14` fire next without retyping the numbers. |
-| `/16` | Remove the current extra description (or the only one if it is the last). |
+| `/13` | Keywords (space-separated) of the **top** extra description, used by `look <word>`. |
+| `/14` | Text of the top extra description. |
+| `/15` | Adds a new extra description on top, then asks for its keywords (`/13`). Use `/14` for the text. |
+| `/16` | Removes the top extra description. |
 
-Extra descriptions behave like a stack: `/15` adds to the top, `/16` pops it.
-Use `/50` after `/15`/`/16` to confirm you are editing the intended entry.
-
-### Room affects
-
-- `/18` expects four integers separated by spaces: `type location modifier
-  bitvector`. For `ROOMAFF_SPELL` entries the `location` is the spell number
-  (see `skills[]`). The editor forces `duration = -1`, so affects persist until
-  someone removes them.
-- `/19` appends a blank affect node to the head of the list, prints “A new
-  affection added.”, and enables chaining so `/18` triggers immediately. Use
-  this combo to add fog, damage auras, or `ROOMAFF_TRAP` behaviours.
-- `/20` removes the head node. Run it repeatedly to clear the list from top to
-  bottom.
-
-If you try `/18` without any affect data present the shaper prints “No room
-affections found.”, so remember to `/19` first.
-
-### `list` snapshot
-
-`/50` calls `list_room()` and prints:
-
-- Room name, description, flags, sector, and selected exit details.
-- Exit keyword/description/key/destination/width for the currently selected exit
-  (run `/5` first to choose).
-- The first extra description (keyword + text) and the first affect record if
-  present.
-
-Use it before `/save` as a final sanity check or after `/load` to understand an
-existing room’s structure.
+`/13` and `/14` only ever edit the top (most recently added) entry.
 
 ## Example workflows
 
@@ -214,36 +156,31 @@ existing room’s structure.
 ```text
 shape room current        # load the room you are standing in
 /5                        # choose which exit to edit
-n                         # at the prompt, enter “n” to pick the north exit
+n                         # the north exit
 /11                       # set the destination vnum
-1605                      # send the new room number
-/8                        # change the door keywords
+1605
+/8                        # the door keywords (one line, no %e)
 oak door
-%e
-/2                        # edit the room description
+/2                        # add to the room description
    You stand before a weathered oak door...
 %f
 %e
-/15                       # add an extra description for the door
-/13
-door oak door
-/14
+/15                       # add an extra description; asks for keywords
+door oak
+/14                       # its text
    The door is banded with iron.
 %f
 %e
-/save
-/implement
-/done
+/50                       # check everything
+/done                     # save, implement, stop shaping
 ```
 
-This sequence highlights the typical cadence: select an exit, edit linked fields
-in any order, review with `/50`, and save/implement when finished.
+### Make a new room
 
-### Create a new room from scratch
+Pick a free vnum inside your zone's range and shape it directly:
 
 ```text
-shape room new 16         # create a template (zone 16 covers rooms 1600-1699)
-/49                       # optional: walk the chained command list
+shape room 1650           # "could not find room #1650, created it."
 /1
 Mist-Draped Bridge
 /2
@@ -251,45 +188,27 @@ Mist-Draped Bridge
 %f
 %e
 /3
-p0 p4                     # example: DARK + NOMOB flags
+p0                        # DARK (one bit per answer)
 /4
-3                         # SECT_FIELD (adjust to taste)
+2                         # field
 /5
-n                         # select the north exit
+n                         # new north exit
 /11
-1602                      # point to the destination room
-/8
-arch doorway bridge
-/10
-0                         # no key
+1651                      # where it leads
 /12
-180                       # narrow exit width
-/13
-%q                        # no extra description yet
-/17
-35                        # room level
-/save                     # writes to world/wld/16xx.wld and backs up
-/implement                # updates the live world array
+0                         # sector default width
 /done
 ```
 
-Repeat for the south/east/west exits as needed, then `/imp` to double-check
-your work in-game. Every new zone already includes 40 blank rooms, so stay
-within your allocated number range.
-
 ## Troubleshooting tips
 
-- “You have nothing to shape” — you ran a numeric command before loading a
-  room. Use `/load <vnum>` or restart with `shape room current`.
-- “You are already shaping something” — you forgot to `/free` your previous
-  object/mob/room. Either finish and `/done`, or `/free` to start fresh.
-- “You may not create room here” — the zone does not grant you permission (see
-  `get_permission()`), or you mistyped the zone number. Contact the zone owner
-  or the implementor.
-- Accidentally deleted an exit or description? Because `/save` makes a backup in
-  `lib/backups/rooms/`, you can copy the `.bak` back in place or reload the room
-  without saving to revert to the last known state.
-
-With `shape room` documented, future scripting-doc sections can reference this
-file rather than repeating the basics of prompts, `/save` vs `/implement`, and
-the slash command syntax.
+- "You have nothing to shape." — you ran a numeric command with no room loaded.
+  Start with `shape room current` or `shape room <vnum>`.
+- "You are already shaping something. Free it first." — `/free` or `/done` the
+  previous session.
+- "You may not do that in this zone." — the zone does not grant you permission.
+  Ask the zone owner or an implementor.
+- "could not open backup file" — the `world/wld/oldroms/` folder is missing;
+  `/save` and `/done` cannot work until it exists. `/done` keeps your edits.
+- To undo a bad save, copy `world/wld/oldroms/<zone>.wld` back. It holds the
+  file as it was just before the **last** save only.

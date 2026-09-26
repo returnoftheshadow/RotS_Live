@@ -67,6 +67,11 @@ the ceiling and a cold draft comes from the north.
 ### Virtual vs real numbers
 Files reference **virtual numbers** (vnums). After load, `renum_world`/`renum_zone_table`
 convert them to **real** array indices (`db.cpp:926`, `zone.cpp:173`). On-disk = always vnums.
+Zone commands are converted in place, so the original vnum only exists during
+`renum_zone_one`: that is where a vnum that names nothing is reported (and the command
+disabled when the vnum is required). Scripts keep their vnums and convert them when each
+line runs; `check_script_table` reports bad ones at boot. Builder-facing messages are
+listed in `shape_zone.md` and `shape_script.md` ("Error messages").
 
 ---
 
@@ -204,6 +209,8 @@ Each command is:
   others read five args (`load_zones:127-143`).
 - `S` terminates the command list (`:98`).
 - The trailing text on each line is a human comment (only preserved by the OLC `shapezon`).
+- The `int` args are read with `%hd` (16-bit): a negative vnum reads back as 65536+n and
+  `-1`/NOWHERE as `65535`.
 
 The RotS command letters seen in `renum_zone_one` (`zone.cpp:196-`) include at least
 `A`, `L`, `M`, `N`, `X`, `H`, `E`, `K`, `Q`, `P` — a richer set than Diku's

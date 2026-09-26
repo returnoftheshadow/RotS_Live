@@ -410,6 +410,24 @@ int string_to_new_value(char* arg, int* value)
     return *value;
 }
 
+/*
+ * For the few prompts where a negative number is a real value (alignment,
+ * saving throw, an exit's "no keyhole" key or "leads nowhere" room): a typed
+ * "-N" sets -N, where string_to_new_value would subtract N.  Returns 1 if it
+ * set the value, 0 if the input was anything else.
+ */
+int string_to_negative_value(char* arg, int* value)
+{
+    while (*arg && (*arg <= ' '))
+        arg++;
+
+    if (*arg == '-' && isdigit(arg[1])) {
+        *value = -atoi(arg + 1);
+        return 1;
+    }
+    return 0;
+}
+
 //============================================================================
 int get_bow_weapon_damage(const obj_data& weapon)
 {
@@ -1101,6 +1119,20 @@ void mudlog(char* str, char type, sh_int level, byte file)
             }
         }
     return;
+}
+
+/* Whether mudlog(..., type, level, ...) would show a message to ch.  Mirrors
+ * mudlog's own test, so a caller that also tells a builder directly does not
+ * tell them the same thing twice. */
+bool mudlog_reaches(struct char_data* ch, int level, int type)
+{
+    if (!ch || !ch->desc || ch->desc->connected || PLR_FLAGGED(ch, PLR_WRITING))
+        return false;
+    if (level < LEVEL_AREAGOD)
+        level = LEVEL_AREAGOD;
+    int tp = (PRF_FLAGGED(ch, PRF_LOG1) ? 1 : 0) + (PRF_FLAGGED(ch, PRF_LOG2) ? 2 : 0)
+        + (PRF_FLAGGED(ch, PRF_LOG3) ? 4 : 0);
+    return GET_LEVEL(ch) >= level && tp >= type;
 }
 
 void mudlog_debug_mob(char* buf, char_data* ch)

@@ -175,6 +175,9 @@ set(ROTS_TEST_SOURCES
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
     tests/script_flow_tests.cpp
+    tests/script_command_tests.cpp
+    tests/string_value_tests.cpp
+    tests/zone_loader_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
     tests/process_output_tests.cpp
