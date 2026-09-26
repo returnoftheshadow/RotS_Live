@@ -541,6 +541,19 @@ without lighting the room.
 See: SPECIALIZATIONS, FIRE
 
 #
+"MIST OF BAAZUNGA"
+
+[Syntax      ] cast 'mist of baazunga'
+[Group       ] Magic-User
+[Level       ] 27
+[Minimum Cost] 50
+[Offensive   ] No
+[Description ]
+---Casting "Mist of Baazunga" breathes out a dark mist that shrouds the room in
+shadow, sheltering those who suffer in sunlight.  The mist drifts into nearby
+rooms, thinning as it spreads, and lasts longer the stronger its caster.
+
+#
 FIRE
 
 Fire spells, such as fireball or firebolt tend to be unpredictable, as is
