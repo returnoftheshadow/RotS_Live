@@ -15,7 +15,7 @@
 #include "spells.h"
 #include "structs.h"
 
-char circlemud_version[] = { "Arda: The Fourth Age, version 1.5.7\n\r" };
+char circlemud_version[] = { "Arda: The Fourth Age, version 1.6.0\n\r" };
 
 // const
 char* prof_abbrevs[] = { "--", "Mu", "Cl", "Ra", "Wa" };
