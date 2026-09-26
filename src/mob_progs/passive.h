@@ -13,6 +13,15 @@
 constexpr int PROG_BARTER_VENDOR = 33;
 constexpr size_t VENDOR_LIST_NAME_COLUMN_MAX = 38;
 
+struct char_data;
+struct waiting_type;
+int barter_vendor(struct char_data* host, struct char_data* ch, int cmd, char* arg, int callflag, struct waiting_type* wtl);
+void vendor_config_boot(); /* all program-33 prototypes */
+void vendor_config_rebuild(int mob_rnum, struct char_data* builder); /* parse + report + store, or erase */
+void vendor_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder); /* report only */
+const vendor_config* vendor_config_for(int mob_rnum); /* nullptr if none */
+std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem); /* formatted warning */
+
 struct vendor_list_cost {
     int qty;
     std::string name;

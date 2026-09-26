@@ -63,3 +63,11 @@ TEST(VendorShortfalls, ListsEveryShortCurrencyAndNothingWhenCovered)
     EXPECT_EQ(s[1].obj_vnum, 4444);
     EXPECT_TRUE(vendor_shortfalls({ { 3333, 5 } }, count).empty());
 }
+
+TEST(VendorProblemLine, HouseStyle)
+{
+    EXPECT_EQ(vendor_problem_line(1234, { 3, "price: bad format - line skipped" }),
+        "MOB ERROR: mobile #1234, options line 3: price: bad format - line skipped");
+    EXPECT_EQ(vendor_problem_line(1234, { 0, "store missing - vendor disabled" }),
+        "MOB ERROR: mobile #1234: store missing - vendor disabled");
+}
