@@ -62,7 +62,7 @@ bool is_mental_stat(int stat_num)
 bool check_mind_block(char_data* character, char_data* attacker, int amount, int stat_num)
 {
     affected_type* mind_block_affect = affected_by_spell(character, SPELL_MIND_BLOCK);
-    if (is_mental_stat(stat_num) && affected_by_spell(character, SPELL_MIND_BLOCK)) {
+    if (is_mental_stat(stat_num) && character->affected.contains(SPELL_MIND_BLOCK)) {
         if (0.20 > number()) {
             mind_block_affect = affected_by_spell(character, SPELL_MIND_BLOCK);
             mind_block_affect->duration -= amount;
@@ -184,7 +184,7 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
     }
 
     /* mind_block = less effective mental fighting */
-    if (affected_by_spell(ch, SPELL_MIND_BLOCK)) {
+    if (ch->affected.contains(SPELL_MIND_BLOCK)) {
         if (number() < 0.75) {
             act("Your mind block prevents you from damaging $N.\n\r", FALSE, ch, 0, victim, TO_CHAR);
             return;

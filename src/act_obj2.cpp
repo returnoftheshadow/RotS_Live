@@ -19,6 +19,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "poison.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -196,12 +197,9 @@ ACMD(do_drink)
         send_to_char("Oops, it tasted rather strange!\n\r", ch);
         act("$n chokes and utters some strange sounds.", TRUE, ch, 0, 0, TO_ROOM);
 
-        af.type = SPELL_POISON;
-        af.duration = amount;
-        af.modifier = 0;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_POISON;
-        affect_join(ch, &af, FALSE, FALSE);
+        af = consumed_poison_affect(amount);
+        // A consumed poison has no poisoner to record.
+        send_poison_outcome_messages(apply_poison(ch, af, nullptr), ch, nullptr, nullptr);
     }
 
     call_trigger(ON_DRINK, temp, ch, 0);
@@ -271,12 +269,9 @@ ACMD(do_eat)
         send_to_char("Oops, that tasted rather strange!\n\r", ch);
         act("$n coughs and utters some strange sounds.", FALSE, ch, 0, 0, TO_ROOM);
 
-        af.type = SPELL_POISON;
-        af.duration = amount * 2;
-        af.modifier = 0;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_POISON;
-        affect_join(ch, &af, FALSE, FALSE);
+        af = consumed_poison_affect(amount * 2);
+        // A consumed poison has no poisoner to record.
+        send_poison_outcome_messages(apply_poison(ch, af, nullptr), ch, nullptr, nullptr);
     }
 
     call_trigger(ON_EAT, food, ch, 0);

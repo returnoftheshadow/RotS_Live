@@ -41,6 +41,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "poison.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -49,8 +50,10 @@
 #include "base_utils.h"
 #include "char_utils.h"
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
+#include <utility>
 
 /* external vars */
 extern struct room_data world;
@@ -82,6 +85,14 @@ ACMD(do_return);
 
 char char_control_array[MAX_CHARACTERS / 8 + 1];
 long last_control_set = -1;
+
+// Parallel to char_control_array: the char_data* registered under each live
+// abs_number slot. char_by_abs_number() is the only sanctioned way to read it,
+// so a stale pointer is never dereferenced to find a slot's current owner.
+static char_data* characters_by_abs_number[MAX_CHARACTERS];
+// Source of char_data::registration_serial: advanced on every set_char_exists(num, ch), so no
+// two registrations ever share a serial, however often a slot or an address is recycled.
+static long next_registration_serial = 0;
 
 int dummy_affected_var = 17;
 universal_list* affected_list = 0;
@@ -121,32 +132,66 @@ int char_power(int lev)
     return MIN((lev + 2), 16 + lev / 2) * MIN(lev + 2, 32);
 }
 
+namespace {
+// The body of other_side() reads exactly three things from `character`: its
+// NPC-ness, its charm status and its race. Both public forms below funnel
+// here, so the live path and the caster_snapshot path share one body and can
+// never drift. The live form does NOT go through
+// caster_snapshot::capture(): other_side() runs per-character inside display
+// and grouping loops, and capture() costs two profession lookups, a
+// perception evaluation and a 64-byte name copy that this function reads none
+// of.
+int other_side_impl(bool character_is_npc, bool character_is_charmed, int character_race, const char_data* other)
+{
+    if (IS_NPC(other) && !IS_AFFECTED(other, AFF_CHARM))
+        return 0;
+    if (character_is_npc && !character_is_charmed) {
+        return 0;
+    }
+    return other_side_race(character_race, GET_RACE(other));
+}
+} // namespace
+
+int other_side_race(int character_race, int other_race)
+{
+    if ((character_race == RACE_GOD) || (other_race == RACE_GOD)) {
+        return 0;
+    }
+    if (race_is_east(other_race) && !race_is_east(character_race)) {
+        return 1;
+    }
+    if (!race_is_east(other_race) && race_is_east(character_race)) {
+        return 1;
+    }
+    if (race_is_magi(other_race) && !race_is_magi(character_race)) {
+        return 1;
+    }
+    if (!race_is_magi(other_race) && race_is_magi(character_race)) {
+        return 1;
+    }
+    if (race_is_evil(other_race) && race_is_good(character_race)) {
+        return 1;
+    }
+    if (race_is_good(other_race) && race_is_evil(character_race)) {
+        return 1;
+    }
+
+    return 0;
+}
+
 /*
  * Decide if `character' and `other' are on the same side of the race
  * war.  Return 0 if they are, return 1 if they aren't.
  */
 int other_side(const char_data* character, const char_data* other)
 {
-    if (IS_NPC(other) && !IS_AFFECTED(other, AFF_CHARM))
-        return 0;
-    if (IS_NPC(character) && !IS_AFFECTED(character, AFF_CHARM))
-        return 0;
-    if ((GET_RACE(character) == RACE_GOD) || (GET_RACE(other) == RACE_GOD))
-        return 0;
-    if (RACE_EAST(other) && !(RACE_EAST(character)))
-        return 1;
-    if (!(RACE_EAST(other)) && RACE_EAST(character))
-        return 1;
-    if (RACE_MAGI(other) && !(RACE_MAGI(character)))
-        return 1;
-    if (!(RACE_MAGI(other)) && RACE_MAGI(character))
-        return 1;
-    if (RACE_EVIL(other) && RACE_GOOD(character))
-        return 1;
-    if (RACE_GOOD(other) && RACE_EVIL(character))
-        return 1;
+    return other_side_impl(IS_NPC(character) != 0, IS_AFFECTED(character, AFF_CHARM) != 0,
+        GET_RACE(character), other);
+}
 
-    return 0;
+int other_side(const caster_snapshot& character, const char_data* other)
+{
+    return other_side_impl(character.is_npc, character.is_charmed, character.race, other);
 }
 
 int other_side_num(int ch_race, int i_race)
@@ -429,7 +474,7 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         //       Then we override the underlying value with our minimum perception logic and expose that to the rest of the game.
         ch->specials2.rawPerception += mod;
 
-        if (affected_by_spell(ch, SPELL_INSIGHT)) {
+        if (ch->affected.contains(SPELL_INSIGHT)) {
             int minimumRacePerception = utils::get_minimum_insight_perception(*ch);
 
             ch->specials2.perception = std::max(ch->specials2.rawPerception, minimumRacePerception);
@@ -451,10 +496,11 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         if (!skills[tmp].spell_pointer)
             break;
 
-        if (add)
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_SPELL, ch, 0, 0, 1);
-        else
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        if (add) {
+            run_spell(tmp, ch, "", SPELL_TYPE_SPELL, ch, 0, 0, 1);
+        } else {
+            run_spell(tmp, ch, "", SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        }
         break;
 
     case APPLY_BITVECTOR:
@@ -642,6 +688,7 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
         tmplist = pool_to_list(&affected_list, &affected_list_pool);
         tmplist->ptr.ch = ch;
         tmplist->number = ch->abs_number;
+        tmplist->serial = ch->registration_serial;
         tmplist->type = TARGET_CHAR;
 
         sprintf(mybuf, "Char to aff_list: %s\n\r", GET_NAME(ch));
@@ -654,8 +701,7 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
     *affected_alloc = *af;
 
     // 4
-    affected_alloc->next = ch->affected;
-    ch->affected = affected_alloc;
+    ch->affected.push_front(affected_alloc);
 
     affected_alloc->time_phase = get_current_time_phase();
 
@@ -663,6 +709,28 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_SET, af->counter);
     affect_total(ch);
+}
+
+namespace {
+// The caster recorded for each live room affect, keyed by (room number,
+// spell). Lives beside the affect rather than inside
+// affected_type, which is embedded in the legacy binary player-file layout
+// (char_file_u) and must not grow.
+std::map<std::pair<int, int>, caster_snapshot> g_room_affect_casters;
+} // namespace
+
+void set_room_affect_caster(room_data* room, int spell, const caster_snapshot& caster)
+{
+    g_room_affect_casters[{ room->number, spell }] = caster;
+}
+
+const caster_snapshot* room_affect_caster(const room_data* room, int spell)
+{
+    auto found = g_room_affect_casters.find({ room->number, spell });
+    if (found == g_room_affect_casters.end()) {
+        return nullptr;
+    }
+    return &found->second;
 }
 
 /* Standard mud call to put an affected structure to a room.  The room is added to
@@ -699,6 +767,18 @@ void affect_to_room(struct room_data* room, struct affected_type* af)
     affect_modify_room(room, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_SET);
     affect_total_room(room);
+
+    if (af->type == ROOMAFF_SPELL && room_affect_caster(room, af->location) == nullptr) {
+        set_room_affect_caster(room, af->location, caster_snapshot::none());
+    }
+}
+
+void affect_to_room(struct room_data* room, struct affected_type* af, const caster_snapshot& caster)
+{
+    affect_to_room(room, af);
+    if (af->type == ROOMAFF_SPELL) {
+        set_room_affect_caster(room, af->location, caster);
+    }
 }
 
 /* Remove an affected_type structure from a char (called when duration
@@ -707,34 +787,27 @@ void affect_to_room(struct room_data* room, struct affected_type* af)
                                                */
 void affect_remove(struct char_data* ch, struct affected_type* af)
 {
-    struct affected_type* hjp;
     universal_list *tmplist, *tmplist2;
-    int tmp;
 
     //   assert(ch->affected);
     // Looks as though the following line is "just in case", but where did af come from in this case?
     if (!ch->affected)
         return;
 
+    // Read before the unlink below returns *af to the pool --
+    // the recorded poisoner belongs to the poison affect, so it has to be
+    // forgotten when the last one goes (see the tail of this function).
+    const int removed_type = af->type;
+
+    if (!ch->affected.unlink(af)) {
+        log("SYSERR: FATAL : Could not locate affected_type in ch->affected. (handler.c, affect_remove)");
+        return;
+    }
+
+    // Only once the node is unlinked: a failed search above leaves the affect on the list, so its
+    // stats and bits must stay applied too.
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_REMOVE, af->counter);
-
-    /* remove structure *af from linked list */
-    if (ch->affected == af) {
-        /* remove head of list */
-        ch->affected = af->next;
-    } else {
-        for (hjp = ch->affected, tmp = 0;
-             (hjp->next) && (hjp->next != af) && (tmp < MAX_AFFECT);
-             hjp = hjp->next, tmp++) {
-        }
-        if (hjp->next != af) {
-            log("SYSERR: FATAL : Could not locate affected_type in ch->affected. (handler.c, affect_remove)");
-            //	 exit(1);
-            return;
-        }
-        hjp->next = af->next; /* skip the af element */
-    }
 
     //   RELEASE(af);
     put_to_affected_type_pool(af);
@@ -745,6 +818,11 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
             if ((tmplist->type == TARGET_CHAR) && (tmplist->ptr.ch == ch))
                 from_list_to_pool(&affected_list, &affected_list_pool, tmplist);
         }
+    }
+
+    // The poisoner record ends with the last poison affect; removing any other affect leaves it.
+    if (removed_type == SPELL_POISON) {
+        forget_poison_origin_if_cured(ch);
     }
 
     affect_total(ch);
@@ -767,6 +845,8 @@ void affect_remove_room(struct room_data* room, struct affected_type* af)
     struct affected_type *hjp, *tmpaf;
     universal_list *tmplist, *tmplist2;
     int tmp, perms_only;
+    const int spell = af->location; // read before af is unlinked/pooled below
+    const bool is_room_spell = af->type == ROOMAFF_SPELL;
 
     //   assert(ch->affected);
     if (!room->affected)
@@ -794,6 +874,10 @@ void affect_remove_room(struct room_data* room, struct affected_type* af)
 
     //   RELEASE(af);
     put_to_affected_type_pool(af);
+
+    if (is_room_spell) {
+        g_room_affect_casters.erase({ room->number, spell });
+    }
 
     perms_only = 1;
     for (tmpaf = room->affected; tmpaf; tmpaf = tmpaf->next)
@@ -873,6 +957,17 @@ affected_type* affected_by_spell(const char_data* ch, byte skill, affected_type*
     return NULL;
 }
 
+affected_type* get_affect_unbounded(const char_data* character, int affect_type)
+{
+    for (affected_type* affect = character->affected; affect != nullptr; affect = affect->next) {
+        if (affect->type == affect_type) {
+            return affect;
+        }
+    }
+
+    return nullptr;
+}
+
 /* Return a pointer to an affection if the room is affected by the spell.
    Otherwise return null. */
 affected_type* room_affected_by_spell(const room_data* room, int spell)
@@ -894,31 +989,25 @@ affected_type* room_affected_by_spell(const room_data* room, int spell)
 void affect_join(struct char_data* ch, struct affected_type* af,
     char avg_dur, char avg_mod)
 {
-    struct affected_type* hjp;
-    char found = FALSE;
+    // Unbounded, so a new affect merges into a same-type affect sitting past MAX_AFFECT entries
+    // instead of being added beside it.
+    affected_type* existing = get_affect_unbounded(ch, af->type);
+    if (existing) {
+        if (af->duration < existing->duration)
+            af->duration += existing->duration;
 
-    for (hjp = ch->affected; !found && hjp; hjp = hjp->next) {
-        if (hjp->type == af->type) {
+        //	 if (avg_dur)
+        //	    af->duration /= 2;
 
-            if (af->duration < hjp->duration)
-                af->duration += hjp->duration;
+        if ((af->modifier >= 0) && (af->modifier < existing->modifier))
+            af->modifier += existing->modifier;
 
-            //	 if (avg_dur)
-            //	    af->duration /= 2;
+        //	 if (avg_mod)
+        //	    af->modifier /= 2;
 
-            if (((af->modifier >= 0) && (af->modifier < hjp->modifier)) || ((af->modifier >= 0) && (af->modifier < hjp->modifier)))
-                af->modifier += hjp->modifier;
-
-            //	 if (avg_mod)
-            //	    af->modifier /= 2;
-
-            affect_remove(ch, hjp);
-            affect_to_char(ch, af);
-            found = TRUE;
-        }
+        affect_remove(ch, existing);
     }
-    if (!found)
-        affect_to_char(ch, af);
+    affect_to_char(ch, af);
 }
 
 //***************** follow_type procedures ********************************
@@ -1002,11 +1091,11 @@ void stop_follower(struct char_data* ch, int mode)
             act("You realize that $N is a jerk!", FALSE, ch, 0, ch->master, TO_CHAR);
             act("$n realizes that $N is a jerk!", FALSE, ch, 0, ch->master, TO_NOTVICT);
             act("$n hates your guts!", FALSE, ch, 0, ch->master, TO_VICT);
-            if (affected_by_spell(ch, SKILL_TAME)) {
+            if (ch->affected.contains(SKILL_TAME)) {
                 affect_from_char(ch, SKILL_TAME);
                 GET_MAX_MOVE(ch) -= 50; // move bonus for being tamed
             }
-            if (affected_by_spell(ch, SKILL_RECRUIT)) {
+            if (ch->affected.contains(SKILL_RECRUIT)) {
                 affect_from_char(ch, SKILL_RECRUIT);
             }
             REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);
@@ -1033,7 +1122,7 @@ void stop_follower(struct char_data* ch, int mode)
         }
 
         ch->master = 0;
-        if (affected_by_spell(ch, SKILL_TAME))
+        if (ch->affected.contains(SKILL_TAME))
             affect_from_char(ch, SKILL_TAME);
 
         REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);
@@ -1470,7 +1559,9 @@ int get_number(char** name)
     if ((ppos = strchr(*name, '.'))) {
         *ppos++ = '\0';
         strcpy(number, *name);
-        strcpy(*name, ppos);
+        // ppos points inside *name, so the copy source and destination overlap;
+        // memmove handles that safely.
+        memmove(*name, ppos, strlen(ppos) + 1);
 
         for (i = 0; *(number + i); i++)
             if (!isdigit(*(number + i)))
@@ -1712,7 +1803,13 @@ void obj_from_room(struct obj_data* object)
         for (i = world[object->in_room].contents; i && (i->next_content != object); i = i->next_content)
             ;
 
-        i->next_content = object->next_content;
+        if (i == nullptr) {
+            // Not in this room's list: unlinking would dereference the null walker. Log it and
+            // still detach the object so the caller's bookkeeping proceeds.
+            log("SYSERR: obj_from_room: object is not in its room's contents list.");
+        } else {
+            i->next_content = object->next_content;
+        }
     }
 
     if (GET_ITEM_TYPE(object) == ITEM_LIGHT) {
@@ -2411,7 +2508,9 @@ int find_all_dots(char* arg)
     if (!strcmp(arg, "all"))
         return FIND_ALL;
     else if (!strncmp(arg, "all.", 4)) {
-        strcpy(arg, arg + 4);
+        // arg + 4 points inside arg, so the copy source and destination overlap;
+        // memmove handles that safely.
+        memmove(arg, arg + 4, strlen(arg + 4) + 1);
         return FIND_ALLDOT;
     } else
         return FIND_INDIV;
@@ -2460,11 +2559,40 @@ int char_exists(int num)
 }
 void set_char_exists(int num)
 {
+    if (num < 0 || num >= MAX_CHARACTERS) {
+        return;
+    }
     char_control_array[num / 8] |= (1 << (num % 8));
+}
+void set_char_exists(int num, struct char_data* ch)
+{
+    if (num < 0 || num >= MAX_CHARACTERS) {
+        return;
+    }
+    set_char_exists(num);
+    characters_by_abs_number[num] = ch;
+    if (ch != nullptr) {
+        ch->registration_serial = ++next_registration_serial;
+    }
 }
 void remove_char_exists(int num)
 {
+    if (num < 0 || num >= MAX_CHARACTERS) {
+        return;
+    }
     char_control_array[num / 8] &= ~(1 << (num % 8));
+    characters_by_abs_number[num] = nullptr;
+}
+struct char_data* char_by_abs_number(int num)
+{
+    if (num < 0 || num >= MAX_CHARACTERS || !char_exists(num)) {
+        return nullptr;
+    }
+    return characters_by_abs_number[num];
+}
+bool character_in_game(const struct char_data* character)
+{
+    return character != nullptr && character->in_room != NOWHERE;
 }
 int register_npc_char(struct char_data* mob)
 {
@@ -2488,7 +2616,7 @@ int register_npc_char(struct char_data* mob)
         log("register_char: MUD IS OVERFLOWED.");
         exit(0);
     }
-    set_char_exists(i);
+    set_char_exists(i, mob);
     mob->abs_number = i;
     last_control_set = i;
 

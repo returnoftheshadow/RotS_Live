@@ -11,6 +11,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_character_support.h"
 
 #include <gtest/gtest.h>
 
@@ -161,8 +162,7 @@ protected:
         m_mob_index[3].virt = kRiddenHorseVnum;
         mob_index = m_mob_index;
 
-        player = new char_data {};
-        clear_char(player, MOB_VOID);
+        player = test_support::allocate_test_character(MOB_VOID);
         player->player.name = strdup("Idleranger"); // free_char releases it when the disconnect extracts the player
         player->player.race = RACE_HUMAN;
         player->player.level = 40;
@@ -211,6 +211,7 @@ protected:
             if (player->in_room != NOWHERE)
                 char_from_room(player);
             remove_char_exists(player->abs_number);
+            test_support::release_test_character(player); // survives when the test never idled to disconnect
         }
 
         top_of_world = m_saved_top_of_world;
@@ -393,16 +394,20 @@ TEST_F(IdleFollowersTest, TheIdleDisconnectExtractsThePlayer)
     }
 }
 
-TEST_F(IdleFollowersTest, TheIdleSaveHasNoFollowerSectionSoNothingIsRestored)
+TEST_F(IdleFollowersTest, TheIdleSaveHoldsNoFollowersSoNothingIsRestored)
 {
     idle_until_voided();
     idle_until_disconnected();
 
-    bool follower_section_present = true;
+    // Crash_idlesave used to write no follower section at all. The strict account-native reader
+    // requires one, so the merge of fix/spell-room-affect-uaf-port made it write an EMPTY section:
+    // the file reads back, and the behaviour this fixture pins is untouched -- nothing is stored,
+    // so nothing comes back at the next login.
+    bool follower_section_present = false;
     const objects_json::ObjectSaveData save = read_save(&follower_section_present);
     EXPECT_EQ(save.rent.rentcode, RENT_TIMEDOUT);
-    EXPECT_FALSE(follower_section_present) << "Crash_idlesave writes no follower section";
-    EXPECT_TRUE(save.followers.empty());
+    EXPECT_TRUE(follower_section_present) << "the strict account-native reader requires the section";
+    EXPECT_TRUE(save.followers.empty()) << "an idle rent stores no followers";
 }
 
 } // namespace

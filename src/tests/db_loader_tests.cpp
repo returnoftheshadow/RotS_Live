@@ -1,3 +1,4 @@
+#include "../account_cache.h"
 #include "../account_errors.h"
 #include "../account_index.h"
 #include "../account_management.h"
@@ -9,10 +10,12 @@
 #include "../objects_json.h"
 #include "AccountRecordOnDiskBuilder.h"
 #include "../utils.h"
+#include "test_character_support.h"
 
 #include <gtest/gtest.h>
 
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -31,6 +34,7 @@ void build_account_native_player_index(void);
 extern struct player_index_element* player_table;
 extern struct room_data world;
 extern struct index_data* obj_index;
+extern struct index_data* mob_index;
 extern struct obj_data* obj_proto;
 extern struct obj_data* object_list;
 extern int top_of_p_table;
@@ -40,7 +44,12 @@ void build_player_index(void);
 void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(struct char_file_u* st, struct char_data* ch);
+void char_to_store(struct char_data* ch, struct char_file_u* st);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
+int Crash_alias_save(struct char_data* ch, FILE* fp);
+void Crash_follower_save(struct char_data* ch, FILE* fp);
+void Crash_follower_load(struct char_data* ch, FILE* fp);
+int file_to_string_alloc(char* name, char** buf);
 
 namespace {
 
@@ -295,7 +304,7 @@ public:
     {
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list); // loader-created with CREATE; free_obj is the server's release call
             object_list = next;
         }
 
@@ -384,8 +393,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);
@@ -430,9 +438,16 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     return player_text;
 }
 
+// One record in the legacy exploits/ file encoding (the 80-byte on-disk layout,
+// not exploit_record's in-memory bytes).
 std::string serialize_record(const exploit_record& record)
 {
-    return std::string(reinterpret_cast<const char*>(&record), sizeof(exploit_record));
+    std::vector<exploit_record> records;
+    records.push_back(record);
+    std::string bytes;
+    std::string error_message;
+    EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
+    return bytes;
 }
 
 exploit_record make_record(int type, const char* timestamp, const char* victim_name, int victim_level, int killer_level, int int_param)
@@ -535,6 +550,70 @@ TEST(DbLoader, RejectsMalformedPlayerTextWithoutLongStringTerminator)
                                          "end\n";
 
     EXPECT_LT(load_char_from_text(player_name, malformed_player_text, &character_data), 0);
+}
+
+TEST(DbLoader, WritePlayerTextEmitsExactlyThePasswordFieldWidth)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.player.title = strdup("the Ranger");
+    character.player.description = strdup("A ranger.");
+    descriptor_data descriptor {};
+    // Ten non-zero bytes: the encrypted form has no terminator inside the array.
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "ABCDEFGHIJ");
+    character.desc = &descriptor;
+
+    ASSERT_TRUE(write_player_text(&character, 3001, "players/aragorn.txt"));
+    const std::string text = read_file_contents("players/aragorn.txt");
+    const size_t line_start = text.find("password    ");
+    ASSERT_NE(line_start, std::string::npos);
+    const size_t value_start = line_start + std::strlen("password    ");
+    const size_t line_end = text.find('\n', value_start);
+    ASSERT_NE(line_end, std::string::npos);
+    EXPECT_EQ(line_end - value_start, static_cast<size_t>(MAX_PWD_LENGTH))
+        << "the password value must be exactly MAX_PWD_LENGTH bytes, never bytes read past pwdcrypt";
+
+    character.desc = nullptr;
+    free(character.player.name);
+    free(character.player.title);
+    free(character.player.description);
+}
+
+// write_player_text() filled chd.host with strncpy(..., HOST_LEN) and printed it with %s: a
+// hostname of HOST_LEN or more characters left no terminator inside the field.
+TEST(DbLoader, WritePlayerTextTruncatesAnOverlongHostToTheFieldWidth)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.player.title = strdup("the Ranger");
+    character.player.description = strdup("A ranger.");
+    descriptor_data descriptor {};
+    character.desc = &descriptor;
+
+    const std::string long_host(HOST_LEN + 12, 'h');
+    strncpy(character.desc->host, long_host.c_str(), sizeof(character.desc->host) - 1);
+    character.desc->host[sizeof(character.desc->host) - 1] = '\0';
+
+    ASSERT_TRUE(write_player_text(&character, 3001, "players/aragorn.txt"));
+    const std::string text = read_file_contents("players/aragorn.txt");
+    const std::string host_line = "host        " + std::string(HOST_LEN, 'h') + "\n";
+    EXPECT_NE(text.find(host_line), std::string::npos) << text;
+    EXPECT_EQ(text.find(std::string(HOST_LEN + 1, 'h')), std::string::npos) << "host field must be at most HOST_LEN bytes";
+
+    character.desc = nullptr;
+    free(character.player.name);
+    free(character.player.title);
+    free(character.player.description);
 }
 
 TEST(DbLoader, DoesNotLeaveTheAccountIndexAuthoritativeWhenTheAccountsDirectoryCannotBeWalked)
@@ -716,6 +795,90 @@ TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].type, expected_records[0].type);
     EXPECT_EQ(records[0].iIntParam, expected_records[0].iIntParam);
+}
+
+namespace {
+
+// Account record the faked cache resolvers hand back for the wide-id loader pin below: a
+// linked owner with no explicit character links, so every account-owned path resolves from
+// the normalized email alone and no directory scan is involved.
+bool fake_wide_id_account_reader(const std::string&, const std::string& account_name, account::AccountData* account, std::string* error_message)
+{
+    if (account_name != "alpha-admin") {
+        if (error_message)
+            *error_message = "unexpected account '" + account_name + "'";
+        return false;
+    }
+    account::AccountData faked_account;
+    faked_account.account_name = "alpha-admin";
+    faked_account.normalized_email = "player@example.com";
+    faked_account.characters.push_back("aragorn");
+    *account = faked_account;
+    return true;
+}
+
+// Resolves only "aragorn" to "alpha-admin"; every other character name is unowned.
+bool fake_wide_id_owner_resolver(const std::string&, const std::string& character_name, std::string* owner_account_name, std::string*)
+{
+    if (character_name == "aragorn")
+        *owner_account_name = "alpha-admin";
+    else
+        owner_account_name->clear();
+    return true;
+}
+
+// Routes account reads and owner lookups through the fakes above for one test, and restores
+// the uncached defaults on exit so no other suite sees the enabled cache.
+struct FakedAccountResolvers {
+    FakedAccountResolvers()
+    {
+        account_cache::invalidate_all();
+        account_cache::set_backing_resolvers_for_testing(fake_wide_id_account_reader, fake_wide_id_owner_resolver);
+        account_cache::set_enabled(true);
+    }
+
+    ~FakedAccountResolvers()
+    {
+        account_cache::set_enabled(false);
+        account_cache::set_backing_resolvers_for_testing(nullptr, nullptr);
+        account_cache::invalidate_all();
+    }
+};
+
+} // namespace
+
+// An account-native history is JSON and carries full idnums. Appending a record re-reads the
+// whole history first, so that read must not detour through the 16-bit legacy binary encoding:
+// a wide id written today has to survive the next kill being recorded. The account itself is
+// served by faked cache resolvers because the on-disk account scan does not resolve under the
+// QEMU i386 test environment; the exploit history files are real.
+TEST(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
+{
+    TemporaryDirectory temp_directory;
+    FakedAccountResolvers faked_resolvers;
+
+    std::string error_message;
+    constexpr long kWideVictimIdnum = 1010009060L;
+    exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
+    trophy.lVictimID = kWideVictimIdnum;
+    std::vector<exploit_record> initial_records;
+    initial_records.push_back(trophy);
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", initial_records, &error_message)) << error_message;
+    const std::string exploits_path = account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn");
+    EXPECT_EQ(access(exploits_path.c_str(), F_OK), 0) << "the seeded history must live at the account-native JSON path " << exploits_path;
+    EXPECT_NE(read_file_contents(exploits_path).find("\"victim_id\": 1010009060,"), std::string::npos) << "the seeded JSON must carry the full idnum";
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:30:00 2026", "", 31, 0, 31);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), "aragorn", level_record, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL) << "new records are inserted at the front";
+    EXPECT_EQ(records[1].type, EXPLOIT_PK);
+    EXPECT_EQ(records[1].lVictimID, kWideVictimIdnum) << "the wide id must not be narrowed by the re-read";
+    EXPECT_STREQ(records[1].chVictimName, "Grishkazh");
+    EXPECT_NE(read_file_contents(exploits_path).find("\"victim_id\": 1010009060,"), std::string::npos) << "the rewritten JSON must still carry the full idnum";
 }
 
 TEST(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
@@ -1327,6 +1490,29 @@ TEST(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNative
     EXPECT_TRUE(object_bytes.empty());
 }
 
+// die() reads a raw engaged_mob pointer after the dying character's
+// ON_DIE trigger. That is safe only because a player never has a script, so
+// the trigger runs nothing. If this fails, the save format now carries a
+// script: die() must re-validate that pointer after ON_DIE.
+TEST(DbLoader, PlayerSaveRoundTripNeverCarriesAScript)
+{
+    char_data* const saved = test_support::allocate_test_character(MOB_VOID);
+    saved->player.name = strdup("aragorn"); // char_to_store copies the name; free_char releases it
+    saved->specials.script_number = 7;
+
+    char_file_u store {};
+    char_to_store(saved, &store);
+
+    char_data* const loaded = test_support::allocate_test_character(MOB_VOID);
+    store_to_char(&store, loaded);
+    const int loaded_script = loaded->specials.script_number;
+
+    test_support::release_test_character(saved);
+    test_support::release_test_character(loaded);
+
+    EXPECT_EQ(loaded_script, 0) << "a player's script must not survive a save and reload";
+}
+
 TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
 {
     ensure_test_world_room(3001);
@@ -1360,13 +1546,87 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
     stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
     FILE* fp = Crash_load(&character);
     ASSERT_NE(fp, nullptr);
-    ASSERT_TRUE(Crash_alias_load(&character, fp));
-    ASSERT_EQ(std::fclose(fp), 0);
+    // EXPECT, not ASSERT: Crash_alias_load can leave a partially loaded alias list linked into
+    // GET_ALIAS(&character) even when it returns false, so an early return here would skip the
+    // release below and leak it.
+    EXPECT_TRUE(Crash_alias_load(&character, fp));
+    EXPECT_EQ(std::fclose(fp), 0);
 
     EXPECT_EQ(character.specials.board_point[0], 77);
     ASSERT_NE(GET_ALIAS(&character), nullptr);
     EXPECT_STREQ(GET_ALIAS(&character)->keyword, "assist");
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
+
+    // Release: free the loaded list the way act_comm.cpp's alias removal does, then null the
+    // pointer, mirroring ObjSave.AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest.
+    alias_list* loaded = GET_ALIAS(&character);
+    while (loaded != nullptr) {
+        alias_list* next_loaded = loaded->next;
+        RELEASE(loaded->command);
+        RELEASE(loaded);
+        loaded = next_loaded;
+    }
+    GET_ALIAS(&character) = nullptr;
+}
+
+// Crash_alias_save() wrote an alias's 20-byte keyword and then skipped the length for an empty
+// command; Crash_alias_load() (objsave.cpp) reads the next keyword's bytes as that length and
+// fails the load, losing every alias after the empty one.
+TEST(ObjSave, AliasSaveSkipsAnEmptyCommandSoTheLoaderReadsTheRest)
+{
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
+    alias_list first {};
+    std::strncpy(first.keyword, "a", sizeof(first.keyword));
+    first.command = strdup("look");
+    alias_list empty {};
+    std::strncpy(empty.keyword, "b", sizeof(empty.keyword));
+    empty.command = strdup("");
+    alias_list last {};
+    std::strncpy(last.keyword, "c", sizeof(last.keyword));
+    last.command = strdup("who");
+    first.next = &empty;
+    empty.next = &last;
+    last.next = nullptr;
+    character->specials.alias = &first;
+
+    FILE* file = tmpfile();
+    ASSERT_NE(file, nullptr);
+    ASSERT_TRUE(Crash_alias_save(character, file));
+    std::rewind(file);
+    // Crash_alias_save writes the sentinel object first; skip it the way Crash_load does before
+    // calling Crash_alias_load (read one obj_file_elem), then load.
+    obj_file_elem sentinel {};
+    ASSERT_EQ(std::fread(&sentinel, sizeof(sentinel), 1, file), 1u);
+    character->specials.alias = nullptr;
+    ASSERT_TRUE(Crash_alias_load(character, file));
+
+    std::vector<std::string> keywords;
+    std::vector<std::string> commands;
+    for (alias_list* entry = character->specials.alias; entry != nullptr; entry = entry->next) {
+        keywords.push_back(entry->keyword);
+        commands.push_back(entry->command);
+    }
+    EXPECT_EQ(keywords, (std::vector<std::string> { "a", "c" }));
+    EXPECT_EQ(commands, (std::vector<std::string> { "look", "who" }));
+
+    // Release: free the loaded list the way act_comm.cpp's alias removal does, then the three
+    // stack-built nodes' strdup'd commands. The stack nodes themselves are not heap-allocated and
+    // must not go through RELEASE.
+    alias_list* loaded = character->specials.alias;
+    while (loaded != nullptr) {
+        alias_list* next_loaded = loaded->next;
+        RELEASE(loaded->command);
+        RELEASE(loaded);
+        loaded = next_loaded;
+    }
+    // free_char does not walk aliases today, so this dangling pointer is otherwise silent; keep
+    // it nulled so a future free_char change cannot double-free through it.
+    character->specials.alias = nullptr;
+    free(first.command);
+    free(empty.command);
+    free(last.command);
+    ASSERT_EQ(std::fclose(file), 0);
+    test_support::release_test_character(character);
 }
 
 TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
@@ -1907,6 +2167,169 @@ TEST(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacte
     clear_account_backed_object_bytes_for_character(&staged_character);
 }
 
+namespace {
+
+// The six directories Crash_idlesave and the account-native refresh touch, relative to cwd.
+void create_idle_save_directories(const std::string& root)
+{
+    for (const char* relative : { "/accounts", "/accounts/A-E", "/account_characters", "/account_characters/A-E", "/plrobjs", "/plrobjs/A-E" })
+        ASSERT_EQ(mkdir((root + relative).c_str(), 0700), 0) << relative;
+}
+
+// One-slot mob index so mob_index[follower.nr].virt resolves; restores the previous pointer even
+// if a test ASSERT_* returns early, unlike a hand-rolled save/restore around fallible statements.
+class ScopedFollowerMobIndex {
+public:
+    ScopedFollowerMobIndex()
+        : m_previous(mob_index)
+    {
+        m_entry = index_data {};
+        m_entry.virt = 1131;
+        mob_index = &m_entry;
+    }
+    ~ScopedFollowerMobIndex() { mob_index = m_previous; }
+    ScopedFollowerMobIndex(const ScopedFollowerMobIndex&) = delete;
+    ScopedFollowerMobIndex& operator=(const ScopedFollowerMobIndex&) = delete;
+
+private:
+    index_data* m_previous; // whatever this suite found installed (normally null)
+    index_data m_entry {}; // the single prototype slot follower.nr = 0 names
+};
+
+} // namespace
+
+TEST(DbLoader, IdleSaveWritesTheFollowerSectionSoTheStrictReaderAcceptsAnEmptyInventory)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    TemporaryDirectory temp_directory;
+    create_idle_save_directories(temp_directory.path());
+
+    // Crash_get_filename resolves "plrobjs/..." against cwd; no account is linked here (see
+    // IdleSaveRefreshesTheAccountNativeObjectFile), so the refresh silently no-ops.
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.in_room = 0;
+
+    Crash_idlesave(&character);
+
+    char object_path[MAX_INPUT_LENGTH];
+    ASSERT_TRUE(Crash_get_filename(character.player.name, object_path));
+    const std::string binary_bytes = read_file_contents(object_path);
+    objects_json::ObjectSaveData parsed;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(binary_bytes, &parsed, &error_message)) << error_message;
+    EXPECT_EQ(parsed.rent.rentcode, RENT_TIMEDOUT);
+    EXPECT_TRUE(parsed.objects.empty());
+    EXPECT_TRUE(parsed.followers.empty());
+
+    free(character.player.name);
+    character.player.name = nullptr;
+}
+
+// Account creation fails under the i386 QEMU container (documented, pre-existing environment
+// limitation independent of this fix; see docker-local-mud-testing notes: "every [gtest] that
+// creates/links accounts on disk fails" under QEMU), so this case is verified in CI, where it
+// runs natively under AddressSanitizer.
+TEST(DbLoader, IdleSaveRefreshesTheAccountNativeObjectFile)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    TemporaryDirectory temp_directory;
+    create_idle_save_directories(temp_directory.path());
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    // Crash_get_filename and the refresh resolve "plrobjs/..." and "." against cwd.
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.player.name = strdup("aragorn");
+    character.in_room = 0;
+
+    Crash_idlesave(&character);
+
+    // The refresh rewrote the account-native JSON copy from the idle-save bytes.
+    std::string refreshed_bytes;
+    ASSERT_TRUE(account::read_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", &refreshed_bytes, &error_message)) << error_message;
+    objects_json::ObjectSaveData refreshed;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(refreshed_bytes, &refreshed, &error_message)) << error_message;
+    EXPECT_EQ(refreshed.rent.rentcode, RENT_TIMEDOUT);
+    EXPECT_TRUE(refreshed.objects.empty());
+
+    free(character.player.name);
+    character.player.name = nullptr;
+}
+
+TEST(DbLoader, FollowerSaveRecordsAnNpcFollowerInTheSameRoom)
+{
+    // RAII so an early-returning ASSERT_* below still restores mob_index for later tests.
+    ScopedFollowerMobIndex mob_index_guard;
+
+    char_data leader {};
+    clear_char(&leader, MOB_VOID);
+    leader.in_room = 0;
+    char_data follower {};
+    clear_char(&follower, MOB_ISNPC);
+    follower.specials2.act = MOB_ISNPC;
+    follower.nr = 0;
+    follower.in_room = 0;
+    follow_type link {};
+    link.follower = &follower;
+    leader.followers = &link;
+
+    FILE* stream = tmpfile();
+    ASSERT_NE(stream, nullptr);
+    Crash_follower_save(&leader, stream);
+    std::rewind(stream);
+    std::string bytes;
+    char buffer[256];
+    size_t read_count = 0;
+    while ((read_count = std::fread(buffer, 1, sizeof(buffer), stream)) > 0)
+        bytes.append(buffer, read_count);
+    EXPECT_EQ(std::fclose(stream), 0) << "Crash_follower_save must leave the caller's stream open";
+
+    // Prefix the bytes with an empty rent/object/board/alias head so the strict reader parses them.
+    objects_json::ObjectSaveData empty_head;
+    empty_head.rent.rentcode = RENT_TIMEDOUT;
+    std::string head_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(empty_head, &head_bytes, &error_message)) << error_message;
+    // object_save_data_to_binary ends with the follower sentinel; drop it so ours follows the head.
+    ASSERT_GE(head_bytes.size(), sizeof(follower_file_elem));
+    head_bytes.resize(head_bytes.size() - sizeof(follower_file_elem));
+
+    objects_json::ObjectSaveData parsed;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(head_bytes + bytes, &parsed, &error_message)) << error_message;
+    ASSERT_EQ(parsed.followers.size(), 1u);
+    EXPECT_EQ(parsed.followers[0].fol_vnum, 1131);
+}
+
+TEST(DbLoader, FollowerLoadLeavesTheCallersStreamOpenOnAShortRead)
+{
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    character.in_room = 0;
+
+    FILE* stream = tmpfile();
+    ASSERT_NE(stream, nullptr);
+    const char partial_record[3] = { 1, 2, 3 };
+    ASSERT_EQ(std::fwrite(partial_record, 1, sizeof(partial_record), stream), sizeof(partial_record));
+    std::rewind(stream);
+
+    Crash_follower_load(&character, stream);
+
+    // load_character closes the stream after this call; a callee that closed it first made that a
+    // double fclose. Under AddressSanitizer the second close reports use-after-free.
+    EXPECT_EQ(std::fclose(stream), 0);
+}
+
 TEST(DbLoader, MigratedLegacyObjectPayloadMatchesAccountNativeObjectsJson)
 {
     TemporaryDirectory temp_directory;
@@ -2090,6 +2513,104 @@ TEST(DbLoader, FailsClosedWhenTemporaryExploitPathAlreadyExists)
     std::string error_message;
     EXPECT_FALSE(write_exploit_record_for_character(temp_directory.path(), "aragorn", new_record, &error_message));
     EXPECT_NE(error_message.find("temporary exploit file"), std::string::npos);
+}
+
+namespace {
+
+// Returns a rewound temporary stream holding contents, so fread_string reads it from the top.
+FILE* open_temporary_stream(std::string_view contents)
+{
+    FILE* stream = std::tmpfile();
+    EXPECT_NE(stream, nullptr);
+    if (stream == nullptr) {
+        return nullptr;
+    }
+    std::fwrite(contents.data(), sizeof(char), contents.size(), stream);
+    std::rewind(stream);
+    return stream;
+}
+
+// Reads one tilde-terminated string through fread_string and returns an owning copy of it.
+std::string read_tilde_terminated_string(std::string_view contents)
+{
+    FILE* stream = open_temporary_stream(contents);
+    if (stream == nullptr) {
+        return "";
+    }
+    char error_context[] = "db_loader_tests";
+    char* text = fread_string(stream, error_context);
+    std::fclose(stream);
+    std::string copy;
+    if (text != nullptr) {
+        copy = text;
+        free(text);
+    }
+    return copy;
+}
+
+} // namespace
+
+TEST(DbLoader, FreadStringSkipsALeadingBlankLineWithoutReadingInFrontOfItsBuffer)
+{
+    EXPECT_EQ(read_tilde_terminated_string("\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
+}
+
+TEST(DbLoader, FreadStringWalksAWhitespaceOnlyLineAfterASkippedBlankLineWithoutReadingInFrontOfItsBuffer)
+{
+    EXPECT_EQ(read_tilde_terminated_string("\n   \n~\n"), "   \n\r");
+}
+
+TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
+{
+    EXPECT_EQ(read_tilde_terminated_string("Hall.\n~\nignored\n"), "Hall.\n\r");
+}
+
+// Sizing: buf holds MAX_STRING_LENGTH bytes. A content line of N characters plus its newline
+// occupies N + 1, and the non-terminator branch appends '\r' and a terminator, so it needs
+// N + 3 bytes; the following "~\n" line then needs 2 more plus strcat's terminator.
+TEST(DbLoader, FreadStringAcceptsAStringThatExactlyFitsItsBuffer)
+{
+    const std::string content(MAX_STRING_LENGTH - 6, 'a');
+    EXPECT_EQ(read_tilde_terminated_string(content + "\n~\n"), content + "\n\r");
+}
+
+TEST(DbLoader, FreadStringRejectsAStringOneByteTooLongForItsBuffer)
+{
+    // One content byte more than the case above. The old check accepted this input without
+    // overflowing (the tilde branch runs); the new check rejects it on the '~' line because it
+    // reserves two bytes for the carriage-return branch before it knows which branch follows.
+    // The rejection path is exit(0) after a "string too large" log.
+    const std::string content(MAX_STRING_LENGTH - 5, 'a');
+    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "string too large");
+}
+
+TEST(DbLoader, FreadStringRejectsALineThatWouldOverflowOnTheCarriageReturnAppend)
+{
+    // A single line of MAX_STRING_LENGTH - 2 characters plus newline: strcat fits, but the '\r'
+    // and terminator land at MAX_STRING_LENGTH - 1 and MAX_STRING_LENGTH, one past the array.
+    const std::string content(MAX_STRING_LENGTH - 2, 'a');
+    EXPECT_EXIT(read_tilde_terminated_string(content + "\n~\n"), ::testing::ExitedWithCode(0), "string too large");
+}
+
+TEST(DbLoader, ObjFromRoomIgnoresAnObjectThatIsNotInItsRoomsContents)
+{
+    ensure_test_world_room(3001);
+    obj_data resident {};
+    obj_data stray {};
+    resident.in_room = 0;
+    stray.in_room = 0;
+    world[0].contents = &resident;
+    resident.next_content = nullptr;
+
+    testing::internal::CaptureStderr();
+    obj_from_room(&stray); // not in the list: must log and return, not dereference a null walker
+    const std::string captured = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(captured.find("obj_from_room: object is not in its room's contents list"), std::string::npos)
+        << "the guard must log the mismatch, not silently return; stderr was: " << captured;
+    EXPECT_EQ(world[0].contents, &resident);
+    EXPECT_EQ(stray.in_room, NOWHERE);
+    world[0].contents = nullptr;
 }
 
 TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeRead)
@@ -2585,4 +3106,96 @@ TEST(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
         << error_message;
     EXPECT_STREQ(player_table[stored_character.player_index].ch_file, ordinary_path.c_str())
         << "the path must be held whole -- a truncated one loses the .character.json suffix save_char tests for";
+}
+
+TEST(DbLoader, FileToStringAllocLoadsFilesLargerThanTheOldStringLimit)
+{
+    // lib/text/msdp_tbl outgrew MAX_STRING_LENGTH (8192 bytes); the old
+    // file_to_string_alloc read through a MAX_STRING_LENGTH-sized stack
+    // buffer and aborted with "SYSERR: fl->strng: string too big", leaving
+    // msdp_tbl unloaded and failing every scenario's teardown crash check.
+    // This pins the fix: a file well past that limit must load in full,
+    // through the growable buffer, with every line intact and no SYSERR.
+    TemporaryDirectory temp_directory;
+    const std::string file_path = temp_directory.path() + "/oversized.txt";
+
+    std::string raw_content;
+    std::string expected;
+    const int line_count = 400;
+    for (int line_index = 0; line_index < line_count; ++line_index) {
+        char line_text[64];
+        std::snprintf(line_text, sizeof(line_text), "line %03d of padding text to bulk it up\n", line_index);
+        raw_content += line_text;
+        expected += line_text;
+        expected += '\r';
+    }
+    ASSERT_GT(raw_content.size(), 9000u) << "fixture must exceed the old MAX_STRING_LENGTH limit to exercise the fix";
+    write_file(file_path, raw_content);
+
+    char* loaded = nullptr;
+    const std::string stderr_path = temp_directory.path() + "/file-to-string-alloc-oversized.stderr";
+    int result = -99;
+    std::string stderr_output;
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        result = file_to_string_alloc(const_cast<char*>(file_path.c_str()), &loaded);
+        stderr_output = stderr_redirect.read_contents();
+    }
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRoundTripsASmallFileByteForByteWithTheOldBehaviour)
+{
+    // Below MAX_STRING_LENGTH, the growable-buffer rewrite must still
+    // reproduce exactly what the old fgets-based loader produced: each
+    // source line, trailing '\n' included, immediately followed by an
+    // appended '\r'. That is the shape msdp_tbl, news, motd and friends are
+    // rendered with, so it must not shift under the rewrite.
+    TemporaryDirectory temp_directory;
+    const std::string file_path = temp_directory.path() + "/small.txt";
+
+    const std::string raw_content =
+        "Line one of the message.\n"
+        "Line two, shorter.\n"
+        "Final line here.\n";
+    write_file(file_path, raw_content);
+
+    const std::string expected =
+        "Line one of the message.\n\r"
+        "Line two, shorter.\n\r"
+        "Final line here.\n\r";
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(const_cast<char*>(file_path.c_str()), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
+{
+    // No lines means no '\r' appended and no early return: an empty file is
+    // a legitimate, successful load of "", the same as the old loader
+    // produced (fgets hit EOF on the very first call).
+    TemporaryDirectory temp_directory;
+    const std::string file_path = temp_directory.path() + "/empty.txt";
+    write_file(file_path, "");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(const_cast<char*>(file_path.c_str()), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_STREQ(loaded, "");
+
+    RELEASE(loaded);
 }

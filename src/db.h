@@ -127,7 +127,30 @@ int vnum_object(char*, struct char_data*);
 void record_crime(struct char_data*, struct char_data*, int, int);
 void add_crime(int, int, int, int, int);
 void forget_crimes(struct char_data*, int);
-void add_exploit_record(int, struct char_data*, int, char*);
+// Appends one exploit record of `recordtype` to the character's history: level, stat, birth,
+// mob-death, retirement, achievement, note, poison and regen-death records, with the type's
+// integer and text payload. EXPLOIT_PK and EXPLOIT_DEATH are refused here (logged, nothing
+// written); they take the contributor overload below. NPC and immortal characters keep no history.
+void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, char* chParam);
+struct kill_contributor_list;
+// Records a player-involved death from die()'s deduplicated contributor list. EXPLOIT_PK writes
+// one trophy naming `victim` to every player contributor; EXPLOIT_DEATH writes one "killed by"
+// entry to `victim` per player contributor, the first flagged as the separator the exploits
+// display groups a death by. NPC contributors are skipped; any other `recordtype`
+// is refused (logged, nothing written). The list is trusted to be null-free and deduplicated, as
+// kill_contributor_list::add() guarantees. Contributors need not be in combat_list, so a remote
+// room-affect caster or an absent poisoner is recorded like anyone else.
+void add_exploit_record(int recordtype, struct char_data* victim, const kill_contributor_list& contributors);
+// Persists one finished exploit record into `recipient`'s history; production leaves this at
+// write_exploits().
+using ExploitRecordWriterFn = void (*)(struct char_data* recipient, struct exploit_record* record);
+// Test-only seam: routes every record add_exploit_record() finishes to `writer` instead of
+// write_exploits(), which touches disk and autosaves the recipient. nullptr restores the default.
+// Not thread-safe (the MUD and the tests are single-threaded). Kept in production code
+// deliberately: it is the same dependency-injection shape as roster_cache.h's and
+// account_cache.h's reader seams, and it separates assembling a record from persisting it, which
+// write_exploits() otherwise binds to disk and autosave.
+void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer);
 int delete_exploits_file(char*);
 void delete_character_file(struct char_data*);
 void move_char_deleted(int);
@@ -241,17 +264,22 @@ struct help_index_summary {
 struct exploit_record {
     int type; /* type of record */
     char chtime[30]; /* str date of death */
-    sh_int shintVictimID; /* idnum of victim */
+    long lVictimID; /* full idnum of the victim (PK trophy) or of the killer (death record) */
     char chVictimName[30]; /* in case char has been deleted */
     int iVictimLevel; /* at time of kill */
     int iKillerLevel; /* at time of kill */
-    int iIntParam; /* reserved */
+    int iIntParam; /* type-specific payload; 1 on the first EXPLOIT_DEATH entry of a death */
 };
 // Renames a live character, moving its files. Returns 1 on success and -1 when the rename was
 // REFUSED, in which case nothing was changed; `error_message`, when given, says why in words the
 // only caller (`wizset <victim> name <newname>`) can show an immortal.
 int rename_char(struct char_data* ch, char* newname, std::string* error_message = nullptr);
 
+// Reads the whole history from the account-native JSON file when the character is linked to an
+// account (retiring any leftover legacy file beside it), otherwise from the legacy exploits/
+// binary file. A legacy file that is not a whole number of records is removed and read as
+// empty. Only the JSON path carries full idnums, so account-owned histories never pass through
+// the 16-bit legacy encoding on the way in.
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
 bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
 bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message = nullptr);

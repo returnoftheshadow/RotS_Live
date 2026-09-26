@@ -21,6 +21,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ROTS_SUPPRESS_TEST_WARNINGS "Suppress compiler warnings when building the test target" ON)
 
+# A CACHE STRING rather than an option(): it names a sanitizer, so a boolean will not do.
+# Empty keeps the plain build. Anything but "address" is rejected here so a typo cannot
+# silently configure an unsanitized tree that then passes the CI proof step.
+set(ROTS_SANITIZE "" CACHE STRING "Sanitizer to enable for ageland and ageland_tests (empty or address)")
+if(ROTS_SANITIZE STREQUAL "")
+    set(ROTS_SANITIZER_COMPILE_OPTIONS "")
+    set(ROTS_SANITIZER_LINK_OPTIONS "")
+elseif(ROTS_SANITIZE STREQUAL "address")
+    set(ROTS_SANITIZER_COMPILE_OPTIONS -fsanitize=address -fno-omit-frame-pointer)
+    set(ROTS_SANITIZER_LINK_OPTIONS -fsanitize=address)
+else()
+    message(FATAL_ERROR "ROTS_SANITIZE must be empty or 'address', not '${ROTS_SANITIZE}'")
+endif()
+
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(BIN_DIR "${REPO_ROOT}/bin")
 set(LOG_DIR "${REPO_ROOT}/log")
@@ -50,6 +64,9 @@ set(ROTS_SERVER_SOURCES
     battle_mage_handler.cpp
     big_brother.cpp
     boards.cpp
+    caster_snapshot.cpp
+    character_affect_list.cpp
+    character_identity.cpp
     char_utils.cpp
     char_utils_combat.cpp
     clerics.cpp
@@ -82,11 +99,15 @@ set(ROTS_SERVER_SOURCES
     olog_hai.cpp
     pkill.cpp
     player_file_finalize.cpp
+    poison.cpp
+    poison_origin.cpp
     profs.cpp
     protocol.cpp
     ranger.cpp
+    room_affect_tick.cpp
     save_benchmark.cpp
     savebench.cpp
+    test_harness.cpp
     script.cpp
     shapemdl.cpp
     shapemob.cpp
@@ -124,6 +145,11 @@ set(ROTS_TEST_SOURCES
     tests/account_management_types_header_compile.cpp
     tests/act_comm_tests.cpp
     tests/act_wiz_tests.cpp
+    tests/affect_join_tests.cpp
+    tests/affect_update_tests.cpp
+    tests/caster_snapshot_tests.cpp
+    tests/character_affect_list_tests.cpp
+    tests/character_identity_tests.cpp
     tests/CharPlayerDataBuilder.cpp
     tests/char_utils_tests.cpp
     tests/character_json_tests.cpp
@@ -131,10 +157,19 @@ set(ROTS_TEST_SOURCES
     tests/crashsave_schedule_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
+    tests/death_classification_tests.cpp
+    tests/exploit_record_tests.cpp
     tests/exploits_json_tests.cpp
+    tests/fight_credit_tests.cpp
+    tests/flee_path_tests.cpp
+    tests/raw_kill_tests.cpp
+    tests/fast_update_tests.cpp
+    tests/spell_learning_tests.cpp
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
+    tests/gear_poison_tests.cpp
     tests/mage_tests.cpp
+    tests/mystic_helper_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
@@ -148,17 +183,35 @@ set(ROTS_TEST_SOURCES
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
+    tests/poison_library_tests.cpp
+    tests/poison_origin_tests.cpp
+    tests/poison_rules_tests.cpp
     tests/protocol_tests.cpp
+    tests/room_affect_caster_tests.cpp
+    tests/room_affect_tick_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
+    tests/test_harness_tests.cpp
+    tests/summon_targeting_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp
+    tests/test_character_support.cpp
+    tests/test_affect_support.cpp
+    tests/test_descriptor_support.cpp
+    tests/test_world_support.cpp
+    tests/scoped_room_occupants.cpp
+    tests/scoped_room_special.cpp
+    tests/scoped_exploit_type_capture.cpp
+    tests/scoped_flee_world.cpp
+    tests/scoped_player_death_sandbox.cpp
+    tests/test_flee_support.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
+    tests/xp_formula_tests.cpp
     tests/load_scalp_tests.cpp
 )
 
@@ -172,6 +225,10 @@ target_compile_options(ageland PRIVATE
     -rdynamic
 )
 target_link_options(ageland PRIVATE -m32 -g -rdynamic)
+if(ROTS_SANITIZE)
+    target_compile_options(ageland PRIVATE ${ROTS_SANITIZER_COMPILE_OPTIONS})
+    target_link_options(ageland PRIVATE ${ROTS_SANITIZER_LINK_OPTIONS})
+endif()
 set_target_properties(ageland PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
 )
@@ -200,6 +257,10 @@ target_link_options(ageland_tests PRIVATE
     -Wl,--wrap=_Z6numberv
     -Wl,--wrap=_Z6numberii
 )
+if(ROTS_SANITIZE)
+    target_compile_options(ageland_tests PRIVATE ${ROTS_SANITIZER_COMPILE_OPTIONS})
+    target_link_options(ageland_tests PRIVATE ${ROTS_SANITIZER_LINK_OPTIONS})
+endif()
 set_target_properties(ageland_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
     OUTPUT_NAME tests

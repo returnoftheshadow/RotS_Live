@@ -494,8 +494,13 @@ void do_stat_room(struct char_data* ch)
             if (!CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL)
                 continue;
             sprintf(buf2, "%s %s", found++ ? "," : "", j->short_description);
-            if (found > 0 && ch->player.level > 91)
+            /* A corpse (and other prototype-less objects) carries item_number == -1;
+               obj_index has no entry for it, so skip the vnum suffix instead of
+               indexing obj_index[-1]. */
+            if (found > 0 && ch->player.level > 91 && j->item_number >= 0)
                 sprintf(buf1, " [%d]", obj_index[j->item_number].virt);
+            else
+                *buf1 = '\0';
             strcat(buf2, buf1);
             strcat(buf, buf2);
             if (strlen(buf) >= 62) {
@@ -1424,9 +1429,9 @@ ACMD(do_purge)
                 return;
             }
 
-            /* TEMP fix to save players when they're purged */
+            /* Force-rent the purged player, not the purging immortal, before the body goes. */
             if (!IS_NPC(vict))
-                Crash_idlesave(ch);
+                Crash_idlesave(vict);
 
             act("$n disintegrates $N.", FALSE, ch, 0, vict, TO_NOTVICT);
 
@@ -3994,6 +3999,7 @@ ACMD(do_rehash)
             tmplist = pool_to_list(&affected_list, &affected_list_pool);
             tmplist->ptr.ch = tmpch;
             tmplist->number = tmpch->abs_number;
+            tmplist->serial = tmpch->registration_serial;
             tmplist->type = TARGET_CHAR;
 
             count2++;

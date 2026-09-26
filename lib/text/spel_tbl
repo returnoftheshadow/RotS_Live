@@ -517,6 +517,41 @@ the room of the caster. If the target has summon protection on
 the spell will fail. 
 
 #
+"BLAZE"
+
+[Syntax      ] cast 'blaze'
+               cast 'blaze' <target>
+[Group       ] Magic-User, Fire
+[Level       ] 18
+[Minimum Cost] 15
+[Offensive   ] Yes
+[Description ]
+---Casting "Blaze" with no target breathes a cloud of fire over the room,
+burning everyone who is not friendly to the caster, and leaves behind a
+firestorm that keeps burning anyone who stays in it, friend or foe.  Cast on a
+<target>, it breathes fire on that one creature instead, without lighting the
+room.
+  Only people specializing in Fire can learn it.
+
+See: SPECIALIZATIONS, FIRE
+
+#
+"MISTS OF BURZUM" "MIST OF BAAZUNGA"
+
+[Syntax      ] cast 'mists of burzum'
+[Group       ] Magic-User
+[Level       ] 0
+[Minimum Cost] 50
+[Offensive   ] No
+[Description ]
+---Casting "Mists of Burzum" breathes out a dark mist that shrouds the room in
+shadow, sheltering those who suffer in sunlight.  The mist drifts into nearby
+rooms, thinning as it spreads, and lasts longer the stronger its caster.
+  Only people specializing in Darkness can learn it.
+
+See: SPECIALIZATIONS
+
+#
 FIRE
 
 Fire spells, such as fireball or firebolt tend to be unpredictable, as is

@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - master
+      - release-frodo
   pull_request:
     branches:
       - master
+      - release-frodo
 
 permissions:
   contents: read
@@ -24,7 +26,10 @@ jobs:
           persist-credentials: false
 
       - name: Install system dependencies
+        # ageland links -lcrypt as a 32-bit binary, so the i386 crypt development package is
+        # required alongside the 64-bit one (README, "Prerequisites").
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -35,6 +40,7 @@ jobs:
             g++-multilib \
             libc6-dev-i386 \
             libcrypt-dev \
+            libcrypt-dev:i386 \
             libgtest-dev \
             make \
             pkg-config \
@@ -47,5 +53,182 @@ jobs:
       - name: Run C++ unit tests
         run: make test
 
+      - name: Install the harness world for the smoke flow
+        # lib/world is git-ignored and this checkout has no world, so the smoke server
+        # exits at boot ("Error opening index file 'world/scr/index'"). The committed
+        # synthetic zone under tests/integration/world boots the real server and resolves
+        # every start room, so it stands in when no world is present.
+        run: |
+          if [ ! -d lib/world ]; then
+            cp -r tests/integration/world lib/world
+          fi
+
       - name: Run account smoke flow
         run: make smoke-account
+
+  integration-asan:
+    name: Integration Suite under AddressSanitizer
+    runs-on: ubuntu-24.04
+    # Measured at 30 min end to end on 2026-09-26, the integration suite (135 tests) taking
+    # 27 of them; it was 27 min before the guildmaster scenarios. 45 leaves room for a slow
+    # runner and some growth.
+    timeout-minutes: 45
+    env:
+      # detect_leaks=0: both binaries exit normally (the server's SIGTERM handler ends in
+      # exit(0)), so LeakSanitizer would otherwise scan the heap at every teardown; leaks
+      # are not the target. handle_segv=2: the server installs its own SIGSEGV handler in
+      # main(), which would replace ASan's report with the legacy backtrace.
+      ASAN_OPTIONS: detect_leaks=0:handle_segv=2
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        # lib32asan8 is the 32-bit runtime for ageland; libasan8 the 64-bit one for
+        # ageland_tests. Both are named explicitly rather than trusted as transitive
+        # dependencies of gcc-multilib. python3-pytest is the harness runner (pytest 7.4;
+        # the harness needs 7.0+ for the pythonpath ini key).
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            gcc-multilib \
+            g++-multilib \
+            lib32asan8 \
+            libasan8 \
+            libc6-dev-i386 \
+            libcrypt-dev \
+            libcrypt-dev:i386 \
+            libgtest-dev \
+            make \
+            python3 \
+            python3-pytest
+
+      - name: Lower ASLR entropy for AddressSanitizer
+        # Ubuntu 24.04's raised vm.mmap_rnd_bits is a known ASan startup failure ("shadow
+        # memory range interleaves with an existing memory mapping"). Runner-local.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Configure sanitized build tree
+        run: make BUILD_DIR=build-asan SANITIZE=address configure
+
+      - name: Build server and unit tests under AddressSanitizer
+        # Both targets build here, blocking, so a compile or link break under the sanitizer
+        # is never hidden inside the ctest step.
+        run: |
+          make BUILD_DIR=build-asan setup
+          cmake --build build-asan --target ageland ageland_tests -j"$(nproc)"
+
+      - name: Prove the 32-bit sanitizer runtime is linked and initialises
+        # The ldd line guards the silent-plain-build case (a missing runtime already fails
+        # at link time). The help=1 line proves the runtime starts and writes to stderr;
+        # the server itself exits on the nonexistent lib dir, which is irrelevant here.
+        run: |
+          ldd bin/ageland | grep -E 'libasan\.so[^ ]* => /'
+          (timeout 30 env ASAN_OPTIONS=help=1 ./bin/ageland -t -d /nonexistent 1 2>&1 || true) | grep -q 'Available flags for AddressSanitizer'
+
+      - name: Run integration suite
+        env:
+          ROTS_IT_LAUNCHER: local
+          ROTS_IT_KEEP: "1"
+        run: make integration
+
+      - name: Run C++ unit tests under AddressSanitizer
+        # Blocking since the fix wave (harness design spec, slice 2 amendment, A6). Runs after
+        # the integration suite so a unit-test regression never hides the integration signal
+        # this job exists for. ageland_tests is 64-bit and links the uninstrumented system
+        # gtest, so container-overflow checks would report spurious findings against shared
+        # std containers.
+        env:
+          ASAN_OPTIONS: detect_leaks=0:handle_segv=2:detect_container_overflow=0
+        run: ctest --test-dir build-asan --output-on-failure
+
+      - name: Upload run directories
+        # always(): a job that hits timeout-minutes is cancelled, and failure() steps do
+        # not run on cancellation. The directories hold game.log, transcripts, and a copy
+        # of the tracked lib/text, lib/misc and synthetic world; no real player data.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-run-directories
+          path: build/integration/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  i386-plain:
+    name: 32-bit Unit Tests and Scenarios on the Plain Server
+    runs-on: ubuntu-24.04
+    # The first green run (36192884011, 2026-09-25) took 27.5 min on the runner: image, both
+    # targets, gtest and the integration suite through the Docker launcher. 45 leaves room for
+    # a slower runner and for the suite to grow.
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run the container as the runner's user
+        # docker-compose.yml runs the service as ROTS_UID:ROTS_GID, 1000:1000 unless set, and
+        # only the runner's own uid can write the bind-mounted checkout.
+        run: |
+          echo "ROTS_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "ROTS_GID=$(id -g)" >> "$GITHUB_ENV"
+
+      - name: Build the i386 toolchain image
+        # The image developers build and test in. On this x86-64 runner it runs natively, without
+        # the QEMU layer a Mac adds. The unit tests and server here are 32-bit (x87 floating point,
+        # a 32-bit long); the server also carries the shipped build's -funsigned-char, which the
+        # unit tests do not. The other jobs' unit tests are 64-bit.
+        run: docker compose build
+
+      - name: Build server and unit tests in the i386 container
+        # -T on every `docker compose run`: the service asks for a TTY and a runner has none.
+        id: build
+        run: |
+          docker compose run --rm -T rots bash -lc \
+            'make configure setup && cmake --build build --target ageland ageland_tests -j"$(nproc)"'
+
+      - name: Create the shared Docker lock directory
+        # The Docker launcher holds a session lock here and will not run if the directory is missing.
+        run: mkdir -p /tmp/rots-docker-lock
+
+      - name: Install pytest
+        # python3-pytest is the harness runner (pytest 7.4; the harness needs 7.0+ for the
+        # pythonpath ini key). The server runs in the container, so the host needs nothing else.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pytest
+
+      - name: Run integration suite through the Docker launcher
+        # choose_launcher() picks the local launcher on Linux. Forcing docker makes this job CI's
+        # only run of DockerComposeLauncher, and its only run of the scenarios on an unsanitized
+        # server, the build that ships.
+        env:
+          ROTS_IT_LAUNCHER: docker
+          ROTS_IT_KEEP: "1"
+        run: make integration
+
+      - name: Run 32-bit C++ unit tests
+        # The binary directly: ctest's PRE_TEST discovery finds no tests under bullseye's CMake
+        # 3.18. Runs after the integration suite, and also when that fails, so neither result
+        # hides the other.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: docker compose run --rm -T rots bash -lc './bin/tests'
+
+      - name: Upload run directories
+        # always(), as in integration-asan. A distinct name: two jobs in one run cannot upload
+        # artifacts with the same name.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i386-plain-run-directories
+          path: build/integration/
+          if-no-files-found: ignore
+          retention-days: 7

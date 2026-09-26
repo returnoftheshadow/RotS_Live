@@ -20,6 +20,9 @@ public:
     using ArrayValueParser = std::function<bool(JsonReader*, std::string*)>;
 
     explicit JsonReader(const std::string& input);
+    // The reader keeps a reference to its input, so a temporary would dangle before the first
+    // parse call; refuse it at compile time.
+    explicit JsonReader(std::string&&) = delete;
 
     bool parse_root_object(const ObjectPropertyParser& property_parser, std::string* error_message);
     bool parse_object(const ObjectPropertyParser& property_parser, std::string* error_message);
@@ -52,6 +55,9 @@ public:
     using ArrayValueParser = std::function<bool(JsonReaderV2*, std::string*)>;
 
     explicit JsonReaderV2(const std::string& input);
+    // The reader keeps a reference to its input, so a temporary would dangle before the first
+    // parse call; refuse it at compile time.
+    explicit JsonReaderV2(std::string&&) = delete;
 
     bool parse_root_object(const ObjectPropertyParser& property_parser, std::string* error_message);
     bool parse_object(const ObjectPropertyParser& property_parser, std::string* error_message);

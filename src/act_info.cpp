@@ -634,7 +634,7 @@ void get_char_flag_line(char_data* viewer, char_data* viewed, char* character_me
         strcat(character_message, " (shadow)");
     }
 
-    if ((utils::is_affected_by_spell(*viewed, SKILL_MARK)) && (GET_RACE(viewer) == RACE_HARADRIM)) {
+    if (viewed->affected.contains(SKILL_MARK) && (GET_RACE(viewer) == RACE_HARADRIM)) {
         strcat(character_message, " (marked)");
     }
 

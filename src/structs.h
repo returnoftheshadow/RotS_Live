@@ -15,8 +15,10 @@
 
 #include <stdio.h>
 
+#include "character_affect_list.h" /* For character_affect_list */
 #include "color.h" /* For MAX_COLOR_FIELDS */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
+#include "poison_origin.h" /* For poison_origin */
 
 #include "protocol.h"
 #include <algorithm>
@@ -885,6 +887,25 @@ const int constexpr RACE_HARADRIM = 18;
 #define RACE_UNDEAD 16
 #define RACE_TROLL 20
 
+// The highest level `prof` can reach for a character of `race`. Takes a race
+// number rather than a character so a caster's cast-time snapshot can use it
+// too; GET_MAX_RACE_PROF_LEVEL(prof, ch) is the char_data-shaped form.
+inline int max_race_prof_level(int prof, int race)
+{
+    if (race == RACE_ORC) {
+        return 20;
+    }
+
+    if (race == RACE_URUK) {
+        if (prof == PROF_MAGE) {
+            return 27;
+        }
+        return 30;
+    }
+
+    return 30;
+}
+
 #define localtime(x) localtime((time_t*)x)
 #ifndef CONSTANTSMARK
 extern char* pc_races[];
@@ -1127,6 +1148,8 @@ struct char_special_data {
     int timer; /* Timer for update                        */
     int was_in_room; /* storage of location for linkdead people */
 
+    poison_origin poisoned_by; // this character's poisoner; used only through poison_origin.h
+
     int ENERGY; /* current energy */
     sh_int current_parry; /*parry currently affected by 'parry split' */
 
@@ -1263,6 +1286,8 @@ struct affected_type {
     sh_int modifier; /* This is added to apropriate ability     */
     sh_int location; /* Tells which ability to change(APPLY_XXX)*/
     long bitvector; /* Tells which bits to set (AFF_XXX)       */
+    // spell payload: maul stacks on a character affect; the spread generation
+    // (cast room 0) on a mist room affect
     sh_int counter;
 
     struct affected_type* next;
@@ -1753,6 +1778,10 @@ public:
 
 public:
     int abs_number; /* bit number in the control array */
+    // Which registration of `abs_number` this character is: stamped by set_char_exists(num, ch)
+    // from a process-wide counter, so an identity captured earlier still fails to resolve once
+    // the slot has been handed to a new character living at the same address.
+    long registration_serial;
     int player_index; /* Index in player table */
     int nr; /* monster nr (pos in file)      */
     int in_room; /* Location                      */
@@ -1772,7 +1801,7 @@ public:
     byte* knowledge; /* array of knowledge, computed from
                                                                                         pracs spent
                         at logon */
-    struct affected_type* affected; /* affected by what spells       */
+    character_affect_list affected; // this character's affects; written only through its members
     struct obj_data* equipment[MAX_WEAR]; /* Equipment array               */
 
     struct obj_data* carrying; /* Head of list                  */
@@ -2121,6 +2150,7 @@ struct universal_list {
     int type;
     int number; /* abs_number for ch, whatever else for obj, */
     /* room number optional for rooms*/
+    long serial; /* registration_serial of ptr.ch for TARGET_CHAR; unused for other types */
     union {
         char_data* ch;
         room_data* room;

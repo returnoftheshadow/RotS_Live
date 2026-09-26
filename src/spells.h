@@ -11,6 +11,7 @@
 #ifndef SPELLS_H
 #define SPELLS_H
 
+#include "caster_snapshot.h" /* For the spell signature and the formula helpers */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the MAX_SKILLS macro */
 #include <algorithm>
@@ -130,7 +131,7 @@
 #define SPELL_EARTHQUAKE 81
 #define SPELL_CREATE_LIGHT 82
 #define SPELL_DARK_BOLT 84
-#define SPELL_MIST_OF_BAAZUNGA 85 // Needs to be removed.
+#define SPELL_MISTS_OF_BURZUM 85
 #define SPELL_BEACON 88
 #define SPELL_BLAZE 90 // Needs to be removed
 #define SPELL_FIREBOLT 91
@@ -336,6 +337,10 @@ inline int weapon_skill_num(game_types::weapon_type weapon_type)
 struct char_data;
 struct obj_data;
 
+// The signature of every spell body; see ASPELL below.
+using spell_function = void (*)(char_data* caster, char* arg, int type, char_data* victim,
+    obj_data* obj, int digit, int is_object, const caster_snapshot& caster_at_cast);
+
 /*
  * For the 'target' member, possible targets are:
  *   bit 0: IGNORE TARGET
@@ -356,9 +361,7 @@ struct skill_data {
     char name[50];
     char type;
     char level;
-    void (*spell_pointer)(char_data* caster, char* arg,
-        int type, char_data* tar_ch,
-        obj_data* tar_obj, int digit, int is_object);
+    spell_function spell_pointer;
     byte minimum_position; /* Position for caster */
     int min_usesmana; /* Amount of mana used by a spell */
     byte beats; /* Heartbeats until ready for next */
@@ -394,11 +397,20 @@ struct attack_hit_type {
 
 void recalc_skills(struct char_data*);
 
+// A spell body. `caster_at_cast` is the caster as it stood when the spell
+// took effect, taken once by run_spell(); every caster-side formula in the
+// body reads it rather than `caster`.
 #define ASPELL(castname)                             \
     void                                             \
     castname(char_data* caster, char* arg, int type, \
         char_data* victim, obj_data* obj, int digit, \
-        int is_object)
+        int is_object, const caster_snapshot& caster_at_cast)
+
+// Runs spell `spell_index`'s body for `caster`, snapshotting the caster once
+// here so the whole spell resolves from one consistent caster state. Does
+// nothing when the spell has no body.
+void run_spell(int spell_index, char_data* caster, char* arg, int type,
+    char_data* victim, obj_data* obj, int digit, int is_object);
 
 /* Mage spell prototypes */
 ASPELL(spell_blink);
@@ -470,7 +482,7 @@ ASPELL(spell_revive);
 ASPELL(spell_insight);
 ASPELL(spell_pragmatism);
 ASPELL(spell_death_ward);
-ASPELL(spell_mist_of_baazunga);
+ASPELL(spell_mists_of_burzum);
 ASPELL(spell_protection);
 ASPELL(spell_mind_block);
 ASPELL(spell_resist_poison);
@@ -484,7 +496,64 @@ ASPELL(spell_mass_insight);
 
 bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal, bool include_current_followers);
 
-int get_mage_caster_level(const char_data* caster);
-int get_mystic_caster_level(const char_data* caster);
+// Mage/mystic formula inputs. They read the caster only through a
+// caster_snapshot, so none of them can re-read a caster mid-resolution. Spell
+// bodies still read a few caster facts live (specialization checks in mage.cpp
+// and mystic.cpp, fireball's race check); those match the snapshot unless the
+// caster changes between the snapshot and the read. The level and power helpers
+// roll their rounding afresh on every call. The formula helpers below them are
+// pure.
+int get_mage_caster_level(const caster_snapshot& caster);
+int get_mystic_caster_level(const caster_snapshot& caster);
+int get_magic_power(const caster_snapshot& caster);
+// Loss taken off a mist's caster level once it has spread `generation` rooms from the
+// room it was breathed in: 3 for the first hop and 3 more for each further hop
+// (3, 9, 18, 30, ...). Zero for the cast room or a negative generation.
+int mist_spread_level_loss(int generation);
+// The mage level a mist ticks and seeds with `generation` rooms out from where it was
+// breathed: `caster_level` less mist_spread_level_loss(generation), never below zero.
+int mist_effective_level(int caster_level, int generation);
+// Damage one blaze burn does to a victim at mage level `level`: 8 to `level`, plus 10,
+// halved when the victim saved.
+int blaze_burn_damage(int level, bool saved);
+// The level an illusion-school spell (haze, fear) applies at for `who`: the mystic caster
+// level, plus 6 for an illusion specialist.
+int illusion_caster_level(const caster_snapshot& who);
+// The haze a cast or a haze tick leaves on its victim: SPELL_HAZE at `level` for
+// `duration` ticks (-1 for an object's permanent haze), AFF_HAZE.
+affected_type haze_victim_affect(int level, int duration);
+int get_saving_throw_dc(const caster_snapshot& caster);
+bool should_apply_spell_penetration(const caster_snapshot& caster);
+double get_spell_pen_value(const caster_snapshot& caster);
+int get_save_bonus(const caster_snapshot& caster, const char_data& victim, game_types::player_specs primary_spec, game_types::player_specs opposing_spec);
+// Whom a room-wide blast is judged for: the caster, or for a charmed caster
+// (an orc follower ordered to cast) the head of its follow chain.
+char_data* room_blast_owner(char_data* caster);
+// True when a room-wide blast (blaze's first burst, a fire-specialized
+// fireball's splash) spares `bystander`. Spared: the caster, a same-side
+// player, and anyone whose follow chain leads to either. An uncharmed mob is
+// spared only when it has a race, that race is on the caster's side, its
+// alignment does not oppose that side, and it is not fighting the caster's
+// party. An uncharmed mob caster judges players by race too; a caster whose
+// race puts it on neither side spares no mob, and as a mob spares no player.
+// `caster` is the live caster, for its group; callers pass room_blast_owner()
+// and its snapshot.
+bool is_spared_by_room_blast(const caster_snapshot& caster_at_cast, const char_data& caster, const char_data* bystander);
+bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int save_bonus);
+
+// The victim's saving throw against `caster`.
+double get_victim_saving_throw(const caster_snapshot& caster, const char_data* victim);
+
+// Scales `damage_dealt` by the victim's saving throw against `who`, then deals
+// it from `attacker`, who engages the victim and is credited with a kill.
+int apply_spell_damage(const caster_snapshot& who, char_data* attacker, char_data* victim,
+    int damage_dealt, int spell_number, int hit_location);
+
+// apply_spell_damage() for a caster supplied as a cast-time snapshot. `who`
+// supplies the caster side of the victim's saving throw, `attacker` engages
+// the victim, and `credited_killer` -- which may be null, and may stand in
+// another room -- takes the kill. The damage curve is the live cast's.
+int apply_spell_damage_credited(const caster_snapshot& who, char_data* attacker, char_data* victim,
+    char_data* credited_killer, int damage_dealt, int spell_number, int hit_location);
 
 #endif /* SPELLS_H */

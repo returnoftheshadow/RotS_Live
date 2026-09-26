@@ -3,12 +3,15 @@ CXXFLAGS = -std=c++1z -Wall -Wextra -D TESTING
 LDFLAGS = -lgtest -lcrypt
 
 OBJFILES = act_comm.o act_info.o act_move.o act_obj1.o act_obj2.o act_offe.o \
-	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
+	act_othe.o act_soci.o act_wiz.o ban.o battle_mage_handler.o big_brother.o boards.o caster_snapshot.o char_utils.o char_utils_combat.o clerics.o clock.o color.o combat_manager.o \
 	comm.o config.o consts.o db.o delayed_command_interpreter.o fight.o graph.o handler.o interpre.o environment_utils.o account_management.o character_json.o exploits_json.o json_utils.o objects_json.o \
 	limits.o mail.o mystic.o mage.o mobact.o modify.o mudlle.o mudlle2.o mob_csv_extract.o obj2html.o object_utils.o objsave.o olog_hai.o\
-	pkill.o profs.o protocol.o ranger.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
+	pkill.o profs.o protocol.o ranger.o room_affect_tick.o script.o shapemdl.o shapemob.o shapeobj.o shaperom.o shapezon.o shapescript.o shop.o \
 	signals.o skill_timer.o spec_ass.o spec_pro.o spell_pa.o utility.o wait_functions.o weapon_master_handler.o  \
-	wild_fighting_handler.o weather.o zone.o
+	wild_fighting_handler.o weather.o zone.o \
+	account_cache.o account_errors.o account_index.o account_ppc.o character_affect_list.o character_identity.o \
+	crashsave_schedule.o player_file_finalize.o poison.o poison_origin.o roster_cache.o save_benchmark.o savebench.o \
+	test_harness.o
 
 
 # Dependencies for the main mud
@@ -49,6 +52,8 @@ big_brother.o : ../big_brother.cpp ../big_brother.h ../base_utils.h ../singleton
 	$(CXX) -c $(CXXFLAGS) ../big_brother.cpp
 battle_mage_handler.o : ../battle_mage_handler.cpp ../warrior_spec_handlers.h ../structs.h
 	$(CXX) -c $(CXXFLAGS) ../battle_mage_handler.cpp
+caster_snapshot.o : ../caster_snapshot.cpp ../caster_snapshot.h ../char_utils.h ../handler.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../caster_snapshot.cpp
 wild_fighting_handler.o : ../wild_fighting_handler.cpp ../warrior_spec_handlers.h ../structs.h
 	$(CXX) -c $(CXXFLAGS) ../wild_fighting_handler.cpp
 weapon_master_handler.o : ../weapon_master_handler.cpp ../warrior_spec_handlers.h ../structs.h
@@ -106,7 +111,7 @@ spec_ass.o : ../spec_ass.cpp ../structs.h ../db.h ../interpre.h ../utils.h
 spec_pro.o : ../spec_pro.cpp ../structs.h ../utils.h ../comm.h ../interpre.h \
 	../handler.h ../db.h ../spells.h ../limits.h
 	$(CXX) -c $(CXXFLAGS) ../spec_pro.cpp
-limits.o : ../limits.cpp ../structs.h ../limits.h ../utils.h ../spells.h ../comm.h ../db.h ../handler.h          ../profs.h
+limits.o : ../limits.cpp ../structs.h ../limits.h ../utils.h ../spells.h ../comm.h ../db.h ../handler.h          ../profs.h ../caster_snapshot.h ../room_affect_tick.h
 	$(CXX) -c $(CXXFLAGS) ../limits.cpp
 fight.o	: ../fight.cpp ../structs.h ../utils.h ../comm.h ../handler.h ../interpre.h ../db.h ../spells.h ../limits.h
 	$(CXX) -c $(CXXFLAGS) ../fight.cpp
@@ -182,8 +187,53 @@ pkill.o: ../pkill.cpp ../pkill.h
 protocol.o: ../protocol.cpp ../protocol.h
 	$(CXX) -c $(CXXFLAGS) ../protocol.cpp
 
+room_affect_tick.o : ../room_affect_tick.cpp ../room_affect_tick.h ../caster_snapshot.h ../comm.h ../handler.h ../spells.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../room_affect_tick.cpp
 
-SRCS = account_management_tests.cpp account_management_assets_header_compile.cpp account_management_identity_header_compile.cpp account_management_migration_header_compile.cpp account_management_presentation_header_compile.cpp account_management_storage_header_compile.cpp account_management_types_header_compile.cpp act_wiz_tests.cpp battle_mage_handler_tests.cpp CharPlayerDataBuilder.cpp character_json_tests.cpp char_utils_tests.cpp damage_tests.cpp db_loader_tests.cpp exploits_json_tests.cpp fight_proc_tests.cpp interpre_account_menu_tests.cpp json_utils_tests.cpp mage_tests.cpp ObjFlagDataBuilder.cpp objects_json_tests.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp protocol_tests.cpp startup_options_tests.cpp test_random_utils.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp gtest_main.cpp
+account_cache.o : ../account_cache.cpp ../account_cache.h ../account_management.h
+	$(CXX) -c $(CXXFLAGS) ../account_cache.cpp
+
+account_ppc.o : ../account_ppc.cpp ../account_ppc.h ../account_management.h ../color.h ../protocol.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../account_ppc.cpp
+
+account_index.o : ../account_index.cpp ../account_index.h ../account_management_identity.h
+	$(CXX) -c $(CXXFLAGS) ../account_index.cpp
+
+account_errors.o : ../account_errors.cpp ../account_errors.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../account_errors.cpp
+
+roster_cache.o : ../roster_cache.cpp ../roster_cache.h ../account_management.h
+	$(CXX) -c $(CXXFLAGS) ../roster_cache.cpp
+
+character_affect_list.o : ../character_affect_list.cpp ../character_affect_list.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../character_affect_list.cpp
+
+character_identity.o : ../character_identity.cpp ../character_identity.h ../handler.h ../structs.h
+	$(CXX) -c $(CXXFLAGS) ../character_identity.cpp
+
+crashsave_schedule.o : ../crashsave_schedule.cpp ../crashsave_schedule.h
+	$(CXX) -c $(CXXFLAGS) ../crashsave_schedule.cpp
+
+player_file_finalize.o : ../player_file_finalize.cpp ../player_file_finalize.h
+	$(CXX) -c $(CXXFLAGS) ../player_file_finalize.cpp
+
+poison.o : ../poison.cpp ../poison.h ../caster_snapshot.h ../comm.h ../handler.h ../poison_origin.h ../spells.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../poison.cpp
+
+poison_origin.o : ../poison_origin.cpp ../poison_origin.h ../handler.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../poison_origin.cpp
+
+save_benchmark.o : ../save_benchmark.cpp ../save_benchmark.h ../account_cache.h ../account_management.h ../character_json.h ../db.h ../stopwatch.h ../structs.h
+	$(CXX) -c $(CXXFLAGS) ../save_benchmark.cpp
+
+savebench.o : ../savebench.cpp ../savebench.h ../account_management.h ../comm.h ../db.h ../save_benchmark.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../savebench.cpp
+
+test_harness.o : ../test_harness.cpp ../test_harness.h ../comm.h ../structs.h ../utils.h
+	$(CXX) -c $(CXXFLAGS) ../test_harness.cpp
+
+
+SRCS = account_management_tests.cpp account_management_assets_header_compile.cpp account_management_identity_header_compile.cpp account_management_migration_header_compile.cpp account_management_presentation_header_compile.cpp account_management_storage_header_compile.cpp account_management_types_header_compile.cpp act_wiz_tests.cpp affect_update_tests.cpp battle_mage_handler_tests.cpp caster_snapshot_tests.cpp character_affect_list_tests.cpp character_identity_tests.cpp flee_path_tests.cpp raw_kill_tests.cpp fast_update_tests.cpp spell_learning_tests.cpp CharPlayerDataBuilder.cpp character_json_tests.cpp char_utils_tests.cpp damage_tests.cpp db_loader_tests.cpp death_classification_tests.cpp exploit_record_tests.cpp exploits_json_tests.cpp fight_credit_tests.cpp fight_proc_tests.cpp interpre_account_menu_tests.cpp json_utils_tests.cpp mage_tests.cpp mystic_helper_tests.cpp ObjFlagDataBuilder.cpp objects_json_tests.cpp olog_hai_tests.cpp obj_flag_data_tests.cpp object_utils_tests.cpp poison_origin_tests.cpp protocol_tests.cpp room_affect_caster_tests.cpp room_affect_tick_tests.cpp startup_options_tests.cpp summon_targeting_tests.cpp test_random_utils.cpp test_affect_support.cpp test_descriptor_support.cpp test_world_support.cpp scoped_room_occupants.cpp scoped_room_special.cpp scoped_exploit_type_capture.cpp scoped_flee_world.cpp scoped_player_death_sandbox.cpp test_flee_support.cpp test_random_utils_tests.cpp weapon_master_handler_tests.cpp account_cache_tests.cpp account_index_tests.cpp account_errors_tests.cpp roster_cache_tests.cpp account_ppc_tests.cpp act_comm_tests.cpp affect_join_tests.cpp color_tests.cpp crashsave_schedule_tests.cpp gear_poison_tests.cpp limits_tests.cpp script_flow_tests.cpp idle_follower_tests.cpp room_contents_tests.cpp process_output_tests.cpp json_perf_tests.cpp player_finalize_tests.cpp poison_library_tests.cpp poison_rules_tests.cpp save_benchmark_tests.cpp spell_pa_tests.cpp test_harness_tests.cpp test_character_support.cpp xp_formula_tests.cpp load_scalp_tests.cpp gtest_main.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 EXECUTABLE = ../../bin/tests

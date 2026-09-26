@@ -3,6 +3,7 @@
 #include "../object_utils.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "test_character_support.h"
 #include <gtest/gtest.h>
 
 namespace utils {
@@ -201,7 +202,7 @@ TEST(CharUtils, AppliesConfusePenaltyToKnowledgeAndSkillLookups) {
     context.knowledge[SKILL_SWIPE] = 80;
 
     affected_type confuse = make_affect(SPELL_CONFUSE, 8);
-    context.character.affected = &confuse;
+    context.character.affected.push_front(&confuse);
 
     EXPECT_EQ(utils::get_knowledge(context.character, SKILL_SWIPE), 74)
         << "Expected confusion to reduce knowledge by the affect-derived modifier.";
@@ -212,8 +213,9 @@ TEST(CharUtils, AppliesConfusePenaltyToKnowledgeAndSkillLookups) {
 TEST(CharUtils, FindsMatchingSpellAffectAndReturnsNullWhenMissing) {
     CharUtilsTestContext context;
     affected_type tail = make_affect(SPELL_ARMOR, 3);
-    affected_type head = make_affect(SPELL_CONFUSE, 5, &tail);
-    context.character.affected = &head;
+    affected_type head = make_affect(SPELL_CONFUSE, 5);
+    context.character.affected.push_front(&tail);
+    context.character.affected.push_front(&head);
 
     EXPECT_EQ(utils::is_affected_by_spell(context.character, SPELL_CONFUSE), &head);
     EXPECT_EQ(utils::is_affected_by_spell(context.character, SPELL_HAZE), nullptr)
@@ -503,14 +505,11 @@ TEST(CharUtils, RidingHelpersDependOnMountedPointersAndRegisteredCharacters) {
     context.character.mount_data.rider = &rider;
     context.character.mount_data.rider_number = 9;
 
-    set_char_exists(8);
-    set_char_exists(9);
+    test_support::ScopedCharExists mount_registration(mount, 8);
+    test_support::ScopedCharExists rider_registration(rider, 9);
 
     EXPECT_TRUE(utils::is_riding(context.character));
     EXPECT_TRUE(utils::is_ridden(context.character));
-
-    remove_char_exists(8);
-    remove_char_exists(9);
 }
 
 TEST(CharUtils, ReturnsProfileAndRaceAbbreviationsForPlayersAndNpcFallback) {
@@ -595,7 +594,7 @@ TEST(CharDataMethods, TracksPracticeSpendingAndResetBehavior) {
 TEST(CharDataMethods, ReportsAffectedStateWhenAffectListExists) {
     CharUtilsTestContext context;
     affected_type affect = make_affect(SPELL_ARMOR, 2);
-    context.character.affected = &affect;
+    context.character.affected.push_front(&affect);
 
     EXPECT_TRUE(context.character.is_affected());
 }
@@ -672,4 +671,80 @@ TEST(DamageReports, ReturnsFriendlyEmptyReports) {
 
     EXPECT_NE(player_report.get_damage_report(&context.character).find("has not recorded any damage dealt"), std::string::npos);
     EXPECT_NE(group_report.get_damage_report().find("have not recorded any damage dealt"), std::string::npos);
+}
+
+// char_by_abs_number()/set_char_exists(num, ch) registry tests. The control
+// array is process-global, so these deliberately use high slot numbers that
+// register_npc_char() (which allocates from slot 0 upward) is very unlikely
+// to reach in this suite, and each test restores the slots it touches to
+// "unregistered" so it never leaks state into other tests.
+TEST(CharRegistry, TracksRegisteredPointerAcrossSetRemoveAndReplace) {
+    CharUtilsTestContext first_context;
+    CharUtilsTestContext second_context;
+    const int slot = MAX_CHARACTERS - 17;
+
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+
+    set_char_exists(slot, &first_context.character);
+    EXPECT_EQ(char_by_abs_number(slot), &first_context.character);
+
+    remove_char_exists(slot);
+    EXPECT_EQ(char_by_abs_number(slot), nullptr);
+
+    set_char_exists(slot, &second_context.character);
+    EXPECT_EQ(char_by_abs_number(slot), &second_context.character);
+
+    remove_char_exists(slot); // restore: leave the slot unregistered
+}
+
+TEST(CharRegistry, ReturnsNullForOutOfRangeSlots) {
+    EXPECT_EQ(char_by_abs_number(-1), nullptr);
+    EXPECT_EQ(char_by_abs_number(MAX_CHARACTERS), nullptr);
+}
+
+TEST(CharRegistry, ReturnsNullForAnUnregisteredInRangeSlot) {
+    const int slot = MAX_CHARACTERS - 18;
+
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+    EXPECT_EQ(char_by_abs_number(slot), nullptr);
+    remove_char_exists(slot); // restore: leave the slot unregistered
+}
+
+// stat file and wizset file free a scratch character that was never
+// registered but whose abs_number (0 from clear_char) names a live mob's slot.
+TEST(CharRegistry, FreeingAnUnregisteredCharacterLeavesTheSlotOwnerRegistered) {
+    CharUtilsTestContext owner_context;
+    const int slot = MAX_CHARACTERS - 17;
+    test_support::ScopedCharExists owner_registration(owner_context.character, slot);
+
+    char_data* const scratch = test_support::allocate_test_character(MOB_VOID);
+    scratch->abs_number = slot;
+    test_support::release_test_character(scratch);
+
+    EXPECT_EQ(char_by_abs_number(slot), &owner_context.character)
+        << "freeing a character that never owned the slot must not unregister its owner";
+}
+
+TEST(CharRegistry, FreeingTheRegisteredOwnerReleasesItsSlot) {
+    const int slot = MAX_CHARACTERS - 17;
+    remove_char_exists(slot); // defensive: ensure the slot starts clean
+
+    char_data* const owner = test_support::allocate_test_character(MOB_VOID);
+    owner->abs_number = slot;
+    set_char_exists(slot, owner);
+    test_support::release_test_character(owner);
+
+    EXPECT_EQ(char_by_abs_number(slot), nullptr);
+    EXPECT_EQ(char_exists(slot), 0);
+}
+
+TEST(CharRegistry, IgnoresOutOfRangeRegistration) {
+    CharUtilsTestContext context;
+    const long serial_before = context.character.registration_serial;
+
+    set_char_exists(MAX_CHARACTERS, &context.character);
+    set_char_exists(-1, &context.character);
+
+    EXPECT_EQ(context.character.registration_serial, serial_before)
+        << "an out-of-range slot must not register the character";
 }

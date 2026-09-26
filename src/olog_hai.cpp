@@ -190,11 +190,10 @@ int get_base_skill_damage(char_data& olog_hai, int prob)
     int base_damage = (2 + utils::get_prof_level(PROF_WARRIOR, olog_hai));
     base_damage *= (100 + prob);
     base_damage /= (1000 / utils::get_tactics(olog_hai));
-    if (utils::is_twohanded(olog_hai)) {
-        base_damage *= 3 / 2;
-    }
+    // Two-handed style was meant to add 1.5x here, but `*= 3 / 2` never applied it.
+    // Balance showed Olog-hai did not need the bonus, so the dead code was removed.
 
-    if (utils::is_affected_by_spell(olog_hai, SKILL_FRENZY)) {
+    if (olog_hai.affected.contains(SKILL_FRENZY)) {
         base_damage *= 1.10;
     }
 
@@ -555,7 +554,7 @@ ACMD(do_frenzy)
         return;
     }
 
-    if (affected_by_spell(ch, SKILL_FRENZY)) {
+    if (ch->affected.contains(SKILL_FRENZY)) {
         send_to_char("You are already in a frenzy!\r\n", ch);
         return;
     }

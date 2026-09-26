@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "char_utils.h"
+#include "character_identity.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -415,7 +416,7 @@ int perform_move_mount(struct char_data* ch, int dir)
         world[ch->in_room].room_track[tmp].condition = 0;
     }
 
-    if (utils::is_affected_by_spell(*ch, SKILL_MARK)) {
+    if (ch->affected.contains(SKILL_MARK)) {
         set_blood_trail(ch, dir);
     }
 
@@ -873,7 +874,7 @@ ACMD(do_move)
                 }
             }
 
-            if (utils::is_affected_by_spell(*ch, SKILL_MARK)) {
+            if (ch->affected.contains(SKILL_MARK)) {
                 set_blood_trail(ch, cmd);
             }
 
@@ -899,14 +900,27 @@ ACMD(do_move)
             } else if (IS_AFFECTED(ch, AFF_SNEAK))
                 snuck_in(ch);
 
+            // An entry special, an ON_ENTER script or the death room can kill the mover; after
+            // each, the move goes on only while this resolves.
+            const character_identity mover = character_identity::capture(*ch);
             if (!ch->spec_busy) {
                 special(ch, rev_dir[cmd] + 1, "", SPECIAL_ENTER, 0);
             }
+            if (mover.resolve() == nullptr) {
+                return;
+            }
 
             call_trigger(ON_ENTER, (void*)&world[ch->in_room], (void*)ch, 0);
+            if (mover.resolve() == nullptr) {
+                return;
+            }
 
-            if (is_death)
+            if (is_death) {
                 raw_kill(ch, NULL, 0);
+                if (mover.resolve() == nullptr) {
+                    return;
+                }
+            }
         } else { // riding...
             if ((ch->mount_data.mount)->mount_data.rider != ch) {
                 send_to_char("You do not control your mount.\n\r", ch);
@@ -1894,7 +1908,7 @@ ACMD(do_lead)
         return;
     }
 
-    if (affected_by_spell(mount, SKILL_CALM)) {
+    if (mount->affected.contains(SKILL_CALM)) {
         if (!is_strong_enough_to_tame(ch, mount, false)) {
             send_to_char("Your skill with animals is insufficient to lead that beast.\r\n", ch);
             return;

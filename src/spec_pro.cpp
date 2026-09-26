@@ -22,6 +22,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "poison.h"
 #include "profs.h"
 #include "spells.h"
 #include "structs.h"
@@ -293,14 +294,15 @@ SPECIAL(guild) {
 
         auto tokens = split(input_str, regex_str);
         for (auto& item: tokens) {
-            memcpy(str2, item.c_str(), 255);
+            // Copy only the word itself, and keep every copy inside str2, str and arg2.
+            snprintf(str2, sizeof(str2), "%s", item.c_str());
             if(is_number(str2)) {
                 times = atoi(str2);
             } else if(!strncmp(str2, "all",  strlen(str2)) ) {
                 times = 200;
             } else {
-                sprintf(str, " %s", str2);
-                strcat(arg2, str);
+                snprintf(str, sizeof(str), " %s", str2);
+                strncat(arg2, str, sizeof(arg2) - strlen(arg2) - 1);
             }
         }
         memmove(arg2, arg2 + 1, strlen(arg2)); // remove leading space
@@ -726,7 +728,7 @@ SPECIAL(snake)
     if (host->specials.fighting && (host->specials.fighting->in_room == host->in_room) && (number(0, 42 - GET_LEVEL(host)) < std::min(1 + GET_LEVEL(host) / 4, 4))) {
         act("$n bites $N!", 1, host, 0, host->specials.fighting, TO_NOTVICT);
         act("$n bites you!", 1, host, 0, host->specials.fighting, TO_VICT);
-        spell_poison(host, "", SPELL_TYPE_SPELL, host->specials.fighting, 0, 0, 0);
+        run_spell(SPELL_POISON, host, "", SPELL_TYPE_SPELL, host->specials.fighting, 0, 0, 0);
         return TRUE;
     }
     return FALSE;
@@ -1420,12 +1422,12 @@ int choose_mystic_spell(char_data* caster, char_data* target)
          * and when below 1/3 of its hit points will start
          * casting regeneration spells.
          */
-        if (affected_by_spell(caster, SPELL_POISON)) {
+        if (caster->affected.contains(SPELL_POISON)) {
             return SPELL_REMOVE_POISON;
         } else if (caster->tmpabilities.hit < caster->abilities.hit / 3) {
-            if (!affected_by_spell(caster, SPELL_REGENERATION)) {
+            if (!caster->affected.contains(SPELL_REGENERATION)) {
                 return SPELL_REGENERATION;
-            } else if (!affected_by_spell(caster, SPELL_CURING)) {
+            } else if (!caster->affected.contains(SPELL_CURING)) {
                 return SPELL_CURING;
             }
         }
@@ -1806,7 +1808,7 @@ SPECIAL(mob_magic_user_spec)
     // conj: prioritize heal powers in non-combat
     if (!host->specials.fighting && has_alias(host, "conj")) {
         // handle regen
-        if (!utils::is_affected_by_spell(*host, SPELL_REGENERATION)) {
+        if (!host->affected.contains(SPELL_REGENERATION)) {
             target = host;
             tgt = TARGET_CHAR;
             spell_number = SPELL_REGENERATION;
@@ -1814,7 +1816,7 @@ SPECIAL(mob_magic_user_spec)
         }
 
         // handle curing sat
-        if (!utils::is_affected_by_spell(*host, SPELL_CURING) && spell_number == 0) {
+        if (!host->affected.contains(SPELL_CURING) && spell_number == 0) {
             target = host;
             tgt = TARGET_CHAR;
             spell_number = SPELL_CURING;
@@ -1825,7 +1827,7 @@ SPECIAL(mob_magic_user_spec)
     // handle other non-combat
     if (!host->specials.fighting && spell_number == 0) {
         // handle cure self
-        if ((current_health_pct <= .9 && !utils::is_affected_by_spell(*host, SPELL_SHIELD)) || (current_health_pct <= .9 && utils::is_affected_by_spell(*host, SPELL_SHIELD) && current_mana_pct >= .5)) {
+        if ((current_health_pct <= .9 && !host->affected.contains(SPELL_SHIELD)) || (current_health_pct <= .9 && host->affected.contains(SPELL_SHIELD) && current_mana_pct >= .5)) {
             target = host;
             tgt = TARGET_CHAR;
             spell_number = SPELL_CURE_SELF;
@@ -1836,7 +1838,7 @@ SPECIAL(mob_magic_user_spec)
     if (host->specials.fighting && host->interrupt_count == 3 && spell_number == 0) {
         // shield tact: we use a "super flash" to have an attempt to cast shield
         if (has_alias(host, "shield")) {
-            if (!utils::is_affected_by_spell(*host, SPELL_SHIELD) && GET_MANA(host) > 12) {
+            if (!host->affected.contains(SPELL_SHIELD) && GET_MANA(host) > 12) {
                 if (number(1, 100) > 50) {
                     for (tmpch = world[host->in_room].people; tmpch; tmpch = tmpch->next_in_room) {
                         if (tmpch->specials.fighting == host) {
@@ -1876,10 +1878,10 @@ SPECIAL(mob_magic_user_spec)
             if (has_alias(host, "conj")) {
                 if (number(1, 100) > 75) {
                     host->points.spirit = 100;
-                    if (!utils::is_affected_by_spell(*target, SPELL_CONFUSE)) {
+                    if (!target->affected.contains(SPELL_CONFUSE)) {
                         spell_number = SPELL_CONFUSE;
                     }
-                    if (!has_alias(host, "lumage") && !utils::is_affected_by_spell(*target, SPELL_POISON) && spell_number == 0) {
+                    if (!has_alias(host, "lumage") && !target->affected.contains(SPELL_POISON) && spell_number == 0) {
                         spell_number = SPELL_POISON;
                     }
                 }
@@ -2992,7 +2994,6 @@ SPECIAL(vampire_huntress)
     struct char_data *victim, *mob; // quite quickly.  If she comes across a PC she will either
     waiting_type tmpwtl; // continue on her way, attack, or abduct the victim taking
     int to_room, tmpno; // them back to the dungeons of her tower.
-    struct affected_type af;
     obj_data* obj;
     room_data* room;
     // If she is too badly hurt in a fight, she will flee back to
@@ -3133,13 +3134,12 @@ SPECIAL(vampire_huntress)
                                  "prevent it.\n\r\n",
                         victim);
                     act("$n bites you!", FALSE, host, 0, victim, TO_VICT);
-                    af.type = SPELL_POISON; // replace with more powerful poison when coded
-                    af.duration = 24;
-                    af.modifier = -4;
-                    af.location = APPLY_STR;
-                    af.bitvector = AFF_POISON;
-                    affect_join(victim, &af, FALSE, FALSE);
-                    send_to_char("You feel extremely sick.\n\r", victim);
+                    // The bite is the strongest poison. It merges under the poison rules, which
+                    // decide whether the huntress is recorded as the poisoner; the swoon and
+                    // hit-point loss follow however it merged.
+                    send_poison_outcome_messages(
+                        apply_poison(victim, pale_lady_poison_affect(), host), victim, nullptr,
+                        "You feel extremely sick.\n\r");
                     send_to_char(
                         "For a moment the pain is too great and you lose consciousness...\n\r\n\n",
                         victim);
@@ -3238,9 +3238,9 @@ SPECIAL(thuringwethil)
 
     GET_HIT(host) += 10;
     GET_HIT(host) = MIN(GET_HIT(host), GET_MAX_HIT(host));
-    if (affected_by_spell(host, SPELL_POISON))
+    if (host->affected.contains(SPELL_POISON))
         affect_from_char(host, SPELL_POISON);
-    if (affected_by_spell(host, SPELL_CONFUSE))
+    if (host->affected.contains(SPELL_CONFUSE))
         affect_from_char(host, SPELL_CONFUSE);
     if (GET_POS(host) != POSITION_FIGHTING && GET_POS(host) != POSITION_RESTING && GET_HIT(host) == GET_MAX_HIT(host)) {
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);

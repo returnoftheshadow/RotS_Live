@@ -82,7 +82,7 @@ ACMD(do_quit)
         return;
     }
 
-    if (affected_by_spell(ch, SPELL_ANGER) && GET_LEVEL(ch) < LEVEL_IMMORT) {
+    if (ch->affected.contains(SPELL_ANGER) && GET_LEVEL(ch) < LEVEL_IMMORT) {
         send_to_char("You may not quit yet.\n\r", ch);
         return;
     }
@@ -794,9 +794,7 @@ ACMD(do_use)
 
         if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
             stick->obj_flags.value[2]--;
-            if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                ((*skills[stick->obj_flags.value[3]].spell_pointer)(ch, "", SPELL_TYPE_STAFF, 0, 0,
-                    0, 0));
+            run_spell(stick->obj_flags.value[3], ch, "", SPELL_TYPE_STAFF, 0, 0, 0, 0);
 
         } else
             send_to_char("The staff seems powerless.\n\r", ch);
@@ -814,9 +812,7 @@ ACMD(do_use)
 
             if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
                 stick->obj_flags.value[2]--;
-                if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                    ((*skills[stick->obj_flags.value[3]].spell_pointer)(
-                        ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0));
+                run_spell(stick->obj_flags.value[3], ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0);
             } else
                 send_to_char("The wand seems powerless.\n\r", ch);
         } else
@@ -1392,7 +1388,7 @@ ACMD(do_tactics)
     char* s;
     int tmp, len;
 
-    if (utils::is_affected_by_spell(*ch, SKILL_FRENZY) && utils::get_race(*ch) == RACE_OLOGHAI) {
+    if (ch->affected.contains(SKILL_FRENZY) && utils::get_race(*ch) == RACE_OLOGHAI) {
         send_to_char("The rage inside you won't let you cool down!\r\n", ch);
         return;
     }

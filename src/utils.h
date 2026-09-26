@@ -318,8 +318,7 @@ int has_program(char_data* host, int num);
 
 #define GET_PROF_LEVEL(prof, ch) (((prof == PROF_GENERAL) || IS_NPC(ch)) ? GET_LEVEL(ch) : (ch)->profs->prof_level[prof])
 
-#define GET_MAX_RACE_PROF_LEVEL(prof, ch) ((GET_RACE(ch) == RACE_ORC) ? 20 : (GET_RACE(ch) == RACE_URUK) ? (prof == PROF_MAGE) ? 27 : 30 \
-                                                                                                         : 30)
+#define GET_MAX_RACE_PROF_LEVEL(prof, ch) (max_race_prof_level((prof), GET_RACE(ch)))
 
 #define SET_PROF_LEVEL(prof, ch, val)            \
     do {                                         \
@@ -631,10 +630,18 @@ int CAN_SEE_OBJ(char_data* sub, obj_data* obj);
 
 #define IS_OBJ_STAT(obj, stat) (IS_SET((obj)->obj_flags.extra_flags, stat))
 
-#define RACE_GOOD(ch) ((GET_RACE(ch) > 0) ? (GET_RACE(ch) < 10) ? 1 : 0 : 0)
-#define RACE_EVIL(ch) ((GET_RACE(ch) > 10) ? 1 : 0)
-#define RACE_EAST(ch) ((GET_RACE(ch) == 14) ? 1 : 0)
-#define RACE_MAGI(ch) ((GET_RACE(ch) == 15) || (GET_RACE(ch) == 18) ? 1 : 0)
+// Race-war side tests over a bare race number, so a caster's cast-time
+// snapshot (which carries a race but no character) can use them too. Each
+// returns 1 or 0; the RACE_* macros below are the char_data-shaped forms.
+inline int race_is_good(int race) { return race > 0 && race < 10; }
+inline int race_is_evil(int race) { return race > 10; }
+inline int race_is_east(int race) { return race == 14; }
+inline int race_is_magi(int race) { return race == 15 || race == 18; }
+
+#define RACE_GOOD(ch) race_is_good(GET_RACE(ch))
+#define RACE_EVIL(ch) race_is_evil(GET_RACE(ch))
+#define RACE_EAST(ch) race_is_east(GET_RACE(ch))
+#define RACE_MAGI(ch) race_is_magi(GET_RACE(ch))
 
 #define GET_REROLLS(ch) ((ch)->specials2.rerolls)
 

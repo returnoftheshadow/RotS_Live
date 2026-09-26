@@ -39,7 +39,7 @@ int check_hallucinate(struct char_data*, struct char_data*);
 void report_wrong_target(struct char_data*, int, char);
 void affect_update_person(struct char_data*, int);
 char saves_spell(struct char_data*, sh_int, int);
-bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
+// new_saves_spell()'s two forms are declared by spells.h, included above.
 void one_mobile_activity(struct char_data*);
 void do_sense_magic(struct char_data*, int);
 char saves_mystic(struct char_data*);
@@ -50,19 +50,31 @@ void check_break_prep(struct char_data* ch);
 
 ACMD(do_flee);
 
+// Sends the act() template `message`, wrapped in each receiver's magic colour, to everyone awake
+// in the caster's room except the caster. `message` may point into the global `buf`. A null
+// `caster` or `message` is logged and nothing is sent; a caster in no room sends nothing.
 void send_magic_room_message(char_data* caster, const char* message)
 {
-    if (caster == nullptr || message == nullptr || caster->in_room < 0)
+    if (caster == nullptr || message == nullptr) {
+        log("SYSERR: send_magic_room_message called with a null caster or message.");
         return;
+    }
 
+    if (caster->in_room < 0) {
+        return;
+    }
+
+    // Formatting into `buf` would overlap `message` when say_spell() passes `buf`, which is
+    // undefined behaviour; a local buffer of the same size keeps the output and truncation.
+    char colored_message[sizeof(buf)];
     const room_data& room = world[caster->in_room];
     for (char_data* receiver = room.people; receiver; receiver = receiver->next_in_room) {
         if (receiver == caster || GET_POS(receiver) <= POSITION_SLEEPING)
             continue;
 
-        std::snprintf(buf, sizeof(buf), "%s%s%s",
+        std::snprintf(colored_message, sizeof(colored_message), "%s%s%s",
             CC_USE(receiver, COLOR_MAGIC), message, CC_NORM(receiver));
-        act(buf, FALSE, caster, 0, receiver, TO_VICT);
+        act(colored_message, FALSE, caster, 0, receiver, TO_VICT);
     }
 }
 
@@ -224,20 +236,20 @@ int get_character_saving_throw(const char_data* victim)
 //   Spell_id is not currently used, but may be used in the future to make
 //   it harder to save against spells from specialized mages.
 //============================================================================
-int get_saving_throw_dc(const char_data* caster)
+int get_saving_throw_dc(const caster_snapshot& caster)
 {
-    player_spec::battle_mage_handler battle_mage_handler(caster);
     int caster_dc = 10;
-    caster_dc += utils::get_prof_level(PROF_MAGE, *caster) / 3;
-    caster_dc += (caster->tmpabilities.intel - 8) / 4;
-    return caster_dc + battle_mage_handler.get_bonus_spell_pen(caster->points.spell_pen);
+    caster_dc += caster.mage_prof_level / 3;
+    caster_dc += (caster.intel - 8) / 4;
+    return caster_dc + player_spec::battle_mage_handler::get_bonus_spell_pen(
+               caster.specialization, caster.tactics, caster.mage_prof_level, caster.spell_pen);
 }
 
 //============================================================================
 // Returns true if the victim saves against the spell, false otherwise.
 //   Save bonus is added to the victim's base save value.
 //============================================================================
-bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus)
+bool new_saves_spell(const caster_snapshot& caster, const char_data* victim, int save_bonus)
 {
     int save_value = get_character_saving_throw(victim) + save_bonus;
     int casting_dc = get_saving_throw_dc(caster);
@@ -258,6 +270,17 @@ bool new_saves_spell(const char_data* caster, const char_data* victim, int save_
         return true;
 
     return saved;
+}
+
+void run_spell(int spell_index, char_data* caster, char* arg, int type,
+    char_data* victim, obj_data* obj, int digit, int is_object)
+{
+    if (!skills[spell_index].spell_pointer) {
+        return;
+    }
+
+    const caster_snapshot caster_at_cast = caster_snapshot::capture(*caster);
+    skills[spell_index].spell_pointer(caster, arg, type, victim, obj, digit, is_object, caster_at_cast);
 }
 
 void record_spell_damage(struct char_data* caster, struct char_data* victim, int at, int dam)
@@ -307,24 +330,6 @@ char saves_mystic(struct char_data* ch)
     defense = GET_PERCEPTION(ch) * 9 / 10;
 
     return offense <= defense;
-}
-
-/*
- * Saving poison depends on the caster's willpower and perception
- * and the victim's constitution, willpower and race.  As far as
- * race goes, wood elves simply get a bonus (a rather large one),
- * since they were very resilient to disease, but are represented
- * in rots by such low constitution.
- */
-char saves_poison(struct char_data* victim, struct char_data* caster)
-{
-    int offence, defense;
-    int perception = GET_PERCEPTION(caster);
-    offence = ((GET_WILLPOWER(caster) * 8) * perception) / 100;
-    /* wood elves get a bonus against poison */
-    defense = (GET_CON(victim) * 5) + (GET_WILLPOWER(victim) * 3) + (GET_RACE(victim) == RACE_WOOD ? 30 : 0);
-
-    return (number(offence / 3, offence) < number(defense / 2, defense));
 }
 
 /*
@@ -507,7 +512,7 @@ bool can_cast_spell(char_data& character, int spell_index, const skill_data& spe
                 of it at the moment :) */
 
     // These checks spells seem like they are very particular.  Going into and out of shadow form?
-    if (spell.min_usesmana == 55 && affected_by_spell(&character, SPELL_ANGER)) {
+    if (spell.min_usesmana == 55 && character.affected.contains(SPELL_ANGER)) {
         send_to_char("You are too angry to cast this now.\n\r", &character);
         return false;
     }
@@ -974,8 +979,7 @@ ACMD(do_cast)
         }
 
         /* execute the spell */
-        ((*skills[spell_index].spell_pointer)(ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig,
-            0));
+        run_spell(spell_index, ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig, 0);
 
         /*
          * Casting a prepared spell now causes a short after-spell

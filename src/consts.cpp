@@ -469,7 +469,8 @@ struct skill_data skills[MAX_SKILLS] = {
 
     /* 61 */
     { "archery", PROF_RANGER, 1, NULL, POSITION_FIGHTING, 0, 0, 16, 24, 1, 0, PLRSPEC_NONE },
-    { "summon", PROF_MAGE, 17, spell_summon, POSITION_STANDING, 50, 36, 6, 10, 1, 0, PLRSPEC_NONE },
+    { "summon", PROF_MAGE, 17, spell_summon,
+        POSITION_STANDING, 50, 36, TAR_CHAR_ROOM | TAR_CHAR_WORLD | TAR_DARK_OK, 10, 1, 0, PLRSPEC_NONE },
     { "hallucinate", PROF_CLERIC, 3, spell_hallucinate, POSITION_STANDING, 2, 10, 18, 10, 1, 0,
         PLRSPEC_NONE },
     { "regeneration", PROF_CLERIC, 15, spell_regeneration, POSITION_STANDING, 5, 15, 10, 10, 1, 1,
@@ -514,7 +515,8 @@ struct skill_data skills[MAX_SKILLS] = {
         PLRSPEC_PROT },
     { "dark bolt", PROF_MAGE, 9, spell_dark_bolt, POSITION_FIGHTING, 10, 17, 18, 10, 1, 0,
         PLRSPEC_DARK },
-    { "mist of baazunga", PROF_MAGE, 27, spell_mist_of_baazunga, POSITION_STANDING, 50, 72, 36, 1, 1,
+    // Reintroduced; only darkness specialists may learn it.
+    { "mists of burzum", PROF_MAGE, 0, spell_mists_of_burzum, POSITION_STANDING, 50, 72, 36, 1, 65,
         0, PLRSPEC_DARK },
     { "mind block", PROF_CLERIC, 3, spell_mind_block, POSITION_STANDING, 5, 15, 40, 10, 1, 0,
         PLRSPEC_NONE },
@@ -738,7 +740,7 @@ struct skill_teach_data guildmasters[] = {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             /*51*/ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 100, 80, 100, 100, 0, 100, 100, 100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 100, 80, 100, 100, 0, 100, 100, 100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 100,
             100, 100, 100, 0, 0, 100, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 100, 100, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
     { // OUTPOST RANGER (8)
@@ -811,7 +813,7 @@ struct skill_teach_data guildmasters[] = {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             /*51*/ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0,
-            100, 0, 60, 100, 0, 60, 0, 0, 60, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0,
+            100, 0, 60, 100, 0, 60, 0, 0, 60, 0, 0, 0, 0, 100, 100, 0, 0, 0, 0, 100,
             0, 30, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
     { // LAKETOWN WARRIOR (13)
@@ -867,7 +869,7 @@ struct skill_teach_data guildmasters[] = {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             /*51*/ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0,
-            100, 100, 0, 60, 100, 60, 0, 85, 60, 80, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0,
+            100, 100, 0, 60, 100, 60, 0, 85, 60, 80, 0, 100, 0, 0, 0, 0, 0, 0, 0, 100,
             100, 25, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
     { // MAETHELBURG WARRIOR (17)
@@ -1061,7 +1063,7 @@ struct skill_teach_data guildmasters[] = {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 66, 0, 0, 0, 100, 0, 0,
             /*51*/ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0,
             0, 100, 0, 0, 0, 100, 100, 0, 100, 0, 0, 100, 0, 0, 0, 0, 100,
-            0, 100, 0, 0, 0, 0, 0, 100, 0, 100, 0, 0, 0, 0, 0, 100, 100,
+            100, 100, 0, 0, 0, 0, 0, 100, 0, 100, 0, 0, 0, 0, 0, 100, 100,
             100, 100, 100, 100, 100, 100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 100, 0, 0, 0, 0, 0 } },
     { // Elven Halls RANGER (31)
@@ -1540,7 +1542,7 @@ struct skill_teach_data guildmasters[] = {
             /*51*/ 100, 100, 100, 100, 0, 0, 100, 100, 0, 100,
             /*61*/ 100, 100, 100, 100, 100, 0, 100, 100, 100, 0,
             /*71*/ 100, 100, 100, 100, 100, 100, 0, 0, 100, 0,
-            /*81*/ 100, 0, 100, 100, 0, 100, 100, 100, 100, 100,
+            /*81*/ 100, 0, 100, 100, 100, 100, 100, 100, 100, 100,
             /*91*/ 0, 100, 100, 100, 0, 0, 0, 100, 0, 0,
             /*101*/ 0, 0, 0, 0, 0, 0, 0, 100, 0, 0,
             /*111*/ 100, 0, 0, 0, 0, 0, 0, 0, 0, 0,

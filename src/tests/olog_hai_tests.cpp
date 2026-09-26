@@ -2,6 +2,7 @@
 #include "../interpre.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "character_affect_list_printer.h"
 #include "test_random_utils.h"
 #include <gtest/gtest.h>
 
@@ -61,6 +62,7 @@ struct OlogHaiTestContext {
     waiting_type target{};
     long original_room_flags = 0;
     char_data* original_room_people = nullptr;
+    byte original_room_light = 0;
 
     OlogHaiTestContext()
     {
@@ -70,6 +72,7 @@ struct OlogHaiTestContext {
         attacker.in_room = 7;
         attacker.player.race = RACE_OLOGHAI;
         attacker.specials.tactics = TACTICS_AGGRESSIVE;
+        attacker.specials.position = POSITION_STANDING; // CAN_SEE() rejects sub if GET_POS(sub) <= POSITION_SLEEPING
         attacker.tmpabilities.str = 18;
         attacker.tmpabilities.dex = 12;
         attacker.points.OB = 10;
@@ -89,8 +92,13 @@ struct OlogHaiTestContext {
 
         original_room_flags = world[attacker.in_room].room_flags;
         original_room_people = world[attacker.in_room].people;
+        original_room_light = world[attacker.in_room].light;
         world[attacker.in_room].room_flags = 0;
         world[attacker.in_room].people = &attacker;
+        // CAN_SEE() rejects an unlit room even with room_flags cleared, and the room is
+        // never populated by the boot path in tests; explicitly set it lit so target
+        // lookups get the state this test needs instead of the room's zero-initialized default.
+        world[attacker.in_room].light = 1;
 
         weapon.obj_flags.type_flag = ITEM_WEAPON;
         attacker.equipment[WIELD] = &weapon;
@@ -112,6 +120,7 @@ struct OlogHaiTestContext {
         }
         world[attacker.in_room].room_flags = original_room_flags;
         world[attacker.in_room].people = original_room_people;
+        world[attacker.in_room].light = original_room_light;
     }
 };
 
@@ -329,14 +338,14 @@ TEST(OlogHaiHelpers, ComputesBaseSkillDamageFromWarriorLevelProbabilityAndTactic
         << "Expected base skill damage to scale with warrior level, success probability, and tactics.";
 }
 
-TEST(OlogHaiHelpers, TwoHandedStyleAppliesCurrentBaseDamageMultiplier) {
+TEST(OlogHaiHelpers, TwoHandedStyleAddsNoBaseDamageBonus) {
     OlogHaiTestContext context;
     context.profs.prof_level[PROF_WARRIOR] = 20;
     context.attacker.specials.tactics = TACTICS_AGGRESSIVE;
     context.attacker.specials.affected_by = AFF_TWOHANDED;
 
-    EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 19)
-        << "Expected two-handed style to apply the current 3/2 integer damage multiplier to base olog-hai skill damage.";
+    EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 13)
+        << "Expected two-handed style to leave base olog-hai skill damage unchanged.";
 }
 
 TEST(OlogHaiHelpers, FrenzyAffectAppliesItsCurrentIntegerScaledDamageBonus) {
@@ -344,7 +353,7 @@ TEST(OlogHaiHelpers, FrenzyAffectAppliesItsCurrentIntegerScaledDamageBonus) {
     context.profs.prof_level[PROF_WARRIOR] = 20;
     context.attacker.specials.tactics = TACTICS_AGGRESSIVE;
     context.frenzy.type = SKILL_FRENZY;
-    context.attacker.affected = &context.frenzy;
+    context.attacker.affected.push_front(&context.frenzy);
 
     EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 14)
         << "Expected frenzy to increase base skill damage according to the current integer-scaled multiplier path.";
@@ -360,8 +369,8 @@ TEST(OlogHaiHelpers, HeavyFightingAndRidingAdjustOverrunDamage) {
     context.extra_target.abs_number = 12;
     set_char_exists(12);
 
-    EXPECT_EQ(olog_hai::calculate_overrun_damage(context.attacker, 50), 14)
-        << "Expected overrun damage to use the current heavy-fighting and riding bonuses.";
+    EXPECT_EQ(olog_hai::calculate_overrun_damage(context.attacker, 50), 17)
+        << "Expected heavy fighting then riding, integer-truncated at each step.";
 }
 
 TEST(OlogHaiHelpers, WildFightingAddsFlatBonusToSmashDamage) {

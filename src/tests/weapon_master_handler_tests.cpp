@@ -4,6 +4,8 @@
 #include "test_random_utils.h"
 #include <gtest/gtest.h>
 
+extern struct room_data world;
+
 namespace {
 
 struct WeaponMasterTestContext {
@@ -19,6 +21,20 @@ struct WeaponMasterTestContext {
         weapon.obj_flags.type_flag = ITEM_WEAPON;
     }
 };
+
+// act(..., TO_ROOM) walks world[ch->in_room].people; this fixture creates
+// room 0, which is shared across this test binary's suites and is the one room
+// act() will walk in these tests (modeled on interpre_account_menu_tests.cpp's
+// ensure_test_world_room, minus the name/description strings this suite never reads).
+void ensure_test_world_room(int room_number)
+{
+    if (room_data::BASE_WORLD == nullptr)
+    {
+        world.create_bulk(1);
+    }
+
+    world[0].number = room_number;
+}
 
 } // namespace
 
@@ -308,12 +324,27 @@ TEST_F(WeaponMasterProcTest, SwordProcRegainsEnergyWhenSlashProcSucceeds) {
     context.character.specials.fighting = &victim;
     player_spec::weapon_master_handler handler(&context.character, &context.weapon);
 
+    // regain_energy() below sends the momentum message TO_ROOM, which walks
+    // world[0].people; give both participants a real room index and chain
+    // them in so that walk has defined memory to read.
+    ensure_test_world_room(3050);
+    // Build the occupant chain that act() will walk.
+    context.character.in_room = 0;
+    victim.in_room = 0;
+    world[0].people = &context.character;
+    context.character.next_in_room = &victim;
+
     push_test_random_value(0.0);
 
     handler.regain_energy(&victim);
 
     EXPECT_EQ(context.character.specials.ENERGY, 10 + ENE_TO_HIT / 2)
         << "Expected a successful sword proc to restore half an attack's worth of energy.";
+
+    // Room 0 is shared across this binary's suites; clear the chain this
+    // test planted so a later test does not walk into stack memory that is
+    // about to go out of scope.
+    world[0].people = nullptr;
 }
 
 TEST_F(WeaponMasterProcTest, BludgeoningProcRemovesVictimEnergyAndClampsAtZero) {
