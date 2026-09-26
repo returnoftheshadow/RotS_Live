@@ -294,14 +294,15 @@ SPECIAL(guild) {
 
         auto tokens = split(input_str, regex_str);
         for (auto& item: tokens) {
-            memcpy(str2, item.c_str(), 255);
+            // Copy only the word itself, and keep every copy inside str2, str and arg2.
+            snprintf(str2, sizeof(str2), "%s", item.c_str());
             if(is_number(str2)) {
                 times = atoi(str2);
             } else if(!strncmp(str2, "all",  strlen(str2)) ) {
                 times = 200;
             } else {
-                sprintf(str, " %s", str2);
-                strcat(arg2, str);
+                snprintf(str, sizeof(str), " %s", str2);
+                strncat(arg2, str, sizeof(arg2) - strlen(arg2) - 1);
             }
         }
         memmove(arg2, arg2 + 1, strlen(arg2)); // remove leading space
