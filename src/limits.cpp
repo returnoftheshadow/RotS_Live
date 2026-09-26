@@ -1263,7 +1263,7 @@ void do_fame_war_bonuses(struct char_data* ch)
         // affect_remove() frees pkaff's node (put_to_affected_type_pool(), handler.cpp).
         // Stop here, as the no-affect branch above does: falling through would re-create
         // the affect for the invalid rank (tier 0 when unranked, tier 4 for rank 11 and
-        // worse, since get_ranking_tier() caps at 4) and repeat that every hourly pass.
+        // worse, since get_ranking_tier() caps at 4) and repeat that on every fast_update() pass.
         ch->player.ranking = ranking;
         return;
     }

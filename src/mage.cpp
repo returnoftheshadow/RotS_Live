@@ -2375,7 +2375,6 @@ ASPELL(spell_blaze)
     int dam;
 
     int level = get_mage_caster_level(caster_at_cast);
-    bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
 
     if (!victim && !obj) { /* there was no target, hit the room */
         if (!caster)

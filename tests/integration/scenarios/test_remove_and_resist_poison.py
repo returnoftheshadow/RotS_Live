@@ -1,9 +1,9 @@
 """Remove poison ends a spell poison but not a worn item's poison, and resist poison matches a
 running spell poison and shortens it every tick; neither spell sees a worn item's poison.
 
-Mechanism, all in mystic.cpp. spell_remove_poison() removes every SPELL_POISON affect from a
-poisoned victim through affect_from_char(), then tells the victim and the room; with no poison
-affect it does nothing. affect_remove() (handler.cpp) re-applies worn items, so an item's
+Mechanism, in mystic.cpp and poison.cpp. spell_remove_poison() removes every SPELL_POISON affect
+from a poisoned victim through cure_poison() (poison.cpp, one affect_remove() per poison affect),
+then tells the victim and the room; with no poison affect it does nothing. affect_remove() (handler.cpp) re-applies worn items, so an item's
 AFF_POISON survives the cure. spell_resist_poison() adds a SPELL_RESIST_POISON affect with the
 poison's remaining duration and the caster's mystic level as modifier, refuses a second one, and
 answers "not poisoned" when there is no SPELL_POISON affect. affect_update_person() (limits.cpp)

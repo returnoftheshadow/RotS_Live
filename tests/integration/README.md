@@ -19,7 +19,7 @@ build/integration-venv/bin/pip install pytest
 ## Running
 
 ```sh
-make integration-unit PYTHON=build/integration-venv/bin/python   # no server, 76 tests
+make integration-unit PYTHON=build/integration-venv/bin/python   # no server: harness and tools/xp_research unit tests
 make integration      PYTHON=build/integration-venv/bin/python   # boots a server
 ```
 
@@ -47,9 +47,8 @@ The `integration-asan` job in `.github/workflows/ci.yml` is CI's memory-safety g
 builds the server under AddressSanitizer on native Linux and runs this suite against it, so
 a use-after-free fails the run. The i386 container has no sanitizer runtime. CI's
 `i386-plain` job builds the plain 32-bit server in that container and runs this suite against
-it through the Docker launcher, along with the 32-bit unit tests. It is the only CI run in
-which `test_linkless_death.py` is an ordinary test; under AddressSanitizer it is a strict
-expected failure. On a Mac, Docker runs are for development.
+it through the Docker launcher, along with the 32-bit unit tests, so the build that ships runs
+every scenario too. On a Mac, Docker runs are for development.
 
 To reproduce the CI build on Linux (the tree must be fresh; the configure rule only runs
 when `<BUILD_DIR>/CMakeCache.txt` is absent, so changing `SANITIZE` needs a new directory):
@@ -73,10 +72,11 @@ normally on SIGTERM (its handler saves and calls `exit(0)`), so LeakSanitizer wo
 the heap at every teardown; leaks are not what this suite is for. `handle_segv=2` keeps
 ASan's own SEGV report instead of the server's legacy backtrace handler.
 
-Two blind spots: a report raised inside the server's shutdown path (after the last crash
-check, during the SIGTERM save) is not observed, and the run directory is removed on
-success; and a report is only attributed to a test if it lands in `game.log` before that
-test's teardown check.
+A report raised inside the server's shutdown path (during the SIGTERM save) is read by the
+launcher's post-stop check (`CrashMonitor.check_after_stop`), which also requires a clean
+exit status 0; a report found there fails the session's teardown. One blind spot remains: a
+report is only attributed to a test if it lands in `game.log` before that test's teardown
+check, otherwise it surfaces at the next test's check or at the post-stop check.
 
 A report found during a test's teardown, or a server that dies before it listens, keeps
 its run directory. Both CI jobs set `ROTS_IT_KEEP=1` and upload every run directory:

@@ -532,8 +532,10 @@ room then bursts into a firestorm that keeps burning anyone who stays in it,
 friend or foe, for a time that grows with the caster's level.  Each burn is
 based on the caster's level when the blaze was lit, and a successful save
 halves it.  A stronger blaze cast on the same room renews the firestorm and
-takes it over; a weaker one changes nothing.  Kills by the firestorm are
-credited to the caster who lit it, even after that caster has left.
+takes it over; a weaker one still burns the room once and can lengthen the
+firestorm, but changes neither its strength nor its owner.  Kills by the
+firestorm are credited to the caster who lit it, from any room, for as long
+as that caster remains in the game.
 ---Casting "Blaze" on a <target> breathes fire on that one creature instead,
 without lighting the room.
   Only people specializing in Fire can learn it.

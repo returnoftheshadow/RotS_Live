@@ -5,7 +5,7 @@ While testing, keep a second terminal tailing the 4810 syslog/log dir — the au
 ## The scenarios, mapped to each fix
 
 **1. Room-affect tick after the caster is gone (the core UAF — blaze/mist/haze):**
-- Cast blaze (or mist/haze) in a room with a weak NPC, then have the caster **die** before the next tick (second character or a hostile mob does it). Pre-fix this was the crash/corruption path. Expected: the tick still fires, damage uses the caster's *cast-time* stats, and if it kills the NPC, the kill is recorded to the original caster — check `exploits` on the victim.
+- Cast blaze (or mist/haze) in a room with a weak NPC, then have the caster **die** before the next tick (second character or a hostile mob does it). Pre-fix the tick re-cast the spell with the occupant standing in as its own caster (the historic crash was in the affect-list walk when a tick killed the occupant, not in the caster's death). Expected: the tick still fires, damage uses the caster's *cast-time* stats, and if it kills the NPC, the kill is recorded to the original caster — check `exploits` on the victim.
 - Repeat with the caster **quitting/renting** instead of dying.
 - Repeat with the caster dying and a **different character logging in immediately** — the identity registry exists precisely so the tick can't attribute to whoever now occupies that memory. You can't force memory reuse deterministically, but any misattribution here is an instant fail.
 
@@ -21,7 +21,7 @@ While testing, keep a second terminal tailing the 4810 syslog/log dir — the au
 
 **4. Summon (two changes):**
 - In a **dark room**, `cast summon <name>` — targeting by name now works there (`TAR_DARK_OK`); pre-fix it couldn't find the target.
-- Test summon at increasing zone distances (same zone, adjacent, far). The distance penalty was accidentally XOR-ing the zone distance; it now squares it — so expect a *sensible monotonic falloff*. This is a genuine behavior change: success rates at distance will differ from old live, and players may notice.
+- Test summon at increasing zone distances (same zone, adjacent, far). The distance penalty was accidentally XOR-ing the zone distance; it now uses the straight-line distance between the two zones' map squares — so expect a *sensible monotonic falloff*. This is a genuine behavior change: success rates at distance will differ from old live, and players may notice.
 - Also try summoning a linkdead player — that path was pinned by tests and should behave, not crash.
 
 **5. Earthquake ordering:** cast quake in a crowded room where the caster also falls. Everyone else falls **before** the caster's own fall (watch the message order) — the caster's fall no longer interrupts processing the other occupants.
@@ -53,10 +53,11 @@ novice's blaze will find it weaker.
 **Corollary — frozen at cast time:** if the caster levels, re-specs, or changes gear while the
 affect burns, ticks keep using the cast-time values. Re-casting is the only way to refresh them.
 
-### 2. Lethal room-affect ticks now credit the caster (before: nobody)
+### 2. Lethal room-affect ticks now credit the caster (before: the victim itself)
 
-**Before:** a room-affect tick that killed someone credited *nobody at all* — no XP, no exploit
-attribution to the caster.
+**Before:** a room-affect tick that killed someone recorded the victim as its own killer, because
+the tick re-cast the spell with the occupant as the caster — no XP and no exploit attribution to
+the real caster.
 
 **After:** the recorded caster gets the kill credit; `exploits` on the victim names them. If the
 caster is gone (dead, quit, extracted), the kill safely credits nobody — never a wrong
@@ -100,9 +101,11 @@ in the victim's fight. If the poisoner has since logged off or died, the record 
 same room rule as blaze above: the remote poisoner gets the record but no XP, while anyone
 fighting the victim in the death room still splits the XP normally.
 
-**Punishment carveout (poison only):** how a poison death *punishes* is decided by engagement
-with a real mob (not a pet/orc-friend) at the instant of death, in either direction — you
-fighting it, or it fighting you:
+**Punishment carveout (poison ticks only):** how a death to the poison *tick* punishes is decided
+by engagement with a real mob (not a pet/orc-friend) at the instant of death, in either
+direction — you fighting it, or it fighting you. A direct poison hit that kills outright is
+punished by its source like any other hit: a player's poison spell is a player kill (gentle
+restore plus PK record), a mob's bite or spell a mob death.
 - Not engaged with any real mob → legacy treatment regardless of poison source: small XP loss,
   gentle penalty (revive at hp/4, no stat loss), `EXPLOIT_POISON` record, **no** mob-death
   record — even when a mob's poison did the killing.
@@ -146,13 +149,15 @@ summon more easily than intended. Long-range deltas produced
 arithmetically meaningless values: delta (3,4) gave `(3^2)+(4^2) = 1+6 = 7` where true squaring
 gives `9+16 = 25`.
 
-**After:** real squared Euclidean distance: `(dx*dx) + (dy*dy)`.
+**After:** the straight-line distance between the two zones' map squares, rounded down:
+`floor(sqrt(dx*dx + dy*dy))`. The same formula is used in both directions.
 
 **Example:** summoning a willing friend standing in the *same zone* now carries **no** distance
 save bonus (was +4) — same-zone summons land more reliably than on old live. Summoning across
-the map now gives the victim a genuinely large, proportionate save bonus (25 vs the old 7 in
-the delta-(3,4) example) — long-range summons of unwilling targets fail more often. Players
-will perceive summon as "better up close, worse cross-map."
+the map gives the victim a proportionate save bonus (5 vs the old 7 in the delta-(3,4)
+example; a bonus of 20 or more, twenty squares away, fails the save outright) — long-range
+summons of unwilling targets fail more often. Players will perceive summon as "better up
+close, worse cross-map."
 
 ### 8. Summon works in dark rooms (new capability)
 
@@ -165,10 +170,11 @@ targeting. Everything else about the spell's checks is unchanged.
 
 **Before:** the caster could fall into the crevice mid-loop; if that fall was lethal, the rest
 of the occupant loop ran against a freed caster (crash class). **After:** every other
-occupant's fall resolves first; the caster's own fall is the spell's final act. The landing
-saves are still rolled at the original points in the loop, so **RNG outcomes are identical** —
-only the order of the fall messages changes: testers will see the caster's fall reported last
-where it may previously have appeared mid-sequence.
+occupant's fall resolves first; the caster's own fall is the spell's final act. The caster's
+landing save is still rolled at its original point in the loop, but its damage rolls now come
+after the later occupants' saves, so **the same seed can give the occupants after the caster
+different results** — and the fall messages change order: testers will see the caster's fall
+reported last where it may previously have appeared mid-sequence.
 
 ### 10. Drifting mist no longer corrupts memory (latent pre-existing bug, fixed in passing)
 

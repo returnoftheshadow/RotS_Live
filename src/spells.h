@@ -497,9 +497,12 @@ ASPELL(spell_mass_insight);
 bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal, bool include_current_followers);
 
 // Mage/mystic formula inputs. They read the caster only through a
-// caster_snapshot, so a spell cannot re-read a caster mid-resolution. The
-// level and power helpers roll their rounding afresh on every call. The formula
-// helpers below them are pure.
+// caster_snapshot, so none of them can re-read a caster mid-resolution. Spell
+// bodies still read a few caster facts live (specialization checks in mage.cpp
+// and mystic.cpp, fireball's race check); those match the snapshot unless the
+// caster changes between the snapshot and the read. The level and power helpers
+// roll their rounding afresh on every call. The formula helpers below them are
+// pure.
 int get_mage_caster_level(const caster_snapshot& caster);
 int get_mystic_caster_level(const caster_snapshot& caster);
 int get_magic_power(const caster_snapshot& caster);

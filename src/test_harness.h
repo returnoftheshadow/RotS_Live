@@ -7,7 +7,7 @@
  * Off in every autorun deployment. Nothing refuses -t on a production port: a
  * live server started with it would stop regenerating, ticking weather and
  * idling players within a minute, which is the intended tell; scripts/deploy.py
- * never passes it. While on, ROTS_RANDOM_SEED seeds the generators and
+ * never passes it. While on, ROTS_RANDOM_SEED seeds std::rand() and
  * implementors may run `harness tick` to fire the game loop's hourly block on
  * demand, so an integration test never waits a real minute for a poison or
  * room-affect tick. In harness mode the game loop's own wall-clock hourly block

@@ -12,8 +12,9 @@
 //   - flee loss (`flee_loss`), inline inside do_flee() (src/act_offe.cpp:338-390).
 //   - death loss (`death_loss`), inline inside die() (src/fight.cpp:1010-1330), which calls
 //     raw_kill() and, for a real PC victim, save_char()/Crash_crashsave() -- real player-file
-//     writes this suite has no sandbox for (see fight_credit_tests.cpp's own file comment on the
-//     same "no extract_char seam for a PC" constraint).
+//     writes this suite does not sandbox. The integration suite pins it end to end instead:
+//     the poison punishment scenarios (tests/integration/scenarios/test_poison_punishment_*.py)
+//     read the victim's experience before and after a real death.
 //
 // Fixture note on the age formula (src/fight.cpp:1354-1360): MOB_AGE_TICKS(mob, time(0))
 // (src/utils.h:677) is the RAW mud-hour age; exp_with_modifiers()'s own local `age` is a second,

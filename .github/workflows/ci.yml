@@ -163,11 +163,10 @@ jobs:
   i386-plain:
     name: 32-bit Unit Tests and Scenarios on the Plain Server
     runs-on: ubuntu-24.04
-    # Not yet measured on a runner. Locally under QEMU on 2026-09-24: image 1.5 min, both
-    # targets 4 min, gtest 22 s, integration suite 16 min (105 tests, 29 scenarios); about
-    # 22 min in all. Native i386 should be faster. 60 is a generous first guess: cut it to fit
-    # after the first green run.
-    timeout-minutes: 60
+    # The first green run (36192884011, 2026-09-25) took 27.5 min on the runner: image, both
+    # targets, gtest and the integration suite through the Docker launcher. 45 leaves room for
+    # a slower runner and for the suite to grow.
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -210,7 +209,7 @@ jobs:
       - name: Run integration suite through the Docker launcher
         # choose_launcher() picks the local launcher on Linux. Forcing docker makes this job CI's
         # only run of DockerComposeLauncher, and its only run of the scenarios on an unsanitized
-        # server: the linkless-death scenario is a strict expected failure under AddressSanitizer.
+        # server, the build that ships.
         env:
           ROTS_IT_LAUNCHER: docker
           ROTS_IT_KEEP: "1"
