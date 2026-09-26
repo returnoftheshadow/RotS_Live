@@ -93,3 +93,165 @@ TEST(WriteMobOptions, WritesOnlyNonEmptyAndRoundTrips)
     EXPECT_EQ(value, "6-20");
     fclose(f);
 }
+
+namespace {
+
+vendor_lookups everything_exists()
+{
+    vendor_lookups l;
+    l.obj_exists = [](int v) { return v != 9999; };
+    l.room_exists = [](int v) { return v != 9998; };
+    return l;
+}
+
+std::vector<std::string> problem_texts(const std::vector<vendor_problem>& problems)
+{
+    std::vector<std::string> out;
+    for (const vendor_problem& p : problems)
+        out.push_back(std::to_string(p.line) + ": " + p.text);
+    return out;
+}
+
+} // namespace
+
+TEST(VendorParse, GoodConfig)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options(
+        "store=12345\n\rhours=6-12,14-20\n\rprice 5001 2222x1 3333x2 deduct\n\rprice 5002 3333x4\n\r",
+        everything_exists(), &problems);
+    EXPECT_TRUE(problems.empty()) << ::testing::PrintToString(problem_texts(problems));
+    EXPECT_TRUE(c.usable());
+    EXPECT_EQ(c.store_vnum, 12345);
+    ASSERT_EQ(c.prices.size(), 2u);
+    EXPECT_EQ(c.prices[0].item_vnum, 5001);
+    ASSERT_EQ(c.prices[0].costs.size(), 2u);
+    EXPECT_EQ(c.prices[0].costs[1].obj_vnum, 3333);
+    EXPECT_EQ(c.prices[0].costs[1].qty, 2);
+    EXPECT_TRUE(c.prices[0].deduct);
+    EXPECT_FALSE(c.prices[1].deduct);
+    EXPECT_EQ(c.prices[1].line, 4);
+}
+
+TEST(VendorParse, StoreMissingOrBadDisables)
+{
+    std::vector<vendor_problem> problems;
+    EXPECT_FALSE(parse_vendor_options("price 1 2x1", everything_exists(), &problems).usable());
+    EXPECT_EQ(problem_texts(problems).back(), "0: store missing - vendor disabled");
+
+    problems.clear();
+    EXPECT_FALSE(parse_vendor_options("store=9998", everything_exists(), &problems).usable());
+    EXPECT_EQ(problem_texts(problems)[0], "1: store room vnum 9998 not found - vendor disabled");
+
+    problems.clear();
+    EXPECT_FALSE(parse_vendor_options("store=abc", everything_exists(), &problems).usable());
+    EXPECT_EQ(problem_texts(problems)[0], "1: bad store - vendor disabled");
+}
+
+TEST(VendorParse, BadHoursDisablesStrictly)
+{
+    const char* bad[] = { "hours=6", "hours=24-2", "hours=5-5", "hours=a-b", "hours=6-20,", "hours=" };
+    for (const char* line : bad) {
+        std::vector<vendor_problem> problems;
+        std::string text = std::string("store=1\n\r") + line;
+        vendor_config c = parse_vendor_options(text.c_str(), everything_exists(), &problems);
+        EXPECT_FALSE(c.usable()) << line;
+        ASSERT_FALSE(problems.empty()) << line;
+        EXPECT_EQ(problems[0].text, "bad hours - vendor disabled") << line;
+    }
+}
+
+TEST(VendorParse, BadPriceLinesAreSkippedOthersKept)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options(
+        "store=1\n\r"
+        "price 10 20x1\n\r" // 2 ok
+        "price 11\n\r" // 3 no costs
+        "price 12 20x0\n\r" // 4 qty low
+        "price 13 20x101\n\r" // 5 qty high
+        "price 14 20x1 21x1 22x1 23x1 24x1\n\r" // 6 five currencies
+        "price 15 9999x1\n\r" // 7 unknown currency
+        "price 9999 20x1\n\r" // 8 unknown item
+        "price 10 20x2\n\r" // 9 duplicate item
+        "price 16 20x1 20x2\n\r" // 10 currency twice
+        "price 17 20X1\n\r" // 11 bad token
+        "price 18 deduct 20x1\n\r" // 12 deduct not last
+        "bogus=1\n\r", // 13 unknown
+        everything_exists(), &problems);
+    EXPECT_TRUE(c.usable());
+    ASSERT_EQ(c.prices.size(), 1u);
+    EXPECT_EQ(c.prices[0].item_vnum, 10);
+    std::vector<std::string> expected = {
+        "3: price: bad format - line skipped",
+        "4: price: quantity 0 out of range - line skipped",
+        "5: price: quantity 101 out of range - line skipped",
+        "6: price: more than 4 currencies - line skipped",
+        "7: price: object vnum 9999 not found - line skipped",
+        "8: price: object vnum 9999 not found - line skipped",
+        "9: price: duplicate item vnum 10 - line skipped",
+        "10: price: currency vnum 20 listed twice - line skipped",
+        "11: price: bad format - line skipped",
+        "12: price: bad format - line skipped",
+        "13: unknown setting - line ignored",
+    };
+    EXPECT_EQ(problem_texts(problems), expected);
+}
+
+TEST(VendorParse, ThirtyLineLimit)
+{
+    std::string text = "store=1\n\r";
+    for (int i = 0; i < 31; ++i)
+        text += "price " + std::to_string(100 + i) + " 20x1\n\r";
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options(text.c_str(), everything_exists(), &problems);
+    EXPECT_EQ(c.prices.size(), 30u);
+    ASSERT_EQ(problems.size(), 1u);
+    EXPECT_EQ(problem_texts(problems)[0], "32: price: more than 30 lines - line skipped");
+}
+
+TEST(VendorParse, CrLfAndBlankLinesAndDuplicateSettings)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options("\r\n  store = 7 \r\n\r\nstore=8\r\nprice 1 2x3 \r\n",
+        everything_exists(), &problems);
+    EXPECT_EQ(c.store_vnum, 7);
+    ASSERT_EQ(c.prices.size(), 1u);
+    EXPECT_EQ(c.prices[0].line, 5);
+    EXPECT_EQ(problem_texts(problems), std::vector<std::string> { "4: duplicate store - line ignored" });
+}
+
+TEST(VendorParse, CommentLinesAreSkippedAndNeverWarned)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options(
+        "// winter stock\n\rstore=1\n\r  // price 1 9999x1 (off for now)\n\rprice 2 3x1\n\r",
+        everything_exists(), &problems);
+    EXPECT_TRUE(problems.empty()) << ::testing::PrintToString(problem_texts(problems));
+    ASSERT_EQ(c.prices.size(), 1u);
+    EXPECT_EQ(c.prices[0].line, 4);
+}
+
+TEST(VendorHours, OpenWindows)
+{
+    vendor_config c;
+    ASSERT_TRUE(vendor_hours_parse("6-12,14-20", &c.hours));
+    EXPECT_FALSE(vendor_is_open(c, 5));
+    EXPECT_TRUE(vendor_is_open(c, 6));
+    EXPECT_TRUE(vendor_is_open(c, 11));
+    EXPECT_FALSE(vendor_is_open(c, 12));
+    EXPECT_FALSE(vendor_is_open(c, 13));
+    EXPECT_TRUE(vendor_is_open(c, 14));
+    EXPECT_FALSE(vendor_is_open(c, 20));
+
+    ASSERT_TRUE(vendor_hours_parse("20-4", &c.hours));
+    EXPECT_TRUE(vendor_is_open(c, 20));
+    EXPECT_TRUE(vendor_is_open(c, 23));
+    EXPECT_TRUE(vendor_is_open(c, 0));
+    EXPECT_TRUE(vendor_is_open(c, 3));
+    EXPECT_FALSE(vendor_is_open(c, 4));
+    EXPECT_FALSE(vendor_is_open(c, 12));
+
+    c.hours.clear();
+    EXPECT_TRUE(vendor_is_open(c, 12)); // no hours = always open
+}
