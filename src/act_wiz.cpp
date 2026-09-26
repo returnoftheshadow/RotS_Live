@@ -14,6 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "account_index.h"
+#include "account_errors.h"
+#include "account_management.h"
+#include "account_management_storage.h"
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
@@ -109,6 +113,8 @@ void show_room_affection(char* str, affected_type* aff, int mode);
 void print_exploits(char_data* sendto, char* name);
 
 ACMD(do_look);
+ACMD(do_account);
+ACMD(do_whoacct);
 int Check_zone_authority(int zonenum, char_data* ch);
 
 ACMD(do_emote)
@@ -179,7 +185,7 @@ ACMD(do_echo)
         sprintf(buf, "%s\n\r", argument + i);
         //      send_to_room_except(buf, ch->in_room, ch);
         for (tmpch = world[ch->in_room].people; tmpch;
-             tmpch = tmpch->next_in_room)
+            tmpch = tmpch->next_in_room)
             if (tmpch != ch)
                 send_to_char(buf, tmpch);
 
@@ -465,7 +471,7 @@ void do_stat_room(struct char_data* ch)
         sprintf(buf2, "%s %s(%s)", found++ ? "," : "", GET_NAME(k),
             (!IS_NPC(k) ? "PC" : (!IS_MOB(k) ? "NPC" : "MOB")));
         strcat(buf, buf2);
-        if(IS_NPC(k)) {
+        if (IS_NPC(k)) {
             sprintf(buf2, " [%d]", mob_index[k->nr].virt);
             strcat(buf, buf2);
         }
@@ -485,12 +491,12 @@ void do_stat_room(struct char_data* ch)
     if (rm->contents) {
         sprintf(buf, "Contents:%s", CC_USE(ch, COLOR_OBJ));
         for (found = 0, j = rm->contents; j; j = j->next_content) {
-            if ( !CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL )
+            if (!CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL)
                 continue;
             sprintf(buf2, "%s %s", found++ ? "," : "", j->short_description);
-            if(found > 0 && ch->player.level > 91)
+            if (found > 0 && ch->player.level > 91)
                 sprintf(buf1, " [%d]", obj_index[j->item_number].virt);
-                strcat(buf2, buf1);
+            strcat(buf2, buf1);
             strcat(buf, buf2);
             if (strlen(buf) >= 62) {
                 if (j->next_content)
@@ -2756,7 +2762,7 @@ ACMD(do_wizset)
     }
 
     for (l = 0; *(fields[l].cmd) != '\n'; l++)
-        if (!strncmp(field, fields[l].cmd, strlen(field)))
+        if (!strn_cmp(field, fields[l].cmd, strlen(field)))
             break;
 
     if ((GET_LEVEL(ch) < fields[l].level) && ((ch != vict) || fields[l].level > LEVEL_GRGOD)) {
@@ -3040,7 +3046,7 @@ ACMD(do_wizset)
     case 57:
         vict->player.height = value;
         break;
-    case 58:
+    case 58: {
         if (!*val_arg) {
             act("What new name would you like to give to $N?",
                 FALSE, ch, 0, vict, TO_CHAR);
@@ -3055,10 +3061,22 @@ ACMD(do_wizset)
             send_to_char("Invalid name, please try another.", ch);
             return;
         }
-        extern int rename_char(struct char_data*, char*);
-        rename_char(vict, val_arg);
-        send_to_char("You changed their name successfully.\n\r", ch);
+        // rename_char's answer is the only thing standing between an immortal and a silent failure:
+        // it refuses a name that is taken, one the account layer rejects, and one whose stored path
+        // would not fit the player index, changing nothing in every case.
+        std::string rename_error;
+        if (rename_char(vict, val_arg, &rename_error) < 0) {
+            snprintf(buf1, MAX_STRING_LENGTH, "That rename was refused -- nothing was changed: %s\n\r",
+                rename_error.c_str());
+            send_to_char(buf1, ch);
+            return;
+        }
+        // Into `buf` rather than straight to the character: rename_char writes `buf` throughout (it
+        // begins by filling it with Crash_get_filename), and the tail below sends `buf` after the
+        // switch -- so saying it here directly printed the success line plus a line of leftovers.
+        sprintf(buf, "You changed their name successfully.");
         break;
+    }
 
     case 59:
         if (!*val_arg) {
@@ -3146,11 +3164,466 @@ ACMD(do_delete)
         }
         extract_char(vict);
     }
+    if (!delete_player_character_by_index(char_index)) {
+        send_to_char("That character could not be deleted; check the log.\n\r", ch);
+        return;
+    }
+
     sprintf(buf, "(GC) %s has deleted %s.", GET_NAME(ch), arg);
     mudlog(buf, BRF, LEVEL_GOD, TRUE);
-    Crash_delete_file(player_table[char_index].name);
-    delete_exploits_file(player_table[char_index].name);
-    move_char_deleted(char_index);
+}
+
+ACMD(do_account)
+{
+    char subcommand[MAX_INPUT_LENGTH];
+    char account_identifier[MAX_INPUT_LENGTH];
+    char value[MAX_INPUT_LENGTH];
+
+    half_chop(argument, subcommand, buf);
+    half_chop(buf, account_identifier, value);
+
+    if (!*subcommand) {
+        send_to_char("Usage: account <show|verify|unverify|block|unblock|passwd|addchar|migratechar|unlockselect|index|errors> <email-or-account> [value]\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "errors")) {
+        char requested_rows[MAX_INPUT_LENGTH];
+        half_chop(buf, requested_rows, value);
+
+        // Twenty is what fits on a screen without paging; the cap is the ring itself, so asking for
+        // more than is held can never be a way to ask for more work than exists.
+        std::size_t rows = 20;
+        if (*requested_rows) {
+            const int asked = atoi(requested_rows);
+            if (asked <= 0) {
+                send_to_char("Usage: account errors [rows]\n\r", ch);
+                return;
+            }
+            rows = static_cast<std::size_t>(asked);
+        }
+        if (rows > account_errors::MAX_RECORDED_ERRORS)
+            rows = account_errors::MAX_RECORDED_ERRORS;
+
+        const std::size_t recorded = account_errors::size();
+        if (recorded == 0) {
+            // A quiet boot has to read as quiet: an empty report is indistinguishable from a
+            // command that did not work.
+            send_to_char("No account errors recorded since boot.\n\r", ch);
+            return;
+        }
+
+        const std::vector<account_errors::Entry> entries = account_errors::recent(rows);
+
+        char header[MAX_INPUT_LENGTH];
+        snprintf(header, sizeof(header), "Account errors since boot: %lu recorded, showing %lu (newest first).\n\r",
+            static_cast<unsigned long>(recorded), static_cast<unsigned long>(entries.size()));
+
+        // Built as a string and paged rather than sent in one go: buf is MAX_STRING_LENGTH and a
+        // full hundred rows is larger than that, and a bulk send past a few hundred lines fails
+        // silently. Each row is bounded so that show_string's 22-line page cannot overflow its own
+        // MAX_STRING_LENGTH buffer either.
+        std::string report = header;
+        for (const account_errors::Entry& entry : entries) {
+            char when[32];
+            struct tm broken_down_time { };
+            if (localtime_r(&entry.when, &broken_down_time) == nullptr
+                || strftime(when, sizeof(when), "%b %d %H:%M", &broken_down_time) == 0) {
+                snprintf(when, sizeof(when), "%s", "?");
+            }
+
+            // A recurring failure is stored once with a count; without showing it, a save that is
+            // still being refused every 30 seconds reads like a one-off from hours ago.
+            char recurrence[24];
+            if (entry.occurrences > 1)
+                snprintf(recurrence, sizeof(recurrence), " x%lu", static_cast<unsigned long>(entry.occurrences));
+            else
+                recurrence[0] = '\0';
+
+            char row[320];
+            snprintf(row, sizeof(row), "  [%s]%s %-9s acct=%s char=%s%s%s: %s\n\r", when, recurrence,
+                account_errors::source_name(entry.source),
+                entry.account.empty() ? "?" : entry.account.c_str(),
+                entry.character.empty() ? "?" : entry.character.c_str(),
+                entry.actor.empty() ? "" : " by=", entry.actor.c_str(),
+                entry.reason.c_str());
+            report += row;
+        }
+
+        page_string(ch->desc, const_cast<char*>(report.c_str()), 1);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "index")) {
+        char index_action[MAX_INPUT_LENGTH];
+        half_chop(buf, index_action, value);
+
+        // A diagnostic command's job is telling the truth about state -- silently treating an
+        // unrecognized word as the no-argument form would misreport a typo as "everything's fine".
+        if (*index_action) {
+            send_to_char("Usage: account index\n\r", ch);
+            return;
+        }
+
+        sprintf(buf1, "Account index: %lu record(s) indexed, %lu quarantined, %lu unreadable since boot.\n\r",
+            static_cast<unsigned long>(account_index::size()),
+            static_cast<unsigned long>(account_index::quarantined_count()),
+            static_cast<unsigned long>(account_index::unreadable_at_runtime_count()));
+        send_to_char(buf1, ch);
+
+        // Listed separately from quarantined records because they mean different things: a
+        // quarantined record was refused at boot and resolves for nobody, while one of these still
+        // resolves and still saves -- the server simply could not read its file at some point after
+        // boot. Without this listing that failure appears nowhere in the game at all.
+        for (const account_index::Entry& entry : account_index::unreadable_at_runtime_entries()) {
+            // Bounded for the same reason the CONTESTED line below is: the reason string is reader
+            // output of unbounded length and buf1 is a fixed MAX_STRING_LENGTH buffer.
+            snprintf(buf1, MAX_STRING_LENGTH, "  UNREADABLE SINCE BOOT %s (%s): %s\n\r", entry.normalized_email.c_str(),
+                entry.record_path.c_str(), entry.unreadable_at_runtime_reason.c_str());
+            send_to_char(buf1, ch);
+        }
+
+        for (const account_index::Entry& entry : account_index::quarantined_entries()) {
+            snprintf(buf1, MAX_STRING_LENGTH, "  QUARANTINED %s (%s): %s\n\r", entry.normalized_email.c_str(),
+                entry.record_path.c_str(), entry.quarantine_reason.c_str());
+            send_to_char(buf1, ch);
+        }
+
+        // Contested keys have to be listed here alongside the quarantined ones. A contested
+        // character key makes save_char write NOTHING for that character -- silently, to the log
+        // only -- and nothing else reports it, because the index and the disk agree perfectly about a
+        // genuine on-disk duplicate. Without this listing there is
+        // nowhere in the game that shows the state at all.
+        for (const account_index::ContestedKey& contested : account_index::contested_keys()) {
+            std::string claimants;
+            for (const std::string& claimant : contested.claimants) {
+                if (!claimants.empty())
+                    claimants += ", ";
+                claimants += claimant;
+            }
+            // snprintf, not sprintf: every field here is unbounded on principle -- the key is a
+            // character or account name off disk and the claimant list grows with the number of
+            // records disputing it -- and buf1 is a fixed MAX_STRING_LENGTH buffer. A contested key
+            // has two claimants in every case anyone has ever seen, so this truncates nothing in
+            // practice; it is here so the bound is real rather than asserted in a comment.
+            snprintf(buf1, MAX_STRING_LENGTH, "  CONTESTED %s '%s' claimed by: %s\n\r",
+                contested.kind.c_str(), contested.key.c_str(), claimants.c_str());
+            send_to_char(buf1, ch);
+        }
+
+        return;
+    }
+
+    if (!*account_identifier) {
+        send_to_char("You must specify an account email or internal account name.\n\r", ch);
+        return;
+    }
+
+    const std::string root_directory = ".";
+    std::string error_message;
+    account::AccountData account_data;
+
+    if (!str_cmp(subcommand, "show")) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        send_to_char(account::format_account_summary(account_data).c_str(), ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "block")) {
+        if (!*value) {
+            send_to_char("Usage: account block <email-or-account> <reason>\n\r", ch);
+            return;
+        }
+
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_block_account(root_directory, account_data.account_name, GET_NAME(ch), value, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s blocked account %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account blocked.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "verify")) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_verify_email(root_directory, account_data.account_name, GET_NAME(ch), time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s verified account email for %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account email verified.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "unverify")) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_unverify_email(root_directory, account_data.account_name, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s removed email verification for %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account email marked unverified.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "unblock")) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_unblock_account(root_directory, account_data.account_name, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s unblocked account %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account unblocked.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "passwd")) {
+        if (!*value) {
+            send_to_char("Usage: account passwd <email-or-account> <new-password>\n\r", ch);
+            return;
+        }
+
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_reset_password(root_directory, account_data.account_name, value, GET_NAME(ch), time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s reset account password for %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account password reset.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "addchar")) {
+        if (!*value) {
+            send_to_char("Usage: account addchar <email-or-account> <character>\n\r", ch);
+            return;
+        }
+
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_link_character(root_directory, account_data.account_name, value, time(0), &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s linked character %s to account %s", GET_NAME(ch), value, account_data.account_name.c_str());
+        send_to_char("Character linked to account.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "migratechar")) {
+        account::CharacterMigrationData migration;
+        if (!*value) {
+            send_to_char("Usage: account migratechar <email-or-account> <character>\n\r", ch);
+            return;
+        }
+
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!account::admin_link_and_migrate_character(root_directory, account_data.account_name, value, time(0), &account_data, &migration, &error_message)) {
+            // The success below has always been logged; the failure was seen only by whoever ran
+            // it. By the time a player asks why their character never appeared, the log is the
+            // only place the attempt could still be recorded -- and `account errors` is where it
+            // can be asked for once those lines have scrolled away.
+            account_errors::record(account_errors::Source::Migration, account_data.account_name,
+                value, error_message, GET_NAME(ch));
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s migrated character %s into account %s", GET_NAME(ch), value, account_data.account_name.c_str());
+        send_to_char("Character migrated into account storage.\n\r", ch);
+        return;
+    }
+
+    if (!str_cmp(subcommand, "unlockselect")) {
+        if (!account::read_account_file_by_identifier(root_directory, account_identifier, &account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        if (!grant_account_character_selection_unlock(account_data, &error_message)) {
+            send_to_char((error_message + "\n\r").c_str(), ch);
+            return;
+        }
+
+        vmudlog(BRF, "%s unlocked one linked-character selection for account %s", GET_NAME(ch), account_data.account_name.c_str());
+        send_to_char("Account linked-character selection unlocked once.\n\r", ch);
+        return;
+    }
+
+    send_to_char("Unknown account subcommand.\n\r", ch);
+}
+
+namespace {
+
+std::string sanitize_whoacct_field(const char* value)
+{
+    if (value == nullptr)
+        return "";
+
+    std::string sanitized;
+    sanitized.reserve(strlen(value));
+
+    for (const unsigned char* cursor = reinterpret_cast<const unsigned char*>(value); *cursor != '\0'; ++cursor) {
+        if (*cursor == '\r' || *cursor == '\n' || *cursor == '\t') {
+            sanitized += ' ';
+            continue;
+        }
+
+        if (isprint(*cursor))
+            sanitized += static_cast<char>(*cursor);
+        else
+            sanitized += '?';
+    }
+
+    return sanitized;
+}
+
+bool is_live_authenticated_account_session(const descriptor_data* descriptor)
+{
+    if (descriptor == nullptr || !*descriptor->account_name)
+        return false;
+
+    switch (descriptor->connected) {
+    case CON_PLYNG:
+    case CON_SLCT:
+    case CON_ACCTMENU:
+    case CON_ACCTSLCT:
+    case CON_ACCTLINKPWD:
+    case CON_ACCTLINKNAME:
+    case CON_ACCTRESETOLD:
+    case CON_ACCTRESETNEW:
+    case CON_ACCTRESETCNF:
+    case CON_ACCTLEGPWD:
+    case CON_ACCTDELCNF1:
+        return true;
+    default:
+        return false;
+    }
+}
+
+const char* whoacct_session_label(const descriptor_data* descriptor)
+{
+    if (descriptor == nullptr)
+        return "Unknown";
+
+    switch (descriptor->connected) {
+    case CON_PLYNG:
+        return nullptr;
+    case CON_SLCT:
+        return "Character Menu";
+    case CON_ACCTMENU:
+        return "Account Menu";
+    case CON_ACCTSLCT:
+        return "Character Select";
+    case CON_ACCTRESETOLD:
+    case CON_ACCTRESETNEW:
+    case CON_ACCTRESETCNF:
+        return "Password Reset";
+    case CON_ACCTLINKNAME:
+    case CON_ACCTLEGPWD:
+    case CON_ACCTLINKPWD:
+        return "Linking Character";
+    case CON_ACCTNEWCNF:
+    case CON_ACCTNEWPWD:
+    case CON_ACCTNEWPWDCNF:
+    case CON_ACCTNEWCHAR:
+        return "Creating Character";
+    case CON_ACCTDELCNF1:
+        return "Delete Confirm";
+    default:
+        return "Account Session";
+    }
+}
+
+} // namespace
+
+ACMD(do_whoacct)
+{
+    int displayed_sessions = 0;
+    char line[256];
+
+    strcpy(line, "Num   Account                    Character    State            Site\n\r");
+    strcat(line, "--- -------------------------- ------------ ---------------- ------------------------\n\r");
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        if (!is_live_authenticated_account_session(descriptor))
+            continue;
+
+        if (displayed_sessions == 0)
+            send_to_char(line, ch);
+
+        std::string account_identifier = sanitize_whoacct_field(
+            *descriptor->account_email ? descriptor->account_email : descriptor->account_name);
+        const char* session_label = whoacct_session_label(descriptor);
+        std::string character_display;
+        const char* state_display = "Playing";
+        if (descriptor->character != nullptr && GET_NAME(descriptor->character) != nullptr)
+            character_display = account::format_character_name_for_display(GET_NAME(descriptor->character));
+        else
+            character_display = "-";
+
+        if (session_label != nullptr)
+            state_display = session_label;
+
+        if (account_identifier.empty())
+            account_identifier = "invalid";
+
+        std::string host_display = sanitize_whoacct_field(*descriptor->host ? descriptor->host : "Hostname unknown");
+        if (host_display.empty())
+            host_display = "Hostname unknown";
+
+        snprintf(buf, sizeof(buf), "%3d %-26.26s %-12.12s %-16.16s %s\n\r", descriptor->desc_num,
+            account_identifier.c_str(), character_display.c_str(), state_display, host_display.c_str());
+        send_to_char(buf, ch);
+        ++displayed_sessions;
+    }
+
+    if (displayed_sessions == 0) {
+        send_to_char("No visible account sessions connected.\n\r", ch);
+        return;
+    }
+
+    snprintf(buf, sizeof(buf), "\n\r%d visible account session%s connected.\n\r",
+        displayed_sessions, displayed_sessions == 1 ? "" : "s");
+    send_to_char(buf, ch);
 }
 
 extern int top_of_world;

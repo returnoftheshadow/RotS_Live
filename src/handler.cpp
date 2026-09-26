@@ -73,6 +73,7 @@ void free_char(struct char_data*);
 void stop_fighting(struct char_data*);
 void remove_follower(struct char_data*);
 void clear_memory(struct char_data*);
+void show_character_menu(struct descriptor_data* d);
 
 ACMD(do_save);
 ACMD(do_return);
@@ -1229,6 +1230,7 @@ void obj_from_char(struct obj_data* object)
 {
     struct obj_data* tmp;
     int i;
+    bool in_inventory = true;
 
     if (object->carried_by->carrying == object) { /* head of list */
         object->carried_by->carrying = object->next_content;
@@ -1244,6 +1246,7 @@ void obj_from_char(struct obj_data* object)
             IS_CARRYING_N(object->carried_by)
             --;
         } else {
+            in_inventory = false;
             for (i = 0; i < MAX_WEAR; i++)
                 if (object->carried_by->equipment[i] == object)
                     break;
@@ -1256,10 +1259,16 @@ void obj_from_char(struct obj_data* object)
     if (!IS_NPC(object->carried_by))
         SET_BIT(PLR_FLAGS(object->carried_by), PLR_CRASH);
 
-    if (IS_RIDING(object->carried_by))
-        IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
+    /* Only obj_to_char adds weight, and only for the inventory list.  A worn
+     * object's weight is taken off by unequip_char, here or by the caller
+     * (extract_obj(unequip_char(...)) leaves carried_by set), and worn
+     * weight is never added to a mount. */
+    if (in_inventory) {
+        if (IS_RIDING(object->carried_by))
+            IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
 
-    IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+        IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+    }
     object->carried_by = 0;
     object->next_content = 0;
     object->in_room = NOWHERE;
@@ -1668,14 +1677,18 @@ void obj_to_room(struct obj_data* object, int room)
             world[room].light++;
         }
     }
-    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp < 1000);
+    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp <= 1000);
          tmpobj = tmpobj->next_content, tmp++)
         ;
-    if (tmp >= 1000) {
-        mudlog("obj_to_room: infinite loop in room contents.",
-            NRM, LEVEL_GOD, TRUE);
-        world[room].contents = object;
-        object->next_content = 0;
+    if (tmp == 1000) {
+        // Report once, as the floor reaches 1000 objects; a busier floor stays silent. A floor this
+        // large is legitimate -- a mass quit drops every quitter's gear in one room, much of it through
+        // here, so reporting every drop flooded the log and every online god. This used to "recover"
+        // by resetting the room's contents to this object, which left every other object claiming the
+        // room but off its list, and obj_from_room crashed when one decayed. A real cycle would already
+        // have hung the duplicate scan above.
+        sprintf(buf, "obj_to_room: the floor of room %d has reached 1000 objects.", world[room].number);
+        mudlog(buf, NRM, LEVEL_GOD, TRUE);
     }
     object->in_room = room;
     object->carried_by = 0;
@@ -2046,7 +2059,7 @@ void extract_char(struct char_data* ch, int new_room)
             do_look(ch, "", 0, 0, 0);
         } else {
             ch->desc->connected = CON_SLCT;
-            SEND_TO_Q(MENU, ch->desc);
+            show_character_menu(ch->desc);
         }
     } else {
         while (ch->affected)

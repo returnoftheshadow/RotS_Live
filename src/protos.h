@@ -156,6 +156,8 @@ struct shape_zone {
     char symbol;
     struct reset_com mask; /* for masked listing */
     int cur_room; /* for 'in this room only' mode */
+    int list_start; /* /52 list range, command numbers; 0 = all */
+    int list_end; /* 0 = to the end */
     sh_int position;
     sh_int permission;
     char* tmpstr;
@@ -203,6 +205,8 @@ struct shape_script {
     char f_old[80]; //  Old file
     sh_int flags;
     int cur_room; //  Current room (if set)
+    int list_start; //  /52 list range, command numbers; 0 = all
+    int list_end; //  0 = to the end
     char editflag; //  Current shaping (internal) command
     char* name; //  Name of script
     char* description; //  Long description
@@ -231,5 +235,14 @@ int get_permission(int zonnum, struct char_data* ch, int mode = 0);
 /* mode != 0 denies permission to "unlocked" zones */
 void clean_text(char*); /* removes ~ and # from the string */
 ACMD(do_shape);
+
+/* /52 list range, shared by the zone and script editors (shapemob.cpp). */
+void shape_range_prompt(struct char_data* ch, int start, int end);
+void shape_range_set(struct char_data* ch, const char* arg, int* start, int* end);
+bool shape_range_includes(int start, int end, int number);
+void shape_range_footer(int start, int end, char* out);
+int shape_list_begin(struct char_data* ch);
+bool shape_list_fits(struct char_data* ch, const char* line, const char* footer, int* wrapped);
+void shape_list_finish(struct char_data* ch, const char* footer, bool cut);
 
 #endif /* PROTOS_H */

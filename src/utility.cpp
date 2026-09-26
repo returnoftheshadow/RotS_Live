@@ -27,13 +27,13 @@
 #endif
 
 #include <assert.h>
+#include <cstring>
 #include <ctype.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <cstring>
 
 #include "color.h"
 #include "comm.h"
@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 
 extern struct time_data time_info;
 extern struct room_data world;
@@ -407,6 +408,24 @@ int string_to_new_value(char* arg, int* value)
         *value &= ~(1 << atoi(arg + 1));
 
     return *value;
+}
+
+/*
+ * For the few prompts where a negative number is a real value (alignment,
+ * saving throw, an exit's "no keyhole" key or "leads nowhere" room): a typed
+ * "-N" sets -N, where string_to_new_value would subtract N.  Returns 1 if it
+ * set the value, 0 if the input was anything else.
+ */
+int string_to_negative_value(char* arg, int* value)
+{
+    while (*arg && (*arg <= ' '))
+        arg++;
+
+    if (*arg == '-' && isdigit(arg[1])) {
+        *value = -atoi(arg + 1);
+        return 1;
+    }
+    return 0;
 }
 
 //============================================================================
@@ -1102,12 +1121,28 @@ void mudlog(char* str, char type, sh_int level, byte file)
     return;
 }
 
-void mudlog_debug_mob(char *buf, char_data *ch) {
+/* Whether mudlog(..., type, level, ...) would show a message to ch.  Mirrors
+ * mudlog's own test, so a caller that also tells a builder directly does not
+ * tell them the same thing twice. */
+bool mudlog_reaches(struct char_data* ch, int level, int type)
+{
+    if (!ch || !ch->desc || ch->desc->connected || PLR_FLAGGED(ch, PLR_WRITING))
+        return false;
+    if (level < LEVEL_AREAGOD)
+        level = LEVEL_AREAGOD;
+    int tp = (PRF_FLAGGED(ch, PRF_LOG1) ? 1 : 0) + (PRF_FLAGGED(ch, PRF_LOG2) ? 2 : 0)
+        + (PRF_FLAGGED(ch, PRF_LOG3) ? 4 : 0);
+    return GET_LEVEL(ch) >= level && tp >= type;
+}
+
+void mudlog_debug_mob(char* buf, char_data* ch)
+{
     mudlog_aliased_mob(buf, ch, "debug");
 }
 
-void mudlog_aliased_mob(char *buf, char_data *ch, char *mob_alias) {
-    if(strstr(ch->player.name, mob_alias)) {
+void mudlog_aliased_mob(char* buf, char_data* ch, char* mob_alias)
+{
+    if (strstr(ch->player.name, mob_alias)) {
         mudlog(buf, SPL, LEVEL_GOD, FALSE);
     }
 }
@@ -2202,8 +2237,18 @@ char* PERS(struct char_data* target, struct char_data* observer,
     return name;
 }
 
-int has_alias(char_data* host, char *keyword) {
-    if(strstr(host->player.name, keyword)) {
+int has_alias(char_data* host, char* keyword)
+{
+    if (strstr(host->player.name, keyword)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int has_program(char_data* host, int num)
+{
+    if ((int)host->specials.store_prog_number == num) {
         return 1;
     } else {
         return 0;

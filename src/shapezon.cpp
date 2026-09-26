@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <string>
+
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -17,6 +19,7 @@
 
 extern struct obj_data* obj_proto;
 extern struct room_data world;
+extern struct char_data* character_list;
 
 int shape_standup(struct char_data* ch, int pos);
 int convert_exit_flag(int tmp, int mode); /* in shaperom.cpp */
@@ -236,6 +239,10 @@ void show_command(char* str, struct zone_tree* zon)
 
         break;
 
+    case '*': /* disabled row or note, does nothing */
+        sprintf(str, "%3d *%s\n\r", zon->number, zon->comment);
+        break;
+
     case 'L': /* set last_mob or last_obj */
         sprintf(str, "%3d L:: Load_flg(%d) Mode:%d Room:%d Mob/Obj:%d Num:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
@@ -268,6 +275,11 @@ void write_command(FILE* f, struct zone_tree* zon)
     com = &(zon->comm);
 
     comm_char = com->command;
+    if (comm_char == '*') {
+        /* A disabled row or a note: its text goes back exactly as read. */
+        fprintf(f, "*%s\n", zon->comment ? zon->comment : "");
+        return;
+    }
     if (comm_char <= ' ')
         comm_char = '.';
     fprintf(f, "%c %d %d %d %d %d %d", comm_char,
@@ -278,6 +290,7 @@ void write_command(FILE* f, struct zone_tree* zon)
 
     case 'M':
     case 'N':
+    case 'X':
     case 'H':
     case 'E':
     case 'Q':
@@ -366,6 +379,46 @@ void write_zone(FILE* f, struct char_data* ch)
     CREATE(real->x, char, strlen(curr->x) + 1); \
     strcpy(real->x, curr->x);
 
+/*
+ * Implementing replaces the zone's command list, so every living mobile the
+ * zone loaded is counted again against the new list.  A mobile remembers
+ * which mobile it is and the room its 'M' command loaded it into, which
+ * still holds when the command moved, or was removed and has come back.
+ * Each goes to the first 'M' command loading that mobile into that room that
+ * is still under its max-per-line, else the first such command; with none
+ * it counts against no command until one returns.
+ */
+void reattach_loaded_mobs(int zone)
+{
+    int cmd_no, first;
+    struct char_data* i;
+    struct reset_com* com;
+
+    for (i = character_list; i; i = i->next) {
+        if (!IS_NPC(i) || GET_LOADZONE(i) != zone)
+            continue;
+        GET_LOADLINE(i) = 0; /* pointed into the old list, even for a tame */
+        if (!GET_MOB_LOADROOM(i))
+            continue;
+        first = -1;
+        for (cmd_no = 0; cmd_no < zone_table[zone].cmdno; cmd_no++) {
+            com = &zone_table[zone].cmd[cmd_no];
+            if (com->command != 'M' || com->arg1 != i->nr || com->arg2 != GET_MOB_LOADROOM(i) - 1)
+                continue;
+            if (first < 0)
+                first = cmd_no;
+            if (!com->arg6 || com->existing < com->arg6)
+                break;
+        }
+        if (cmd_no == zone_table[zone].cmdno)
+            cmd_no = first;
+        if (cmd_no < 0)
+            continue;
+        zone_table[zone].cmd[cmd_no].existing++;
+        GET_LOADLINE(i) = cmd_no + 1;
+    }
+}
+
 void implement_zone(struct char_data* ch)
 {
 
@@ -387,12 +440,12 @@ void implement_zone(struct char_data* ch)
 
     adr = 0;
 
-    while ((adr < MAX_ZONES) && (zone_table[adr].number != SHAPE_ZONE(ch)->zone_number)) {
+    while ((adr <= top_of_zone_table) && (zone_table[adr].number != SHAPE_ZONE(ch)->zone_number)) {
 
         adr++;
     }
 
-    if (adr == MAX_ZONES) {
+    if (adr > top_of_zone_table) {
 
         send_to_char("It seems there is no such zone in the world as you want to implement.\n\r", ch);
 
@@ -501,9 +554,18 @@ void implement_zone(struct char_data* ch)
     }
 
     zone_table[adr].cmd[count].command = 'S';
-    renum_zone_one(adr);
+    zone_table[adr].cmdno = count; /* renum and reset run this many commands */
+    renum_zone_one(adr, ch); /* report any bad vnums straight to the builder */
+    reattach_loaded_mobs(adr); /* their load lines pointed into the old list */
 
-    send_to_char("The zone was implemented.\n\r", ch);
+    if (zone_table[adr].cmds_disabled > 0) {
+        sprintf(buf, "The zone was implemented, but %d command(s) were DISABLED "
+                     "because of the error(s) above.  Fix the vnum(s) and implement again.\n\r",
+            zone_table[adr].cmds_disabled);
+        send_to_char(buf, ch);
+    } else {
+        send_to_char("The zone was implemented.\n\r", ch);
+    }
 }
 
 #undef SUBST
@@ -546,7 +608,8 @@ void implement_zone(struct char_data* ch)
 #define LINECHANGE(line, addr)                                                              \
     do {                                                                                    \
         if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {                           \
-            sprintf(tmpstr, "Enter line %s:\n\r[%s]\n\r", line, (addr) ? (char*)addr : ""); \
+            sprintf(tmpstr, "Enter line %s (blank = keep, %%q = empty):\n\r[%s]\n\r", line, \
+                (addr) ? (char*)addr : "");                                                 \
             send_to_char(tmpstr, ch);                                                       \
             SHAPE_ZONE(ch)                                                                  \
                 ->position                                                                  \
@@ -605,6 +668,8 @@ void implement_zone(struct char_data* ch)
         for (i = 0; i < num; i++) {                                        \
             while ((arg[tmp2] < '0') && (arg[tmp2] != '-') && (arg[tmp2])) \
                 tmp2++;                                                    \
+            if (!arg[tmp2])                                                \
+                break; /* not typed: keep the preset tmp[i] */             \
             tmp[i] = atoi(arg + tmp2);                                     \
             while ((arg[tmp2] > ' ') && (arg[tmp2]))                       \
                 tmp2++;                                                    \
@@ -653,6 +718,130 @@ void implement_zone(struct char_data* ch)
             = 0;                                                       \
     } while (0);
 
+/*
+ * Builds the /4 prompt for the current command letter: what the command
+ * does, the fields to type in order, and, unless the letter was just
+ * changed, the values the row holds now.
+ */
+static const char* zone_param_prompt(struct reset_com* c, int show_current)
+{
+    static char buf[2048];
+    const char* head;
+    const char* fields;
+    const char* notes = "";
+    int shown;
+    int v[8];
+
+    v[0] = c->if_flag;
+    v[1] = c->arg1;
+    v[2] = c->arg2;
+    v[3] = c->arg3;
+    v[4] = c->arg4;
+    v[5] = c->arg5;
+    v[6] = c->arg6;
+    v[7] = c->arg7;
+
+    switch (c->command) {
+    case 'M':
+        head = "M - load a mob into a room";
+        fields = "if_flag mob_vnum room_vnum max_world chance% xp% max_alive_line trophy";
+        notes = "  max_world, max_alive_line: 0 = no limit.  xp%: 100 = normal (0 also normal)\n\r";
+        shown = 8;
+        break;
+    case 'O':
+        head = "O - load an object into a room";
+        fields = "if_flag obj_vnum room_vnum max_world chance% max_in_room";
+        notes = "  max_world, max_in_room: 0 = no limit\n\r";
+        shown = 6;
+        break;
+    case 'G':
+        head = "G - give an object to the last mob";
+        fields = "if_flag obj_vnum unused max_world chance% unused";
+        notes = "  max_world: 0 = no limit\n\r";
+        shown = 6;
+        break;
+    case 'E':
+        head = "E - equip the last mob with an object";
+        fields = "if_flag obj_vnum wear_slot max_world chance%";
+        notes = "  max_world: 0 = no limit\n\r"
+                "  wear_slot: 0 light, 1 finger R, 2 finger L, 3 neck 1, 4 neck 2, 5 body,\n\r"
+                "    6 head, 7 legs, 8 feet, 9 hands, 10 arms, 11 shield, 12 about, 13 waist,\n\r"
+                "    14 wrist R, 15 wrist L, 16 wield, 17 hold, 18 back, 19-21 belt 1-3\n\r";
+        shown = 5;
+        break;
+    case 'P':
+        head = "P - put an object into a container";
+        fields = "if_flag room_vnum obj_vnum container_vnum max_world chance% max_in_container";
+        notes = "  room_vnum and container_vnum -1: use the last loaded object\n\r"
+                "  max_world, max_in_container: 0 = no limit\n\r";
+        shown = 7;
+        break;
+    case 'D':
+        head = "D - set a door open/closed/locked";
+        fields = "if_flag room_vnum dir state";
+        notes = "  dir: 0 north, 1 east, 2 south, 3 west, 4 up, 5 down\n\r"
+                "  state: 0 open, 1 closed, 2 closed and locked\n\r";
+        shown = 4;
+        break;
+    case 'L':
+        head = "L - select an existing mob or object";
+        fields = "if_flag mode room_vnum vnum nth";
+        notes = "  mode 0: mob vnum, nth in room_vnum\n\r"
+                "  mode 1: obj vnum, nth on the floor of room_vnum\n\r"
+                "  mode 2: obj vnum, nth inside the last object\n\r"
+                "  mode 3: obj vnum, nth in the last mob's inventory\n\r"
+                "  mode 4: obj vnum (-1 any), nth = wear slot on the last mob\n\r"
+                "  mode 5: mob vnum, nth in the world\n\r"
+                "  mode 6: mob vnum, nth in the zone of room_vnum\n\r"
+                "  nth starts at 1\n\r";
+        shown = 5;
+        break;
+    case 'K':
+        head = "K - kit the last mob with up to 7 objects";
+        fields = "if_flag obj1 obj2 obj3 obj4 obj5 obj6 obj7";
+        notes = "  unused slots: -1\n\r";
+        shown = 8;
+        break;
+    case 'A':
+        head = "A - adjust the last mob or object (if_flag is always 1)";
+        fields = "type value1 value2";
+        notes = "  type 1: value1 = gold\n\r"
+                "  type 2: value1 = xp%\n\r"
+                "  type 3: value1 = trophy\n\r"
+                "  type 4: follow the value1-th NPC in the room, value2 = mob vnum\n\r"
+                "  type 5: set last object's value[value1] (0-4) to value2\n\r"
+                "  type 6: value1 bits: 1 = mark previous as not run (without 1: as run),\n\r"
+                "    2 = forget last mob, 4 = forget last obj (rows needing them skip)\n\r"
+                "  type 7: value1 = special procedure number\n\r"
+                "  type 8: value1 1 set / 0 clear mob flag bit value2\n\r"
+                "  type 9: value1 = butcher item obj vnum\n\r"
+                "  type 10: value1 1 extract last mob, 2 extract last object\n\r"
+                "  type 11: value1 = race aggression bitmask\n\r"
+                "  type 12: value1 = script number\n\r";
+        v[0] = c->arg1;
+        v[1] = c->arg2;
+        v[2] = c->arg3;
+        shown = 3;
+        break;
+    default:
+        snprintf(buf, sizeof(buf),
+            "%c - this command does nothing at reset. Enter if_flag and 7 numbers:\n\r",
+            c->command);
+        return buf;
+    }
+
+    int len = snprintf(buf, sizeof(buf), "%s. Enter %d numbers:\n\r  %s\n\r%s", head, shown,
+        fields, notes);
+    if (show_current && len > 0 && len < (int)sizeof(buf)) {
+        len += snprintf(buf + len, sizeof(buf) - len, "Current:");
+        for (int i = 0; i < shown && len < (int)sizeof(buf); i++)
+            len += snprintf(buf + len, sizeof(buf) - len, " %d", v[i]);
+        if (len < (int)sizeof(buf))
+            snprintf(buf + len, sizeof(buf) - len, "\n\rBlank keeps the current values.\n\r");
+    }
+    return buf;
+}
+
 void extra_coms_zone(struct char_data* ch, char* argument);
 
 void shape_center_zone(struct char_data* ch, char* arg)
@@ -661,6 +850,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
     static char str[MAX_STRING_LENGTH * 2];
     char st1[50], st2[50], st3[50], st4[50], st5[50], st6[50], st7[50], st8[50], st9[50], tmpstr[255];
     int i, tmp1, tmp2, tmp[8], choice;
+    int letter_changed = 0;
     struct zone_tree* current;
     struct zone_tree* tmpzon;
     struct owner_list *tmpowner, *tmpowner2;
@@ -749,7 +939,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
         case 2: /*Set mask*/
 
             if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                sprintf(str, "ENTER MASK, use '*' to ignore parameter :\n\r");
+                sprintf(str, "Enter list mask: letter if_flag arg1 arg2 arg3 arg4 arg5 arg6 arg7\n\r  ('*' = any):\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 ch->specials.prompt_number = 2;
@@ -842,7 +1032,17 @@ void shape_center_zone(struct char_data* ch, char* arg)
         case 3: /*Set command*/
 
             if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                sprintf(str, "ENTER COMMAND TYPE <MOGEPDKAL>:\n\r");
+                sprintf(str, "Command types:\n\r"
+                             "  M  load a mob into a room\n\r"
+                             "  O  load an object into a room\n\r"
+                             "  G  give an object to the last mob\n\r"
+                             "  E  equip the last mob with an object\n\r"
+                             "  P  put an object into a container\n\r"
+                             "  D  set a door open/closed/locked\n\r"
+                             "  L  select an existing mob or object\n\r"
+                             "  K  kit the last mob with up to 7 objects\n\r"
+                             "  A  adjust the last mob or object\n\r"
+                             "Enter command type:\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 ch->specials.prompt_number = 2;
@@ -851,11 +1051,12 @@ void shape_center_zone(struct char_data* ch, char* arg)
                     = shape_standup(ch, POSITION_SHAPING);
                 return;
             } else {
-                sscanf(arg, "%s", st1);
+                tmp1 = sscanf(arg, "%49s", st1);
                 ch->specials.prompt_number = 7;
                 shape_standup(ch, SHAPE_ZONE(ch)->position);
-                if (tmp == 0) {
+                if (tmp1 != 1) {
                     send_to_char("Nothing entered. dropped.\n\r", ch);
+                    REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
                     SHAPE_ZONE(ch)
                         ->editflag
                         = 0;
@@ -886,6 +1087,16 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 case 'l':
                 case 'a':
                 case 'k':
+                    /* The old numbers mean other things under a new letter,
+                     * so the row starts from zeros. */
+                    if (SHAPE_ZONE(ch)->curr->comm.command != toupper(st1[0])) {
+                        letter_changed = 1;
+                        SHAPE_ZONE(ch)->curr->comm.if_flag = 0;
+                        SHAPE_ZONE(ch)->curr->comm.arg1 = SHAPE_ZONE(ch)->curr->comm.arg2 = 0;
+                        SHAPE_ZONE(ch)->curr->comm.arg3 = SHAPE_ZONE(ch)->curr->comm.arg4 = 0;
+                        SHAPE_ZONE(ch)->curr->comm.arg5 = SHAPE_ZONE(ch)->curr->comm.arg6 = 0;
+                        SHAPE_ZONE(ch)->curr->comm.arg7 = 0;
+                    }
                     SHAPE_ZONE(ch)
                         ->curr->comm.command
                         = toupper(st1[0]);
@@ -905,10 +1116,27 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
 
         case 4:
+            /* A blank answer keeps the row's values and goes on to the comment. */
+            if (IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                for (i = 0; arg && arg[i] && arg[i] <= ' '; i++)
+                    ;
+                if (!arg || !arg[i]) {
+                    shape_standup(ch, SHAPE_ZONE(ch)->position);
+                    ch->specials.prompt_number = 7;
+                    REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    if (SHAPE_ZONE(ch)->curr->comm.command == 'A')
+                        SHAPE_ZONE(ch)->curr->comm.if_flag = 1;
+                    send_to_char("Values kept.\n\r", ch);
+                    SHAPE_ZONE(ch)
+                        ->editflag
+                        = 5;
+                    break;
+                }
+            }
             tmp[0] = tmp[1] = tmp[2] = tmp[3] = tmp[4] = tmp[5] = tmp[6] = tmp[7] = 0;
             switch (SHAPE_ZONE(ch)->curr->comm.command) {
             case 'A':
-                DIGITCHANGE("Enter type and 2 parameters (no if_flag):\n\r", 3);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 3);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 5;
@@ -919,31 +1147,31 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 break;
             case 'O':
             case 'G':
-                DIGITCHANGE("Enter if_flag and 5 parameters:\n\r", 6);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 6);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 5;
                 break;
             case 'P':
-                DIGITCHANGE("Enter if_flag and 6 parameters:\n\r", 7);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 7);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 5;
                 break;
             case 'L':
-                DIGITCHANGE("Enter if_flag, mode  and 3 parameters:\n\r", 7);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 7);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 5;
                 break;
             case 'K':
-                DIGITCHANGE("Enter if_flag and up to 7 objects:\n\r", 8);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 8);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 5;
                 break;
             case 'D':
-                DIGITCHANGE("Enter <if_flag> <room> <dir> <state(0-2)>:\n\r", 4);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 4);
                 /*tmp[3]=convert_exit_flag(tmp[3],0);*/
                 if (tmp[3] > 2)
                     tmp[3] = 2;
@@ -960,7 +1188,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
             case 'H':
             case 'E':
             case 'Q':
-                DIGITCHANGE("Enter if_flag and 7 parameters:\n\r", 8);
+                DIGITCHANGE(zone_param_prompt(&SHAPE_ZONE(ch)->curr->comm, !letter_changed), 8);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 5;
@@ -1076,9 +1304,11 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 = 0;
             break;
         case 8:
-            REALDIGCHANGE("New command number:", tmp1);
+            /* choice, not tmp1: REALDIGCHANGE uses tmp1 as its scan index. */
+            choice = SHAPE_ZONE(ch)->curr ? SHAPE_ZONE(ch)->curr->number : 0;
+            REALDIGCHANGE("command number", choice);
             for (tmpzon = SHAPE_ZONE(ch)->root; tmpzon; tmpzon = tmpzon->next)
-                if (tmpzon->number == tmp1)
+                if (tmpzon->number == choice)
                     break;
             if (!tmpzon)
                 send_to_char("Wrong command number.\n\r", ch);
@@ -1201,7 +1431,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
 
         case 12:
-            REALDIGCHANGE("'CURRENT ROOM' number", SHAPE_ZONE(ch)->cur_room);
+            REALDIGCHANGE("current room vnum (0 = off)", SHAPE_ZONE(ch)->cur_room);
             if (IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_CURRFLAG)) {
                 REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_CURRFLAG);
                 send_to_char("The auto 'current room' mode removed.\n\r", ch);
@@ -1237,6 +1467,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                     ->curr
                     = tmpzon;
 
+                renum_rooms(SHAPE_ZONE(ch)->root);
                 send_to_char("Switched the current and the next commands,\n\rthe next command selected.\n\r", ch);
             }
             SHAPE_ZONE(ch)
@@ -1245,20 +1476,26 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 14: /* add owner */
             if (ch->player.level < LEVEL_AREAGOD) {
-                send_to_char("You are not godly anough for this.\n\r", ch);
+                send_to_char("You are not godly enough for this.\n\r", ch);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 0;
                 break;
             }
             if (!get_permission(SHAPE_ZONE(ch)->zone_number, ch, 1)) {
-                send_to_char("You may change owners of this zone.\n\r", ch);
+                send_to_char("You may not change owners of this zone.\n\r", ch);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 0;
                 break;
             }
-            DIGITCHANGE("Enter new zone owner:\n\r", 1);
+            tmp[0] = 0;
+            DIGITCHANGE("Enter owner idnum to add:\n\r", 1);
+            /* 0 ends the owner list, so it can't be an owner. */
+            if (tmp[0] == 0) {
+                send_to_char("Nothing entered. dropped.\n\r", ch);
+                break;
+            }
             //    tmpowner=(struct owner_list *)calloc(1,sizeof(struct owner_list));
             CREATE1(tmpowner, owner_list);
             tmpowner->next = SHAPE_ZONE(ch)->root_owner;
@@ -1269,14 +1506,14 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 15: /* remove owner */
             if (ch->player.level < LEVEL_AREAGOD) {
-                send_to_char("You are not godly anough for this.\n\r", ch);
+                send_to_char("You are not godly enough for this.\n\r", ch);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 0;
                 break;
             }
             if (!get_permission(SHAPE_ZONE(ch)->zone_number, ch, 1)) {
-                send_to_char("You may change owners of this zone.\n\r", ch);
+                send_to_char("You may not change owners of this zone.\n\r", ch);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 0;
@@ -1290,7 +1527,13 @@ void shape_center_zone(struct char_data* ch, char* arg)
 
                 break;
             }
-            DIGITCHANGE("Enter the zone owner to remove:\n\r", 1);
+            tmp[0] = 0;
+            DIGITCHANGE("Enter owner idnum to remove:\n\r", 1);
+            /* 0 would match the end of the owner list and remove it. */
+            if (tmp[0] == 0) {
+                send_to_char("Nothing entered. dropped.\n\r", ch);
+                break;
+            }
             tmpowner2 = tmpowner = SHAPE_ZONE(ch)->root_owner;
             printf("removing the owner %d.\n", tmp[0]);
             while ((tmpowner->owner != tmp[0]) && (tmpowner->owner != 0)) {
@@ -1318,13 +1561,16 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 16:
             if (ch->player.level < LEVEL_GRGOD) {
-                send_to_char("You are not godly anough for this.\n\r", ch);
+                send_to_char("You are not godly enough for this.\n\r", ch);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 0;
                 break;
             }
-            DIGITCHANGE("Enter new zone coordinates, x y :\n\r", 2);
+            tmp[0] = SHAPE_ZONE(ch)->x;
+            tmp[1] = SHAPE_ZONE(ch)->y;
+            sprintf(tmpstr, "Enter zone map coordinates: x y [%d %d]:\n\r", tmp[0], tmp[1]);
+            DIGITCHANGE(tmpstr, 2);
             SHAPE_ZONE(ch)
                 ->x
                 = tmp[0];
@@ -1337,14 +1583,14 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 17:
             if (ch->player.level < LEVEL_GRGOD) {
-                send_to_char("You are not godly anough for this.\n\r", ch);
+                send_to_char("You are not godly enough for this.\n\r", ch);
                 SHAPE_ZONE(ch)
                     ->editflag
                     = 0;
                 break;
             }
             if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                sprintf(tmpstr, "Enter zone map symbol:[%c]\n\r",
+                sprintf(tmpstr, "Enter zone map symbol, one character [%c]:\n\r",
                     SHAPE_ZONE(ch)->symbol);
                 send_to_char(tmpstr, ch);
                 SHAPE_ZONE(ch)
@@ -1380,7 +1626,8 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 23:
             tmp[0] = SHAPE_ZONE(ch)->lifespan;
-            DIGITCHANGE("Enter RESET TIME:", 1);
+            sprintf(tmpstr, "Enter reset time in minutes [%d]:\n\r", tmp[0]);
+            DIGITCHANGE(tmpstr, 1);
             SHAPE_ZONE(ch)
                 ->editflag
                 = 5;
@@ -1393,7 +1640,12 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 24:
             tmp[0] = SHAPE_ZONE(ch)->reset_mode;
-            DIGITCHANGE("Enter RESET MODE (0-3):", 1);
+            sprintf(tmpstr, "Enter reset mode: 0 never, 1 when empty, 2 always,\n\r  3 when empty or at 3x time [%d]:\n\r", tmp[0]);
+            DIGITCHANGE(tmpstr, 1);
+            if (tmp[0] < 0 || tmp[0] > 3) {
+                send_to_char("Reset mode must be 0-3. dropped.\n\r", ch);
+                break;
+            }
             SHAPE_ZONE(ch)
                 ->editflag
                 = 5;
@@ -1406,7 +1658,8 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
         case 25:
             tmp[0] = SHAPE_ZONE(ch)->level;
-            DIGITCHANGE("Enter ZONE_LEVEL:", 1);
+            sprintf(tmpstr, "Enter zone level [%d]:\n\r", tmp[0]);
+            DIGITCHANGE(tmpstr, 1);
             SHAPE_ZONE(ch)
                 ->editflag
                 = 5;
@@ -1425,6 +1678,21 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 ->editflag
                 = 0;
 
+            break;
+
+        case 52: /* list range for /50 */
+            if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                shape_range_prompt(ch, SHAPE_ZONE(ch)->list_start, SHAPE_ZONE(ch)->list_end);
+                SHAPE_ZONE(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                ch->specials.prompt_number = 3;
+                SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                return;
+            }
+            shape_range_set(ch, arg, &SHAPE_ZONE(ch)->list_start, &SHAPE_ZONE(ch)->list_end);
+            shape_standup(ch, SHAPE_ZONE(ch)->position);
+            ch->specials.prompt_number = 7;
+            REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+            SHAPE_ZONE(ch)->editflag = 0;
             break;
 
         case 51:
@@ -1486,7 +1754,7 @@ void list_help_zone(struct char_data* ch)
     send_to_char("5 - set comment on current command;\n\r", ch);
     send_to_char("/3 invokes /4 and /5 as well, /4 invokes /5.\n\r", ch);
     send_to_char("6 - select next command;\n\r", ch);
-    send_to_char("7 - select previoust command;\n\r", ch);
+    send_to_char("7 - select previous command;\n\r", ch);
     send_to_char("8 - select a command by number;\n\r", ch);
     send_to_char("9 - remove current command;\n\r", ch);
     send_to_char("10 - insert new command after the current one;\n\r", ch);
@@ -1498,7 +1766,7 @@ void list_help_zone(struct char_data* ch)
         send_to_char("14 - add new owner;\n\r", ch);
         send_to_char("15 - remove an owner;\n\r\n\r", ch);
     }
-    if (ch->player.level > LEVEL_GRGOD) {
+    if (ch->player.level >= LEVEL_GRGOD) {
         send_to_char("16 - set zone coordinates;\n\r", ch);
         send_to_char("17 - set zone map symbol;\n\r", ch);
     }
@@ -1512,7 +1780,8 @@ void list_help_zone(struct char_data* ch)
 
     send_to_char("50 - list;\n\r", ch);
 
-    send_to_char("51 - show zone name, description, map.\n\r", ch);
+    send_to_char("51 - show zone name, description, map;\n\r", ch);
+    send_to_char("52 - set list range: start [end] command numbers.\n\r", ch);
     return;
 }
 
@@ -1522,10 +1791,14 @@ void list_zone(struct char_data* ch)
 {
 
     static char str[MAX_STRING_LENGTH];
+    char footer[80];
 
     int check;
     struct zone_tree* zon;
     struct reset_com* mask = &(SHAPE_ZONE(ch)->mask);
+    int start = SHAPE_ZONE(ch)->list_start;
+    int end = SHAPE_ZONE(ch)->list_end;
+    int wrapped;
 
     sprintf(str, "Mask is: %c ", mask->command);
     if (mask->if_flag != -1)
@@ -1563,10 +1836,14 @@ void list_zone(struct char_data* ch)
         sprintf(str + strlen(str), "*\n\r");
     send_to_char(str, ch);
     str[0] = 0;
+    shape_range_footer(start, end, footer);
+    wrapped = shape_list_begin(ch);
     zon = SHAPE_ZONE(ch)->root;
     // printf("cur_room = %d\n",SHAPE_ZONE(ch)->cur_room);
     while (zon) {
-        check = 1;
+        if (end > 0 && zon->number > end)
+            break;
+        check = shape_range_includes(start, end, zon->number);
         if (SHAPE_ZONE(ch)->cur_room) {
             check &= (SHAPE_ZONE(ch)->cur_room == zon->room);
             //	 printf("check=%d, comm_room=%d\n",check,zon->room);
@@ -1599,10 +1876,15 @@ void list_zone(struct char_data* ch)
         }
         if (check) {
             show_command(str, zon);
+            if (!shape_list_fits(ch, str, footer, &wrapped)) {
+                shape_list_finish(ch, footer, true);
+                return;
+            }
             send_to_char(str, ch);
         }
         zon = zon->next;
     }
+    shape_list_finish(ch, footer, false);
 }
 /*********--------------------------------*********/
 
@@ -1640,6 +1922,21 @@ int get_text(FILE* f, char** line); /* exist in protos.c */
 
 // extern struct room_data world;
 
+/*
+ * Read the rest of the current line, however long, and return it without
+ * its line end.  A '\r' before the '\n' is kept: the zone files end their
+ * lines with "\r\n", and write_command puts back only the '\n'.
+ */
+static std::string read_line_rest(FILE* f)
+{
+    std::string line;
+    int c;
+
+    while ((c = fgetc(f)) != EOF && c != '\n')
+        line += (char)c;
+    return line;
+}
+
 int load_zone(struct char_data* ch, char* arg)
 {
 
@@ -1649,6 +1946,7 @@ int load_zone(struct char_data* ch, char* arg)
     FILE* f;
     struct zone_tree *zon, *prv;
     struct owner_list* owner;
+    std::string rest;
 
     if (2 != sscanf(arg, "%s %d\n", str, &number)) {
         send_to_char("Choose a zone by 'shape zone <zone_number>'\n\r", ch);
@@ -1679,6 +1977,16 @@ int load_zone(struct char_data* ch, char* arg)
         ->root->prev
         = 0;
     get_text(f, &(SHAPE_ZONE(ch)->zone_name));
+    /*
+     * The name follows "#<number>" on the header line.  Boot skips the
+     * blanks before it; do the same, or each save (which writes one blank
+     * after the number) adds another one.
+     */
+    if (SHAPE_ZONE(ch)->zone_name) {
+        char* name = SHAPE_ZONE(ch)->zone_name;
+        size_t skip = strspn(name, " \t");
+        memmove(name, name + skip, strlen(name + skip) + 1);
+    }
     get_text(f, &(SHAPE_ZONE(ch)->zone_descr));
     get_text(f, &(SHAPE_ZONE(ch)->zone_map));
     sprintf(str, " loading zone #%d %s\n\r", tmp, SHAPE_ZONE(ch)->zone_name);
@@ -1736,17 +2044,35 @@ int load_zone(struct char_data* ch, char* arg)
 
     comm_num = 0;
     while (1) {
-        fscanf(f, "%s", str);
-        if (str[0] == 'S')
+        /* A file with no 'S' ends the list at its end, as boot would. */
+        if (fscanf(f, "%254s", str) != 1 || str[0] == 'S')
             break;
+        num++;
+        zon->comm.command = str[0];
+        CREATE1(zon->next, zone_tree);
+        zon->next->next = 0;
+        bzero((char*)(zon->next), sizeof(struct zone_tree));
         if (str[0] == '*') {
-            fgets(str, 254, f);
+            /*
+             * A disabled row or a note.  Boot keeps it as a command that
+             * does nothing, so it stays a row here, and its text after the
+             * '*' is kept word for word so a save writes it back unchanged.
+             */
+            rest = str + 1;
+            rest += read_line_rest(f);
+            /* Boot reads the row's first numbers as for any command, and
+             * its if_flag still decides whether it clears last_cmd. */
+            tmp1 = tmp2 = tmp3 = tmp4 = tmp5 = tmp6 = 0;
+            sscanf(rest.c_str(), "%d %d %d %d %d %d", &tmp1, &tmp2, &tmp3, &tmp4, &tmp5, &tmp6);
+            zon->comm.if_flag = tmp1;
+            zon->comm.arg1 = tmp2;
+            zon->comm.arg2 = tmp3;
+            zon->comm.arg3 = tmp4;
+            zon->comm.arg4 = tmp5;
+            zon->comm.arg5 = tmp6;
+            zon->comm.arg6 = zon->comm.arg7 = 0;
         } else {
-            num++;
-            zon->comm.command = str[0];
-            CREATE1(zon->next, zone_tree);
-            zon->next->next = 0;
-            bzero((char*)(zon->next), sizeof(struct zone_tree));
+            tmp1 = tmp2 = tmp3 = tmp4 = tmp5 = tmp6 = 0;
             fscanf(f, "%d %d %d %d %d %d", &tmp1, &tmp2, &tmp3, &tmp4, &tmp5, &tmp6);
             zon->comm.if_flag = tmp1;
             zon->comm.arg1 = tmp2;
@@ -1757,15 +2083,18 @@ int load_zone(struct char_data* ch, char* arg)
             switch (str[0]) {
             case 'M':
             case 'N':
+            case 'X':
             case 'H':
             case 'E':
             case 'Q':
             case 'K':
+                tmp1 = tmp2 = 0;
                 fscanf(f, "%d %d", &tmp1, &tmp2);
                 zon->comm.arg6 = tmp1;
                 zon->comm.arg7 = tmp2;
                 break;
             case 'P':
+                tmp1 = 0;
                 fscanf(f, "%d", &tmp1);
                 zon->comm.arg6 = tmp1;
                 break;
@@ -1773,23 +2102,18 @@ int load_zone(struct char_data* ch, char* arg)
                 zon->comm.arg6 = zon->comm.arg7 = 0;
                 break;
             }
-            fgets(str, 254, f);
-            for (tmp = 0; str[tmp] && str[tmp] <= ' '; tmp++)
-                ;
-            str[strlen(str) - 1] = 0;
-            if ((int)strlen(str) + 1 <= tmp)
-                tmp = strlen(str);
-            CREATE(zon->comment, char, strlen(str) + 1 - tmp);
-            strcpy(zon->comment, str + tmp);
-            zon->prev = prv;
-            if (prv)
-                prv->next = zon;
-            prv = zon;
-            zon->room = command_room(&zon->comm);
-            zon = zon->next;
-            comm_num++;
-            zon->number = comm_num;
+            /* The comment is the rest of the line, without its leading blanks. */
+            rest = read_line_rest(f);
+            rest.erase(0, rest.find_first_not_of(" \t"));
         }
+        CREATE(zon->comment, char, rest.size() + 1);
+        strcpy(zon->comment, rest.c_str());
+        zon->prev = prv;
+        if (prv)
+            prv->next = zon;
+        prv = zon;
+        zon = zon->next;
+        comm_num++;
     }
     if (num != 0) {
         RELEASE(zon);
@@ -1806,6 +2130,7 @@ int load_zone(struct char_data* ch, char* arg)
         //     SHAPE_ZONE(ch)->root->comment=(char *)calloc(1,1);
         CREATE(SHAPE_ZONE(ch)->root->comment, char, 1);
     }
+    renum_rooms(SHAPE_ZONE(ch)->root); /* number the commands 1, 2, ... */
     ch->specials.prompt_value = number;
     SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_ZONE_LOADED);
     fclose(f);
@@ -2072,7 +2397,6 @@ void extra_coms_zone(struct char_data* ch, char* argument)
             send_to_char("Possible commands are:\n\r", ch);
             send_to_char("load <zone_number>;\n\r", ch);
             send_to_char("save; \n\r", ch);
-            send_to_char("add; \n\r", ch);
             send_to_char("implement; \n\r", ch);
             send_to_char("current - to see the listing for your room only;\n\r", ch);
             send_to_char("done - to save your job, implement it and stop shaping.;\n\r", ch);
@@ -2088,6 +2412,12 @@ void extra_coms_zone(struct char_data* ch, char* argument)
     switch (comm_key) {
     case SHAPE_CREATE:
         send_to_char("Zone cannot be created that simple.\n\r If you want a new zone, talk to the Implementors.\n\r", ch);
+        break;
+    case SHAPE_ADD:
+        send_to_char("A zone file holds one zone, so there is nothing to add it to.\n\r", ch);
+        break;
+    case SHAPE_DELETE:
+        send_to_char("Zones cannot be deleted here.\n\r If you want a zone removed, talk to the Implementors.\n\r", ch);
         break;
     case SHAPE_FREE:
         free_zone(ch);
@@ -2125,7 +2455,13 @@ void extra_coms_zone(struct char_data* ch, char* argument)
         break;
     case SHAPE_DONE:
         if (SHAPE_ZONE(ch)->permission || GET_LEVEL(ch) >= LEVEL_GRGOD) {
-            replace_zone(ch, argument);
+            /* A failed save must not throw the edits away. */
+            if (replace_zone(ch, argument) < 0) {
+                send_to_char("Not saved - still shaping. Fix the problem and /done again,\n\r"
+                             "or /free to discard.\n\r",
+                    ch);
+                break;
+            }
             implement_zone(ch);
         } else
             send_to_char("You are not allowed to save this zone.\n\r", ch);

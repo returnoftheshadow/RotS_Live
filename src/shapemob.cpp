@@ -14,6 +14,8 @@
 #include "utils.h"
 #include "zone.h"
 
+#include <limits>
+
 extern struct room_data world;
 extern struct char_data* character_list;
 extern struct char_data* mob_proto; /* prototypes for mobs    */
@@ -28,6 +30,154 @@ void free_proto(struct char_data* ch);
 ACMD(do_shutdown);
 
 void virt_assignmob(struct char_data* mob);
+void* virt_program_number(int number);
+
+/* A command turned off because it did harm; says exactly what was typed so
+ * it is clear which one, and easy to find if it is ever turned back on. */
+void shape_disabled(struct char_data* ch, const char* prefix, const char* typed)
+{
+    char buf[300];
+    int len;
+
+    while (*typed && *typed <= ' ')
+        typed++;
+    len = strlen(typed);
+    while (len > 0 && typed[len - 1] <= ' ')
+        len--;
+    snprintf(buf, sizeof(buf), "\"%s%.*s\" has been disabled due to a bug.\n\r", prefix, len, typed);
+    send_to_char(buf, ch);
+}
+
+/* The /52 list range of the zone and script editors: /50 shows only the
+ * commands numbered start..end. start 0 = the whole list, end 0 = to the end. */
+static void shape_range_text(int start, int end, char* out)
+{
+    if (start <= 0)
+        strcpy(out, "all");
+    else if (end <= 0)
+        sprintf(out, "from %d", start);
+    else
+        sprintf(out, "%d-%d", start, end);
+}
+
+void shape_range_prompt(struct char_data* ch, int start, int end)
+{
+    char range[40], line[120];
+
+    shape_range_text(start, end, range);
+    sprintf(line, "Enter list range: start [end] (0 = all, blank keeps) [%s]:\n\r", range);
+    send_to_char(line, ch);
+}
+
+/* Reads "start [end]" typed at the /52 prompt. Blank keeps the range, 0 alone
+ * clears it; anything else wrong leaves it as it was. */
+void shape_range_set(struct char_data* ch, const char* arg, int* start, int* end)
+{
+    const long INT_LIMIT = std::numeric_limits<int>::max();
+    long num[2];
+    int count = 0;
+    char* stop;
+    char range[40], line[80];
+
+    for (;;) {
+        while (*arg && isspace((unsigned char)*arg))
+            arg++;
+        if (!*arg)
+            break;
+        if (count == 2) {
+            send_to_char("Enter at most two numbers. Range not changed.\n\r", ch);
+            return;
+        }
+        num[count] = strtol(arg, &stop, 10);
+        if (stop == arg || (*stop && !isspace((unsigned char)*stop))) {
+            send_to_char("Numbers only. Range not changed.\n\r", ch);
+            return;
+        }
+        count++;
+        arg = stop;
+    }
+
+    if (count == 0)
+        return;
+    if (count == 1 && num[0] == 0) {
+        *start = 0;
+        *end = 0;
+        send_to_char("List range cleared.\n\r", ch);
+        return;
+    }
+    if (num[0] < 1 || (count == 2 && num[1] < 1) || num[0] > INT_LIMIT
+        || (count == 2 && num[1] > INT_LIMIT)) {
+        send_to_char("Use numbers 1 or more, or 0 alone to clear. Range not changed.\n\r", ch);
+        return;
+    }
+    if (count == 2 && num[1] < num[0]) {
+        send_to_char("End must not be below start. Range not changed.\n\r", ch);
+        return;
+    }
+
+    *start = num[0];
+    *end = (count == 2) ? num[1] : 0;
+    shape_range_text(*start, *end, range);
+    sprintf(line, "List range set: %s.\n\r", range);
+    send_to_char(line, ch);
+}
+
+bool shape_range_includes(int start, int end, int number)
+{
+    return (start <= 0 || number >= start) && (end <= 0 || number <= end);
+}
+
+/* The last line of a /50 list; out needs room for 80 characters. */
+void shape_range_footer(int start, int end, char* out)
+{
+    char range[40];
+
+    shape_range_text(start, end, range);
+    sprintf(out, "List range: %s (/52 to change).\n\r", range);
+}
+
+/* What line wrap will add to the output already waiting to be sent: the
+ * starting value of the running total that shape_list_fits keeps. */
+int shape_list_begin(struct char_data* ch)
+{
+    if (!ch->desc || ch->desc->bufptr < 0 || !ch->desc->character
+        || !PRF_FLAGGED(ch->desc->character, PRF_WRAP))
+        return 0;
+    return wrap_added_length(ch->desc->output);
+}
+
+/* True if line and then the footer still fit in this pulse's output. A list
+ * stops at the first line that does not, so the footer is not lost unless
+ * the output was already full before the list began.
+ * wrapped carries, from line to line, what line wrap adds to the output already
+ * queued; start it with shape_list_begin(). */
+bool shape_list_fits(struct char_data* ch, const char* line, const char* footer, int* wrapped)
+{
+    struct char_data* reader;
+    int line_added = 0, footer_added = 0;
+
+    if (!ch->desc)
+        return true;
+    reader = ch->desc->character;
+    if (reader && PRF_FLAGGED(reader, PRF_WRAP)) {
+        line_added = wrap_added_length(line);
+        footer_added = wrap_added_length(footer);
+    }
+    if ((int)(strlen(line) + strlen(footer)) + *wrapped + line_added + footer_added
+        > output_space_left(ch->desc))
+        return false;
+    *wrapped += line_added;
+    return true;
+}
+
+/* Ends a /50 list with the footer. cut = the list stopped early for lack of
+ * room: the output then overflows as it would have, showing "**OVERFLOW**". */
+void shape_list_finish(struct char_data* ch, const char* footer, bool cut)
+{
+    send_to_char(footer, ch);
+    if (cut && ch->desc)
+        output_mark_overflow(ch->desc);
+}
 
 int proto_chain[51] = {
     0, 2, 3, 4, 8, 0, 0, 0, 50, 10,
@@ -46,11 +196,11 @@ void recalculate_mob(struct char_data* ch)
         return;
     }
     mob = SHAPE_PROTO(ch)->proto;
-    level = mob->player.level;
     if (!mob) {
         send_to_char("No mob to recalculate. No good :( \n\r", ch);
         return;
     }
+    level = mob->player.level;
     /* Here goes calculation of the simple mob's parameters... */
 
     //  mob->specials2.alignment=0;
@@ -75,27 +225,30 @@ void recalculate_mob(struct char_data* ch)
     mob->abilities.lea = 7 + level / 2;
     mob->specials.position = POSITION_STANDING;
     mob->specials.default_pos = POSITION_STANDING;
+    /* player.language here is the editor's index (0 common, 1 animal,
+     * 2 human, 3 orc - see language_skills[]), not the skill number. */
     switch (mob->player.race) {
     case RACE_HUMAN:
     case RACE_DWARF:
     case RACE_WOOD:
     case RACE_HOBBIT:
     case RACE_HIGH:
-        mob->player.language = LANG_HUMAN;
+        mob->player.language = 2;
         break;
     case RACE_BEORNING:
-        mob->player.language = LANG_ANIMAL;
+        mob->player.language = 1;
         break;
     case RACE_URUK:
     case RACE_HARAD:
     case RACE_ORC:
     case RACE_MAGUS:
-        mob->player.language = LANG_ORC;
+        mob->player.language = 3;
         break;
     case RACE_EASTERLING:
-        mob->player.language = LANG_BASIC;
+        mob->player.language = 0;
+        break;
     default:
-        mob->player.language = LANG_ANIMAL;
+        mob->player.language = 1;
         break;
     }
     if (level == 0) {
@@ -168,21 +321,19 @@ int get_permission(int zonnum, struct char_data* ch, int mode)
 {
     int num, perm;
     struct owner_list* tmpowner;
-    for (num = 0; (num < MAX_ZONES) && (zone_table[num].number != zonnum); num++)
+    for (num = 0; (num <= top_of_zone_table) && (zone_table[num].number != zonnum); num++)
         ;
-    if (num == MAX_ZONES) {
-        send_to_char("Warning: this item is outside any zone. Limited permisison only.\n\r", ch);
+    if (num > top_of_zone_table) {
+        send_to_char("Warning: this item is outside any zone. Limited permission only.\n\r", ch);
         perm = 0;
     } else {
         tmpowner = zone_table[num].owners;
+        /* Callers store the result in their own editor's struct; ch->temp
+         * is not always a shape_proto, so it is not written here. */
         if (tmpowner->owner == 0) {
-            SHAPE_PROTO(ch)
-                ->permission
-                = perm = (mode) ? 0 : 1;
+            perm = (mode) ? 0 : 1;
             if (GET_LEVEL(ch) < LEVEL_GOD)
-                SHAPE_PROTO(ch)
-                    ->permission
-                    = perm = 0;
+                perm = 0;
 
         } else {
             perm = 0;
@@ -503,28 +654,38 @@ void shape_center_proto(struct char_data* ch, char* arg)
             keymode = SHAPE_PROTO(ch)->editflag;
         switch (keymode) {
         case 1:
-            LINECHANGE("ALIAS(ES), how players can address the mobile, e.g. man, guard, elrond", SHAPE_PROTO(ch)->proto->player.name)
+            /* An empty keyword list or name leaves the mob unusable. */
+            if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1 && !strcmp(str, "%q")) {
+                send_to_char("Aliases can't be empty.\n\r", ch);
+                arg[0] = 0;
+            }
+            LINECHANGE("ALIASES, keywords separated by spaces,\n\r  e.g. man guard elrond (blank = keep)", SHAPE_PROTO(ch)->proto->player.name)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[1];
             break;
         case 2:
-            LINECHANGE("REFERENCE DESCRIPTION, e.g. a mouse, the Innkeeper, Elrond", SHAPE_PROTO(ch)->proto->player.short_descr)
+            /* An empty keyword list or name leaves the mob unusable. */
+            if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1 && !strcmp(str, "%q")) {
+                send_to_char("The reference description can't be empty.\n\r", ch);
+                arg[0] = 0;
+            }
+            LINECHANGE("REFERENCE DESCRIPTION, e.g. a mouse, the Innkeeper, Elrond\n\r  (blank = keep)", SHAPE_PROTO(ch)->proto->player.short_descr)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[2];
             break;
         case 3:
-            LINECHANGE("DESCRIPTION, what players see on look, e.g. A citizen is standing here.", SHAPE_PROTO(ch)->proto->player.long_descr)
+            LINECHANGE("ROOM LINE, shown when the mob is in its default position,\n\r  e.g. A citizen is standing here. (blank = keep, %q = empty)", SHAPE_PROTO(ch)->proto->player.long_descr)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[3];
             break;
         case 4:
-            DESCRCHANGE("DETAILED DESCRIPTION, what people see when they 'look mobile'", SHAPE_PROTO(ch)->proto->player.description)
+            DESCRCHANGE("DETAILED DESCRIPTION, shown by 'look <mob>'", SHAPE_PROTO(ch)->proto->player.description)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -579,7 +740,14 @@ void shape_center_proto(struct char_data* ch, char* arg)
     } while (0);
 
         case 5:
-            DIGITCHANGEL("MOB FLAG NUMBER", mob->specials2.act)
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  0 SPEC, 1 SENTINEL, 2 SCAVENGER, 3 ISNPC, 4 NOBASH, 5 AGGR, 6 STAY-ZONE,\n\r"
+                             "  7 WIMPY, 8 STAY-TYPE, 9 MOUNT, 10 CAN_SWIM, 11 MEMORY, 12 HELPER,\n\r"
+                             "  13 AGGR_EVIL, 14 AGGR_NEUT, 15 AGGR_GOOD, 16 BODYGUARD, 17 WRAITH,\n\r"
+                             "  18 SWITCH, 19 NORECALC, 20 FAST, 21 IS_PET, 22 HUNTER, 23 ORC_FRIEND,\n\r"
+                             "  24 RACE_GUARD, 25 ASSISTANT, 26 GUARDIAN\n\r",
+                    ch);
+            DIGITCHANGEL("MOB FLAGS: pN sets bit N, mN clears it, one per answer\n\r  (bit 3 ISNPC is always on)", mob->specials2.act)
             mob->specials2.act |= MOB_ISNPC;
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -587,14 +755,22 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[5];
             break;
         case 6:
-            DIGITCHANGEL("'AFFECTED' NUMBER", mob->specials.affected_by);
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  0 SENSE, 1 INFRA, 2 SNEAK, 3 HIDE, 4 DET-MAGIC, 5 CHARM, 6 CURSE, 7 SANCT,\n\r"
+                             "  8 TWO-HANDED, 9 INVIS, 10 MOONVISION, 11 POISON, 12 SHIELD, 13 BREATHE,\n\r"
+                             "  14 GROUP, 15 CONFUSE, 16 SLEEP, 17 BASH, 18 FLYING, 19 DET_INVIS, 20 FEAR,\n\r"
+                             "  21 BLIND, 22 FOLLOW, 23 SWIM, 24 HUNT, 25 EVASION, 26 CASTING, 27 WAITWHEEL,\n\r"
+                             "  28 (unused), 29 CONCENTR, 30 HAZE, 31 HALLU\n\r",
+                    ch);
+            DIGITCHANGEL("AFFECTS: pN sets bit N, mN clears it, one per answer", mob->specials.affected_by);
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[6];
             break;
         case 7:
-            DIGITCHANGE("ALIGNMENT", mob->specials2.alignment)
+            DIGITCHANGE("ALIGNMENT -1000 to 1000 (good >= 100, evil <= -100)\n\r  (-N sets negative)", mob->specials2.alignment)
+            string_to_negative_value(arg, &mob->specials2.alignment);
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -602,7 +778,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         /*-----------here go new mobs' features...----------*/
         case 8:
-            DIGITCHANGE("LEVEL", mob->player.level);
+            DIGITCHANGE("LEVEL (does not recalculate stats; use recalculate)", mob->player.level);
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -610,7 +786,9 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 9:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                send_to_char("enter OB parry dodge (three numbers, without commas):\n\r", ch);
+                sprintf(tmpstr, "Enter OB PARRY DODGE (3 numbers, blank = keep)\n\rCurrent: %d %d %d\n\r",
+                    mob->points.OB, mob->points.parry, mob->points.dodge);
+                send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 SHAPE_PROTO(ch)
                     ->position
@@ -618,7 +796,12 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 ch->specials.prompt_number = 3;
                 return;
             } else {
-                if (3 != sscanf(arg, "%d %d %d", &tmp, &tmp1, &tmp2)) {
+                /* Blank (or no number at all) keeps the current values. */
+                tmp = mob->points.OB;
+                tmp1 = mob->points.parry;
+                tmp2 = mob->points.dodge;
+                choice = sscanf(arg, "%d %d %d", &tmp, &tmp1, &tmp2);
+                if (choice > 0 && choice != 3) {
                     send_to_char("three numbers required. dropped\n\r", ch);
                     REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
                     shape_standup(ch, SHAPE_PROTO(ch)->position);
@@ -645,7 +828,9 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 10:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                send_to_char("enter MIN_HIT MAX_HIT (two numbers, without commas):\n\r", ch);
+                sprintf(tmpstr, "Enter MIN_HIT MAX_HIT (rolled per spawn, blank = keep)\n\rCurrent: %d %d\n\r",
+                    mob->tmpabilities.hit, mob->abilities.hit);
+                send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 SHAPE_PROTO(ch)
                     ->position
@@ -653,7 +838,10 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 ch->specials.prompt_number = 3;
                 return;
             } else {
-                if (2 != sscanf(arg, "%d %d", &tmp, &tmp1)) {
+                tmp = mob->tmpabilities.hit;
+                tmp1 = mob->abilities.hit;
+                choice = sscanf(arg, "%d %d", &tmp, &tmp1);
+                if (choice > 0 && choice != 2) {
                     send_to_char("two numbers required. dropped\n\r", ch);
                     REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
                     shape_standup(ch, SHAPE_PROTO(ch)->position);
@@ -681,21 +869,21 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[10];
             break;
         case 11:
-            DIGITCHANGE("DAMAGE", mob->points.damage)
+            DIGITCHANGE("DAMAGE (added x10 to each hit)", mob->points.damage)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[11];
             break;
         case 12:
-            DIGITCHANGE("ENERGY REGEN", mob->points.ENE_regen)
+            DIGITCHANGE("ENERGY REGEN (higher = faster attacks)", mob->points.ENE_regen)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[12];
             break;
         case 13:
-            DIGITCHANGE("GOLD", mob->points.gold)
+            DIGITCHANGE("GOLD (in copper coins)", mob->points.gold)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -710,26 +898,55 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         /* case 15: here will owner be? */
         case 16:
-            DIGITCHANGE("POSITION, use 'help shape mob position' for values", mob->specials.position)
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  4 sleeping, 5 resting, 6 sitting, 8 standing\n\r", ch);
+            tmp3 = mob->specials.position;
+            DIGITCHANGE("POSITION", mob->specials.position)
+            if (tmp != tmp3 && tmp != POSITION_SLEEPING && tmp != POSITION_RESTING
+                && tmp != POSITION_SITTING && tmp != POSITION_STANDING) {
+                send_to_char("Position must be 4, 5, 6 or 8. dropped.\n\r", ch);
+                mob->specials.position = tmp3;
+            }
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[16];
             break;
         case 17:
-            DIGITCHANGE("default POSITION, use 'help shape mob position' for values", mob->specials.default_pos)
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  4 sleeping, 5 resting, 6 sitting, 8 standing\n\r", ch);
+            tmp3 = mob->specials.default_pos;
+            DIGITCHANGE("DEFAULT POSITION", mob->specials.default_pos)
+            if (tmp != tmp3 && tmp != POSITION_SLEEPING && tmp != POSITION_RESTING
+                && tmp != POSITION_SITTING && tmp != POSITION_STANDING) {
+                send_to_char("Position must be 4, 5, 6 or 8. dropped.\n\r", ch);
+                mob->specials.default_pos = tmp3;
+            }
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[17];
             break;
         case 18:
-            LINECHANGE("SEX (n,m,f)", tmpptr);
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                sprintf(tmpstr, "Enter SEX (n m f) [%c]:\n\r",
+                    mob->player.sex <= SEX_FEMALE ? "nmf"[mob->player.sex] : '?');
+                send_to_char(tmpstr, ch);
+                SHAPE_PROTO(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                ch->specials.prompt_number = 2;
+                SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                return;
+            }
+            REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+            shape_standup(ch, SHAPE_PROTO(ch)->position);
+            ch->specials.prompt_number = 5;
+            SHAPE_PROTO(ch)->editflag = 0;
+            while (*arg && (*arg <= ' '))
+                arg++;
 
-            if (!tmpptr)
+            switch (*arg) {
+            case 0: /* blank keeps */
                 break;
-
-            switch (tmpptr[0]) {
             case 'm':
             case 'M':
                 mob->player.sex = SEX_MALE;
@@ -752,28 +969,39 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[18];
             break;
         case 19:
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  0 god/animal, 1 human, 2 dwarf, 3 wood elf, 4 hobbit, 5 high elf,\n\r"
+                             "  6 beorning, 11 uruk-hai, 12 harad, 13 orc, 14 easterling, 15 uruk-lhuth,\n\r"
+                             "  16 undead, 17 olog-hai, 18 haradrim, 20 troll\n\r",
+                    ch);
+            tmp3 = mob->player.race;
             DIGITCHANGE("RACE", mob->player.race)
+            /* pc_races[] and the other race tables stop at 20. */
+            if (tmp != tmp3 && (tmp < 0 || tmp > 20)) {
+                send_to_char("Race must be 0-20. dropped.\n\r", ch);
+                mob->player.race = tmp3;
+            }
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[19];
             break;
         case 20:
-            DIGITCHANGEL("Race AGGRESSION", mob->specials2.pref)
+            DIGITCHANGEL("RACE AGGRESSION: pN per race number (see /19), mN clears", mob->specials2.pref)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[20];
             break;
         case 21:
-            DIGITCHANGE("WEIGHT", mob->player.weight)
+            DIGITCHANGE("WEIGHT (1/100 lb)", mob->player.weight)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[21];
             break;
         case 22:
-            DIGITCHANGE("HEIGHT", mob->player.height)
+            DIGITCHANGE("HEIGHT (cm)", mob->player.height)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -789,28 +1017,37 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
 
         case 24:
-            DIGITCHANGE("MANA", mob->abilities.mana)
+            DIGITCHANGE("STAMINA (mana)", mob->abilities.mana)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[24];
             break;
         case 25:
-            DIGITCHANGE("MOVEPOINTS", mob->abilities.move)
+            DIGITCHANGE("MOVE POINTS", mob->abilities.move)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[25];
             break;
         case 26:
-            DIGITCHANGE("BODYTYPE", mob->player.bodytype)
+            tmp3 = mob->player.bodytype;
+            DIGITCHANGE("BODY TYPE: 0 none, 1 humanoid, 2 quadruped, 3 8-legged, 4 bird,\n\r"
+                        "  15 bear (5-14 unused, same as 0)",
+                mob->player.bodytype)
+            /* bodyparts[] has 16 entries; fight.cpp indexes it with this. */
+            if (tmp != tmp3 && (tmp < 0 || tmp > 15)) {
+                send_to_char("Body type must be 0-15. dropped.\n\r", ch);
+                mob->player.bodytype = tmp3;
+            }
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[26];
             break;
         case 27:
-            DIGITCHANGE("SAVING THROW", mob->specials2.saving_throw)
+            DIGITCHANGE("SAVING THROW (more = less spell damage; -N sets negative)", mob->specials2.saving_throw)
+            string_to_negative_value(arg, &mob->specials2.saving_throw);
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -818,7 +1055,11 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 28:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                send_to_char("enter STR INT WILL DEX CON LEA (six numbers, without commas):\n\r", ch);
+                sprintf(tmpstr, "Enter STR INT WILL DEX CON LEA (6 numbers, <= 0 becomes 17, blank = keep)\n\r"
+                                "Current: %d %d %d %d %d %d\n\r",
+                    mob->abilities.str, mob->abilities.intel, mob->abilities.wil,
+                    mob->abilities.dex, mob->abilities.con, mob->abilities.lea);
+                send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 SHAPE_PROTO(ch)
                     ->position
@@ -826,7 +1067,14 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 ch->specials.prompt_number = 3;
                 return;
             } else {
-                if (6 != sscanf(arg, "%d %d %d %d %d %d", &tmp, &tmp1, &tmp2, &tmp3, &tmp4, &tmp5)) {
+                tmp = mob->abilities.str;
+                tmp1 = mob->abilities.intel;
+                tmp2 = mob->abilities.wil;
+                tmp3 = mob->abilities.dex;
+                tmp4 = mob->abilities.con;
+                tmp5 = mob->abilities.lea;
+                choice = sscanf(arg, "%d %d %d %d %d %d", &tmp, &tmp1, &tmp2, &tmp3, &tmp4, &tmp5);
+                if (choice > 0 && choice != 6) {
                     send_to_char("six numbers required. dropped\n\r", ch);
                     REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
                     shape_standup(ch, SHAPE_PROTO(ch)->position);
@@ -855,14 +1103,14 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[28];
             break;
         case 29:
-            DIGITCHANGE("PROGRAM NUMBER", mob->specials.store_prog_number)
+            DIGITCHANGE("PROGRAM NUMBER: spec-proc # if flag 0 SPEC is set,\n\r  else mudlle vnum (0 = none)", mob->specials.store_prog_number)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[29];
             break;
         case 30:
-            DIGITCHANGE("LANGUAGE", mob->player.language)
+            DIGITCHANGE("LANGUAGE: 0 common, 1 animal, 2 human, 3 orc", mob->player.language)
             if (mob->player.language > language_number)
                 mob->player.language = language_number;
 
@@ -872,7 +1120,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[30];
             break;
         case 31:
-            DIGITCHANGE("BUTCHER ITEM", mob->specials.butcher_item)
+            DIGITCHANGE("BUTCHER ITEM object vnum (0 = none)", mob->specials.butcher_item)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -880,7 +1128,8 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[31];
             break;
         case 32:
-            DIGITCHANGE("PERCEPTION", mob->specials2.perception)
+            DIGITCHANGE("PERCEPTION 0-100 (-1 = race default)", mob->specials2.perception)
+            string_to_negative_value(arg, &mob->specials2.perception);
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -888,28 +1137,30 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[32];
             break;
         case 33:
-            LINECHANGE("DEATH CRY (to the room)", mob->player.death_cry)
+            LINECHANGE("DEATH CRY to the room, $n = the mob\n\r  (blank = keep, %q = no message)", mob->player.death_cry)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[33];
             break;
         case 34:
-            LINECHANGE("DEATH CRY (to other rooms)", mob->player.death_cry2)
+            LINECHANGE("DEATH CRY to adjacent rooms (blank = keep, %q = no message)", mob->player.death_cry2)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[34];
             break;
         case 35:
-            DIGITCHANGE("CORPSE VIRT. NUMBER", mob->player.corpse_num)
+            DIGITCHANGE("CORPSE object vnum (0 = generic corpse)", mob->player.corpse_num)
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[35];
             break;
         case 36:
-            DIGITCHANGE("RESISTANCE BITVECTOR", mob->specials.resistance)
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH, 7 WILD,\n\r  8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND\n\r", ch);
+            DIGITCHANGE("RESISTANCES: pN sets bit N, mN clears it, one per answer", mob->specials.resistance)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -917,7 +1168,9 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[36];
             break;
         case 37:
-            DIGITCHANGE("VULNERABILITY BITVECTOR", mob->specials.vulnerability)
+            if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
+                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH, 7 WILD,\n\r  8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND\n\r", ch);
+            DIGITCHANGE("VULNERABILITIES: pN sets bit N, mN clears it, one per answer", mob->specials.vulnerability)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -925,7 +1178,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     = proto_chain[37];
             break;
         case 38:
-            DIGITCHANGE("SCRIPT NUMBER", mob->specials.script_number)
+            DIGITCHANGE("SCRIPT vnum (0 = none)", mob->specials.script_number)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -950,7 +1203,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             }
         } break;
         case 41: {
-            DIGITCHANGE("WILL TEACH", mob->specials2.will_teach);
+            DIGITCHANGE("WILL TEACH: pN per race number (see /19), mN clears", mob->specials2.will_teach);
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN)) {
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -961,7 +1214,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
         case 48:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
                 recalculate_mob(ch);
-                send_to_char("Mob parameters are set to default, want to change it?\n\r", ch);
+                send_to_char("Stats were reset from level. Edit them now?\n\r", ch);
             }
             //      tmpptr=(char *)calloc(2,1);
             CREATE(tmpptr, char, 2);
@@ -1023,11 +1276,11 @@ void list_simple_help(struct char_data* ch)
     send_to_char("2 - reference description;\n\r3 - full description;\n\r", ch);
     send_to_char("4 - detailed description;\n\r5 - flags;\n\r", ch);
     send_to_char("6 - affections;\n\r7 - level;\n\r", ch);
-    send_to_char("8 - sex;\n\r 9 - race;\n\r", ch);
+    send_to_char("8 - sex;\n\r9 - race;\n\r", ch);
     send_to_char("10 - body_type;\n\r", ch);
     send_to_char("11 - race aggressions flag;\n\r", ch);
     send_to_char("12 - the item to butcher (0 for none);\n\r", ch);
-    send_to_char("40 - mob spirit;\n\r", ch);
+    send_to_char("13 - mob spirit;\n\r", ch);
     send_to_char("49 - mob creation sequence;\n\r", ch);
     send_to_char("50 - list;\n\r", ch);
     return;
@@ -1042,14 +1295,14 @@ void list_help(struct char_data* ch)
     send_to_char("6 - affections;\n\r7 - alignment;\n\r8 - level;\n\r", ch);
     send_to_char("9 - OB, parry, dodge;\n\r", ch);
     send_to_char("10 - min_hit, max_hit;\n\r", ch);
-    send_to_char("11 - damage;\n\r ", ch);
+    send_to_char("11 - damage;\n\r", ch);
     send_to_char("12 - energy regen;\n\r", ch);
     send_to_char("13 - gold;\n\r", ch);
     send_to_char("14 - exp;\n\r", ch);
     send_to_char("16 - position;\n\r", ch);
     send_to_char("17 - default position;\n\r", ch);
-    send_to_char("18 - sex;\n\r 19 - race;\n\r", ch);
-    send_to_char("20 - Race aggresions;\n\r", ch);
+    send_to_char("18 - sex;\n\r19 - race;\n\r", ch);
+    send_to_char("20 - race aggression;\n\r", ch);
     send_to_char("21 - weight;\n\r", ch);
     send_to_char("22 - height;\n\r", ch);
     send_to_char("23 - prof;\n\r", ch);
@@ -1203,7 +1456,7 @@ void list_proto(struct char_data* ch, struct char_data* mob)
     send_to_char(str, ch);
     sprintf(str, "(38) script number  :%d\n\r", mob->specials.script_number);
     send_to_char(str, ch);
-    sprintf(str, "(39) roleplay flag  :%d\n\4", mob->specials2.rp_flag);
+    sprintf(str, "(39) roleplay flag  :%d\n\r", mob->specials2.rp_flag);
     send_to_char(str, ch);
     sprintf(str, "(40) spirit:%d\n\r", mob->points.spirit);
     send_to_char(str, ch);
@@ -1483,6 +1736,10 @@ int load_proto(struct char_data* ch, char* arg)
                 = SHAPE_PROTO(ch)->proto->abilities.lea = tmp;
 
             fscanf(file, "%d ", &tmp);
+            /* Out-of-range values (old /recalculate saved 121-123) boot as
+             * 0 common, so load them as 0 to keep the mob as it plays. */
+            if (tmp < 0 || tmp > language_number)
+                tmp = 0;
             SHAPE_PROTO(ch)
                 ->proto->player.language
                 = tmp;
@@ -1686,16 +1943,9 @@ int append_proto(struct char_data* ch, char* arg)
         replace_proto(ch, arg);
         return -1;
     }
-    if (2 != sscanf("%s %s", str, fname)) {
-        if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_FILENAME)) {
-            send_to_char("No file defined to write into. Use 'add <filename>\n\r'",
-                ch);
-            return -1;
-        }
-    } else {
-        sprintf(SHAPE_PROTO(ch)->f_from, SHAPE_MOB_DIR, fname);
-        sprintf(SHAPE_PROTO(ch)->f_old, SHAPE_MOB_BACKDIR, fname);
-        SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_FILENAME);
+    if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_FILENAME)) {
+        send_to_char("No file defined to write into.\n\r", ch);
+        return -1;
     }
     if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_PROTO_LOADED)) {
         send_to_char("you have no mobile to save...\n\r", ch);
@@ -1824,6 +2074,12 @@ void implement_proto(struct char_data* ch)
     }
 
     proto = mob_proto + number;
+    /* If the spec proc slot holds what the old /29 gave, implement put it
+     * there: free it so the new flag and /29 can take its place.  A slot
+     * filled at boot by vnum (guild, receptionist, shopkeeper...) is kept. */
+    if (IS_SET(proto->specials2.act, MOB_SPEC) && mob_index[number].func
+        && (void*)mob_index[number].func == virt_program_number(proto->specials.store_prog_number))
+        mob_index[number].func = 0;
     memcpy(proto, SHAPE_PROTO(ch)->proto, sizeof(struct char_data));
     /*    if(proto->player.name) RELEASE(proto->player.name);
   if(proto->player.short_descr) RELEASE(proto->player.short_descr);
@@ -1849,7 +2105,8 @@ void implement_proto(struct char_data* ch)
     strcpy(proto->player.description, SHAPE_PROTO(ch)->proto->player.description);
     /*   printf("desc:%s.\b",proto->player.description); */
 
-    if (SHAPE_PROTO(ch)->proto->player.language > 0)
+    if (SHAPE_PROTO(ch)->proto->player.language > 0
+        && SHAPE_PROTO(ch)->proto->player.language <= language_number)
         proto->player.language = language_skills[SHAPE_PROTO(ch)->proto->player.language - 1];
     else
         proto->player.language = 0;
@@ -1929,6 +2186,11 @@ ACMD(do_shape)
         } else {
             sprintf(str, "load %s\n\r", argument + stlen);
             newflag = 0;
+        }
+        if ((key == SHAPE_PROTOS || key == SHAPE_OBJECTS || key == SHAPE_ROOMS || key == SHAPE_SCRIPTS) && newflag) {
+            /* Picked last vnum + 1, which could run past the zone's range. */
+            shape_disabled(ch, "shape ", argument);
+            return;
         }
         switch (key) {
         case SHAPE_PROTOS:
@@ -2112,6 +2374,9 @@ ACMD(do_shape)
 
             break;
         case SHAPE_RECALC_ALL:
+            /* Rewrote every mob file from level and shut down, no confirmation. */
+            shape_disabled(ch, "shape ", argument);
+            break;
             printf("going to recalc all\n");
             for (i = 0; i <= top_of_mobt; i++) {
                 sprintf(str, "mobile %d", mob_index[i].virt);
@@ -2129,14 +2394,24 @@ ACMD(do_shape)
             break;
 
         case SHAPE_MASTER_MOBILE:
-            sscanf(argument + stlen, "%d", &i);
+            if (1 != sscanf(argument + stlen, "%d", &i)) {
+                sprintf(str, "Mobile master is player #%d.\n\r", mobile_master_idnum);
+                send_to_char(str, ch);
+                send_to_char("Usage: shape master_mobile <idnum>\n\r", ch);
+                break;
+            }
             sprintf(str, "Mobile permission set to player #%d\n\r", i);
             mobile_master_idnum = i;
             send_to_char(str, ch);
             break;
 
         case SHAPE_MASTER_OBJECT:
-            sscanf(argument + stlen, "%d", &i);
+            if (1 != sscanf(argument + stlen, "%d", &i)) {
+                sprintf(str, "Object master is player #%d.\n\r", object_master_idnum);
+                send_to_char(str, ch);
+                send_to_char("Usage: shape master_object <idnum>\n\r", ch);
+                break;
+            }
             sprintf(str, "Object permission set to player #%d\n\r", i);
             object_master_idnum = i;
             send_to_char(str, ch);
@@ -2227,18 +2502,15 @@ void extra_coms_proto(struct char_data* ch, char* argument)
                 comm_key = SHAPE_IMPLEMENT;
                 break;
             }
-            if (!strncmp(str, "recalculate", strlen(str))) {
+            if (strlen(str) >= 6 && !strncmp(str, "recalculate", strlen(str))) {
                 comm_key = SHAPE_RECALCULATE;
                 break;
             }
             send_to_char("Possible commands are:\n\r", ch);
-            send_to_char("new <zone_number> - to create a new mobile;\n\r", ch);
-            send_to_char("save  [mobile #]- to save changes to the disk database;\n\r", ch);
-            send_to_char("delete - to remove the loaded mobile from the disk database;\n\r", ch);
-            send_to_char("implement - applies changes to the game, leaving disk prointact;\n\r", ch);
-            send_to_char("edit  - edit it is;\n\r", ch);
+            send_to_char("save - to save changes to the disk database;\n\r", ch);
+            send_to_char("implement - applies changes to the game, leaving disk intact;\n\r", ch);
             send_to_char("simple - to switch between simple and extended editing;\n\r", ch);
-            send_to_char("recalculate - to generate all mobile parameters from it's level.\n\r", ch);
+            send_to_char("recalc - to generate all mobile parameters from its level;\n\r", ch);
             send_to_char("done - to save your job, implement it and stop shaping.;\n\r", ch);
             send_to_char("free - to stop shaping.;\n\r", ch);
 
@@ -2252,6 +2524,9 @@ void extra_coms_proto(struct char_data* ch, char* argument)
         send_to_char("You released the mobile and stopped shaping.\n\r", ch);
         break;
     case SHAPE_CREATE:
+        /* Picked last vnum + 1, which could run past the zone's range. */
+        shape_disabled(ch, "/", argument);
+        break;
         if (str2[0] == 0) {
             send_to_char("Choose zone of mob by 'new <zone_number>'.\n\r", ch);
             free_proto(ch);
@@ -2294,6 +2569,11 @@ void extra_coms_proto(struct char_data* ch, char* argument)
         replace_proto(ch, argument);
         break;
     case SHAPE_ADD:
+        /* 'add <file>' could write the mob into any file, outside its zone. */
+        if (str2[0]) {
+            shape_disabled(ch, "/", argument);
+            break;
+        }
         append_proto(ch, argument);
         break;
     case SHAPE_RECALCULATE:
@@ -2304,8 +2584,14 @@ void extra_coms_proto(struct char_data* ch, char* argument)
         send_to_char("You set parameters of your mobile to standard.\n\r", ch);
         break;
     case SHAPE_DELETE:
+        /* Rewrote the zone file to drop the mob; a never-saved mob got
+         * saved instead. */
         if (SHAPE_PROTO(ch)->procedure != SHAPE_DELETE) {
-            send_to_char("You are about to remove this mobile from database.\n\r Are you sure? (type 'yes' to confirm:\n\r", ch);
+            shape_disabled(ch, "/", argument);
+            break;
+        }
+        if (SHAPE_PROTO(ch)->procedure != SHAPE_DELETE) {
+            send_to_char("You are about to remove this mobile from database.\n\r Are you sure? (type 'yes' to confirm):\n\r", ch);
             SHAPE_PROTO(ch)
                 ->procedure
                 = SHAPE_DELETE;
@@ -2349,7 +2635,13 @@ void extra_coms_proto(struct char_data* ch, char* argument)
             = SHAPE_EDIT;
         break;
     case SHAPE_DONE:
-        replace_proto(ch, argument);
+        /* A failed save must not throw the edits away. */
+        if (replace_proto(ch, argument) < 0) {
+            send_to_char("Not saved - still shaping. Fix the problem and /done again,\n\r"
+                         "or /free to discard.\n\r",
+                ch);
+            break;
+        }
         implement_proto(ch);
         extra_coms_proto(ch, "free");
         break;
