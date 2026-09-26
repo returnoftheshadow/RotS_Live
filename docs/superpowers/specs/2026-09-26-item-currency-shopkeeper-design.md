@@ -39,22 +39,24 @@ A new persisted text field on mob prototypes, meant for any mob program's settin
 vendors.
 
 - **Format:** multi-line text, one setting per line: `key=value`, a bare word, or a keyword
-  line such as `price …`. Lines that are blank or that no program recognises are ignored at
-  use.
+  line such as `price …`. A line starting with `//` is a comment: skipped entirely, never
+  warned about. Lines that are blank or that no program recognises are ignored at use.
+  The text can't contain `~` or start with `#`/`$`, since those would corrupt the mob file.
+  The editor refuses such text and keeps the old value.
 - **Size:** up to 4,000 characters. Edited with the same multi-line editor as descriptions.
   `stat` and the editor always show the whole value.
 - **File format:** one extra `~`-ended string after the mob record's last number line. The
   loader reads it only if the next token isn't the start of the next record (`#` or `$`), so
-  existing mob files load unchanged with empty options. The editor (`write_proto`) always
-  writes it.
+  existing mob files load unchanged with empty options. The editor (`write_proto`) writes it
+  **only for mobs that have options**, so every other mob record stays in the old format.
 - **Parsed ahead of time:** a program-33 prototype's options are parsed into an in-memory
   table at boot and again when a builder saves the mob. All copies of the mob share the
   table. `list`/`buy` never re-read the text.
 - **General purpose:** other mob programs can read their own settings from it (e.g. a
   `mob_option(mob, "key")` helper). This replaces the practice of putting program switches in
   the mob's aliases (`has_alias(host, "conj")` in `mob_magic_user_spec`).
-- **Rollback note:** once mob files are saved with the new line, an older server binary can't
-  read them.
+- **Rollback note:** an older server binary can't read a mob file containing an options
+  block. Only files with vendor (or other options-using) mobs are affected.
 
 ## Vendor settings
 
@@ -83,6 +85,11 @@ doesn't trade at all rather than silently trading around the clock.
 Validation only checks that vnums are real objects/rooms. It does **not** check that a zone
 ever loads a priced item into the store room: a priced item that isn't in stock simply isn't
 listed (not loaded yet, seasonal, sold out).
+
+## Two vendors in one room
+
+`list`/`buy` is answered by the first vendor the room's character list reaches, the same as
+the old shops. The player gets one answer.
 
 ## Shared store rooms
 
@@ -119,7 +126,8 @@ price line** for this vendor, once each, in the order of his price lines:
 1. Find the item by keyword or list number among the items `list` would show.
 2. Check the player can carry it (item count and weight).
 3. For **each** currency, count the copies in the player's **loose inventory** (not inside
-   containers, not worn). If any is short, refuse, and say what's needed and what the player
+   containers, not worn). A currency copy that is itself a container with something inside it
+   doesn't count, so paying can never destroy its contents. If any is short, refuse, and say what's needed and what the player
    has. Nothing is taken.
 4. Only when every currency is covered: remove the required copies one at a time, confirm the
    full amount was collected, and destroy them.
@@ -141,8 +149,15 @@ The same checks as the old shops (`is_ok` in `shop.cpp`), reused as they are:
 Side-specific vendors therefore need no new setting.
 
 ### Messages
-Fixed built-in wording that names the items involved, e.g. "That costs 2 grey wolf hides. You
-have 1." No per-vendor message text. Every message is 78 columns or less.
+Fixed built-in wording; no per-vendor message text. Every message we write is 78 columns or
+less.
+- **The vendor speaks with the normal `say`**, heard by the room: refusals, closed, nothing to
+  sell, "Don't even think about it.", refusing gifts.
+- **Lines about the buyer's own inventory go only to the buyer**: shortfalls ("You need 2 x a
+  grey wolf hide and have 1."), carry limits, and the purchase summary ("You hand over 1 x a
+  leather belt, 2 x a grey wolf hide. You now have a hunter's belt.").
+- `say` refuses mobs with INT below 6, so a vendor needs INT 6 or more. This is warned at
+  boot, `/save` and `/implement` (see Builder warnings) rather than special-cased in `say`.
 
 ### Protection
 - **Attacks:** handled through the same hook as the old keeper (`SPECIAL_DAMAGE`,
@@ -166,12 +181,15 @@ as a setting.
 ## Builder warnings
 
 Reported like the other boot misconfiguration warnings (type + vnum + line, no prose):
-- **At boot and on editor save:** for each program-33 prototype, a missing or bad `store=`, a
-  bad `hours=`, each skipped price line, and unrecognised lines (to catch typos).
+- **At boot, `/save` and `/implement`:** for each program-33 prototype, a missing or bad
+  `store=`, a bad `hours=`, each skipped price line, unrecognised lines (to catch typos), and
+  INT below 6 ("vendor can't speak"). Comment lines are never warned about.
 - **At boot:** a program-33 mob that also has a hard-coded special procedure (`.shp` file or
   `ASSIGNMOB`) is warned, because that procedure overrides program 33
   (`interpre.cpp:1581`).
-- **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade.
+- **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade, and logs
+  a warning **every time** someone tries. A broken vendor in play should be noisy. There is
+  deliberately no setting to silence it; price-line warnings never fire during play anyway.
 
 ## Builder notes (documentation, not code)
 

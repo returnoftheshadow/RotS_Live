@@ -152,6 +152,7 @@ TEST(MobOptionFind, FindsBareKeyAndKeyValue)
     EXPECT_EQ(value, "12");
     EXPECT_FALSE(mob_option_find("storeroom=1\n\r", "store", &value));
     EXPECT_FALSE(mob_option_find(nullptr, "store", &value));
+    EXPECT_FALSE(mob_option_find("// conj\n\r", "// conj", &value)); // comments never match
 }
 
 TEST(MobOptionsStorable, RejectsTildeLeadingHashDollarAndOverLength)
@@ -236,7 +237,8 @@ Expected: build failure, `mob_options.h: No such file`.
 #include <vector>
 
 /* Mob options: a persisted multi-line text field for mob programs' settings
- * (one setting per line: "key", "key=value", or a keyword line like "price ..."). */
+ * (one setting per line: "key", "key=value", or a keyword line like "price ...").
+ * A line starting with // is a comment and is ignored. */
 
 constexpr int MOB_OPTIONS_MAX = 4000;
 
@@ -308,6 +310,8 @@ bool mob_option_find(const char* options, const char* key, std::string* value)
 {
     for (const std::string& raw : split_lines(options)) {
         std::string line = trim(raw);
+        if (line.compare(0, 2, "//") == 0) /* comment */
+            continue;
         size_t eq = line.find('=');
         std::string name = trim(eq == std::string::npos ? line : line.substr(0, eq));
         if (name != key)
@@ -557,6 +561,17 @@ TEST(VendorParse, CrLfAndBlankLinesAndDuplicateSettings)
     EXPECT_EQ(problem_texts(problems), std::vector<std::string> { "4: duplicate store - line ignored" });
 }
 
+TEST(VendorParse, CommentLinesAreSkippedAndNeverWarned)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options(
+        "// winter stock\n\rstore=1\n\r  // price 1 9999x1 (off for now)\n\rprice 2 3x1\n\r",
+        everything_exists(), &problems);
+    EXPECT_TRUE(problems.empty()) << ::testing::PrintToString(problem_texts(problems));
+    ASSERT_EQ(c.prices.size(), 1u);
+    EXPECT_EQ(c.prices[0].line, 4);
+}
+
 TEST(VendorHours, OpenWindows)
 {
     vendor_config c;
@@ -677,7 +692,7 @@ vendor_config parse_vendor_options(const char* text, const vendor_lookups& looku
     for (const std::string& raw : split_lines(text)) {
         ++line_no;
         std::string line = trim(raw);
-        if (line.empty())
+        if (line.empty() || line.compare(0, 2, "//") == 0) /* blank or comment */
             continue;
         std::vector<std::string> words = split_words(line);
 
@@ -1285,7 +1300,7 @@ struct waiting_type;
 int barter_vendor(struct char_data* host, struct char_data* ch, int cmd, char* arg, int callflag, struct waiting_type* wtl);
 void vendor_config_boot();                                  /* all program-33 prototypes */
 void vendor_config_rebuild(int mob_rnum, struct char_data* builder); /* parse + report + store, or erase */
-void vendor_config_check(const char* options, int mob_vnum, struct char_data* builder); /* report only */
+void vendor_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder); /* report only */
 const vendor_config* vendor_config_for(int mob_rnum);       /* nullptr if none */
 std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem); /* formatted warning */
 ```
@@ -1366,10 +1381,19 @@ std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem)
     return buf;
 }
 
-void vendor_config_check(const char* options, int mob_vnum, struct char_data* builder)
+/* do_say refuses mobs with INT < 6 ("too stupid to talk"), which would leave
+ * a vendor unable to answer. Warn the builder rather than special-case say. */
+void vendor_add_speech_problem(const char_data& proto, std::vector<vendor_problem>* problems)
+{
+    if (proto.abilities.intel < 6)
+        problems->push_back({ 0, "intelligence below 6 - vendor can't speak" });
+}
+
+void vendor_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder)
 {
     std::vector<vendor_problem> problems;
-    parse_vendor_options(options, game_lookups(), &problems);
+    parse_vendor_options(proto->specials.mob_options, game_lookups(), &problems);
+    vendor_add_speech_problem(*proto, &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_vnum, problem), builder);
 }
@@ -1382,6 +1406,7 @@ void vendor_config_rebuild(int mob_rnum, struct char_data* builder)
     }
     std::vector<vendor_problem> problems;
     g_vendor_configs[mob_rnum] = parse_vendor_options(mob_proto[mob_rnum].specials.mob_options, game_lookups(), &problems);
+    vendor_add_speech_problem(mob_proto[mob_rnum], &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_index[mob_rnum].virt, problem), builder);
 }
@@ -1411,6 +1436,10 @@ SPECIAL(barter_vendor)
     return FALSE; /* Task 6 fills this in */
 }
 ```
+
+  `vendor_add_speech_problem` must sit above `vendor_config_check`; put it inside the same
+  anonymous namespace as `vendor_send`. The editor copy stores INT in `abilities.intel`; confirm
+  with `grep -n "GET_INT" src/utils.h` and use the same field.
 
   Check the `index_data::func` type with `grep -n "func" src/structs.h | grep -i index`. If
   it's `special_func`, the cast compiles; otherwise cast to that type.
@@ -1449,7 +1478,7 @@ SPECIAL(barter_vendor)
     ```cpp
         if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
             && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR)
-            vendor_config_check(SHAPE_PROTO(ch)->proto->specials.mob_options, num, ch);
+            vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
     ```
 
     Find the calls with `grep -n "write_proto(" src/shapemob.cpp`, and use whatever vnum
@@ -1468,6 +1497,8 @@ Expected: PASS. Then run `scripts/rots-docker.sh compile`, which must link.
      - `MOB ERROR: mobile #<vnum>, options line 3: unknown setting - line ignored`
   4. The same lines reach the builder on `/implement` and on `/save`, and only once each for
      an imm who also gets mudlog.
+  5. Set the mob's INT to 5 and `/implement`: expect
+     `MOB ERROR: mobile #<vnum>: intelligence below 6 - vendor can't speak`.
 
 - [ ] **Step 9: Commit**
 
@@ -1503,38 +1534,41 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 2: Implement.** Replace the stub `SPECIAL(barter_vendor)` in
   `src/mob_progs/passive.cpp` with the code below, and add
   `extern struct room_data world; extern struct obj_data* obj_proto; extern struct index_data* obj_index; extern struct time_info_data time_info;`
-  near the other externs, and add `#include <cctype>` and `#include <cstring>` to the file's includes:
+  near the other externs, `ACMD(do_say);` after the includes, and add `#include <cctype>` and `#include <cstring>` to the file's includes:
 
 ```cpp
 namespace {
 
-void vendor_tell(struct char_data* vendor, struct char_data* ch, const char* text)
+/* The vendor speaks with the normal `say`, heard by the room, like any mob.
+ * (A vendor with INT < 6 can't; that's warned at boot/save/implement.)
+ * Messages about the buyer's own inventory go to the buyer with send_to_char. */
+void vendor_say(struct char_data* vendor, const char* text)
 {
-    char buf[MAX_STRING_LENGTH];
-    snprintf(buf, sizeof(buf), "$n tells you '%s'", text);
-    act(buf, FALSE, vendor, 0, ch, TO_VICT);
+    char buf[MAX_INPUT_LENGTH];
+    snprintf(buf, sizeof(buf), "%s", text);
+    do_say(vendor, buf, 0, 0, 0);
 }
 
 bool vendor_serves(struct char_data* vendor, struct char_data* ch, const vendor_config& config)
 {
     if (IS_AGGR_TO(vendor, ch)) {
-        vendor_tell(vendor, ch, "Go away, I won't deal with you!");
+        vendor_say(vendor, "Go away, I won't deal with you!");
         return false;
     }
     if (IS_SHADOW(ch)) {
-        vendor_tell(vendor, ch, "Ugh! I'm not serving you!");
+        vendor_say(vendor, "Ugh! I'm not serving you!");
         return false;
     }
     if (!RP_RACE_CHECK(vendor, ch)) {
-        vendor_tell(vendor, ch, "Sorry, I can't serve you!");
+        vendor_say(vendor, "Sorry, I can't serve you!");
         return false;
     }
     if (!CAN_SEE(vendor, ch)) {
-        vendor_tell(vendor, ch, "I don't trade with someone I can't see!");
+        vendor_say(vendor, "I don't trade with someone I can't see!");
         return false;
     }
     if (!vendor_is_open(config, time_info.hours)) {
-        vendor_tell(vendor, ch, "I'm closed. Come back later.");
+        vendor_say(vendor, "I'm closed. Come back later.");
         return false;
     }
     return true;
@@ -1591,7 +1625,7 @@ void vendor_list(struct char_data* vendor, struct char_data* ch, const vendor_co
 {
     std::vector<stock_row> stock = vendor_stock(ch, config);
     if (stock.empty()) {
-        vendor_tell(vendor, ch, "I have nothing to sell right now.");
+        vendor_say(vendor, "I have nothing to sell right now.");
         return;
     }
     std::vector<vendor_list_row> rows;
@@ -1609,7 +1643,7 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
     char want[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
     one_argument(arg, want);
     if (!*want) {
-        vendor_tell(vendor, ch, "What do you want to buy?");
+        vendor_say(vendor, "What do you want to buy?");
         return;
     }
     std::vector<stock_row> stock = vendor_stock(ch, config);
@@ -1626,7 +1660,7 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
             }
     }
     if (!pick) {
-        vendor_tell(vendor, ch, "I don't have that. Try 'list'.");
+        vendor_say(vendor, "I don't have that. Try 'list'.");
         return;
     }
     if (IS_CARRYING_N(ch) + 1 > CAN_CARRY_N(ch)) {
@@ -1706,7 +1740,7 @@ SPECIAL(barter_vendor)
         return FALSE;
 
     if (callflag == SPECIAL_DAMAGE) {
-        vendor_tell(host, ch, "Don't even think about it.");
+        vendor_say(host, "Don't even think about it.");
         return TRUE;
     }
     if (callflag != SPECIAL_COMMAND)
@@ -1717,7 +1751,7 @@ SPECIAL(barter_vendor)
     if (cmd == CMD_GIVE) {
         if (!arg || !give_targets(host, ch, arg))
             return FALSE;
-        vendor_tell(host, ch, "I don't take gifts.");
+        vendor_say(host, "I don't take gifts.");
         return TRUE;
     }
 
@@ -1726,7 +1760,7 @@ SPECIAL(barter_vendor)
         vendor_send(vendor_problem_line(host->nr >= 0 ? mob_index[host->nr].virt : -1,
                         { 0, "bad options - vendor disabled" }),
             nullptr);
-        vendor_tell(host, ch, "I'm not trading right now.");
+        vendor_say(host, "I'm not trading right now.");
         return TRUE;
     }
     if (!vendor_serves(host, ch, *config))
@@ -1747,8 +1781,8 @@ SPECIAL(barter_vendor)
   - `grep -n "read_object(" src/db.h`
   - `grep -n "extract_obj\|obj_from_char\|obj_from_room\|obj_to_char" src/handler.h`
 
-  Everything prints through `act`/`send_to_char` to the buyer; the vendor never uses
-  `do_say`/`do_tell`, since `do_say` refuses mobs with INT < 6.
+  The vendor's spoken lines go through `do_say` (heard by the room). Shortfall, carry-limit
+  and purchase lines go only to the buyer through `send_to_char`.
 
 - [ ] **Step 3: Build and run the unit tests**
 
@@ -1798,7 +1832,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   3. Shared store rooms and `deduct`.
   4. Builder notes: keep the store room unreachable; sold items add to world counts; don't
      put world limits on store-room lines; remove any `.shp` entry when converting.
-  5. The exact warning lines a builder may see (copy them from Task 2's tests).
+  5. The exact warning lines a builder may see (copy them from Task 2's tests, plus the
+     intelligence one from Task 5).
+  6. Comments: a line starting with `//` is ignored and never warned about.
+  7. The vendor speaks with `say`, so his INT must be 6 or more (warned otherwise).
 
   Copy wording from the spec sections "How builders set one up", "Vendor settings", "Shared
   store rooms" and "Builder notes"; don't invent new rules.
@@ -1857,6 +1894,9 @@ practical, and quit test characters at the end of every script. Record results i
   - `give <obj> <someone else>` in the same room still works.
 - [ ] **Step 5: Two vendors in one room** (Review Focus 4): `goto` vendor 2 into vendor 1's
   room. `list` gives exactly one list. Record which vendor answered.
+- [ ] **Step 5b: Comments and speech.** A `//` line in the options is ignored, with no
+  warning at `/implement`. The vendor's refusals and closed message are heard as `say` by
+  everyone in the room.
 - [ ] **Step 6: Bad config at use**
   - Implement a vendor with a bad `hours=`: `list` says "I'm not trading right now" and the
     log gets the `bad options - vendor disabled` line **each time**.
