@@ -110,7 +110,7 @@ struct attack_hit_type attack_hit_text[] = {
  */
 void appear(struct char_data* ch)
 {
-    if (affected_by_spell(ch, SPELL_SANCTUARY)) {
+    if (ch->affected.contains(SPELL_SANCTUARY)) {
         affect_from_char(ch, SPELL_SANCTUARY);
         send_to_char("Your sanctuary is ended!\n\r", ch);
     }
@@ -1168,7 +1168,7 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_pun
  */
 int check_death_ward(struct char_data* ch)
 {
-    if (affected_by_spell(ch, SPELL_DEATH_WARD) != NULL) {
+    if (ch->affected.contains(SPELL_DEATH_WARD)) {
         affect_from_char(ch, SPELL_DEATH_WARD);
         affect_total(ch);
 
@@ -2008,7 +2008,7 @@ int damage_credited(char_data* attacker, char_data* victim, char_data* credited_
      * 01/01/00: now we check that attack is not bash, else damage will
      * be absorbed and the bash message won't be given.
      */
-    if (affected_by_spell(victim, SPELL_SHIELD) && attacktype != SKILL_AMBUSH && attacktype != SKILL_BASH) {
+    if (victim->affected.contains(SPELL_SHIELD) && attacktype != SKILL_AMBUSH && attacktype != SKILL_BASH) {
         i = (dam * 2 + 4) / 5;
         aff = affected_by_spell(victim, SPELL_SHIELD);
 
@@ -2527,7 +2527,7 @@ int heavy_fighting_effect(char_data& attacker, int damage)
 
 bool is_frenzy_active(char_data& attacker)
 {
-    return utils::get_race(attacker) == RACE_OLOGHAI && utils::is_affected_by_spell(attacker, SKILL_FRENZY);
+    return utils::get_race(attacker) == RACE_OLOGHAI && attacker.affected.contains(SKILL_FRENZY);
 }
 
 int frenzy_effect(char_data& attacker, int damage)

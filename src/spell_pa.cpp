@@ -512,7 +512,7 @@ bool can_cast_spell(char_data& character, int spell_index, const skill_data& spe
                 of it at the moment :) */
 
     // These checks spells seem like they are very particular.  Going into and out of shadow form?
-    if (spell.min_usesmana == 55 && affected_by_spell(&character, SPELL_ANGER)) {
+    if (spell.min_usesmana == 55 && character.affected.contains(SPELL_ANGER)) {
         send_to_char("You are too angry to cast this now.\n\r", &character);
         return false;
     }

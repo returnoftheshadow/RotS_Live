@@ -3,8 +3,9 @@
 struct affected_type;
 
 // The head of one character's affect list, plus a count of the nodes unlinked from it, so a
-// caller holding a node pointer can tell whether that node may since have been freed. It does
-// not own, allocate or free nodes.
+// caller holding a node pointer can tell whether that node may since have been freed. It also
+// answers whether the list holds an affect of a given type. It does not own, allocate or free
+// nodes.
 //
 // The head can only be written through push_front() and unlink(): there is no construction or
 // assignment from affected_type*, so `ch->affected = node` does not compile. Two holes stay
@@ -34,6 +35,9 @@ class character_affect_list {
     bool unlink(affected_type* node);
     // How many nodes unlink() has removed from this list.
     long removal_count() const { return m_removal_count; }
+    // Whether an affect of `affect_type` is on the list. Like affected_by_spell(), it looks at
+    // only the first MAX_AFFECT nodes, so a node beyond them is not found.
+    bool contains(int affect_type) const;
 
   private:
     affected_type* m_head; // the newest affect; each node's `next` leads to the older ones

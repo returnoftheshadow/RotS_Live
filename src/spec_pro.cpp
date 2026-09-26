@@ -1421,12 +1421,12 @@ int choose_mystic_spell(char_data* caster, char_data* target)
          * and when below 1/3 of its hit points will start
          * casting regeneration spells.
          */
-        if (affected_by_spell(caster, SPELL_POISON)) {
+        if (caster->affected.contains(SPELL_POISON)) {
             return SPELL_REMOVE_POISON;
         } else if (caster->tmpabilities.hit < caster->abilities.hit / 3) {
-            if (!affected_by_spell(caster, SPELL_REGENERATION)) {
+            if (!caster->affected.contains(SPELL_REGENERATION)) {
                 return SPELL_REGENERATION;
-            } else if (!affected_by_spell(caster, SPELL_CURING)) {
+            } else if (!caster->affected.contains(SPELL_CURING)) {
                 return SPELL_CURING;
             }
         }
@@ -1807,7 +1807,7 @@ SPECIAL(mob_magic_user_spec)
     // conj: prioritize heal powers in non-combat
     if (!host->specials.fighting && has_alias(host, "conj")) {
         // handle regen
-        if (!utils::is_affected_by_spell(*host, SPELL_REGENERATION)) {
+        if (!host->affected.contains(SPELL_REGENERATION)) {
             target = host;
             tgt = TARGET_CHAR;
             spell_number = SPELL_REGENERATION;
@@ -1815,7 +1815,7 @@ SPECIAL(mob_magic_user_spec)
         }
 
         // handle curing sat
-        if (!utils::is_affected_by_spell(*host, SPELL_CURING) && spell_number == 0) {
+        if (!host->affected.contains(SPELL_CURING) && spell_number == 0) {
             target = host;
             tgt = TARGET_CHAR;
             spell_number = SPELL_CURING;
@@ -1826,7 +1826,7 @@ SPECIAL(mob_magic_user_spec)
     // handle other non-combat
     if (!host->specials.fighting && spell_number == 0) {
         // handle cure self
-        if ((current_health_pct <= .9 && !utils::is_affected_by_spell(*host, SPELL_SHIELD)) || (current_health_pct <= .9 && utils::is_affected_by_spell(*host, SPELL_SHIELD) && current_mana_pct >= .5)) {
+        if ((current_health_pct <= .9 && !host->affected.contains(SPELL_SHIELD)) || (current_health_pct <= .9 && host->affected.contains(SPELL_SHIELD) && current_mana_pct >= .5)) {
             target = host;
             tgt = TARGET_CHAR;
             spell_number = SPELL_CURE_SELF;
@@ -1837,7 +1837,7 @@ SPECIAL(mob_magic_user_spec)
     if (host->specials.fighting && host->interrupt_count == 3 && spell_number == 0) {
         // shield tact: we use a "super flash" to have an attempt to cast shield
         if (has_alias(host, "shield")) {
-            if (!utils::is_affected_by_spell(*host, SPELL_SHIELD) && GET_MANA(host) > 12) {
+            if (!host->affected.contains(SPELL_SHIELD) && GET_MANA(host) > 12) {
                 if (number(1, 100) > 50) {
                     for (tmpch = world[host->in_room].people; tmpch; tmpch = tmpch->next_in_room) {
                         if (tmpch->specials.fighting == host) {
@@ -1877,10 +1877,10 @@ SPECIAL(mob_magic_user_spec)
             if (has_alias(host, "conj")) {
                 if (number(1, 100) > 75) {
                     host->points.spirit = 100;
-                    if (!utils::is_affected_by_spell(*target, SPELL_CONFUSE)) {
+                    if (!target->affected.contains(SPELL_CONFUSE)) {
                         spell_number = SPELL_CONFUSE;
                     }
-                    if (!has_alias(host, "lumage") && !utils::is_affected_by_spell(*target, SPELL_POISON) && spell_number == 0) {
+                    if (!has_alias(host, "lumage") && !target->affected.contains(SPELL_POISON) && spell_number == 0) {
                         spell_number = SPELL_POISON;
                     }
                 }
@@ -3237,9 +3237,9 @@ SPECIAL(thuringwethil)
 
     GET_HIT(host) += 10;
     GET_HIT(host) = MIN(GET_HIT(host), GET_MAX_HIT(host));
-    if (affected_by_spell(host, SPELL_POISON))
+    if (host->affected.contains(SPELL_POISON))
         affect_from_char(host, SPELL_POISON);
-    if (affected_by_spell(host, SPELL_CONFUSE))
+    if (host->affected.contains(SPELL_CONFUSE))
         affect_from_char(host, SPELL_CONFUSE);
     if (GET_POS(host) != POSITION_FIGHTING && GET_POS(host) != POSITION_RESTING && GET_HIT(host) == GET_MAX_HIT(host)) {
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);

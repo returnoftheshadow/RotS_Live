@@ -30,3 +30,14 @@ bool character_affect_list::unlink(affected_type* node) {
     ++m_removal_count;
     return true;
 }
+
+bool character_affect_list::contains(int affect_type) const {
+    int visited = 0;
+    for (const affected_type* node = m_head; node != nullptr && visited < MAX_AFFECT;
+         node = node->next, ++visited) {
+        if (node->type == affect_type) {
+            return true;
+        }
+    }
+    return false;
+}

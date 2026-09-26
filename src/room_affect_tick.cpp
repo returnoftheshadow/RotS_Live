@@ -125,7 +125,7 @@ void haze_tick(const caster_snapshot& who, char_data* occupant)
     const int level = illusion_caster_level(who);
 
     const int my_duration = number(0, 1);
-    if (!affected_by_spell(occupant, SPELL_HAZE) && !saves_mystic(occupant)) {
+    if (!occupant->affected.contains(SPELL_HAZE) && !saves_mystic(occupant)) {
         affected_type haze_affect = haze_victim_affect(level, my_duration);
         affect_to_char(occupant, &haze_affect);
         act("You feel dizzy as your surroundings seem to blur and twist.\n\r",

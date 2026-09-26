@@ -325,7 +325,7 @@ float move_gain(const char_data* character)
 
     if (is_npc(*character)) {
         // Tames get double move regen (have to be animals).
-        if (affected_by_spell(const_cast<char_data*>(character), SKILL_TAME)) {
+        if (character->affected.contains(SKILL_TAME)) {
             gain *= 2.0;
             char_data* master = character->master;
             if (master && get_specialization(*master) == PLRSPEC_PETS) {
@@ -355,7 +355,7 @@ float move_gain(const char_data* character)
             gain *= 0.25;
         }
 
-        if (affected_by_spell(character, SKILL_MARK)) {
+        if (character->affected.contains(SKILL_MARK)) {
             gain *= 0.25;
         }
 
@@ -750,7 +750,7 @@ void point_update(void)
 
             // A poison flag with no poison affect behind it, set by worn gear or by a mob
             // prototype flagged poisoned, hurts on this tick.
-            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
+            if (!i->affected.contains(SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
                 deal_poison_tick_damage(i);
             }
             //        if (GET_POS(i) == POSITION_STUNNED)

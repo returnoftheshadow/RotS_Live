@@ -246,7 +246,7 @@ poison_resistance_outcome start_poison_resistance(char_data* victim, int cleric_
     if (poison == nullptr) {
         return poison_resistance_outcome::not_poisoned;
     }
-    if (affected_by_spell(victim, SPELL_RESIST_POISON) != nullptr) {
+    if (victim->affected.contains(SPELL_RESIST_POISON)) {
         return poison_resistance_outcome::already_resisting;
     }
 

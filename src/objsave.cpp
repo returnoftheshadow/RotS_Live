@@ -899,7 +899,7 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
         fol_elem.exp = k->follower->points.exp;
         if (MOB_FLAGGED(k->follower, MOB_ORC_FRIEND))
             fol_elem.flag_config = FOL_ORC_FRIEND;
-        else if (affected_by_spell(k->follower, SKILL_TAME))
+        else if (k->follower->affected.contains(SKILL_TAME))
             fol_elem.flag_config = FOL_TAMED;
         else if (MOB_FLAGGED(k->follower, MOB_PET))
             fol_elem.flag_config = FOL_GUARDIAN;
@@ -1661,7 +1661,7 @@ int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
         return (TRUE);
     }
 
-    if (affected_by_spell(ch, SPELL_ANGER)) {
+    if (ch->affected.contains(SPELL_ANGER)) {
         if ((GET_RACE(recep) == 11) || (GET_RACE(recep) == 13))
             act("$n tells you, 'Wait until the blood dries, snaga, or you'll join your kill tonight.'",
                 FALSE, recep, 0, ch, TO_VICT);
@@ -1856,7 +1856,7 @@ ACMD(do_rent)
         return;
     }
 
-    if (affected_by_spell(ch, SPELL_ANGER)) {
+    if (ch->affected.contains(SPELL_ANGER)) {
         send_to_char("You're too angry.\n\r", ch);
         return;
     }

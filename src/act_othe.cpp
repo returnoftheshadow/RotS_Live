@@ -82,7 +82,7 @@ ACMD(do_quit)
         return;
     }
 
-    if (affected_by_spell(ch, SPELL_ANGER) && GET_LEVEL(ch) < LEVEL_IMMORT) {
+    if (ch->affected.contains(SPELL_ANGER) && GET_LEVEL(ch) < LEVEL_IMMORT) {
         send_to_char("You may not quit yet.\n\r", ch);
         return;
     }
@@ -1388,7 +1388,7 @@ ACMD(do_tactics)
     char* s;
     int tmp, len;
 
-    if (utils::is_affected_by_spell(*ch, SKILL_FRENZY) && utils::get_race(*ch) == RACE_OLOGHAI) {
+    if (ch->affected.contains(SKILL_FRENZY) && utils::get_race(*ch) == RACE_OLOGHAI) {
         send_to_char("The rage inside you won't let you cool down!\r\n", ch);
         return;
     }

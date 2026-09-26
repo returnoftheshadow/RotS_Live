@@ -474,7 +474,7 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         //       Then we override the underlying value with our minimum perception logic and expose that to the rest of the game.
         ch->specials2.rawPerception += mod;
 
-        if (affected_by_spell(ch, SPELL_INSIGHT)) {
+        if (ch->affected.contains(SPELL_INSIGHT)) {
             int minimumRacePerception = utils::get_minimum_insight_perception(*ch);
 
             ch->specials2.perception = std::max(ch->specials2.rawPerception, minimumRacePerception);
@@ -1091,11 +1091,11 @@ void stop_follower(struct char_data* ch, int mode)
             act("You realize that $N is a jerk!", FALSE, ch, 0, ch->master, TO_CHAR);
             act("$n realizes that $N is a jerk!", FALSE, ch, 0, ch->master, TO_NOTVICT);
             act("$n hates your guts!", FALSE, ch, 0, ch->master, TO_VICT);
-            if (affected_by_spell(ch, SKILL_TAME)) {
+            if (ch->affected.contains(SKILL_TAME)) {
                 affect_from_char(ch, SKILL_TAME);
                 GET_MAX_MOVE(ch) -= 50; // move bonus for being tamed
             }
-            if (affected_by_spell(ch, SKILL_RECRUIT)) {
+            if (ch->affected.contains(SKILL_RECRUIT)) {
                 affect_from_char(ch, SKILL_RECRUIT);
             }
             REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);
@@ -1122,7 +1122,7 @@ void stop_follower(struct char_data* ch, int mode)
         }
 
         ch->master = 0;
-        if (affected_by_spell(ch, SKILL_TAME))
+        if (ch->affected.contains(SKILL_TAME))
             affect_from_char(ch, SKILL_TAME);
 
         REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);

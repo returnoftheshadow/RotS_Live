@@ -153,7 +153,7 @@ ASPELL(spell_curse)
         return;
     }
 
-    if (affected_by_spell(caster, SPELL_MIND_BLOCK)) {
+    if (caster->affected.contains(SPELL_MIND_BLOCK)) {
         act("You cannot curse with a blocked mind.", FALSE, caster, 0, victim, TO_CHAR);
         return;
     }
@@ -322,7 +322,7 @@ ASPELL(spell_mind_block)
         send_to_char("You can only protect your own mind.\n\r", caster);
         return;
     }
-    if (affected_by_spell(caster, SPELL_MIND_BLOCK)) {
+    if (caster->affected.contains(SPELL_MIND_BLOCK)) {
         send_to_char("Your mind is protected already.\n\r", caster);
         return;
     }
@@ -374,7 +374,7 @@ ASPELL(spell_insight)
         }
     }
 
-    if (!affected_by_spell(victim, SPELL_INSIGHT)) {
+    if (!victim->affected.contains(SPELL_INSIGHT)) {
         af.type = SPELL_INSIGHT;
         af.duration = my_duration;
         af.modifier = 50;
@@ -419,7 +419,7 @@ ASPELL(spell_pragmatism)
         }
     }
 
-    if (!affected_by_spell(victim, SPELL_PRAGMATISM)) {
+    if (!victim->affected.contains(SPELL_PRAGMATISM)) {
         af.type = SPELL_PRAGMATISM;
         af.duration = 10 + level;
         if (GET_RACE(victim) != RACE_WOOD)
@@ -473,7 +473,7 @@ ASPELL(spell_detect_hidden)
     else
         my_duration = 3 * loc_level;
 
-    if (!affected_by_spell(victim, SPELL_DETECT_HIDDEN)) {
+    if (!victim->affected.contains(SPELL_DETECT_HIDDEN)) {
         send_to_char("You feel your awareness improve.\n\r", victim);
 
         af.type = SPELL_DETECT_HIDDEN;
@@ -492,7 +492,7 @@ ASPELL(spell_detect_magic)
     if (!victim)
         victim = caster;
 
-    if (affected_by_spell(victim, SPELL_DETECT_MAGIC)) {
+    if (victim->affected.contains(SPELL_DETECT_MAGIC)) {
         if (victim == caster)
             send_to_char("You already can sense magic.\n\r", caster);
         else
@@ -536,7 +536,7 @@ ASPELL(spell_evasion)
     else
         my_duration = 12 + loc_level;
 
-    if (!affected_by_spell(victim, SPELL_ARMOR)) {
+    if (!victim->affected.contains(SPELL_ARMOR)) {
         af.type = SPELL_ARMOR;
         af.duration = my_duration;
         af.modifier = loc_level;
@@ -609,7 +609,7 @@ ASPELL(spell_slow_digestion)
     else
         loc_level = level;
 
-    if (!affected_by_spell(victim, SPELL_SLOW_DIGESTION)) {
+    if (!victim->affected.contains(SPELL_SLOW_DIGESTION)) {
         af.type = SPELL_SLOW_DIGESTION;
         af.duration = loc_level + 12;
         af.modifier = loc_level;
@@ -710,7 +710,7 @@ ASPELL(spell_infravision)
     if (!victim)
         victim = caster;
 
-    if (affected_by_spell(victim, SPELL_INFRAVISION)) {
+    if (victim->affected.contains(SPELL_INFRAVISION)) {
         if (victim == caster)
             send_to_char("You already can see in the dark.\n\r", caster);
         else
@@ -788,7 +788,7 @@ ASPELL(spell_curing)
         healing_level += 6;
     }
 
-    if (!affected_by_spell(victim, SPELL_CURING)) {
+    if (!victim->affected.contains(SPELL_CURING)) {
         affected_type effect;
         effect.type = SPELL_CURING;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
@@ -824,7 +824,7 @@ ASPELL(spell_restlessness)
         healing_level += 6;
     }
 
-    if (!affected_by_spell(victim, SPELL_RESTLESSNESS)) {
+    if (!victim->affected.contains(SPELL_RESTLESSNESS)) {
         affected_type effect;
         effect.type = SPELL_RESTLESSNESS;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
@@ -1064,7 +1064,7 @@ ASPELL(spell_hallucinate)
 
     int level = get_mystic_caster_level(caster_at_cast);
     loc_level = level;
-    if (affected_by_spell(victim, SPELL_HALLUCINATE))
+    if (victim->affected.contains(SPELL_HALLUCINATE))
         send_to_char("They are already hallucinating!\n\r", caster);
 
     /*
@@ -1082,7 +1082,7 @@ ASPELL(spell_hallucinate)
         + ((GET_SPEC(caster) == PLRSPEC_ILLU) ? 1 : 0);
     my_duration = modifier * 4;
 
-    if (!affected_by_spell(victim, SPELL_HALLUCINATE) && (is_object || !saves_confuse(victim, caster))) {
+    if (!victim->affected.contains(SPELL_HALLUCINATE) && (is_object || !saves_confuse(victim, caster))) {
         af.type = SPELL_HALLUCINATE;
         af.duration = my_duration;
         af.modifier = modifier;
@@ -1171,7 +1171,7 @@ ASPELL(spell_haze)
     else
         my_duration = number(0, 1);
 
-    if (!affected_by_spell(victim, SPELL_HAZE) && (is_object || !saves_mystic(victim))) {
+    if (!victim->affected.contains(SPELL_HAZE) && (is_object || !saves_mystic(victim))) {
         af = haze_victim_affect(loc_level, my_duration);
 
         affect_to_char(victim, &af);
@@ -1205,7 +1205,7 @@ ASPELL(spell_fear)
     }
 
     const int level = illusion_caster_level(caster_at_cast);
-    if (!affected_by_spell(victim, SPELL_FEAR) && !saves_mystic(victim) && !saves_leadership(victim)) {
+    if (!victim->affected.contains(SPELL_FEAR) && !saves_mystic(victim) && !saves_leadership(victim)) {
         af.type = SPELL_FEAR;
         af.duration = level;
         af.modifier = level + 10;
@@ -1315,7 +1315,7 @@ ASPELL(spell_terror)
         level += 6;
     }
     for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch->next_in_room) {
-        if ((tmpch != caster) && !affected_by_spell(tmpch, SPELL_FEAR)) {
+        if ((tmpch != caster) && !tmpch->affected.contains(SPELL_FEAR)) {
             if (!saves_mystic(tmpch) && !saves_leadership(tmpch)) {
                 af.type = SPELL_FEAR;
                 af.duration = level;
@@ -1369,13 +1369,13 @@ ASPELL(spell_sanctuary)
     if (!victim)
         return;
 
-    if (affected_by_spell(caster, SPELL_ANGER)) {
+    if (caster->affected.contains(SPELL_ANGER)) {
         send_to_char("Your mind is blinded by anger. "
                      "Try again when you have cooled down.\n\r",
             caster);
         return;
     }
-    if (affected_by_spell(victim, SPELL_ANGER)) {
+    if (victim->affected.contains(SPELL_ANGER)) {
         send_to_char("Your victim's negative energy resists your"
                      " attempts to form your spell.\r\n",
             caster);
@@ -1387,7 +1387,7 @@ ASPELL(spell_sanctuary)
     else
         loc_level = (std::max(6, GET_PROF_LEVEL(PROF_CLERIC, victim)));
 
-    if (!affected_by_spell(victim, SPELL_SANCTUARY)) {
+    if (!victim->affected.contains(SPELL_SANCTUARY)) {
         af.type = SPELL_SANCTUARY;
         af.duration = loc_level;
         af.modifier = GET_ALIGNMENT(caster);
@@ -1449,7 +1449,7 @@ ASPELL(spell_death_ward)
     }
 
     int level = get_mystic_caster_level(caster_at_cast);
-    if (!affected_by_spell(victim, SPELL_DEATH_WARD)) {
+    if (!victim->affected.contains(SPELL_DEATH_WARD)) {
         af.type = SPELL_DEATH_WARD;
         af.duration = (is_object) ? -1 : level * 2;
         af.modifier = level / 2;
@@ -1498,7 +1498,7 @@ ASPELL(spell_confuse)
 
     modifier = 1;
 
-    if (!affected_by_spell(victim, SPELL_CONFUSE) && (is_object || !saves_confuse(victim, caster))) {
+    if (!victim->affected.contains(SPELL_CONFUSE) && (is_object || !saves_confuse(victim, caster))) {
         af.type = SPELL_CONFUSE;
         af.duration = my_duration;
         af.modifier = modifier;
@@ -1723,9 +1723,9 @@ ASPELL(spell_shift)
         SET_BIT(PLR_FLAGS(victim), PLR_ISSHADOW);
         if (IS_RIDING(victim))
             stop_riding(victim);
-        if (affected_by_spell(victim, SPELL_MIND_BLOCK))
+        if (victim->affected.contains(SPELL_MIND_BLOCK))
             affect_from_char(victim, SPELL_MIND_BLOCK);
-        if (affected_by_spell(victim, SPELL_SANCTUARY))
+        if (victim->affected.contains(SPELL_SANCTUARY))
             affect_from_char(victim, SPELL_SANCTUARY);
         for (tmpfol = victim->followers; tmpfol; tmpfol = victim->followers)
             stop_follower(tmpfol->follower, FOLLOW_MOVE);
@@ -1773,7 +1773,7 @@ ASPELL(spell_protection)
         return;
     }
 
-    if (affected_by_spell(loc_victim, SPELL_PROTECTION, 0)) {
+    if (loc_victim->affected.contains(SPELL_PROTECTION)) {
         if (loc_victim == caster)
             send_to_char("You have protection already.\n\r", caster);
         else
@@ -1857,7 +1857,7 @@ ASPELL(spell_protection)
 void do_renounce(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command)
 {
 
-    if (utils::is_affected_by_spell(*character, SPELL_SANCTUARY)) {
+    if (character->affected.contains(SPELL_SANCTUARY)) {
         send_to_char("You renounce your sanctuary!\n\r", character);
         act("$n renounces $s sanctuary!", FALSE, character, nullptr, nullptr, TO_ROOM);
         affect_from_char(character, SPELL_SANCTUARY);

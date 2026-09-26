@@ -678,7 +678,7 @@ ASPELL(spell_shield)
 {
     if (!victim)
         victim = caster;
-    if (affected_by_spell(victim, SPELL_SHIELD)) {
+    if (victim->affected.contains(SPELL_SHIELD)) {
         send_to_char("You are already protected by a magical shield.\n\r", caster);
         return;
     }
@@ -1069,7 +1069,7 @@ ASPELL(spell_relocate)
      * otherwise if the player's specialization is teleportation,
      * add a zone.
      */
-    if (affected_by_spell(caster, SPELL_ANGER))
+    if (caster->affected.contains(SPELL_ANGER))
         dist -= 2;
     else if (GET_SPEC(caster) == PLRSPEC_TELE)
         dist += 1;
@@ -1205,7 +1205,7 @@ ASPELL(spell_relocate)
         msdp_room_update(caster);
 
         /* Apply confuse and haze */
-        if (!affected_by_spell(caster, SPELL_CONFUSE)) {
+        if (!caster->affected.contains(SPELL_CONFUSE)) {
             af.type = SPELL_CONFUSE;
             af.duration = 40; /* level 30 confuse */
             af.modifier = 1; /* modifier doesn't matter */
@@ -1219,7 +1219,7 @@ ASPELL(spell_relocate)
             act("$n appears to be confused!", FALSE, caster, 0, 0, TO_ROOM);
         }
 
-        if (!affected_by_spell(caster, SPELL_HAZE)) {
+        if (!caster->affected.contains(SPELL_HAZE)) {
             af.type = SPELL_HAZE;
             af.duration = 1; /* 1 tick */
             af.modifier = 1; /* modifier doesn't matter */
@@ -1272,7 +1272,7 @@ ASPELL(spell_beacon)
             return;
         }
 
-        if (affected_by_spell(caster, SPELL_BEACON)) {
+        if (caster->affected.contains(SPELL_BEACON)) {
             send_to_char("You reset your beacon here.\n\r", caster);
             affect_from_char(caster, SPELL_BEACON);
         } else {
@@ -1333,7 +1333,7 @@ ASPELL(spell_beacon)
         }
     }
     if (mode == 3) {
-        if (affected_by_spell(caster, SPELL_BEACON)) {
+        if (caster->affected.contains(SPELL_BEACON)) {
             send_to_char("You release your beacon.\n\r", caster);
             affect_from_char(caster, SPELL_BEACON);
         } else {

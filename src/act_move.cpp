@@ -416,7 +416,7 @@ int perform_move_mount(struct char_data* ch, int dir)
         world[ch->in_room].room_track[tmp].condition = 0;
     }
 
-    if (utils::is_affected_by_spell(*ch, SKILL_MARK)) {
+    if (ch->affected.contains(SKILL_MARK)) {
         set_blood_trail(ch, dir);
     }
 
@@ -874,7 +874,7 @@ ACMD(do_move)
                 }
             }
 
-            if (utils::is_affected_by_spell(*ch, SKILL_MARK)) {
+            if (ch->affected.contains(SKILL_MARK)) {
                 set_blood_trail(ch, cmd);
             }
 
@@ -1908,7 +1908,7 @@ ACMD(do_lead)
         return;
     }
 
-    if (affected_by_spell(mount, SKILL_CALM)) {
+    if (mount->affected.contains(SKILL_CALM)) {
         if (!is_strong_enough_to_tame(ch, mount, false)) {
             send_to_char("Your skill with animals is insufficient to lead that beast.\r\n", ch);
             return;

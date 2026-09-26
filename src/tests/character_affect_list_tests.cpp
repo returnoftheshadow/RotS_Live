@@ -1,7 +1,10 @@
 // character_affect_list on stack nodes: push_front() order and links, unlink() from every position
-// and its removal count, the refusals that change nothing, a node far past MAX_AFFECT, and the
-// compile-time rules that keep the type trivial and its head unassignable.
+// and its removal count, the refusals that change nothing, a node far past MAX_AFFECT, contains()
+// and its MAX_AFFECT bound, and the compile-time rules that keep the type trivial and its head
+// unassignable.
 #include "../character_affect_list.h"
+#include "../handler.h"
+#include "../spells.h"
 #include "../structs.h"
 
 #include <array>
@@ -48,6 +51,21 @@ struct three_node_list {
         list.push_front(&nodes[2]);
         list.push_front(&nodes[1]);
         list.push_front(&nodes[0]);
+    }
+};
+
+// A character whose list holds `filler_count` nodes of type 0 ahead of one SPELL_POISON node.
+template <std::size_t filler_count> struct poison_behind_fillers {
+    affected_type poison{};                            // the wanted node, oldest on the list
+    std::array<affected_type, filler_count> fillers{}; // pushed after the poison, so ahead of it
+    char_data character{}; // holds the list, so affected_by_spell() can read it
+
+    poison_behind_fillers() {
+        poison.type = SPELL_POISON;
+        character.affected.push_front(&poison);
+        for (affected_type& filler : fillers) {
+            character.affected.push_front(&filler);
+        }
     }
 };
 
@@ -164,4 +182,45 @@ TEST(CharacterAffectList, UnlinksANodeFarPastMaxAffect) {
     EXPECT_EQ(remaining.size(), fillers.size());
     EXPECT_EQ(fillers.front().next, nullptr) << "the oldest filler is now the tail";
     EXPECT_EQ(list.removal_count(), 1);
+}
+
+TEST(CharacterAffectList, EmptyListContainsNothing) {
+    character_affect_list list{};
+
+    EXPECT_FALSE(list.contains(0));
+    EXPECT_FALSE(list.contains(SPELL_POISON));
+}
+
+TEST(CharacterAffectList, ContainsHeldTypesOnly) {
+    three_node_list fixture;
+    fixture.nodes[0].type = SPELL_ARMOR;
+    fixture.nodes[1].type = SPELL_POISON;
+    fixture.nodes[2].type = SPELL_HAZE;
+
+    EXPECT_TRUE(fixture.list.contains(SPELL_POISON)) << "a type behind the head is found";
+    EXPECT_TRUE(fixture.list.contains(SPELL_HAZE));
+    EXPECT_FALSE(fixture.list.contains(SPELL_CURING));
+}
+
+TEST(CharacterAffectList, ContainsFindsANodeAtPositionMaxAffect) {
+    poison_behind_fillers<MAX_AFFECT - 1> fixture;
+
+    EXPECT_TRUE(fixture.character.affected.contains(SPELL_POISON));
+    EXPECT_EQ(affected_by_spell(&fixture.character, SPELL_POISON), &fixture.poison);
+}
+
+TEST(CharacterAffectList, ContainsStopsAfterMaxAffectNodesLikeAffectedBySpell) {
+    poison_behind_fillers<MAX_AFFECT> fixture;
+
+    EXPECT_FALSE(fixture.character.affected.contains(SPELL_POISON));
+    EXPECT_EQ(affected_by_spell(&fixture.character, SPELL_POISON), nullptr);
+}
+
+TEST(CharacterAffectList, ContainsWorksOnAConstList) {
+    three_node_list fixture;
+    fixture.nodes[2].type = SPELL_POISON;
+    const character_affect_list& const_list = fixture.list;
+
+    EXPECT_TRUE(const_list.contains(SPELL_POISON));
+    EXPECT_FALSE(const_list.contains(SPELL_HAZE));
 }

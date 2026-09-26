@@ -128,7 +128,7 @@ ACMD(do_ride)
             return;
         }
 
-        if (IS_AGGR_TO(potential_mount, ch) && !affected_by_spell(potential_mount, SKILL_CALM)) {
+        if (IS_AGGR_TO(potential_mount, ch) && !potential_mount->affected.contains(SKILL_CALM)) {
             act("$N doesn't want you to ride $M.", FALSE, ch, 0, potential_mount, TO_CHAR);
             return;
         }
@@ -143,7 +143,7 @@ ACMD(do_ride)
             return;
         }
 
-        if (affected_by_spell(potential_mount, SKILL_CALM)) {
+        if (potential_mount->affected.contains(SKILL_CALM)) {
             if (IS_NPC(ch) && MOB_FLAGGED(ch, MOB_ORC_FRIEND) && ch->master) {
                 if (!is_strong_enough_to_tame(ch->master, potential_mount, false)) {
                     send_to_char("Your skill with animals is insufficient to ride that beast.\r\n",
@@ -310,7 +310,7 @@ int check_gather_conditions(struct char_data* ch, int percent, int gather_type)
         send_to_char("You can gather food, healing, energy, bows, arrows, or light.\n\r", ch);
         return FALSE;
     }
-    if (affected_by_spell(ch, SKILL_GATHER_FOOD) && (gather_type > 2 && gather_type < 5)) {
+    if (ch->affected.contains(SKILL_GATHER_FOOD) && (gather_type > 2 && gather_type < 5)) {
         send_to_char("You would gain no benefit from this right now.\n\r", ch);
         return FALSE;
     }
@@ -1410,7 +1410,7 @@ ACMD(do_calm)
             return;
         }
         if (calm_skill > number(0, 150)) { /* success */
-            if (!affected_by_spell(victim, SKILL_CALM)) {
+            if (!victim->affected.contains(SKILL_CALM)) {
                 act("$n seems calmed.", FALSE, victim, 0, 0, TO_ROOM);
                 af.type = SKILL_CALM;
                 af.duration = -1;
@@ -1448,7 +1448,7 @@ bool is_strong_enough_to_tame(char_data* tamer, char_data* animal, bool include_
         levels_over_required - get_followers_level(tamer);
     }
 
-    if (affected_by_spell(animal, SKILL_CALM))
+    if (animal->affected.contains(SKILL_CALM))
         levels_over_required += 1;
 
     if (GET_SPEC(tamer) == PLRSPEC_PETS)
@@ -1508,7 +1508,7 @@ ACMD(do_tame)
     double skill_total = ranger_level + divided_tame_skill;
     levels_over_required = (int)skill_total - GET_LEVEL(victim) - get_followers_level(ch);
 
-    if (affected_by_spell(victim, SKILL_CALM))
+    if (victim->affected.contains(SKILL_CALM))
         levels_over_required += 1;
 
     if (GET_SPEC(ch) == PLRSPEC_PETS)
@@ -2963,7 +2963,7 @@ void on_mark_hit(char_data* marker, char_data* victim)
 {
     struct affected_type af;
     int damage_dealt = mark_calculate_damage(marker, victim);
-    if (!utils::is_affected_by_spell(*victim, SKILL_MARK)) {
+    if (!victim->affected.contains(SKILL_MARK)) {
         af.type = SKILL_MARK;
         af.duration = mark_calculate_duration(marker);
         af.modifier = 1;
@@ -3568,7 +3568,7 @@ ACMD(do_bendtime)
         return;
     }
 
-    if (affected_by_spell(ch, SKILL_BEND_TIME)) {
+    if (ch->affected.contains(SKILL_BEND_TIME)) {
         send_to_char("You are already affected by bend time.\r\n", ch);
         return;
     }
