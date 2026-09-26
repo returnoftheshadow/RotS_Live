@@ -9,6 +9,7 @@
 #include "../poison_origin.h"
 #include "../spells.h"
 #include "../structs.h"
+#include "../utils.h"
 #include "test_affect_support.h"
 #include "test_character_support.h"
 
@@ -58,6 +59,21 @@ TEST(PoisonOrigin, ResolveRejectsAPoisonerParkedOutsideAnyRoom) {
 
     poisoner.in_room = kPoisonerRoom;
     EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "back in a room, it resolves again";
+}
+
+// A poisoner whose link dropped has no descriptor, but its body still stands in its room: it is
+// in the game, so it is still credited for the poison.
+TEST(PoisonOrigin, ResolveAcceptsALinkDeadPoisonerStillStandingInARoom) {
+    char_data poisoner{};
+    poisoner.in_room = kPoisonerRoom;
+    poisoner.desc = nullptr;
+    ASSERT_FALSE(IS_NPC(&poisoner)) << "precondition: the poisoner is a player";
+    ScopedCharExists poisoner_exists{poisoner, kPoisonerSlot};
+
+    char_data victim{};
+    record_poison_origin(&victim, &poisoner);
+
+    EXPECT_EQ(resolve_poisoner(victim), &poisoner) << "a link-dead body in a room is in the game";
 }
 
 TEST(PoisonOrigin, ResolveReturnsNullptrAfterThePoisonerIsExtracted) {

@@ -1,3 +1,5 @@
+#include "../big_brother.h"
+#include "../character_identity.h"
 #include "../db.h"
 #include "../handler.h"
 #include "../poison.h"
@@ -5,9 +7,16 @@
 #include "../spells.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "scoped_character_list.h"
+#include "scoped_combat_list.h"
+#include "scoped_flee_world.h"
 #include "scoped_mob_index.h"
+#include "scoped_player_death_sandbox.h"
+#include "scoped_room_occupants.h"
+#include "scoped_waiting_list.h"
 #include "test_character_support.h"
 #include "test_descriptor_support.h"
+#include "test_flee_support.h"
 #include "test_random_utils.h"
 #include "test_spell_support.h"
 #include "test_world_support.h"
@@ -41,6 +50,7 @@ extern struct obj_data* object_list;
 extern struct char_data* combat_list;
 extern struct char_data* combat_next_dude;
 extern short spllog_save;
+extern struct weather_data weather_info;
 
 namespace {
 
@@ -1188,6 +1198,86 @@ TEST_F(MageProcTest, FireballWithoutAFumbleStillDamagesTheVictimAndKeepsTheCaste
     character_list = nullptr;
     remove_char_exists(caster->abs_number);
     free_char(caster);
+}
+
+namespace {
+
+// Rooms for the player self-fumble pin, beside xp_formula_tests.cpp's 1010 and below the 1024
+// rooms gtest_main.cpp allocates: the caster casts in the first, and its race's mortal start
+// room is the second, where its death respawns it.
+constexpr int kPlayerFumbleCastRoom = 1011;
+constexpr int kPlayerFumbleStartRoom = 1012;
+
+} // namespace
+
+// A player caster's fumble kills it, but a player is not freed: raw_kill() respawns it in its
+// race's start room. The self-hit is the fireball's last act, so the splash lands in the room
+// the fireball was cast in; a self-hit delivered first would have moved the caster, and the
+// splash would have burned whoever stood in the start room.
+TEST_F(MageProcTest, APlayersLethalSelfFumbleSplashesTheCastRoomNotTheStartRoom) {
+    test_support::ScopedMobIndex prototype_table;
+    test_support::ScopedCombatList combat_list_guard;
+    test_support::ScopedWaitingList waiting_list_guard;
+    game_rules::big_brother::create(weather_info, &world);
+    test_support::ScopedFleeWorld rooms(kPlayerFumbleCastRoom, kPlayerFumbleStartRoom, EAST);
+    test_support::ScopedPlayerDeathSandbox sandbox(RACE_ORC, kPlayerFumbleStartRoom);
+
+    descriptor_data descriptor{};
+    char_data *const caster = test_support::make_linked_test_player(descriptor, "Scorch");
+    caster->player.race = RACE_ORC; // only an orc fumbles
+    caster->profs->prof_level[PROF_MAGE] = 30;
+    caster->tmpabilities.intel = 20;
+    caster->tmpabilities.hit = 1;
+    caster->tmpabilities.con = 2; // dies at 1 hit point below 0: any fumbled hit is lethal
+    // Loading a player resets its damage report, which constructs the calloc'd map inside it;
+    // damage() records into that map for a player attacker.
+    caster->damage_details.reset();
+    const character_identity caster_identity = character_identity::capture(*caster);
+
+    char target_name[] = "a testing fireball target";
+    char_data *const target = test_support::make_registered_test_npc(target_name);
+    const character_identity target_identity = character_identity::capture(*target);
+    char bystander_name[] = "a testing cast-room bystander";
+    char_data *const bystander = test_support::make_registered_test_npc(bystander_name);
+    const character_identity bystander_identity = character_identity::capture(*bystander);
+    char start_room_name[] = "a testing start-room bystander";
+    char_data *const start_room_bystander = test_support::make_registered_test_npc(start_room_name);
+    const character_identity start_room_identity = character_identity::capture(*start_room_bystander);
+
+    test_support::ScopedCharacterList characters({caster, target, bystander, start_room_bystander});
+    test_support::ScopedRoomOccupants cast_room_occupants(kPlayerFumbleCastRoom, {bystander, target, caster});
+    test_support::ScopedRoomOccupants start_room_occupants(kPlayerFumbleStartRoom, {start_room_bystander});
+
+    queue_fireball_rolls(kForceFumbleRoll);
+    test_support::cast_spell(spell_fireball, caster, nullptr, 0, target, nullptr, 0, 0);
+    clear_test_random_values();
+
+    // Everyone is read back through its identity: a character the cast freed must not be read.
+    const char_data *const respawned = caster_identity.resolve();
+    EXPECT_EQ(respawned, caster) << "a connected player respawns and keeps its registration";
+    if (respawned != nullptr) {
+        EXPECT_EQ(respawned->in_room, kPlayerFumbleStartRoom) << "precondition: the fumbled self-hit killed the caster";
+    }
+    const char_data *const splashed_target = target_identity.resolve();
+    ASSERT_NE(splashed_target, nullptr) << "a splash never kills a 100-hit-point bystander";
+    EXPECT_LT(splashed_target->tmpabilities.hit, test_support::kFleeTestHitPoints)
+        << "the fumble makes the named target a bystander, and the splash reaches it in the cast room";
+    const char_data *const splashed_bystander = bystander_identity.resolve();
+    ASSERT_NE(splashed_bystander, nullptr) << "a splash never kills a 100-hit-point bystander";
+    EXPECT_LT(splashed_bystander->tmpabilities.hit, test_support::kFleeTestHitPoints)
+        << "the splash must land in the room the fireball was cast in";
+    const char_data *const spared = start_room_identity.resolve();
+    ASSERT_NE(spared, nullptr);
+    EXPECT_EQ(spared->tmpabilities.hit, test_support::kFleeTestHitPoints)
+        << "nothing in the start room the caster respawned in may be splashed";
+
+    test_support::release_survivor(caster_identity);
+    test_support::release_survivor(target_identity);
+    test_support::release_survivor(bystander_identity);
+    test_support::release_survivor(start_room_identity);
+    test_support::release_room_objects(kPlayerFumbleCastRoom);
+    test_support::release_room_objects(kPlayerFumbleStartRoom);
+    test_support::release_large_output(descriptor);
 }
 
 namespace {

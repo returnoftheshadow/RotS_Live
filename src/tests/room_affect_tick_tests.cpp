@@ -29,6 +29,7 @@
 
 #include "../big_brother.h"
 #include "../caster_snapshot.h"
+#include "../character_identity.h"
 #include "../comm.h"
 #include "../db.h"
 #include "../handler.h"
@@ -39,10 +40,16 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "carried_gear.h"
+#include "scoped_character_list.h"
 #include "scoped_combat_list.h"
+#include "scoped_flee_world.h"
 #include "scoped_mob_index.h"
+#include "scoped_player_death_sandbox.h"
+#include "scoped_room_occupants.h"
+#include "scoped_waiting_list.h"
 #include "test_character_support.h"
 #include "test_descriptor_support.h"
+#include "test_flee_support.h"
 #include "test_random_utils.h"
 #include "test_spell_support.h"
 #include "test_world_support.h"
@@ -50,6 +57,7 @@
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 using test_support::CarriedGear;
 using test_support::ensure_test_world;
@@ -123,6 +131,18 @@ constexpr int kMistCastWeakMainRoom = 998;
 constexpr int kMistCastWeakAdjacentRoom = 999;
 constexpr int kMistCastGenerationMainRoom = 1000;
 constexpr int kMistCastGenerationAdjacentRoom = 1001;
+// Rooms for the drift-then-spread pin: the mist drifts from the first into the second, then
+// spreads from there into the third. 1002 is skipped: its key, 3002, is a room spell_pa_tests.cpp uses.
+constexpr int kMistDriftSourceRoom = 1003;
+constexpr int kMistDriftDestRoom = 1004;
+constexpr int kMistDriftSpreadRoom = 1005;
+
+// Real world[] indices, not RoomFixture slots, for the pin where the recorded caster dies in its
+// own blaze: a player's death respawns it in a world[] index, and moving a player needs the zone
+// ScopedFleeWorld publishes. Beside fast_update_tests.cpp's 1021-1022 and below the 1024 rooms
+// gtest_main.cpp allocates; the caster-store key is the index itself (ScopedFleeWorld stamps it).
+constexpr int kSelfBlazeRoom = 1013;
+constexpr int kSelfBlazeRespawnRoom = 1014;
 
 // abs_number slots this suite registers, in a band no sibling suite in the
 // monolithic runner uses (affect_update_tests: MAX_CHARACTERS - 201/-202;
@@ -151,7 +171,7 @@ void queue_mid_rolls(int count = 60)
 // ---------------------------------------------------------------------------
 
 // The real world[] array indices RoomFixture uses, independent of the
-// disambiguating "room number" (2000 + 960-1001) baked into room->number for the
+// disambiguating "room number" (2000 + 960-1005) baked into room->number for the
 // (room, spell) caster-store map key. world[]'s backing storage can only
 // ever be sized ONCE for the whole process -- room_data::create_bulk()
 // hard-exits (`exit(0)`) if BASE_WORLD is already set (db.cpp:4025-4032) --
@@ -548,6 +568,67 @@ TEST(RoomAffectTick, LethalBlazeTickCreditsTheRecordedCaster)
     release_corpse(*occupant_room.room(), previous_object_list);
 }
 
+// The credit follows the recorded caster even when the victim is on the caster's own side and
+// in the caster's group: nothing on the tick path exempts a groupmate from being burned or the
+// caster from being credited with the kill. Read back through Big Brother as in the pin above.
+TEST(RoomAffectTick, LethalBlazeTickOnASameSideGroupmateCreditsTheCaster)
+{
+    ScopedCombatList combat_list_guard;
+    ensure_big_brother();
+    ScopedMobIndex prototype_table;
+    RoomFixture occupant_room(kBlazeRoomA);
+    RoomFixture caster_room(kAwayRoom);
+
+    char occupant_short_descr[] = "a testing blaze groupmate";
+    char_data* occupant = make_heap_occupant(occupant_room.slot(), occupant_short_descr, 1); // any blaze tick is lethal
+    occupant->specials2.act |= MOB_ORC_FRIEND; // so Big Brother records this corpse's killer
+    character_list = occupant;
+    occupant->next = nullptr;
+    occupant_room.room()->people = occupant;
+    occupant->next_in_room = nullptr;
+
+    CasterFixture caster(25, 0, game_types::PS_None, kAwayRoom);
+    ScopedCharExists caster_registration(caster.ch, kCasterASlot);
+    ASSERT_EQ(occupant->player.race, caster.ch.player.race) << "precondition: the victim is on the caster's side";
+    ASSERT_EQ(GET_ALIGNMENT(occupant), GET_ALIGNMENT(&caster.ch)) << "precondition: the victim shares the caster's alignment";
+    // The victim's death removes it from the group, and remove_character_from_group() deletes a
+    // group left with only its leader, so the group lives on the heap.
+    group_data* const party = new group_data(&caster.ch);
+    party->add_member(occupant);
+    ASSERT_TRUE(party->is_member(occupant)) << "precondition: the victim is in the caster's group";
+    set_room_affect_caster(occupant_room.room(), SPELL_BLAZE, caster_snapshot::capture(caster.ch));
+
+    CarriedGear gear;
+    gear.attach_to(*occupant);
+
+    affected_type affect = dummy_affect();
+    obj_data* const previous_object_list = object_list;
+
+    queue_mid_rolls();
+    room_affect_tick(SPELL_BLAZE, occupant_room.room(), occupant, affect);
+    clear_test_random_values();
+    // occupant is freed at this point; nothing below may dereference it.
+
+    EXPECT_EQ(character_list, nullptr) << "the groupmate still dies";
+    EXPECT_EQ(caster.ch.group, nullptr) << "the death left the caster alone, which disbanded the group";
+    if (caster.ch.group != nullptr) {
+        delete caster.ch.group;
+        caster.ch.group = nullptr;
+    }
+
+    obj_data* const corpse = occupant_room.room()->contents;
+    ASSERT_NE(corpse, nullptr) << "raw_kill() must have created a corpse in the death room";
+    ASSERT_EQ(gear.item.in_obj, corpse) << "precondition: the corpse holds the victim's gear (Big Brother ignores empty corpses)";
+
+    game_rules::big_brother& big_brother = game_rules::big_brother::instance();
+    EXPECT_TRUE(big_brother.is_corpse_protected(&caster.ch, corpse))
+        << "the lethal tick must credit the recorded caster, the only player in scope, even though "
+           "the victim was a same-side groupmate";
+
+    big_brother.on_corpse_decayed(corpse);
+    release_corpse(*occupant_room.room(), previous_object_list);
+}
+
 // Control for the pin above: the same tick with a recorded caster who can no
 // longer be resolved (never registered, as an extracted caster would be)
 // credits nobody. The gear still moves -- proving it cannot stand in for a
@@ -638,6 +719,104 @@ TEST(RoomAffectTick, BlazeTickNeverEngagesACasterStandingInTheRoom)
     EXPECT_EQ(occupant.specials.fighting, nullptr)
         << "a blaze tick burns the occupant through itself and must never engage the occupant "
            "with its caster";
+}
+
+namespace {
+
+// The exploit-record types written during a ScopedExploitTypeCapture; owned by the live scope.
+std::vector<int>* g_captured_exploit_types = nullptr;
+
+// The writer ScopedExploitTypeCapture installs in place of the player's exploits file.
+void capture_exploit_type(char_data* /*recipient*/, exploit_record* record)
+{
+    if (g_captured_exploit_types == nullptr || record == nullptr) {
+        ADD_FAILURE() << "capture_exploit_type: no capture scope or record";
+        return;
+    }
+    g_captured_exploit_types->push_back(record->type);
+}
+
+// Routes every exploit record written during the scope into `types` instead of onto disk, and
+// restores the real writer on exit.
+class ScopedExploitTypeCapture {
+public:
+    ScopedExploitTypeCapture()
+    {
+        g_captured_exploit_types = &types;
+        set_exploit_record_writer_for_testing(capture_exploit_type);
+    }
+    ~ScopedExploitTypeCapture()
+    {
+        set_exploit_record_writer_for_testing(nullptr);
+        g_captured_exploit_types = nullptr;
+    }
+    ScopedExploitTypeCapture(const ScopedExploitTypeCapture&) = delete;
+    ScopedExploitTypeCapture& operator=(const ScopedExploitTypeCapture&) = delete;
+
+    std::vector<int> types; // the type of every record written, in write order
+};
+
+} // namespace
+
+// A player caster standing in its own blaze is burned like any occupant, and a lethal tick
+// credits the resolved caster, which is the victim itself. damage_credited() therefore sees a
+// credited self-inflicted death: the legacy punishment arm with the victim as its own killer.
+// That arm counts a death to a player as a player kill, so the caster respawns on the gentle
+// terms (a quarter of its hit points, no mana, stats untouched) rather than the harsh ones
+// (1 hit point, two thirds of every stat). Nobody else is credited: no kill record is written.
+TEST(RoomAffectTick, ACasterKilledByItsOwnBlazeTickIsItsOwnKillerAndRespawnsGently)
+{
+    ScopedCombatList combat_list_guard;
+    test_support::ScopedWaitingList waiting_list_guard;
+    ensure_big_brother();
+    test_support::ScopedFleeWorld rooms(kSelfBlazeRoom, kSelfBlazeRespawnRoom, EAST);
+    test_support::ScopedPlayerDeathSandbox sandbox(RACE_HUMAN, kSelfBlazeRespawnRoom);
+    ScopedExploitTypeCapture exploits;
+
+    descriptor_data descriptor {};
+    char_data* const caster = test_support::make_linked_test_player(descriptor, "Pyro");
+    caster->profs->prof_level[PROF_MAGE] = 25;
+    caster->tmpabilities.intel = 25;
+    caster->tmpabilities.hit = 1; // constitution 18 dies at -9; a mid-roll level-30 tick burns far more
+    // Loading a player resets its damage report, which constructs the calloc'd map inside it;
+    // damage() records into that map for a player attacker, here the occupant itself.
+    caster->damage_details.reset();
+    const character_identity caster_identity = character_identity::capture(*caster);
+    test_support::ScopedCharacterList characters({ caster });
+    test_support::ScopedRoomOccupants occupants(kSelfBlazeRoom, { caster });
+    room_data* const blaze_room = &world[kSelfBlazeRoom];
+    set_room_affect_caster(blaze_room, SPELL_BLAZE, caster_snapshot::capture(*caster));
+    ASSERT_EQ(room_affect_caster(blaze_room, SPELL_BLAZE)->resolve(), caster)
+        << "precondition: the recorded caster resolves to the occupant itself";
+
+    affected_type affect = dummy_affect();
+    queue_mid_rolls();
+    testing::internal::CaptureStderr();
+    room_affect_tick(SPELL_BLAZE, blaze_room, caster, affect);
+    const std::string captured = testing::internal::GetCapturedStderr();
+    clear_test_random_values();
+    erase_room_affect_record(blaze_room, SPELL_BLAZE);
+
+    EXPECT_NE(captured.find("Pyro killed by Pyro"), std::string::npos)
+        << "die() must have been told the caster killed itself; stderr was: " << captured;
+    EXPECT_TRUE(exploits.types.empty())
+        << "a death whose only credited killer is the victim writes no kill or death record";
+
+    char_data* const survivor = caster_identity.resolve();
+    EXPECT_EQ(survivor, caster) << "a connected player respawns and keeps its registration";
+    if (survivor != nullptr) {
+        EXPECT_EQ(survivor->in_room, kSelfBlazeRespawnRoom) << "the tick killed the caster, which respawned";
+        EXPECT_EQ(survivor->tmpabilities.hit, survivor->abilities.hit / 4)
+            << "the gentle arm restores a quarter of the hit points; the harsh arm leaves 1";
+        EXPECT_EQ(survivor->tmpabilities.mana, 0);
+        EXPECT_EQ(survivor->tmpabilities.str, survivor->abilities.str)
+            << "the gentle arm leaves the stats whole; the harsh arm cuts them to two thirds";
+    }
+
+    test_support::release_survivor(caster_identity);
+    test_support::release_room_objects(kSelfBlazeRoom);
+    test_support::release_room_objects(kSelfBlazeRespawnRoom);
+    test_support::release_large_output(descriptor);
 }
 
 // ---------------------------------------------------------------------------
@@ -1423,6 +1602,61 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
         << "the source room's mist affect must have been removed by the move";
     EXPECT_EQ(room_affect_caster(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
         << "affect_remove_room() must have erased the source room's caster record along with it";
+}
+
+// A mist that drifted spreads from its new room as the generation it carried, not as a fresh
+// cast: a level-30 caster's generation-1 mist seeds its new neighbour at generation 2, level
+// 30 - 9 = 21, for 21 / 6 = 3 ticks, and the seed carries the same caster.
+TEST(RoomAffectTick, AMistThatDriftedSpreadsFromItsNewRoomAtItsCarriedGeneration)
+{
+    RoomFixture source_room(kMistDriftSourceRoom);
+    RoomFixture dest_room(kMistDriftDestRoom);
+    RoomFixture spread_room(kMistDriftSpreadRoom);
+    ScopedSpellPointer mist_pointer(SPELL_MIST_OF_BAAZUNGA, recording_fallback_spell);
+    room_direction_data north_exit {};
+    north_exit.to_room = dest_room.slot();
+    source_room.room()->dir_option[NORTH] = &north_exit;
+    room_direction_data east_exit {};
+    east_exit.to_room = spread_room.slot();
+    dest_room.room()->dir_option[EAST] = &east_exit;
+    source_room.room()->room_flags = 0;
+    dest_room.room()->room_flags = 0;
+    spread_room.room()->room_flags = 0;
+
+    CasterFixture caster(25, 0, game_types::PS_None, source_room.slot()); // level 30
+    const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
+
+    affected_type mist_affect {};
+    mist_affect.type = ROOMAFF_SPELL;
+    mist_affect.duration = 5;
+    mist_affect.modifier = 0;
+    mist_affect.location = SPELL_MIST_OF_BAAZUNGA;
+    mist_affect.bitvector = 0;
+    mist_affect.counter = 1;
+    affect_to_room(source_room.room(), &mist_affect, recorded);
+    room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA)->time_phase = get_current_time_phase();
+
+    push_test_random_value(0.1); // movechance = number(1, 100) < 75, the mist decides to move
+    push_test_random_value(0.0); // direction = number(0, NUM_OF_DIRS - 1) == 0 == NORTH
+    affect_update_room(source_room.room());
+    clear_test_random_values();
+    ASSERT_EQ(room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+        << "precondition: the mist drifted out of its source room";
+    affected_type* const drifted = room_affected_by_spell(dest_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(drifted, nullptr) << "precondition: the mist drifted into the destination";
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, dest_room.room(), dest_room.room()->people, affect);
+
+    affected_type* const seeded = room_affected_by_spell(spread_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(seeded, nullptr) << "the drifted mist must spread into its new room's empty neighbour";
+    EXPECT_EQ(seeded->counter, 2) << "one generation out from the generation-1 mist that drifted";
+    EXPECT_EQ(seeded->duration, 3) << "level 30 falls to 21 two hops out; 21 / 6 = 3";
+    const caster_snapshot* const seeded_caster = room_affect_caster(spread_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    ASSERT_NE(seeded_caster, nullptr) << "the seed must carry the caster the drifted mist carried";
+    EXPECT_TRUE(seeded_caster->same_character_as(caster.ch));
+    EXPECT_EQ(room_affected_by_spell(dest_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 1)
+        << "spreading never changes the ticking room's own generation";
 }
 
 // ---------------------------------------------------------------------------

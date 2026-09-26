@@ -130,6 +130,22 @@ TEST(CasterSnapshot, ResolveRejectsACharacterParkedOutsideAnyRoom)
     EXPECT_EQ(snap.resolve(), &context.character) << "back in a room, it resolves again";
 }
 
+// A player whose link dropped has no descriptor, but its body still stands in its room: it is
+// in the game, so it is still credited for what its affects do.
+TEST(CasterSnapshot, ResolveAcceptsALinkDeadPlayerStillStandingInARoom)
+{
+    CasterSnapshotTestContext context;
+    const int slot = MAX_CHARACTERS - 401;
+    context.character.in_room = 7;
+    context.character.desc = nullptr;
+    ASSERT_FALSE(IS_NPC(&context.character)) << "precondition: the caster is a player";
+
+    test_support::ScopedCharExists registration(context.character, slot);
+    const caster_snapshot snap = caster_snapshot::capture(context.character);
+
+    EXPECT_EQ(snap.resolve(), &context.character) << "a link-dead body in a room is in the game";
+}
+
 // Pin: the slot is recycled to a character allocated at the SAME address --
 // the case pointer-plus-number identity cannot see. register_npc_char()'s
 // cursor wraps back to a freed slot and the allocator reuses the freed block,

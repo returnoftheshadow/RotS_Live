@@ -52,6 +52,7 @@
 #include <algorithm>
 #include <cstring>
 #include <gtest/gtest.h>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -622,7 +623,7 @@ TEST(AffectUpdatePerson, ExpiringAngerResetsAttackedLevelWithoutTouchingTheFreed
 // affect_remove(ch, pkaff) had already freed that node via
 // put_to_affected_type_pool() (handler.cpp). With the pointer nulled instead,
 // the same "dropped bonuses" branch fell through to the re-creation branch and
-// handed the player a fresh affect for the invalid rank on every hourly pass.
+// handed the player a fresh affect for the invalid rank on every fast-update pass.
 // The branch now records the rank and returns. Both invalid ranks are driven:
 // unranked (ranking 0, tier 0) and below the table (ranking 11, tier 4).
 void expect_dropped_rank_removes_fame_war(int totalrank, int expected_ranking) {
@@ -661,6 +662,82 @@ TEST(DoFameWarBonuses, UnrankedPlayerLosesTheAffectAndGetsNoReplacement) {
 
 TEST(DoFameWarBonuses, RankBelowTheTableLosesTheAffectInsteadOfTierFour) {
     expect_dropped_rank_removes_fame_war(10, 11); // totalrank 10 -> ranking 11 > MAX_RANK
+}
+
+namespace {
+
+// Every stat a fame-war bonus can change, in each set it writes.
+struct fame_war_stats {
+    char_ability_data constant; // constabilities: con, hit, mana and move bonuses land here
+    char_ability_data maximum;  // abilities: the same bonuses, and recalc_abilities()'s rebuild
+    char_ability_data current;  // tmpabilities: the hit, mana and move bonuses
+    int offensive_bonus;        // points.OB: the warrior and ranger bonus
+    int spell_penetration;      // points.spell_pen: the mage bonus
+    int damage;                 // points.damage
+};
+
+fame_war_stats capture_fame_war_stats(const char_data& character) {
+    return fame_war_stats{character.constabilities, character.abilities, character.tmpabilities,
+                          character.points.OB, character.points.spell_pen,
+                          character.points.damage};
+}
+
+void expect_same_ability_set(const char_ability_data& before, const char_ability_data& after,
+                             const char* set_name) {
+    EXPECT_EQ(after.con, before.con) << set_name;
+    EXPECT_EQ(after.hit, before.hit) << set_name;
+    EXPECT_EQ(after.mana, before.mana) << set_name;
+    EXPECT_EQ(after.move, before.move) << set_name;
+}
+
+} // namespace
+
+// Losing a rank takes the bonuses off exactly once: a tier-3 warrior's +1 constitution, +5 hit
+// points and +5 offensive bonus are applied by the real path and then removed, leaving every
+// stat where it stood before the bonus. Removing them twice would leave the character 1
+// constitution, 5 hit points and 5 offensive bonus short.
+TEST(DoFameWarBonuses, ADroppedRankReturnsEveryStatToItsPreBonusValue) {
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
+    character->player.name = strdup("test_fame_war_warrior");
+    character->player.level = 30;
+    character->player_index = 0;
+    character->player.ranking = 0;
+    character->profs->prof_level[PROF_WARRIOR] = 30; // the bonus follows the highest profession
+    for (char_ability_data* stats :
+         {&character->constabilities, &character->abilities, &character->tmpabilities}) {
+        stats->con = 15;
+        stats->hit = 20;
+        stats->mana = 20;
+        stats->move = 20;
+    }
+    // Start from a recalculated state, as the drop's own recalc_abilities() leaves it, and
+    // wounded: at full health, recalc_abilities() caps the granted current hit points at the
+    // new maximum, which grows by less than the +5 (constant hit points scale by con / 20).
+    recalc_abilities(character);
+    character->tmpabilities.hit = character->abilities.hit - 10;
+    const fame_war_stats before = capture_fame_war_stats(*character);
+
+    ScopedFameWarPlayerTable player_table_guard(2); // totalrank 2 -> ranking 3 -> tier 3
+    do_fame_war_bonuses(character);
+    const affected_type* const fame_war = affected_by_spell(character, SPELL_FAME_WAR);
+    ASSERT_NE(fame_war, nullptr) << "precondition: a valid rank grants the fame-war affect";
+    EXPECT_EQ(fame_war->modifier, 3) << "precondition: ranking 3 is tier 3";
+    EXPECT_EQ(character->constabilities.con, before.constant.con + 1) << "precondition: tier 3 grants +1 con";
+    EXPECT_EQ(character->points.OB, before.offensive_bonus + 5) << "precondition: tier 3 grants +5 OB";
+
+    player_table[0].totalrank = PKILL_UNRANKED;
+    do_fame_war_bonuses(character);
+
+    EXPECT_EQ(affected_by_spell(character, SPELL_FAME_WAR), nullptr) << "the rank was lost";
+    const fame_war_stats after = capture_fame_war_stats(*character);
+    expect_same_ability_set(before.constant, after.constant, "constabilities");
+    expect_same_ability_set(before.maximum, after.maximum, "abilities");
+    expect_same_ability_set(before.current, after.current, "tmpabilities");
+    EXPECT_EQ(after.offensive_bonus, before.offensive_bonus);
+    EXPECT_EQ(after.spell_penetration, before.spell_penetration);
+    EXPECT_EQ(after.damage, before.damage);
+
+    test_support::release_test_character(character);
 }
 
 // ---------------------------------------------------------------------------
