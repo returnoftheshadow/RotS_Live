@@ -17,11 +17,15 @@
 
 #include "../db.h"
 #include "../handler.h"
+#include "../interpre.h"
 #include "../spells.h"
 #include "../structs.h"
+#include "test_descriptor_support.h"
 #include "test_world_support.h"
 
 #include <gtest/gtest.h>
+
+#include <string>
 
 // consts.cpp's global skill table -- not declared in any header (matching
 // this depot's other suites' local-extern convention for undeclared
@@ -36,6 +40,10 @@ extern struct room_data world;
 // convention as skills[] above.
 char* target_from_word(struct char_data* ch, char* argument, int mask, struct target_data* t1);
 int target_check_one(struct char_data* ch, int mask, struct target_data* t1);
+// The generic re-check a delayed non-cast command still gets, and the cmd_info[] builder its
+// masks come from; interpre.cpp declares neither in a header.
+int target_check(struct char_data* ch, int cmd, struct target_data* t1, struct target_data* t2);
+void assign_command_pointers(void);
 
 // handler.cpp's "N.keyword" ordinal splitter -- get_char_room_vis()'s "1.bystander"
 // path reaches it and is what this suite exercises above; not declared in any
@@ -189,6 +197,155 @@ TEST(SummonTargeting, TargetCheckOneUnderTheSummonMaskAcceptsADarkRoomWorldTarge
     EXPECT_EQ(accepted, TAR_CHAR_WORLD)
         << "Expected the delayed-cast re-validation gate to accept a dark-room world target "
            "under summon's TAR_DARK_OK mask.";
+}
+
+namespace {
+
+// The dark-room world above with the caster's output captured, cmd_info[] built, and the victim
+// registered as existing, ready for delayed_command_target_check(). delayed_command starts as
+// the delay do_cast leaves once the casting time is set: CMD_CAST, the spell index in subcmd
+// and targ1, and the victim as the spell target.
+struct DelayedCastContext {
+    DarkRoomSummonContext world_context; // the caster, the dark-room victim, and their rooms
+    descriptor_data caster_descriptor {}; // captures what the re-check tells the caster
+    waiting_type delayed_command {}; // the delay the re-check reads, as do_cast stores it
+
+    DelayedCastContext(int spell_index, int victim_choice)
+    {
+        assign_command_pointers();
+        test_support::prepare_capture_descriptor(caster_descriptor);
+        world_context.caster.desc = &caster_descriptor;
+        set_char_exists(world_context.victim.abs_number);
+
+        delayed_command.cmd = CMD_CAST;
+        delayed_command.subcmd = spell_index;
+        delayed_command.targ1.type = TARGET_OTHER;
+        delayed_command.targ1.ch_num = spell_index;
+        delayed_command.targ2.type = TARGET_CHAR;
+        delayed_command.targ2.ptr.ch = &world_context.victim;
+        delayed_command.targ2.ch_num = world_context.victim.abs_number;
+        delayed_command.targ2.choice = victim_choice;
+    }
+
+    ~DelayedCastContext()
+    {
+        remove_char_exists(world_context.victim.abs_number);
+        test_support::release_large_output(caster_descriptor);
+    }
+
+    // Lights the victim's room, so only the location rule can still refuse the victim.
+    void light_the_victims_room() { world[kDarkRoom].light = 1; }
+
+    std::string caster_output() const { return caster_descriptor.small_outbuf; }
+};
+
+} // namespace
+
+TEST(DelayedCastTargetCheck, SummonAtAPlayerStandingInADarkRoomPassesTheReCheck)
+{
+    DelayedCastContext ctx(SPELL_SUMMON, TAR_CHAR_WORLD);
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 1) << "Expected summon's TAR_DARK_OK to carry into the delayed re-check; "
+                              "the caster was told: "
+                           << ctx.caster_output();
+    EXPECT_EQ(ctx.caster_output(), "");
+}
+
+TEST(DelayedCastTargetCheck, ASpellWithoutDarkOkIsStillRefusedTheSameDarkTarget)
+{
+    DelayedCastContext ctx(SPELL_FIREBALL, TAR_CHAR_ROOM);
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 0) << "fireball's mask has no TAR_DARK_OK, so the dark room still hides "
+                              "its target.";
+    EXPECT_EQ(ctx.caster_output(), "Nobody here by that name.\n\r");
+}
+
+// The spell masks' location rules are left to do_cast, which names the reason; the next three
+// cases would each be refused under the spell's own mask with a generic parser message.
+TEST(DelayedCastTargetCheck, ARoomTargetThatWalkedOutPassesSoDoCastCanReportTheFlight)
+{
+    DelayedCastContext ctx(SPELL_FIREBALL, TAR_CHAR_ROOM);
+    ctx.light_the_victims_room();
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 1) << "do_cast's TAR_CHAR_ROOM arm says \"Your victim has fled.\"; the "
+                              "re-check must not pre-empt it. The caster was told: "
+                           << ctx.caster_output();
+}
+
+TEST(DelayedCastTargetCheck, AFightVictimThatLeftPassesSoDoCastCanReportTheLostOpponent)
+{
+    DelayedCastContext ctx(SPELL_CONFUSE, TAR_FIGHT_VICT);
+    ctx.light_the_victims_room();
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 1) << "do_cast's TAR_FIGHT_VICT arm says \"You could not find your "
+                              "opponent.\"; the re-check must not pre-empt it. The caster was "
+                              "told: "
+                           << ctx.caster_output();
+}
+
+TEST(DelayedCastTargetCheck, AnObjectNoLongerCarriedPassesWithoutReadingTheObject)
+{
+    DelayedCastContext ctx(SPELL_IDENTIFY, TAR_OBJ_INV);
+    obj_data dropped_item {};
+    ctx.delayed_command.targ2.type = TARGET_OBJ;
+    ctx.delayed_command.targ2.ptr.obj = &dropped_item;
+    ctx.delayed_command.targ2.ch_num = 0;
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 1) << "do_cast's TAR_OBJ_INV arm compares pointers and says \"Your target "
+                              "disappeared.\"; identify's own mask would read the object's "
+                              "carried_by, which may be freed by then. The caster was told: "
+                           << ctx.caster_output();
+}
+
+TEST(DelayedCastTargetCheck, ARoomCastWithNoTargetPasses)
+{
+    DelayedCastContext ctx(SPELL_BLAZE, TAR_IGNORE);
+    ctx.delayed_command.targ2.cleanup();
+    ctx.delayed_command.targ2.choice = TAR_IGNORE;
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 1) << "The caster was told: " << ctx.caster_output();
+}
+
+TEST(DelayedCastTargetCheck, AnInterruptedCastKeepsTheGenericReCheck)
+{
+    DelayedCastContext ctx(SPELL_SUMMON, TAR_CHAR_WORLD);
+    ctx.delayed_command.subcmd = -1;
+
+    int accepted = delayed_command_target_check(&ctx.world_context.caster, &ctx.delayed_command);
+
+    EXPECT_EQ(accepted, 0) << "subcmd -1 marks an interrupted cast, not a spell index.";
+    EXPECT_EQ(ctx.caster_output(), "Nobody by that name.\n\r");
+}
+
+TEST(DelayedCastTargetCheck, ANonCastCommandIgnoresSubcmdAndMatchesTheGenericReCheck)
+{
+    DelayedCastContext ctx(SPELL_SUMMON, TAR_CHAR_WORLD);
+    ctx.delayed_command.cmd = CMD_KILL;
+    ctx.delayed_command.targ1 = ctx.delayed_command.targ2;
+    ctx.delayed_command.targ2.cleanup();
+
+    char_data* caster = &ctx.world_context.caster;
+    int delayed_result = delayed_command_target_check(caster, &ctx.delayed_command);
+    std::string delayed_output = ctx.caster_output();
+    test_support::clear_captured_output(ctx.caster_descriptor);
+    int generic_result = target_check(caster, CMD_KILL, &ctx.delayed_command.targ1,
+        &ctx.delayed_command.targ2);
+
+    EXPECT_EQ(delayed_result, 0) << "kill's masks carry no TAR_DARK_OK.";
+    EXPECT_EQ(delayed_result, generic_result);
+    EXPECT_EQ(delayed_output, ctx.caster_output());
 }
 
 // get_number()'s "N.keyword" split is what get_char_room_vis() calls when the

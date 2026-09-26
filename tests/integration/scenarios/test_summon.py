@@ -1,8 +1,13 @@
 """manual-test-plan.md item 4: summon targets a player by name across rooms even when the
-caster is standing in a dark room (`TAR_DARK_OK` in the spell's target mask lets a
-name-targeted world spell skip the same-room darkness arm of `CAN_SEE()`, matching `tell`'s
-precedent), and item 4 line 25: summoning a link-dead player relocates it without
-dereferencing its missing descriptor.
+target stands in a dark room, and item 4 line 25: summoning a link-dead player relocates it
+without dereferencing its missing descriptor.
+
+The dark-room case rests on `TAR_DARK_OK` in summon's target mask (consts.cpp): the world
+lookup passes it to get_char_vis (target_from_word, interpre.cpp ~1046), which makes
+CAN_SEE(caster, target, light_mode=1) skip its light arm (utility.cpp ~1518). That arm reads
+the TARGET's room, `IS_LIGHT(obj->in_room)`, so the target is placed in the Dark Cell and the
+caster, a human without infravision or holylight, in a lit room; without the flag the name does
+not resolve and the cast never happens.
 """
 
 from __future__ import annotations
@@ -21,8 +26,8 @@ from rots_harness.session import (
 
 pytestmark = pytest.mark.scenario
 
-SUMMON_SUCCESS = ("appears in the room.",)  # spell_summon's act(...TO_ROOM/TO_CHAR...) to the caster's room (mage.cpp:876-877)
-SUMMONED_MARKER = "summons you!"  # spell_summon's act(...TO_CHAR...) to the victim (mage.cpp:882)
+SUMMON_SUCCESS = ("appears in the room.",)  # spell_summon's act(...TO_ROOM/TO_CHAR...) to the caster's room (mage.cpp:874-875)
+SUMMONED_MARKER = "summons you!"  # spell_summon's act(...TO_CHAR...) to the victim (mage.cpp:880)
 RECONNECT_MARKER = "Reconnecting."  # complete_existing_character_login's linkless-body branch (interpre.cpp ~2780); see _reconnect()'s docstring
 
 
@@ -63,25 +68,25 @@ def _reconnect(server, name: str) -> GameSession:
 
 
 def test_summon_by_name_from_the_dark_room(server, imp, caller, victim) -> None:
-    # CAN_SEE (utility.cpp:1460) refuses a dark room to anyone without PRF_HOLYLIGHT, level
-    # notwithstanding; `stat harnvictim` below resolves the name through get_char_vis, which
-    # applies the same check, so without this the god-level `imp` still can't find a victim
-    # standing in the Dark Cell.
+    # Holylight lets the imp's own `transfer` and `stat` resolve a victim standing in the dark.
     imp.command("set holylight on")
-    imp.command(f"goto {fixtures.ROOM_DARK_CELL}")
+    imp.command(f"goto {fixtures.ROOM_CORRIDOR_TWO}")
     imp.command("transfer harncaller")
     imp.command("restore harncaller")
-    imp.command(f"goto {fixtures.ROOM_CORRIDOR_TWO}")
+    caller.expect_room("Corridor Two")
+    imp.command(f"goto {fixtures.ROOM_DARK_CELL}")
     imp.command("transfer harnvictim")
-    victim.expect_room("Corridor Two")
+    # The victim cannot read its own room name in the dark, so the imp confirms the placement.
+    placed = imp.command("stat harnvictim")
+    assert _room_line(fixtures.ROOM_DARK_CELL) in placed.text, placed.text
+    imp.command(f"goto {fixtures.ROOM_ARENA_EAST}")
 
-    # `cast(success_markers=...)` already raises unless SUMMON_SUCCESS[0] (the caster's own
-    # arrival line, TO_CHAR) showed up, so no separate assert is needed on the return value here.
+    # `cast(success_markers=...)` raises unless the caster's own arrival line (TO_CHAR) shows up.
     caller.cast("summon", "harnvictim", success_markers=SUMMON_SUCCESS, attempts=10)
     victim.expect([SUMMONED_MARKER], 10.0)  # the victim's own line (TO_CHAR)
 
     stat = imp.command("stat harnvictim")
-    assert _room_line(fixtures.ROOM_DARK_CELL) in stat.text, stat.text
+    assert _room_line(fixtures.ROOM_CORRIDOR_TWO) in stat.text, stat.text
 
 
 def test_summon_of_a_link_dead_character_relocates_it_without_a_crash(server, imp, caller, victim) -> None:
@@ -100,7 +105,7 @@ def test_summon_of_a_link_dead_character_relocates_it_without_a_crash(server, im
     # act()'s TO_CHAR branch only sends when `to->desc` is set (comm.cpp:2517), and do_look
     # bails immediately on `!ch->desc` or `!ch->desc->descriptor` (act_info.cpp:1045-1048);
     # spell_summon's act(...TO_CHAR...) and do_look(victim, "", 0, 0, 0) calls on the linkless
-    # victim (mage.cpp:882-883) exercise exactly those guards. The autouse crash-monitor
+    # victim (mage.cpp:880-881) exercise exactly those guards. The autouse crash-monitor
     # fixture fails this test on any signal or sanitizer report, so no explicit crash
     # assertion is needed here.
 
