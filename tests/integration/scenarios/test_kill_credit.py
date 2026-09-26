@@ -31,6 +31,15 @@ fighter's own melee is floored with `combat_support.neutralize_melee` so the orc
 can only reach zero from a blaze tick and not a stray fighter swing -- proven necessary by that
 same early run, where the fighter's own hit finished the orc before any tick could.
 
+The orc the fighter engages is the hardy target orc (mob 1135, 900 hit points), not the 30-point
+target orc (mob 1130) the other scenarios use. A mob loaded into the burning room is rolled on by
+the real-time sweep (~3 s) from the moment it loads, and a single unsaved tick kills mob 1130
+outright; on a slow runner that tick can land between the fighter's `kill` and the `stat` that
+confirms the engagement (CI run 36273522392: the fighter attacked, the tick killed the orc, and
+`stat target` then found zone 11's own copy of mob 1130 standing in Arena East, "Fighting:
+Nobody", until the wait timed out). 900 points outlast any number of setup ticks; the loop below
+floors the orc to `LETHAL_HIT` before every forced tick regardless of its ceiling.
+
 Confirmed empirically, not just from reading die(): the caster's and the fighter's exploits files
 (`harncaller.exploits.json`, `harnfighter.exploits.json`) read back the unmodified
 account-creation stub `{"version": 1, "records": []}` even in a run where the fighter *did*
@@ -69,7 +78,7 @@ from rots_harness.session import GameSession
 pytestmark = pytest.mark.scenario
 
 SHARE_MARKER = "You receive your share of experience"
-ORC_DEATH_MARKER = "A target orc is dead"
+ORC_DEATH_MARKER = "A hardy target orc is dead"
 
 
 def _is_genuine_mob_reply(text: str) -> bool:
@@ -111,7 +120,7 @@ def test_killing_blow_from_an_unengaged_caster_is_credited_to_the_caster(server,
     prove_exploit_reader_with_a_brute_death(server, imp, victim, "Harnvictim")  # before any fire burns
     _set_up_arena_west_fight(imp, caller, fighter)
     caller.cast("blaze", success_markers=BLAZE_CAST)  # before the orc arrives: the caster never engages it
-    imp.command("load mob 1130")
+    imp.command("load mob 1135")  # the hardy orc: no setup tick can kill it (module docstring)
 
     fighter.command("kill target")  # the orc tanks the fighter, who cannot actually hurt it
     wait_for_engagement(imp, "target", "Harnfighter")
@@ -138,7 +147,7 @@ def test_splash_bystander_manufactures_no_credit(server, imp, caller, fighter, v
     prove_exploit_reader_with_a_brute_death(server, imp, victim, "Harnvictim")  # before any fire burns
     _set_up_arena_west_fight(imp, caller, fighter)
     caller.cast("blaze", success_markers=BLAZE_CAST)  # before the orcs arrive, as above
-    imp.command("load mob 1130")
+    imp.command("load mob 1135")  # the hardy orc, as above
     imp.command("load mob 1132")  # the bystander, never fighting anybody
 
     fighter.command("kill target")

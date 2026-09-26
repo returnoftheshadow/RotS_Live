@@ -199,6 +199,18 @@ def mob_records(file_name: str) -> dict[int, list[str]]:
     return records
 
 
+def test_hardy_target_orc_outlives_the_setup_ticks() -> None:
+    """test_kill_credit.py loads mob 1135 into a burning room and needs it alive until the fighter
+    has engaged it: the real-time sweep rolls on it every ~3 s, and blaze_burn_damage()
+    (room_affect_tick.cpp) deals at most number(8, level) + 10 per tick, so a level-30 caster's
+    tick tops out near 40 and a 30-point orc dies to one. The hit line is <hit_min> <hit_max>
+    (db.cpp load_mobiles); line layout as in test_snake_mob_binds_its_bite_special."""
+    lines = mob_records("11.mob")[1135]
+    hit_floor, hit_ceiling = (int(value) for value in lines[8].split())
+    assert hit_floor == hit_ceiling, "a random hit pool would make the setup budget a guess"
+    assert hit_floor >= 400, f"{hit_floor} points cover fewer than ten worst-case setup ticks"
+
+
 def test_mob_vnums_ascend_across_the_whole_index() -> None:
     """real_mobile() (db.cpp) binary-searches mob_index, which load_mobiles fills in index-file
     order, so vnums must ascend across files, not only within each."""
