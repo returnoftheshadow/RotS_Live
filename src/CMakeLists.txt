@@ -71,6 +71,7 @@ set(ROTS_SERVER_SOURCES
     mage.cpp
     mail.cpp
     mob_csv_extract.cpp
+    mob_options.cpp
     mobact.cpp
     modify.cpp
     mudlle.cpp
@@ -138,6 +139,7 @@ set(ROTS_TEST_SOURCES
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
+    tests/mob_options_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
     tests/string_value_tests.cpp
