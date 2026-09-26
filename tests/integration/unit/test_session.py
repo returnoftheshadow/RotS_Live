@@ -19,6 +19,15 @@ def test_transcript_reports_no_hit_points_when_the_line_is_absent() -> None:
     assert Transcript("nothing here").hit_points() is None
 
 
+def test_transcript_parses_the_stat_move_field() -> None:
+    transcript = Transcript("HP :[15/60+3(0)]  Stamina :[0/40+1(0)]  Move :[7/120+2(0)] Spirit:[100/100+0]\n")
+    assert transcript.move_points() == (7, 120)
+
+
+def test_transcript_reports_no_move_points_when_the_line_is_absent() -> None:
+    assert Transcript("HP :[10/60]").move_points() is None
+
+
 def test_transcript_room_name_is_the_first_non_empty_line() -> None:
     assert Transcript("\nWood-elf Start\n   A glade where wood elves begin.\n") .room_name() == "Wood-elf Start"
 

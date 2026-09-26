@@ -17,6 +17,13 @@ victim's hit floored this low, a landed tick and a death are the same observable
 `blaze_support`'s `LETHAL_HIT` note on the rare non-lethal case), so the death marker below is
 the only signal that is not vacuous -- a bare hit-point comparison against the floor value would
 be satisfied by the `wizset` itself, before any tick ever ran.
+
+The refloor races the real-time block: a tick can kill the victim after the loop drains the
+victim's session and before it floors, and the floor then lands on the respawned body, so the
+victim's hit reading shows 9 plus regen instead of max/4. `_assert_gentle_restore` proves the
+gentle arm from what a `wizset hit` cannot touch -- unchanged abilities and a full move pool,
+which the harsh arm zeroes -- and checks hit = max/4 only when the imp's transcript shows no
+refloor after the death broadcast (`blaze_support.floor_landed_after_death`).
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ import re
 import pytest
 
 import poison_support
-from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker, wait_for_log_line
+from blaze_support import LETHAL_HIT, BLAZE_CAST, floor_landed_after_death, tick_until_marker, wait_for_log_line
 from combat_support import BRUTE_ORC_VNUM, VICTIM_LEVEL, neutralize_melee, quit_once_anger_allows, stat_replies, wait_for_engagement
 from poison_support import DEATH_MARKER
 from rots_harness import fixtures, records
@@ -47,6 +54,26 @@ def _stat_victim(imp: GameSession) -> Transcript:
     stat = Transcript(replies[-1])
     assert stat.hit_points() is not None, f"stat harnvictim never returned a parseable reply: {replies}"
     return stat
+
+
+def _assert_gentle_restore(imp: GameSession, stat: Transcript, why: str) -> None:
+    """raw_kill()'s gentle arm (fight.cpp) restores every current ability to its max, then sets
+    hit to max/4 and mana to 0; the harsh arm zeroes moves. Full moves therefore prove the gentle
+    arm on every run. The hit check runs only when no refloor landed on the respawned body: a
+    `wizset hit` rewrites current hit alone, so after one the reading no longer shows the death.
+    """
+    moves = stat.move_points()
+    assert moves is not None, f"stat harnvictim has no move field: {stat.text}"
+    current_moves, maximum_moves = moves
+    assert current_moves == maximum_moves, f"{why}: moves must be full (the harsh arm zeroes them), got {current_moves}/{maximum_moves}: {stat.text}"
+    if floor_landed_after_death(imp.everything, "Harnvictim"):
+        # A real-time tick killed the victim between tick_until_marker's drain and its refloor,
+        # so the hit reading is the floor plus regen; the move check above already proved the arm.
+        return
+    current, maximum = stat.hit_points()
+    assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, (
+        f"{why}: hit must be max/4 plus regen, got {current}/{maximum}: {stat.text}"
+    )
 
 
 def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mage, victim, harness) -> None:
@@ -79,10 +106,7 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
     assert not any(record.victim_name.lower() == "harnmage" for record in victim_records), f"a departed caster must never be named: {victim_records}"
 
     stat = _stat_victim(imp)
-    current, maximum = stat.hit_points()
-    assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, (
-        f"an uncredited tick death takes the gentle arm: hit must be max/4 plus regen, got {current}/{maximum}: {stat.text}"
-    )
+    _assert_gentle_restore(imp, stat, "an uncredited tick death takes the gentle arm")
     after = stat.abilities()
     assert after == before, f"the gentle arm leaves abilities untouched: {before} -> {after}"
     assert not any(record.type == records.EXPLOIT_MOBDEATH for record in victim_records), f"nobody was credited, so no mob-death record: {victim_records}"
@@ -117,8 +141,7 @@ def test_blaze_death_while_fighting_a_mob_stays_gentle_when_the_caster_is_gone(s
     victim.expect_room("Wood-elf Start")
 
     stat = _stat_victim(imp)
-    current, maximum = stat.hit_points()
-    assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, stat.text
+    _assert_gentle_restore(imp, stat, "a death while fighting a mob, with no caster to credit, takes the gentle arm")
     assert stat.abilities() == before
     victim_records = records.read_exploits(server.lib_dir, "Harnvictim")
     assert not any(record.type == records.EXPLOIT_MOBDEATH for record in victim_records), victim_records
@@ -154,8 +177,7 @@ def test_blaze_ticks_credit_nobody_while_the_caster_sits_at_the_menu(server, imp
         assert not any(record.type == records.EXPLOIT_PK for record in mage_records), f"a parked caster earns no kill: {mage_records}"
         # stat harnmage cannot be read: the parked body is in no room.
         stat = _stat_victim(imp)
-        current, maximum = stat.hit_points()
-        assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, stat.text
+        _assert_gentle_restore(imp, stat, "a parked caster is not credited, so the death takes the gentle arm")
         assert stat.abilities() == before
     finally:
         mage.close()
@@ -203,10 +225,7 @@ def test_blaze_death_while_fighting_a_player_records_that_player_when_the_caster
     victim.expect_room("Wood-elf Start")
 
     stat = _stat_victim(imp)
-    current, maximum = stat.hit_points()
-    assert maximum // 4 <= current <= maximum // 4 + poison_support.REGEN_ALLOWANCE, (
-        f"nobody is credited, so the death takes the gentle arm: hit must be max/4 plus regen, got {current}/{maximum}: {stat.text}"
-    )
+    _assert_gentle_restore(imp, stat, "nobody is credited, so the death takes the gentle arm")
     after = stat.abilities()
     assert after == before, f"the gentle arm leaves abilities untouched: {before} -> {after}"
 

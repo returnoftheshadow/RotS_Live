@@ -96,6 +96,23 @@ def floor_hit(imp: GameSession, mob_name: str, hit: int = LETHAL_HIT) -> str:
     return imp.command(f"wizset {mob_name} hit {hit}").text
 
 
+def floor_landed_after_death(imp_transcript: str, name: str) -> bool:
+    """True when `imp_transcript` shows a `wizset <name> hit` reply (act_wiz.cpp: "<Name>'s hit
+    set to N.") after the last "<Name> is dead!  R.I.P." broadcast (fight.cpp) -- that is, when a
+    `tick_until_marker` refloor hit the respawned body, so its current hit points no longer show
+    what the death left. A real-time blaze tick can kill between the loop's observer drain and
+    its refloor, so this can happen on any run. Pass `imp.everything`: `command()` drops text it
+    drains before sending from its reply, but not from the session's whole transcript.
+
+    False when `imp` never saw the death at all, so a caller's hit check still runs and fails
+    visibly instead of being skipped on a transcript that proves nothing.
+    """
+    death_at = imp_transcript.rfind(f"{name} is dead!  R.I.P.")
+    if death_at < 0:
+        return False
+    return f"{name}'s hit set to" in imp_transcript[death_at:]
+
+
 def room_stat_replies(imp: GameSession, attempts: int = 4) -> list[str]:
     """`combat_support.stat_replies()` for `stat room`, genuine on `do_stat_room`'s `Room name:`
     header. A caller watching for a marker (`tick_until_marker`) must scan every returned reply,
@@ -165,7 +182,9 @@ def tick_until_marker(harness, imp: GameSession, observer: GameSession, marker: 
     real-time broadcast landing in that window never appears in any reply. The observer is
     drained before each refloor because its transcript grows only when its own socket is read,
     and a real-time death it has not yet seen would otherwise be floored again on the respawned
-    body.
+    body. That drain narrows the window without closing it: a real-time tick can still kill
+    between the drain and the refloor, so a caller reading a player's post-death hit points
+    checks `floor_landed_after_death()` first.
     """
     observed_from = len(observer.everything)
 

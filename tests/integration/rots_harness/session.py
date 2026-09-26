@@ -22,6 +22,7 @@ CHARACTER_MENU_PROMPT = "Make your choice:"
 ENTER_GAME_MARKER = "Here we go..."
 PROMPT_TERMINATORS = (">", "]")
 HIT_POINT_PATTERN = re.compile(r"HP :\[(\d+)/(\d+)")
+MOVE_POINT_PATTERN = re.compile(r"Move :\[(\d+)/(\d+)")
 ABILITY_PATTERN = re.compile(r"Str:\[(\d+)/\d+/\d+\] Int:\[(\d+)/\d+/\d+\] Wil:\[(\d+)/\d+/\d+\] Dex:\[(\d+)/\d+/\d+\] Con: \[(\d+)/\d+/\d+\] Lea:\[(\d+)/\d+/\d+\]")
 EXPERIENCE_PATTERN = re.compile(r"XP: \[\s*(-?\d+)\]")
 PERCEPTION_WILLPOWER_PATTERN = re.compile(r"Perception (-?\d+), Willpower (-?\d+),")
@@ -50,6 +51,13 @@ class Transcript:
 
     def hit_points(self) -> tuple[int, int] | None:
         match = HIT_POINT_PATTERN.search(self.text)
+        if match is None:
+            return None
+        return int(match.group(1)), int(match.group(2))
+
+    def move_points(self) -> tuple[int, int] | None:
+        """do_stat_character's `Move :[current/max...` field (act_wiz.cpp): (current, max)."""
+        match = MOVE_POINT_PATTERN.search(self.text)
         if match is None:
             return None
         return int(match.group(1)), int(match.group(2))
