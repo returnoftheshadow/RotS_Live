@@ -17,7 +17,10 @@ struct char_data;
 struct waiting_type;
 int barter_vendor(struct char_data* host, struct char_data* ch, int cmd, char* arg, int callflag, struct waiting_type* wtl);
 void vendor_config_boot(); /* all program-33 prototypes */
-void vendor_config_rebuild(int mob_rnum, struct char_data* builder); /* parse + report + store, or erase */
+/* parse + store (and report problems unless !report), or erase */
+void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report = true);
+/* program 33 with MOB_SPEC, and no hard-coded function owns rnum (rnum < 0: none yet) */
+bool is_vendor_candidate(const struct char_data* proto, int rnum);
 void vendor_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder); /* report only */
 const vendor_config* vendor_config_for(int mob_rnum); /* nullptr if none */
 std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem); /* formatted warning */

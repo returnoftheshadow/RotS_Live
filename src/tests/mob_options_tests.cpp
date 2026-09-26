@@ -30,7 +30,7 @@ TEST(MobOptionFind, FindsBareKeyAndKeyValue)
     EXPECT_FALSE(mob_option_find("// conj\n\r", "// conj", &value)); // comments never match
 }
 
-TEST(MobOptionsStorable, RejectsTildeLeadingHashDollarAndOverLength)
+TEST(MobOptionsStorable, RejectsHashTildeLeadingDollarAndOverLength)
 {
     const char* why = nullptr;
     EXPECT_TRUE(mob_options_storable("store=1\n\rprice 1 2x3\n\r", &why));
@@ -45,6 +45,20 @@ TEST(MobOptionsStorable, RejectsTildeLeadingHashDollarAndOverLength)
     EXPECT_STREQ(why, "options can't start with $");
     EXPECT_FALSE(mob_options_storable(std::string(MOB_OPTIONS_MAX + 1, 'a').c_str(), &why));
     EXPECT_TRUE(mob_options_storable(std::string(MOB_OPTIONS_MAX, 'a').c_str(), &why));
+}
+
+TEST(MobOptionsTrimLeading, DropsLeadingBlankLinesKeepsInternalOnes)
+{
+    char text[] = "\n\r  \n\r\tstore=1\n\r\n\rprice 1 2x3\n\r";
+    mob_options_trim_leading(text);
+    EXPECT_STREQ(text, "store=1\n\r\n\rprice 1 2x3\n\r");
+    char blank[] = " \n\r ";
+    mob_options_trim_leading(blank);
+    EXPECT_STREQ(blank, "");
+    char plain[] = "store=1";
+    mob_options_trim_leading(plain);
+    EXPECT_STREQ(plain, "store=1");
+    mob_options_trim_leading(nullptr);
 }
 
 TEST(ReadMobOptions, NoOptionsWhenNextRecordFollows)

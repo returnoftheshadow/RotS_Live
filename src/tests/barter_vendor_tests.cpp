@@ -342,6 +342,71 @@ TEST_F(BarterVendorTest, BuyByKeyword)
     EXPECT_EQ(carried(1), 0);
 }
 
+TEST_F(BarterVendorTest, BuyNumberedKeywordCountsMatchingRowsNotTheList)
+{
+    std::strcpy(m_options, "store=5000\nprice 100 200x2\nprice 200 300x1\nprice 300 200x2");
+    vendor_config_rebuild(0, nullptr);
+    obj_to_room(read_object(1, REAL), 0); /* a hide for sale: row 2 */
+    obj_to_room(read_object(2, REAL), 0); /* a leather belt: row 3, the 2nd belt */
+    give_hides(2);
+
+    EXPECT_TRUE(call(CMD_BUY, "2.belt"));
+    EXPECT_EQ(carried(2), 1) << "2.belt is the leather belt, not list row 2";
+    EXPECT_EQ(carried(1), 0);
+}
+
+TEST_F(BarterVendorTest, BuyArgumentIsAListNumberOnlyWhenAllDigits)
+{
+    give_hides(4);
+    EXPECT_TRUE(call(CMD_BUY, "3.belt"));
+    EXPECT_EQ(carried(0), 0) << "only one row matches belt";
+    EXPECT_TRUE(call(CMD_BUY, "1x"));
+    EXPECT_EQ(carried(0), 0) << "1x is a keyword, not row 1";
+    EXPECT_TRUE(call(CMD_BUY, "1.belt"));
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 2);
+}
+
+TEST_F(BarterVendorTest, RebuildCanSkipTheReport)
+{
+    m_mob_proto[0].abilities.intel = 3;
+    vendor_config_rebuild(0, &m_buyer, false);
+    EXPECT_NE(vendor_config_for(0), nullptr);
+    EXPECT_EQ(output(), "");
+    vendor_config_rebuild(0, &m_buyer);
+    EXPECT_EQ(output(), "MOB ERROR: mobile #7000: intelligence below 6 - vendor can't speak\n\r");
+}
+
+TEST_F(BarterVendorTest, PrefIsWarnedOnRebuildAndCheck)
+{
+    m_mob_proto[0].specials2.pref = 1;
+    vendor_config_rebuild(0, &m_buyer);
+    EXPECT_EQ(output(), "MOB ERROR: mobile #7000: pref set - vendor attacks and can be hurt\n\r");
+    m_descriptor.small_outbuf[0] = '\0';
+    m_descriptor.bufptr = 0;
+    m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    vendor_config_check(&m_mob_proto[0], kVendorVnum, &m_buyer);
+    EXPECT_EQ(output(), "MOB ERROR: mobile #7000: pref set - vendor attacks and can be hurt\n\r");
+}
+
+TEST_F(BarterVendorTest, VendorCandidateRule)
+{
+    EXPECT_TRUE(is_vendor_candidate(&m_mob_proto[0], 0));
+    EXPECT_TRUE(is_vendor_candidate(&m_mob_proto[0], -1)) << "not in the table yet";
+    m_mob_index[0].func = (special_func)barter_vendor;
+    EXPECT_TRUE(is_vendor_candidate(&m_mob_proto[0], 0));
+    m_mob_index[0].func = +[](char_data*, char_data*, int, char*, int, waiting_type*) { return 0; };
+    EXPECT_FALSE(is_vendor_candidate(&m_mob_proto[0], 0)) << "hard-coded function owns the slot";
+    m_mob_index[0].func = nullptr;
+    m_mob_proto[0].specials2.act = MOB_ISNPC;
+    EXPECT_FALSE(is_vendor_candidate(&m_mob_proto[0], 0));
+    m_mob_proto[0].specials2.act = MOB_ISNPC | MOB_SPEC;
+    m_mob_proto[0].specials.store_prog_number = 32;
+    EXPECT_FALSE(is_vendor_candidate(&m_mob_proto[0], 0));
+    m_mob_proto[0].specials.store_prog_number = PROG_BARTER_VENDOR;
+}
+
 TEST_F(BarterVendorTest, ShortfallTakesNothing)
 {
     give_hides(1);

@@ -20,6 +20,10 @@ bool mob_option_find(const char* options, const char* key, std::string* value);
  * over MOB_OPTIONS_MAX, any '#' or '~', or a leading '$'. */
 bool mob_options_storable(const char* text, const char** why);
 
+/* Removes leading blank lines and whitespace in place, as reading the text
+ * back from the mob file would (read_mob_options skips them). */
+void mob_options_trim_leading(char* text);
+
 /* Reads the optional options string that may follow a mob record. Returns
  * nullptr, leaving the stream at the next token, if that token starts the
  * next record ('#' or '$') or the file ends, or if the text is empty. */

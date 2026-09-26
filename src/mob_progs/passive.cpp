@@ -22,6 +22,7 @@ extern struct index_data* obj_index;
 extern struct time_info_data time_info;
 
 ACMD(do_say);
+int get_number(char** name);
 
 namespace {
 
@@ -77,18 +78,9 @@ void vendor_send(const std::string& line, struct char_data* builder)
     }
 }
 
-/* True only when mob_proto[rnum] is a program-33 candidate AND nothing
- * hard-coded (ASSIGNMOB/.shp) already owns its function slot. For a
- * hard-coded mob, store_prog_number isn't a program number at all: it's data
- * the hard-coded procedure reads directly (guild's guildmasters[] index,
- * ferry_captain's route, etc. -- see spec_pro.cpp), and coincidentally
- * overlapping 33 doesn't make the mob a vendor. */
 bool is_vendor_proto(int rnum)
 {
-    const char_data& proto = mob_proto[rnum];
-    if (!IS_SET(proto.specials2.act, MOB_SPEC) || proto.specials.store_prog_number != PROG_BARTER_VENDOR)
-        return false;
-    return !mob_index[rnum].func || mob_index[rnum].func == (special_func)barter_vendor;
+    return is_vendor_candidate(&mob_proto[rnum], rnum);
 }
 
 /* do_say refuses mobs with INT < 6 ("too stupid to talk"), which would leave
@@ -99,7 +91,29 @@ void vendor_add_speech_problem(const char_data& proto, std::vector<vendor_proble
         problems->push_back({ 0, "intelligence below 6 - vendor can't speak" });
 }
 
+/* pref makes a mob aggressive to those races; a vendor that attacks gets
+ * fought back and is no longer protected. Use rp_flag to restrict trade. */
+void vendor_add_pref_problem(const char_data& proto, std::vector<vendor_problem>* problems)
+{
+    if (proto.specials2.pref != 0)
+        problems->push_back({ 0, "pref set - vendor attacks and can be hurt" });
+}
+
 } // namespace
+
+/* True only when proto is a program-33 candidate AND nothing hard-coded
+ * (ASSIGNMOB/.shp) already owns mob rnum's function slot. For a hard-coded
+ * mob, store_prog_number isn't a program number at all: it's data the
+ * hard-coded procedure reads directly (guild's guildmasters[] index,
+ * ferry_captain's route, etc. -- see spec_pro.cpp), and coincidentally
+ * overlapping 33 doesn't make the mob a vendor. rnum < 0 (a mob not in the
+ * table yet) has no function slot to own. */
+bool is_vendor_candidate(const struct char_data* proto, int rnum)
+{
+    if (!IS_SET(proto->specials2.act, MOB_SPEC) || proto->specials.store_prog_number != PROG_BARTER_VENDOR)
+        return false;
+    return rnum < 0 || !mob_index[rnum].func || mob_index[rnum].func == (special_func)barter_vendor;
+}
 
 std::string format_vendor_list(const std::vector<vendor_list_row>& rows)
 {
@@ -159,11 +173,12 @@ void vendor_config_check(const struct char_data* proto, int mob_vnum, struct cha
     std::vector<vendor_problem> problems;
     parse_vendor_options(proto->specials.mob_options, game_lookups(), &problems);
     vendor_add_speech_problem(*proto, &problems);
+    vendor_add_pref_problem(*proto, &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_vnum, problem), builder);
 }
 
-void vendor_config_rebuild(int mob_rnum, struct char_data* builder)
+void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
 {
     if (mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_rnum)) {
         g_vendor_configs.erase(mob_rnum);
@@ -171,7 +186,10 @@ void vendor_config_rebuild(int mob_rnum, struct char_data* builder)
     }
     std::vector<vendor_problem> problems;
     g_vendor_configs[mob_rnum] = parse_vendor_options(mob_proto[mob_rnum].specials.mob_options, game_lookups(), &problems);
+    if (!report)
+        return;
     vendor_add_speech_problem(mob_proto[mob_rnum], &problems);
+    vendor_add_pref_problem(mob_proto[mob_rnum], &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_index[mob_rnum].virt, problem), builder);
 }
@@ -303,13 +321,15 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
     }
     std::vector<stock_row> stock = vendor_stock(ch, config);
     const stock_row* pick = 0;
-    if (isdigit((unsigned char)*want)) {
-        int n = atoi(want);
+    if (strspn(want, "0123456789") == strlen(want)) { /* a list number */
+        int n = strlen(want) <= 4 ? atoi(want) : 0;
         if (n >= 1 && n <= (int)stock.size())
             pick = &stock[n - 1];
-    } else {
+    } else { /* a keyword, "2.belt" meaning the second listed row it matches */
+        char* name = want;
+        int nth = get_number(&name);
         for (const stock_row& s : stock)
-            if (isname(want, s.copy->name)) {
+            if (isname(name, s.copy->name) && --nth == 0) {
                 pick = &s;
                 break;
             }

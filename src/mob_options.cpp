@@ -85,6 +85,17 @@ bool mob_options_storable(const char* text, const char** why)
     return true;
 }
 
+void mob_options_trim_leading(char* text)
+{
+    if (!text)
+        return;
+    const char* p = text;
+    while (*p && isspace((unsigned char)*p))
+        ++p;
+    if (p != text)
+        memmove(text, p, strlen(p) + 1);
+}
+
 char* read_mob_options(FILE* f, char* context)
 {
     int c;

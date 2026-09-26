@@ -704,6 +704,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 char* after = SHAPE_PROTO(ch)->proto->specials.mob_options;
                 const char* why = 0;
                 if (after != before) {
+                    mob_options_trim_leading(after); /* stored == what reload returns */
                     if (!mob_options_storable(after, &why)) {
                         send_to_char("Options not changed: ", ch);
                         send_to_char(why, ch);
@@ -1938,13 +1939,8 @@ int replace_proto(struct char_data* ch, char* arg)
 
     if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE)) {
         write_proto(f2, SHAPE_PROTO(ch)->proto, num);
-        {
-            int nr = SHAPE_PROTO(ch)->proto->nr;
-            if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
-                && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR
-                && (nr < 0 || !mob_index[nr].func || mob_index[nr].func == (special_func)barter_vendor))
-                vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
-        }
+        if (is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
+            vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
         REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE);
     }
 
@@ -2056,13 +2052,8 @@ int append_proto(struct char_data* ch, char* arg)
 
     fseek(f2, -1, SEEK_CUR);
     write_proto(f2, SHAPE_PROTO(ch)->proto, i1 + 1);
-    {
-        int nr = SHAPE_PROTO(ch)->proto->nr;
-        if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
-            && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR
-            && (nr < 0 || !mob_index[nr].func || mob_index[nr].func == (special_func)barter_vendor))
-            vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
-    }
+    if (is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
+        vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
     sprintf(str, "Mobile added to database as #%d.\n\r", i1 + 1);
     send_to_char(str, ch);
     SHAPE_PROTO(ch)
@@ -2096,7 +2087,9 @@ int append_proto(struct char_data* ch, char* arg)
 }
 */
 
-void implement_proto(struct char_data* ch)
+/* report_vendor false: the caller already reported the vendor's problems
+ * (the /save half of /done), so the registry is rebuilt silently. */
+void implement_proto(struct char_data* ch, bool report_vendor = true)
 {
     int number;
     struct char_data* proto;
@@ -2166,7 +2159,7 @@ void implement_proto(struct char_data* ch)
         proto->specials.store_prog_number = real_program(proto->specials.store_prog_number);
     else
         virt_assignmob(mob_proto + number);
-    vendor_config_rebuild(number, ch);
+    vendor_config_rebuild(number, ch, report_vendor);
 }
 ACMD(do_shape)
 {
@@ -2688,7 +2681,10 @@ void extra_coms_proto(struct char_data* ch, char* argument)
             ->procedure
             = SHAPE_EDIT;
         break;
-    case SHAPE_DONE:
+    case SHAPE_DONE: {
+        /* The save reports vendor problems exactly when this is true (the
+         * same test replace_proto makes), so implement doesn't repeat them. */
+        bool save_reports = is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr);
         /* A failed save must not throw the edits away. */
         if (replace_proto(ch, argument) < 0) {
             send_to_char("Not saved - still shaping. Fix the problem and /done again,\n\r"
@@ -2696,9 +2692,9 @@ void extra_coms_proto(struct char_data* ch, char* argument)
                 ch);
             break;
         }
-        implement_proto(ch);
+        implement_proto(ch, !save_reports);
         extra_coms_proto(ch, "free");
-        break;
+    } break;
     }
     //  printf("passed shape_proto_center\n");
     return;
