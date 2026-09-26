@@ -77,16 +77,20 @@ def test_snake_mob_has_the_perception_that_lands_every_bite() -> None:
     assert perception == 100, f"snake perception {perception} must be 100 or a bite can be resisted"
 
 
-def test_zone_twelve_sits_twenty_squares_from_zone_eleven() -> None:
+def test_zone_twelve_sits_five_squares_from_zone_eleven() -> None:
     """spell_summon adds the straight-line map distance, rounded down, to the save bonus
-    (mage.cpp ~867); new_saves_spell treats a bonus of 20 or more as an automatic save
-    (spell_pa.cpp ~262), so this placement makes a cross-zone summon fail deterministically."""
+    (mage.cpp ~865); new_saves_spell treats a bonus of 20 or more as an automatic save
+    (spell_pa.cpp ~269). This placement keeps the straight-line bonus (5) well below that
+    threshold while the sum of squared deltas (25) reaches it, so the summon-distance scenario
+    tells the two formulas apart."""
     eleven = (WORLD_ROOT / "zon" / "11.zon").read_text(encoding="latin-1")
     twelve = (WORLD_ROOT / "zon" / "12.zon").read_text(encoding="latin-1")
     header = re.compile(r"^\? (-?\d+) (-?\d+) \d+\s*$", flags=re.MULTILINE)
     x1, y1 = (int(value) for value in header.search(eleven).groups())
     x2, y2 = (int(value) for value in header.search(twelve).groups())
-    assert math.isqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) == 20
+    squared = (x2 - x1) ** 2 + (y2 - y1) ** 2
+    assert math.isqrt(squared) == 5
+    assert squared >= 20
 
 
 def test_zone_twelve_holds_only_the_distant_cell() -> None:

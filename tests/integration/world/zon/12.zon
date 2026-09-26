@@ -1,10 +1,10 @@
 #12
 Harness distant zone~
-Second zone for the summon-distance scenario: 20 map squares from zone 11.
+Second zone for the summon-distance scenario: map (3,4), 5 squares from zone 11.
 ~
 ~
 0
-? 20 0 5
+? 3 4 5
 1299
 999
 2

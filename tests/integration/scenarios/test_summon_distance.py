@@ -1,15 +1,20 @@
-"""manual-test-plan.md item 4 (summon at zone distance): a summon across 20 map squares always
-fails; the same summon inside the zone succeeds. spell_summon (mage.cpp ~856-869) adds the
-straight-line distance between the two zones' map squares, rounded down, to the victim's save
-bonus, and new_saves_spell (spell_pa.cpp ~262) returns a save unconditionally once that bonus
-reaches 20. Zone 12 sits at (20,0) against zone 11's (0,0)
-(tests/integration/world/zon/12.zon), so the cross-zone case is deterministic. The gtests
-pin the formula (mage_tests.cpp SummonDistanceBonusIs*); this pins the live coordinate path.
+"""manual-test-plan.md item 4 (summon at zone distance): the zone-distance save bonus is the
+straight-line distance between the two zones' map squares, so a summon five squares away lands.
+spell_summon (mage.cpp ~859-867) adds that distance, rounded down, to the victim's save bonus,
+and new_saves_spell (spell_pa.cpp ~252-271) returns a save unconditionally once the bonus
+reaches 20. Zone 12 sits at (3,4) against zone 11's (0,0) (tests/integration/world/zon/12.zon):
+straight-line 5, while the sum of squared deltas, 25, would force every save. The gtests pin the
+formula (mage_tests.cpp SummonDistanceBonusIs*); this pins the live coordinate path.
 
-Bound: FAILED_ATTEMPTS forced saves, allowed up to FAILED_ATTEMPTS + 3 casts (a fizzle spends a
-cast without forcing a save, and the knowledge-check odds of more than three fizzles in six
-summon casts are negligible); each cast waited on its own resolution line, so the loop cannot
-outrun the caster's mana (600 at the fixture, summon costs far less per cast).
+The landing is deterministic: the victim saves when d20 + save_value > caster DC. Harncaller's DC
+is 10 + mage level 30 / 3 + (int 40 - 8) / 4 = 28 (get_saving_throw_dc); Harnvictim, with no
+mage levels and int 0, has save_value (0 - 8) / 4 + 5 = 3 (get_character_saving_throw), so its
+best roll reaches 23. Both are set with `wizset ... int` and copied into the live ability by
+`restore` (do_restore, act_wiz.cpp ~1618), which the stat check below confirms.
+
+Bound: CAST_BUDGET casts; a fizzle spends a cast without reaching the save, and the odds of that
+many fizzles in a row are negligible. Each cast waits on its own resolution line, so the loop
+cannot outrun the caster's mana.
 """
 from __future__ import annotations
 
@@ -21,10 +26,11 @@ from test_summon import SUMMON_SUCCESS, _room_line
 
 pytestmark = pytest.mark.scenario
 
-SUMMON_FAILED = "You failed."  # spell_summon's send_to_char on a saved roll (mage.cpp:888)
-CONCENTRATION_LOST = "You lost your concentration!"  # do_cast, spell_pa.cpp:932
-FAILED_ATTEMPTS = 6
-CAST_BUDGET = FAILED_ATTEMPTS + 3
+SUMMON_FAILED = "You failed."  # spell_summon's send_to_char on a saved roll (mage.cpp:886)
+CONCENTRATION_LOST = "You lost your concentration!"  # do_cast, spell_pa.cpp:921
+CAST_BUDGET = 5
+CASTER_INT = 40  # wizset's ceiling for int (act_wiz.cpp, field 13)
+VICTIM_INT = 0
 
 
 def _stage(imp: GameSession, victim: GameSession, victim_room: int, victim_room_name: str) -> None:
@@ -36,23 +42,32 @@ def _stage(imp: GameSession, victim: GameSession, victim_room: int, victim_room_
     victim.expect_room(victim_room_name)
 
 
-def test_summon_across_twenty_squares_always_fails(server, imp, caller, victim) -> None:
+def _set_intelligence(imp: GameSession, name: str, value: int) -> None:
+    imp.command(f"wizset {name} int {value}")
+    imp.command(f"restore {name}")
+    stat = imp.command(f"stat {name}")
+    abilities = stat.abilities()
+    assert abilities is not None and abilities["int"] == value, f"{name}'s int never became {value}:\n{stat.text}"
+
+
+def test_summon_across_five_squares_lands(server, imp, caller, victim) -> None:
     _stage(imp, victim, fixtures.ROOM_DISTANT_CELL, "Distant Cell")
     caller.expect_room("Arena East")
-    forced_failures = 0
+    _set_intelligence(imp, "harncaller", CASTER_INT)
+    _set_intelligence(imp, "harnvictim", VICTIM_INT)
+
     for cast in range(1, CAST_BUDGET + 1):
         caller.send_line("cast 'summon' harnvictim")
         reply = caller.expect([SUMMON_FAILED, CONCENTRATION_LOST, *SUMMON_SUCCESS], timeout=12.0)
         if CONCENTRATION_LOST in reply:
-            continue  # a fizzle is a spent cast, not a forced failure
-        assert SUMMON_FAILED in reply, f"cast {cast}: a distance of 20 squares must force the save:\n{reply}"
-        forced_failures += 1
-        if forced_failures == FAILED_ATTEMPTS:
-            break
+            continue  # a fizzle never reaches the save
+        assert SUMMON_FAILED not in reply, f"cast {cast}: a distance of 5 squares cannot win this save:\n{reply}"
+        break
     else:
-        pytest.fail(f"only {forced_failures} of {FAILED_ATTEMPTS} forced saves in {CAST_BUDGET} casts")
+        pytest.fail(f"every one of {CAST_BUDGET} summon casts fizzled")
+    victim.expect_room("Arena East")
     stat = imp.command("stat harnvictim")
-    assert _room_line(fixtures.ROOM_DISTANT_CELL) in stat.text, stat.text
+    assert _room_line(fixtures.ROOM_ARENA_EAST) in stat.text, stat.text
 
 
 def test_summon_inside_the_zone_still_lands(server, imp, caller, victim) -> None:
