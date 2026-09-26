@@ -61,7 +61,7 @@ class CharacterSpec:
 MAGE_SKILLS = {
     "blaze": 100,
     "poison": 100,
-    "mist_of_baazunga": 100,
+    "mists_of_burzum": 100,
     "haze": 100,
     "summon": 100,
     "earthquake": 100,
@@ -89,7 +89,7 @@ STANDARD_ROSTER: tuple[CharacterSpec, ...] = (
     # Guild learners with no spells, since a guildmaster refuses a spell already known at its
     # limit. wizset cannot change a profession level, so each learner's mage level is fixed here:
     # Harnpupil's 27 is above blaze's 18, and Harnnovice's 17 is one below blaze's
-    # (consts.cpp skills[]). Mist of baazunga has no level requirement.
+    # (consts.cpp skills[]). Mists of burzum has no level requirement.
     CharacterSpec("Harnpupil", RACE_HUMAN, 27, ROOM_ARENA_CENTRE, {"mage": 27}, {}, 200, 600, 200, 9000006),
     CharacterSpec("Harnnovice", RACE_HUMAN, 17, ROOM_ARENA_CENTRE, {"mage": 17}, {}, 200, 600, 200, 9000007),
 )

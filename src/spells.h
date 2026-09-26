@@ -131,7 +131,7 @@
 #define SPELL_EARTHQUAKE 81
 #define SPELL_CREATE_LIGHT 82
 #define SPELL_DARK_BOLT 84
-#define SPELL_MIST_OF_BAAZUNGA 85 // Needs to be removed.
+#define SPELL_MISTS_OF_BURZUM 85
 #define SPELL_BEACON 88
 #define SPELL_BLAZE 90 // Needs to be removed
 #define SPELL_FIREBOLT 91
@@ -482,7 +482,7 @@ ASPELL(spell_revive);
 ASPELL(spell_insight);
 ASPELL(spell_pragmatism);
 ASPELL(spell_death_ward);
-ASPELL(spell_mist_of_baazunga);
+ASPELL(spell_mists_of_burzum);
 ASPELL(spell_protection);
 ASPELL(spell_mind_block);
 ASPELL(spell_resist_poison);

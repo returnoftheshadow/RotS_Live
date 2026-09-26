@@ -1,4 +1,4 @@
-"""A guildmaster teaches mist of baazunga and blaze only to a player of a race it will teach,
+"""A guildmaster teaches mists of burzum and blaze only to a player of a race it will teach,
 with the spell's specialization and a mage level at or above the spell's level. Mist's level is 0,
 so any darkness specialist qualifies whatever their mage level.
 
@@ -24,13 +24,13 @@ from rots_harness.session import GameSession
 
 pytestmark = pytest.mark.scenario
 
-MIST = "mist of baazunga"
+MIST = "mists of burzum"
 BLAZE = "blaze"
-MIST_KEY = "mist_of_baazunga"  # skill_key_for_index() slug (character_json.cpp)
+MIST_KEY = "mists_of_burzum"  # skill_key_for_index() slug (character_json.cpp)
 BLAZE_KEY = "blaze"
 
 PLRSPEC_FIRE = 1  # structs.h; blaze's skill_spec
-PLRSPEC_DARK = 16  # structs.h; mist of baazunga's skill_spec
+PLRSPEC_DARK = 16  # structs.h; mists of burzum's skill_spec
 
 RACE_URUK_HAI = 11
 RACE_ORC = 13

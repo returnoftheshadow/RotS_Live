@@ -104,7 +104,7 @@ def test_harncaller_carries_fireball_for_the_splash_scenario() -> None:
 
 def test_guild_learners_sit_at_the_spell_levels_and_know_no_spells() -> None:
     """test_guild_spell_learning.py relies on these mage levels against skills[] (consts.cpp):
-    mist of baazunga is level 27 and blaze 18. A known spell would stop the guild at its
+    mists of burzum is level 27 and blaze 18. A known spell would stop the guild at its
     limit check before the gates under test."""
     pupil = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnpupil")
     novice = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnnovice")

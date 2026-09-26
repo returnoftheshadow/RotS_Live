@@ -536,15 +536,15 @@ room.
 See: SPECIALIZATIONS, FIRE
 
 #
-"MIST OF BAAZUNGA"
+"MISTS OF BURZUM" "MIST OF BAAZUNGA"
 
-[Syntax      ] cast 'mist of baazunga'
+[Syntax      ] cast 'mists of burzum'
 [Group       ] Magic-User
 [Level       ] 0
 [Minimum Cost] 50
 [Offensive   ] No
 [Description ]
----Casting "Mist of Baazunga" breathes out a dark mist that shrouds the room in
+---Casting "Mists of Burzum" breathes out a dark mist that shrouds the room in
 shadow, sheltering those who suffer in sunlight.  The mist drifts into nearby
 rooms, thinning as it spreads, and lasts longer the stronger its caster.
   Only people specializing in Darkness can learn it.

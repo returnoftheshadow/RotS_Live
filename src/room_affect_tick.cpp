@@ -134,7 +134,7 @@ void haze_tick(const caster_snapshot& who, char_data* occupant)
     }
 }
 
-// mage.cpp's spell_mist_of_baazunga(), renewal arm, with the spread falloff. The
+// mage.cpp's spell_mists_of_burzum(), renewal arm, with the spread falloff. The
 // room's own mist carries its spread generation in `counter`; this tick renews the
 // room at that generation's level and seeds empty neighbours one generation
 // further out. Two long-standing quirks of the cast are preserved: the renewal
@@ -151,7 +151,7 @@ void mist_tick(const caster_snapshot& who, room_data* room)
     const int caster_level = get_mage_caster_level(who);
 
     int generation = 0;
-    affected_type* const here = room_affected_by_spell(room, SPELL_MIST_OF_BAAZUNGA);
+    affected_type* const here = room_affected_by_spell(room, SPELL_MISTS_OF_BURZUM);
     if (here) {
         generation = here->counter;
     }
@@ -168,7 +168,7 @@ void mist_tick(const caster_snapshot& who, room_data* room)
         }
 
         room_data* const next = &world[room->dir_option[direction]->to_room];
-        if (affected_type* there = room_affected_by_spell(next, SPELL_MIST_OF_BAAZUNGA)) {
+        if (affected_type* there = room_affected_by_spell(next, SPELL_MISTS_OF_BURZUM)) {
             if (there->duration < level / 5) {
                 there->duration = level / 5;
             }
@@ -192,7 +192,7 @@ void mist_tick(const caster_snapshot& who, room_data* room)
         } else {
             seeded_mist.modifier = 0;
         }
-        seeded_mist.location = SPELL_MIST_OF_BAAZUNGA;
+        seeded_mist.location = SPELL_MISTS_OF_BURZUM;
         seeded_mist.bitvector = 0;
         seeded_mist.counter = next_generation;
         affect_to_room(next, &seeded_mist, who);
@@ -222,7 +222,7 @@ bool room_affect_tick(int spell, room_data* room, char_data* occupant, const aff
     case SPELL_HAZE:
         haze_tick(who, occupant);
         return true;
-    case SPELL_MIST_OF_BAAZUNGA:
+    case SPELL_MISTS_OF_BURZUM:
         mist_tick(who, room);
         return true;
     default:

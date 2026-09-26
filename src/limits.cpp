@@ -1524,7 +1524,7 @@ void affect_update_room(struct room_data* room)
         switch (tmpaf->type) {
         case ROOMAFF_SPELL:
             if ((tmpaf->location >= 0) && (tmpaf->location < MAX_SKILLS) && skills[tmpaf->location].spell_pointer) {
-                if (tmpaf->location == SPELL_MIST_OF_BAAZUNGA)
+                if (tmpaf->location == SPELL_MISTS_OF_BURZUM)
                     if (!IS_SET(room->room_flags, SHADOWY))
                         SET_BIT(room->room_flags, SHADOWY);
 
@@ -1564,7 +1564,7 @@ void affect_update_room(struct room_data* room)
 
         if (((time_phase == tmpaf->time_phase) || ((tmpaf->type == ROOMAFF_SPELL) && skills[tmpaf->location].is_fast)) && (tmpaf->duration > 0))
             tmpaf->duration--;
-        if (tmpaf->location == SPELL_MIST_OF_BAAZUNGA && tmpaf->duration > 0 && time_phase == tmpaf->time_phase) {
+        if (tmpaf->location == SPELL_MISTS_OF_BURZUM && tmpaf->duration > 0 && time_phase == tmpaf->time_phase) {
             /* 70% chance of mist thinking about moving */
             sprintf(buf, "check mist movement");
             mudlog(buf, NRM, LEVEL_GOD, FALSE);
@@ -1576,10 +1576,10 @@ void affect_update_room(struct room_data* room)
                     mudlog(buf, NRM, LEVEL_GOD, FALSE);
                 } else if (room->dir_option[direction]->to_room != NOWHERE) {
                     roomnum = room->dir_option[direction]->to_room;
-                    if (!(room_affected_by_spell(&world[roomnum], SPELL_MIST_OF_BAAZUNGA))) {
+                    if (!(room_affected_by_spell(&world[roomnum], SPELL_MISTS_OF_BURZUM))) {
                         if (tmpaf->modifier != 1)
                             REMOVE_BIT(room->room_flags, SHADOWY);
-                        if ((checkaf = room_affected_by_spell(&world[roomnum], SPELL_MIST_OF_BAAZUNGA))) {
+                        if ((checkaf = room_affected_by_spell(&world[roomnum], SPELL_MISTS_OF_BURZUM))) {
                             mod = checkaf->modifier;
                             sprintf(buf, "WARNING LOMAN: Mist already in move to room");
                             mudlog(buf, NRM, LEVEL_GOD, FALSE);
@@ -1591,7 +1591,7 @@ void affect_update_room(struct room_data* room)
                         newaf.type = ROOMAFF_SPELL;
                         newaf.duration = tmpaf->duration;
                         newaf.modifier = mod;
-                        newaf.location = SPELL_MIST_OF_BAAZUNGA;
+                        newaf.location = SPELL_MISTS_OF_BURZUM;
                         newaf.bitvector = 0;
                         // A drifting mist keeps its spread generation.
                         newaf.counter = tmpaf->counter;
@@ -1604,7 +1604,7 @@ void affect_update_room(struct room_data* room)
                         // invalidates it, per room_affect_caster()'s documented
                         // lifetime.
                         const caster_snapshot* const mist_caster
-                            = room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA);
+                            = room_affect_caster(room, SPELL_MISTS_OF_BURZUM);
                         const caster_snapshot moved_caster
                             = mist_caster ? *mist_caster : caster_snapshot::none();
 
@@ -1626,7 +1626,7 @@ void affect_update_room(struct room_data* room)
 
         if (tmpaf)
             if (tmpaf->duration == 0) {
-                if (tmpaf->location == SPELL_MIST_OF_BAAZUNGA && tmpaf->modifier != 1)
+                if (tmpaf->location == SPELL_MISTS_OF_BURZUM && tmpaf->modifier != 1)
                     REMOVE_BIT(room->room_flags, SHADOWY);
                 affect_remove_room(room, tmpaf);
             }

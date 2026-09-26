@@ -104,7 +104,7 @@ constexpr int kMistMoveDestRoom = 976;
 constexpr int kAwayRoom = 977; // a caster's "somewhere else" room for the presence pins
 
 // Rooms exercising the CASTING arms (spell_blaze,
-// spell_haze, spell_poison's room arm, spell_mist_of_baazunga) directly,
+// spell_haze, spell_poison's room arm, spell_mists_of_burzum) directly,
 // rather than room_affect_tick() -- continuing this suite's own room band.
 constexpr int kBlazeCastRoom = 978;
 constexpr int kBlazeWeakerRecastRoom = 979;
@@ -275,7 +275,7 @@ public:
         while (room.affected) {
             affect_remove_room(&room, room.affected);
         }
-        for (int spell : { SPELL_BLAZE, SPELL_POISON, SPELL_HAZE, SPELL_MIST_OF_BAAZUNGA }) {
+        for (int spell : { SPELL_BLAZE, SPELL_POISON, SPELL_HAZE, SPELL_MISTS_OF_BURZUM }) {
             erase_room_affect_record(&room, spell);
         }
         room.people = m_original_people;
@@ -1207,13 +1207,13 @@ TEST(RoomAffectTick, MistTickRenewsFromTheSnapshotLevelAndNeverShortensAStronger
 
     // level = get_mage_caster_level(who) = 25 + 25/5 = 30 -> level/5 = 6.
     CasterFixture caster(25, 0, game_types::PS_None, kMistMainRoom);
-    set_room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA, caster_snapshot::capture(caster.ch));
+    set_room_affect_caster(main_room.room(), SPELL_MISTS_OF_BURZUM, caster_snapshot::capture(caster.ch));
 
     affected_type weak_mist {};
     weak_mist.type = ROOMAFF_SPELL;
     weak_mist.duration = 1; // weaker than level/5 = 6 -- must be renewed up
     weak_mist.modifier = 0;
-    weak_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    weak_mist.location = SPELL_MISTS_OF_BURZUM;
     weak_mist.bitvector = 0;
     affect_to_room(main_room.room(), &weak_mist);
 
@@ -1221,18 +1221,18 @@ TEST(RoomAffectTick, MistTickRenewsFromTheSnapshotLevelAndNeverShortensAStronger
     stronger_mist.type = ROOMAFF_SPELL;
     stronger_mist.duration = 99; // STRONGER than level/5 = 6 -- must never be shortened
     stronger_mist.modifier = 0;
-    stronger_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    stronger_mist.location = SPELL_MISTS_OF_BURZUM;
     stronger_mist.bitvector = 0;
     affect_to_room(stronger_adjacent.room(), &stronger_mist);
 
     affected_type affect = dummy_affect();
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, main_room.room(), main_room.room()->people, affect);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, main_room.room(), main_room.room()->people, affect);
 
-    affected_type* main_after = room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* main_after = room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(main_after, nullptr);
     EXPECT_EQ(main_after->duration, 6) << "a weaker mist must be renewed up to level/5 from the snapshot";
 
-    affected_type* adjacent_after = room_affected_by_spell(stronger_adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* adjacent_after = room_affected_by_spell(stronger_adjacent.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(adjacent_after, nullptr);
     EXPECT_EQ(adjacent_after->duration, 99)
         << "a stronger adjacent mist must never be shortened down to level/5";
@@ -1250,16 +1250,16 @@ TEST(RoomAffectTick, MistTickSeedsAnEmptyAdjacentRoomCarryingTheCaster)
     // carries 27/6 = 4.
     CasterFixture caster(25, 0, game_types::PS_None, kMistMainRoom);
     const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
-    set_room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA, recorded);
+    set_room_affect_caster(main_room.room(), SPELL_MISTS_OF_BURZUM, recorded);
 
     affected_type affect = dummy_affect();
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, main_room.room(), main_room.room()->people, affect);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, main_room.room(), main_room.room()->people, affect);
 
-    affected_type* seeded = room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* seeded = room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(seeded, nullptr) << "an empty adjacent room must be freshly seeded";
     EXPECT_EQ(seeded->duration, 4);
 
-    const caster_snapshot* seeded_caster = room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* seeded_caster = room_affect_caster(adjacent.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(seeded_caster, nullptr)
         << "the fresh seed must carry the SAME caster the main room's mist was ticked from";
     EXPECT_STREQ(seeded_caster->name, recorded.name);
@@ -1284,19 +1284,19 @@ TEST(RoomAffectTick, MistTickSeedsANeighbourOneGenerationOutAtTheReducedLevel)
     cast_mist.type = ROOMAFF_SPELL;
     cast_mist.duration = 6;
     cast_mist.modifier = 0;
-    cast_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    cast_mist.location = SPELL_MISTS_OF_BURZUM;
     cast_mist.bitvector = 0;
     cast_mist.counter = 0;
     affect_to_room(main_room.room(), &cast_mist, recorded);
 
     affected_type affect = dummy_affect();
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, main_room.room(), main_room.room()->people, affect);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, main_room.room(), main_room.room()->people, affect);
 
-    affected_type* seeded = room_affected_by_spell(neighbour.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* seeded = room_affected_by_spell(neighbour.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(seeded, nullptr);
     EXPECT_EQ(seeded->counter, 1) << "one room out from the cast room";
     EXPECT_EQ(seeded->duration, 4) << "level 30 falls to 27 one hop out; 27 / 6 = 4";
-    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 0)
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM)->counter, 0)
         << "the cast room's own generation never changes";
 }
 
@@ -1315,17 +1315,17 @@ TEST(RoomAffectTick, MistTickAtTheThirdGenerationRenewsItselfButSeedsNothing)
     deep_mist.type = ROOMAFF_SPELL;
     deep_mist.duration = 1;
     deep_mist.modifier = 0;
-    deep_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    deep_mist.location = SPELL_MISTS_OF_BURZUM;
     deep_mist.bitvector = 0;
     deep_mist.counter = 3;
     affect_to_room(deep_room.room(), &deep_mist, caster_snapshot::capture(caster.ch));
 
     affected_type affect = dummy_affect();
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, deep_room.room(), deep_room.room()->people, affect);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, deep_room.room(), deep_room.room()->people, affect);
 
-    EXPECT_EQ(room_affected_by_spell(deep_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 2)
+    EXPECT_EQ(room_affected_by_spell(deep_room.room(), SPELL_MISTS_OF_BURZUM)->duration, 2)
         << "renewed from the generation-3 level of 12";
-    EXPECT_EQ(room_affected_by_spell(beyond.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+    EXPECT_EQ(room_affected_by_spell(beyond.room(), SPELL_MISTS_OF_BURZUM), nullptr)
         << "a seed whose level would be 0 is never placed";
     EXPECT_FALSE(IS_SET(beyond.room()->room_flags, SHADOWY)) << "nor does the room darken";
 }
@@ -1352,7 +1352,7 @@ TEST(RoomAffectTick, MistTickRenewsANeighbourAndPullsItsGenerationCloser)
     cast_mist.type = ROOMAFF_SPELL;
     cast_mist.duration = 6;
     cast_mist.modifier = 0;
-    cast_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    cast_mist.location = SPELL_MISTS_OF_BURZUM;
     cast_mist.bitvector = 0;
     cast_mist.counter = 0;
     affect_to_room(main_room.room(), &cast_mist, recorded);
@@ -1361,22 +1361,22 @@ TEST(RoomAffectTick, MistTickRenewsANeighbourAndPullsItsGenerationCloser)
     far_mist.type = ROOMAFF_SPELL;
     far_mist.duration = 1;
     far_mist.modifier = 0;
-    far_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    far_mist.location = SPELL_MISTS_OF_BURZUM;
     far_mist.bitvector = 0;
     far_mist.counter = 3;
     affect_to_room(neighbour.room(), &far_mist, recorded);
 
     affected_type affect = dummy_affect();
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, main_room.room(), main_room.room()->people, affect);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, main_room.room(), main_room.room()->people, affect);
 
-    affected_type* renewed = room_affected_by_spell(neighbour.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* renewed = room_affected_by_spell(neighbour.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(renewed, nullptr);
     EXPECT_EQ(renewed->duration, 6) << "renewed against the ticking room's own level / 5, as before";
     EXPECT_EQ(renewed->counter, 1) << "now one hop from the cast room";
 
     // The reverse never happens: ticking the far room must not push the cast room out.
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, neighbour.room(), neighbour.room()->people, affect);
-    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 0);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, neighbour.room(), neighbour.room()->people, affect);
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM)->counter, 0);
 }
 
 TEST(RoomAffectTick, UnknownSpellHasNoTickBodyAndReturnsFalse)
@@ -1510,7 +1510,7 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
 {
     RoomFixture source_room(kMistMoveSourceRoom);
     RoomFixture dest_room(kMistMoveDestRoom);
-    ScopedSpellPointer mist_pointer(SPELL_MIST_OF_BAAZUNGA, recording_fallback_spell);
+    ScopedSpellPointer mist_pointer(SPELL_MISTS_OF_BURZUM, recording_fallback_spell);
     room_direction_data north_exit {};
     north_exit.to_room = dest_room.slot();
     source_room.room()->dir_option[NORTH] = &north_exit;
@@ -1527,7 +1527,7 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
     mist_affect.type = ROOMAFF_SPELL;
     mist_affect.duration = 5;
     mist_affect.modifier = 0;
-    mist_affect.location = SPELL_MIST_OF_BAAZUNGA;
+    mist_affect.location = SPELL_MISTS_OF_BURZUM;
     mist_affect.bitvector = 0;
     mist_affect.counter = 2;
     affect_to_room(source_room.room(), &mist_affect, recorded);
@@ -1537,7 +1537,7 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
     source_room.room()->people = nullptr; // no occupant tick -- only the move code is under test
 
     const int time_phase_now = get_current_time_phase();
-    room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA)->time_phase = time_phase_now;
+    room_affected_by_spell(source_room.room(), SPELL_MISTS_OF_BURZUM)->time_phase = time_phase_now;
 
     push_test_random_value(0.1); // movechance = number(1, 100) < 75, the mist decides to move
     push_test_random_value(0.0); // direction = number(0, NUM_OF_DIRS - 1) == 0 == NORTH
@@ -1551,19 +1551,19 @@ TEST(RoomAffectTick, AffectUpdateRoomCarriesTheCasterWhenTheMistMoves)
            "was: "
         << captured;
 
-    const caster_snapshot* moved_caster = room_affect_caster(dest_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* moved_caster = room_affect_caster(dest_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(moved_caster, nullptr) << "the mist's destination must carry a recorded caster";
     EXPECT_STREQ(moved_caster->name, recorded.name)
         << "the destination's recorded caster must be the SAME one the source room's mist carried";
     EXPECT_EQ(moved_caster->mage_prof_level, recorded.mage_prof_level);
 
-    affected_type* moved_mist = room_affected_by_spell(dest_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* moved_mist = room_affected_by_spell(dest_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(moved_mist, nullptr);
     EXPECT_EQ(moved_mist->counter, 2) << "a drifting mist keeps its generation";
 
-    EXPECT_EQ(room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+    EXPECT_EQ(room_affected_by_spell(source_room.room(), SPELL_MISTS_OF_BURZUM), nullptr)
         << "the source room's mist affect must have been removed by the move";
-    EXPECT_EQ(room_affect_caster(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+    EXPECT_EQ(room_affect_caster(source_room.room(), SPELL_MISTS_OF_BURZUM), nullptr)
         << "affect_remove_room() must have erased the source room's caster record along with it";
 }
 
@@ -1575,7 +1575,7 @@ TEST(RoomAffectTick, AMistThatDriftedSpreadsFromItsNewRoomAtItsCarriedGeneration
     RoomFixture source_room(kMistDriftSourceRoom);
     RoomFixture dest_room(kMistDriftDestRoom);
     RoomFixture spread_room(kMistDriftSpreadRoom);
-    ScopedSpellPointer mist_pointer(SPELL_MIST_OF_BAAZUNGA, recording_fallback_spell);
+    ScopedSpellPointer mist_pointer(SPELL_MISTS_OF_BURZUM, recording_fallback_spell);
     room_direction_data north_exit {};
     north_exit.to_room = dest_room.slot();
     source_room.room()->dir_option[NORTH] = &north_exit;
@@ -1593,38 +1593,38 @@ TEST(RoomAffectTick, AMistThatDriftedSpreadsFromItsNewRoomAtItsCarriedGeneration
     mist_affect.type = ROOMAFF_SPELL;
     mist_affect.duration = 5;
     mist_affect.modifier = 0;
-    mist_affect.location = SPELL_MIST_OF_BAAZUNGA;
+    mist_affect.location = SPELL_MISTS_OF_BURZUM;
     mist_affect.bitvector = 0;
     mist_affect.counter = 1;
     affect_to_room(source_room.room(), &mist_affect, recorded);
-    room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA)->time_phase = get_current_time_phase();
+    room_affected_by_spell(source_room.room(), SPELL_MISTS_OF_BURZUM)->time_phase = get_current_time_phase();
 
     push_test_random_value(0.1); // movechance = number(1, 100) < 75, the mist decides to move
     push_test_random_value(0.0); // direction = number(0, NUM_OF_DIRS - 1) == 0 == NORTH
     affect_update_room(source_room.room());
     clear_test_random_values();
-    ASSERT_EQ(room_affected_by_spell(source_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+    ASSERT_EQ(room_affected_by_spell(source_room.room(), SPELL_MISTS_OF_BURZUM), nullptr)
         << "precondition: the mist drifted out of its source room";
-    affected_type* const drifted = room_affected_by_spell(dest_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* const drifted = room_affected_by_spell(dest_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(drifted, nullptr) << "precondition: the mist drifted into the destination";
 
     affected_type affect = dummy_affect();
-    room_affect_tick(SPELL_MIST_OF_BAAZUNGA, dest_room.room(), dest_room.room()->people, affect);
+    room_affect_tick(SPELL_MISTS_OF_BURZUM, dest_room.room(), dest_room.room()->people, affect);
 
-    affected_type* const seeded = room_affected_by_spell(spread_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* const seeded = room_affected_by_spell(spread_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(seeded, nullptr) << "the drifted mist must spread into its new room's empty neighbour";
     EXPECT_EQ(seeded->counter, 2) << "one generation out from the generation-1 mist that drifted";
     EXPECT_EQ(seeded->duration, 3) << "level 30 falls to 21 two hops out; 21 / 6 = 3";
-    const caster_snapshot* const seeded_caster = room_affect_caster(spread_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* const seeded_caster = room_affect_caster(spread_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(seeded_caster, nullptr) << "the seed must carry the caster the drifted mist carried";
     EXPECT_TRUE(seeded_caster->same_character_as(caster.ch));
-    EXPECT_EQ(room_affected_by_spell(dest_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 1)
+    EXPECT_EQ(room_affected_by_spell(dest_room.room(), SPELL_MISTS_OF_BURZUM)->counter, 1)
         << "spreading never changes the ticking room's own generation";
 }
 
 // ---------------------------------------------------------------------------
 // The CASTING arms themselves (spell_blaze,
-// spell_haze, spell_poison's room arm, spell_mist_of_baazunga) record their
+// spell_haze, spell_poison's room arm, spell_mists_of_burzum) record their
 // caster's snapshot when they create or strengthen a room affect. These
 // tests drive the live ASPELLs directly, unlike the room_affect_tick()
 // suite above -- that suite covers what a room affect READS back; this covers
@@ -1800,24 +1800,24 @@ TEST(RoomAffectCasting, MistCastSeedsAFreshAdjacentRoomCarryingTheCaster)
 
     CasterFixture caster(25, 0, game_types::PS_None, main_room.slot()); // level 30
 
-    test_support::cast_spell(spell_mist_of_baazunga, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mists_of_burzum, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
-    const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(main_recorded, nullptr) << "the fresh main-room seed must have recorded a caster";
     EXPECT_TRUE(main_recorded->same_character_as(caster.ch));
 
-    const caster_snapshot* adjacent_recorded = room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* adjacent_recorded = room_affect_caster(adjacent.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(adjacent_recorded, nullptr)
         << "an empty adjacent room must be freshly seeded carrying the SAME caster";
     EXPECT_TRUE(adjacent_recorded->same_character_as(caster.ch));
 
-    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 1)
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM)->counter, 1)
         << "the adjacent seed is one generation out from the cast room";
-    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->counter, 0)
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM)->counter, 0)
         << "the room the mist was breathed in is generation 0";
-    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 6)
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM)->duration, 6)
         << "the cast room lasts level 30 / 5 = 6";
-    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 4)
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM)->duration, 4)
         << "level 30 falls to 27 one hop out; 27 / 6 = 4";
 }
 
@@ -1836,15 +1836,15 @@ TEST(RoomAffectCasting, MistCastByAWeakCasterSeedsNoAdjacentRoom)
     // level 6: main dur 1; one hop out the level is 3, and 3 / 6 = 0
     CasterFixture weak_caster(1, 0, game_types::PS_None, main_room.slot());
 
-    test_support::cast_spell(spell_mist_of_baazunga, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mists_of_burzum, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
-    affected_type* main_mist = room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* main_mist = room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(main_mist, nullptr) << "the caster's own room is always misted";
     EXPECT_EQ(main_mist->duration, 1) << "level 6 / 5 = 1";
 
-    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM), nullptr)
         << "a seed of level 3 / 6 = 0 ticks is never placed";
-    EXPECT_EQ(room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr)
+    EXPECT_EQ(room_affect_caster(adjacent.room(), SPELL_MISTS_OF_BURZUM), nullptr)
         << "nor is a caster recorded for it";
     EXPECT_FALSE(IS_SET(adjacent.room()->room_flags, SHADOWY)) << "nor does the room darken";
 }
@@ -1866,7 +1866,7 @@ TEST(RoomAffectCasting, MistCastRenewalResetsTheMainGenerationAndPullsTheAdjacen
     drifted_mist.type = ROOMAFF_SPELL;
     drifted_mist.duration = 1;
     drifted_mist.modifier = 0;
-    drifted_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    drifted_mist.location = SPELL_MISTS_OF_BURZUM;
     drifted_mist.bitvector = 0;
     drifted_mist.counter = 2;
     affect_to_room(main_room.room(), &drifted_mist, recorded);
@@ -1875,19 +1875,19 @@ TEST(RoomAffectCasting, MistCastRenewalResetsTheMainGenerationAndPullsTheAdjacen
     far_mist.type = ROOMAFF_SPELL;
     far_mist.duration = 1;
     far_mist.modifier = 0;
-    far_mist.location = SPELL_MIST_OF_BAAZUNGA;
+    far_mist.location = SPELL_MISTS_OF_BURZUM;
     far_mist.bitvector = 0;
     far_mist.counter = 3;
     affect_to_room(adjacent.room(), &far_mist, recorded);
 
-    test_support::cast_spell(spell_mist_of_baazunga, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mists_of_burzum, &caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
-    affected_type* main_mist = room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* main_mist = room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(main_mist, nullptr);
     EXPECT_EQ(main_mist->duration, 6) << "renewed to level 30 / 5 = 6";
     EXPECT_EQ(main_mist->counter, 0) << "a drifted mist the caster renews becomes the cast room";
 
-    affected_type* adjacent_mist = room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    affected_type* adjacent_mist = room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(adjacent_mist, nullptr);
     EXPECT_EQ(adjacent_mist->duration, 6)
         << "renewed against the MAIN room's level 30 / 5 = 6, the cast's long-standing quirk";
@@ -1908,34 +1908,34 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
     CasterFixture strong_caster(25, 0, game_types::PS_None, main_room.slot());
 
     // Seed both rooms weakly first, recording weak_caster in each.
-    test_support::cast_spell(spell_mist_of_baazunga, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
-    ASSERT_NE(room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
-    ASSERT_NE(room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA), nullptr);
-    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 2)
+    test_support::cast_spell(spell_mists_of_burzum, &weak_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    ASSERT_NE(room_affect_caster(main_room.room(), SPELL_MISTS_OF_BURZUM), nullptr);
+    ASSERT_NE(room_affect_caster(adjacent.room(), SPELL_MISTS_OF_BURZUM), nullptr);
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM)->duration, 2)
         << "the weak cast lasts level 12 / 5 = 2";
-    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 1)
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM)->duration, 1)
         << "the weak seed lasts level 9 / 6 = 1";
 
     // A stronger recast: main's duration (2) is raised to 6, and the adjacent
     // room's own (quirky) comparison is against the MAIN room's new af.duration
-    // (6) too -- see mage.cpp's spell_mist_of_baazunga comment -- so both
+    // (6) too -- see mage.cpp's spell_mists_of_burzum comment -- so both
     // renewals fire and both records must move to strong_caster.
-    test_support::cast_spell(spell_mist_of_baazunga, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+    test_support::cast_spell(spell_mists_of_burzum, &strong_caster.ch, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
 
-    const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* main_recorded = room_affect_caster(main_room.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(main_recorded, nullptr);
     EXPECT_TRUE(main_recorded->same_character_as(strong_caster.ch))
         << "the main room's longer-duration renewal must replace the recorded caster";
     EXPECT_FALSE(main_recorded->same_character_as(weak_caster.ch));
 
-    const caster_snapshot* adjacent_recorded = room_affect_caster(adjacent.room(), SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* adjacent_recorded = room_affect_caster(adjacent.room(), SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(adjacent_recorded, nullptr);
     EXPECT_TRUE(adjacent_recorded->same_character_as(strong_caster.ch))
         << "the adjacent room's longer-duration renewal must also replace the recorded caster";
     EXPECT_FALSE(adjacent_recorded->same_character_as(weak_caster.ch));
 
-    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 6)
+    EXPECT_EQ(room_affected_by_spell(main_room.room(), SPELL_MISTS_OF_BURZUM)->duration, 6)
         << "the strong recast raises main to level 30 / 5 = 6";
-    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MIST_OF_BAAZUNGA)->duration, 6)
+    EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM)->duration, 6)
         << "the adjacent renewal compares against the MAIN room's 6";
 }

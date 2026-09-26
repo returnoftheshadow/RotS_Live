@@ -66,7 +66,7 @@ void big_brother::populate_skill_sets()
     m_harmful_skills.insert(SPELL_LIGHTNING_BOLT);
     m_harmful_skills.insert(SPELL_EARTHQUAKE);
     m_harmful_skills.insert(SPELL_DARK_BOLT);
-    m_harmful_skills.insert(SPELL_MIST_OF_BAAZUNGA);
+    m_harmful_skills.insert(SPELL_MISTS_OF_BURZUM);
     m_harmful_skills.insert(SPELL_BLAZE);
     m_harmful_skills.insert(SPELL_FIREBOLT);
     m_harmful_skills.insert(SPELL_CONE_OF_COLD);

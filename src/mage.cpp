@@ -2504,8 +2504,8 @@ ASPELL(spell_freeze)
 /*----------------------------------------------------------------------------------------------------------*/
 
 /*
- * uruk mage spell: mist of baazunga
- * The mist of baazunga causes the room it is casted in to
+ * uruk mage spell: mists of burzum
+ * The mists of burzum cause the room it is casted in to
  * be affected become dark for a short period of time.
  * Additionally, every room directly connected to the misted
  * room is affected.  The only other place where the mists
@@ -2518,7 +2518,7 @@ ASPELL(spell_freeze)
  * that we can also have things like blaze branch from room
  * to room.
  */
-ASPELL(spell_mist_of_baazunga)
+ASPELL(spell_mists_of_burzum)
 {
     struct affected_type af, af2;
     struct affected_type* oldaf;
@@ -2529,7 +2529,7 @@ ASPELL(spell_mist_of_baazunga)
         return;
 
     room = &world[caster->in_room];
-    if ((oldaf = room_affected_by_spell(room, SPELL_MIST_OF_BAAZUNGA)))
+    if ((oldaf = room_affected_by_spell(room, SPELL_MISTS_OF_BURZUM)))
         modifier = oldaf->modifier;
     else {
         if (IS_SET(room->room_flags, SHADOWY))
@@ -2542,13 +2542,13 @@ ASPELL(spell_mist_of_baazunga)
     af.type = ROOMAFF_SPELL;
     af.duration = level / 5;
     af.modifier = modifier;
-    af.location = SPELL_MIST_OF_BAAZUNGA;
+    af.location = SPELL_MISTS_OF_BURZUM;
     af.bitvector = 0;
     af.counter = 0; // spread generation: the room the mist is breathed in
 
     /* Apply the full spell to main room */
     if ((oldaf = room_affected_by_spell(room,
-             SPELL_MIST_OF_BAAZUNGA))) {
+             SPELL_MISTS_OF_BURZUM))) {
         if (oldaf->duration < af.duration) {
             oldaf->duration = af.duration;
             // The mist is the one room affect whose renewal raises the
@@ -2556,7 +2556,7 @@ ASPELL(spell_mist_of_baazunga)
             // room's SHADOWY bit, not a caster level), so its record follows
             // the duration: a renewal that made the mist last longer is the
             // one now hanging, a weaker one leaves the record alone.
-            set_room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA, caster_at_cast);
+            set_room_affect_caster(room, SPELL_MISTS_OF_BURZUM, caster_at_cast);
             // A mist that drifted or spread here becomes this cast's source room.
             oldaf->counter = 0;
         }
@@ -2585,7 +2585,7 @@ ASPELL(spell_mist_of_baazunga)
                 room_data* const next = &world[roomnum];
 
                 if ((oldaf = room_affected_by_spell(next,
-                         SPELL_MIST_OF_BAAZUNGA))) {
+                         SPELL_MISTS_OF_BURZUM))) {
                     mod = oldaf->modifier;
                 } else if (IS_SET(next->room_flags, SHADOWY)) {
                     mod = 1;
@@ -2596,15 +2596,15 @@ ASPELL(spell_mist_of_baazunga)
                 af2.type = ROOMAFF_SPELL;
                 af2.duration = seed_level / 6;
                 af2.modifier = mod;
-                af2.location = SPELL_MIST_OF_BAAZUNGA;
+                af2.location = SPELL_MISTS_OF_BURZUM;
                 af2.bitvector = 0;
                 af2.counter = 1;
 
                 if ((oldaf = room_affected_by_spell(next,
-                         SPELL_MIST_OF_BAAZUNGA))) {
+                         SPELL_MISTS_OF_BURZUM))) {
                     if (oldaf->duration < af.duration) {
                         oldaf->duration = af.duration;
-                        set_room_affect_caster(next, SPELL_MIST_OF_BAAZUNGA, caster_at_cast);
+                        set_room_affect_caster(next, SPELL_MISTS_OF_BURZUM, caster_at_cast);
                         oldaf->counter = std::min<sh_int>(oldaf->counter, 1);
                     }
                 } else if (af2.duration > 0) {

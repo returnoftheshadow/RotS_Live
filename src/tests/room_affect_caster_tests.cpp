@@ -176,18 +176,18 @@ TEST(RoomAffectCaster, PointerFromRoomAffectCasterIsInvalidatedByRemoval)
     ASSERT_EQ(room->affected, nullptr) << "the room must start with no affects";
 
     CasterContext caster;
-    affected_type mist = room_spell_affect(SPELL_MIST_OF_BAAZUNGA, 3, 0);
+    affected_type mist = room_spell_affect(SPELL_MISTS_OF_BURZUM, 3, 0);
     affect_to_room(room, &mist, caster_snapshot::capture(caster.character));
 
-    const caster_snapshot* const stale = room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* const stale = room_affect_caster(room, SPELL_MISTS_OF_BURZUM);
     ASSERT_NE(stale, nullptr);
     // `stale` is never read again below -- only compared as a value, never
     // dereferenced -- once affect_remove_room() below may have freed the
     // storage it pointed into.
 
-    affect_remove_room(room, room_affected_by_spell(room, SPELL_MIST_OF_BAAZUNGA));
+    affect_remove_room(room, room_affected_by_spell(room, SPELL_MISTS_OF_BURZUM));
 
-    const caster_snapshot* const fresh = room_affect_caster(room, SPELL_MIST_OF_BAAZUNGA);
+    const caster_snapshot* const fresh = room_affect_caster(room, SPELL_MISTS_OF_BURZUM);
     EXPECT_EQ(fresh, nullptr)
         << "a fresh lookup after removal must report no record -- the pointer taken before "
            "removal must never be relied on again";

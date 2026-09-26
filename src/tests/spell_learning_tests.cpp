@@ -1,4 +1,4 @@
-// Who may learn mist of baazunga and blaze, and which guildmasters teach them. Both are
+// Who may learn mists of burzum and blaze, and which guildmasters teach them. Both are
 // specialization spells: SPECIAL(guild) (spec_pro.cpp) lists and teaches a LEARN_SPEC skill only
 // to a player whose specialization matches the skill's. Guildmaster tables are consts.cpp's
 // guildmasters[], numbered from 1 by a guild mob's prog number.
@@ -31,8 +31,8 @@ int taught_to(int table_number, int skill) {
 
 } // namespace
 
-TEST(SpellLearning, OnlyDarknessSpecialistsCanLearnMistOfBaazunga) {
-    const skill_data& mist = skills[SPELL_MIST_OF_BAAZUNGA];
+TEST(SpellLearning, OnlyDarknessSpecialistsCanLearnMistsOfBurzum) {
+    const skill_data& mist = skills[SPELL_MISTS_OF_BURZUM];
     EXPECT_TRUE(IS_SET(mist.learn_type, LEARN_SPEC));
     EXPECT_EQ(mist.skill_spec, PLRSPEC_DARK);
 }
@@ -45,8 +45,8 @@ TEST(SpellLearning, OnlyFireSpecialistsCanLearnBlaze) {
 
 // SPECIAL(guild) refuses a skill whose level exceeds the learner's mage level; mist's level of 0
 // passes that check for every mage level, so only the specialization gate applies.
-TEST(SpellLearning, MistOfBaazungaHasNoMageLevelRequirement) {
-    const skill_data& mist = skills[SPELL_MIST_OF_BAAZUNGA];
+TEST(SpellLearning, MistsOfBurzumHasNoMageLevelRequirement) {
+    const skill_data& mist = skills[SPELL_MISTS_OF_BURZUM];
     constexpr int kLowestMageLevel = 0;
     EXPECT_LE(mist.level, kLowestMageLevel);
     EXPECT_EQ(mist.skill_spec, PLRSPEC_DARK) << "the specialization gate is the only one left";
@@ -58,10 +58,10 @@ TEST(SpellLearning, BlazeStillRequiresMageLevelEighteen) {
 }
 
 TEST(SpellLearning, DarkSideMageTrainersTeachMistToTheFull) {
-    EXPECT_EQ(taught_to(kMagusTable, SPELL_MIST_OF_BAAZUNGA), kTaughtToTheFull);
-    EXPECT_EQ(taught_to(kUrukMageTable, SPELL_MIST_OF_BAAZUNGA), kTaughtToTheFull);
-    EXPECT_EQ(taught_to(kUrukGuildmasterTable, SPELL_MIST_OF_BAAZUNGA), kTaughtToTheFull);
-    EXPECT_EQ(taught_to(kGlassEyedShamanTable, SPELL_MIST_OF_BAAZUNGA), kTaughtToTheFull);
+    EXPECT_EQ(taught_to(kMagusTable, SPELL_MISTS_OF_BURZUM), kTaughtToTheFull);
+    EXPECT_EQ(taught_to(kUrukMageTable, SPELL_MISTS_OF_BURZUM), kTaughtToTheFull);
+    EXPECT_EQ(taught_to(kUrukGuildmasterTable, SPELL_MISTS_OF_BURZUM), kTaughtToTheFull);
+    EXPECT_EQ(taught_to(kGlassEyedShamanTable, SPELL_MISTS_OF_BURZUM), kTaughtToTheFull);
 }
 
 TEST(SpellLearning, FireTrainersTeachBlazeToTheFull) {

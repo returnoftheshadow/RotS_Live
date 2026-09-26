@@ -515,7 +515,8 @@ struct skill_data skills[MAX_SKILLS] = {
         PLRSPEC_PROT },
     { "dark bolt", PROF_MAGE, 9, spell_dark_bolt, POSITION_FIGHTING, 10, 17, 18, 10, 1, 0,
         PLRSPEC_DARK },
-    { "mist of baazunga", PROF_MAGE, 0, spell_mist_of_baazunga, POSITION_STANDING, 50, 72, 36, 1, 65,
+    // Reintroduced; only darkness specialists may learn it.
+    { "mists of burzum", PROF_MAGE, 0, spell_mists_of_burzum, POSITION_STANDING, 50, 72, 36, 1, 65,
         0, PLRSPEC_DARK },
     { "mind block", PROF_CLERIC, 3, spell_mind_block, POSITION_STANDING, 5, 15, 40, 10, 1, 0,
         PLRSPEC_NONE },
