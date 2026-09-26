@@ -22,7 +22,9 @@ Performance).
 
 ## How builders set one up
 
-1. On the mob: set `MOB_SPEC` and program number **33** (shaping field 29).
+1. On the mob: set `MOB_SPEC` and program number **33** (shaping field 29). Program 33 only
+   takes effect on a mob with no hard-coded procedure (no `.shp` file, no `ASSIGNMOB`); on a
+   hard-coded mob, field 29 is data the hard-coded procedure reads instead.
 2. On the mob: write the **options** (shaping field 42), e.g.
    ```
    store=12345
@@ -41,8 +43,10 @@ vendors.
 - **Format:** multi-line text, one setting per line: `key=value`, a bare word, or a keyword
   line such as `price …`. A line starting with `//` is a comment: skipped entirely, never
   warned about. Lines that are blank or that no program recognises are ignored at use.
-  The text can't contain `~` or start with `#`/`$`, since those would corrupt the mob file.
-  The editor refuses such text and keeps the old value.
+  The text can't contain `#` or `~` anywhere, and can't start with `$`, since the shape
+  editor's record scanner treats any `#` in a mob file as the start of the next mob record,
+  and a leading `$`/embedded `~` would be read as an end-of-string terminator. The editor
+  refuses such text and keeps the old value.
 - **Size:** up to 4,000 characters. Edited with the same multi-line editor as descriptions.
   `stat` and the editor always show the whole value.
 - **File format:** one extra `~`-ended string after the mob record's last number line. The

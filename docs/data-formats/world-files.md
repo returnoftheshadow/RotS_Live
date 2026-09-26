@@ -147,6 +147,12 @@ Notes:
 - Most of these (energy/regen, OB/parry/dodge, perception, resistance/vulnerability,
   spirit, prof, languages, script_number, butcher_item, rp_flag) are **RotS additions**;
   stock Diku mobiles are far simpler.
+- **Options (optional, RotS 2026-09):** one `~`-terminated text block after the last number
+  line, present only when the mob has options. The loader reads it only when the next
+  non-space character isn't `#` or `$` (`read_mob_options`, `src/mob_options.cpp`). Text
+  can't contain `~` or `#` anywhere, and can't start with `$`; max 4000 characters. Used by
+  mob programs; see `docs/builders/barter-vendors.md`. **Rollback:** a server older than
+  this change can't read a mob file containing an options block.
 
 ---
 
