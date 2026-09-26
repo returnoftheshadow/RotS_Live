@@ -136,7 +136,8 @@ act_wiz.o : act_wiz.cpp structs.h utils.h comm.h interpre.h \
 handler.o : handler.cpp structs.h utils.h comm.h db.h handler.h interpre.h
 	$(CC) -c $(CFLAGS) handler.cpp
 db.o : db.cpp structs.h utils.h db.h comm.h handler.h limits.h spells.h \
-        interpre.h big_brother.h skill_timer.h account_management_types.h
+        interpre.h big_brother.h skill_timer.h account_management_types.h \
+        mob_options.h mob_progs/passive.h
 	$(CC) -c $(CFLAGS) db.cpp
 ban.o : ban.cpp structs.h utils.h comm.h interpre.h handler.h db.h
 	$(CC) -c $(CFLAGS) ban.cpp
@@ -145,7 +146,7 @@ interpre.o : interpre.cpp structs.h comm.h interpre.h db.h utils.h \
 	$(CC) -c $(CFLAGS) interpre.cpp
 utility.o : utility.cpp structs.h utils.h comm.h
 	$(CC) -c $(CFLAGS) utility.cpp
-spec_ass.o : spec_ass.cpp structs.h db.h interpre.h utils.h
+spec_ass.o : spec_ass.cpp structs.h db.h interpre.h utils.h mob_options.h mob_progs/passive.h
 	$(CC) -c $(CFLAGS) spec_ass.cpp
 spec_pro.o : spec_pro.cpp structs.h utils.h comm.h interpre.h \
 	handler.h db.h spells.h limits.h
@@ -199,7 +200,7 @@ savebench.o : savebench.cpp savebench.h save_benchmark.h account_management.h co
 	$(CC) -c $(CFLAGS) savebench.cpp
 script.o : script.cpp structs.h utils.h comm.h interpre.h protos.h script.h
 	$(CC) -c $(CFLAGS) script.cpp
-shapemob.o : shapemob.cpp structs.h utils.h comm.h interpre.h protos.h
+shapemob.o : shapemob.cpp structs.h utils.h comm.h interpre.h protos.h mob_options.h mob_progs/passive.h
 	$(CC) -c $(CFLAGS) shapemob.cpp
 shapeobj.o : shapeobj.cpp structs.h utils.h comm.h interpre.h protos.h
 	$(CC) -c $(CFLAGS) shapeobj.cpp
@@ -229,7 +230,7 @@ obj2html.o: obj2html.cpp structs.h
 	$(CC) -c $(CFLAGS) obj2html.cpp
 mob_csv_extract.o: mob_csv_extract.cpp mob_csv_extract.h structs.h
 	$(CC) -c $(CFLAGS) mob_csv_extract.cpp
-mob_options.o : mob_options.cpp mob_options.h db.h
+mob_options.o : mob_options.cpp mob_options.h structs.h utils.h db.h
 	$(CC) -c $(CFLAGS) mob_options.cpp
 mob_progs/passive.o : mob_progs/passive.cpp mob_progs/passive.h mob_options.h structs.h utils.h comm.h interpre.h handler.h db.h
 	$(CC) -c $(CFLAGS) mob_progs/passive.cpp -o mob_progs/passive.o
