@@ -50,7 +50,7 @@ sanitized gate.
 | Fixture | Type | Notes |
 | --- | --- | --- |
 | `server` | `HarnessServer` | fresh server per test; `.lib_dir` is the run's `lib/`; `.character_number(name)`, `.spec(name)` |
-| `imp`, `mage`, `fighter`, `victim`, `caller` | `GameSession` | logged in on request; quit at teardown |
+| `imp`, `mage`, `fighter`, `victim`, `caller`, `pupil`, `novice` | `GameSession` | logged in on request; quit at teardown |
 | `harness` | `Harness` | `.tick()` runs the hourly block once; `.affects()` forces one person-affect pass |
 | `fail_on_server_crash` | autouse | fails the test on any signal or sanitizer report in `game.log` |
 
@@ -67,6 +67,8 @@ xfail only ASan can trigger.
 | Harnfighter | human | 20 | warrior 20 | none | 200 / 50 / 200 | 1131 |
 | Harnvictim | wood elf | 10 | ranger 10 | none | 60 / 40 / 120 | 1131 |
 | Harncaller | human | 30 | mage 30 | summon, blaze | 200 / 600 / 200 | 1131 |
+| Harnpupil | human | 27 | mage 27 | none | 200 / 600 / 200 | 1131 |
+| Harnnovice | human | 17 | mage 17 | none | 200 / 600 / 200 | 1131 |
 
 All share one account (`harness@example.com`) and constitution 11
 (`tests/integration/fixtures/character.template.json`). Harncaller exists because a magus
@@ -87,6 +89,11 @@ and a wood elf are on opposite sides, which `summon` refuses.
 
 Harness mobs: `1130` target orc (plain melee target), `1131` snake with the poison special
 (`MOB_SPEC` set). Load with `load mob <vnum>`; remove with `purge <keyword>`.
+
+`mob/guildmasters.mob` holds copies of six real guildmasters at their real vnums (1503, 2043,
+4601, 10003, 13600, 32200), so `spec_ass.cpp` binds `guild` to them; only their teaching fields
+match the real mobs. `real_mobile()` binary-searches, so mob vnums must ascend across the
+index's files as well as within each.
 
 Harness objects: `1130` harness token, `1136` leather bag (keyword `bag`, an open
 container that holds the cap), `1137` leather cap (keyword `cap`, head armour), `1138` sickly

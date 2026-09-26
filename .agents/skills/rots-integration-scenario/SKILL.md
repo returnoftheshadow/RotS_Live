@@ -62,8 +62,8 @@ nothing.
 
 1. **Create `tests/integration/scenarios/test_<behaviour>.py`** with the module docstring
    from section 2 and `pytestmark = pytest.mark.scenario`. Request only the sessions you use:
-   `server`, `imp`, `mage`, `fighter`, `victim`, `caller`, `harness`. Each test gets a fresh
-   server; there is no state to clean up between tests.
+   `server`, `imp`, `mage`, `fighter`, `victim`, `caller`, `pupil`, `novice`, `harness`. Each
+   test gets a fresh server; there is no state to clean up between tests.
 2. **Stage the setup through the imp.** `goto`, `transfer`, `restore`, `wizset`, `load mob`,
    `purge` are the tools. After every room move, call `expect_room` on the moved session;
    a `look` issued before the move lands will read the old room.

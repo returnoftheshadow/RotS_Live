@@ -38,6 +38,6 @@ def test_build_creates_every_runtime_directory_the_server_expects(tmp_path: Path
 def test_build_seeds_the_roster(tmp_path: Path) -> None:
     built = build_into(tmp_path)
     account = json.loads((fixtures.account_directory(built.lib_dir) / "account.json").read_text(encoding="utf-8"))
-    assert account["characters"] == ["harnimp", "harnmage", "harnfighter", "harnvictim", "harncaller"]
+    assert account["characters"] == ["harnimp", "harnmage", "harnfighter", "harnvictim", "harncaller", "harnpupil", "harnnovice"]
     assert (fixtures.account_directory(built.lib_dir) / "harnvictim.character.json").is_file()
     assert built.roster == fixtures.STANDARD_ROSTER

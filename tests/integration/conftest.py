@@ -139,6 +139,8 @@ mage = _session_fixture("mage", "Harnmage")
 fighter = _session_fixture("fighter", "Harnfighter")
 victim = _session_fixture("victim", "Harnvictim")
 caller = _session_fixture("caller", "Harncaller")
+pupil = _session_fixture("pupil", "Harnpupil")
+novice = _session_fixture("novice", "Harnnovice")
 
 
 class Harness:

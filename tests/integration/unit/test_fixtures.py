@@ -100,3 +100,14 @@ def test_harncaller_carries_fireball_for_the_splash_scenario() -> None:
     caller = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harncaller")
     assert caller.skills["fireball"] == 100
     assert caller.professions["mage"] >= 21  # fireball's profession level, consts.cpp skills[]
+
+
+def test_guild_learners_sit_at_the_spell_levels_and_know_no_spells() -> None:
+    """test_guild_spell_learning.py relies on these mage levels against skills[] (consts.cpp):
+    mist of baazunga is level 27 and blaze 18. A known spell would stop the guild at its
+    limit check before the gates under test."""
+    pupil = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnpupil")
+    novice = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnnovice")
+    assert pupil.professions["mage"] == 27
+    assert novice.professions["mage"] == 17
+    assert pupil.skills == {} and novice.skills == {}

@@ -173,3 +173,50 @@ def test_harness_objects_avoid_hard_wired_object_specials() -> None:
     assert assigned, f"no ASSIGNOBJ lines found in {SPEC_ASSIGN_SOURCE}"
     for vnum in (BAG_VNUM, CAP_VNUM, AMULET_VNUM):
         assert vnum not in assigned, f"object {vnum} has a special hard-wired by spec_ass.cpp's ASSIGNOBJ"
+
+
+GUILDMASTER_TEACHING = {
+    # vnum: (race, guildmasters[] table number, will_teach), copied from the real lib/world/mob files
+    1503: (1, 7, 63),
+    2043: (11, 58, 10240),
+    4601: (11, 12, 2048),
+    10003: (1, 16, 63),
+    13600: (15, 30, 32768),
+    32200: (13, 47, 8192),
+}
+
+
+def mob_records(file_name: str) -> dict[int, list[str]]:
+    """Each mob's non-blank lines after its vnum, keyed by vnum, for one mob file."""
+    text = (WORLD_ROOT / "mob" / file_name).read_text(encoding="latin-1")
+    records = {}
+    for match in re.finditer(r"^#(\d+)\n(.*?)(?=^#\d+\s*$)", text, flags=re.MULTILINE | re.DOTALL):
+        records[int(match.group(1))] = [line for line in match.group(2).splitlines() if line.strip()]
+    return records
+
+
+def test_mob_vnums_ascend_across_the_whole_index() -> None:
+    """real_mobile() (db.cpp) binary-searches mob_index, which load_mobiles fills in index-file
+    order, so vnums must ascend across files, not only within each."""
+    vnums = [vnum for file_name in read_index("mob") for vnum in mob_records(file_name)]
+    assert vnums == sorted(vnums)
+    assert len(vnums) == len(set(vnums))
+
+
+def test_guildmasters_carry_their_teaching_fields_and_bind_the_guild_special() -> None:
+    """A guildmaster teaches from guildmasters[program number - 1] only when MOB_SPEC keeps the
+    program number unconverted (load_mobiles, db.cpp) and spec_ass.cpp's ASSIGNMOB binds `guild`
+    to its vnum. Line layout as in test_snake_mob_binds_its_bite_special."""
+    source = SPEC_ASSIGN_SOURCE.read_text(encoding="latin-1")
+    guild_vnums = {int(match) for match in re.findall(r"^\s*ASSIGNMOB\((\d+),\s*guild\)", source, flags=re.MULTILINE)}
+    records = mob_records("guildmasters.mob")
+    assert sorted(records) == sorted(GUILDMASTER_TEACHING)
+    for vnum, (race, table, will_teach) in GUILDMASTER_TEACHING.items():
+        lines = records[vnum]
+        assert vnum in guild_vnums, f"mob {vnum} has no ASSIGNMOB(..., guild) in spec_ass.cpp"
+        assert int(lines[5]) & 1, f"mob {vnum} must set MOB_SPEC"
+        assert int(lines[11].split()[3]) == race, f"mob {vnum} race"
+        weight_height_prog = lines[12].split()
+        assert int(weight_height_prog[2]) == table, f"mob {vnum} program number"
+        assert int(weight_height_prog[5]) == 0, f"mob {vnum} rp_flag must be 0 (RP_RACE_CHECK passes everyone)"
+        assert int(lines[16].split()[6]) == will_teach, f"mob {vnum} will_teach"
