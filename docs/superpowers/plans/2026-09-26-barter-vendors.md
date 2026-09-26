@@ -89,7 +89,7 @@ tests), GoogleTest, Docker i386 toolchain via `scripts/rots-docker.sh`.
 | `src/interpre.h` | Modify | `CMD_GIVE 54` |
 | `src/act_wiz.cpp` | Modify | Show options in mob `stat` |
 | `src/Makefile`, `src/CMakeLists.txt` | Modify (**user-approved only**) | New objects/sources, `clean` covers `mob_progs/*.o` |
-| `docs/data-formats/world-files.md`, `docs/builders/barter-vendors.md` | Modify/Create | Format + builder guide |
+| `docs/data-formats/world-files.md`, `docs/systems/barter-vendors.md` | Modify/Create | Format + builder guide |
 
 ---
 
@@ -1811,7 +1811,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `docs/data-formats/world-files.md` (mob record section)
-- Create: `docs/builders/barter-vendors.md`
+- Create: `docs/systems/barter-vendors.md`
 
 - [ ] **Step 1: Mob file format.** In `docs/data-formats/world-files.md`, in the mob record
   format, after the last numeric line (language … will_teach), document:
@@ -1821,11 +1821,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   line, present only when the mob has options. The loader reads it only when the next
   non-space character isn't `#` or `$` (`read_mob_options`, `src/mob_options.cpp`). Text
   can't contain `~` or start with `#`/`$`; max 4000 characters. Used by mob programs; see
-  `docs/builders/barter-vendors.md`. **Rollback:** a server older than this change can't read
+  `docs/systems/barter-vendors.md`. **Rollback:** a server older than this change can't read
   a mob file containing an options block.
 ```
 
-- [ ] **Step 2: Builder guide.** Create `docs/builders/barter-vendors.md` with:
+- [ ] **Step 2: Builder guide.** Create `docs/systems/barter-vendors.md` with:
   1. Setup steps (MOB_SPEC, program 33, field 42 options, store room via zone `O` lines).
   2. The settings table (`store=`, `hours=`, `price … [deduct]`), with limits and what
      happens on bad values.
@@ -1843,7 +1843,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/data-formats/world-files.md docs/builders/barter-vendors.md
+git add docs/data-formats/world-files.md docs/systems/barter-vendors.md
 git commit -m "docs: barter vendor builder guide and mob options format
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

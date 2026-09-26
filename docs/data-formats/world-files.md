@@ -151,7 +151,7 @@ Notes:
   line, present only when the mob has options. The loader reads it only when the next
   non-space character isn't `#` or `$` (`read_mob_options`, `src/mob_options.cpp`). Text
   can't contain `~` or `#` anywhere, and can't start with `$`; max 4000 characters. Used by
-  mob programs; see `docs/builders/barter-vendors.md`. **Rollback:** a server older than
+  mob programs; see `docs/systems/barter-vendors.md`. **Rollback:** a server older than
   this change can't read a mob file containing an options block.
 
 ---

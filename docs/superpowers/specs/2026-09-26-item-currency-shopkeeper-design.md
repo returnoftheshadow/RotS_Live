@@ -188,9 +188,10 @@ Reported like the other boot misconfiguration warnings (type + vnum + line, no p
 - **At boot, `/save` and `/implement`:** for each program-33 prototype, a missing or bad
   `store=`, a bad `hours=`, each skipped price line, unrecognised lines (to catch typos), and
   INT below 6 ("vendor can't speak"). Comment lines are never warned about.
-- **At boot:** a program-33 mob that also has a hard-coded special procedure (`.shp` file or
-  `ASSIGNMOB`) is warned, because that procedure overrides program 33
-  (`interpre.cpp:1581`).
+- A mob that has a hard-coded special procedure (`.shp` file or `ASSIGNMOB`) is never treated
+  as a vendor, regardless of what's in field 29 (program number), and gets no vendor
+  warnings: for those mobs field 29 is just data the hard-coded procedure reads for its own
+  purposes (e.g. a guild index), not a program number.
 - **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade, and logs
   a warning **every time** someone tries. A broken vendor in play should be noisy. There is
   deliberately no setting to silence it; price-line warnings never fire during play anyway.
@@ -308,4 +309,5 @@ ASSIGN_INV container-search bug (recorded separately, to be fixed later).
 3. Unrecognised option lines are ignored at use and warned at boot/save.
 4. The editor field number is 42 (next free after 41 "will teach"). New code files:
    `mob_options.{h,cpp}` (general, in `src/`) and `src/mob_progs/passive.cpp` (the vendor).
-5. The boot check also warns about a program-33 mob that has a hard-coded procedure.
+5. A program-33 mob that also has a hard-coded procedure is never treated as a vendor and
+   gets no vendor warnings; field 29 is data for that procedure, not a program number.
