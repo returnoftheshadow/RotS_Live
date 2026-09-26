@@ -1938,9 +1938,13 @@ int replace_proto(struct char_data* ch, char* arg)
 
     if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE)) {
         write_proto(f2, SHAPE_PROTO(ch)->proto, num);
-        if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
-            && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR)
-            vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
+        {
+            int nr = SHAPE_PROTO(ch)->proto->nr;
+            if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
+                && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR
+                && (nr < 0 || !mob_index[nr].func || mob_index[nr].func == (special_func)barter_vendor))
+                vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
+        }
         REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE);
     }
 
@@ -2052,9 +2056,13 @@ int append_proto(struct char_data* ch, char* arg)
 
     fseek(f2, -1, SEEK_CUR);
     write_proto(f2, SHAPE_PROTO(ch)->proto, i1 + 1);
-    if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
-        && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR)
-        vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
+    {
+        int nr = SHAPE_PROTO(ch)->proto->nr;
+        if (IS_SET(SHAPE_PROTO(ch)->proto->specials2.act, MOB_SPEC)
+            && SHAPE_PROTO(ch)->proto->specials.store_prog_number == PROG_BARTER_VENDOR
+            && (nr < 0 || !mob_index[nr].func || mob_index[nr].func == (special_func)barter_vendor))
+            vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
+    }
     sprintf(str, "Mobile added to database as #%d.\n\r", i1 + 1);
     send_to_char(str, ch);
     SHAPE_PROTO(ch)

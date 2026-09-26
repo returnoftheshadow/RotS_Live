@@ -14,7 +14,6 @@
 extern struct char_data* mob_proto;
 extern struct index_data* mob_index;
 extern int top_of_mobt;
-extern int no_specials;
 
 namespace {
 
@@ -70,9 +69,18 @@ void vendor_send(const std::string& line, struct char_data* builder)
     }
 }
 
-bool is_vendor_proto(const char_data& proto)
+/* True only when mob_proto[rnum] is a program-33 candidate AND nothing
+ * hard-coded (ASSIGNMOB/.shp) already owns its function slot. For a
+ * hard-coded mob, store_prog_number isn't a program number at all: it's data
+ * the hard-coded procedure reads directly (guild's guildmasters[] index,
+ * ferry_captain's route, etc. -- see spec_pro.cpp), and coincidentally
+ * overlapping 33 doesn't make the mob a vendor. */
+bool is_vendor_proto(int rnum)
 {
-    return IS_SET(proto.specials2.act, MOB_SPEC) && proto.specials.store_prog_number == PROG_BARTER_VENDOR;
+    const char_data& proto = mob_proto[rnum];
+    if (!IS_SET(proto.specials2.act, MOB_SPEC) || proto.specials.store_prog_number != PROG_BARTER_VENDOR)
+        return false;
+    return !mob_index[rnum].func || mob_index[rnum].func == (special_func)barter_vendor;
 }
 
 /* do_say refuses mobs with INT < 6 ("too stupid to talk"), which would leave
@@ -149,7 +157,7 @@ void vendor_config_check(const struct char_data* proto, int mob_vnum, struct cha
 
 void vendor_config_rebuild(int mob_rnum, struct char_data* builder)
 {
-    if (mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_proto[mob_rnum])) {
+    if (mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_rnum)) {
         g_vendor_configs.erase(mob_rnum);
         return;
     }
@@ -170,13 +178,9 @@ void vendor_config_boot()
 {
     g_vendor_configs.clear();
     for (int rnum = 0; rnum <= top_of_mobt; ++rnum) {
-        if (!is_vendor_proto(mob_proto[rnum]))
+        if (!is_vendor_proto(rnum))
             continue;
         vendor_config_rebuild(rnum, nullptr);
-        if (!no_specials && mob_index[rnum].func && mob_index[rnum].func != (special_func)barter_vendor)
-            vendor_send(vendor_problem_line(mob_index[rnum].virt,
-                            { 0, "program 33 overridden by hard-coded procedure" }),
-                nullptr);
     }
 }
 
