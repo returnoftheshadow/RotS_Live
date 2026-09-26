@@ -69,15 +69,17 @@ bool mob_options_storable(const char* text, const char** why)
         *why = "options are too long (max 4000 characters)";
         return false;
     }
-    if (strchr(text, '~')) {
-        *why = "options can't contain ~";
+    /* The shape editor's record scanner (find_mob/replace_proto) treats any
+     * '#' in a mob file as a record header, so '#' is refused anywhere. */
+    if (strchr(text, '~') || strchr(text, '#')) {
+        *why = "options can't contain # or ~";
         return false;
     }
     const char* p = text;
     while (*p && isspace((unsigned char)*p))
         ++p;
-    if (*p == '#' || *p == '$') {
-        *why = "options can't start with # or $";
+    if (*p == '$') {
+        *why = "options can't start with $";
         return false;
     }
     return true;

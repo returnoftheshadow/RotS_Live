@@ -9,6 +9,8 @@
 #include "comm.h"
 #include "db.h"
 #include "interpre.h"
+#include "mob_options.h"
+#include "mob_progs/passive.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
@@ -512,6 +514,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
         m->specials.script_number,
         m->points.spirit,
         m->specials2.will_teach);
+    write_mob_options(f, m->specials.mob_options);
 }
 
 #define DESCRCHANGE(line, addr)                                       \
@@ -691,6 +694,30 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     ->editflag
                     = proto_chain[4];
             break;
+        case 42: {
+            char* before = SHAPE_PROTO(ch)->proto->specials.mob_options;
+            bool finishing = IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_SIMPLE_ACTIVE);
+            DESCRCHANGE("OPTIONS, settings for the mob program, one per line", SHAPE_PROTO(ch)->proto->specials.mob_options)
+            if (finishing) {
+                /* The editor copy owns its strings (load_proto allocated them),
+                 * so whichever of before/after is dropped is freed here. */
+                char* after = SHAPE_PROTO(ch)->proto->specials.mob_options;
+                const char* why = 0;
+                if (after != before) {
+                    if (!mob_options_storable(after, &why)) {
+                        send_to_char("Options not changed: ", ch);
+                        send_to_char(why, ch);
+                        send_to_char(".\n\r", ch);
+                        RELEASE(after);
+                        SHAPE_PROTO(ch)->proto->specials.mob_options = before;
+                    } else {
+                        RELEASE(before);
+                        if (after && !*after)
+                            RELEASE(SHAPE_PROTO(ch)->proto->specials.mob_options);
+                    }
+                }
+            }
+        } break;
 #undef DESCRCHANGE
 #define DIGITCHANGE(line, addr)                                    \
     do {                                                           \
@@ -1324,6 +1351,7 @@ void list_help(struct char_data* ch)
     send_to_char("39 - roleplay flag;\n\r", ch);
     send_to_char("40 - mob spirit;\n\r", ch);
     send_to_char("41 - will teach;\n\r", ch);
+    send_to_char("42 - options;\n\r", ch);
     send_to_char("49 - mob creation sequence;\n\r", ch);
     send_to_char("50 - list;\n\r", ch);
     return;
@@ -1462,6 +1490,10 @@ void list_proto(struct char_data* ch, struct char_data* mob)
     send_to_char(str, ch);
     sprintf(str, "(41) will teach     :%ld\n\r", mob->specials2.will_teach);
     send_to_char(str, ch);
+    send_to_char("(42) options        :\n\r", ch);
+    if (mob->specials.mob_options)
+        send_to_char(mob->specials.mob_options, ch);
+    send_to_char("\n\r", ch);
 }
 
 /*********--------------------------------*********/
@@ -1782,6 +1814,7 @@ int load_proto(struct char_data* ch, char* arg)
                 ->proto->specials2.will_teach
                 = tmp;
         }
+        SHAPE_PROTO(ch)->proto->specials.mob_options = read_mob_options(file, "shaping");
 
         if ((format != 'M') && (format != 'N')) {
             send_to_char("Created new mobile or loaded wrong\n\rif you did the new mob and you sure it's correct do /save\n\r", ch);
@@ -2103,6 +2136,11 @@ void implement_proto(struct char_data* ch)
     strcpy(proto->player.short_descr, SHAPE_PROTO(ch)->proto->player.short_descr);
     strcpy(proto->player.long_descr, SHAPE_PROTO(ch)->proto->player.long_descr);
     strcpy(proto->player.description, SHAPE_PROTO(ch)->proto->player.description);
+    /* Never free the old text: loaded copies of this mob still point at it
+     * (the same reason the other strings above are not freed). */
+    proto->specials.mob_options = SHAPE_PROTO(ch)->proto->specials.mob_options
+        ? str_dup(SHAPE_PROTO(ch)->proto->specials.mob_options)
+        : 0;
     /*   printf("desc:%s.\b",proto->player.description); */
 
     if (SHAPE_PROTO(ch)->proto->player.language > 0
@@ -2428,6 +2466,7 @@ void free_proto(struct char_data* ch)
         RELEASE(SHAPE_PROTO(ch)->proto->player.short_descr);
         RELEASE(SHAPE_PROTO(ch)->proto->player.long_descr);
         RELEASE(SHAPE_PROTO(ch)->proto->player.description);
+        RELEASE(SHAPE_PROTO(ch)->proto->specials.mob_options);
         RELEASE(SHAPE_PROTO(ch)->proto);
         SHAPE_PROTO(ch)
             ->proto

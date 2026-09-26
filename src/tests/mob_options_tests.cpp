@@ -37,7 +37,12 @@ TEST(MobOptionsStorable, RejectsTildeLeadingHashDollarAndOverLength)
     EXPECT_TRUE(mob_options_storable(nullptr, &why));
     EXPECT_FALSE(mob_options_storable("store=1~", &why));
     EXPECT_FALSE(mob_options_storable("  #store=1", &why));
+    EXPECT_STREQ(why, "options can't contain # or ~");
+    EXPECT_FALSE(mob_options_storable("store=1\n\r// see #9999", &why)); // mid-text '#'
+    EXPECT_STREQ(why, "options can't contain # or ~");
+    EXPECT_TRUE(mob_options_storable("store=1\n\rprice 1 2x3 $", &why)); // '$' only leading
     EXPECT_FALSE(mob_options_storable("\n\r$", &why));
+    EXPECT_STREQ(why, "options can't start with $");
     EXPECT_FALSE(mob_options_storable(std::string(MOB_OPTIONS_MAX + 1, 'a').c_str(), &why));
     EXPECT_TRUE(mob_options_storable(std::string(MOB_OPTIONS_MAX, 'a').c_str(), &why));
 }
@@ -74,6 +79,57 @@ TEST(ReadMobOptions, ReadsTextThenStopsBeforeNextRecord)
     ASSERT_EQ(fscanf(f, "%15s", next), 1);
     EXPECT_STREQ(next, "#1235");
     fclose(f);
+}
+
+namespace {
+
+/* The tail of a mob record as the boot loader (db.cpp) leaves it: the last
+ * number row has been read, then " \n" was skipped. `options` sits between
+ * that row and the next record, `eol` is the file's line ending. */
+std::string mob_record_tail(const char* options, const char* eol)
+{
+    std::string s = std::string("0 5 0 0 0 0 0") + eol;
+    if (options)
+        s += std::string(options) + "~" + eol;
+    return s + "#1235" + eol + "golem~" + eol;
+}
+
+void expect_loader_contract(const char* options, const char* eol)
+{
+    char ctx[] = "test";
+    std::string tail = mob_record_tail(options, eol);
+    FILE* f = tmpfile();
+    fputs(tail.c_str(), f);
+    rewind(f);
+    int n[7];
+    ASSERT_EQ(fscanf(f, " %d %d %d %d %d %d %d", &n[0], &n[1], &n[2], &n[3], &n[4], &n[5], &n[6]), 7);
+    EXPECT_EQ(n[1], 5);
+    fscanf(f, " \n");
+    char* text = read_mob_options(f, ctx);
+    if (options) {
+        ASSERT_NE(text, nullptr);
+        std::string value;
+        EXPECT_TRUE(mob_option_find(text, "store", &value));
+        EXPECT_EQ(value, "1");
+        EXPECT_NE(strstr(text, "price 1 2x1"), nullptr);
+    } else {
+        EXPECT_EQ(text, nullptr);
+    }
+    char next[16];
+    ASSERT_EQ(fscanf(f, "%15s", next), 1);
+    EXPECT_STREQ(next, "#1235"); // the next record's header is the next token
+    fclose(f);
+}
+
+} // namespace
+
+TEST(ReadMobOptions, LoaderContractWithAndWithoutOptions)
+{
+    expect_loader_contract(nullptr, "\n");
+    expect_loader_contract("store=1\nprice 1 2x1", "\n");
+    expect_loader_contract(nullptr, "\n\r");
+    expect_loader_contract("store=1\n\rprice 1 2x1", "\n\r");
+    expect_loader_contract(nullptr, "\r\n");
 }
 
 TEST(WriteMobOptions, WritesOnlyNonEmptyAndRoundTrips)

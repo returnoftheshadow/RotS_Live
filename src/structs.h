@@ -1150,6 +1150,7 @@ struct char_special_data {
     int store_prog_number; /* in database, stores prog_numbers for mobiles,*/
     /* in the game, can be used for PCs as for   */
     /* mobiles with SPECIAL flag set */
+    char* mob_options; /* mobs: options text for mob programs (prototype-owned, shared); 0 = none */
     struct info_script* script_info; /* Pointer to char_script (protos.h) */
     /* 0 if no script */
     int script_number; /* vnum of script */

@@ -36,6 +36,7 @@
 #include "char_utils.h"
 #include "character_json.h"
 #include "exploits_json.h"
+#include "mob_options.h"
 #include "player_file_finalize.h"
 #include "roster_cache.h"
 #include "skill_timer.h"
@@ -2028,6 +2029,7 @@ void load_mobiles(FILE* mob_f)
                 mob_proto[i].specials2.will_teach = tmp7;
 
                 fscanf(mob_f, " \n");
+                mob_proto[i].specials.mob_options = read_mob_options(mob_f, buf2);
 
                 for (j = 0; j < 3; j++) /* Spare */
                 {
@@ -3636,6 +3638,7 @@ void free_char(struct char_data* ch)
         RELEASE(ch->player.short_descr);
         RELEASE(ch->player.long_descr);
         RELEASE(ch->player.description);
+        RELEASE(ch->specials.mob_options);
         RELEASE(ch->profs);
     } /*  else if ((i = ch->nr) > -1) {
      if (ch->player.name && ch->player.name != mob_proto[i].player.name)

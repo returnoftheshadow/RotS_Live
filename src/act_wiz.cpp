@@ -924,6 +924,11 @@ void do_stat_character(struct char_data* ch, struct char_data* k)
     sprintf(buf2, "eq: %d\n\r", i2);
     strcat(buf, buf2);
     send_to_char(buf, ch);
+    if (IS_NPC(k) && k->specials.mob_options && *k->specials.mob_options) {
+        send_to_char("Options:\n\r", ch);
+        send_to_char(k->specials.mob_options, ch);
+        send_to_char("\n\r", ch);
+    }
 
     sprintf(buf, "Hunger: %d, Thirst: %d, Drunk: %d, Att.Level: %d\n\r",
         GET_COND(k, FULL), GET_COND(k, THIRST), GET_COND(k, DRUNK),
