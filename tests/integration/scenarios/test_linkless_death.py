@@ -18,6 +18,7 @@ import pytest
 
 import poison_support
 from blaze_support import BLAZE_CAST, LETHAL_HIT, tick_until_marker, wait_for_log_line
+from combat_support import VICTIM_LEVEL
 from rots_harness import fixtures
 from rots_harness.session import GameSession
 
@@ -33,6 +34,7 @@ def test_a_linkless_player_killed_by_a_room_tick_comes_back_restored(server, imp
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
+    imp.command(f"wizset harnvictim level {VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
     imp.command("restore harnmage")
     imp.command(f"wizset harnvictim maxhit {PRE_LOOP_SURVIVABLE_HIT}")
     imp.command("restore harnvictim")

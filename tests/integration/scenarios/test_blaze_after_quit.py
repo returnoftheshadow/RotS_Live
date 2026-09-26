@@ -80,6 +80,7 @@ def test_blaze_ticks_survive_the_casters_quit_and_credit_nobody(server, imp, mag
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
+    imp.command(f"wizset harnvictim level {VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
     imp.command("restore harnmage")
     # Real-time blaze ticks (up to ~130 each at Harnmage's level) land while the victim walks in,
     # before tick_until_marker's first refloor; a default 72-hit pool dies to one of them and
@@ -118,6 +119,7 @@ def test_blaze_death_while_fighting_a_mob_stays_gentle_when_the_caster_is_gone(s
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
+    imp.command(f"wizset harnvictim level {VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
     imp.command("restore harnmage")
     imp.command(f"wizset harnvictim maxhit {PRE_LOOP_SURVIVABLE_HIT}")  # see the first test
     imp.command("restore harnvictim")
@@ -155,6 +157,7 @@ def test_blaze_ticks_credit_nobody_while_the_caster_sits_at_the_menu(server, imp
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnmage")
     imp.command("transfer harnvictim")
+    imp.command(f"wizset harnvictim level {VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
     imp.command("restore harnmage")
     imp.command(f"wizset harnvictim maxhit {PRE_LOOP_SURVIVABLE_HIT}")  # see the first test
     imp.command("restore harnvictim")

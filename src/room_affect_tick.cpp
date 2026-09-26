@@ -26,6 +26,10 @@
 // arm could free a character out from under affect_update_room()'s occupant
 // walk.
 //
+// Big Brother still guards every occupant, though the occupant engages itself:
+// an occupant the recorded caster could not attack with a direct cast is
+// skipped, silently, by the blaze, poison and haze ticks.
+//
 // The saved arm's two messages are both kept: the victim-facing line is sent
 // straight to the occupant, so it always arrives (the old caster == victim
 // shape suppressed it outright inside act()), and the caster-facing "$N shrugs
@@ -35,6 +39,7 @@
 
 #include "room_affect_tick.h"
 
+#include "big_brother.h"
 #include "caster_snapshot.h"
 #include "comm.h"
 #include "handler.h"
@@ -59,6 +64,20 @@ namespace {
 bool caster_is_present(const char_data* caster, const char_data* occupant)
 {
     return caster != nullptr && caster->in_room == occupant->in_room;
+}
+
+// True when Big Brother lets the recorded caster harm `occupant` with `spell`. A
+// resolved caster is judged live, so a pet's or orc follower's master is
+// consulted; a caster who is gone is judged from the recording. A builder-placed
+// affect has no record, and `who` is then the occupant's own snapshot, which is
+// always valid: such affects keep hitting everyone.
+bool big_brother_allows(const caster_snapshot& who, char_data* caster, const char_data* occupant, int spell)
+{
+    const game_rules::big_brother& rules = game_rules::big_brother::instance();
+    if (caster != nullptr) {
+        return rules.is_target_valid(caster, occupant, spell);
+    }
+    return rules.is_target_valid(who, occupant, spell);
 }
 
 // mage.cpp's spell_blaze() victim arm. The burn comes from the cast's own
@@ -212,15 +231,25 @@ bool room_affect_tick(int spell, room_data* room, char_data* occupant, const aff
     const caster_snapshot who = has_caster ? *recorded : caster_snapshot::capture(*occupant);
     char_data* const caster = has_caster ? recorded->resolve() : nullptr;
 
+    // A protected occupant is still handled: returning false would hand it to
+    // the historical re-cast, which would harm it after all. The check comes
+    // before every roll, so a skipped occupant draws none, and it says nothing:
+    // a refusal line every tick would only be noise.
     switch (spell) {
     case SPELL_BLAZE:
-        blaze_tick(who, caster, occupant);
+        if (big_brother_allows(who, caster, occupant, SPELL_BLAZE)) {
+            blaze_tick(who, caster, occupant);
+        }
         return true;
     case SPELL_POISON:
-        poison_tick(who, caster, occupant);
+        if (big_brother_allows(who, caster, occupant, SPELL_POISON)) {
+            poison_tick(who, caster, occupant);
+        }
         return true;
     case SPELL_HAZE:
-        haze_tick(who, occupant);
+        if (big_brother_allows(who, caster, occupant, SPELL_HAZE)) {
+            haze_tick(who, occupant);
+        }
         return true;
     case SPELL_MISTS_OF_BURZUM:
         mist_tick(who, room);

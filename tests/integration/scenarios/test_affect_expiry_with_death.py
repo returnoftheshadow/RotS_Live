@@ -214,6 +214,7 @@ def _kill_at_duration_one(harness, imp: GameSession, victim: GameSession, attemp
 def test_death_and_expiry_in_one_affect_update_after_a_quit(server, imp, mage, victim, harness) -> None:
     imp.command(f"goto {fixtures.ROOM_ARENA_CENTRE}")
     imp.command("transfer harnvictim")
+    imp.command(f"wizset harnvictim level {combat_support.VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
     # maxhit 2000, before restore per gotchas.md "Wizard commands" (see module docstring for
     # why this is needed at Harnmage's raised level) -- the imp burns too, restored every
     # attempt in _kill_at_duration_one below.

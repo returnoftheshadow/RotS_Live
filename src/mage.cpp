@@ -8,6 +8,7 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include "big_brother.h"
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
@@ -2026,6 +2027,7 @@ ASPELL(spell_fireball)
     // The splash spares by the side of whoever a charmed caster fights for.
     char_data* const blast_owner = room_blast_owner(caster);
     const caster_snapshot owner_at_cast = room_blast_owner_snapshot(blast_owner, caster, caster_at_cast);
+    const game_rules::big_brother& big_brother = game_rules::big_brother::instance();
 
     // The primary hit. damage() returns 1 once die() -> raw_kill() ->
     // extract_char() has run on the victim; the caller decides what may still
@@ -2060,6 +2062,11 @@ ASPELL(spell_fireball)
 
         /* Fire specialization mages won't hit friendly targets. */
         if (is_fire_spec && is_spared_by_room_blast(owner_at_cast, *blast_owner, potential_victim)) {
+            continue;
+        }
+
+        // Big Brother's refusal comes before any roll, and silently; see spell_blaze().
+        if (!big_brother.is_target_valid(caster, potential_victim, SPELL_FIREBALL2)) {
             continue;
         }
 
@@ -2388,6 +2395,7 @@ ASPELL(spell_blaze)
         // The burst spares by the side of whoever a charmed caster fights for.
         char_data* const blast_owner = room_blast_owner(caster);
         const caster_snapshot owner_at_cast = room_blast_owner_snapshot(blast_owner, caster, caster_at_cast);
+        const game_rules::big_brother& big_brother = game_rules::big_brother::instance();
 
         act("$n breathes out a cloud of fire!", TRUE, caster, 0, 0, TO_ROOM);
         send_to_char("You breathe out fire.\n\r", caster);
@@ -2398,6 +2406,12 @@ ASPELL(spell_blaze)
 
             // friends don't burn friends, at first...
             if (is_spared_by_room_blast(owner_at_cast, *blast_owner, tmpch)) {
+                continue;
+            }
+            // Big Brother's refusal comes before any roll, and silently: the
+            // damage call would refuse too, but only after the rolls and with a
+            // "Your hand is stayed." for every protected occupant.
+            if (!big_brother.is_target_valid(caster, tmpch, SPELL_BLAZE)) {
                 continue;
             }
             dam = number(1, 30) + get_magic_power(caster_at_cast) / 2; /* same as earthquake */

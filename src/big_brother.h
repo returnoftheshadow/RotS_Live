@@ -15,6 +15,7 @@
 
 struct obj_data;
 struct char_data;
+struct caster_snapshot;
 
 namespace game_rules {
 class big_brother : public world_singleton<big_brother> {
@@ -35,6 +36,15 @@ public:
     // Called before any character attempts to damage or attack another character.
     // This enforces our PK engagement rules.
     bool is_target_valid(char_data* attacker, const char_data* victim, int skill_id) const;
+
+    // The engagement rules for an attacker known only by its caster_snapshot, for a spell
+    // that outlives its caster (a room affect's tick after the caster quit, died or was
+    // purged). Judges as the live overload above would, reading the attacker's side from the
+    // snapshot: the same character, a snapshot naming nobody, and every NPC are always
+    // valid; otherwise the victim-side rules and the level band apply. A charmed NPC whose
+    // master can no longer be reached is judged as a plain NPC, as an uncharmed mob is. A
+    // null victim is valid.
+    bool is_target_valid(const caster_snapshot& attacker, const char_data* victim, int skill_id) const;
 
     // Redirects in an attempt to find a suitable target for the attacker in the case
     // that their original target was not valid.  If no suitable target is found, NULL
@@ -101,11 +111,30 @@ private:
 #endif
     }
 
+    // A player attacker as the victim-side rules see it: the live character, or the snapshot
+    // of one who can no longer be reached. Exactly one member is set.
+    struct attacker_view {
+        const char_data* live; // the attacking character; null when judged from `snapshot`
+        const caster_snapshot* snapshot; // the attacker as captured; null when judged from `live`
+
+        // True when `candidate` is the attacker itself.
+        bool is(const char_data& candidate) const;
+
+        // The attacker's level as the level-band rule reads it.
+        int level_legend_cap() const;
+    };
+
+    // The rules that depend on the victim, for an attacker already known to be a player.
+    bool is_player_attack_valid(const attacker_view& attacker, const char_data* victim) const;
+
+    // Whether `skill_id` may still be used on a target the engagement rules protect.
+    bool is_skill_allowed_on_protected_target(int skill_id, int attacker_race, int victim_race) const;
+
     // Is the spell being cast or skill being used offensive in nature.
     bool is_skill_offensive(int skill_id) const;
 
     // Returns true if the victim is within an appropriate level of the attacker.
-    bool is_level_range_appropriate(const char_data* attacker, const char_data* victim) const;
+    bool is_level_range_appropriate(int attacker_level, const char_data* victim) const;
 
     // Returns true if the victim has been auto-afk'd.
     bool is_target_afk(const char_data* victim) const;

@@ -56,7 +56,9 @@
 #include "test_world_support.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <gtest/gtest.h>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -137,6 +139,11 @@ constexpr int kMistCastGenerationAdjacentRoom = 1001;
 constexpr int kMistDriftSourceRoom = 1003;
 constexpr int kMistDriftDestRoom = 1004;
 constexpr int kMistDriftSpreadRoom = 1005;
+// Rooms for the Big Brother pins, one per spell. 1007 is skipped: its key, 3007, is the room
+// number mage_tests.cpp stamps for its room blasts.
+constexpr int kGuardedBlazeRoom = 1006;
+constexpr int kGuardedPoisonRoom = 1008;
+constexpr int kGuardedHazeRoom = 1009;
 
 // Real world[] indices, not RoomFixture slots, for the pin where the recorded caster dies in its
 // own blaze: a player's death respawns it in a world[] index, and moving a player needs the zone
@@ -172,7 +179,7 @@ void queue_mid_rolls(int count = 60)
 // ---------------------------------------------------------------------------
 
 // The real world[] array indices RoomFixture uses, independent of the
-// disambiguating "room number" (2000 + 960-1005) baked into room->number for the
+// disambiguating "room number" (2000 + 960-1009) baked into room->number for the
 // (room, spell) caster-store map key. world[]'s backing storage can only
 // ever be sized ONCE for the whole process -- room_data::create_bulk()
 // hard-exits (`exit(0)`) if BASE_WORLD is already set (db.cpp:4025-4032) --
@@ -1938,4 +1945,203 @@ TEST(RoomAffectCasting, MistCastLongerDurationRenewalReplacesTheRecordInMainAndA
         << "the strong recast raises main to level 30 / 5 = 6";
     EXPECT_EQ(room_affected_by_spell(adjacent.room(), SPELL_MISTS_OF_BURZUM)->duration, 6)
         << "the adjacent renewal compares against the MAIN room's 6";
+}
+
+// ---------------------------------------------------------------------------
+// Big Brother: a tick spares an occupant its recorded caster could not attack
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Whether the recorded caster can still be found when the tick runs.
+enum class CasterReach {
+    resolvable, // registered and in the game, so the tick judges it live
+    gone, // never registered, as after a quit, death or purge: judged from the record alone
+};
+
+// What one tick did to its occupant.
+struct GuardedTickOutcome {
+    bool harmed; // the blaze burned it, or the poison or haze landed on it
+    std::size_t rolls_drawn; // queued random values the tick consumed
+};
+
+// A player occupant at `level`: a weak occupant with the NPC flag cleared, so the level band
+// against a level-30 caster decides. Its 500 hit points survive any one tick.
+void make_player_occupant(char_data& occupant, char_prof_data& profs, char* name, int level)
+{
+    make_weak_occupant(occupant, profs, 500);
+    occupant.specials2.act = 0;
+    occupant.player.name = name;
+    occupant.player.level = level;
+}
+
+// One tick of `spell` over `occupant`, alone in the room, from the record of a level-30 player
+// caster standing elsewhere. The caster's willpower 0 against the occupant's constitution and
+// willpower 0 makes the poison land, and the queued 0.9 fails the occupant's haze save.
+GuardedTickOutcome tick_from_a_level_thirty_caster(int spell, int room_number, char_data& occupant, CasterReach reach)
+{
+    ScopedCombatList combat_list_guard;
+    ensure_big_brother();
+    test_support::ScopedAffectCleanup occupant_affects(occupant);
+    RoomFixture room(room_number);
+    occupant.in_room = room.slot();
+    room.room()->people = &occupant;
+    occupant.next_in_room = nullptr;
+
+    CasterFixture caster(25, 10, game_types::PS_None, kAwayRoom);
+    std::optional<ScopedCharExists> registration;
+    if (reach == CasterReach::resolvable) {
+        registration.emplace(caster.ch, kCasterASlot);
+    } else {
+        caster.ch.abs_number = kCasterASlot;
+        remove_char_exists(kCasterASlot);
+    }
+    const caster_snapshot recorded = caster_snapshot::capture(caster.ch);
+    EXPECT_EQ(recorded.resolve() != nullptr, reach == CasterReach::resolvable)
+        << "precondition: the record resolves only while the caster is registered";
+    set_room_affect_caster(room.room(), spell, recorded);
+
+    const int hit_points_before = occupant.tmpabilities.hit;
+    clear_test_random_values();
+    push_test_random_value(kMidRoll); // haze_tick()'s duration roll
+    push_test_random_value(0.9); // saves_mystic()'s offense roll, above a perception-0 defense
+    queue_mid_rolls();
+    const std::size_t queued = queued_test_random_value_count();
+
+    affected_type affect = dummy_affect();
+    room_affect_tick(spell, room.room(), &occupant, affect);
+
+    GuardedTickOutcome outcome {};
+    outcome.rolls_drawn = queued - queued_test_random_value_count();
+    clear_test_random_values();
+    outcome.harmed = occupant.tmpabilities.hit < hit_points_before || affected_by_spell(&occupant, spell) != nullptr;
+    return outcome;
+}
+
+// The three ticks Big Brother guards, each with its own room.
+struct GuardedSpell {
+    int spell; // the room affect's spell
+    int room_number; // the suite's room for it
+    const char* name; // for the failure trace
+};
+
+constexpr GuardedSpell kGuardedSpells[] = {
+    { SPELL_BLAZE, kGuardedBlazeRoom, "blaze" },
+    { SPELL_POISON, kGuardedPoisonRoom, "poison" },
+    { SPELL_HAZE, kGuardedHazeRoom, "haze" },
+};
+
+// Expects `spell`'s tick from a level-30 caster to leave a level-10 player untouched, drawing
+// no roll: the level band refuses the caster that target.
+void expect_level_ten_player_spared(int spell, int room_number, CasterReach reach)
+{
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    char occupant_name[] = "Lowbie";
+    make_player_occupant(occupant, occupant_profs, occupant_name, 10);
+
+    const GuardedTickOutcome outcome = tick_from_a_level_thirty_caster(spell, room_number, occupant, reach);
+
+    EXPECT_FALSE(outcome.harmed) << "Big Brother refuses a level-30 caster a level-10 player";
+    EXPECT_EQ(outcome.rolls_drawn, 0u) << "a spared occupant draws no roll";
+}
+
+} // namespace
+
+TEST(RoomAffectTick, BlazeTickSparesAPlayerItsLiveCasterCouldNotAttack)
+{
+    expect_level_ten_player_spared(SPELL_BLAZE, kGuardedBlazeRoom, CasterReach::resolvable);
+}
+
+TEST(RoomAffectTick, PoisonTickSparesAPlayerItsLiveCasterCouldNotAttack)
+{
+    expect_level_ten_player_spared(SPELL_POISON, kGuardedPoisonRoom, CasterReach::resolvable);
+}
+
+TEST(RoomAffectTick, HazeTickSparesAPlayerItsLiveCasterCouldNotAttack)
+{
+    expect_level_ten_player_spared(SPELL_HAZE, kGuardedHazeRoom, CasterReach::resolvable);
+}
+
+// A caster who has left the game is judged from its record, which carries its level.
+TEST(RoomAffectTick, BlazeTickSparesAPlayerItsGoneCasterCouldNotAttack)
+{
+    expect_level_ten_player_spared(SPELL_BLAZE, kGuardedBlazeRoom, CasterReach::gone);
+}
+
+TEST(RoomAffectTick, PoisonTickSparesAPlayerItsGoneCasterCouldNotAttack)
+{
+    expect_level_ten_player_spared(SPELL_POISON, kGuardedPoisonRoom, CasterReach::gone);
+}
+
+TEST(RoomAffectTick, HazeTickSparesAPlayerItsGoneCasterCouldNotAttack)
+{
+    expect_level_ten_player_spared(SPELL_HAZE, kGuardedHazeRoom, CasterReach::gone);
+}
+
+// A player inside the level band is still protected while Big Brother holds it AFK.
+TEST(RoomAffectTick, BlazeTickSparesAnAfkPlayer)
+{
+    ensure_big_brother();
+    game_rules::big_brother& big_brother = game_rules::big_brother::instance();
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    char occupant_name[] = "Idler";
+    make_player_occupant(occupant, occupant_profs, occupant_name, 25);
+    big_brother.on_character_afked(&occupant);
+
+    const GuardedTickOutcome outcome = tick_from_a_level_thirty_caster(SPELL_BLAZE, kGuardedBlazeRoom, occupant, CasterReach::resolvable);
+    big_brother.on_character_returned(&occupant);
+
+    EXPECT_FALSE(outcome.harmed) << "Big Brother protects an AFK player";
+    EXPECT_EQ(outcome.rolls_drawn, 0u) << "a spared occupant draws no roll";
+}
+
+// Controls for the pins above: an NPC, which Big Brother never protects from a player, and a
+// level-25 player, inside a level-30 caster's band, still take every tick, whether the caster
+// is live or gone.
+TEST(RoomAffectTick, GuardedTicksStillHarmAnNpcAndAPlayerInsideTheLevelBand)
+{
+    for (const GuardedSpell& guarded : kGuardedSpells) {
+        for (const CasterReach reach : { CasterReach::resolvable, CasterReach::gone }) {
+            SCOPED_TRACE(std::string(guarded.name) + (reach == CasterReach::resolvable ? ", live caster" : ", gone caster"));
+
+            char_data npc {};
+            char_prof_data npc_profs {};
+            make_weak_occupant(npc, npc_profs, 500);
+            EXPECT_TRUE(tick_from_a_level_thirty_caster(guarded.spell, guarded.room_number, npc, reach).harmed)
+                << "an NPC occupant";
+
+            char_data player {};
+            char_prof_data player_profs {};
+            char player_name[] = "Peer";
+            make_player_occupant(player, player_profs, player_name, 25);
+            EXPECT_TRUE(tick_from_a_level_thirty_caster(guarded.spell, guarded.room_number, player, reach).harmed)
+                << "a level-25 player";
+        }
+    }
+}
+
+// A builder-placed blaze has no caster record: the tick burns from the occupant's own stats,
+// and Big Brother, asked about the occupant attacking itself, lets it hit even a level-10 player.
+TEST(RoomAffectTick, ABuilderBlazeWithNoRecordStillBurnsALevelTenPlayer)
+{
+    ScopedCombatList combat_list_guard;
+    ensure_big_brother();
+    RoomFixture room(kGuardedBlazeRoom);
+    char_data occupant {};
+    char_prof_data occupant_profs {};
+    char occupant_name[] = "Lowbie";
+    make_player_occupant(occupant, occupant_profs, occupant_name, 10);
+    occupant.in_room = room.slot();
+    room.room()->people = &occupant;
+    occupant.next_in_room = nullptr;
+    ASSERT_EQ(room_affect_caster(room.room(), SPELL_BLAZE), nullptr) << "precondition: the room records no caster";
+
+    affected_type affect = dummy_affect();
+    queue_mid_rolls();
+    room_affect_tick(SPELL_BLAZE, room.room(), &occupant, affect);
+    clear_test_random_values();
+
+    EXPECT_LT(occupant.tmpabilities.hit, 500) << "a builder's blaze burns everyone in it";
 }

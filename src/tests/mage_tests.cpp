@@ -22,6 +22,7 @@
 #include "test_spell_support.h"
 #include "test_world_support.h"
 #include <algorithm>
+#include <cstddef>
 #include <gtest/gtest.h>
 #include <string>
 #include <utility>
@@ -1557,6 +1558,117 @@ TEST_F(MageProcTest, BlazeBurstSavePassesTheSpecializationBonus) {
     ASSERT_EQ(specialization_bonus, -2) << "a fire-spec caster against an unspecialized victim";
     EXPECT_EQ(spllog_save, get_character_saving_throw(&scene.hostile_elf) + specialization_bonus)
         << "the burst must roll the victim's save with the specialization bonus applied";
+}
+
+namespace {
+
+// A level-30 human player mage in kFireballRoom with an orc mob as fireball's named target, a
+// second orc mob every blast burns and, when asked for, a level-10 orc player: an enemy the
+// blasts do not spare, but one Big Brother protects from the caster. The caster's output is
+// captured.
+struct ProtectedPlayerBlastScene {
+    test_support::ScopedCombatList combat_list_guard; // drops this scene's engagements on exit
+    bool big_brother_created = create_big_brother(); // true once big brother exists
+    MageTestContext context; // the caster and the named target
+    char_data bystander{}; // an orc mob every blast burns
+    char_data lowbie{}; // the level-10 orc player Big Brother protects
+    char_prof_data lowbie_profs{}; // backs lowbie.profs
+    char lowbie_name[16] = "Lowbie"; // backs lowbie.player.name
+    descriptor_data caster_descriptor{}; // captures the caster's output
+    ScopedBlastRoom room; // the room, restored and cleaned on exit
+
+    explicit ProtectedPlayerBlastScene(bool seat_lowbie) {
+        context.caster_profs.prof_level[PROF_MAGE] = 30;
+        context.caster.in_room = kFireballRoom;
+        context.prepare_for_spell_damage();
+        context.victim.player.race = RACE_ORC;
+        context.victim.specials2.alignment = -500;
+        context.victim.in_room = kFireballRoom;
+        RoomBlastScene::prepare_bystander(bystander, RACE_ORC, -500);
+        lowbie.profs = &lowbie_profs;
+        lowbie.player.name = lowbie_name;
+        prepare_blast_occupant(lowbie, RACE_ORC, -500);
+        test_support::prepare_capture_descriptor(caster_descriptor);
+        context.caster.desc = &caster_descriptor;
+
+        if (seat_lowbie) {
+            char_data *const occupants[] = { &context.caster, &context.victim, &lowbie, &bystander };
+            room.seat(occupants);
+        } else {
+            char_data *const occupants[] = { &context.caster, &context.victim, &bystander };
+            room.seat(occupants);
+        }
+    }
+
+    ~ProtectedPlayerBlastScene() {
+        context.caster.desc = nullptr;
+        test_support::release_large_output(caster_descriptor);
+    }
+
+    // Casts blaze into the room with every roll low; returns how many rolls the cast drew.
+    std::size_t cast_blaze() {
+        return count_rolls([this]() -> void {
+            test_support::cast_spell(spell_blaze, &context.caster, nullptr, SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+        });
+    }
+
+    // Casts fireball at the named target with every roll low, so every splash roll lands;
+    // returns how many rolls the cast drew.
+    std::size_t cast_fireball() {
+        return count_rolls([this]() -> void {
+            test_support::cast_spell(spell_fireball, &context.caster, nullptr, 0, &context.victim, nullptr, 0, 0);
+        });
+    }
+
+    template <typename Cast>
+    static std::size_t count_rolls(Cast cast) {
+        clear_test_random_values();
+        queue_blaze_rolls();
+        const std::size_t queued = queued_test_random_value_count();
+        cast();
+        const std::size_t drawn = queued - queued_test_random_value_count();
+        clear_test_random_values();
+        return drawn;
+    }
+};
+
+} // namespace
+
+// Big Brother refuses a level-30 caster a level-10 player. Blaze's burst skips that player
+// before any roll and without a refusal line, and still burns the mob beside it.
+TEST_F(MageProcTest, BlazeBurstSkipsAProtectedPlayerWithoutARollOrARefusal) {
+    std::size_t rolls_without_lowbie = 0;
+    {
+        ProtectedPlayerBlastScene scene(false);
+        rolls_without_lowbie = scene.cast_blaze();
+    }
+    ProtectedPlayerBlastScene scene(true);
+
+    const std::size_t rolls_with_lowbie = scene.cast_blaze();
+
+    EXPECT_EQ(rolls_with_lowbie, rolls_without_lowbie) << "the protected player costs no roll";
+    EXPECT_EQ(scene.lowbie.tmpabilities.hit, 500) << "the protected player is not burned";
+    EXPECT_LT(scene.bystander.tmpabilities.hit, 500) << "the orc mob beside it still burns";
+    const std::string output = scene.caster_descriptor.output;
+    EXPECT_EQ(output.find("hand is stayed"), std::string::npos) << output;
+}
+
+// The fireball splash counterpart of the pin above.
+TEST_F(MageProcTest, FireballSplashSkipsAProtectedPlayerWithoutARollOrARefusal) {
+    std::size_t rolls_without_lowbie = 0;
+    {
+        ProtectedPlayerBlastScene scene(false);
+        rolls_without_lowbie = scene.cast_fireball();
+    }
+    ProtectedPlayerBlastScene scene(true);
+
+    const std::size_t rolls_with_lowbie = scene.cast_fireball();
+
+    EXPECT_EQ(rolls_with_lowbie, rolls_without_lowbie) << "the protected player costs no roll";
+    EXPECT_EQ(scene.lowbie.tmpabilities.hit, 500) << "the protected player is not splashed";
+    EXPECT_LT(scene.bystander.tmpabilities.hit, 500) << "the orc mob beside it is still splashed";
+    const std::string output = scene.caster_descriptor.output;
+    EXPECT_EQ(output.find("hand is stayed"), std::string::npos) << output;
 }
 
 // Black arrow's poison lasts the MAGE caster level + 1: it shares poison_victim_affect_at_level()

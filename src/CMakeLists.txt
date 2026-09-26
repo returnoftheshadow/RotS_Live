@@ -147,6 +147,7 @@ set(ROTS_TEST_SOURCES
     tests/act_wiz_tests.cpp
     tests/affect_join_tests.cpp
     tests/affect_update_tests.cpp
+    tests/big_brother_tests.cpp
     tests/caster_snapshot_tests.cpp
     tests/character_affect_list_tests.cpp
     tests/character_identity_tests.cpp

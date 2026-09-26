@@ -25,6 +25,7 @@ import time
 import pytest
 
 from blaze_support import LETHAL_HIT, BLAZE_CAST, tick_until_marker
+from combat_support import VICTIM_LEVEL
 from poison_support import DEATH_MARKER, MAGE_RESPAWN_ROOM
 from rots_harness import fixtures, records
 from rots_harness.session import GameSession
@@ -38,6 +39,7 @@ def _blaze_the_centre(imp, mage, victim) -> None:
     imp.command("transfer harnvictim")
     imp.command("restore harnmage")
     imp.command("restore harnvictim")
+    imp.command(f"wizset harnvictim level {VICTIM_LEVEL}")  # Big Brother: caster 30 < 3 * 11
     victim.command("west")  # out of the cast so nobody engages anybody
     mage.cast("blaze", success_markers=BLAZE_CAST)
 

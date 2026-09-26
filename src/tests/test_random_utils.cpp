@@ -30,6 +30,11 @@ void push_test_random_value(double value)
     test_random_values.push_back(value);
 }
 
+std::size_t queued_test_random_value_count()
+{
+    return test_random_values.size();
+}
+
 extern "C" double __real__Z6numberv();
 extern "C" int __real__Z6numberii(int from, int to);
 
