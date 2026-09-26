@@ -7,7 +7,6 @@ touches the compose container_name, host port 1024, lib/, or bin/.
 
 from __future__ import annotations
 
-import mmap
 import os
 import socket
 import subprocess
@@ -29,9 +28,6 @@ SANITIZER_ENVIRONMENT_VARIABLES = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTION
 # Enough for a whole AddressSanitizer report (header, two stacks, shadow map) when the
 # server dies before it listens and the tail is the only evidence that survives.
 LOG_TAIL_BYTES = 16000
-# The AddressSanitizer runtime's initialiser, which every instrumented translation unit calls:
-# a sanitized server imports it by name (or defines it, with a static runtime), a plain one never.
-ASAN_RUNTIME_MARKER = b"__asan_init"
 
 
 class DockerLockHeld(RuntimeError):
@@ -57,18 +53,6 @@ def allocate_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((LOOPBACK, 0))
         return probe.getsockname()[1]
-
-
-def server_binary_is_sanitized(binary: Path) -> bool:
-    """True when `binary` was built with AddressSanitizer; False for a plain or missing binary."""
-    try:
-        with binary.open("rb") as binary_file:
-            if os.fstat(binary_file.fileno()).st_size == 0:
-                return False  # mmap refuses an empty file
-            with mmap.mmap(binary_file.fileno(), 0, access=mmap.ACCESS_READ) as contents:
-                return contents.find(ASAN_RUNTIME_MARKER) != -1
-    except FileNotFoundError:
-        return False
 
 
 def read_log_tail(log_path: Path, max_bytes: int = LOG_TAIL_BYTES) -> str:

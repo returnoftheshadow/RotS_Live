@@ -42,6 +42,7 @@
 #include "carried_gear.h"
 #include "scoped_character_list.h"
 #include "scoped_combat_list.h"
+#include "scoped_exploit_type_capture.h"
 #include "scoped_flee_world.h"
 #include "scoped_mob_index.h"
 #include "scoped_player_death_sandbox.h"
@@ -721,57 +722,19 @@ TEST(RoomAffectTick, BlazeTickNeverEngagesACasterStandingInTheRoom)
            "with its caster";
 }
 
-namespace {
-
-// The exploit-record types written during a ScopedExploitTypeCapture; owned by the live scope.
-std::vector<int>* g_captured_exploit_types = nullptr;
-
-// The writer ScopedExploitTypeCapture installs in place of the player's exploits file.
-void capture_exploit_type(char_data* /*recipient*/, exploit_record* record)
-{
-    if (g_captured_exploit_types == nullptr || record == nullptr) {
-        ADD_FAILURE() << "capture_exploit_type: no capture scope or record";
-        return;
-    }
-    g_captured_exploit_types->push_back(record->type);
-}
-
-// Routes every exploit record written during the scope into `types` instead of onto disk, and
-// restores the real writer on exit.
-class ScopedExploitTypeCapture {
-public:
-    ScopedExploitTypeCapture()
-    {
-        g_captured_exploit_types = &types;
-        set_exploit_record_writer_for_testing(capture_exploit_type);
-    }
-    ~ScopedExploitTypeCapture()
-    {
-        set_exploit_record_writer_for_testing(nullptr);
-        g_captured_exploit_types = nullptr;
-    }
-    ScopedExploitTypeCapture(const ScopedExploitTypeCapture&) = delete;
-    ScopedExploitTypeCapture& operator=(const ScopedExploitTypeCapture&) = delete;
-
-    std::vector<int> types; // the type of every record written, in write order
-};
-
-} // namespace
-
-// A player caster standing in its own blaze is burned like any occupant, and a lethal tick
-// credits the resolved caster, which is the victim itself. damage_credited() therefore sees a
-// credited self-inflicted death: the legacy punishment arm with the victim as its own killer.
-// That arm counts a death to a player as a player kill, so the caster respawns on the gentle
-// terms (a quarter of its hit points, no mana, stats untouched) rather than the harsh ones
-// (1 hit point, two thirds of every stat). Nobody else is credited: no kill record is written.
-TEST(RoomAffectTick, ACasterKilledByItsOwnBlazeTickIsItsOwnKillerAndRespawnsGently)
+// A caster who dies to its own room spell is punished as for any lethal hit it dealt itself
+// (a fumbled fireball is the in-game case): it is recorded as its own killer, respawns on the
+// gentle terms (a quarter of its hit points, no mana, stats whole) rather than the harsh ones
+// (1 hit point, two thirds of every stat), and no kill or death record is written. The blaze
+// tick gets there by crediting the resolved caster, which is the victim itself.
+TEST(RoomAffectTick, ACasterKilledByItsOwnBlazeTickIsPunishedLikeAnyHitItDealtItself)
 {
     ScopedCombatList combat_list_guard;
     test_support::ScopedWaitingList waiting_list_guard;
     ensure_big_brother();
     test_support::ScopedFleeWorld rooms(kSelfBlazeRoom, kSelfBlazeRespawnRoom, EAST);
     test_support::ScopedPlayerDeathSandbox sandbox(RACE_HUMAN, kSelfBlazeRespawnRoom);
-    ScopedExploitTypeCapture exploits;
+    test_support::ScopedExploitTypeCapture exploits;
 
     descriptor_data descriptor {};
     char_data* const caster = test_support::make_linked_test_player(descriptor, "Pyro");

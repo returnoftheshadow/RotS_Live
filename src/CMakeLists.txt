@@ -202,6 +202,7 @@ set(ROTS_TEST_SOURCES
     tests/test_world_support.cpp
     tests/scoped_room_occupants.cpp
     tests/scoped_room_special.cpp
+    tests/scoped_exploit_type_capture.cpp
     tests/scoped_flee_world.cpp
     tests/scoped_player_death_sandbox.cpp
     tests/test_flee_support.cpp

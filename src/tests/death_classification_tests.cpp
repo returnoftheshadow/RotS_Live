@@ -101,6 +101,32 @@ TEST(DeathCreditFallsBackToOpponent, OnlyAnUncreditedNonPoisonTickKeepsNobody)
     EXPECT_TRUE(death_credit_falls_back_to_opponent(SPELL_BLAZE, true, true));
 }
 
+// A caster who dies to its own room spell is punished as for any lethal hit it dealt itself
+// (a fumbled fireball is the in-game case): both are self-inflicted deaths credited to the
+// caster, so the spell never picks the arm. Only a self-inflicted death that credits nobody
+// is treated differently.
+TEST(ClassifyPcDeath, ACreditedSelfInflictedDeathIsLegacyWhicheverSpellDealtIt)
+{
+    for (const int spell : { SPELL_BLAZE, SPELL_FIREBALL }) {
+        for (const bool engaged_with_real_mob : { false, true }) {
+            EXPECT_EQ(classify_pc_death(spell, true, true, engaged_with_real_mob), death_punishment::legacy)
+                << "spell " << spell << ", engaged with a real mob: " << engaged_with_real_mob;
+            EXPECT_EQ(classify_pc_death(spell, true, false, engaged_with_real_mob), death_punishment::player_death)
+                << "an uncredited self-inflicted death is the only one that differs; spell " << spell
+                << ", engaged with a real mob: " << engaged_with_real_mob;
+        }
+    }
+}
+
+TEST(DeathCreditFallsBackToOpponent, ACreditedSelfInflictedDeathFallsBackWhicheverSpellDealtIt)
+{
+    for (const int spell : { SPELL_BLAZE, SPELL_FIREBALL }) {
+        EXPECT_TRUE(death_credit_falls_back_to_opponent(spell, true, true)) << "spell " << spell;
+        EXPECT_FALSE(death_credit_falls_back_to_opponent(spell, true, false))
+            << "an uncredited self-inflicted death is the only one that keeps nobody; spell " << spell;
+    }
+}
+
 TEST(FindEngagedRealMob, EngagedOpponentRealMobIsFound)
 {
     test_support::ScopedCombatList combat_guard;
