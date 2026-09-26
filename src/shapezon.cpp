@@ -1680,6 +1680,21 @@ void shape_center_zone(struct char_data* ch, char* arg)
 
             break;
 
+        case 52: /* list range for /50 */
+            if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                shape_range_prompt(ch, SHAPE_ZONE(ch)->list_start, SHAPE_ZONE(ch)->list_end);
+                SHAPE_ZONE(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                ch->specials.prompt_number = 3;
+                SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                return;
+            }
+            shape_range_set(ch, arg, &SHAPE_ZONE(ch)->list_start, &SHAPE_ZONE(ch)->list_end);
+            shape_standup(ch, SHAPE_ZONE(ch)->position);
+            ch->specials.prompt_number = 7;
+            REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+            SHAPE_ZONE(ch)->editflag = 0;
+            break;
+
         case 51:
             sprintf(str, "Zone #%d: %s\n\rReset time: %d; Reset mode: %d\n\r",
                 SHAPE_ZONE(ch)->zone_number, SHAPE_ZONE(ch)->zone_name,
@@ -1765,7 +1780,8 @@ void list_help_zone(struct char_data* ch)
 
     send_to_char("50 - list;\n\r", ch);
 
-    send_to_char("51 - show zone name, description, map.\n\r", ch);
+    send_to_char("51 - show zone name, description, map;\n\r", ch);
+    send_to_char("52 - set list range: start [end] command numbers.\n\r", ch);
     return;
 }
 
@@ -1775,10 +1791,14 @@ void list_zone(struct char_data* ch)
 {
 
     static char str[MAX_STRING_LENGTH];
+    char footer[80];
 
     int check;
     struct zone_tree* zon;
     struct reset_com* mask = &(SHAPE_ZONE(ch)->mask);
+    int start = SHAPE_ZONE(ch)->list_start;
+    int end = SHAPE_ZONE(ch)->list_end;
+    int wrapped;
 
     sprintf(str, "Mask is: %c ", mask->command);
     if (mask->if_flag != -1)
@@ -1816,10 +1836,14 @@ void list_zone(struct char_data* ch)
         sprintf(str + strlen(str), "*\n\r");
     send_to_char(str, ch);
     str[0] = 0;
+    shape_range_footer(start, end, footer);
+    wrapped = shape_list_begin(ch);
     zon = SHAPE_ZONE(ch)->root;
     // printf("cur_room = %d\n",SHAPE_ZONE(ch)->cur_room);
     while (zon) {
-        check = 1;
+        if (end > 0 && zon->number > end)
+            break;
+        check = shape_range_includes(start, end, zon->number);
         if (SHAPE_ZONE(ch)->cur_room) {
             check &= (SHAPE_ZONE(ch)->cur_room == zon->room);
             //	 printf("check=%d, comm_room=%d\n",check,zon->room);
@@ -1852,10 +1876,15 @@ void list_zone(struct char_data* ch)
         }
         if (check) {
             show_command(str, zon);
+            if (!shape_list_fits(ch, str, footer, &wrapped)) {
+                shape_list_finish(ch, footer, true);
+                return;
+            }
             send_to_char(str, ch);
         }
         zon = zon->next;
     }
+    shape_list_finish(ch, footer, false);
 }
 /*********--------------------------------*********/
 

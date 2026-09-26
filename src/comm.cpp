@@ -1379,6 +1379,27 @@ void write_to_output(const char* txt, struct descriptor_data* t)
     }
 }
 
+/* How many more characters write_to_output will take this pulse before it
+   switches to the overflow state. */
+int output_space_left(struct descriptor_data* t)
+{
+    if (t->bufptr < 0)
+        return 0;
+    if (t->large_outbuf)
+        return t->bufspace;
+    return LARGE_BUFSIZE - 1 - strlen(t->output);
+}
+
+/* Put the output into the overflow state now: the rest of this pulse's
+   output is dropped and "**OVERFLOW**" is shown, as when the buffer fills. */
+void output_mark_overflow(struct descriptor_data* t)
+{
+    if (t->bufptr < 0)
+        return;
+    t->bufptr = -1;
+    buf_overflows++;
+}
+
 struct txt_block* get_from_txt_block_pool(char* line)
 {
     struct txt_block* pnew;
@@ -1745,6 +1766,26 @@ bool append_lines(char* target, char* source, int* len, size_t space)
     *len = tmp;
     *target = 0;
     return fitted;
+}
+
+/* How many characters append_lines adds when it wraps text, for text that
+   starts at the beginning of a line. */
+int wrap_added_length(const char* text)
+{
+    int col = 0, added = 0;
+
+    for (; *text; text++) {
+        col++;
+        if (*text == '\r')
+            col = 0;
+        if (*text == '\n')
+            col--;
+        if (col > screen_width) {
+            added += 2;
+            col = 0;
+        }
+    }
+    return added;
 }
 
 char process_output_buffer[LARGE_BUFSIZE + 20];

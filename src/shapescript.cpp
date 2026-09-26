@@ -563,7 +563,8 @@ void implement_script(struct char_data* ch)
     check_script_vnums(SHAPE_SCRIPT(ch)->index_pos, ch);
 }
 
-void show_command(char_data* ch, script_data* script)
+/* Writes one command's listing line into the global buf. */
+static void format_command(script_data* script)
 {
 
     switch (script->command_type) {
@@ -934,24 +935,46 @@ void show_command(char_data* ch, script_data* script)
     default:
         sprintf(buf, "[%d] ERROR: unknown command type\n\r", script->number);
     } // switch
+}
+
+void show_command(char_data* ch, script_data* script)
+{
+    format_command(script);
     send_to_char(buf, ch);
 }
 
-// /50 - list all commands in a script
+// /50 - list the commands in a script, within the /52 list range
 
 void list_script(struct char_data* ch)
 {
     script_data* tmpscript;
+    char footer[80];
+    int start = SHAPE_SCRIPT(ch)->list_start;
+    int end = SHAPE_SCRIPT(ch)->list_end;
+    int wrapped;
 
     tmpscript = SHAPE_SCRIPT(ch)->root;
 
-    if (tmpscript)
-        while (tmpscript) {
-            show_command(ch, tmpscript);
-            tmpscript = tmpscript->next;
-        }
-    else
+    if (!tmpscript) {
         send_to_char("No commands in this script yet.\n\r", ch);
+        return;
+    }
+
+    shape_range_footer(start, end, footer);
+    wrapped = shape_list_begin(ch);
+    /* Numbers come from the file and are only renumbered on edits, so they
+     * can be out of order: check every command rather than stop past end. */
+    for (; tmpscript; tmpscript = tmpscript->next) {
+        if (!shape_range_includes(start, end, tmpscript->number))
+            continue;
+        format_command(tmpscript);
+        if (!shape_list_fits(ch, buf, footer, &wrapped)) {
+            shape_list_finish(ch, footer, true);
+            return;
+        }
+        send_to_char(buf, ch);
+    }
+    shape_list_finish(ch, footer, false);
 }
 
 // NB Keeping much the same command structure as for shaping zones.
@@ -978,6 +1001,7 @@ void list_help_script(struct char_data* ch)
     send_to_char("21 - change script description\n\r", ch);
     send_to_char("50 - list;\n\r", ch);
     send_to_char("51 - show script name and description;\n\r", ch);
+    send_to_char("52 - set list range: start [end] command numbers.\n\r", ch);
 
     return;
 }
@@ -2493,6 +2517,21 @@ void shape_center_script(struct char_data* ch, char* arg)
             SHAPE_SCRIPT(ch)
                 ->editflag
                 = 0;
+            break;
+
+        case 52: // case 52: list range for /50
+            if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                shape_range_prompt(ch, SHAPE_SCRIPT(ch)->list_start, SHAPE_SCRIPT(ch)->list_end);
+                SHAPE_SCRIPT(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                ch->specials.prompt_number = 3;
+                SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                return;
+            }
+            shape_range_set(ch, arg, &SHAPE_SCRIPT(ch)->list_start, &SHAPE_SCRIPT(ch)->list_end);
+            shape_standup(ch, SHAPE_SCRIPT(ch)->position);
+            ch->specials.prompt_number = 9;
+            REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+            SHAPE_SCRIPT(ch)->editflag = 0;
             break;
 
         default:
