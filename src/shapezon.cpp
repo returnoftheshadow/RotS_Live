@@ -315,6 +315,10 @@ void write_zone(FILE* f, struct char_data* ch)
 
     struct owner_list* owner;
 
+    clean_text(SHAPE_ZONE(ch)->zone_name);
+    clean_text(SHAPE_ZONE(ch)->zone_descr);
+    clean_text(SHAPE_ZONE(ch)->zone_map);
+
     fprintf(f, "#%-d ", SHAPE_ZONE(ch)->zone_number);
 
     if (SHAPE_ZONE(ch)->zone_name)

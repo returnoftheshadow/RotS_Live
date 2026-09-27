@@ -122,6 +122,15 @@ void write_object(FILE* f, struct obj_data* obj, int num)
 
     int j;
 
+    clean_record_text(obj->name);
+    clean_record_text(obj->short_description);
+    clean_record_text(obj->description);
+    clean_record_text(obj->action_description);
+    for (tmpdesc = obj->ex_description; tmpdesc; tmpdesc = tmpdesc->next) {
+        clean_record_text(tmpdesc->keyword);
+        clean_record_text(tmpdesc->description);
+    }
+
     fprintf(f, "#%-d\n\r", num);
 
     fprintf(f, "%s~\n\r", obj->name);
@@ -282,7 +291,7 @@ void implement_object(struct char_data* ch)
         } else {                                                      \
             if (SHAPE_OBJECT(ch)->tmpstr) {                           \
                 addr = SHAPE_OBJECT(ch)->tmpstr;                      \
-                clean_text(addr);                                     \
+                clean_record_text(addr);                              \
             }                                                         \
             SHAPE_OBJECT(ch)                                          \
                 ->tmpstr                                              \

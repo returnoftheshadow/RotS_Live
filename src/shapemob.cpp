@@ -304,20 +304,60 @@ int command_simple_convert(int key)
         return 0;
     }
 }
+/* Zone and mudlle text: their scanners take a '#' that starts a line as a
+ * header, so only that '#' becomes '+'.  A '#' later in a line is kept. */
 void clean_text(char* str)
 {
     char* s;
     byte startline;
 
+    if (!str)
+        return;
     startline = 1;
     for (s = str; *s; s++) {
         if (startline && (*s == '#'))
             *s = '+';
         if (*s == '~')
             *s = '-';
-        if (startline && (*s > ' '))
+        if (*s == '\n')
+            startline = 1;
+        else if (startline && (*s > ' '))
             startline = 0;
     }
+}
+
+/* Mob, object, room and script text: their scanners take any '#' as a
+ * record header, so every '#' becomes '+'. */
+void clean_record_text(char* str)
+{
+    char* s;
+
+    if (!str)
+        return;
+    for (s = str; *s; s++) {
+        if (*s == '#')
+            *s = '+';
+        if (*s == '~')
+            *s = '-';
+    }
+}
+
+/* Room and script names: the boot loaders end the file at a name that
+ * starts with '$', so leading '$' are dropped. */
+void clean_record_name(char* str)
+{
+    char* s;
+
+    if (!str)
+        return;
+    clean_record_text(str);
+    for (s = str; *s && *s < ' '; s++)
+        ;
+    char* rest = s;
+    while (*rest == '$')
+        rest++;
+    if (rest != s)
+        memmove(s, rest, strlen(rest) + 1);
 }
 int get_permission(int zonnum, struct char_data* ch, int mode)
 {
@@ -455,6 +495,12 @@ void new_mob(struct char_data* ch)
  */
 void write_proto(FILE* f, struct char_data* m, int num)
 {
+    clean_record_text(m->player.name);
+    clean_record_text(m->player.short_descr);
+    clean_record_text(m->player.long_descr);
+    clean_record_text(m->player.description);
+    clean_record_text(m->player.death_cry);
+    clean_record_text(m->player.death_cry2);
     fprintf(f, "#%-d\n", num);
     fprintf(f, "%s~\n", m->player.name);
     fprintf(f, "%s~\n", m->player.short_descr);
@@ -536,7 +582,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
         } else {                                                      \
             if (SHAPE_PROTO(ch)->tmpstr) {                            \
                 addr = SHAPE_PROTO(ch)->tmpstr;                       \
-                clean_text(addr);                                     \
+                clean_record_text(addr);                              \
             }                                                         \
             SHAPE_PROTO(ch)                                           \
                 ->tmpstr                                              \

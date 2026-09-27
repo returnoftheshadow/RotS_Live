@@ -736,12 +736,11 @@ void board_info_type::flush_board()
     }
 }
 
-static char html_message_line[MAX_STRING_LENGTH + 200];
 void board_info_type::save_board()
 {
     FILE* fl;
     FILE *ht_fl, *ind_fl;
-    int i, j1, j2, no_html;
+    int i, j1, no_html;
     char *tmp1 = 0, *tmp2 = 0;
     char ht_name[100];
 
@@ -795,30 +794,26 @@ void board_info_type::save_board()
 
         if (!no_html) {
 
-            j1 = j2 = 0;
-            if (tmp2) {
-                for (j1 = 0, j2 = 0; j1 < msg_index[i].message_len; j1++) {
-                    if (tmp2[j1] == '\r')
-                        continue;
-                    if (tmp2[j1] == '\n') {
-                        html_message_line[j2++] = '<';
-                        html_message_line[j2++] = 'b';
-                        html_message_line[j2++] = 'r';
-                        html_message_line[j2++] = '>';
-                    } else
-                        html_message_line[j2++] = tmp2[j1];
-                }
-            }
-            html_message_line[j2] = 0;
-
             fprintf(ind_fl, "<A HREF=\"%s.html#Message%d\">Message %3d, %s</a><br>\n\r",
                 short_name, msg_index[i].msg_num, msg_index[i].msg_num,
                 (tmp1) ? tmp1 : "No title");
             fprintf(ht_fl, "<b><u><A NAME=\"Message%d\">Message %3d, %s</A></u></b><BR>", msg_index[i].msg_num, msg_index[i].msg_num,
                 (tmp1) ? tmp1 : "No title");
 
-            if (j2)
-                fwrite(html_message_line, sizeof(char), j2, ht_fl);
+            /* Expand the message straight into the file: '\n' -> "<br>", '\r'
+             * dropped.  Written a character at a time (stdio buffers it) so an
+             * arbitrarily long post cannot overflow a fixed staging buffer --
+             * a post with enough line breaks used to crash the server here. */
+            if (tmp2) {
+                for (j1 = 0; j1 < msg_index[i].message_len; j1++) {
+                    if (tmp2[j1] == '\r' || tmp2[j1] == '\0')
+                        continue;
+                    if (tmp2[j1] == '\n')
+                        fputs("<br>", ht_fl);
+                    else
+                        putc(tmp2[j1], ht_fl);
+                }
+            }
             fprintf(ht_fl, "<br><br>");
         }
 

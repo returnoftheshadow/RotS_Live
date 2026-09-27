@@ -153,6 +153,10 @@ ACMD(do_ban)
         send_to_char("Usage: ban {all | select | new} site_name\n\r", ch);
         return;
     }
+    if (strchr(site, ' ')) {
+        send_to_char("A banned site can't contain spaces.\n\r", ch);
+        return;
+    }
 
     if (!(!str_cmp(flag, "select") || !str_cmp(flag, "all") || !str_cmp(flag, "new"))) {
         send_to_char("Flag must be ALL, SELECT, or NEW.\n\r", ch);

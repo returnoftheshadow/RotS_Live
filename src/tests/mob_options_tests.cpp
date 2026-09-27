@@ -1,4 +1,5 @@
 #include "../mob_options.h"
+#include "../protos.h"
 
 #include <gtest/gtest.h>
 
@@ -324,4 +325,37 @@ TEST(VendorHours, OpenWindows)
 
     c.hours.clear();
     EXPECT_TRUE(vendor_is_open(c, 12)); // no hours = always open
+}
+
+/* World text written by the shaping editors.  The mob/obj/room/script record
+ * scanners take any '#' as a record header, zone and mudlle scanners only a
+ * '#' that starts a line, and the room/script loaders stop the file at a name
+ * that starts with '$'. */
+TEST(CleanText, ReplacesTildeEverywhereAndHashOnlyAtTheStartOfALine)
+{
+    char text[] = "#one ~ #two\n\r  #three\n\r\n\r#four";
+    clean_text(text);
+    EXPECT_STREQ(text, "+one - #two\n\r  +three\n\r\n\r+four");
+}
+
+TEST(CleanRecordText, ReplacesEveryHashAndTilde)
+{
+    char text[] = "see #3001 ~\n\r#5";
+    clean_record_text(text);
+    EXPECT_STREQ(text, "see +3001 -\n\r+5");
+    clean_record_text(nullptr);
+}
+
+TEST(CleanRecordName, DropsLeadingDollarsAndCleansTheRest)
+{
+    char name[] = "$$Gold #1 vault $";
+    clean_record_name(name);
+    EXPECT_STREQ(name, "Gold +1 vault $");
+    char plain[] = "Gold vault";
+    clean_record_name(plain);
+    EXPECT_STREQ(plain, "Gold vault");
+    char only[] = "$$";
+    clean_record_name(only);
+    EXPECT_STREQ(only, "");
+    clean_record_name(nullptr);
 }

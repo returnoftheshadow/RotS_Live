@@ -228,8 +228,14 @@ void string_add_finish(struct descriptor_data* d)
         printf("no text!\n");
     else if (!(*d->str))
         d->str = 0;
-    else if (strlen(*d->str) >= MAX_STRING_LENGTH)
-        *(*d->str + MAX_STRING_LENGTH - 1) = 0;
+    /* Cap below MAX_STRING_LENGTH, not at it: fread_string accumulates the
+     * text plus its '~' terminator and a '\r' per joined line when the world
+     * file is read back, and calls exit(0) (aborting the boot) if that total
+     * passes MAX_STRING_LENGTH.  The 256-byte headroom keeps anything saved
+     * here loadable, and also stops fread_string writing one byte past its
+     * buffer at the very top of the range. */
+    else if (strlen(*d->str) >= MAX_STRING_LENGTH - 256)
+        *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
 
     d->str = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
