@@ -6,13 +6,16 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 SocketType pnew_descriptor(SocketType s);
@@ -128,6 +131,18 @@ protected:
         const ssize_t bytes_read = recv(client, buffer, sizeof(buffer), 0);
         EXPECT_EQ(bytes_read, -1);
         EXPECT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK) << strerror(errno);
+    }
+
+    // Waits up to one second for bytes to reach the game's side of `descriptor`, as the game loop
+    // waits in select() before it reads: loopback can deliver data a moment after send() returns.
+    void wait_for_game_side_data(const descriptor_data* descriptor)
+    {
+        ASSERT_NE(descriptor, nullptr);
+        pollfd readable_check {};
+        readable_check.fd = descriptor->descriptor;
+        readable_check.events = POLLIN;
+        const int ready_count = poll(&readable_check, 1, 1000);
+        EXPECT_EQ(ready_count, 1) << "no data reached the game side within one second";
     }
 
 private:
@@ -308,9 +323,11 @@ TEST_F(AcceptPathTest, ProxyConnectionsWaitForCompleteSplitHeaderBeforeSendingGr
     const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
     const unsigned char* header_bytes = reinterpret_cast<const unsigned char*>(&proxy_header);
     ASSERT_EQ(send(client, header_bytes, 2, 0), 2);
+    wait_for_game_side_data(descriptor_list);
     ASSERT_EQ(process_input(descriptor_list), 0);
     expect_no_client_data_yet(client);
     ASSERT_EQ(send(client, header_bytes + 2, 2, 0), 2);
+    wait_for_game_side_data(descriptor_list);
     ASSERT_EQ(process_input(descriptor_list), 0);
 
     const std::string initial_output = read_client_data(client);
@@ -336,6 +353,7 @@ TEST_F(AcceptPathTest, ProxyConnectionsWaitForHeaderBeforeSendingGreeting)
 
     const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
     ASSERT_EQ(send(client, &proxy_header, sizeof(proxy_header), 0), static_cast<ssize_t>(sizeof(proxy_header)));
+    wait_for_game_side_data(descriptor_list);
     ASSERT_EQ(process_input(descriptor_list), 0);
 
     const std::string initial_output = read_client_data(client);
@@ -365,8 +383,42 @@ TEST_F(AcceptPathTest, ProxyConnectionsRejectBannedHostsBeforeGreeting)
 
     const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
     ASSERT_EQ(send(client, &proxy_header, sizeof(proxy_header), 0), static_cast<ssize_t>(sizeof(proxy_header)));
+    wait_for_game_side_data(descriptor_list);
     EXPECT_EQ(process_input(descriptor_list), -1);
     expect_no_client_data_yet(client);
+
+    close(client);
+    close(listener);
+}
+
+TEST_F(AcceptPathTest, ProxyConnectionsGreetWhenTheHeaderArrivesLate)
+{
+    in_port_t port = 0;
+    const int listener = create_listener_socket(&port);
+    ASSERT_GE(listener, 0);
+    const int client = connect_client(port);
+    ASSERT_GE(client, 0);
+
+    has_proxy = 1;
+    ASSERT_EQ(pnew_descriptor(listener), 1);
+
+    // The header reaches the game side only after the test has started waiting for it, which is
+    // what a slow loopback delivery looks like to the game.
+    const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
+    ssize_t header_bytes_sent = -1;
+    std::thread late_sender([client, proxy_header, &header_bytes_sent]() -> void {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        header_bytes_sent = send(client, &proxy_header, sizeof(proxy_header), 0);
+    });
+    wait_for_game_side_data(descriptor_list);
+    const int input_result = process_input(descriptor_list);
+    late_sender.join();
+    ASSERT_EQ(header_bytes_sent, static_cast<ssize_t>(sizeof(proxy_header)));
+    ASSERT_EQ(input_result, 0);
+
+    const std::string initial_output = read_client_data(client);
+    EXPECT_NE(initial_output.find("RETURN OF THE SHADOW"), std::string::npos);
+    EXPECT_NE(initial_output.find("Account email:"), std::string::npos);
 
     close(client);
     close(listener);
