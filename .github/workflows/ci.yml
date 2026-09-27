@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - master
+      - release-frodo
   pull_request:
     branches:
       - master
+      - release-frodo
 
 permissions:
   contents: read
@@ -52,4 +54,7 @@ jobs:
         run: make test
 
       - name: Run account smoke flow
+        # lib/world is git-ignored, so a plain checkout has no world for the smoke server to boot.
+        # The step is skipped then; run `make smoke-account` by hand where a world is installed.
+        if: hashFiles('lib/world/**') != ''
         run: make smoke-account
