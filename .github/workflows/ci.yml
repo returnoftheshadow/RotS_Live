@@ -24,7 +24,10 @@ jobs:
           persist-credentials: false
 
       - name: Install system dependencies
+        # ageland links -lcrypt as a 32-bit binary, so the i386 crypt development package is
+        # required alongside the 64-bit one (README, "build prerequisites").
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -35,6 +38,7 @@ jobs:
             g++-multilib \
             libc6-dev-i386 \
             libcrypt-dev \
+            libcrypt-dev:i386 \
             libgtest-dev \
             make \
             pkg-config \
