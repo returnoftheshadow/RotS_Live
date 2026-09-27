@@ -153,10 +153,15 @@ ACMD(do_ban)
         send_to_char("Usage: ban {all | select | new} site_name\n\r", ch);
         return;
     }
-    if (strchr(site, ' ')) {
-        send_to_char("A banned site can't contain spaces.\n\r", ch);
-        return;
-    }
+    /* The ban file is read back with fscanf("%s"), so whitespace inside a
+     * site would drop it and every later ban.  Trailing blanks are trimmed. */
+    for (char* end = site + strlen(site); end > site && isspace((unsigned char)end[-1]); *--end = 0)
+        ;
+    for (const char* p = site; *p; p++)
+        if (isspace((unsigned char)*p)) {
+            send_to_char("A banned site can't contain spaces.\n\r", ch);
+            return;
+        }
 
     if (!(!str_cmp(flag, "select") || !str_cmp(flag, "all") || !str_cmp(flag, "new"))) {
         send_to_char("Flag must be ALL, SELECT, or NEW.\n\r", ch);

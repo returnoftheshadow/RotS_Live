@@ -501,6 +501,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
     clean_record_text(m->player.description);
     clean_record_text(m->player.death_cry);
     clean_record_text(m->player.death_cry2);
+    clean_record_text(m->specials.mob_options);
     fprintf(f, "#%-d\n", num);
     fprintf(f, "%s~\n", m->player.name);
     fprintf(f, "%s~\n", m->player.short_descr);

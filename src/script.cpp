@@ -436,8 +436,8 @@ static void script_format_text(char* out, size_t outsz, const char* text, const 
         if (*p == '%' && *(p + 1) == '%') {
             out[o++] = '%';
             p++;
-        } else if (*p == '%' && *(p + 1) == 's' && arg && !used_arg) {
-            for (const char* a = arg; *a && o < outsz - 1; a++)
+        } else if (*p == '%' && *(p + 1) == 's' && !used_arg) {
+            for (const char* a = arg; a && *a && o < outsz - 1; a++)
                 out[o++] = *a;
             used_arg = 1;
             p++;
