@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Build a configured branch on the game server every night and install it into the coders port.
 
-    nightly_deploy.py              one run: fetch, build, unit-test and install (what cron runs)
-    nightly_deploy.py --dry-run    fetch and report what a run would do; builds and installs nothing
-    nightly_deploy.py --status     print the installed build and the last few runs
+    nightly_deploy.py              the nightly run: fetch, build, run every suite, install (what cron runs)
+    nightly_deploy.py --dry-run    fetch and report what the nightly run would do; builds and installs nothing
+    nightly_deploy.py <command>    one step by hand: fetch, build, test, integration, smoke, install or status
 
-The job keeps its files under ~/nightly. config.json names the repository and branch to fetch
-(remote_url, branch, and token_file for a private GitHub repository); state.json records what was
-last installed. Every run appends one line to deploy.log and writes its full output to runs/.
-The port is never restarted: the game's routine reboot starts the installed binary.
+The job keeps its files under ~/nightly. config.json names the repository and branch to fetch (remote_url,
+branch, and token_file for a private GitHub repository) and which optional suites block the install
+(integration_gate, smoke_gate). state.json records what was last installed, and build-record.json the build
+in the clone and each suite's result against it; install refuses a build whose unit tests, or gated suites,
+have not passed on it. pytest for the integration suite is unpacked by hand into ~/nightly/pysite. Every
+nightly run and command appends one line to deploy.log and writes its full output to runs/, except status
+and a run that finds the lock held. The port is never restarted: the game's routine reboot starts the installed binary.
 """
 
 import argparse
@@ -22,27 +25,37 @@ import re
 import resource
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, TextIO
+from typing import Callable, Dict, List, Optional, Sequence, TextIO
 
 
 PORT_BIN_DIR = Path("/rots/dev-coding4810/bin")
 KEPT_BACKUPS = 7
 KEPT_RUN_LOGS = 14
-# Enough headroom for an incremental build plus the staged binary and its backup.
-MIN_FREE_BYTES = 2 * 1024 ** 3
+# Room for an incremental build, the proxy build, a test server's tree, and the staged binary and its backup.
+MIN_FREE_BYTES = 3 * 1024 ** 3
 # A -j1 build of both targets takes about 5 minutes on the server; the limits only stop a hung step.
 GIT_TIMEOUT_SECONDS = 10 * 60
 BUILD_TIMEOUT_SECONDS = 2 * 60 * 60
 TEST_TIMEOUT_SECONDS = 20 * 60
+# CI allows the slower sanitized integration run 45 minutes; the unsanitized one fits well inside that.
+INTEGRATION_TIMEOUT_SECONDS = 45 * 60
+# Each of the smoke step's two long commands, the proxy build and the flow.
+SMOKE_TIMEOUT_SECONDS = 15 * 60
 FAILURE_TAIL_LINES = 40
 STATUS_LINES = 5
 STAMP_FORMAT = "%Y%m%d_%H%M%S"
-CONFIG_KEYS = {"remote_url", "branch", "token_file"}
+# The suites a build record holds results for, in the order a run runs them.
+SUITES = ("unit", "integration", "smoke")
+PASSED = "passed"
+CONFIG_KEYS = {"remote_url", "branch", "token_file", "integration_gate", "smoke_gate"}
+# Each switches one optional suite from report-only to blocking the install.
+GATE_KEYS = ("integration_gate", "smoke_gate")
 GITHUB_URL_PATTERN = re.compile(r"^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
@@ -110,6 +123,14 @@ class NightlyPaths:
         return self.home / "lock"
 
     @property
+    def build_record(self) -> Path:
+        return self.home / "build-record.json"
+
+    @property
+    def pysite(self) -> Path:
+        return self.home / "pysite"
+
+    @property
     def built_server(self) -> Path:
         return self.clone / "bin" / "ageland"
 
@@ -129,11 +150,16 @@ def is_valid_branch_name(branch: object) -> bool:
 
 @dataclass(frozen=True)
 class NightlyConfig:
-    """The source a run fetches: a repository URL, a branch in it, and the token file that unlocks it."""
+    """The source a run fetches and which optional suites block the install.
+
+    The source is a repository URL, a branch in it, and the token file that unlocks it.
+    """
 
     remote_url: str
     branch: str
     token_file: Optional[Path]  # None for a repository that needs no credentials
+    integration_gate: bool = False  # True when an integration suite that has not passed stops the install
+    smoke_gate: bool = False  # True when an account smoke flow that has not passed stops the install
 
     @staticmethod
     def load(path: Path) -> "NightlyConfig":
@@ -158,9 +184,14 @@ class NightlyConfig:
         branch = data.get("branch")
         if not is_valid_branch_name(branch):
             raise NightlyError("config", f"branch {branch!r} is not a valid branch name")
+        for gate_key in GATE_KEYS:
+            if gate_key in data and not isinstance(data[gate_key], bool):
+                raise NightlyError("config", f"{gate_key} must be true or false")
+        integration_gate = data.get("integration_gate", False)
+        smoke_gate = data.get("smoke_gate", False)
         token_value = data.get("token_file")
         if token_value is None:
-            return NightlyConfig(remote_url, branch, None)
+            return NightlyConfig(remote_url, branch, None, integration_gate, smoke_gate)
         if not isinstance(token_value, str) or not token_value:
             raise NightlyError("config", "token_file must be a non-empty string when present")
         if not GITHUB_URL_PATTERN.match(remote_url):
@@ -169,7 +200,14 @@ class NightlyConfig:
         token_file = Path(token_value).expanduser()
         if not os.access(token_file, os.R_OK):
             raise NightlyError("config", f"token file {token_file} is missing or unreadable")
-        return NightlyConfig(remote_url, branch, token_file)
+        return NightlyConfig(remote_url, branch, token_file, integration_gate, smoke_gate)
+
+
+def write_json_atomically(path: Path, data: dict) -> None:
+    """Writes `data` as JSON through a temporary file and a rename, so a crash never leaves it half-written."""
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(temporary, path)
 
 
 @dataclass(frozen=True)
@@ -198,10 +236,56 @@ class InstalledState:
                                         "delete it to adopt the current bin/ageland")
 
     def save(self, path: Path) -> None:
-        """Writes the state through a temporary file and a rename, so a crash never leaves it half-written."""
-        temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(json.dumps(dataclasses.asdict(self), indent=2) + "\n")
-        os.replace(temporary, path)
+        """Writes the state atomically."""
+        write_json_atomically(path, dataclasses.asdict(self))
+
+
+@dataclass(frozen=True)
+class BuildRecord:
+    """The build in the clone's bin/ and each suite's result against it, as recorded in build-record.json."""
+
+    commit: str  # full SHA the clone had checked out when it was built
+    binary_sha256: str  # checksum of the clone's bin/ageland right after the build
+    # Suite name to "passed", "failed: <reason>" or "skipped: <reason>"; a suite not yet run is absent.
+    results: Dict[str, str] = dataclasses.field(default_factory=dict)
+
+    @staticmethod
+    def load(path: Path) -> Optional["BuildRecord"]:
+        """The recorded build, or None when nothing is recorded.
+
+        Raises NightlyError("build record") when the file exists but is unreadable or malformed.
+        """
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+            return BuildRecord(**data)
+        except (OSError, ValueError, TypeError) as error:
+            raise NightlyError("build record", f"{path} is unreadable or malformed ({error}); run build again")
+
+    def save(self, path: Path) -> None:
+        """Writes the record atomically."""
+        write_json_atomically(path, dataclasses.asdict(self))
+
+    def with_result(self, suite: str, result: str) -> "BuildRecord":
+        """A copy of this record with `suite`'s result set to `result`."""
+        return dataclasses.replace(self, results={**self.results, suite: result})
+
+
+def program_name_of(command: Sequence[str]) -> str:
+    """The name of the program `command` runs, looking past a leading `nice -n <priority>`."""
+    program_index = 0
+    if Path(command[0]).name == "nice" and len(command) > 3 and command[1] == "-n":
+        program_index = 3
+    return Path(command[program_index]).name
+
+
+def kill_process_group(process: subprocess.Popen) -> None:
+    """Kills every process still in `process`'s group, which may already be empty."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 class CommandRunner:
@@ -216,29 +300,38 @@ class CommandRunner:
         """Runs `args` to completion and returns its combined stdout and stderr.
 
         Raises CommandFailed(step) when the command exits non-zero, cannot start, or runs longer than
-        `timeout` seconds. `env` replaces the whole environment when given.
+        `timeout` seconds. On a timeout, or when this job is interrupted or terminated meanwhile, every process
+        still in the command's process group is killed. `env` replaces the whole environment when given.
         """
         command = [str(arg) for arg in args]
-        program_name = Path(command[0]).name
+        program_name = program_name_of(command)
         self.run_log.write(f"$ {shlex.join(command)}\n")
         self.run_log.flush()
         try:
-            result = subprocess.run(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, errors="replace", timeout=timeout)
-        except subprocess.TimeoutExpired as expired:
-            # TimeoutExpired carries bytes even when text=True was asked for.
-            partial_output = expired.stdout or b""
-            if isinstance(partial_output, bytes):
-                partial_output = partial_output.decode(errors="replace")
-            self.run_log.write(partial_output)
-            raise CommandFailed(step, f"{program_name} timed out after {timeout} s", partial_output)
+            # A session of its own lets a timeout stop everything the command started, such as the game
+            # servers the integration harness boots, not only the command itself.
+            process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       text=True, errors="replace", start_new_session=True)
         except OSError as error:
             raise CommandFailed(step, f"cannot run {command[0]}: {error.strerror}", "")
-        self.run_log.write(result.stdout)
+        try:
+            output, _no_stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_process_group(process)
+            partial_output, _no_stderr = process.communicate()
+            self.run_log.write(partial_output)
+            raise CommandFailed(step, f"{program_name} timed out after {timeout} s", partial_output)
+        except BaseException:
+            # The command's own session keeps it from the terminal's Ctrl-C, so an interrupted or terminated
+            # job must stop it here.
+            kill_process_group(process)
+            process.wait()
+            raise
+        self.run_log.write(output)
         self.run_log.flush()
-        if result.returncode != 0:
-            raise CommandFailed(step, f"{program_name} exited with status {result.returncode}", result.stdout)
-        return result.stdout
+        if process.returncode != 0:
+            raise CommandFailed(step, f"{program_name} exited with status {process.returncode}", output)
+        return output
 
 
 def credential_helper(token_file: Path) -> str:
@@ -306,6 +399,14 @@ class SourceClone:
         """Detaches the work tree at `commit`, discarding tracked changes; untracked build output stays."""
         self.runner.run(["git", "-C", self.clone_dir, "checkout", "--quiet", "--force", "--detach", commit],
                         "checkout", GIT_TIMEOUT_SECONDS)
+
+    def head(self) -> str:
+        """The full SHA the clone has checked out. Raises NightlyError("build") when there is no clone yet."""
+        if not (self.clone_dir / ".git").is_dir():
+            raise NightlyError("build", f"there is no clone at {self.clone_dir} yet; run fetch first")
+        head = self.runner.run(["git", "-C", self.clone_dir, "rev-parse", "--verify", "HEAD^{commit}"], "build",
+                               GIT_TIMEOUT_SECONDS)
+        return head.strip()
 
     def _point_origin_at(self, remote_url: str) -> None:
         """Creates the clone on first use and makes its origin remote_url."""
@@ -401,6 +502,14 @@ class BinaryInstaller:
 
 # GoogleTest's "[  FAILED  ] Suite.Name" lines; requiring a dot skips its "[  FAILED  ] 2 tests, listed below" line.
 FAILED_TEST_PATTERN = re.compile(r"^\[  FAILED  \] (\S+\.\S+)", re.MULTILINE)
+# pytest's short summary lines, "FAILED <node id> - <message>" and "ERROR <node id> - <message>".
+PYTEST_FAILED_PATTERN = re.compile(r"^(?:FAILED|ERROR) (\S+)", re.MULTILINE)
+# A summary line names at most this many failed tests, so one broken harness cannot flood deploy.log.
+LISTED_FAILURES = 5
+INTEGRATION_DIR = Path("tests") / "integration"
+# The committed world the smoke server boots, since lib/world is not tracked.
+TEST_WORLD = INTEGRATION_DIR / "world"
+SMOKE_SCRIPT = Path("tools") / "account_smoke.py"
 
 
 @dataclass(frozen=True)
@@ -426,8 +535,43 @@ def build(runner: CommandRunner, paths: NightlyPaths) -> None:
         raise NightlyError("build", f"the build finished but {paths.built_server} does not exist")
 
 
-def run_unit_tests(runner: CommandRunner, paths: NightlyPaths) -> None:
-    """Runs the unit-test binary from the clone's root, as CI does.
+def build_and_record(runner: CommandRunner, paths: NightlyPaths, commit: str) -> BuildRecord:
+    """Builds `commit`, already checked out in the clone, and records the new binary with no suite results.
+
+    The old record goes first, so no result carries over to another binary, even when the build fails
+    part-way. Raises NightlyError("configure" or "build") on failure.
+    """
+    paths.build_record.unlink(missing_ok=True)
+    build(runner, paths)
+    binary_checksum = sha256_of(paths.built_server)
+    record = BuildRecord(commit, binary_checksum)
+    record.save(paths.build_record)
+    return record
+
+
+def verified_build(paths: NightlyPaths, step: str) -> BuildRecord:
+    """The build record, after checking that the clone's bin/ageland is still the binary it records.
+
+    Raises NightlyError(step) when nothing is recorded or the binary is missing or has changed since.
+    """
+    record = BuildRecord.load(paths.build_record)
+    if record is None or not paths.built_server.exists():
+        raise NightlyError(step, "no build recorded; run build first")
+    if sha256_of(paths.built_server) != record.binary_sha256:
+        raise NightlyError(step, "bin/ageland no longer matches the recorded build; run build first")
+    return record
+
+
+def describe_failed_tests(names: Sequence[str]) -> str:
+    """'N failed: a, b', naming at most LISTED_FAILURES tests."""
+    listed = ", ".join(names[:LISTED_FAILURES])
+    if len(names) > LISTED_FAILURES:
+        listed += f" and {len(names) - LISTED_FAILURES} more"
+    return f"{len(names)} failed: {listed}"
+
+
+def run_unit_tests(runner: CommandRunner, paths: NightlyPaths) -> str:
+    """Runs the unit-test binary from the clone's root, as CI does, and returns PASSED.
 
     Raises NightlyError("unit tests") naming the failed tests, or with the command's own reason when the
     output names none (a crash or a timeout).
@@ -438,7 +582,87 @@ def run_unit_tests(runner: CommandRunner, paths: NightlyPaths) -> None:
         failed_names = sorted(set(FAILED_TEST_PATTERN.findall(failure.output)))
         if not failed_names:
             raise
-        raise NightlyError("unit tests", f"{len(failed_names)} failed: {', '.join(failed_names)}", failure.detail)
+        raise NightlyError("unit tests", describe_failed_tests(failed_names), failure.detail)
+    return PASSED
+
+
+def run_integration_tests(runner: CommandRunner, paths: NightlyPaths) -> str:
+    """Runs the clone's integration suite against its bin/ageland and returns the result.
+
+    Returns PASSED, or a skip result when the checked-out branch has no suite. The harness boots its own
+    server on a free loopback port and never touches a live port. Raises NightlyError("integration") when
+    ~/nightly/pysite is missing, naming the failed tests, or with the command's own reason when the output
+    names none (a crash, a timeout, or nothing collected).
+    """
+    if not (paths.clone / INTEGRATION_DIR).is_dir():
+        return f"skipped: no {INTEGRATION_DIR} on this branch"
+    if not paths.pysite.is_dir():
+        raise NightlyError("integration", f"{paths.pysite} is missing; pytest must be unpacked there first")
+    environment = {**os.environ, "PYTHONPATH": str(paths.pysite), "ROTS_IT_LAUNCHER": "local"}
+    command = ["nice", "-n", "10", sys.executable, "-m", "pytest", "-p", "no:cacheprovider", INTEGRATION_DIR]
+    try:
+        runner.run(command, "integration", INTEGRATION_TIMEOUT_SECONDS, cwd=paths.clone, env=environment)
+    except CommandFailed as failure:
+        failed_ids = sorted(set(PYTEST_FAILED_PATTERN.findall(failure.output)))
+        if not failed_ids:
+            raise
+        directory_prefix = INTEGRATION_DIR.as_posix() + "/"
+        short_ids = [failed_id.removeprefix(directory_prefix) for failed_id in failed_ids]
+        raise NightlyError("integration", describe_failed_tests(short_ids), failure.detail)
+    return PASSED
+
+
+def reset_runtime_lib(runner: CommandRunner, clone: Path) -> None:
+    """Returns the clone's lib/ to the checked-out commit's files and deletes everything else in it.
+
+    That removes the accounts, characters and world an earlier smoke run left. Raises NightlyError("smoke")
+    when git fails.
+    """
+    runner.run(["git", "-C", clone, "clean", "-d", "-x", "--force", "--quiet", "--", "lib"], "smoke",
+               GIT_TIMEOUT_SECONDS)
+    runner.run(["git", "-C", clone, "checkout", "--quiet", "--", "lib"], "smoke", GIT_TIMEOUT_SECONDS)
+
+
+def run_smoke_flow(runner: CommandRunner, paths: NightlyPaths) -> str:
+    """Runs the account smoke flow against the clone's bin/ageland and returns the result.
+
+    Returns PASSED, or a skip result when the checked-out branch lacks the flow or its test world. Builds the
+    proxy, which the flow starts with `cargo run`, then resets lib/, runs the setup target and installs the
+    test world. Raises NightlyError("smoke") when any of those commands or the flow fails.
+    """
+    if not (paths.clone / SMOKE_SCRIPT).is_file() or not (paths.clone / TEST_WORLD).is_dir():
+        return f"skipped: no {SMOKE_SCRIPT} or {TEST_WORLD} on this branch"
+    runner.run(["nice", "-n", "10", "cargo", "build", "--locked", "-p", "proxy", "-j1"], "smoke",
+               SMOKE_TIMEOUT_SECONDS, cwd=paths.clone)
+    reset_runtime_lib(runner, paths.clone)
+    runner.run(["cmake", "--build", paths.build, "--target", "setup"], "smoke", BUILD_TIMEOUT_SECONDS)
+    try:
+        shutil.copytree(paths.clone / TEST_WORLD, paths.clone / "lib" / "world")
+    except OSError as error:
+        raise NightlyError("smoke", f"cannot install the test world: {error}")
+    runner.run([sys.executable, SMOKE_SCRIPT], "smoke", SMOKE_TIMEOUT_SECONDS, cwd=paths.clone)
+    return PASSED
+
+
+def run_recorded_suite(suite: str, runner: CommandRunner, paths: NightlyPaths) -> str:
+    """Runs `suite` ("unit", "integration" or "smoke") against the recorded build and records its result.
+
+    Returns the result: PASSED, "failed: <reason>" or "skipped: <reason>". Raises NightlyError(suite) when
+    there is no matching build to run it against, and NightlyError("build record") when the record is
+    malformed.
+    """
+    record = verified_build(paths, suite)
+    try:
+        if suite == "unit":
+            result = run_unit_tests(runner, paths)
+        elif suite == "integration":
+            result = run_integration_tests(runner, paths)
+        else:
+            result = run_smoke_flow(runner, paths)
+    except NightlyError as error:
+        result = f"failed: {error.reason}"
+    record.with_result(suite, result).save(paths.build_record)
+    return result
 
 
 def check_free_space(home: Path) -> None:
@@ -449,14 +673,69 @@ def check_free_space(home: Path) -> None:
                                    f"a run needs {MIN_FREE_BYTES // 1024 ** 2} MB")
 
 
+def describe_suite_result(suite: str, result: str) -> str:
+    """A suite's result for a summary line.
+
+    For example 'integration passed', 'integration failed (<reason>)' or 'smoke skipped (<reason>)'.
+    """
+    outcome, _separator, reason = result.partition(": ")
+    if not reason:
+        return f"{suite} {outcome}"
+    return f"{suite} {outcome} ({reason})"
+
+
+def check_gates(record: BuildRecord, config: NightlyConfig) -> None:
+    """Raises NightlyError("install") unless the unit tests and every gated suite passed on this build."""
+    required_suites = ["unit"]
+    if config.integration_gate:
+        required_suites.append("integration")
+    if config.smoke_gate:
+        required_suites.append("smoke")
+    for suite in required_suites:
+        result = record.results.get(suite, "not run")
+        if result != PASSED:
+            raise NightlyError("install", f"refused: {suite} has not passed on this build ({result})")
+
+
+def install_recorded_build(config: NightlyConfig, paths: NightlyPaths, installer: BinaryInstaller,
+                           now: datetime.datetime) -> str:
+    """Installs the recorded build into the port when its gates allow, and records it in state.json.
+
+    Returns "installed", or "skipped: already installed" when state.json already records this exact build as
+    installed. Raises NightlyError("install") when the clone's binary no longer matches its record, a gate refuses it,
+    the port's bin/ageland was replaced by hand since the last install, or the copy fails.
+    """
+    record = verified_build(paths, "install")
+    check_gates(record, config)
+    state = InstalledState.load(paths.state)
+    if state is not None and state.commit == record.commit and state.binary_sha256 == record.binary_sha256:
+        return "skipped: already installed"
+    # Checked here, not only before a build, because someone may have deployed by hand since.
+    installer.check_replaceable(state)
+    replaced_commit = None
+    if state is not None:
+        replaced_commit = state.commit
+    stamp = now.strftime(STAMP_FORMAT)
+    try:
+        checksum = installer.install(paths.built_server, replaced_commit, stamp)
+    except OSError as error:
+        raise NightlyError("install", f"could not install into {paths.port_bin}: {error}")
+    installed_at = now.isoformat(timespec="seconds")
+    new_state = InstalledState(record.commit, config.remote_url, config.branch, checksum, installed_at)
+    new_state.save(paths.state)
+    installer.prune_backups()
+    return "installed"
+
+
 def nightly_run(config: NightlyConfig, commit: str, paths: NightlyPaths, runner: CommandRunner,
                 clone: SourceClone, installer: BinaryInstaller, dry_run: bool,
                 now: datetime.datetime) -> RunOutcome:
-    """Decides what to do with the fetched `commit`, then checks out, builds, tests and installs it.
+    """Decides what to do with the fetched `commit`, then checks out, builds, runs every suite and installs it.
 
     A commit already installed is skipped (recording a changed source unless `dry_run`). A dry run stops
-    after the replaceability check, building and installing nothing. Raises NightlyError naming the failed step; the
-    port's bin/ageland changes only when every earlier step succeeded.
+    after the replaceability check. The unit tests, and each suite whose gate is on, stop the run when they
+    do not pass; a report-only suite does not stop the run, and its result goes on the summary line. Raises
+    NightlyError naming the failed step; the port's bin/ageland changes only when every blocking step succeeded.
     """
     state = InstalledState.load(paths.state)
     if state is not None and state.commit == commit:
@@ -470,32 +749,38 @@ def nightly_run(config: NightlyConfig, commit: str, paths: NightlyPaths, runner:
         return RunOutcome(commit, "dry run: would build, test and install")
     check_free_space(paths.home)
     clone.check_out(commit)
-    build(runner, paths)
-    run_unit_tests(runner, paths)
-    replaced_commit = None
-    if state is not None:
-        replaced_commit = state.commit
-    stamp = now.strftime(STAMP_FORMAT)
-    # Checked again here because someone may have deployed by hand while the build and tests ran.
-    installer.check_replaceable(state)
-    try:
-        checksum = installer.install(paths.built_server, replaced_commit, stamp)
-    except OSError as error:
-        raise NightlyError("install", f"could not install into {paths.port_bin}: {error}")
-    installed_at = now.isoformat(timespec="seconds")
-    new_state = InstalledState(commit, config.remote_url, config.branch, checksum, installed_at)
-    new_state.save(paths.state)
-    installer.prune_backups()
-    return RunOutcome(commit, "installed")
+    build_and_record(runner, paths, commit)
+    unit_result = run_recorded_suite("unit", runner, paths)
+    if unit_result != PASSED:
+        raise NightlyError("unit tests", unit_result.removeprefix("failed: "))
+    suite_notes = []
+    for suite, gate_is_on in (("integration", config.integration_gate), ("smoke", config.smoke_gate)):
+        result = run_recorded_suite(suite, runner, paths)
+        if gate_is_on and result != PASSED:
+            raise NightlyError(suite, f"{result.removeprefix('failed: ')} ({suite}_gate is on)")
+        suite_notes.append(describe_suite_result(suite, result))
+    message = install_recorded_build(config, paths, installer, now)
+    return RunOutcome(commit, "; ".join([message] + suite_notes))
+
+
+# The suite each suite command runs.
+SUITE_FOR_COMMAND = {"test": "unit", "integration": "integration", "smoke": "smoke"}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nightly_deploy.py",
-                                     description="Build a configured branch and install it into the coders port.")
-    modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--dry-run", action="store_true",
-                       help="fetch and report what a run would do; build and install nothing")
-    modes.add_argument("--status", action="store_true", help="print the installed build and the last few runs")
+                                     description="Build a configured branch and install it into the coders port. "
+                                                 "With no command, run every step, as cron does.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with no command: fetch and report what a run would do; build and install nothing")
+    commands = parser.add_subparsers(dest="command", metavar="command")
+    commands.add_parser("fetch", help="fetch the configured branch into the clone and check out its tip")
+    commands.add_parser("build", help="build the checked-out commit and record the binary")
+    commands.add_parser("test", help="run the unit tests against the recorded build")
+    commands.add_parser("integration", help="run the integration suite against the recorded build")
+    commands.add_parser("smoke", help="run the account smoke flow against the recorded build")
+    commands.add_parser("install", help="install the recorded build into the port, if its gates allow")
+    commands.add_parser("status", help="print the installed build, the recorded build and the last few runs")
     return parser
 
 
@@ -525,7 +810,7 @@ def prune_run_logs(run_logs: Path) -> None:
 
 
 def status_report(paths: NightlyPaths) -> str:
-    """The installed build and the last STATUS_LINES summary lines, for --status."""
+    """The installed build, the recorded build and the last STATUS_LINES summary lines."""
     lines = []
     try:
         state = InstalledState.load(paths.state)
@@ -537,6 +822,17 @@ def status_report(paths: NightlyPaths) -> str:
         else:
             lines.append(f"Installed: {state.commit[:7]} from {state.remote_url} {state.branch} "
                          f"at {state.installed_at}")
+    try:
+        record = BuildRecord.load(paths.build_record)
+    except NightlyError as error:
+        lines.append(f"Built: unknown ({error.reason})")
+    else:
+        if record is None:
+            lines.append("Built: nothing recorded")
+        else:
+            results = ", ".join(describe_suite_result(suite, record.results.get(suite, "not run"))
+                                for suite in SUITES)
+            lines.append(f"Built: {record.commit[:7]} ({results})")
     if paths.summary_log.exists():
         recent = paths.summary_log.read_text().splitlines()[-STATUS_LINES:]
         lines.append("Recent runs:")
@@ -546,24 +842,70 @@ def status_report(paths: NightlyPaths) -> str:
     return "\n".join(lines)
 
 
-def run_logged(dry_run: bool, paths: NightlyPaths, run_log_path: Path, started: datetime.datetime) -> int:
-    """Runs one fetch-to-install pass with its output in `run_log_path`, then records the summary line.
+class RunContext:
+    """What a run has learned so far, so its summary line names the source and commit even when it fails."""
 
-    Returns 0 for an install, a skip or a dry run, and 1 for any failure. Every failure, expected or not,
-    is recorded in deploy.log, because nobody reads the output of a cron run; the line is also printed for
-    runs started by hand.
+    def __init__(self) -> None:
+        # config.json once loaded, or None.
+        self.config: Optional[NightlyConfig] = None
+        # The commit the run is about once known, or None.
+        self.commit: Optional[str] = None
+
+
+def perform_command(command: Optional[str], dry_run: bool, context: RunContext, runner: CommandRunner,
+                    paths: NightlyPaths, started: datetime.datetime) -> str:
+    """Runs `command`, or the nightly run when it is None, and returns its summary-line result.
+
+    Raises NightlyError naming the failed step. A suite command whose suite fails raises after recording
+    the result, so the command exits non-zero.
     """
-    config: Optional[NightlyConfig] = None
-    commit: Optional[str] = None
+    clone = SourceClone(runner, paths.clone)
+    installer = BinaryInstaller(paths.port_bin)
+    if command is None:
+        context.config = NightlyConfig.load(paths.config)
+        context.commit = clone.fetch(context.config)
+        return nightly_run(context.config, context.commit, paths, runner, clone, installer, dry_run, started).message
+    if command == "fetch":
+        context.config = NightlyConfig.load(paths.config)
+        context.commit = clone.fetch(context.config)
+        clone.check_out(context.commit)
+        record = BuildRecord.load(paths.build_record)
+        if record is not None and record.commit != context.commit:
+            # Its binary was built from other sources than the checkout the suites would now run.
+            paths.build_record.unlink()
+            return "fetched; the previous build was of another commit and was discarded"
+        return "fetched"
+    if command == "build":
+        check_free_space(paths.home)
+        context.commit = clone.head()
+        build_and_record(runner, paths, context.commit)
+        return "built"
+    if command == "install":
+        context.config = NightlyConfig.load(paths.config)
+        context.commit = verified_build(paths, "install").commit
+        return install_recorded_build(context.config, paths, installer, started)
+    suite = SUITE_FOR_COMMAND[command]
+    context.commit = verified_build(paths, suite).commit
+    result = run_recorded_suite(suite, runner, paths)
+    if result.startswith("failed: "):
+        raise NightlyError(suite, result.removeprefix("failed: "))
+    return result
+
+
+def run_command_logged(command: Optional[str], dry_run: bool, paths: NightlyPaths, run_log_path: Path,
+                       started: datetime.datetime) -> int:
+    """Runs `command` (None for the nightly run) with its output in `run_log_path`, then records the summary line.
+
+    Returns 0 on success, a skip or a dry run, 1 for any failure, and 128 plus the signal number when a signal
+    terminated the run. Every failure, expected or not, is
+    recorded in deploy.log, because nobody reads the output of a cron run; the line is also printed for runs
+    started by hand.
+    """
+    context = RunContext()
     with run_log_path.open("w") as run_log:
         runner = CommandRunner(run_log)
         try:
-            config = NightlyConfig.load(paths.config)
-            clone = SourceClone(runner, paths.clone)
-            commit = clone.fetch(config)
-            installer = BinaryInstaller(paths.port_bin)
-            outcome = nightly_run(config, commit, paths, runner, clone, installer, dry_run, started)
-            result = outcome.message
+            result = perform_command(command, dry_run, context, runner, paths, started)
             exit_status = 0
         except NightlyError as error:
             result = f"failed: {error.step}: {error.reason}"
@@ -571,14 +913,31 @@ def run_logged(dry_run: bool, paths: NightlyPaths, run_log_path: Path, started: 
             if error.detail:
                 run_log.write(error.detail + "\n")
             exit_status = 1
+        except SystemExit as termination:
+            # A signal handler's exit; the running command's process group was killed as the stack unwound.
+            exit_status = 1
+            if isinstance(termination.code, int):
+                exit_status = termination.code
+            result = f"failed: terminated (exit {exit_status})"
+            run_log.write(f"\nTERMINATED with exit {exit_status}\n")
         except Exception:
             result = "failed: unexpected error; see the run log"
             run_log.write("\n" + traceback.format_exc())
             exit_status = 1
-    line = summary_line(started, config, commit, result) + f"  (log: runs/{run_log_path.name})"
+    if command is not None:
+        result = f"{command}: {result}"
+    line = summary_line(started, context.config, context.commit, result) + f"  (log: runs/{run_log_path.name})"
     append_summary(paths, line)
     print(line)
     return exit_status
+
+
+def raise_system_exit(signal_number: int, frame: object) -> None:
+    """Handler for SIGTERM, SIGHUP and SIGINT that unwinds like an exception.
+
+    The running command's process group is then killed and the run is logged.
+    """
+    raise SystemExit(128 + signal_number)
 
 
 def main(argv: Optional[Sequence[str]] = None, paths: Optional[NightlyPaths] = None,
@@ -587,26 +946,38 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[NightlyPaths] = N
 
     `paths` defaults to ~/nightly and the coders port; tests pass their own, and a clock through `now`.
     """
-    arguments = build_parser().parse_args(argv)
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+    if arguments.dry_run and arguments.command is not None:
+        parser.error("--dry-run applies only to the nightly run, not to a command")
     if paths is None:
         paths = NightlyPaths(Path.home() / "nightly", PORT_BIN_DIR)
-    if arguments.status:
+    if arguments.command == "status":
         print(status_report(paths))
         return 0
+    # SIGHUP covers a hand run whose ssh session drops.
+    for signal_number in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(signal_number, raise_system_exit)
     paths.run_logs.mkdir(parents=True, exist_ok=True)
     started = now()
     with paths.lock.open("a") as lock_file:
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            append_summary(paths, summary_line(started, None, None, "skipped: another run holds the lock"))
-            return 0
+            if arguments.command is None:
+                append_summary(paths, summary_line(started, None, None, "skipped: another run holds the lock"))
+                return 0
+            print("another nightly run holds the lock; try again when it finishes", file=sys.stderr)
+            return 1
         # Children inherit the limit, so a crashing test or build tool leaves no core file behind.
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         run_log_name = started.strftime(STAMP_FORMAT)
         if arguments.dry_run:
             run_log_name += "-dry-run"
-        exit_status = run_logged(arguments.dry_run, paths, paths.run_logs / f"{run_log_name}.log", started)
+        elif arguments.command is not None:
+            run_log_name += f"-{arguments.command}"
+        exit_status = run_command_logged(arguments.command, arguments.dry_run, paths,
+                                         paths.run_logs / f"{run_log_name}.log", started)
         prune_run_logs(paths.run_logs)
         return exit_status
 
