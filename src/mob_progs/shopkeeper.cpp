@@ -178,6 +178,19 @@ void vendor_config_check(const struct char_data* proto, int mob_vnum, struct cha
         vendor_send(vendor_problem_line(mob_vnum, problem), builder);
 }
 
+/* Scripted mobs and shopkeepers carry NOBASH by convention. Reminded on /imp
+ * only, to the builder alone: not at boot and not in the imm log. */
+void vendor_implement_check(int mob_rnum, struct char_data* builder)
+{
+    if (!builder || mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_rnum))
+        return;
+    if (IS_SET(mob_proto[mob_rnum].specials2.act, MOB_NOBASH))
+        return;
+    char buf[128];
+    snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: nobash not set\n\r", mob_index[mob_rnum].virt);
+    send_to_char(buf, builder);
+}
+
 void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
 {
     if (mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_rnum)) {

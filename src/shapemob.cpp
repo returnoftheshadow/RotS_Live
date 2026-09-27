@@ -2206,6 +2206,7 @@ void implement_proto(struct char_data* ch, bool report_vendor = true)
     else
         virt_assignmob(mob_proto + number);
     vendor_config_rebuild(number, ch, report_vendor);
+    vendor_implement_check(number, ch);
 }
 ACMD(do_shape)
 {

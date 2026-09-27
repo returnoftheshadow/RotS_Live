@@ -22,6 +22,7 @@ void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report 
 /* program 33 with MOB_SPEC, and no hard-coded function owns rnum (rnum < 0: none yet) */
 bool is_vendor_candidate(const struct char_data* proto, int rnum);
 void vendor_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder); /* report only */
+void vendor_implement_check(int mob_rnum, struct char_data* builder); /* /imp only: nobash reminder */
 const vendor_config* vendor_config_for(int mob_rnum); /* nullptr if none */
 std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem); /* formatted warning */
 
