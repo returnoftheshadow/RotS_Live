@@ -9,7 +9,7 @@ currencies. It's configured through a new persisted multi-line mob **options** f
 - **`src/mob_options.{h,cpp}`**: general text-field helpers (lookup, storable check, file
   read/write) and a *pure* vendor parser. Game lookups are injected as callbacks, so it's
   fully unit-testable.
-- **`src/mob_progs/passive.{h,cpp}`**, a new source subfolder, holds the vendor:
+- **`src/mob_progs/shopkeeper.{h,cpp}`**, a new source subfolder, holds the vendor:
   - a registry of parsed configs keyed by mob rnum, rebuilt at boot and on mob-editor
     implement;
   - a pure list formatter;
@@ -79,7 +79,7 @@ tests), GoogleTest, Docker i386 toolchain via `scripts/rots-docker.sh`.
 | File | Status | Responsibility |
 |---|---|---|
 | `src/mob_options.h/.cpp` | Create | General options helpers + pure vendor parser (no game globals) |
-| `src/mob_progs/passive.h/.cpp` | Create | Vendor registry, boot/implement hooks, list formatter, `SPECIAL(barter_vendor)` |
+| `src/mob_progs/shopkeeper.h/.cpp` | Create | Vendor registry, boot/implement hooks, list formatter, `SPECIAL(barter_vendor)` |
 | `src/tests/mob_options_tests.cpp` | Create | Tests for helpers, file read/write, parser, hours |
 | `src/tests/barter_vendor_tests.cpp` | Create | Tests for list formatter and shortfall helper |
 | `src/structs.h` | Modify | `char* mob_options` in `char_special_data` |
@@ -809,12 +809,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 3: `mob_progs/` folder, list formatter, shortfall helper
 
 **Files:**
-- Create: `src/mob_progs/passive.h`, `src/mob_progs/passive.cpp`, `src/tests/barter_vendor_tests.cpp`
+- Create: `src/mob_progs/shopkeeper.h`, `src/mob_progs/shopkeeper.cpp`, `src/tests/barter_vendor_tests.cpp`
 - Modify (**after user approval**): `src/Makefile`, `src/CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: `vendor_cost` (Task 2).
-- Produces (in `passive.h`):
+- Produces (in `shopkeeper.h`):
 
 ```cpp
 constexpr int PROG_BARTER_VENDOR = 33;
@@ -829,16 +829,16 @@ std::vector<vendor_shortfall> vendor_shortfalls(const std::vector<vendor_cost>& 
 
 - [ ] **Step 1: Ask the user to approve build changes B1–B4**, **one at a time**. Show each,
   wait for a yes (or their alternative) before showing the next:
-  - **B1, Makefile objects:** append `mob_progs/passive.o` to `OBJFILES`, and add this rule.
-    `-o` is required: without it the compiler writes `passive.o` into `src/`:
+  - **B1, Makefile objects:** append `mob_progs/shopkeeper.o` to `OBJFILES`, and add this rule.
+    `-o` is required: without it the compiler writes `shopkeeper.o` into `src/`:
     ```make
-    mob_progs/passive.o : mob_progs/passive.cpp mob_progs/passive.h mob_options.h structs.h utils.h comm.h interpre.h handler.h db.h
-    	$(CC) -c $(CFLAGS) mob_progs/passive.cpp -o mob_progs/passive.o
+    mob_progs/shopkeeper.o : mob_progs/shopkeeper.cpp mob_progs/shopkeeper.h mob_options.h structs.h utils.h comm.h interpre.h handler.h db.h
+    	$(CC) -c $(CFLAGS) mob_progs/shopkeeper.cpp -o mob_progs/shopkeeper.o
     ```
   - **B2, Makefile clean:** change `rm -f *.o` to `rm -f *.o mob_progs/*.o`.
   - **B3, includes:** folder files use `#include "../structs.h"` (as `src/tests/` does), with
     no compiler-flag change. The alternative is `-I.` in the Makefile and CMake.
-  - **B4, CMake:** add `mob_progs/passive.cpp` to `ROTS_SERVER_SOURCES`, and
+  - **B4, CMake:** add `mob_progs/shopkeeper.cpp` to `ROTS_SERVER_SOURCES`, and
     `tests/barter_vendor_tests.cpp` to `ROTS_TEST_SOURCES`.
 
   Then say: the deploy script (`put -r *`, recursive backup) needs no change but should be
@@ -848,7 +848,7 @@ std::vector<vendor_shortfall> vendor_shortfalls(const std::vector<vendor_cost>& 
 - [ ] **Step 2: Write the failing tests** in `src/tests/barter_vendor_tests.cpp`:
 
 ```cpp
-#include "../mob_progs/passive.h"
+#include "../mob_progs/shopkeeper.h"
 
 #include <gtest/gtest.h>
 
@@ -919,16 +919,16 @@ TEST(VendorShortfalls, ListsEveryShortCurrencyAndNothingWhenCovered)
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `scripts/rots-docker.sh test --gtest_filter='VendorList.*:VendorShortfalls.*'`
-Expected: build failure, `mob_progs/passive.h: No such file`.
+Expected: build failure, `mob_progs/shopkeeper.h: No such file`.
 
-- [ ] **Step 4: Implement.** `src/mob_progs/passive.h`:
+- [ ] **Step 4: Implement.** `src/mob_progs/shopkeeper.h`:
 
 ```cpp
-#ifndef MOB_PROGS_PASSIVE_H
-#define MOB_PROGS_PASSIVE_H
+#ifndef MOB_PROGS_SHOPKEEPER_H
+#define MOB_PROGS_SHOPKEEPER_H
 
-/* Passive/service mob programs: they react to what players do and don't
- * fight or roam. First resident: the barter vendor (program 33). */
+/* Barter vendor / shopkeeper mob program (program 33): reacts to what
+ * players buy and sell, doesn't fight or roam. */
 
 #include "../mob_options.h"
 
@@ -961,10 +961,10 @@ std::vector<vendor_shortfall> vendor_shortfalls(const std::vector<vendor_cost>& 
 #endif
 ```
 
-`src/mob_progs/passive.cpp`:
+`src/mob_progs/shopkeeper.cpp`:
 
 ```cpp
-#include "passive.h"
+#include "shopkeeper.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1065,9 +1065,9 @@ Expected: it links; after `make clean`, `ls` reports no `.o` files in `mob_progs
 - [ ] **Step 7: Format and commit**
 
 ```bash
-cd src && clang-format -i -style=WebKit mob_progs/passive.h mob_progs/passive.cpp tests/barter_vendor_tests.cpp && cd ..
+cd src && clang-format -i -style=WebKit mob_progs/shopkeeper.h mob_progs/shopkeeper.cpp tests/barter_vendor_tests.cpp && cd ..
 git add src/mob_progs src/tests/barter_vendor_tests.cpp src/Makefile src/CMakeLists.txt
-git commit -m "feat(mob_progs): passive programs folder; vendor list formatter
+git commit -m "feat(mob_progs): shopkeeper folder; vendor list formatter
 
 Build changes approved individually by the user: <record B1-B4 answers>.
 
@@ -1136,7 +1136,7 @@ reads the field yet except the editor and `stat`.
     write_mob_options(f, m->specials.mob_options);
 ```
 
-  Add `#include "mob_options.h"` and `#include "mob_progs/passive.h"` to `shapemob.cpp`.
+  Add `#include "mob_options.h"` and `#include "mob_progs/shopkeeper.h"` to `shapemob.cpp`.
 
 - [ ] **Step 5: Editor load.** In `load_proto`, right after the `will_teach` `fscanf` block:
 
@@ -1283,7 +1283,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify:
-  - `src/mob_progs/passive.h`, `src/mob_progs/passive.cpp`;
+  - `src/mob_progs/shopkeeper.h`, `src/mob_progs/shopkeeper.cpp`;
   - `src/spec_ass.cpp`: the two switch tables, `spec_pro_message[]`, the declaration;
   - `src/db.cpp`: `boot_db`, after the "Assigning function pointers" block;
   - `src/shapemob.cpp`: end of `implement_proto`, plus `replace_proto`/`append_proto` after a
@@ -1292,7 +1292,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `parse_vendor_options`, `vendor_config`, `vendor_problem`, `vendor_lookups`
   (Task 2); `PROG_BARTER_VENDOR` (Task 3); `char_special_data::mob_options` (Task 4).
-- Produces (add to `passive.h`):
+- Produces (add to `shopkeeper.h`):
 
 ```cpp
 struct char_data;
@@ -1323,7 +1323,7 @@ TEST(VendorProblemLine, HouseStyle)
 Run: `scripts/rots-docker.sh test --gtest_filter='VendorProblemLine.*'`
 Expected: compile error, `vendor_problem_line` not declared.
 
-- [ ] **Step 3: Implement the registry.** Append to `src/mob_progs/passive.cpp`, and add its
+- [ ] **Step 3: Implement the registry.** Append to `src/mob_progs/shopkeeper.cpp`, and add its
   includes to the top of the file:
 
 ```cpp
@@ -1445,7 +1445,7 @@ SPECIAL(barter_vendor)
   it's `special_func`, the cast compiles; otherwise cast to that type.
 
 - [ ] **Step 4: Wire program 33.** In `src/spec_ass.cpp`:
-  - Include `"mob_progs/passive.h"`.
+  - Include `"mob_progs/shopkeeper.h"`.
   - In `virt_program_number`, after `case 32: return (void*)mob_ranger_new;`, add
     `case 33: return (void*)barter_vendor;`.
   - In `get_special_function`, after `case 32: return &mob_ranger_new;`, add
@@ -1461,7 +1461,7 @@ SPECIAL(barter_vendor)
     vendor_config_boot();
 ```
 
-  and include `"mob_progs/passive.h"`.
+  and include `"mob_progs/shopkeeper.h"`.
 
 - [ ] **Step 6: Editor hooks.**
   - At the very end of `implement_proto` (after the `virt_assignmob` / `real_program`
@@ -1514,7 +1514,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 6: `SPECIAL(barter_vendor)`: list, buy, refusals, protection, give
 
 **Files:**
-- Modify: `src/mob_progs/passive.cpp`, `src/interpre.h` (`CMD_GIVE`)
+- Modify: `src/mob_progs/shopkeeper.cpp`, `src/interpre.h` (`CMD_GIVE`)
 
 **Interfaces:**
 - Consumes: `vendor_config_for`, `vendor_is_open`, `format_vendor_list`,
@@ -1532,7 +1532,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 2: Implement.** Replace the stub `SPECIAL(barter_vendor)` in
-  `src/mob_progs/passive.cpp` with the code below, and add
+  `src/mob_progs/shopkeeper.cpp` with the code below, and add
   `extern struct room_data world; extern struct obj_data* obj_proto; extern struct index_data* obj_index; extern struct time_info_data time_info;`
   near the other externs, `ACMD(do_say);` after the includes, and add `#include <cctype>` and `#include <cstring>` to the file's includes:
 
@@ -1799,7 +1799,7 @@ Expected: links; PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/mob_progs/passive.cpp src/interpre.h
+git add src/mob_progs/shopkeeper.cpp src/interpre.h
 git commit -m "feat(vendor): barter vendor list, buy, refusals, protection, give refusal
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

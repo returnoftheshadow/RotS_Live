@@ -1,4 +1,4 @@
-#include "passive.h"
+#include "shopkeeper.h"
 
 #include "../comm.h"
 #include "../db.h"

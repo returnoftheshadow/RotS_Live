@@ -72,7 +72,7 @@ set(ROTS_SERVER_SOURCES
     mail.cpp
     mob_csv_extract.cpp
     mob_options.cpp
-    mob_progs/passive.cpp
+    mob_progs/shopkeeper.cpp
     mobact.cpp
     modify.cpp
     mudlle.cpp

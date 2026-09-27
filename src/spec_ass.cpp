@@ -13,7 +13,7 @@
 #include "comm.h"
 #include "db.h"
 #include "interpre.h"
-#include "mob_progs/passive.h"
+#include "mob_progs/shopkeeper.h"
 #include "platdef.h"
 #include "structs.h"
 #include "utils.h"

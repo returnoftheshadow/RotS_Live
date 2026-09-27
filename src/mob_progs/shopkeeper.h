@@ -1,8 +1,8 @@
-#ifndef MOB_PROGS_PASSIVE_H
-#define MOB_PROGS_PASSIVE_H
+#ifndef MOB_PROGS_SHOPKEEPER_H
+#define MOB_PROGS_SHOPKEEPER_H
 
-/* Passive/service mob programs: they react to what players do and don't
- * fight or roam. First resident: the barter vendor (program 33). */
+/* Barter vendor / shopkeeper mob program (program 33): reacts to what
+ * players buy and sell, doesn't fight or roam. */
 
 #include "../mob_options.h"
 

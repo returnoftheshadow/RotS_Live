@@ -231,7 +231,7 @@ Reported like the other boot misconfiguration warnings (type + vnum + line, no p
 | `db.cpp` mob loader | Read the optional trailing options string; copy/free it correctly between the prototype and loaded mobs |
 | `shapemob.cpp` | Field 42 "options" (multi-line text editor), shown in both mob display views; `write_proto` writes it; reparse and warn on save |
 | New `mob_options.{h,cpp}` | Generic line/key lookup, plus the vendor parser (store, hours, price lines → table with limits) and the "open now?" check. Pure functions, unit-tested |
-| New folder `src/mob_progs/`, file `passive.cpp` | Home for passive/service mob programs. First resident: `SPECIAL(barter_vendor)` (list, buy, refusals, protection, give refusal). A later, separate move-only refactor migrates the existing passive programs (trainers, gatekeepers, ferries, herald…) out of `spec_pro.cpp` into it |
+| New folder `src/mob_progs/`, file `shopkeeper.cpp` | Home for the barter vendor / shopkeeper mob program: `SPECIAL(barter_vendor)` (list, buy, refusals, protection, give refusal). A later, separate move-only refactor splits `spec_pro.cpp` into `mob_progs/passive.cpp` and `mob_progs/behavioral.cpp` for the other mob programs (trainers, gatekeepers, ferries, herald…) |
 | `spec_ass.cpp` | Program 33 in both `virt_program_number` and `get_special_function`; extend `spec_pro_message[]` to index 33 |
 | Boot | Parse and validate every program-33 prototype after rooms, objects and shops are loaded |
 | `act_wiz.cpp` stat | Show options in mob `stat` |
@@ -246,13 +246,13 @@ about the new line.
 proposed separately for the user's review before it's made, because the server side may
 depend on things not visible from this repo:
 
-1. `src/Makefile` `OBJFILES`: add `mob_progs/passive.o` (plus `mob_options.o`), with dependency
+1. `src/Makefile` `OBJFILES`: add `mob_progs/shopkeeper.o` (plus `mob_options.o`), with dependency
    lines.
 2. `src/Makefile` `clean`: also remove `mob_progs/*.o`. Today it is `rm -f *.o`, which would
    leave stale objects in the folder.
 3. Includes: files in the folder use `#include "../structs.h"` (as `tests/` does), or add `-I.`
    to the compile flags. Pick one.
-4. `src/CMakeLists.txt`: add `mob_progs/passive.cpp` and `mob_options.cpp` to the server and
+4. `src/CMakeLists.txt`: add `mob_progs/shopkeeper.cpp` and `mob_options.cpp` to the server and
    test source lists.
 5. `make format` globs top-level `*.cpp` only. Leave as is (formatting is done per file) or
    extend it.
@@ -324,6 +324,6 @@ ASSIGN_INV container-search bug (recorded separately, to be fixed later).
    skipped.
 3. Unrecognised option lines are ignored at use and warned at boot/save.
 4. The editor field number is 42 (next free after 41 "will teach"). New code files:
-   `mob_options.{h,cpp}` (general, in `src/`) and `src/mob_progs/passive.cpp` (the vendor).
+   `mob_options.{h,cpp}` (general, in `src/`) and `src/mob_progs/shopkeeper.cpp` (the vendor).
 5. A program-33 mob that also has a hard-coded procedure is never treated as a vendor and
    gets no vendor warnings; field 29 is data for that procedure, not a program number.

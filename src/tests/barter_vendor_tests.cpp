@@ -1,4 +1,4 @@
-#include "../mob_progs/passive.h"
+#include "../mob_progs/shopkeeper.h"
 
 #include "../comm.h"
 #include "../db.h"

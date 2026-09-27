@@ -37,7 +37,7 @@
 #include "character_json.h"
 #include "exploits_json.h"
 #include "mob_options.h"
-#include "mob_progs/passive.h"
+#include "mob_progs/shopkeeper.h"
 #include "player_file_finalize.h"
 #include "roster_cache.h"
 #include "skill_timer.h"

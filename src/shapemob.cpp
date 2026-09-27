@@ -10,7 +10,7 @@
 #include "db.h"
 #include "interpre.h"
 #include "mob_options.h"
-#include "mob_progs/passive.h"
+#include "mob_progs/shopkeeper.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
