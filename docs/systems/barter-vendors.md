@@ -78,6 +78,8 @@ reaches. The player gets one answer.
 - With `deduct`, the zone's load lines decide how many can be sold and how often stock
   returns.
 - To convert an old keeper, remove his `.shp` entry.
+- Items flagged invisible in the store room are only listed to buyers who can see invisible
+  (`vendor_stock` uses `CAN_SEE_OBJ`), like any other object.
 - **Keep him where he can see buyers.** A vendor in a dark room refuses everyone ("I don't
   trade with someone I can't see!"). Keep his room lit.
 
