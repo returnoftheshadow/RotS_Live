@@ -1,5 +1,6 @@
 #include "big_brother.h"
 
+#include "caster_snapshot.h"
 #include "char_utils.h"
 #include "comm.h"
 #include "handler.h"
@@ -66,7 +67,7 @@ void big_brother::populate_skill_sets()
     m_harmful_skills.insert(SPELL_LIGHTNING_BOLT);
     m_harmful_skills.insert(SPELL_EARTHQUAKE);
     m_harmful_skills.insert(SPELL_DARK_BOLT);
-    m_harmful_skills.insert(SPELL_MIST_OF_BAAZUNGA);
+    m_harmful_skills.insert(SPELL_MISTS_OF_BURZUM);
     m_harmful_skills.insert(SPELL_BLAZE);
     m_harmful_skills.insert(SPELL_FIREBOLT);
     m_harmful_skills.insert(SPELL_CONE_OF_COLD);
@@ -283,6 +284,80 @@ bool big_brother::is_target_valid(char_data* attacker, const char_data* victim) 
         }
     }
 
+    return is_player_attack_valid(attacker_view { attacker, nullptr }, victim);
+#else
+    return true;
+#endif
+}
+
+//============================================================================
+bool big_brother::is_target_valid(char_data* attacker, const char_data* victim, int skill_id) const
+{
+#if USE_BIG_BROTHER
+    // If the target isn't protected, just return true.
+    if (is_target_valid(attacker, victim))
+        return true;
+
+    return is_skill_allowed_on_protected_target(skill_id, attacker->player.race, victim->player.race);
+#else
+    return true;
+#endif
+}
+
+//============================================================================
+bool big_brother::is_target_valid(const caster_snapshot& attacker, const char_data* victim, int skill_id) const
+{
+#if USE_BIG_BROTHER
+    // The snapshot cannot reach a charmed NPC's master, so every NPC is judged as an
+    // uncharmed mob is by the live overload.
+    if (attacker.is_none() || attacker.is_npc) {
+        return true;
+    }
+
+    if (is_player_attack_valid(attacker_view { nullptr, &attacker }, victim)) {
+        return true;
+    }
+
+    return is_skill_allowed_on_protected_target(skill_id, attacker.race, victim->player.race);
+#else
+    return true;
+#endif
+}
+
+//============================================================================
+bool big_brother::attacker_view::is(const char_data& candidate) const
+{
+    if (live != nullptr) {
+        return live == &candidate;
+    }
+
+    return snapshot->same_character_as(candidate);
+}
+
+//============================================================================
+int big_brother::attacker_view::level_legend_cap() const
+{
+    if (live != nullptr) {
+        return utils::get_level_legend_cap(*live);
+    }
+
+    // Captured as GET_LEVELA, the same value get_level_legend_cap() returns.
+    return snapshot->level_a;
+}
+
+//============================================================================
+bool big_brother::is_player_attack_valid(const attacker_view& attacker, const char_data* victim) const
+{
+    // A mount's rider or a pet's master followed below may be missing.
+    if (!victim) {
+        return true;
+    }
+
+    // Reached through a mount or a pet, the victim may be the attacker itself.
+    if (attacker.is(*victim)) {
+        return true;
+    }
+
     // You cannot attack a character that is writing.
     if (utils::is_player_flagged(*victim, PLR_WRITING))
         return false;
@@ -291,9 +366,9 @@ bool big_brother::is_target_valid(char_data* attacker, const char_data* victim) 
     if (utils::is_npc(*victim)) {
         // The victim is a mount.  Test if his rider is a valid target.
         if (utils::is_ridden(*victim)) {
-            return is_target_valid(attacker, victim->mount_data.rider);
+            return is_player_attack_valid(attacker, victim->mount_data.rider);
         } else if (utils::is_mob_flagged(*victim, MOB_PET) || utils::is_mob_flagged(*victim, MOB_ORC_FRIEND)) {
-            return is_target_valid(attacker, victim->master);
+            return is_player_attack_valid(attacker, victim->master);
         } else {
             return true;
         }
@@ -312,23 +387,15 @@ bool big_brother::is_target_valid(char_data* attacker, const char_data* victim) 
         return false;
 
     // Can't kill lowbies.
-    if (!is_level_range_appropriate(attacker, victim))
+    if (!is_level_range_appropriate(attacker.level_legend_cap(), victim))
         return false;
 
     return true;
-#else
-    return true;
-#endif
 }
 
 //============================================================================
-bool big_brother::is_target_valid(char_data* attacker, const char_data* victim, int skill_id) const
+bool big_brother::is_skill_allowed_on_protected_target(int skill_id, int attacker_race, int victim_race) const
 {
-#if USE_BIG_BROTHER
-    // If the target isn't protected, just return true.
-    if (is_target_valid(attacker, victim))
-        return true;
-
     // The target isn't valid and the skill is offensive.  No go.
     if (is_skill_offensive(skill_id))
         return false;
@@ -337,14 +404,11 @@ bool big_brother::is_target_valid(char_data* attacker, const char_data* victim, 
     // If cast on a player of the opposite side, they are considered harmful.
     bool potentially_helpful = m_can_be_helpful_skills.find(skill_id) != m_can_be_helpful_skills.end();
     if (potentially_helpful) {
-        return is_same_side_race_war(attacker->player.race, victim->player.race);
+        return is_same_side_race_war(attacker_race, victim_race);
     }
 
     // Skill isn't flagged at all.  It's all good.
     return true;
-#else
-    return true;
-#endif
 }
 
 //============================================================================
@@ -378,9 +442,8 @@ bool big_brother::is_target_looting(const char_data* victim) const
 }
 
 //============================================================================
-bool big_brother::is_level_range_appropriate(const char_data* attacker, const char_data* victim) const
+bool big_brother::is_level_range_appropriate(int attacker_level, const char_data* victim) const
 {
-    int attacker_level = utils::get_level_legend_cap(*attacker);
     int defender_level = utils::get_level_legend_cap(*victim);
 
     if (attacker_level >= defender_level * 3) {

@@ -25,6 +25,7 @@ struct StartupOptions {
     bool restrict_game;
     bool no_specials;
     bool has_proxy;
+    bool harness_mode; // -t: enable the implementor-only harness command and ROTS_RANDOM_SEED
 };
 
 /* comm.c */

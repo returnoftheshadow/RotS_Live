@@ -367,6 +367,13 @@ bool JsonReader::parse_long(long* value, std::string* error_message)
     char* end_ptr = nullptr;
     errno = 0;
     long parsed = std::strtol(number_text.c_str(), &end_ptr, 10);
+    // A value too wide for long is out of range, like one too wide for int in parse_integer();
+    // where long is 32 bits the int check never sees such a value, so report it here.
+    if (errno == ERANGE) {
+        set_error(error_message, "Integer value is out of range.");
+        return false;
+    }
+
     if (errno != 0 || end_ptr == nullptr || *end_ptr != '\0') {
         set_error(error_message, "Invalid integer value.");
         return false;
@@ -757,6 +764,12 @@ bool JsonReaderV2::parse_long(long* value, std::string* error_message)
     const char* const last = m_input.data() + m_position;
     long parsed = 0;
     const std::from_chars_result result = std::from_chars(first, last, parsed, 10);
+    // Reported like JsonReader::parse_long()'s ERANGE case.
+    if (result.ec == std::errc::result_out_of_range) {
+        set_error(error_message, "Integer value is out of range.");
+        return false;
+    }
+
     if (result.ec != std::errc() || result.ptr != last) {
         set_error(error_message, "Invalid integer value.");
         return false;

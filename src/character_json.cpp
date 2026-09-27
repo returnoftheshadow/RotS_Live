@@ -668,13 +668,36 @@ namespace {
         return -1;
     }
 
+    // A skill's key is the slug of its current name, so renaming a skill changes the key it is saved
+    // under, and an unknown skill key refuses the whole character file. Each entry maps a key that
+    // files written before a rename still carry to that skill's slot. Never remove an entry while any
+    // saved file may still carry its key. Current names win: both lookups consult this table only
+    // after the current slugs, and a file holding both keys for one slot is refused as a duplicate.
+    struct LegacySkillKey {
+        const char* key; // The slug the skill was saved under before its rename.
+        int index; // The skill's slot in skills[].
+    };
+
+    constexpr LegacySkillKey kLegacySkillKeys[] = {
+        { "mist_of_baazunga", SPELL_MISTS_OF_BURZUM },
+    };
+
+    int legacy_skill_index_for_key(const std::string& key)
+    {
+        for (const LegacySkillKey& legacy : kLegacySkillKeys) {
+            if (key == legacy.key)
+                return legacy.index;
+        }
+        return -1;
+    }
+
     int skill_index_for_key(const std::string& key)
     {
         for (int index = 0; index < MAX_SKILLS; ++index) {
             if (skill_key_for_index(index) == key)
                 return index;
         }
-        return -1;
+        return legacy_skill_index_for_key(key);
     }
 
     int color_index_for_key(const std::string& key)
@@ -704,6 +727,9 @@ namespace {
             table.reserve(MAX_SKILLS * 2);
             for (int index = 0; index < MAX_SKILLS; ++index)
                 table.emplace(skill_key_for_index(index), index);
+            // After the current slugs, so a current name wins over a legacy key, as in the scan.
+            for (const LegacySkillKey& legacy : kLegacySkillKeys)
+                table.emplace(legacy.key, legacy.index);
             return table;
         }();
         const auto found = index_by_key.find(key);

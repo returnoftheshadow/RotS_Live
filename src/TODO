@@ -31,7 +31,7 @@ TRAP:
   of the target mask of the skill..
 --
 SPELLS:
-  mist of baazunga: sets dark flags on every room it affects.
+  mists of burzum: sets dark flags on every room it affects.
   causes blindness on people without darkie-infra or infra spell,
   moves around.  needs an entrance message, needs the message
   that shows in the room where it is dependent on the sector type.

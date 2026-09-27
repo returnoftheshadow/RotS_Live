@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+import struct
+from pathlib import Path
+
+import pytest
+
+from rots_harness import fixtures, records
+
+
+def test_read_exploits_returns_typed_records_in_file_order(tmp_path: Path) -> None:
+    directory = fixtures.account_directory(tmp_path)
+    directory.mkdir(parents=True)
+    (directory / "harnvictim.exploits.json").write_text(json.dumps({
+        "version": 1,
+        "records": [
+            {"type": 11, "chtime": "now", "victim_id": 0, "victim_name": "", "victim_level": 10, "killer_level": 0, "int_param": 0},
+            {"type": 2, "chtime": "now", "victim_id": 9000002, "victim_name": "Harnmage", "victim_level": 10, "killer_level": 30, "int_param": 0},
+        ],
+    }), encoding="utf-8")
+
+    result = records.read_exploits(tmp_path, "Harnvictim")
+
+    assert [record.type for record in result] == [records.EXPLOIT_POISON, records.EXPLOIT_DEATH]
+    assert result[1].victim_name == "Harnmage"
+    assert result[1].killer_level == 30
+
+
+def test_read_exploits_of_a_character_without_a_file_is_empty(tmp_path: Path) -> None:
+    assert records.read_exploits(tmp_path, "Nobody") == []
+
+
+def test_read_character_returns_the_written_document(tmp_path: Path) -> None:
+    template_path = Path(__file__).resolve().parents[1] / "fixtures" / "character.template.json"
+    template = fixtures.load_character_template(template_path)
+    spec = next(spec for spec in fixtures.STANDARD_ROSTER if spec.name == "Harnvictim")
+    fixtures.write_character(tmp_path, spec, template)
+
+    document = records.read_character(tmp_path, "Harnvictim")
+
+    assert document["character_name"] == "Harnvictim"
+    assert document["identity"]["idnum"] == spec.idnum
+    assert document["state"]["load_room"] == spec.load_room
+
+
+def test_read_pkills_returns_the_packed_records_in_file_order(tmp_path: Path) -> None:
+    pklist = tmp_path / "misc" / "pklist"
+    pklist.parent.mkdir(parents=True)
+    pklist.write_bytes(
+        struct.pack("<iiiBBxxii", 1_700_000_000, 9000002, 9000004, 30, 10, 12, -12)
+        + struct.pack("<iiiBBxxii", 1_700_000_060, 9000005, 9000004, 30, 11, 7, -7)
+    )
+
+    result = records.read_pkills(tmp_path)
+
+    assert result == [
+        records.PkillRecord(1_700_000_000, 9000002, 9000004, 30, 10, 12, -12),
+        records.PkillRecord(1_700_000_060, 9000005, 9000004, 30, 11, 7, -7),
+    ]
+
+
+def test_read_pkills_without_a_file_is_empty(tmp_path: Path) -> None:
+    assert records.read_pkills(tmp_path) == []
+
+
+def test_read_pkills_rejects_a_partial_record(tmp_path: Path) -> None:
+    pklist = tmp_path / "misc" / "pklist"
+    pklist.parent.mkdir(parents=True)
+    pklist.write_bytes(bytes(25))
+
+    with pytest.raises(ValueError, match=r"pklist.*25"):
+        records.read_pkills(tmp_path)

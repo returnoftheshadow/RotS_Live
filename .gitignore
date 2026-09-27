@@ -40,6 +40,8 @@ lib/plrobjs/
 lib/exploits/
 lib/misc/pklist
 lib/core
+# QEMU writes core dumps as qemu_<binary>_<date>_<pid>.core in the working directory
+*.core
 lib/boards
 lib/gdb_backtrace
 log/
@@ -55,7 +57,8 @@ lib/misc/oldcrimelist
 lib/misc/pk*
 lib/misc/repair*
 lib/misc/xnames*
-tools/__pycache__/
+__pycache__/
+*.py[cod]
 core/
 *~
 autorun

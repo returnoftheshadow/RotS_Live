@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "character_identity.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -336,6 +337,9 @@ ACMD(do_flee)
     int i, attempt, loose, die, res, move_cost;
     struct char_data* tmpch;
     void gain_exp(struct char_data*, int);
+    // A special reached from here can kill the fleer, so the fleer is used after each special
+    // only while this resolves.
+    const character_identity fleer = character_identity::capture(*ch);
 
     if (GET_TACTICS(ch) == TACTICS_BERSERK) {
         send_to_char("You are too enraged to flee!\n\r", ch);
@@ -363,7 +367,15 @@ ACMD(do_flee)
             act("$n panics, and attempts to flee!", TRUE, ch, 0, 0, TO_ROOM);
 
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
-            if (!special(ch, cmd + 1, "", SPECIAL_COMMAND, 0) && number(0, 1) && die) {
+            if (fleer.resolve() == nullptr) {
+                return;
+            }
+            const int special_handled = special(ch, cmd + 1, "", SPECIAL_COMMAND, 0);
+            if (fleer.resolve() == nullptr) {
+                return;
+            }
+            // The random roll is drawn only when no special handled the command.
+            if (!special_handled && number(0, 1) && die) {
                 /* The escape has not succeded */
                 switch (die) {
                 case 1:

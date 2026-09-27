@@ -279,7 +279,7 @@ Dark Bolt / Black Arrow / Searing Darkness / Spear in daylight outdoors.
 **Summon / Blink / Relocate / Beacon** (teleportation; Tele-spec extends range — `dist 5 vs 3`
 blink, +1 zone relocate), **Identify**, **Detect Evil**, **Expose Elements** (spec-only: marks a
 mob so the spec's signature spell is **free/discounted** next cast — `spell_expose_elements`,
-`mage.cpp:2411`), and the room-affect spells **Blaze** / **Mist of Baazunga** (several flagged
+`mage.cpp:2411`), and the room-affect spells **Blaze** / **Mists of Burzum** (several flagged
 "needs to be removed" in `spells.h`).
 
 ---

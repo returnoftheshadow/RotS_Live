@@ -9,15 +9,20 @@
  ************************************************************************ */
 
 #include "limits.h"
+#include "caster_snapshot.h"
+#include "character_identity.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
 #include "pkill.h"
 #include "platdef.h"
+#include "poison.h"
 #include "profs.h"
+#include "room_affect_tick.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_harness.h"
 #include "utils.h"
 #include <assert.h>
 #include <ctype.h>
@@ -29,6 +34,7 @@
 #include "char_utils.h"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 extern char* pc_race_types[];
 
@@ -319,7 +325,7 @@ float move_gain(const char_data* character)
 
     if (is_npc(*character)) {
         // Tames get double move regen (have to be animals).
-        if (affected_by_spell(const_cast<char_data*>(character), SKILL_TAME)) {
+        if (character->affected.contains(SKILL_TAME)) {
             gain *= 2.0;
             char_data* master = character->master;
             if (master && get_specialization(*master) == PLRSPEC_PETS) {
@@ -349,7 +355,7 @@ float move_gain(const char_data* character)
             gain *= 0.25;
         }
 
-        if (affected_by_spell(character, SKILL_MARK)) {
+        if (character->affected.contains(SKILL_MARK)) {
             gain *= 0.25;
         }
 
@@ -524,6 +530,13 @@ int check_idling(char_data* character)
 {
     extern int r_mortal_idle_room[];
 
+    // Harness mode compresses time by driving point_update() from `harness tick`,
+    // which would otherwise trip this idle timer (AFK at 3, force-rent at 28) within
+    // a single scenario. No idle processing while under the harness.
+    if (harness_mode) {
+        return 0;
+    }
+
     // Gods get their own checks, and are never auto-disconnected.
     if ((GET_LEVEL(character) >= LEVEL_GOD) && (character->desc) && (character->desc->descriptor)) {
         (character->specials.timer)++;
@@ -660,8 +673,13 @@ void point_update(void)
             //  Time messages removed.
             //  if(PRF_FLAGGED(i, PRF_TIME) && (GET_POS(i) >= POSITION_SLEEPING))
             //    send_to_char("You feel the time passing by...\n\r",i);
-            if (check_idling(i))
+
+            // An idle disconnect extracts only `i`; its followers are released, never
+            // extracted (IdleFollowersTest.TheIdleDisconnectReleasesEveryFollowerIntoTheWorld),
+            // so next_dude stays valid.
+            if (check_idling(i)) {
                 continue;
+            }
         }
 
         full_update = -1;
@@ -730,8 +748,11 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
-            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON))
-                damage(i, i, 5, SPELL_POISON, 0);
+            // A poison flag with no poison affect behind it, set by worn gear or by a mob
+            // prototype flagged poisoned, hurts on this tick.
+            if (!i->affected.contains(SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
+                deal_poison_tick_damage(i);
+            }
             //        if (GET_POS(i) == POSITION_STUNNED)
             //  	update_pos(i);
 
@@ -1239,6 +1260,12 @@ void do_fame_war_bonuses(struct char_data* ch)
     {
         remove_fame_war_bonuses(ch, pkaff);
         affect_remove(ch, pkaff);
+        // affect_remove() frees pkaff's node (put_to_affected_type_pool(), handler.cpp).
+        // Stop here, as the no-affect branch above does: falling through would re-create
+        // the affect for the invalid rank (tier 0 when unranked, tier 4 for rank 11 and
+        // worse, since get_ranking_tier() caps at 4) and repeat that on every fast_update() pass.
+        ch->player.ranking = ranking;
+        return;
     }
 
     if ((ranking == ch->player.ranking && pkaff) // ranking hasn't changed
@@ -1321,12 +1348,41 @@ void do_power_of_arda(char_data* ch)
     }
 }
 
+namespace {
+
+// Tells affect_update_person() whether the character a tick body ran on still resolves and has had
+// no affect unlinked since the guard was made, that is, whether the walk may still read the
+// ticking node and the next one it saved.
+class affect_tick_guard {
+  public:
+    explicit affect_tick_guard(const char_data& character)
+        : m_identity(character_identity::capture(character)),
+          m_removal_count(character.affected.removal_count()) {}
+
+    // False once the character no longer resolves or its affect list's removal_count() has moved.
+    [[nodiscard]] bool intact() const {
+        // The count is read only through the resolved character, never through a stale pointer.
+        const char_data* const character = m_identity.resolve();
+        if (character == nullptr) {
+            return false;
+        }
+        return character->affected.removal_count() == m_removal_count;
+    }
+
+  private:
+    character_identity m_identity; // the character the tick body runs on
+    long m_removal_count;          // its affect list's removal_count() when the guard was made
+};
+
+} // namespace
+
+// `i` must resolve through the character registry (character_identity); for one that does not,
+// the pass stops after the first body that runs on a non-expiring affect.
 void affect_update_person(struct char_data* i, int mode)
 {
     affected_type* otheraf;
     // mode != 0 for fast_update
 
-    static struct affected_type *af, *next_af_dude;
     int tmp, freq, val, time_phase;
 
     if (i->desc && i->desc->connected && (i->desc->connected != CON_LINKLS))
@@ -1334,24 +1390,24 @@ void affect_update_person(struct char_data* i, int mode)
 
     time_phase = get_current_time_phase();
 
-    for (af = i->affected; af; af = next_af_dude) {
+    affected_type* next_af_dude = nullptr;
+    for (affected_type* af = i->affected; af; af = next_af_dude) {
         next_af_dude = af->next;
-        if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase))) {
+        if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase || harness_force_affect_phase))) {
             if ((af->duration >= 1) || (af->duration < 0)) {
+                // A body can run game code (a flee, mob activity, damage) that kills the character
+                // or unlinks any of its affects, `af` and `next_af_dude` among them. After such
+                // code the pass stops unless the guard is intact; the rest waits for the next tick.
+                const affect_tick_guard tick_guard(*i);
                 if (af->duration >= 1)
                     af->duration--;
 
                 switch (af->type) {
                 case SPELL_POISON:
-                    otheraf = affected_by_spell(i, SPELL_RESIST_POISON);
-                    if (otheraf) {
-                        af->duration = std::max(af->duration - otheraf->modifier, 0);
-                        otheraf->duration = af->duration;
-                    }
-
-                    /* If poison is fatal, damage returns non-zero */
-                    if (damage(i, i, 5, SPELL_POISON, 0))
+                    // After a fatal tick the victim may be gone, so nothing more is updated.
+                    if (tick_poison_affect(i, af)) {
                         return;
+                    }
                     break;
                 case SPELL_CURING:
                 case SPELL_RESTLESSNESS:
@@ -1359,6 +1415,9 @@ void affect_update_person(struct char_data* i, int mode)
                     break;
                 case SPELL_FEAR:
                     do_flee(i, "", 0, 0, 0);
+                    if (!tick_guard.intact()) {
+                        return;
+                    }
                     if (saves_spell(i, af->modifier -= 2, 0))
                         af->duration = 0;
                     break;
@@ -1369,8 +1428,12 @@ void affect_update_person(struct char_data* i, int mode)
                     // handled by hit_gain now.
                     break;
                 case SPELL_ACTIVITY:
-                    if (IS_NPC(i))
+                    if (IS_NPC(i)) {
                         one_mobile_activity(i);
+                        if (!tick_guard.intact()) {
+                            return;
+                        }
+                    }
                 case SPELL_CONFUSE:
                     if (IS_AFFECTED(i, AFF_CONCENTRATION) && (af->duration >= 10))
                         af->duration -= 3;
@@ -1395,6 +1458,9 @@ void affect_update_person(struct char_data* i, int mode)
                         if (af->modifier > 20) {
                             if (damage(i, i, (af->modifier / 5), SPELL_ASPHYXIATION, 0))
                                 return;
+                            if (!tick_guard.intact()) {
+                                return;
+                            }
                             GET_MOVE(i) = MAX(GET_MOVE(i) - 4, 10);
                         }
                     }
@@ -1414,17 +1480,24 @@ void affect_update_person(struct char_data* i, int mode)
                 default:
                     break;
                 }
+                // For the bodies without a check of their own, such as a non-lethal poison tick
+                // whose damage broke a sanctuary.
+                if (!tick_guard.intact()) {
+                    return;
+                }
                 if (GET_POS(i) == POSITION_STUNNED)
                     update_pos(i);
             } else {
-                if (af->type > 0 && af->type < MAX_SKILLS)
+                // The removal below frees the node, so read the type first.
+                const int expired_type = af->type;
+                if (expired_type > 0 && expired_type < MAX_SKILLS)
                     /* It must be a spell */
-                    if (!af->next || af->next->type != af->type || af->next->duration > 0)
+                    if (!af->next || af->next->type != expired_type || af->next->duration > 0)
                         affect_remove_notify(i, af);
                     else
                         affect_remove(i, af);
 
-                if (af->type == SPELL_ANGER)
+                if (expired_type == SPELL_ANGER)
                     i->specials.attacked_level = 0;
             }
         }
@@ -1451,7 +1524,7 @@ void affect_update_room(struct room_data* room)
         switch (tmpaf->type) {
         case ROOMAFF_SPELL:
             if ((tmpaf->location >= 0) && (tmpaf->location < MAX_SKILLS) && skills[tmpaf->location].spell_pointer) {
-                if (tmpaf->location == SPELL_MIST_OF_BAAZUNGA)
+                if (tmpaf->location == SPELL_MISTS_OF_BURZUM)
                     if (!IS_SET(room->room_flags, SHADOWY))
                         SET_BIT(room->room_flags, SHADOWY);
 
@@ -1461,9 +1534,25 @@ void affect_update_room(struct room_data* room)
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
-                            (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
-                                tmpch, 0, 0, 0);
+                            if (!room_affect_tick(tmpaf->location, room, tmpch, *tmpaf)) {
+                                run_spell(tmpaf->location, tmpch, "", SPELL_TYPE_SPELL, tmpch, 0, 0, 0);
+                            }
                         }
+                    }
+
+                    // Defensive: a tick body that removed the LAST affect from this
+                    // room would leave `tmpaf` pooled, and the duration/mist-move code
+                    // below would then read recycled storage. No tick body removes a
+                    // room affect today (raw_kill() strips the DEAD CHARACTER's
+                    // affects, not the room's), so this cannot fire; it is here so a
+                    // future tick that does remove one fails safe. `continue` would
+                    // step the loop onto `next_tmpaf`, read from the node just
+                    // returned to the pool; `break` would fall into the duration and
+                    // mist-move code below that reads the same node; nothing after
+                    // the loop needs to run for a room with no affects left, so
+                    // `return`.
+                    if (!room->affected) {
+                        return;
                     }
                 } else {
                     sprintf(buf2, "Attempt to cast spell %d in room %d", tmpaf->location,
@@ -1475,7 +1564,7 @@ void affect_update_room(struct room_data* room)
 
         if (((time_phase == tmpaf->time_phase) || ((tmpaf->type == ROOMAFF_SPELL) && skills[tmpaf->location].is_fast)) && (tmpaf->duration > 0))
             tmpaf->duration--;
-        if (tmpaf->location == SPELL_MIST_OF_BAAZUNGA && tmpaf->duration > 0 && time_phase == tmpaf->time_phase) {
+        if (tmpaf->location == SPELL_MISTS_OF_BURZUM && tmpaf->duration > 0 && time_phase == tmpaf->time_phase) {
             /* 70% chance of mist thinking about moving */
             sprintf(buf, "check mist movement");
             mudlog(buf, NRM, LEVEL_GOD, FALSE);
@@ -1487,10 +1576,10 @@ void affect_update_room(struct room_data* room)
                     mudlog(buf, NRM, LEVEL_GOD, FALSE);
                 } else if (room->dir_option[direction]->to_room != NOWHERE) {
                     roomnum = room->dir_option[direction]->to_room;
-                    if (!(room_affected_by_spell(&world[roomnum], SPELL_MIST_OF_BAAZUNGA))) {
+                    if (!(room_affected_by_spell(&world[roomnum], SPELL_MISTS_OF_BURZUM))) {
                         if (tmpaf->modifier != 1)
                             REMOVE_BIT(room->room_flags, SHADOWY);
-                        if ((checkaf = room_affected_by_spell(&world[roomnum], SPELL_MIST_OF_BAAZUNGA))) {
+                        if ((checkaf = room_affected_by_spell(&world[roomnum], SPELL_MISTS_OF_BURZUM))) {
                             mod = checkaf->modifier;
                             sprintf(buf, "WARNING LOMAN: Mist already in move to room");
                             mudlog(buf, NRM, LEVEL_GOD, FALSE);
@@ -1502,14 +1591,34 @@ void affect_update_room(struct room_data* room)
                         newaf.type = ROOMAFF_SPELL;
                         newaf.duration = tmpaf->duration;
                         newaf.modifier = mod;
-                        newaf.location = SPELL_MIST_OF_BAAZUNGA;
+                        newaf.location = SPELL_MISTS_OF_BURZUM;
                         newaf.bitvector = 0;
+                        // A drifting mist keeps its spread generation.
+                        newaf.counter = tmpaf->counter;
 
                         sprintf(buf, "The mists drift %s.\n\r", dirs[direction]);
                         send_to_room(buf, room->number);
 
-                        affect_to_room(&world[roomnum], &newaf);
+                        // A mist that moves keeps the caster that breathed it;
+                        // copy the record before affect_remove_room() below
+                        // invalidates it, per room_affect_caster()'s documented
+                        // lifetime.
+                        const caster_snapshot* const mist_caster
+                            = room_affect_caster(room, SPELL_MISTS_OF_BURZUM);
+                        const caster_snapshot moved_caster
+                            = mist_caster ? *mist_caster : caster_snapshot::none();
+
+                        affect_to_room(&world[roomnum], &newaf, moved_caster);
                         affect_remove_room(room, tmpaf);
+                        // affect_remove_room() ends in put_to_affected_type_pool(),
+                        // which is `free(oldaf)` in every build (handler.cpp) -- so
+                        // `tmpaf` is dangling from here on. The `if (tmpaf)` test below
+                        // was already written as if something nulled it after a move;
+                        // nothing ever did, and it read (and could re-remove) freed
+                        // storage on every mist that drifted. This assignment supplies the
+                        // missing null; the loop increment re-reads `next_tmpaf`,
+                        // saved at the top.
+                        tmpaf = nullptr;
                     }
                 }
             }
@@ -1517,7 +1626,7 @@ void affect_update_room(struct room_data* room)
 
         if (tmpaf)
             if (tmpaf->duration == 0) {
-                if (tmpaf->location == SPELL_MIST_OF_BAAZUNGA && tmpaf->modifier != 1)
+                if (tmpaf->location == SPELL_MISTS_OF_BURZUM && tmpaf->modifier != 1)
                     REMOVE_BIT(room->room_flags, SHADOWY);
                 affect_remove_room(room, tmpaf);
             }
@@ -1528,39 +1637,117 @@ extern universal_list* affected_list;
 
 extern universal_list* affected_list_pool;
 
+// The walk below used to hold `tmplist->next` across the body, and
+// the body can free that very node -- affect_update_room()'s blaze tick kills
+// an occupant, raw_kill() strips the dead character's affects, and
+// affect_remove()'s tail from_list_to_pool()s (free()s) the character's own
+// affected_list node. So the list is SNAPSHOTTED first (identities only, no
+// body runs during that walk) and every entry is re-validated at its turn:
+// a character is updated only while the abs_number it was captured under
+// still resolves back to that very pointer and it still carries an affect;
+// a room is always safe to visit (world[] rooms are never freed, and a room
+// whose last affect expired earlier in the tick simply has no affects left
+// to update). The housekeeping branch re-finds the live node instead of
+// reusing a pointer captured before the bodies ran.
+//
+// char_exists() alone is not enough to validate a snapshotted entry:
+// register_npc_char() hands a freed slot straight to the next character its
+// cursor reaches, and a death earlier in the SAME affect_update() can load a
+// new mobile into that very slot before this entry is revisited. So the
+// number is resolved back to a live pointer via char_by_abs_number() and
+// that pointer must be the SAME one the entry named, still carrying the
+// registration serial the entry recorded -- the identity compare used
+// everywhere else a stale character reference must be recovered safely --
+// before anything is dereferenced. The serial is what tells a slot recycled
+// to a new character at the same address apart from the original.
+namespace {
+
+// One affected_list entry's identity, captured before any body runs.
+struct affected_list_entry {
+    int type; // TARGET_CHAR / TARGET_ROOM, as the node carried it
+    int number; // the character's abs_number (unused for rooms)
+    // The node's character pointer. Only ever COMPARED against the live
+    // char_by_abs_number(number) lookup -- never dereferenced on its own, so
+    // a character freed since the snapshot cannot be read through it.
+    char_data* ch;
+    long serial; // registration_serial the node recorded for ch (TARGET_CHAR only)
+    room_data* room; // the node's room pointer
+};
+
+// Removes the affected_list node this entry was captured from, if it is still
+// there -- a death earlier in the tick may already have freed it. The serial
+// keeps a new registration's node at the same address and slot untouched.
+void drop_stale_character_entry(const affected_list_entry& entry)
+{
+    for (universal_list* node = affected_list; node; node = node->next) {
+        if (node->type == TARGET_CHAR && node->ptr.ch == entry.ch && node->number == entry.number
+            && node->serial == entry.serial) {
+            from_list_to_pool(&affected_list, &affected_list_pool, node);
+            return;
+        }
+    }
+}
+
+} // namespace
+
 void affect_update()
 {
-    universal_list *tmplist, *tmplist2, *tmplist3;
-    ;
-    char mybuf[1000];
+    int entry_count = 0;
+    for (universal_list* node = affected_list; node; node = node->next) {
+        ++entry_count;
+    }
 
-    tmplist3 = 0;
-    for (tmplist = affected_list; tmplist; tmplist = tmplist2) {
-        tmplist2 = tmplist->next;
-
-        if (tmplist->type == TARGET_CHAR) {
-
-            if (char_exists(tmplist->number) && tmplist->ptr.ch && tmplist->ptr.ch->affected) {
-                affect_update_person(tmplist->ptr.ch, 0);
-            } else {
-                if (char_exists(tmplist->number))
-                    sprintf(mybuf, "Getting %s off the affected_list.", GET_NAME(tmplist->ptr.ch));
-                else
-                    strcpy(mybuf, "Getting Unknown char off the affected_list.");
-                mudlog(mybuf, CMP, LEVEL_GRGOD, TRUE);
-                from_list_to_pool(&affected_list, &affected_list_pool, tmplist);
-            }
-        } else if (tmplist->type == TARGET_ROOM) {
-            affect_update_room(tmplist->ptr.room);
+    // A local sized by the counting pass above: one allocation per tick, and a
+    // tick body that re-enters affect_update() (a death script loading mobs
+    // whose affects tick) builds its own snapshot instead of clearing this one
+    // out from under the walk below.
+    std::vector<affected_list_entry> snapshot;
+    snapshot.reserve(entry_count);
+    for (universal_list* node = affected_list; node; node = node->next) {
+        affected_list_entry entry {};
+        entry.type = node->type;
+        entry.number = node->number;
+        if (node->type == TARGET_CHAR) {
+            entry.ch = node->ptr.ch;
+            entry.serial = node->serial;
+        } else if (node->type == TARGET_ROOM) {
+            entry.room = node->ptr.room;
         }
-        tmplist3 = tmplist; /* prev item */
+        snapshot.push_back(entry);
+    }
+
+    char mybuf[1000];
+    for (const affected_list_entry& entry : snapshot) {
+        if (entry.type == TARGET_CHAR) {
+            char_data* const live = char_by_abs_number(entry.number);
+            const bool same_character = live != nullptr && live == entry.ch && live->registration_serial == entry.serial;
+            if (same_character && live->affected) {
+                affect_update_person(live, 0);
+            } else {
+                if (same_character) {
+                    sprintf(mybuf, "Getting %s off the affected_list.", GET_NAME(live));
+                } else {
+                    strcpy(mybuf, "Getting Unknown char off the affected_list.");
+                }
+                mudlog(mybuf, CMP, LEVEL_GRGOD, TRUE);
+                drop_stale_character_entry(entry);
+            }
+        } else if (entry.type == TARGET_ROOM) {
+            affect_update_room(entry.room);
+        }
     }
 }
 
 void fast_update()
 {
     int freq = FAST_UPDATE_RATE;
-    for (char_data* character = character_list; character != nullptr; character = character->next) {
+    // A regen death below frees an NPC or a link-dead player, so the walk advances through the
+    // successor saved before the body runs; extract_char() relinks the list around the dead
+    // character. Not handled: a death that also frees that successor (a death special
+    // extracting another mob) leaves the saved pointer dangling.
+    char_data* next_character = nullptr;
+    for (char_data* character = character_list; character != nullptr; character = next_character) {
+        next_character = character->next;
 
         // Note:  Regen values can be negative, so we can't test if a character is below max as an
         // optimization.
@@ -1588,9 +1775,10 @@ void fast_update()
         if (GET_HIT(character) < 0 && hitregen < 0) {
             act("$n suddenly collapses on the ground.", TRUE, character, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, TYPE_UNDEFINED);
+            // Recorded before the kill, which may free the character.
             add_exploit_record(EXPLOIT_REGEN_DEATH, character, 0, NULL);
-            return;
+            raw_kill(character, NULL, TYPE_UNDEFINED);
+            continue;
         }
 
         GET_MANA(character) = std::min(GET_MANA(character) + manaregen, (int)GET_MAX_MANA(character));

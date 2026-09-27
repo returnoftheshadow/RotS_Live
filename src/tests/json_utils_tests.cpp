@@ -163,4 +163,56 @@ TEST(JsonUtils, RejectsIntegersOutsideIntRange)
     EXPECT_NE(error_message.find("out of range"), std::string::npos);
 }
 
+TEST(JsonUtils, ReaderV2RejectsIntegersOutsideIntRange)
+{
+    const std::string json = "{\"level\":2147483648}";
+    json_utils::JsonReaderV2 reader(json);
+    int level = 0;
+    std::string error_message;
+
+    EXPECT_FALSE(reader.parse_root_object(
+        [&](const std::string& key, json_utils::JsonReaderV2* nested_reader,
+            std::string* nested_error_message) -> bool {
+            if (key == "level") {
+                return nested_reader->parse_integer(&level, nested_error_message);
+            }
+            return nested_reader->skip_value(nested_error_message);
+        },
+        &error_message));
+    EXPECT_NE(error_message.find("out of range"), std::string::npos) << error_message;
+}
+
+// 20 digits overflow long at both 32 and 64 bits.
+TEST(JsonUtils, BothReadersReportLongOverflowAsOutOfRange)
+{
+    const std::string json = "{\"big\":99999999999999999999}";
+    long big = 0;
+
+    json_utils::JsonReader reader(json);
+    std::string error_message;
+    EXPECT_FALSE(reader.parse_root_object(
+        [&](const std::string& key, json_utils::JsonReader* nested_reader,
+            std::string* nested_error_message) -> bool {
+            if (key == "big") {
+                return nested_reader->parse_long(&big, nested_error_message);
+            }
+            return nested_reader->skip_value(nested_error_message);
+        },
+        &error_message));
+    EXPECT_NE(error_message.find("out of range"), std::string::npos) << error_message;
+
+    json_utils::JsonReaderV2 reader_v2(json);
+    std::string error_message_v2;
+    EXPECT_FALSE(reader_v2.parse_root_object(
+        [&](const std::string& key, json_utils::JsonReaderV2* nested_reader,
+            std::string* nested_error_message) -> bool {
+            if (key == "big") {
+                return nested_reader->parse_long(&big, nested_error_message);
+            }
+            return nested_reader->skip_value(nested_error_message);
+        },
+        &error_message_v2));
+    EXPECT_NE(error_message_v2.find("out of range"), std::string::npos) << error_message_v2;
+}
+
 } // namespace

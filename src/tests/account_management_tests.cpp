@@ -5,10 +5,12 @@
 #include "../objects_json.h"
 #include "../roster_cache.h"
 #include "../utils.h"
+#include "test_character_support.h"
 
 #include <gtest/gtest.h>
 
 #include <climits>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -101,30 +103,6 @@ public:
 
 private:
     std::string m_original_path;
-};
-
-class ScopedPlayerTableEntry {
-public:
-    explicit ScopedPlayerTableEntry(const char* name)
-        : m_previous_player_table(player_table)
-        , m_previous_top_of_p_table(top_of_p_table)
-    {
-        player_table = new player_index_element[1] {};
-        top_of_p_table = 0;
-        player_table[0].name = strdup(name);
-    }
-
-    ~ScopedPlayerTableEntry()
-    {
-        free(player_table[0].name);
-        delete[] player_table;
-        player_table = m_previous_player_table;
-        top_of_p_table = m_previous_top_of_p_table;
-    }
-
-private:
-    player_index_element* m_previous_player_table;
-    int m_previous_top_of_p_table;
 };
 
 class ScopedEnvironmentVariable {
@@ -322,8 +300,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);
@@ -981,8 +958,17 @@ TEST(AccountManagement, FormatsOutOfRangeSummaryTimestampsAsInvalid)
 
     const std::string summary = account::format_account_summary(account_data);
 
-    EXPECT_NE(summary.find("Created: Invalid\n\r"), std::string::npos);
-    EXPECT_NE(summary.find("Updated: Invalid\n\r"), std::string::npos);
+    // A 64-bit long's maximum is beyond any calendar gmtime_r() can represent; a 32-bit long's
+    // maximum equals a 32-bit time_t's, a valid instant, so no long is out of range there.
+    if constexpr (sizeof(long) > sizeof(std::int32_t)) {
+        EXPECT_NE(summary.find("Created: Invalid\n\r"), std::string::npos) << summary;
+        EXPECT_NE(summary.find("Updated: Invalid\n\r"), std::string::npos) << summary;
+    } else {
+        EXPECT_NE(summary.find("Created: 2038-01-19 03:14:07 UTC\n\r"), std::string::npos)
+            << summary;
+        EXPECT_NE(summary.find("Updated: 2038-01-19 03:14:07 UTC\n\r"), std::string::npos)
+            << summary;
+    }
 }
 
 TEST(AccountManagement, FormatsPendingVerificationWindowWithHumanReadableDates)

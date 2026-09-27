@@ -77,6 +77,15 @@ typedef int (*special_func)(char_data* host, char_data* character, int cmd, char
     }
 
 void command_interpreter(struct char_data* ch, char* arg_chr, struct waiting_type* arg_wtl = 0);
+/*
+ * Re-validates the stored targets of a delayed command when its delay fires. A command is
+ * checked against its own cmd_info target masks. A spell cast (CMD_CAST whose subcmd holds a
+ * spell index) also takes its spell's sight rule: a spell whose skills[] targets carry
+ * TAR_DARK_OK may still reach a target standing in the dark. do_cast re-checks the spell's
+ * location rules itself and names the reason. Returns 1 when the targets still hold;
+ * otherwise tells ch what is wrong and returns 0.
+ */
+int delayed_command_target_check(struct char_data* ch, struct waiting_type* delayed_command);
 int search_block(char* arg, char** list, char exact);
 int old_search_block(char* argument, int begin, unsigned int length, const char** list, int mode);
 char lower(char c);

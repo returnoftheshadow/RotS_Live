@@ -35,6 +35,7 @@
 #include "skill_timer.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_harness.h"
 #include "utils.h"
 #include "warrior_spec_handlers.h"
 #include "zone.h"
@@ -240,6 +241,7 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
     parsed_options.restrict_game = false;
     parsed_options.no_specials = false;
     parsed_options.has_proxy = false;
+    parsed_options.harness_mode = false;
 
     bool port_specified = false;
     int pos = 1;
@@ -293,6 +295,9 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
         }
         case 'x':
             parsed_options.has_proxy = true;
+            break;
+        case 't':
+            parsed_options.harness_mode = true;
             break;
         default:
             if (error_message) {
@@ -413,7 +418,7 @@ int main(int argc, char** argv)
     if (!parse_startup_options(argc, argv, &startup_options, &parse_error)) {
         if (!parse_error.empty())
             log(parse_error.c_str());
-        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [ port # ]\n",
+        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-t] [-x] [-d pathname] [-p port #] [ port # ]\n",
             argv[0]);
         exit(0);
     }
@@ -424,6 +429,9 @@ int main(int argc, char** argv)
     no_rent_check = startup_options.no_rent_check ? 1 : 0;
     restrict = startup_options.restrict_game ? 1 : 0;
     no_specials = startup_options.no_specials ? 1 : 0;
+    harness_mode = startup_options.harness_mode ? 1 : 0;
+    if (harness_mode)
+        log("Harness mode: -t given; the harness command is enabled.");
 
     if (mini_mud)
         log("Running in minimized mode & with no rent check.");
@@ -459,6 +467,7 @@ int main(int argc, char** argv)
     system("mv -f last_cmds crash_cmds");
     fpCommand = fopen("last_cmds", "w");
     srandom(time(0));
+    seed_random_from_environment();
     run_the_game(startup_options.port);
     return (0);
 }
@@ -1187,11 +1196,13 @@ void game_loop(SocketType s)
                             }
                         }
 
-                        // Check for a blank space in the first position or the last
+                        // Check for a blank space in the first position or the last; an
+                        // empty prompt has no last byte to test.
                         if (prompt[0] == ' ')
                             pptr++;
-                        if (prompt[strlen(prompt) - 1] == ' ')
-                            prompt[strlen(prompt) - 1] = '\0';
+                        size_t prompt_length = strlen(prompt);
+                        if (prompt_length > 0 && prompt[prompt_length - 1] == ' ')
+                            prompt[prompt_length - 1] = '\0';
 
                         disp = TRUE;
                         if (point->character->specials.position == POSITION_SHAPING)
@@ -1228,7 +1239,9 @@ void game_loop(SocketType s)
         perform_violence(pulse % (PULSE_VIOLENCE * 2));
         /* parry is restored in 2 combat (PULSE_VIOLENCE) rounds */
 
-        if (!((pulse % (SECS_PER_MUD_HOUR * 4)))) {
+        // Harness mode owns the hourly block: a scenario fires it with `harness tick`
+        // (test_harness.cpp) instead of racing the wall clock.
+        if (!harness_mode && !((pulse % (SECS_PER_MUD_HOUR * 4)))) {
             weather_and_time(1);
             point_update(); // putting affect_total call in point_update.
             stat_update();

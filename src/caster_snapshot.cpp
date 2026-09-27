@@ -1,0 +1,79 @@
+#include "caster_snapshot.h"
+#include "char_utils.h"
+#include "handler.h"
+#include "utils.h"
+#include <cstdio>
+
+caster_snapshot caster_snapshot::capture(const char_data& caster)
+{
+    caster_snapshot snap {};
+    // Macros like GET_LEVELA/GET_NAME null-guard their argument (e.g. IS_NPC's
+    // "(ch) && ..."), which gcc's -Wnonnull-compare flags as comparing a
+    // reference's address to NULL even though it can never be null here. Route
+    // every such macro through this pointer instead of taking &caster inline.
+    const char_data* const caster_pointer = &caster;
+    snap.abs_number = caster.abs_number;
+    snap.identity_ptr = const_cast<char_data*>(&caster);
+    snap.identity_serial = caster.registration_serial;
+    snap.level_a = GET_LEVELA(caster_pointer);
+    snap.mage_prof_level = utils::get_prof_level(PROF_MAGE, caster);
+    snap.cleric_prof_level = utils::get_prof_level(PROF_CLERIC, caster);
+    snap.intel = caster.tmpabilities.intel;
+    snap.wil = caster.tmpabilities.wil;
+    snap.perception = GET_PERCEPTION(snap.identity_ptr); // get_race_perception() takes a non-const char_data*
+    snap.willpower = GET_WILLPOWER(caster_pointer);
+    snap.spell_power = caster.points.spell_power;
+    snap.spell_pen = caster.points.spell_pen;
+    snap.tactics = caster.specials.tactics;
+    snap.specialization = utils::get_specialization(caster);
+    snap.race = GET_RACE(caster_pointer);
+    snap.is_npc = utils::is_npc(caster);
+    snap.is_charmed = utils::is_affected_by(caster, AFF_CHARM);
+    snap.is_pc_for_spell_pen = !snap.is_npc
+        || (utils::is_mob_flagged(caster, MOB_ORC_FRIEND) && snap.is_charmed && caster.master && utils::is_pc(*caster.master));
+    snap.master_mage_prof_level = 0;
+    if (snap.is_npc && snap.is_charmed && caster.master) {
+        snap.master_mage_prof_level = utils::get_prof_level(PROF_MAGE, *caster.master);
+    }
+    const char* name = GET_NAME(caster_pointer);
+    const char* display_name = "someone";
+    if (name != nullptr) {
+        display_name = name;
+    }
+    std::snprintf(snap.name, sizeof(snap.name), "%s", display_name);
+    return snap;
+}
+
+caster_snapshot caster_snapshot::none()
+{
+    caster_snapshot snap {};
+    snap.abs_number = -1;
+    std::snprintf(snap.name, sizeof(snap.name), "%s", "nobody");
+    return snap;
+}
+
+bool caster_snapshot::same_character_as(const char_data& ch) const
+{
+    return !is_none() && identity_ptr == &ch && ch.abs_number == abs_number && ch.registration_serial == identity_serial;
+}
+
+char_data* caster_snapshot::resolve() const
+{
+    // Never dereferences identity_ptr: abs_number slots are recycled by
+    // register_npc_char() after free_char(), so a stale identity_ptr can
+    // point at freed storage that has since been reallocated to an
+    // unrelated character. char_by_abs_number()
+    // looks up the CURRENT owner of the slot instead; identity_ptr is only
+    // ever compared, never read through. The registration serial closes the
+    // remaining gap: a slot recycled to a new character allocated at the old
+    // address matches both the number and the pointer, but never the serial.
+    if (is_none()) {
+        return nullptr;
+    }
+    char_data* live = char_by_abs_number(abs_number);
+    if (live != nullptr && live == identity_ptr && live->registration_serial == identity_serial
+        && character_in_game(live)) {
+        return live;
+    }
+    return nullptr;
+}

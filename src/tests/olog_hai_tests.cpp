@@ -2,6 +2,7 @@
 #include "../interpre.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "character_affect_list_printer.h"
 #include "test_random_utils.h"
 #include <gtest/gtest.h>
 
@@ -94,11 +95,9 @@ struct OlogHaiTestContext {
         original_room_light = world[attacker.in_room].light;
         world[attacker.in_room].room_flags = 0;
         world[attacker.in_room].people = &attacker;
-        // CAN_SEE() rejects an unlit room even with room_flags cleared; the room
-        // is heap-allocated via room_data::create_bulk() and never populated by
-        // the boot path in tests, so light/sector_type are whatever the
-        // allocator left behind. Force it lit so target lookups are
-        // deterministic instead of depending on that leftover memory.
+        // CAN_SEE() rejects an unlit room even with room_flags cleared, and the room is
+        // never populated by the boot path in tests; explicitly set it lit so target
+        // lookups get the state this test needs instead of the room's zero-initialized default.
         world[attacker.in_room].light = 1;
 
         weapon.obj_flags.type_flag = ITEM_WEAPON;
@@ -354,7 +353,7 @@ TEST(OlogHaiHelpers, FrenzyAffectAppliesItsCurrentIntegerScaledDamageBonus) {
     context.profs.prof_level[PROF_WARRIOR] = 20;
     context.attacker.specials.tactics = TACTICS_AGGRESSIVE;
     context.frenzy.type = SKILL_FRENZY;
-    context.attacker.affected = &context.frenzy;
+    context.attacker.affected.push_front(&context.frenzy);
 
     EXPECT_EQ(olog_hai::get_base_skill_damage(context.attacker, 50), 14)
         << "Expected frenzy to increase base skill damage according to the current integer-scaled multiplier path.";

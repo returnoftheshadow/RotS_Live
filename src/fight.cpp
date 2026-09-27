@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "character_identity.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -21,6 +22,8 @@
 #include "interpre.h"
 #include "limits.h"
 #include "pkill.h"
+#include "poison.h"
+#include "poison_origin.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -31,7 +34,9 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "char_utils_combat.h"
+#include "kill_contributors.h"
 
+#include <algorithm>
 #include <ctime>
 
 #define IS_PHYSICAL(_at) \
@@ -105,7 +110,7 @@ struct attack_hit_type attack_hit_text[] = {
  */
 void appear(struct char_data* ch)
 {
-    if (affected_by_spell(ch, SPELL_SANCTUARY)) {
+    if (ch->affected.contains(SPELL_SANCTUARY)) {
         affect_from_char(ch, SPELL_SANCTUARY);
         send_to_char("Your sanctuary is ended!\n\r", ch);
     }
@@ -294,7 +299,7 @@ void stop_fighting(struct char_data* ch)
             combat_list = ch->next_fighting;
         else {
             for (tmp = combat_list; tmp && (tmp->next_fighting != ch);
-                 tmp = tmp->next_fighting)
+                tmp = tmp->next_fighting)
                 ;
 
             if (!tmp) {
@@ -682,7 +687,7 @@ void move_wearables_to_corpse(obj_data* corpse)
 //============================================================================
 // Makes a corpse from the character passed in.  Returns a pointer to the corpse.
 //============================================================================
-obj_data* make_physical_corpse(char_data* character, char_data* killer, int attack_type)
+obj_data* make_physical_corpse(char_data* character, char_data* killer, int attack_type, death_punishment punishment)
 {
     obj_data* corpse = NULL;
 
@@ -746,9 +751,10 @@ obj_data* make_physical_corpse(char_data* character, char_data* killer, int atta
         }
     }
 
-    // If the character died to another player or poison, move all of their
-    // wearable gear into their corpse and out of any containers they own.
-    if (attack_type == SPELL_POISON || !IS_NPC(killer)) {
+    // Wearables come out of the character's containers when the death is
+    // punished as a player kill or, for an unclassified death, by the historical
+    // rule; death_strips_corpse_containers() holds the rule.
+    if (death_strips_corpse_containers(killer, attack_type, punishment)) {
         move_wearables_to_corpse(corpse);
     }
 
@@ -777,10 +783,10 @@ void spirit_death(char_data* character)
     move_gold(character, NULL, 1);
 }
 
-obj_data* make_corpse(char_data* character, char_data* killer, int attack_type)
+obj_data* make_corpse(char_data* character, char_data* killer, int attack_type, death_punishment punishment)
 {
     if (!IS_SHADOW(character)) {
-        return make_physical_corpse(character, killer, attack_type);
+        return make_physical_corpse(character, killer, attack_type, punishment);
     } else {
         spirit_death(character);
         return NULL;
@@ -874,7 +880,199 @@ void death_cry(struct char_data* ch)
     }
 }
 
+namespace {
+
+// Normalizes one contributor candidate and offers it to `contributors`.
+//
+// The pet redirect runs BEFORE the victim exclusion rather than after it:
+// checking the character that actually lands in the list is what keeps a
+// victim's own pet from putting the victim in its own kill record.
+void offer_kill_contributor(kill_contributor_list& contributors,
+    const char_data* victim, char_data* candidate)
+{
+    if (candidate == nullptr) {
+        return;
+    }
+
+    // damage_credited()'s death-branch redirect, to the letter: a pet or
+    // orc-friend kills on its master's behalf only while the master is
+    // standing with it.
+    if (IS_NPC(candidate) && candidate->master != nullptr
+        && (MOB_FLAGGED(candidate, MOB_PET) || MOB_FLAGGED(candidate, MOB_ORC_FRIEND))
+        && candidate->master->in_room == candidate->in_room) {
+        candidate = candidate->master;
+    }
+
+    if (candidate == victim) {
+        return;
+    }
+
+    contributors.add(candidate);
+}
+
+bool is_uncredited_non_poison_tick(int attack_type, bool self_inflicted, bool credited)
+{
+    return self_inflicted && !credited && attack_type != SPELL_POISON;
+}
+
+} // namespace
+
+bool kill_contributor_list::contains(const char_data* candidate) const
+{
+    return std::find(entries, entries + count, candidate) != entries + count;
+}
+
+bool kill_contributor_list::add(char_data* candidate)
+{
+    if (candidate == nullptr || contains(candidate)) {
+        return false;
+    }
+
+    if (count >= kCapacity) {
+        if (!overflow_logged) {
+            overflow_logged = true;
+            vmudlog(BRF, "More than %d contributors to one kill: the surplus is dropped.",
+                kCapacity);
+        }
+        return false;
+    }
+
+    entries[count] = candidate;
+    ++count;
+    return true;
+}
+
+// See kill_contributors.h for what this set is for and why pkill.cpp's own
+// combat_list walks could not build it. The union order is fixed purely so the
+// resulting records are reproducible; nothing downstream reads a position.
+kill_contributor_list kill_contributors(char_data* victim, char_data* primary)
+{
+    kill_contributor_list contributors;
+    if (victim == nullptr) {
+        return contributors;
+    }
+
+    for (char_data* fighter = combat_list; fighter != nullptr; fighter = fighter->next_fighting) {
+        if (fighter->specials.fighting == victim) {
+            offer_kill_contributor(contributors, victim, fighter);
+        }
+    }
+
+    char_data* const poisoner = resolve_poisoner(*victim);
+    // A recorded poisoner contributes to every death of the victim while the poison runs,
+    // whatever landed the last blow: owner ruling, 2026-09-24.
+    offer_kill_contributor(contributors, victim, poisoner);
+    offer_kill_contributor(contributors, victim, primary);
+    return contributors;
+}
+
+bool is_real_mob(const char_data* character)
+{
+    if (!IS_NPC(character)) {
+        return false;
+    }
+    return !MOB_FLAGGED(character, MOB_PET) && !MOB_FLAGGED(character, MOB_ORC_FRIEND);
+}
+
+death_punishment classify_pc_death(int attack_type, bool self_inflicted, bool credited, bool engaged_with_real_mob)
+{
+    if (attack_type == SPELL_POISON && self_inflicted) {
+        return engaged_with_real_mob ? death_punishment::mob_death : death_punishment::player_death;
+    }
+    if (is_uncredited_non_poison_tick(attack_type, self_inflicted, credited)) {
+        return death_punishment::player_death;
+    }
+    return death_punishment::legacy;
+}
+
+bool death_credit_falls_back_to_opponent(int attack_type, bool self_inflicted, bool credited)
+{
+    return !is_uncredited_non_poison_tick(attack_type, self_inflicted, credited);
+}
+
+// engaged_opponent is checked before the combat_list walk; the preference
+// decides which mob an EXPLOIT_MOBDEATH record names.
+char_data* find_engaged_real_mob(char_data* victim, char_data* engaged_opponent)
+{
+    if (is_real_mob(engaged_opponent)) {
+        return engaged_opponent;
+    }
+    for (char_data* fighter = combat_list; fighter != nullptr; fighter = fighter->next_fighting) {
+        if (fighter->specials.fighting == victim && is_real_mob(fighter)) {
+            return fighter;
+        }
+    }
+    return nullptr;
+}
+
+bool death_takes_full_mob_xp_loss(const char_data* killer, death_punishment punishment)
+{
+    if (punishment == death_punishment::mob_death) {
+        return true;
+    }
+    if (punishment == death_punishment::player_death) {
+        return false;
+    }
+    return is_real_mob(killer);
+}
+
+bool death_names_player_contributors(const char_data* killer)
+{
+    // IS_NPC() already treats a null pointer as "not a mob"; the explicit
+    // null case documents that a death with no killer still names the
+    // victim's contributors on the death record.
+    return killer == nullptr || !IS_NPC(killer);
+}
+
+bool death_counts_as_player_kill(const char_data* killer, death_punishment punishment)
+{
+    if (punishment == death_punishment::mob_death) {
+        return false;
+    }
+    if (punishment == death_punishment::player_death) {
+        return true;
+    }
+    return killer != nullptr && !IS_NPC(killer);
+}
+
+bool death_strips_corpse_containers(const char_data* killer, int attack_type, death_punishment punishment)
+{
+    if (punishment == death_punishment::mob_death) {
+        return false;
+    }
+    if (punishment == death_punishment::player_death) {
+        return true;
+    }
+    return attack_type == SPELL_POISON || !IS_NPC(killer);
+}
+
+char_data* mobdeath_record_mob(char_data* killer, char_data* engaged_mob, death_punishment punishment)
+{
+    if (punishment == death_punishment::player_death) {
+        return nullptr;
+    }
+    if (is_real_mob(killer)) {
+        return killer;
+    }
+    if (punishment == death_punishment::mob_death) {
+        // Non-null by construction: mob_death classification implies an engaged mob.
+        return engaged_mob;
+    }
+    return nullptr;
+}
+
+// Forward declaration of the 4-arg raw_kill; the 3-arg form forwards to it.
+void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_punishment punishment);
+
 void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
+{
+    raw_kill(dead_man, killer, attack_type, death_punishment::legacy);
+}
+
+// The punishment classification is computed once in damage_credited() and
+// handed through die(); every direct caller goes through the 3-arg forwarder
+// above and keeps the killer-based legacy rule.
+void raw_kill(char_data* dead_man, char_data* killer, int attack_type, death_punishment punishment)
 {
     waiting_type tmpwtl;
 
@@ -904,7 +1102,7 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
         affect_remove(dead_man, dead_man->affected);
     }
     death_cry(dead_man);
-    obj_data* corpse = make_corpse(dead_man, killer, attack_type);
+    obj_data* corpse = make_corpse(dead_man, killer, attack_type, punishment);
 
     // Let big brother know that the player died.
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
@@ -917,9 +1115,15 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
 
         // The player was killed by another player (probably).
         // Restore them.
-        // TODO(drelidan):  When we can track the origin of status effects, include that
-        // here so we can determine if the 'poisoned' kill type was actually from a player.
-        bool died_to_player = attack_type == SPELL_POISON || killer != NULL && !IS_NPC(killer);
+        // The origin of a poison is tracked now -- the poisoner is recorded on
+        // the victim when the poison lands and resolved back into this
+        // `killer` argument by the tick that kills (resolve_poisoner(),
+        // limits.cpp's point_update()/affect_update_person()). So the old
+        // `attack_type == SPELL_POISON ||` term, which assumed every poison
+        // death was a player's doing, is gone: a poison death is a player kill
+        // exactly when the character credited with it is a player.
+        // The poison carveout (death_punishment) can override this in either direction.
+        const bool died_to_player = death_counts_as_player_kill(killer, punishment);
         char_ability_data& cur_abils = dead_man->tmpabilities;
         char_ability_data& max_abils = dead_man->abilities;
         cur_abils = max_abils;
@@ -942,6 +1146,9 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
             GET_MOVE(dead_man) = 0;
         }
 
+        // Clear before extract_char(): it saves the player and can free it.
+        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+
         if (GET_LEVEL(dead_man) < LEVEL_IMMORT) {
             // Note, these are two different int arrays.
             dead_man->specials2.load_room = mortal_start_room[race];
@@ -950,8 +1157,6 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
             dead_man->specials2.load_room = immort_start_room;
             extract_char(dead_man, r_immort_start_room);
         }
-
-        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
     } else {
         extract_char(dead_man);
     }
@@ -963,7 +1168,7 @@ void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
  */
 int check_death_ward(struct char_data* ch)
 {
-    if (affected_by_spell(ch, SPELL_DEATH_WARD) != NULL) {
+    if (ch->affected.contains(SPELL_DEATH_WARD)) {
         affect_from_char(ch, SPELL_DEATH_WARD);
         affect_total(ch);
 
@@ -994,7 +1199,21 @@ int check_death_ward(struct char_data* ch)
         return FALSE;
 }
 
+// Forward declaration of the 5-arg die(); the 3-arg form forwards to it.
+void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_mob, death_punishment punishment);
+
+// A 3-arg caller (scripted deaths, a quit while mortally wounded, clerics.cpp) is a direct,
+// classified-as-legacy death with no engaged mob.
 void die(char_data* dead_man, char_data* killer, int attack_type)
+{
+    die(dead_man, killer, attack_type, nullptr, death_punishment::legacy);
+}
+
+// `engaged_mob` and `punishment` come from damage_credited(), the one caller that can see the
+// tick shape and the pre-fallback credit; both are read after ON_DIE, which is safe because
+// ON_DIE runs the dying character's own script and a PC never has one
+// (DbLoader.PlayerSaveRoundTripNeverCarriesAScript pins this).
+void die(char_data* dead_man, char_data* killer, int attack_type, char_data* engaged_mob, death_punishment punishment)
 {
     /* Character doesn't die if call_trigger returns FALSE */
     if (call_trigger(ON_DIE, dead_man, killer, 0) == FALSE) {
@@ -1005,12 +1224,12 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     }
 
     /* the following piece is moved here, might cause problems... */
-    if (killer) {
-        // Only grant gains for kills on NPCs and connected players.
-        if (IS_NPC(dead_man) || dead_man->desc) {
-            group_gain(killer, dead_man);
-        }
+    // group_gain() handles a remote or absent `killer` on its own (see its definition).
+    if (IS_NPC(dead_man) || dead_man->desc) {
+        group_gain(killer, dead_man);
+    }
 
+    if (killer) {
         if (!IS_NPC(dead_man)) {
             const room_data& death_room = world[dead_man->in_room];
             const char* room_name = death_room.name;
@@ -1040,56 +1259,50 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     }
 
     /* log mobdeaths */
-    if (IS_NPC(killer) && !(MOB_FLAGGED(killer, MOB_ORC_FRIEND) || MOB_FLAGGED(killer, MOB_PET))) {
-        add_exploit_record(EXPLOIT_MOBDEATH, dead_man, GET_IDNUM(killer), GET_NAME(killer));
+    char_data* const mobdeath_mob = mobdeath_record_mob(killer, engaged_mob, punishment);
+    if (mobdeath_mob != nullptr) {
+        add_exploit_record(EXPLOIT_MOBDEATH, dead_man, GET_IDNUM(mobdeath_mob), GET_NAME(mobdeath_mob));
     }
 
     int base_xp_gain = -(dead_man->points.exp - 3000) / (dead_man->player.level + 2);
 
-    /* A player died: DT/poison/incap/etc. death. */
-    if (!killer) {
-        gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
-    } else {
-        gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
+    // Both historical arms began with this tenth; hoisted unchanged.
+    gain_exp_regardless(dead_man, std::min(0, base_xp_gain / 10));
 
-        // TODO(drelidan):  I am unsure why this early out is here, but figure it out and potentially
-        // fix it... 'cause this could have all sorts of problems.
-        if (attack_type == SPELL_POISON) {
-            add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
+    // Recorded for every PC poison death -- the killerless arm used to skip it.
+    if (attack_type == SPELL_POISON) {
+        add_exploit_record(EXPLOIT_POISON, dead_man, 0, NULL);
+    }
 
-            // TODO(drelidan):  Only early-out if the dead man isn't in combat.  Otherwise continue
-            // so that proper exploits are given out.
-            if (dead_man->specials.fighting == NULL) {
-                raw_kill(dead_man, killer, attack_type);
-                return;
-            }
-        }
+    // Built whether or not anyone is credited: an incapacitating poison tick
+    // clears the victim's own target but not its opponents', so a later lethal
+    // tick whose poisoner is gone still finds them fighting, and they keep
+    // their records. See kill_contributors.h for why pkill.cpp's own
+    // combat_list walks could not build this set themselves.
+    //
+    // PK records are created regardless of death cause, but then early out
+    // if it's all NPCs killing the character.  Heh...
+    const kill_contributor_list contributors = kill_contributors(dead_man, killer);
+    if (contributors.count > 0) {
+        pkill_create(dead_man, contributors);
+        add_exploit_record(EXPLOIT_PK, dead_man, contributors); /* pk records to killers */
+    }
 
-        // PK records are created regardless of death cause, but then early out if it's
-        // all NPCs killing the character.  Heh...
-        pkill_create(dead_man);
-        add_exploit_record(EXPLOIT_PK, dead_man, 0, NULL); /* pk records to killers */
+    /* add death records to dead player */
+    /* Fingolfin: Jul 19: since we record mobdeaths earlier */
+    if (death_names_player_contributors(killer)) {
+        add_exploit_record(EXPLOIT_DEATH, dead_man, contributors);
+    }
 
-        /* add death records to dead player */
-        /* Fingolfin: Jul 19: since we record mobdeaths earlier */
-        if (killer && !IS_NPC(killer)) {
-            add_exploit_record(EXPLOIT_DEATH, dead_man, 0, NULL);
-        }
-
-        if (IS_NPC(killer)) {
-            // Only grant mob_death XP if the player died to a mob that is not controlled
-            // by a player.
-            if (!MOB_FLAGGED(killer, MOB_ORC_FRIEND) && !MOB_FLAGGED(killer, MOB_PET)) {
-                gain_exp_regardless(dead_man, std::min(0, base_xp_gain));
-            }
-        }
+    if (death_takes_full_mob_xp_loss(killer, punishment)) {
+        gain_exp_regardless(dead_man, std::min(0, base_xp_gain));
     }
 
     GET_COND(dead_man, FULL) = 24;
     GET_COND(dead_man, THIRST) = 24;
     GET_COND(dead_man, DRUNK) = 0;
 
-    raw_kill(dead_man, killer, attack_type);
+    raw_kill(dead_man, killer, attack_type, punishment);
 }
 
 int exp_with_modifiers(char_data* character, char_data* dead_man, int base_exp)
@@ -1168,20 +1381,25 @@ bool master_gets_credit(const char_data* character)
 
 void group_gain(char_data* killer, char_data* dead_man)
 {
-    if (killer == nullptr || dead_man == nullptr)
+    if (dead_man == nullptr)
         return;
 
-    if (killer->in_room == NOWHERE)
+    if (dead_man->in_room == NOWHERE)
         return;
 
-    if (killer->in_room != dead_man->in_room)
-        return;
+    // killer may be remote, or nobody at all (a room-affect or poison tick whose source is
+    // gone); presence gates only its own share. Everyone fighting the victim in the death
+    // room is paid either way.
+    bool killer_is_present = false;
+    if (killer != nullptr && killer->in_room != NOWHERE && killer->in_room == dead_man->in_room) {
+        killer_is_present = true;
+    }
 
     char_vector involved_killers;
     char_set player_killers;
 
     // This can happen from some effects.
-    if (killer != dead_man) {
+    if (killer_is_present && killer != dead_man) {
         // Ensure that the killer is involved.
         involved_killers.push_back(killer);
         if (utils::is_pc(*killer)) {
@@ -1190,7 +1408,7 @@ void group_gain(char_data* killer, char_data* dead_man)
     }
 
     // Ensure that the victim's target is involved as well.
-    if (dead_man->specials.fighting != nullptr) {
+    if (dead_man->specials.fighting != nullptr && dead_man->specials.fighting->in_room == dead_man->in_room) {
         involved_killers.push_back(dead_man->specials.fighting);
         if (utils::is_pc(*dead_man->specials.fighting)) {
             player_killers.insert(dead_man->specials.fighting);
@@ -1581,11 +1799,11 @@ int maul_damage_reduction(char_data* ch, int damage)
     return damage = std::max(damage, 1);
 }
 
-/*
- * damage now modified to return int - 1 if the victim was
- * killed, 0 if not.
- */
-int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
+// `attacker` keeps engaging the victim exactly as before -- set_fighting,
+// on_attacked_character, the group/hide/exp bookkeeping, the damage message.
+// A remote or null `credited_killer` is never engaged: it is not passed to
+// set_fighting, and nothing in the body below reads it.
+int damage_credited(char_data* attacker, char_data* victim, char_data* credited_killer, int dam, int attacktype, int hit_location)
 {
     struct affected_type* aff;
     int i, tmp, tmp1;
@@ -1790,7 +2008,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
      * 01/01/00: now we check that attack is not bash, else damage will
      * be absorbed and the bash message won't be given.
      */
-    if (affected_by_spell(victim, SPELL_SHIELD) && attacktype != SKILL_AMBUSH && attacktype != SKILL_BASH) {
+    if (victim->affected.contains(SPELL_SHIELD) && attacktype != SKILL_AMBUSH && attacktype != SKILL_BASH) {
         i = (dam * 2 + 4) / 5;
         aff = affected_by_spell(victim, SPELL_SHIELD);
 
@@ -1858,6 +2076,10 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         check_break_prep(attacker);
     }
 
+    // The flees below can kill the victim on the way (an entry special, an ON_ENTER script), so
+    // after each flee the victim is used only while this resolves.
+    const character_identity fleeing_victim = character_identity::capture(*victim);
+
     /* Use send_to_char -- act() doesn't send message if you are DEAD. */
     switch (GET_POS(victim)) {
     case POSITION_INCAP:
@@ -1891,8 +2113,12 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                 FALSE, victim, 0, 0, TO_CHAR);
             if (IS_NPC(victim)) {
                 if (IS_SET(victim->specials2.act, MOB_WIMPY))
-                    if (GET_POSITION(victim) > POSITION_SLEEPING)
+                    if (GET_POSITION(victim) > POSITION_SLEEPING) {
                         do_flee(victim, "", 0, 0, 0);
+                        if (fleeing_victim.resolve() == nullptr) {
+                            return 1;
+                        }
+                    }
             }
         }
 
@@ -1901,31 +2127,88 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                 send_to_char("You wimp out, and attempt to flee!\n\r",
                     victim);
                 do_flee(victim, "", 0, 0, 0);
+                if (fleeing_victim.resolve() == nullptr) {
+                    return 1;
+                }
             }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && (victim->specials.fighting) && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (fleeing_victim.resolve() == nullptr) {
+            return 1;
+        }
         victim->specials.was_in_room = victim->in_room;
     }
+
+    // The opponent the victim is engaged with at the instant it dies, captured
+    // HERE because the stop_fighting() call on the very next line retargets or
+    // clears specials.fighting for a dead character. The credit fallback and
+    // the poison-death engagement below both read this captured value, never
+    // the post-stop pointer.
+    char_data* const engaged_opponent = victim->specials.fighting;
 
     if (!AWAKE(victim))
         if (victim->specials.fighting)
             stop_fighting(victim);
 
     if (GET_POS(victim) == POSITION_DEAD) {
+        // The tick shape: a room-affect tick, a poison tick, starvation or a fall hits the
+        // victim through itself. Read here because die() cannot tell a tick from a direct hit.
+        const bool self_inflicted = attacker == victim;
+        const bool credited = credited_killer != nullptr;
+        const bool player_victim = !IS_NPC(victim);
+        char_data* engaged_mob = nullptr;
+        death_punishment punishment = death_punishment::legacy;
+        if (player_victim) {
+            if (attacktype == SPELL_POISON && self_inflicted) {
+                engaged_mob = find_engaged_real_mob(victim, engaged_opponent);
+            }
+            punishment = classify_pc_death(attacktype, self_inflicted, credited, engaged_mob != nullptr);
+        }
+
+        // The redirect applies to a local rather than to the parameter, since
+        // the parameter no longer reaches die() directly; for damage() the two
+        // pointers are identical, so this block stays byte-for-byte the
+        // historical one.
+        char_data* killer = credited_killer;
+        // When nobody is credited -- a poison or room tick whose caster can no longer be
+        // resolved -- the death is credited to whoever the victim was fighting. A player
+        // victim of an uncredited non-poison tick is the exception: its gentle arm also keeps
+        // the historical record shape (the victim's contributors, no killer). A non-player
+        // victim still credits whoever was fighting it. A victim fighting nobody credits nobody.
+        if (killer == nullptr && engaged_opponent != nullptr
+            && (!player_victim || death_credit_falls_back_to_opponent(attacktype, self_inflicted, credited))) {
+            killer = engaged_opponent;
+        }
         // Redirect the attacker as the pet's master if the master is in the same room as the pet.
-        if (IS_NPC(attacker)) {
-            if (attacker->master && (MOB_FLAGGED(attacker, MOB_PET) || MOB_FLAGGED(attacker, MOB_ORC_FRIEND)) && attacker->master->in_room == attacker->in_room) {
-                attacker = attacker->master;
+        if (killer && IS_NPC(killer)) {
+            if (killer->master && (MOB_FLAGGED(killer, MOB_PET) || MOB_FLAGGED(killer, MOB_ORC_FRIEND)) && killer->master->in_room == killer->in_room) {
+                killer = killer->master;
             }
         }
 
-        die(victim, attacker, attacktype);
+        die(victim, killer, attacktype, engaged_mob, punishment);
         return 1;
     } else {
         return 0;
     }
+}
+
+// The historical damage() shape -- whoever engages the victim is also credited
+// with the kill. A forwarder, not a second body: every caller that has not
+// been taught about separate credit keeps exactly the behavior it had.
+int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
+{
+    // damage_credited()'s own `if (!attacker) attacker = victim;` emergency
+    // fix reassigns the ENGAGING attacker, and the credit has always followed
+    // that substitution (the old body reached die() with the same reassigned
+    // pointer). Reproduce it here rather than crediting nobody.
+    char_data* credited_killer = victim;
+    if (attacker != nullptr) {
+        credited_killer = attacker;
+    }
+    return damage_credited(attacker, victim, credited_killer, dam, attacktype, hit_location);
 }
 
 bool does_victim_save_on_weapon_poison(struct char_data* victim, struct obj_data* weapon)
@@ -2244,7 +2527,7 @@ int heavy_fighting_effect(char_data& attacker, int damage)
 
 bool is_frenzy_active(char_data& attacker)
 {
-    return utils::get_race(attacker) == RACE_OLOGHAI && utils::is_affected_by_spell(attacker, SKILL_FRENZY);
+    return utils::get_race(attacker) == RACE_OLOGHAI && attacker.affected.contains(SKILL_FRENZY);
 }
 
 int frenzy_effect(char_data& attacker, int damage)

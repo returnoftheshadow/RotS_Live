@@ -14,22 +14,34 @@ battle_mage_handler::battle_mage_handler(const char_data* in_character)
     warrior_level = utils::get_prof_level(PROF_WARRIOR, *in_character);
 }
 
-int battle_mage_handler::get_bonus_spell_pen(int spell_pen) const
+int battle_mage_handler::get_bonus_spell_pen(game_types::player_specs spec, int tactics, int mage_level, int spell_pen)
 {
-    if (!is_battle_spec) {
+    if (spec != game_types::PS_BattleMage) {
         return spell_pen;
     }
 
     return spell_pen + (tactics / 2) + (mage_level / 12);
 }
 
-int battle_mage_handler::get_bonus_spell_power(int spell_power) const
+int battle_mage_handler::get_bonus_spell_power(game_types::player_specs spec, int tactics, int mage_level, int spell_power)
 {
-    if (!is_battle_spec) {
+    if (spec != game_types::PS_BattleMage) {
         return spell_power;
     }
 
     return spell_power + (tactics / 2) + (mage_level / 12);
+}
+
+int battle_mage_handler::get_bonus_spell_pen(int spell_pen) const
+{
+    return get_bonus_spell_pen(is_battle_spec ? game_types::PS_BattleMage : game_types::PS_None,
+        tactics, mage_level, spell_pen);
+}
+
+int battle_mage_handler::get_bonus_spell_power(int spell_power) const
+{
+    return get_bonus_spell_power(is_battle_spec ? game_types::PS_BattleMage : game_types::PS_None,
+        tactics, mage_level, spell_power);
 }
 
 bool battle_mage_handler::can_prepare_spell() const

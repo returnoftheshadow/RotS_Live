@@ -46,7 +46,7 @@ Why the disconnect releases everything: `extract_char` calls `die_follower`, whi
 extracted, unlike rent (`Crash_rentsave` saves them and then `extract_followers`, so they return).
 
 Why nothing comes back on the next login: every save made while the player is in the void holds no
-followers, and the final idle save writes no follower section at all.
+followers, and the final idle save writes an empty follower section (only its terminator).
 
 ## What is written to disk
 
@@ -55,7 +55,7 @@ followers, and the final idle save writes no follower section at all.
 | Before idling (a `save`) | Followers written, each with a `flag_config` (`objsave.cpp:43-46`: 0 mount, 1 recruited orc, 2 tamed, 3 guardian). The ridden mount is written by the `IS_RIDING` block after the follower loop. |
 | Voiding | The save `check_idling` makes while the player is still in the room holds the followers — the following mount, tamed animal and recruited orc — but not the ridden mount, which `stop_riding` has already released. |
 | In the void | `Crash_save_all` saves every connected player every 30 s with no dirty check (`:1883-1888`), and `Crash_follower_save` only writes followers **in the player's room** (`:887`). The player is in the idle room, so each save has an empty follower list — within 30 s of voiding, the save holds no followers. |
-| Idle disconnect | `Crash_idlesave` writes rent code 5, objects and aliases, and **no follower section** (no call to `Crash_follower_save`; unchanged since 2017). |
+| Idle disconnect | `Crash_idlesave` writes rent code 5, objects, aliases and an **empty follower section** (`write_empty_follower_section`: the terminator alone, so the strict account-native reader accepts the file; until 2026-09 it wrote no follower section at all). |
 | Next login | The character's own new save; empty follower list. |
 
 ## Side effects and quirks found while observing (not changed)

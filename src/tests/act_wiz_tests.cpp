@@ -6,6 +6,10 @@
 #include "../interpre.h"
 #include "../objects_json.h"
 #include "../structs.h"
+#include "../utils.h"
+#include "../zone.h"
+#include "test_character_support.h"
+#include "test_descriptor_support.h"
 
 #include "AccountRecordOnDiskBuilder.h"
 
@@ -21,10 +25,13 @@
 
 ACMD(do_account);
 ACMD(do_whoacct);
+ACMD(do_wizstat);
 ACMD(do_wizset);
 extern struct player_index_element* player_table;
 extern struct descriptor_data* descriptor_list;
 extern struct char_data* character_list;
+extern struct room_data world;
+extern struct index_data* obj_index;
 extern int top_of_p_table;
 void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
@@ -96,15 +103,19 @@ public:
         : m_previous_player_table(player_table)
         , m_previous_top_of_p_table(top_of_p_table)
     {
-        player_table = new player_index_element[1] {};
+        // create_entry() can grow this table via inc_p_table(), which frees the old block
+        // with free_function() (a plain free()); allocate with the matching CREATE (calloc)
+        // idiom instead of new[] so ASan doesn't flag an alloc/dealloc mismatch.
+        CREATE(player_table, player_index_element, 1);
         top_of_p_table = 0;
         player_table[0].name = strdup(name);
     }
 
     ~ScopedPlayerTableEntry()
     {
+        // See the constructor: create_entry() may have replaced player_table by now.
         free(player_table[0].name);
-        delete[] player_table;
+        free(player_table);
         player_table = m_previous_player_table;
         top_of_p_table = m_previous_top_of_p_table;
     }
@@ -148,22 +159,10 @@ private:
     char_data* m_previous_character_list;
 };
 
-descriptor_data make_descriptor()
-{
-    descriptor_data descriptor {};
-    descriptor.output = descriptor.small_outbuf;
-    descriptor.small_outbuf[0] = '\0';
-    descriptor.bufptr = 0;
-    descriptor.bufspace = SMALL_BUFSIZE - 1;
-    descriptor.connected = CON_PLYNG;
-    return descriptor;
-}
-
 char_data* attach_active_character(
     descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
 {
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    char_data* character = test_support::allocate_test_character(MOB_VOID);
     character->player.name = strdup(name);
     character->player.level = level;
     character->player.race = race;
@@ -172,6 +171,100 @@ char_data* attach_active_character(
     descriptor->character = character;
     return character;
 }
+
+// do_stat_room() (act_wiz.cpp) calls Check_zone_authority(), which walks the real zone_table
+// for a zone whose number matches the room's; this binary never boots one (see mage_tests.cpp's
+// ZoneTableGuard). Installs a single public zone (owner id 0), which Check_zone_authority grants
+// authority for at any level, and restores whatever zone_table pointed at (normally nullptr) on
+// scope exit.
+class ScopedStatRoomZone {
+public:
+    explicit ScopedStatRoomZone(int zone_number)
+        : m_previous_table(zone_table)
+        , m_previous_top(top_of_zone_table)
+    {
+        m_owner.owner = 0;
+        m_owner.next = nullptr;
+        m_zone = zone_data {};
+        m_zone.number = zone_number;
+        m_zone.owners = &m_owner;
+        zone_table = &m_zone;
+        top_of_zone_table = 0;
+    }
+
+    ~ScopedStatRoomZone()
+    {
+        zone_table = m_previous_table;
+        top_of_zone_table = m_previous_top;
+    }
+
+    ScopedStatRoomZone(const ScopedStatRoomZone&) = delete;
+    ScopedStatRoomZone& operator=(const ScopedStatRoomZone&) = delete;
+
+private:
+    zone_data* m_previous_table; // real zone_table found before the test; restored on scope exit
+    int m_previous_top; // real top_of_zone_table found before the test; restored on scope exit
+    owner_list m_owner {}; // the stub zone's sole (public) owner entry
+    zone_data m_zone {}; // the one-entry stub table installed for the scope
+};
+
+// Installs a single obj_index entry so do_stat_room's vnum lookup (obj_index[j->item_number].virt)
+// has a prototype to find for the fixture's ordinary object. Mirrors test_support::ScopedMobIndex
+// for mob_index.
+class ScopedStatRoomObjIndex {
+public:
+    explicit ScopedStatRoomObjIndex(int virt)
+        : m_previous(obj_index)
+    {
+        m_entry = index_data {};
+        m_entry.virt = virt;
+        obj_index = &m_entry;
+    }
+
+    ~ScopedStatRoomObjIndex() { obj_index = m_previous; }
+
+    ScopedStatRoomObjIndex(const ScopedStatRoomObjIndex&) = delete;
+    ScopedStatRoomObjIndex& operator=(const ScopedStatRoomObjIndex&) = delete;
+
+private:
+    index_data* m_previous; // whatever this suite found installed (normally null)
+    index_data m_entry {}; // the single prototype slot the ordinary object's item_number = 0 names
+};
+
+// Saves and restores the room fields do_stat_room() reads, so this test's fixture leaves the
+// shared world[] slot exactly as it found it for later tests in this binary.
+class ScopedStatRoomRoomState {
+public:
+    explicit ScopedStatRoomRoomState(int room_number)
+        : m_room_number(room_number)
+        , m_previous_name(world[room_number].name)
+        , m_previous_number(world[room_number].number)
+        , m_previous_contents(world[room_number].contents)
+        , m_previous_room_flags(world[room_number].room_flags)
+        , m_previous_sector_type(world[room_number].sector_type)
+    {
+    }
+
+    ~ScopedStatRoomRoomState()
+    {
+        world[m_room_number].name = m_previous_name;
+        world[m_room_number].number = m_previous_number;
+        world[m_room_number].contents = m_previous_contents;
+        world[m_room_number].room_flags = m_previous_room_flags;
+        world[m_room_number].sector_type = m_previous_sector_type;
+    }
+
+    ScopedStatRoomRoomState(const ScopedStatRoomRoomState&) = delete;
+    ScopedStatRoomRoomState& operator=(const ScopedStatRoomRoomState&) = delete;
+
+private:
+    int m_room_number; // which world[] slot this guard owns for the scope
+    char* m_previous_name; // world[m_room_number].name as this guard found it
+    int m_previous_number; // world[m_room_number].number as this guard found it
+    obj_data* m_previous_contents; // world[m_room_number].contents as this guard found it
+    long m_previous_room_flags; // world[m_room_number].room_flags as this guard found it
+    int m_previous_sector_type; // world[m_room_number].sector_type as this guard found it
+};
 
 std::string read_file_contents(const std::string& path)
 {
@@ -219,6 +312,8 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
+    // Deliberately new/delete: this teardown must not walk the affect list or free the strings
+    // store_to_char attached.
     char_data* character = new char_data {};
     clear_char(character, MOB_VOID);
 
@@ -297,7 +392,8 @@ TEST(ActWiz, AccountMigrateCharFailureIsLogged)
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -333,7 +429,8 @@ TEST(ActWiz, AccountErrorsListsWhatThisBootRecordedNewestFirst)
     account_errors::record(account_errors::Source::Migration, "alpha-admin", "aragorn", "description exceeds 511 bytes");
     account_errors::record(account_errors::Source::Save, "alpha-admin", "legolas", "it cannot be read back");
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -363,7 +460,8 @@ TEST(ActWiz, AccountErrorsShowsHowManyTimesAFailureHasRecurred)
     for (int attempt = 0; attempt < 4; ++attempt)
         account_errors::record(account_errors::Source::Save, "alpha-admin", "aragorn", "it cannot be read back");
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -384,7 +482,8 @@ TEST(ActWiz, AccountErrorsSaysSoWhenThisBootHasRecordedNothing)
     // from a command that did not work.
     account_errors::clear();
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -406,7 +505,8 @@ TEST(ActWiz, AccountErrorsShowsOnlyAsManyRowsAsAsked)
             "char" + std::to_string(index), "unreadable");
     }
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -436,7 +536,8 @@ TEST(ActWiz, AccountCommandAcceptsEmailForShowAndMutatingSubcommands)
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -493,7 +594,8 @@ TEST(ActWiz, AccountCommandUsesIdentifierLookupForAdditionalMutatingSubcommands)
     std::string error_message;
     ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -560,14 +662,16 @@ TEST(ActWiz, AccountUnlockSelectGrantsForRestrictingActiveLinkedSessionByEmail)
     ASSERT_TRUE(account::admin_link_character(".", "alpha-unlock-email", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
     const std::string account_json_before = read_file_contents(account::account_file_path(".", "unlock-email@example.com"));
 
-    descriptor_data active_descriptor = make_descriptor();
+    descriptor_data active_descriptor {};
+    test_support::prepare_capture_descriptor(active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     std::snprintf(active_descriptor.account_name, sizeof(active_descriptor.account_name), "%s", "alpha-unlock-email");
     std::snprintf(active_descriptor.account_email, sizeof(active_descriptor.account_email), "%s", "unlock-email@example.com");
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -597,14 +701,16 @@ TEST(ActWiz, AccountUnlockSelectGrantsForRestrictingLinklessSessionByAccountName
     ASSERT_TRUE(account::create_account(".", "alpha-linkless", "unlock-linkless@example.com", "ValidPass1", 1700010200, &created_account, &error_message)) << error_message;
     ASSERT_TRUE(account::admin_link_character(".", "alpha-linkless", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
 
-    descriptor_data active_descriptor = make_descriptor();
+    descriptor_data active_descriptor {};
+    test_support::prepare_capture_descriptor(active_descriptor);
     active_descriptor.connected = CON_LINKLS;
     std::snprintf(active_descriptor.account_name, sizeof(active_descriptor.account_name), "%s", "alpha-linkless");
     std::snprintf(active_descriptor.account_email, sizeof(active_descriptor.account_email), "%s", "unlock-linkless@example.com");
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -633,7 +739,8 @@ TEST(ActWiz, AccountUnlockSelectRejectsWhenNoRestrictingActiveSessionExists)
     ASSERT_TRUE(account::admin_link_character(".", "alpha-unlock-reject", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
     ASSERT_TRUE(account::admin_link_character(".", "alpha-unlock-reject", "boromir", 1700010202, &created_account, &error_message)) << error_message;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -647,7 +754,8 @@ TEST(ActWiz, AccountUnlockSelectRejectsWhenNoRestrictingActiveSessionExists)
     admin_descriptor.bufptr = 0;
     admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
 
-    descriptor_data high_level_descriptor = make_descriptor();
+    descriptor_data high_level_descriptor {};
+    test_support::prepare_capture_descriptor(high_level_descriptor);
     high_level_descriptor.connected = CON_PLYNG;
     std::snprintf(high_level_descriptor.account_name, sizeof(high_level_descriptor.account_name), "%s", "alpha-unlock-reject");
     attach_active_character(&high_level_descriptor, "aragorn", 92, 4242);
@@ -662,7 +770,8 @@ TEST(ActWiz, AccountUnlockSelectRejectsWhenNoRestrictingActiveSessionExists)
     admin_descriptor.bufptr = 0;
     admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
 
-    descriptor_data unlinked_descriptor = make_descriptor();
+    descriptor_data unlinked_descriptor {};
+    test_support::prepare_capture_descriptor(unlinked_descriptor);
     unlinked_descriptor.connected = CON_PLYNG;
     std::snprintf(unlinked_descriptor.account_name, sizeof(unlinked_descriptor.account_name), "%s", "alpha-unlock-reject");
     attach_active_character(&unlinked_descriptor, "legolas", 50, 5252);
@@ -677,7 +786,8 @@ TEST(ActWiz, AccountUnlockSelectRejectsWhenNoRestrictingActiveSessionExists)
     admin_descriptor.bufptr = 0;
     admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
 
-    descriptor_data other_account_descriptor = make_descriptor();
+    descriptor_data other_account_descriptor {};
+    test_support::prepare_capture_descriptor(other_account_descriptor);
     other_account_descriptor.connected = CON_PLYNG;
     std::snprintf(other_account_descriptor.account_name, sizeof(other_account_descriptor.account_name), "%s", "other");
     attach_active_character(&other_account_descriptor, "aragorn", 50, 6262);
@@ -711,12 +821,14 @@ TEST(ActWiz, AccountUnlockSelectReplacesStalePendingUnlockForLaterRestriction)
     ASSERT_TRUE(account::admin_link_character(".", "alpha-stalegrant", "aragorn", 1700010201, &created_account, &error_message)) << error_message;
     ASSERT_TRUE(account::admin_link_character(".", "alpha-stalegrant", "boromir", 1700010202, &created_account, &error_message)) << error_message;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
 
-    descriptor_data original_active_descriptor = make_descriptor();
+    descriptor_data original_active_descriptor {};
+    test_support::prepare_capture_descriptor(original_active_descriptor);
     original_active_descriptor.connected = CON_PLYNG;
     std::snprintf(original_active_descriptor.account_name, sizeof(original_active_descriptor.account_name), "%s", "alpha-stalegrant");
     attach_active_character(&original_active_descriptor, "aragorn", 50, 4242);
@@ -734,7 +846,8 @@ TEST(ActWiz, AccountUnlockSelectReplacesStalePendingUnlockForLaterRestriction)
     admin_descriptor.bufptr = 0;
     admin_descriptor.bufspace = SMALL_BUFSIZE - 1;
 
-    descriptor_data later_active_descriptor = make_descriptor();
+    descriptor_data later_active_descriptor {};
+    test_support::prepare_capture_descriptor(later_active_descriptor);
     later_active_descriptor.connected = CON_PLYNG;
     std::snprintf(later_active_descriptor.account_name, sizeof(later_active_descriptor.account_name), "%s", "alpha-stalegrant");
     attach_active_character(&later_active_descriptor, "boromir", 50, 5252);
@@ -778,7 +891,8 @@ TEST(ActWiz, AccountCommandAcceptsEmailForMigrateChar)
     player_table[0].log_time = legacy_character.last_logon;
     player_table[0].flags = legacy_character.specials2.act;
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data admin {};
     admin.desc = &descriptor;
     admin.player.name = strdup("tester");
@@ -826,7 +940,8 @@ TEST(ActWiz, WhoAcctShowsAuthenticatedAccountsAndCurrentCharacterOrMenuState)
 {
     ScopedDescriptorList descriptor_list_scope;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -926,7 +1041,8 @@ TEST(ActWiz, WhoAcctReportsWhenNoAuthenticatedAccountsAreConnected)
 {
     ScopedDescriptorList descriptor_list_scope;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -953,7 +1069,8 @@ TEST(ActWiz, WhoAcctListsDuplicateAuthenticatedSessionsSeparatelyAndSkipsClosing
 {
     ScopedDescriptorList descriptor_list_scope;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -1005,7 +1122,8 @@ TEST(ActWiz, WhoAcctShowsCharacterSelectStateAndSkipsPendingVerificationSessions
 {
     ScopedDescriptorList descriptor_list_scope;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -1041,7 +1159,8 @@ TEST(ActWiz, WhoAcctSanitizesDisplayedAccountAndHostFields)
 {
     ScopedDescriptorList descriptor_list_scope;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -1072,7 +1191,8 @@ TEST(ActWiz, WhoAcctFormatsLongFieldsIntoStableColumns)
 {
     ScopedDescriptorList descriptor_list_scope;
 
-    descriptor_data admin_descriptor = make_descriptor();
+    descriptor_data admin_descriptor {};
+    test_support::prepare_capture_descriptor(admin_descriptor);
     char_data admin {};
     admin.desc = &admin_descriptor;
     admin.player.name = strdup("tester");
@@ -1099,6 +1219,59 @@ TEST(ActWiz, WhoAcctFormatsLongFieldsIntoStableColumns)
     EXPECT_NE(output.find(expected_row), std::string::npos) << output;
 
     free(admin.player.name);
+}
+
+// CI run 35575702723 (test_kill_credit.py::test_splash_bystander_manufactures_no_credit, under
+// AddressSanitizer) caught do_stat_room() (act_wiz.cpp) indexing obj_index[j->item_number] for a
+// room-contents object whose item_number is -1: a corpse has no prototype (make_corpse(),
+// fight.cpp), so obj_index has no entry for it. Reproduces that shape against the real "stat
+// room" handler and confirms the fix both skips the vnum suffix for the prototype-less object and
+// does not carry a stale vnum over from the entry printed just before it.
+TEST(ActWiz, StatRoomSkipsPrototypeVnumForPrototypelessObject)
+{
+    constexpr int kRoomNumber = 991; // a world[] slot no other suite writes in this binary;
+                                      // room_affect_tick_tests.cpp uses 960-1001 only as
+                                      // in_room values (its fixtures sit at world[0-7]).
+    ScopedStatRoomZone zone_scope(kRoomNumber / 100);
+    ScopedStatRoomObjIndex obj_index_scope(1234);
+    ScopedStatRoomRoomState room_state(kRoomNumber);
+
+    world[kRoomNumber].name = const_cast<char*>("A Corpse-Stat Regression Room");
+    world[kRoomNumber].number = kRoomNumber;
+    world[kRoomNumber].room_flags = 0;
+    world[kRoomNumber].sector_type = 0;
+    world[kRoomNumber].contents = nullptr;
+
+    obj_data corpse {};
+    corpse.item_number = -1; // no prototype -- exactly what make_corpse() (fight.cpp) leaves behind
+    corpse.short_description = const_cast<char*>("the corpse of a slain goblin");
+
+    obj_data sword {};
+    sword.item_number = 0; // names the ScopedStatRoomObjIndex slot above
+    sword.short_description = const_cast<char*>("a rusty sword");
+
+    // obj_to_room() (handler.cpp) prepends, so add the corpse first: the sword then heads the
+    // list and do_stat_room() visits it first, leaving a vnum suffix in the scratch buffer that
+    // the corpse's entry (visited second) must not inherit.
+    obj_to_room(&corpse, kRoomNumber);
+    obj_to_room(&sword, kRoomNumber);
+
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
+    char_data* viewer = attach_active_character(&descriptor, "Immortal", 100, 9001);
+    viewer->in_room = kRoomNumber;
+
+    char room_argument[] = "room";
+    do_wizstat(viewer, room_argument, nullptr, 0, 0);
+
+    const std::string output = descriptor.output;
+    EXPECT_NE(output.find("a rusty sword [1234]"), std::string::npos) << output;
+    EXPECT_NE(output.find("the corpse of a slain goblin"), std::string::npos) << output;
+    EXPECT_EQ(output.find("the corpse of a slain goblin ["), std::string::npos) << output;
+
+    obj_from_room(&sword);
+    obj_from_room(&corpse);
+    free_char(viewer);
 }
 
 } // namespace
@@ -1146,7 +1319,8 @@ TEST(ActWiz, WizsetNameReportsARefusedRenameRatherThanClaimingSuccess)
     ScopedCharacterList character_list_guard;
     ScopedPlayerTableEntry player_table_entry("aragorn");
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     // Sized so "aragorn"'s path still fits ch_file and "bartholomew"'s does not: 31 bytes of fixed
     // structure + email + name, with the two names 4 apart. Derived from the buffer so a future
     // widening cannot quietly turn this into a test of nothing.
@@ -1166,8 +1340,7 @@ TEST(ActWiz, WizsetNameReportsARefusedRenameRatherThanClaimingSuccess)
         << "and told why, rather than being sent to the syslog -- got: " << output;
     EXPECT_STREQ(implementor->player.name, "aragorn") << "the character must keep its name";
 
-    free(implementor->player.name);
-    delete implementor;
+    test_support::release_test_character(implementor); // free_char releases player.name too
 }
 
 TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
@@ -1182,7 +1355,8 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
     ScopedCharacterList character_list_guard;
     ScopedPlayerTableEntry player_table_entry("aragorn");
 
-    descriptor_data descriptor = make_descriptor();
+    descriptor_data descriptor {};
+    test_support::prepare_capture_descriptor(descriptor);
     char_data* implementor = make_account_native_implementor(&descriptor, "alpha-admin",
         "player@example.com", "A-E");
 
@@ -1192,6 +1366,5 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
     EXPECT_EQ(std::string(descriptor.output), "You changed their name successfully.\n\r");
     EXPECT_STREQ(implementor->player.name, "Bartholomew");
 
-    free(implementor->player.name);
-    delete implementor;
+    test_support::release_test_character(implementor); // free_char releases player.name too
 }

@@ -20,7 +20,13 @@ typedef struct {
 } PKILL;
 
 void boot_pkills();
-void pkill_create(struct char_data*);
+
+// Records `victim`'s death as a player kill, crediting the supplied
+// contributors (kill_contributors.h): every contributor pkill_valid_killer()
+// accepts gets a PKILL record, and the kill's weight and opponent count are
+// computed from that list rather than from who is currently fighting `victim`.
+struct kill_contributor_list;
+void pkill_create(struct char_data*, const kill_contributor_list&);
 
 void pkill_unref_character(struct char_data* c);
 void pkill_unref_character_by_index(int);

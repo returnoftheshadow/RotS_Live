@@ -870,6 +870,7 @@ int Crash_obj2store(obj_data* obj, char_data* ch,
 
 int Crash_save(struct obj_data* obj, struct char_data* ch, int pos, FILE* fp);
 
+// The caller owns fp and closes it; this writer only appends the follower section and its sentinel.
 void Crash_follower_save(struct char_data* ch, FILE* fp)
 {
     extern struct index_data* mob_index;
@@ -898,7 +899,7 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
         fol_elem.exp = k->follower->points.exp;
         if (MOB_FLAGGED(k->follower, MOB_ORC_FRIEND))
             fol_elem.flag_config = FOL_ORC_FRIEND;
-        else if (affected_by_spell(k->follower, SKILL_TAME))
+        else if (k->follower->affected.contains(SKILL_TAME))
             fol_elem.flag_config = FOL_TAMED;
         else if (MOB_FLAGGED(k->follower, MOB_PET))
             fol_elem.flag_config = FOL_GUARDIAN;
@@ -914,7 +915,6 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
             if (k->follower->equipment[x])
                 if (!Crash_is_unrentable(k->follower->equipment[x]))
                     if (!Crash_save(k->follower->equipment[x], k->follower, x, fp)) {
-                        fclose(fp);
                         return;
                     }
         if (fwrite(&dummy_object, sizeof(struct obj_file_elem), 1, fp) < 1) {
@@ -946,6 +946,7 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
     }
 }
 
+// The caller owns fp and closes it (load_character does so unconditionally); a short read returns.
 void Crash_follower_load(struct char_data* ch, FILE* fp)
 {
     struct follower_file_elem fol_elem;
@@ -957,7 +958,6 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
     do {
         if (!read_crashsave_record(fp, &fol_elem, sizeof(struct follower_file_elem), 1, "reading follower data in Crash_follower_load")) {
-            fclose(fp);
             return;
         }
         if (fol_elem.fol_vnum == -17)
@@ -969,7 +969,6 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
         while (true) {
             if (!read_crashsave_record(fp, &object, sizeof(struct obj_file_elem), 1, "reading follower object data in Crash_follower_load")) {
-                fclose(fp);
                 return;
             }
 
@@ -1166,14 +1165,15 @@ int Crash_alias_save(struct char_data* ch, FILE* fp)
     if (ch->specials.alias) {
 
         for (list = ch->specials.alias; list; list = list->next) {
+            tmp = strlen(list->command);
+
+            if (tmp <= 0)
+                continue; // the loader reads keyword, length, command as one record; write none of it
+
             if (fwrite(&(list->keyword), 20, 1, fp) < 1) {
                 perror("Writing crash data Crash_alias_save 1");
                 return FALSE;
             }
-            tmp = strlen(list->command);
-
-            if (tmp <= 0)
-                continue;
 
             if (fwrite(&(tmp), sizeof(int), 1, fp) < 1) {
                 perror("Writing crash data Crash_alias_save 2");
@@ -1326,6 +1326,17 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 
+// Writes a follower section holding no followers: the -17 terminator Crash_follower_save ends
+// every section with, and nothing else. A reader that requires the section accepts the file; a
+// reader that walks it finds no followers.
+static void write_empty_follower_section(FILE* fp)
+{
+    const follower_file_elem section_terminator { -17, 0, 0, 0, 0, 0, 0 };
+    if (fwrite(&section_terminator, sizeof(section_terminator), 1, fp) < 1) {
+        perror("Writing empty follower section in Crash_idlesave");
+    }
+}
+
 void Crash_idlesave(struct char_data* ch)
 {
     char buf[MAX_INPUT_LENGTH];
@@ -1371,6 +1382,12 @@ void Crash_idlesave(struct char_data* ch)
             }
     }
     Crash_alias_save(ch, fp);
+    // The strict account-native reader requires a follower section, and without one the JSON
+    // refresh below silently failed. Idling out has never rented the followers, though: they are
+    // released into the world and nothing comes back at the next login
+    // (docs/systems/idle-void-and-followers.md), so the section written here is empty and the
+    // followers stay where they are.
+    write_empty_follower_section(fp);
     fclose(fp);
     refresh_account_backed_object_file(ch);
 
@@ -1644,7 +1661,7 @@ int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
         return (TRUE);
     }
 
-    if (affected_by_spell(ch, SPELL_ANGER)) {
+    if (ch->affected.contains(SPELL_ANGER)) {
         if ((GET_RACE(recep) == 11) || (GET_RACE(recep) == 13))
             act("$n tells you, 'Wait until the blood dries, snaga, or you'll join your kill tonight.'",
                 FALSE, recep, 0, ch, TO_VICT);
@@ -1839,7 +1856,7 @@ ACMD(do_rent)
         return;
     }
 
-    if (affected_by_spell(ch, SPELL_ANGER)) {
+    if (ch->affected.contains(SPELL_ANGER)) {
         send_to_char("You're too angry.\n\r", ch);
         return;
     }

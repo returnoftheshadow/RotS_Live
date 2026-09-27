@@ -1,4 +1,5 @@
 #include "../character_json.h"
+#include "../spells.h"
 #include "../utils.h"
 
 #include <algorithm>
@@ -331,6 +332,63 @@ TEST(CharacterJson, ResolvesASharedSkillKeyToTheLowestSlotItNames)
     ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
     EXPECT_EQ(parsed.skills[125], 7);
     EXPECT_EQ(parsed.skills[126], 0) << "the value must not land in the higher slot";
+}
+
+// A character holding only mists of burzum (skill 85), whose JSON is serialized with the given
+// serializer. The rename tests below swap its key for the one files carried before the rename.
+std::string make_mists_of_burzum_json(std::string (*serialize)(const character_json::CharacterData&), int practices)
+{
+    character_json::CharacterData character = character_json::character_data_from_store(make_stored_character());
+    character.skills.assign(MAX_SKILLS, 0);
+    character.skills[SPELL_MISTS_OF_BURZUM] = practices;
+    return serialize(character);
+}
+
+TEST(CharacterJson, SavesMistsOfBurzumUnderItsCurrentName)
+{
+    ASSERT_EQ(SPELL_MISTS_OF_BURZUM, 85);
+    for (auto serialize : { &character_json::serialize_character_to_json, &character_json::serialize_character_to_json_v2a,
+             &character_json::serialize_character_to_json_v2b }) {
+        const std::string json = make_mists_of_burzum_json(serialize, 42);
+        EXPECT_NE(json.find("\"mists_of_burzum\": 42"), std::string::npos) << json;
+        EXPECT_EQ(json.find("mist_of_baazunga"), std::string::npos) << json;
+    }
+}
+
+TEST(CharacterJson, LoadsTheSkillKeySavedBeforeMistOfBaazungaWasRenamed)
+{
+    const std::string json = replace_once(make_mists_of_burzum_json(&character_json::serialize_character_to_json, 42),
+        "\"mists_of_burzum\":", "\"mist_of_baazunga\":");
+    ASSERT_NE(json.find("\"mist_of_baazunga\": 42"), std::string::npos) << json;
+
+    for (auto deserialize : { &character_json::deserialize_character_from_json, &character_json::deserialize_character_from_json_v2a,
+             &character_json::deserialize_character_from_json_v2b }) {
+        character_json::CharacterData parsed;
+        std::string error_message;
+        ASSERT_TRUE(deserialize(json, &parsed, &error_message)) << error_message;
+        EXPECT_EQ(parsed.skills[85], 42);
+
+        // The next save writes the current key.
+        const std::string resaved = character_json::serialize_character_to_json(parsed);
+        EXPECT_NE(resaved.find("\"mists_of_burzum\": 42"), std::string::npos) << resaved;
+        EXPECT_EQ(resaved.find("mist_of_baazunga"), std::string::npos) << resaved;
+    }
+}
+
+TEST(CharacterJson, RefusesAFileHoldingBothTheOldAndNewMistsOfBurzumKeys)
+{
+    // Both keys name slot 85, so the pair is a duplicate key like any other.
+    const std::string json = replace_once(make_mists_of_burzum_json(&character_json::serialize_character_to_json, 42),
+        "\"mists_of_burzum\": 42", "\"mists_of_burzum\": 42, \"mist_of_baazunga\": 7");
+    ASSERT_NE(json.find("\"mist_of_baazunga\": 7"), std::string::npos) << json;
+
+    for (auto deserialize : { &character_json::deserialize_character_from_json, &character_json::deserialize_character_from_json_v2a,
+             &character_json::deserialize_character_from_json_v2b }) {
+        character_json::CharacterData parsed;
+        std::string error_message;
+        EXPECT_FALSE(deserialize(json, &parsed, &error_message));
+        EXPECT_NE(error_message.find("Duplicate skill key 'mist_of_baazunga'"), std::string::npos) << error_message;
+    }
 }
 
 TEST(CharacterJson, EncodesFlagBitvectorsAsReadableNames)

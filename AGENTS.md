@@ -42,6 +42,7 @@
 - New code: add unit tests for newly written code when the surrounding module supports them, and document any gaps when tests are not practical.
 - When writing or expanding unit tests for non-trivial code paths, maintain a constructively adversarial test-design partner named `Bazarat`. Use `Bazarat` to challenge assumptions, look for missing edge cases, identify weak assertions, and pressure-test whether the tests would catch realistic regressions instead of only happy paths.
 - Rust: write unit/integration tests in `proxy/`; run with `cargo test -p proxy` and keep coverage reasonable.
+- Integration scenarios: when a change can only be verified against a running server (several players, ticks, room affects, link drops, on-disk records), use the `rots-integration-scenario` skill (`.agents/skills/rots-integration-scenario/SKILL.md`, also under `.claude/skills/`) to decide whether a scenario is warranted and to write one against `tests/integration/`.
 
 ## Review Workflow
 - Before finalizing any non-trivial change set, maintain two review subagents in parallel: `Magus` as the quality engineer reviewer and `Vincent` as the security engineer reviewer.

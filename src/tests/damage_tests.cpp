@@ -1,26 +1,16 @@
 #include "../spells.h"
 #include "../utils.h"
 #include "test_random_utils.h"
+#include "test_world_support.h"
 #include <gtest/gtest.h>
 
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location);
 
 extern room_data world;
-extern int top_of_world;
 extern char_data* combat_list;
 extern char_data* combat_next_dude;
 
 namespace {
-
-void ensure_test_world(int minimum_room_number)
-{
-    if (!room_data::BASE_WORLD) {
-        world.create_bulk(minimum_room_number + 2);
-        top_of_world = minimum_room_number + 1;
-    } else if (top_of_world < minimum_room_number) {
-        top_of_world = minimum_room_number;
-    }
-}
 
 struct DamageTestContext {
     static constexpr int room_number = 1;
@@ -35,7 +25,7 @@ struct DamageTestContext {
 
     DamageTestContext()
     {
-        ensure_test_world(room_number);
+        test_support::ensure_test_world(room_number);
         original_people = world[room_number].people;
 
         attacker.specials2.act = MOB_ISNPC;
@@ -89,8 +79,7 @@ struct DamageTestContext {
         affect.modifier = modifier;
         affect.location = location;
         affect.bitvector = bitvector;
-        affect.next = victim.affected;
-        victim.affected = &affect;
+        victim.affected.push_front(&affect);
 
         if (bitvector != 0) {
             victim.specials.affected_by |= bitvector;
@@ -209,7 +198,7 @@ struct CharmedPetTestContext {
 
     CharmedPetTestContext()
     {
-        ensure_test_world(room_number);
+        test_support::ensure_test_world(room_number);
         original_people = world[room_number].people;
 
         mob.specials2.act = MOB_ISNPC;

@@ -23,6 +23,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "platdef.h"
+#include "poison.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -56,7 +57,6 @@ extern char* race_abbrevs[];
  */
 
 char saves_mystic(struct char_data*);
-char saves_poison(struct char_data*, struct char_data*);
 char saves_confuse(struct char_data*, char_data*);
 char saves_leadership(struct char_data*);
 char saves_insight(struct char_data*, struct char_data*);
@@ -65,17 +65,37 @@ void list_char_to_char(struct char_data* list, struct char_data* caster,
     int mode);
 ACMD(do_look);
 
-int get_mystic_caster_level(const char_data* caster)
+int get_mystic_caster_level(const caster_snapshot& caster)
 {
-    int mystic_level = utils::get_prof_level(PROF_CLERIC, *caster);
+    int mystic_level = caster.cleric_prof_level;
 
     // Factor in will values not divisible by 5.
-    int will_factor = caster->tmpabilities.wil / 5;
+    int will_factor = caster.wil / 5;
     if (number(0, will_factor % 5) > 0) {
         ++will_factor;
     }
 
     return mystic_level + will_factor;
+}
+
+int illusion_caster_level(const caster_snapshot& who)
+{
+    int level = get_mystic_caster_level(who);
+    if (who.specialization == game_types::PS_Illusion) {
+        level += 6;
+    }
+    return level;
+}
+
+affected_type haze_victim_affect(int level, int duration)
+{
+    affected_type haze {};
+    haze.type = SPELL_HAZE;
+    haze.duration = duration;
+    haze.modifier = level;
+    haze.location = APPLY_NONE;
+    haze.bitvector = AFF_HAZE;
+    return haze;
 }
 
 /*
@@ -126,14 +146,14 @@ ASPELL(spell_curse)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     int count = (level + 2 * 10) * GET_PERCEPTION(victim) / 100 / 10;
     if (!count) {
         act("You try to curse $N, but can't reach $S mind.", FALSE, caster, 0, victim, TO_CHAR);
         return;
     }
 
-    if (affected_by_spell(caster, SPELL_MIND_BLOCK)) {
+    if (caster->affected.contains(SPELL_MIND_BLOCK)) {
         act("You cannot curse with a blocked mind.", FALSE, caster, 0, victim, TO_CHAR);
         return;
     }
@@ -212,7 +232,7 @@ ASPELL(spell_revive)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     count = (3 * 9 + level) * GET_PERCEPTION(victim) / 100 / 9;
 
     if (count * 2 > utils::get_spirits(caster)) {
@@ -302,7 +322,7 @@ ASPELL(spell_mind_block)
         send_to_char("You can only protect your own mind.\n\r", caster);
         return;
     }
-    if (affected_by_spell(caster, SPELL_MIND_BLOCK)) {
+    if (caster->affected.contains(SPELL_MIND_BLOCK)) {
         send_to_char("Your mind is protected already.\n\r", caster);
         return;
     }
@@ -338,7 +358,7 @@ ASPELL(spell_insight)
         }
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     if (is_object)
         my_duration = -1;
     else
@@ -354,7 +374,7 @@ ASPELL(spell_insight)
         }
     }
 
-    if (!affected_by_spell(victim, SPELL_INSIGHT)) {
+    if (!victim->affected.contains(SPELL_INSIGHT)) {
         af.type = SPELL_INSIGHT;
         af.duration = my_duration;
         af.modifier = 50;
@@ -382,7 +402,7 @@ ASPELL(spell_pragmatism)
         }
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
 
     if (is_object)
         my_duration = -1;
@@ -399,7 +419,7 @@ ASPELL(spell_pragmatism)
         }
     }
 
-    if (!affected_by_spell(victim, SPELL_PRAGMATISM)) {
+    if (!victim->affected.contains(SPELL_PRAGMATISM)) {
         af.type = SPELL_PRAGMATISM;
         af.duration = 10 + level;
         if (GET_RACE(victim) != RACE_WOOD)
@@ -442,7 +462,7 @@ ASPELL(spell_detect_hidden)
             return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     if (victim != caster)
         loc_level = GET_PROF_LEVEL(PROF_CLERIC, victim) + level;
     else
@@ -453,7 +473,7 @@ ASPELL(spell_detect_hidden)
     else
         my_duration = 3 * loc_level;
 
-    if (!affected_by_spell(victim, SPELL_DETECT_HIDDEN)) {
+    if (!victim->affected.contains(SPELL_DETECT_HIDDEN)) {
         send_to_char("You feel your awareness improve.\n\r", victim);
 
         af.type = SPELL_DETECT_HIDDEN;
@@ -472,7 +492,7 @@ ASPELL(spell_detect_magic)
     if (!victim)
         victim = caster;
 
-    if (affected_by_spell(victim, SPELL_DETECT_MAGIC)) {
+    if (victim->affected.contains(SPELL_DETECT_MAGIC)) {
         if (victim == caster)
             send_to_char("You already can sense magic.\n\r", caster);
         else
@@ -480,7 +500,7 @@ ASPELL(spell_detect_magic)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     af.type = SPELL_DETECT_MAGIC;
     af.duration = level * 5;
     af.modifier = 0;
@@ -505,7 +525,7 @@ ASPELL(spell_evasion)
             return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     if (victim != caster)
         loc_level = (GET_PROF_LEVEL(PROF_CLERIC, victim) + level + 5) / 4;
     else
@@ -516,7 +536,7 @@ ASPELL(spell_evasion)
     else
         my_duration = 12 + loc_level;
 
-    if (!affected_by_spell(victim, SPELL_ARMOR)) {
+    if (!victim->affected.contains(SPELL_ARMOR)) {
         af.type = SPELL_ARMOR;
         af.duration = my_duration;
         af.modifier = loc_level;
@@ -535,7 +555,7 @@ ASPELL(spell_resist_magic)
 
     // drelidan: New formula.  +1 save per 3 mage levels.  With resist magic
     // up, add half of your cleric levels to your mage levels first.
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     int modifier = level / 6;
 
     // Protection specialization gets additional defenses against magic.
@@ -583,13 +603,13 @@ ASPELL(spell_slow_digestion)
     if (!victim)
         return;
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     if (victim != caster)
         loc_level = GET_PROF_LEVEL(PROF_CLERIC, victim) + level;
     else
         loc_level = level;
 
-    if (!affected_by_spell(victim, SPELL_SLOW_DIGESTION)) {
+    if (!victim->affected.contains(SPELL_SLOW_DIGESTION)) {
         af.type = SPELL_SLOW_DIGESTION;
         af.duration = loc_level + 12;
         af.modifier = loc_level;
@@ -690,7 +710,7 @@ ASPELL(spell_infravision)
     if (!victim)
         victim = caster;
 
-    if (affected_by_spell(victim, SPELL_INFRAVISION)) {
+    if (victim->affected.contains(SPELL_INFRAVISION)) {
         if (victim == caster)
             send_to_char("You already can see in the dark.\n\r", caster);
         else
@@ -698,7 +718,7 @@ ASPELL(spell_infravision)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     affected_type af;
     af.type = SPELL_INFRAVISION;
     af.duration = level;
@@ -723,30 +743,28 @@ ASPELL(spell_infravision)
 
 ASPELL(spell_resist_poison)
 {
-    affected_type* af;
-    affected_type newaf;
-
     if (!victim)
         victim = caster;
-    af = affected_by_spell(victim, SPELL_POISON);
-    if (af) {
-        if (affected_by_spell(victim, SPELL_RESIST_POISON)) {
-            send_to_char("The poison is already being resisted.\n\r", caster);
-        } else {
-            newaf.type = SPELL_RESIST_POISON;
-            newaf.duration = af->duration;
-            newaf.modifier = GET_PROF_LEVEL(PROF_CLERIC, caster);
-            newaf.location = APPLY_NONE;
-            newaf.bitvector = 0;
-            affect_to_char(victim, &newaf);
-            send_to_char("You begin to resist the poison.\n\r", victim);
-            if (victim != caster)
-                send_to_char("They begin to resist the poison.\n\r", caster);
+
+    const int cleric_level = GET_PROF_LEVEL(PROF_CLERIC, caster);
+    switch (start_poison_resistance(victim, cleric_level)) {
+    case poison_resistance_outcome::started:
+        send_to_char("You begin to resist the poison.\n\r", victim);
+        if (victim != caster) {
+            send_to_char("They begin to resist the poison.\n\r", caster);
         }
-    } else if (victim == caster)
-        send_to_char("But you have not been poisoned!\n\r", caster);
-    else
-        send_to_char("But they are not poisoned!\n\r", caster);
+        break;
+    case poison_resistance_outcome::already_resisting:
+        send_to_char("The poison is already being resisted.\n\r", caster);
+        break;
+    case poison_resistance_outcome::not_poisoned:
+        if (victim == caster) {
+            send_to_char("But you have not been poisoned!\n\r", caster);
+        } else {
+            send_to_char("But they are not poisoned!\n\r", caster);
+        }
+        break;
+    }
 }
 
 ASPELL(spell_curing)
@@ -759,16 +777,18 @@ ASPELL(spell_curing)
         return;
     }
 
-    int healing_level = get_mystic_caster_level(caster) + 5;
+    int healing_level = get_mystic_caster_level(caster_at_cast) + 5;
     if (victim != caster) {
-        healing_level = (healing_level + get_mystic_caster_level(victim)) / 2;
+        // The target's own mystic level, read once as the caster's is.
+        const caster_snapshot target_at_cast = caster_snapshot::capture(*victim);
+        healing_level = (healing_level + get_mystic_caster_level(target_at_cast)) / 2;
     }
 
     if (utils::get_specialization(*caster) == game_types::PS_Regeneration) {
         healing_level += 6;
     }
 
-    if (!affected_by_spell(victim, SPELL_CURING)) {
+    if (!victim->affected.contains(SPELL_CURING)) {
         affected_type effect;
         effect.type = SPELL_CURING;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
@@ -793,16 +813,18 @@ ASPELL(spell_restlessness)
         return;
     }
 
-    int healing_level = get_mystic_caster_level(caster) + 5;
+    int healing_level = get_mystic_caster_level(caster_at_cast) + 5;
     if (victim != caster) {
-        healing_level = (healing_level + get_mystic_caster_level(victim)) / 2;
+        // The target's own mystic level, read once as the caster's is.
+        const caster_snapshot target_at_cast = caster_snapshot::capture(*victim);
+        healing_level = (healing_level + get_mystic_caster_level(target_at_cast)) / 2;
     }
 
     if (utils::get_specialization(*caster) == game_types::PS_Regeneration) {
         healing_level += 6;
     }
 
-    if (!affected_by_spell(victim, SPELL_RESTLESSNESS)) {
+    if (!victim->affected.contains(SPELL_RESTLESSNESS)) {
         affected_type effect;
         effect.type = SPELL_RESTLESSNESS;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
@@ -826,8 +848,7 @@ ASPELL(spell_remove_poison)
     }
 
     if (victim) {
-        if (affected_by_spell(victim, SPELL_POISON)) {
-            affect_from_char(victim, SPELL_POISON);
+        if (cure_poison(victim)) {
             act("A warm feeling runs through your body.", FALSE, victim, 0, 0, TO_CHAR);
             act("$N looks better.", FALSE, caster, 0, victim, TO_ROOM);
         }
@@ -849,7 +870,7 @@ ASPELL(spell_vitality)
         return;
     }
 
-    int healing_level = get_mystic_caster_level(caster);
+    int healing_level = get_mystic_caster_level(caster_at_cast);
     if (utils::get_specialization(*caster) == game_types::PS_Regeneration) {
         healing_level += 6;
     }
@@ -945,7 +966,7 @@ ASPELL(spell_regeneration)
         return;
     }
 
-    int regen_level = get_mystic_caster_level(caster) - 10;
+    int regen_level = get_mystic_caster_level(caster_at_cast) - 10;
     if (utils::get_specialization(*caster) == game_types::PS_Regeneration) {
         regen_level += 6;
     }
@@ -976,7 +997,9 @@ ASPELL(spell_regeneration)
     }
 }
 
-void cast_mass_spell(char_data* caster, void (*spell)(char_data* caster, char* arg, int type, char_data* victim, obj_data* obj, int digit, int is_object))
+// Casts `spell` on every group member in the caster's room. One mass cast is
+// one cast, so every member's spell reads the same `caster_at_cast`.
+void cast_mass_spell(char_data* caster, const caster_snapshot& caster_at_cast, spell_function spell)
 {
     if (!caster->group) {
         send_to_char("You are not in a group.\n\r", caster);
@@ -986,7 +1009,7 @@ void cast_mass_spell(char_data* caster, void (*spell)(char_data* caster, char* a
     for (auto iter = caster->group->begin(); iter != caster->group->end(); ++iter) {
         char_data* group_member = *iter;
         if (group_member->in_room == caster->in_room) {
-            spell(caster, nullptr, SPELL_TYPE_SPELL, group_member, nullptr, 0, 0);
+            spell(caster, nullptr, SPELL_TYPE_SPELL, group_member, nullptr, 0, 0, caster_at_cast);
         }
     }
 }
@@ -998,7 +1021,7 @@ ASPELL(spell_mass_regeneration)
         return;
     }
     send_to_room("The air hums as a powerful magic breathes life into all who stand within its embrace.\n\r", caster->in_room);
-    cast_mass_spell(caster, spell_regeneration);
+    cast_mass_spell(caster, caster_at_cast, spell_regeneration);
 }
 
 ASPELL(spell_mass_vitality)
@@ -1008,7 +1031,7 @@ ASPELL(spell_mass_vitality)
         return;
     }
     send_to_room("The air hums as a powerful magic breathes vitality into all who stand within its embrace.\n\r", caster->in_room);
-    cast_mass_spell(caster, spell_vitality);
+    cast_mass_spell(caster, caster_at_cast, spell_vitality);
 }
 
 ASPELL(spell_mass_insight)
@@ -1018,7 +1041,7 @@ ASPELL(spell_mass_insight)
         return;
     }
     send_to_room("The air hums as a powerful magic brings insight into all who stand within its embrace.\n\r", caster->in_room);
-    cast_mass_spell(caster, spell_insight);
+    cast_mass_spell(caster, caster_at_cast, spell_insight);
 }
 
 /*
@@ -1039,9 +1062,9 @@ ASPELL(spell_hallucinate)
     if (!victim)
         return;
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     loc_level = level;
-    if (affected_by_spell(victim, SPELL_HALLUCINATE))
+    if (victim->affected.contains(SPELL_HALLUCINATE))
         send_to_char("They are already hallucinating!\n\r", caster);
 
     /*
@@ -1059,7 +1082,7 @@ ASPELL(spell_hallucinate)
         + ((GET_SPEC(caster) == PLRSPEC_ILLU) ? 1 : 0);
     my_duration = modifier * 4;
 
-    if (!affected_by_spell(victim, SPELL_HALLUCINATE) && (is_object || !saves_confuse(victim, caster))) {
+    if (!victim->affected.contains(SPELL_HALLUCINATE) && (is_object || !saves_confuse(victim, caster))) {
         af.type = SPELL_HALLUCINATE;
         af.duration = my_duration;
         af.modifier = modifier;
@@ -1087,23 +1110,33 @@ ASPELL(spell_haze)
             return;
         }
 
-        int level = get_mystic_caster_level(caster);
+        // One resolve of the caster's own room for the whole arm: nothing
+        // between here and the affect below can move the caster.
+        room_data* const here = &world[caster->in_room];
+
+        int level = get_mystic_caster_level(caster_at_cast);
         af.type = ROOMAFF_SPELL;
         af.duration = (level) / 3;
         af.modifier = level / 2;
         af.location = SPELL_HAZE;
         af.bitvector = 0;
 
-        if ((oldaf = room_affected_by_spell(&world[caster->in_room], SPELL_HAZE))) {
+        if ((oldaf = room_affected_by_spell(here, SPELL_HAZE))) {
             if (oldaf->duration < af.duration) {
                 oldaf->duration = af.duration;
             }
 
             if (oldaf->modifier < af.modifier) {
                 oldaf->modifier = af.modifier;
+                // A renewal takes the room over only when it RAISED the
+                // affect. The modifier is the caster level every tick
+                // reads, so raising it means this mystic's haze is the one
+                // hanging now; a weaker renewal leaves both the affect and
+                // its recorded caster exactly as they were.
+                set_room_affect_caster(here, SPELL_HAZE, caster_at_cast);
             }
         } else {
-            affect_to_room(&world[caster->in_room], &af);
+            affect_to_room(here, &af, caster_at_cast);
         }
 
         act("$n breathes out a disorientating mist.", TRUE, caster, 0, 0, TO_ROOM);
@@ -1131,23 +1164,15 @@ ASPELL(spell_haze)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
-    if (utils::get_specialization(*caster) == game_types::PS_Illusion) {
-        level += 6;
-    }
-    loc_level = level;
+    loc_level = illusion_caster_level(caster_at_cast);
 
     if (is_object)
         my_duration = -1;
     else
         my_duration = number(0, 1);
 
-    if (!affected_by_spell(victim, SPELL_HAZE) && (is_object || !saves_mystic(victim))) {
-        af.type = SPELL_HAZE;
-        af.duration = my_duration;
-        af.modifier = loc_level;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_HAZE;
+    if (!victim->affected.contains(SPELL_HAZE) && (is_object || !saves_mystic(victim))) {
+        af = haze_victim_affect(loc_level, my_duration);
 
         affect_to_char(victim, &af);
         act("You feel dizzy as your surroundings seem to blur and twist.\n\r", TRUE, victim, 0, caster, TO_CHAR);
@@ -1179,11 +1204,8 @@ ASPELL(spell_fear)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
-    if (utils::get_specialization(*caster) == game_types::PS_Illusion) {
-        level += 6;
-    }
-    if (!affected_by_spell(victim, SPELL_FEAR) && !saves_mystic(victim) && !saves_leadership(victim)) {
+    const int level = illusion_caster_level(caster_at_cast);
+    if (!victim->affected.contains(SPELL_FEAR) && !saves_mystic(victim) && !saves_leadership(victim)) {
         af.type = SPELL_FEAR;
         af.duration = level;
         af.modifier = level + 10;
@@ -1223,21 +1245,27 @@ ASPELL(spell_poison)
         if (!caster)
             return;
 
-        int level = get_mystic_caster_level(caster);
+        room_data* const here = &world[caster->in_room];
+
+        int level = get_mystic_caster_level(caster_at_cast);
         af.type = ROOMAFF_SPELL;
         af.duration = (level) / 3;
         af.modifier = level / 2;
         af.location = SPELL_POISON;
         af.bitvector = 0;
 
-        if ((oldaf = room_affected_by_spell(&world[caster->in_room], SPELL_POISON))) {
+        if ((oldaf = room_affected_by_spell(here, SPELL_POISON))) {
             if (oldaf->duration < af.duration)
                 oldaf->duration = af.duration;
 
-            if (oldaf->modifier < af.modifier)
+            if (oldaf->modifier < af.modifier) {
                 oldaf->modifier = af.modifier;
+                // Raised the affect, so this mystic's poison is the one in
+                // the air now (spell_haze()'s rule, same reasoning).
+                set_room_affect_caster(here, SPELL_POISON, caster_at_cast);
+            }
         } else {
-            affect_to_room(&world[caster->in_room], &af);
+            affect_to_room(here, &af, caster_at_cast);
         }
 
         act("$n breathes out a cloud of smoke.", TRUE, caster, 0, 0, TO_ROOM);
@@ -1251,17 +1279,13 @@ ASPELL(spell_poison)
     }
 
     if (victim) {
-        if (!saves_poison(victim, caster) && (number(0, magus_save) < 50)) {
-            int level = get_mystic_caster_level(caster);
-            af.type = SPELL_POISON;
-            af.duration = level + 1;
-            af.modifier = -2;
-            af.location = APPLY_STR;
-            af.bitvector = AFF_POISON;
+        if (!saves_poison(victim, caster_at_cast) && (number(0, magus_save) < 50)) {
+            af = poison_victim_affect(caster_at_cast);
 
-            affect_join(victim, &af, FALSE, FALSE);
-
-            send_to_char("You feel very sick.\n\r", victim);
+            // The poison merges under the poison rules, which also decide whether the caster is
+            // recorded as the poisoner. The 5 damage lands however it merged.
+            send_poison_outcome_messages(apply_poison(victim, af, caster), victim, caster,
+                                         "You feel very sick.\n\r");
             damage((caster) ? caster : victim, victim, 5, SPELL_POISON, 0);
         } else {
             act("You feel your body fend off the poison.", TRUE, caster, 0, victim, TO_VICT);
@@ -1286,12 +1310,12 @@ ASPELL(spell_terror)
     send_to_char("You breathe an icy, cold breath across the room.\n\r",
         caster);
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     if (utils::get_specialization(*caster) == game_types::PS_Illusion) {
         level += 6;
     }
     for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch->next_in_room) {
-        if ((tmpch != caster) && !affected_by_spell(tmpch, SPELL_FEAR)) {
+        if ((tmpch != caster) && !tmpch->affected.contains(SPELL_FEAR)) {
             if (!saves_mystic(tmpch) && !saves_leadership(tmpch)) {
                 af.type = SPELL_FEAR;
                 af.duration = level;
@@ -1345,13 +1369,13 @@ ASPELL(spell_sanctuary)
     if (!victim)
         return;
 
-    if (affected_by_spell(caster, SPELL_ANGER)) {
+    if (caster->affected.contains(SPELL_ANGER)) {
         send_to_char("Your mind is blinded by anger. "
                      "Try again when you have cooled down.\n\r",
             caster);
         return;
     }
-    if (affected_by_spell(victim, SPELL_ANGER)) {
+    if (victim->affected.contains(SPELL_ANGER)) {
         send_to_char("Your victim's negative energy resists your"
                      " attempts to form your spell.\r\n",
             caster);
@@ -1363,7 +1387,7 @@ ASPELL(spell_sanctuary)
     else
         loc_level = (std::max(6, GET_PROF_LEVEL(PROF_CLERIC, victim)));
 
-    if (!affected_by_spell(victim, SPELL_SANCTUARY)) {
+    if (!victim->affected.contains(SPELL_SANCTUARY)) {
         af.type = SPELL_SANCTUARY;
         af.duration = loc_level;
         af.modifier = GET_ALIGNMENT(caster);
@@ -1424,8 +1448,8 @@ ASPELL(spell_death_ward)
             return;
     }
 
-    int level = get_mystic_caster_level(caster);
-    if (!affected_by_spell(victim, SPELL_DEATH_WARD)) {
+    int level = get_mystic_caster_level(caster_at_cast);
+    if (!victim->affected.contains(SPELL_DEATH_WARD)) {
         af.type = SPELL_DEATH_WARD;
         af.duration = (is_object) ? -1 : level * 2;
         af.modifier = level / 2;
@@ -1465,7 +1489,7 @@ ASPELL(spell_confuse)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     loc_level = level;
 
     if (is_object)
@@ -1474,7 +1498,7 @@ ASPELL(spell_confuse)
 
     modifier = 1;
 
-    if (!affected_by_spell(victim, SPELL_CONFUSE) && (is_object || !saves_confuse(victim, caster))) {
+    if (!victim->affected.contains(SPELL_CONFUSE) && (is_object || !saves_confuse(victim, caster))) {
         af.type = SPELL_CONFUSE;
         af.duration = my_duration;
         af.modifier = modifier;
@@ -1699,9 +1723,9 @@ ASPELL(spell_shift)
         SET_BIT(PLR_FLAGS(victim), PLR_ISSHADOW);
         if (IS_RIDING(victim))
             stop_riding(victim);
-        if (affected_by_spell(victim, SPELL_MIND_BLOCK))
+        if (victim->affected.contains(SPELL_MIND_BLOCK))
             affect_from_char(victim, SPELL_MIND_BLOCK);
-        if (affected_by_spell(victim, SPELL_SANCTUARY))
+        if (victim->affected.contains(SPELL_SANCTUARY))
             affect_from_char(victim, SPELL_SANCTUARY);
         for (tmpfol = victim->followers; tmpfol; tmpfol = victim->followers)
             stop_follower(tmpfol->follower, FOLLOW_MOVE);
@@ -1749,7 +1773,7 @@ ASPELL(spell_protection)
         return;
     }
 
-    if (affected_by_spell(loc_victim, SPELL_PROTECTION, 0)) {
+    if (loc_victim->affected.contains(SPELL_PROTECTION)) {
         if (loc_victim == caster)
             send_to_char("You have protection already.\n\r", caster);
         else
@@ -1758,7 +1782,7 @@ ASPELL(spell_protection)
         return;
     }
 
-    int level = get_mystic_caster_level(caster);
+    int level = get_mystic_caster_level(caster_at_cast);
     switch (res) {
     case -1:
         send_to_char("You can master protection from fire, cold, lightning or physical only.\n\r", caster);
@@ -1833,7 +1857,7 @@ ASPELL(spell_protection)
 void do_renounce(char_data* character, char* argument, waiting_type* wait_list, int command, int sub_command)
 {
 
-    if (utils::is_affected_by_spell(*character, SPELL_SANCTUARY)) {
+    if (character->affected.contains(SPELL_SANCTUARY)) {
         send_to_char("You renounce your sanctuary!\n\r", character);
         act("$n renounces $s sanctuary!", FALSE, character, nullptr, nullptr, TO_ROOM);
         affect_from_char(character, SPELL_SANCTUARY);

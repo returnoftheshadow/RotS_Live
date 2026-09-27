@@ -769,7 +769,7 @@ ACMD(do_afk)
     act("$n goes away from keyboard.", TRUE, ch, 0, 0, TO_ROOM);
     send_to_char("You go away from keyboard.\n\r", ch);
 
-    if (!affected_by_spell(ch, SPELL_ANGER)) {
+    if (!ch->affected.contains(SPELL_ANGER)) {
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
         bb_instance.on_character_afked(ch);
     } else {

@@ -34,6 +34,7 @@
 #include "savebench.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_harness.h"
 #include "utils.h"
 
 #include "big_brother.h"
@@ -64,6 +65,7 @@ extern struct descriptor_data* descriptor_list;
 extern struct index_data* mob_index;
 extern struct index_data* obj_index;
 extern struct room_data world;
+extern struct skill_data skills[MAX_SKILLS];
 
 extern int social_command_number;
 extern char* wizlock_default;
@@ -560,6 +562,7 @@ const char* command[] = {
     "renounce",
     "mob2csv",
     "savebench", // 249
+    "harness", // 250
     "\n"
 };
 
@@ -1120,8 +1123,12 @@ char* target_from_word(struct char_data* ch, char* argument, int mask, struct ta
     return 0;
 }
 
-int target_check(struct char_data* ch, int cmd, struct target_data* t1,
-    struct target_data* t2)
+/*
+ * target_check() with second_target_modifiers added to each of the command's second-target
+ * masks. The refusal message still comes from the stored target or the command's own mask.
+ */
+static int target_check_with_second_modifiers(struct char_data* ch, int cmd,
+    struct target_data* t1, struct target_data* t2, int second_target_modifiers)
 {
     struct command_info* this_command;
     int tmp, tc, res, last_tc, check, last_check;
@@ -1134,7 +1141,8 @@ int target_check(struct char_data* ch, int cmd, struct target_data* t1,
             check = target_check_one(ch, 1 << tc, t1);
 
             if (check) {
-                res = target_check_one(ch, cmd_info[cmd].target_mask[tc], t2) != 0;
+                const int second_mask = cmd_info[cmd].target_mask[tc] | second_target_modifiers;
+                res = target_check_one(ch, second_mask, t2) != 0;
                 last_check = check;
                 last_tc = tc;
             } else
@@ -1164,6 +1172,32 @@ int target_check(struct char_data* ch, int cmd, struct target_data* t1,
     }
 
     return 0;
+}
+
+int target_check(struct char_data* ch, int cmd, struct target_data* t1,
+    struct target_data* t2)
+{
+    return target_check_with_second_modifiers(ch, cmd, t1, t2, 0);
+}
+
+int delayed_command_target_check(struct char_data* ch, struct waiting_type* delayed_command)
+{
+    int second_target_modifiers = 0;
+    const int spell_index = delayed_command->subcmd;
+    const bool is_spell_cast
+        = delayed_command->cmd == CMD_CAST && spell_index > 0 && spell_index < MAX_SKILLS;
+    if (is_spell_cast) {
+        /*
+         * Only the spell's sight rule is carried over. Its location rules (same room, fight
+         * victim, carried object) stay with do_cast's second pass, which names the reason
+         * ("Your victim has fled.") and compares a stored object by pointer instead of reading
+         * an object that may have been extracted during the delay.
+         */
+        second_target_modifiers = skills[spell_index].targets & TAR_DARK_OK;
+    }
+
+    return target_check_with_second_modifiers(ch, delayed_command->cmd, &delayed_command->targ1,
+        &delayed_command->targ2, second_target_modifiers);
 }
 
 int target_parser(struct char_data* ch, int cmd, char* argument,
@@ -1341,8 +1375,9 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
 
         cmd = argument_info->cmd;
         subcmd = argument_info->subcmd;
-        if (!target_check(ch, cmd, &argument_info->targ1, &argument_info->targ2))
+        if (!delayed_command_target_check(ch, argument_info)) {
             return;
+        }
     }
 
     /* lacking minimum level requirement */
@@ -2242,6 +2277,8 @@ void assign_command_pointers(void)
     COMMANDO(248, POSITION_DEAD, do_mob_csv_extract, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(249, POSITION_DEAD, do_savebench, LEVEL_IMPL, FALSE, 0,
+        TAR_IGNORE, TAR_IGNORE, 0);
+    COMMANDO(250, POSITION_DEAD, do_harness, LEVEL_IMPL, FALSE, 0,
         TAR_IGNORE, TAR_IGNORE, 0);
 }
 

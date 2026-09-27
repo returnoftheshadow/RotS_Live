@@ -187,12 +187,12 @@ bool write_linked_character_object_file(const std::string& root_directory, const
     }
 
     // Every game save is copied into the account here (refresh_account_backed_object_file), so read
-    // the bytes the way the game's own loader does. The idle-out save, Crash_idlesave, writes no
-    // follower section (historic -- docs/systems/idle-void-and-followers.md), and it is also the save
-    // that destroys keys and NORENT items: refusing it left objects.json at the save before, and the
-    // next login handed those items back. The tolerant read forgives only a follower section that is
-    // missing entirely; a save cut off anywhere else is still refused. write_account_object_file
-    // stays strict for direct writes.
+    // the bytes the way the game's own loader does. The idle-out save, Crash_idlesave, wrote no
+    // follower section until 2026-09 (it now writes an empty one), and files in that older shape
+    // are still on disk; it is also the save that destroys keys and NORENT items, so refusing it
+    // left objects.json at the save before, and the next login handed those items back. The
+    // tolerant read forgives only a follower section that is missing entirely; a save cut off
+    // anywhere else is still refused. write_account_object_file stays strict for direct writes.
     objects_json::ObjectSaveData object_data;
     if (!objects_json::legacy_object_save_data_from_binary(object_bytes, &object_data, nullptr, error_message))
         return false;

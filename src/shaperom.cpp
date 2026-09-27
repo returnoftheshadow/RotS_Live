@@ -280,6 +280,8 @@ void implement_room(struct char_data* ch)
 
     while (tmpaf) {
 
+        // No caster is available while building this room, so use the
+        // two-argument overload.
         affect_to_room(real, tmpaf);
         tmpaf = tmpaf->next;
     };

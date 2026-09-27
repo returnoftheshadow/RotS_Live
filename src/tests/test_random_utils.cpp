@@ -30,6 +30,11 @@ void push_test_random_value(double value)
     test_random_values.push_back(value);
 }
 
+std::size_t queued_test_random_value_count()
+{
+    return test_random_values.size();
+}
+
 extern "C" double __real__Z6numberv();
 extern "C" int __real__Z6numberii(int from, int to);
 
@@ -65,7 +70,11 @@ extern "C" int __wrap__Z6numberii(int from, int to)
     if (!test_random_values.empty()) {
         double value = clamp_test_random_value(test_random_values.front());
         test_random_values.pop_front();
-        return from + static_cast<int>(value * upper_end);
+        // x87 keeps the product in extended precision, so 0.6 * 5 truncates to 2 where SSE2's
+        // rounded double gives 3. A volatile store forces IEEE double rounding on every target;
+        // GCC before 13 ignores the rounding a cast to double would require in C++.
+        volatile double scaled_value = value * upper_end;
+        return from + static_cast<int>(scaled_value);
     }
 
     return __real__Z6numberii(from, to);
