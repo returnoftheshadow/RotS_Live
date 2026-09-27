@@ -175,7 +175,7 @@ int replace_pattern(descriptor_data* d, char* pattern, char* new_pattern)
     return count;
 }
 
-void string_add_init(struct descriptor_data* d, char** str)
+void string_add_init(struct descriptor_data* d, char** str, bool allow_format)
 {
     char* tmpstr;
     int tmp;
@@ -185,9 +185,15 @@ void string_add_init(struct descriptor_data* d, char** str)
         return;
     }
 
-    send_to_char("Edit the text now, type %e to save and exit, %q to abort,\n\r"
-                 "%f to format, %h for help.\n\r",
-        d->character);
+    d->str_no_format = !allow_format;
+    if (allow_format)
+        send_to_char("Edit the text now, type %e to save and exit, %q to abort,\n\r"
+                     "%f to format, %h for help.\n\r",
+            d->character);
+    else
+        send_to_char("Edit the text now, one setting per line. Type %e to save\n\r"
+                     "and exit, %q to abort, %h for help.\n\r",
+            d->character);
     if (str)
         if (*str) {
             send_to_char("Your text so far:\n\r", d->character);
@@ -238,6 +244,7 @@ void string_add_finish(struct descriptor_data* d)
         *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
 
     d->str = 0;
+    d->str_no_format = false;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
         REMOVE_BIT(PLR_FLAGS(d->character), PLR_WRITING);
         act("$n finished writing.", TRUE, d->character, 0, 0, TO_ROOM);
@@ -375,6 +382,13 @@ void string_add(struct descriptor_data* d, char* str)
             *str = 0;
             break;
         case 'f':
+            /* Line-per-setting text (mob options): joining the lines into a
+             * paragraph would merge every setting into one bad line. */
+            if (d->str_no_format) {
+                send_to_char("Formatting is off here: each line is one setting.\n\r", d->character);
+                *str = 0;
+                break;
+            }
             if ((int)d->len_str == 0) {
                 send_to_char("What are you trying to format?\n\r", d->character);
                 *str = 0;
@@ -416,9 +430,11 @@ void string_add(struct descriptor_data* d, char* str)
                          "%l   - to set the cursor at the end of the text;\n\r"
                          "%l<num> - to set the cursor after the line <num>;\n\r"
                          "%r   - to redisplay the text;\n\r"
-                         "%s<old_string>~<new_string> - to replace all substrings;\n\r"
-                         "%f   - to reformat the whole text;\n\r"
-                         "%%   - to insert % sign;\n\r"
+                         "%s<old_string>~<new_string> - to replace all substrings;\n\r",
+                d->character);
+            if (!d->str_no_format)
+                send_to_char("%f   - to reformat the whole text;\n\r", d->character);
+            send_to_char("%%   - to insert % sign;\n\r"
                          "%h   - to see this help.\n\r",
                 d->character);
             return;

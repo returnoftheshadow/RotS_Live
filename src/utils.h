@@ -63,7 +63,8 @@ int CHAR_WEARS_OBJ(struct char_data* ch, struct obj_data* obj);
 char get_colornum(char_data* ch, int col);
 void set_colornum(char_data* ch, int col, int value);
 
-void string_add_init(struct descriptor_data*, char**);
+/* allow_format false: the text is one setting per line, so %f is refused and not offered */
+void string_add_init(struct descriptor_data*, char**, bool allow_format = true);
 void string_add_finish(struct descriptor_data*);
 void string_add(struct descriptor_data*, char*);
 int string_to_new_value(char* arg, int* value);

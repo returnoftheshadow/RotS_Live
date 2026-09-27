@@ -21,6 +21,10 @@ field. No vnums in code, no `.shp` file.
    price 5001 2222x1 3333x2 deduct
    price 5002 3333x4
    ```
+   `/42` opens the normal text editor: type each setting as its own line, then `%e` to save
+   (`%q` aborts, `%h` lists the editor commands). `%f` (format) is refused here, with
+   "Formatting is off here: each line is one setting.": it would join every line into one
+   paragraph and break the vendor.
 4. In the zone, use ordinary zone commands to load the goods into the store room. An item is
    for sale while at least one copy of it sits in that room.
 
