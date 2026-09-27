@@ -24,7 +24,8 @@ field. No vnums in code, no `.shp` file.
    `/42` opens the normal text editor: type each setting as its own line, then `%e` to save
    (`%q` aborts, `%h` lists the editor commands). `%f` (format) is refused here, with
    "Formatting is off here: each line is one setting.": it would join every line into one
-   paragraph and break the vendor.
+   paragraph and break the vendor. In game, builders find all of this under
+   `man shape shopkeeper` (and the field itself under `man shape mob2 42`).
 4. In the zone, use ordinary zone commands to load the goods into the store room. An item is
    for sale while at least one copy of it sits in that room.
 
@@ -98,12 +99,12 @@ reaches. The player gets one answer.
   characters would corrupt the mob file when it's saved (the editor's record scanner treats
   a `#` anywhere in the file as the start of the next mob record). What the editor does when
   you finish the text:
-  - **Silently changed:** every `~` becomes `-`, and a `#` at the very start of the text
-    becomes `+` (the editor's text cleaner, the same as for descriptions).
-  - **Refused**, keeping the old value: a `#` anywhere else (`Options not changed: options
-    can't contain # or ~.`), a leading `$` (`Options not changed: options can't start with
-    $.`), or more than 4,000 characters (`Options not changed: options are too long (max
-    4000 characters).`).
+  - **Silently changed:** every `#` becomes `+` and every `~` becomes `-` (the same cleaner
+    as every other mob, object, room and script text). The mob file writer applies it again
+    on save.
+  - **Refused**, keeping the old value: a leading `$` (`Options not changed: options can't
+    start with $.`), or more than 4,000 characters (`Options not changed: options are too
+    long (max 4000 characters).`).
   - Leading blank lines are dropped, so the line numbers in warnings are the same at
     `/save` and at boot. Blank lines inside the text are kept.
 - `stat` on a loaded copy shows the prototype's current options (what `list`/`buy` use).

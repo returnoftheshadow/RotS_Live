@@ -1613,8 +1613,7 @@ Special procedures:
     Important Note:  This spec_prog will NOT work with MEMORY flag (#11).
 29: postmaster          30: dragon
 31: caster/mage (spec)  32: ranger (new)
-33: barter vendor. Sells items for other items; its settings go in /42
-    (see MAN SHAPE MOB2 42).
+33: barter vendor. Sells items for other items (MAN SHAPE SHOPKEEPER).
 
 Make sure to add flag SPEC to mobile.
 
@@ -1703,8 +1702,9 @@ runs. 0 means none. It is separate from the program in /29.
 "MOB2 39"
 
 /39 (extended) sets the roleplay flag, a race BITVECTOR used by
-guildmasters: when it is not 0, only races whose bit is set may practice.
-0 means no restriction. See 'MAN SHAPE MOB 11' for race bits.
+guildmasters and barter vendors: when it is not 0, only races whose bit
+is set may practice (or trade). 0 means no restriction. See
+'MAN SHAPE MOB 11' for race bits.
 #
 "MOB2 41"
 
@@ -1717,23 +1717,54 @@ BITVECTOR (see 'MAN SHAPE MOB 11'). It only matters for guildmaster mobs.
 the mob's program are stored, one setting per line. /42 opens the text
 editor. Type each setting on its own line, then %e to save (%q aborts).
 %f (format) is refused here: it would join the lines and break them.
-Blank lines and lines starting with // (comments) are ignored.
+Blank lines and lines starting with // (comments) are ignored. A # is
+saved as + and a ~ as -; text can't start with $ or pass 4000 characters.
 
-Only program 33 (barter vendor, see MAN SHAPE MOB2 29) reads options:
-  store=<room vnum>     the store room; what lies there is for sale
+Each program that reads options documents its own settings. Today only
+program 33 does: see MAN SHAPE SHOPKEEPER.
+#
+"SHOPKEEPER" "SHOPKEEPERS" "BARTER" "VENDOR"
+
+A barter vendor (program 33) sells items for other items (hides, belts,
+arrowheads...) instead of coins. It is an ordinary mob plus settings; it
+is not the classic coin shop set up in the .shp files.
+
+Setting one up (extended mode, see MAN SHAPE MOB2 42):
+  /5  set flag SPEC (bit 0); NOBASH (bit 4) is recommended
+  /29 program 33. A mob with a hard-coded procedure (a .shp entry or one
+      attached in the code) keeps that procedure instead.
+  /42 the settings, one per line:
+  store=<room vnum>        the store room; its contents are the stock
   hours=<a>-<b>[,<c>-<d>]  game hours (0-23) it trades; none = always
   price <item> <cur>x<qty> [<cur>x<qty>...] [deduct]
-                        the cost of one <item>: 1-4 currencies, each
-                        <qty> copies (1-100) of object <cur>. deduct:
-                        each sale takes one copy from the store room.
 Example:
   store=12345
   hours=6-12,14-20
   price 5001 2222x1 3333x2 deduct
   price 5002 3333x4
 
-Problems show as MOB ERROR lines on /save and /implement. A bad price
-line is skipped; a bad store or hours line stops the vendor trading.
+A price line is the cost of one <item>: 1-4 currencies, each <qty>
+copies (1-100) of object <cur>. Up to 30 price lines. An item is for sale
+while at least one copy lies in the store room; load it there with zone
+commands. deduct: each sale takes one copy from the store room, so the
+zone decides how many can be sold. Without deduct the copy stays.
+
+Players use list and buy (by name or list number). Payment is taken only
+from loose inventory, never from inside a container.
+
+Builder notes:
+- The store room must be unreachable by players.
+- Keep the vendor's room lit: it refuses anyone it can't see.
+- The vendor needs INT 6 or more, or it can't speak.
+- Restrict who may trade with the roleplay flag (/39); don't use pref,
+  which makes it attack.
+- Items sold count toward world limits; store room loads are best
+  without a limit.
+
+Problems show as MOB ERROR lines at boot, /save and /implement. A bad
+price line is skipped; a bad or missing store, or bad hours, stops the
+vendor trading ("I'm not trading right now."). /implement also warns if
+NOBASH is not set.
 #
 "MOB 49" "MOB2 49"
 
