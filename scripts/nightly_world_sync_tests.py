@@ -182,6 +182,14 @@ class MissingIndexEntriesTest(TempDirTestCase):
         self.assertEqual(dropped, [])
         self.assertEqual((world / "obj" / "index").read_text(encoding="latin-1"), "11.obj\n$\n\n")
 
+    def test_missing_entries_are_listed_without_changing_the_index(self) -> None:
+        world = self.root / "world"
+        write_world_file(world / "wld", "index", "11.wld\n12.wld\n$\n")
+        write_world_file(world / "wld", "11.wld", "#1101\n")
+
+        self.assertEqual(sync.missing_index_entries(world), [("wld", "12.wld")])
+        self.assertEqual((world / "wld" / "index").read_text(encoding="latin-1"), "11.wld\n12.wld\n$\n")
+
     def test_world_types_without_a_directory_are_skipped(self) -> None:
         self.assertEqual(sync.drop_missing_index_entries(self.root / "world"), [])
 
@@ -366,19 +374,20 @@ class FakeClock:
         self.current += datetime.timedelta(seconds=seconds)
 
 
-class RunSyncTest(TempDirTestCase):
+class SyncStepTest(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         # A throwaway port pair; only the destination's pid and pause files matter here.
         self.paths = sync.SyncPaths(self.root / "4802", self.root / "4810", self.root / "home")
         self.paths.destination_port.mkdir()
         self.paths.pid_file.write_text("4242\n")
-        # Each copy the run asks for: (fake time, dry_run flag, whether pause existed).
+        # Each copy a step asks for: (fake time, dry_run flag, whether pause existed).
         self.copies: List[tuple] = []
         # When the fake game process exits; None keeps it running forever.
         self.game_exits_at: Optional[datetime.datetime] = utc(10, 0, 30)
 
-    def run_once(self, start: datetime.datetime, dry_run: bool = False, now_mode: bool = False):
+    def fakes(self, start: datetime.datetime):
+        """A fake clock, liveness check and copy that record into this test."""
         clock = FakeClock(start)
 
         def alive(pid: int) -> bool:
@@ -390,11 +399,22 @@ class RunSyncTest(TempDirTestCase):
             self.copies.append((clock.now(), dry_run_copy, self.paths.pause.exists()))
             return sync.CopyReport(3, 0, ())
 
-        outcome = sync.run_sync(self.paths, clock.now, clock.sleep, alive, sync_data, dry_run, now_mode)
-        return outcome, clock
+        return clock, alive, sync_data
+
+    def run_nightly(self, start: datetime.datetime):
+        clock, alive, sync_data = self.fakes(start)
+        return sync.nightly_sync(self.paths, clock.now, clock.sleep, alive, sync_data), clock
+
+    def run_preview(self, start: datetime.datetime) -> "sync.SyncOutcome":
+        clock, _alive, sync_data = self.fakes(start)
+        return sync.preview_sync(self.paths, clock.now, sync_data)
+
+    def run_copy(self) -> "sync.SyncOutcome":
+        _clock, alive, sync_data = self.fakes(utc(14, 0))
+        return sync.copy_now(self.paths, alive, sync_data)
 
     def test_the_start_before_the_reboot_holds_it_and_copies_after_1002(self) -> None:
-        outcome, _clock = self.run_once(utc(9, 50))
+        outcome, _clock = self.run_nightly(utc(9, 50))
 
         self.assertEqual(outcome.message, "synced: 3 files copied, 0 removed, 0 index entries dropped")
         self.assertEqual(len(self.copies), 1)
@@ -405,7 +425,7 @@ class RunSyncTest(TempDirTestCase):
         self.assertFalse(self.paths.pause.exists())
 
     def test_the_other_start_does_nothing_quietly(self) -> None:
-        outcome, _clock = self.run_once(utc(8, 50))
+        outcome, _clock = self.run_nightly(utc(8, 50))
 
         self.assertTrue(outcome.quiet)
         self.assertEqual(self.copies, [])
@@ -414,7 +434,7 @@ class RunSyncTest(TempDirTestCase):
     def test_port_that_never_stops_is_released_without_copying(self) -> None:
         self.game_exits_at = None
 
-        outcome, clock = self.run_once(utc(9, 50))
+        outcome, clock = self.run_nightly(utc(9, 50))
 
         self.assertEqual(outcome.message, "skipped: 4810 did not reboot by 10:10 UTC")
         self.assertEqual(self.copies, [])
@@ -425,7 +445,7 @@ class RunSyncTest(TempDirTestCase):
         self.paths.pause.write_text("held by a person\n")
 
         with self.assertRaises(sync.SyncError) as caught:
-            self.run_once(utc(9, 50))
+            self.run_nightly(utc(9, 50))
 
         self.assertEqual(caught.exception.step, "pause")
         self.assertEqual(self.paths.pause.read_text(), "held by a person\n")
@@ -438,44 +458,46 @@ class RunSyncTest(TempDirTestCase):
             raise sync.SyncError("copy", "rsync exited with status 23")
 
         with self.assertRaises(sync.SyncError):
-            sync.run_sync(self.paths, clock.now, clock.sleep, lambda pid: clock.now() < utc(10, 0, 30),
-                          failing_copy, False, False)
+            sync.nightly_sync(self.paths, clock.now, clock.sleep, lambda pid: clock.now() < utc(10, 0, 30),
+                              failing_copy)
 
         self.assertFalse(self.paths.pause.exists())
 
-    def test_dry_run_copies_nothing_holds_nothing_and_reports_timing(self) -> None:
-        outcome, _clock = self.run_once(utc(9, 50), dry_run=True)
+    def test_preview_copies_nothing_holds_nothing_and_reports_timing(self) -> None:
+        outcome = self.run_preview(utc(9, 50))
 
-        self.assertTrue(outcome.message.startswith("dry run: this start would hold the 10:00 UTC reboot"))
+        self.assertTrue(outcome.message.startswith("a nightly run started now would hold the 10:00 UTC reboot; "
+                                                   "would have: 3 files copied"))
         self.assertEqual([copy[1:] for copy in self.copies], [(True, False)])
         self.assertFalse(self.paths.pause.exists())
 
-    def test_dry_run_at_another_time_says_it_would_not_hold(self) -> None:
-        outcome, _clock = self.run_once(utc(14, 0), dry_run=True)
+    def test_preview_at_another_time_says_it_would_not_hold(self) -> None:
+        outcome = self.run_preview(utc(14, 0))
 
-        self.assertTrue(outcome.message.startswith("dry run: this start would not hold the reboot"))
+        self.assertTrue(outcome.message.startswith("a nightly run started now would not hold the reboot"))
 
-    def test_now_refuses_a_running_port(self) -> None:
+    def test_copy_refuses_a_running_port(self) -> None:
         self.game_exits_at = None
 
         with self.assertRaises(sync.SyncError) as caught:
-            self.run_once(utc(14, 0), now_mode=True)
+            self.run_copy()
 
-        self.assertEqual(caught.exception.step, "now")
+        self.assertEqual(caught.exception.step, "copy")
+        self.assertIn("4810 is running", caught.exception.reason)
         self.assertEqual(self.copies, [])
+        self.assertFalse(self.paths.pause.exists())
 
-    def test_now_copies_a_stopped_port_under_its_own_pause(self) -> None:
+    def test_copy_of_a_stopped_port_runs_under_its_own_pause(self) -> None:
         self.paths.pid_file.unlink()
 
-        outcome, _clock = self.run_once(utc(14, 0), now_mode=True)
+        outcome = self.run_copy()
 
-        self.assertTrue(outcome.message.startswith("synced (--now): "))
+        self.assertEqual(outcome.message, "synced: 3 files copied, 0 removed, 0 index entries dropped")
         self.assertTrue(self.copies[0][2])
         self.assertFalse(self.paths.pause.exists())
 
-    def test_now_takes_the_pause_before_checking_the_port(self) -> None:
+    def test_copy_takes_the_pause_before_checking_the_port(self) -> None:
         pause_seen_by_check: List[bool] = []
-        clock = FakeClock(utc(14, 0))
 
         def watching_alive(pid: int) -> bool:
             pause_seen_by_check.append(self.paths.pause.exists())
@@ -484,32 +506,61 @@ class RunSyncTest(TempDirTestCase):
         def one_file_copy(dry_run_copy: bool) -> "sync.CopyReport":
             return sync.CopyReport(1, 0, ())
 
-        sync.run_sync(self.paths, clock.now, clock.sleep, watching_alive, one_file_copy, dry_run=False, now_mode=True)
+        sync.copy_now(self.paths, watching_alive, one_file_copy)
 
         self.assertEqual(pause_seen_by_check, [True])
         self.assertFalse(self.paths.pause.exists())
 
-    def test_now_refusal_releases_its_pause(self) -> None:
-        self.game_exits_at = None
+    def test_copy_under_someone_elses_pause_keeps_it(self) -> None:
+        self.paths.pid_file.unlink()
+        self.paths.pause.write_text("held by a person\n")
 
-        with self.assertRaises(sync.SyncError):
-            self.run_once(utc(14, 0), now_mode=True)
+        outcome = self.run_copy()
 
-        self.assertFalse(self.paths.pause.exists())
+        self.assertTrue(outcome.message.startswith("synced (existing pause kept): "))
+        self.assertTrue(self.paths.pause.exists())
 
     def test_a_pid_of_zero_is_not_a_running_port(self) -> None:
         self.paths.pid_file.write_text("0\n")
 
         self.assertFalse(sync.port_is_running(self.paths, lambda pid: True))
 
-    def test_now_under_someone_elses_pause_keeps_it(self) -> None:
-        self.paths.pid_file.unlink()
-        self.paths.pause.write_text("held by a person\n")
 
-        outcome, _clock = self.run_once(utc(14, 0), now_mode=True)
+class CheckIndexesTest(TempDirTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # A destination port whose wld index names one file that exists and one that does not.
+        self.paths = sync.SyncPaths(self.root / "4802", self.root / "4810", self.root / "home")
+        # The destination's wld/ directory, whose index the tests read back.
+        self.wld_dir = self.paths.destination_lib / "world" / "wld"
+        write_world_file(self.wld_dir, "index", "11.wld\n12.wld\n$\n")
+        write_world_file(self.wld_dir, "11.wld", "#1101\n")
 
-        self.assertTrue(outcome.message.startswith("synced (--now, existing pause kept): "))
-        self.assertTrue(self.paths.pause.exists())
+    def test_the_report_lists_missing_entries_changes_nothing_and_fails(self) -> None:
+        run_log = io.StringIO()
+
+        outcome = sync.check_indexes(self.paths, run_log, fix=False)
+
+        self.assertEqual(outcome.message,
+                         "1 index entries name missing files: wld/12.wld; run with --fix to drop them")
+        self.assertFalse(outcome.succeeded)
+        self.assertEqual((self.wld_dir / "index").read_text(encoding="latin-1"), "11.wld\n12.wld\n$\n")
+        self.assertIn("index wld: 12.wld: the file is missing on 4810", run_log.getvalue())
+
+    def test_fix_drops_them_and_succeeds(self) -> None:
+        outcome = sync.check_indexes(self.paths, io.StringIO(), fix=True)
+
+        self.assertEqual(outcome.message, "dropped 1 index entries: wld/12.wld")
+        self.assertTrue(outcome.succeeded)
+        self.assertEqual((self.wld_dir / "index").read_text(encoding="latin-1"), "11.wld\n$\n")
+
+    def test_a_complete_world_is_reported_as_such(self) -> None:
+        write_world_file(self.wld_dir, "12.wld", "#1201\n")
+
+        outcome = sync.check_indexes(self.paths, io.StringIO(), fix=False)
+
+        self.assertEqual(outcome.message, "every index entry names a file that exists")
+        self.assertTrue(outcome.succeeded)
 
 
 class WaitUntilTest(unittest.TestCase):
@@ -606,10 +657,70 @@ class MainTest(TempDirTestCase):
 
         self.assertEqual(len(list(self.paths.run_logs.iterdir())), sync.KEPT_RUN_LOGS)
 
-    def test_dry_run_and_now_cannot_be_combined(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                self.run_main("--dry-run", "--now")
+    def test_the_old_flags_are_gone(self) -> None:
+        for old_flag in ("--dry-run", "--now"):
+            with self.subTest(old_flag=old_flag):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        self.run_main(old_flag)
+
+    def test_preview_changes_nothing_and_names_its_log(self) -> None:
+        exit_status = self.run_main("preview")
+
+        self.assertEqual(exit_status, 0)
+        self.assertIn("preview: a nightly run started now would hold the 10:00 UTC reboot; would have: 5 files",
+                      self.summary_lines()[0])
+        run_log_names = [path.name for path in self.paths.run_logs.iterdir()]
+        self.assertEqual(len(run_log_names), 1)
+        self.assertTrue(run_log_names[0].endswith("-preview.log"))
+        self.assertFalse(self.paths.pause.exists())
+
+    def test_copy_by_hand_of_a_stopped_port(self) -> None:
+        exit_status = self.run_main("copy")
+
+        self.assertEqual(exit_status, 0)
+        self.assertIn("copy: synced: 5 files copied", self.summary_lines()[0])
+        self.assertFalse(self.paths.pause.exists())
+
+    def test_check_indexes_reports_by_default_and_fixes_on_request(self) -> None:
+        wld_dir = self.paths.destination_lib / "world" / "wld"
+        write_world_file(wld_dir, "index", "11.wld\n12.wld\n$\n")
+        write_world_file(wld_dir, "11.wld", "#1101\n")
+
+        report_status = self.run_main("check-indexes")
+        fix_status = self.run_main("check-indexes", "--fix")
+
+        self.assertEqual((report_status, fix_status), (1, 0))
+        self.assertIn("check-indexes: 1 index entries name missing files: wld/12.wld", self.summary_lines()[0])
+        self.assertIn("check-indexes: dropped 1 index entries: wld/12.wld", self.summary_lines()[1])
+        self.assertEqual((wld_dir / "index").read_text(encoding="latin-1"), "11.wld\n$\n")
+
+    def test_a_command_run_while_the_lock_is_held_exits_1_without_logging(self) -> None:
+        errors = io.StringIO()
+        with self.paths.lock.open("a") as held_lock:
+            fcntl.flock(held_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            with contextlib.redirect_stderr(errors):
+                exit_status = self.run_main("copy")
+
+        self.assertEqual(exit_status, 1)
+        self.assertIn("another world sync holds the lock", errors.getvalue())
+        self.assertFalse(self.paths.summary_log.exists())
+
+    def test_status_shows_the_port_the_pause_and_recent_runs(self) -> None:
+        self.paths.pause.write_text("")
+        self.paths.summary_log.write_text("".join(f"run {number}\n" for number in range(8)))
+        printed = io.StringIO()
+
+        with contextlib.redirect_stdout(printed):
+            exit_status = sync.main(["status"], self.paths, self.clock.now, self.clock.sleep, lambda pid: False,
+                                    self.fake_copy)
+
+        self.assertEqual(exit_status, 0)
+        self.assertIn("4810: stopped", printed.getvalue())
+        self.assertIn("Pause: held since", printed.getvalue())
+        self.assertIn("run 7", printed.getvalue())
+        self.assertNotIn("run 2", printed.getvalue())
 
     def test_a_termination_is_logged_and_releases_the_pause(self) -> None:
         def terminated_copy(paths, run_log, dry_run):

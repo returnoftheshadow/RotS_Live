@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Mirror the builders port's world and player data into the coders port during its routine reboot.
 
-    nightly_world_sync.py              one sync, if this start is the one just before the reboot (cron)
-    nightly_world_sync.py --dry-run    report what a sync would change; touches nothing
-    nightly_world_sync.py --now        sync a coders port that is already stopped
+    nightly_world_sync.py                        the nightly sync, if this start is the one before the reboot (cron)
+    nightly_world_sync.py preview                whether a start now would hold the reboot, and what a sync would
+                                                 change; touches nothing
+    nightly_world_sync.py copy                   sync a coders port that is already stopped
+    nightly_world_sync.py check-indexes [--fix]  list, or drop, 4810 world-index entries whose file is missing
+    nightly_world_sync.py status                 whether 4810 runs, whether a pause is held, and the last few runs
 
 4802's data is the single source of truth: each sync makes 4810's lib/ and mobs/ match it, removing
 whatever exists only on 4810, except the accounts, core dump and command logs, which stay 4810's own.
-4810 is held down with autorun's pause file while the copy runs. Every run except the start that is
-not the one before the reboot appends one line to ~/nightly/world-sync.log; a run that takes the lock
-keeps its full output under ~/nightly/world-sync-runs/.
+4810 is held down with autorun's pause file while the copy runs; only the nightly sync and copy take it,
+and both always remove it. Every run appends one line to ~/nightly/world-sync.log, except status, a command
+refused because the lock is held, and a nightly start that is not the one before the reboot; a run that
+takes the lock keeps its full output under ~/nightly/world-sync-runs/.
 """
 
 import argparse
@@ -42,6 +46,7 @@ POLL_SECONDS = 5.0
 RSYNC_TIMEOUT_SECONDS = 20 * 60
 RSYNC_STDERR_TAIL_CHARACTERS = 4000
 KEPT_RUN_LOGS = 14
+STATUS_LINES = 5
 STAMP_FORMAT = "%Y%m%d_%H%M%S"
 # New files and directories must be group-writable for the other coders, whatever cron's umask is.
 JOB_UMASK = 0o007
@@ -217,26 +222,34 @@ def write_index_entries(index_path: Path, entries: Sequence[str]) -> None:
     os.replace(temporary, index_path)
 
 
-def drop_missing_index_entries(world_dir: Path) -> List[Tuple[str, str]]:
-    """Rewrites each world index without entries whose file is absent, and returns (type, entry) for each one dropped.
-
-    An index with nothing missing is left byte for byte, and a world type without a directory is skipped.
-    """
-    dropped: List[Tuple[str, str]] = []
+def missing_index_entries(world_dir: Path) -> List[Tuple[str, str]]:
+    """(type, entry) for each world index entry whose file is absent; a type without an index is skipped."""
+    missing: List[Tuple[str, str]] = []
     for file_type in WORLD_INDEX_TYPES:
         type_dir = world_dir / file_type
         index_path = type_dir / "index"
         if not index_path.is_file():
             continue
-        entries = read_index_entries(index_path)
-        present = [entry for entry in entries if (type_dir / entry).is_file()]
-        if len(present) == len(entries):
+        for entry in read_index_entries(index_path):
+            if not (type_dir / entry).is_file():
+                missing.append((file_type, entry))
+    return missing
+
+
+def drop_missing_index_entries(world_dir: Path) -> List[Tuple[str, str]]:
+    """Rewrites each world index without entries whose file is absent, and returns (type, entry) for each one dropped.
+
+    An index with nothing missing is left byte for byte.
+    """
+    missing = missing_index_entries(world_dir)
+    for file_type in WORLD_INDEX_TYPES:
+        missing_here = [entry for missing_type, entry in missing if missing_type == file_type]
+        if not missing_here:
             continue
-        for entry in entries:
-            if entry not in present:
-                dropped.append((file_type, entry))
-        write_index_entries(index_path, present)
-    return dropped
+        index_path = world_dir / file_type / "index"
+        kept = [entry for entry in read_index_entries(index_path) if entry not in missing_here]
+        write_index_entries(index_path, kept)
+    return missing
 
 
 # rsync's exit status when source files disappeared mid-copy; 4802 keeps running while it is read.
@@ -321,6 +334,7 @@ class SyncOutcome:
 
     message: str  # the summary-line result
     quiet: bool = False  # True when main() leaves no trace: no summary line, and the run log is deleted
+    succeeded: bool = True  # False when the run finished but found a problem, so main() exits 1
 
 
 def wait_until(target: datetime.datetime, clock: Callable[[], datetime.datetime],
@@ -335,43 +349,19 @@ def wait_until(target: datetime.datetime, clock: Callable[[], datetime.datetime]
         sleep(step_seconds)
 
 
-def run_sync(paths: SyncPaths, clock: Callable[[], datetime.datetime], sleep: Callable[[float], None],
-             is_process_alive: Callable[[int], bool], sync_data: Callable[[bool], CopyReport], dry_run: bool,
-             now_mode: bool) -> SyncOutcome:
-    """One run: decide whether this start holds the reboot, then hold 4810 down and copy.
+def nightly_sync(paths: SyncPaths, clock: Callable[[], datetime.datetime], sleep: Callable[[float], None],
+                 is_process_alive: Callable[[int], bool], sync_data: Callable[[bool], CopyReport]) -> SyncOutcome:
+    """The nightly run: decide whether this start holds the reboot, then hold 4810 down and copy.
 
     - A start that does not hold the reboot returns a quiet outcome and does nothing.
     - If 4810 is still running at the give-up time, the pause is released and nothing is copied.
-    - A dry run reports the timing decision and what the copy would change, without holding or waiting.
-    - `now_mode` copies straight away, and only when 4810 is stopped.
 
-    Raises SyncError when the run is refused or a step fails. A pause file this run creates is removed
-    on every path; one that existed before the run is never touched.
+    Raises SyncError when the run is refused or a step fails. The pause file this run creates is removed on
+    every path; one that existed before the run is never touched.
     """
     started = clock()
     window = RebootWindow.next_after(started)
-    holds_reboot = window.holds_reboot(started)
-    if dry_run:
-        report = sync_data(True)
-        if holds_reboot:
-            timing = f"this start would hold the {window.reboot_at:%H:%M} UTC reboot"
-        else:
-            timing = "this start would not hold the reboot"
-        return SyncOutcome(f"dry run: {timing}; would have: {report.summary()}")
-    if now_mode:
-        if paths.pause.exists():
-            # Someone else's hold: copy under it and leave it for them to release.
-            if port_is_running(paths, is_process_alive):
-                raise SyncError("now", "4810 is running; --now copies only a stopped port")
-            report = sync_data(False)
-            return SyncOutcome(f"synced (--now, existing pause kept): {report.summary()}")
-        # Pause first, then check: autorun deletes the pid file just before it checks for the pause.
-        with PauseHold(paths.pause):
-            if port_is_running(paths, is_process_alive):
-                raise SyncError("now", "4810 is running; --now copies only a stopped port")
-            report = sync_data(False)
-        return SyncOutcome(f"synced (--now): {report.summary()}")
-    if not holds_reboot:
+    if not window.holds_reboot(started):
         return SyncOutcome("skipped: not the run before the reboot", quiet=True)
     if paths.pause.exists():
         raise SyncError("pause", f"{paths.pause} already exists; someone is holding 4810, so it is left alone")
@@ -385,12 +375,90 @@ def run_sync(paths: SyncPaths, clock: Callable[[], datetime.datetime], sleep: Ca
     return SyncOutcome(f"synced: {report.summary()}")
 
 
+def preview_sync(paths: SyncPaths, clock: Callable[[], datetime.datetime],
+                 sync_data: Callable[[bool], CopyReport]) -> SyncOutcome:
+    """Reports whether a nightly run started now would hold the reboot, and what the mirror would change.
+
+    Holds nothing, waits for nothing and changes nothing.
+    """
+    started = clock()
+    window = RebootWindow.next_after(started)
+    report = sync_data(True)
+    if window.holds_reboot(started):
+        timing = f"a nightly run started now would hold the {window.reboot_at:%H:%M} UTC reboot"
+    else:
+        timing = "a nightly run started now would not hold the reboot"
+    return SyncOutcome(f"{timing}; would have: {report.summary()}")
+
+
+def copy_now(paths: SyncPaths, is_process_alive: Callable[[int], bool],
+             sync_data: Callable[[bool], CopyReport]) -> SyncOutcome:
+    """Mirrors straight away, only when 4810 is stopped.
+
+    Raises SyncError("copy") while 4810 runs. A pause file this run creates is removed on every path; one
+    that existed before the run is kept, and the copy runs under it.
+    """
+    if paths.pause.exists():
+        # Someone else's hold: copy under it and leave it for them to release.
+        if port_is_running(paths, is_process_alive):
+            raise SyncError("copy", "4810 is running; copy works only on a stopped port")
+        report = sync_data(False)
+        return SyncOutcome(f"synced (existing pause kept): {report.summary()}")
+    # Pause first, then check: autorun deletes the pid file just before it checks for the pause.
+    with PauseHold(paths.pause):
+        if port_is_running(paths, is_process_alive):
+            raise SyncError("copy", "4810 is running; copy works only on a stopped port")
+        report = sync_data(False)
+    return SyncOutcome(f"synced: {report.summary()}")
+
+
+def check_indexes(paths: SyncPaths, run_log: TextIO, fix: bool) -> SyncOutcome:
+    """Lists 4810's world-index entries whose file is missing and, with `fix`, drops them.
+
+    4810 reads its world only at boot, so a fix while it runs changes only what its next boot loads. The
+    outcome is unsuccessful when entries are missing and `fix` is off.
+    """
+    world_dir = paths.destination_lib / "world"
+    if fix:
+        missing = drop_missing_index_entries(world_dir)
+    else:
+        missing = missing_index_entries(world_dir)
+    for file_type, entry in missing:
+        run_log.write(f"index {file_type}: {entry}: the file is missing on 4810\n")
+    if not missing:
+        return SyncOutcome("every index entry names a file that exists")
+    listed = ", ".join(f"{file_type}/{entry}" for file_type, entry in missing)
+    if fix:
+        return SyncOutcome(f"dropped {len(missing)} index entries: {listed}")
+    return SyncOutcome(f"{len(missing)} index entries name missing files: {listed}; run with --fix to drop them",
+                       succeeded=False)
+
+
+def perform_command(command: Optional[str], fix: bool, paths: SyncPaths, clock: Callable[[], datetime.datetime],
+                    sleep: Callable[[float], None], is_process_alive: Callable[[int], bool],
+                    sync_data: Callable[[bool], CopyReport], run_log: TextIO) -> SyncOutcome:
+    """Runs `command`, or the nightly sync when it is None. Raises SyncError when a step is refused or fails."""
+    if command is None:
+        return nightly_sync(paths, clock, sleep, is_process_alive, sync_data)
+    if command == "preview":
+        return preview_sync(paths, clock, sync_data)
+    if command == "copy":
+        return copy_now(paths, is_process_alive, sync_data)
+    return check_indexes(paths, run_log, fix)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nightly_world_sync.py",
-                                     description="Mirror 4802's world and player data into 4810 during its reboot.")
-    modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--dry-run", action="store_true", help="report what a sync would change; touch nothing")
-    modes.add_argument("--now", action="store_true", help="sync now; refused unless 4810 is already stopped")
+                                     description="Mirror 4802's world and player data into 4810 during its reboot. "
+                                                 "With no command, run the nightly sync, as cron does.")
+    parser.set_defaults(fix=False)
+    commands = parser.add_subparsers(dest="command", metavar="command")
+    commands.add_parser("preview", help="report whether a run started now would hold the reboot and what the "
+                                        "mirror would change; touch nothing")
+    commands.add_parser("copy", help="mirror now; refused unless 4810 is already stopped")
+    check = commands.add_parser("check-indexes", help="list 4810 world-index entries whose file is missing")
+    check.add_argument("--fix", action="store_true", help="drop the entries that name missing files")
+    commands.add_parser("status", help="print whether 4810 runs, whether a pause is held, and the last few runs")
     return parser
 
 
@@ -417,17 +485,43 @@ def prune_run_logs(run_logs: Path) -> None:
         old_log.unlink()
 
 
+def status_report(paths: SyncPaths, is_process_alive: Callable[[int], bool]) -> str:
+    """Whether 4810 runs, whether a pause is held, and the last STATUS_LINES summary lines."""
+    lines = []
+    if port_is_running(paths, is_process_alive):
+        lines.append("4810: running")
+    else:
+        lines.append("4810: stopped")
+    if paths.pause.exists():
+        held_since = datetime.datetime.fromtimestamp(paths.pause.stat().st_mtime)
+        lines.append(f"Pause: held since {held_since:%Y-%m-%d %H:%M:%S}; autorun will not restart 4810 "
+                     "while it exists")
+    else:
+        lines.append("Pause: none")
+    if paths.summary_log.exists():
+        recent = paths.summary_log.read_text().splitlines()[-STATUS_LINES:]
+        lines.append("Recent runs:")
+        lines.extend("  " + entry for entry in recent)
+    else:
+        lines.append("No runs recorded yet")
+    return "\n".join(lines)
+
+
 def main(argv: Optional[Sequence[str]] = None, paths: Optional[SyncPaths] = None,
          clock: Callable[[], datetime.datetime] = utc_now, sleep: Callable[[float], None] = time.sleep,
          is_process_alive: Callable[[int], bool] = process_alive,
          copy: Callable[[SyncPaths, TextIO, bool], CopyReport] = copy_port_data) -> int:
-    """Runs the command line and returns the process exit status (0 unless a run failed or was terminated).
+    """Runs the command line and returns the process exit status (0 unless a run failed, found a problem
+    or was terminated).
 
     `paths` defaults to the real ports and ~/nightly; tests pass their own, with a fake clock and copy.
     """
     arguments = build_parser().parse_args(argv)
     if paths is None:
         paths = SyncPaths(SOURCE_PORT, DESTINATION_PORT, Path.home() / "nightly")
+    if arguments.command == "status":
+        print(status_report(paths, is_process_alive))
+        return 0
     # SIGHUP covers a manual run whose ssh session drops; without a handler the pause would stay.
     for signal_number in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(signal_number, raise_system_exit)
@@ -438,11 +532,14 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[SyncPaths] = None
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            append_summary(paths, summary_line(started, "skipped: another sync holds the lock"))
-            return 0
+            if arguments.command is None:
+                append_summary(paths, summary_line(started, "skipped: another sync holds the lock"))
+                return 0
+            print("another world sync holds the lock; try again when it finishes", file=sys.stderr)
+            return 1
         run_log_name = started.astimezone().strftime(STAMP_FORMAT)
-        if arguments.dry_run:
-            run_log_name += "-dry-run"
+        if arguments.command is not None:
+            run_log_name += f"-{arguments.command}"
         run_log_path = paths.run_logs / f"{run_log_name}.log"
         quiet = False
         with run_log_path.open("w") as run_log:
@@ -451,11 +548,14 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[SyncPaths] = None
                 return copy(paths, run_log, dry_run)
 
             try:
-                outcome = run_sync(paths, clock, sleep, is_process_alive, sync_data, arguments.dry_run,
-                                   arguments.now)
+                outcome = perform_command(arguments.command, arguments.fix, paths, clock, sleep, is_process_alive,
+                                          sync_data, run_log)
                 result = outcome.message
                 quiet = outcome.quiet
-                exit_status = 0
+                if outcome.succeeded:
+                    exit_status = 0
+                else:
+                    exit_status = 1
             except SyncError as error:
                 result = f"failed: {error.step}: {error.reason}"
                 run_log.write(f"\nFAILED at {error.step}: {error.reason}\n")
@@ -473,6 +573,8 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[SyncPaths] = None
                 result = "failed: unexpected error; see the run log"
                 run_log.write("\n" + traceback.format_exc())
                 exit_status = 1
+        if arguments.command is not None:
+            result = f"{arguments.command}: {result}"
         if quiet:
             run_log_path.unlink()
         else:
