@@ -334,6 +334,47 @@ TEST_F(BarterVendorTest, BuyPaysDeductsAndHandsOverTheItem)
     EXPECT_EQ(output(), "You hand over:\n\r  2 x a wolf hide\n\rYou now have a hunter's belt.\n\r");
 }
 
+/* Payment weight comes off and the bought item's weight goes on, once each.
+ * Distinct weights (hide 7, belt 25) so a missed or doubled change shows. */
+TEST_F(BarterVendorTest, BuyMovesCarriedWeightAndCount)
+{
+    m_obj_proto[0].obj_flags.weight = 25;
+    m_obj_proto[1].obj_flags.weight = 7;
+    give_hides(3);
+    ASSERT_EQ(IS_CARRYING_W(&m_buyer), 21);
+    ASSERT_EQ(IS_CARRYING_N(&m_buyer), 3);
+
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(IS_CARRYING_W(&m_buyer), 21 - 2 * 7 + 25);
+    EXPECT_EQ(IS_CARRYING_N(&m_buyer), 3 - 2 + 1);
+}
+
+/* A rider's inventory weight is also carried by the mount (obj_to_char and
+ * obj_from_char both update it), so a purchase must move the mount's too. */
+TEST_F(BarterVendorTest, BuyWhileRidingMovesTheMountsWeight)
+{
+    constexpr int kMountAbsNumber = 4321;
+    char_data mount {};
+    clear_char(&mount, MOB_ISNPC);
+    mount.abs_number = kMountAbsNumber;
+    set_char_exists(kMountAbsNumber);
+    m_buyer.mount_data.mount = &mount;
+    m_buyer.mount_data.mount_number = kMountAbsNumber;
+    ASSERT_TRUE(IS_RIDING(&m_buyer));
+
+    m_obj_proto[0].obj_flags.weight = 25;
+    m_obj_proto[1].obj_flags.weight = 7;
+    give_hides(3);
+    ASSERT_EQ(IS_CARRYING_W(&mount), 21);
+
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(IS_CARRYING_W(&m_buyer), 21 - 2 * 7 + 25);
+    EXPECT_EQ(IS_CARRYING_W(&mount), 21 - 2 * 7 + 25);
+
+    m_buyer.mount_data.mount = nullptr;
+    remove_char_exists(kMountAbsNumber);
+}
+
 TEST_F(BarterVendorTest, BuyByKeyword)
 {
     give_hides(2);
