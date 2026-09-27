@@ -3,18 +3,22 @@
 
     nightly_deploy.py              the nightly run: fetch, build, run every suite, install (what cron runs)
     nightly_deploy.py --dry-run    fetch and report what the nightly run would do; builds and installs nothing
-    nightly_deploy.py <command>    one step by hand: fetch, build, test, integration, smoke, install or status
+    nightly_deploy.py <command>    one step by hand: fetch, build, test, integration, smoke, install,
+                                   write-source or status
 
 The job keeps its files under ~/nightly. config.json names the repository and branch to fetch (remote_url,
 branch, and token_file for a private GitHub repository) and which optional suites block the install
 (integration_gate, smoke_gate). state.json records what was last installed, and build-record.json the build
 in the clone and each suite's result against it; install refuses a build whose unit tests, or gated suites,
-have not passed on it. pytest for the integration suite is unpacked by hand into ~/nightly/pysite. Every
-nightly run and command appends one line to deploy.log and writes its full output to runs/, except status
-and a run that finds the lock held. The port is never restarted: the game's routine reboot starts the installed binary.
+have not passed on it. Each install also replaces the port's src/ with the installed commit's source and a
+.source-commit file naming it, together with the binary. pytest for the integration suite is unpacked by hand
+into ~/nightly/pysite. Every nightly run and command appends one line to deploy.log and writes its full output
+to runs/, except status and a run that finds the lock held. The port is never restarted: the game's routine
+reboot starts the installed binary.
 """
 
 import argparse
+import contextlib
 import dataclasses
 import datetime
 import fcntl
@@ -28,10 +32,11 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, TextIO
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, TextIO, Tuple
 
 
 PORT_BIN_DIR = Path("/rots/dev-coding4810/bin")
@@ -129,6 +134,14 @@ class NightlyPaths:
     @property
     def pysite(self) -> Path:
         return self.home / "pysite"
+
+    @property
+    def port_dir(self) -> Path:
+        return self.port_bin.parent
+
+    @property
+    def source_archive(self) -> Path:
+        return self.home / "source.tar"
 
     @property
     def built_server(self) -> Path:
@@ -423,6 +436,17 @@ class SourceClone:
 
 
 BACKUP_GLOB = "ageland.bak.*.nightly-*"
+# Names the commit a port's src/ was written from; promotions carry it from port to port.
+SOURCE_COMMIT_FILE = ".source-commit"
+# A port's next src/, staged beside the current one so the swap is two renames on one filesystem.
+STAGED_SOURCE_NAME = ".src-new"
+SOURCE_BACKUP_GLOB = "src.bak.*"
+KEPT_SOURCE_BACKUPS = 1
+# The coders group's modes for a port's src/: the world sync's D2770 and F660, keeping the execute bit on
+# executable files.
+SOURCE_DIRECTORY_MODE = 0o2770
+SOURCE_FILE_MODE = 0o660
+SOURCE_EXECUTABLE_MODE = 0o770
 
 
 def sha256_of(path: Path) -> str:
@@ -434,12 +458,34 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-class BinaryInstaller:
-    """Swaps new builds into the port's bin/ageland and prunes the backups those swaps leave."""
+@dataclass(frozen=True)
+class InstalledBinary:
+    """What one BinaryInstaller.install() did."""
 
-    def __init__(self, port_bin: Path):
+    checksum: str  # SHA-256 of the installed bin/ageland
+    backup: Optional[Path]  # where the replaced binary was kept, or None when there was none
+
+
+def nightly_backup_name(stamp: str, replaced_commit: Optional[str]) -> str:
+    """The name the nightly job keeps a replaced binary under.
+
+    ageland.bak.<stamp>.nightly-<sha7 of replaced_commit>, or ageland.bak.<stamp>.before-nightly when
+    `replaced_commit` is None (no install recorded), a name BACKUP_GLOB never matches.
+    """
+    if replaced_commit is None:
+        return f"ageland.bak.{stamp}.before-nightly"
+    return f"ageland.bak.{stamp}.nightly-{replaced_commit[:7]}"
+
+
+class BinaryInstaller:
+    """Swaps new builds into a port's bin/ageland, and restores or prunes the backups those swaps leave."""
+
+    def __init__(self, port_bin: Path, backup_glob: str = BACKUP_GLOB):
         # The port's bin/ that install() swaps binaries into.
         self.port_bin = port_bin
+        # Matches the backups prune_backups() may delete; the default BACKUP_GLOB leaves hand-made and
+        # before-nightly backups alone.
+        self.backup_glob = backup_glob
 
     @property
     def current(self) -> Path:
@@ -457,24 +503,19 @@ class BinaryInstaller:
             raise NightlyError("install", f"refused: bin/ageland was replaced since {state.commit[:7]} was "
                                           "installed; delete state.json to install over it")
 
-    def install(self, new_binary: Path, replaced_commit: Optional[str], stamp: str) -> str:
-        """Installs `new_binary` as bin/ageland (mode 0775) and returns the installed file's SHA-256.
+    def install(self, new_binary: Path, backup_name: str) -> InstalledBinary:
+        """Installs `new_binary` as bin/ageland (mode 0775), keeping the binary it replaces as `backup_name`.
 
-        The binary being replaced is kept as ageland.bak.<stamp>.nightly-<sha7 of replaced_commit>, or as
-        ageland.bak.<stamp>.before-nightly when `replaced_commit` is None. bin/ageland exists at every moment,
-        so autorun can never start a missing binary. Raises OSError when the copy, the backup or the swap
-        fails, and bin/ageland is then unchanged.
+        bin/ageland exists at every moment, so autorun can never start a missing binary. Raises OSError when
+        the copy, the backup or the swap fails, and bin/ageland is then unchanged.
         """
         staged = self.port_bin / "ageland.nightly-new"
         shutil.copyfile(new_binary, staged)
         os.chmod(staged, 0o775)
         # Taken before the swap, so nothing after the swap can fail and leave the install unrecorded.
         installed_checksum = sha256_of(staged)
+        backup = None
         if self.current.exists():
-            if replaced_commit is None:
-                backup_name = f"ageland.bak.{stamp}.before-nightly"
-            else:
-                backup_name = f"ageland.bak.{stamp}.nightly-{replaced_commit[:7]}"
             backup = self.port_bin / backup_name
             try:
                 # A hard link keeps the running server's image under the backup name without copying it.
@@ -485,19 +526,158 @@ class BinaryInstaller:
         # os.replace() over the old name is atomic: the running process keeps its inode, and the next start
         # gets the new file.
         os.replace(staged, self.current)
-        return installed_checksum
+        return InstalledBinary(installed_checksum, backup)
+
+    def restore(self, installed: InstalledBinary) -> None:
+        """Undoes `installed` by moving its backup back to bin/ageland atomically.
+
+        Removes bin/ageland instead when the install replaced nothing. Raises OSError on failure.
+        """
+        if installed.backup is None:
+            self.current.unlink(missing_ok=True)
+            return
+        os.replace(installed.backup, self.current)
 
     def prune_backups(self) -> List[Path]:
-        """Deletes all but the newest KEPT_BACKUPS nightly backups and returns the paths deleted.
-
-        Manual backups and the before-nightly backup never match and are never touched.
-        """
+        """Deletes all but the newest KEPT_BACKUPS backups matching `backup_glob` and returns the paths deleted."""
         # The timestamp follows a fixed prefix, so name order is age order.
-        backups = sorted(self.port_bin.glob(BACKUP_GLOB), reverse=True)
+        backups = sorted(self.port_bin.glob(self.backup_glob), reverse=True)
         removed = backups[KEPT_BACKUPS:]
         for backup in removed:
             backup.unlink()
         return removed
+
+
+# The signals that end a run by hand or from cron; a swap holds them so it is never cut between its steps.
+TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+
+
+@contextlib.contextmanager
+def termination_signals_held() -> Iterator[None]:
+    """Holds TERMINATION_SIGNALS for the block; any that arrive are delivered once it ends.
+
+    A swap of a port's binary and source takes several steps, and a signal between two of them would leave
+    the port half changed.
+    """
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, TERMINATION_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+
+def swap_source(port_dir: Path, new_source: Path, stamp: str) -> Optional[Path]:
+    """Makes `new_source` the port's src/, keeping the old src/ as src.bak.<stamp>, and returns that backup.
+
+    Returns None when the port had no src/. Raises OSError, or re-raises an interrupt, with the port's src/
+    as before.
+    """
+    source = port_dir / "src"
+    backup = None
+    if source.exists():
+        backup = port_dir / f"src.bak.{stamp}"
+        os.rename(source, backup)
+    try:
+        os.rename(new_source, source)
+    except BaseException:
+        if backup is not None:
+            os.rename(backup, source)
+        raise
+    return backup
+
+
+@dataclass(frozen=True)
+class PairedInstall:
+    """What one install_with_source() did."""
+
+    binary: InstalledBinary  # the binary swap
+    source_backup: Optional[Path]  # where the old src/ was kept, or None when the port had none
+
+
+def install_with_source(installer: BinaryInstaller, new_binary: Path, backup_name: str, port_dir: Path,
+                        new_source: Path, stamp: str) -> PairedInstall:
+    """Swaps in `new_binary`, then `new_source` as the port's src/, so the binary and its source change together.
+
+    Raises OSError, or re-raises an interrupt, with the port's bin/ageland and src/ both as before.
+    """
+    installed = installer.install(new_binary, backup_name)
+    try:
+        source_backup = swap_source(port_dir, new_source, stamp)
+    except BaseException:
+        installer.restore(installed)
+        raise
+    return PairedInstall(installed, source_backup)
+
+
+def prune_source_backups(port_dir: Path) -> List[Path]:
+    """Deletes all but the newest KEPT_SOURCE_BACKUPS src.bak.* directories and returns those deleted."""
+    # The timestamp follows a fixed prefix, so name order is age order.
+    backups = sorted(port_dir.glob(SOURCE_BACKUP_GLOB), reverse=True)
+    removed = backups[KEPT_SOURCE_BACKUPS:]
+    for backup in removed:
+        shutil.rmtree(backup)
+    return removed
+
+
+def prune_source_backups_after_install(port_dir: Path) -> str:
+    """Prunes the port's source backups after a finished install, returning "" or a note for the summary line.
+
+    The install has already succeeded, so a backup that cannot be deleted (one another user owns, say) is
+    reported, not treated as a failed run.
+    """
+    try:
+        prune_source_backups(port_dir)
+    except OSError as error:
+        return f"; could not delete an old source backup: {error}"
+    return ""
+
+
+def apply_source_modes(tree: Path) -> None:
+    """Gives `tree` and every directory in it SOURCE_DIRECTORY_MODE, and every file SOURCE_FILE_MODE.
+
+    Executable files get SOURCE_EXECUTABLE_MODE instead.
+    """
+    os.chmod(tree, SOURCE_DIRECTORY_MODE)
+    for directory, subdirectory_names, file_names in os.walk(tree):
+        for subdirectory_name in subdirectory_names:
+            os.chmod(Path(directory) / subdirectory_name, SOURCE_DIRECTORY_MODE)
+        for file_name in file_names:
+            file_path = Path(directory) / file_name
+            file_mode = SOURCE_FILE_MODE
+            if file_path.stat().st_mode & 0o100:
+                file_mode = SOURCE_EXECUTABLE_MODE
+            os.chmod(file_path, file_mode)
+
+
+def stage_port_source(runner: CommandRunner, paths: NightlyPaths, commit: str) -> Path:
+    """Stages `commit`'s src/, with a .source-commit file naming the commit, as the port's .src-new.
+
+    Replaces any leftover .src-new and returns its path. The source comes from `git archive`, so it holds no
+    build output, and gets the coders group's modes.
+    Raises NightlyError("source") when git or the extraction fails, leaving no .src-new behind.
+    """
+    staged = paths.port_dir / STAGED_SOURCE_NAME
+    shutil.rmtree(staged, ignore_errors=True)
+    runner.run(["git", "-C", paths.clone, "archive", "--format=tar", "-o", paths.source_archive, commit, "src"],
+               "source", GIT_TIMEOUT_SECONDS)
+    try:
+        with tarfile.open(paths.source_archive) as archive:
+            members = []
+            for member in archive.getmembers():
+                if not member.name.startswith("src/"):
+                    continue
+                member.name = member.name.removeprefix("src/")
+                members.append(member)
+            staged.mkdir()
+            archive.extractall(staged, members=members, filter="data")
+        (staged / SOURCE_COMMIT_FILE).write_text(commit + "\n")
+        apply_source_modes(staged)
+    except (OSError, tarfile.TarError) as error:
+        shutil.rmtree(staged, ignore_errors=True)
+        raise NightlyError("source", f"cannot stage {commit[:7]}'s source: {error}")
+    finally:
+        paths.source_archive.unlink(missing_ok=True)
+    return staged
 
 
 # GoogleTest's "[  FAILED  ] Suite.Name" lines; requiring a dot skips its "[  FAILED  ] 2 tests, listed below" line.
@@ -665,12 +845,12 @@ def run_recorded_suite(suite: str, runner: CommandRunner, paths: NightlyPaths) -
     return result
 
 
-def check_free_space(home: Path) -> None:
-    """Raises NightlyError("disk") when the filesystem holding `home` has less than MIN_FREE_BYTES free."""
+def check_free_space(home: Path, min_free_bytes: int = MIN_FREE_BYTES) -> None:
+    """Raises NightlyError("disk") when the filesystem holding `home` has less than `min_free_bytes` free."""
     free_bytes = shutil.disk_usage(home).free
-    if free_bytes < MIN_FREE_BYTES:
+    if free_bytes < min_free_bytes:
         raise NightlyError("disk", f"only {free_bytes // 1024 ** 2} MB free under {home}; "
-                                   f"a run needs {MIN_FREE_BYTES // 1024 ** 2} MB")
+                                   f"a run needs {min_free_bytes // 1024 ** 2} MB")
 
 
 def describe_suite_result(suite: str, result: str) -> str:
@@ -698,12 +878,15 @@ def check_gates(record: BuildRecord, config: NightlyConfig) -> None:
 
 
 def install_recorded_build(config: NightlyConfig, paths: NightlyPaths, installer: BinaryInstaller,
-                           now: datetime.datetime) -> str:
+                           runner: CommandRunner, now: datetime.datetime) -> str:
     """Installs the recorded build into the port when its gates allow, and records it in state.json.
 
-    Returns "installed", or "skipped: already installed" when state.json already records this exact build as
-    installed. Raises NightlyError("install") when the clone's binary no longer matches its record, a gate refuses it,
-    the port's bin/ageland was replaced by hand since the last install, or the copy fails.
+    The port's src/ is replaced with the build's source together with the binary. Returns "installed", or
+    "skipped: already installed" when state.json already records this exact build as installed. Raises
+    NightlyError("install") when the clone's binary no longer matches its record, a gate refuses it, the port's
+    bin/ageland was replaced by hand since the last install, or the copy or either swap fails, and
+    NightlyError("source") when
+    the source cannot be staged.
     """
     record = verified_build(paths, "install")
     check_gates(record, config)
@@ -716,15 +899,48 @@ def install_recorded_build(config: NightlyConfig, paths: NightlyPaths, installer
     if state is not None:
         replaced_commit = state.commit
     stamp = now.strftime(STAMP_FORMAT)
-    try:
-        checksum = installer.install(paths.built_server, replaced_commit, stamp)
-    except OSError as error:
-        raise NightlyError("install", f"could not install into {paths.port_bin}: {error}")
+    staged_source = stage_port_source(runner, paths, record.commit)
+    backup_name = nightly_backup_name(stamp, replaced_commit)
     installed_at = now.isoformat(timespec="seconds")
-    new_state = InstalledState(record.commit, config.remote_url, config.branch, checksum, installed_at)
-    new_state.save(paths.state)
+    # Held until state.json records the swap, so a terminated run never leaves an install it did not record.
+    with termination_signals_held():
+        try:
+            paired = install_with_source(installer, paths.built_server, backup_name, paths.port_dir,
+                                         staged_source, stamp)
+        except OSError as error:
+            shutil.rmtree(staged_source, ignore_errors=True)
+            raise NightlyError("install", f"could not install into {paths.port_dir}: {error}")
+        new_state = InstalledState(record.commit, config.remote_url, config.branch, paired.binary.checksum,
+                                   installed_at)
+        new_state.save(paths.state)
     installer.prune_backups()
-    return "installed"
+    return "installed" + prune_source_backups_after_install(paths.port_dir)
+
+
+def write_installed_source(runner: CommandRunner, paths: NightlyPaths,
+                           now: datetime.datetime) -> Tuple[str, str]:
+    """Replaces the port's src/ with the source of the commit installed there.
+
+    Returns that commit and "" or a note about a source backup that could not be pruned. The binary is not
+    touched. Raises NightlyError("write-source") when nothing is recorded as installed, the port's bin/ageland
+    is no longer the installed binary (so src/ only ever receives the source of the binary beside it), or the
+    swap fails, and NightlyError("source") when the source cannot be staged.
+    """
+    state = InstalledState.load(paths.state)
+    if state is None:
+        raise NightlyError("write-source", "nothing has been installed yet")
+    port_binary = paths.port_bin / "ageland"
+    if not port_binary.exists() or sha256_of(port_binary) != state.binary_sha256:
+        raise NightlyError("write-source", f"bin/ageland is not the {state.commit[:7]} build recorded as installed")
+    staged_source = stage_port_source(runner, paths, state.commit)
+    stamp = now.strftime(STAMP_FORMAT)
+    try:
+        with termination_signals_held():
+            swap_source(paths.port_dir, staged_source, stamp)
+    except OSError as error:
+        shutil.rmtree(staged_source, ignore_errors=True)
+        raise NightlyError("write-source", f"could not replace {paths.port_dir / 'src'}: {error}")
+    return state.commit, prune_source_backups_after_install(paths.port_dir)
 
 
 def nightly_run(config: NightlyConfig, commit: str, paths: NightlyPaths, runner: CommandRunner,
@@ -759,7 +975,7 @@ def nightly_run(config: NightlyConfig, commit: str, paths: NightlyPaths, runner:
         if gate_is_on and result != PASSED:
             raise NightlyError(suite, f"{result.removeprefix('failed: ')} ({suite}_gate is on)")
         suite_notes.append(describe_suite_result(suite, result))
-    message = install_recorded_build(config, paths, installer, now)
+    message = install_recorded_build(config, paths, installer, runner, now)
     return RunOutcome(commit, "; ".join([message] + suite_notes))
 
 
@@ -780,6 +996,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("integration", help="run the integration suite against the recorded build")
     commands.add_parser("smoke", help="run the account smoke flow against the recorded build")
     commands.add_parser("install", help="install the recorded build into the port, if its gates allow")
+    commands.add_parser("write-source", help="write the installed commit's source into the port's src/")
     commands.add_parser("status", help="print the installed build, the recorded build and the last few runs")
     return parser
 
@@ -880,10 +1097,13 @@ def perform_command(command: Optional[str], dry_run: bool, context: RunContext, 
         context.commit = clone.head()
         build_and_record(runner, paths, context.commit)
         return "built"
+    if command == "write-source":
+        context.commit, prune_note = write_installed_source(runner, paths, started)
+        return "source written" + prune_note
     if command == "install":
         context.config = NightlyConfig.load(paths.config)
         context.commit = verified_build(paths, "install").commit
-        return install_recorded_build(context.config, paths, installer, started)
+        return install_recorded_build(context.config, paths, installer, runner, started)
     suite = SUITE_FOR_COMMAND[command]
     context.commit = verified_build(paths, suite).commit
     result = run_recorded_suite(suite, runner, paths)

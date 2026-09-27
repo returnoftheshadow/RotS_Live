@@ -8,9 +8,11 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -209,7 +211,7 @@ class VerifiedBuildTest(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         # A throwaway home whose clone holds the build under test.
-        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port-bin")
+        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port" / "bin")
         self.paths.home.mkdir()
 
     def test_no_record_says_to_build_first(self) -> None:
@@ -301,7 +303,9 @@ class UpstreamRepo:
 
     def _commit_and_push(self, branch: str, content: str, force: bool) -> str:
         (self.work / "file.txt").write_text(content)
-        git("-C", str(self.work), "add", "file.txt")
+        (self.work / "src").mkdir(exist_ok=True)
+        (self.work / "src" / "comm.cpp").write_text(f"// {content}\n")
+        git("-C", str(self.work), "add", "file.txt", "src")
         git("-C", str(self.work), "commit", "--quiet", "-m", content)
         push_args = ["-C", str(self.work), "push", "--quiet"]
         if force:
@@ -613,7 +617,8 @@ class BinaryInstallerTest(TempDirTestCase):
     def test_install_replaces_the_binary_and_returns_its_checksum(self) -> None:
         self.write_current(b"old build")
 
-        checksum = self.installer.install(self.new_binary, "abcdef1234567890", "20260927_013005")
+        backup_name = nightly.nightly_backup_name("20260927_013005", "abcdef1234567890")
+        checksum = self.installer.install(self.new_binary, backup_name).checksum
 
         current = self.port_bin / "ageland"
         self.assertEqual(current.read_bytes(), b"new build")
@@ -623,7 +628,7 @@ class BinaryInstallerTest(TempDirTestCase):
     def test_old_binary_is_kept_as_a_hard_linked_nightly_backup(self) -> None:
         old_inode = self.write_current(b"old build").stat().st_ino
 
-        self.installer.install(self.new_binary, "abcdef1234567890", "20260927_013005")
+        self.installer.install(self.new_binary, nightly.nightly_backup_name("20260927_013005", "abcdef1234567890"))
 
         backup = self.port_bin / "ageland.bak.20260927_013005.nightly-abcdef1"
         self.assertEqual(backup.read_bytes(), b"old build")
@@ -632,13 +637,13 @@ class BinaryInstallerTest(TempDirTestCase):
     def test_first_install_backup_is_kept_out_of_pruning(self) -> None:
         self.write_current(b"manual build")
 
-        self.installer.install(self.new_binary, None, "20260927_013005")
+        self.installer.install(self.new_binary, nightly.nightly_backup_name("20260927_013005", None))
 
         self.assertTrue((self.port_bin / "ageland.bak.20260927_013005.before-nightly").exists())
         self.assertEqual(list(self.port_bin.glob(nightly.BACKUP_GLOB)), [])
 
     def test_install_without_a_current_binary_makes_no_backup(self) -> None:
-        self.installer.install(self.new_binary, None, "20260927_013005")
+        self.installer.install(self.new_binary, nightly.nightly_backup_name("20260927_013005", None))
 
         self.assertEqual(sorted(path.name for path in self.port_bin.iterdir()), ["ageland"])
 
@@ -652,7 +657,7 @@ class BinaryInstallerTest(TempDirTestCase):
             real_replace(source, destination)
 
         with mock.patch.object(nightly.os, "replace", side_effect=checking_replace):
-            self.installer.install(self.new_binary, "abcdef1234567890", "20260927_013005")
+            self.installer.install(self.new_binary, nightly.nightly_backup_name("20260927_013005", "abcdef1234567890"))
 
         self.assertEqual(present_during_swap, [True])
 
@@ -660,7 +665,7 @@ class BinaryInstallerTest(TempDirTestCase):
         self.write_current(b"old build")
         (self.port_bin / "ageland.nightly-new").write_bytes(b"half-copied from a crashed run")
 
-        self.installer.install(self.new_binary, "abcdef1234567890", "20260927_013005")
+        self.installer.install(self.new_binary, nightly.nightly_backup_name("20260927_013005", "abcdef1234567890"))
 
         self.assertEqual((self.port_bin / "ageland").read_bytes(), b"new build")
         self.assertFalse((self.port_bin / "ageland.nightly-new").exists())
@@ -670,12 +675,60 @@ class BinaryInstallerTest(TempDirTestCase):
         self.write_current(b"a teammate's build")
 
         with mock.patch.object(nightly.os, "link", side_effect=PermissionError(1, "Operation not permitted")):
-            checksum = self.installer.install(self.new_binary, None, "20260927_013005")
+            backup_name = nightly.nightly_backup_name("20260927_013005", None)
+            checksum = self.installer.install(self.new_binary, backup_name).checksum
 
         backup = self.port_bin / "ageland.bak.20260927_013005.before-nightly"
         self.assertEqual(backup.read_bytes(), b"a teammate's build")
         self.assertEqual((self.port_bin / "ageland").read_bytes(), b"new build")
         self.assertEqual(checksum, sha256_bytes(b"new build"))
+
+    def test_install_reports_the_backup_it_kept(self) -> None:
+        self.write_current(b"old build")
+
+        installed = self.installer.install(self.new_binary, "ageland.bak.test")
+
+        self.assertEqual(installed.backup, self.port_bin / "ageland.bak.test")
+        self.assertEqual(installed.backup.read_bytes(), b"old build")
+
+    def test_install_without_a_current_binary_reports_no_backup(self) -> None:
+        installed = self.installer.install(self.new_binary, "ageland.bak.test")
+
+        self.assertIsNone(installed.backup)
+
+    def test_restore_puts_the_replaced_binary_back(self) -> None:
+        self.write_current(b"old build")
+        installed = self.installer.install(self.new_binary, "ageland.bak.test")
+
+        self.installer.restore(installed)
+
+        self.assertEqual((self.port_bin / "ageland").read_bytes(), b"old build")
+        self.assertFalse((self.port_bin / "ageland.bak.test").exists())
+
+    def test_restore_without_a_backup_removes_the_new_binary(self) -> None:
+        installed = self.installer.install(self.new_binary, "ageland.bak.test")
+
+        self.installer.restore(installed)
+
+        self.assertFalse((self.port_bin / "ageland").exists())
+
+    def test_nightly_backup_names(self) -> None:
+        self.assertEqual(nightly.nightly_backup_name("20260927_013005", "abcdef1234567890"),
+                         "ageland.bak.20260927_013005.nightly-abcdef1")
+        self.assertEqual(nightly.nightly_backup_name("20260927_013005", None),
+                         "ageland.bak.20260927_013005.before-nightly")
+
+    def test_prune_uses_the_installers_own_backup_glob(self) -> None:
+        promotion_backups = [f"ageland.bak.202609{day:02d}_013005.promotion-4810-to-4802" for day in range(1, 11)]
+        nightly_backup = "ageland.bak.20260901_013005.nightly-abc0001"
+        for name in promotion_backups + [nightly_backup]:
+            (self.port_bin / name).write_bytes(b"x")
+        installer = nightly.BinaryInstaller(self.port_bin, "ageland.bak.*.promotion-*")
+
+        removed = installer.prune_backups()
+
+        self.assertEqual(sorted(path.name for path in removed), promotion_backups[:3])
+        self.assertTrue((self.port_bin / nightly_backup).exists())
 
     def test_nothing_installed_yet_is_replaceable(self) -> None:
         self.write_current(b"manual build")
@@ -714,13 +767,91 @@ class BinaryInstallerTest(TempDirTestCase):
         self.assertEqual(remaining, sorted(nightly_backups[3:] + other_files))
 
 
+class PairedInstallTest(TempDirTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # A port with a binary and a src/.
+        self.port_dir = self.root / "port"
+        (self.port_dir / "bin").mkdir(parents=True)
+        (self.port_dir / "bin" / "ageland").write_bytes(b"old build")
+        (self.port_dir / "src").mkdir()
+        (self.port_dir / "src" / "comm.cpp").write_text("old source\n")
+        # The staged source install_with_source() swaps in.
+        self.new_source = self.port_dir / ".src-new"
+        self.new_source.mkdir()
+        (self.new_source / "comm.cpp").write_text("new source\n")
+        # The binary the swap installs.
+        self.new_binary = self.root / "new-ageland"
+        self.new_binary.write_bytes(b"new build")
+        # The installer under test, pointed at the port's bin/.
+        self.installer = nightly.BinaryInstaller(self.port_dir / "bin")
+
+    def install(self) -> "nightly.PairedInstall":
+        return nightly.install_with_source(self.installer, self.new_binary, "ageland.bak.test", self.port_dir,
+                                           self.new_source, "20260927_013005")
+
+    def assert_port_unchanged(self) -> None:
+        self.assertEqual((self.port_dir / "bin" / "ageland").read_bytes(), b"old build")
+        self.assertEqual((self.port_dir / "src" / "comm.cpp").read_text(), "old source\n")
+        self.assertEqual(list(self.port_dir.glob("src.bak.*")), [])
+
+    def test_binary_and_source_change_together(self) -> None:
+        paired = self.install()
+
+        self.assertEqual((self.port_dir / "bin" / "ageland").read_bytes(), b"new build")
+        self.assertEqual((self.port_dir / "src" / "comm.cpp").read_text(), "new source\n")
+        self.assertEqual(paired.source_backup, self.port_dir / "src.bak.20260927_013005")
+        self.assertEqual((paired.source_backup / "comm.cpp").read_text(), "old source\n")
+        self.assertFalse(self.new_source.exists())
+
+    def test_a_failed_source_swap_restores_binary_and_source(self) -> None:
+        real_rename = os.rename
+
+        def failing_rename(source: object, destination: object) -> None:
+            if Path(source) == self.new_source:
+                raise OSError(18, "Invalid cross-device link")
+            real_rename(source, destination)
+
+        with mock.patch.object(nightly.os, "rename", side_effect=failing_rename):
+            with self.assertRaises(OSError):
+                self.install()
+
+        self.assert_port_unchanged()
+
+    def test_an_interrupt_during_the_source_swap_restores_the_binary(self) -> None:
+        with mock.patch.object(nightly, "swap_source", side_effect=SystemExit(143)):
+            with self.assertRaises(SystemExit):
+                self.install()
+
+        self.assert_port_unchanged()
+
+    def test_a_port_without_src_gets_one(self) -> None:
+        shutil.rmtree(self.port_dir / "src")
+
+        paired = self.install()
+
+        self.assertIsNone(paired.source_backup)
+        self.assertEqual((self.port_dir / "src" / "comm.cpp").read_text(), "new source\n")
+
+    def test_prune_keeps_the_newest_source_backup(self) -> None:
+        for day in (1, 2, 3):
+            (self.port_dir / f"src.bak.202609{day:02d}_013005").mkdir()
+
+        removed = nightly.prune_source_backups(self.port_dir)
+
+        self.assertEqual(sorted(path.name for path in removed),
+                         ["src.bak.20260901_013005", "src.bak.20260902_013005"])
+        self.assertTrue((self.port_dir / "src.bak.20260903_013005").is_dir())
+
+
 # ---------------------------------------------------------------------------------------------
 # One run
 # ---------------------------------------------------------------------------------------------
 
 
 class FakeRunner:
-    """Records each command; the build step writes the binaries, and a scripted step can fail."""
+    """Records each command; the build step writes the binaries, the source step writes the tar `git archive`
+    would, and a scripted step can fail."""
 
     def __init__(self, paths: "nightly.NightlyPaths", fail_step: Optional[str] = None, failure_output: str = "",
                  creates_binaries: bool = True, during_build: Optional[Callable[[], None]] = None,
@@ -753,6 +884,9 @@ class FakeRunner:
             if reason is None:
                 reason = f"{step} command exited with status 1"
             raise nightly.CommandFailed(step, reason, self.failure_output)
+        if step == "source":
+            command = [str(arg) for arg in args]
+            write_source_archive(Path(command[command.index("-o") + 1]), command[-2])
         if step == "build" and self.creates_binaries:
             self.paths.built_server.parent.mkdir(parents=True, exist_ok=True)
             self.paths.built_server.write_bytes(b"new build")
@@ -790,6 +924,20 @@ def record_build(paths: "nightly.NightlyPaths", content: bytes = b"new build",
     return record
 
 
+def write_source_archive(archive_path: Path, commit: str) -> None:
+    """Writes what `git archive <commit> src` would: a tar holding src/comm.cpp."""
+    content = f"// built from {commit}\n".encode()
+    with tarfile.open(archive_path, "w") as archive:
+        directory = tarfile.TarInfo("src")
+        directory.type = tarfile.DIRTYPE
+        directory.mode = 0o755
+        archive.addfile(directory)
+        member = tarfile.TarInfo("src/comm.cpp")
+        member.size = len(content)
+        member.mode = 0o644
+        archive.addfile(member, io.BytesIO(content))
+
+
 def add_suites(paths: "nightly.NightlyPaths") -> None:
     """Gives the clone an integration suite with its test world and the smoke script, and creates the pysite."""
     world_wld = paths.clone / "tests" / "integration" / "world" / "wld"
@@ -808,9 +956,9 @@ class NightlyRunTest(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         # A throwaway home and port bin/ that the run reads and installs into.
-        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port-bin")
+        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port" / "bin")
         self.paths.home.mkdir()
-        self.paths.port_bin.mkdir()
+        self.paths.port_bin.mkdir(parents=True)
         (self.paths.port_bin / "ageland").write_bytes(b"old nightly build")
         # The configured source for most tests.
         self.config = nightly.NightlyConfig(GITHUB_URL, "fix/uaf-port", None)
@@ -843,7 +991,7 @@ class NightlyRunTest(TempDirTestCase):
 
         self.assertEqual(outcome, nightly.RunOutcome(NEW_COMMIT, "installed; " + self.SKIPPED_SUITES))
         self.assertEqual(self.clone.checked_out, NEW_COMMIT)
-        self.assertEqual(runner.steps(), ["configure", "build", "unit tests"])
+        self.assertEqual(runner.steps(), ["configure", "build", "unit tests", "source"])
         self.assertEqual(self.port_binary(), b"new build")
         state = nightly.InstalledState.load(self.paths.state)
         expected_state = nightly.InstalledState(NEW_COMMIT, GITHUB_URL, "fix/uaf-port", sha256_bytes(b"new build"),
@@ -870,7 +1018,7 @@ class NightlyRunTest(TempDirTestCase):
 
         self.run_nightly(runner)
 
-        self.assertEqual(runner.steps(), ["build", "unit tests"])
+        self.assertEqual(runner.steps(), ["build", "unit tests", "source"])
 
     def test_first_install_keeps_the_existing_binary_out_of_pruning(self) -> None:
         self.run_nightly(FakeRunner(self.paths))
@@ -1015,7 +1163,8 @@ class NightlyRunTest(TempDirTestCase):
         outcome = self.run_nightly(runner)
 
         self.assertEqual(outcome.message, "installed; integration passed; smoke passed")
-        self.assertEqual(runner.steps(), ["configure", "build", "unit tests", "integration"] + ["smoke"] * 5)
+        expected_steps = ["configure", "build", "unit tests", "integration"] + ["smoke"] * 5 + ["source"]
+        self.assertEqual(runner.steps(), expected_steps)
 
     def test_a_report_only_failure_is_on_the_summary_and_the_build_installs(self) -> None:
         add_suites(self.paths)
@@ -1062,6 +1211,25 @@ class NightlyRunTest(TempDirTestCase):
 
         self.assertEqual(runner.steps(), ["configure", "build", "unit tests"])
 
+    def test_a_skipped_night_leaves_the_source_alone(self) -> None:
+        self.record_installed(NEW_COMMIT)
+        (self.paths.port_dir / "src").mkdir()
+        (self.paths.port_dir / "src" / "old.cc").write_text("2020 source\n")
+
+        self.run_nightly(FakeRunner(self.paths))
+
+        self.assertEqual(sorted(path.name for path in (self.paths.port_dir / "src").iterdir()), ["old.cc"])
+
+    def test_failed_unit_tests_leave_the_source_alone(self) -> None:
+        (self.paths.port_dir / "src").mkdir()
+        (self.paths.port_dir / "src" / "old.cc").write_text("2020 source\n")
+        runner = FakeRunner(self.paths, fail_step="unit tests", failure_output="[  FAILED  ] PoisonTest.Stacks\n")
+
+        with self.assertRaises(nightly.NightlyError):
+            self.run_nightly(runner)
+
+        self.assertEqual(sorted(path.name for path in (self.paths.port_dir / "src").iterdir()), ["old.cc"])
+
     def test_a_failed_build_leaves_no_record(self) -> None:
         record_build(self.paths, b"previous build", {"unit": "passed"})
 
@@ -1086,7 +1254,7 @@ class SuiteTest(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         # A throwaway home whose clone holds a recorded build.
-        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port-bin")
+        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port" / "bin")
         self.paths.home.mkdir()
         record_build(self.paths)
 
@@ -1235,17 +1403,23 @@ class InstallTest(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         # A throwaway home and port bin/ holding a manually deployed binary.
-        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port-bin")
+        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port" / "bin")
         self.paths.home.mkdir()
-        self.paths.port_bin.mkdir()
+        self.paths.port_bin.mkdir(parents=True)
         (self.paths.port_bin / "ageland").write_bytes(b"manual build")
         # The installer under test, pointed at the temporary port bin/.
         self.installer = nightly.BinaryInstaller(self.paths.port_bin)
+        # The port's current src/, which an install replaces.
+        (self.paths.port_dir / "src").mkdir()
+        (self.paths.port_dir / "src" / "old.cc").write_text("2020 source\n")
 
-    def install(self, config: Optional["nightly.NightlyConfig"] = None) -> str:
+    def install(self, config: Optional["nightly.NightlyConfig"] = None,
+                runner: Optional[FakeRunner] = None) -> str:
         if config is None:
             config = nightly.NightlyConfig(GITHUB_URL, "fix/uaf-port", None)
-        return nightly.install_recorded_build(config, self.paths, self.installer, FIXED_NOW)
+        if runner is None:
+            runner = FakeRunner(self.paths)
+        return nightly.install_recorded_build(config, self.paths, self.installer, runner, FIXED_NOW)
 
     def assert_refused(self, expected_text: str, config: Optional["nightly.NightlyConfig"] = None) -> None:
         with self.assertRaises(nightly.NightlyError) as caught:
@@ -1291,6 +1465,71 @@ class InstallTest(TempDirTestCase):
 
         self.assertEqual(self.install(), "skipped: already installed")
         self.assertEqual(list(self.paths.port_bin.glob("ageland.bak.*.nightly-*")), [])
+
+    def test_an_install_writes_the_ports_source_and_commit(self) -> None:
+        record_build(self.paths, results={"unit": "passed"})
+
+        self.install()
+
+        port_source = self.paths.port_dir / "src"
+        self.assertEqual((port_source / "comm.cpp").read_text(), f"// built from {NEW_COMMIT}\n")
+        self.assertEqual((port_source / ".source-commit").read_text(), NEW_COMMIT + "\n")
+        self.assertEqual((port_source / "comm.cpp").stat().st_mode & 0o777, 0o660)
+        self.assertEqual([path.name for path in self.paths.port_dir.glob("src.bak.*")],
+                         ["src.bak.20260927_013005"])
+        self.assertFalse((self.paths.port_dir / ".src-new").exists())
+        self.assertFalse(self.paths.source_archive.exists())
+
+    def test_a_refused_install_leaves_the_source_alone(self) -> None:
+        record_build(self.paths)
+
+        with self.assertRaises(nightly.NightlyError):
+            self.install()
+
+        self.assertEqual(sorted(path.name for path in (self.paths.port_dir / "src").iterdir()), ["old.cc"])
+
+    def test_a_failed_source_staging_changes_nothing(self) -> None:
+        record_build(self.paths, results={"unit": "passed"})
+
+        with self.assertRaises(nightly.NightlyError) as caught:
+            self.install(runner=FakeRunner(self.paths, fail_step="source"))
+
+        self.assertEqual(caught.exception.step, "source")
+        self.assertEqual((self.paths.port_bin / "ageland").read_bytes(), b"manual build")
+        self.assertEqual(sorted(path.name for path in (self.paths.port_dir / "src").iterdir()), ["old.cc"])
+        self.assertFalse((self.paths.port_dir / ".src-new").exists())
+
+    def test_a_source_backup_that_cannot_be_pruned_is_noted_not_failed(self) -> None:
+        record_build(self.paths, results={"unit": "passed"})
+        for day in (1, 2):
+            (self.paths.port_dir / f"src.bak.2026090{day}_013005").mkdir()
+        real_rmtree = shutil.rmtree
+
+        def refusing_rmtree(path: object, *args: object, **kwargs: object) -> None:
+            if Path(path).name.startswith("src.bak."):
+                raise PermissionError(13, "Permission denied", str(path))
+            real_rmtree(path, *args, **kwargs)
+
+        with mock.patch.object(nightly.shutil, "rmtree", side_effect=refusing_rmtree):
+            result = self.install()
+
+        self.assertTrue(result.startswith("installed; could not delete an old source backup: "))
+        self.assertEqual(nightly.InstalledState.load(self.paths.state).commit, NEW_COMMIT)
+
+    def test_the_swap_and_its_record_run_with_termination_signals_held(self) -> None:
+        record_build(self.paths, results={"unit": "passed"})
+        masks_during_install: List[set] = []
+        real_install = self.installer.install
+
+        def watching_install(new_binary: Path, backup_name: str) -> "nightly.InstalledBinary":
+            masks_during_install.append(signal.pthread_sigmask(signal.SIG_BLOCK, []))
+            return real_install(new_binary, backup_name)
+
+        with mock.patch.object(self.installer, "install", side_effect=watching_install):
+            self.install()
+
+        self.assertTrue({signal.SIGTERM, signal.SIGHUP, signal.SIGINT} <= masks_during_install[0])
+        self.assertNotIn(signal.SIGTERM, signal.pthread_sigmask(signal.SIG_BLOCK, []))
 
     def test_a_binary_rebuilt_since_the_record_is_refused(self) -> None:
         record_build(self.paths, results={"unit": "passed"})
@@ -1348,9 +1587,9 @@ class MainTest(TempDirTestCase):
     def setUp(self) -> None:
         super().setUp()
         # A throwaway home and port bin/ that main() reads and installs into.
-        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port-bin")
+        self.paths = nightly.NightlyPaths(self.root / "nightly", self.root / "port" / "bin")
         self.paths.home.mkdir()
-        self.paths.port_bin.mkdir()
+        self.paths.port_bin.mkdir(parents=True)
         (self.paths.port_bin / "ageland").write_bytes(b"manual build")
         # A real local repository, so main() exercises a real fetch.
         self.upstream = UpstreamRepo(self.root, "upstream")
@@ -1391,6 +1630,8 @@ class MainTest(TempDirTestCase):
         self.assertEqual(self.summary_lines(), [expected])
         self.assertEqual(printed.strip(), expected)
         self.assertTrue((self.paths.run_logs / "20260927_013005.log").exists())
+        self.assertEqual((self.paths.port_dir / "src" / "comm.cpp").read_text(), "// work\n")
+        self.assertEqual((self.paths.port_dir / "src" / ".source-commit").read_text(), self.tip + "\n")
 
     def test_second_run_on_the_same_commit_skips(self) -> None:
         self.write_config()
@@ -1585,6 +1826,35 @@ class MainTest(TempDirTestCase):
         self.assertEqual(exit_status, 1)
         self.assertIn("another nightly run holds the lock", errors.getvalue())
         self.assertFalse(self.paths.summary_log.exists())
+
+    def test_write_source_writes_the_installed_commits_source(self) -> None:
+        self.write_config()
+        self.run_main()
+        shutil.rmtree(self.paths.port_dir / "src")
+
+        exit_status, _printed = self.run_main("write-source")
+
+        self.assertEqual(exit_status, 0)
+        self.assertIn(f"{self.tip[:7]}  write-source: source written", self.summary_lines()[-1])
+        self.assertEqual((self.paths.port_dir / "src" / "comm.cpp").read_text(), "// work\n")
+        self.assertEqual((self.paths.port_dir / "src" / ".source-commit").read_text(), self.tip + "\n")
+
+    def test_write_source_refuses_a_binary_replaced_since_the_install(self) -> None:
+        self.write_config()
+        self.run_main()
+        (self.paths.port_bin / "ageland").write_bytes(b"a hand build")
+
+        exit_status, _printed = self.run_main("write-source")
+
+        self.assertEqual(exit_status, 1)
+        self.assertIn(f"write-source: failed: write-source: bin/ageland is not the {self.tip[:7]} build",
+                      self.summary_lines()[-1])
+
+    def test_write_source_with_nothing_installed_refuses(self) -> None:
+        exit_status, _printed = self.run_main("write-source")
+
+        self.assertEqual(exit_status, 1)
+        self.assertIn("write-source: failed: write-source: nothing has been installed yet", self.summary_lines()[-1])
 
     def test_status_shows_the_recorded_build(self) -> None:
         record = nightly.BuildRecord("a" * 40, "0" * 64, {"unit": "passed", "integration": "failed: 1 failed: test_x"})
