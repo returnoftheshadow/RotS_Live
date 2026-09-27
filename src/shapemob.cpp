@@ -564,9 +564,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
     write_mob_options(f, m->specials.mob_options);
 }
 
-#define DESCRCHANGE(line, addr) DESCRCHANGE_FMT(line, addr, true)
-/* allow_format false: one setting per line (options), so %f is refused. */
-#define DESCRCHANGE_FMT(line, addr, allow_format)                     \
+#define DESCRCHANGE(line, addr)                                       \
     do {                                                              \
         if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_SIMPLE_ACTIVE)) {   \
             sprintf(tmpstr, "You are about to change %s:\n\r", line); \
@@ -580,8 +578,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
             SHAPE_PROTO(ch)                                           \
                 ->tmpstr                                              \
                 = str_dup(addr);                                      \
-            string_add_init(ch->desc, &(SHAPE_PROTO(ch)->tmpstr),     \
-                allow_format);                                        \
+            string_add_init(ch->desc, &(SHAPE_PROTO(ch)->tmpstr));    \
             return;                                                   \
         } else {                                                      \
             if (SHAPE_PROTO(ch)->tmpstr) {                            \
@@ -747,7 +744,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
         case 42: {
             char* before = SHAPE_PROTO(ch)->proto->specials.mob_options;
             bool finishing = IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_SIMPLE_ACTIVE);
-            DESCRCHANGE_FMT("OPTIONS, settings for the mob program, one per line", SHAPE_PROTO(ch)->proto->specials.mob_options, false)
+            DESCRCHANGE("OPTIONS, settings for the mob program, one per line", SHAPE_PROTO(ch)->proto->specials.mob_options)
             if (finishing) {
                 /* The editor copy owns its strings (load_proto allocated them),
                  * so whichever of before/after is dropped is freed here. */
@@ -770,7 +767,6 @@ void shape_center_proto(struct char_data* ch, char* arg)
             }
         } break;
 #undef DESCRCHANGE
-#undef DESCRCHANGE_FMT
 #define DIGITCHANGE(line, addr)                                    \
     do {                                                           \
         if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) { \

@@ -2067,7 +2067,6 @@ struct descriptor_data {
     unsigned int max_str; /*  allocated length of *str		*/
     unsigned int len_str; /* present length of *str               */
     unsigned int cur_str; /* current pointer position in *str     */
-    bool str_no_format; /* line-per-setting text: %f refused and not offered */
     int prompt_mode; /* control of prompt-printing		*/
     bool bare_prompt_pending; /* true if the last thing written to this socket was a bare
                                   prompt/menu marker with no trailing newline, so the next
