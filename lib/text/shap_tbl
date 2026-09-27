@@ -1613,6 +1613,8 @@ Special procedures:
     Important Note:  This spec_prog will NOT work with MEMORY flag (#11).
 29: postmaster          30: dragon
 31: caster/mage (spec)  32: ranger (new)
+33: barter vendor. Sells items for other items; its settings go in /42
+    (see MAN SHAPE MOB2 42).
 
 Make sure to add flag SPEC to mobile.
 
@@ -1708,6 +1710,30 @@ guildmasters: when it is not 0, only races whose bit is set may practice.
 
 /41 (extended) sets which races a guildmaster will teach, as a race
 BITVECTOR (see 'MAN SHAPE MOB 11'). It only matters for guildmaster mobs.
+#
+"MOB2 42" "MOB OPTIONS" OPTIONS
+
+/42 (extended) holds the mob's options: a text field where settings for
+the mob's program are stored, one setting per line. /42 opens the text
+editor. Type each setting on its own line, then %e to save (%q aborts).
+%f (format) is refused here: it would join the lines and break them.
+Blank lines and lines starting with // (comments) are ignored.
+
+Only program 33 (barter vendor, see MAN SHAPE MOB2 29) reads options:
+  store=<room vnum>     the store room; what lies there is for sale
+  hours=<a>-<b>[,<c>-<d>]  game hours (0-23) it trades; none = always
+  price <item> <cur>x<qty> [<cur>x<qty>...] [deduct]
+                        the cost of one <item>: 1-4 currencies, each
+                        <qty> copies (1-100) of object <cur>. deduct:
+                        each sale takes one copy from the store room.
+Example:
+  store=12345
+  hours=6-12,14-20
+  price 5001 2222x1 3333x2 deduct
+  price 5002 3333x4
+
+Problems show as MOB ERROR lines on /save and /implement. A bad price
+line is skipped; a bad store or hours line stops the vendor trading.
 #
 "MOB 49" "MOB2 49"
 
