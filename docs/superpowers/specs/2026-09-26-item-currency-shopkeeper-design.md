@@ -230,8 +230,8 @@ Reported like the other boot misconfiguration warnings (type + vnum + line, no p
 | `structs.h` | New `char*` options field on the mob, owned by the prototype like the other mob text fields |
 | `db.cpp` mob loader | Read the optional trailing options string; copy/free it correctly between the prototype and loaded mobs |
 | `shapemob.cpp` | Field 42 "options" (multi-line text editor), shown in both mob display views; `write_proto` writes it; reparse and warn on save |
-| New `mob_options.{h,cpp}` | Generic line/key lookup, plus the vendor parser (store, hours, price lines → table with limits) and the "open now?" check. Pure functions, unit-tested |
-| New folder `src/mob_progs/`, file `shopkeeper.cpp` | Home for the barter vendor / shopkeeper mob program: `SPECIAL(barter_vendor)` (list, buy, refusals, protection, give refusal). A later, separate move-only refactor splits `spec_pro.cpp` into `mob_progs/passive.cpp` and `mob_progs/behavioral.cpp` for the other mob programs (trainers, gatekeepers, ferries, herald…) |
+| New `mob_options.{h,cpp}` | The generic options field: read/write in mob files, the storable check, key lookup and line helpers. Pure functions, unit-tested |
+| New folder `src/mob_progs/`, file `shopkeeper.{h,cpp}` | Home for the barter vendor / shopkeeper mob program: the vendor parser (store, hours, list, price lines → table with limits), the "open now?" check, and `SPECIAL(barter_vendor)` (list, buy, refusals, protection, give refusal). A later, separate move-only refactor splits `spec_pro.cpp` into `mob_progs/passive.cpp` and `mob_progs/behavioral.cpp` for the other mob programs (trainers, gatekeepers, ferries, herald…) |
 | `spec_ass.cpp` | Program 33 in both `virt_program_number` and `get_special_function`; extend `spec_pro_message[]` to index 33 |
 | Boot | Parse and validate every program-33 prototype after rooms, objects and shops are loaded |
 | `act_wiz.cpp` stat | Show options in mob `stat` |
