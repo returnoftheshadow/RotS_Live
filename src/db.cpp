@@ -4443,46 +4443,88 @@ void room_data::delete_room()
         delete BASE_EXTENSION;
 }
 
+int running_mob_vnum = -1;
+int running_mob_room_vnum = -1;
+
+/*
+ * One backtrace_symbols() line, "binary(mangled+0x1f) [0x...]", as
+ * "function(args)+0x1f" in out.  The line is cut up in place.  Anything
+ * missing -- no line, no name, no offset -- leaves that part out, so out may
+ * be empty; this runs on an error path and must never fail itself.
+ */
+void negative_room_caller_name(char* line, char* out, size_t out_size)
+{
+    char* name;
+    char* offset = 0;
+    char* demangled = 0;
+    int status = 0;
+
+    if (!out || out_size == 0)
+        return;
+    out[0] = '\0';
+    if (!line)
+        return;
+
+    char* open = strchr(line, '(');
+    char* plus = open ? strchr(open, '+') : 0;
+    char* close = open ? strchr(open, ')') : 0;
+    if (!open || !close || (plus && plus > close))
+        return;
+
+    *(plus ? plus : close) = '\0';
+    name = open + 1;
+    if (!*name)
+        return;
+    if (plus && close > plus + 1) {
+        *close = '\0';
+        offset = plus + 1;
+    }
+
+    demangled = abi::__cxa_demangle(name, 0, 0, &status);
+    if (status == 0 && demangled)
+        name = demangled;
+
+    if (offset)
+        snprintf(out, out_size, "%s+%s", name, offset);
+    else
+        snprintf(out, out_size, "%s", name);
+    free(demangled);
+}
+
 /*
  * world[] was given a negative room outside any zone command or script line,
- * so no builder line is to blame.  Name the function that made the call so a
- * coder can find it.  Runs only on this error path; everything it allocates
- * is freed before it returns, and if the lookup finds nothing the message is
- * logged without a name.
+ * so no builder line is to blame.  Name the function that made the call and
+ * the offset into it, so a coder can find the line against the same build:
+ *   gdb -batch -ex "info line *('one_mobile_activity(char_data*)'+0x1b1-1)" bin/ageland
+ * (less one: the offset is the return address, just past the call).  During a
+ * mob's turn, also name the mob and the room it started the turn in.  Runs only on this error path; everything it allocates is
+ * freed before it returns, and anything it cannot find is left out.
  */
 static void report_negative_room_caller(void)
 {
     void* frames[3];
     char** names;
-    char* caller = 0;
-    char* demangled = 0;
+    char caller[256] = "";
+    char mob[64] = "";
     char msg[512];
     int n;
 
     /* frames[0] is this function, frames[1] world[], frames[2] its caller. */
     n = backtrace(frames, 3);
     names = (n == 3) ? backtrace_symbols(frames + 2, 1) : 0;
-    if (names && names[0]) {
-        /* "binary(mangled+0x1f) [0x...]" -> "mangled" */
-        char* open = strchr(names[0], '(');
-        char* plus = open ? strchr(open, '+') : 0;
-        if (open && plus && plus > open + 1) {
-            *plus = '\0';
-            caller = open + 1;
-            int status = 0;
-            demangled = abi::__cxa_demangle(caller, 0, 0, &status);
-            if (status == 0 && demangled)
-                caller = demangled;
-        }
-    }
+    if (names)
+        negative_room_caller_name(names[0], caller, sizeof(caller));
 
-    if (caller)
-        snprintf(msg, sizeof(msg), "world[] called for negative room number from %s", caller);
+    /* Numbers saved at the start of the mob's turn; the mob itself may be
+     * gone by now, so nothing here reads from it. */
+    if (running_mob_vnum >= 0 || running_mob_room_vnum >= 0)
+        snprintf(mob, sizeof(mob), ", mob %d, room %d", running_mob_vnum, running_mob_room_vnum);
+    if (caller[0])
+        snprintf(msg, sizeof(msg), "world[] called for negative room number from %s%s", caller, mob);
     else
-        snprintf(msg, sizeof(msg), "world[] called for negative room number.");
+        snprintf(msg, sizeof(msg), "world[] called for negative room number%s.", mob);
     mudlog(msg, NRM, LEVEL_GOD, TRUE);
 
-    free(demangled);
     free(names);
 }
 

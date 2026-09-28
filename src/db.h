@@ -290,6 +290,35 @@ struct ban_list_element {
 // rather than kept file-local so its boot-failure behaviour can be tested.
 void build_account_native_player_index(void);
 
+/*
+ * Vnum of the mob one_mobile_activity is running for, or -1, and of the room
+ * it started that turn in.  A negative world[] lookup made there names both,
+ * since the function alone does not say which mob, and by then its room may
+ * already be gone.  The guard restores the previous values on every return
+ * path.
+ */
+extern int running_mob_vnum;
+extern int running_mob_room_vnum;
+/* One backtrace_symbols() line as "function(args)+0x1f"; empty if it has no
+ * name.  Cuts the line up in place. */
+void negative_room_caller_name(char* line, char* out, size_t out_size);
+struct running_mob_guard {
+    int saved_vnum;
+    int saved_room_vnum;
+    running_mob_guard(int vnum, int room_vnum)
+        : saved_vnum(running_mob_vnum)
+        , saved_room_vnum(running_mob_room_vnum)
+    {
+        running_mob_vnum = vnum;
+        running_mob_room_vnum = room_vnum;
+    }
+    ~running_mob_guard()
+    {
+        running_mob_vnum = saved_vnum;
+        running_mob_room_vnum = saved_room_vnum;
+    }
+};
+
 extern char buf[MAX_STRING_LENGTH];
 extern char buf1[MAX_STRING_LENGTH];
 extern char buf2[MAX_STRING_LENGTH];

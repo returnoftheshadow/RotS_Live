@@ -43,6 +43,7 @@ void* virt_program_number(int number);
 int find_first_step(int, int);
 
 void enforce_position(struct char_data*, int);
+extern int top_of_mobt;
 
 void mobile_activity(void)
 {
@@ -87,6 +88,10 @@ void one_mobile_activity(char_data* ch)
         mudlog(buf, NRM, LEVEL_IMPL, FALSE);
         return;
     }
+
+    /* For the negative-room warning; the room was range-checked above. */
+    running_mob_guard mob_context((ch->nr >= 0 && ch->nr <= top_of_mobt) ? mob_index[ch->nr].virt : -1,
+        world[ch->in_room].number);
 
     is_passive = 0;
     if (MOB_FLAGGED(ch, MOB_PET) && !utils::is_guardian(*ch) && ch->master && char_exists(ch->master_number)) {
