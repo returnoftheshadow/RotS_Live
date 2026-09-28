@@ -178,17 +178,24 @@ void vendor_config_check(const struct char_data* proto, int mob_vnum, struct cha
         vendor_send(vendor_problem_line(mob_vnum, problem), builder);
 }
 
-/* Scripted mobs and shopkeepers carry NOBASH by convention. Reminded on /imp
- * only, to the builder alone: not at boot and not in the imm log. */
+/* Soft checks, reminded on /imp only, to the builder alone: not at boot and
+ * not in the imm log. Scripted mobs and shopkeepers carry NOBASH by
+ * convention; a list= header past 78 columns still shows, but wraps. */
 void vendor_implement_check(int mob_rnum, struct char_data* builder)
 {
     if (!builder || mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_rnum))
         return;
-    if (IS_SET(mob_proto[mob_rnum].specials2.act, MOB_NOBASH))
-        return;
     char buf[128];
-    snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: nobash not set\n\r", mob_index[mob_rnum].virt);
-    send_to_char(buf, builder);
+    if (!IS_SET(mob_proto[mob_rnum].specials2.act, MOB_NOBASH)) {
+        snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: nobash not set\n\r", mob_index[mob_rnum].virt);
+        send_to_char(buf, builder);
+    }
+    vendor_config config = parse_vendor_options(mob_proto[mob_rnum].specials.mob_options, game_lookups(), nullptr);
+    if (config.list_message.size() > VENDOR_LIST_MESSAGE_MAX) {
+        snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: list longer than %d columns\n\r",
+            mob_index[mob_rnum].virt, (int)VENDOR_LIST_MESSAGE_MAX);
+        send_to_char(buf, builder);
+    }
 }
 
 void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
@@ -321,6 +328,8 @@ void vendor_list(struct char_data* vendor, struct char_data* ch, const vendor_co
             row.costs.push_back({ cost.qty, obj_vnum_short(cost.obj_vnum) });
         rows.push_back(row);
     }
+    std::string header = config.list_message.empty() ? VENDOR_DEFAULT_LIST_MESSAGE : config.list_message;
+    send_to_char((header + "\n\r").c_str(), ch);
     send_to_char(format_vendor_list(rows).c_str(), ch);
 }
 

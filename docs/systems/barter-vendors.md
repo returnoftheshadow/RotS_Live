@@ -18,6 +18,7 @@ field. No vnums in code, no `.shp` file.
    ```
    store=12345
    hours=6-12,14-20
+   list=Ah, a customer! Have a look:
    price 5001 2222x1 3333x2 deduct
    price 5002 3333x4
    ```
@@ -35,6 +36,7 @@ field. No vnums in code, no `.shp` file.
 |---|---|---|---|
 | `store=<room vnum>` | The store room; its contents are the stock | Warning; no trading | Warning; no trading |
 | `hours=a-b[,c-d…]` | Game hours (0–23) he trades. Overnight (`20-4`) and several windows allowed | Always open | **Strict:** warning; no trading |
+| `list=<message>` | The line shown above the `list` output, as plain text (not spoken) | "What would you like to trade?" (also when empty) | Longer than 78 columns: still shown; `/implement` warns the builder only |
 | `price <item vnum> <cur vnum>x<qty> [<cur vnum>x<qty>…] [deduct]` | The cost of one item | Item not sold by this vendor | **Lenient:** that line is skipped with a warning; the rest still work |
 
 **`price` line details**
@@ -136,6 +138,7 @@ The full set of messages you can see:
 - `duplicate store - line ignored`
 - `bad hours - vendor disabled`
 - `duplicate hours - line ignored`
+- `duplicate list - line ignored`
 - `price: bad format - line skipped`
 - `price: quantity <N> out of range - line skipped`
 - `price: more than 4 currencies - line skipped`
@@ -164,7 +167,8 @@ A server binary from before this feature can't handle vendor mobs. Before rollin
 
 ## What players see
 
-- `list` shows every in-stock, priced item once, with its cost(s); `(N left)` only on
+- `list` starts with the vendor's `list=` line ("What would you like to trade?" by default),
+  like a coin shop's "You can buy:", then shows every in-stock, priced item once, with its cost(s); `(N left)` only on
   `deduct` items. The cost column starts at column 44 or earlier (names wrap at 38), so a
   currency short description of up to 28 characters keeps every line within 78 columns; a
   longer one makes that line longer and the player's client wraps it.

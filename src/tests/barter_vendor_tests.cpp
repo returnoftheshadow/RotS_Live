@@ -320,8 +320,16 @@ TEST_F(BarterVendorTest, OtherCommandsPassThrough)
 TEST_F(BarterVendorTest, ListShowsStockCountAndPrice)
 {
     EXPECT_TRUE(call(CMD_LIST, ""));
-    EXPECT_EQ(output(), " 1. a hunter's belt (2 left)  2 x a wolf hide\n\r");
+    EXPECT_EQ(output(), "What would you like to trade?\n\r 1. a hunter's belt (2 left)  2 x a wolf hide\n\r");
     EXPECT_EQ(floor_belts(), 2);
+}
+
+TEST_F(BarterVendorTest, ListStartsWithTheVendorsOwnListLine)
+{
+    std::strcpy(m_options, "store=5000\nlist=Hides for belts!\nprice 100 200x2 deduct");
+    vendor_config_rebuild(0, nullptr);
+    EXPECT_TRUE(call(CMD_LIST, ""));
+    EXPECT_EQ(output(), "Hides for belts!\n\r 1. a hunter's belt (2 left)  2 x a wolf hide\n\r");
 }
 
 TEST_F(BarterVendorTest, BuyPaysDeductsAndHandsOverTheItem)

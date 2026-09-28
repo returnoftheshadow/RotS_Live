@@ -303,6 +303,20 @@ TEST(VendorParse, CommentLinesAreSkippedAndNeverWarned)
     EXPECT_EQ(c.prices[0].line, 4);
 }
 
+TEST(VendorParse, ListMessageKeptVerbatimEmptyMeansDefault)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options("store=1\n\rlist=  Ah, a customer! 50% off:  \n\rlist=second\n\r",
+        everything_exists(), &problems);
+    EXPECT_EQ(c.list_message, "Ah, a customer! 50% off:");
+    EXPECT_EQ(problem_texts(problems), std::vector<std::string> { "3: duplicate list - line ignored" });
+
+    problems.clear();
+    EXPECT_EQ(parse_vendor_options("store=1\n\rlist=\n\r", everything_exists(), &problems).list_message, "");
+    EXPECT_EQ(parse_vendor_options("store=1", everything_exists(), &problems).list_message, "");
+    EXPECT_TRUE(problems.empty()) << ::testing::PrintToString(problem_texts(problems));
+}
+
 TEST(VendorHours, OpenWindows)
 {
     vendor_config c;

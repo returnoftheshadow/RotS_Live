@@ -12,6 +12,8 @@
 
 constexpr int PROG_BARTER_VENDOR = 33;
 constexpr size_t VENDOR_LIST_NAME_COLUMN_MAX = 38;
+constexpr const char* VENDOR_DEFAULT_LIST_MESSAGE = "What would you like to trade?";
+constexpr size_t VENDOR_LIST_MESSAGE_MAX = 78;
 
 struct char_data;
 struct waiting_type;

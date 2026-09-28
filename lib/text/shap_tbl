@@ -1737,16 +1737,21 @@ Setting one up (extended mode, see MAN SHAPE MOB2 42):
   /42 the settings, one per line:
   store=<room vnum>        the store room; its contents are the stock
   hours=<a>-<b>[,<c>-<d>...]  game hours (0-23) it trades
+  list=<message>           the line shown above its list
   price <item> <cur>x<qty> [<cur>x<qty>...] [deduct]
 Example:
   store=12345
   hours=6-12,14-20
+  list=Ah, a customer! Have a look:
   price 5001 2222x1 3333x2 deduct
   price 5002 3333x4
 
 hours: no hours line = always open. The end hour is not included (6-12
 is 6:00 to 11:59), any number of windows may follow the commas, and an
 overnight window such as 20-4 works.
+
+list: no list line, or an empty one, shows "What would you like to
+trade?". Keep it to one line of 78 columns or less.
 
 A price line is the cost of one <item>: 1-4 currencies, each <qty>
 copies (1-100) of object <cur>, with a lowercase x. Up to 30 price lines;
@@ -1777,7 +1782,8 @@ Problems show as MOB ERROR lines at boot and on /save, /implement and
 /done. A bad price line is skipped; a bad or missing store, or bad hours,
 stops the vendor trading ("I'm not trading right now."). /implement and
 /done also show "MOB WARNING: ... nobash not set" to you if NOBASH is
-not set.
+not set, and "MOB WARNING: ... list longer than 78 columns" if the list
+line is too long (it is still shown).
 #
 "MOB 49" "MOB2 49"
 

@@ -59,6 +59,7 @@ struct vendor_config {
     bool hours_ok = true;
     std::vector<vendor_hours_window> hours; /* empty = always open */
     std::vector<vendor_price> prices; /* in options order */
+    std::string list_message; /* empty = the default list header */
     bool usable() const { return store_ok && hours_ok; }
 };
 struct vendor_problem {

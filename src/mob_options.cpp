@@ -193,7 +193,7 @@ vendor_config parse_vendor_options(
     const char* text, const vendor_lookups& lookups, std::vector<vendor_problem>* problems)
 {
     vendor_config config;
-    bool saw_store = false, saw_hours = false;
+    bool saw_store = false, saw_hours = false, saw_list = false;
     std::set<int> priced_items;
     auto problem = [&](int line, const std::string& what) {
         if (problems)
@@ -291,6 +291,13 @@ vendor_config parse_vendor_options(
                 config.hours_ok = false;
                 problem(line_no, "bad hours - vendor disabled");
             }
+        } else if (key == "list" && eq != std::string::npos) {
+            if (saw_list) {
+                problem(line_no, "duplicate list - line ignored");
+                continue;
+            }
+            saw_list = true;
+            config.list_message = value;
         } else {
             problem(line_no, "unknown setting - line ignored");
         }
