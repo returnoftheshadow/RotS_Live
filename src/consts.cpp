@@ -2090,11 +2090,12 @@ char* player_bits[] = { "", "IS_NCHANGED", "FROZEN", "DONTSET", "WRITING", "MAIL
     "\n" };
 
 // const
+// One name per PRF_* bit in structs.h, in bit order.
 char* preference_bits[] = { "BRIEF", "COMPACT", "NARR", "!TELL", "MENTAL", "SWIM", "NOTH2",
-    "PRMPT", "D_TEXT", "!HASS", "QUEST", "SUMN", "ECHO", "LIGHT",
-    "COLOR", "SING", "WIZ", "LOG1", "LOG2", "LOG3", "!AUC",
-    "CHAT", "!GTZ", "RMFLG", "SPAM", "AUTOEX", "LATIN1", "SPINNER",
-    "SORT1", "SORT2", "!UNUS1", "!UNUS2", "!UNUS3", "\n" };
+    "PRMPT", "D_TEXT", "!HASS", "!UNUS10", "SUMN", "ECHO", "LIGHT",
+    "COLOR", "SING", "WIZ", "LOG1", "LOG2", "LOG3", "CHAT",
+    "!UNUS21", "RMFLG", "SPAM", "MSDP", "WRAP", "LATIN1", "SPINNER",
+    "SORT1", "SORT2", "ADVVIEW", "ADVPRMPT", "\n" };
 
 // const
 char* position_types[] = { "Dead", "Mortally wounded", "Incapacitated", "Stunned", "Sleeping",

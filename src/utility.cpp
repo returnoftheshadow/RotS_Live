@@ -1169,16 +1169,13 @@ void sprintbit(long vektor, char* names[], char* result, int var)
 {
     long nr;
     int count;
+    // Unsigned so the top bit (e.g. PRF_ADVANCED_PROMPT) shifts out instead of sign-extending.
+    unsigned long bits = (unsigned long)vektor;
 
     *result = '\0';
     count = 0;
 
-    if (vektor < 0) {
-        strcpy(result, "SPRINTBIT ERROR!");
-        return;
-    }
-
-    if (vektor == 0) {
+    if (bits == 0) {
         if (var != 0)
             strcpy(result, "has no additional attributes. ");
         else
@@ -1186,8 +1183,8 @@ void sprintbit(long vektor, char* names[], char* result, int var)
         return;
     }
 
-    for (nr = 0; vektor; vektor >>= 1) {
-        if (IS_SET(1, vektor) && (vektor != BFS_MARK)) {
+    for (nr = 0; bits; bits >>= 1) {
+        if (IS_SET(1, bits) && (bits != BFS_MARK)) {
             if (*names[nr] != '\n') {
                 /*
                  * Where the variable passed in is not 0
