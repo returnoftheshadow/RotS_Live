@@ -17,12 +17,15 @@ constexpr int MOB_OPTIONS_MAX = 4000;
 bool mob_option_find(const char* options, const char* key, std::string* value);
 
 /* False, with a reason in *why, if saving `text` would corrupt a mob file:
- * over MOB_OPTIONS_MAX, any '#' or '~', or a leading '$'. */
+ * over MOB_OPTIONS_MAX, any '#' or '~', or a leading '$'. The editor has
+ * already turned '#' and '~' into '+' and '-' (clean_record_text), so that
+ * refusal is only a backstop for other callers. */
 bool mob_options_storable(const char* text, const char** why);
 
-/* Removes leading blank lines and whitespace in place, as reading the text
- * back from the mob file would (read_mob_options skips them). */
-void mob_options_trim_leading(char* text);
+/* Removes leading whitespace and every blank line in place, as reading the
+ * text back from the mob file would, so the stored text (and the line numbers
+ * in its warnings) is the same after /save, /imp and boot. */
+void mob_options_tidy(char* text);
 
 /* Reads the optional options string that may follow a mob record. Returns
  * nullptr, leaving the stream at the next token, if that token starts the

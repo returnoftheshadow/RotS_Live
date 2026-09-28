@@ -736,11 +736,27 @@ void board_info_type::flush_board()
     }
 }
 
+/* Expand the message straight into the file: '\n' -> "<br>", '\r' dropped.
+ * Written a character at a time (stdio buffers it) so an arbitrarily long
+ * post cannot overflow a fixed staging buffer -- a post with enough line
+ * breaks used to crash the server here. */
+void write_board_message_html(FILE* ht_fl, const char* text, int len)
+{
+    for (int j = 0; j < len; j++) {
+        if (text[j] == '\r' || text[j] == '\0')
+            continue;
+        if (text[j] == '\n')
+            fputs("<br>", ht_fl);
+        else
+            putc(text[j], ht_fl);
+    }
+}
+
 void board_info_type::save_board()
 {
     FILE* fl;
     FILE *ht_fl, *ind_fl;
-    int i, j1, no_html;
+    int i, no_html;
     char *tmp1 = 0, *tmp2 = 0;
     char ht_name[100];
 
@@ -800,20 +816,8 @@ void board_info_type::save_board()
             fprintf(ht_fl, "<b><u><A NAME=\"Message%d\">Message %3d, %s</A></u></b><BR>", msg_index[i].msg_num, msg_index[i].msg_num,
                 (tmp1) ? tmp1 : "No title");
 
-            /* Expand the message straight into the file: '\n' -> "<br>", '\r'
-             * dropped.  Written a character at a time (stdio buffers it) so an
-             * arbitrarily long post cannot overflow a fixed staging buffer --
-             * a post with enough line breaks used to crash the server here. */
-            if (tmp2) {
-                for (j1 = 0; j1 < msg_index[i].message_len; j1++) {
-                    if (tmp2[j1] == '\r' || tmp2[j1] == '\0')
-                        continue;
-                    if (tmp2[j1] == '\n')
-                        fputs("<br>", ht_fl);
-                    else
-                        putc(tmp2[j1], ht_fl);
-                }
-            }
+            if (tmp2)
+                write_board_message_html(ht_fl, tmp2, msg_index[i].message_len);
             fprintf(ht_fl, "<br><br>");
         }
 

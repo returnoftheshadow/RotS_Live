@@ -751,7 +751,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 char* after = SHAPE_PROTO(ch)->proto->specials.mob_options;
                 const char* why = 0;
                 if (after != before) {
-                    mob_options_trim_leading(after); /* stored == what reload returns */
+                    mob_options_tidy(after); /* stored == what reload returns */
                     if (!mob_options_storable(after, &why)) {
                         send_to_char("Options not changed: ", ch);
                         send_to_char(why, ch);

@@ -82,7 +82,7 @@ bool mob_options_storable(const char* text, const char** why)
     return true;
 }
 
-void mob_options_trim_leading(char* text)
+void mob_options_tidy(char* text)
 {
     if (!text)
         return;
@@ -91,6 +91,23 @@ void mob_options_trim_leading(char* text)
         ++p;
     if (p != text)
         memmove(text, p, strlen(p) + 1);
+    /* fread_string keeps nothing of a blank line, so drop every whole line
+     * that is only whitespace; the unterminated last line stays as it is. */
+    char* out = text;
+    const char* line = text;
+    while (*line) {
+        const char* nl = strchr(line, '\n');
+        const char* end = nl ? nl + 1 : line + strlen(line);
+        bool blank = true;
+        for (const char* c = line; c < end && blank; ++c)
+            blank = isspace((unsigned char)*c);
+        if (!blank || !nl) {
+            memmove(out, line, end - line);
+            out += end - line;
+        }
+        line = end;
+    }
+    *out = '\0';
 }
 
 char* read_mob_options(FILE* f, char* context)

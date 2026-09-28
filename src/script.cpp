@@ -422,7 +422,7 @@ get_text_param_writable(int param, struct info_script* info)
  * carries extra conversions can therefore never read or write memory when it
  * fires.  The result is always NUL-terminated and never exceeds outsz-1 bytes.
  */
-static void script_format_text(char* out, size_t outsz, const char* text, const char* arg)
+void script_format_text(char* out, size_t outsz, const char* text, const char* arg)
 {
     size_t o = 0;
     int used_arg = 0;
