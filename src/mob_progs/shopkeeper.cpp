@@ -23,6 +23,7 @@ extern struct room_data world;
 extern struct obj_data* obj_proto;
 extern struct index_data* obj_index;
 extern struct time_info_data time_info;
+extern int no_specials;
 
 ACMD(do_say);
 int get_number(char** name);
@@ -249,6 +250,9 @@ std::vector<std::string> wrap_words(const std::string& text, size_t width)
 }
 
 std::unordered_map<int, vendor_config> g_vendor_configs; /* by mob rnum */
+/* Unusable vendors already logged when someone tried to trade; a rebuild
+ * (boot, /save, /imp) reports the options again and clears the entry. */
+std::set<int> g_vendor_unusable_logged; /* by mob rnum */
 
 vendor_lookups game_lookups()
 {
@@ -301,6 +305,10 @@ void vendor_add_pref_problem(const char_data& proto, std::vector<vendor_problem>
  * table yet) has no function slot to own. */
 bool is_vendor_candidate(const struct char_data* proto, int rnum)
 {
+    /* -s boots leave every hard-coded func unassigned, so a guildmaster whose
+     * guild number is 33 would look like a vendor. Vendors are specials too. */
+    if (no_specials)
+        return false;
     if (!IS_SET(proto->specials2.act, MOB_SPEC) || proto->specials.store_prog_number != PROG_BARTER_VENDOR)
         return false;
     return rnum < 0 || !mob_index[rnum].func || mob_index[rnum].func == (special_func)barter_vendor;
@@ -391,6 +399,7 @@ void vendor_implement_check(int mob_rnum, struct char_data* builder)
 
 void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
 {
+    g_vendor_unusable_logged.erase(mob_rnum);
     if (mob_rnum < 0 || mob_rnum > top_of_mobt || !is_vendor_proto(mob_rnum)) {
         g_vendor_configs.erase(mob_rnum);
         return;
@@ -414,6 +423,7 @@ const vendor_config* vendor_config_for(int mob_rnum)
 void vendor_config_boot()
 {
     g_vendor_configs.clear();
+    g_vendor_unusable_logged.clear();
     for (int rnum = 0; rnum <= top_of_mobt; ++rnum) {
         if (!is_vendor_proto(rnum))
             continue;
@@ -551,15 +561,6 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
         vendor_say(vendor, "I don't have that. Try 'list'.");
         return;
     }
-    if (IS_CARRYING_N(ch) + 1 > CAN_CARRY_N(ch)) {
-        send_to_char("You can't carry that many items.\n\r", ch);
-        return;
-    }
-    if (IS_CARRYING_W(ch) + GET_OBJ_WEIGHT(pick->copy) > CAN_CARRY_W(ch)) {
-        send_to_char("You can't carry that much weight.\n\r", ch);
-        return;
-    }
-
     std::vector<vendor_shortfall> short_of = vendor_shortfalls(pick->price->costs,
         [ch](int vnum) { return (int)payable_copies(ch, vnum).size(); });
     if (!short_of.empty()) {
@@ -581,6 +582,24 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
         }
         payment.insert(payment.end(), copies.begin(), copies.begin() + cost.qty);
     }
+
+    /* Room to carry it, counted as it will be after paying: the payment
+     * leaves as the item arrives. deduct hands over the store copy itself
+     * (with anything inside it); otherwise a fresh, empty copy. */
+    int payment_weight = 0;
+    for (struct obj_data* obj : payment)
+        payment_weight += GET_OBJ_WEIGHT(obj);
+    int item_weight = pick->price->deduct ? GET_OBJ_WEIGHT(pick->copy)
+                                          : obj_proto[pick->copy->item_number].obj_flags.weight;
+    if (IS_CARRYING_N(ch) - (int)payment.size() + 1 > CAN_CARRY_N(ch)) {
+        send_to_char("You can't carry that many items.\n\r", ch);
+        return;
+    }
+    if (IS_CARRYING_W(ch) - payment_weight + item_weight > CAN_CARRY_W(ch)) {
+        send_to_char("You can't carry that much weight.\n\r", ch);
+        return;
+    }
+
     for (struct obj_data* obj : payment) {
         obj_from_char(obj);
         extract_obj(obj);
@@ -589,17 +608,27 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
     std::string paid; /* one currency per line, so it stays within 78 columns */
     for (const vendor_cost& cost : pick->price->costs)
         paid += "  " + std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum) + "\n\r";
-    struct obj_data* bought = read_object(pick->copy->item_number, REAL);
+    struct obj_data* bought;
+    if (pick->price->deduct) {
+        bought = pick->copy;
+        obj_from_room(bought);
+    } else
+        bought = read_object(pick->copy->item_number, REAL);
     obj_to_char(bought, ch);
+    bought->touched = 1; /* a player has it now: later gets are logged */
     snprintf(buf, sizeof(buf), "You hand over:\n\r%sYou now have %s.\n\r", paid.c_str(), bought->short_description);
     send_to_char(buf, ch);
     act("$n buys $p.", FALSE, ch, bought, 0, TO_ROOM);
 
-    if (pick->price->deduct) {
-        struct obj_data* copy = pick->copy;
-        obj_from_room(copy);
-        extract_obj(copy);
+    std::string trade = std::string("VENDOR: ") + GET_NAME(ch) + " buys " + bought->short_description + " ("
+        + std::to_string(obj_index[bought->item_number].virt) + ") from mobile #"
+        + std::to_string(vendor->nr >= 0 ? mob_index[vendor->nr].virt : -1) + ", paid";
+    for (size_t i = 0; i < pick->price->costs.size(); ++i) {
+        const vendor_cost& cost = pick->price->costs[i];
+        trade += (i ? ", " : " ") + std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum) + " ("
+            + std::to_string(cost.obj_vnum) + ")";
     }
+    log(trade.c_str());
 }
 
 /* True exactly when do_give (act_obj1.cpp) would pick this vendor as the
@@ -636,10 +665,22 @@ SPECIAL(barter_vendor)
     const vendor_config* config = vendor_config_for(host->nr);
     if (!config)
         return FALSE;
+    /* Before the ch == host return: a poison tick is damage(host, host, ...),
+     * and it must be cancelled too, just without the vendor talking. */
+    if (callflag == SPECIAL_DAMAGE) {
+        if (ch && ch != host)
+            vendor_say(host, "Don't even think about it.");
+        return TRUE;
+    }
     if (!ch || ch == host)
         return FALSE;
 
-    if (callflag == SPECIAL_DAMAGE) {
+    /* Dust blinds even when its damage is cancelled (on_dust_hit), and a
+     * blind vendor refuses every buyer, so refuse the command itself. */
+    if (callflag == SPECIAL_TARGET) {
+        if (cmd != CMD_BLINDING || !wtl || wtl->targ1.type != TARGET_CHAR
+            || wtl->targ1.ptr.ch != host)
+            return FALSE;
         vendor_say(host, "Don't even think about it.");
         return TRUE;
     }
@@ -656,9 +697,10 @@ SPECIAL(barter_vendor)
     }
 
     if (!config->usable()) {
-        vendor_send(vendor_problem_line(host->nr >= 0 ? mob_index[host->nr].virt : -1,
-                        { 0, "bad options - vendor disabled" }),
-            nullptr);
+        if (g_vendor_unusable_logged.insert(host->nr).second) /* once, not per command */
+            vendor_send(vendor_problem_line(host->nr >= 0 ? mob_index[host->nr].virt : -1,
+                            { 0, "bad options - vendor disabled" }),
+                nullptr);
         vendor_say(host, "I'm not trading right now.");
         return TRUE;
     }

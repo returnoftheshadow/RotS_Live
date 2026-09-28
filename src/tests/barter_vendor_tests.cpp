@@ -274,6 +274,7 @@ extern struct room_data world;
 extern int top_of_world;
 extern struct descriptor_data* descriptor_list;
 extern struct time_info_data time_info;
+extern int no_specials;
 void clear_char(struct char_data* ch, int mode);
 void clear_object(struct obj_data* obj);
 
@@ -395,6 +396,15 @@ protected:
         descriptor_list = m_saved_descriptor_list;
     }
 
+    /* Replaces the store stock, e.g. after a test changes the belt's weight
+     * (deduct hands over the store copy itself). */
+    void restock_belts(int count)
+    {
+        while (world[0].contents)
+            extract_obj(world[0].contents);
+        stock_belts(count);
+    }
+
     void stock_belts(int count)
     {
         for (int i = 0; i < count; ++i)
@@ -430,6 +440,12 @@ protected:
     int floor_belts() const { return count_in(world[0].contents, 0); }
     int carried(int rnum) const { return count_in(m_buyer.carrying, rnum); }
     std::string output() const { return std::string(m_descriptor.output); }
+    void clear_output()
+    {
+        m_descriptor.small_outbuf[0] = '\0';
+        m_descriptor.bufptr = 0;
+        m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    }
 
     char m_options[64] = "store=5000\nprice 100 200x2 deduct";
     char m_belt_name[16] = "belt hunter";
@@ -470,6 +486,41 @@ private:
 TEST_F(BarterVendorTest, RegisteredVendorRefusesDamage)
 {
     EXPECT_TRUE(call(0, "", SPECIAL_DAMAGE));
+}
+
+TEST_F(BarterVendorTest, SelfDamageIsRefusedSilently)
+{
+    /* A poison tick is damage(vendor, vendor, ...): the vendor is its own
+     * attacker. It must still be cancelled, without the vendor talking. */
+    m_descriptor.descriptor = 1; /* do_say skips descriptors without a socket */
+    std::strcpy(m_arg, "");
+    EXPECT_TRUE(barter_vendor(&m_vendor, &m_vendor, 0, m_arg, SPECIAL_DAMAGE, nullptr));
+    EXPECT_EQ(output(), "");
+}
+
+TEST_F(BarterVendorTest, DustAimedAtVendorIsRefused)
+{
+    /* Dust blinds even when its damage is cancelled, and a blind vendor
+     * refuses every buyer, so the command itself is refused. */
+    m_descriptor.descriptor = 1; /* do_say skips descriptors without a socket */
+    waiting_type wtl {};
+    wtl.targ1.type = TARGET_CHAR;
+    wtl.targ1.ptr.ch = &m_vendor;
+    std::strcpy(m_arg, "trader");
+    EXPECT_TRUE(barter_vendor(&m_vendor, &m_buyer, CMD_BLINDING, m_arg, SPECIAL_TARGET, &wtl));
+    EXPECT_NE(output().find("Don't even think about it."), std::string::npos);
+}
+
+TEST_F(BarterVendorTest, OtherTargetedCommandsPassThrough)
+{
+    waiting_type wtl {};
+    wtl.targ1.type = TARGET_CHAR;
+    wtl.targ1.ptr.ch = &m_vendor;
+    std::strcpy(m_arg, "trader");
+    EXPECT_FALSE(barter_vendor(&m_vendor, &m_buyer, CMD_LOOK, m_arg, SPECIAL_TARGET, &wtl));
+    wtl.targ1.ptr.ch = &m_buyer;
+    EXPECT_FALSE(barter_vendor(&m_vendor, &m_buyer, CMD_BLINDING, m_arg, SPECIAL_TARGET, &wtl));
+    EXPECT_FALSE(barter_vendor(&m_vendor, &m_buyer, CMD_BLINDING, m_arg, SPECIAL_TARGET, nullptr));
 }
 
 TEST_F(BarterVendorTest, PlayerHostIsNeverAVendor)
@@ -528,6 +579,7 @@ TEST_F(BarterVendorTest, BuyMovesCarriedWeightAndCount)
 {
     m_obj_proto[0].obj_flags.weight = 25;
     m_obj_proto[1].obj_flags.weight = 7;
+    restock_belts(2);
     give_hides(3);
     ASSERT_EQ(IS_CARRYING_W(&m_buyer), 21);
     ASSERT_EQ(IS_CARRYING_N(&m_buyer), 3);
@@ -552,6 +604,7 @@ TEST_F(BarterVendorTest, BuyWhileRidingMovesTheMountsWeight)
 
     m_obj_proto[0].obj_flags.weight = 25;
     m_obj_proto[1].obj_flags.weight = 7;
+    restock_belts(2);
     give_hides(3);
     ASSERT_EQ(IS_CARRYING_W(&mount), 21);
 
@@ -748,6 +801,182 @@ TEST_F(BarterVendorTest, UnusableConfigRefusesTrade)
     EXPECT_EQ(carried(1), 2);
     EXPECT_EQ(floor_belts(), 2);
     EXPECT_TRUE(call(0, "", SPECIAL_DAMAGE)) << "still protected";
+}
+
+/* Stock is read from the store room named in the options, never from the
+ * room the vendor and buyer stand in (a belt lies there too, as bait). */
+TEST_F(BarterVendorTest, StockComesFromTheStoreRoomNotTheVendorsRoom)
+{
+    room_data& store = world[1];
+    const int saved_number = store.number;
+    const byte saved_light = store.light;
+    obj_data* const saved_contents = store.contents;
+    char_data* const saved_people = store.people;
+    world[0].number = kStoreVnum - 1;
+    store.number = kStoreVnum;
+    store.light = 1;
+    store.contents = nullptr;
+    store.people = nullptr;
+    top_of_world = 1;
+    while (world[0].contents) {
+        obj_data* belt = world[0].contents;
+        obj_from_room(belt);
+        obj_to_room(belt, 1);
+    }
+    obj_to_room(read_object(0, REAL), 0); /* not stock */
+    give_hides(3);
+
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_EQ(count_in(store.contents, 0), 1) << "deducted from the store room";
+    EXPECT_EQ(count_in(world[0].contents, 0), 1) << "the vendor's room is untouched";
+
+    while (store.contents)
+        extract_obj(store.contents);
+    store.number = saved_number;
+    store.light = saved_light;
+    store.contents = saved_contents;
+    store.people = saved_people;
+}
+
+TEST_F(BarterVendorTest, OneShortCurrencyOfTwoTakesNothing)
+{
+    std::strcpy(m_options, "store=5000\nprice 100 200x2 300x1 deduct");
+    vendor_config_rebuild(0, nullptr);
+    give_hides(2);
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(1), 2) << "the covered currency is not taken either";
+    EXPECT_EQ(carried(0), 0);
+    EXPECT_EQ(floor_belts(), 2);
+    EXPECT_EQ(output(), "You need 1 x a leather belt and have 0.\n\r");
+}
+
+TEST_F(BarterVendorTest, CurrencyInABagOrWornDoesNotCount)
+{
+    give_hides(1);
+    obj_data* bag = read_object(2, REAL);
+    obj_to_char(bag, &m_buyer);
+    obj_to_obj(read_object(1, REAL), bag);
+    obj_data* worn = read_object(1, REAL);
+    m_buyer.equipment[WEAR_BODY] = worn;
+
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(output(), "You need 2 x a wolf hide and have 1.\n\r");
+    EXPECT_EQ(carried(1), 1);
+    EXPECT_NE(bag->contains, nullptr);
+    EXPECT_EQ(floor_belts(), 2);
+    m_buyer.equipment[WEAR_BODY] = nullptr;
+}
+
+/* The item-count check counts the payment as already gone. CAN_CARRY_N is
+ * 5 + DEX/2 + level/2; the buyer is filled to 19 items, then DEX sets the cap. */
+TEST_F(BarterVendorTest, CarryCountAllowsForThePaymentLeaving)
+{
+    give_hides(2);
+    while (IS_CARRYING_N(&m_buyer) < 19)
+        obj_to_char(read_object(2, REAL), &m_buyer);
+
+    m_buyer.tmpabilities.dex = 14; /* cap 17; after the trade 18 */
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(output(), "You can't carry that many items.\n\r");
+    EXPECT_EQ(carried(1), 2);
+    EXPECT_EQ(floor_belts(), 2);
+
+    clear_output();
+    m_buyer.tmpabilities.dex = 16; /* cap 18; the old check refused at 19 + 1 */
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_EQ(IS_CARRYING_N(&m_buyer), 18);
+}
+
+/* CAN_CARRY_W is 2000 + 1000 * STR. Three 5000 hides = 15000 carried. */
+TEST_F(BarterVendorTest, CarryWeightAllowsForThePaymentLeaving)
+{
+    m_obj_proto[1].obj_flags.weight = 5000;
+    m_obj_proto[0].obj_flags.weight = 1000;
+    restock_belts(2);
+    give_hides(3);
+    m_buyer.tmpabilities.str = 10; /* cap 12000; after the trade 6000 */
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_EQ(IS_CARRYING_W(&m_buyer), 6000);
+
+    clear_output();
+    GET_OBJ_WEIGHT(world[0].contents) = 20000; /* the last belt in stock */
+    give_hides(1); /* 11000 carried; after the trade 11000 - 10000 + 20000 */
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(output(), "You can't carry that much weight.\n\r");
+    EXPECT_EQ(carried(1), 2);
+    EXPECT_EQ(floor_belts(), 1);
+}
+
+TEST_F(BarterVendorTest, WithoutDeductTheStoreCopyStays)
+{
+    std::strcpy(m_options, "store=5000\nprice 100 200x2");
+    vendor_config_rebuild(0, nullptr);
+    give_hides(2);
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_EQ(carried(1), 0);
+    EXPECT_EQ(floor_belts(), 2);
+}
+
+/* deduct hands over the store copy itself, so whatever is inside comes along. */
+TEST_F(BarterVendorTest, DeductHandsOverTheStoreCopyWithItsContents)
+{
+    obj_data* stocked = world[0].contents;
+    obj_data* inside = read_object(2, REAL);
+    obj_to_obj(inside, stocked);
+    give_hides(2);
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_EQ(stocked->carried_by, &m_buyer);
+    EXPECT_EQ(stocked->contains, inside);
+    EXPECT_EQ(floor_belts(), 1);
+}
+
+TEST_F(BarterVendorTest, PurchaseIsLoggedAndTheItemMarkedHandled)
+{
+    give_hides(2);
+    testing::internal::CaptureStderr();
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    std::string log_text = testing::internal::GetCapturedStderr();
+    EXPECT_NE(log_text.find("VENDOR: Buyer buys a hunter's belt (100) from mobile #7000, paid 2 x a wolf hide (200)"),
+        std::string::npos)
+        << log_text;
+    obj_data* bought = nullptr;
+    for (obj_data* obj = m_buyer.carrying; obj; obj = obj->next_content)
+        if (obj->item_number == 0)
+            bought = obj;
+    ASSERT_NE(bought, nullptr);
+    EXPECT_EQ(bought->touched, 1);
+}
+
+TEST_F(BarterVendorTest, UnusableVendorIsLoggedOnceUntilRebuilt)
+{
+    std::strcpy(m_options, "price 100 200x2 deduct"); /* no store */
+    vendor_config_rebuild(0, nullptr, false);
+    auto logged = [this](int times) {
+        testing::internal::CaptureStderr();
+        for (int i = 0; i < times; ++i)
+            call(CMD_LIST, "");
+        std::string text = testing::internal::GetCapturedStderr();
+        int count = 0;
+        for (size_t at = text.find("bad options"); at != std::string::npos; at = text.find("bad options", at + 1))
+            ++count;
+        return count;
+    };
+    EXPECT_EQ(logged(3), 1);
+    vendor_config_rebuild(0, nullptr, false);
+    EXPECT_EQ(logged(2), 1) << "a rebuild logs it again";
+}
+
+TEST_F(BarterVendorTest, NoSpecialsBootHasNoVendors)
+{
+    no_specials = 1;
+    vendor_config_rebuild(0, nullptr);
+    EXPECT_EQ(vendor_config_for(0), nullptr);
+    EXPECT_FALSE(call(0, "", SPECIAL_DAMAGE));
+    no_specials = 0;
 }
 
 } // namespace
