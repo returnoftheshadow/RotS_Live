@@ -46,10 +46,10 @@ vendors.
   The text can't contain `#` or `~` anywhere, and can't start with `$`, since the shape
   editor's record scanner treats any `#` in a mob file as the start of the next mob record,
   and a leading `$`/embedded `~` would be read as an end-of-string terminator. The editor's
-  text cleaner silently turns every `~` into `-` and a `#` at the very start into `+`; a `#`
-  anywhere else, a leading `$`, or more than 4,000 characters is refused ("Options not
-  changed: ...") and the old value kept. Leading blank lines are dropped on entry, so the
-  stored text is what a reload reads.
+  text cleaner silently turns every `#` into `+` and every `~` into `-` (the same cleaner as
+  all mob, object, room and script text); a leading `$` or more than 4,000 characters is
+  refused ("Options not changed: ...") and the old value kept. Blank lines (leading and
+  between settings) are dropped on entry, so the stored text is what a reload reads.
 - **Size:** up to 4,000 characters. Edited with the same multi-line editor as descriptions.
   `stat` and the editor always show the whole value.
 - **File format:** one extra `~`-ended string after the mob record's last number line. The
@@ -209,8 +209,9 @@ Reported like the other boot misconfiguration warnings (type + vnum + line, no p
   warnings: for those mobs field 29 is just data the hard-coded procedure reads for its own
   purposes (e.g. a guild index), not a program number.
 - **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade, and logs
-  a warning **every time** someone tries. A broken vendor in play should be noisy. There is
-  deliberately no setting to silence it; price-line warnings never fire during play anyway.
+  a warning the first time someone tries, so a player can't flood the log; it logs again
+  after its options are next saved or the server reboots. Price-line warnings never fire
+  during play.
 
 ## Builder notes (documentation, not code)
 

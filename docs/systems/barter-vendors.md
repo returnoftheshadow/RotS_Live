@@ -43,9 +43,11 @@ field. No vnums in code, no `.shp` file.
 - `<item vnum>`: the object sold. `<cur vnum>x<qty>`: `qty` copies of object `cur vnum` are
   taken as payment.
 - One to four currencies per line; quantities are whole numbers 1–100.
-- `deduct`: each purchase removes **one** copy of the item from the store room, so stock is
-  limited to the copies the zone loaded. Without `deduct` the copy stays and there's no
-  purchase limit.
+- `deduct`: each purchase hands the buyer **one** copy from the store room itself, so stock
+  is limited to the copies the zone loaded, and anything inside that copy goes with it (a
+  filled container arrives filled). Without `deduct` the store copy stays, there's no
+  purchase limit, and the buyer gets a fresh copy of the item: always empty, since what's
+  inside the store copy is never copied.
 - A line is bad (skipped, warned) if an item or currency vnum isn't a real object, a quantity
   is outside 1–100, there are more than four currencies, or it doesn't parse.
 - Up to 30 price lines per vendor; lines past 30 are skipped with a warning.
@@ -109,8 +111,9 @@ reaches. The player gets one answer.
   - **Refused**, keeping the old value: a leading `$` (`Options not changed: options can't
     start with $.`), or more than 4,000 characters (`Options not changed: options are too
     long (max 4000 characters).`).
-  - Leading blank lines are dropped, so the line numbers in warnings are the same at
-    `/save` and at boot. Blank lines inside the text are kept.
+  - Blank lines are dropped, at the start and between settings, because loading the mob
+    file drops them anyway. So the text and the line numbers in warnings are the same at
+    `/save`, `/implement` and boot. To space settings out, use a `//` comment line.
 - `stat` on a loaded copy shows the prototype's current options (what `list`/`buy` use).
 
 ## The vendor needs to talk
@@ -151,16 +154,22 @@ The full set of messages you can see:
 - `pref set - vendor attacks and can be hurt`
 
 **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade ("I'm not
-trading right now.") and logs the `bad options - vendor disabled` warning **every time**
-someone tries to buy or list. A broken vendor in play is meant to be noisy — there's no
-setting to silence it. Price-line warnings never fire during play, only at boot/save/
-implement.
+trading right now.") every time, and logs the `bad options - vendor disabled` warning the
+**first** time someone tries to buy or list, so a player can't flood the log. It logs again
+after its options are next saved (`/save`, `/implement`) or the server reboots. Price-line
+warnings never fire during play, only at boot/save/implement.
+
+On a `-s` (no specials) boot there are no vendors at all, like every other special.
 
 ## Rolling back to a server without vendors
 
-A server binary from before this feature can't handle vendor mobs. Before rolling back:
-1. Remove every options block from the mob files. Otherwise the old binary stops the boot
-   with `SYSERR: Format error in mob file`.
+A server binary from before this feature can't handle vendor mobs. The same goes for mob
+files: once a mob with options is saved on test, don't copy that mob file to a server still
+running an older binary. Before rolling back:
+1. Remove every options block from the mob files. The old binary can't read them, and the
+   failure isn't predictable: its loader reads the next word into a 10-character buffer, so
+   an options line like `store=12345` overruns it. The boot may stop with `SYSERR: Format
+   error in mob file`, or crash, or misread the file.
 2. On every vendor mob, change field 29 off 33 (or clear `MOB_SPEC`). Otherwise the old
    binary boots but crashes the first time a player looks at a room holding the vendor (it
    reads `spec_pro_message[33]`, past the end of its table).
@@ -174,16 +183,21 @@ A server binary from before this feature can't handle vendor mobs. Before rollin
   longer one makes that line longer and the player's client wraps it.
 - `buy <number>` is a list number only when the argument is all digits. Anything else is a
   keyword: `buy belt` is the first listed item matching `belt`, `buy 2.belt` the second.
-- `buy` checks the player can carry the item, then checks every
-  currency is covered in the player's **loose inventory** — not inside a bag, not worn, and
-  not a currency item that is itself a container with something inside it (that copy is
-  skipped so its contents can never be destroyed). If anything is short, nothing is taken and
-  the player is told what's needed and what he has.
+- `buy` checks every currency is covered in the player's **loose inventory** — not inside a
+  bag, not worn, and not a currency item that is itself a container with something inside
+  it (that copy is skipped so its contents can never be destroyed). If anything is short,
+  nothing is taken and the player is told what's needed and what he has. Then it checks the
+  player can carry the item, counting the payment as already handed over (paying 3 items
+  for 1 frees 2 slots).
 - A completed purchase prints one currency per line: `You hand over:` / `  N x <name>` / `You
-  now have <item>.`
+  now have <item>.` It is also written to the server log: `VENDOR: <player> buys <item>
+  (<vnum>) from mobile #<vnum>, paid N x <currency> (<vnum>), …`. The bought item counts as
+  handled by a player, so later `get`s of it are logged like any other.
 - Giving the vendor an item is refused ("I don't take gifts.") — exactly the cases where
   `give` would hand it to him.
 - Attacking him (melee, spells, skills) is cancelled; he says "Don't even think about it."
-  and never fights back (unless `pref` is set — see Side-specific vendors).
+  and never fights back (unless `pref` is set — see Side-specific vendors). Poison can
+  still be cast on him, but its damage each tick is cancelled too (silently). Dust aimed at
+  him is refused outright, because a blinded vendor couldn't see anyone to trade with.
 - Bash: the damage is cancelled and he stays standing, but he still picks up the bash state
   (a short delay, then "has recovered from a bash"). Harmless; trading still works.

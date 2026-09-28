@@ -1718,8 +1718,9 @@ the mob's program are stored, one setting per line. /42 opens the text
 editor. Type each setting on its own line, then %e to save (%q aborts,
 %h lists the editor commands). Don't use %f (format) here: it joins the
 lines into one and breaks them. If you do, %q and start over.
-Blank lines and lines starting with // (comments) are ignored. A # is
-saved as + and a ~ as -; text can't start with $ or pass 4000 characters.
+Blank lines are removed when you save the text, and lines starting with
+// (comments) are ignored. A # is saved as + and a ~ as -; text can't
+start with $ or pass 4000 characters.
 
 Each program that reads options documents its own settings. Today only
 program 33 does: see MAN SHAPE SHOPKEEPER.
@@ -1758,8 +1759,9 @@ copies (1-100) of object <cur>, with a lowercase x. Up to 30 price lines;
 a second line for the same item is skipped (the first wins). An item is
 for sale while it has a price line and at least one copy lies in the
 store room; load it there with zone commands. Anything else in the store
-room is never sold. deduct: each sale takes one copy from the store room,
-so the zone decides how many can be sold. Without deduct the copy stays.
+room is never sold. deduct: each sale hands over one copy from the store
+room, with anything inside it, so the zone decides how many can be sold.
+Without deduct the copy stays and the buyer gets a new, empty one.
 Several vendors may share one store room; with deduct they share copies.
 
 Players use list and buy (by name or list number). Payment is taken only
@@ -1780,7 +1782,8 @@ Builder notes:
 
 Problems show as MOB ERROR lines at boot and on /save, /implement and
 /done. A bad price line is skipped; a bad or missing store, or bad hours,
-stops the vendor trading ("I'm not trading right now."). /implement and
+stops the vendor trading ("I'm not trading right now."), logged the first
+time a player tries. /implement and
 /done also show "MOB WARNING: ... nobash not set" to you if NOBASH is
 not set, and "MOB WARNING: ... list longer than 78 columns" if the list
 line is too long (it is still shown).
