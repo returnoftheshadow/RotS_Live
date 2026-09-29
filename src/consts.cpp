@@ -1899,7 +1899,7 @@ char* item_types[] = {
 
 // const
 char* wear_bits[] = { "TAKE", "FINGER", "NECK", "BODY", "HEAD", "LEGS", "FEET",
-    "HANDS", "ARMS", "SHIELD", "ABOUT", "WAISTE", "WRIST", "WIELD",
+    "HANDS", "ARMS", "SHIELD", "ABOUT", "WAIST", "WRIST", "WIELD",
     "HOLD", "THROW", "BACK", "BELT", "\n" };
 
 // const
@@ -1959,7 +1959,7 @@ char* equipment_types[] = { "Special",
     "Worn on arms",
     "Worn as shield",
     "Worn about body",
-    "Worn around waiste",
+    "Worn around waist",
     "Worn around right wrist",
     "Worn around left wrist",
     "Wielded",

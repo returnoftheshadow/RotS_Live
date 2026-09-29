@@ -1185,41 +1185,40 @@ void sprintbit(long vektor, char* names[], char* result, int var)
 
     for (nr = 0; bits; bits >>= 1) {
         if (IS_SET(1, bits) && (bits != BFS_MARK)) {
-            if (*names[nr] != '\n') {
-                /*
-                 * Where the variable passed in is not 0
-                 * then identify is using sprintbit
-                 * The block of code contained here is used only
-                 * for identify.
-                 */
-                if (var != 0) {
-                    if (var == 2) {
-                        if (count == 0)
-                            strcat(result, " ");
-                        else
-                            strcat(result, " and ");
-                    } else {
-                        if (count == 0)
-                            strcat(result, "has the following attributes.\r\n");
-                        else
-                            strcat(result, ".\r\n");
-                    }
-                } else /* normal sprintbit resumes here */
-                    strcat(result, " ");
-                strcat(result, names[nr]);
-                count++;
-            } else {
-                strcat(result, "UNDEFINE ");
-            }
+            /*
+             * Where the variable passed in is not 0
+             * then identify is using sprintbit
+             * The block of code contained here is used only
+             * for identify.
+             */
+            if (var != 0) {
+                if (var == 2) {
+                    if (count == 0)
+                        strcat(result, " ");
+                    else
+                        strcat(result, " and ");
+                } else {
+                    if (count == 0)
+                        strcat(result, "has the following attributes:\r\n");
+                    else
+                        strcat(result, "\r\n");
+                }
+            } else /* normal sprintbit resumes here */
+                strcat(result, " ");
+            // A bit past the end of the names list still gets a separator.
+            strcat(result, *names[nr] != '\n' ? names[nr] : "UNDEFINE");
+            count++;
         }
-        if (*names[nr] != '\r\n')
+        if (*names[nr] != '\n')
             nr++;
     }
 
     if (!*result)
         strcat(result, "NOFLAGS");
 
-    strcat(result, ".");
+    // Identify lists one attribute per line, without a closing period.
+    if (var != 1)
+        strcat(result, ".");
 }
 
 void sprinttype(int type, char* names[], char* result)
