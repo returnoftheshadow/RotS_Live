@@ -1,4 +1,5 @@
 #include "../character_json.h"
+#include "../spells.h"
 #include "../utils.h"
 
 #include <algorithm>
@@ -1105,6 +1106,58 @@ TEST(CharacterJson, RejectsOversizedAffectArraysDuringDeserialization)
 
     EXPECT_FALSE(character_json::deserialize_character_from_json(json, &parsed, &error_message));
     EXPECT_NE(error_message.find("affects exceeds the supported entry count"), std::string::npos);
+}
+
+TEST(CharacterJson, RoundTripsTheAffectEffectModifier)
+{
+    character_json::CharacterData character = character_json::character_data_from_store(make_stored_character());
+    character.affects.clear();
+    character_json::AffectData affect;
+    affect.type = SPELL_ARMOR; // 42, exists today; the resist spells do not until Task 4
+    affect.duration = -1;
+    affect.modifier = 1;
+    affect.location = APPLY_RESIST;
+    affect.counter = 0;
+    affect.effect_modifier = 30;
+    character.affects.push_back(affect);
+
+    const std::string json = character_json::serialize_character_to_json(character);
+    ASSERT_NE(json.find("\"effect_modifier\": 30"), std::string::npos) << json;
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+    ASSERT_FALSE(parsed.affects.empty());
+    EXPECT_EQ(parsed.affects[0].effect_modifier, 30);
+}
+
+TEST(CharacterJson, ReadsAnAffectWithNoEffectModifierAsZero)
+{
+    // Every account character on disk today predates the key. Absent must mean 0, not a parse
+    // failure and not a stale value.
+    character_json::CharacterData character = character_json::character_data_from_store(make_stored_character());
+    character.affects.clear();
+    character_json::AffectData affect;
+    affect.type = SPELL_ARMOR;
+    affect.duration = 12;
+    affect.modifier = 1;
+    affect.location = APPLY_RESIST;
+    affect.counter = 0;
+    affect.effect_modifier = 0;
+    character.affects.push_back(affect);
+
+    std::string json = character_json::serialize_character_to_json(character);
+    const std::string key = "\"effect_modifier\": 0, ";
+    const std::size_t at = json.find(key);
+    ASSERT_NE(at, std::string::npos) << "writer must emit the key so this test can remove it";
+    json.erase(at, key.size());
+
+    character_json::CharacterData parsed;
+    std::string error_message;
+    ASSERT_TRUE(character_json::deserialize_character_from_json(json, &parsed, &error_message)) << error_message;
+    ASSERT_FALSE(parsed.affects.empty());
+    EXPECT_EQ(parsed.affects[0].effect_modifier, 0);
+    EXPECT_EQ(parsed.affects[0].type, character.affects[0].type) << "other fields must be untouched";
 }
 
 } // namespace
