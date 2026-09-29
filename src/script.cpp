@@ -414,6 +414,40 @@ get_text_param_writable(int param, struct info_script* info)
     }
 }
 
+/*
+ * Expand a builder-authored script message safely.  The stored text is NOT a
+ * printf format string: the first "%s" is replaced with `arg` (empty when
+ * `arg` is null), "%%" becomes one '%', and every other character -- a stray
+ * '%', a "%n", or a second "%s" -- is copied literally.  A script whose text
+ * carries extra conversions can therefore never read or write memory when it
+ * fires.  The result is always NUL-terminated and never exceeds outsz-1 bytes.
+ */
+void script_format_text(char* out, size_t outsz, const char* text, const char* arg)
+{
+    size_t o = 0;
+    int used_arg = 0;
+    if (!out || outsz == 0)
+        return;
+    if (!text) {
+        out[0] = 0;
+        return;
+    }
+    for (const char* p = text; *p && o < outsz - 1; p++) {
+        if (*p == '%' && *(p + 1) == '%') {
+            out[o++] = '%';
+            p++;
+        } else if (*p == '%' && *(p + 1) == 's' && !used_arg) {
+            for (const char* a = arg; a && *a && o < outsz - 1; a++)
+                out[o++] = *a;
+            used_arg = 1;
+            p++;
+        } else {
+            out[o++] = *p;
+        }
+    }
+    out[o] = 0;
+}
+
 // Returns a pointer to a text field/parameter
 
 char* get_text_param(int param, info_script* info)
@@ -1161,7 +1195,7 @@ int run_script(struct info_script* info, struct script_data* position)
                  * crashed the server. */
                 if (wtxt) {
                     CREATE(*wtxt, char, strlen(curr->text) + 1);
-                    sprintf(*wtxt, curr->text);
+                    script_format_text(*wtxt, strlen(curr->text) + 1, curr->text, NULL);
                 }
             }
             curr = curr->next;
@@ -1282,7 +1316,7 @@ int run_script(struct info_script* info, struct script_data* position)
         case SCRIPT_DO_SAY:
             if (curr->text && curr->param[0]) {
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     do_say(tmpch, output, 0, 0, 0);
@@ -1339,7 +1373,7 @@ int run_script(struct info_script* info, struct script_data* position)
         case SCRIPT_DO_YELL:
             if (curr->text && curr->param[0]) {
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     do_gen_com(tmpch, output, 0, 0, SCMD_YELL);
@@ -1760,7 +1794,7 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->text && curr->param[0]) {
                 tmpch = get_char_param(curr->param[0], info);
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 if (tmpch) {
                     send_to_char(output, tmpch);
                     send_to_char("\n", tmpch);
@@ -1773,7 +1807,7 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->text && curr->param[0]) {
                 tmprm = get_room_param(curr->param[0], info);
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 if (tmprm) {
                     send_to_room(output, real_room(tmprm->number));
                     send_to_room("\n", real_room(tmprm->number));
@@ -1787,7 +1821,7 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmprm = get_room_param(curr->param[0], info);
                 tmpch = get_char_param(curr->param[1], info);
                 txt1 = get_text_param(curr->param[2], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 if (tmprm && tmpch) {
                     send_to_room_except(output, real_room(tmprm->number), tmpch);
                     send_to_room_except("\n", real_room(tmprm->number), tmpch);

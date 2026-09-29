@@ -233,7 +233,10 @@ void shape_center_script(struct char_data* ch, char* argument);
 void shape_center(struct char_data* ch, char* argument);
 int get_permission(int zonnum, struct char_data* ch, int mode = 0);
 /* mode != 0 denies permission to "unlocked" zones */
-void clean_text(char*); /* removes ~ and # from the string */
+void clean_text(char*); /* ~ everywhere, # at the start of a line (zone, mudlle) */
+void clean_record_text(char*); /* ~ and # everywhere (mob, obj, room, script) */
+bool ban_site_ok(char* site); /* ban.cpp: trims trailing blanks; false on inner spaces */
+void clean_record_name(char*); /* clean_record_text, then drop a leading $ */
 ACMD(do_shape);
 
 /* /52 list range, shared by the zone and script editors (shapemob.cpp). */

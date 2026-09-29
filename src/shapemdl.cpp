@@ -145,16 +145,17 @@ int save_mudlle(struct char_data* ch)
     str[0] = 0;
     sprintf(str, "%s %s %s", COPY_COMMAND,
         SHAPE_MUDLLE(ch)->f_from, SHAPE_MUDLLE(ch)->f_old);
-    fprintf(stderr, str);
+    fputs(str, stderr);
     system(str);
     fp = fopen(SHAPE_MUDLLE(ch)->f_from, "wb+");
     ofp = fopen(SHAPE_MUDLLE(ch)->f_old, "rb");
 
     num = -1;
     saved = 0;
-    while (!feof(ofp)) {
-        fgets(str, MAX_STRING_LENGTH, ofp);
-        fprintf(stderr, str);
+    /* fgets as the loop test: a feof() test ran one extra pass at the end
+     * and wrote the last line again on every save. */
+    while (fgets(str, MAX_STRING_LENGTH, ofp)) {
+        fputs(str, stderr);
         for (tmp = 0; (tmp < MAX_STRING_LENGTH) && (str[tmp] <= ' '); tmp++)
             ;
 

@@ -71,6 +71,8 @@ set(ROTS_SERVER_SOURCES
     mage.cpp
     mail.cpp
     mob_csv_extract.cpp
+    mob_options.cpp
+    mob_progs/shopkeeper.cpp
     mobact.cpp
     modify.cpp
     mudlle.cpp
@@ -109,6 +111,7 @@ set(ROTS_SERVER_SOURCES
 )
 
 set(ROTS_TEST_SOURCES
+    tests/barter_vendor_tests.cpp
     tests/resistance_tests.cpp
     tests/resist_item_slot_tests.cpp
     tests/battle_mage_handler_tests.cpp
@@ -140,6 +143,7 @@ set(ROTS_TEST_SOURCES
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
+    tests/mob_options_tests.cpp
     tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp

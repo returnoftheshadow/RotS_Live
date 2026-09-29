@@ -43,6 +43,7 @@ extern struct room_data world;
 extern struct char_data* character_list;
 extern struct obj_data* object_list;
 extern struct descriptor_data* descriptor_list;
+extern struct char_data* mob_proto;
 extern struct index_data* mob_index;
 extern struct index_data* obj_index;
 extern struct player_index_element* player_table;
@@ -936,6 +937,16 @@ void do_stat_character(struct char_data* ch, struct char_data* k)
     sprintf(buf2, "eq: %d\n\r", i2);
     strcat(buf, buf2);
     send_to_char(buf, ch);
+    if (IS_NPC(k)) {
+        /* The prototype's text is current after /implement; a loaded copy
+         * keeps the text it was created with. */
+        const char* options = k->nr >= 0 ? mob_proto[k->nr].specials.mob_options : k->specials.mob_options;
+        if (options && *options) {
+            send_to_char("Options:\n\r", ch);
+            send_to_char(options, ch);
+            send_to_char("\n\r", ch);
+        }
+    }
 
     sprintf(buf, "Hunger: %d, Thirst: %d, Drunk: %d, Att.Level: %d\n\r",
         GET_COND(k, FULL), GET_COND(k, THIRST), GET_COND(k, DRUNK),

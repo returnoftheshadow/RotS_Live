@@ -103,6 +103,19 @@ void write_ban_list(void)
     return;
 }
 
+/* The ban file is read back with fscanf("%s"), so whitespace inside a site
+ * would drop it and every later ban. Trims trailing blanks in place; false
+ * when any whitespace is left inside. */
+bool ban_site_ok(char* site)
+{
+    for (char* end = site + strlen(site); end > site && isspace((unsigned char)end[-1]); *--end = 0)
+        ;
+    for (const char* p = site; *p; p++)
+        if (isspace((unsigned char)*p))
+            return false;
+    return true;
+}
+
 ACMD(do_ban)
 {
     char flag[80], site[80], format[50], *nextchar, *timestr;
@@ -151,6 +164,10 @@ ACMD(do_ban)
     half_chop(argument, flag, site);
     if (!*site || !*flag) {
         send_to_char("Usage: ban {all | select | new} site_name\n\r", ch);
+        return;
+    }
+    if (!ban_site_ok(site)) {
+        send_to_char("A banned site can't contain spaces.\n\r", ch);
         return;
     }
 

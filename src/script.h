@@ -170,4 +170,8 @@ void check_script_vnums(int script_index, struct char_data* to);
 void check_script_table(void);
 bool report_script_negative_room(void);
 
+/* A script message is not a printf format: the first %s becomes `arg`, %% a
+ * percent sign, anything else is copied as is (script.cpp). */
+void script_format_text(char* out, size_t outsz, const char* text, const char* arg);
+
 #endif /* SCRIPT_H */

@@ -9,6 +9,8 @@
 #include "comm.h"
 #include "db.h"
 #include "interpre.h"
+#include "mob_options.h"
+#include "mob_progs/shopkeeper.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
@@ -302,20 +304,60 @@ int command_simple_convert(int key)
         return 0;
     }
 }
+/* Zone and mudlle text: their scanners take a '#' that starts a line as a
+ * header, so only that '#' becomes '+'.  A '#' later in a line is kept. */
 void clean_text(char* str)
 {
     char* s;
     byte startline;
 
+    if (!str)
+        return;
     startline = 1;
     for (s = str; *s; s++) {
         if (startline && (*s == '#'))
             *s = '+';
         if (*s == '~')
             *s = '-';
-        if (startline && (*s > ' '))
+        if (*s == '\n')
+            startline = 1;
+        else if (startline && (*s > ' '))
             startline = 0;
     }
+}
+
+/* Mob, object, room and script text: their scanners take any '#' as a
+ * record header, so every '#' becomes '+'. */
+void clean_record_text(char* str)
+{
+    char* s;
+
+    if (!str)
+        return;
+    for (s = str; *s; s++) {
+        if (*s == '#')
+            *s = '+';
+        if (*s == '~')
+            *s = '-';
+    }
+}
+
+/* Room and script names: the boot loaders end the file at a name that
+ * starts with '$', so leading '$' are dropped. */
+void clean_record_name(char* str)
+{
+    char* s;
+
+    if (!str)
+        return;
+    clean_record_text(str);
+    for (s = str; *s && *s < ' '; s++)
+        ;
+    char* rest = s;
+    while (*rest == '$')
+        rest++;
+    if (rest != s)
+        memmove(s, rest, strlen(rest) + 1);
 }
 int get_permission(int zonnum, struct char_data* ch, int mode)
 {
@@ -453,6 +495,13 @@ void new_mob(struct char_data* ch)
  */
 void write_proto(FILE* f, struct char_data* m, int num)
 {
+    clean_record_text(m->player.name);
+    clean_record_text(m->player.short_descr);
+    clean_record_text(m->player.long_descr);
+    clean_record_text(m->player.description);
+    clean_record_text(m->player.death_cry);
+    clean_record_text(m->player.death_cry2);
+    clean_record_text(m->specials.mob_options);
     fprintf(f, "#%-d\n", num);
     fprintf(f, "%s~\n", m->player.name);
     fprintf(f, "%s~\n", m->player.short_descr);
@@ -512,6 +561,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
         m->specials.script_number,
         m->points.spirit,
         m->specials2.will_teach);
+    write_mob_options(f, m->specials.mob_options);
 }
 
 #define DESCRCHANGE(line, addr)                                       \
@@ -533,7 +583,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
         } else {                                                      \
             if (SHAPE_PROTO(ch)->tmpstr) {                            \
                 addr = SHAPE_PROTO(ch)->tmpstr;                       \
-                clean_text(addr);                                     \
+                clean_record_text(addr);                              \
             }                                                         \
             SHAPE_PROTO(ch)                                           \
                 ->tmpstr                                              \
@@ -691,6 +741,31 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     ->editflag
                     = proto_chain[4];
             break;
+        case 42: {
+            char* before = SHAPE_PROTO(ch)->proto->specials.mob_options;
+            bool finishing = IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_SIMPLE_ACTIVE);
+            DESCRCHANGE("OPTIONS, settings for the mob program, one per line", SHAPE_PROTO(ch)->proto->specials.mob_options)
+            if (finishing) {
+                /* The editor copy owns its strings (load_proto allocated them),
+                 * so whichever of before/after is dropped is freed here. */
+                char* after = SHAPE_PROTO(ch)->proto->specials.mob_options;
+                const char* why = 0;
+                if (after != before) {
+                    mob_options_tidy(after); /* stored == what reload returns */
+                    if (!mob_options_storable(after, &why)) {
+                        send_to_char("Options not changed: ", ch);
+                        send_to_char(why, ch);
+                        send_to_char(".\n\r", ch);
+                        RELEASE(after);
+                        SHAPE_PROTO(ch)->proto->specials.mob_options = before;
+                    } else {
+                        RELEASE(before);
+                        if (after && !*after)
+                            RELEASE(SHAPE_PROTO(ch)->proto->specials.mob_options);
+                    }
+                }
+            }
+        } break;
 #undef DESCRCHANGE
 #define DIGITCHANGE(line, addr)                                    \
     do {                                                           \
@@ -1324,6 +1399,7 @@ void list_help(struct char_data* ch)
     send_to_char("39 - roleplay flag;\n\r", ch);
     send_to_char("40 - mob spirit;\n\r", ch);
     send_to_char("41 - will teach;\n\r", ch);
+    send_to_char("42 - options;\n\r", ch);
     send_to_char("49 - mob creation sequence;\n\r", ch);
     send_to_char("50 - list;\n\r", ch);
     return;
@@ -1462,6 +1538,10 @@ void list_proto(struct char_data* ch, struct char_data* mob)
     send_to_char(str, ch);
     sprintf(str, "(41) will teach     :%ld\n\r", mob->specials2.will_teach);
     send_to_char(str, ch);
+    send_to_char("(42) options        :\n\r", ch);
+    if (mob->specials.mob_options)
+        send_to_char(mob->specials.mob_options, ch);
+    send_to_char("\n\r", ch);
 }
 
 /*********--------------------------------*********/
@@ -1782,6 +1862,7 @@ int load_proto(struct char_data* ch, char* arg)
                 ->proto->specials2.will_teach
                 = tmp;
         }
+        SHAPE_PROTO(ch)->proto->specials.mob_options = read_mob_options(file, "shaping");
 
         if ((format != 'M') && (format != 'N')) {
             send_to_char("Created new mobile or loaded wrong\n\rif you did the new mob and you sure it's correct do /save\n\r", ch);
@@ -1905,6 +1986,8 @@ int replace_proto(struct char_data* ch, char* arg)
 
     if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE)) {
         write_proto(f2, SHAPE_PROTO(ch)->proto, num);
+        if (is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
+            vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
         REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE);
     }
 
@@ -2016,6 +2099,8 @@ int append_proto(struct char_data* ch, char* arg)
 
     fseek(f2, -1, SEEK_CUR);
     write_proto(f2, SHAPE_PROTO(ch)->proto, i1 + 1);
+    if (is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
+        vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
     sprintf(str, "Mobile added to database as #%d.\n\r", i1 + 1);
     send_to_char(str, ch);
     SHAPE_PROTO(ch)
@@ -2049,7 +2134,9 @@ int append_proto(struct char_data* ch, char* arg)
 }
 */
 
-void implement_proto(struct char_data* ch)
+/* report_vendor false: the caller already reported the vendor's problems
+ * (the /save half of /done), so the registry is rebuilt silently. */
+void implement_proto(struct char_data* ch, bool report_vendor = true)
 {
     int number;
     struct char_data* proto;
@@ -2103,6 +2190,11 @@ void implement_proto(struct char_data* ch)
     strcpy(proto->player.short_descr, SHAPE_PROTO(ch)->proto->player.short_descr);
     strcpy(proto->player.long_descr, SHAPE_PROTO(ch)->proto->player.long_descr);
     strcpy(proto->player.description, SHAPE_PROTO(ch)->proto->player.description);
+    /* Never free the old text: loaded copies of this mob still point at it
+     * (the same reason the other strings above are not freed). */
+    proto->specials.mob_options = SHAPE_PROTO(ch)->proto->specials.mob_options
+        ? str_dup(SHAPE_PROTO(ch)->proto->specials.mob_options)
+        : 0;
     /*   printf("desc:%s.\b",proto->player.description); */
 
     if (SHAPE_PROTO(ch)->proto->player.language > 0
@@ -2114,6 +2206,8 @@ void implement_proto(struct char_data* ch)
         proto->specials.store_prog_number = real_program(proto->specials.store_prog_number);
     else
         virt_assignmob(mob_proto + number);
+    vendor_config_rebuild(number, ch, report_vendor);
+    vendor_implement_check(number, ch);
 }
 ACMD(do_shape)
 {
@@ -2428,6 +2522,7 @@ void free_proto(struct char_data* ch)
         RELEASE(SHAPE_PROTO(ch)->proto->player.short_descr);
         RELEASE(SHAPE_PROTO(ch)->proto->player.long_descr);
         RELEASE(SHAPE_PROTO(ch)->proto->player.description);
+        RELEASE(SHAPE_PROTO(ch)->proto->specials.mob_options);
         RELEASE(SHAPE_PROTO(ch)->proto);
         SHAPE_PROTO(ch)
             ->proto
@@ -2634,7 +2729,10 @@ void extra_coms_proto(struct char_data* ch, char* argument)
             ->procedure
             = SHAPE_EDIT;
         break;
-    case SHAPE_DONE:
+    case SHAPE_DONE: {
+        /* The save reports vendor problems exactly when this is true (the
+         * same test replace_proto makes), so implement doesn't repeat them. */
+        bool save_reports = is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr);
         /* A failed save must not throw the edits away. */
         if (replace_proto(ch, argument) < 0) {
             send_to_char("Not saved - still shaping. Fix the problem and /done again,\n\r"
@@ -2642,9 +2740,9 @@ void extra_coms_proto(struct char_data* ch, char* argument)
                 ch);
             break;
         }
-        implement_proto(ch);
+        implement_proto(ch, !save_reports);
         extra_coms_proto(ch, "free");
-        break;
+    } break;
     }
     //  printf("passed shape_proto_center\n");
     return;

@@ -262,6 +262,11 @@ void write_script(FILE* f, struct char_data* ch)
 
     script_data* tmpscript = 0;
 
+    clean_record_name(SHAPE_SCRIPT(ch)->name);
+    clean_record_text(SHAPE_SCRIPT(ch)->description);
+    for (tmpscript = SHAPE_SCRIPT(ch)->root; tmpscript; tmpscript = tmpscript->next)
+        clean_record_text(tmpscript->text);
+
     fprintf(f, "#%-d ", SHAPE_SCRIPT(ch)->number);
     if (SHAPE_SCRIPT(ch)->name)
         fprintf(f, "%s~\n", SHAPE_SCRIPT(ch)->name);
@@ -1233,7 +1238,7 @@ void extra_coms_script(struct char_data* ch, char* argument)
         } else {                                                      \
             if (SHAPE_SCRIPT(ch)->tmpstr) {                           \
                 addr = SHAPE_SCRIPT(ch)->tmpstr;                      \
-                clean_text(addr);                                     \
+                clean_record_text(addr);                              \
             }                                                         \
             SHAPE_SCRIPT(ch)                                          \
                 ->tmpstr                                              \
@@ -1399,6 +1404,41 @@ static const char* script_text_label(int type)
 static bool script_text_is_message(int type)
 {
     return type == SCRIPT_SEND_TO_CHAR || type == SCRIPT_SEND_TO_ROOM || type == SCRIPT_SEND_TO_ROOM_X;
+}
+
+/* Text the script expands with the text value at run time (say, yell, send). */
+static bool script_text_is_formatted(int type)
+{
+    return script_text_is_message(type) || type == SCRIPT_DO_SAY || type == SCRIPT_DO_YELL;
+}
+
+/*
+ * A script message (say/yell/send) is expanded at run time with the text
+ * value substituted for one "%s".  It must therefore hold at most one "%s"
+ * and use "%%" for a literal '%'; any other '%' code (or a second "%s")
+ * would be read as a printf conversion when the script fires.  This rejects
+ * such text as it is entered, so no new script can store it.
+ */
+static bool script_message_percent_ok(const char* text)
+{
+    int seen_s = 0;
+    if (!text)
+        return true;
+    for (const char* p = text; *p; p++) {
+        if (*p != '%')
+            continue;
+        if (*(p + 1) == '%') {
+            p++;
+            continue;
+        }
+        if (*(p + 1) == 's' && !seen_s) {
+            seen_s = 1;
+            p++;
+            continue;
+        }
+        return false;
+    }
+    return true;
 }
 
 /* Parameter prompts.  kinds has one letter per value, stored from
@@ -1816,6 +1856,14 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case SCRIPT_DO_SAY:
+                if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)
+                    && sscanf(arg, "%s", str) == 1 && strcmp(str, "%q")
+                    && !script_message_percent_ok(arg)) {
+                    send_to_char("Message: use one %s for the text value and %% for a "
+                                 "literal %; no other % codes are allowed.\n\r",
+                        ch);
+                    arg[0] = 0;
+                }
                 SCRIPTLINECHANGE("TEXT to say (%s = the text value) (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
                 SHAPE_SCRIPT(ch)
                     ->editflag
@@ -1847,6 +1895,14 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case SCRIPT_DO_YELL:
+                if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)
+                    && sscanf(arg, "%s", str) == 1 && strcmp(str, "%q")
+                    && !script_message_percent_ok(arg)) {
+                    send_to_char("Message: use one %s for the text value and %% for a "
+                                 "literal %; no other % codes are allowed.\n\r",
+                        ch);
+                    arg[0] = 0;
+                }
                 SCRIPTLINECHANGE("TEXT to yell (%s = the text value) (blank = keep)", SHAPE_SCRIPT(ch)->script->text);
                 SHAPE_SCRIPT(ch)
                     ->editflag
@@ -2276,6 +2332,15 @@ void shape_center_script(struct char_data* ch, char* arg)
                 send_to_char("The message can't be empty.\n\r", ch);
                 arg[0] = 0;
             }
+            if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)
+                && script_text_is_formatted(SHAPE_SCRIPT(ch)->script->command_type)
+                && sscanf(arg, "%s", str) == 1 && strcmp(str, "%q")
+                && !script_message_percent_ok(arg)) {
+                send_to_char("Message: use one %s for the text value and %% for a "
+                             "literal %; no other % codes are allowed.\n\r",
+                    ch);
+                arg[0] = 0;
+            }
             SCRIPTLINECHANGE(script_text_label(SHAPE_SCRIPT(ch)->script->command_type), SHAPE_SCRIPT(ch)->script->text);
             break;
 
@@ -2493,6 +2558,11 @@ void shape_center_script(struct char_data* ch, char* arg)
             if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1
                 && !strcmp(str, "%q")) {
                 send_to_char("The script name can't be empty.\n\r", ch);
+                arg[0] = 0;
+            }
+            if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1
+                && str[0] == '$') {
+                send_to_char("A script name can't start with $.\n\r", ch);
                 arg[0] = 0;
             }
             SCRIPTLINECHANGE("SCRIPT NAME, a one-line title (blank = keep)", SHAPE_SCRIPT(ch)->name);

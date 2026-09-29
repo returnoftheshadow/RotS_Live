@@ -161,6 +161,18 @@ void write_room(FILE* f, struct room_data* m, int num)
     struct affected_type* tmpaf;
     int i, flg;
 
+    clean_record_name(m->name);
+    clean_record_text(m->description);
+    for (tmpdescr = m->ex_description; tmpdescr; tmpdescr = tmpdescr->next) {
+        clean_record_text(tmpdescr->keyword);
+        clean_record_text(tmpdescr->description);
+    }
+    for (i = 0; i < NUM_OF_DIRS; i++)
+        if (m->dir_option[i]) {
+            clean_record_text(m->dir_option[i]->general_description);
+            clean_record_text(m->dir_option[i]->keyword);
+        }
+
     fprintf(f, "#%-d  \n\r", num);
     fprintf(f, "%s~\n\r", m->name);
     fprintf(f, "%s~\n\r", m->description);
@@ -340,7 +352,7 @@ void implement_room(struct char_data* ch)
         } else {                                                      \
             if (SHAPE_ROOM(ch)->tmpstr) {                             \
                 addr = SHAPE_ROOM(ch)->tmpstr;                        \
-                clean_text(addr);                                     \
+                clean_record_text(addr);                              \
             }                                                         \
             SHAPE_ROOM(ch)                                            \
                 ->tmpstr                                              \
@@ -474,6 +486,11 @@ void shape_center_room(struct char_data* ch, char* arg)
         }
         switch (SHAPE_ROOM(ch)->editflag) {
         case 1:
+            if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1
+                && str[0] == '$') {
+                send_to_char("A room name can't start with $.\n\r", ch);
+                arg[0] = 0;
+            }
             LINECHANGE("NAME", SHAPE_ROOM(ch)->room->name)
             if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN))
                 SHAPE_ROOM(ch)
