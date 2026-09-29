@@ -92,6 +92,8 @@ extern char* apply_types[];
 extern char* drinks[];
 extern char* pc_arda_fame_identifier[];
 extern char* pc_evil_fame_identifier[];
+extern char* resistance_name[];
+extern char* vulnerability_name[];
 
 void symbol_to_map(int, int, int);
 void reset_small_map();
@@ -967,6 +969,19 @@ void list_char_to_char(struct char_data* list, struct char_data* ch, int mode)
         }
 }
 
+/* Bound-checked lookup into room_spell_message[]. That table is indexed by spell number but is
+   far shorter than MAX_SKILLS, so an unchecked index reads past its end. Returns NULL when the
+   spell number has no entry at all, otherwise the entry (which may be the empty string). */
+const char* room_spell_message_for(int location)
+{
+    extern const int room_spell_message_count;
+
+    if (location < 0 || location >= room_spell_message_count)
+        return NULL;
+
+    return room_spell_message[location];
+}
+
 /*
  * Put messages describing the room affection `aff' in `str'; a
  * `mode' of 0 means that we're showing the affection to a
@@ -979,11 +994,13 @@ void show_room_affection(char* str, struct affected_type* aff, int mode)
 
     if (mode == 0) {
         switch (aff->type) {
-        case ROOMAFF_SPELL:
-            if ((aff->location >= 0) && (aff->location < MAX_SKILLS) && *room_spell_message[aff->location] && !(aff->bitvector & PERMAFFECT)) {
-                strcat(str, room_spell_message[aff->location]);
+        case ROOMAFF_SPELL: {
+            const char* message = room_spell_message_for(aff->location);
+            if (message && *message && !(aff->bitvector & PERMAFFECT)) {
+                strcat(str, message);
                 strcat(str, "\n\r");
             }
+        }
 
             if (!(aff->bitvector & PERMAFFECT)) {
                 for (tmp = 0; tmp < 32; tmp++) {
@@ -3510,6 +3527,9 @@ ACMD(do_affections)
     char str[255];
     affected_type* tmpaff;
 
+    // buf carried leftover content into the first line of this command's output
+    buf[0] = '\0';
+
     if (IS_AFFECTED(ch, AFF_SNEAK))
         send_to_char("You are trying to sneak.\n\r", ch);
 
@@ -3522,14 +3542,29 @@ ACMD(do_affections)
     if (IS_AFFECTED(ch, AFF_MOONVISION) && OUTSIDE(ch) && weather_info.moonlight)
         send_to_char("The moon lights your surroundings.\n\r", ch);
 
-    if (!ch->affected) {
-        strcpy(buf, "You are not affected by anything.\n\r");
+    if (!ch->affected && !GET_RESISTANCES(ch) && !GET_VULNERABILITIES(ch)) {
+        sprintf(buf, "You are not affected by anything.\n\r");
     } else {
-        sprintf(buf, "You are affected by:\n\r");
-
-        for (tmpaff = ch->affected; tmpaff; tmpaff = tmpaff->next) {
-            report_affection(tmpaff, str);
-            sprintf(buf, "%s%s", buf, str);
+        if (GET_RESISTANCES(ch)) {
+            sprintf(buf, "%sYou are resistant to:\n\r", buf);
+            sprintbit_resistances(ch, GET_RESISTANCES(ch), resistance_name, buf2, 33, TRUE);
+            sprintf(buf, "%s%s", buf, buf2);
+        }
+        if (GET_VULNERABILITIES(ch)) {
+            sprintf(buf, "%sYou are vulnerable to:\n\r", buf);
+            /* FALSE: vulnerability has no per-affect magnitude, so the affect list must not
+               be consulted - APPLY_RESIST affects belong to the resistance table only. */
+            sprintbit_resistances(ch, GET_VULNERABILITIES(ch), vulnerability_name, buf2, 50, FALSE);
+            sprintf(buf, "%s%s", buf, buf2);
+        }
+        /* Only announce the affect list when there is one - a character can reach this
+           branch on a resistance or vulnerability alone, with nothing to list under it. */
+        if (ch->affected) {
+            sprintf(buf, "%sYou are affected by:\n\r", buf);
+            for (tmpaff = ch->affected; tmpaff; tmpaff = tmpaff->next) {
+                report_affection(tmpaff, str);
+                sprintf(buf, "%s%s", buf, str);
+            }
         }
     }
     report_skill_timer(*ch, buf);
@@ -4176,13 +4211,14 @@ char* wear_messages[] = {
     "worn on the arms",
     "used in the off hand",
     "worn about the body",
-    "worn about the waiste",
+    "worn about the waist",
     "worn around the wrist",
     "wielded",
     "held",
     "used as a light source",
     "worn on the back",
     "worn on a belt",
+    "\n"
 };
 
 char* material_messages[] = {
@@ -4236,12 +4272,12 @@ char* item_messages[] = {
 
 char* extra_messages[] = {
 
-    "It glows brigtly",
+    "It glows brightly",
     "It hums softly",
     "Dark",
     "It appears to be breakable",
     "It is evil",
-    "Error : Object is invisible how are you identifying this? Pleae Report",
+    "Error : Object is invisible how are you identifying this? Please Report",
     "It is magical in nature",
     "It does not want to be dropped",
     "It appears to be broken",
@@ -4252,7 +4288,20 @@ char* extra_messages[] = {
     "ERROR: Please report",
     "ERROR: Please report",
     "ERROR: Please report",
-
+    "Immortals only",
+    "Humans only",
+    "Dwarves only",
+    "Wood Elves only",
+    "Hobbits only",
+    "Beornings only",
+    "Uruk-Hai only",
+    "Orcs only",
+    "Orc followers only",
+    "Uruk-Lhuths only",
+    "Olog-Hai only",
+    "Haradrim only",
+    "It cannot leave this area",
+    "\n"
 };
 
 /*
@@ -4326,8 +4375,8 @@ char* value_array[][5] = {
     }, /* Treasure */
     {
         "",
-        "Min Absorbtion",
-        "Encumberance  ",
+        "Min Absorption",
+        "Encumbrance",
         "Dodge         ",
         "",
     }, /* Armour */
@@ -4382,7 +4431,7 @@ char* value_array[][5] = {
     }, /* note */
     {
         "Capacity    ",
-        "Ammount Left",
+        "Amount Left",
         "",
         "",
         "",
@@ -4432,7 +4481,7 @@ char* value_array[][5] = {
     {
         "Dodge Bonus ",
         "Parry Bonus ",
-        "Encumberance",
+        "Encumbrance",
         "",
         "",
     }, /* Shield */
@@ -4447,8 +4496,8 @@ char* value_array[][5] = {
 
 char* weapon_types[] = {
 
-    "Error, Unsed weapon type, contact Imms",
-    "Error, Unsed weapon type, contact Imms",
+    "Error, Unused weapon type, contact Imms",
+    "Error, Unused weapon type, contact Imms",
     "whipping",
     "slashing",
     "two-handed slashing",
@@ -4516,6 +4565,7 @@ void do_food_display(struct char_data* ch, struct obj_data* j)
 
     message_num = get_value_ranges(make_full, 0, 2, 4, 6, 10, 14, 18, 24);
     sprintf(buf, "%s %s. %s\r\n", j->short_description, food_messages[message_num], buf1);
+    buf[0] = toupper((unsigned char)buf[0]); // short descriptions start lowercase ("a piece of ...")
     send_to_char(buf, ch);
 }
 
@@ -4530,38 +4580,59 @@ void do_light_display(struct char_data* ch, struct obj_data* j)
     send_to_char(buf, ch);
 }
 
+/*
+ * One identify stat row. Labels are padded with spaces (not tabs) so every
+ * number starts in the same column; a minus sign sits one column left.
+ */
+void send_identify_stat(struct char_data* ch, const char* label, int value, const char* suffix = "")
+{
+    std::string name(label);
+    while (!name.empty() && name.back() == ' ')
+        name.pop_back();
+
+    char line[MAX_INPUT_LENGTH];
+    snprintf(line, sizeof(line), "%-16s%s%d%s\r\n", name.c_str(), value < 0 ? " " : "  ", value,
+        suffix);
+    send_to_char(line, ch);
+}
+
 void do_flag_values_display(struct char_data* ch, struct obj_data* j)
 {
 
     int i;
+    bool has_rows = GET_ITEM_TYPE(j) == ITEM_WEAPON || GET_ITEM_TYPE(j) == ITEM_ARMOR;
 
-    if (GET_ITEM_TYPE(j) == ITEM_ARMOR) {
-        sprintf(buf, "Absorbtion\t\t %d.\r\n", armor_absorb(j));
-        send_to_char(buf, ch);
-    }
+    for (i = 0; i <= 4; i++)
+        if (*value_array[GET_ITEM_TYPE(j)][i])
+            has_rows = true;
 
-    for (i = 0; i <= 4; i++) {
-        sprintf(buf, "%s", value_array[GET_ITEM_TYPE(j)][i]);
-        if (value_array[GET_ITEM_TYPE(j)][i] != "") {
-            send_to_char(buf, ch);
+    if (!has_rows)
+        return;
 
-            if (j->obj_flags.value[i] < 0) /* Checks for negative for display purposes */
-                sprintf(buf, "\t %d.\r\n", j->obj_flags.value[i]);
-            else
-                sprintf(buf, "\t  %d.\r\n", j->obj_flags.value[i]);
-            send_to_char(buf, ch);
-        }
-    }
+    send_to_char("\r\n", ch);
+
+    if (GET_ITEM_TYPE(j) == ITEM_WEAPON)
+        send_identify_stat(ch, "Damage Rating", get_weapon_damage(j), "/10");
+
+    if (GET_ITEM_TYPE(j) == ITEM_ARMOR)
+        send_identify_stat(ch, "Absorption", armor_absorb(j));
+
+    for (i = 0; i <= 4; i++)
+        if (*value_array[GET_ITEM_TYPE(j)][i])
+            send_identify_stat(ch, value_array[GET_ITEM_TYPE(j)][i], j->obj_flags.value[i]);
 }
 
 void do_weapon_display(struct char_data* ch, struct obj_data* j)
 {
 
-    sprintf(buf1, weapon_types[j->obj_flags.value[3]]);
-    sprintf(buf,
-        "The weapon you hold is a %s weapon.\r\n"
-        "\n\rDamage Rating \t   %d/10.\r\n",
-        buf1, get_weapon_damage(j));
+    // A weapon type past the end of weapon_types (live obj 5034 has 22) reads
+    // garbage memory, so fall back to the "unused weapon type" message.
+    const int weapon_type = j->obj_flags.value[3];
+    const int weapon_type_count = sizeof(weapon_types) / sizeof(weapon_types[0]);
+    const char* weapon_name = weapon_type >= 0 && weapon_type < weapon_type_count
+        ? weapon_types[weapon_type]
+        : weapon_types[0];
+    sprintf(buf, "The weapon you hold is a %s weapon.\r\n", weapon_name);
     send_to_char(buf, ch);
 }
 
@@ -4647,9 +4718,9 @@ void do_identify_object(struct char_data* ch, struct obj_data* j)
     for (i = 0; i < MAX_OBJ_AFFECT; i++)
         if (j->affected[i].modifier) {
             sprinttype(j->affected[i].location, apply_types, buf2);
-            sprintf(buf, "%s %+d to %s", found++ ? "" : "", j->affected[i].modifier, buf2);
-            if (found == 1)
-                send_to_char("\r\nThis item has the following affections.\r\n", ch);
+            sprintf(buf, "%+d to %s", j->affected[i].modifier, buf2);
+            if (++found == 1)
+                send_to_char("\r\nThis item has the following affections:\r\n", ch);
             send_to_char(buf, ch);
             send_to_char("\r\n", ch);
         }

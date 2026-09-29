@@ -119,7 +119,7 @@ This spell is not available to good races.
 
 #
 PROTECTION
-[Syntax      ] cast 'protection' <fire | cold | lightning | attack> [victim]
+[Syntax      ] cast 'protection' <fire | cold | lightning | physical | illusion> [victim]
 [Group       ] Mystic, Protection
 [Level       ] 1
 [Minimum Cost] ?
@@ -129,9 +129,16 @@ PROTECTION
   This convoluted spell grants resistance to one kind of damage to you, or
 to your friend. Nobody can have more than one protection at once, and some
 people will not accept some kinds of protection.
+  Physical protection guards against weapon blows and arrows. The strength
+of the protection grows with the caster's mystic level, up to 40 percent
+less damage, and it lasts longer the more powerful the caster. Illusion
+protection does not lessen damage; instead it sometimes turns a mental
+attack aimed at your will onto another part of your mind. AFFECTIONS shows
+how strong your current protection is. UNPROTECT removes your own
+protection.
   You need to specialize in protection to learn this spell.
 
-See: SPECIALIZATIONS
+See: SPECIALIZATIONS, UNPROTECT
 #
 "DETECT HIDDEN"
 

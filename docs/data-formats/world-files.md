@@ -158,6 +158,15 @@ Notes:
   **and** (b) move field 29 (program number) off 33, or clear `MOB_SPEC`, on every vendor
   mob — otherwise the old binary crashes when a player looks at a program-33 mob (it reads
   `spec_pro_message[33]`, past the end of its table).
+- **There is no affect list on a mobile.** The record ends at the
+  `language … will_teach` line above (or the options block, if any) and the parser moves straight to the next `#vnum`.
+  Objects carry `MAX_OBJ_AFFECT` `A <location> <modifier>` slots; mobiles have no
+  equivalent, so a mob cannot carry `APPLY_SPELL` (or any other apply) in its own record.
+- Consequently `resistance`/`vulnerability` are **flag-only: a bit, with no strength**.
+  A mob can be "resistant to fire" but not "80 % resistant to fire". To give a mob a
+  graded resistance, put `A 27 <strength*256 + spell>` on an object and equip it with the
+  zone `E` command — that path runs `equip_char` (`zone.cpp:844`) and produces a real
+  affect. See `docs/shape_mob.md` for the bit table and the builder recipe.
 
 ---
 

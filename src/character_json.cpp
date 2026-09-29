@@ -978,6 +978,7 @@ namespace {
         output << "\"modifier\": " << affect.modifier << ", ";
         output << "\"location\": " << affect.location << ", ";
         output << "\"counter\": " << affect.counter << ", ";
+        output << "\"effect_modifier\": " << affect.effect_modifier << ", ";
         output << "\"flags\": ";
         write_string_array(output, affect.flags);
         output << "}";
@@ -1238,6 +1239,8 @@ namespace {
         writer.number(affect.location);
         writer.raw(", \"counter\": ");
         writer.number(affect.counter);
+        writer.raw(", \"effect_modifier\": ");
+        writer.number(affect.effect_modifier);
         writer.raw(", \"flags\": ");
         write_string_array_v2a(writer, affect.flags);
         writer.raw('}');
@@ -1257,6 +1260,8 @@ namespace {
         writer.number(affect.location);
         writer.raw(", \"counter\": ");
         writer.number(affect.counter);
+        writer.raw(", \"effect_modifier\": ");
+        writer.number(affect.effect_modifier);
         writer.raw(", \"flags\": ");
         write_string_array_v2b(writer, affect.flags);
         writer.raw('}');
@@ -1563,6 +1568,8 @@ namespace {
                 return saw_location = true, nested_reader->parse_integer(&affect->location, nested_error_message);
             if (key == "counter")
                 return saw_counter = true, nested_reader->parse_integer(&affect->counter, nested_error_message);
+            if (key == "effect_modifier")
+                return nested_reader->parse_integer(&affect->effect_modifier, nested_error_message);
             if (key == "flags")
                 return saw_flags = true, parse_string_array(nested_reader, &affect->flags, nested_error_message);
             return nested_reader->skip_value(nested_error_message);
@@ -2006,6 +2013,7 @@ CharacterData character_data_from_store(const char_file_u& stored_character)
         affect_data.location = affect.location;
         affect_data.bitvector = affect.bitvector;
         affect_data.counter = affect.counter;
+        affect_data.effect_modifier = affect.effect_modifier;
         affect_data.flags = encode_affected_flags(affect.bitvector);
         character.affects.push_back(std::move(affect_data));
         combined_affected_flags |= affect.bitvector;
@@ -2137,6 +2145,7 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
         stored_character->affected[index].location = 0;
         stored_character->affected[index].bitvector = 0;
         stored_character->affected[index].counter = 0;
+        stored_character->affected[index].effect_modifier = 0;
         stored_character->affected[index].next = nullptr;
     }
 
@@ -2156,6 +2165,7 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
         affect.location = static_cast<sh_int>(json_character.affects[index].location);
         affect.bitvector = affect_flag_bits;
         affect.counter = static_cast<sh_int>(json_character.affects[index].counter);
+        affect.effect_modifier = json_character.affects[index].effect_modifier;
     }
 
     long combined_affect_bits = 0;

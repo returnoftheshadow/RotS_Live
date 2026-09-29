@@ -112,6 +112,8 @@ set(ROTS_SERVER_SOURCES
 
 set(ROTS_TEST_SOURCES
     tests/barter_vendor_tests.cpp
+    tests/resistance_tests.cpp
+    tests/resist_item_slot_tests.cpp
     tests/battle_mage_handler_tests.cpp
     tests/account_management_tests.cpp
     tests/account_cache_tests.cpp
@@ -142,12 +144,14 @@ set(ROTS_TEST_SOURCES
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
     tests/mob_options_tests.cpp
+    tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
     tests/string_value_tests.cpp
     tests/zone_loader_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
+    tests/negative_room_report_tests.cpp
     tests/process_output_tests.cpp
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp

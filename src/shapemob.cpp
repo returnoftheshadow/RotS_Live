@@ -1234,7 +1234,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 36:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH, 7 WILD,\n\r  8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND\n\r", ch);
+                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH,\n\r  7 PHYSICAL, 8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND, 12 DARK\n\r", ch);
             DIGITCHANGE("RESISTANCES: pN sets bit N, mN clears it, one per answer", mob->specials.resistance)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
@@ -1244,7 +1244,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 37:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH, 7 WILD,\n\r  8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND\n\r", ch);
+                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH,\n\r  7 PHYSICAL, 8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND, 12 DARK\n\r", ch);
             DIGITCHANGE("VULNERABILITIES: pN sets bit N, mN clears it, one per answer", mob->specials.vulnerability)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
