@@ -2,7 +2,9 @@
 
 #include "platdef.h"
 #include <ctype.h>
+#include <cxxabi.h>
 #include <dirent.h>
+#include <execinfo.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,6 +151,8 @@ void load_mobiles(FILE* mob_f);
 void load_objects(FILE* obj_f);
 void load_mudlle(FILE* fp);
 void load_scripts(FILE* fl);
+void check_script_table(void);
+bool report_script_negative_room(void);
 void draw_map();
 void initialiaze_small_map();
 void reset_small_map();
@@ -408,6 +412,9 @@ void boot_db(void)
 
     log("Renumbering zone table.");
     renum_zone_table();
+
+    log("Checking scripts for vnums that do not exist.");
+    check_script_table();
 
     log("Generating player index.");
     build_player_index();
@@ -1963,6 +1970,10 @@ void load_mobiles(FILE* mob_f)
                 mob_proto[i].player.sex = tmp3;
                 mob_proto[i].player.race = tmp4;
                 mob_proto[i].specials2.pref = tmp5;
+                if (tmp4 < 0 || tmp4 > 20) {
+                    sprintf(buf, "MOB ERROR: mobile #%d: race %d out of range 0-20", nr, tmp4);
+                    mudlog(buf, NRM, LEVEL_IMMORT, TRUE);
+                }
 
                 mob_proto[i].player.prof = 0;
 
@@ -4457,6 +4468,91 @@ void room_data::delete_room()
         delete BASE_EXTENSION;
 }
 
+int running_mob_vnum = -1;
+int running_mob_room_vnum = -1;
+
+/*
+ * One backtrace_symbols() line, "binary(mangled+0x1f) [0x...]", as
+ * "function(args)+0x1f" in out.  The line is cut up in place.  Anything
+ * missing -- no line, no name, no offset -- leaves that part out, so out may
+ * be empty; this runs on an error path and must never fail itself.
+ */
+void negative_room_caller_name(char* line, char* out, size_t out_size)
+{
+    char* name;
+    char* offset = 0;
+    char* demangled = 0;
+    int status = 0;
+
+    if (!out || out_size == 0)
+        return;
+    out[0] = '\0';
+    if (!line)
+        return;
+
+    char* open = strchr(line, '(');
+    char* plus = open ? strchr(open, '+') : 0;
+    char* close = open ? strchr(open, ')') : 0;
+    if (!open || !close || (plus && plus > close))
+        return;
+
+    *(plus ? plus : close) = '\0';
+    name = open + 1;
+    if (!*name)
+        return;
+    if (plus && close > plus + 1) {
+        *close = '\0';
+        offset = plus + 1;
+    }
+
+    demangled = abi::__cxa_demangle(name, 0, 0, &status);
+    if (status == 0 && demangled)
+        name = demangled;
+
+    if (offset)
+        snprintf(out, out_size, "%s+%s", name, offset);
+    else
+        snprintf(out, out_size, "%s", name);
+    free(demangled);
+}
+
+/*
+ * world[] was given a negative room outside any zone command or script line,
+ * so no builder line is to blame.  Name the function that made the call and
+ * the offset into it, so a coder can find the line against the same build:
+ *   gdb -batch -ex "info line *('one_mobile_activity(char_data*)'+0x1b1-1)" bin/ageland
+ * (less one: the offset is the return address, just past the call).  During a
+ * mob's turn, also name the mob and the room it started the turn in.  Runs only on this error path; everything it allocates is
+ * freed before it returns, and anything it cannot find is left out.
+ */
+static void report_negative_room_caller(void)
+{
+    void* frames[3];
+    char** names;
+    char caller[256] = "";
+    char mob[64] = "";
+    char msg[512];
+    int n;
+
+    /* frames[0] is this function, frames[1] world[], frames[2] its caller. */
+    n = backtrace(frames, 3);
+    names = (n == 3) ? backtrace_symbols(frames + 2, 1) : 0;
+    if (names)
+        negative_room_caller_name(names[0], caller, sizeof(caller));
+
+    /* Numbers saved at the start of the mob's turn; the mob itself may be
+     * gone by now, so nothing here reads from it. */
+    if (running_mob_vnum >= 0 || running_mob_room_vnum >= 0)
+        snprintf(mob, sizeof(mob), ", mob %d, room %d", running_mob_vnum, running_mob_room_vnum);
+    if (caller[0])
+        snprintf(msg, sizeof(msg), "world[] called for negative room number from %s%s", caller, mob);
+    else
+        snprintf(msg, sizeof(msg), "world[] called for negative room number%s.", mob);
+    mudlog(msg, NRM, LEVEL_GOD, TRUE);
+
+    free(names);
+}
+
 room_data& room_data::operator[](int i)
 {
     int offset;
@@ -4468,8 +4564,14 @@ room_data& room_data::operator[](int i)
     }
 
     if (i < 0) {
-        mudlog("world[] called for negative room number.", NRM, LEVEL_GOD, TRUE);
-        //    send_to_all("****world[] called for negative room number.****");
+        /*
+         * The lookup silently runs against room 0 instead.  Name the most
+         * specific thing that was running: a script line (innermost -- a
+         * script can run inside a zone command), then a zone command, then
+         * the calling function.
+         */
+        if (!report_script_negative_room() && !report_zone_negative_room())
+            report_negative_room_caller();
         return *(BASE_WORLD);
     }
 

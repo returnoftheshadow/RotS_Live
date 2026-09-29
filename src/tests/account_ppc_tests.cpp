@@ -203,7 +203,10 @@ TEST(AccountPpcColorSlots, OmitsDefaultSlotsAndResetsOnParse)
     }
 
     std::string error_message;
-    json_utils::JsonReader reader("{\"colors\": {}}");
+    // Named: JsonReader keeps a reference to its input, so the deleted rvalue constructor refuses
+    // a temporary here.
+    const std::string colors_json = "{\"colors\": {}}";
+    json_utils::JsonReader reader(colors_json);
     ASSERT_TRUE(reader.parse_root_object(
         [&](const std::string& key, json_utils::JsonReader* nested, std::string* nested_error) {
             if (key == "colors")

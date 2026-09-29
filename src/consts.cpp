@@ -1935,7 +1935,7 @@ char* item_types[] = {
 
 // const
 char* wear_bits[] = { "TAKE", "FINGER", "NECK", "BODY", "HEAD", "LEGS", "FEET",
-    "HANDS", "ARMS", "SHIELD", "ABOUT", "WAISTE", "WRIST", "WIELD",
+    "HANDS", "ARMS", "SHIELD", "ABOUT", "WAIST", "WRIST", "WIELD",
     "HOLD", "THROW", "BACK", "BELT", "\n" };
 
 // const
@@ -1995,7 +1995,7 @@ char* equipment_types[] = { "Special",
     "Worn on arms",
     "Worn as shield",
     "Worn about body",
-    "Worn around waiste",
+    "Worn around waist",
     "Worn around right wrist",
     "Worn around left wrist",
     "Wielded",
@@ -2126,11 +2126,12 @@ char* player_bits[] = { "", "IS_NCHANGED", "FROZEN", "DONTSET", "WRITING", "MAIL
     "\n" };
 
 // const
+// One name per PRF_* bit in structs.h, in bit order.
 char* preference_bits[] = { "BRIEF", "COMPACT", "NARR", "!TELL", "MENTAL", "SWIM", "NOTH2",
-    "PRMPT", "D_TEXT", "!HASS", "QUEST", "SUMN", "ECHO", "LIGHT",
-    "COLOR", "SING", "WIZ", "LOG1", "LOG2", "LOG3", "!AUC",
-    "CHAT", "!GTZ", "RMFLG", "SPAM", "AUTOEX", "LATIN1", "SPINNER",
-    "SORT1", "SORT2", "!UNUS1", "!UNUS2", "!UNUS3", "\n" };
+    "PRMPT", "D_TEXT", "!HASS", "!UNUS10", "SUMN", "ECHO", "LIGHT",
+    "COLOR", "SING", "WIZ", "LOG1", "LOG2", "LOG3", "CHAT",
+    "!UNUS21", "RMFLG", "SPAM", "MSDP", "WRAP", "LATIN1", "SPINNER",
+    "SORT1", "SORT2", "ADVVIEW", "ADVPRMPT", "\n" };
 
 // const
 char* position_types[] = { "Dead", "Mortally wounded", "Incapacitated", "Stunned", "Sleeping",

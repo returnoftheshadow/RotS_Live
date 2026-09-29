@@ -45,6 +45,7 @@ void check_state_deadlines(time_t now);
 void break_spell(struct char_data* ch);
 void abort_delay(char_data* wait_ch);
 void complete_delay(struct char_data* ch);
+std::string mob_age_message(struct char_data* victim);
 struct txt_block* get_from_txt_block_pool(char* line = 0);
 void put_to_txt_block_pool(struct txt_block*);
 
@@ -61,6 +62,9 @@ void act(const char* str, int hide_invisible, struct char_data* ch,
 int write_to_descriptor(int desc, char* txt);
 void write_to_q(char* txt, struct txt_q* queue);
 void write_to_output(const char* txt, struct descriptor_data* d);
+int output_space_left(struct descriptor_data* d);
+void output_mark_overflow(struct descriptor_data* d);
+int wrap_added_length(const char* text);
 void page_string(struct descriptor_data* d, char* str, int keep_internal);
 bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::string* error_message);
 

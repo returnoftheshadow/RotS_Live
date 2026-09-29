@@ -2635,7 +2635,8 @@ void perform_immort_where(struct char_data* ch, char* arg)
             }
 
         for (num = 0, k = object_list; k; k = k->next)
-            if (CAN_SEE_OBJ(ch, k) && isname(arg, k->name) || (atoi(arg) == obj_index[k->item_number].virt && atoi(arg))) {
+            /* Objects made on the fly (money, mail) have no prototype: item_number -1. */
+            if (CAN_SEE_OBJ(ch, k) && isname(arg, k->name) || (atoi(arg) && k->item_number >= 0 && atoi(arg) == obj_index[k->item_number].virt)) {
                 found = 1;
                 tmp = NOWHERE;
                 tmpobj = 0;
@@ -2735,31 +2736,44 @@ void report_mob_align(struct char_data* ch, struct char_data* victim)
         act("Killing $M won't change you.", FALSE, ch, 0, victim, TO_CHAR);
 }
 
-void report_mob_age(struct char_data* ch, struct char_data* victim)
+/* The "has been here for ..." line shown by look, consider and diagnose, without the
+   trailing line break. Empty for players and orc-friend pets, which show no age. */
+std::string mob_age_message(struct char_data* victim)
 {
     int age;
     char str[255];
     extern int average_mob_life;
 
     if (!IS_NPC(victim) || (MOB_FLAGGED(victim, MOB_ORC_FRIEND) && MOB_FLAGGED(victim, MOB_PET)))
-        return;
+        return "";
 
     age = MOB_AGE_TICKS(victim, time(0));
 
     if (age <= 1)
-        sprintf(str, "%s has just arrived to this place.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has just arrived to this place.", GET_NAME(victim));
     else if (age <= average_mob_life / 4)
-        sprintf(str, "%s has arrived but recently.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has arrived but recently.", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 4)
-        sprintf(str, "%s has been here for a little while.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for a little while.", GET_NAME(victim));
     else if (age <= average_mob_life)
-        sprintf(str, "%s has been here for quite a while.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for quite a while.", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 2)
-        sprintf(str, "%s has been here for a long time already.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for a long time already.", GET_NAME(victim));
     else
-        sprintf(str, "%s has been here for a very long time.\r\n", GET_NAME(victim));
+        sprintf(str, "%s has been here for a very long time.", GET_NAME(victim));
     str[0] = toupper(str[0]);
-    send_to_char(str, ch);
+    return str;
+}
+
+void report_mob_age(struct char_data* ch, struct char_data* victim)
+{
+    std::string message = mob_age_message(victim);
+
+    if (message.empty())
+        return;
+
+    message += "\r\n";
+    send_to_char(message.c_str(), ch);
 }
 
 ACMD(do_consider)
@@ -4197,13 +4211,14 @@ char* wear_messages[] = {
     "worn on the arms",
     "used in the off hand",
     "worn about the body",
-    "worn about the waiste",
+    "worn about the waist",
     "worn around the wrist",
     "wielded",
     "held",
     "used as a light source",
     "worn on the back",
     "worn on a belt",
+    "\n"
 };
 
 char* material_messages[] = {
@@ -4257,12 +4272,12 @@ char* item_messages[] = {
 
 char* extra_messages[] = {
 
-    "It glows brigtly",
+    "It glows brightly",
     "It hums softly",
     "Dark",
     "It appears to be breakable",
     "It is evil",
-    "Error : Object is invisible how are you identifying this? Pleae Report",
+    "Error : Object is invisible how are you identifying this? Please Report",
     "It is magical in nature",
     "It does not want to be dropped",
     "It appears to be broken",
@@ -4273,7 +4288,20 @@ char* extra_messages[] = {
     "ERROR: Please report",
     "ERROR: Please report",
     "ERROR: Please report",
-
+    "Immortals only",
+    "Humans only",
+    "Dwarves only",
+    "Wood Elves only",
+    "Hobbits only",
+    "Beornings only",
+    "Uruk-Hai only",
+    "Orcs only",
+    "Orc followers only",
+    "Uruk-Lhuths only",
+    "Olog-Hai only",
+    "Haradrim only",
+    "It cannot leave this area",
+    "\n"
 };
 
 /*
@@ -4347,8 +4375,8 @@ char* value_array[][5] = {
     }, /* Treasure */
     {
         "",
-        "Min Absorbtion",
-        "Encumberance  ",
+        "Min Absorption",
+        "Encumbrance",
         "Dodge         ",
         "",
     }, /* Armour */
@@ -4403,7 +4431,7 @@ char* value_array[][5] = {
     }, /* note */
     {
         "Capacity    ",
-        "Ammount Left",
+        "Amount Left",
         "",
         "",
         "",
@@ -4453,7 +4481,7 @@ char* value_array[][5] = {
     {
         "Dodge Bonus ",
         "Parry Bonus ",
-        "Encumberance",
+        "Encumbrance",
         "",
         "",
     }, /* Shield */
@@ -4468,8 +4496,8 @@ char* value_array[][5] = {
 
 char* weapon_types[] = {
 
-    "Error, Unsed weapon type, contact Imms",
-    "Error, Unsed weapon type, contact Imms",
+    "Error, Unused weapon type, contact Imms",
+    "Error, Unused weapon type, contact Imms",
     "whipping",
     "slashing",
     "two-handed slashing",
@@ -4537,6 +4565,7 @@ void do_food_display(struct char_data* ch, struct obj_data* j)
 
     message_num = get_value_ranges(make_full, 0, 2, 4, 6, 10, 14, 18, 24);
     sprintf(buf, "%s %s. %s\r\n", j->short_description, food_messages[message_num], buf1);
+    buf[0] = toupper((unsigned char)buf[0]); // short descriptions start lowercase ("a piece of ...")
     send_to_char(buf, ch);
 }
 
@@ -4551,38 +4580,59 @@ void do_light_display(struct char_data* ch, struct obj_data* j)
     send_to_char(buf, ch);
 }
 
+/*
+ * One identify stat row. Labels are padded with spaces (not tabs) so every
+ * number starts in the same column; a minus sign sits one column left.
+ */
+void send_identify_stat(struct char_data* ch, const char* label, int value, const char* suffix = "")
+{
+    std::string name(label);
+    while (!name.empty() && name.back() == ' ')
+        name.pop_back();
+
+    char line[MAX_INPUT_LENGTH];
+    snprintf(line, sizeof(line), "%-16s%s%d%s\r\n", name.c_str(), value < 0 ? " " : "  ", value,
+        suffix);
+    send_to_char(line, ch);
+}
+
 void do_flag_values_display(struct char_data* ch, struct obj_data* j)
 {
 
     int i;
+    bool has_rows = GET_ITEM_TYPE(j) == ITEM_WEAPON || GET_ITEM_TYPE(j) == ITEM_ARMOR;
 
-    if (GET_ITEM_TYPE(j) == ITEM_ARMOR) {
-        sprintf(buf, "Absorbtion\t\t %d.\r\n", armor_absorb(j));
-        send_to_char(buf, ch);
-    }
+    for (i = 0; i <= 4; i++)
+        if (*value_array[GET_ITEM_TYPE(j)][i])
+            has_rows = true;
 
-    for (i = 0; i <= 4; i++) {
-        sprintf(buf, "%s", value_array[GET_ITEM_TYPE(j)][i]);
-        if (value_array[GET_ITEM_TYPE(j)][i] != "") {
-            send_to_char(buf, ch);
+    if (!has_rows)
+        return;
 
-            if (j->obj_flags.value[i] < 0) /* Checks for negative for display purposes */
-                sprintf(buf, "\t %d.\r\n", j->obj_flags.value[i]);
-            else
-                sprintf(buf, "\t  %d.\r\n", j->obj_flags.value[i]);
-            send_to_char(buf, ch);
-        }
-    }
+    send_to_char("\r\n", ch);
+
+    if (GET_ITEM_TYPE(j) == ITEM_WEAPON)
+        send_identify_stat(ch, "Damage Rating", get_weapon_damage(j), "/10");
+
+    if (GET_ITEM_TYPE(j) == ITEM_ARMOR)
+        send_identify_stat(ch, "Absorption", armor_absorb(j));
+
+    for (i = 0; i <= 4; i++)
+        if (*value_array[GET_ITEM_TYPE(j)][i])
+            send_identify_stat(ch, value_array[GET_ITEM_TYPE(j)][i], j->obj_flags.value[i]);
 }
 
 void do_weapon_display(struct char_data* ch, struct obj_data* j)
 {
 
-    sprintf(buf1, weapon_types[j->obj_flags.value[3]]);
-    sprintf(buf,
-        "The weapon you hold is a %s weapon.\r\n"
-        "\n\rDamage Rating \t   %d/10.\r\n",
-        buf1, get_weapon_damage(j));
+    // A weapon type past the end of weapon_types (live obj 5034 has 22) reads
+    // garbage memory, so fall back to the "unused weapon type" message.
+    const int weapon_type = j->obj_flags.value[3];
+    const int weapon_type_count = sizeof(weapon_types) / sizeof(weapon_types[0]);
+    const char* weapon_name = weapon_type >= 0 && weapon_type < weapon_type_count
+        ? weapon_types[weapon_type]
+        : weapon_types[0];
+    sprintf(buf, "The weapon you hold is a %s weapon.\r\n", weapon_name);
     send_to_char(buf, ch);
 }
 
@@ -4668,9 +4718,9 @@ void do_identify_object(struct char_data* ch, struct obj_data* j)
     for (i = 0; i < MAX_OBJ_AFFECT; i++)
         if (j->affected[i].modifier) {
             sprinttype(j->affected[i].location, apply_types, buf2);
-            sprintf(buf, "%s %+d to %s", found++ ? "" : "", j->affected[i].modifier, buf2);
-            if (found == 1)
-                send_to_char("\r\nThis item has the following affections.\r\n", ch);
+            sprintf(buf, "%+d to %s", j->affected[i].modifier, buf2);
+            if (++found == 1)
+                send_to_char("\r\nThis item has the following affections:\r\n", ch);
             send_to_char(buf, ch);
             send_to_char("\r\n", ch);
         }
