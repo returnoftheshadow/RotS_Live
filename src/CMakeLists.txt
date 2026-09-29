@@ -138,6 +138,7 @@ set(ROTS_TEST_SOURCES
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/limits_tests.cpp
+    tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
     tests/string_value_tests.cpp
