@@ -1,0 +1,43 @@
+name: Engineering task
+description: Work on the build, tests, tools or documentation that does not change the game.
+type: Task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Write this so that someone who does not read code can follow why the work matters.
+        Technical detail goes in comments after the issue is created.
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why do engineers need this?
+      description: What is slow, risky or impossible today.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What will it let us do or prove?
+      placeholder: Every later fix can be checked by a test that plays the game the way a player would.
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Will players notice anything?
+      options:
+        - No, nothing changes in the game
+        - Yes, described below
+    validations:
+      required: true
+  - type: textarea
+    id: impact-detail
+    attributes:
+      label: What players will notice
+      description: Leave empty if nothing changes in the game.
+  - type: input
+    id: parent
+    attributes:
+      label: Part of a larger effort?
+      description: The number of the parent issue, if there is one.
+      placeholder: "#123"

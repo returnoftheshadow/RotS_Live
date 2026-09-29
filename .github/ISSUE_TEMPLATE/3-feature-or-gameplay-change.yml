@@ -1,0 +1,47 @@
+name: Feature or gameplay change
+description: Something new, or a deliberate change to how the game works.
+type: Feature
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the change from the point of view of the people it is for.
+        Engineers add technical detail as comments after the issue is created.
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is it for?
+      multiple: true
+      options:
+        - Players
+        - Builders
+        - Immortals
+        - Server administrators
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: What problem does it solve?
+      description: What is missing or awkward today.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: What changes for them?
+      description: What they will be able to do or will see differently.
+    validations:
+      required: true
+  - type: textarea
+    id: unchanged
+    attributes:
+      label: What stays the same?
+      description: Anything nearby that people might expect to change but will not.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?

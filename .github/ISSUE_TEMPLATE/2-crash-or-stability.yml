@@ -1,0 +1,46 @@
+name: Crash or stability problem
+description: The game can crash, restart, freeze or lose progress.
+type: Bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the problem is the game staying up and keeping its data, not a rule behaving wrongly.
+        Describe the risk in plain words. Engineers add technical detail as comments after the issue is created.
+  - type: textarea
+    id: risk
+    attributes:
+      label: What could go wrong for players?
+      description: For example, the game restarts and everyone is disconnected, or a character loses items.
+    validations:
+      required: true
+  - type: textarea
+    id: trigger
+    attributes:
+      label: When can it happen?
+      description: What is going on in the game at the time, as far as it is known.
+      placeholder: A poisoned character dies while their player is disconnected.
+    validations:
+      required: true
+  - type: dropdown
+    id: seen
+    attributes:
+      label: Has it been seen on the live game?
+      options:
+        - Yes, it happened on the live game
+        - Only on a test server
+        - Not seen yet, found by testing tools or code review
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: after
+    attributes:
+      label: What will players notice once it is fixed?
+      description: Often nothing, apart from the problem no longer happening. Say so if that is the case.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: When it happened, who was affected, or what the game showed just before.

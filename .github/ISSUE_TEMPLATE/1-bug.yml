@@ -1,0 +1,56 @@
+name: Bug
+description: Something in the game behaves wrongly.
+type: Bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe what you saw in the game, in your own words. You do not need to know the code.
+        Engineers add technical detail as comments after the issue is created.
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who notices this?
+      multiple: true
+      options:
+        - Players
+        - Builders
+        - Immortals
+        - Server administrators
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today?
+      description: What you see in the game now, including any message the game shows.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can someone see it in game?
+      description: The character, the place and the commands, in order.
+      placeholder: |
+        1. Log in as a level 30 ranger.
+        2. Go to ...
+        3. Type ...
+    validations:
+      required: true
+  - type: input
+    id: area
+    attributes:
+      label: Where in the game?
+      description: The zone, room, mob, skill or spell involved, if you know it.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: How often it happens, when you first saw it, or a copy of the game output.
