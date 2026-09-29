@@ -1169,8 +1169,9 @@ void sprintbit(long vektor, char* names[], char* result, int var)
 {
     long nr;
     int count;
-    // Unsigned so the top bit (e.g. PRF_ADVANCED_PROMPT) shifts out instead of sign-extending.
-    unsigned long bits = (unsigned long)vektor;
+    // Flags are 32 bits. Take the low 32 unsigned so bit 31 (e.g. PRF_ADVANCED_PROMPT) neither
+    // sign-extends nor, where long is 64-bit, fills the upper half with extra bits.
+    unsigned long bits = (unsigned long)(unsigned int)vektor;
 
     *result = '\0';
     count = 0;
