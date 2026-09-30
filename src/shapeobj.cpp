@@ -28,6 +28,9 @@ int obj_chain[50] = {
 };
 int simple_edit(struct char_data* ch, char** str, char* arg); /* exist in objects.c */
 int shape_standup(struct char_data* ch, int pos);
+void shape_flag_value(struct char_data* ch, char* arg, int* value);
+int shape_help_asked(const char* arg);
+void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
 
 void new_obj(struct char_data* ch)
 {
@@ -445,6 +448,13 @@ void shape_center_obj(struct char_data* ch, char* arg)
             while (current_descr->next)
                 current_descr = current_descr->next;
 
+        /* "%h" at a prompt: the field's help, then the same prompt again. */
+        if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE) && shape_help_asked(arg)) {
+            char key[40];
+            sprintf(key, "OBJ %d", SHAPE_OBJECT(ch)->editflag);
+            shape_prompt_help(ch, "shape", key, SHAPE_OBJECT(ch)->position);
+            REMOVE_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+        }
         switch (SHAPE_OBJECT(ch)->editflag) {
 
         case 1:
@@ -643,7 +653,7 @@ void shape_center_obj(struct char_data* ch, char* arg)
         return;                                                 \
     } else {                                                    \
         tmp = addr;                                             \
-        string_to_new_value(arg, &tmp);                         \
+        shape_flag_value(ch, arg, &tmp);                        \
         addr = tmp;                                             \
     }                                                           \
     shape_standup(ch, SHAPE_OBJECT(ch)->position);              \
@@ -655,10 +665,13 @@ void shape_center_obj(struct char_data* ch, char* arg)
 
         case 9:
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  1 LIGHT, 2 SCROLL, 3 WAND, 4 STAFF, 5 WEAPON, 6 FIRE WEAPON, 7 MISSILE,\n\r"
-                             "  8 TREASURE, 9 ARMOR, 10 POTION, 11 WORN, 12 OTHER, 13 TRASH, 14 TRAP,\n\r"
-                             "  15 CONTAINER, 16 NOTE, 17 LIQUID CONTAINER, 18 KEY, 19 FOOD, 20 MONEY,\n\r"
-                             "  21 PEN, 22 BOAT, 23 FOUNTAIN, 24 SHIELD, 25 LEVER\n\r",
+                send_to_char("   1 LIGHT          8 TREASURE   15 CONTAINER          22 BOAT\n\r"
+                             "   2 SCROLL         9 ARMOR      16 NOTE               23 FOUNTAIN\n\r"
+                             "   3 WAND          10 POTION     17 LIQUID CONTAINER   24 SHIELD\n\r"
+                             "   4 STAFF         11 WORN       18 KEY                25 LEVER\n\r"
+                             "   5 WEAPON        12 OTHER      19 FOOD\n\r"
+                             "   6 FIRE WEAPON   13 TRASH      20 MONEY\n\r"
+                             "   7 MISSILE       14 TRAP       21 PEN\n\r\n\r",
                     ch);
             tmp3 = obj->obj_flags.type_flag;
             DIGITCHANGE("TYPE (changes what /12 means)", obj->obj_flags.type_flag);
@@ -679,13 +692,14 @@ void shape_center_obj(struct char_data* ch, char* arg)
 
         case 10:
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 GLOW, 1 HUM, 2 DARK, 3 BREAKABLE, 4 EVIL, 5 INVISIBLE, 6 MAGIC,\n\r"
-                             "  7 NODROP, 8 BROKEN, 9 ANTI_GOOD, 10 ANTI_EVIL, 11 ANTI_NEUTRAL,\n\r"
-                             "  12 NORENT, 13 (unused), 14 NOINVIS, 15 WILLPOWER, 16 IMM, 17 HUMAN,\n\r"
-                             "  18 DWARF, 19 WOODELF, 20 HOBBIT, 21 BEORNING, 22 URUK, 23 ORC,\n\r"
-                             "  24 MOBORC, 25 MAGUS, 26 OLOGHAI, 27 HARADRIM, 28 STAY_ZONE\n\r",
+                send_to_char("   0 GLOW         6 MAGIC          12 NORENT      18 DWARF      24 MOBORC\n\r"
+                             "   1 HUM          7 NODROP         13 (unused)    19 WOODELF    25 MAGUS\n\r"
+                             "   2 DARK         8 BROKEN         14 NOINVIS     20 HOBBIT     26 OLOGHAI\n\r"
+                             "   3 BREAKABLE    9 ANTI_GOOD      15 WILLPOWER   21 BEORNING   27 HARADRIM\n\r"
+                             "   4 EVIL        10 ANTI_EVIL      16 IMM         22 URUK       28 STAY_ZONE\n\r"
+                             "   5 INVISIBLE   11 ANTI_NEUTRAL   17 HUMAN       23 ORC\n\r\n\r",
                     ch);
-            DIGITCHANGE("EXTRA FLAGS: pN sets bit N, mN clears it, one per answer", obj->obj_flags.extra_flags);
+            DIGITCHANGE("EXTRA FLAGS: pN sets bit N, mN clears it, e.g. p1 p7 m2", obj->obj_flags.extra_flags);
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
                 SHAPE_OBJECT(ch)
@@ -699,11 +713,11 @@ void shape_center_obj(struct char_data* ch, char* arg)
 
         case 11:
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 TAKE, 1 FINGER, 2 NECK, 3 BODY, 4 HEAD, 5 LEGS, 6 FEET, 7 HANDS,\n\r"
-                             "  8 ARMS, 9 SHIELD, 10 ABOUT, 11 WAIST, 12 WRIST, 13 WIELD, 14 HOLD,\n\r"
-                             "  15 THROW, 16 BACK, 17 BELT\n\r",
+                send_to_char("   0 TAKE      3 BODY    6 FEET     9 SHIELD   12 WRIST   15 THROW\n\r"
+                             "   1 FINGER    4 HEAD    7 HANDS   10 ABOUT    13 WIELD   16 BACK\n\r"
+                             "   2 NECK      5 LEGS    8 ARMS    11 WAIST    14 HOLD    17 BELT\n\r\n\r",
                     ch);
-            DIGITCHANGE("WEAR FLAGS: pN sets bit N, mN clears it, one per answer", obj->obj_flags.wear_flags)
+            DIGITCHANGE("WEAR FLAGS: pN sets bit N, mN clears it, e.g. p1 p7 m2", obj->obj_flags.wear_flags)
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
                 SHAPE_OBJECT(ch)
                     ->editflag
@@ -843,8 +857,9 @@ void shape_center_obj(struct char_data* ch, char* arg)
 
         case 18:
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 usual, 1 cloth, 2 leather, 3 chain, 4 metal, 5 wood, 6 stone, 7 crystal,\n\r"
-                             "  8 gold, 9 silver, 10 mithril, 11 fur, 12 glass, 13 plant\n\r",
+                send_to_char("   0 usual      3 chain    6 stone      9 silver    12 glass\n\r"
+                             "   1 cloth      4 metal    7 crystal   10 mithril   13 plant\n\r"
+                             "   2 leather    5 wood     8 gold      11 fur\n\r\n\r",
                     ch);
             tmp3 = obj->obj_flags.material;
             DIGITCHANGE("MATERIAL", obj->obj_flags.material)
@@ -864,11 +879,13 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
         case 19: /* 'Affected' features... */
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                sprintf(tmpstr, "  1 STR, 2 DEX, 3 INT, 4 WILL, 5 CON, 6 LEA, 9 AGE, 10 WEIGHT, 11 HEIGHT,\n\r"
-                                "  12 MANA, 13 HIT, 14 MOVE, 17 DODGE, 18 OB, 19 DAMROLL, 20 SAVING,\n\r"
-                                "  21 WILLPOWER, 23 VISION, 24 SPEED, 25 PERCEPTION, 27 SPELL, 28 AFFECT BIT,\n\r"
-                                "  29 MANA REGEN, 30 RESIST BIT, 31 VULN BIT, 33 BEND, 38 SPELL PEN,\n\r"
-                                "  39 SPELL POWER\n\r"
+                sprintf(tmpstr, "   1 STR     9 AGE      17 DODGE       24 SPEED        31 VULN BIT\n\r"
+                                "   2 DEX    10 WEIGHT   18 OB          25 PERCEPTION   33 BEND\n\r"
+                                "   3 INT    11 HEIGHT   19 DAMROLL     27 SPELL        38 SPELL PEN\n\r"
+                                "   4 WILL   12 MANA     20 SAVING      28 AFFECT BIT   39 SPELL POWER\n\r"
+                                "   5 CON    13 HIT      21 WILLPOWER   29 MANA REGEN\n\r"
+                                "   6 LEA    14 MOVE     23 VISION      30 RESIST BIT\n\r"
+                                "\n\r"
                                 "Enter AFFECTS: (location modifier) (location modifier), 2 at most\n\r"
                                 "  (slots you don't type are kept, blank keeps both)\n\r"
                                 "Current: (%d %d) (%d %d)\n\r",

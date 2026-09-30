@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,8 @@ extern struct room_data world;
 extern struct char_data* character_list;
 
 int shape_standup(struct char_data* ch, int pos);
+int shape_help_asked(const char* arg);
+void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
 int convert_exit_flag(int tmp, int mode); /* in shaperom.cpp */
 // void symbol_to_map(int x, int y, int symb);
 void draw_map();
@@ -727,6 +730,18 @@ void implement_zone(struct char_data* ch)
  * does, the fields to type in order, and, unless the letter was just
  * changed, the values the row holds now.
  */
+/* Appends to the zone prompt buffer; stops quietly when it is full. */
+static void zone_prompt_add(char* buf, int size, int* len, const char* fmt, ...)
+{
+    va_list ap;
+
+    if (*len < 0 || *len >= size)
+        return;
+    va_start(ap, fmt);
+    *len += vsnprintf(buf + *len, size - *len, fmt, ap);
+    va_end(ap);
+}
+
 static const char* zone_param_prompt(struct reset_com* c, int show_current)
 {
     static char buf[2048];
@@ -768,9 +783,11 @@ static const char* zone_param_prompt(struct reset_com* c, int show_current)
         head = "E - equip the last mob with an object";
         fields = "if_flag obj_vnum wear_slot max_world chance%";
         notes = "  max_world: 0 = no limit\n\r"
-                "  wear_slot: 0 light, 1 finger R, 2 finger L, 3 neck 1, 4 neck 2, 5 body,\n\r"
-                "    6 head, 7 legs, 8 feet, 9 hands, 10 arms, 11 shield, 12 about, 13 waist,\n\r"
-                "    14 wrist R, 15 wrist L, 16 wield, 17 hold, 18 back, 19-21 belt 1-3\n\r";
+                "  wear_slot:\n\r"
+                "     0 light       4 neck 2    8 feet     12 about     16 wield    20 belt 2\n\r"
+                "     1 finger R    5 body      9 hands    13 waist     17 hold     21 belt 3\n\r"
+                "     2 finger L    6 head     10 arms     14 wrist R   18 back\n\r"
+                "     3 neck 1      7 legs     11 shield   15 wrist L   19 belt 1\n\r";
         shown = 5;
         break;
     case 'P':
@@ -834,15 +851,43 @@ static const char* zone_param_prompt(struct reset_com* c, int show_current)
         return buf;
     }
 
-    int len = snprintf(buf, sizeof(buf), "%s. Enter %d numbers:\n\r  %s\n\r%s", head, shown,
-        fields, notes);
-    if (show_current && len > 0 && len < (int)sizeof(buf)) {
-        len += snprintf(buf + len, sizeof(buf) - len, "Current:");
-        for (int i = 0; i < shown && len < (int)sizeof(buf); i++)
-            len += snprintf(buf + len, sizeof(buf) - len, " %d", v[i]);
-        if (len < (int)sizeof(buf))
-            snprintf(buf + len, sizeof(buf) - len, "\n\rBlank keeps the current values.\n\r");
+    /* One row per field (position, name, current value), then the notes,
+     * then the prompt with the values in the order they are typed. */
+    char names[8][24];
+    int count = 0, namew = 0, i, k;
+    for (const char* p = fields; *p && count < 8;) {
+        while (*p == ' ')
+            p++;
+        for (k = 0; *p && *p != ' ' && k < 23; k++)
+            names[count][k] = *p++;
+        names[count][k] = 0;
+        if (k) {
+            if (k > namew)
+                namew = k;
+            count++;
+        }
     }
+
+    int len = 0;
+    zone_prompt_add(buf, sizeof(buf), &len, "%s\n\r\n\r", head);
+    for (i = 0; i < shown; i++) {
+        const char* name = i < count ? names[i] : "?";
+        if (show_current)
+            zone_prompt_add(buf, sizeof(buf), &len, "  %d  %-*s %6d\n\r", i + 1, namew, name, v[i]);
+        else
+            zone_prompt_add(buf, sizeof(buf), &len, "  %d  %s\n\r", i + 1, name);
+    }
+    zone_prompt_add(buf, sizeof(buf), &len, "\n\r%s", notes);
+    if (show_current)
+        zone_prompt_add(buf, sizeof(buf), &len, "  Blank keeps the current values.\n\r");
+    zone_prompt_add(buf, sizeof(buf), &len, "\n\rEnter %d numbers", shown);
+    if (show_current) {
+        zone_prompt_add(buf, sizeof(buf), &len, " [");
+        for (i = 0; i < shown; i++)
+            zone_prompt_add(buf, sizeof(buf), &len, i ? " %d" : "%d", v[i]);
+        zone_prompt_add(buf, sizeof(buf), &len, "]");
+    }
+    zone_prompt_add(buf, sizeof(buf), &len, ":\n\r");
     return buf;
 }
 
@@ -909,6 +954,18 @@ void shape_center_zone(struct char_data* ch, char* arg)
             ->cur_room
             = world[ch->in_room].number;
 
+    /* "%h" at a prompt: the field's help, then the same prompt again. */
+    if (IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE) && shape_help_asked(arg)) {
+        char key[40];
+        if (SHAPE_ZONE(ch)->editflag == 3)
+            strcpy(key, "ZONE");
+        else if (SHAPE_ZONE(ch)->editflag == 4 && SHAPE_ZONE(ch)->curr)
+            sprintf(key, "ZONE %c", SHAPE_ZONE(ch)->curr->comm.command);
+        else
+            sprintf(key, "ZONE %d", SHAPE_ZONE(ch)->editflag);
+        shape_prompt_help(ch, "shape", key, SHAPE_ZONE(ch)->position);
+        REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+    }
     while (SHAPE_ZONE(ch)->editflag)
 
         switch (SHAPE_ZONE(ch)->editflag) {
@@ -1045,7 +1102,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                              "  D  set a door open/closed/locked\n\r"
                              "  L  select an existing mob or object\n\r"
                              "  K  kit the last mob with up to 7 objects\n\r"
-                             "  A  adjust the last mob or object\n\r"
+                             "  A  adjust the last mob or object\n\r\n\r"
                              "Enter command type:\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);

@@ -57,6 +57,8 @@
 extern struct room_data world;
 extern struct script_head* script_table;
 int shape_standup(struct char_data* ch, int pos);
+int shape_help_asked(const char* arg);
+void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
 int get_text(FILE* f, char** line);
 int get_command(char* command);
 void shape_disabled(struct char_data* ch, const char* prefix, const char* typed);
@@ -1602,6 +1604,18 @@ void shape_center_script(struct char_data* ch, char* arg)
             ->cur_room
             = world[ch->in_room].number;
 
+    /* "%h" at a prompt: the field's help, then the same prompt again.
+     * Script help is by command name. */
+    if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE) && shape_help_asked(arg)) {
+        int field = SHAPE_SCRIPT(ch)->editflag;
+        const char* key = "";
+        if (field == 3)
+            key = "COMMAND LIST";
+        else if ((field == 4 || (field >= 41 && field <= 49)) && SHAPE_SCRIPT(ch)->script)
+            key = script_type_name(SHAPE_SCRIPT(ch)->script->command_type);
+        shape_prompt_help(ch, "script", key, SHAPE_SCRIPT(ch)->position);
+        REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+    }
     while (SHAPE_SCRIPT(ch)->editflag) // big loop
 
         switch (SHAPE_SCRIPT(ch)->editflag) {
@@ -1641,6 +1655,7 @@ void shape_center_script(struct char_data* ch, char* arg)
                     sprintf(str, "%s %s\n\r", script_type_groups[i][0], script_type_groups[i][1]);
                     send_to_char(str, ch);
                 }
+                send_to_char("\n\r", ch);
                 sprintf(str, "Enter COMMAND TYPE, full name e.g. DO_SAY [%s]:\n\r",
                     script_type_name(SHAPE_SCRIPT(ch)->script->command_type));
                 send_to_char(str, ch);
@@ -1749,10 +1764,10 @@ void shape_center_script(struct char_data* ch, char* arg)
 
             case SCRIPT_ASSIGN_EQ:
                 SCRIPTPARAMS("ASSIGN_EQ: character object-var slot found  e.g. ch1 ob1 16 int1\n\r"
-                             "  0 light, 1-2 fingers, 3-4 neck, 5 body, 6 head, 7 legs, 8 feet, 9 hands,\n\r"
-                             "  10 arms, 11 shield, 12 about, 13 waist, 14-15 wrists, 16 wield, 17 hold,\n\r"
-                             "  18 back, 19-21 belt"
-                             "\n\r"
+                             "   0 light       4 neck 2    8 feet     12 about     16 wield    20 belt 2\n\r"
+                             "   1 finger R    5 body      9 hands    13 waist     17 hold     21 belt 3\n\r"
+                             "   2 finger L    6 head     10 arms     14 wrist R   18 back\n\r"
+                             "   3 neck 1      7 legs     11 shield   15 wrist L   19 belt 1\n\r"
                              "  (found = int1-3: 1 if worn there, 0 if not)",
                     0, "vvnv");
                 SHAPE_SCRIPT(ch)
@@ -1846,9 +1861,10 @@ void shape_center_script(struct char_data* ch, char* arg)
 
             case SCRIPT_DO_REMOVE:
                 SCRIPTPARAMS("DO_REMOVE: character slot  e.g. ch1 16\n\r"
-                             "  0 light, 1-2 fingers, 3-4 neck, 5 body, 6 head, 7 legs, 8 feet, 9 hands,\n\r"
-                             "  10 arms, 11 shield, 12 about, 13 waist, 14-15 wrists, 16 wield, 17 hold,\n\r"
-                             "  18 back, 19-21 belt",
+                             "   0 light       4 neck 2    8 feet     12 about     16 wield    20 belt 2\n\r"
+                             "   1 finger R    5 body      9 hands    13 waist     17 hold     21 belt 3\n\r"
+                             "   2 finger L    6 head     10 arms     14 wrist R   18 back\n\r"
+                             "   3 neck 1      7 legs     11 shield   15 wrist L   19 belt 1",
                     0, "vn");
                 SHAPE_SCRIPT(ch)
                     ->editflag

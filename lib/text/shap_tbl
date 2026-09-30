@@ -153,6 +153,9 @@ Line text data are one-line messages, such as room titles or keyword lists.
           instead. Some lines (names, keywords of mobs and objects) cannot
           be emptied.
 
+At a line or numeric prompt, "%h" shows the help for that field and
+          asks again; nothing is changed.
+
 Numeric data in shaping is most often contains flags, and the interface
           is modified to accommodate this. The key symbols '+','-','p', 'm'
           are recognized before the numeric value.
@@ -162,7 +165,9 @@ Numeric data in shaping is most often contains flags, and the interface
          'p17' will set the flag 17 in the data value (bit vector)
          'm17' will remove the flag 17 in the data value (bit vector)
           Entering empty line will leave the data unchanged.
-          Only the first word counts: 'p0 p4' sets only flag 0.
+         'p1 p7 m2' makes several flag changes, left to right. It stops at
+          the first word that is not p or m plus a flag number 0-31; the
+          changes before that word are kept.
           Where a negative value means something (a room exit's key or
           destination, a mob's alignment or saving throw), the prompt
           says "-N sets negative" and '-1' sets -1.
@@ -188,6 +193,7 @@ Dig]+<n>      - will add n to the current value of the field.
 Dig]-<n>      - will subtract n from the current value of the field.
 Dig]P<n>      - (Plus) to add a flag number n (for experts: to add 1 << n )
 dig]M<n>      - (Minus) to remove the flag number n
+Dig]P1 P7 M2  - several P/M changes in one answer, left to right
  
 Example: you want to make a mob which is sentinel and wimpy.
 Flag:      Flag number:     Flag value:
@@ -209,9 +215,7 @@ Dig]+128
 
   3) Same as 2, but you add flag numbers not values:
 Shape>/5
-Dig]P1
-Shape>/5
-Dig]P7
+Dig]P1 P7
 
 Look for flag numbers and flag values (do not confuse them!!!)
 in the corresponding man folders.
@@ -378,7 +382,7 @@ number			Values
 28	STAY_ZONE
 
 The default value is 0. The input is a bit vector; pN sets bit N and mN
-clears it, one bit per answer. See MAN SHAPE BITVECTOR for details.
+clears it, several per answer (p1 p7 m2). See MAN SHAPE BITVECTOR.
 #
 "OBJ 11"
 
@@ -859,12 +863,21 @@ have if flag 2 on equipment you give to your mobile.
 8) Use /3 to define the zone command. /3 lists the letters; /4 then names
    every number for that letter and shows the current ones (blank keeps).
    For example:
-   Zone: 11> /3 
+   Zone: 11> /3
    Enter command type:
    Lin]D
-   D - set a door open/closed/locked. Enter 4 numbers:
-     if_flag room_vnum dir state
-   Dgt]0 1101 5 1
+   D - set a door open/closed/locked
+
+     1  if_flag
+     2  room_vnum
+     3  dir
+     4  state
+
+     dir: 0 north, 1 east, 2 south, 3 west, 4 up, 5 down
+     state: 0 open, 1 closed, 2 closed and locked
+
+   Enter 4 numbers:
+   Lin]0 1101 5 1
    Enter line COMMENT (blank = keep, %q = empty):
    Lin]Closing door down from room 1101
 9) Double check what you did with either /1 or /50
@@ -1163,6 +1176,13 @@ or whatever you meant to do. 0 is a real vnum, not "last object".
 Note that this command does NOT load a container. Make sure you load
 container with command O before command P.
 #
+"ZONE N" "ZON N" "ZONE H" "ZON H" "ZONE Q" "ZON Q"
+
+N, H and Q are old random-load commands: N a random mob by type and level,
+H a random object given to the last mob, Q a random object equipped on it.
+The editor still accepts them, but a zone reset does not run them, so they
+load nothing. Use M, G and E instead.
+#
 "ZONE L" "ZON L"
 
 Sets the last loaded mobile or object.  This is a very elegant (but rather
@@ -1376,7 +1396,7 @@ The input uses the standard editor.
 If you set flag number 5 check /11 about race specific aggression.
 
 The default value of this command is 8. The input is a sum of flag values
-(which you don't want to do), or P/M<flag number>, one per answer.
+(which you don't want to do), or P/M<flag number>, e.g. p1 p7 m2.
 See MAN SHAPE BITVECTOR
 #
 "MOB 6" "MOB2 6"
@@ -1669,18 +1689,19 @@ specializations. These groups are:
 
 <Field>      <Bit #> <Value>
 
-NONE	        0        1
-FIRE    	1        2
+NONE            0        1
+FIRE            1        2
 COLD            2        4
 REGENERATION    3        8
 PROTECTION      4       16
 ANIMALS         5       32
 STEALTH         6       64
-WILD_FIGHT      7      128
+PHYSICAL        7      128
 TELEPORT        8      256
 ILLUSION        9      512
 LIGHTNING      10     1024
 MIND           11     2048
+DARK           12     4096
 
 The real effect of each resistance or vulnerability is decided 
 separately. Note that most of these fields will have no effect
@@ -1715,12 +1736,12 @@ BITVECTOR (see 'MAN SHAPE MOB 11'). It only matters for guildmaster mobs.
 
 /42 (extended) holds the mob's options: a text field where settings for
 the mob's program are stored, one setting per line. /42 opens the text
-editor. Type each setting on its own line, then %e to save (%q aborts,
-%h lists the editor commands). Don't use %f (format) here: it joins the
-lines into one and breaks them. If you do, %q and start over.
-Blank lines are removed when you save the text, and lines starting with
-// (comments) are ignored. A # is saved as + and a ~ as -; text can't
-start with $ or pass 4000 characters.
+editor. Type each setting on its own line, then %e to save (%q aborts, %r
+shows the text so far, %h lists the editor commands). Don't use %f
+(format) here: it joins the lines into one and breaks them. If you do, %q
+and start over. Blank lines are removed when you save the text, and lines
+starting with // (comments) are ignored. A # is saved as + and a ~ as -;
+text can't start with $ or pass 4000 characters.
 
 Each program that reads options documents its own settings. Today only
 program 33 does: see MAN SHAPE SHOPKEEPER.
@@ -1859,7 +1880,7 @@ room flags is a BITVECTOR with the following values:
  HIDE_VNUM 131072  17  Hides VNUMs from advancedview (for mazes)
 
 The use of flag 2 should be avoided. The default value is 8. The input
-is a BITVECTOR. Only one p/m per answer: 'p0 p3' sets only flag 0.
+is a BITVECTOR. Several p/m per answer: 'p0 p3' sets flags 0 and 3.
 
 Example: you want to make a room with poisoned water, dark and indoors.
 Flag:      Flag number:     Flag value:
