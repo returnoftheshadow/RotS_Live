@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <string>
@@ -80,6 +81,7 @@ void expect_object_save_data_equal(const objects_json::ObjectSaveData& expected,
         EXPECT_EQ(actual_object.bitvector, expected_object.bitvector);
         EXPECT_EQ(actual_object.wear_pos, expected_object.wear_pos);
         EXPECT_EQ(actual_object.loaded_by, expected_object.loaded_by);
+        EXPECT_EQ(actual_object.version, expected_object.version);
         EXPECT_EQ(actual_object.affects.size(), expected_object.affects.size());
         for (size_t affect_index = 0; affect_index < expected_object.affects.size(); ++affect_index) {
             EXPECT_EQ(actual_object.affects[affect_index].location, expected_object.affects[affect_index].location);
@@ -108,6 +110,7 @@ void expect_object_save_data_equal(const objects_json::ObjectSaveData& expected,
         for (size_t object_index = 0; object_index < expected_follower.objects.size(); ++object_index) {
             EXPECT_EQ(actual_follower.objects[object_index].item_number, expected_follower.objects[object_index].item_number);
             EXPECT_EQ(actual_follower.objects[object_index].wear_pos, expected_follower.objects[object_index].wear_pos);
+            EXPECT_EQ(actual_follower.objects[object_index].version, expected_follower.objects[object_index].version);
         }
     }
 }
@@ -635,6 +638,7 @@ TEST(ObjectsJson, FirstDifferingFieldNamesEveryStoredField)
         { "objects[1].affects[1].modifier", [](Data* d) { d->objects[1].affects[1].modifier += 1; } },
         { "objects[1].wear_pos", [](Data* d) { d->objects[1].wear_pos += 1; } },
         { "objects[1].loaded_by", [](Data* d) { d->objects[1].loaded_by += 1; } },
+        { "objects[1].version", [](Data* d) { d->objects[1].version += 1; } },
         { "board_points[1]", [](Data* d) { d->board_points[1] += 1; } },
         { "aliases.size", [](Data* d) { d->aliases.pop_back(); } },
         { "aliases[1].keyword", [](Data* d) { d->aliases[1].keyword += "x"; } },
@@ -658,4 +662,94 @@ TEST(ObjectsJson, FirstDifferingFieldNamesEveryStoredField)
         test_case.second(&changed);
         EXPECT_EQ(objects_json::first_differing_field(source, changed), test_case.first);
     }
+}
+
+TEST(ObjectsJson, UnversionedObjectsKeepTheirOldJsonAndBinaryShape)
+{
+    // Object versions are optional: a save holding no versioned object must come out exactly as
+    // it did before versions existed, in both formats.
+    const objects_json::ObjectSaveData data = make_object_save_data();
+
+    const std::string json = objects_json::serialize_objects_to_json(data);
+    EXPECT_EQ(json.find("\"version\": 0"), std::string::npos);
+    EXPECT_EQ(json.find("\"version\"", json.find("\"objects\"")), std::string::npos)
+        << "no object in the save has a version, so no object should carry the key";
+
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(data, &bytes));
+    obj_file_elem first {};
+    std::memcpy(&first, bytes.data() + sizeof(rent_info), sizeof(first));
+    EXPECT_EQ(first.item_number_deprecated, DEPRECATED_ID_VALUE);
+
+    // A version adds exactly its own int to the record it belongs to, nothing else.
+    objects_json::ObjectSaveData versioned = data;
+    versioned.objects[0].version = 5;
+    std::string versioned_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(versioned, &versioned_bytes));
+    EXPECT_EQ(versioned_bytes.size(), bytes.size() + sizeof(int));
+}
+
+TEST(ObjectsJson, ObjectVersionSurvivesJsonAndBinaryRoundTrips)
+{
+    objects_json::ObjectSaveData data = make_object_save_data();
+    data.objects[1].version = 7;
+    data.followers[0].objects[0].version = -3;
+
+    const std::string json = objects_json::serialize_objects_to_json(data);
+    objects_json::ObjectSaveData from_json;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::deserialize_objects_from_json(json, &from_json, &error_message)) << error_message;
+    expect_object_save_data_equal(data, from_json);
+
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(data, &bytes, &error_message)) << error_message;
+    objects_json::ObjectSaveData from_binary;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(bytes, &from_binary, &error_message)) << error_message;
+    expect_object_save_data_equal(data, from_binary);
+    EXPECT_EQ(objects_json::first_differing_field(data, from_binary), "");
+
+    // The legacy reader (migration, and the tolerant idle-save refresh) reads the same records.
+    objects_json::ObjectSaveData from_legacy_reader;
+    ASSERT_TRUE(objects_json::legacy_object_save_data_from_binary(bytes, &from_legacy_reader, nullptr, &error_message)) << error_message;
+    expect_object_save_data_equal(data, from_legacy_reader);
+}
+
+TEST(ObjectsJson, VersionedObjectRecordIsMarkedAndFollowedByItsVersion)
+{
+    objects_json::ObjectSaveData data;
+    data.rent.rentcode = RENT_CRASH;
+    data.objects.push_back(make_object_record(1200, WEAR_HEAD));
+    data.objects[0].version = 12;
+
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(data, &bytes));
+
+    obj_file_elem record {};
+    std::memcpy(&record, bytes.data() + sizeof(rent_info), sizeof(record));
+    EXPECT_EQ(record.item_number_deprecated, VERSIONED_ID_VALUE);
+    EXPECT_EQ(record.item_number, 1200);
+    int version = 0;
+    std::memcpy(&version, bytes.data() + sizeof(rent_info) + sizeof(record), sizeof(version));
+    EXPECT_EQ(version, 12);
+
+    obj_file_elem sentinel {};
+    std::memcpy(&sentinel, bytes.data() + sizeof(rent_info) + sizeof(record) + sizeof(int), sizeof(sentinel));
+    EXPECT_EQ(sentinel.item_number, SENTINEL_ITEM_ID_VALUE);
+}
+
+TEST(ObjectsJson, RejectsAVersionedRecordCutOffBeforeItsVersion)
+{
+    objects_json::ObjectSaveData data;
+    data.rent.rentcode = RENT_CRASH;
+    data.objects.push_back(make_object_record(1200, WEAR_HEAD));
+    data.objects[0].version = 12;
+
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(data, &bytes));
+    bytes.resize(sizeof(rent_info) + sizeof(obj_file_elem) + 2);
+
+    objects_json::ObjectSaveData parsed;
+    std::string error_message;
+    EXPECT_FALSE(objects_json::object_save_data_from_binary(bytes, &parsed, &error_message));
+    EXPECT_NE(error_message.find("Truncated"), std::string::npos) << error_message;
 }

@@ -2006,6 +2006,35 @@ int check_resistances(char_data* victim, int attack_type, int* matched_resist_ty
     return result;
 }
 
+std::string object_version_text(int version)
+{
+    if (version == 0)
+        return "none";
+    return std::to_string(version > 0 ? version : -version) + (version > 0 ? " (on)" : " (off)");
+}
+
+/*
+ * A saved copy keeps its own affects, flags and bitvector (Crash_obj2char), so prototype changes
+ * never reached it. When the prototype's version is on and differs from the copy's, those three
+ * are taken from the prototype instead and the copy is stamped with the prototype's version.
+ * Play state a save keeps is left alone: a broken key stays broken, drink and light contents,
+ * the timer and loaded_by are untouched. An enchant is not carried over; it can be recast.
+ */
+bool refresh_object_to_prototype_version(obj_data* obj, const obj_data* proto)
+{
+    const int proto_version = proto->obj_flags.version;
+    if (proto_version <= 0 || obj->obj_flags.version == proto_version)
+        return false;
+
+    const long broken = obj->obj_flags.extra_flags & ITEM_BROKEN;
+    obj->obj_flags.extra_flags = proto->obj_flags.extra_flags | broken;
+    obj->obj_flags.bitvector = proto->obj_flags.bitvector;
+    for (int i = 0; i < MAX_OBJ_AFFECT; i++)
+        obj->affected[i] = proto->affected[i];
+    obj->obj_flags.version = proto_version;
+    return true;
+}
+
 /*
  * Compare `obj' to its prototype; return 0 if the object
  * is altered, and 1 if it's the same.  If no prototype is

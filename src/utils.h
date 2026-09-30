@@ -14,6 +14,8 @@
 #include "platdef.h" /* For byte, sh_int, ush_int, etc. */
 #include "structs.h" /* For time_info_data */
 
+#include <string>
+
 extern struct weather_data weather_info;
 extern sh_int square_root[];
 extern char get_current_time_phase(); // returns the portion number of the tick
@@ -93,6 +95,11 @@ int compare_obj_to_proto(obj_data* obj);
 struct obj_data* obj_to_proto(obj_data* obj);
 void check_inventory_proto(char_data* ch);
 void check_equipment_proto(char_data* ch);
+// "none", "3 (on)" or "3 (off)" for an obj_flag_data::version value.
+std::string object_version_text(int version);
+// Brings a saved copy up to its prototype's version when the prototype's version is on (> 0) and
+// differs from the copy's. Returns true if it did; see the definition for what is kept.
+bool refresh_object_to_prototype_version(obj_data* obj, const obj_data* proto);
 sh_int get_race_perception(char_data* ch);
 int get_power_of_arda(char_data* ch);
 int has_critical_stat_damage(char_data* ch);

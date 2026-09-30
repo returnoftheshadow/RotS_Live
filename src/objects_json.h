@@ -26,6 +26,7 @@ struct ObjectRecord {
     std::array<ObjectAffectData, MAX_OBJ_AFFECT> affects {};
     int wear_pos = 0;
     int loaded_by = 0;
+    int version = 0; // obj_flag_data::version; optional in JSON, absent == 0
 };
 
 struct RentData {

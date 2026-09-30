@@ -259,6 +259,7 @@ Command /0 lists possible fields.
 19 - affections;
 20 - program (not saved);
 21 - script number;
+22 - version (refreshes players' copies at login);
 49 - object creation sequence;
 50 - list;
 
@@ -755,6 +756,29 @@ The program number is not saved and has no effect. Leave it alone.
 0 means none. Object triggers: ON_DAMAGE, ON_EAT, ON_ENTER,
 ON_EXAMINE_OBJECT, ON_DRINK, ON_PULL, ON_WEAR. The number is not checked.
 See MAN SHAPE SCRIPT.
+#
+"OBJ 22"
+
+/22 sets the object's version. When a player logs in holding a saved
+copy whose version differs from this one, the copy is refreshed: its
+affects, extra flags and bitvector are taken from this object. A broken
+flag, drink and light contents, container contents and the timer are
+kept. An enchant is removed (it can be recast). Scalps never refresh.
+The player sees "Your item, <name>, has been updated."
+
+It takes no typed number:
+  b      bump: the highest number used so far + 1
+  o      turn off: no refreshes; the number is kept for the next bump
+  blank  leave it as it is
+Shown as "none" (never bumped), "3 (on)" or "3 (off)". An object that
+was never bumped behaves exactly as before. Copies on the floor, in
+shops or on mobs are made fresh and never need a refresh. Players pick
+up a bump at their next login after the world files go live.
+
+The next bump counts up from the number in the world file. If a world
+file is replaced by an older copy (a backup, or a stale copy from
+another port), its numbers go back and copies already stamped with a
+number are skipped until a bump passes it. Bump again to get past it.
 #
 "OBJ 49"
 
