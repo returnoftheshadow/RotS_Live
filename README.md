@@ -18,7 +18,7 @@ On your Unix based system you'll need to install the following packages.
 2. g++ (This is needed for the main game compiler)
 3. clang-format (We use  this to format all the code base)
 4. make (This is just something you should have in general)
-5. cmake (Used by the root Makefile and the direct CMake workflow)
+5. cmake 3.18 or newer (Used by the root Makefile and the direct CMake workflow)
 6. GoogleTest development files (Needed to configure and build `ageland_tests`)
 7. 32-bit C/C++ development support (The game build uses `-m32`)
 8. 32-bit libcrypt development files (Needed when linking the game)
@@ -111,6 +111,10 @@ cmake --build build --target ageland
 This will compile all the code and create an executable called ageland in the
 ./bin folder.
 
+Two configure options help with other build trees. `-DBUILD_TESTING=OFF` configures
+the server alone, without GoogleTest. `-DROTS_BIN_DIR=<dir>` sends the binaries to
+another directory, so a second tree does not overwrite `bin/ageland`.
+
 #### Step 4a: Running the Unit Tests
 
 For the C++ unit tests you can use either workflow.
@@ -124,7 +128,7 @@ Or directly with CMake from the repository root:
 ```bash
 cmake -S src -B build -DCMAKE_CXX_COMPILER=g++
 cmake --build build --target ageland_tests
-ctest --test-dir build --output-on-failure
+(cd build && ctest --output-on-failure)
 ```
 
 #### Step 4b: Running the Account Smoke Test
