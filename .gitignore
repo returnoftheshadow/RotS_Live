@@ -86,3 +86,7 @@ cmake_test_discovery*.json
 # macOS
 .DS_Store
 **/.DS_Store
+
+# make dependency files and the levgen tool binary
+*.d
+levgen/levgen

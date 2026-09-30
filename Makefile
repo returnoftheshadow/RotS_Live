@@ -1,9 +1,18 @@
-BUILD_DIR := build
+MAKEFLAGS += --no-builtin-rules
+.SUFFIXES:
+
+BUILD_DIR ?= build
 SRC_DIR := src
-CMAKE := cmake
+CMAKE ?= cmake
+CTEST ?= ctest
 CMAKE_CONFIGURE_ARGS ?= -DCMAKE_CXX_COMPILER=g++
 CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
+# Parallel build jobs; rotsmud's two shared cores want JOBS=1.
+JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+# Extra ctest arguments, e.g. CTEST_ARGS='-R JsonUtils'.
+CTEST_ARGS ?=
 
+.DEFAULT_GOAL := help
 .PHONY: help configure setup build test run smoke-account format clean
 
 help:
@@ -17,6 +26,8 @@ help:
 	@printf "                      format only your changed files instead\n"
 	@printf "  make run            Build and start the server in the foreground\n"
 	@printf "  make clean          Clean the configured CMake build tree\n"
+	@printf "\nVariables: BUILD_DIR (%s), JOBS (%s), CMAKE_CONFIGURE_ARGS, CTEST_ARGS\n" "$(BUILD_DIR)" "$(JOBS)"
+	@printf "Changing CMAKE_CONFIGURE_ARGS needs a fresh BUILD_DIR; an existing tree keeps its cache.\n"
 
 $(CMAKE_CACHE):
 	$(CMAKE) -S $(SRC_DIR) -B $(BUILD_DIR) $(CMAKE_CONFIGURE_ARGS)
@@ -27,11 +38,12 @@ setup: $(CMAKE_CACHE)
 	+$(CMAKE) --build $(BUILD_DIR) --target setup
 
 build: $(CMAKE_CACHE)
-	+$(CMAKE) --build $(BUILD_DIR) --target ageland -j16
+	+$(CMAKE) --build $(BUILD_DIR) --target ageland --parallel $(JOBS)
 
+# ctest runs from inside the tree because --test-dir needs CMake 3.20 and the i386 image has 3.18.
 test: $(CMAKE_CACHE)
-	+$(CMAKE) --build $(BUILD_DIR) --target ageland ageland_tests -j16
-	ctest --test-dir $(BUILD_DIR) --output-on-failure
+	+$(CMAKE) --build $(BUILD_DIR) --target ageland ageland_tests --parallel $(JOBS)
+	cd $(BUILD_DIR) && $(CTEST) --output-on-failure $(CTEST_ARGS)
 
 run: build
 	./bin/ageland -p 3791
