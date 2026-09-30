@@ -43,8 +43,8 @@ case "$cmd" in
     # directly, passing any extra args through, e.g.:
     #   scripts/rots-docker.sh test --gtest_filter=PlayerFinalize.*
     # (`make build` only builds `ageland`; the test binary is the `ageland_tests` target.
-    #  ctest's gtest_discover_tests PRE_TEST mode finds 0 tests under bullseye's cmake 3.18,
-    #  but the i386 test binary itself runs fine under QEMU, so we invoke ./bin/tests directly.)
+    #  Running ./bin/tests rather than ctest lets gtest flags such as --gtest_filter pass
+    #  straight through.)
     shift || true
     docker compose run --rm rots bash -lc \
       'cd /rots && cmake -S src -B build && cmake --build build --target ageland_tests -j16 && ./bin/tests "$@"' \

@@ -1,30 +1,38 @@
-cmake_minimum_required(VERSION 3.16)
+# 3.18 is the oldest CMake in use (the i386 Debian bullseye image) and 3.28 the newest
+# CI exercises; newer CMake applies policies only up to 3.28.
+cmake_minimum_required(VERSION 3.18...3.28)
 
-if(NOT DEFINED CMAKE_CXX_COMPILER)
-    find_program(ROTS_GXX NAMES g++)
-    if(ROTS_GXX)
-        set(CMAKE_CXX_COMPILER "${ROTS_GXX}" CACHE FILEPATH "C++ compiler" FORCE)
-    endif()
-endif()
-
-project(RotS LANGUAGES CXX)
+# The compiler is chosen by the caller (-DCMAKE_CXX_COMPILER=g++ in the root Makefile and
+# README), never forced here, so a CXX or toolchain choice is not silently overridden.
+project(RotS
+    DESCRIPTION "Return of the Shadow MUD server"
+    LANGUAGES CXX
+)
 
 include(CTest)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+get_property(ROTS_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT ROTS_IS_MULTI_CONFIG)
+    if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+    endif()
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
+# One project-wide standard rather than per-target compile features: this is an application
+# with no downstream consumers, and it pins exactly -std=c++17 whatever the compiler's default.
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ROTS_SUPPRESS_TEST_WARNINGS "Suppress compiler warnings when building the test target" ON)
 
-set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(BIN_DIR "${REPO_ROOT}/bin")
-set(LOG_DIR "${REPO_ROOT}/log")
-set(LIB_DIR "${REPO_ROOT}/lib")
+get_filename_component(ROTS_REPO_ROOT "${PROJECT_SOURCE_DIR}/.." ABSOLUTE)
+# A second build tree (an ASan or scratch build) can point this elsewhere so it does not
+# overwrite the primary tree's bin/ageland.
+set(ROTS_BIN_DIR "${ROTS_REPO_ROOT}/bin" CACHE PATH "Output directory for the ageland and tests binaries")
+set(ROTS_LOG_DIR "${ROTS_REPO_ROOT}/log")
+set(ROTS_LIB_DIR "${ROTS_REPO_ROOT}/lib")
 
 set(ROTS_SERVER_SOURCES
     act_comm.cpp
@@ -171,96 +179,78 @@ set(ROTS_TEST_SOURCES
 )
 
 add_executable(ageland ${ROTS_SERVER_SOURCES})
+# The live server is 32-bit: its binary player and object files depend on the i386 layout.
 target_compile_options(ageland PRIVATE
     -m32
     -w
     -fstrict-aliasing
     -funsigned-char
     -g
-    -rdynamic
 )
+# -rdynamic exports the server's symbols so backtrace_symbols() can name crash frames.
 target_link_options(ageland PRIVATE -m32 -g -rdynamic)
-set_target_properties(ageland PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
-)
+# A bare "crypt" lets the linker find the libcrypt that matches -m32; a find_library() path
+# can resolve to the 64-bit library on a multilib host.
 target_link_libraries(ageland PRIVATE crypt)
-
-find_package(GTest REQUIRED)
-include(GoogleTest)
-
-add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})
-target_include_directories(ageland_tests PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-)
-target_compile_definitions(ageland_tests PRIVATE TESTING)
-if(ROTS_SUPPRESS_TEST_WARNINGS)
-    target_compile_options(ageland_tests PRIVATE -w)
-else()
-    target_compile_options(ageland_tests PRIVATE
-        -Wall
-        -Wextra
-    )
-endif()
-target_link_libraries(ageland_tests PRIVATE GTest::gtest)
-target_link_libraries(ageland_tests PRIVATE crypt)
-target_link_options(ageland_tests PRIVATE
-    -Wl,--wrap=_Z6numberv
-    -Wl,--wrap=_Z6numberii
-)
-set_target_properties(ageland_tests PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${BIN_DIR}"
-    OUTPUT_NAME tests
+set_target_properties(ageland PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
 )
 
 if(BUILD_TESTING)
+    find_package(GTest REQUIRED)
+    include(GoogleTest)
+
+    add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})
+    target_include_directories(ageland_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_compile_definitions(ageland_tests PRIVATE TESTING)
+    if(ROTS_SUPPRESS_TEST_WARNINGS)
+        target_compile_options(ageland_tests PRIVATE -w)
+    else()
+        target_compile_options(ageland_tests PRIVATE
+            -Wall
+            -Wextra
+        )
+    endif()
+    target_link_libraries(ageland_tests PRIVATE GTest::gtest crypt)
+    # Routes both number() overloads through the seeded test RNG in tests/test_random_utils.cpp.
+    target_link_options(ageland_tests PRIVATE
+        -Wl,--wrap=_Z6numberv
+        -Wl,--wrap=_Z6numberii
+    )
+    set_target_properties(ageland_tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
+        OUTPUT_NAME tests
+    )
+
     gtest_discover_tests(ageland_tests
         DISCOVERY_MODE PRE_TEST
-        WORKING_DIRECTORY "${REPO_ROOT}"
+        WORKING_DIRECTORY "${ROTS_REPO_ROOT}"
     )
 endif()
 
+set(ROTS_RUNTIME_DIRS
+    "${ROTS_BIN_DIR}"
+    "${ROTS_LOG_DIR}"
+    "${ROTS_LIB_DIR}/misc"
+    "${ROTS_REPO_ROOT}/mobs"
+)
+foreach(ROTS_STORE IN ITEMS players accounts account_characters plrobjs exploits)
+    foreach(ROTS_BUCKET IN ITEMS A-E F-J K-O P-T U-Z ZZZ)
+        list(APPEND ROTS_RUNTIME_DIRS "${ROTS_LIB_DIR}/${ROTS_STORE}/${ROTS_BUCKET}")
+    endforeach()
+endforeach()
+
 add_custom_target(setup
-    COMMAND "${CMAKE_COMMAND}" -E make_directory
-        "${BIN_DIR}"
-        "${LOG_DIR}"
-        "${LIB_DIR}/misc"
-        "${LIB_DIR}/players/A-E"
-        "${LIB_DIR}/players/F-J"
-        "${LIB_DIR}/players/K-O"
-        "${LIB_DIR}/players/P-T"
-        "${LIB_DIR}/players/U-Z"
-        "${LIB_DIR}/players/ZZZ"
-        "${LIB_DIR}/accounts/A-E"
-        "${LIB_DIR}/accounts/F-J"
-        "${LIB_DIR}/accounts/K-O"
-        "${LIB_DIR}/accounts/P-T"
-        "${LIB_DIR}/accounts/U-Z"
-        "${LIB_DIR}/accounts/ZZZ"
-        "${LIB_DIR}/account_characters/A-E"
-        "${LIB_DIR}/account_characters/F-J"
-        "${LIB_DIR}/account_characters/K-O"
-        "${LIB_DIR}/account_characters/P-T"
-        "${LIB_DIR}/account_characters/U-Z"
-        "${LIB_DIR}/account_characters/ZZZ"
-        "${LIB_DIR}/plrobjs/A-E"
-        "${LIB_DIR}/plrobjs/F-J"
-        "${LIB_DIR}/plrobjs/K-O"
-        "${LIB_DIR}/plrobjs/P-T"
-        "${LIB_DIR}/plrobjs/U-Z"
-        "${LIB_DIR}/plrobjs/ZZZ"
-        "${LIB_DIR}/exploits/A-E"
-        "${LIB_DIR}/exploits/F-J"
-        "${LIB_DIR}/exploits/K-O"
-        "${LIB_DIR}/exploits/P-T"
-        "${LIB_DIR}/exploits/U-Z"
-        "${LIB_DIR}/exploits/ZZZ"
-        "${REPO_ROOT}/mobs"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory ${ROTS_RUNTIME_DIRS}
     COMMAND "${CMAKE_COMMAND}" -E touch
-        "${LOG_DIR}/lastdeath"
-        "${LIB_DIR}/last_cmds"
-        "${LIB_DIR}/misc/pklist"
+        "${ROTS_LOG_DIR}/lastdeath"
+        "${ROTS_LIB_DIR}/last_cmds"
+        "${ROTS_LIB_DIR}/misc/pklist"
     COMMENT "Creating runtime directories and placeholder files"
+    VERBATIM
 )
 
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
@@ -273,6 +263,7 @@ if(CLANG_FORMAT_EXECUTABLE)
         COMMAND "${CLANG_FORMAT_EXECUTABLE}" -i -style=WebKit ${ROTS_FORMAT_FILES}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "Formatting source files with clang-format"
+        VERBATIM
     )
 endif()
 
@@ -281,9 +272,10 @@ find_program(CARGO_EXECUTABLE cargo)
 if(Python3_Interpreter_FOUND AND CARGO_EXECUTABLE)
     add_custom_target(smoke_account
         COMMAND "${CARGO_EXECUTABLE}" build -p proxy
-        COMMAND "${Python3_EXECUTABLE}" "${REPO_ROOT}/tools/account_smoke.py"
-        WORKING_DIRECTORY "${REPO_ROOT}"
-        DEPENDS ageland setup
+        COMMAND "${Python3_EXECUTABLE}" "${ROTS_REPO_ROOT}/tools/account_smoke.py"
+        WORKING_DIRECTORY "${ROTS_REPO_ROOT}"
         COMMENT "Running the proxy-backed account smoke flow"
+        VERBATIM
     )
+    add_dependencies(smoke_account ageland setup)
 endif()
