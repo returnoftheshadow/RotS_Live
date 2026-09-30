@@ -119,7 +119,8 @@ This spell is not available to good races.
 
 #
 PROTECTION
-[Syntax      ] cast 'protection' <fire | cold | lightning | physical | illusion> [victim]
+[Syntax      ] cast 'protection' <fire | cold | lightning | physical |
+                illusion | dark> [victim]
 [Group       ] Mystic, Protection
 [Level       ] 1
 [Minimum Cost] ?
@@ -133,9 +134,10 @@ people will not accept some kinds of protection.
 of the protection grows with the caster's mystic level, up to 40 percent
 less damage, and it lasts longer the more powerful the caster. Illusion
 protection does not lessen damage; instead it sometimes turns a mental
-attack aimed at your will onto another part of your mind. AFFECTIONS shows
-how strong your current protection is. UNPROTECT removes your own
-protection.
+attack aimed at your will onto another part of your mind. Dark protection
+guards against spells of darkness such as dark bolt and black arrow.
+AFFECTIONS shows how strong your current protection is. UNPROTECT removes
+your own protection.
   You need to specialize in protection to learn this spell.
 
 See: SPECIALIZATIONS, UNPROTECT

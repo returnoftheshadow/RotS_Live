@@ -1887,6 +1887,7 @@ ASPELL(spell_protection)
         "lightning",
         "physical",
         "illusion",
+        "dark",
         "\n"
     };
 
@@ -1927,7 +1928,9 @@ ASPELL(spell_protection)
     int level = get_mystic_caster_level(caster);
     switch (res) {
     case -1:
-        send_to_char("You can master protection from fire, cold, lightning, physical or illusion only.\n\r", caster);
+        send_to_char("You can master protection from fire, cold, lightning, physical, illusion\n\r"
+                     "or dark only.\n\r",
+            caster);
         break;
 
     case 0: /* fire */
@@ -2013,6 +2016,23 @@ ASPELL(spell_protection)
 
         if (caster != loc_victim)
             act("You grant $N resistance to illusion.", FALSE, caster, 0, loc_victim, TO_CHAR);
+
+        break;
+
+    case 5: /* dark */
+        newaf.type = SPELL_PROTECTION;
+        newaf.duration = (is_object) ? -1 : level * 2;
+        newaf.modifier = RESIST_DARK;
+        newaf.location = APPLY_RESIST;
+        newaf.bitvector = 0;
+        newaf.counter = 0;
+        newaf.effect_modifier = cast_resist_magnitude(utils::get_prof_level(PROF_CLERIC, *caster));
+
+        affect_to_char(loc_victim, &newaf);
+        send_to_char("You feel resistant to dark!\n\r", loc_victim);
+
+        if (caster != loc_victim)
+            act("You grant $N resistance to dark.", FALSE, caster, 0, loc_victim, TO_CHAR);
 
         break;
 
