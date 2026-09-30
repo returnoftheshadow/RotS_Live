@@ -57,11 +57,14 @@ change nothing and show the current master and the usage line.
   `%q` empties the field (refused for `/1` and `/2`, see below). `#` becomes
   `+` and `~` becomes `-`.
 - Multi-line text (`/4`): the shared editor. `%e` saves, `%q` aborts and keeps
-  the old text, `%f` formats, `%h` shows help.
+  the old text, `%r` shows the text so far, `%f` formats, `%h` shows help.
 - Numbers: a plain number sets the value; `+5` adds; `-5` **subtracts** (except
-  the fields that accept negatives, below); `p7` sets bit 7 and `m7` clears it
-  (one toggle per answer). A blank line keeps the value. A word keeps the value
-  silently.
+  the fields that accept negatives, below); `p7` sets bit 7 and `m7` clears it.
+  Several go in one answer, left to right (`p1 p7 m2`); the list stops at the
+  first word that is not `p`/`m` plus a bit 0-31, and says so. A blank line
+  keeps the value. Any other word keeps the value silently.
+- `%h` at a line or number prompt shows that field's `man shape` entry and asks
+  again; nothing changes.
 - Negative values: `/7` alignment, `/27` saving throw and `/32` perception take
   `-N` as the value `-N` (e.g. `-300`), not as "subtract N".
 - Every prompt shows the current value; the fields with several numbers
@@ -175,7 +178,7 @@ Bit numbers are the `MOB_*` values in `src/structs.h`; the names are what
 | 17 | WRAITH (`MOB_SHADOW`) | A spirit; perception forced to 100. |
 | 18 | SWITCH | Won't switch opponents. |
 | 19 | NORECALC | The global recalc skips it (per-mob `/recalculate` does not). |
-| 20 | FAST (`stat`: ACTIVE) | Acts when someone enters. |
+| 20 | ACTIVE | Acts when someone enters. |
 | 21 | IS_PET | Pet of a player (set automatically). |
 | 22 | HUNTER | Memory + hunts its enemies. |
 | 23 | ORC_FRIEND | Recruitable by common orcs. |
@@ -438,9 +441,7 @@ a vigilant gate guard
 /3
 A vigilant gate guard watches the traffic.
 /5
-p1                          (SENTINEL; one toggle per answer)
-/5
-p6                          (STAY-ZONE)
+p1 p6                       (SENTINEL, STAY-ZONE)
 /5
 p12                         (HELPER)
 /7

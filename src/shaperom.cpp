@@ -22,6 +22,9 @@ extern char num_of_sector_types;
 
 int simple_edit(struct char_data* ch, char** str, char* arg);
 int shape_standup(struct char_data* ch, int pos);
+void shape_flag_value(struct char_data* ch, char* arg, int* value);
+int shape_help_asked(const char* arg);
+void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
 struct affected_type* get_from_affected_type_pool();
 void put_to_affected_type_pool(struct affected_type*);
 
@@ -484,6 +487,13 @@ void shape_center_room(struct char_data* ch, char* arg)
                 = 0;
             return;
         }
+        /* "%h" at a prompt: the field's help, then the same prompt again. */
+        if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE) && shape_help_asked(arg)) {
+            char key[40];
+            sprintf(key, "ROOM %d", SHAPE_ROOM(ch)->editflag);
+            shape_prompt_help(ch, "shape", key, SHAPE_ROOM(ch)->position);
+            REMOVE_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);
+        }
         switch (SHAPE_ROOM(ch)->editflag) {
         case 1:
             if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE) && sscanf(arg, "%s", str) == 1
@@ -585,7 +595,7 @@ void shape_center_room(struct char_data* ch, char* arg)
         return;                                               \
     } else {                                                  \
         tmp = addr;                                           \
-        string_to_new_value(arg, &tmp);                       \
+        shape_flag_value(ch, arg, &tmp);                      \
         addr = tmp;                                           \
     }                                                         \
     shape_standup(ch, SHAPE_ROOM(ch)->position);              \
@@ -606,7 +616,7 @@ void shape_center_room(struct char_data* ch, char* arg)
         return;                                               \
     } else {                                                  \
         tmp = addr;                                           \
-        string_to_new_value(arg, &tmp);                       \
+        shape_flag_value(ch, arg, &tmp);                      \
         addr = tmp;                                           \
     }                                                         \
     shape_standup(ch, SHAPE_ROOM(ch)->position);              \
@@ -618,10 +628,11 @@ void shape_center_room(struct char_data* ch, char* arg)
 
         case 3:
             if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 dark, 1 death, 2 no_mob, 3 indoors, 4 noride, 5 (internal), 6 shadowy,\n\r"
-                             "  7 no_magic, 8 tunnel, 9 private, 10 godroom, 11 (internal), 12 water,\n\r"
-                             "  13 poison, 14 security, 15 peace, 16 no_teleport, 17 hide_vnum\n\r"
-                             "  N = set all, pN = set bit N, mN = clear bit N\n\r",
+                send_to_char("   0 dark       4 noride        8 tunnel       12 water      16 no_teleport\n\r"
+                             "   1 death      5 (internal)    9 private      13 poison     17 hide_vnum\n\r"
+                             "   2 no_mob     6 shadowy      10 godroom      14 security\n\r"
+                             "   3 indoors    7 no_magic     11 (internal)   15 peace\n\r"
+                             "  N = set all, pN = set bit N, mN = clear bit N, e.g. p1 p7 m2\n\r\n\r",
                     ch);
             DIGITCHANGEL("room flags", mob->room_flags);
             if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_CHAIN))
@@ -631,8 +642,9 @@ void shape_center_room(struct char_data* ch, char* arg)
             break;
         case 4:
             if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 floor, 1 city, 2 field, 3 forest, 4 hills, 5 mountain, 6 water,\n\r"
-                             "  7 water_noswim, 8 underwater, 9 road, 10 crack, 11 dense_forest, 12 swamp\n\r",
+                send_to_char("   0 floor    3 forest      6 water           9 road           12 swamp\n\r"
+                             "   1 city     4 hills       7 water_noswim   10 crack\n\r"
+                             "   2 field    5 mountain    8 underwater     11 dense_forest\n\r\n\r",
                     ch);
             tmp3 = mob->sector_type;
             DIGITCHANGE("sector type 0-12", mob->sector_type);
@@ -799,10 +811,10 @@ void shape_center_room(struct char_data* ch, char* arg)
             }
             tmp = SHAPE_ROOM(ch)->room->dir_option[SHAPE_ROOM(ch)->exit_chosen]->exit_info;
             if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 door, 1 closed, 2 locked, 3 noflee, 4 (unused), 5 nopick, 6 isheavy,\n\r"
-                             "  7 nobreak, 8 nolook, 9 hidden, 10 broken, 11 noride, 12 noblink, 13 lever,\n\r"
-                             "  14 nowalk\n\r"
-                             "  N = set all, pN = set bit N, mN = clear bit N\n\r",
+                send_to_char("   0 door      3 noflee      6 isheavy    9 hidden   12 noblink\n\r"
+                             "   1 closed    4 (unused)    7 nobreak   10 broken   13 lever\n\r"
+                             "   2 locked    5 nopick      8 nolook    11 noride   14 nowalk\n\r"
+                             "  N = set all, pN = set bit N, mN = clear bit N, e.g. p1 p7 m2\n\r\n\r",
                     ch);
             DIGITCHANGE("exit flags", tmp);
             SHAPE_ROOM(ch)

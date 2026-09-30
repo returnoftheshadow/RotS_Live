@@ -95,12 +95,17 @@ values. Prompts fall into three kinds:
    empties it. `#` becomes `+` and `~` becomes `-`.
 2. **Multi-line** (`/2`, `/9`, `/14`): the text editor. Your old text is kept
    and new lines are added after it. `%e` saves, `%q` aborts and keeps the old
-   text, `%f` formats, `%h` shows help.
+   text, `%r` shows the text so far, `%f` formats, `%h` shows help.
 3. **Number** (`Enter <field> [current]:`): `N` sets, `+N` adds, `-N`
-   subtracts, `pN` sets bit N, `mN` clears bit N, blank keeps the value. Only
-   the first word counts (`p0 p4` applies only `p0`), and a word the editor
-   does not understand leaves the value unchanged. Exception: the key (`/10`)
-   and destination (`/11`) prompts take `-N` as a negative value (see below).
+   subtracts, `pN` sets bit N, `mN` clears bit N, blank keeps the value.
+   Several `p`/`m` go in one answer, left to right (`p0 p4 m3`); the list
+   stops at the first word that is not `p`/`m` plus a bit 0-31, and says so.
+   A word the editor does not understand leaves the value unchanged.
+   Exception: the key (`/10`) and destination (`/11`) prompts take `-N` as a
+   negative value (see below).
+
+`%h` at a single-line or number prompt shows that field's `man shape room N`
+entry and asks again; nothing changes.
 
 ### Room field commands
 
@@ -108,7 +113,7 @@ values. Prompts fall into three kinds:
 |------|-------|-------------|
 | `/1` | Name | One-line room title. Follow `GUIDELINES` (title case, no trailing period). |
 | `/2` | Description | Multi-line. Indent with three spaces, `%f`, then `%e`. |
-| `/3` | Room flags | Shows the list: 0 dark, 1 death, 2 no_mob, 3 indoors, 4 noride, 5 (internal), 6 shadowy, 7 no_magic, 8 tunnel, 9 private, 10 godroom, 11 (internal), 12 water, 13 poison, 14 security, 15 peace, 16 no_teleport, 17 hide_vnum. Use `pN`/`mN` one bit per answer. Do not set 5 or 11. |
+| `/3` | Room flags | Shows the list: 0 dark, 1 death, 2 no_mob, 3 indoors, 4 noride, 5 (internal), 6 shadowy, 7 no_magic, 8 tunnel, 9 private, 10 godroom, 11 (internal), 12 water, 13 poison, 14 security, 15 peace, 16 no_teleport, 17 hide_vnum. Use `pN`/`mN`, several per answer (`p0 p3`). Do not set 5 or 11. |
 | `/4` | Sector type | Shows the list (0 floor, 1 city, 2 field, 3 forest, 4 hills, 5 mountain, 6 water, 7 water_noswim, 8 underwater, 9 road, 10 crack, 11 dense_forest, 12 swamp). Anything outside 0-12 is refused: `Sector type must be 0-12. dropped.` |
 | `/17` | Room level | 0-255 (anything else is refused). Its only game use is mortal `where`, which finds players in the same zone and the same room level. |
 | `/18` | Top room affect | `Enter room affect: type spell_number level room_flag_bits` with the current four values shown. Type 1 = spell. Blank keeps the values; 1-3 numbers print `four numbers required. dropped`. Duration is always permanent. |
@@ -125,7 +130,7 @@ values. Prompts fall into three kinds:
    saving.
 2. `/6` — Exit flags, with the list shown: 0 door, 1 closed, 2 locked, 3 noflee,
    4 (unused), 5 nopick, 6 isheavy, 7 nobreak, 8 nolook, 9 hidden, 10 broken,
-   11 noride, 12 noblink, 13 lever, 14 nowalk. `pN`/`mN` one bit per answer.
+   11 noride, 12 noblink, 13 lever, 14 nowalk. `pN`/`mN`, several per answer.
    Closed/locked are only the boot state; a zone `D` command sets them at reset.
 3. `/7` — `Enter exit to remove (n e s w u d):`. It asks for a direction; it does
    not use the selected exit.
@@ -188,7 +193,7 @@ Mist-Draped Bridge
 %f
 %e
 /3
-p0                        # DARK (one bit per answer)
+p0                        # DARK (p0 p3 would also set INDOORS)
 /4
 2                         # field
 /5

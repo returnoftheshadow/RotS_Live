@@ -44,7 +44,7 @@ guide covers the same ground as the in-game `man script` pages (`scr_tbl`).
    - `/13` swap the current row with the next.
    - `/20` change the script name, a one-line title (`%q` is refused with
      `The script name can't be empty.`); `/21` change the script description
-     (the `%e`/`%q`/`%f` text editor).
+     (the `%e`/`%q`/`%r`/`%f` text editor).
    - `/50` list the entire script. `/51` show the name and description.
    - `/2` and `/14` do nothing. `/12` is disabled (it was a room filter left
      over from the zone editor).
@@ -82,6 +82,8 @@ Current: ch1 ch2 ob1   (blank = keep)
 ```
 
 - Type the values separated by spaces, no commas. Case does not matter.
+- `%h` shows the command's `man script` entry (e.g. `DO_GIVE`) and asks again;
+  at `/3` it shows `COMMAND LIST`.
 - A blank answer keeps the current values. Fewer values than asked set the
   missing ones to 0; extra words are ignored.
 - A word that is not a variable and not a number is refused, and nothing

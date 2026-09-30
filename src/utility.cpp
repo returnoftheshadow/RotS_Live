@@ -388,13 +388,45 @@ int get_exit_width(struct room_data* room, int dir)
     return default_exit_width[room->sector_type];
 }
 
-int string_to_new_value(char* arg, int* value)
+/*
+ * A flag answer can hold several changes, "p4 m2 p7", applied left to right.
+ * It stops at the first word that is not p or m plus a bit number 0-31; that
+ * word is left in *stopped (the changes before it stay made).
+ */
+int string_to_new_value(char* arg, int* value, char** stopped)
 {
+    char* p;
+    int bit;
+
+    if (stopped)
+        *stopped = 0;
     while (*arg && (*arg <= ' '))
         arg++;
 
     if (!*arg)
         return *value;
+
+    if (*arg == 'p' || *arg == 'P' || *arg == 'm' || *arg == 'M') {
+        while (*arg) {
+            p = arg + 1;
+            bit = 0;
+            while (isdigit((unsigned char)*p) && bit <= 31)
+                bit = bit * 10 + (*p++ - '0');
+            if ((*arg != 'p' && *arg != 'P' && *arg != 'm' && *arg != 'M')
+                || p == arg + 1 || bit > 31 || (*p && *p > ' ')) {
+                if (stopped)
+                    *stopped = arg;
+                break;
+            }
+            if (*arg == 'p' || *arg == 'P')
+                *value |= (int)(1u << bit);
+            else
+                *value &= ~(int)(1u << bit);
+            for (arg = p; *arg && *arg <= ' '; arg++)
+                ;
+        }
+        return *value;
+    }
 
     if (isdigit(*arg))
         *value = atoi(arg);
@@ -402,10 +434,6 @@ int string_to_new_value(char* arg, int* value)
         *value += atoi(arg + 1);
     if (*arg == '-')
         *value -= atoi(arg + 1);
-    if ((*arg == 'p') || (*arg == 'P'))
-        *value |= 1 << atoi(arg + 1);
-    if ((*arg == 'm') || (*arg == 'M'))
-        *value &= ~(1 << atoi(arg + 1));
 
     return *value;
 }

@@ -74,11 +74,16 @@ owners/implementors.
      entered. dropped.` Changing the letter of an existing row resets its
      numbers to 0, because the old numbers mean something else under a new
      letter.
-   - `/4` – fill in the numbers. The prompt names every field for that letter
-     (for example `if_flag mob_vnum room_vnum max_world chance% xp%
-     max_alive_line trophy` for `M`), lists what the codes mean, and shows the
-     row's `Current:` values. A blank answer keeps them (`Values kept.`) and
-     goes on to the comment. Typing fewer numbers than asked keeps the rest.
+   - `/4` – fill in the numbers. The prompt lists every field for that letter
+     as a numbered table with the row's current value beside each (for `M`:
+     `if_flag mob_vnum room_vnum max_world chance% xp% max_alive_line
+     trophy`), then what the codes mean, then `Enter 8 numbers [0 1107 1153
+     ...]:` with the current values in typing order. After a letter change
+     the values start at 0 and are not shown. A blank answer keeps them
+     (`Values kept.`) and goes on to the comment. Typing fewer numbers than
+     asked sets the ones not typed to 0 (this has always been so).
+     `%h` shows `man shape zone <letter>` and asks again (at `/3`, `man shape
+     zone`; at other number prompts, `man shape zone N` if there is one).
    - `/5` – add/edit the one-line comment (`blank = keep, %q = empty`).
 7. **Use masks**: `/2` asks `Enter list mask: letter if_flag arg1 arg2 arg3
    arg4 arg5 arg6 arg7 ('*' = any)` and then lists only matching commands.

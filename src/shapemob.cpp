@@ -393,10 +393,21 @@ int get_permission(int zonnum, struct char_data* ch, int mode)
     return perm;
 }
 
+/* After "%h" the shaper stays in the prompt's position and the field runs
+ * again; its shape_standup call then hands back the held position without
+ * the room hearing the chant a second time. */
+static struct char_data* shape_held_char = 0;
+static int shape_held_position;
+
 int shape_standup(struct char_data* ch, int pos)
 {
     int tmp;
 
+    if (ch == shape_held_char) {
+        shape_held_char = 0;
+        if (pos == POSITION_SHAPING && ch->specials.position == POSITION_SHAPING)
+            return shape_held_position;
+    }
     tmp = ch->specials.position;
 
     if (pos != POSITION_SHAPING)
@@ -407,6 +418,52 @@ int shape_standup(struct char_data* ch, int pos)
     ch->specials.position = pos;
 
     return tmp;
+}
+
+/* A flag prompt answer, "p4 m2 p7" or one number; says where a list stopped. */
+void shape_flag_value(struct char_data* ch, char* arg, int* value)
+{
+    char buf[80];
+    char* stopped;
+    int len;
+
+    string_to_new_value(arg, value, &stopped);
+    if (!stopped)
+        return;
+    for (len = 0; stopped[len] > ' ' && len < 20; len++)
+        ;
+    sprintf(buf, "Stopped at '%.*s': it and the rest were not applied.\n\r", len, stopped);
+    send_to_char(buf, ch);
+}
+
+/* True when a prompt answer is "%h" and nothing else. */
+int shape_help_asked(const char* arg)
+{
+    while (*arg && *arg <= ' ')
+        arg++;
+    if (arg[0] != '%' || (arg[1] != 'h' && arg[1] != 'H'))
+        return 0;
+    for (arg += 2; *arg; arg++)
+        if (*arg > ' ')
+            return 0;
+    return 1;
+}
+
+int show_help_entry(struct char_data* ch, const char* chapter, const char* keyword);
+
+/*
+ * "%h" at a prompt: prints the field's help entry.  The caller then drops
+ * SHAPE_DIGIT_ACTIVE and runs the field again, which shows the same prompt;
+ * position is the one the prompt saved, held for that second standup.
+ */
+void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position)
+{
+    if (!show_help_entry(ch, chapter, keyword))
+        send_to_char("No help for this field.\n\r\n\r", ch);
+    if (ch->specials.position == POSITION_SHAPING) {
+        shape_held_char = ch;
+        shape_held_position = position;
+    }
 }
 
 void list_proto(struct char_data* ch, struct char_data* mob); /* forward declaration */
@@ -702,6 +759,15 @@ void shape_center_proto(struct char_data* ch, char* arg)
             keymode = command_simple_convert(SHAPE_PROTO(ch)->editflag);
         else
             keymode = SHAPE_PROTO(ch)->editflag;
+        /* "%h" at a prompt: the field's help, then the same prompt again. */
+        bool help_reshow = false;
+        if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE) && shape_help_asked(arg)) {
+            char key[40];
+            sprintf(key, "MOB2 %d", keymode);
+            shape_prompt_help(ch, "shape", key, SHAPE_PROTO(ch)->position);
+            REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+            help_reshow = true;
+        }
         switch (keymode) {
         case 1:
             /* An empty keyword list or name leaves the mob unusable. */
@@ -780,7 +846,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             return;                                                \
         } else {                                                   \
             tmp = addr;                                            \
-            string_to_new_value(arg, &tmp);                        \
+            shape_flag_value(ch, arg, &tmp);                       \
             addr = tmp;                                            \
         }                                                          \
         shape_standup(ch, SHAPE_PROTO(ch)->position);              \
@@ -803,7 +869,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             return;                                                \
         } else {                                                   \
             tmp = addr;                                            \
-            string_to_new_value(arg, &tmp);                        \
+            shape_flag_value(ch, arg, &tmp);                       \
             addr = tmp;                                            \
         }                                                          \
         shape_standup(ch, SHAPE_PROTO(ch)->position);              \
@@ -816,13 +882,14 @@ void shape_center_proto(struct char_data* ch, char* arg)
 
         case 5:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 SPEC, 1 SENTINEL, 2 SCAVENGER, 3 ISNPC, 4 NOBASH, 5 AGGR, 6 STAY-ZONE,\n\r"
-                             "  7 WIMPY, 8 STAY-TYPE, 9 MOUNT, 10 CAN_SWIM, 11 MEMORY, 12 HELPER,\n\r"
-                             "  13 AGGR_EVIL, 14 AGGR_NEUT, 15 AGGR_GOOD, 16 BODYGUARD, 17 WRAITH,\n\r"
-                             "  18 SWITCH, 19 NORECALC, 20 FAST, 21 IS_PET, 22 HUNTER, 23 ORC_FRIEND,\n\r"
-                             "  24 RACE_GUARD, 25 ASSISTANT, 26 GUARDIAN\n\r",
+                send_to_char("   0 SPEC         6 STAY-ZONE   12 HELPER      18 SWITCH       24 RACE_GUARD\n\r"
+                             "   1 SENTINEL     7 WIMPY       13 AGGR_EVIL   19 NORECALC     25 ASSISTANT\n\r"
+                             "   2 SCAVENGER    8 STAY-TYPE   14 AGGR_NEUT   20 ACTIVE       26 GUARDIAN\n\r"
+                             "   3 ISNPC        9 MOUNT       15 AGGR_GOOD   21 IS_PET\n\r"
+                             "   4 NOBASH      10 CAN_SWIM    16 BODYGUARD   22 HUNTER\n\r"
+                             "   5 AGGR        11 MEMORY      17 WRAITH      23 ORC_FRIEND\n\r\n\r",
                     ch);
-            DIGITCHANGEL("MOB FLAGS: pN sets bit N, mN clears it, one per answer\n\r  (bit 3 ISNPC is always on)", mob->specials2.act)
+            DIGITCHANGEL("MOB FLAGS: pN sets bit N, mN clears it, e.g. p1 p7 m2\n\r  (bit 3 ISNPC is always on)", mob->specials2.act)
             mob->specials2.act |= MOB_ISNPC;
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -831,13 +898,15 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 6:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 SENSE, 1 INFRA, 2 SNEAK, 3 HIDE, 4 DET-MAGIC, 5 CHARM, 6 CURSE, 7 SANCT,\n\r"
-                             "  8 TWO-HANDED, 9 INVIS, 10 MOONVISION, 11 POISON, 12 SHIELD, 13 BREATHE,\n\r"
-                             "  14 GROUP, 15 CONFUSE, 16 SLEEP, 17 BASH, 18 FLYING, 19 DET_INVIS, 20 FEAR,\n\r"
-                             "  21 BLIND, 22 FOLLOW, 23 SWIM, 24 HUNT, 25 EVASION, 26 CASTING, 27 WAITWHEEL,\n\r"
-                             "  28 (unused), 29 CONCENTR, 30 HAZE, 31 HALLU\n\r",
+                send_to_char("   0 SENSE        7 SANCT        14 GROUP       21 BLIND       28 (unused)\n\r"
+                             "   1 INFRA        8 TWO-HANDED   15 CONFUSE     22 FOLLOW      29 CONCENTR\n\r"
+                             "   2 SNEAK        9 INVIS        16 SLEEP       23 SWIM        30 HAZE\n\r"
+                             "   3 HIDE        10 MOONVISION   17 BASH        24 HUNT        31 HALLU\n\r"
+                             "   4 DET-MAGIC   11 POISON       18 FLYING      25 EVASION\n\r"
+                             "   5 CHARM       12 SHIELD       19 DET_INVIS   26 CASTING\n\r"
+                             "   6 CURSE       13 BREATHE      20 FEAR        27 WAITWHEEL\n\r\n\r",
                     ch);
-            DIGITCHANGEL("AFFECTS: pN sets bit N, mN clears it, one per answer", mob->specials.affected_by);
+            DIGITCHANGEL("AFFECTS: pN sets bit N, mN clears it, e.g. p1 p7 m2", mob->specials.affected_by);
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
@@ -974,7 +1043,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
         /* case 15: here will owner be? */
         case 16:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  4 sleeping, 5 resting, 6 sitting, 8 standing\n\r", ch);
+                send_to_char("  4 sleeping, 5 resting, 6 sitting, 8 standing\n\r\n\r", ch);
             tmp3 = mob->specials.position;
             DIGITCHANGE("POSITION", mob->specials.position)
             if (tmp != tmp3 && tmp != POSITION_SLEEPING && tmp != POSITION_RESTING
@@ -989,7 +1058,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 17:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  4 sleeping, 5 resting, 6 sitting, 8 standing\n\r", ch);
+                send_to_char("  4 sleeping, 5 resting, 6 sitting, 8 standing\n\r\n\r", ch);
             tmp3 = mob->specials.default_pos;
             DIGITCHANGE("DEFAULT POSITION", mob->specials.default_pos)
             if (tmp != tmp3 && tmp != POSITION_SLEEPING && tmp != POSITION_RESTING
@@ -1045,9 +1114,10 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 19:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 god/animal, 1 human, 2 dwarf, 3 wood elf, 4 hobbit, 5 high elf,\n\r"
-                             "  6 beorning, 11 uruk-hai, 12 harad, 13 orc, 14 easterling, 15 uruk-lhuth,\n\r"
-                             "  16 undead, 17 olog-hai, 18 haradrim, 20 troll\n\r",
+                send_to_char("   0 god/animal    4 hobbit     12 harad        16 undead\n\r"
+                             "   1 human         5 high elf   13 orc          17 olog-hai\n\r"
+                             "   2 dwarf         6 beorning   14 easterling   18 haradrim\n\r"
+                             "   3 wood elf     11 uruk-hai   15 uruk-lhuth   20 troll\n\r\n\r",
                     ch);
             tmp3 = mob->player.race;
             DIGITCHANGE("RACE", mob->player.race)
@@ -1234,8 +1304,11 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 36:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH,\n\r  7 PHYSICAL, 8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND, 12 DARK\n\r", ch);
-            DIGITCHANGE("RESISTANCES: pN sets bit N, mN clears it, one per answer", mob->specials.resistance)
+                send_to_char("   0 UNGROUPED    3 REGEN      6 STEALTH     9 ILLUSION    12 DARK\n\r"
+                             "   1 FIRE         4 PROT       7 PHYSICAL   10 LIGHTNING\n\r"
+                             "   2 COLD         5 ANIMALS    8 TELEPORT   11 MIND\n\r\n\r",
+                    ch);
+            DIGITCHANGE("RESISTANCES: pN sets bit N, mN clears it, e.g. p1 p7 m2", mob->specials.resistance)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -1244,8 +1317,11 @@ void shape_center_proto(struct char_data* ch, char* arg)
             break;
         case 37:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE))
-                send_to_char("  0 UNGROUPED, 1 FIRE, 2 COLD, 3 REGEN, 4 PROT, 5 ANIMALS, 6 STEALTH,\n\r  7 PHYSICAL, 8 TELEPORT, 9 ILLUSION, 10 LIGHTNING, 11 MIND, 12 DARK\n\r", ch);
-            DIGITCHANGE("VULNERABILITIES: pN sets bit N, mN clears it, one per answer", mob->specials.vulnerability)
+                send_to_char("   0 UNGROUPED    3 REGEN      6 STEALTH     9 ILLUSION    12 DARK\n\r"
+                             "   1 FIRE         4 PROT       7 PHYSICAL   10 LIGHTNING\n\r"
+                             "   2 COLD         5 ANIMALS    8 TELEPORT   11 MIND\n\r\n\r",
+                    ch);
+            DIGITCHANGE("VULNERABILITIES: pN sets bit N, mN clears it, e.g. p1 p7 m2", mob->specials.vulnerability)
 
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
@@ -1288,7 +1364,8 @@ void shape_center_proto(struct char_data* ch, char* arg)
 #undef DIGITCHANGE
         case 48:
             if (!IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                recalculate_mob(ch);
+                if (!help_reshow) /* %h shows the question again, no second reset */
+                    recalculate_mob(ch);
                 send_to_char("Stats were reset from level. Edit them now?\n\r", ch);
             }
             //      tmpptr=(char *)calloc(2,1);
