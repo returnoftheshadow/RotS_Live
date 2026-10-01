@@ -8,6 +8,7 @@
 #include "../handler.h"
 #include "../interpre.h"
 #include "../json_utils.h"
+#include "../roster_cache.h"
 #include "../structs.h"
 #include "../utils.h"
 
@@ -952,4 +953,346 @@ SPECIAL(banker)
     else
         bank_withdraw(host, ch, arg ? arg : (char*)"", *config, customer);
     return TRUE;
+}
+
+namespace {
+
+std::function<bool(const std::string&, bank_account_ref*)> g_lookup_identifier;
+std::function<bool(const std::string&, bank_account_ref*)> g_lookup_name;
+std::function<bool(const std::string&, bank_account_ref*, int*)> g_lookup_character;
+
+bool game_lookup_identifier(const std::string& identifier, bank_account_ref* out)
+{
+    account::AccountData data;
+    if (!account::read_account_file_by_identifier(".", identifier, &data, nullptr))
+        return false;
+    *out = { data.account_name, data.normalized_email };
+    return true;
+}
+
+bool game_lookup_name(const std::string& name, bank_account_ref* out)
+{
+    account::AccountData data;
+    if (name.find('@') != std::string::npos || !account::read_account_file(".", name, &data, nullptr))
+        return false;
+    *out = { data.account_name, data.normalized_email };
+    return true;
+}
+
+const char* side_title(int side)
+{
+    return side == BANK_SIDE_LIGHT ? "Light" : side == BANK_SIDE_DARK ? "Dark"
+                                                                      : "Third";
+}
+
+std::string stored_name(const objects_json::ObjectRecord& record)
+{
+    int rnum = real_object(record.item_number);
+    return rnum >= 0 ? obj_proto[rnum].short_description : "something";
+}
+
+} // namespace
+
+void bank_set_account_lookups(std::function<bool(const std::string&, bank_account_ref*)> by_email_or_name,
+    std::function<bool(const std::string&, bank_account_ref*)> by_name,
+    std::function<bool(const std::string&, bank_account_ref*, int*)> by_character)
+{
+    g_lookup_identifier = by_email_or_name;
+    g_lookup_name = by_name;
+    g_lookup_character = by_character;
+}
+
+std::string format_vault_view(const bank_account_ref&, const std::string&, int side, const bank_vault& vault)
+{
+    char line[160];
+    std::string coins = money_message(vault.coins, 0);
+    snprintf(line, sizeof(line), "%s vault: %s, %d of %d slots\n\r", side_title(side), coins.c_str(),
+        (int)vault.slots.size(), boot_option(BOOT_BANK_SLOTS));
+    std::string out = line;
+    if (vault.slots.empty())
+        return out + "  (empty)\n\r";
+    for (size_t i = 0; i < vault.slots.size(); ++i) {
+        const bank_slot& slot = vault.slots[i];
+        int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_BANK_DAY_START_HOUR));
+        snprintf(line, sizeof(line), "%2d  %-40.40s stored %d day%s\n\r", (int)(i + 1), stored_name(slot.objects[0]).c_str(),
+            days, days == 1 ? "" : "s");
+        out += line;
+        for (size_t o = 1; o < slot.objects.size(); ++o) {
+            int indent = std::min(4 + 2 * slot.objects[o].wear_pos, 30);
+            snprintf(line, sizeof(line), "%*s%.*s\n\r", indent, "", 78 - indent, stored_name(slot.objects[o]).c_str());
+            out += line;
+        }
+    }
+    return out;
+}
+
+namespace {
+
+bool game_lookup_character(const std::string& character, bank_account_ref* out, int* race)
+{
+    std::string owner;
+    if (!account::find_linked_character_owner_account(".", character, &owner, nullptr) || owner.empty())
+        return false;
+    account::AccountData data;
+    if (!account::read_account_file(".", owner, &data, nullptr))
+        return false;
+    roster_cache::RosterSummary summary;
+    if (!roster_cache::get(".", data.account_name, character, &summary) || !summary.readable)
+        return false;
+    *out = { data.account_name, data.normalized_email };
+    *race = summary.race;
+    return true;
+}
+
+bool lookup_identifier(const std::string& text, bank_account_ref* out)
+{
+    return g_lookup_identifier ? g_lookup_identifier(text, out) : game_lookup_identifier(text, out);
+}
+
+bool lookup_name(const std::string& text, bank_account_ref* out)
+{
+    return g_lookup_name ? g_lookup_name(text, out) : game_lookup_name(text, out);
+}
+
+bool lookup_character(const std::string& text, bank_account_ref* out, int* race)
+{
+    std::string name = text;
+    for (char& c : name)
+        c = (char)tolower((unsigned char)c);
+    return g_lookup_character ? g_lookup_character(name, out, race) : game_lookup_character(name, out, race);
+}
+
+void vault_usage(struct char_data* ch)
+{
+    send_to_char("Usage: vault <character | email | account> [1|2|3]\n\r"
+                 "       vault take <account> <1|2|3> <slot>\n\r"
+                 "       vault take <account> <1|2|3> coins <amount> [gold|silver|copper]\n\r"
+                 "       vault put <account> <1|2|3> <item>\n\r"
+                 "       vault put <account> <1|2|3> coins <amount> [gold|silver|copper]\n\r",
+        ch);
+}
+
+int vault_side_number(const char* text)
+{
+    return strlen(text) == 1 && *text >= '1' && *text <= '3' ? *text - '0' : BANK_SIDE_NONE;
+}
+
+void vault_show_side(struct char_data* ch, const bank_account_ref& account, const std::string& character, int side)
+{
+    std::string error;
+    bank_vault* vault = bank_vault_open(account.name, side, &error);
+    if (!vault) {
+        std::string line = std::string(side_title(side)) + " vault: "
+            + (error == "That vault's file can't be read." ? "FILE UNREADABLE" : error) + "\n\r";
+        send_to_char(line.c_str(), ch);
+        return;
+    }
+    std::string view = format_vault_view(account, character, side, *vault);
+    if (view.size() >= MAX_STRING_LENGTH - 1 && ch->desc) {
+        std::vector<char> text(view.begin(), view.end());
+        text.push_back('\0');
+        page_string(ch->desc, text.data(), 1);
+    } else
+        send_to_char(view.c_str(), ch);
+}
+
+void vault_view(struct char_data* ch, const char* identifier, const char* side_text)
+{
+    int side = BANK_SIDE_NONE;
+    if (*side_text && (side = vault_side_number(side_text)) == BANK_SIDE_NONE) {
+        vault_usage(ch);
+        return;
+    }
+    bank_account_ref account;
+    std::string character;
+    int race = RACE_GOD;
+    if (!lookup_identifier(identifier, &account)) {
+        if (!lookup_character(identifier, &account, &race)) {
+            send_to_char("No account or character by that name.\n\r", ch);
+            return;
+        }
+        character = identifier;
+        for (char& c : character)
+            c = (char)tolower((unsigned char)c);
+        character[0] = (char)toupper((unsigned char)character[0]);
+    }
+    std::string header = "Account: " + account.name + " (" + account.email + ")";
+    if (!character.empty())
+        header += "   Character: " + character;
+    send_to_char((header + "\n\r").c_str(), ch);
+
+    if (!character.empty()) {
+        int own = bank_side_for_race(race);
+        if (own == BANK_SIDE_NONE) {
+            send_to_char("That character has no vault.\n\r", ch);
+            return;
+        }
+        vault_show_side(ch, account, character, own);
+        return;
+    }
+    for (int s = BANK_SIDE_LIGHT; s <= BANK_SIDE_THIRD; ++s)
+        if (side == BANK_SIDE_NONE || side == s)
+            vault_show_side(ch, account, character, s);
+}
+
+/* "coins <amount> [gold|silver|copper]"; a bare amount is copper. */
+bool vault_parse_coins(const char* text, long long* copper)
+{
+    std::string amount = text;
+    if (!amount.empty() && amount.find_first_not_of("0123456789") == std::string::npos)
+        amount += " copper";
+    bool is_coins = false;
+    return parse_coins(amount.c_str(), &is_coins, copper);
+}
+
+void vault_change(struct char_data* ch, bool take, char* text)
+{
+    char account_word[MAX_INPUT_LENGTH], side_word[MAX_INPUT_LENGTH], rest[MAX_INPUT_LENGTH], what[MAX_INPUT_LENGTH];
+    char first[MAX_INPUT_LENGTH], amount[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
+    half_chop(text, account_word, rest);
+    half_chop(rest, side_word, what);
+    if (!*account_word || !*side_word || !*what) {
+        vault_usage(ch);
+        return;
+    }
+    bank_account_ref account;
+    if (!lookup_name(account_word, &account)) {
+        send_to_char("Use the account name shown by 'vault <name>'.\n\r", ch);
+        return;
+    }
+    int side = vault_side_number(side_word);
+    if (side == BANK_SIDE_NONE) {
+        vault_usage(ch);
+        return;
+    }
+    std::string error;
+    bank_vault* vault = bank_vault_open(account.name, side, &error);
+    if (!vault) {
+        send_to_char((error + "\n\r").c_str(), ch);
+        return;
+    }
+
+    half_chop(what, first, amount);
+    if (!str_cmp(first, "coins")) {
+        long long copper = 0;
+        if (!vault_parse_coins(amount, &copper)) {
+            send_to_char("How much?\n\r", ch);
+            return;
+        }
+        if (take) {
+            if (copper > vault->coins) {
+                send_to_char("The vault doesn't hold that much.\n\r", ch);
+                return;
+            }
+            if ((long long)GET_GOLD(ch) + copper > 2000000000LL) {
+                send_to_char("You can't carry that much money.\n\r", ch);
+                return;
+            }
+            GET_GOLD(ch) += (int)copper;
+            bank_save_character(ch); /* the immortal first */
+            vault->coins -= (int)copper;
+            if (!bank_vault_write(account.name, side, &error))
+                bank_log("SYSERR: bank: vault write failed after vault take: " + error);
+            snprintf(buf, sizeof(buf), "You take %s from the vault.\n\r", money_message((int)copper, 0));
+        } else {
+            if (copper > GET_GOLD(ch)) {
+                send_to_char("You don't have that much.\n\r", ch);
+                return;
+            }
+            if (vault->coins + copper > (long long)boot_option(BOOT_BANK_COIN_LIMIT_GOLD) * COPP_IN_GOLD) {
+                send_to_char("That would pass the vault's coin limit.\n\r", ch);
+                return;
+            }
+            vault->coins += (int)copper;
+            if (!bank_vault_write(account.name, side, &error)) { /* the vault first */
+                vault->coins -= (int)copper;
+                send_to_char((error + "\n\r").c_str(), ch);
+                return;
+            }
+            GET_GOLD(ch) -= (int)copper;
+            bank_save_character(ch);
+            snprintf(buf, sizeof(buf), "You put %s into the vault.\n\r", money_message((int)copper, 0));
+        }
+        send_to_char(buf, ch);
+        return;
+    }
+
+    if (take) {
+        int n = strspn(what, "0123456789") == strlen(what) && strlen(what) <= 4 ? atoi(what) : 0;
+        if (n < 1 || n > (int)vault->slots.size()) {
+            send_to_char("No such slot.\n\r", ch);
+            return;
+        }
+        struct obj_data* obj = bank_obj_from_records(vault->slots[n - 1].objects);
+        if (!obj) {
+            send_to_char("That item can't be rebuilt (missing prototype).\n\r", ch);
+            return;
+        }
+        obj_to_char(obj, ch);
+        bank_save_character(ch); /* the immortal first */
+        vault->slots.erase(vault->slots.begin() + (n - 1));
+        if (!bank_vault_write(account.name, side, &error))
+            bank_log("SYSERR: bank: vault write failed after vault take: " + error);
+        snprintf(buf, sizeof(buf), "You take %s from the vault.\n\r", obj->short_description);
+        send_to_char(buf, ch);
+        return;
+    }
+
+    struct obj_data* obj = get_obj_in_list_vis(ch, first, ch->carrying, 9999);
+    if (!obj) {
+        send_to_char("You don't have that.\n\r", ch);
+        return;
+    }
+    if (!bank_obj_storable(obj)) {
+        send_to_char("The bank can't hold that.\n\r", ch);
+        return;
+    }
+    if ((int)vault->slots.size() >= boot_option(BOOT_BANK_SLOTS)) {
+        send_to_char("That vault is full.\n\r", ch);
+        return;
+    }
+    bank_slot slot;
+    slot.deposited = (long)bank_now();
+    bank_records_from_obj(obj, &slot.objects);
+    vault->slots.push_back(slot);
+    if (!bank_vault_write(account.name, side, &error)) { /* the vault first */
+        vault->slots.pop_back();
+        send_to_char((error + "\n\r").c_str(), ch);
+        return;
+    }
+    snprintf(buf, sizeof(buf), "You put %s into the vault.\n\r", obj->short_description);
+    send_to_char(buf, ch);
+    obj_from_char(obj);
+    extract_obj(obj);
+    bank_save_character(ch);
+}
+
+} // namespace
+
+ACMD(do_vault)
+{
+    char first[MAX_INPUT_LENGTH], rest[MAX_INPUT_LENGTH], second[MAX_INPUT_LENGTH], third[MAX_INPUT_LENGTH];
+    char buf[MAX_STRING_LENGTH];
+    while (*argument == ' ')
+        ++argument;
+    half_chop(argument, first, rest);
+    if (!*first) {
+        vault_usage(ch);
+        return;
+    }
+    /* One line per command, like other immortal commands; what the command
+     * shows is never logged. */
+    snprintf(buf, sizeof(buf), "(GC) %s: vault %.200s", GET_NAME(ch), argument);
+    mudlog(buf, BRF, (sh_int)MAX(LEVEL_GRGOD, GET_INVIS_LEV(ch)), TRUE);
+
+    if (!str_cmp(first, "take") || !str_cmp(first, "put")) {
+        vault_change(ch, !str_cmp(first, "take"), rest);
+        return;
+    }
+    half_chop(rest, second, third);
+    if (*third) {
+        vault_usage(ch);
+        return;
+    }
+    vault_view(ch, first, second);
 }

@@ -6,6 +6,7 @@
 
 #include "shopkeeper.h"
 
+#include "../interpre.h"
 #include "../objects_json.h"
 
 #include <ctime>
@@ -113,5 +114,22 @@ struct bank_balance_row {
 };
 std::string format_bank_balance(const std::string& coins, int coin_limit_gold, int slots_used, int slots_max,
     const std::vector<bank_balance_row>& rows, bool show_fee);
+
+/* The immortal vault command: view any vault, and move items or coins in
+ * and out of one. Works through the same vault table as the bankers. */
+ACMD(do_vault);
+
+struct bank_account_ref {
+    std::string name;
+    std::string email;
+};
+/* How `vault` finds an account, replaceable by tests; empty functions
+ * restore the game lookups. */
+void bank_set_account_lookups(
+    std::function<bool(const std::string& identifier, bank_account_ref* out)> by_email_or_name,
+    std::function<bool(const std::string& exact_name, bank_account_ref* out)> by_name,
+    std::function<bool(const std::string& character, bank_account_ref* out, int* race)> by_character);
+std::string format_vault_view(const bank_account_ref& account, const std::string& character, int side,
+    const bank_vault& vault);
 
 #endif

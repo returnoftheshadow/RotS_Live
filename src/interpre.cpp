@@ -28,6 +28,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "mail.h"
+#include "mob_progs/banker.h"
 #include "mob_csv_extract.h"
 #include "pkill.h"
 #include "profs.h"
@@ -2256,7 +2257,7 @@ void assign_command_pointers(void)
         TAR_NONE_OK, TAR_IGNORE, 0);
     COMMANDO(252, POSITION_STANDING, do_unprotect, 0, TRUE, 0,
         FULL_TARGET, TAR_IGNORE, 0);
-    COMMANDO(253, POSITION_DEAD, do_not_here, LEVEL_GRGOD, FALSE, 0,
+    COMMANDO(253, POSITION_DEAD, do_vault, LEVEL_GRGOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(254, POSITION_DEAD, do_bootoptions, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);

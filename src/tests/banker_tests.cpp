@@ -1153,3 +1153,201 @@ TEST_F(BankerTest, TransactionsAreLogged)
         std::string::npos)
         << logged;
 }
+
+namespace {
+
+class VaultCommandTest : public BankerTest {
+protected:
+    void SetUp() override
+    {
+        BankerTest::SetUp();
+        clear_char(&m_imm, 0);
+        m_imm.player.name = m_imm_name;
+        m_imm.player.race = RACE_GOD;
+        m_imm.player.level = LEVEL_GRGOD;
+        m_imm.tmpabilities.str = 18;
+        m_imm.tmpabilities.dex = 18;
+        m_imm.in_room = 0;
+        m_imm_descriptor.output = m_imm_descriptor.small_outbuf;
+        m_imm_descriptor.small_outbuf[0] = '\0';
+        m_imm_descriptor.bufspace = SMALL_BUFSIZE - 1;
+        m_imm_descriptor.connected = CON_PLYNG;
+        m_imm_descriptor.character = &m_imm;
+        m_imm.desc = &m_imm_descriptor;
+        bank_set_account_lookups(
+            [](const std::string& id, bank_account_ref* out) {
+                if (id != "tester" && id != "tester@example.com")
+                    return false;
+                *out = { "tester", "tester@example.com" };
+                return true;
+            },
+            [](const std::string& name, bank_account_ref* out) {
+                if (name != "tester")
+                    return false;
+                *out = { "tester", "tester@example.com" };
+                return true;
+            },
+            [](const std::string& character, bank_account_ref* out, int* race) {
+                if (character != "thorin")
+                    return false;
+                *out = { "tester", "tester@example.com" };
+                *race = RACE_DWARF;
+                return true;
+            });
+    }
+    void TearDown() override
+    {
+        bank_set_account_lookups(nullptr, nullptr, nullptr);
+        BankerTest::TearDown();
+    }
+    std::string run(const char* text)
+    {
+        std::strncpy(m_arg, text, sizeof(m_arg) - 1);
+        m_imm_descriptor.small_outbuf[0] = '\0';
+        m_imm_descriptor.bufptr = 0;
+        m_imm_descriptor.bufspace = SMALL_BUFSIZE - 1;
+        do_vault(&m_imm, m_arg, nullptr, 253, 0);
+        return std::string(m_imm_descriptor.output);
+    }
+    int imm_carried(int rnum) const
+    {
+        int count = 0;
+        for (obj_data* obj = m_imm.carrying; obj; obj = obj->next_content)
+            count += obj->item_number == rnum;
+        return count;
+    }
+    char m_imm_name[16] = "Forge";
+    char_data m_imm {};
+    descriptor_data m_imm_descriptor {};
+};
+
+} // namespace
+
+TEST_F(VaultCommandTest, UsageWithNoArgument)
+{
+    EXPECT_NE(run("").find("Usage: vault <character | email | account> [1|2|3]"), std::string::npos);
+}
+
+TEST_F(VaultCommandTest, ViewByAccountShowsAllThreeSidesWithNameAndEmail)
+{
+    vault(BANK_SIDE_LIGHT)->coins = 142500;
+    vault(BANK_SIDE_LIGHT)->slots.push_back({ (long)at(2026, 9, 27, 12), { record(kPackVnum, 0), record(kSwordVnum, 1) } });
+    std::string out = run("tester");
+    EXPECT_NE(out.find("Account: tester (tester@example.com)"), std::string::npos) << out;
+    EXPECT_EQ(out.find("Character:"), std::string::npos);
+    EXPECT_NE(out.find("Light vault: 142 gold and 5 silver, 1 of 10 slots"), std::string::npos) << out;
+    EXPECT_NE(out.find(" 1  a leather backpack"), std::string::npos) << out;
+    EXPECT_NE(out.find("stored 3 days"), std::string::npos) << out;
+    EXPECT_NE(out.find("      a bastard sword"), std::string::npos) << "contents are indented";
+    EXPECT_NE(out.find("Dark vault: 0 copper, 0 of 10 slots"), std::string::npos) << out;
+    EXPECT_NE(out.find("Third vault:"), std::string::npos);
+    EXPECT_NE(run("tester@example.com").find("Light vault:"), std::string::npos);
+}
+
+TEST_F(VaultCommandTest, ViewOneSideAndByCharacter)
+{
+    std::string out = run("tester 2");
+    EXPECT_NE(out.find("Dark vault:"), std::string::npos);
+    EXPECT_EQ(out.find("Light vault:"), std::string::npos);
+    out = run("thorin");
+    EXPECT_NE(out.find("Account: tester (tester@example.com)   Character: Thorin"), std::string::npos) << out;
+    EXPECT_NE(out.find("Light vault:"), std::string::npos);
+    EXPECT_EQ(out.find("Dark vault:"), std::string::npos);
+    EXPECT_NE(run("nobody").find("No account or character by that name."), std::string::npos);
+    EXPECT_NE(run("tester 4").find("Usage:"), std::string::npos);
+}
+
+TEST_F(VaultCommandTest, UnreadableSideIsShownAndTheOthersStillList)
+{
+    write_file(path("tester", "vault_dark.json"), "junk");
+    std::string out = run("tester");
+    EXPECT_NE(out.find("Dark vault: FILE UNREADABLE"), std::string::npos) << out;
+    EXPECT_NE(out.find("Light vault:"), std::string::npos);
+}
+
+TEST_F(VaultCommandTest, TakeItemGivesItToTheImmortalFreeAndSavesTheImmortalFirst)
+{
+    options("fee=50\nmaxdays=30");
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    m_now = at(2026, 10, 3, 12);
+    m_file_at_save.clear();
+    std::string out = run("take tester 1 1");
+    EXPECT_NE(out.find("You take a bastard sword from the vault."), std::string::npos) << out;
+    EXPECT_EQ(imm_carried(0), 1);
+    EXPECT_TRUE(vault()->slots.empty());
+    EXPECT_EQ(GET_GOLD(&m_imm), 0) << "no fee";
+    EXPECT_NE(m_file_at_save.find("\"item_number\": 100"), std::string::npos) << "immortal saved before the vault file";
+}
+
+TEST_F(VaultCommandTest, ThePlayerSeesAnImmortalsChangeAtOnce)
+{
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    run("take tester 1 1");
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("Slots: 0 of 10 used"), std::string::npos) << output();
+}
+
+TEST_F(VaultCommandTest, TakeAndPutCoins)
+{
+    vault()->coins = 5000;
+    EXPECT_NE(run("take tester 1 coins 2 gold").find("You take 2 gold from the vault."), std::string::npos);
+    EXPECT_EQ(vault()->coins, 3000);
+    EXPECT_EQ(GET_GOLD(&m_imm), 2000);
+    EXPECT_NE(run("put tester 1 coins 500").find("You put 5 silver into the vault."), std::string::npos);
+    EXPECT_EQ(vault()->coins, 3500);
+    EXPECT_NE(run("take tester 1 coins 9 gold").find("The vault doesn't hold that much."), std::string::npos);
+    EXPECT_NE(run("put tester 1 coins 9 gold").find("You don't have that much."), std::string::npos);
+    boot_options_set_running_for_tests(BOOT_BANK_COIN_LIMIT_GOLD, 3);
+    GET_GOLD(&m_imm) = 9000;
+    EXPECT_NE(run("put tester 1 coins 1 gold").find("That would pass the vault's coin limit."), std::string::npos);
+    EXPECT_EQ(vault()->coins, 3500);
+}
+
+TEST_F(VaultCommandTest, PutItemStoresItAsDepositedNowVaultFileFirst)
+{
+    obj_data* sword = read_object(0, REAL);
+    obj_to_char(sword, &m_imm);
+    m_file_at_save.clear();
+    std::string out = run("put tester 1 sword");
+    EXPECT_NE(out.find("You put a bastard sword into the vault."), std::string::npos) << out;
+    ASSERT_EQ(vault()->slots.size(), 1u);
+    EXPECT_EQ(vault()->slots[0].deposited, (long)m_now);
+    EXPECT_EQ(imm_carried(0), 0);
+    EXPECT_NE(m_file_at_save.find("\"item_number\": 100"), std::string::npos);
+}
+
+TEST_F(VaultCommandTest, PutRefusals)
+{
+    obj_to_char(read_object(2, REAL), &m_imm);
+    EXPECT_NE(run("put tester 1 key").find("The bank can't hold that."), std::string::npos);
+    EXPECT_NE(run("put tester 1 sword").find("You don't have that."), std::string::npos);
+    boot_options_set_running_for_tests(BOOT_BANK_SLOTS, 0 + 1);
+    vault()->slots.push_back({ 5, { record(kSwordVnum, 0) } });
+    obj_to_char(read_object(0, REAL), &m_imm);
+    EXPECT_NE(run("put tester 1 sword").find("That vault is full."), std::string::npos);
+    EXPECT_EQ(imm_carried(0), 1);
+}
+
+TEST_F(VaultCommandTest, TakeAndPutNeedTheExactAccountName)
+{
+    for (const char* text : { "take tester@example.com 1 1", "take thorin 1 1", "put thorin 1 sword", "take nobody 1 1" })
+        EXPECT_NE(run(text).find("Use the account name shown by 'vault <name>'."), std::string::npos) << text;
+    for (const char* text : { "take tester", "take tester 1", "take tester 4 1", "take tester 1 0", "take tester 1 9",
+             "put tester 1", "take tester 1 coins", "take tester 1 coins 0" })
+        EXPECT_FALSE(run(text).empty()) << text; /* a message, no crash, nothing changed */
+    EXPECT_TRUE(vault()->slots.empty());
+}
+
+TEST_F(VaultCommandTest, EveryVaultCommandIsLoggedOnceWithoutItsOutput)
+{
+    vault()->slots.push_back({ 5, { record(kSwordVnum, 0) } });
+    testing::internal::CaptureStderr();
+    run("tester");
+    run("take tester 1 1");
+    std::string logged = testing::internal::GetCapturedStderr();
+    EXPECT_NE(logged.find("(GC) Forge: vault tester"), std::string::npos) << logged;
+    EXPECT_NE(logged.find("(GC) Forge: vault take tester 1 1"), std::string::npos) << logged;
+    EXPECT_EQ(logged.find("a bastard sword"), std::string::npos) << "output is not logged";
+}
