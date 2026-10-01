@@ -1,12 +1,25 @@
 #include "banker.h"
 
+#include "../account_management_identity.h"
+#include "../account_management_storage.h"
+#include "../db.h"
+#include "../handler.h"
 #include "../json_utils.h"
 #include "../structs.h"
+#include "../utils.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
+#include <fstream>
+#include <map>
 #include <sstream>
+#include <sys/stat.h>
+#include <unistd.h>
 
 using mob_options_detail::split_lines;
 using mob_options_detail::trim;
@@ -253,5 +266,119 @@ bool deserialize_bank_vault(const std::string& json, bank_vault* vault, std::str
         return false;
     }
     *vault = parsed;
+    return true;
+}
+
+namespace {
+
+std::function<std::string(const std::string&)> g_directory_resolver;
+std::function<void(struct char_data*)> g_character_saver;
+std::function<time_t()> g_clock;
+
+/* Keyed "<normalized account name>#<side>". The ONLY copy of each vault. */
+std::map<std::string, bank_vault> g_vaults;
+
+std::string game_account_directory(const std::string& account_name)
+{
+    std::string dir = account::account_character_directory(".", account_name, "");
+    struct stat st { };
+    if (dir.empty() || stat(dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+        return "";
+    return dir;
+}
+
+bool vault_location(const std::string& account_name, int side, std::string* key, std::string* path, std::string* error)
+{
+    const char* file = bank_side_file_name(side);
+    std::string name = account::normalize_account_name(account_name);
+    if (!file || name.empty()) {
+        *error = "No vault for that account and side.";
+        return false;
+    }
+    std::string dir = g_directory_resolver ? g_directory_resolver(name) : game_account_directory(name);
+    if (dir.empty()) {
+        *error = "That account has no folder.";
+        return false;
+    }
+    *key = name + "#" + std::to_string(side);
+    *path = dir + "/" + file;
+    return true;
+}
+
+} // namespace
+
+void bank_set_directory_resolver(std::function<std::string(const std::string&)> resolver) { g_directory_resolver = resolver; }
+void bank_set_character_saver(std::function<void(struct char_data*)> saver) { g_character_saver = saver; }
+void bank_set_clock(std::function<time_t()> clock) { g_clock = clock; }
+time_t bank_now() { return g_clock ? g_clock() : time(0); }
+
+void bank_save_character(struct char_data* ch)
+{
+    if (g_character_saver) {
+        g_character_saver(ch);
+        return;
+    }
+    save_char(ch, NOWHERE, 0); /* the same pair do_save runs (act_othe.cpp) */
+    Crash_crashsave(ch);
+}
+
+void bank_vault_forget_all() { g_vaults.clear(); }
+
+bank_vault* bank_vault_open(const std::string& account_name, int side, std::string* error)
+{
+    std::string key, path;
+    if (!vault_location(account_name, side, &key, &path, error))
+        return nullptr;
+    auto found = g_vaults.find(key);
+    if (found == g_vaults.end()) {
+        bank_vault vault;
+        std::ifstream in(path, std::ios::binary);
+        if (in.good()) {
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+            std::string read_error;
+            if (!deserialize_bank_vault(buffer.str(), &vault, &read_error)) {
+                vault = bank_vault();
+                vault.readable = false;
+                char line[512];
+                snprintf(line, sizeof(line), "SYSERR: bank: unreadable vault file %s: %s", path.c_str(), read_error.c_str());
+                log(line); /* once: the refused copy stays in the table */
+            }
+        }
+        found = g_vaults.emplace(key, vault).first;
+    }
+    if (!found->second.readable) {
+        *error = "That vault's file can't be read.";
+        return nullptr;
+    }
+    return &found->second;
+}
+
+bool bank_vault_write(const std::string& account_name, int side, std::string* error)
+{
+    std::string key, path;
+    if (!vault_location(account_name, side, &key, &path, error))
+        return false;
+    auto found = g_vaults.find(key);
+    if (found == g_vaults.end() || !found->second.readable) {
+        *error = "That vault is not open.";
+        return false;
+    }
+    const std::string json = serialize_bank_vault(found->second);
+    const std::string temp = path + ".tmp";
+    int fd = open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    FILE* file = fd >= 0 ? fdopen(fd, "w") : nullptr;
+    if (!file) {
+        if (fd >= 0)
+            close(fd);
+        *error = std::string("Can't write the vault file: ") + strerror(errno);
+        return false;
+    }
+    size_t written = fwrite(json.data(), 1, json.size(), file);
+    if (fclose(file) != 0 || written != json.size() || rename(temp.c_str(), path.c_str()) != 0) {
+        *error = std::string("Can't write the vault file: ") + strerror(errno);
+        remove(temp.c_str());
+        return false;
+    }
     return true;
 }

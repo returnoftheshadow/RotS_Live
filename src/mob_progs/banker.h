@@ -9,6 +9,7 @@
 #include "../objects_json.h"
 
 #include <ctime>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -65,5 +66,24 @@ struct bank_vault {
 std::string serialize_bank_vault(const bank_vault& vault);
 /* On failure *vault is left untouched and *error says why. */
 bool deserialize_bank_vault(const std::string& json, bank_vault* vault, std::string* error);
+
+struct char_data;
+
+/* The three things the bank asks the game for, replaceable by tests. Passing
+ * an empty function restores the game behaviour. */
+void bank_set_directory_resolver(std::function<std::string(const std::string& account_name)> resolver);
+void bank_set_character_saver(std::function<void(struct char_data*)> saver);
+void bank_set_clock(std::function<time_t()> clock);
+time_t bank_now();
+void bank_save_character(struct char_data* ch);
+
+/* The vault table holds the ONLY in-memory copy of each vault; nothing else
+ * may read or write a vault file. bank_vault_open returns nullptr (with
+ * *error set) when the account has no folder, the side is not 1-3, or the
+ * file on disk could not be read. An unreadable file is never overwritten. */
+bank_vault* bank_vault_open(const std::string& account_name, int side, std::string* error);
+/* Writes the in-memory copy to its file: temp file, then rename. */
+bool bank_vault_write(const std::string& account_name, int side, std::string* error);
+void bank_vault_forget_all(); /* drops the table; for tests */
 
 #endif

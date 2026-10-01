@@ -7,7 +7,12 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
+#include <functional>
+#include <sstream>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -303,4 +308,137 @@ TEST(BankVaultJson, RejectsANestingJump)
     bank_vault back;
     std::string error;
     EXPECT_FALSE(deserialize_bank_vault(serialize_bank_vault(vault), &back, &error));
+}
+
+namespace {
+
+std::string read_file(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+
+void write_file(const std::string& path, const std::string& text)
+{
+    std::ofstream out(path, std::ios::binary);
+    out << text;
+}
+
+/* A temp directory standing in for the accounts tree: <root>/<account name>. */
+class BankStoreTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        char path[] = "/tmp/bankstore_XXXXXX";
+        ASSERT_NE(mkdtemp(path), nullptr);
+        m_root = path;
+        mkdir((m_root + "/tester").c_str(), 0700);
+        mkdir((m_root + "/other").c_str(), 0700);
+        bank_vault_forget_all();
+        bank_set_directory_resolver([this](const std::string& name) {
+            std::string dir = m_root + "/" + name;
+            struct stat st { };
+            return stat(dir.c_str(), &st) == 0 ? dir : std::string();
+        });
+    }
+    void TearDown() override
+    {
+        bank_vault_forget_all();
+        bank_set_directory_resolver(nullptr);
+        std::string command = "rm -rf " + m_root;
+        ASSERT_EQ(system(command.c_str()), 0);
+    }
+    std::string path(const char* account, const char* file) const { return m_root + "/" + account + "/" + file; }
+    std::string m_root;
+};
+
+} // namespace
+
+TEST_F(BankStoreTest, MissingFileIsAnEmptyVaultAndNothingIsWrittenByLooking)
+{
+    std::string error;
+    bank_vault* vault = bank_vault_open("tester", BANK_SIDE_LIGHT, &error);
+    ASSERT_NE(vault, nullptr) << error;
+    EXPECT_EQ(vault->coins, 0);
+    EXPECT_TRUE(vault->slots.empty());
+    EXPECT_NE(access(path("tester", "vault_light.json").c_str(), F_OK), 0);
+}
+
+TEST_F(BankStoreTest, OpenTwiceIsTheSameCopy)
+{
+    std::string error;
+    bank_vault* first = bank_vault_open("tester", BANK_SIDE_LIGHT, &error);
+    first->coins = 500;
+    EXPECT_EQ(bank_vault_open("tester", BANK_SIDE_LIGHT, &error), first);
+    EXPECT_EQ(bank_vault_open("Tester", BANK_SIDE_LIGHT, &error), first) << "account names are case-blind";
+    EXPECT_NE(bank_vault_open("tester", BANK_SIDE_DARK, &error), first);
+    EXPECT_NE(bank_vault_open("other", BANK_SIDE_LIGHT, &error), first);
+}
+
+TEST_F(BankStoreTest, WriteThenForgetThenOpenReadsTheFile)
+{
+    std::string error;
+    bank_vault* vault = bank_vault_open("tester", BANK_SIDE_DARK, &error);
+    vault->coins = 1234;
+    vault->slots.push_back({ 99, { record(100, 0) } });
+    ASSERT_TRUE(bank_vault_write("tester", BANK_SIDE_DARK, &error)) << error;
+    EXPECT_NE(access(path("tester", "vault_dark.json.tmp").c_str(), F_OK), 0) << "no temp file left";
+    bank_vault_forget_all();
+    vault = bank_vault_open("tester", BANK_SIDE_DARK, &error);
+    ASSERT_NE(vault, nullptr) << error;
+    EXPECT_EQ(vault->coins, 1234);
+    ASSERT_EQ(vault->slots.size(), 1u);
+    EXPECT_EQ(vault->slots[0].objects[0].item_number, 100);
+}
+
+TEST_F(BankStoreTest, UnreadableFileIsRefusedAndNeverOverwritten)
+{
+    write_file(path("tester", "vault_light.json"), "{ this is not a vault");
+    std::string error;
+    EXPECT_EQ(bank_vault_open("tester", BANK_SIDE_LIGHT, &error), nullptr);
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(bank_vault_open("tester", BANK_SIDE_LIGHT, &error), nullptr) << "stays refused";
+    EXPECT_FALSE(bank_vault_write("tester", BANK_SIDE_LIGHT, &error));
+    EXPECT_EQ(read_file(path("tester", "vault_light.json")), "{ this is not a vault");
+    EXPECT_NE(bank_vault_open("tester", BANK_SIDE_DARK, &error), nullptr) << "other vaults still work";
+}
+
+TEST_F(BankStoreTest, NoAccountFolderNoSideNoName)
+{
+    std::string error;
+    EXPECT_EQ(bank_vault_open("nobody", BANK_SIDE_LIGHT, &error), nullptr);
+    EXPECT_EQ(bank_vault_open("tester", BANK_SIDE_NONE, &error), nullptr);
+    EXPECT_EQ(bank_vault_open("tester", 4, &error), nullptr);
+    EXPECT_EQ(bank_vault_open("", BANK_SIDE_LIGHT, &error), nullptr);
+    EXPECT_FALSE(bank_vault_write("nobody", BANK_SIDE_LIGHT, &error));
+}
+
+TEST_F(BankStoreTest, FailedWriteLeavesTheOldFile)
+{
+    std::string error;
+    bank_vault* vault = bank_vault_open("tester", BANK_SIDE_LIGHT, &error);
+    vault->coins = 10;
+    ASSERT_TRUE(bank_vault_write("tester", BANK_SIDE_LIGHT, &error));
+    std::string before = read_file(path("tester", "vault_light.json"));
+    vault->coins = 20;
+    /* a directory where the temp file must go makes the write fail */
+    mkdir(path("tester", "vault_light.json.tmp").c_str(), 0700);
+    EXPECT_FALSE(bank_vault_write("tester", BANK_SIDE_LIGHT, &error));
+    EXPECT_EQ(read_file(path("tester", "vault_light.json")), before);
+}
+
+TEST(BankHooks, ClockAndSaverCanBeReplacedAndRestored)
+{
+    bank_set_clock([] { return (time_t)12345; });
+    EXPECT_EQ(bank_now(), 12345);
+    bank_set_clock(nullptr);
+    EXPECT_GT(bank_now(), 1700000000);
+
+    int saved = 0;
+    bank_set_character_saver([&saved](struct char_data*) { ++saved; });
+    bank_save_character(nullptr);
+    EXPECT_EQ(saved, 1);
+    bank_set_character_saver(nullptr);
 }
