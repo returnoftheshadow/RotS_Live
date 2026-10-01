@@ -38,6 +38,7 @@
 #include "exploits_json.h"
 #include "mob_options.h"
 #include "game_boot_options.h"
+#include "mob_progs/banker.h"
 #include "mob_progs/shopkeeper.h"
 #include "player_file_finalize.h"
 #include "roster_cache.h"
@@ -487,6 +488,9 @@ void boot_db(void)
 
     log("Checking barter vendors.");
     vendor_config_boot();
+
+    log("Checking bankers.");
+    banker_config_boot();
 
     boot_time = time(0);
 

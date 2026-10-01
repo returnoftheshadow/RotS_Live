@@ -1770,10 +1770,10 @@ TEST(BankBalance, LayoutWithFees)
         "Coins: 142 gold and 5 silver (limit 1000 gold)\n\r"
         "Slots: 3 of 10 used\n\r"
         "\n\r"
-        " #  Item                                    Fee to withdraw\n\r"
-        " 1  a bastard sword                         1 silver and 50 copper\n\r"
-        " 2  a leather backpack (sealed, 3 inside)   6 silver\n\r"
-        " 3  a crisp ticket                          free\n\r");
+        " #  Item                                   Fee to withdraw\n\r"
+        " 1  a bastard sword                        1 silver and 50 copper\n\r"
+        " 2  a leather backpack (sealed, 3 inside)  6 silver\n\r"
+        " 3  a crisp ticket                         free\n\r");
 }
 
 TEST(BankBalance, NoFeeColumnAtAFreeBankerAndNoTableWhenEmpty)
@@ -1873,6 +1873,8 @@ protected:
         m_descriptor.connected = CON_PLYNG;
         m_descriptor.character = &m_player;
         std::strcpy(m_descriptor.account_name, "tester");
+        m_descriptor.descriptor = 1; /* do_say only speaks to a connected, awake listener */
+        GET_POS(&m_player) = POSITION_STANDING;
         m_player.desc = &m_descriptor;
 
         world[0].people = &m_banker;
@@ -2169,7 +2171,7 @@ struct obj_data* Crash_obj2char(struct char_data* ch, struct obj_file_elem* obje
 `src/objsave.cpp`.)
 
 ```cpp
-constexpr size_t BANK_NAME_COLUMN = 38; /* " #  " + 38 + 2 + fee text stays within 78 */
+constexpr size_t BANK_NAME_COLUMN = 37; /* " #  " + 37 + 2 + a 35-column fee = 78 */
 
 std::string format_bank_balance(const std::string& coins, int coin_limit_gold, int slots_used, int slots_max,
     const std::vector<bank_balance_row>& rows, bool show_fee)
@@ -2497,7 +2499,7 @@ SPECIAL(banker)
 
 Run: `scripts/rots-docker.sh test --gtest_filter='BankBalance.*:BankerTest.*'`
 Expected: all pass. If `BankBalance.LayoutWithFees` is off by a space, fix the code's padding
-arithmetic, not the expected text: the name column is 38 wide and the fee text starts at column 45.
+arithmetic, not the expected text: the name column is 37 wide and the fee text starts at column 44.
 
 - [ ] **Step 9: Wire the program into the game**
 

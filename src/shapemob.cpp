@@ -10,6 +10,7 @@
 #include "db.h"
 #include "interpre.h"
 #include "mob_options.h"
+#include "mob_progs/banker.h"
 #include "mob_progs/shopkeeper.h"
 #include "protos.h"
 #include "structs.h"
@@ -2065,6 +2066,8 @@ int replace_proto(struct char_data* ch, char* arg)
         write_proto(f2, SHAPE_PROTO(ch)->proto, num);
         if (is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
             vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
+        if (is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
+            banker_config_check(SHAPE_PROTO(ch)->proto, num, ch);
         REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE);
     }
 
@@ -2178,6 +2181,8 @@ int append_proto(struct char_data* ch, char* arg)
     write_proto(f2, SHAPE_PROTO(ch)->proto, i1 + 1);
     if (is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
         vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
+    if (is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
+        banker_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
     sprintf(str, "Mobile added to database as #%d.\n\r", i1 + 1);
     send_to_char(str, ch);
     SHAPE_PROTO(ch)
@@ -2285,6 +2290,8 @@ void implement_proto(struct char_data* ch, bool report_vendor = true)
         virt_assignmob(mob_proto + number);
     vendor_config_rebuild(number, ch, report_vendor);
     vendor_implement_check(number, ch);
+    banker_config_rebuild(number, ch, report_vendor);
+    banker_implement_check(number, ch);
 }
 ACMD(do_shape)
 {

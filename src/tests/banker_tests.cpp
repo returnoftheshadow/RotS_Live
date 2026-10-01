@@ -1,11 +1,18 @@
 #include "../mob_progs/banker.h"
 
+#include "../comm.h"
+#include "../db.h"
+#include "../game_boot_options.h"
+#include "../handler.h"
+#include "../interpre.h"
 #include "../objects_json.h"
 #include "../structs.h"
+#include "../utils.h"
 
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fstream>
 #include <functional>
@@ -441,4 +448,426 @@ TEST(BankHooks, ClockAndSaverCanBeReplacedAndRestored)
     bank_save_character(nullptr);
     EXPECT_EQ(saved, 1);
     bank_set_character_saver(nullptr);
+}
+
+extern struct char_data* mob_proto;
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+extern struct obj_data* obj_proto;
+extern struct index_data* obj_index;
+extern int top_of_objt;
+extern struct obj_data* object_list;
+extern struct room_data world;
+extern int top_of_world;
+extern struct descriptor_data* descriptor_list;
+void clear_char(struct char_data* ch, int mode);
+void clear_object(struct obj_data* obj);
+
+TEST(BankBalance, LayoutWithFees)
+{
+    std::vector<bank_balance_row> rows = {
+        { "a bastard sword", -1, "1 silver and 50 copper" },
+        { "a leather backpack", 3, "6 silver" },
+        { "a crisp ticket", -1, "free" },
+    };
+    EXPECT_EQ(format_bank_balance("142 gold and 5 silver", 1000, 3, 10, rows, true),
+        "Coins: 142 gold and 5 silver (limit 1000 gold)\n\r"
+        "Slots: 3 of 10 used\n\r"
+        "\n\r"
+        " #  Item                                   Fee to withdraw\n\r"
+        " 1  a bastard sword                        1 silver and 50 copper\n\r"
+        " 2  a leather backpack (sealed, 3 inside)  6 silver\n\r"
+        " 3  a crisp ticket                         free\n\r");
+}
+
+TEST(BankBalance, NoFeeColumnAtAFreeBankerAndNoTableWhenEmpty)
+{
+    std::vector<bank_balance_row> rows = { { "a bastard sword", -1, "" } };
+    EXPECT_EQ(format_bank_balance("0 copper", 1000, 1, 10, rows, false),
+        "Coins: 0 copper (limit 1000 gold)\n\r"
+        "Slots: 1 of 10 used\n\r"
+        "\n\r"
+        " #  Item\n\r"
+        " 1  a bastard sword\n\r");
+    EXPECT_EQ(format_bank_balance("0 copper", 1000, 0, 10, {}, true),
+        "Coins: 0 copper (limit 1000 gold)\n\r"
+        "Slots: 0 of 10 used\n\r");
+}
+
+TEST(BankBalance, EveryLineFitsIn78Columns)
+{
+    std::vector<bank_balance_row> rows;
+    for (int i = 0; i < 100; ++i)
+        rows.push_back({ std::string(80, 'x'), 250, "100000 gold, 9 silver and 99 copper" });
+    std::string out = format_bank_balance("100000 gold, 9 silver and 99 copper", 100000, 100, 100, rows, true);
+    size_t start = 0;
+    while (start < out.size()) {
+        size_t end = out.find("\n\r", start);
+        ASSERT_NE(end, std::string::npos);
+        EXPECT_LE(end - start, 78u) << out.substr(start, end - start);
+        start = end + 2;
+    }
+    EXPECT_NE(out.find("100  "), std::string::npos);
+    EXPECT_NE(out.find("(sealed, 250 inside)"), std::string::npos) << "the sealed note survives a cut name";
+}
+
+namespace {
+
+constexpr int kSwordVnum = 100;
+constexpr int kPackVnum = 200;
+constexpr int kKeyVnum = 300;
+constexpr int kBankerVnum = 7100;
+
+class BankerTest : public BankStoreTest {
+protected:
+    void SetUp() override
+    {
+        BankStoreTest::SetUp();
+        save_world();
+
+        for (obj_data& proto : m_obj_proto)
+            clear_object(&proto);
+        set_proto(0, kSwordVnum, m_sword_name, m_sword_short, ITEM_WEAPON, 30);
+        set_proto(1, kPackVnum, m_pack_name, m_pack_short, ITEM_CONTAINER, 10);
+        set_proto(2, kKeyVnum, m_key_name, m_key_short, ITEM_KEY, 1);
+        obj_proto = m_obj_proto;
+        obj_index = m_obj_index;
+        top_of_objt = 2;
+
+        m_mob_proto[0].specials2.act = MOB_ISNPC | MOB_SPEC;
+        m_mob_proto[0].specials.store_prog_number = PROG_BANKER;
+        m_mob_proto[0].specials.mob_options = m_options;
+        m_mob_proto[0].abilities.intel = 12;
+        m_mob_proto[0].player.race = RACE_HUMAN;
+        m_mob_index[0].virt = kBankerVnum;
+        m_mob_index[0].func = nullptr;
+        mob_proto = m_mob_proto;
+        mob_index = m_mob_index;
+        top_of_mobt = 0;
+        banker_config_rebuild(0, nullptr);
+
+        clear_char(&m_banker, MOB_ISNPC);
+        m_banker.nr = 0;
+        m_banker.specials2.act = MOB_ISNPC | MOB_SPEC;
+        m_banker.player.name = m_banker_name;
+        m_banker.player.short_descr = m_banker_short;
+        m_banker.player.race = RACE_HUMAN;
+        m_banker.tmpabilities.intel = 12;
+        m_banker.in_room = 0;
+
+        clear_char(&m_player, 0);
+        m_player.player.name = m_player_name;
+        m_player.player.race = RACE_HUMAN;
+        m_player.player.level = 10;
+        m_player.tmpabilities.str = 18;
+        m_player.tmpabilities.dex = 18;
+        m_player.in_room = 0;
+        m_descriptor.output = m_descriptor.small_outbuf;
+        m_descriptor.small_outbuf[0] = '\0';
+        m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+        m_descriptor.connected = CON_PLYNG;
+        m_descriptor.character = &m_player;
+        std::strcpy(m_descriptor.account_name, "tester");
+        m_descriptor.descriptor = 1; /* do_say only speaks to a connected, awake listener */
+        GET_POS(&m_player) = POSITION_STANDING;
+        m_player.desc = &m_descriptor;
+
+        world[0].people = &m_banker;
+        m_banker.next_in_room = &m_player;
+        m_player.next_in_room = nullptr;
+
+        m_now = at(2026, 9, 30, 12);
+        bank_set_clock([this] { return m_now; });
+        bank_set_character_saver([this](char_data* ch) {
+            ++m_saves;
+            m_file_at_save = read_file(path("tester", "vault_light.json"));
+            (void)ch;
+        });
+        boot_options_set_running_for_tests(BOOT_BANK_SLOTS, 10);
+        boot_options_set_running_for_tests(BOOT_BANK_COIN_LIMIT_GOLD, 1000);
+        boot_options_set_running_for_tests(BOOT_BANK_DAY_START_HOUR, 5);
+    }
+
+    void TearDown() override
+    {
+        while (object_list != nullptr)
+            extract_obj(object_list);
+        m_mob_proto[0].specials.store_prog_number = 0;
+        banker_config_rebuild(0, nullptr); /* erases the registry entry */
+        bank_set_clock(nullptr);
+        bank_set_character_saver(nullptr);
+        restore_world();
+        BankStoreTest::TearDown();
+    }
+
+    void set_proto(int rnum, int vnum, char* name, char* short_desc, int type, int weight)
+    {
+        m_obj_proto[rnum].item_number = rnum;
+        m_obj_proto[rnum].name = name;
+        m_obj_proto[rnum].short_description = short_desc;
+        m_obj_proto[rnum].obj_flags.type_flag = type;
+        m_obj_proto[rnum].obj_flags.weight = weight;
+        m_obj_index[rnum].virt = vnum;
+    }
+
+    void options(const char* text)
+    {
+        std::strncpy(m_options, text, sizeof(m_options) - 1);
+        banker_config_rebuild(0, nullptr);
+    }
+
+    obj_data* give(int rnum)
+    {
+        obj_data* obj = read_object(rnum, REAL);
+        obj_to_char(obj, &m_player);
+        return obj;
+    }
+
+    int call(int cmd, const char* text, int callflag = SPECIAL_COMMAND)
+    {
+        std::strncpy(m_arg, text, sizeof(m_arg) - 1);
+        m_arg[sizeof(m_arg) - 1] = '\0';
+        clear_output();
+        return banker(&m_banker, &m_player, cmd, m_arg, callflag, nullptr);
+    }
+
+    bank_vault* vault(int side = BANK_SIDE_LIGHT)
+    {
+        std::string error;
+        return bank_vault_open("tester", side, &error);
+    }
+
+    int carried(int rnum) const
+    {
+        int count = 0;
+        for (obj_data* obj = m_player.carrying; obj; obj = obj->next_content)
+            if (obj->item_number == rnum)
+                ++count;
+        return count;
+    }
+    std::string output() const { return std::string(m_descriptor.output); }
+    void clear_output()
+    {
+        m_descriptor.small_outbuf[0] = '\0';
+        m_descriptor.bufptr = 0;
+        m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    }
+
+    /* The same world globals BarterVendorTest saves and replaces. */
+    void save_world()
+    {
+        m_saved_mob_proto = mob_proto;
+        m_saved_mob_index = mob_index;
+        m_saved_top_of_mobt = top_of_mobt;
+        m_saved_obj_proto = obj_proto;
+        m_saved_obj_index = obj_index;
+        m_saved_top_of_objt = top_of_objt;
+        m_saved_object_list = object_list;
+        m_saved_top_of_world = top_of_world;
+        m_saved_descriptor_list = descriptor_list;
+        if (room_data::BASE_WORLD == nullptr)
+            world.create_bulk(1);
+        m_saved_number = world[0].number;
+        m_saved_light = world[0].light;
+        m_saved_contents = world[0].contents;
+        m_saved_people = world[0].people;
+
+        descriptor_list = nullptr;
+        object_list = nullptr;
+        top_of_world = 0;
+        world[0].number = 5000;
+        world[0].light = 1;
+        world[0].contents = nullptr;
+    }
+
+    void restore_world()
+    {
+        world[0].number = m_saved_number;
+        world[0].light = m_saved_light;
+        world[0].contents = m_saved_contents;
+        world[0].people = m_saved_people;
+        mob_proto = m_saved_mob_proto;
+        mob_index = m_saved_mob_index;
+        top_of_mobt = m_saved_top_of_mobt;
+        obj_proto = m_saved_obj_proto;
+        obj_index = m_saved_obj_index;
+        top_of_objt = m_saved_top_of_objt;
+        object_list = m_saved_object_list;
+        top_of_world = m_saved_top_of_world;
+        descriptor_list = m_saved_descriptor_list;
+    }
+
+    char m_options[256] = "";
+    char m_sword_name[16] = "sword bastard";
+    char m_sword_short[20] = "a bastard sword";
+    char m_pack_name[20] = "backpack leather";
+    char m_pack_short[24] = "a leather backpack";
+    char m_key_name[16] = "key iron";
+    char m_key_short[16] = "an iron key";
+    char m_banker_name[16] = "banker griswold";
+    char m_banker_short[16] = "the banker";
+    char m_player_name[16] = "Player";
+    char m_arg[MAX_INPUT_LENGTH] = "";
+    obj_data m_obj_proto[3] {};
+    index_data m_obj_index[3] {};
+    char_data m_mob_proto[1] {};
+    index_data m_mob_index[1] {};
+    char_data m_banker {};
+    char_data m_player {};
+    descriptor_data m_descriptor {};
+    time_t m_now = 0;
+    int m_saves = 0;
+    std::string m_file_at_save;
+
+    char_data* m_saved_mob_proto = nullptr;
+    index_data* m_saved_mob_index = nullptr;
+    int m_saved_top_of_mobt = 0;
+    obj_data* m_saved_obj_proto = nullptr;
+    index_data* m_saved_obj_index = nullptr;
+    int m_saved_top_of_objt = 0;
+    obj_data* m_saved_object_list = nullptr;
+    int m_saved_top_of_world = 0;
+    descriptor_data* m_saved_descriptor_list = nullptr;
+    int m_saved_number = 0;
+    byte m_saved_light = 0;
+    obj_data* m_saved_contents = nullptr;
+    char_data* m_saved_people = nullptr;
+};
+
+} // namespace
+
+TEST_F(BankerTest, OnlyARegisteredBankerMobIsABanker)
+{
+    EXPECT_EQ(banker(&m_player, &m_player, CMD_BALANCE, m_arg, SPECIAL_COMMAND, nullptr), FALSE);
+    m_mob_proto[0].specials.store_prog_number = 0;
+    banker_config_rebuild(0, nullptr);
+    EXPECT_EQ(call(CMD_BALANCE, ""), FALSE);
+}
+
+TEST_F(BankerTest, OtherCommandsPassThrough)
+{
+    EXPECT_EQ(call(CMD_LIST, ""), FALSE);
+    EXPECT_EQ(call(CMD_BUY, "sword"), FALSE);
+}
+
+TEST_F(BankerTest, DamageDustAndGiftsAreRefusedLikeAVendor)
+{
+    EXPECT_EQ(call(0, "", SPECIAL_DAMAGE), TRUE);
+    EXPECT_EQ(call(CMD_GIVE, "sword banker"), TRUE);
+    EXPECT_NE(output().find("I don't take gifts."), std::string::npos);
+    waiting_type wtl {};
+    wtl.targ1.type = TARGET_CHAR;
+    wtl.targ1.ptr.ch = &m_banker;
+    EXPECT_EQ(banker(&m_banker, &m_player, CMD_BLINDING, m_arg, SPECIAL_TARGET, &wtl), TRUE);
+}
+
+TEST_F(BankerTest, BalanceOnAnEmptyVault)
+{
+    EXPECT_EQ(call(CMD_BALANCE, ""), TRUE);
+    EXPECT_NE(output().find("Coins: 0 copper (limit 1000 gold)"), std::string::npos) << output();
+    EXPECT_NE(output().find("Slots: 0 of 10 used"), std::string::npos);
+    EXPECT_EQ(m_saves, 0) << "looking saves nothing";
+}
+
+TEST_F(BankerTest, ImmortalsAndSidelessRacesAreRefused)
+{
+    for (int race : { (int)RACE_GOD, (int)RACE_EASTERLING }) {
+        m_player.player.race = race;
+        EXPECT_EQ(call(CMD_BALANCE, ""), TRUE);
+        EXPECT_NE(output().find("I hold nothing for your kind."), std::string::npos) << output();
+        EXPECT_EQ(output().find("Coins:"), std::string::npos);
+    }
+}
+
+TEST_F(BankerTest, NoAccountNameOrNoDescriptorIsRefusedWithoutOpeningAVault)
+{
+    m_descriptor.account_name[0] = '\0';
+    EXPECT_EQ(call(CMD_BALANCE, ""), TRUE);
+    EXPECT_NE(output().find("I can't find your account."), std::string::npos) << output();
+    m_player.desc = nullptr;
+    EXPECT_EQ(call(CMD_DEPOSIT, "5 gold"), TRUE); /* must not crash */
+    m_player.desc = &m_descriptor;
+}
+
+TEST_F(BankerTest, ClosedBankerRefuses)
+{
+    extern struct time_info_data time_info;
+    int saved_hour = time_info.hours;
+    options("hours=6-20");
+    time_info.hours = 22;
+    EXPECT_EQ(call(CMD_BALANCE, ""), TRUE);
+    EXPECT_NE(output().find("I'm closed. Come back later."), std::string::npos);
+    time_info.hours = saved_hour;
+}
+
+TEST_F(BankerTest, BadOptionsMeanNoBusiness)
+{
+    options("fee=5");
+    EXPECT_EQ(call(CMD_BALANCE, ""), TRUE);
+    EXPECT_NE(output().find("The bank is closed for now."), std::string::npos) << output();
+}
+
+TEST_F(BankerTest, UnreadableVaultIsRefusedAndLeftAlone)
+{
+    write_file(path("tester", "vault_light.json"), "junk");
+    EXPECT_EQ(call(CMD_BALANCE, ""), TRUE);
+    EXPECT_NE(output().find("I can't open your vault right now."), std::string::npos) << output();
+    EXPECT_EQ(read_file(path("tester", "vault_light.json")), "junk");
+}
+
+TEST_F(BankerTest, CandidateRule)
+{
+    EXPECT_TRUE(is_banker_candidate(&m_mob_proto[0], 0));
+    m_mob_proto[0].specials2.act = MOB_ISNPC; /* no MOB_SPEC */
+    EXPECT_FALSE(is_banker_candidate(&m_mob_proto[0], 0));
+    m_mob_proto[0].specials2.act = MOB_ISNPC | MOB_SPEC;
+    m_mob_proto[0].specials.store_prog_number = PROG_BARTER_VENDOR;
+    EXPECT_FALSE(is_banker_candidate(&m_mob_proto[0], 0));
+}
+
+TEST_F(BankerTest, ObjectRecordsRoundTripANestedContainer)
+{
+    obj_data* pack = read_object(1, REAL);
+    obj_data* inner = read_object(1, REAL);
+    obj_to_obj(read_object(0, REAL), inner);
+    obj_to_obj(inner, pack);
+    obj_to_obj(read_object(0, REAL), pack);
+    std::vector<objects_json::ObjectRecord> records;
+    bank_records_from_obj(pack, &records);
+    ASSERT_EQ(records.size(), 4u);
+    EXPECT_EQ(records[0].item_number, kPackVnum);
+    EXPECT_EQ(records[0].wear_pos, 0);
+    extract_obj(pack);
+    ASSERT_EQ(object_list, nullptr);
+
+    obj_data* back = bank_obj_from_records(records);
+    ASSERT_NE(back, nullptr);
+    EXPECT_EQ(back->item_number, 1);
+    int direct = 0, swords_inside_inner = 0;
+    for (obj_data* o = back->contains; o; o = o->next_content) {
+        ++direct;
+        if (o->item_number == 1)
+            for (obj_data* p = o->contains; p; p = p->next_content)
+                swords_inside_inner += p->item_number == 0;
+    }
+    EXPECT_EQ(direct, 2);
+    EXPECT_EQ(swords_inside_inner, 1);
+    EXPECT_EQ(GET_OBJ_WEIGHT(back), 10 + 10 + 30 + 30) << "a container weighs itself plus contents";
+    extract_obj(back);
+}
+
+TEST_F(BankerTest, AStoredItemWhosePrototypeIsGoneBuildsNothing)
+{
+    std::vector<objects_json::ObjectRecord> records = { record(kPackVnum, 0), record(9999, 1) };
+    EXPECT_EQ(bank_obj_from_records(records), nullptr);
+    EXPECT_EQ(object_list, nullptr) << "no half-built objects left behind";
+}
+
+TEST_F(BankerTest, StorableFollowsRentIncludingContents)
+{
+    obj_data* pack = read_object(1, REAL);
+    EXPECT_TRUE(bank_obj_storable(pack));
+    obj_to_obj(read_object(2, REAL), pack); /* a key: rent refuses keys */
+    EXPECT_FALSE(bank_obj_storable(pack));
+    extract_obj(pack);
 }

@@ -68,6 +68,8 @@ std::string serialize_bank_vault(const bank_vault& vault);
 bool deserialize_bank_vault(const std::string& json, bank_vault* vault, std::string* error);
 
 struct char_data;
+struct obj_data;
+struct waiting_type;
 
 /* The three things the bank asks the game for, replaceable by tests. Passing
  * an empty function restores the game behaviour. */
@@ -85,5 +87,31 @@ bank_vault* bank_vault_open(const std::string& account_name, int side, std::stri
 /* Writes the in-memory copy to its file: temp file, then rename. */
 bool bank_vault_write(const std::string& account_name, int side, std::string* error);
 void bank_vault_forget_all(); /* drops the table; for tests */
+
+/* Program 34. Mirrors the barter vendor's registry: configs are parsed at
+ * boot and when a builder saves the mob, and kept by mob rnum. */
+int banker(struct char_data* host, struct char_data* ch, int cmd, char* arg, int callflag, struct waiting_type* wtl);
+void banker_config_boot(); /* all program-34 prototypes */
+void banker_config_rebuild(int mob_rnum, struct char_data* builder, bool report = true);
+bool is_banker_candidate(const struct char_data* proto, int rnum);
+void banker_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder); /* report only */
+void banker_implement_check(int mob_rnum, struct char_data* builder); /* /imp only: soft reminders */
+const banker_config* banker_config_for(int mob_rnum); /* nullptr if none */
+
+/* Stored objects. Records mirror the rent save's, with depth in wear_pos. */
+void bank_records_from_obj(struct obj_data* obj, std::vector<objects_json::ObjectRecord>* out);
+/* The item with its contents rebuilt, in no room and on nobody; nullptr (and
+ * nothing left behind) if any prototype is gone or the nesting is impossible. */
+struct obj_data* bank_obj_from_records(const std::vector<objects_json::ObjectRecord>& records);
+bool bank_obj_storable(struct obj_data* obj); /* false if it, or anything inside it, can't be rented */
+const char* bank_slot_name(const bank_slot& slot); /* short description of the stored item */
+
+struct bank_balance_row {
+    std::string name;
+    int inside; /* objects inside a container; < 0 when it holds nothing */
+    std::string fee; /* already worded; unused when the fee column is off */
+};
+std::string format_bank_balance(const std::string& coins, int coin_limit_gold, int slots_used, int slots_max,
+    const std::vector<bank_balance_row>& rows, bool show_fee);
 
 #endif

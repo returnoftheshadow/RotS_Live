@@ -2,8 +2,11 @@
 
 #include "../account_management_identity.h"
 #include "../account_management_storage.h"
+#include "../comm.h"
 #include "../db.h"
+#include "../game_boot_options.h"
 #include "../handler.h"
+#include "../interpre.h"
 #include "../json_utils.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -17,9 +20,23 @@
 #include <fcntl.h>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <unordered_map>
+
+extern struct char_data* mob_proto;
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+extern struct obj_data* obj_proto;
+extern struct index_data* obj_index;
+extern struct time_info_data time_info;
+extern int no_specials;
+extern int generic_scalp;
+
+int Crash_is_unrentable(struct obj_data* obj);
+struct obj_data* Crash_obj2char(struct char_data* ch, struct obj_file_elem* object);
 
 using mob_options_detail::split_lines;
 using mob_options_detail::trim;
@@ -381,4 +398,319 @@ bool bank_vault_write(const std::string& account_name, int side, std::string* er
         return false;
     }
     return true;
+}
+
+constexpr size_t BANK_NAME_COLUMN = 37; /* " #  " + 37 + 2 + a 35-column fee = 78 */
+
+std::string format_bank_balance(const std::string& coins, int coin_limit_gold, int slots_used, int slots_max,
+    const std::vector<bank_balance_row>& rows, bool show_fee)
+{
+    std::string out = "Coins: " + coins + " (limit " + std::to_string(coin_limit_gold) + " gold)\n\r";
+    out += "Slots: " + std::to_string(slots_used) + " of " + std::to_string(slots_max) + " used\n\r";
+    if (rows.empty())
+        return out;
+    out += "\n\r";
+    const size_t fee_column = 4 + BANK_NAME_COLUMN + 2; /* where the fee text starts */
+    std::string header = " #  Item";
+    if (show_fee) {
+        header.append(fee_column - header.size(), ' ');
+        header += "Fee to withdraw";
+    }
+    out += header + "\n\r";
+    for (size_t i = 0; i < rows.size(); ++i) {
+        char number[8];
+        snprintf(number, sizeof(number), "%2d  ", (int)(i + 1));
+        std::string line = number; /* 100 and up is one wider: the name gives way */
+        size_t width = fee_column - 2 - line.size();
+        std::string note = rows[i].inside >= 0 ? " (sealed, " + std::to_string(rows[i].inside) + " inside)" : "";
+        std::string name = rows[i].name;
+        if (name.size() + note.size() > width)
+            name.resize(width - note.size()); /* the note always survives */
+        line += name + note;
+        if (show_fee) {
+            line.append(fee_column - line.size(), ' ');
+            line += rows[i].fee;
+        }
+        out += line + "\n\r";
+    }
+    return out;
+}
+
+bool bank_obj_storable(struct obj_data* obj)
+{
+    if (Crash_is_unrentable(obj))
+        return false;
+    for (struct obj_data* inside = obj->contains; inside; inside = inside->next_content)
+        if (!bank_obj_storable(inside))
+            return false;
+    return true;
+}
+
+namespace {
+
+/* Mirrors Crash_obj2store (objsave.cpp), with nesting depth in wear_pos. */
+void append_record(struct obj_data* obj, int depth, std::vector<objects_json::ObjectRecord>* out)
+{
+    objects_json::ObjectRecord record;
+    record.item_number = obj->item_number >= 0 ? obj_index[obj->item_number].virt : obj->item_number;
+    for (int i = 0; i < 5; ++i)
+        record.values[i] = obj->obj_flags.value[i];
+    record.extra_flags = obj->obj_flags.extra_flags;
+    record.weight = obj->obj_flags.weight;
+    record.timer = obj->obj_flags.timer;
+    record.bitvector = obj->obj_flags.bitvector;
+    record.loaded_by = obj->loaded_by;
+    for (int i = 0; i < MAX_OBJ_AFFECT; ++i)
+        record.affects[i] = { obj->affected[i].location, obj->affected[i].modifier };
+    record.wear_pos = depth;
+    if (record.item_number == generic_scalp) /* same stash Crash_obj2store uses */
+        record.extra_flags = obj->obj_flags.value[4];
+    out->push_back(record);
+    for (struct obj_data* inside = obj->contains; inside; inside = inside->next_content)
+        append_record(inside, depth + 1, out);
+}
+
+} // namespace
+
+void bank_records_from_obj(struct obj_data* obj, std::vector<objects_json::ObjectRecord>* out)
+{
+    append_record(obj, 0, out);
+}
+
+struct obj_data* bank_obj_from_records(const std::vector<objects_json::ObjectRecord>& records)
+{
+    std::vector<struct obj_data*> at_depth;
+    for (const objects_json::ObjectRecord& record : records) {
+        struct obj_file_elem elem { };
+        elem.item_number = record.item_number;
+        for (int i = 0; i < 5; ++i)
+            elem.value[i] = (sh_int)record.values[i];
+        elem.extra_flags = record.extra_flags;
+        elem.weight = record.weight;
+        elem.timer = record.timer;
+        elem.bitvector = record.bitvector;
+        elem.loaded_by = record.loaded_by;
+        for (int i = 0; i < MAX_OBJ_AFFECT; ++i) {
+            elem.affected[i].location = record.affects[i].location;
+            elem.affected[i].modifier = record.affects[i].modifier;
+        }
+        int depth = record.wear_pos;
+        struct obj_data* obj = depth >= 0 && depth <= (int)at_depth.size() && (depth == 0) == at_depth.empty()
+            ? Crash_obj2char(nullptr, &elem)
+            : nullptr;
+        if (!obj) { /* prototype gone, or impossible nesting: build nothing */
+            if (!at_depth.empty())
+                extract_obj(at_depth[0]); /* extract_obj takes the contents with it */
+            return nullptr;
+        }
+        obj->touched = 1;
+        /* PR #343: once object versions are merged, refresh `obj` here, the
+         * same call Crash_load makes after Crash_obj2char. */
+        if (depth > 0)
+            obj_to_obj(obj, at_depth[depth - 1], TRUE);
+        at_depth.resize(depth);
+        at_depth.push_back(obj);
+    }
+    return at_depth.empty() ? nullptr : at_depth[0];
+}
+
+const char* bank_slot_name(const bank_slot& slot)
+{
+    int rnum = slot.objects.empty() ? -1 : real_object(slot.objects[0].item_number);
+    return rnum >= 0 ? obj_proto[rnum].short_description : "something";
+}
+
+namespace {
+
+std::unordered_map<int, banker_config> g_banker_configs; /* by mob rnum */
+std::set<int> g_banker_disabled_logged; /* by mob rnum; cleared on rebuild */
+
+bool is_banker_proto(int rnum) { return is_banker_candidate(&mob_proto[rnum], rnum); }
+
+void add_speech_problem(const char_data& proto, std::vector<vendor_problem>* problems)
+{
+    if (proto.abilities.intel < 6)
+        problems->push_back({ 0, "intelligence below 6 - banker can't speak" });
+}
+
+void add_pref_problem(const char_data& proto, std::vector<vendor_problem>* problems)
+{
+    if (proto.specials2.pref != 0)
+        problems->push_back({ 0, "pref set - banker attacks and can be hurt" });
+}
+
+struct bank_customer {
+    std::string account;
+    int side;
+    bank_vault* vault;
+};
+
+/* Everything a banker checks before any business. Says why when refusing. */
+bool banker_admits(struct char_data* host, struct char_data* ch, const banker_config& config, bank_customer* customer)
+{
+    if (!config.ok) {
+        if (g_banker_disabled_logged.insert(host->nr).second)
+            vendor_send(vendor_problem_line(host->nr >= 0 ? mob_index[host->nr].virt : -1,
+                            { 0, "bad options - banker disabled" }),
+                nullptr);
+        vendor_say(host, "The bank is closed for now.");
+        return false;
+    }
+    if (!vendor_serves_customer(host, ch))
+        return false;
+    if (!vendor_hours_open(config.hours, time_info.hours)) {
+        vendor_say(host, "I'm closed. Come back later.");
+        return false;
+    }
+    customer->side = IS_NPC(ch) ? BANK_SIDE_NONE : bank_side_for_race(GET_RACE(ch));
+    if (customer->side == BANK_SIDE_NONE) {
+        vendor_say(host, "I hold nothing for your kind.");
+        return false;
+    }
+    if (!ch->desc || !*ch->desc->account_name) {
+        vendor_say(host, "I can't find your account.");
+        return false;
+    }
+    customer->account = ch->desc->account_name;
+    std::string error;
+    customer->vault = bank_vault_open(customer->account, customer->side, &error);
+    if (!customer->vault) {
+        vendor_say(host, "I can't open your vault right now.");
+        return false;
+    }
+    return true;
+}
+
+long long slot_fee(const banker_config& config, const bank_slot& slot, struct char_data* host, struct char_data* ch)
+{
+    int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_BANK_DAY_START_HOUR));
+    return bank_fee(config, days, (int)slot.objects.size(), GET_RACE(ch) != GET_RACE(host));
+}
+
+void banker_balance(struct char_data* host, struct char_data* ch, const banker_config& config, const bank_customer& customer)
+{
+    std::vector<bank_balance_row> rows;
+    for (const bank_slot& slot : customer.vault->slots) {
+        long long fee = slot_fee(config, slot, host, ch);
+        rows.push_back({ bank_slot_name(slot), slot.objects.size() > 1 ? (int)slot.objects.size() - 1 : -1,
+            fee > 0 ? money_message((int)std::min<long long>(fee, 2000000000LL), 0) : "free" });
+    }
+    vendor_say(host, "Here is your vault.");
+    std::string coins = money_message(customer.vault->coins, 0);
+    send_to_char(format_bank_balance(coins, boot_option(BOOT_BANK_COIN_LIMIT_GOLD), (int)customer.vault->slots.size(),
+                     boot_option(BOOT_BANK_SLOTS), rows, config.fee > 0)
+                     .c_str(),
+        ch);
+}
+
+} // namespace
+
+bool is_banker_candidate(const struct char_data* proto, int rnum)
+{
+    if (no_specials)
+        return false;
+    if (!IS_SET(proto->specials2.act, MOB_SPEC) || proto->specials.store_prog_number != PROG_BANKER)
+        return false;
+    return rnum < 0 || !mob_index[rnum].func || mob_index[rnum].func == (special_func)banker;
+}
+
+void banker_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder)
+{
+    std::vector<vendor_problem> problems;
+    parse_banker_options(proto->specials.mob_options, &problems);
+    add_speech_problem(*proto, &problems);
+    add_pref_problem(*proto, &problems);
+    for (const vendor_problem& problem : problems)
+        vendor_send(vendor_problem_line(mob_vnum, problem), builder);
+}
+
+/* Soft checks, on /imp only, to the builder alone (not at boot, not logged). */
+void banker_implement_check(int mob_rnum, struct char_data* builder)
+{
+    if (!builder || mob_rnum < 0 || mob_rnum > top_of_mobt || !is_banker_proto(mob_rnum))
+        return;
+    char buf[128];
+    if (!IS_SET(mob_proto[mob_rnum].specials2.act, MOB_NOBASH)) {
+        snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: nobash not set\n\r", mob_index[mob_rnum].virt);
+        send_to_char(buf, builder);
+    }
+    banker_config config = parse_banker_options(mob_proto[mob_rnum].specials.mob_options, nullptr);
+    if (config.markup > 0 && config.fee == 0) {
+        snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: racial_markup without fee\n\r", mob_index[mob_rnum].virt);
+        send_to_char(buf, builder);
+    }
+}
+
+void banker_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
+{
+    g_banker_disabled_logged.erase(mob_rnum);
+    if (mob_rnum < 0 || mob_rnum > top_of_mobt || !is_banker_proto(mob_rnum)) {
+        g_banker_configs.erase(mob_rnum);
+        return;
+    }
+    std::vector<vendor_problem> problems;
+    g_banker_configs[mob_rnum] = parse_banker_options(mob_proto[mob_rnum].specials.mob_options, &problems);
+    if (!report)
+        return;
+    add_speech_problem(mob_proto[mob_rnum], &problems);
+    add_pref_problem(mob_proto[mob_rnum], &problems);
+    for (const vendor_problem& problem : problems)
+        vendor_send(vendor_problem_line(mob_index[mob_rnum].virt, problem), builder);
+}
+
+const banker_config* banker_config_for(int mob_rnum)
+{
+    auto it = g_banker_configs.find(mob_rnum);
+    return it == g_banker_configs.end() ? nullptr : &it->second;
+}
+
+void banker_config_boot()
+{
+    g_banker_configs.clear();
+    g_banker_disabled_logged.clear();
+    for (int rnum = 0; rnum <= top_of_mobt; ++rnum)
+        if (is_banker_proto(rnum))
+            banker_config_rebuild(rnum, nullptr);
+}
+
+SPECIAL(banker)
+{
+    /* Only a registered banker mob is ever a banker (see barter_vendor). */
+    if (!host || !IS_NPC(host))
+        return FALSE;
+    const banker_config* config = banker_config_for(host->nr);
+    if (!config)
+        return FALSE;
+    if (callflag == SPECIAL_DAMAGE) { /* before ch == host: poison ticks are self-damage */
+        if (ch && ch != host)
+            vendor_say(host, "Don't even think about it.");
+        return TRUE;
+    }
+    if (!ch || ch == host)
+        return FALSE;
+    if (callflag == SPECIAL_TARGET) { /* dust blinds even with its damage cancelled */
+        if (cmd != CMD_BLINDING || !wtl || wtl->targ1.type != TARGET_CHAR || wtl->targ1.ptr.ch != host)
+            return FALSE;
+        vendor_say(host, "Don't even think about it.");
+        return TRUE;
+    }
+    if (callflag != SPECIAL_COMMAND)
+        return FALSE;
+    if (cmd == CMD_GIVE) {
+        if (!arg || !give_targets(host, ch, arg))
+            return FALSE;
+        vendor_say(host, "I don't take gifts.");
+        return TRUE;
+    }
+    if (cmd != CMD_BALANCE && cmd != CMD_DEPOSIT && cmd != CMD_WITHDRAW)
+        return FALSE;
+
+    bank_customer customer;
+    if (!banker_admits(host, ch, *config, &customer))
+        return TRUE;
+    if (cmd == CMD_BALANCE)
+        banker_balance(host, ch, *config, customer);
+    else
+        vendor_say(host, "Not yet."); /* deposit and withdraw: Task 6 */
+    return TRUE;
 }
