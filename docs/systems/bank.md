@@ -98,7 +98,7 @@ free.
 Configs are parsed at boot (`banker_config_boot`) and on mob save / implement
 (`shapemob.cpp`), like barter vendors.
 
-### Player commands (`SPECIAL(banker)`, `banker.cpp:914`)
+### Player commands (`SPECIAL(banker)`, `banker.cpp:930`)
 
 `balance`, `deposit <item>`, `deposit <N> gold|silver|copper`, `withdraw <item or #>`,
 `withdraw <N> gold|silver|copper`. Only loose inventory can be deposited. The bank refuses what
@@ -127,7 +127,7 @@ in the file can stop the boot. `bootoptions` (level 100) lists the settings;
 reboot. Lowering a limit below what a vault holds removes nothing; the vault takes no more
 until it is back under.
 
-### `vault` (level 97, `do_vault`, `banker.cpp:1272`)
+### `vault` (level 97, `do_vault`, `banker.cpp:1288`)
 
 `vault <character>`, `vault <email or account> [1|2|3]`, `vault take|put <account> <1|2|3>
 <slot | item | coins <amount> [gold|silver|copper]>`. Viewing tries the name as an account
@@ -135,6 +135,11 @@ first, then as a character. `take` and `put` accept only the exact account name.
 command logs one `(GC)` line; its output is not logged.
 
 ## RotS-specific notes
+
+- `command_interpreter` parses a command's targets before the specials run and, after the command
+  special returns, still runs the `SPECIAL_TARGET` specials on those targets (`interpre.cpp`, the
+  `CMD_SELL` "TEMPORARY" skip is the same hazard). A deposited object is destroyed, so `bank_deposit`
+  removes it from the parsed targets first (`forget_target`).
 
 - No stock CircleMUD bank code is involved. `balance` / `deposit` / `withdraw` were already
   commands 138-140 bound to `do_not_here`; program 34 catches them.
