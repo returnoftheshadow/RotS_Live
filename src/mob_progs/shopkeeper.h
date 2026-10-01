@@ -62,6 +62,7 @@ bool vendor_hours_parse(const std::string& value, std::vector<vendor_hours_windo
 /* True if `hour` (0-23) falls in any of config's open windows, or config has
  * no hours at all (always open). */
 bool vendor_is_open(const vendor_config& config, int hour);
+bool vendor_hours_open(const std::vector<vendor_hours_window>& hours, int hour); /* empty = always open */
 
 constexpr int PROG_BARTER_VENDOR = 33;
 constexpr size_t VENDOR_LIST_NAME_COLUMN_MAX = 38;
@@ -80,6 +81,12 @@ void vendor_config_check(const struct char_data* proto, int mob_vnum, struct cha
 void vendor_implement_check(int mob_rnum, struct char_data* builder); /* /imp only: nobash reminder */
 const vendor_config* vendor_config_for(int mob_rnum); /* nullptr if none */
 std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem); /* formatted warning */
+
+/* Shared with the other service programs (banker). */
+void vendor_say(struct char_data* vendor, const char* text); /* the room hears it, like any say */
+bool vendor_serves_customer(struct char_data* vendor, struct char_data* ch); /* every refusal but hours */
+bool give_targets(struct char_data* vendor, struct char_data* ch, char* arg); /* would do_give pick this mob? */
+void vendor_send(const std::string& line, struct char_data* builder); /* warning to the builder log */
 
 struct vendor_list_cost {
     int qty;

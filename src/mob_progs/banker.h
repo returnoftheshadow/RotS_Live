@@ -1,0 +1,47 @@
+#ifndef MOB_PROGS_BANKER_H
+#define MOB_PROGS_BANKER_H
+
+/* Banker mob program (program 34): each account's vault of items and coins,
+ * one per side, the same at every banker on that side. */
+
+#include "shopkeeper.h"
+
+#include <ctime>
+#include <string>
+#include <vector>
+
+constexpr int PROG_BANKER = 34;
+constexpr int BANKER_FEE_MAX = 10000; /* copper per item per day */
+constexpr int BANKER_MAXDAYS_MAX = 365;
+constexpr int BANKER_MARKUP_DEFAULT = 30; /* racial_markup=yes */
+constexpr int BANKER_MARKUP_MAX = 300;
+
+enum { BANK_SIDE_NONE = 0,
+    BANK_SIDE_LIGHT = 1,
+    BANK_SIDE_DARK = 2,
+    BANK_SIDE_THIRD = 3 };
+
+/* Banker settings: "hours=<windows>", "fee=<copper>", "maxdays=<n>",
+ * "racial_markup=yes|<percent>". All optional. */
+struct banker_config {
+    bool ok = true; /* false: the banker does no business */
+    std::vector<vendor_hours_window> hours; /* empty = always open */
+    int fee = 0; /* copper per item per day; 0 = free */
+    int maxdays = 0;
+    int markup = 0; /* percent added for another race; 0 = none */
+};
+
+banker_config parse_banker_options(const char* text, std::vector<vendor_problem>* problems);
+
+/* BANK_SIDE_NONE for any race with no vault (immortals, NPC-only races). */
+int bank_side_for_race(int race);
+const char* bank_side_file_name(int side); /* nullptr for no side */
+
+/* How many day-start points (start_hour, server local time) lie between the
+ * two times. Never negative. */
+int bank_days_stored(time_t deposited, time_t now, int start_hour);
+
+/* Copper to withdraw one slot holding `items` objects after `days` days. */
+long long bank_fee(const banker_config& config, int days, int items, bool other_race);
+
+#endif

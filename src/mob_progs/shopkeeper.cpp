@@ -86,16 +86,21 @@ bool vendor_hours_parse(const std::string& value, std::vector<vendor_hours_windo
     }
 }
 
-bool vendor_is_open(const vendor_config& config, int hour)
+bool vendor_hours_open(const std::vector<vendor_hours_window>& hours, int hour)
 {
-    if (config.hours.empty())
+    if (hours.empty())
         return true;
-    for (const vendor_hours_window& w : config.hours) {
+    for (const vendor_hours_window& w : hours) {
         bool open = w.open < w.close ? (hour >= w.open && hour < w.close) : (hour >= w.open || hour < w.close);
         if (open)
             return true;
     }
     return false;
+}
+
+bool vendor_is_open(const vendor_config& config, int hour)
+{
+    return vendor_hours_open(config.hours, hour);
 }
 
 vendor_config parse_vendor_options(
@@ -262,6 +267,8 @@ vendor_lookups game_lookups()
     return lookups;
 }
 
+} // namespace
+
 void vendor_send(const std::string& line, struct char_data* builder)
 {
     char buf[512];
@@ -272,6 +279,8 @@ void vendor_send(const std::string& line, struct char_data* builder)
         send_to_char("\n\r", builder);
     }
 }
+
+namespace {
 
 bool is_vendor_proto(int rnum)
 {
@@ -431,8 +440,6 @@ void vendor_config_boot()
     }
 }
 
-namespace {
-
 /* The vendor speaks with the normal `say`, heard by the room, like any mob.
  * (A vendor with INT < 6 can't; that's warned at boot/save/implement.)
  * Messages about the buyer's own inventory go to the buyer with send_to_char. */
@@ -443,7 +450,7 @@ void vendor_say(struct char_data* vendor, const char* text)
     do_say(vendor, buf, 0, 0, 0);
 }
 
-bool vendor_serves(struct char_data* vendor, struct char_data* ch, const vendor_config& config)
+bool vendor_serves_customer(struct char_data* vendor, struct char_data* ch)
 {
     if (IS_AGGR_TO(vendor, ch)) {
         vendor_say(vendor, "Go away, I won't deal with you!");
@@ -461,6 +468,15 @@ bool vendor_serves(struct char_data* vendor, struct char_data* ch, const vendor_
         vendor_say(vendor, "I don't trade with someone I can't see!");
         return false;
     }
+    return true;
+}
+
+namespace {
+
+bool vendor_serves(struct char_data* vendor, struct char_data* ch, const vendor_config& config)
+{
+    if (!vendor_serves_customer(vendor, ch))
+        return false;
     if (!vendor_is_open(config, time_info.hours)) {
         vendor_say(vendor, "I'm closed. Come back later.");
         return false;
@@ -631,6 +647,8 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
     log(trade.c_str());
 }
 
+} // namespace
+
 /* True exactly when do_give (act_obj1.cpp) would pick this vendor as the
  * recipient. It parses the same way: half_chop off the first word; after a
  * number ("give 10 coins trader") the target comes from the rest, otherwise
@@ -652,8 +670,6 @@ bool give_targets(struct char_data* vendor, struct char_data* ch, char* arg)
         return false;
     return get_char_room_vis(ch, target) == vendor;
 }
-
-} // namespace
 
 SPECIAL(barter_vendor)
 {

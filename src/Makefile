@@ -73,6 +73,7 @@ SOURCES := \
     mob_csv_extract.cpp \
     mob_options.cpp \
     mob_progs/shopkeeper.cpp \
+    mob_progs/banker.cpp \
     game_boot_options.cpp \
     obj2html.cpp \
     object_utils.cpp \
