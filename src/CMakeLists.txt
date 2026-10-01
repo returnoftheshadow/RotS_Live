@@ -81,6 +81,7 @@ set(ROTS_SERVER_SOURCES
     mob_csv_extract.cpp
     mob_options.cpp
     mob_progs/shopkeeper.cpp
+    game_boot_options.cpp
     mobact.cpp
     modify.cpp
     mudlle.cpp
@@ -120,6 +121,7 @@ set(ROTS_SERVER_SOURCES
 
 set(ROTS_TEST_SOURCES
     tests/barter_vendor_tests.cpp
+    tests/game_boot_options_tests.cpp
     tests/resistance_tests.cpp
     tests/resist_item_slot_tests.cpp
     tests/battle_mage_handler_tests.cpp

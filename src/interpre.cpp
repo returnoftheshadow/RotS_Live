@@ -23,6 +23,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "game_boot_options.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -566,6 +567,8 @@ const char* command[] = {
     "", /* 250: reserved for harness, PR #309 */
     "debug",
     "unprotect", // 252
+    "vault",
+    "bootoptions", // 254
     "\n"
 };
 
@@ -2253,6 +2256,10 @@ void assign_command_pointers(void)
         TAR_NONE_OK, TAR_IGNORE, 0);
     COMMANDO(252, POSITION_STANDING, do_unprotect, 0, TRUE, 0,
         FULL_TARGET, TAR_IGNORE, 0);
+    COMMANDO(253, POSITION_DEAD, do_not_here, LEVEL_GRGOD, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(254, POSITION_DEAD, do_bootoptions, LEVEL_IMPL, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, 0);
 }
 
 /* *************************************************************************

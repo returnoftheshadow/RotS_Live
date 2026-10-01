@@ -37,6 +37,7 @@
 #include "character_json.h"
 #include "exploits_json.h"
 #include "mob_options.h"
+#include "game_boot_options.h"
 #include "mob_progs/shopkeeper.h"
 #include "player_file_finalize.h"
 #include "roster_cache.h"
@@ -480,6 +481,9 @@ void boot_db(void)
         log("   Rooms.");
         assign_rooms();
     }
+
+    log("Reading game boot options.");
+    boot_options_load();
 
     log("Checking barter vendors.");
     vendor_config_boot();
