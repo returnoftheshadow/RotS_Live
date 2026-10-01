@@ -41,7 +41,6 @@ jobs:
             libc6-dev-i386 \
             libcrypt-dev \
             libcrypt-dev:i386 \
-            libgtest-dev \
             make \
             pkg-config \
             python3 \
