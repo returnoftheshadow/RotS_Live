@@ -40,7 +40,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | [Cleric / Mystic system](systems/cleric-mystic-system.md) | ✅ powers, saves, mental combat, spirit, scaling | `mystic.cpp`, `clerics.cpp`, `spell_pa.cpp` |
 | [Idle, the void & followers](systems/idle-void-and-followers.md) | ✅ observed live; historic behaviour, not to be changed | `limits.cpp::check_idling`, `handler.cpp`, `objsave.cpp` |
 | [Barter vendors](systems/barter-vendors.md) | ✅ builder guide: program 33 + mob options; list/buy, warnings, rollback | `mob_progs/shopkeeper.cpp`, `mob_options.cpp` |
-| [Player bank](systems/bank.md) | ✅ program 34 bankers, account vaults per side, fees, `vault` and `bootoptions` | `mob_progs/banker.cpp`, `game_boot_options.cpp` |
+| [Player bank](systems/bank.md) | ✅ program 34 bankers, account vaults per side, fees, `vault` and `gameoptions` | `mob_progs/banker.cpp`, `game_boot_options.cpp` |
 
 ⬜ Races ·
 XP/leveling · Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·

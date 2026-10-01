@@ -3,12 +3,12 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add mob program 34, a banker that gives every account one vault per side for items
-and coins, plus a game settings file, the `bootoptions` command and the immortal `vault`
+and coins, plus a game settings file, the `gameoptions` command and the immortal `vault`
 command.
 
 **Architecture:**
 - **`src/game_boot_options.{h,cpp}`**: a small table of named integer settings read once at
-  boot from `lib/misc/game_boot_options.json`, and the `bootoptions` command.
+  boot from `lib/misc/game_boot_options.json`, and the `gameoptions` command.
 - **`src/mob_progs/banker.{h,cpp}`**: everything bank. In layers, each testable alone:
   1. pure helpers: options parser, side lookup, day counting, fee maths, balance formatter;
   2. the vault model and its JSON;
@@ -53,7 +53,7 @@ nine written decisions confirmed). Read it before starting any task.
 - Every message a player sees is at most **78 columns**.
 - Warnings follow the house style: type + vnum + line, no names, no prose
   (`vendor_problem_line`).
-- `vault` and its subcommands: level `LEVEL_GRGOD` (97). `bootoptions`: `LEVEL_IMPL` (100).
+- `vault` and its subcommands: level `LEVEL_GRGOD` (97). `gameoptions`: `LEVEL_IMPL` (100).
 - Every `vault` command writes one `(GC)` log line. Every player deposit and withdrawal
   writes one `BANK:` log line.
 - Helps must say fees are **in copper**.
@@ -83,11 +83,11 @@ nine written decisions confirmed). Read it before starting any task.
 
 | File | Status | Holds |
 |------|--------|-------|
-| `src/game_boot_options.h` / `.cpp` | new | settings table, file read/write, `do_bootoptions` |
+| `src/game_boot_options.h` / `.cpp` | new | settings table, file read/write, `do_gameoptions` |
 | `src/mob_progs/banker.h` / `.cpp` | new | banker program, vault table, `do_vault` |
 | `src/mob_progs/shopkeeper.h` / `.cpp` | modify | export four helpers bankers reuse |
 | `src/objects_json.h` / `.cpp` | modify | export the single-record JSON writer and reader |
-| `src/interpre.h` / `.cpp` | modify | `CMD_BALANCE/DEPOSIT/WITHDRAW`, commands 253 `vault`, 254 `bootoptions` |
+| `src/interpre.h` / `.cpp` | modify | `CMD_BALANCE/DEPOSIT/WITHDRAW`, commands 253 `vault`, 254 `gameoptions` |
 | `src/spec_ass.cpp` | modify | program 34 in both tables |
 | `src/db.cpp` | modify | load settings and banker configs at boot |
 | `src/shapemob.cpp` | modify | banker checks next to the vendor checks |
@@ -104,7 +104,7 @@ src/mob_progs/*.o`.
 
 ---
 
-### Task 1: Game settings file and `bootoptions`
+### Task 1: Game settings file and `gameoptions`
 
 **Files:**
 - Create: `src/game_boot_options.h`, `src/game_boot_options.cpp`
@@ -128,7 +128,7 @@ src/mob_progs/*.o`.
   int boot_option_pending(int index);                        /* value in the file */
   bool boot_option_set(int index, int value, std::string* error, const char* path = BOOT_OPTIONS_PATH);
   void boot_options_set_running_for_tests(int index, int value);
-  ACMD(do_bootoptions);
+  ACMD(do_gameoptions);
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -320,7 +320,7 @@ int boot_option_pending(int index); /* value in the file: in use after the next 
 bool boot_option_set(int index, int value, std::string* error, const char* path = BOOT_OPTIONS_PATH);
 void boot_options_set_running_for_tests(int index, int value);
 
-ACMD(do_bootoptions);
+ACMD(do_gameoptions);
 
 #endif
 ```
@@ -475,7 +475,7 @@ bool boot_option_set(int index, int value, std::string* error, const char* path)
     return true;
 }
 
-ACMD(do_bootoptions)
+ACMD(do_gameoptions)
 {
     char name[MAX_INPUT_LENGTH], value[MAX_INPUT_LENGTH], line[256];
     half_chop(argument, name, value);
@@ -497,13 +497,13 @@ ACMD(do_bootoptions)
     }
     int index = boot_option_index(name);
     if (index < 0) {
-        send_to_char("No such setting. Type 'bootoptions' for the list.\n\r", ch);
+        send_to_char("No such setting. Type 'gameoptions' for the list.\n\r", ch);
         return;
     }
     char* end = nullptr;
     long number = strtol(value, &end, 10);
     if (!*value || *end || number < -1000000 || number > 1000000) {
-        send_to_char("Usage: bootoptions <name> <number>\n\r", ch);
+        send_to_char("Usage: gameoptions <name> <number>\n\r", ch);
         return;
     }
     std::string error;
@@ -540,7 +540,7 @@ include (line 40). Immediately before `log("Checking barter vendors.");` (line 4
 ```cpp
     "unprotect", // 252
     "vault",
-    "bootoptions", // 254
+    "gameoptions", // 254
     "\n"
 ```
 
@@ -550,7 +550,7 @@ include (line 40). Immediately before `log("Checking barter vendors.");` (line 4
 ```cpp
     COMMANDO(253, POSITION_DEAD, do_not_here, LEVEL_GRGOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(254, POSITION_DEAD, do_bootoptions, LEVEL_IMPL, FALSE, 0,
+    COMMANDO(254, POSITION_DEAD, do_gameoptions, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
 ```
 
@@ -566,7 +566,7 @@ cd src && clang-format -i -style=WebKit game_boot_options.h game_boot_options.cp
 git diff --stat   # db.cpp and interpre.cpp must show only the lines added above
 git add src/game_boot_options.h src/game_boot_options.cpp src/tests/game_boot_options_tests.cpp \
         src/Makefile src/CMakeLists.txt src/db.cpp src/interpre.cpp
-git commit -m "feat(bootoptions): game settings file and bootoptions command"
+git commit -m "feat(gameoptions): game settings file and gameoptions command"
 ```
 
 ---
@@ -3664,7 +3664,7 @@ The bank refuses anything you could not keep when you rent.
 
 - [ ] **Step 2: Immortal helps in `lib/text/help_tbl`**
 
-`"VAULT"` (immortal section, level 97) and `"BOOTOPTIONS"` (level 100), using the forms table
+`"VAULT"` (immortal section, level 97) and `"GAMEOPTIONS"` (level 100), using the forms table
 of Task 7 and the list/set forms of Task 1. Include these two lines verbatim:
 
 ```
@@ -3672,7 +3672,7 @@ take and put need the exact account name that 'vault <name>' shows.
 Every vault command is logged.
 ```
 
-and for `BOOTOPTIONS`:
+and for `GAMEOPTIONS`:
 
 ```
 A change is written to lib/misc/game_boot_options.json at once and takes
@@ -3714,12 +3714,12 @@ table as the help above.
 `docs/systems/bank.md` (use `docs/_TEMPLATE.md` for the frame): vault model and sides, file
 names and location, the JSON shape (an example with one plain item and one container), the
 single-copy rule, the save-order table from the spec, the fee and bank-day rules, the
-settings file, the `vault` and `bootoptions` commands, and `file:line` citations into
+settings file, the `vault` and `gameoptions` commands, and `file:line` citations into
 `src/mob_progs/banker.cpp` and `src/game_boot_options.cpp`. Add its row to `docs/README.md`.
 
 - [ ] **Step 5: Check in game and commit**
 
-Boot (`scripts/rots-docker.sh boot`), then: `help bank`, `help vault`, `help bootoptions`,
+Boot (`scripts/rots-docker.sh boot`), then: `help bank`, `help vault`, `help gameoptions`,
 `man shape banker`, `man shape mob2 29`. Each shows the new text, nothing wraps past 78
 columns, and neighbouring entries are intact.
 
@@ -3789,8 +3789,8 @@ Port 4071 after a light in-use check; another port if busy.
 15. Unreadable file: write junk into `vault_third.json` while down; boot; that side is
     refused at the banker and shown `FILE UNREADABLE` by `vault`; the file is byte-identical
     afterwards; the other sides work.
-16. `bootoptions`: list; `bootoptions bank_slots 12`; list shows `After reboot 12`; reboot;
-    `balance` says `of 12`; `bootoptions bank_slots 500` refused; the JSON file is valid.
+16. `gameoptions`: list; `gameoptions bank_slots 12`; list shows `After reboot 12`; reboot;
+    `balance` says `of 12`; `gameoptions bank_slots 500` refused; the JSON file is valid.
 17. `/imp` on a banker without NOBASH and on one with `racial_markup=yes` only: both
     warnings, to the builder only.
 18. The account commands still work with vault files present: `account show`, `account
@@ -3822,7 +3822,7 @@ detects absence. Then against this branch. Expected: all PASS.
 - A. `src/Makefile`: `game_boot_options.cpp` and `mob_progs/banker.cpp` in the object list.
 - B. `src/CMakeLists.txt`: the same two sources.
 - C. `src/CMakeLists.txt`: two new test files.
-- D. New runtime file `lib/misc/game_boot_options.json` (created by `bootoptions`, not
+- D. New runtime file `lib/misc/game_boot_options.json` (created by `gameoptions`, not
   shipped; absent = defaults). Check whether the deploy and backup scripts treat `lib/misc`
   as data that survives a deploy, and report what you find rather than changing them.
 - E. New files in account folders (`vault_*.json`): same question for backups.
@@ -3841,7 +3841,7 @@ PR #343; proposal page example uses comma money text while the game prints "and"
 
 - **Spec coverage:** vaults/sides (T2, T4, T6); storage and single copy (T3, T4); player
   commands (T5, T6); fees and bank day (T2, T6); banker setup, strict and soft checks,
-  refusals, protection (T2, T5); settings file and `bootoptions` (T1); `vault` view, take,
+  refusals, protection (T2, T5); settings file and `gameoptions` (T1); `vault` view, take,
   put, logging (T7); save order (T6, T7, smoke 14); helps and docs (T8); testing section
   (T1-T7 unit, T9 in game). Refresh-on-withdraw is deliberately left as a marked call site
   (T5, `bank_obj_from_records`).

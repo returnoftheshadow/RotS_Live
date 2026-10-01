@@ -9,7 +9,7 @@
 Every account has a small vault for items and coins, one per side, reached through any banker
 mob (mob program 34) on that side. All of an account's characters on a side share the vault.
 Immortals inspect and adjust vaults with `vault`. The vault limits live in a game settings file
-that staff change with `bootoptions`.
+that staff change with `gameoptions`.
 
 ## Data structures
 
@@ -109,7 +109,7 @@ The banker refuses customers the way barter vendors do (aggressive, shadow, race
 see, closed), plus anyone with no side (immortals) or no account on the connection. Damage,
 blinding dust and gifts are refused like a vendor's.
 
-### Settings file and `bootoptions`
+### Settings file and `gameoptions`
 
 `lib/misc/game_boot_options.json`, read once at boot (`boot_options_load`,
 `game_boot_options.cpp:97`). Settings (`game_boot_options.cpp:15`):
@@ -122,8 +122,8 @@ blinding dust and gifts are refused like a vendor's.
 
 A missing file or key uses the default. An out-of-range number uses that setting's default and
 logs a warning. A file that is not valid JSON uses every default and logs one warning. Nothing
-in the file can stop the boot. `bootoptions` (level 100) lists the settings;
-`bootoptions <name> <number>` validates, writes the file at once, and takes effect at the next
+in the file can stop the boot. `gameoptions` (level 100) lists the settings;
+`gameoptions <name> <number>` validates, writes the file at once, and takes effect at the next
 reboot. Lowering a limit below what a vault holds removes nothing; the vault takes no more
 until it is back under.
 

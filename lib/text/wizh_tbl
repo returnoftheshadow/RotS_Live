@@ -313,11 +313,11 @@ Examples:
 > vault take bobsmith 1 3
 > vault put bobsmith 1 coins 5 gold
 #
-BOOTOPTIONS
+GAMEOPTIONS
 
 Usage:
-> bootoptions
-> bootoptions <name> <number>
+> gameoptions
+> gameoptions <name> <number>
 
 Game-wide settings that staff can change without a code change. With no
 argument it lists every setting: the value in use now, the value after
@@ -333,7 +333,7 @@ Settings:
   bank_day_start_hour   hour (server time) the bank's fee day starts
 
 Example:
-> bootoptions bank_slots 12
+> gameoptions bank_slots 12
 #~
 
 

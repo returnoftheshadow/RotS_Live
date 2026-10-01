@@ -569,7 +569,7 @@ const char* command[] = {
     "debug",
     "unprotect", // 252
     "vault",
-    "bootoptions", // 254
+    "gameoptions", // 254
     "\n"
 };
 
@@ -2259,7 +2259,7 @@ void assign_command_pointers(void)
         FULL_TARGET, TAR_IGNORE, 0);
     COMMANDO(253, POSITION_DEAD, do_vault, LEVEL_GRGOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(254, POSITION_DEAD, do_bootoptions, LEVEL_IMPL, FALSE, 0,
+    COMMANDO(254, POSITION_DEAD, do_gameoptions, LEVEL_IMPL, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
 }
 

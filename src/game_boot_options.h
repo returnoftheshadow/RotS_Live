@@ -42,6 +42,6 @@ int boot_option_pending(int index); /* value in the file: in use after the next 
 bool boot_option_set(int index, int value, std::string* error, const char* path = BOOT_OPTIONS_PATH);
 void boot_options_set_running_for_tests(int index, int value);
 
-ACMD(do_bootoptions);
+ACMD(do_gameoptions);
 
 #endif

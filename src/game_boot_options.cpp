@@ -143,7 +143,7 @@ bool boot_option_set(int index, int value, std::string* error, const char* path)
     return true;
 }
 
-ACMD(do_bootoptions)
+ACMD(do_gameoptions)
 {
     char name[MAX_INPUT_LENGTH], value[MAX_INPUT_LENGTH], line[256];
     half_chop(argument, name, value);
@@ -165,13 +165,13 @@ ACMD(do_bootoptions)
     }
     int index = boot_option_index(name);
     if (index < 0) {
-        send_to_char("No such setting. Type 'bootoptions' for the list.\n\r", ch);
+        send_to_char("No such setting. Type 'gameoptions' for the list.\n\r", ch);
         return;
     }
     char* end = nullptr;
     long number = strtol(value, &end, 10);
     if (!*value || *end || number < -1000000 || number > 1000000) {
-        send_to_char("Usage: bootoptions <name> <number>\n\r", ch);
+        send_to_char("Usage: gameoptions <name> <number>\n\r", ch);
         return;
     }
     std::string error;

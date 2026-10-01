@@ -189,11 +189,14 @@ code change. Read once at boot.
 - Lowering a limit below what a vault already holds removes nothing. The vault simply takes
   no more until it is back under the limit.
 
-### `bootoptions` (Implementor, level 100)
+### `gameoptions` (Implementor, level 100)
 
-- `bootoptions`: lists every setting with the value in use, the value after the next reboot
+Named `gameoptions`, not `bootoptions`: commands match by prefix before socials do, so a
+command starting with `bo` would take `bo` away from `bow` for anyone who can use it.
+
+- `gameoptions`: lists every setting with the value in use, the value after the next reboot
   (only when different), the default and the allowed range.
-- `bootoptions <name> <value>`: checks the value, refuses a bad one, writes the file at once
+- `gameoptions <name> <value>`: checks the value, refuses a bad one, writes the file at once
   (atomic), and says it takes effect at the next reboot.
 
 ## Immortal vault commands (Greater God, level 97)
@@ -246,14 +249,14 @@ If the first write fails, the transaction is refused and nothing changes.
 
 - `src/mob_progs/banker.{h,cpp}`: program 34, its options parsing, the vault table and file
   format, the `vault` command.
-- `src/game_boot_options.{h,cpp}`: the settings file and `bootoptions`.
+- `src/game_boot_options.{h,cpp}`: the settings file and `gameoptions`.
 - `src/spec_ass.cpp`: program 34 in both switch tables and a `spec_pro_message[]` entry;
   matching entries where program 33 is listed (`src/act_wiz.cpp:2964`,
   `src/shapemob.cpp:1284`).
-- `src/interpre.cpp`: two new commands, `vault` and `bootoptions`. 138-140 stay as they are.
+- `src/interpre.cpp`: two new commands, `vault` and `gameoptions`. 138-140 stay as they are.
 - `src/objects_json.{h,cpp}`: expose reading and writing a list of object records on its own,
   for the vault file.
-- Help: `balance`, `deposit`, `withdraw`, `vault`, `bootoptions`; a banker entry under
+- Help: `balance`, `deposit`, `withdraw`, `vault`, `gameoptions`; a banker entry under
   `man shape` and program 34 in the MOB2 29 list. **The helps must say fees are in copper.**
 - Docs: a banker section beside the barter vendor docs.
 
@@ -293,7 +296,7 @@ In game, on a local server (port 4071), scripted as a smoke test and then by han
 - An immortal `vault take` / `vault put` while the account's player is at a banker; the
   player's next `balance` shows the change.
 - Banker protection: attack, poison, dust.
-- `bootoptions` list and set; reboot; new value in use.
+- `gameoptions` list and set; reboot; new value in use.
 - The account index, account commands and the account smoke test still pass with vault files
   in the account folder.
 - A soak run on the final build.
@@ -307,7 +310,7 @@ In game, on a local server (port 4071), scripted as a smoke test and then by han
 
 1. **Other races.** Races outside the three lists (for example Easterling, 14) get no side
    and are refused, like immortals.
-2. **Allowed ranges** for `bootoptions`: slots 1-100, coin limit 0-100,000 gold, day start
+2. **Allowed ranges** for `gameoptions`: slots 1-100, coin limit 0-100,000 gold, day start
    hour 0-23.
 3. **Allowed ranges** for banker options: `fee=` 1-10,000 copper, `maxdays=` 1-365.
 4. **`balance` layout:** the Slots column from the proposal page is dropped, since every row
