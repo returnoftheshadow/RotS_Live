@@ -673,7 +673,22 @@ void bank_deposit_coins(struct char_data* host, struct char_data* ch, const bank
         + bank_log_tail(host, customer));
 }
 
-void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const bank_customer& customer)
+/* command_interpreter parses the command's targets first and, after this
+ * program returns, still runs the SPECIAL_TARGET specials on them. An object
+ * this program destroys must not be left in those targets. */
+void forget_target(struct waiting_type* wtl, struct obj_data* obj)
+{
+    if (!wtl)
+        return;
+    for (struct target_data* target : { &wtl->targ1, &wtl->targ2 })
+        if (target->type == TARGET_OBJ && target->ptr.obj == obj) {
+            target->type = TARGET_NONE;
+            target->ptr.other = 0;
+        }
+}
+
+void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const bank_customer& customer,
+    struct waiting_type* wtl)
 {
     char name[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
     bool is_coins = false;
@@ -719,6 +734,7 @@ void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const
     act("$n deposits $p.", FALSE, ch, obj, 0, TO_ROOM);
     bank_log(std::string("BANK: ") + GET_NAME(ch) + " deposits " + obj->short_description + " ("
         + std::to_string(slot.objects[0].item_number) + ")" + bank_log_tail(host, customer));
+    forget_target(wtl, obj);
     obj_from_char(obj);
     extract_obj(obj); /* takes its contents with it */
     bank_save_character(ch);
@@ -949,7 +965,7 @@ SPECIAL(banker)
     if (cmd == CMD_BALANCE)
         banker_balance(host, ch, *config, customer);
     else if (cmd == CMD_DEPOSIT)
-        bank_deposit(host, ch, arg ? arg : (char*)"", customer);
+        bank_deposit(host, ch, arg ? arg : (char*)"", customer, wtl);
     else
         bank_withdraw(host, ch, arg ? arg : (char*)"", *config, customer);
     return TRUE;

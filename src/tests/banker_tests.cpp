@@ -886,6 +886,26 @@ TEST_F(BankerTest, DepositItemMovesItToTheVaultFileFirst)
     EXPECT_NE(output().find("You hand a bastard sword to the banker."), std::string::npos) << output();
 }
 
+/* The interpreter parses "deposit sword" into a target object before the
+ * banker runs, and looks at that target again afterwards. */
+TEST_F(BankerTest, DepositClearsTheInterpretersTargetForTheStoredObject)
+{
+    obj_data* sword = give(0);
+    obj_data* other = give(1);
+    waiting_type wtl {};
+    wtl.targ1.type = TARGET_OBJ;
+    wtl.targ1.ptr.obj = sword;
+    wtl.targ2.type = TARGET_OBJ;
+    wtl.targ2.ptr.obj = other;
+    std::strcpy(m_arg, "sword");
+    EXPECT_EQ(banker(&m_banker, &m_player, CMD_DEPOSIT, m_arg, SPECIAL_COMMAND, &wtl), TRUE);
+    EXPECT_EQ(carried(0), 0);
+    EXPECT_EQ(wtl.targ1.type, TARGET_NONE);
+    EXPECT_EQ(wtl.targ1.ptr.obj, nullptr);
+    EXPECT_EQ(wtl.targ2.type, TARGET_OBJ) << "an unrelated target is left alone";
+    EXPECT_EQ(wtl.targ2.ptr.obj, other);
+}
+
 TEST_F(BankerTest, DepositAContainerIsOneSlotWithItsContents)
 {
     obj_data* pack = give(1);

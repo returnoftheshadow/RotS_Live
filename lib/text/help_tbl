@@ -2285,4 +2285,31 @@ Examples:
 >recover
 
 You recover 2 arrows.
+#
+BANK BANKER BANKERS BALANCE DEPOSIT WITHDRAW
+
+Bankers keep a vault for you. It belongs to your account, so all your
+characters on the same side share it, at every banker on that side.
+
+  balance                 What is in your vault and what it costs to
+                          take each thing out at this banker.
+  deposit <item>          Store an item you are carrying (not one you
+                          are wearing).
+  deposit <N> gold        Store coins. Also: silver, copper.
+  withdraw <item or #>    Take an item back. # is its number from
+                          'balance'.
+  withdraw <N> gold       Take coins back. Also: silver, copper.
+
+A vault holds a set number of items and a set amount of coins; 'balance'
+shows both limits. A container counts as one item however full it is, and
+stays sealed while it is stored.
+
+Storing coins is free. Some bankers charge a fee on items, in copper, for
+each day stored. You pay it when you take the item out, from the coins
+you carry first, then from your vault. Taking something out the day you
+stored it is free. A bank day starts in the early morning, server time.
+
+The bank refuses anything you could not keep when you rent.
+
+See also: RENT MONEY
 #~

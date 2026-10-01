@@ -407,6 +407,8 @@ With SPEC set, `/29` picks a built-in behaviour:
 | 30 | Dragon. |
 | 31 | Mage caster (spec). |
 | 32 | Ranger (new). |
+| 33 | Barter vendor: sells items for other items. Settings in `/42`; see `docs/systems/barter-vendors.md`. |
+| 34 | Banker: keeps the players' vaults. Settings in `/42` (`hours=`, `fee=` in copper, `maxdays=`, `racial_markup=`); see `docs/systems/bank.md`. |
 
 `/implement` puts a changed `/29` into play for mobs loaded from then on, every
 time you implement (it used to take effect only on the first implement after a

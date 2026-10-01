@@ -279,6 +279,61 @@ as the `account` management command.
 
 Examples:
 > whoacct
+#
+VAULT
+
+Usage:
+> vault <character | email | account> [1|2|3]
+> vault take <account> <1|2|3> <slot>
+> vault take <account> <1|2|3> coins <amount> [gold|silver|copper]
+> vault put <account> <1|2|3> <item>
+> vault put <account> <1|2|3> coins <amount> [gold|silver|copper]
+
+Shows a player's bank vault, or moves things in and out of it. Sides are
+1 light, 2 dark, 3 Magus and Haradrim. The player need not be online.
+
+vault <character> shows the vault for that character's side.
+vault <email or account> shows all three vaults; add 1, 2 or 3 for one.
+Every view names the account and its email, and lists what is inside
+stored containers. If a name is both an account and a character, the
+account is shown.
+
+take moves a stored item (by its slot number) or coins to you. No fee is
+charged, and a container comes out whole. put stores an item you are
+carrying, or your own coins; the item counts as deposited today. put is
+refused when the vault is full, and for anything rent refuses.
+A coin amount with no coin name is in copper.
+
+take and put need the exact account name that 'vault <name>' shows.
+Every vault command is logged.
+
+Examples:
+> vault thorin
+> vault bobsmith 2
+> vault take bobsmith 1 3
+> vault put bobsmith 1 coins 5 gold
+#
+BOOTOPTIONS
+
+Usage:
+> bootoptions
+> bootoptions <name> <number>
+
+Game-wide settings that staff can change without a code change. With no
+argument it lists every setting: the value in use now, the value after
+the next reboot (when different), the default and the allowed range.
+
+With a name and a number it checks the value and saves it. A change is
+written to lib/misc/game_boot_options.json at once and takes effect at
+the next reboot. Implementors only.
+
+Settings:
+  bank_slots            item slots in each bank vault
+  bank_coin_limit_gold  most gold a bank vault holds
+  bank_day_start_hour   hour (server time) the bank's fee day starts
+
+Example:
+> bootoptions bank_slots 12
 #~
 
 
