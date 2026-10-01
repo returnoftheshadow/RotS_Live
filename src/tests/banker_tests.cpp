@@ -1,5 +1,6 @@
 #include "../mob_progs/banker.h"
 
+#include "../objects_json.h"
 #include "../structs.h"
 
 #include <gtest/gtest.h>
@@ -214,4 +215,92 @@ TEST(BankFee, LargestPossibleFeeDoesNotOverflow)
     c.maxdays = BANKER_MAXDAYS_MAX;
     c.markup = BANKER_MARKUP_MAX;
     EXPECT_EQ(bank_fee(c, 365, 1000, true), 14600000000LL);
+}
+
+namespace {
+objects_json::ObjectRecord record(int vnum, int depth)
+{
+    objects_json::ObjectRecord r;
+    r.item_number = vnum;
+    r.wear_pos = depth;
+    r.values = { 1, 2, 3, 4, 5 };
+    r.extra_flags = 64;
+    r.weight = 30;
+    r.timer = -1;
+    r.bitvector = 8;
+    r.loaded_by = 7;
+    r.affects[0] = { 18, 6 };
+    return r;
+}
+} // namespace
+
+TEST(BankVaultJson, EmptyVaultRoundTrips)
+{
+    bank_vault vault, back;
+    std::string error;
+    ASSERT_TRUE(deserialize_bank_vault(serialize_bank_vault(vault), &back, &error)) << error;
+    EXPECT_EQ(back.coins, 0);
+    EXPECT_TRUE(back.slots.empty());
+    EXPECT_TRUE(back.readable);
+}
+
+TEST(BankVaultJson, CoinsSlotsAndNestedObjectsRoundTrip)
+{
+    bank_vault vault;
+    vault.coins = 142500;
+    vault.slots.push_back({ 1790000000L, { record(100, 0) } });
+    vault.slots.push_back({ 1790086400L, { record(200, 0), record(300, 1), record(400, 2), record(500, 1) } });
+    bank_vault back;
+    std::string error;
+    ASSERT_TRUE(deserialize_bank_vault(serialize_bank_vault(vault), &back, &error)) << error;
+    EXPECT_EQ(back.coins, 142500);
+    ASSERT_EQ(back.slots.size(), 2u);
+    EXPECT_EQ(back.slots[0].deposited, 1790000000L);
+    ASSERT_EQ(back.slots[1].objects.size(), 4u);
+    EXPECT_EQ(back.slots[1].objects[2].item_number, 400);
+    EXPECT_EQ(back.slots[1].objects[2].wear_pos, 2);
+    EXPECT_EQ(back.slots[1].objects[0].affects[0].modifier, 6);
+    EXPECT_EQ(back.slots[1].objects[0].values[4], 5);
+    EXPECT_EQ(back.slots[1].objects[0].bitvector, 8);
+}
+
+TEST(BankVaultJson, RejectsBrokenOrImpossibleFiles)
+{
+    bank_vault good;
+    good.slots.push_back({ 5, { record(100, 0) } });
+    std::string json = serialize_bank_vault(good);
+    auto with = [&](const std::string& from, const std::string& to) {
+        std::string copy = json;
+        size_t at = copy.find(from);
+        EXPECT_NE(at, std::string::npos) << from;
+        return copy.replace(at, from.size(), to);
+    };
+    const std::string broken[] = {
+        "",
+        "{",
+        "garbage",
+        with("\"version\": 1", "\"version\": 2"), /* a newer format */
+        with("\"coins\": 0", "\"coins\": -1"),
+        with("\"wear_pos\": 0", "\"wear_pos\": 1"), /* first object must be depth 0 */
+        with("\"deposited\": 5", "\"deposited\": -5"),
+        "{\"version\": 1, \"coins\": 0, \"slots\": [{\"deposited\": 5, \"objects\": []}]}", /* empty slot */
+        "{\"version\": 1, \"coins\": 0}", /* slots missing */
+    };
+    for (const std::string& text : broken) {
+        bank_vault vault;
+        vault.coins = 77;
+        std::string error;
+        EXPECT_FALSE(deserialize_bank_vault(text, &vault, &error)) << text;
+        EXPECT_FALSE(error.empty()) << text;
+        EXPECT_EQ(vault.coins, 77) << "a failed read must not touch the output";
+    }
+}
+
+TEST(BankVaultJson, RejectsANestingJump)
+{
+    bank_vault vault;
+    vault.slots.push_back({ 5, { record(100, 0), record(200, 2) } }); /* depth 0 -> 2 */
+    bank_vault back;
+    std::string error;
+    EXPECT_FALSE(deserialize_bank_vault(serialize_bank_vault(vault), &back, &error));
 }

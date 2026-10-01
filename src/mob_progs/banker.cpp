@@ -1,10 +1,12 @@
 #include "banker.h"
 
+#include "../json_utils.h"
 #include "../structs.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <sstream>
 
 using mob_options_detail::split_lines;
 using mob_options_detail::trim;
@@ -153,4 +155,103 @@ long long bank_fee(const banker_config& config, int days, int items, bool other_
     if (other_race && config.markup > 0)
         fee = (fee * (100 + config.markup) + 99) / 100;
     return fee;
+}
+
+std::string serialize_bank_vault(const bank_vault& vault)
+{
+    std::ostringstream out;
+    out << "{\n";
+    out << "  \"version\": " << BANK_VAULT_SCHEMA_VERSION << ",\n";
+    out << "  \"coins\": " << vault.coins << ",\n";
+    out << "  \"slots\": [\n";
+    for (size_t s = 0; s < vault.slots.size(); ++s) {
+        const bank_slot& slot = vault.slots[s];
+        out << "    {\n";
+        out << "      \"deposited\": " << slot.deposited << ",\n";
+        out << "      \"objects\": [\n";
+        for (size_t o = 0; o < slot.objects.size(); ++o) {
+            objects_json::write_object_record_json(out, slot.objects[o], "        ");
+            out << (o + 1 < slot.objects.size() ? ",\n" : "\n");
+        }
+        out << "      ]\n";
+        out << "    }" << (s + 1 < vault.slots.size() ? ",\n" : "\n");
+    }
+    out << "  ]\n";
+    out << "}\n";
+    return out.str();
+}
+
+bool deserialize_bank_vault(const std::string& json, bank_vault* vault, std::string* error)
+{
+    using json_utils::JsonReader;
+    bank_vault parsed;
+    int version = 0;
+    bool saw_version = false, saw_coins = false, saw_slots = false;
+    JsonReader reader(json);
+    bool ok = reader.parse_root_object(
+        [&](const std::string& key, JsonReader* r, std::string* e) {
+            if (key == "version")
+                return saw_version = true, r->parse_integer(&version, e);
+            if (key == "coins")
+                return saw_coins = true, r->parse_integer(&parsed.coins, e);
+            if (key == "slots") {
+                saw_slots = true;
+                return r->parse_array(
+                    [&parsed](JsonReader* slot_reader, std::string* slot_error) {
+                        bank_slot slot;
+                        bool saw_deposited = false;
+                        if (!slot_reader->parse_object(
+                                [&slot, &saw_deposited](const std::string& slot_key, JsonReader* sr, std::string* se) {
+                                    if (slot_key == "deposited")
+                                        return saw_deposited = true, sr->parse_long(&slot.deposited, se);
+                                    if (slot_key == "objects")
+                                        return sr->parse_array(
+                                            [&slot](JsonReader* object_reader, std::string* object_error) {
+                                                objects_json::ObjectRecord record;
+                                                if (!objects_json::parse_object_record_json(object_reader, &record, object_error))
+                                                    return false;
+                                                slot.objects.push_back(record);
+                                                return true;
+                                            },
+                                            se);
+                                    return sr->skip_value(se);
+                                },
+                                slot_error))
+                            return false;
+                        if (!saw_deposited || slot.deposited < 0) {
+                            *slot_error = "Vault slot has no valid deposit time.";
+                            return false;
+                        }
+                        if (slot.objects.empty() || slot.objects[0].wear_pos != 0) {
+                            *slot_error = "Vault slot has no item at depth 0.";
+                            return false;
+                        }
+                        for (size_t i = 1; i < slot.objects.size(); ++i)
+                            if (slot.objects[i].wear_pos < 1 || slot.objects[i].wear_pos > slot.objects[i - 1].wear_pos + 1) {
+                                *slot_error = "Vault slot has an impossible nesting depth.";
+                                return false;
+                            }
+                        parsed.slots.push_back(slot);
+                        return true;
+                    },
+                    e);
+            }
+            return r->skip_value(e);
+        },
+        error);
+    if (!ok) {
+        if (error && error->empty())
+            *error = "Vault file is not valid JSON.";
+        return false;
+    }
+    if (!saw_version || version != BANK_VAULT_SCHEMA_VERSION) {
+        *error = "Vault file has an unknown version.";
+        return false;
+    }
+    if (!saw_coins || parsed.coins < 0 || !saw_slots) {
+        *error = "Vault file is missing coins or slots.";
+        return false;
+    }
+    *vault = parsed;
+    return true;
 }

@@ -1,9 +1,11 @@
 #ifndef OBJECTS_JSON_H
 #define OBJECTS_JSON_H
 
+#include "json_utils.h"
 #include "structs.h"
 
 #include <array>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -75,6 +77,10 @@ bool legacy_object_save_data_from_binary(
 bool object_save_data_to_binary(const ObjectSaveData& data, std::string* bytes, std::string* error_message = nullptr);
 std::string serialize_objects_to_json(const ObjectSaveData& data);
 bool deserialize_objects_from_json(const std::string& json, ObjectSaveData* data, std::string* error_message = nullptr);
+
+// One object record on its own, for files other than the character's object save (the bank vault).
+void write_object_record_json(std::ostringstream& output, const ObjectRecord& record, const char* indent);
+bool parse_object_record_json(json_utils::JsonReader* reader, ObjectRecord* record, std::string* error_message);
 
 // Empty when `a` and `b` hold the same stored values; otherwise the path of the first field that
 // differs, e.g. "followers[0].objects[2].timer".

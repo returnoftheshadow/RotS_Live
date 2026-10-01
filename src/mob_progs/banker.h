@@ -6,6 +6,8 @@
 
 #include "shopkeeper.h"
 
+#include "../objects_json.h"
+
 #include <ctime>
 #include <string>
 #include <vector>
@@ -43,5 +45,25 @@ int bank_days_stored(time_t deposited, time_t now, int start_hour);
 
 /* Copper to withdraw one slot holding `items` objects after `days` days. */
 long long bank_fee(const banker_config& config, int days, int items, bool other_race);
+
+constexpr int BANK_VAULT_SCHEMA_VERSION = 1;
+
+/* One stored item. A container's contents follow it in objects, in the order
+ * the rent save walks them, with wear_pos holding the nesting depth (0 for
+ * the item itself). */
+struct bank_slot {
+    long deposited = 0; /* real time of the deposit */
+    std::vector<objects_json::ObjectRecord> objects;
+};
+
+struct bank_vault {
+    int coins = 0; /* copper */
+    std::vector<bank_slot> slots;
+    bool readable = true; /* false: the file on disk could not be read */
+};
+
+std::string serialize_bank_vault(const bank_vault& vault);
+/* On failure *vault is left untouched and *error says why. */
+bool deserialize_bank_vault(const std::string& json, bank_vault* vault, std::string* error);
 
 #endif

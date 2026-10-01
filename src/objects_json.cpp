@@ -467,6 +467,16 @@ bool object_save_data_from_binary_impl(
 
 } // namespace
 
+void write_object_record_json(std::ostringstream& output, const ObjectRecord& record, const char* indent)
+{
+    write_object_record(output, record, indent);
+}
+
+bool parse_object_record_json(json_utils::JsonReader* reader, ObjectRecord* record, std::string* error_message)
+{
+    return parse_object_record(reader, record, error_message);
+}
+
 bool object_save_data_from_binary(const std::string& bytes, ObjectSaveData* data, std::string* error_message)
 {
     return object_save_data_from_binary_impl(bytes, data, false, nullptr, error_message);
