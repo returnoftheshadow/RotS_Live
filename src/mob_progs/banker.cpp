@@ -35,6 +35,8 @@ extern struct time_info_data time_info;
 extern int no_specials;
 extern int generic_scalp;
 
+int get_number(char** name);
+
 int Crash_is_unrentable(struct obj_data* obj);
 struct obj_data* Crash_obj2char(struct char_data* ch, struct obj_file_elem* object);
 
@@ -603,6 +605,241 @@ void banker_balance(struct char_data* host, struct char_data* ch, const banker_c
         ch);
 }
 
+void bank_log(const std::string& line)
+{
+    char buf[512];
+    snprintf(buf, sizeof(buf), "%s", line.c_str());
+    log(buf);
+}
+
+std::string bank_log_tail(struct char_data* host, const bank_customer& customer)
+{
+    return " at mobile #" + std::to_string(host->nr >= 0 ? mob_index[host->nr].virt : -1) + ", account "
+        + account::normalize_account_name(customer.account) + ", side " + std::to_string(customer.side);
+}
+
+/* "<N> gold|silver|copper|coins|coin" -> copper. *is_coins says whether the
+ * argument was a coin request at all; false with *is_coins set means a bad amount. */
+bool parse_coins(const char* arg, bool* is_coins, long long* copper)
+{
+    char first[MAX_INPUT_LENGTH], second[MAX_INPUT_LENGTH], whole[MAX_INPUT_LENGTH];
+    strncpy(whole, arg, sizeof(whole) - 1);
+    whole[sizeof(whole) - 1] = 0;
+    half_chop(whole, first, second);
+    long long unit = !str_cmp(second, "gold") ? COPP_IN_GOLD : !str_cmp(second, "silver")       ? COPP_IN_SILV
+        : (!str_cmp(second, "copper") || !str_cmp(second, "coins") || !str_cmp(second, "coin")) ? 1
+                                                                                                : 0;
+    const char* digits = *first == '-' ? first + 1 : first;
+    *is_coins = unit != 0 && *digits && strspn(digits, "0123456789") == strlen(digits);
+    if (!*is_coins)
+        return false;
+    if (*first == '-' || strlen(first) > 9)
+        return false;
+    *copper = atoll(first) * unit;
+    return *copper > 0 && *copper <= 2000000000LL;
+}
+
+void bank_deposit_coins(struct char_data* host, struct char_data* ch, const bank_customer& customer, long long copper)
+{
+    char buf[256];
+    if (copper > GET_GOLD(ch)) {
+        send_to_char("You don't have that much.\n\r", ch);
+        return;
+    }
+    long long room = (long long)boot_option(BOOT_BANK_COIN_LIMIT_GOLD) * COPP_IN_GOLD - customer.vault->coins;
+    if (room <= 0) {
+        vendor_say(host, "Your vault can hold no more coins.");
+        return;
+    }
+    long long take = std::min(copper, room);
+    customer.vault->coins += (int)take;
+    std::string error;
+    if (!bank_vault_write(customer.account, customer.side, &error)) { /* vault first */
+        customer.vault->coins -= (int)take;
+        vendor_say(host, "I can't reach the vault right now.");
+        return;
+    }
+    GET_GOLD(ch) -= (int)take;
+    bank_save_character(ch);
+    snprintf(buf, sizeof(buf), "You deposit %s.\n\r", money_message((int)take, 0));
+    send_to_char(buf, ch);
+    if (take < copper) {
+        snprintf(buf, sizeof(buf), "%s was refused: your vault is full.\n\r", money_message((int)(copper - take), 0));
+        CAP(buf);
+        send_to_char(buf, ch);
+    }
+    bank_log(std::string("BANK: ") + GET_NAME(ch) + " deposits " + std::to_string(take) + " copper"
+        + bank_log_tail(host, customer));
+}
+
+void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const bank_customer& customer)
+{
+    char name[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
+    bool is_coins = false;
+    long long copper = 0;
+    if (parse_coins(arg, &is_coins, &copper)) {
+        bank_deposit_coins(host, ch, customer, copper);
+        return;
+    }
+    if (is_coins) {
+        vendor_say(host, "How much?");
+        return;
+    }
+    one_argument(arg, name);
+    if (!*name) {
+        vendor_say(host, "What would you like to deposit?");
+        return;
+    }
+    struct obj_data* obj = get_obj_in_list_vis(ch, name, ch->carrying, 9999); /* loose inventory only */
+    if (!obj) {
+        send_to_char("You don't have that.\n\r", ch);
+        return;
+    }
+    if (!bank_obj_storable(obj)) {
+        vendor_say(host, "I can't keep that for you.");
+        return;
+    }
+    if ((int)customer.vault->slots.size() >= boot_option(BOOT_BANK_SLOTS)) {
+        vendor_say(host, "Your vault is full.");
+        return;
+    }
+    bank_slot slot;
+    slot.deposited = (long)bank_now();
+    bank_records_from_obj(obj, &slot.objects);
+    customer.vault->slots.push_back(slot);
+    std::string error;
+    if (!bank_vault_write(customer.account, customer.side, &error)) { /* vault first */
+        customer.vault->slots.pop_back();
+        vendor_say(host, "I can't reach the vault right now.");
+        return;
+    }
+    snprintf(buf, sizeof(buf), "You hand %s to %s.\n\r", obj->short_description, GET_NAME(host));
+    send_to_char(buf, ch);
+    act("$n deposits $p.", FALSE, ch, obj, 0, TO_ROOM);
+    bank_log(std::string("BANK: ") + GET_NAME(ch) + " deposits " + obj->short_description + " ("
+        + std::to_string(slot.objects[0].item_number) + ")" + bank_log_tail(host, customer));
+    obj_from_char(obj);
+    extract_obj(obj); /* takes its contents with it */
+    bank_save_character(ch);
+}
+
+void bank_withdraw_coins(struct char_data* host, struct char_data* ch, const bank_customer& customer, long long copper)
+{
+    char buf[256];
+    if (copper > customer.vault->coins) {
+        vendor_say(host, "You don't have that much with me.");
+        return;
+    }
+    if ((long long)GET_GOLD(ch) + copper > 2000000000LL) {
+        send_to_char("You can't carry that much money.\n\r", ch);
+        return;
+    }
+    GET_GOLD(ch) += (int)copper;
+    bank_save_character(ch); /* character first */
+    customer.vault->coins -= (int)copper;
+    std::string error;
+    if (!bank_vault_write(customer.account, customer.side, &error))
+        bank_log("SYSERR: bank: vault write failed after a coin withdrawal: " + error);
+    snprintf(buf, sizeof(buf), "You withdraw %s.\n\r", money_message((int)copper, 0));
+    send_to_char(buf, ch);
+    bank_log(std::string("BANK: ") + GET_NAME(ch) + " withdraws " + std::to_string(copper) + " copper"
+        + bank_log_tail(host, customer));
+}
+
+void bank_withdraw(struct char_data* host, struct char_data* ch, char* arg, const banker_config& config,
+    const bank_customer& customer)
+{
+    char want[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
+    bool is_coins = false;
+    long long copper = 0;
+    if (parse_coins(arg, &is_coins, &copper)) {
+        bank_withdraw_coins(host, ch, customer, copper);
+        return;
+    }
+    if (is_coins) {
+        vendor_say(host, "How much?");
+        return;
+    }
+    one_argument(arg, want);
+    if (!*want) {
+        vendor_say(host, "What would you like to withdraw?");
+        return;
+    }
+    std::vector<bank_slot>& slots = customer.vault->slots;
+    int pick = -1;
+    if (strspn(want, "0123456789") == strlen(want)) { /* a balance number */
+        int n = strlen(want) <= 4 ? atoi(want) : 0;
+        if (n >= 1 && n <= (int)slots.size())
+            pick = n - 1;
+    } else { /* a keyword; "2.sword" = the second matching slot */
+        char* name = want;
+        int nth = get_number(&name);
+        for (size_t i = 0; i < slots.size() && pick < 0; ++i) {
+            int rnum = real_object(slots[i].objects[0].item_number);
+            if (rnum >= 0 && isname(name, obj_proto[rnum].name) && --nth == 0)
+                pick = (int)i;
+        }
+    }
+    if (pick < 0) {
+        vendor_say(host, "I hold nothing like that for you.");
+        return;
+    }
+    struct obj_data* obj = bank_obj_from_records(slots[pick].objects);
+    if (!obj) {
+        vendor_say(host, "I can't get that out right now.");
+        snprintf(buf, sizeof(buf), "SYSERR: bank: stored object #%d can't be rebuilt",
+            slots[pick].objects[0].item_number);
+        bank_log(buf);
+        return;
+    }
+    if (IS_CARRYING_N(ch) + 1 > CAN_CARRY_N(ch)) {
+        send_to_char("You can't carry that many items.\n\r", ch);
+        extract_obj(obj);
+        return;
+    }
+    if (IS_CARRYING_W(ch) + GET_OBJ_WEIGHT(obj) > CAN_CARRY_W(ch)) {
+        send_to_char("You can't carry that much weight.\n\r", ch);
+        extract_obj(obj);
+        return;
+    }
+    long long fee = slot_fee(config, slots[pick], host, ch);
+    if (fee > (long long)GET_GOLD(ch) + customer.vault->coins) {
+        snprintf(buf, sizeof(buf), "That costs %s. You don't have it.",
+            money_message((int)std::min<long long>(fee, 2000000000LL), 0));
+        vendor_say(host, buf);
+        extract_obj(obj);
+        return;
+    }
+    int from_purse = (int)std::min<long long>(fee, GET_GOLD(ch));
+    int from_vault = (int)(fee - from_purse);
+    int vnum = slots[pick].objects[0].item_number;
+
+    GET_GOLD(ch) -= from_purse;
+    obj_to_char(obj, ch);
+    bank_save_character(ch); /* character first */
+    customer.vault->coins -= from_vault;
+    slots.erase(slots.begin() + pick);
+    std::string error;
+    if (!bank_vault_write(customer.account, customer.side, &error))
+        bank_log("SYSERR: bank: vault write failed after a withdrawal: " + error);
+
+    snprintf(buf, sizeof(buf), "%s hands you %s.\n\r", GET_NAME(host), obj->short_description);
+    CAP(buf);
+    send_to_char(buf, ch);
+    if (from_purse > 0) {
+        snprintf(buf, sizeof(buf), "You pay %s from your purse.\n\r", money_message(from_purse, 0));
+        send_to_char(buf, ch);
+    }
+    if (from_vault > 0) {
+        snprintf(buf, sizeof(buf), "%s comes out of your vault.\n\r", money_message(from_vault, 0));
+        CAP(buf);
+        send_to_char(buf, ch);
+    }
+    act("$n withdraws $p.", FALSE, ch, obj, 0, TO_ROOM);
+    bank_log(std::string("BANK: ") + GET_NAME(ch) + " withdraws " + obj->short_description + " ("
+        + std::to_string(vnum) + ")" + bank_log_tail(host, customer) + ", fee " + std::to_string(fee));
+}
+
 } // namespace
 
 bool is_banker_candidate(const struct char_data* proto, int rnum)
@@ -710,7 +947,9 @@ SPECIAL(banker)
         return TRUE;
     if (cmd == CMD_BALANCE)
         banker_balance(host, ch, *config, customer);
+    else if (cmd == CMD_DEPOSIT)
+        bank_deposit(host, ch, arg ? arg : (char*)"", customer);
     else
-        vendor_say(host, "Not yet."); /* deposit and withdraw: Task 6 */
+        bank_withdraw(host, ch, arg ? arg : (char*)"", *config, customer);
     return TRUE;
 }

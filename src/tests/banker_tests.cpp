@@ -871,3 +871,285 @@ TEST_F(BankerTest, StorableFollowsRentIncludingContents)
     EXPECT_FALSE(bank_obj_storable(pack));
     extract_obj(pack);
 }
+
+TEST_F(BankerTest, DepositItemMovesItToTheVaultFileFirst)
+{
+    give(0);
+    EXPECT_EQ(call(CMD_DEPOSIT, "sword"), TRUE);
+    EXPECT_EQ(carried(0), 0);
+    ASSERT_EQ(vault()->slots.size(), 1u);
+    EXPECT_EQ(vault()->slots[0].objects[0].item_number, kSwordVnum);
+    EXPECT_EQ(vault()->slots[0].deposited, (long)m_now);
+    EXPECT_EQ(m_saves, 1);
+    EXPECT_NE(m_file_at_save.find("\"item_number\": 100"), std::string::npos)
+        << "the vault file already held the item when the character was saved";
+    EXPECT_NE(output().find("You hand a bastard sword to the banker."), std::string::npos) << output();
+}
+
+TEST_F(BankerTest, DepositAContainerIsOneSlotWithItsContents)
+{
+    obj_data* pack = give(1);
+    obj_to_obj(read_object(0, REAL), pack);
+    obj_to_obj(read_object(0, REAL), pack);
+    EXPECT_EQ(call(CMD_DEPOSIT, "backpack"), TRUE);
+    ASSERT_EQ(vault()->slots.size(), 1u);
+    EXPECT_EQ(vault()->slots[0].objects.size(), 3u);
+    EXPECT_EQ(object_list, nullptr) << "the stored objects are gone from the world";
+    EXPECT_EQ(IS_CARRYING_N(&m_player), 0);
+    EXPECT_EQ(IS_CARRYING_W(&m_player), 0);
+}
+
+TEST_F(BankerTest, DepositRefusals)
+{
+    EXPECT_EQ(call(CMD_DEPOSIT, ""), TRUE);
+    EXPECT_NE(output().find("What would you like to deposit?"), std::string::npos);
+    EXPECT_EQ(call(CMD_DEPOSIT, "sword"), TRUE);
+    EXPECT_NE(output().find("You don't have that."), std::string::npos);
+
+    give(2); /* a key */
+    EXPECT_EQ(call(CMD_DEPOSIT, "key"), TRUE);
+    EXPECT_NE(output().find("I can't keep that for you."), std::string::npos);
+    EXPECT_EQ(carried(2), 1);
+
+    obj_data* pack = give(1);
+    obj_to_obj(read_object(2, REAL), pack); /* a key hidden in a pack */
+    EXPECT_EQ(call(CMD_DEPOSIT, "backpack"), TRUE);
+    EXPECT_NE(output().find("I can't keep that for you."), std::string::npos);
+    EXPECT_TRUE(vault()->slots.empty());
+    EXPECT_EQ(m_saves, 0);
+}
+
+TEST_F(BankerTest, WornItemsCannotBeDeposited)
+{
+    obj_data* sword = read_object(0, REAL);
+    equip_char(&m_player, sword, WIELD);
+    EXPECT_EQ(call(CMD_DEPOSIT, "sword"), TRUE);
+    EXPECT_NE(output().find("You don't have that."), std::string::npos);
+    EXPECT_EQ(m_player.equipment[WIELD], sword);
+    obj_to_char(unequip_char(&m_player, WIELD), &m_player);
+}
+
+TEST_F(BankerTest, FullVaultRefusesAndALoweredLimitRemovesNothing)
+{
+    boot_options_set_running_for_tests(BOOT_BANK_SLOTS, 2);
+    for (int i = 0; i < 3; ++i)
+        give(0);
+    call(CMD_DEPOSIT, "sword");
+    call(CMD_DEPOSIT, "sword");
+    EXPECT_EQ(call(CMD_DEPOSIT, "sword"), TRUE);
+    EXPECT_NE(output().find("Your vault is full."), std::string::npos);
+    EXPECT_EQ(vault()->slots.size(), 2u);
+    EXPECT_EQ(carried(0), 1);
+
+    boot_options_set_running_for_tests(BOOT_BANK_SLOTS, 1); /* lowered below contents */
+    call(CMD_DEPOSIT, "sword");
+    EXPECT_EQ(vault()->slots.size(), 2u);
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("Slots: 2 of 1 used"), std::string::npos);
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    EXPECT_EQ(vault()->slots.size(), 1u) << "withdrawing still works over the limit";
+}
+
+TEST_F(BankerTest, DepositCoinsAndThePartialCase)
+{
+    GET_GOLD(&m_player) = 5 * COPP_IN_GOLD;
+    EXPECT_EQ(call(CMD_DEPOSIT, "2 gold"), TRUE);
+    EXPECT_EQ(vault()->coins, 2000);
+    EXPECT_EQ(GET_GOLD(&m_player), 3000);
+    EXPECT_NE(output().find("You deposit 2 gold."), std::string::npos) << output();
+    EXPECT_NE(m_file_at_save.find("\"coins\": 2000"), std::string::npos);
+
+    call(CMD_DEPOSIT, "5 silver");
+    EXPECT_EQ(vault()->coins, 2500);
+    call(CMD_DEPOSIT, "7 coins");
+    EXPECT_EQ(vault()->coins, 2507);
+
+    boot_options_set_running_for_tests(BOOT_BANK_COIN_LIMIT_GOLD, 3);
+    call(CMD_DEPOSIT, "2 gold"); /* only 493 copper fit */
+    EXPECT_EQ(vault()->coins, 3000);
+    EXPECT_EQ(GET_GOLD(&m_player), 3000 - 500 - 7 - 493);
+    EXPECT_NE(output().find("was refused: your vault is full."), std::string::npos) << output();
+    call(CMD_DEPOSIT, "1 copper");
+    EXPECT_NE(output().find("Your vault can hold no more coins."), std::string::npos);
+}
+
+TEST_F(BankerTest, OddCoinAmountsChangeNothing)
+{
+    GET_GOLD(&m_player) = 1000;
+    const char* bad[] = { "0 gold", "999999999 gold", "99999999999999999999 gold", "-5 gold", "2 gold" /* > carried */ };
+    for (const char* text : bad) {
+        int saves = m_saves;
+        EXPECT_EQ(call(CMD_DEPOSIT, text), TRUE) << text;
+        EXPECT_EQ(vault()->coins, 0) << text;
+        EXPECT_EQ(GET_GOLD(&m_player), 1000) << text;
+        EXPECT_EQ(m_saves, saves) << text;
+    }
+    vault()->coins = 1000;
+    for (const char* text : { "0 gold", "999999999 gold", "2 gold" }) {
+        EXPECT_EQ(call(CMD_WITHDRAW, text), TRUE) << text;
+        EXPECT_EQ(vault()->coins, 1000) << text;
+        EXPECT_EQ(GET_GOLD(&m_player), 1000) << text;
+    }
+}
+
+TEST_F(BankerTest, WithdrawCoinsSavesTheCharacterBeforeTheVaultFile)
+{
+    vault()->coins = 5000;
+    std::string error;
+    ASSERT_TRUE(bank_vault_write("tester", BANK_SIDE_LIGHT, &error));
+    EXPECT_EQ(call(CMD_WITHDRAW, "3 gold"), TRUE);
+    EXPECT_EQ(vault()->coins, 2000);
+    EXPECT_EQ(GET_GOLD(&m_player), 3000);
+    EXPECT_NE(m_file_at_save.find("\"coins\": 5000"), std::string::npos)
+        << "when the character was saved the vault file still held the coins";
+    EXPECT_NE(read_file(path("tester", "vault_light.json")).find("\"coins\": 2000"), std::string::npos);
+}
+
+TEST_F(BankerTest, WithdrawItemByNumberAndByKeyword)
+{
+    give(0);
+    give(1);
+    call(CMD_DEPOSIT, "sword");
+    call(CMD_DEPOSIT, "backpack");
+    EXPECT_EQ(call(CMD_WITHDRAW, "2"), TRUE);
+    EXPECT_EQ(carried(1), 1);
+    EXPECT_NE(output().find("The banker hands you a leather backpack."), std::string::npos) << output();
+    EXPECT_EQ(call(CMD_WITHDRAW, "sword"), TRUE);
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_TRUE(vault()->slots.empty());
+    EXPECT_EQ(call(CMD_WITHDRAW, "sword"), TRUE);
+    EXPECT_NE(output().find("I hold nothing like that for you."), std::string::npos);
+    EXPECT_EQ(call(CMD_WITHDRAW, "7"), TRUE);
+    EXPECT_NE(output().find("I hold nothing like that for you."), std::string::npos);
+}
+
+TEST_F(BankerTest, WithdrawItemSavesTheCharacterBeforeTheVaultFile)
+{
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    m_file_at_save.clear();
+    call(CMD_WITHDRAW, "1");
+    EXPECT_NE(m_file_at_save.find("\"item_number\": 100"), std::string::npos)
+        << "the vault file still held the item when the character was saved";
+    EXPECT_EQ(read_file(path("tester", "vault_light.json")).find("\"item_number\": 100"), std::string::npos);
+}
+
+TEST_F(BankerTest, FeeIsTakenFromThePurseFirstThenTheVault)
+{
+    options("fee=50\nmaxdays=30");
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    m_now = at(2026, 10, 3, 12); /* three 5am points later: 150 copper */
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("1 silver and 50 copper"), std::string::npos) << output();
+
+    GET_GOLD(&m_player) = 100;
+    vault()->coins = 1000;
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    EXPECT_EQ(GET_GOLD(&m_player), 0);
+    EXPECT_EQ(vault()->coins, 950);
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_NE(output().find("You pay 1 silver from your purse."), std::string::npos) << output();
+    EXPECT_NE(output().find("50 copper comes out of your vault."), std::string::npos) << output();
+}
+
+TEST_F(BankerTest, CannotPayTakesNothing)
+{
+    options("fee=50\nmaxdays=30");
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    m_now = at(2026, 10, 3, 12);
+    GET_GOLD(&m_player) = 100;
+    vault()->coins = 49;
+    int saves = m_saves;
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    EXPECT_NE(output().find("That costs 1 silver and 50 copper. You don't have it."), std::string::npos) << output();
+    EXPECT_EQ(GET_GOLD(&m_player), 100);
+    EXPECT_EQ(vault()->coins, 49);
+    EXPECT_EQ(vault()->slots.size(), 1u);
+    EXPECT_EQ(carried(0), 0);
+    EXPECT_EQ(object_list, nullptr) << "the rebuilt item was destroyed again";
+    EXPECT_EQ(m_saves, saves);
+}
+
+TEST_F(BankerTest, SameDayIsFreeAndAnotherRacePaysTheMarkup)
+{
+    options("fee=10\nmaxdays=30\nracial_markup=yes");
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("free"), std::string::npos) << output();
+    m_now = at(2026, 10, 1, 12);
+    m_player.player.race = RACE_DWARF; /* banker is human; still the light vault */
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("13 copper"), std::string::npos) << output();
+}
+
+TEST_F(BankerTest, CarryLimitsRefuseAndChargeNothing)
+{
+    options("fee=50\nmaxdays=30");
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    m_now = at(2026, 10, 3, 12);
+    GET_GOLD(&m_player) = 5000;
+    m_player.specials.carry_items = CAN_CARRY_N(&m_player);
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    EXPECT_NE(output().find("You can't carry that many items."), std::string::npos);
+    m_player.specials.carry_items = 0;
+    m_player.specials.carry_weight = CAN_CARRY_W(&m_player);
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    EXPECT_NE(output().find("You can't carry that much weight."), std::string::npos);
+    m_player.specials.carry_weight = 0;
+    EXPECT_EQ(GET_GOLD(&m_player), 5000);
+    EXPECT_EQ(vault()->slots.size(), 1u);
+}
+
+TEST_F(BankerTest, AStoredItemWithNoPrototypeStaysInTheVault)
+{
+    vault()->slots.push_back({ (long)m_now, { record(9999, 0) } });
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    EXPECT_NE(output().find("I can't get that out right now."), std::string::npos) << output();
+    EXPECT_EQ(vault()->slots.size(), 1u);
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("something"), std::string::npos);
+}
+
+TEST_F(BankerTest, FailedVaultWriteRefusesTheDeposit)
+{
+    give(0);
+    mkdir(path("tester", "vault_light.json.tmp").c_str(), 0700); /* blocks the temp file */
+    EXPECT_EQ(call(CMD_DEPOSIT, "sword"), TRUE);
+    EXPECT_NE(output().find("I can't reach the vault right now."), std::string::npos) << output();
+    EXPECT_EQ(carried(0), 1);
+    EXPECT_TRUE(vault()->slots.empty());
+    EXPECT_EQ(m_saves, 0);
+}
+
+TEST_F(BankerTest, EachSideHasItsOwnVaultAndCharactersShareTheirSides)
+{
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    m_player.player.race = RACE_DWARF; /* another light character of the account */
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("a bastard sword"), std::string::npos);
+    m_player.player.race = RACE_URUK;
+    m_banker.player.race = RACE_URUK;
+    call(CMD_BALANCE, "");
+    EXPECT_EQ(output().find("a bastard sword"), std::string::npos);
+    EXPECT_NE(output().find("Slots: 0 of 10 used"), std::string::npos);
+}
+
+TEST_F(BankerTest, TransactionsAreLogged)
+{
+    testing::internal::CaptureStderr();
+    give(0);
+    call(CMD_DEPOSIT, "sword");
+    call(CMD_WITHDRAW, "1");
+    std::string logged = testing::internal::GetCapturedStderr();
+    EXPECT_NE(logged.find("BANK: Player deposits a bastard sword (100) at mobile #7100, account tester, side 1"),
+        std::string::npos)
+        << logged;
+    EXPECT_NE(logged.find("BANK: Player withdraws a bastard sword (100) at mobile #7100, account tester, side 1, fee 0"),
+        std::string::npos)
+        << logged;
+}
