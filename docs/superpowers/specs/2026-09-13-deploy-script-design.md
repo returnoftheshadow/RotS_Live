@@ -47,7 +47,7 @@ help files are `<dir>/lib/text`.
 |---------------------|--------------------|--------------|--------|------------|-----------------------|----------|----------------|
 | `live`              | `live-default3791` | bold red     | yes    | `live-`    | —                     | yes      | `rotslive`     |
 | `4k`                | `live-pkarena4000` | bold magenta | yes    | `4k-`      | `USE_BIG_BROTHER` 1→0 | **no**   | —              |
-| `test`              | `dev-building4802` | yellow       | yes    | `test-`    | —                     | yes      | `rotsbuilding` |
+| `test`              | `dev-building4802` | yellow       | yes    | `test-`    | shutdown level 96→93  | yes      | `rotsbuilding` |
 | `coders`            | `dev-coding4810`   | green        | **no** | `coders-`  | —                     | **no**   | —              |
 | `zzz-forge-test`    | `zzz-forge-test`   | cyan         | yes    | none       | —                     | yes      | —              |
 | `zzz-forge-test-4k` | `zzz-forge-test`   | cyan         | yes    | none       | `USE_BIG_BROTHER` 1→0 | yes      | —              |
@@ -180,10 +180,15 @@ remote command string is built with `shlex.quote`.
 
 **Remote (ssh)**
 
-6. **Source edits** (4k and `zzz-forge-test-4k` only). Require exactly one line matching
+6. **Source edits** (4k, `zzz-forge-test-4k` and `test` only). Require exactly one line matching
    `^#define USE_BIG_BROTHER 1$` in `big_brother.h`; replace it with `#define USE_BIG_BROTHER 0` via
    `sed -i`; then require exactly one `^#define USE_BIG_BROTHER 0$` line and no `... 1` line. The
-   local checkout is never edited.
+   local checkout is never edited. `test` gets one edit of the same kind: in `interpre.cpp`,
+   `#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)` becomes `#define SHUTDOWN_LEVEL LEVEL_GOD`, so level 93
+   immortals can run `shutdown` there (level 96 everywhere else). `promote_port.py 4802-to-3791`
+   copies the test port's `src/` as it is; the unit test
+   `ActWiz.ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt` fails on an edited copy, so that
+   promotion is refused rather than carrying level 93 to live.
 7. **Build.** Record the server time, then `make clean`, then `make all -j2`, streaming output. Then
    require `../bin/ageland` to exist with a modification time at or after the recorded time.
 
@@ -254,7 +259,7 @@ parts that run commands:
 **Automated** — `scripts/deploy_tests.py`, `unittest`, no network:
 
 - Env table: every env's dir matches the path guard; only `4k` and `zzz-forge-test-4k` carry the
-  source edit; coders has no backup; zzz envs have no tag prefix; only `live`, `test` and the zzz envs
+  big brother edit and only `test` the shutdown-level edit; coders has no backup; zzz envs have no tag prefix; only `live`, `test` and the zzz envs
   are approved; only `live` (`rotslive`) and `test` (`rotsbuilding`) have a restart
   service.
 - Approval and restart: `deploy`/`revert` on 4k or coders (dry run included) and `--restart`

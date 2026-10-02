@@ -5,6 +5,7 @@ import datetime
 import importlib.util
 import io
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -38,12 +39,27 @@ class EnvTableTest(unittest.TestCase):
             self.assertEqual(deploy.port_dir(env), f"/rots/{env.dir_name}")
 
     def test_only_the_4k_envs_turn_big_brother_off(self) -> None:
-        with_edits = sorted(name for name, env in deploy.ENVS.items() if env.source_edits)
+        with_edit = sorted(name for name, env in deploy.ENVS.items() if deploy.BIG_BROTHER_OFF in env.source_edits)
 
-        self.assertEqual(with_edits, ["4k", "zzz-forge-test-4k"])
+        self.assertEqual(with_edit, ["4k", "zzz-forge-test-4k"])
         self.assertEqual(deploy.ENVS["4k"].source_edits, (deploy.BIG_BROTHER_OFF,))
         self.assertEqual(deploy.BIG_BROTHER_OFF.old_line, "#define USE_BIG_BROTHER 1")
         self.assertEqual(deploy.BIG_BROTHER_OFF.new_line, "#define USE_BIG_BROTHER 0")
+
+    def test_only_the_test_port_lowers_the_shutdown_level(self) -> None:
+        with_edit = sorted(name for name, env in deploy.ENVS.items() if deploy.SHUTDOWN_AT_GOD in env.source_edits)
+
+        self.assertEqual(with_edit, ["test"])
+        self.assertEqual(deploy.ENVS["test"].source_edits, (deploy.SHUTDOWN_AT_GOD,))
+        self.assertEqual(deploy.SHUTDOWN_AT_GOD.path, "interpre.cpp")
+        self.assertEqual(deploy.SHUTDOWN_AT_GOD.old_line, "#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)")
+        self.assertEqual(deploy.SHUTDOWN_AT_GOD.new_line, "#define SHUTDOWN_LEVEL LEVEL_GOD")
+
+    def test_every_env_without_a_source_edit_is_listed(self) -> None:
+        # A new edit on a real port must be a deliberate change to this list.
+        without_edits = sorted(name for name, env in deploy.ENVS.items() if not env.source_edits)
+
+        self.assertEqual(without_edits, ["coders", "live", "zzz-forge-test"])
 
     def test_coders_is_the_only_env_without_a_backup(self) -> None:
         self.assertEqual([name for name, env in deploy.ENVS.items() if not env.backup], ["coders"])
@@ -832,6 +848,56 @@ class SourceEditCommandTest(RemoteCommandTestCase):
         self.assertNotIn(b"#define USE_BIG_BROTHER 1", self.header.read_bytes())
 
 
+class ShutdownLevelEditTest(RemoteCommandTestCase):
+    """The test port's edit against the real src/interpre.cpp, so a change to that file cannot quietly break it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = self.root / "src" / "interpre.cpp"
+        self.real = (deploy.REPO_ROOT / "src" / "interpre.cpp").read_bytes()
+        self.source.write_bytes(self.real)
+        self.command = deploy.source_edit_command(TEST_ENV, deploy.SHUTDOWN_AT_GOD)
+
+    def defines(self) -> list:
+        return [line.rstrip(b"\r") for line in self.source.read_bytes().splitlines()
+                if line.startswith(b"#define SHUTDOWN_LEVEL")]
+
+    def test_repo_default_keeps_shutdown_one_level_below_greater_god(self) -> None:
+        self.assertEqual(self.defines(), [b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)"])
+
+    def test_nothing_else_defines_or_undefines_the_setting(self) -> None:
+        # A second definition, however it is spaced, would make the edit succeed and change nothing.
+        mentions = re.findall(rb"(?m)^[ \t]*#[ \t]*(?:define|undef)[ \t]+SHUTDOWN_LEVEL\b.*$", self.real)
+
+        self.assertEqual([line.rstrip(b"\r") for line in mentions], [b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)"])
+
+    def test_shutdown_command_takes_its_level_from_the_setting(self) -> None:
+        shutdown_rows = [line.strip() for line in self.real.splitlines() if b"SCMD_SHUTDOWN" in line]
+
+        self.assertEqual(shutdown_rows,
+                         [b"COMMANDO(61, POSITION_DEAD, do_shutdown, SHUTDOWN_LEVEL, FALSE, SCMD_SHUTDOWN,"])
+
+    def test_lowers_the_level_in_the_real_source_and_changes_nothing_else(self) -> None:
+        result = self.sh(self.command)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.defines(), [b"#define SHUTDOWN_LEVEL LEVEL_GOD"])
+        self.assertEqual(self.source.read_bytes(),
+                         self.real.replace(b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)",
+                                           b"#define SHUTDOWN_LEVEL LEVEL_GOD"))
+
+    def test_stops_without_editing_when_the_setting_is_missing(self) -> None:
+        original = self.real.replace(b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)", b"#define SHUTDOWN_LEVEL LEVEL_GRGOD")
+        self.source.write_bytes(original)
+
+        result = self.sh(self.command)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("interpre.cpp: expected exactly one line: #define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)",
+                      result.stdout)
+        self.assertEqual(self.source.read_bytes(), original)
+
+
 class RestartCommandTest(unittest.TestCase):
     def test_restarts_the_service_with_sudo_and_changes_no_file(self) -> None:
         command = deploy.restart_command(deploy.ENVS["test"])
@@ -1251,7 +1317,7 @@ class DeployTest(unittest.TestCase):
 
         self.assertEqual(status, 0)
         self.assertEqual(self.runner.kinds(), ["connect", "dirs", "links", "unfinished", "unwritable", "backup",
-                                               "mark", "sftp", "build", "finish", "close"])
+                                               "mark", "sftp", "edit", "build", "finish", "close"])
         self.assertEqual(self.checkout.tags, [("test", "abc1234def5678", ["help", "help_tbl"], self.DAY)])
         self.assertEqual(self.checkout.prepared, [False])
         self.assertIn("Tag: test-2026-09-13.", self.text())
@@ -1262,7 +1328,7 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(self.run_deploy("test", restart=True), 0)
 
         self.assertEqual(self.runner.kinds(), ["connect", "dirs", "links", "unfinished", "unwritable", "backup",
-                                               "mark", "sftp", "build", "finish", "restart", "close"])
+                                               "mark", "sftp", "edit", "build", "finish", "restart", "close"])
         self.assertEqual(len(self.checkout.tags), 1)
         restart = [call for call in self.runner.calls if call[0] == "remote" and "systemctl" in call[1]][0]
         self.assertEqual(restart[1:], ("sudo systemctl restart rotsbuilding", True))
@@ -1328,6 +1394,21 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(self.runner.kinds(), ["connect", "dirs", "links", "unfinished", "unwritable", "backup",
                                                "mark", "sftp", "edit", "build", "finish", "close"])
         self.assertIn("USE_BIG_BROTHER", self.text())
+
+    def test_test_port_lowers_the_shutdown_level_after_upload_and_before_build(self) -> None:
+        self.assertEqual(self.run_deploy("test"), 0)
+
+        kinds = self.runner.kinds()
+        self.assertEqual(kinds.count("edit"), 1, kinds)
+        self.assertLess(kinds.index("sftp"), kinds.index("edit"), kinds)
+        self.assertLess(kinds.index("edit"), kinds.index("build"), kinds)
+        self.assertIn("#define SHUTDOWN_LEVEL LEVEL_GOD", self.text())
+
+    def test_live_leaves_the_source_as_uploaded(self) -> None:
+        self.assertEqual(self.run_deploy("live"), 0)
+
+        self.assertNotIn("edit", self.runner.kinds())
+        self.assertNotIn("SHUTDOWN_LEVEL", self.text())
 
     def test_coders_skips_the_backup(self) -> None:
         self.assertEqual(self.run_deploy("coders"), 0)

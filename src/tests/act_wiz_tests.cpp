@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 ACMD(do_account);
+ACMD(do_shutdown);
 ACMD(do_whoacct);
 ACMD(do_wizset);
 extern struct player_index_element* player_table;
@@ -29,6 +30,10 @@ extern int top_of_p_table;
 void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(struct char_file_u* st, struct char_data* ch);
+extern char* command[];
+extern command_info cmd_info[];
+void assign_command_pointers(void);
+int old_search_block(char* argument, int begin, unsigned int length, const char** list, int mode);
 
 namespace {
 
@@ -1194,4 +1199,23 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
 
     free(implementor->player.name);
     delete implementor;
+}
+
+TEST(ActWiz, ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt)
+{
+    assign_command_pointers();
+
+    char name[] = "shutdown";
+    const int shutdown_command = old_search_block(name, 0, std::strlen(name), const_cast<const char**>(command), 0);
+
+    ASSERT_GE(shutdown_command, 0) << "the command list has no \"shutdown\" entry";
+    ASSERT_EQ(cmd_info[shutdown_command].command_pointer, &do_shutdown)
+        << "command " << shutdown_command << " is not the shutdown command";
+    ASSERT_EQ(cmd_info[shutdown_command].subcmd, SCMD_SHUTDOWN)
+        << "command " << shutdown_command << " is the \"shutdow\" typo guard, not shutdown";
+    EXPECT_EQ(LEVEL_GRGOD - 1, 96) << "the default shutdown level is written as LEVEL_GRGOD - 1";
+    EXPECT_EQ(LEVEL_GOD, 93) << "the test port's deploy lowers shutdown to LEVEL_GOD";
+    EXPECT_EQ(cmd_info[shutdown_command].minimum_level, LEVEL_GRGOD - 1)
+        << "shutdown opened to level " << cmd_info[shutdown_command].minimum_level
+        << "; only scripts/deploy.py may lower SHUTDOWN_LEVEL, and only on the test port's copy";
 }

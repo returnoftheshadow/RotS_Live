@@ -62,6 +62,9 @@ class SourceEdit:
 
 
 BIG_BROTHER_OFF = SourceEdit("big_brother.h", "#define USE_BIG_BROTHER 1", "#define USE_BIG_BROTHER 0")
+# Lets level 93 immortals run "shutdown" (and so "shutdown reboot"); the repo default is level 96.
+SHUTDOWN_AT_GOD = SourceEdit("interpre.cpp", "#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)",
+                             "#define SHUTDOWN_LEVEL LEVEL_GOD")
 
 
 @dataclass(frozen=True)
@@ -87,8 +90,9 @@ ENVS = {
         Env("4k", "live-pkarena4000", BOLD_MAGENTA, backup=True, tag_prefix="4k-",
             source_edits=(BIG_BROTHER_OFF,)),
         # The test port may be deployed from a feature branch, and is still tagged.
-        Env("test", "dev-building4802", YELLOW, backup=True, tag_prefix="test-", require_branch=False,
-            deployable=True, restart_service="rotsbuilding"),
+        Env("test", "dev-building4802", YELLOW, backup=True, tag_prefix="test-",
+            source_edits=(SHUTDOWN_AT_GOD,), require_branch=False, deployable=True,
+            restart_service="rotsbuilding"),
         # The coding port keeps no backups (docs/Running the Game.md).
         Env("coders", "dev-coding4810", GREEN, backup=False, tag_prefix="coders-"),
         # Test targets: never tagged, and deployable from a feature branch.
