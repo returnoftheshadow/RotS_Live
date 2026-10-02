@@ -12,6 +12,8 @@ AGELAND := $(BIN_DIR)/ageland
 
 # The live server is 32-bit: its binary player and object files depend on the i386 layout.
 # These flags define the build; CXXFLAGS and LDFLAGS stay free for callers to extend.
+# -m32, -funsigned-char and -fstrict-aliasing match rots_codegen in src/CMakeLists.txt, which
+# the unit tests are built with; change both together.
 ROTS_CXXFLAGS := -std=c++17 -m32 -w -fstrict-aliasing -funsigned-char
 # -rdynamic exports the server's symbols so backtrace_symbols() can name crash frames.
 ROTS_LDFLAGS := -m32 -rdynamic
