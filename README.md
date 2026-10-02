@@ -19,8 +19,8 @@ On your Unix based system you'll need to install the following packages.
 3. clang-format (We use  this to format all the code base)
 4. make (This is just something you should have in general)
 5. cmake 3.18 or newer (Used by the root Makefile and the direct CMake workflow)
-6. Network access the first time the tests are configured (CMake downloads GoogleTest 1.17.0). Tests are on by default, so this applies to `make configure` too. To build offline, pass `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=<unpacked googletest-1.17.0>`, or `-DBUILD_TESTING=OFF` for the server alone; through the root Makefile, put either in `CMAKE_CONFIGURE_ARGS` along with `-DCMAKE_CXX_COMPILER=g++`
-7. 32-bit C/C++ development support (The game build uses `-m32`)
+6. Network access the first time the tests are configured (CMake downloads GoogleTest 1.17.0). Tests are on by default, so this applies to `make configure` too. To build offline, pass `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=<unpacked googletest-1.17.0>`, or `-DBUILD_TESTING=OFF` for the server alone; through the root Makefile, put either in `CMAKE_CONFIGURE_ARGS` along with `-DCMAKE_CXX_COMPILER=g++`. If a configure has already failed, use a fresh build directory (delete `build/` or set a new `BUILD_DIR`), because an existing one is not reconfigured
+7. 32-bit C/C++ development support (The game build uses `-m32`). The machine must also be able to run 32-bit programs, because the unit tests run as one
 8. 32-bit libcrypt development files (Needed when linking the game)
 9. Rust and Cargo (Needed for the proxy and `make smoke-account`)
 10. python3 (Needed for the account smoke harness)

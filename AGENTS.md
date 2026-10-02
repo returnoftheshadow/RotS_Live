@@ -16,7 +16,7 @@
 - If active work changes during implementation, update `WIP.md` before continuing.
 
 ## Build, Test, and Development Commands
-- Configure: `make configure` — generates the CMake build tree in `build/`.
+- Configure: `make configure` — generates the CMake build tree in `build/`. The first configure downloads GoogleTest; without network access, see README.md prerequisite 6.
 - Bootstrap data: `make setup` — creates required runtime directories/files under `lib/`, `log/`, and `bin/`.
 - Build: `make build` — compiles C/C++ sources to `bin/ageland`.
 - Test: `make test` — builds and runs the GoogleTest-based C++ unit tests.

@@ -30,7 +30,7 @@ option(ROTS_SUPPRESS_TEST_WARNINGS "Suppress compiler warnings when building the
 include(CheckCXXSourceCompiles)
 # A 64-bit host needs its 32-bit C++ toolchain and 32-bit libcrypt (g++-multilib and
 # libcrypt-dev:i386, or the distribution's equivalents); without them the build would fail at
-# the first link with a less clear error.
+# the first compile or link with a less clear error.
 set(CMAKE_REQUIRED_FLAGS -m32)
 set(CMAKE_REQUIRED_LINK_OPTIONS -m32)
 set(CMAKE_REQUIRED_LIBRARIES crypt)
@@ -54,7 +54,8 @@ endif()
 # Settings that change what the compiled code does, not only how it is built. The live server
 # is 32-bit with unsigned char, and its binary player and object files depend on that layout.
 # Everything compiled from the server's sources links this target, so the tests exercise the
-# code that ships.
+# code that ships. src/Makefile's ROTS_CXXFLAGS repeats these flags for the Makefile build;
+# change both together.
 add_library(rots_codegen INTERFACE)
 target_compile_options(rots_codegen INTERFACE
     -m32
@@ -234,7 +235,7 @@ if(BUILD_TESTING)
     # FETCHCONTENT_SOURCE_DIR_GOOGLETEST to an unpacked copy of this release.
     include(FetchContent)
     FetchContent_Declare(googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
+        URL https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz
         URL_HASH SHA256=65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
     )
     set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
@@ -242,6 +243,10 @@ if(BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
     target_link_libraries(gtest PRIVATE rots_codegen)
     target_link_libraries(gtest_main PRIVATE rots_codegen)
+    # GoogleTest turns on its own warnings; its sources are not ours to fix, so keep test
+    # output to warnings from this project.
+    target_compile_options(gtest PRIVATE -w)
+    target_compile_options(gtest_main PRIVATE -w)
     include(GoogleTest)
 
     add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})

@@ -1,5 +1,12 @@
 #include "../structs.h"
 #include <gtest/gtest.h>
+#include <type_traits>
+
+// The tests exercise the code the server ships only when they are built with its settings
+// (rots_codegen in src/CMakeLists.txt); these stop the build if that link is ever lost.
+static_assert(sizeof(void*) == 4, "the unit tests must build 32-bit (-m32), like the server");
+static_assert(std::is_unsigned<char>::value,
+    "the unit tests must build with -funsigned-char, like the server");
 
 extern room_data world;
 
