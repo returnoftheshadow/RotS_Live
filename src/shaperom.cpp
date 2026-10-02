@@ -25,6 +25,7 @@ int shape_standup(struct char_data* ch, int pos);
 void shape_flag_value(struct char_data* ch, char* arg, int* value);
 int shape_help_asked(const char* arg);
 void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
+void shape_prompt_hint(struct char_data* ch);
 struct affected_type* get_from_affected_type_pool();
 void put_to_affected_type_pool(struct affected_type*);
 
@@ -380,6 +381,7 @@ void implement_room(struct char_data* ch)
             = shape_standup(ch, POSITION_SHAPING);                                \
         ch->specials.prompt_number = 2;                                           \
         SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);                       \
+        shape_prompt_hint(ch);                                                    \
         return;                                                                   \
     } else {                                                                      \
         str[0] = 0;                                                               \
@@ -592,6 +594,7 @@ void shape_center_room(struct char_data* ch, char* arg)
             = shape_standup(ch, POSITION_SHAPING);            \
         ch->specials.prompt_number = 3;                       \
         SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);   \
+        shape_prompt_hint(ch);                                \
         return;                                               \
     } else {                                                  \
         tmp = addr;                                           \
@@ -613,6 +616,7 @@ void shape_center_room(struct char_data* ch, char* arg)
             = shape_standup(ch, POSITION_SHAPING);            \
         ch->specials.prompt_number = 3;                       \
         SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);   \
+        shape_prompt_hint(ch);                                \
         return;                                               \
     } else {                                                  \
         tmp = addr;                                           \
@@ -667,6 +671,7 @@ void shape_center_room(struct char_data* ch, char* arg)
                     = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 3;
                 SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             } else {
                 str[0] = 0;
@@ -727,6 +732,7 @@ void shape_center_room(struct char_data* ch, char* arg)
                     = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 2;
                 SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             } else {
                 str[0] = 0;
@@ -991,6 +997,7 @@ void shape_center_room(struct char_data* ch, char* arg)
                     (long)mob->affected->bitvector);
                 send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_ROOM(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 SHAPE_ROOM(ch)->position = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 3;
                 return;
