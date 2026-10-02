@@ -185,10 +185,8 @@ remote command string is built with `shlex.quote`.
    `sed -i`; then require exactly one `^#define USE_BIG_BROTHER 0$` line and no `... 1` line. The
    local checkout is never edited. `test` gets one edit of the same kind: in `interpre.cpp`, the
    `shutdown` row (`COMMANDO(61, ...)`) changes `LEVEL_GRGOD - 1` to `LEVEL_GOD`, so level 93
-   immortals can run `shutdown` there (level 96 everywhere else). `promote_port.py 4802-to-3791`
-   copies the test port's `src/` as it is; the unit test
-   `ActWiz.ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt` fails on an edited copy, so that
-   promotion is refused rather than carrying level 93 to live.
+   immortals can run `shutdown` there (level 96 everywhere else). **Danger:** `promote_port.py`
+   copies a port's `src/` as it is, so promoting from the test port copies this test-only edit too.
 7. **Build.** Record the server time, then `make clean`, then `make all -j2`, streaming output. Then
    require `../bin/ageland` to exist with a modification time at or after the recorded time.
 
