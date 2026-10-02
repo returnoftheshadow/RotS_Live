@@ -183,8 +183,8 @@ remote command string is built with `shlex.quote`.
 6. **Source edits** (4k, `zzz-forge-test-4k` and `test` only). Require exactly one line matching
    `^#define USE_BIG_BROTHER 1$` in `big_brother.h`; replace it with `#define USE_BIG_BROTHER 0` via
    `sed -i`; then require exactly one `^#define USE_BIG_BROTHER 0$` line and no `... 1` line. The
-   local checkout is never edited. `test` gets one edit of the same kind: in `interpre.cpp`,
-   `#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)` becomes `#define SHUTDOWN_LEVEL LEVEL_GOD`, so level 93
+   local checkout is never edited. `test` gets one edit of the same kind: in `interpre.cpp`, the
+   `shutdown` row (`COMMANDO(61, ...)`) changes `LEVEL_GRGOD - 1` to `LEVEL_GOD`, so level 93
    immortals can run `shutdown` there (level 96 everywhere else). `promote_port.py 4802-to-3791`
    copies the test port's `src/` as it is; the unit test
    `ActWiz.ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt` fails on an edited copy, so that

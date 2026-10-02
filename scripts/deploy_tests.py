@@ -52,8 +52,10 @@ class EnvTableTest(unittest.TestCase):
         self.assertEqual(with_edit, ["test"])
         self.assertEqual(deploy.ENVS["test"].source_edits, (deploy.SHUTDOWN_AT_GOD,))
         self.assertEqual(deploy.SHUTDOWN_AT_GOD.path, "interpre.cpp")
-        self.assertEqual(deploy.SHUTDOWN_AT_GOD.old_line, "#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)")
-        self.assertEqual(deploy.SHUTDOWN_AT_GOD.new_line, "#define SHUTDOWN_LEVEL LEVEL_GOD")
+        self.assertEqual(deploy.SHUTDOWN_AT_GOD.old_line,
+                         "    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GRGOD - 1, FALSE, SCMD_SHUTDOWN,")
+        self.assertEqual(deploy.SHUTDOWN_AT_GOD.new_line,
+                         "    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GOD, FALSE, SCMD_SHUTDOWN,")
 
     def test_every_env_without_a_source_edit_is_listed(self) -> None:
         # A new edit on a real port must be a deliberate change to this list.
@@ -851,6 +853,9 @@ class SourceEditCommandTest(RemoteCommandTestCase):
 class ShutdownLevelEditTest(RemoteCommandTestCase):
     """The test port's edit against the real src/interpre.cpp, so a change to that file cannot quietly break it."""
 
+    OLD = b"    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GRGOD - 1, FALSE, SCMD_SHUTDOWN,"
+    NEW = b"    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GOD, FALSE, SCMD_SHUTDOWN,"
+
     def setUp(self) -> None:
         super().setUp()
         self.source = self.root / "src" / "interpre.cpp"
@@ -858,45 +863,28 @@ class ShutdownLevelEditTest(RemoteCommandTestCase):
         self.source.write_bytes(self.real)
         self.command = deploy.source_edit_command(TEST_ENV, deploy.SHUTDOWN_AT_GOD)
 
-    def defines(self) -> list:
-        return [line.rstrip(b"\r") for line in self.source.read_bytes().splitlines()
-                if line.startswith(b"#define SHUTDOWN_LEVEL")]
+    def shutdown_rows(self) -> list:
+        return [line.rstrip(b"\r") for line in self.source.read_bytes().splitlines() if b"SCMD_SHUTDOWN" in line]
 
-    def test_repo_default_keeps_shutdown_one_level_below_greater_god(self) -> None:
-        self.assertEqual(self.defines(), [b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)"])
-
-    def test_nothing_else_defines_or_undefines_the_setting(self) -> None:
-        # A second definition, however it is spaced, would make the edit succeed and change nothing.
-        mentions = re.findall(rb"(?m)^[ \t]*#[ \t]*(?:define|undef)[ \t]+SHUTDOWN_LEVEL\b.*$", self.real)
-
-        self.assertEqual([line.rstrip(b"\r") for line in mentions], [b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)"])
-
-    def test_shutdown_command_takes_its_level_from_the_setting(self) -> None:
-        shutdown_rows = [line.strip() for line in self.real.splitlines() if b"SCMD_SHUTDOWN" in line]
-
-        self.assertEqual(shutdown_rows,
-                         [b"COMMANDO(61, POSITION_DEAD, do_shutdown, SHUTDOWN_LEVEL, FALSE, SCMD_SHUTDOWN,"])
+    def test_repo_keeps_shutdown_one_level_below_greater_god(self) -> None:
+        self.assertEqual(self.shutdown_rows(), [self.OLD])
 
     def test_lowers_the_level_in_the_real_source_and_changes_nothing_else(self) -> None:
         result = self.sh(self.command)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.defines(), [b"#define SHUTDOWN_LEVEL LEVEL_GOD"])
-        self.assertEqual(self.source.read_bytes(),
-                         self.real.replace(b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)",
-                                           b"#define SHUTDOWN_LEVEL LEVEL_GOD"))
+        self.assertEqual(self.shutdown_rows(), [self.NEW])
+        self.assertEqual(self.source.read_bytes(), self.real.replace(self.OLD, self.NEW))
 
-    def test_stops_without_editing_when_the_setting_is_missing(self) -> None:
-        original = self.real.replace(b"#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)", b"#define SHUTDOWN_LEVEL LEVEL_GRGOD")
-        self.source.write_bytes(original)
+    def test_stops_without_editing_when_the_line_is_already_changed(self) -> None:
+        self.sh(self.command)
+        edited = self.source.read_bytes()
 
         result = self.sh(self.command)
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("interpre.cpp: expected exactly one line: #define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)",
-                      result.stdout)
-        self.assertEqual(self.source.read_bytes(), original)
-
+        self.assertIn("interpre.cpp: expected exactly one line: " + self.OLD.decode(), result.stdout)
+        self.assertEqual(self.source.read_bytes(), edited)
 
 class RestartCommandTest(unittest.TestCase):
     def test_restarts_the_service_with_sudo_and_changes_no_file(self) -> None:
@@ -1402,13 +1390,13 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(kinds.count("edit"), 1, kinds)
         self.assertLess(kinds.index("sftp"), kinds.index("edit"), kinds)
         self.assertLess(kinds.index("edit"), kinds.index("build"), kinds)
-        self.assertIn("#define SHUTDOWN_LEVEL LEVEL_GOD", self.text())
+        self.assertIn("do_shutdown, LEVEL_GOD", self.text())
 
     def test_live_leaves_the_source_as_uploaded(self) -> None:
         self.assertEqual(self.run_deploy("live"), 0)
 
         self.assertNotIn("edit", self.runner.kinds())
-        self.assertNotIn("SHUTDOWN_LEVEL", self.text())
+        self.assertNotIn("do_shutdown", self.text())
 
     def test_coders_skips_the_backup(self) -> None:
         self.assertEqual(self.run_deploy("coders"), 0)

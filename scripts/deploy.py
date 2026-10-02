@@ -63,8 +63,10 @@ class SourceEdit:
 
 BIG_BROTHER_OFF = SourceEdit("big_brother.h", "#define USE_BIG_BROTHER 1", "#define USE_BIG_BROTHER 0")
 # Lets level 93 immortals run "shutdown" (and so "shutdown reboot"); the repo default is level 96.
-SHUTDOWN_AT_GOD = SourceEdit("interpre.cpp", "#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)",
-                             "#define SHUTDOWN_LEVEL LEVEL_GOD")
+SHUTDOWN_AT_GOD = SourceEdit(
+    "interpre.cpp",
+    "    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GRGOD - 1, FALSE, SCMD_SHUTDOWN,",
+    "    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GOD, FALSE, SCMD_SHUTDOWN,")
 
 
 @dataclass(frozen=True)

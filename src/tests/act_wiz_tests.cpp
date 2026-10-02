@@ -1217,5 +1217,5 @@ TEST(ActWiz, ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt)
     EXPECT_EQ(LEVEL_GOD, 93) << "the test port's deploy lowers shutdown to LEVEL_GOD";
     EXPECT_EQ(cmd_info[shutdown_command].minimum_level, LEVEL_GRGOD - 1)
         << "shutdown opened to level " << cmd_info[shutdown_command].minimum_level
-        << "; only scripts/deploy.py may lower SHUTDOWN_LEVEL, and only on the test port's copy";
+        << "; only scripts/deploy.py may lower it, and only on the test port's copy";
 }

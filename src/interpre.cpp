@@ -57,10 +57,6 @@
 
 #define FULL_TARGET (131071 & ~TAR_SELF_NONO & ~TAR_IGNORE)
 
-// Minimum level for "shutdown" (command 61). The deploy script lowers it to LEVEL_GOD on the
-// test port by rewriting the line below in the server's copy, so keep that line exactly as it is.
-#define SHUTDOWN_LEVEL (LEVEL_GRGOD - 1)
-
 extern struct prof_type existing_profs[DEFAULT_PROFS];
 extern struct player_index_element* player_table;
 extern struct char_data* character_list;
@@ -1875,7 +1871,7 @@ void assign_command_pointers(void)
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(60, POSITION_DEAD, do_purge, LEVEL_GOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(61, POSITION_DEAD, do_shutdown, SHUTDOWN_LEVEL, FALSE, SCMD_SHUTDOWN,
+    COMMANDO(61, POSITION_DEAD, do_shutdown, LEVEL_GRGOD - 1, FALSE, SCMD_SHUTDOWN,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(62, POSITION_STANDING, do_compare, 0, TRUE, 0,
         FULL_TARGET, FULL_TARGET, 0);
