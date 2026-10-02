@@ -472,7 +472,8 @@ void show_equipment_to_char(struct char_data* from, struct char_data* to)
 
 extern struct prompt_type health_diagnose[];
 
-void report_char_health(struct char_data *ch, struct char_data *i, char *str) {
+void report_char_health(struct char_data* ch, struct char_data* i, char* str)
+{
     int tmp;
     long long percent; // widen so 1000 * GET_HIT(i) cannot signed-overflow
     const int max_index = 7; // health_diagnose[] has 8 entries (consts.cpp)
@@ -2161,6 +2162,32 @@ ACMD(do_help)
     return;
 }
 
+/* Finds an entry of a manual chapter by whole keyword; *num gets the chapter. */
+static int find_help_entry(const char* chapter, const char* keyword, int* num)
+{
+    extern int help_summary_length;
+    extern struct help_index_summary help_content[];
+    int i;
+
+    for (*num = 0; *num < help_summary_length; (*num)++)
+        if (!str_cmp(help_content[*num].keyword, (char*)chapter))
+            break;
+    if (*num == help_summary_length || !help_content[*num].file || !help_content[*num].index)
+        return -1;
+
+    for (i = 0; i <= help_content[*num].top_of_helpt; i++)
+        if (!str_cmp((char*)keyword, help_content[*num].index[i].keyword))
+            return i;
+    return -1;
+}
+
+int help_entry_exists(const char* chapter, const char* keyword)
+{
+    int num;
+
+    return find_help_entry(chapter, keyword, &num) >= 0;
+}
+
 /*
  * Sends one entry of a manual chapter, matched on a whole keyword, without
  * paging: the shaping prompts show it while they wait for an answer.  The
@@ -2169,32 +2196,25 @@ ACMD(do_help)
  */
 int show_help_entry(struct char_data* ch, const char* chapter, const char* keyword)
 {
-    extern int help_summary_length;
     extern struct help_index_summary help_content[];
     char line[100];
     int num, i, blank;
 
-    for (num = 0; num < help_summary_length; num++)
-        if (!str_cmp(help_content[num].keyword, (char*)chapter))
-            break;
-    if (num == help_summary_length || !help_content[num].file || !help_content[num].index)
+    i = find_help_entry(chapter, keyword, &num);
+    if (i < 0)
         return 0;
 
-    for (i = 0; i <= help_content[num].top_of_helpt; i++)
-        if (!str_cmp((char*)keyword, help_content[num].index[i].keyword)) {
-            fseek(help_content[num].file, help_content[num].index[i].pos, SEEK_SET);
-            if (!fgets(line, sizeof(line), help_content[num].file)) /* the keyword line */
-                return 0;
-            blank = 1;
-            while (fgets(line, sizeof(line), help_content[num].file) && *line != '#') {
-                send_to_char(line, ch);
-                blank = !line[strspn(line, " \t\r\n")];
-            }
-            if (!blank)
-                send_to_char("\n\r", ch);
-            return 1;
-        }
-    return 0;
+    fseek(help_content[num].file, help_content[num].index[i].pos, SEEK_SET);
+    if (!fgets(line, sizeof(line), help_content[num].file)) /* the keyword line */
+        return 0;
+    blank = 1;
+    while (fgets(line, sizeof(line), help_content[num].file) && *line != '#') {
+        send_to_char(line, ch);
+        blank = !line[strspn(line, " \t\r\n")];
+    }
+    if (!blank)
+        send_to_char("\n\r", ch);
+    return 1;
 }
 
 #define WHO_FORMAT "format: who [minlev[-maxlev]] [-n name] [-s] [-q] [-r] [-z] [-w] [-d] [-m]\n\r"

@@ -25,6 +25,7 @@ extern struct char_data* character_list;
 int shape_standup(struct char_data* ch, int pos);
 int shape_help_asked(const char* arg);
 void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
+void shape_prompt_hint(struct char_data* ch);
 int convert_exit_flag(int tmp, int mode); /* in shaperom.cpp */
 // void symbol_to_map(int x, int y, int symb);
 void draw_map();
@@ -623,6 +624,7 @@ void implement_zone(struct char_data* ch)
                 = shape_standup(ch, POSITION_SHAPING);                                      \
             ch->specials.prompt_number = 2;                                                 \
             SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                             \
+            shape_prompt_hint(ch);                                                          \
             return;                                                                         \
         } else {                                                                            \
             str[0] = 0;                                                                     \
@@ -669,6 +671,7 @@ void implement_zone(struct char_data* ch)
         ch->specials.prompt_number = 2;                                    \
         send_to_char(line, ch);                                            \
         SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                \
+        shape_prompt_hint(ch);                                             \
         return;                                                            \
     } else {                                                               \
         tmp2 = 0;                                                          \
@@ -699,6 +702,7 @@ void implement_zone(struct char_data* ch)
                 = shape_standup(ch, POSITION_SHAPING);                 \
             ch->specials.prompt_number = 3;                            \
             SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);        \
+            shape_prompt_hint(ch);                                     \
             return;                                                    \
         } else {                                                       \
             for (tmp1 = 0; arg[tmp1] && arg[tmp1] <= ' '; tmp1++)      \
@@ -1003,6 +1007,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 sprintf(str, "Enter list mask: letter if_flag arg1 arg2 arg3 arg4 arg5 arg6 arg7\n\r  ('*' = any):\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 ch->specials.prompt_number = 2;
                 SHAPE_ZONE(ch)
                     ->position
@@ -1106,6 +1111,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                              "Enter command type:\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 ch->specials.prompt_number = 2;
                 SHAPE_ZONE(ch)
                     ->position
@@ -1391,6 +1397,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 sprintf(str, "REMOVE current command?<yn>:\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 ch->specials.prompt_number = 2;
                 SHAPE_ZONE(ch)
                     ->position
@@ -1659,6 +1666,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                     = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 2;
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             } else {
                 if (arg[0] >= ' ')
@@ -1747,6 +1755,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 SHAPE_ZONE(ch)->position = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 3;
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             }
             shape_range_set(ch, arg, &SHAPE_ZONE(ch)->list_start, &SHAPE_ZONE(ch)->list_end);

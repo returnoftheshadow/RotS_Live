@@ -31,6 +31,7 @@ int shape_standup(struct char_data* ch, int pos);
 void shape_flag_value(struct char_data* ch, char* arg, int* value);
 int shape_help_asked(const char* arg);
 void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
+void shape_prompt_hint(struct char_data* ch);
 
 void new_obj(struct char_data* ch)
 {
@@ -317,6 +318,7 @@ void implement_object(struct char_data* ch)
             = shape_standup(ch, POSITION_SHAPING);                               \
         ch->specials.prompt_number = 2;                                          \
         SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);                    \
+        shape_prompt_hint(ch);                                                   \
         return;                                                                  \
     } else {                                                                     \
         str[0] = 0;                                                              \
@@ -650,6 +652,7 @@ void shape_center_obj(struct char_data* ch, char* arg)
             = shape_standup(ch, POSITION_SHAPING);              \
         ch->specials.prompt_number = 3;                         \
         SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);   \
+        shape_prompt_hint(ch);                                  \
         return;                                                 \
     } else {                                                    \
         tmp = addr;                                             \
@@ -743,6 +746,7 @@ void shape_center_obj(struct char_data* ch, char* arg)
                     = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 3;
                 SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             } else {
                 if (!(tmp5 = sscanf(arg, "%d %d %d %d %d", &tmp, &tmp1, &tmp2, &tmp3, &tmp4))) {
@@ -893,6 +897,7 @@ void shape_center_obj(struct char_data* ch, char* arg)
                     obj->affected[1].location, obj->affected[1].modifier);
                 send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 ch->specials.prompt_number = 3;
                 SHAPE_OBJECT(ch)
                     ->position

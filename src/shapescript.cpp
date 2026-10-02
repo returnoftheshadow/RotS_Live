@@ -59,6 +59,7 @@ extern struct script_head* script_table;
 int shape_standup(struct char_data* ch, int pos);
 int shape_help_asked(const char* arg);
 void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
+void shape_prompt_hint(struct char_data* ch);
 int get_text(FILE* f, char** line);
 int get_command(char* command);
 void shape_disabled(struct char_data* ch, const char* prefix, const char* typed);
@@ -1265,6 +1266,7 @@ void extra_coms_script(struct char_data* ch, char* argument)
                 = shape_standup(ch, POSITION_SHAPING);                                      \
             ch->specials.prompt_number = 2;                                                 \
             SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);                           \
+            shape_prompt_hint(ch);                                                          \
             return;                                                                         \
         } else {                                                                            \
             str[0] = 0;                                                                     \
@@ -1312,6 +1314,7 @@ void extra_coms_script(struct char_data* ch, char* argument)
                 = shape_standup(ch, POSITION_SHAPING);                   \
             ch->specials.prompt_number = 3;                              \
             SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);        \
+            shape_prompt_hint(ch);                                       \
             return;                                                      \
         } else {                                                         \
             for (tmp1 = 0; arg[tmp1] && arg[tmp1] <= ' '; tmp1++)        \
@@ -1359,7 +1362,7 @@ static const char* script_type_groups[][2] = {
 
 /* The name of a command type, found by asking get_command about each name
  * in the /3 list; "?" if it is not one of them. */
-static const char* script_type_name(int type)
+const char* script_type_name(int type)
 {
     static char word[40];
     unsigned int g;
@@ -1540,6 +1543,7 @@ static int script_read_params(struct char_data* ch, char* arg, int first, const 
         ch->specials.prompt_number = strspn(kinds, "n") == strlen(kinds) ? 3 : 2;   \
         script_show_params(ch, line, first, kinds);                                 \
         SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);                       \
+        shape_prompt_hint(ch);                                                      \
         return;                                                                     \
     } else {                                                                        \
         SHAPE_SCRIPT(ch)->position = shape_standup(ch, SHAPE_SCRIPT(ch)->position); \
@@ -1660,6 +1664,7 @@ void shape_center_script(struct char_data* ch, char* arg)
                     script_type_name(SHAPE_SCRIPT(ch)->script->command_type));
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 ch->specials.prompt_number = 2;
                 SHAPE_SCRIPT(ch)
                     ->position
@@ -2611,6 +2616,7 @@ void shape_center_script(struct char_data* ch, char* arg)
                 SHAPE_SCRIPT(ch)->position = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 3;
                 SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             }
             shape_range_set(ch, arg, &SHAPE_SCRIPT(ch)->list_start, &SHAPE_SCRIPT(ch)->list_end);

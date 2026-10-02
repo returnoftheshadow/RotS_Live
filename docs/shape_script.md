@@ -82,6 +82,7 @@ Current: ch1 ch2 ob1   (blank = keep)
 ```
 
 - Type the values separated by spaces, no commas. Case does not matter.
+- The prompt ends with `(%h = help)` when the command has a help entry.
 - `%h` shows the command's `man script` entry (e.g. `DO_GIVE`) and asks again;
   at `/3` it shows `COMMAND LIST`.
 - A blank answer keeps the current values. Fewer values than asked set the

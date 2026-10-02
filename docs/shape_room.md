@@ -95,7 +95,9 @@ values. Prompts fall into three kinds:
    empties it. `#` becomes `+` and `~` becomes `-`.
 2. **Multi-line** (`/2`, `/9`, `/14`): the text editor. Your old text is kept
    and new lines are added after it. `%e` saves, `%q` aborts and keeps the old
-   text, `%r` shows the text so far, `%f` formats, `%h` shows help.
+   text, `%r` shows the text so far, `%f` formats, `%h` shows the field's
+   `man shape` entry and then the editor commands. The editor lists all its
+   commands when it opens.
 3. **Number** (`Enter <field> [current]:`): `N` sets, `+N` adds, `-N`
    subtracts, `pN` sets bit N, `mN` clears bit N, blank keeps the value.
    Several `p`/`m` go in one answer, left to right (`p0 p4 m3`); the list
@@ -104,7 +106,8 @@ values. Prompts fall into three kinds:
    Exception: the key (`/10`) and destination (`/11`) prompts take `-N` as a
    negative value (see below).
 
-`%h` at a single-line or number prompt shows that field's `man shape room N`
+A single-line or number prompt ends with `(%h = help)` when its field has a
+help entry. `%h` at a single-line or number prompt shows that field's `man shape room N`
 entry and asks again; nothing changes.
 
 ### Room field commands
