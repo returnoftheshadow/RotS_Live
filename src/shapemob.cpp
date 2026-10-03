@@ -467,6 +467,104 @@ void shape_prompt_help(struct char_data* ch, const char* chapter, const char* ke
     }
 }
 
+int help_entry_exists(const char* chapter, const char* keyword);
+const char* script_type_name(int type);
+
+/*
+ * The manual chapter and keyword of the field the shaper is on now, the same
+ * ones the "%h" hooks in the editors look up.  key is "" when the field has
+ * no keyword.
+ */
+static const char* shape_field_help_key(struct char_data* ch, char* key)
+{
+    int field;
+
+    *key = 0;
+    switch (*(sh_int*)ch->temp) {
+    case SHAPE_PROTOS:
+        field = SHAPE_PROTO(ch)->editflag;
+        if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_SIMPLEMODE) && !IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
+            field = command_simple_convert(field);
+        sprintf(key, "MOB2 %d", field);
+        break;
+    case SHAPE_OBJECTS:
+        sprintf(key, "OBJ %d", SHAPE_OBJECT(ch)->editflag);
+        break;
+    case SHAPE_ROOMS:
+        sprintf(key, "ROOM %d", SHAPE_ROOM(ch)->editflag);
+        break;
+    case SHAPE_ZONES:
+        if (SHAPE_ZONE(ch)->editflag == 3)
+            strcpy(key, "ZONE");
+        else if (SHAPE_ZONE(ch)->editflag == 4 && SHAPE_ZONE(ch)->curr)
+            sprintf(key, "ZONE %c", SHAPE_ZONE(ch)->curr->comm.command);
+        else
+            sprintf(key, "ZONE %d", SHAPE_ZONE(ch)->editflag);
+        break;
+    case SHAPE_SCRIPTS:
+        field = SHAPE_SCRIPT(ch)->editflag;
+        if (field == 3)
+            strcpy(key, "COMMAND LIST");
+        else if ((field == 4 || (field >= 41 && field <= 49)) && SHAPE_SCRIPT(ch)->script)
+            strcpy(key, script_type_name(SHAPE_SCRIPT(ch)->script->command_type));
+        return "script";
+    }
+    return "shape";
+}
+
+/* Ends a line or number prompt: says "%h" is there when the field has help. */
+void shape_prompt_hint(struct char_data* ch)
+{
+    char key[40];
+    const char* chapter;
+
+    if (!ch->temp)
+        return;
+    chapter = shape_field_help_key(ch, key);
+    if (*key && help_entry_exists(chapter, key))
+        send_to_char("(%h = help)\n\r", ch);
+}
+
+/*
+ * For the text editor: true when str is the text of a shaping field ch is
+ * editing.  Gives the field's help entry (key "" when it has none) and
+ * whether formatting must be refused: mob options are one setting per line.
+ */
+int shape_text_field(struct char_data* ch, char** str, const char** chapter, char* key, int* no_format)
+{
+    char** field = 0;
+
+    *key = 0;
+    *no_format = 0;
+    if (!ch || !ch->temp || !str)
+        return 0;
+    switch (*(sh_int*)ch->temp) {
+    case SHAPE_PROTOS:
+        field = &SHAPE_PROTO(ch)->tmpstr;
+        break;
+    case SHAPE_OBJECTS:
+        field = &SHAPE_OBJECT(ch)->tmpstr;
+        break;
+    case SHAPE_ROOMS:
+        field = &SHAPE_ROOM(ch)->tmpstr;
+        break;
+    case SHAPE_ZONES:
+        field = &SHAPE_ZONE(ch)->tmpstr;
+        break;
+    case SHAPE_SCRIPTS:
+        field = &SHAPE_SCRIPT(ch)->tmpstr;
+        break;
+    }
+    if (str != field)
+        return 0;
+    *chapter = shape_field_help_key(ch, key);
+    /* Before the entry check: the refusal must not depend on the help file. */
+    *no_format = *(sh_int*)ch->temp == SHAPE_PROTOS && !strcmp(key, "MOB2 42");
+    if (!help_entry_exists(*chapter, key))
+        *key = 0;
+    return 1;
+}
+
 void list_proto(struct char_data* ch, struct char_data* mob); /* forward declaration */
 void list_help(struct char_data* ch);
 void list_simple_proto(struct char_data* ch, struct char_data* mob); /* forward declaration */
@@ -665,6 +763,7 @@ void write_proto(FILE* f, struct char_data* m, int num)
                 = shape_standup(ch, POSITION_SHAPING);                                      \
             ch->specials.prompt_number = 2;                                                 \
             SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);                            \
+            shape_prompt_hint(ch);                                                          \
             return;                                                                         \
         } else {                                                                            \
             str[0] = 0;                                                                     \
@@ -844,6 +943,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 = shape_standup(ch, POSITION_SHAPING);             \
             ch->specials.prompt_number = 3;                        \
             SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);   \
+            shape_prompt_hint(ch);                                 \
             return;                                                \
         } else {                                                   \
             tmp = addr;                                            \
@@ -867,6 +967,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 = shape_standup(ch, POSITION_SHAPING);             \
             ch->specials.prompt_number = 3;                        \
             SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);   \
+            shape_prompt_hint(ch);                                 \
             return;                                                \
         } else {                                                   \
             tmp = addr;                                            \
@@ -935,6 +1036,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     mob->points.OB, mob->points.parry, mob->points.dodge);
                 send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 SHAPE_PROTO(ch)
                     ->position
                     = shape_standup(ch, POSITION_SHAPING);
@@ -977,6 +1079,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     mob->tmpabilities.hit, mob->abilities.hit);
                 send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 SHAPE_PROTO(ch)
                     ->position
                     = shape_standup(ch, POSITION_SHAPING);
@@ -1080,6 +1183,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                 SHAPE_PROTO(ch)->position = shape_standup(ch, POSITION_SHAPING);
                 ch->specials.prompt_number = 2;
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 return;
             }
             REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
@@ -1207,6 +1311,7 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     mob->abilities.dex, mob->abilities.con, mob->abilities.lea);
                 send_to_char(tmpstr, ch);
                 SET_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_prompt_hint(ch);
                 SHAPE_PROTO(ch)
                     ->position
                     = shape_standup(ch, POSITION_SHAPING);

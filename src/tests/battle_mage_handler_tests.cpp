@@ -133,26 +133,34 @@ TEST_F(BattleMageProcTest, AggressiveTacticsUseCombinedBonusesForSpellInterrupti
     BattleMageTestContext context(game_types::PS_BattleMage, TACTICS_AGGRESSIVE, 24, 18);
     player_spec::battle_mage_handler handler(&context.character);
 
-    push_test_random_value(0.75);
+    // The combined threshold is 0.75, summed in float; rolls one hundredth either side keep the
+    // result independent of the evaluation precision.
+    push_test_random_value(0.74);
     EXPECT_FALSE(handler.does_spell_get_interrupted())
-        << "Expected aggressive battle mages to avoid interruption when the roll stays within the combined bonus threshold.";
+        << "Expected aggressive battle mages to avoid interruption when the roll is below the 0.75 "
+           "combined bonus threshold.";
 
     push_test_random_value(0.76);
     EXPECT_TRUE(handler.does_spell_get_interrupted())
-        << "Expected aggressive battle mages to be interrupted when the roll exceeds the combined bonus threshold.";
+        << "Expected aggressive battle mages to be interrupted when the roll exceeds the 0.75 "
+           "combined bonus threshold.";
 }
 
 TEST_F(BattleMageProcTest, AggressiveTacticsUseMageAndTacticsBonusesForMentalInterruptions) {
     BattleMageTestContext context(game_types::PS_BattleMage, TACTICS_BERSERK, 24, 18);
     player_spec::battle_mage_handler handler(&context.character);
 
-    push_test_random_value(0.59);
+    // The mage+tactics threshold is 0.59, summed in float; a roll of exactly 0.59 would compare
+    // differently on x87 and SSE2, so the rolls sit one hundredth either side.
+    push_test_random_value(0.58);
     EXPECT_FALSE(handler.does_mental_attack_interrupt_spell())
-        << "Expected mental interruption checks to use mage and tactics bonuses for battle mages.";
+        << "Expected a roll below the 0.59 mage+tactics threshold not to interrupt the battle "
+           "mage.";
 
     push_test_random_value(0.60);
     EXPECT_TRUE(handler.does_mental_attack_interrupt_spell())
-        << "Expected mental interruption checks to fail once the roll exceeds the mage+tactics threshold.";
+        << "Expected mental interruption checks to fail once the roll exceeds the 0.59 "
+           "mage+tactics threshold.";
 }
 
 TEST_F(BattleMageProcTest, AggressiveTacticsUseWarriorAndTacticsBonusesForArmorFailure) {

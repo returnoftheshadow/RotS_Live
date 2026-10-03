@@ -20,6 +20,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -472,7 +473,8 @@ void show_equipment_to_char(struct char_data* from, struct char_data* to)
 
 extern struct prompt_type health_diagnose[];
 
-void report_char_health(struct char_data *ch, struct char_data *i, char *str) {
+void report_char_health(struct char_data* ch, struct char_data* i, char* str)
+{
     int tmp;
     long long percent; // widen so 1000 * GET_HIT(i) cannot signed-overflow
     const int max_index = 7; // health_diagnose[] has 8 entries (consts.cpp)
@@ -1963,52 +1965,7 @@ ACMD(do_score)
 
 ACMD(do_time)
 {
-    char* bufpt;
-    char* year;
-    int weekday, sunrise, sunset, hours;
-    extern int sun_events[12][2];
-    extern char* weekdays[];
-    extern struct time_info_data time_info;
-    int get_season();
-
-    bufpt = buf;
-    bufpt += sprintf(bufpt, "It is about %d:00 %s on ",
-        time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
-        time_info.hours >= 12 ? "PM" : "AM");
-
-    /* 35 days in a month */
-    weekday = ((30 * time_info.month) + time_info.day + 1) % 7;
-    bufpt += sprintf(bufpt, "%s, ", weekdays[weekday]);
-
-    /* Get the daytime */
-    day_to_str(&time_info, bufpt);
-    bufpt += strlen(bufpt);
-    bufpt += sprintf(bufpt, ".\r\n");
-
-    year = nth(time_info.year);
-    bufpt += sprintf(bufpt,
-        "By the Steward's Reckoning, it is "
-        "the %s year of the fourth age of Arda.\r\n",
-        year);
-    free(year);
-
-    /* A blurb on the phase of the moon */
-    bufpt += sprintf(bufpt, "The moon is %s and %s.\n\r", moon_phase[weather_info.moonphase],
-        weather_info.moonlight ? "shining" : "not shining");
-
-    /* When the sun will rise and set */
-    sunrise = sun_events[time_info.month][0];
-    sunset = sun_events[time_info.month][1];
-    if (time_info.hours >= sunrise && time_info.hours < sunset) {
-        hours = sunset - time_info.hours;
-        bufpt += sprintf(bufpt, "The sun will set in about %d hour%s.\r\n", hours,
-            hours == 1 ? "" : "s");
-    } else {
-        hours = sunrise + (time_info.hours < 12 ? -time_info.hours : 24 - time_info.hours);
-        bufpt += sprintf(bufpt, "The sun will rise in about %d hour%s.\n\r", hours,
-            hours == 1 ? "" : "s");
-    }
-    send_to_char(buf, ch);
+    send_to_char(game_time_text::time_report().c_str(), ch);
 }
 
 char* sky_look[6] = {
@@ -2161,6 +2118,32 @@ ACMD(do_help)
     return;
 }
 
+/* Finds an entry of a manual chapter by whole keyword; *num gets the chapter. */
+static int find_help_entry(const char* chapter, const char* keyword, int* num)
+{
+    extern int help_summary_length;
+    extern struct help_index_summary help_content[];
+    int i;
+
+    for (*num = 0; *num < help_summary_length; (*num)++)
+        if (!str_cmp(help_content[*num].keyword, (char*)chapter))
+            break;
+    if (*num == help_summary_length || !help_content[*num].file || !help_content[*num].index)
+        return -1;
+
+    for (i = 0; i <= help_content[*num].top_of_helpt; i++)
+        if (!str_cmp((char*)keyword, help_content[*num].index[i].keyword))
+            return i;
+    return -1;
+}
+
+int help_entry_exists(const char* chapter, const char* keyword)
+{
+    int num;
+
+    return find_help_entry(chapter, keyword, &num) >= 0;
+}
+
 /*
  * Sends one entry of a manual chapter, matched on a whole keyword, without
  * paging: the shaping prompts show it while they wait for an answer.  The
@@ -2169,32 +2152,25 @@ ACMD(do_help)
  */
 int show_help_entry(struct char_data* ch, const char* chapter, const char* keyword)
 {
-    extern int help_summary_length;
     extern struct help_index_summary help_content[];
     char line[100];
     int num, i, blank;
 
-    for (num = 0; num < help_summary_length; num++)
-        if (!str_cmp(help_content[num].keyword, (char*)chapter))
-            break;
-    if (num == help_summary_length || !help_content[num].file || !help_content[num].index)
+    i = find_help_entry(chapter, keyword, &num);
+    if (i < 0)
         return 0;
 
-    for (i = 0; i <= help_content[num].top_of_helpt; i++)
-        if (!str_cmp((char*)keyword, help_content[num].index[i].keyword)) {
-            fseek(help_content[num].file, help_content[num].index[i].pos, SEEK_SET);
-            if (!fgets(line, sizeof(line), help_content[num].file)) /* the keyword line */
-                return 0;
-            blank = 1;
-            while (fgets(line, sizeof(line), help_content[num].file) && *line != '#') {
-                send_to_char(line, ch);
-                blank = !line[strspn(line, " \t\r\n")];
-            }
-            if (!blank)
-                send_to_char("\n\r", ch);
-            return 1;
-        }
-    return 0;
+    fseek(help_content[num].file, help_content[num].index[i].pos, SEEK_SET);
+    if (!fgets(line, sizeof(line), help_content[num].file)) /* the keyword line */
+        return 0;
+    blank = 1;
+    while (fgets(line, sizeof(line), help_content[num].file) && *line != '#') {
+        send_to_char(line, ch);
+        blank = !line[strspn(line, " \t\r\n")];
+    }
+    if (!blank)
+        send_to_char("\n\r", ch);
+    return 1;
 }
 
 #define WHO_FORMAT "format: who [minlev[-maxlev]] [-n name] [-s] [-q] [-r] [-z] [-w] [-d] [-m]\n\r"

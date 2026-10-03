@@ -1533,7 +1533,8 @@ int get_number(char** name)
     if ((ppos = strchr(*name, '.'))) {
         *ppos++ = '\0';
         strcpy(number, *name);
-        strcpy(*name, ppos);
+        // ppos points into *name, so the copy must allow overlap.
+        memmove(*name, ppos, strlen(ppos) + 1);
 
         for (i = 0; *(number + i); i++)
             if (!isdigit(*(number + i)))
@@ -2474,7 +2475,8 @@ int find_all_dots(char* arg)
     if (!strcmp(arg, "all"))
         return FIND_ALL;
     else if (!strncmp(arg, "all.", 4)) {
-        strcpy(arg, arg + 4);
+        // The keyword follows "all." in the same buffer, so the copy must allow overlap.
+        memmove(arg, arg + 4, strlen(arg + 4) + 1);
         return FIND_ALLDOT;
     } else
         return FIND_INDIV;

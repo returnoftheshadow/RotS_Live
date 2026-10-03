@@ -27,6 +27,7 @@
 #include "comm.h"
 #include "crashsave_schedule.h"
 #include "db.h"
+#include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -752,6 +753,7 @@ void msdp_update()
         } else {
             MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
         }
+        MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
         if (opponent && utils::is_npc(*opponent)) {

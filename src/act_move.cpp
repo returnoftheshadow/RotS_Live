@@ -661,7 +661,11 @@ void msdp_room_update(char_data* ch)
     MSDPFlush(ch->desc, eMSDP_ROOM_EXITS);
     MSDPSetTable(ch->desc, eMSDP_ROOM, msdp_room.c_str());
 
-    MSDPUpdate(ch->desc);
+    /* Not MSDPUpdate(): on a fresh connection the other variables still hold
+       ProtocolCreate()'s 0/"" placeholders until msdp_update() computes them. */
+    MSDPFlush(ch->desc, eMSDP_ROOM);
+    MSDPFlush(ch->desc, eMSDP_ROOM_NAME);
+    MSDPFlush(ch->desc, eMSDP_ROOM_VNUM);
 }
 
 ACMD(do_move)

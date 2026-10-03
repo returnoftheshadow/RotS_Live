@@ -23,9 +23,9 @@ field. No vnums in code, no `.shp` file.
    price 5002 3333x4
    ```
    `/42` opens the normal text editor: type each setting as its own line, then `%e` to save
-   (`%q` aborts, `%h` lists the editor commands). **Don't use `%f` (format) here:** it joins
-   every line into one paragraph and breaks the vendor. If that happens, `%q` to abort (or
-   re-enter the settings from scratch). In game, builders find all of this under
+   (`%q` aborts, `%d` removes the last line, `%h` shows the field's help and the editor
+   commands). `%f` (format) is refused in this field, because it would join every line into
+   one paragraph and break the vendor. In game, builders find all of this under
    `man shape shopkeeper` (and the field itself under `man shape mob2 42`).
 4. In the zone, use ordinary zone commands to load the goods into the store room. An item is
    for sale while at least one copy of it sits in that room.

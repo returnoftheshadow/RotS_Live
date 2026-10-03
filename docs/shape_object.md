@@ -66,12 +66,14 @@ prompt is waiting, every line you type is the answer – including `/free` or
    `/1` and `/2`, which must not be empty). `#` becomes `+` and `~` becomes `-`.
 2. **Multi-line text** (`/4`, `/7`) opens the string editor: `%e` saves and
    exits, `%q` aborts and keeps the old text, `%r` shows the text so far,
-   `%f` formats, `%h` shows help.
+   `%f` formats, `%h` shows the field's `man shape` entry and then the editor
+   commands. The editor lists all its commands when it opens.
 3. **Single-value prompts** (`DIGITCHANGE`) show `[current]` and use
    `string_to_new_value()`: a number sets it (`123`), `+5` adds, `-2`
    **subtracts** (only `/15` treats `-N` as the negative number), `p7` sets bit
    7, `m3` clears bit 3; several go in one answer (`p1 p7 m3`). A blank line,
-   or a word, keeps the old value. `%h` at any line or number prompt shows the
+   or a word, keeps the old value. A line or number prompt ends with
+   `(%h = help)` when its field has a help entry. `%h` there shows the
    field's `man shape obj N` entry and asks again.
 4. **Multi-value prompts** (`/12`, `/19`) take several numbers on one line and
    show the current values. A blank line keeps them all.

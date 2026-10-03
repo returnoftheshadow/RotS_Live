@@ -15,6 +15,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -528,6 +529,7 @@ void reset_time(void)
 
     time_info = mud_time_passed(time(0), beginning_of_time);
     initialize_weather();
+    game_time_text::refresh();
 }
 
 void inc_p_table(void)

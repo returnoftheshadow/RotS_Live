@@ -1738,9 +1738,9 @@ BITVECTOR (see 'MAN SHAPE MOB 11'). It only matters for guildmaster mobs.
 /42 (extended) holds the mob's options: a text field where settings for
 the mob's program are stored, one setting per line. /42 opens the text
 editor. Type each setting on its own line, then %e to save (%q aborts, %r
-shows the text so far, %h lists the editor commands). Don't use %f
-(format) here: it joins the lines into one and breaks them. If you do, %q
-and start over. Blank lines are removed when you save the text, and lines
+shows the text so far, %d removes the last line, %h shows this help and
+the editor commands). %f (format) is refused here: it would join the
+lines into one. Blank lines are removed when you save the text, and lines
 starting with // (comments) are ignored. A # is saved as + and a ~ as -;
 text can't start with $ or pass 4000 characters.
 

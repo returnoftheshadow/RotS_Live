@@ -57,13 +57,18 @@ change nothing and show the current master and the usage line.
   `%q` empties the field (refused for `/1` and `/2`, see below). `#` becomes
   `+` and `~` becomes `-`.
 - Multi-line text (`/4`): the shared editor. `%e` saves, `%q` aborts and keeps
-  the old text, `%r` shows the text so far, `%f` formats, `%h` shows help.
+  the old text, `%r` shows the text so far, `%f` formats, `%h` shows the
+  field's `man shape` entry and then the editor commands. The editor lists all
+  its commands when it opens (`%d` removes the last line, `%l` moves the
+  cursor, `%s<old>~<new>` replaces). `/42` (options) uses the same editor but
+  refuses `%f`.
 - Numbers: a plain number sets the value; `+5` adds; `-5` **subtracts** (except
   the fields that accept negatives, below); `p7` sets bit 7 and `m7` clears it.
   Several go in one answer, left to right (`p1 p7 m2`); the list stops at the
   first word that is not `p`/`m` plus a bit 0-31, and says so. A blank line
   keeps the value. Any other word keeps the value silently.
-- `%h` at a line or number prompt shows that field's `man shape` entry and asks
+- A line or number prompt ends with `(%h = help)` when its field has a help
+  entry. `%h` at a line or number prompt shows that field's `man shape` entry and asks
   again; nothing changes.
 - Negative values: `/7` alignment, `/27` saving throw and `/32` perception take
   `-N` as the value `-N` (e.g. `-300`), not as "subtract N".

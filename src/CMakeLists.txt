@@ -27,6 +27,43 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ROTS_SUPPRESS_TEST_WARNINGS "Suppress compiler warnings when building the test target" ON)
 
+include(CheckCXXSourceCompiles)
+# A 64-bit host needs its 32-bit C++ toolchain and 32-bit libcrypt (g++-multilib and
+# libcrypt-dev:i386, or the distribution's equivalents); without them the build would fail at
+# the first compile or link with a less clear error.
+set(CMAKE_REQUIRED_FLAGS -m32)
+set(CMAKE_REQUIRED_LINK_OPTIONS -m32)
+set(CMAKE_REQUIRED_LIBRARIES crypt)
+check_cxx_source_compiles(
+    "int main() { static_assert(sizeof(void*) == 4, \"32-bit\"); return 0; }"
+    ROTS_HAS_32BIT_TOOLCHAIN
+)
+unset(CMAKE_REQUIRED_FLAGS)
+unset(CMAKE_REQUIRED_LINK_OPTIONS)
+unset(CMAKE_REQUIRED_LIBRARIES)
+if(NOT ROTS_HAS_32BIT_TOOLCHAIN)
+    # Forget the failed result so the next configure checks again.
+    unset(ROTS_HAS_32BIT_TOOLCHAIN CACHE)
+    message(FATAL_ERROR
+        "RotS builds 32-bit (-m32), and this host cannot compile and link a 32-bit program "
+        "against libcrypt. Install the 32-bit C++ toolchain and libcrypt, for example "
+        "g++-multilib, libc6-dev-i386 and libcrypt-dev:i386, then configure a fresh build "
+        "directory.")
+endif()
+
+# Settings that change what the compiled code does, not only how it is built. The live server
+# is 32-bit with unsigned char, and its binary player and object files depend on that layout.
+# Everything compiled from the server's sources links this target, so the tests exercise the
+# code that ships. src/Makefile's ROTS_CXXFLAGS repeats these flags for the Makefile build;
+# change both together.
+add_library(rots_codegen INTERFACE)
+target_compile_options(rots_codegen INTERFACE
+    -m32
+    -funsigned-char
+    -fstrict-aliasing
+)
+target_link_options(rots_codegen INTERFACE -m32)
+
 get_filename_component(ROTS_REPO_ROOT "${PROJECT_SOURCE_DIR}/.." ABSOLUTE)
 # A second build tree (an ASan or scratch build) can point this elsewhere so it does not
 # overwrite the primary tree's bin/ageland.
@@ -72,6 +109,7 @@ set(ROTS_SERVER_SOURCES
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp
+    game_time_text.cpp
     graph.cpp
     handler.cpp
     interpre.cpp
@@ -88,6 +126,7 @@ set(ROTS_SERVER_SOURCES
     mudlle.cpp
     mudlle2.cpp
     mystic.cpp
+    number_text.cpp
     obj2html.cpp
     object_utils.cpp
     objsave.cpp
@@ -151,6 +190,7 @@ set(ROTS_TEST_SOURCES
     tests/exploits_json_tests.cpp
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
+    tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
@@ -160,6 +200,7 @@ set(ROTS_TEST_SOURCES
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
     tests/string_value_tests.cpp
+    tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
@@ -174,6 +215,7 @@ set(ROTS_TEST_SOURCES
     tests/startup_options_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
+    tests/number_text_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp
@@ -183,25 +225,37 @@ set(ROTS_TEST_SOURCES
 )
 
 add_executable(ageland ${ROTS_SERVER_SOURCES})
-# The live server is 32-bit: its binary player and object files depend on the i386 layout.
 target_compile_options(ageland PRIVATE
-    -m32
     -w
-    -fstrict-aliasing
-    -funsigned-char
     -g
 )
 # -rdynamic exports the server's symbols so backtrace_symbols() can name crash frames.
-target_link_options(ageland PRIVATE -m32 -g -rdynamic)
+target_link_options(ageland PRIVATE -g -rdynamic)
 # A bare "crypt" lets the linker find the libcrypt that matches -m32; a find_library() path
 # can resolve to the 64-bit library on a multilib host.
-target_link_libraries(ageland PRIVATE crypt)
+target_link_libraries(ageland PRIVATE rots_codegen crypt)
 set_target_properties(ageland PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
 )
 
 if(BUILD_TESTING)
-    find_package(GTest REQUIRED)
+    # Built from source with the server's settings, so GoogleTest and the tests agree on -m32 and
+    # char signedness; a system GoogleTest on a 64-bit host is 64-bit. To build offline, set
+    # FETCHCONTENT_SOURCE_DIR_GOOGLETEST to an unpacked copy of this release.
+    include(FetchContent)
+    FetchContent_Declare(googletest
+        URL https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz
+        URL_HASH SHA256=65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
+    )
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+    target_link_libraries(gtest PRIVATE rots_codegen)
+    target_link_libraries(gtest_main PRIVATE rots_codegen)
+    # GoogleTest turns on its own warnings; its sources are not ours to fix, so keep test
+    # output to warnings from this project.
+    target_compile_options(gtest PRIVATE -w)
+    target_compile_options(gtest_main PRIVATE -w)
     include(GoogleTest)
 
     add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})
@@ -218,7 +272,7 @@ if(BUILD_TESTING)
             -Wextra
         )
     endif()
-    target_link_libraries(ageland_tests PRIVATE GTest::gtest crypt)
+    target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt)
     # Routes both number() overloads through the seeded test RNG in tests/test_random_utils.cpp.
     target_link_options(ageland_tests PRIVATE
         -Wl,--wrap=_Z6numberv
