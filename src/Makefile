@@ -50,6 +50,7 @@ SOURCES := \
     db.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
+    game_time_text.cpp \
     graph.cpp \
     handler.cpp \
     interpre.cpp \
@@ -67,6 +68,7 @@ SOURCES := \
     limits.cpp \
     mail.cpp \
     mystic.cpp \
+    number_text.cpp \
     mage.cpp \
     mobact.cpp \
     modify.cpp \

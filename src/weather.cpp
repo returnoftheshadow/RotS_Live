@@ -12,6 +12,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "game_time_text.h"
 #include "interpre.h"
 #include "protocol.h"
 #include "structs.h"
@@ -166,23 +167,6 @@ std::string strip_trailing_line_break(const char* text)
         result.pop_back();
     }
     return result;
-}
-
-void send_msdp_function(void (*func)(descriptor_data* desc))
-{
-    extern struct descriptor_data* descriptor_list;
-
-    for (auto desc = descriptor_list; desc; desc = desc->next) {
-        if (!desc->character || IS_NPC(desc->character)) {
-            continue;
-        }
-
-        if (!desc->pProtocol) {
-            continue;
-        }
-
-        func(desc);
-    }
 }
 
 int get_sun_level(int room)
@@ -425,15 +409,7 @@ void another_hour(int mode)
     age_room_tracks();
     age_bleed_tracks();
 
-    send_msdp_function([](descriptor_data* desc) {
-        char time[64];
-        sprintf(time, "It is about %d:00 %s on ",
-            time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
-            time_info.hours >= 12 ? "PM" : "AM");
-
-        MSDPSetString(desc, eMSDP_WORLD_TIME, time);
-        MSDPFlush(desc, eMSDP_WORLD_TIME);
-    });
+    game_time_text::refresh();
 }
 
 void weather_change(void)
