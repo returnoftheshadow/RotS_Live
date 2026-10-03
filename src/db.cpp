@@ -42,10 +42,18 @@
 #include "player_file_finalize.h"
 #include "roster_cache.h"
 #include "skill_timer.h"
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 /**************************************************************************
@@ -167,8 +175,7 @@ void assign_the_shopkeepers(void);
 void build_player_index(void);
 void boot_mudlle();
 void boot_crimes();
-int file_to_string(char* name, char* buf);
-int file_to_string_alloc(char* name, char** buf);
+int file_to_string_alloc(const char* name, char** buf);
 void check_start_rooms(void);
 void renum_world(void);
 void reset_time(void);
@@ -3739,54 +3746,154 @@ void free_obj(struct obj_data* obj)
     RELEASE(obj);
 }
 
-/* read contets of a text file, alloc space, point buf to it */
-int file_to_string_alloc(char* name, char** buf)
+// The read in file_to_string_read_lines() asks for up to the limit plus one byte in one call.
+static_assert(text_file_byte_limit
+        < static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()),
+    "a read of the text-file limit plus one byte must fit in std::streamsize");
+
+/* Logs, as a SYSERR from 'function_name', that 'file_path' was not loaded
+   because it is larger than text_file_byte_limit. */
+static void log_text_file_over_limit(std::string_view function_name,
+    const std::filesystem::path& file_path)
 {
-    char temp[MAX_STRING_LENGTH];
-
-    if (file_to_string(name, temp) < 0)
-        return -1;
-
-    RELEASE(*buf);
-
-    *buf = str_dup(temp);
-    return 0;
+    const std::string message = "SYSERR: " + std::string(function_name) + ": "
+        + file_path.string() + " is larger than the " + std::to_string(text_file_byte_limit)
+        + "-byte limit and was not loaded";
+    log(message.c_str());
 }
 
-/* read contents of a text file, and place in buf */
-int file_to_string(char* name, char* buf)
+/* Reads the file 'name' into 'out_content': each line of the file, with its
+   '\n' when it has one, followed by '\r'. Lines are never split, and a last
+   line without '\n' is kept. An empty file yields "". Returns false if the
+   file cannot be opened, which is logged without a SYSERR tag because some
+   files are optional, such as LASTDEATH_FILE before anyone has died. Also
+   returns false, logged as a SYSERR, if 'name' is not a regular file (a
+   directory, pipe or device) or the file is larger than text_file_byte_limit. */
+static bool file_to_string_read_lines(std::string_view name, std::string& out_content)
 {
-    FILE* fl;
-    char tmp[100];
+    namespace fs = std::filesystem;
 
-    *buf = '\0';
+    const fs::path file_path(name);
 
-    if (!(fl = fopen(name, "r"))) {
-        sprintf(tmp, "Error reading %s", name);
-        perror(tmp);
-        *buf = '\0';
-        return (-1);
+    // A missing file falls through to the open below, which logs it without a
+    // SYSERR. A path whose type cannot be read also falls through; the size
+    // limit still applies to whatever the open finds.
+    std::error_code status_error;
+    const fs::file_status file_status = fs::status(file_path, status_error);
+    const bool is_existing_non_regular_file = !status_error
+        && fs::exists(file_status) && !fs::is_regular_file(file_status);
+    if (is_existing_non_regular_file) {
+        const std::string message = "SYSERR: " + std::string(__func__) + ": "
+            + file_path.string() + " is not a regular file and was not loaded";
+        log(message.c_str());
+        return false;
     }
 
-    do {
-        fgets(tmp, 99, fl);
+    std::ifstream file_stream(file_path, std::ios::binary);
+    if (!file_stream.is_open()) {
+        const std::string message
+            = std::string(__func__) + ": could not open " + file_path.string();
+        log(message.c_str());
+        return false;
+    }
 
-        if (!feof(fl)) {
-            if (strlen(buf) + strlen(tmp) + 2 > MAX_STRING_LENGTH) {
-                log("SYSERR: fl->strng: string too big (db.c, file_to_string)");
-                *buf = '\0';
-                return (-1);
-            }
+    // A file known to be over the limit is refused before anything is read.
+    // Otherwise its size, when known, sizes a single read.
+    std::error_code size_error;
+    const std::uintmax_t file_size = fs::file_size(file_path, size_error);
+    if (!size_error && file_size > text_file_byte_limit) {
+        log_text_file_over_limit(__func__, file_path);
+        return false;
+    }
 
-            strcat(buf, tmp);
-            *(buf + strlen(buf) + 1) = '\0';
-            *(buf + strlen(buf)) = '\r';
+    // Every read stops one byte past the limit. When the size was unknown or
+    // wrong, or the file grew after the size check, that extra byte is what
+    // shows the file is too large below.
+    const std::size_t read_limit = text_file_byte_limit + 1;
+    std::size_t first_request = read_limit;
+    if (!size_error) {
+        first_request = static_cast<std::size_t>(file_size) + 1;
+    }
+
+    std::string raw_content(first_request, '\0');
+    file_stream.read(raw_content.data(), static_cast<std::streamsize>(first_request));
+    std::size_t bytes_read = static_cast<std::size_t>(file_stream.gcount());
+
+    const bool has_more_than_reported = bytes_read == first_request && first_request < read_limit;
+    if (has_more_than_reported) {
+        raw_content.resize(read_limit);
+        const std::size_t remaining_request = read_limit - bytes_read;
+        file_stream.read(raw_content.data() + bytes_read,
+            static_cast<std::streamsize>(remaining_request));
+        bytes_read += static_cast<std::size_t>(file_stream.gcount());
+    }
+    raw_content.resize(bytes_read);
+
+    if (raw_content.size() > text_file_byte_limit) {
+        log_text_file_over_limit(__func__, file_path);
+        return false;
+    }
+
+    const std::ptrdiff_t newline_count = std::count(raw_content.begin(), raw_content.end(), '\n');
+    const bool has_unterminated_last_line = !raw_content.empty() && raw_content.back() != '\n';
+    std::size_t output_size = raw_content.size() + static_cast<std::size_t>(newline_count);
+    if (has_unterminated_last_line) {
+        output_size += 1;
+    }
+
+    out_content.clear();
+    out_content.reserve(output_size);
+
+    std::string_view remaining(raw_content);
+    while (!remaining.empty()) {
+        const std::size_t newline_position = remaining.find('\n');
+        std::size_t line_length = remaining.size();
+        if (newline_position != std::string_view::npos) {
+            line_length = newline_position + 1;
         }
-    } while (!feof(fl));
 
-    fclose(fl);
+        out_content.append(remaining.substr(0, line_length));
+        out_content += '\r';
+        remaining.remove_prefix(line_length);
+    }
 
-    return (0);
+    return true;
+}
+
+/* Reads the file 'name' as described at file_to_string_read_lines(). On
+   success releases the old 'buffer', points it at a new str_dup() copy of the
+   content and returns true. Returns false and leaves 'buffer' unchanged if the
+   file cannot be opened. */
+static bool replace_with_file_contents(std::string_view name, char*& buffer)
+{
+    std::string content;
+    if (!file_to_string_read_lines(name, content)) {
+        return false;
+    }
+
+    RELEASE(buffer);
+    buffer = str_dup(content.c_str());
+    return true;
+}
+
+/* Reads the file 'name' into *buf, as described at replace_with_file_contents(),
+   and returns 0. Returns -1 and leaves *buf unchanged if the file cannot be
+   opened or is larger than text_file_byte_limit, or, logged as a SYSERR, if
+   'name' or 'buf' is null. */
+int file_to_string_alloc(const char* name, char** buf)
+{
+    if (name == nullptr || buf == nullptr) {
+        const std::string message
+            = std::string("SYSERR: ") + __func__ + ": called with a null name or buffer";
+        log(message.c_str());
+        return -1;
+    }
+
+    if (!replace_with_file_contents(name, *buf)) {
+        return -1;
+    }
+
+    return 0;
 }
 
 int get_char_directory(char* orig_name, char* filename)
