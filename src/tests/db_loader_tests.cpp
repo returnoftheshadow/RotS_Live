@@ -3278,3 +3278,26 @@ TEST(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
 
     RELEASE(loaded);
 }
+
+TEST(DbLoader, FileToStringAllocRefusesADirectoryWithASyserr)
+{
+    // A directory where a text file belongs is refused, not loaded as empty text.
+    const ScratchDirectory scratch_directory;
+    const std::string directory_path = scratch_directory.file("not-a-file");
+    std::error_code create_error;
+    ASSERT_TRUE(std::filesystem::create_directory(directory_path, create_error))
+        << create_error.message();
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(directory_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("not a regular file"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}

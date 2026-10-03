@@ -3767,11 +3767,27 @@ static void log_text_file_over_limit(std::string_view function_name,
    line without '\n' is kept. An empty file yields "". Returns false if the
    file cannot be opened, which is logged without a SYSERR tag because some
    files are optional, such as LASTDEATH_FILE before anyone has died. Also
-   returns false, logged as a SYSERR, if the file is larger than
-   text_file_byte_limit. */
+   returns false, logged as a SYSERR, if 'name' is not a regular file (a
+   directory, pipe or device) or the file is larger than text_file_byte_limit. */
 static bool file_to_string_read_lines(std::string_view name, std::string& out_content)
 {
     const std::filesystem::path file_path(name);
+
+    // A missing file falls through to the open below, which logs it without a
+    // SYSERR. A path whose type cannot be read also falls through; the size
+    // limit still applies to whatever the open finds.
+    std::error_code status_error;
+    const std::filesystem::file_status file_status
+        = std::filesystem::status(file_path, status_error);
+    const bool is_existing_non_regular_file = !status_error
+        && std::filesystem::exists(file_status) && !std::filesystem::is_regular_file(file_status);
+    if (is_existing_non_regular_file) {
+        const std::string message = "SYSERR: " + std::string(__func__) + ": "
+            + file_path.string() + " is not a regular file and was not loaded";
+        log(message.c_str());
+        return false;
+    }
+
     std::ifstream file_stream(file_path, std::ios::binary);
     if (!file_stream.is_open()) {
         const std::string message
@@ -3801,8 +3817,8 @@ static bool file_to_string_read_lines(std::string_view name, std::string& out_co
     file_stream.read(raw_content.data(), static_cast<std::streamsize>(first_request));
     std::size_t bytes_read = static_cast<std::size_t>(file_stream.gcount());
 
-    const bool file_grew = bytes_read == first_request && first_request < read_limit;
-    if (file_grew) {
+    const bool has_more_than_reported = bytes_read == first_request && first_request < read_limit;
+    if (has_more_than_reported) {
         raw_content.resize(read_limit);
         const std::size_t remaining_request = read_limit - bytes_read;
         file_stream.read(raw_content.data() + bytes_read,
