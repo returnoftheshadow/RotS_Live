@@ -149,6 +149,7 @@ set(ROTS_SERVER_SOURCES
     spec_ass.cpp
     spec_pro.cpp
     spell_pa.cpp
+    test_harness.cpp
     utility.cpp
     wait_functions.cpp
     weapon_master_handler.cpp
@@ -214,6 +215,7 @@ set(ROTS_TEST_SOURCES
     tests/number_text_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
+    tests/test_harness_tests.cpp
     tests/test_random_utils.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
