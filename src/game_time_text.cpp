@@ -1,10 +1,9 @@
 #include "game_time_text.h"
 
+#include "ordinal.h"
 #include "structs.h"
-#include "utils.h"
 
 #include <cstddef>
-#include <cstdlib>
 #include <string>
 #include <string_view>
 
@@ -12,6 +11,7 @@ extern struct time_info_data time_info;
 extern struct weather_data weather_info;
 extern int sun_events[12][2];
 extern char* weekdays[];
+extern char* month_name[];
 extern char* moon_phase[];
 
 namespace game_time_text {
@@ -71,17 +71,15 @@ void build_time_report(std::string_view hour, std::string& out_report)
     out_report += weekdays[weekday];
     out_report += ", ";
 
-    // day_to_str() writes "the <ordinal> day of <month name>", well under this size.
-    char day_text[128];
-    day_to_str(&time_info, day_text);
-    out_report += day_text;
+    out_report += "the ";
+    append_ordinal(out_report, time_info.day + 1);
+    out_report += " day of ";
+    out_report += month_name[time_info.month];
     out_report += ".\r\n";
 
-    char* year = nth(time_info.year);
     out_report += "By the Steward's Reckoning, it is the ";
-    out_report += year;
+    append_ordinal(out_report, time_info.year);
     out_report += " year of the fourth age of Arda.\r\n";
-    free(year);
 
     out_report += "The moon is ";
     out_report += moon_phase[weather_info.moonphase];
@@ -113,7 +111,7 @@ void build_time_report(std::string_view hour, std::string& out_report)
 void refresh()
 {
     // Building in place keeps each string's buffer, so after the first hour a refresh allocates
-    // nothing beyond what nth() does.
+    // nothing.
     build_hour_text(time_info.hours, cached_hour_text);
     build_time_report(cached_hour_text, cached_time_report);
 }

@@ -51,6 +51,7 @@ SOURCES := \
     delayed_command_interpreter.cpp \
     fight.cpp \
     game_time_text.cpp \
+    ordinal.cpp \
     graph.cpp \
     handler.cpp \
     interpre.cpp \
