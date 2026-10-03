@@ -9,6 +9,7 @@
  ************************************************************************ */
 
 #include "limits.h"
+#include "game_boot_options.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -622,21 +623,25 @@ void point_update(void)
 
     mytime = time(0);
 
-    if (((mytime / 3600) % 24 == 9) && ((mytime / 60) % 60 == 30)) {
+    /* The routine daily reboot: the hour is the daily_reboot_hour_utc game
+     * option (it was written here as 10), shared with the bank's fee day. */
+    switch (daily_reboot_minutes_left(mytime, boot_option(BOOT_DAILY_REBOOT_HOUR_UTC))) {
+    case 30:
         send_to_all("ROUTINE REBOOT IN 30 MINUTES.\n\r");
-    }
-    if (((mytime / 3600) % 24 == 9) && ((mytime / 60) % 60 == 55)) {
+        break;
+    case 5:
         send_to_all("ROUTINE REBOOT IN 5 MINUTES.\n\r");
-    }
-    if (((mytime / 3600) % 24 == 9) && ((mytime / 60) % 60 == 56)) {
+        break;
+    case 4:
         send_to_all("ROUTINE REBOOT IN 4 MINUTES.\n\r");
-    }
-    if (((mytime / 3600) % 24 == 9) && ((mytime / 60) % 60 == 59)) {
+        break;
+    case 1:
         send_to_all("ROUTINE REBOOT IN 1 MINUTE.\n\r");
-    }
-    if (((mytime / 3600) % 24 == 10) && (((mytime / 60) % 60 == 0) || ((mytime / 60) % 60 == 1))) {
+        break;
+    case 0:
         send_to_all("ROUTINE REBOOT NOW.\n\r");
         circle_shutdown = 1;
+        break;
     }
 
     for (i = character_list; i; i = next_dude) {

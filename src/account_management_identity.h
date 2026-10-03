@@ -82,7 +82,6 @@ bool admin_delete_linked_character(const std::string& root_directory, const std:
 // account-native character the same delete destroys the only copy, and the account goes on listing
 // a name whose file is gone.
 bool admin_rename_linked_character(const std::string& root_directory, const std::string& account_name, const std::string& character_name, const std::string& new_character_name, long updated_at, AccountData* account, std::string* error_message = nullptr);
-bool link_and_migrate_character(const std::string& root_directory, const std::string& account_name, const std::string& password, const std::string& character_name, long updated_at, AccountData* account, CharacterMigrationData* migration, std::string* error_message = nullptr);
 
 } // namespace account
 

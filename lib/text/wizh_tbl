@@ -279,6 +279,82 @@ as the `account` management command.
 
 Examples:
 > whoacct
+#
+VAULT
+
+Usage:
+> vault <character | email | account> [1|2|3]
+> vault take <account> <1|2|3> <slot>
+> vault take <account> <1|2|3> coins <amount> [gold|silver|copper]
+> vault put <account> <1|2|3> <item>
+> vault put <account> <1|2|3> coins <amount> [gold|silver|copper]
+
+Shows a player's bank vault, or moves things in and out of it. Sides are
+1 light, 2 dark, 3 Magus and Haradrim. The player need not be online.
+
+vault <character> shows the vault for that character's side; add 1, 2
+or 3 for another side of the same account.
+vault <email or account> shows one line per side: its coins and how
+many slots are used. Add 1, 2 or 3 to list that side's slots and what
+is inside stored containers.
+An account or character named Take or Put is viewed by its email.
+Every view names the account and its email. If a name is both an
+account and a character, the account is shown.
+
+take moves a stored item (by its slot number) or coins to you. No fee is
+charged, and a container comes out whole. put stores an item you are
+carrying, or your own coins; the item counts as deposited today. put is
+refused when the vault is full, and for anything rent refuses.
+A coin amount with no coin name is in copper.
+
+take and put are refused while you have no connection (a forced,
+linkless immortal) or are switched into a mob, and take is refused when
+the vault's file cannot be written or your own character cannot be
+saved. If the file fails to save after a take you are told: the item
+is then yours, and the vault file still holds it until that vault is
+used again. If the game restarts first, it is back in the vault too.
+
+If a stored object has been deleted since, take gives you what is left
+of that slot and names the deleted objects; a slot holding only deleted
+objects is emptied.
+
+take and put need the exact account name that 'vault <name>' shows.
+Every vault command is logged, and a take or put that happens logs a
+second line naming the item, its vnum, the account and the side.
+
+Examples:
+> vault thorin
+> vault bobsmith 2
+> vault take bobsmith 1 3
+> vault put bobsmith 1 coins 5 gold
+#
+GAMEOPTIONS
+
+Usage:
+> gameoptions
+> gameoptions <name> <number>
+
+Game-wide settings that staff can change without a code change. With no
+argument it lists every setting: the value in use now, the value after
+the next reboot (when different), the default and the allowed range.
+
+With a name and a number it checks the value and saves it. A change is
+written to lib/misc/game_boot_options.json at once and takes effect at
+the next reboot. Implementors only.
+
+If that file was there at boot but could not be read, every setting runs
+on its default, the list says so, and no setting can be changed until the
+file is fixed or removed: a change would write defaults over it.
+
+Settings:
+  bank_slots            item slots in each bank vault
+  bank_coin_limit_gold  most gold a bank vault holds
+  daily_reboot_hour_utc hour of the routine daily reboot, in UTC (10 is
+                        5am Central in summer, 4am in winter). The
+                        bank's fee day starts at the same moment.
+
+Example:
+> gameoptions bank_slots 12
 #~
 
 

@@ -201,25 +201,30 @@ bool read_binary_file_contents(const char* path, std::string* bytes)
     return true;
 }
 
-void refresh_account_backed_object_file(const char_data* character)
+/* False when the account's copy of the object file should have been written
+ * and was not. A character on no account has no copy to write. */
+bool refresh_account_backed_object_file(const char_data* character)
 {
     if (character == nullptr || IS_NPC(character))
-        return;
+        return false;
 
     char path[MAX_INPUT_LENGTH];
     if (!Crash_get_filename(const_cast<char*>(GET_NAME(character)), path))
-        return;
+        return false;
 
     std::string object_bytes;
     if (!read_binary_file_contents(path, &object_bytes))
-        return;
+        return false;
 
     std::string error_message;
-    if (!account::write_linked_character_object_file(".", GET_NAME(character), object_bytes, &error_message) && !error_message.empty()) {
+    if (account::write_linked_character_object_file(".", GET_NAME(character), object_bytes, &error_message))
+        return true;
+    if (!error_message.empty()) {
         sprintf(buf1, "SYSERR: failed to refresh account-native object file for %s: %s",
             GET_NAME(character), error_message.c_str());
         log(buf1);
     }
+    return false;
 }
 
 } // namespace
@@ -940,7 +945,7 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
             if (k->follower->equipment[x])
                 if (!Crash_is_unrentable(k->follower->equipment[x]))
                     if (!Crash_save(k->follower->equipment[x], k->follower, x, fp)) {
-                        fclose(fp);
+                        /* the caller owns fp and closes it; closing it here too was a double fclose */
                         return;
                     }
         if (fwrite(&dummy_object, sizeof(struct obj_file_elem), 1, fp) < 1) {
@@ -1345,10 +1350,16 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
             }
             Crash_restore_weight(ch->equipment[j]);
         }
-    Crash_alias_save(ch, fp);
+    const bool wrote_aliases = Crash_alias_save(ch, fp);
     Crash_follower_save(ch, fp);
-    fclose(fp);
-    refresh_account_backed_object_file(ch);
+    const bool written = !ferror(fp); /* fclose only reports the last flush */
+    const bool closed = fclose(fp) == 0;
+    /* Only a file written whole is copied to the account: a cut-off one could
+     * still parse (refresh is tolerant of a missing follower section) and
+     * would replace the account's good copy with a short one. */
+    const bool refreshed = wrote_aliases && written && closed && refresh_account_backed_object_file(ch);
+    if (wrote_aliases && written && closed && refreshed)
+        ch->specials.saved_object_file = true; /* see structs.h */
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 

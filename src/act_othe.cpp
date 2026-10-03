@@ -61,7 +61,6 @@ ACMD(do_look);
 ACMD(do_gsay);
 ACMD(do_say);
 ACMD(do_hit);
-ACMD(do_linkaccount);
 
 ACMD(do_quit)
 {
@@ -139,40 +138,6 @@ ACMD(do_save)
 }
 
 ACMD(do_not_here) { send_to_char("Sorry, but you can't do that here!\n\r", ch); }
-
-ACMD(do_linkaccount)
-{
-    char account_name[MAX_INPUT_LENGTH];
-
-    one_argument(argument, account_name);
-
-    if (IS_NPC(ch)) {
-        send_to_char("Only player characters can link accounts.\n\r", ch);
-        return;
-    }
-
-    if (!ch->desc) {
-        send_to_char("You are not connected to a descriptor.\n\r", ch);
-        return;
-    }
-
-    if (!*account_name) {
-        send_to_char("Usage: linkaccount <account>\n\r", ch);
-        return;
-    }
-
-    std::string error_message;
-    if (!account::is_valid_account_name(account_name, &error_message)) {
-        send_to_char((error_message + "\n\r").c_str(), ch);
-        return;
-    }
-
-    strncpy(ch->desc->account_name, account::normalize_account_name(account_name).c_str(), MAX_INPUT_LENGTH - 1);
-    ch->desc->account_name[MAX_INPUT_LENGTH - 1] = '\0';
-    send_to_char("Account password: ", ch);
-    echo_off(ch->desc->descriptor);
-    STATE(ch->desc) = CON_ACCTLINKPWD;
-}
 
 ACMD(do_recruit)
 {
