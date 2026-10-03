@@ -3236,3 +3236,45 @@ TEST(DbLoader, FileToStringAllocRejectsANullBufferWithASyserr)
     EXPECT_EQ(result, -1);
     EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
 }
+
+TEST(DbLoader, FileToStringAllocLoadsAFileExactlyAtTheSizeLimit)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("at-limit.txt");
+    const std::string contents(text_file_byte_limit, 'x');
+    write_text_file(file_path, contents);
+
+    char* loaded = nullptr;
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), contents + "\r");
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
+{
+    // The caller's existing string is kept, as for any other load failure.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("over-limit.txt");
+    write_text_file(file_path, std::string(text_file_byte_limit + 1, 'x'));
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_STREQ(loaded, "previous text");
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("limit"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}

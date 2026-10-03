@@ -49,7 +49,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <iterator>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -3746,11 +3746,29 @@ void free_obj(struct obj_data* obj)
     RELEASE(obj);
 }
 
+// The read in file_to_string_read_lines() asks for up to the limit plus one byte in one call.
+static_assert(text_file_byte_limit
+        < static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()),
+    "a read of the text-file limit plus one byte must fit in std::streamsize");
+
+/* Logs, as a SYSERR from 'function_name', that 'file_path' was not loaded
+   because it is larger than text_file_byte_limit. */
+static void log_text_file_over_limit(std::string_view function_name,
+    const std::filesystem::path& file_path)
+{
+    const std::string message = "SYSERR: " + std::string(function_name) + ": "
+        + file_path.string() + " is larger than the " + std::to_string(text_file_byte_limit)
+        + "-byte limit and was not loaded";
+    log(message.c_str());
+}
+
 /* Reads the file 'name' into 'out_content': each line of the file, with its
    '\n' when it has one, followed by '\r'. Lines are never split, and a last
    line without '\n' is kept. An empty file yields "". Returns false if the
-   file cannot be opened. That is logged without a SYSERR tag because some
-   files are optional, such as LASTDEATH_FILE before anyone has died. */
+   file cannot be opened, which is logged without a SYSERR tag because some
+   files are optional, such as LASTDEATH_FILE before anyone has died. Also
+   returns false, logged as a SYSERR, if the file is larger than
+   text_file_byte_limit. */
 static bool file_to_string_read_lines(std::string_view name, std::string& out_content)
 {
     const std::filesystem::path file_path(name);
@@ -3762,25 +3780,40 @@ static bool file_to_string_read_lines(std::string_view name, std::string& out_co
         return false;
     }
 
-    // The size is only a hint for reading in one call. Whatever it does not
-    // cover, because it is unavailable or the file has grown, is read up to
-    // end of file.
-    std::string raw_content;
+    // A file known to be over the limit is refused before anything is read.
+    // Otherwise its size, when known, sizes a single read. Each read asks for
+    // one byte more than expected, so a file that grew, or whose size is
+    // unknown, is still caught by the limit.
     std::error_code size_error;
     const std::uintmax_t file_size = std::filesystem::file_size(file_path, size_error);
-    const bool size_is_usable = !size_error && file_size <= raw_content.max_size();
-    if (size_is_usable) {
-        raw_content.resize(static_cast<std::size_t>(file_size));
-        file_stream.read(raw_content.data(), static_cast<std::streamsize>(raw_content.size()));
-        const std::streamsize bytes_read = file_stream.gcount();
-        raw_content.resize(static_cast<std::size_t>(bytes_read));
+    if (!size_error && file_size > text_file_byte_limit) {
+        log_text_file_over_limit(__func__, file_path);
+        return false;
     }
 
-    const bool may_have_more_content = !size_is_usable || raw_content.size() == file_size;
-    if (may_have_more_content) {
-        const std::istreambuf_iterator<char> stream_begin(file_stream);
-        const std::istreambuf_iterator<char> stream_end;
-        raw_content.append(stream_begin, stream_end);
+    const std::size_t read_limit = text_file_byte_limit + 1;
+    std::size_t first_request = read_limit;
+    if (!size_error) {
+        first_request = static_cast<std::size_t>(file_size) + 1;
+    }
+
+    std::string raw_content(first_request, '\0');
+    file_stream.read(raw_content.data(), static_cast<std::streamsize>(first_request));
+    std::size_t bytes_read = static_cast<std::size_t>(file_stream.gcount());
+
+    const bool file_grew = bytes_read == first_request && first_request < read_limit;
+    if (file_grew) {
+        raw_content.resize(read_limit);
+        const std::size_t remaining_request = read_limit - bytes_read;
+        file_stream.read(raw_content.data() + bytes_read,
+            static_cast<std::streamsize>(remaining_request));
+        bytes_read += static_cast<std::size_t>(file_stream.gcount());
+    }
+    raw_content.resize(bytes_read);
+
+    if (raw_content.size() > text_file_byte_limit) {
+        log_text_file_over_limit(__func__, file_path);
+        return false;
     }
 
     const std::ptrdiff_t newline_count = std::count(raw_content.begin(), raw_content.end(), '\n');
@@ -3823,10 +3856,10 @@ static bool replace_with_file_contents(std::string_view name, char*& buffer)
     return true;
 }
 
-/* Reads the file 'name' into *buf with no length limit, as described at
-   replace_with_file_contents(), and returns 0. Returns -1 and leaves *buf
-   unchanged if the file cannot be opened, or, logged as a SYSERR, if 'name' or
-   'buf' is null. */
+/* Reads the file 'name' into *buf, as described at replace_with_file_contents(),
+   and returns 0. Returns -1 and leaves *buf unchanged if the file cannot be
+   opened or is larger than text_file_byte_limit, or, logged as a SYSERR, if
+   'name' or 'buf' is null. */
 int file_to_string_alloc(const char* name, char** buf)
 {
     if (name == nullptr || buf == nullptr) {
