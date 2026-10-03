@@ -3771,16 +3771,17 @@ static void log_text_file_over_limit(std::string_view function_name,
    directory, pipe or device) or the file is larger than text_file_byte_limit. */
 static bool file_to_string_read_lines(std::string_view name, std::string& out_content)
 {
-    const std::filesystem::path file_path(name);
+    namespace fs = std::filesystem;
+
+    const fs::path file_path(name);
 
     // A missing file falls through to the open below, which logs it without a
     // SYSERR. A path whose type cannot be read also falls through; the size
     // limit still applies to whatever the open finds.
     std::error_code status_error;
-    const std::filesystem::file_status file_status
-        = std::filesystem::status(file_path, status_error);
+    const fs::file_status file_status = fs::status(file_path, status_error);
     const bool is_existing_non_regular_file = !status_error
-        && std::filesystem::exists(file_status) && !std::filesystem::is_regular_file(file_status);
+        && fs::exists(file_status) && !fs::is_regular_file(file_status);
     if (is_existing_non_regular_file) {
         const std::string message = "SYSERR: " + std::string(__func__) + ": "
             + file_path.string() + " is not a regular file and was not loaded";
@@ -3797,16 +3798,17 @@ static bool file_to_string_read_lines(std::string_view name, std::string& out_co
     }
 
     // A file known to be over the limit is refused before anything is read.
-    // Otherwise its size, when known, sizes a single read. Each read asks for
-    // one byte more than expected, so a file that grew, or whose size is
-    // unknown, is still caught by the limit.
+    // Otherwise its size, when known, sizes a single read.
     std::error_code size_error;
-    const std::uintmax_t file_size = std::filesystem::file_size(file_path, size_error);
+    const std::uintmax_t file_size = fs::file_size(file_path, size_error);
     if (!size_error && file_size > text_file_byte_limit) {
         log_text_file_over_limit(__func__, file_path);
         return false;
     }
 
+    // Every read stops one byte past the limit. When the size was unknown or
+    // wrong, or the file grew after the size check, that extra byte is what
+    // shows the file is too large below.
     const std::size_t read_limit = text_file_byte_limit + 1;
     std::size_t first_request = read_limit;
     if (!size_error) {
