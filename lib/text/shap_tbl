@@ -1183,6 +1183,37 @@ H a random object given to the last mob, Q a random object equipped on it.
 The editor still accepts them, but a zone reset does not run them, so they
 load nothing. Use M, G and E instead.
 #
+"ZONE =" "ZON =" "ZONE SECTION" "ZON SECTION"
+
+A section is a title row in the command list. It does nothing when the
+zone resets; it is there to split a long list into parts and to say what
+each part is for.
+
+Make one with /3 and the letter =. It asks for a title, at most 66
+characters (a longer one is cut), and then a comment. Both may be left
+empty. /4 changes the title later and /5 the comment.
+
+The list shows the title in the middle of a row of = signs. A comment is
+shown under it, wrapped to the width of that row, followed by a closing
+row of = signs:
+
+  12 ========================= Shop Handling =========================
+       everything below is the shop; keep it together
+     =================================================================
+
+A command after a section still looks at the command before the section
+for its if_flag, so a section may sit anywhere, even between a mobile and
+the things it carries.
+
+A section with no title is a plain row of = signs. Use one as a divider,
+or to mark where the part above it ends. At the title prompt, %q removes
+a title.
+
+Sections are listed under every room filter (/12, /current), so a list of
+one room still shows which part its rows belong to.
+
+To list only the sections, set the list filter (/2) to =.
+#
 "ZONE L" "ZON L"
 
 Sets the last loaded mobile or object.  This is a very elegant (but rather
@@ -1297,7 +1328,7 @@ an end:
    40 80   list commands 40 to 80
    0       list every command again
    blank   keep the current range
-The prompt shows the current range. The mask (/2) and current room (/12)
+The prompt shows the current range. The filters (/2 and /12)
 still apply inside the range, and the range lasts until you stop shaping.
 
 /50 ends with a line naming the range. A list too long to send at once

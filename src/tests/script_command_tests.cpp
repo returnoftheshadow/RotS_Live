@@ -99,6 +99,7 @@ public:
     }
 
     void set_param(size_t index, int param, int value) { m_nodes[index].param[param] = value; }
+    void set_text(size_t index, char* text) { m_nodes[index].text = text; }
 
     int run(info_script& info)
     {
@@ -504,6 +505,122 @@ TEST_F(TeleportXL, SkipsTheRoomOfACharacterThatIsNotSet)
     s.run(info);
 
     EXPECT_EQ(kRoomA, m_ch.in_room);
+}
+
+/* ---- SECTION: a title row for the editor's list.  It does nothing when the
+ * script runs, and an IF looks past it to the command or block it guards. ---- */
+
+TEST(ScriptSection, TheScriptRunsOnPastASection)
+{
+    info_script info = make_info();
+    Script s;
+    s.add(SCRIPT_SECTION);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.run(info);
+
+    EXPECT_EQ(7, info.ints[1]);
+}
+
+TEST(ScriptSection, AFalseIfSkipsTheBlockBehindASection)
+{
+    info_script info = make_info();
+    Script s;
+    s.add(SCRIPT_IF_INT_TRUE, SCRIPT_PARAM_INT1); // int1 is 0: false
+    s.add(SCRIPT_SECTION);
+    s.add(SCRIPT_SECTION);
+    s.add(SCRIPT_BEGIN);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.add(SCRIPT_END);
+    s.add(SCRIPT_SET_INT_VALUE, 9, SCRIPT_PARAM_INT3);
+    s.run(info);
+
+    EXPECT_EQ(0, info.ints[1]); // inside the skipped block
+    EXPECT_EQ(9, info.ints[2]); // after it
+}
+
+TEST(ScriptSection, ATrueIfRunsTheBlockBehindASection)
+{
+    info_script info = make_info();
+    info.ints[0] = 1;
+    Script s;
+    s.add(SCRIPT_IF_INT_TRUE, SCRIPT_PARAM_INT1);
+    s.add(SCRIPT_SECTION);
+    s.add(SCRIPT_BEGIN);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.add(SCRIPT_END);
+    s.run(info);
+
+    EXPECT_EQ(7, info.ints[1]);
+}
+
+TEST(ScriptSection, AFalseIfSkipsTheOneCommandBehindASection)
+{
+    info_script info = make_info();
+    Script s;
+    s.add(SCRIPT_IF_INT_TRUE, SCRIPT_PARAM_INT1); // false
+    s.add(SCRIPT_SECTION);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2); // the guarded command
+    s.add(SCRIPT_SET_INT_VALUE, 9, SCRIPT_PARAM_INT3);
+    s.run(info);
+
+    EXPECT_EQ(0, info.ints[1]);
+    EXPECT_EQ(9, info.ints[2]);
+}
+
+/* Every IF command shares the look-past-sections rule. */
+TEST(ScriptSection, EveryKindOfIfLooksPastASection)
+{
+    const int tests[] = { SCRIPT_IF_INT_EQUAL, SCRIPT_IF_INT_LESS, SCRIPT_IF_INT_GREATER,
+        SCRIPT_IF_INT_TRUE, SCRIPT_IF_INT_FALSE, SCRIPT_IF_IS_NPC, SCRIPT_IF_STR_EQUAL,
+        SCRIPT_IF_STR_CONTAINS, SCRIPT_IF_ROOM_SUNLIT };
+    for (int type : tests) {
+        TwoRooms rooms;
+        char_data player {};
+        char one[] = "one";
+        char two[] = "TWO";
+        info_script info = make_info();
+        info.ints[0] = 1; // int1
+        info.ints[2] = 5; // int3; int2 stays 0 and takes the result
+        info.ch[0] = &player; // not an NPC
+        info.str[0] = one;
+        info.rm[0] = &world[kRoomA];
+        Script s;
+        switch (type) {
+        case SCRIPT_IF_INT_EQUAL: // 1 == 5
+        case SCRIPT_IF_INT_GREATER: // 1 > 5
+            s.add(type, SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT3);
+            break;
+        case SCRIPT_IF_INT_LESS: // 5 < 1
+            s.add(type, SCRIPT_PARAM_INT3, SCRIPT_PARAM_INT1);
+            break;
+        case SCRIPT_IF_INT_TRUE: // 0 > 0
+            s.add(type, SCRIPT_PARAM_INT2);
+            break;
+        case SCRIPT_IF_INT_FALSE: // 1 < 1
+            s.add(type, SCRIPT_PARAM_INT1);
+            break;
+        case SCRIPT_IF_IS_NPC:
+            s.add(type, SCRIPT_PARAM_CH1);
+            break;
+        case SCRIPT_IF_STR_EQUAL:
+        case SCRIPT_IF_STR_CONTAINS:
+            s.add(type, SCRIPT_PARAM_STR1);
+            s.set_text(0, two);
+            break;
+        case SCRIPT_IF_ROOM_SUNLIT:
+            s.add(type, SCRIPT_PARAM_RM1);
+            break;
+        }
+        s.add(SCRIPT_SECTION);
+        s.add(SCRIPT_BEGIN);
+        s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+        s.add(SCRIPT_END);
+        s.add(SCRIPT_SET_INT_VALUE, 9, SCRIPT_PARAM_INT3);
+        s.run(info);
+
+        EXPECT_EQ(0, info.ints[1]) << "IF type " << type << " ran the block it should skip";
+        EXPECT_EQ(9, info.ints[2]) << "IF type " << type << " did not carry on after the block";
+    }
 }
 
 } // namespace

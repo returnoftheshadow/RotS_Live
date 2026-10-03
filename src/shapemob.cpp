@@ -12,11 +12,13 @@
 #include "mob_options.h"
 #include "mob_progs/shopkeeper.h"
 #include "protos.h"
+#include "script.h"
 #include "structs.h"
 #include "utils.h"
 #include "zone.h"
 
 #include <limits>
+#include <string>
 
 extern struct room_data world;
 extern struct char_data* character_list;
@@ -136,6 +138,183 @@ void shape_range_footer(int start, int end, char* out)
 
     shape_range_text(start, end, range);
     sprintf(out, "List range: %s (/52 to change).\n\r", range);
+}
+
+/*
+ * Section rows: see protos.h.  The text of one is "title | comment"; only
+ * the first '|' separates, and blanks around either part are dropped (as is
+ * the '\r' a zone file line ends with).
+ */
+static std::string section_trim(const std::string& s)
+{
+    size_t first = s.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return "";
+    return s.substr(first, s.find_last_not_of(" \t\r\n") - first + 1);
+}
+
+std::string shape_section_title(const char* text)
+{
+    std::string s = text ? text : "";
+    return section_trim(s.substr(0, s.find('|')));
+}
+
+std::string shape_section_comment(const char* text)
+{
+    std::string s = text ? text : "";
+    size_t bar = s.find('|');
+    return bar == std::string::npos ? "" : section_trim(s.substr(bar + 1));
+}
+
+/* The title centred in a row of '=' that is width wide.  There are always
+ * at least two '=' each side: a title too long for that is cut to fit.  No
+ * title gives a plain row. */
+std::string shape_section_banner(const char* title, int width)
+{
+    std::string shown = title ? title : "";
+    int room = width - 6; /* "== " and " ==" */
+
+    if (room < 0)
+        room = 0;
+    if ((int)shown.size() > room)
+        shown.erase(room);
+    shown = section_trim(shown);
+    if (shown.empty())
+        return std::string(width > 0 ? width : 0, '=');
+
+    std::string middle = " " + shown + " ";
+    int fill = width - (int)middle.size();
+    return std::string(fill / 2, '=') + middle + std::string(fill - fill / 2, '=');
+}
+
+/*
+ * Applies what a builder typed at the title or comment prompt to a section's
+ * text.  A blank answer keeps the part as it is and "%q" empties it; a
+ * section with no title is a plain row of '='.  Returns 0, or a note for the
+ * builder when the title was too long and has been cut.
+ */
+const char* shape_section_set(char** text, int part, const char* typed)
+{
+    static char note[80];
+    const char* said = 0;
+    std::string title = shape_section_title(*text);
+    std::string comment = shape_section_comment(*text);
+    std::string entry = section_trim(typed ? typed : "");
+    bool empty_asked = (entry == "%q");
+
+    /* The zone and script files cannot hold '#' or '~', and a '|' in the
+     * title would end it. */
+    for (size_t i = 0; i < entry.size(); i++) {
+        if (entry[i] == '#')
+            entry[i] = '+';
+        if (entry[i] == '~')
+            entry[i] = '-';
+        if (entry[i] == '|' && part == SHAPE_SECTION_TITLE)
+            entry[i] = '/';
+    }
+
+    if (part == SHAPE_SECTION_TITLE) {
+        if (empty_asked)
+            title.clear();
+        else if (!entry.empty()) {
+            if (entry.size() > SHAPE_SECTION_TITLE_MAX) {
+                entry = section_trim(entry.substr(0, SHAPE_SECTION_TITLE_MAX));
+                sprintf(note, "The title was cut to %d characters.\n\r", SHAPE_SECTION_TITLE_MAX);
+                said = note;
+            }
+            title = entry;
+        }
+    } else if (empty_asked)
+        comment.clear();
+    else if (!entry.empty())
+        comment = entry;
+
+    std::string joined = comment.empty() ? title : (title.empty() ? "| " : title + " | ") + comment;
+    RELEASE(*text);
+    CREATE(*text, char, joined.size() + 1);
+    strcpy(*text, joined.c_str());
+    return said;
+}
+
+/* The prompt for a section's title or comment, showing what it holds now. */
+void shape_section_prompt(char* out, size_t outsz, const char* text, int part)
+{
+    if (part == SHAPE_SECTION_TITLE)
+        snprintf(out, outsz,
+            "Enter section TITLE, at most %d characters\n\r"
+            "  (blank = keep, %%q = none: a plain row of =):\n\r[%s]\n\r",
+            SHAPE_SECTION_TITLE_MAX, shape_section_title(text).c_str());
+    else
+        snprintf(out, outsz,
+            "Enter section COMMENT, shown under the title (blank = keep, %%q = empty):\n\r[%s]\n\r",
+            shape_section_comment(text).c_str());
+}
+
+/* Adds text to out as lines of at most width, each after indent blanks,
+ * breaking between words; a word longer than a line is split. */
+static void section_wrap(std::string& out, const std::string& text, int indent, int width)
+{
+    std::string line;
+    size_t at = 0;
+
+    if (width < 10)
+        width = 10;
+    while (at < text.size()) {
+        size_t end = text.find(' ', at);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string word = text.substr(at, end - at);
+        at = end + 1;
+        if (word.empty())
+            continue;
+        while (!word.empty()) {
+            if (line.empty() && (int)word.size() > width) {
+                out += std::string(indent, ' ') + word.substr(0, width) + "\n\r";
+                word.erase(0, width);
+            } else if (line.empty()) {
+                line = word;
+                word.clear();
+            } else if ((int)(line.size() + 1 + word.size()) <= width) {
+                line += " " + word;
+                word.clear();
+            } else {
+                out += std::string(indent, ' ') + line + "\n\r";
+                line.clear();
+            }
+        }
+    }
+    if (!line.empty())
+        out += std::string(indent, ' ') + line + "\n\r";
+}
+
+/*
+ * A section as the list shows it.  label is the row's number as the editor
+ * prints it and lead is what the caller already put on the line; the title
+ * row fills the rest of the line.  A comment goes underneath, comment_indent
+ * further in than the title row and wrapped to end where it ends, and is
+ * closed by a plain row of '='.  Wrapping makes the text longer, so rows
+ * that would not fit in out (outsz bytes) are cut where out ends.
+ */
+void shape_section_show(char* out, size_t outsz, const char* label, const char* text, int lead, int comment_indent)
+{
+    int indent = lead + (int)strlen(label);
+    int width = SHAPE_LIST_WIDTH - indent;
+    std::string comment = shape_section_comment(text);
+    std::string rows = label + shape_section_banner(shape_section_title(text).c_str(), width) + "\n\r";
+
+    if (!comment.empty()) {
+        section_wrap(rows, comment, indent + comment_indent, width - comment_indent);
+        rows += std::string(indent, ' ') + std::string(width > 0 ? width : 0, '=') + "\n\r";
+    }
+    if (outsz == 0)
+        return;
+    if (rows.size() >= outsz) {
+        rows.erase(outsz > 3 ? outsz - 3 : 0);
+        rows += "\n\r";
+        if (rows.size() >= outsz)
+            rows.erase(outsz - 1);
+    }
+    strcpy(out, rows.c_str());
 }
 
 /* What line wrap will add to the output already waiting to be sent: the
@@ -497,6 +676,8 @@ static const char* shape_field_help_key(struct char_data* ch, char* key)
             strcpy(key, "ZONE");
         else if (SHAPE_ZONE(ch)->editflag == 4 && SHAPE_ZONE(ch)->curr)
             sprintf(key, "ZONE %c", SHAPE_ZONE(ch)->curr->comm.command);
+        else if (SHAPE_ZONE(ch)->editflag == 5 && SHAPE_ZONE(ch)->curr && SHAPE_ZONE(ch)->curr->comm.command == '=')
+            strcpy(key, "ZONE ="); /* a section's comment: the section help */
         else
             sprintf(key, "ZONE %d", SHAPE_ZONE(ch)->editflag);
         break;
@@ -506,6 +687,8 @@ static const char* shape_field_help_key(struct char_data* ch, char* key)
             strcpy(key, "COMMAND LIST");
         else if ((field == 4 || (field >= 41 && field <= 49)) && SHAPE_SCRIPT(ch)->script)
             strcpy(key, script_type_name(SHAPE_SCRIPT(ch)->script->command_type));
+        else if (field == 5 && SHAPE_SCRIPT(ch)->script && SHAPE_SCRIPT(ch)->script->command_type == SCRIPT_SECTION)
+            strcpy(key, "SECTION"); /* a section's comment: the section help */
         return "script";
     }
     return "shape";

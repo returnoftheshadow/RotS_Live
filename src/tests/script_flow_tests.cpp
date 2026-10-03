@@ -132,4 +132,81 @@ TEST(GetNextCommand, ReturnsNullWhenTheBlockIsNeverClosed)
     EXPECT_EQ(0, s.skip_from(2));
 }
 
+/* ---- Section rows: a title in the editor's list, invisible to the scan.
+ * Each case builds the same script with and without a section and asks
+ * that the skip lands on the same command (counted without the section). */
+
+const int SECTION = SCRIPT_SECTION;
+
+/* The landing command's position among the non-section rows (1-based), or 0
+ * for "ran off the end", so a script with sections compares with one
+ * without. */
+int real_position(const std::vector<int>& types, int number)
+{
+    /* Landing on a section is landing on the command after it: the script
+     * runs straight through the section. */
+    while (number != 0 && number <= (int)types.size() && types[number - 1] == SECTION)
+        number = number < (int)types.size() ? number + 1 : 0;
+    if (number == 0)
+        return 0;
+    int pos = 0;
+    for (int i = 0; i < number; ++i)
+        if (types[i] != SECTION)
+            ++pos;
+    return pos;
+}
+
+int skip_ignoring_sections(const std::vector<int>& types, int begin_number)
+{
+    Script s(types);
+    return real_position(types, s.skip_from(begin_number));
+}
+
+/* The shape a builder makes by labelling an empty else branch.  The section
+ * used to take the place of the else's END, and the skip stopped one END too
+ * early, running the rest of the block it was skipping. */
+TEST(GetNextCommand, ASectionInANestedEmptyElseDoesNotChangeTheSkip)
+{
+    const std::vector<int> plain = { SCRIPT_BEGIN, SCRIPT_IF_INT_EQUAL, SCRIPT_BEGIN, BODY,
+        SCRIPT_END_ELSE_BEGIN, SCRIPT_END, BODY, SCRIPT_END, BODY };
+    const std::vector<int> labelled = { SCRIPT_BEGIN, SCRIPT_IF_INT_EQUAL, SCRIPT_BEGIN, BODY,
+        SCRIPT_END_ELSE_BEGIN, SECTION, SCRIPT_END, BODY, SCRIPT_END, BODY };
+
+    ASSERT_EQ(9, skip_ignoring_sections(plain, 1));
+    EXPECT_EQ(9, skip_ignoring_sections(labelled, 1));
+}
+
+/* A section straight after a nested block with no else: it used to take the
+ * extra step itself, so the skip landed one command earlier than without it. */
+TEST(GetNextCommand, ASectionAfterANestedBlockDoesNotChangeTheSkip)
+{
+    const std::vector<int> plain = { SCRIPT_BEGIN, SCRIPT_IF_INT_EQUAL, SCRIPT_BEGIN, BODY,
+        SCRIPT_END, SCRIPT_END, BODY, SCRIPT_END, BODY };
+    const std::vector<int> labelled = { SCRIPT_BEGIN, SCRIPT_IF_INT_EQUAL, SCRIPT_BEGIN, BODY,
+        SCRIPT_END, SECTION, SCRIPT_END, BODY, SCRIPT_END, BODY };
+
+    EXPECT_EQ(skip_ignoring_sections(plain, 1), skip_ignoring_sections(labelled, 1));
+}
+
+/* Several sections in a row count as none. */
+TEST(GetNextCommand, SeveralSectionsInARowAreAllInvisible)
+{
+    const std::vector<int> plain = { SCRIPT_BEGIN, SCRIPT_IF_INT_EQUAL, SCRIPT_BEGIN, BODY,
+        SCRIPT_END_ELSE_BEGIN, SCRIPT_END, BODY, SCRIPT_END, BODY };
+    const std::vector<int> labelled = { SECTION, SCRIPT_BEGIN, SECTION, SCRIPT_IF_INT_EQUAL, SCRIPT_BEGIN,
+        SECTION, BODY, SCRIPT_END_ELSE_BEGIN, SECTION, SECTION, SCRIPT_END, SECTION, BODY, SCRIPT_END,
+        SECTION, BODY };
+
+    ASSERT_EQ(9, skip_ignoring_sections(plain, 1));
+    EXPECT_EQ(9, skip_ignoring_sections(labelled, 2));
+}
+
+/* A nested block that never ends, followed only by sections, runs off the
+ * end; the scan used to step through a null pointer here. */
+TEST(GetNextCommand, ANestedBlockLeftOpenBeforeSectionsRunsOffTheEnd)
+{
+    Script s({ SCRIPT_BEGIN, SCRIPT_BEGIN, BODY, SECTION, SECTION });
+    EXPECT_EQ(0, s.skip_from(1));
+}
+
 } // namespace

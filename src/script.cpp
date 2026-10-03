@@ -1050,20 +1050,41 @@ int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
    and resumes one END too early -- inside the very block it was asked to skip.
    That regression shipped in 8446205 and broke the skip target at 79 sites across
    44 live scripts (e.g. Brali #2709: giving any non-quest item ran the quest
-   reward). See src/tests/script_flow_tests.cpp. */
+   reward). See src/tests/script_flow_tests.cpp.
+
+   Section rows are invisible to the scan: it steps over any that follow a
+   nested block before taking the extra step, so a script skips the same rows
+   with or without them. */
 script_data* get_next_command(script_data* curr)
 {
 
     curr = curr->next;
     for (; (curr) && ((curr->command_type != SCRIPT_END) && (curr->command_type != SCRIPT_END_ELSE_BEGIN));
          curr = curr->next)
-        if (curr->command_type == SCRIPT_BEGIN)
+        if (curr->command_type == SCRIPT_BEGIN) {
             curr = get_next_command(curr);
+            /* The extra step must land where it would with no section rows:
+             * a section labelling an empty else branch would otherwise take
+             * the place of the END the step is meant to pass. */
+            while (curr && curr->command_type == SCRIPT_SECTION)
+                curr = curr->next;
+            if (!curr)
+                break; /* the nested block never ended */
+        }
 
     if (curr)
         return curr->next;
     else
         return 0;
+}
+
+/* The command an IF guards: the next one that is not a section, so that a
+ * section between an IF and its BEGIN (or its one command) changes nothing. */
+static script_data* script_guarded(script_data* curr)
+{
+    for (curr = curr->next; curr && curr->command_type == SCRIPT_SECTION; curr = curr->next)
+        ;
+    return curr;
 }
 
 int run_script(struct info_script* info, struct script_data* position)
@@ -1385,6 +1406,10 @@ int run_script(struct info_script* info, struct script_data* position)
             curr = curr->next;
             break;
 
+        case SCRIPT_SECTION: /* a title in the editor's list; nothing to run */
+            curr = curr->next;
+            break;
+
         case SCRIPT_END_ELSE_BEGIN:
             curr = get_next_command(curr);
             break;
@@ -1464,12 +1489,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint == *ptrint2) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1489,12 +1514,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint < *ptrint2) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1514,12 +1539,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint > *ptrint2) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1537,12 +1562,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint > 0) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1566,12 +1591,12 @@ int run_script(struct info_script* info, struct script_data* position)
             if (*ptrint < 1) {
                 curr = curr->next;
             } else {
-                if (curr->next) {
-                    if (curr->next->command_type == SCRIPT_BEGIN) {
-                        curr = curr->next;
+                if (script_guarded(curr)) {
+                    if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                        curr = script_guarded(curr);
                         curr = get_next_command(curr);
                     } else {
-                        curr = curr->next->next;
+                        curr = script_guarded(curr)->next;
                     }
                 } else {
                     exit = TRUE;
@@ -1586,12 +1611,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (IS_NPC(tmpch)) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1615,15 +1640,15 @@ int run_script(struct info_script* info, struct script_data* position)
             if (IS_SUNLIT(real_room(tmprm->number))) {
                 curr = curr->next;
             } else {
-                if (!curr->next) {
+                if (!script_guarded(curr)) {
                     exit = TRUE;
                     break;
                 }
-                if (curr->next->command_type == SCRIPT_BEGIN) {
-                    curr = curr->next;
+                if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                    curr = script_guarded(curr);
                     curr = get_next_command(curr);
                 } else {
-                    curr = curr->next->next;
+                    curr = script_guarded(curr)->next;
                 }
             }
             break;
@@ -1644,12 +1669,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     } else {
                         RELEASE(txt2);
                         txt2 = 0;
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1666,12 +1691,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (!strcasecmp(txt1, curr->text)) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
