@@ -3,6 +3,7 @@
 #include "structs.h"
 #include "utils.h"
 
+#include <cstddef>
 #include <cstdlib>
 #include <string>
 #include <string_view>
@@ -22,7 +23,13 @@ std::string cached_hour_text;
 // The `time` command report as time_report() returns it; rebuilt by refresh().
 std::string cached_time_report;
 
-std::string build_hour_text(int hours)
+// The longest hour text, "It is about 12:00 PM".
+constexpr std::size_t hour_text_capacity = 20;
+// The longest report, with the longest weekday, month name and moon phase and a five-digit year,
+// is 242 characters.
+constexpr std::size_t time_report_capacity = 256;
+
+void build_hour_text(int hours, std::string& out_text)
 {
     int clock_hour = hours % 12;
     if (clock_hour == 0) {
@@ -33,11 +40,12 @@ std::string build_hour_text(int hours)
         meridiem = "PM";
     }
 
-    std::string text = "It is about ";
-    text += std::to_string(clock_hour);
-    text += ":00 ";
-    text += meridiem;
-    return text;
+    out_text.clear();
+    out_text.reserve(hour_text_capacity);
+    out_text += "It is about ";
+    out_text += std::to_string(clock_hour);
+    out_text += ":00 ";
+    out_text += meridiem;
 }
 
 void append_hour_count(std::string& out_report, int hours)
@@ -51,61 +59,63 @@ void append_hour_count(std::string& out_report, int hours)
 
 // The line endings mix "\r\n" and "\n\r" because that is what the `time` command has always
 // sent; clients and triggers may match on the exact text.
-std::string build_time_report(std::string_view hour)
+void build_time_report(std::string_view hour, std::string& out_report)
 {
-    std::string report(hour);
+    out_report.clear();
+    out_report.reserve(time_report_capacity);
+    out_report += hour;
 
     // A month has 30 days and a week has 7.
     const int weekday = ((30 * time_info.month) + time_info.day + 1) % 7;
-    report += " on ";
-    report += weekdays[weekday];
-    report += ", ";
+    out_report += " on ";
+    out_report += weekdays[weekday];
+    out_report += ", ";
 
     // day_to_str() writes "the <ordinal> day of <month name>", well under this size.
     char day_text[128];
     day_to_str(&time_info, day_text);
-    report += day_text;
-    report += ".\r\n";
+    out_report += day_text;
+    out_report += ".\r\n";
 
     char* year = nth(time_info.year);
-    report += "By the Steward's Reckoning, it is the ";
-    report += year;
-    report += " year of the fourth age of Arda.\r\n";
+    out_report += "By the Steward's Reckoning, it is the ";
+    out_report += year;
+    out_report += " year of the fourth age of Arda.\r\n";
     free(year);
 
-    report += "The moon is ";
-    report += moon_phase[weather_info.moonphase];
+    out_report += "The moon is ";
+    out_report += moon_phase[weather_info.moonphase];
     if (weather_info.moonlight) {
-        report += " and shining.\n\r";
+        out_report += " and shining.\n\r";
     } else {
-        report += " and not shining.\n\r";
+        out_report += " and not shining.\n\r";
     }
 
     const int sunrise = sun_events[time_info.month][0];
     const int sunset = sun_events[time_info.month][1];
     if (time_info.hours >= sunrise && time_info.hours < sunset) {
-        report += "The sun will set in about ";
-        append_hour_count(report, sunset - time_info.hours);
-        report += ".\r\n";
+        out_report += "The sun will set in about ";
+        append_hour_count(out_report, sunset - time_info.hours);
+        out_report += ".\r\n";
     } else {
         int hours_until_sunrise = sunrise - time_info.hours;
         if (time_info.hours >= 12) {
             hours_until_sunrise += 24;
         }
-        report += "The sun will rise in about ";
-        append_hour_count(report, hours_until_sunrise);
-        report += ".\n\r";
+        out_report += "The sun will rise in about ";
+        append_hour_count(out_report, hours_until_sunrise);
+        out_report += ".\n\r";
     }
-
-    return report;
 }
 
 } // namespace
 
 void refresh()
 {
-    cached_hour_text = build_hour_text(time_info.hours);
-    cached_time_report = build_time_report(cached_hour_text);
+    // Building in place keeps each string's buffer, so after the first hour a refresh allocates
+    // nothing beyond what nth() does.
+    build_hour_text(time_info.hours, cached_hour_text);
+    build_time_report(cached_hour_text, cached_time_report);
 }
 
 const std::string& hour_text()

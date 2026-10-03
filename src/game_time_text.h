@@ -5,7 +5,8 @@
 
 // The game-time text every reader shares: the MSDP WORLD_TIME value and the `time` command's
 // report. Both change only when the game hour changes, so they are built once per hour instead
-// of once per reader.
+// of once per reader. Both are std::string rather than a view so callers can pass c_str()
+// straight to the C-string APIs that send text, without copying it.
 namespace game_time_text {
 
 // Rebuilds both texts from the current game time, moon and sun times. reset_time() and
