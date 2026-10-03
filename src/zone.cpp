@@ -114,13 +114,21 @@ void load_zones(FILE* fl)
         /* XXX: still preserving the 'S' command */
         zone_table[zone].cmd[cmd_no].command = command;
 
-        fscanf(fl, "%hd %hd %hd %hd %hd %hd",
-            &zone_table[zone].cmd[cmd_no].if_flag,
-            &zone_table[zone].cmd[cmd_no].arg1,
-            &zone_table[zone].cmd[cmd_no].arg2,
-            &zone_table[zone].cmd[cmd_no].arg3,
-            &zone_table[zone].cmd[cmd_no].arg4,
-            &zone_table[zone].cmd[cmd_no].arg5);
+        /*
+         * A section row is '=' and then its title: there are no numbers to
+         * read, and a title that starts with one must not be taken for them.
+         */
+        if (command == '=') {
+            bzero(&zone_table[zone].cmd[cmd_no], sizeof(struct reset_com));
+            zone_table[zone].cmd[cmd_no].command = command;
+        } else
+            fscanf(fl, "%hd %hd %hd %hd %hd %hd",
+                &zone_table[zone].cmd[cmd_no].if_flag,
+                &zone_table[zone].cmd[cmd_no].arg1,
+                &zone_table[zone].cmd[cmd_no].arg2,
+                &zone_table[zone].cmd[cmd_no].arg3,
+                &zone_table[zone].cmd[cmd_no].arg4,
+                &zone_table[zone].cmd[cmd_no].arg5);
 
         zone_table[zone].cmd[cmd_no].existing = 0;
 
@@ -360,6 +368,7 @@ void renum_zone_one(int zone, struct char_data* to)
             a = zone_table[zone].cmd[comm].arg1 = zrequire_room(zone_table[zone].cmd[comm].arg1);
             break;
         case '*': /* disabled */
+        case '=': /* a section title for the editor's list */
         case 'S': /* end of the list */
         case '.': /* a row with no letter, as shapezon writes one */
             break;
@@ -691,6 +700,12 @@ void reset_zone(int zone)
     obj = obj_to = tmpobj = NULL;
 
     for (cmd_no = 0; cmd_no < zone_table[zone].cmdno; cmd_no++) {
+
+        /* A section is only a title in the editor's list.  It is not a
+         * command that ran or failed, so the next command's if_flag still
+         * looks at the command before the section. */
+        if (ZCMD.command == '=')
+            continue;
 
         /* Make sure the if_flag requirements are met */
         should_execute = check_if_flag(ZCMD.if_flag, last_cmd, last_mob, last_obj, zone);

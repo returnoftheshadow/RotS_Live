@@ -94,6 +94,7 @@
 #define SCRIPT_TELEPORT_CHAR_XL 75 //  Take char_from_room then put chX.room (leave followers behind)
 #define SCRIPT_IF_INT_FALSE 76 //  Test to see whether one integer is less than 1
 #define SCRIPT_LOAD_OBJ_X 77 //  Load an object from another object - note this object is not placed in the game
+#define SCRIPT_SECTION 78 //  A title row for the editor's list: text is "title | comment", does nothing when run
 
 #define SCRIPT_COMMAND_NONE 99 //  Given to new or unused commands
 // 999 - reserved for script loading - do not use
