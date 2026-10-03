@@ -1,10 +1,38 @@
-#include "../ordinal.h"
+#include "../number_text.h"
 #include "../utils.h"
 
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <limits>
 #include <string>
+
+TEST(AppendNumber, AppendsDecimalDigitsAfterExistingText)
+{
+    std::string text = "It is about ";
+
+    append_number(text, 0);
+    text += " ";
+    append_number(text, 12);
+    text += " ";
+    append_number(text, -42);
+
+    EXPECT_EQ(text, "It is about 0 12 -42");
+}
+
+TEST(AppendNumber, WritesTheExtremesIntoReservedCapacityWithoutReallocating)
+{
+    std::string text;
+    text.reserve(64);
+    const char* buffer_before = text.data();
+
+    append_number(text, std::numeric_limits<int>::min());
+    text += " ";
+    append_number(text, std::numeric_limits<int>::max());
+
+    EXPECT_EQ(text, "-2147483648 2147483647");
+    EXPECT_EQ(text.data(), buffer_before);
+}
 
 TEST(AppendOrdinal, MatchesNthForEveryNumberTheGameShows)
 {
@@ -58,7 +86,7 @@ TEST(AppendOrdinal, WritesIntoReservedCapacityWithoutReallocating)
     text.reserve(64);
     const char* buffer_before = text.data();
 
-    append_ordinal(text, -2147483647 - 1);
+    append_ordinal(text, std::numeric_limits<int>::min());
 
     EXPECT_EQ(text, "-2147483648th");
     EXPECT_EQ(text.data(), buffer_before);

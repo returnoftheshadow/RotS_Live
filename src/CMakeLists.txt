@@ -110,7 +110,6 @@ set(ROTS_SERVER_SOURCES
     environment_utils.cpp
     fight.cpp
     game_time_text.cpp
-    ordinal.cpp
     graph.cpp
     handler.cpp
     interpre.cpp
@@ -125,6 +124,7 @@ set(ROTS_SERVER_SOURCES
     mudlle.cpp
     mudlle2.cpp
     mystic.cpp
+    number_text.cpp
     obj2html.cpp
     object_utils.cpp
     objsave.cpp
@@ -211,7 +211,7 @@ set(ROTS_TEST_SOURCES
     tests/startup_options_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
-    tests/ordinal_tests.cpp
+    tests/number_text_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp

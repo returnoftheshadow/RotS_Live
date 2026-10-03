@@ -1,6 +1,6 @@
 #include "game_time_text.h"
 
-#include "ordinal.h"
+#include "number_text.h"
 #include "structs.h"
 
 #include <cstddef>
@@ -43,14 +43,14 @@ void build_hour_text(int hours, std::string& out_text)
     out_text.clear();
     out_text.reserve(hour_text_capacity);
     out_text += "It is about ";
-    out_text += std::to_string(clock_hour);
+    append_number(out_text, clock_hour);
     out_text += ":00 ";
     out_text += meridiem;
 }
 
 void append_hour_count(std::string& out_report, int hours)
 {
-    out_report += std::to_string(hours);
+    append_number(out_report, hours);
     out_report += " hour";
     if (hours != 1) {
         out_report += "s";

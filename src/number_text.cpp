@@ -1,4 +1,4 @@
-#include "ordinal.h"
+#include "number_text.h"
 
 #include <array>
 #include <charconv>
@@ -22,7 +22,7 @@ std::string_view ordinal_suffix(int number)
     }
 }
 
-void append_ordinal(std::string& out_text, int number)
+void append_number(std::string& out_text, int number)
 {
     // Room for every digit of any int plus its sign, so std::to_chars cannot run out of space.
     std::array<char, std::numeric_limits<int>::digits10 + 2> digits;
@@ -30,5 +30,10 @@ void append_ordinal(std::string& out_text, int number)
         = std::to_chars(digits.data(), digits.data() + digits.size(), number);
 
     out_text.append(digits.data(), written.ptr);
+}
+
+void append_ordinal(std::string& out_text, int number)
+{
+    append_number(out_text, number);
     out_text += ordinal_suffix(number);
 }
