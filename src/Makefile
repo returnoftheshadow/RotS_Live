@@ -101,6 +101,7 @@ SOURCES := \
     spec_ass.cpp \
     spec_pro.cpp \
     spell_pa.cpp \
+    test_harness.cpp \
     utility.cpp \
     wait_functions.cpp \
     weapon_master_handler.cpp \

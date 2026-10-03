@@ -18,6 +18,7 @@
 #include "profs.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_harness.h"
 #include "utils.h"
 #include <assert.h>
 #include <ctype.h>
@@ -523,6 +524,11 @@ void Crash_extract_objs(obj_data*);
 int check_idling(char_data* character)
 {
     extern int r_mortal_idle_room[];
+
+    // Harness ticks would otherwise trip the AFK and force-rent timers within one scenario.
+    if (harness_mode) {
+        return 0;
+    }
 
     // Gods get their own checks, and are never auto-disconnected.
     if ((GET_LEVEL(character) >= LEVEL_GOD) && (character->desc) && (character->desc->descriptor)) {
@@ -1336,7 +1342,8 @@ void affect_update_person(struct char_data* i, int mode)
 
     for (af = i->affected; af; af = next_af_dude) {
         next_af_dude = af->next;
-        if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase))) {
+        if (skills[af->type].is_fast
+            || (!mode && (time_phase == af->time_phase || harness_force_affect_phase))) {
             if ((af->duration >= 1) || (af->duration < 0)) {
                 if (af->duration >= 1)
                     af->duration--;

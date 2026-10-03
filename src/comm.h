@@ -25,6 +25,7 @@ struct StartupOptions {
     bool restrict_game;
     bool no_specials;
     bool has_proxy;
+    bool harness_mode; // -t; main() copies it into harness_mode (test_harness.h)
 };
 
 /* comm.c */
