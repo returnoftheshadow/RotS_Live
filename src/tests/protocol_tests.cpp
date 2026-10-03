@@ -25,6 +25,7 @@ extern int average_mob_life;
 
 void clear_char(struct char_data* ch, int mode);
 void msdp_update();
+void msdp_room_update(char_data* ch);
 int get_percent_absorb(char_data* character);
 
 namespace {
@@ -1627,6 +1628,42 @@ TEST(MSDPProtocol, MsdpUpdatePublishesOnceDescriptorIsPlaying)
         world[context.character.in_room].number);
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("ROOM_VNUM", std::to_string(world[context.character.in_room].number)));
+}
+
+TEST(MSDPProtocol, RoomUpdateOnEnteringGameSendsNoPlaceholderCharacterValues)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    /* The enter-game and reconnect paths call msdp_room_update() on a fresh protocol
+       before msdp_update() has computed any character value. */
+    initialize_msdp_player(&context.character, "Aragorn");
+    context.character.points.spell_pen = 0;
+    context.character.desc = &context.descriptor;
+    context.descriptor.connected = CON_PLYNG;
+    descriptor_list = &context.descriptor;
+
+    msdp_room_update(&context.character);
+
+    const std::string room_output = context.read_output();
+    EXPECT_NE(room_output.find(expected_msdp_pair("ROOM_NAME", "MSDP Test Room")), std::string::npos);
+    EXPECT_NE(room_output.find(expected_msdp_pair("ROOM_VNUM", "3001")), std::string::npos);
+    EXPECT_EQ(room_output.find(expected_msdp_pair("CHARACTER_NAME", "")), std::string::npos);
+    for (const char* variable_name : { "LEVEL", "HEALTH", "STR", "WILL", "WIL_PERM", "WILLPOWER",
+             "WARRIOR_LEVEL", "WARRIOR_LEVEL_MAX", "MAGE_LEVEL" }) {
+        EXPECT_EQ(room_output.find(expected_msdp_pair(variable_name, "0")), std::string::npos)
+            << variable_name << " was sent as 0 before its real value was known.";
+    }
+
+    msdp_update();
+
+    const std::string update_output = context.read_output();
+    EXPECT_NE(update_output.find(expected_msdp_pair("CHARACTER_NAME", "Aragorn")), std::string::npos);
+    EXPECT_NE(update_output.find(expected_msdp_pair("LEVEL", "10")), std::string::npos);
+    EXPECT_NE(update_output.find(expected_msdp_pair("WARRIOR_LEVEL", "5")), std::string::npos);
+    EXPECT_NE(update_output.find(expected_msdp_pair("SPELL_PEN", "0")), std::string::npos)
+        << "A value that really is 0 must still reach the client once.";
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
