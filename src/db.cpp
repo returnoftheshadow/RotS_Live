@@ -3826,15 +3826,17 @@ static bool file_to_string_read_lines(std::string_view name, std::string& out_co
     out_content.clear();
     out_content.reserve(output_size);
 
-    for (const char character : raw_content) {
-        out_content += character;
-        if (character == '\n') {
-            out_content += '\r';
+    std::string_view remaining(raw_content);
+    while (!remaining.empty()) {
+        const std::size_t newline_position = remaining.find('\n');
+        std::size_t line_length = remaining.size();
+        if (newline_position != std::string_view::npos) {
+            line_length = newline_position + 1;
         }
-    }
 
-    if (has_unterminated_last_line) {
+        out_content.append(remaining.substr(0, line_length));
         out_content += '\r';
+        remaining.remove_prefix(line_length);
     }
 
     return true;
