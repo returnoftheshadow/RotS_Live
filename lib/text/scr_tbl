@@ -161,6 +161,7 @@ about a specific trigger, please refer to its manual page.
     ON_DRINK
     ON_EAT
     ON_HEAR_SAY
+    ON_HEAR_YELL  (runs on 'say' too; nothing calls it for yells)
     ON_PULL
     ON_WEAR
 
@@ -187,6 +188,9 @@ Aside from the chx, obx and rmx variables, there are two
 other sets of variables available: the intx and strx var-
 iables.
 
+Only rm1 is ever set (by the mob ON_ENTER and ON_BEFORE_ENTER
+triggers); typing rm2 stores rm3.  Use chx.room for rooms.
+
 For more information on each of these type of variables, see
 the appropriate manual page.
 
@@ -206,7 +210,7 @@ characters.  The chx variables have the following fields:
     chx.rank    (READ ONLY Integer) Character's rank.
 
 Fields marked as READ ONLY cannot be set by script
-commands such as SET_INT_VALUE or SET_INT_ADD.
+commands such as SET_INT_VALUE or SET_INT_SUM.
 
 SEE ALSO: VARIABLES INTEGERS STRINGS OBJECTS ROOMS
 #
@@ -337,9 +341,8 @@ SEE ALSO: TRIGGERS "TRIGGER LIST" ON_ENTER
 #
 ON_DIE
 
-Triggered when a character dies in the same room as the
-mob or object who owns the script.  The trigger works the
-same when it is owned by a mob or object.
+Triggered when the mob that owns the script is about to
+die.
 
 REMEMBER: Scripts cannot execute when a character is in
 the waiting state.  Thus, if this script resides on a mob,
@@ -347,7 +350,8 @@ the script will not execute if the mob is bashed, casting
 or otherwise delayed.
 
 Variables:
-    ch1    The character who is dying.
+    ch1    The mob who is dying (the script owner).  Nothing
+           else is set.
 
 Return value:
   FALSE    The MUD does NOT kill the character.  Be care-
@@ -402,7 +406,7 @@ SEE ALSO: TRIGGERS "TRIGGER LIST"
 ON_DAMAGE
 
 If owned by a mobile, then this trigger will occur when the
-mobile damages another character.  If owned by an object, the
+mobile is damaged by another character.  If owned by an object, the
 script will trigger when some character damages another char-
 acter while WIELDING that object.  Keep in mind: if a mobile
 owns a script which triggers ON_DAMAGE and is wielding an
@@ -413,7 +417,7 @@ Also keep in mind that the trigger occurs before any damage
 is dealt and also before any messages are sent.
 
 Mobile:
-    ch1    The character being damaged
+    ch1    The character being damaged (the script owner)
     ch2    The character doing the damage
 Object:
     ch1    The character being damaged
@@ -471,9 +475,11 @@ Variables:
     ch1    The character who owns the script
     ch2    The character who is using 'say'
     str1   The text said by ch2.  This is only the text spoken,
-           not the "X says" part.  The commands IF_TEXT_EQUAL
-           and IF_TEXT_CONTAINS are commonly used to test what
+           not the "X says" part.  The commands IF_STR_EQUAL
+           and IF_STR_CONTAINS are commonly used to test what
            is in str1 after this trigger occurs.
+
+A 'say' also runs any ON_HEAR_YELL part of the script.
 
 Return value: ignored.
 
@@ -544,18 +550,18 @@ Argument 3:
     acter's equipment has a corresponding number.  See the
     manual page for EQUIPMENT in the script chapter.
 Argument 4:
-    An integer: int1, int2 or int3.  The command will put a
-    value of 1 in this integer if the search succeeded.  Thus,
-    if this argument is set to 1, then you know that your obx
-    argument contains a valid object.
+    An integer: int1, int2 or int3 (anything else is ignored).
+    The command puts 1 in this integer if the search succeeded
+    and 0 if not.  Thus, if this argument is set to 1, then you
+    know that your obx argument contains a valid object.
 
 SEE ALSO: COMMANDS "COMMAND LIST"
 #
 ASSIGN_INV
 
 Search for an object in a character's inventory by virtual
-number.  This command also searches through any containers in
-the player's inventory.
+number.  This command also looks inside the first container
+the character carries.
 
 Argument 1:
     The virtual number of the object to look for.
@@ -564,13 +570,14 @@ Argument 2:
 Argument 3:
     The character to search.  Should be a chx variable.
 Argument 4:
-    An integer variable.  If the object is found, then this
-    variable is set to 1, if not it is set to 0.  Should be
-    an intx variable.
+    An intx variable.  It is set to how many copies the char-
+    acter carries (not counting ones inside containers), or 0.
+    An object found only inside a container is assigned, but
+    counts 0.
 
 SEE ALSO: COMMANDS "COMMAND LIST"
 #
-ASSSIGN_ROOM
+ASSIGN_ROOM
 
 Very similar to the ASSIGN_INV command, except this command
 searches a room, not a character's inventory.  The script must
@@ -583,12 +590,10 @@ Argument 1:
 Argument 2:
     An obx variable to store the object in, if it is found.
 Argument 3:
-    An rmx variable denoting which room is to be searched.
+    The room to search: rm1 or a chx.room (e.g. ch1.room).
 Argument 4:
-    An integer (intx should always be used) to store whether
-    the search failed or succeeded.  If the search was succ-
-    essful, then a 1 is stored in the int.  Otherwise 0 is
-    stored in the int.
+    An intx variable.  It is set to how many copies lie in
+    the room (0 if none).
 
 SEE ALSO: COMMANDS "COMMAND LIST"
 #
@@ -600,19 +605,24 @@ string variable.  You cannot use this command to store, for
 example, the value of chx.name into the variable str1.  You
 can use this command to store the string "whitie" into str1.
 
+The variable must be str1, str2 or str3, or obx.name to
+rename an object.  The editor refuses anything else.
+
 SEE ALSO: COMMANDS "COMMAND LIST"
 #
 CHANGE_EXIT_TO
 
-Change the room which an exit leads to.  The room should be
-supplied as an rmx variable, but the exit is an integer.
-See MAN SCRIPT EXITS to see which integers correspond to
-which exits.
+Change the room which an exit leads to.  The room is a
+variable (e.g. ch1.room), the exit is an integer.  See MAN
+SCRIPT EXITS to see which integers correspond to which
+exits.  The exit must already exist.
 
 Argument 1:
     The room the exit is in.
 Argument 2:
     The direction of the exit as an integer.
+Argument 3:
+    The vnum of the room the exit should lead to.
 
 SEE ALSO: COMMANDS "COMMAND LIST" EXITS
 #
@@ -667,6 +677,8 @@ SEE ALSO: COMMANDS "COMMAND LIST"
 DO_GIVE
 
 Force a character to give an object to another character.
+The giver must carry the object.  The object variable is
+cleared afterwards either way.
 
 Argument 1:
     The character who will give the object.  Should be a
@@ -713,18 +725,14 @@ DO_SAY
 
 Force a character to say something.  This command allows you to
 insert one string inside of another before saying the string.
-The first argument is the string the character will say.  If
-it contains "%s" (lower case s), then before the character says
-the string, the MUD will insert another string where the %s is.
-The string that will be inserted is the second argument.
+If the text contains "%s" (lower case s), then before the char-
+acter says it, the MUD inserts another string where the %s is.
+Only one %s is allowed; type %% for a % sign.
 
+The editor asks for the text first, then for:
 Argument 1:
     The character who will speak.  This should be a chx variable.
 Argument 2:
-    The text to be spoken.  The %s placeholder should be put in
-    this argument if you wish to include another string inside
-    of this one.
-Argument 3:
     This argument is optional: it should be a variable with type
     STRING.  I.e., a strx variable or part of a chx, obx or rmx
     variable that is a string: like chx.name.
@@ -744,7 +752,7 @@ Argument 2:
     An optional character who will be the target of the social.
     For example, the "nod" social can be given a target, in
     which case the first character will nod at the second.
-    This should be a chx variable.
+    This should be a chx variable in the same room.
 Argument 3:
     This argument is the command for the social.  If you wish
     for the character to nod, then this argument must be "nod".
@@ -779,12 +787,12 @@ SEE ALSO: COMMANDS "COMMAND LIST"
 #
 "EVERYTHING ELSE"
 
-DO_WAIT - places ch1 on the waiting_list for a time period specified in the
-parameter. Script execution is halted, returning TRUE. When the character
-comes off the waiting_list, execution is continued at the next command. Note
-that all variables which might have been set from the trigger will be set to
-0. This is to ensure the script does not try to use pointers which are now
-invalid.
+DO_WAIT - places ch1 on the waiting_list for a number of pulses
+(4 pulses = 1 second).  Script execution is halted, returning TRUE.
+When ch1 comes off the waiting_list, execution continues at the next
+command with only ch1 set again; every other variable is empty.  In
+an object script ch1 (the player) waits and the rest of the script
+does not run.
 
 
 EQUIP_CHAR - Loads up to 5 objects to a character and then performs "wear all".
@@ -811,7 +819,8 @@ IF_INT_EQUAL - compares one integer with another. If they are equal the next
 command is executed, if not it is skipped. Use BEGIN as the next command to
 mark the beginning of a block of commands and END to mark their end. The
 script will skip the whole block if the integers are not equal.
-- Parameters: two integers (eg int1, ch1.hit, ch1.race...)
+- Parameters: two integer VARIABLES (eg int1, ch1.hit, ch1.race...).
+  A typed number stops the script: put it in an intx with SET_INT_VALUE.
 
 
 IF_INT_LESS - compares two integers to see if one is less than the other.
@@ -822,38 +831,43 @@ IF_INT_GREATER - compares two integers to see if one is greater than the other.
 Works in the same way as above.
 
 
-IF_INT_TRUE - check if an integer is true.
+IF_INT_TRUE - true if an integer variable is above 0.
 
 
-IF_INT_FALSE - check if an integer is false.
+IF_INT_FALSE - true if an integer variable is 0 or less.
 
 
 IF_IS_NPC - if the character is an npc the next command is executed
-- Paramters: ch1, ch2, ch3
+- Parameters: ch1, ch2, ch3
 
 
 IF_ROOM_SUNLIT - if the room is lit by the sun the next command is executed
-- Paramters: room (ch1.room)
+- Parameters: room (ch1.room)
 
 
-IF_STR_CONTAINS - if a text field contains the specified text the next command is executed. Enter the specified text in UPPERCASE.
-- Parameters: ch1.name, ch2.name, txt1 etc.
-the text which is to be compared.
+IF_STR_CONTAINS - if a text variable contains the specified text the
+next command is executed.  The variable is uppercased first, so enter
+the specified text in UPPERCASE.
+- Parameters: a text variable (ch1.name, str1 etc.), then the text
+  to look for, typed in.
 
 
-IF_STR_EQUAL - as above, except the text must be equal
+IF_STR_EQUAL - as above, except the text must be equal (case does
+not matter here)
 
 
-LOAD_MOB - load a mobile and assign it to a chx variable
-- Paramters: vnum of mobile
+LOAD_MOB - load a mobile and assign it to a chx variable.  The mob is
+in no room until a TELEPORT_CHAR row places it.
+- Parameters: vnum of mobile
 ch1, ch2, ch3 (variable to assign new mob to)
 
 LOAD_OBJ - load an object and assign it to an obx variable
 - Parameters: vnum of object
 ob1, ob2, ob3 (variable to assign new obj to)
 
-LOAD_OBJ_X - copy loaded object and assign it to an obx variable
-- Parameters: obX.vnum of object to copy
+LOAD_OBJ_X - load another copy of the object in ob1 (always ob1) and
+assign it to an obx variable.  Skipped if ob1 is not set.
+- Parameters: (unused, type any non-zero number)
 ob1, ob2, ob3 (variable to assign new obj to)
 
 OBJ_FROM_CHAR - removes an object from a character's inventory and puts it into
@@ -867,7 +881,8 @@ OBJ_FROM_ROOM - removes an object from the contents of a room and puts it into
 obj_to_room or obj_to_char to move an object from a room into a character's
 inventory or into another room).
 - Parameters: ob1, ob2, ob3 - object to remove
-rm1, rm2, rm3 - the room from which the object is to be moved
+the room it is in (rm1 or chx.room); nothing happens if the object
+is not in that room
 
 
 OBJ_TO_CHAR - move an object which -mustn't- be in a character's inventory to
@@ -878,13 +893,13 @@ ch1, ch2, ch3 - which inventory to move to
 
 OBJ_TO_ROOM - as obj_to_char except the object is placed in a room's contents
 - Parameters: ob1, ob2, ob3
-rm1, rm2, rm3
+the room (rm1 or chx.room)
 
 
 PAGE_ZONE_MAP - sends a zone map (as shaped by an immortal) to a character
 (mortal or otherwise). Used especially for maze maps.
-- Paramters: integer - the number of the zone
-ch1, ch2, ch2 - the character who is to see the map
+- Parameters: integer - the number of the zone (room vnum / 100)
+ch1, ch2, ch3 - the character who is to see the map
 
 
 RAW_KILL - kill a mobile or player (corpse is "silent" variety for now)
@@ -902,31 +917,34 @@ should at the very least return the mob's hitpoints to +ve and give a reason
 (send_to_room etc) as to why the mob is still alive.
 
 
-SEND_TO_CHAR - send text to a character
+SEND_TO_CHAR - send text to a character.  The text is the row's
+MESSAGE, asked for right after the parameters (%s inserts the text
+field, %% prints a %).
 - Parameters ch1, ch2, ch3 (the character to send the text to)
 Any text field to be inserted via %s (optional)
 
 
-SEND_TO_ROOM - send text to room
-- Parameters: rm1, rm2, rm3 (the room to send the text to)
+SEND_TO_ROOM - send text to room (MESSAGE as for SEND_TO_CHAR)
+- Parameters: the room to send the text to (rm1 or chx.room)
 Any text field to be inserted via %s (optional)
 
 
 SEND_TO_ROOM_X - send text to room except ch
-- Parameters: rm1, rm3, rm3 (the room to send the text to)
-ch1, ch2, ch3 (the character who is not to recieve the text)
+- Parameters: the room to send the text to (rm1 or chx.room)
+ch1, ch2, ch3 (the character who is not to receive the text; required)
 Any text field to be inserted via %s (optional)
 
 
 SET_EXIT_STATE - change exits (open, closed, locked) This command sends
 messages to the room(s) concerned and also deals with the "other side" of the
 door as in zone files.
-- Parameters: rm1, rm2, rm3 (the room with the exits)
-exit direction (0-5)
-exit state (0-2) (see zone help)
+- Parameters: the room with the exits (rm1 or chx.room), then
+exit direction (0-5) and exit state (0 open, 1 closed, 2 locked)
 
 SET_INT_SUM - assigns the sum of two integers to an integer. For example, entering as values: ch1.hit ch1.hit int1 will add the value of int1 to ch1.hit; entering ch1.hit ch2.hit ch3.hit will make ch1's hit points equal to the sum of ch2 and ch3 (not very useful... ).
 - Parameters: integers: the int to assign to, and the two integers to sum.
+All three must be variables; a typed number does not work.  The result
+must be int1-3 or chx.hit.
 
 SET_INT_DIV - as above, except the 2nd integer is divided by the 3rd
 
@@ -937,18 +955,17 @@ SET_INT_SUB - as above, except the 3rd integer is subtracted from the 2nd
 SET_INT_MULT - as above, except the two integers are multiplied
 
 SET_INT_VALUE - set a value to an integer. This is one very powerful command!
-It only takes up a few lines of code, but since integer parameters can be
-pointers to for example, a character's hit points or level, great care must be
-exercised when using this command.
-- Parameters: integer variable (int1, int2, int3, ch1.hit.., ch1.level..,
-ch1.race)
-integer value (entered by script writer)
+Since it can set a character's hit points, great care must be exercised
+when using this command.
+- Parameters: integer variable (int1, int2, int3 or chx.hit; the other
+fields are read only), then the value (a typed number)
 
-SET_INT_WAR_STATUS - set an integer to a value which signifies the state of
-fame war.  
+SET_INT_WAR_STATUS - set an integer to the state of the fame war:
+1 if the good side leads, -1 if the evil side leads, 0 if tied.
 
-TELEPORT_CHAR - take a character and all npc followers from a room and move to another room. NB no
-messages are sent to the rooms - the script must handle messages.
+TELEPORT_CHAR - take a character and its npc followers in the same room and
+move them to another room. NB no messages are sent to the rooms - the script
+must handle messages.
 - Parameters: vnum of room to move to
 ch1, ch2, ch3 (the character to move)
 

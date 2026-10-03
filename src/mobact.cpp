@@ -43,6 +43,7 @@ void* virt_program_number(int number);
 int find_first_step(int, int);
 
 void enforce_position(struct char_data*, int);
+extern int top_of_mobt;
 
 void mobile_activity(void)
 {
@@ -88,6 +89,10 @@ void one_mobile_activity(char_data* ch)
         return;
     }
 
+    /* For the negative-room warning; the room was range-checked above. */
+    running_mob_guard mob_context((ch->nr >= 0 && ch->nr <= top_of_mobt) ? mob_index[ch->nr].virt : -1,
+        world[ch->in_room].number);
+
     is_passive = 0;
     if (MOB_FLAGGED(ch, MOB_PET) && !utils::is_guardian(*ch) && ch->master && char_exists(ch->master_number)) {
         if (ch->in_room == ch->master->in_room) {
@@ -96,11 +101,11 @@ void one_mobile_activity(char_data* ch)
     }
 
     // handle interrupts
-    if(ch->specials.fighting && ch->interrupt_count > 0 && ch->interrupt_time > 0) {
+    if (ch->specials.fighting && ch->interrupt_count > 0 && ch->interrupt_time > 0) {
         ch->interrupt_time = ch->interrupt_time - 1;
-        if(ch->interrupt_time == 0) {
+        if (ch->interrupt_time == 0) {
             ch->interrupt_count = ch->interrupt_count - 1;
-            if(ch->interrupt_count > 0) {
+            if (ch->interrupt_count > 0) {
                 ch->interrupt_time = 10;
             }
         }
@@ -114,7 +119,7 @@ void one_mobile_activity(char_data* ch)
 
         /* Examine call for special procedure */
         if (IS_SET(ch->specials2.act, MOB_SPEC) && !no_specials) {
-            sprintf(buf, "%s - find prog: %d, func:%d",  GET_NAME(ch), ch->specials2.act, mob_index[ch->nr].func);
+            sprintf(buf, "%s - find prog: %d, func:%d", GET_NAME(ch), ch->specials2.act, mob_index[ch->nr].func);
             mudlog_aliased_mob(buf, ch, "progdebug");
             if (!mob_index[ch->nr].func && ch->specials.store_prog_number) {
                 tmpfunc = (SPECIAL(*))virt_program_number(ch->specials.store_prog_number);
@@ -141,11 +146,11 @@ void one_mobile_activity(char_data* ch)
 
         // STOP here if mob is now busy (I believe this occurs when methods above return FALSE when they should be TRUE )
         // BECAUSE: other things are checking subcmd and delay time BUT subcmd gets set to 0 ABOVE!??
-        if(ch->delay.wait_value && ch->delay.cmd) {
+        if (ch->delay.wait_value && ch->delay.cmd) {
             return;
         }
 
-        if(!ch->specials.fighting) {
+        if (!ch->specials.fighting) {
             ch->interrupt_count = 0;
             ch->interrupt_time = 0;
         }

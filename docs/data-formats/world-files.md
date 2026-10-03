@@ -67,6 +67,11 @@ the ceiling and a cold draft comes from the north.
 ### Virtual vs real numbers
 Files reference **virtual numbers** (vnums). After load, `renum_world`/`renum_zone_table`
 convert them to **real** array indices (`db.cpp:926`, `zone.cpp:173`). On-disk = always vnums.
+Zone commands are converted in place, so the original vnum only exists during
+`renum_zone_one`: that is where a vnum that names nothing is reported (and the command
+disabled when the vnum is required). Scripts keep their vnums and convert them when each
+line runs; `check_script_table` reports bad ones at boot. Builder-facing messages are
+listed in `shape_zone.md` and `shape_script.md` ("Error messages").
 
 ---
 
@@ -142,6 +147,26 @@ Notes:
 - Most of these (energy/regen, OB/parry/dodge, perception, resistance/vulnerability,
   spirit, prof, languages, script_number, butcher_item, rp_flag) are **RotS additions**;
   stock Diku mobiles are far simpler.
+- **Options (optional, RotS 2026-09):** one `~`-terminated text block after the last number
+  line, present only when the mob has options. The loader reads it only when the next
+  non-space character isn't `#` or `$` (`read_mob_options`, `src/mob_options.cpp`). Text
+  can't contain `~` or `#` anywhere, and can't start with `$`; max 4000 characters. Used by
+  mob programs; see `docs/systems/barter-vendors.md`. **Rollback:** a server older than
+  this change can't read a mob file containing an options block, and fails unpredictably:
+  its loader reads the next word into `char chk[10]` with an unbounded `%s`, so a line like
+  `store=12345` overruns it (the boot may stop with `Format error in mob file`, or crash). To roll back, (a) remove every options block from the mob files
+  **and** (b) move field 29 (program number) off 33, or clear `MOB_SPEC`, on every vendor
+  mob — otherwise the old binary crashes when a player looks at a program-33 mob (it reads
+  `spec_pro_message[33]`, past the end of its table).
+- **There is no affect list on a mobile.** The record ends at the
+  `language … will_teach` line above (or the options block, if any) and the parser moves straight to the next `#vnum`.
+  Objects carry `MAX_OBJ_AFFECT` `A <location> <modifier>` slots; mobiles have no
+  equivalent, so a mob cannot carry `APPLY_SPELL` (or any other apply) in its own record.
+- Consequently `resistance`/`vulnerability` are **flag-only: a bit, with no strength**.
+  A mob can be "resistant to fire" but not "80 % resistant to fire". To give a mob a
+  graded resistance, put `A 27 <strength*256 + spell>` on an object and equip it with the
+  zone `E` command — that path runs `equip_char` (`zone.cpp:844`) and produces a real
+  affect. See `docs/shape_mob.md` for the bit table and the builder recipe.
 
 ---
 
@@ -204,6 +229,8 @@ Each command is:
   others read five args (`load_zones:127-143`).
 - `S` terminates the command list (`:98`).
 - The trailing text on each line is a human comment (only preserved by the OLC `shapezon`).
+- The `int` args are read with `%hd` (16-bit): a negative vnum reads back as 65536+n and
+  `-1`/NOWHERE as `65535`.
 
 The RotS command letters seen in `renum_zone_one` (`zone.cpp:196-`) include at least
 `A`, `L`, `M`, `N`, `X`, `H`, `E`, `K`, `Q`, `P` — a richer set than Diku's

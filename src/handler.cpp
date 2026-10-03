@@ -58,6 +58,7 @@ extern struct obj_data* object_list;
 extern struct char_data* character_list;
 extern struct index_data* mob_index;
 extern struct index_data* obj_index;
+extern struct char_data* mob_proto;
 extern struct descriptor_data* descriptor_list;
 extern struct char_data* fast_update_list;
 extern char* MENU;
@@ -73,6 +74,7 @@ void free_char(struct char_data*);
 void stop_fighting(struct char_data*);
 void remove_follower(struct char_data*);
 void clear_memory(struct char_data*);
+void show_character_menu(struct descriptor_data* d);
 
 ACMD(do_save);
 ACMD(do_return);
@@ -81,6 +83,11 @@ ACMD(do_return);
 
 char char_control_array[MAX_CHARACTERS / 8 + 1];
 long last_control_set = -1;
+
+/* The only channel an item has for telling a spell how strong it is. An object's affect
+   carries level*256+spellnum and the spell is invoked with obj = 0, so it cannot read
+   anything off the item itself. Set immediately before the call, cleared on every exit. */
+int eff_mod = 0;
 
 int dummy_affected_var = 17;
 universal_list* affected_list = 0;
@@ -444,16 +451,23 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         tmp2 = mod / 256; // spell level
         if (!tmp2)
             tmp2 = GET_LEVEL(ch);
-        if (tmp >= 128)
-            break;
 
-        if (!skills[tmp].spell_pointer)
-            break;
+        eff_mod = tmp2;
 
-        if (add)
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_SPELL, ch, 0, 0, 1);
-        else
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        /* affect_total() replays every gear and affect apply on the character, so this runs
+           a lot; buf is the shared scratch buffer and is only worth writing when asked for. */
+        if (has_debug_flag(ch)) {
+            sprintf(buf, "--APPLY_SPELL: spell %d level %d\n\r", tmp, tmp2);
+            debug_flag_msg(buf, ch);
+        }
+
+        if (tmp >= MAX_SKILLS || !skills[tmp].spell_pointer) {
+            eff_mod = 0;
+            break;
+        }
+
+        skills[tmp].spell_pointer(ch, "", add ? SPELL_TYPE_SPELL : SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        eff_mod = 0;
         break;
 
     case APPLY_BITVECTOR:
@@ -474,17 +488,19 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         break;
 
     case APPLY_RESIST:
+        /* mod was already negated above on the REMOVE pass, so the bit to clear is -mod:
+           shifting by the negative value is undefined and in practice clears nothing. */
         if (mod >= 0)
             GET_RESISTANCES(ch) |= (1 << mod);
         else
-            GET_RESISTANCES(ch) &= ~(1 << mod);
+            GET_RESISTANCES(ch) &= ~(1 << -mod);
         break;
 
     case APPLY_VULN:
         if (mod >= 0)
             GET_VULNERABILITIES(ch) |= (1 << mod);
         else
-            GET_VULNERABILITIES(ch) &= ~(1 << mod);
+            GET_VULNERABILITIES(ch) &= ~(1 << -mod);
         break;
 
     default:
@@ -511,9 +527,26 @@ void affect_naked(char_data* ch)
     GET_WILLPOWER(ch) = get_naked_willpower(ch);
     ch->specials.affected_by |= race_affect[GET_RACE(ch)];
 
+    /* affect_total() calls this between stripping every affect and re-applying them, so both
+       masks have to be reset to what the character owns intrinsically. A player owns nothing:
+       every bit they carry comes from gear or an affect, so zero is right. A mob's bits come
+       from its .mob record, so they have to be read back from the prototype - leaving them
+       alone was harmless while APPLY_RESIST removal never actually cleared a bit, but now that
+       it does, a mob given (say) resist fire would lose its own RESIST_FIRE for good when the
+       affect wore off.
+
+       The nr > -1 test never actually fires: mob_proto[i].nr = i (db.cpp) is the only assignment
+       to nr in the tree and clear_char memsets it to 0, so no NPC ever carries -1. It is kept to
+       match the existing defensive convention around nr (db.cpp free_char, fight.cpp), and
+       because an NPC that was never read from a record would read mob_proto[0] here rather than
+       keep its own bits. The mob_proto null test does real work: it guards calls before boot and
+       in the test binary. */
     if (!IS_NPC(ch)) {
         GET_RESISTANCES(ch) = 0;
         GET_VULNERABILITIES(ch) = 0;
+    } else if (mob_proto && ch->nr > -1) {
+        GET_RESISTANCES(ch) = mob_proto[ch->nr].specials.resistance;
+        GET_VULNERABILITIES(ch) = mob_proto[ch->nr].specials.vulnerability;
     }
 }
 
@@ -749,12 +782,23 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     affect_total(ch);
 }
 
-void affect_remove_notify(struct char_data* ch, struct affected_type* af)
+const char* spell_wear_off_message(int spell_number)
 {
     extern char* spell_wear_off_msg[];
+    extern const int spell_wear_off_msg_count;
 
-    if (*spell_wear_off_msg[af->type] && !PLR_FLAGGED(ch, PLR_WRITING))
-        vsend_to_char(ch, "%s\n", spell_wear_off_msg[af->type]);
+    if (spell_number < 0 || spell_number >= spell_wear_off_msg_count)
+        return NULL;
+
+    return spell_wear_off_msg[spell_number];
+}
+
+void affect_remove_notify(struct char_data* ch, struct affected_type* af)
+{
+    const char* wear_off = spell_wear_off_message(af->type);
+
+    if (wear_off && *wear_off && !PLR_FLAGGED(ch, PLR_WRITING))
+        vsend_to_char(ch, "%s\n", wear_off);
 
     affect_remove(ch, af);
 }
@@ -831,10 +875,10 @@ int in_affected_list(struct char_data* ch)
  */
 void affect_from_char_notify(struct char_data* ch, byte skill)
 {
-    extern char* spell_wear_off_msg[];
+    const char* wear_off = spell_wear_off_message(skill);
 
-    if (*spell_wear_off_msg[skill] && !PLR_FLAGGED(ch, PLR_WRITING))
-        vsend_to_char(ch, "%s\n", spell_wear_off_msg[skill]);
+    if (wear_off && *wear_off && !PLR_FLAGGED(ch, PLR_WRITING))
+        vsend_to_char(ch, "%s\n", wear_off);
 
     affect_from_char(ch, skill);
 }
@@ -870,6 +914,26 @@ affected_type* affected_by_spell(const char_data* ch, byte skill, affected_type*
     }
 
     return NULL;
+}
+
+/* Returns aff's counterpart on ch only when it is the sole affect of that type, i.e. when
+   removing it cannot strip a slot something else still depends on. Unused: slot ownership
+   is settled in do_resist_spell (strongest worn item holds it). Kept for reference. */
+affected_type* removeable_spell_affection(const char_data* ch, affected_type* aff, affected_type* start_affect)
+{
+    int match_count = 0;
+    int count = 0;
+    affected_type* found = NULL;
+
+    for (affected_type* status_affect = start_affect; status_affect && (count < MAX_AFFECT);
+         status_affect = status_affect->next, count++) {
+        if (status_affect->type == aff->type) {
+            found = status_affect;
+            match_count++;
+        }
+    }
+
+    return (match_count == 1) ? found : NULL;
 }
 
 /* Return a pointer to an affection if the room is affected by the spell.
@@ -1229,6 +1293,7 @@ void obj_from_char(struct obj_data* object)
 {
     struct obj_data* tmp;
     int i;
+    bool in_inventory = true;
 
     if (object->carried_by->carrying == object) { /* head of list */
         object->carried_by->carrying = object->next_content;
@@ -1244,6 +1309,7 @@ void obj_from_char(struct obj_data* object)
             IS_CARRYING_N(object->carried_by)
             --;
         } else {
+            in_inventory = false;
             for (i = 0; i < MAX_WEAR; i++)
                 if (object->carried_by->equipment[i] == object)
                     break;
@@ -1256,10 +1322,16 @@ void obj_from_char(struct obj_data* object)
     if (!IS_NPC(object->carried_by))
         SET_BIT(PLR_FLAGS(object->carried_by), PLR_CRASH);
 
-    if (IS_RIDING(object->carried_by))
-        IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
+    /* Only obj_to_char adds weight, and only for the inventory list.  A worn
+     * object's weight is taken off by unequip_char, here or by the caller
+     * (extract_obj(unequip_char(...)) leaves carried_by set), and worn
+     * weight is never added to a mount. */
+    if (in_inventory) {
+        if (IS_RIDING(object->carried_by))
+            IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
 
-    IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+        IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+    }
     object->carried_by = 0;
     object->next_content = 0;
     object->in_room = NOWHERE;
@@ -1461,7 +1533,8 @@ int get_number(char** name)
     if ((ppos = strchr(*name, '.'))) {
         *ppos++ = '\0';
         strcpy(number, *name);
-        strcpy(*name, ppos);
+        // ppos points into *name, so the copy must allow overlap.
+        memmove(*name, ppos, strlen(ppos) + 1);
 
         for (i = 0; *(number + i); i++)
             if (!isdigit(*(number + i)))
@@ -1668,14 +1741,18 @@ void obj_to_room(struct obj_data* object, int room)
             world[room].light++;
         }
     }
-    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp < 1000);
+    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp <= 1000);
          tmpobj = tmpobj->next_content, tmp++)
         ;
-    if (tmp >= 1000) {
-        mudlog("obj_to_room: infinite loop in room contents.",
-            NRM, LEVEL_GOD, TRUE);
-        world[room].contents = object;
-        object->next_content = 0;
+    if (tmp == 1000) {
+        // Report once, as the floor reaches 1000 objects; a busier floor stays silent. A floor this
+        // large is legitimate -- a mass quit drops every quitter's gear in one room, much of it through
+        // here, so reporting every drop flooded the log and every online god. This used to "recover"
+        // by resetting the room's contents to this object, which left every other object claiming the
+        // room but off its list, and obj_from_room crashed when one decayed. A real cycle would already
+        // have hung the duplicate scan above.
+        sprintf(buf, "obj_to_room: the floor of room %d has reached 1000 objects.", world[room].number);
+        mudlog(buf, NRM, LEVEL_GOD, TRUE);
     }
     object->in_room = room;
     object->carried_by = 0;
@@ -2046,7 +2123,7 @@ void extract_char(struct char_data* ch, int new_room)
             do_look(ch, "", 0, 0, 0);
         } else {
             ch->desc->connected = CON_SLCT;
-            SEND_TO_Q(MENU, ch->desc);
+            show_character_menu(ch->desc);
         }
     } else {
         while (ch->affected)
@@ -2398,7 +2475,8 @@ int find_all_dots(char* arg)
     if (!strcmp(arg, "all"))
         return FIND_ALL;
     else if (!strncmp(arg, "all.", 4)) {
-        strcpy(arg, arg + 4);
+        // The keyword follows "all." in the same buffer, so the copy must allow overlap.
+        memmove(arg, arg + 4, strlen(arg + 4) + 1);
         return FIND_ALLDOT;
     } else
         return FIND_INDIV;

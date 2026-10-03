@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - release-frodo
+  pull_request:
+    branches:
+      - master
+      - release-frodo
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-smoke:
+    name: Build, Unit Tests, and Smoke Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        # ageland links -lcrypt as a 32-bit binary, so the i386 crypt development package is
+        # required alongside the 64-bit one (README, "build prerequisites").
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang-format \
+            cmake \
+            cargo \
+            gcc-multilib \
+            g++-multilib \
+            libc6-dev-i386 \
+            libcrypt-dev \
+            libcrypt-dev:i386 \
+            make \
+            pkg-config \
+            python3 \
+            rustc
+
+      - name: Configure build tree
+        run: make configure
+
+      - name: Run C++ unit tests
+        run: make test
+
+      - name: Run account smoke flow
+        # lib/world is git-ignored, so a plain checkout has no world for the smoke server to boot.
+        # The step is skipped then; run `make smoke-account` by hand where a world is installed.
+        if: hashFiles('lib/world/**') != ''
+        run: make smoke-account

@@ -165,4 +165,13 @@ int find_script_by_number(int number);
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 void continue_char_script(char_data* ch);
 
+/* Report script lines whose vnums name nothing -- informational only. */
+void check_script_vnums(int script_index, struct char_data* to);
+void check_script_table(void);
+bool report_script_negative_room(void);
+
+/* A script message is not a printf format: the first %s becomes `arg`, %% a
+ * percent sign, anything else is copied as is (script.cpp). */
+void script_format_text(char* out, size_t outsz, const char* text, const char* arg);
+
 #endif /* SCRIPT_H */

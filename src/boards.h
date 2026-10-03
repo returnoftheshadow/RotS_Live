@@ -12,6 +12,7 @@
 #define BOARDS_H
 
 #include "platdef.h" /* For byte typedefs */
+#include <stdio.h> /* FILE, for write_board_message_html */
 
 #define NUM_OF_BOARDS 24
 // #define NUM_OF_BOARDS      (board_info_type::num_of_boards)
@@ -105,5 +106,8 @@ struct mail_info_type : board_info_type {
 #define MSG_POSTTIME(j) (msg_index[j].post_time)
 #define MSG_LEVEL(j) (msg_index[j].level)
 #define MSG_CURMSG(ch) (ch->specials.board_point[lnum])
+
+/* One message body for the web export: '\n' becomes "<br>", '\r' is dropped. */
+void write_board_message_html(FILE* ht_fl, const char* text, int len);
 
 #endif /* BOARDS_H */

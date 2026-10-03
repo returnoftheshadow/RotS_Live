@@ -175,6 +175,37 @@ int replace_pattern(descriptor_data* d, char* pattern, char* new_pattern)
     return count;
 }
 
+int shape_text_field(struct char_data* ch, char** str, const char** chapter, char* key, int* no_format);
+int show_help_entry(struct char_data* ch, const char* chapter, const char* keyword);
+
+/*
+ * The opening lines of the text editor: every command it takes.  str is the
+ * text being edited.  A shaping field with a help entry gets "%h" as its
+ * help, and mob options are not offered "%f".
+ */
+static void string_add_commands(struct char_data* ch, char** str)
+{
+    const char* chapter;
+    char key[40];
+    int no_format;
+
+    shape_text_field(ch, str, &chapter, key, &no_format);
+    send_to_char("Edit the text now. Commands, each at the start of a line:\n\r"
+                 "  %e save and exit           %q abort\n\r"
+                 "  %d delete the last line    %d<+/-n> delete n lines back/forward\n\r"
+                 "  %l cursor to the end       %l<n> cursor after line n\n\r"
+                 "  %r redisplay the text      %s<old>~<new> replace everywhere\n\r",
+        ch);
+    if (no_format)
+        send_to_char("  %% a % sign\n\r", ch);
+    else
+        send_to_char("  %f format the text         %% a % sign\n\r", ch);
+    if (*key)
+        send_to_char("  %h help for this field, and more on these commands\n\r", ch);
+    else
+        send_to_char("  %h more on these commands\n\r", ch);
+}
+
 void string_add_init(struct descriptor_data* d, char** str)
 {
     char* tmpstr;
@@ -185,9 +216,7 @@ void string_add_init(struct descriptor_data* d, char** str)
         return;
     }
 
-    send_to_char("Edit the text now, type %e to save and exit, %q to abort,"
-                 "%h for help.\n\r",
-        d->character);
+    string_add_commands(d->character, str);
     if (str)
         if (*str) {
             send_to_char("Your text so far:\n\r", d->character);
@@ -203,7 +232,7 @@ void string_add_init(struct descriptor_data* d, char** str)
     if (*d->str) {
         if (*str) {
             tmp = strlen(*d->str);
-            CREATE(tmpstr, char, BLOCK_STR_LEN * (1 + tmp / BLOCK_STR_LEN));
+            CREATE(tmpstr, char, BLOCK_STR_LEN*(1 + tmp / BLOCK_STR_LEN));
             strncpy(tmpstr, *d->str, tmp);
             *d->str = tmpstr;
             tmpstr = 0;
@@ -228,8 +257,14 @@ void string_add_finish(struct descriptor_data* d)
         printf("no text!\n");
     else if (!(*d->str))
         d->str = 0;
-    else if (strlen(*d->str) >= MAX_STRING_LENGTH)
-        *(*d->str + MAX_STRING_LENGTH - 1) = 0;
+    /* Cap below MAX_STRING_LENGTH, not at it: fread_string accumulates the
+     * text plus its '~' terminator and a '\r' per joined line when the world
+     * file is read back, and calls exit(0) (aborting the boot) if that total
+     * passes MAX_STRING_LENGTH.  The 256-byte headroom keeps anything saved
+     * here loadable, and also stops fread_string writing one byte past its
+     * buffer at the very top of the range. */
+    else if (strlen(*d->str) >= MAX_STRING_LENGTH - 256)
+        *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
 
     d->str = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
@@ -368,7 +403,18 @@ void string_add(struct descriptor_data* d, char* str)
             }
             *str = 0;
             break;
-        case 'f':
+        case 'f': {
+            const char* chapter;
+            char key[40];
+            int no_format;
+
+            /* Mob options are one setting per line; joining them breaks them. */
+            shape_text_field(d->character, d->str, &chapter, key, &no_format);
+            if (no_format) {
+                send_to_char("This text is one setting per line, so %f is not allowed here.\n\r", d->character);
+                return;
+            }
+        }
             if ((int)d->len_str == 0) {
                 send_to_char("What are you trying to format?\n\r", d->character);
                 *str = 0;
@@ -397,10 +443,18 @@ void string_add(struct descriptor_data* d, char* str)
         case '~':
             strcpy(scan + 1, scan + 2);
             break;
-        case 'h':
+        case 'h': {
+            const char* chapter;
+            char key[40];
+            int no_format;
+
             if (!d->character)
                 break;
 
+            /* A shaping field shows its own help entry first. */
+            shape_text_field(d->character, d->str, &chapter, key, &no_format);
+            if (*key)
+                show_help_entry(d->character, chapter, key);
             send_to_char("The commands work only if at the line start.\n\r"
                          "The following commands exist:\n\r"
                          "%e   - to finish the text;\n\r"
@@ -410,12 +464,15 @@ void string_add(struct descriptor_data* d, char* str)
                          "%l   - to set the cursor at the end of the text;\n\r"
                          "%l<num> - to set the cursor after the line <num>;\n\r"
                          "%r   - to redisplay the text;\n\r"
-                         "%s<old_string>~<new_string> - to replace all substrings;\n\r"
-                         "%f   - to reformat the whole text;\n\r"
-                         "%%   - to insert % sign;\n\r"
+                         "%s<old_string>~<new_string> - to replace all substrings;\n\r",
+                d->character);
+            if (!no_format)
+                send_to_char("%f   - to reformat the whole text;\n\r", d->character);
+            send_to_char("%%   - to insert % sign;\n\r"
                          "%h   - to see this help.\n\r",
                 d->character);
             return;
+        }
         case 0:
             break;
         default:

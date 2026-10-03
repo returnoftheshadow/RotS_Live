@@ -33,12 +33,20 @@ void affect_from_room(struct room_data* room, byte skill);
 void affect_total(struct char_data* ch, int mode = AFFECT_TOTAL_UPDATE);
 void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add, sh_int counter);
 void affect_to_char(struct char_data* ch, struct affected_type* af);
+/* Bound-checked lookup into spell_wear_off_msg[]. That table is indexed by spell number but is
+   far shorter than MAX_SKILLS, so an unchecked index reads past its end. Returns NULL when the
+   spell number has no entry at all, otherwise the entry (which may be the empty string). */
+const char* spell_wear_off_message(int spell_number);
+
 void affect_remove_notify(struct char_data*, struct affected_type*);
 void affect_remove(struct char_data* ch, struct affected_type* af);
 void affect_from_char_notify(struct char_data*, byte);
 void affect_from_char(struct char_data* ch, byte skill);
 
+#include <stddef.h>
+
 affected_type* affected_by_spell(const char_data* character, byte skill, affected_type* firstaf = 0);
+affected_type* removeable_spell_affection(const char_data* character, affected_type* aff, affected_type* start_affect);
 affected_type* room_affected_by_spell(const room_data* room, int spell);
 
 void affect_join(struct char_data* ch, struct affected_type* af,
@@ -145,6 +153,9 @@ void Crash_crashsave(struct char_data* ch, int rent_code = RENT_CRASH);
 void Crash_idlesave(struct char_data* ch);
 void Crash_save_all(void);
 FILE* Crash_get_file_by_name(char* name, char* mode);
+FILE* Crash_load(struct char_data* ch);
+void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length);
+void clear_account_backed_object_bytes_for_character(const struct char_data* ch);
 
 /* prototypes from fight.c */
 void set_fighting(struct char_data* ch, struct char_data* victim);
