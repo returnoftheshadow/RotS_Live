@@ -33,7 +33,8 @@ them.
   | 2 | dark | Uruk (11), Orc (13), Olog-hai (17) |
   | 3 | third | Magus (15), Haradrim (18) |
 
-- A character with no side is refused by every banker. That covers immortals (race God).
+- A character with no side is refused by every banker. That covers immortals of race God;
+  any other immortal is refused by level (91 and up), whatever their race.
 - The vault belongs to the account. Deleting a character does not touch it.
 - A vault holds **10 item slots** and up to **1,000 gold** in coins. Both limits come from the
   game settings file (below). Coins never use a slot.
@@ -54,17 +55,27 @@ them.
   time it is needed in a boot and kept; every change is written straight to its file. There
   are 41 accounts on live, so the table stays tiny.
 - A vault file that cannot be read is never overwritten: the banker refuses business for that
-  vault, and one warning is logged.
+  vault, and one warning is logged. That includes a file that exists but cannot be opened
+  (wrong owner or mode after a restore): only a file that is not there is an empty vault.
+- Vault files are restored or edited by hand only with the server down.
 
 ## Player commands
 
 All three only work at a banker; elsewhere they keep answering as they do today.
 
+A banker speaks the way the old shopkeepers do (decided 2026-10-01, replacing the private
+speech-shaped lines of earlier that day): a refusal to serve at all is a real `say` the room
+hears, every other reply is a real `tell` to the customer. (The barter vendor does the same;
+both use `vendor_say` / `vendor_tell`.)
+
 ### `balance`
 
 Lists coins, slots used, and each stored item with what it costs to withdraw **at this
 banker for this customer** (markup included). No days column. The fee column is left out at a
-banker with no fee. A container shows as `(sealed, N inside)`, N being the items inside it.
+banker with no fee. A container shows as `(sealed, N inside)`, N being the items inside it
+(0 for an empty one). The line above the list is the banker's greeting (see Banker setup), or
+the plain line `Your vault:` when none is set. Nobody speaks it: it is the listing's header,
+as the old shops open `list` with "You can buy:".
 Money is printed with the game's own
 wording (`money_message`: "1 silver and 50 copper"), since game text is meant to read as a
 story. Output stays within 78 columns.
@@ -85,7 +96,10 @@ Stores one item from loose inventory (not worn). Refused, with nothing changed, 
 
 - the vault's slots are full;
 - the item, or anything inside it, is something rent refuses (`Crash_is_unrentable`,
-  `src/objsave.cpp:1271`: no-rent flag, keys, negative cost, no prototype).
+  `src/objsave.cpp:1271`: no-rent flag, keys, negative cost, no prototype);
+- the item, or anything inside it, is cursed (`ITEM_NODROP`), as `give` and `drop` refuse it.
+
+The customer reads `You hand over <item>.`
 
 A container takes one slot however full it is, and is sealed while stored.
 
@@ -105,11 +119,14 @@ By name or by the number `balance` shows. In order:
 3. Refuse if carried coins plus vault coins can't cover the fee. Nothing is taken.
 4. Take the fee from carried coins first, then from vault coins, and say how much came from
    each.
-5. Hand the item over. Each object gets the version refresh that login applies (PR #343).
+5. Check that the vault file can be written (write it unchanged). If not, refuse: a vault
+   that can't be saved would hand the same thing out again after every reboot.
+6. Hand the item over (`You are handed <item>.`). Each object gets the version refresh that
+   login applies (PR #343).
 
 ### `withdraw <N> gold` / `silver` / `copper`
 
-Free. Refused if the vault holds fewer.
+Free. Refused if the vault holds fewer, or if the vault file can't be written.
 
 ### Stored items
 
@@ -125,11 +142,12 @@ fee = min(days stored, maxdays) × fee per day × items
 - **Items:** 1 for a plain item; for a container, itself plus everything inside it. The whole
   slot uses its one deposit date.
 - **Rate:** the banker being withdrawn from.
-- **Day:** a real day that starts at the bank day hour (5am) in **server local time**, so it
-  follows daylight saving the same way the morning reboot does. Days stored = the number of
-  those 5am points between the deposit time and now. It goes by the clock only: reboots and
-  crashes never add a day, and it is not 24 hours from the deposit. Withdrawing before the
-  next 5am is free.
+- **Day:** a real day that starts at the routine daily reboot: the `daily_reboot_hour_utc`
+  game option (default 10), counted in **UTC**, so it never moves with daylight saving (5am
+  Central in summer, 4am in winter). The same option drives the reboot itself. Days stored =
+  the number of those day-start points between the deposit time and now. It goes by the clock
+  only: reboots and crashes never add a day, and it is not 24 hours from the deposit.
+  Withdrawing before the next day start is free.
 - **Racial markup:** applied when the customer's race differs from the banker mob's race.
   The marked-up total is rounded **up** to a whole copper.
 - Coins are never charged.
@@ -145,6 +163,8 @@ fee = min(days stored, maxdays) × fee per day × items
    fee=50
    maxdays=30
    racial_markup=yes
+   greeting=The clerk slides a heavy ledger across the counter.
+   greeting_other=The clerk eyes you coldly and opens a ledger.
    ```
 
 | Line | Meaning |
@@ -152,13 +172,20 @@ fee = min(days stored, maxdays) × fee per day × items
 | `hours=` | Opening hours, same format and parser as barter vendors. |
 | `fee=` | Copper per item per day. Left out = free banker. |
 | `maxdays=` | Most days a fee is charged for. Required when `fee=` is set. |
-| `racial_markup=` | `yes` = 30%; a number 1-300 = that percentage. |
+| `racial_markup=` | `yes` = 30%; a number 1-3000 = that percentage. |
+| `greeting=` | The line above the vault on `balance`, in place of the default. |
+| `greeting_other=` | The same, for a customer of another race than the banker. |
+
+A greeting is sent exactly as written, to the customer alone. "Another race" is the test
+`racial_markup` uses (customer race differs from the banker's) and needs no markup. With only
+`greeting=`, every customer gets it. With only `greeting_other=`, the banker's own race gets the
+default line. An empty value counts as not set.
 
 - **Strict:** a bad `hours=`, `fee=`, `maxdays=` or `racial_markup=`, or `fee=` without
   `maxdays=`, means the banker does no business and a warning is logged, in the house
   warning style (type + vnum + line).
-- **Soft:** `racial_markup=` with no `fee=` has nothing to mark up. The banker works; `/imp`
-  tells the implementer only.
+- **Soft:** `racial_markup=` with no `fee=` line at all has nothing to mark up, and a greeting
+  longer than 78 columns wraps. The banker works; `/imp` tells the implementer only.
 - Parsed ahead of time into an in-memory table at boot and when the mob is saved, like
   vendors.
 
@@ -166,7 +193,7 @@ fee = min(days stored, maxdays) × fee per day × items
 
 The same checks and wording pattern as barter vendors (`vendor_serves`,
 `src/mob_progs/shopkeeper.cpp:446`): aggressive to the customer, shadow form, race check,
-can't see the customer, closed. Plus: no side (immortals).
+can't see the customer, closed. Plus: no side, and any immortal by level.
 
 ### Protection
 
@@ -198,6 +225,9 @@ command starting with `bo` would take `bo` away from `bow` for anyone who can us
   (only when different), the default and the allowed range.
 - `gameoptions <name> <value>`: checks the value, refuses a bad one, writes the file at once
   (atomic), and says it takes effect at the next reboot.
+- If the file was there at boot but could not be read (not JSON, or a value that is not a
+  number), every setting runs on its default, the list says so, and a change is refused until
+  the file is fixed or removed, so the hand-edited file is never replaced by defaults.
 
 ## Immortal vault commands (Greater God, level 97)
 
@@ -205,13 +235,15 @@ Level 97 matches `account show`, which also shows emails.
 
 ### Looking
 
-- `vault <character>`: the vault for that character's side.
+- `vault <character>`: the vault for that character's side; with `<1|2|3>`, that side instead.
 - `vault <email or account>`: all three vaults.
 - `vault <email or account> <1|2|3>`: one side.
 
 Every view shows the account name and email, plus the character name when the lookup was by
 character. Container contents are listed, indented. A name that matches both an account and a
-character shows the account. Lookup works like `account`'s `<email-or-account>`.
+character shows the account. Lookup works like `account`'s `<email-or-account>`. `take` and
+`put` are matched before any name, so an account or character named Take or Put is viewed by
+its email.
 
 ### Stepping in
 
@@ -226,10 +258,14 @@ They work whether or not anyone on the account is logged in.
 - `vault put <account> <1|2|3> coins <N>`: from the immortal's own coins, up to the coin
   limit.
 
+`take` and `put` are refused for an immortal with no connection (forced while linkless): that
+character is not saved, so the item would leave the vault and be lost. One `(GC)` line says
+why, for whoever forced it. `vault put` is not bound by the banker's cursed-item refusal.
+
 ### Logging
 
-Every `vault` command, looking included, writes one `(GC)` line with who ran which command.
-What the command prints is not logged.
+Every `vault` command, looking included, writes one `(GC)` line with who ran which command,
+with runs of spaces collapsed. What the command prints is not logged.
 
 ## Saving and crash safety
 
@@ -243,7 +279,9 @@ dies in between:
 | `vault take` | immortal's character | vault file |
 | `vault put` | vault file | immortal's character |
 
-If the first write fails, the transaction is refused and nothing changes.
+If the first write fails, the transaction is refused and nothing changes. Withdrawals and
+`vault take` check the vault file is writable before handing anything out; if the second write
+still fails it is a `SYSERR`, and `vault take` also tells the immortal.
 
 ## Code changes (outline)
 
@@ -277,7 +315,7 @@ If the first write fails, the transaction is refused and nothing changes.
 Unit tests (`src/tests/`):
 
 - Options parsing: every strict and soft case above.
-- Fee maths: same day, one 5am crossed, cap at `maxdays`, container item count, markup
+- Fee maths: same day, one day start crossed, cap at `maxdays`, container item count, markup
   rounding up, both daylight-saving changes.
 - Side lookup for every playable race, and God.
 - Vault file round trip, empty vault, unreadable file left untouched.
@@ -321,3 +359,26 @@ In game, on a local server (port 4071), scripted as a smoke test and then by han
    vendor trade log, so staff can trace an item. Not on the proposal page.
 8. **Worn items** can't be deposited; only loose inventory.
 9. **File names:** `vault_light.json`, `vault_dark.json`, `vault_third.json`.
+
+## Changes after the code review (2026-10-01)
+
+Decided item by item with the user after a three-reviewer read of the first build; the sections
+above already include them. Findings and decisions: `reports/2026-09-30-player-bank/review-findings.md`
+(local). In short: unopenable vault files are unreadable, not empty; nothing is handed out when
+the vault file can't be written; `vault take/put` need a connection; cursed items and immortals
+(by level) are refused; the `(GC)` line collapses spaces; a damaged settings file is never
+replaced by defaults; greetings (`greeting=`, `greeting_other=`); banker and barter-vendor speech
+follows the old shopkeepers (a refusal to serve is a say, any other reply a tell); the in-game `linkaccount` command is removed.
+
+## Adversarial review changes (2026-10-02)
+
+Three independent reviewers; each finding verified, then decided item by item with the user.
+Findings and decisions: `reports/2026-09-30-player-bank/review-findings.md` (local), section
+"ADVERSARIAL REVIEW". `docs/systems/bank.md` and `docs/systems/barter-vendors.md` are current. In
+short: the vendor's `buy` no longer leaves a destroyed payment object in the command's targets
+(a crash in the merged vendor code); a wand or staff keeps its charges in the vault; a withdraw
+is undone when the character save fails (runtime save-result flags); deleted prototypes are
+skipped as the rent load skips them; a vault whose read failed is read again on the next use;
+`vault take` / `put` log the item that moved; `attacks=yes|no` on vendors and bankers (default
+yes, as old shopkeepers), and race aggression is no longer reported as an error; `vault
+<account>` with no side is a summary; long plain lines wrap.

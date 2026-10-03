@@ -36,6 +36,7 @@ field. No vnums in code, no `.shp` file.
 |---|---|---|---|
 | `store=<room vnum>` | The store room; its contents are the stock | Warning; no trading | Warning; no trading |
 | `hours=a-b[,c-d…]` | Game hours (0–23) he trades. Overnight (`20-4`) and several windows allowed | Always open | **Strict:** warning; no trading |
+| `attacks=yes` or `no` | `no`: he never starts a fight (see "Who a vendor serves, and whether it fights") | `yes`, like an old shopkeeper | Warning; line ignored |
 | `list=<message>` | The line shown above the `list` output, as plain text (not spoken) | "What would you like to trade?" (also when empty) | Longer than 78 columns: still shown; `/implement` warns the builder only |
 | `price <item vnum> <cur vnum>x<qty> [<cur vnum>x<qty>…] [deduct]` | The cost of one item | Item not sold by this vendor | **Lenient:** that line is skipped with a warning; the rest still work |
 
@@ -87,16 +88,43 @@ reaches. The player gets one answer.
 - **Keep him where he can see buyers.** A vendor in a dark room refuses everyone ("I don't
   trade with someone I can't see!"). Keep his room lit.
 
-## Side-specific vendors
+## Who a vendor serves, and whether it fights
 
-- Race does **not** make a vendor refuse the other side. `IS_AGGR_TO` only refuses a side
-  through `other_side()`, which is always 0 for an NPC — the same as the old shops.
-- To restrict who may trade, use **`rp_flag`** (allowed races; 0 = everyone). Anyone else
-  gets "Sorry, I can't serve you!".
-- **Don't use `pref`.** `pref` makes the mob aggressive: he attacks those races on sight,
-  and once he is fighting someone that player's hits land and he fights back — the
-  protection below no longer holds. A vendor with `pref` set is warned (`pref set - vendor
-  attacks and can be hurt`).
+- **Race aggression** (mob editor /11 simple, /20 extended; `specials2.pref` in the source) is
+  how a keeper chooses who it serves, exactly as the old shops do: 67 of the 75 shopkeepers in
+  the world have it set. A customer of a race the vendor is aggressive to gets "Go away, I
+  won't deal with you!" (`IS_AGGR_TO`; its `other_side()` half is always 0 for an NPC).
+- The **roleplay flag** (`rp_flag`, /39) is the second check: allowed races, 0 = everyone.
+  Anyone else gets "Sorry, I can't serve you!". It only refuses.
+- **`attacks=yes|no`** (left out = yes). Race aggression also makes a mob attack those races
+  on sight, and so do the AGGR, MEMORY, HELPER and HUNTER flags. With `attacks=yes` a vendor
+  behaves like an old shopkeeper: it attacks, and once it has started a fight that player's
+  hits land (`damage()` only asks the program while the victim is not already fighting the
+  attacker, `fight.cpp`). With `attacks=no` the program answers the mob AI's own turn
+  (`SPECIAL_SELF`) with TRUE, so the turn ends there: the vendor never attacks, assists,
+  hunts, wanders or picks things up, race aggression is access control only, and it is never
+  hurt. (Only its own turn is stopped: an immortal's `force` or a script can still make it
+  attack. No player can: recruiting a mob removes its program, and only animals are tamed.) `/implement` warns about SCAVENGER, AGGR, MEMORY, HELPER, BODYGUARD, HUNTER and
+  ASSISTANT on such a mob (`<flag> flag with attacks=no`), since they can do nothing; SENTINEL
+  is unaffected, a keeper that stays put still stays put. The banker has the same option.
+- **Mental attacks are refused like physical ones.** Before it engages, `do_mental`
+  (`clerics.cpp`) asks a keeper's program the same `SPECIAL_DAMAGE` question a physical attack
+  asks (`fight.cpp`). A keeper answers "Don't even think about it.", is never drawn into the
+  mental fight, and the attacker is not left fighting it (an attacker who already was, because
+  the keeper stopped fighting them, is stopped, or the refusal would repeat every round). This
+  covers the old shopkeepers too. Only keepers are asked (`mob_is_keeper`): many old programs
+  (the pale vampire, the dragon) treat any call as one more turn, and must not get one out of
+  every mental round aimed at their mob.
+- **Keeper protection is one shared piece** (`mob_progs/shopkeeper.h`, "Keeper protection").
+  A keeper is a mob whose program serves players: an old shopkeeper, a barter vendor, a
+  banker. `keeper_protection()` is the first call in the vendor and banker programs and
+  answers the mob's own turn (`attacks=`), an attack, and blinding dust; `mob_is_keeper()` is
+  what the rest of the game asks, so no other code names the keeper types. A new keeper type
+  adds its program to the list in `mob_is_keeper()` and makes that one call. The old
+  `shop_keeper` (`shop.cpp`) keeps its own, older answers and is only listed.
+- **One keeper to a room.** The first keeper in the room answers `list` and `buy` (a banker:
+  `balance`, `deposit`, `withdraw`), even when its own options are broken; a second one, or an
+  old shopkeeper behind it, can't be reached.
 
 ## The options field
 
@@ -116,11 +144,27 @@ reaches. The player gets one answer.
     `/save`, `/implement` and boot. To space settings out, use a `//` comment line.
 - `stat` on a loaded copy shows the prototype's current options (what `list`/`buy` use).
 
-## The vendor needs to talk
+## How the vendor speaks
 
-The vendor refuses and reports with the normal `say` command, which the room hears. `say`
-itself refuses any mob with intelligence below 6, so a vendor mob needs **INT 6 or higher**
-or he can't speak at all. This is warned (see below), not special-cased in `say`.
+The vendor speaks the way the old shopkeepers (`shop.cpp`) do, through two helpers in
+`src/mob_progs/shopkeeper.cpp` that the banker (program 34) shares:
+
+- **A refusal to serve at all is a real `say`** (`vendor_say`), heard by the room: aggressive
+  to the buyer, shadow, race check, can't see the buyer, closed, and "I'm not trading right
+  now." (bad options).
+- **Every other reply is a tell** to the buyer (`vendor_tell`), which nobody else sees:
+  "What do you want to buy?", "I don't have that. Try 'list'.", "I have nothing to sell right
+  now.", the shortfall, "I don't take gifts." and "Don't even think about it." (attack or
+  blinding dust). A shortfall is one tell naming every missing item: "You need 2 x a wolf hide
+  (you have 1) and 1 x a leather belt (you have 0)." A tell is one unwrapped line, like every
+  tell in the game; it carries up to 1000 characters.
+- The list, the carry limits and the purchase summary are plain text, as in the old shops.
+
+`say` refuses any mob with intelligence below 6, so a vendor mob needs **INT 6 or higher** or
+it can't say why it won't serve. This is warned (see below), not special-cased in `say`. `vendor_tell` sends the same line `tell` does (`<Vendor> tells you '...'`, tell colour) but does
+not run the `tell` command, which stays silent for a buyer who has tells turned off (`notell`)
+or whom the vendor can't see. The keeper's answer is the only reply the command gets, so it
+always arrives; the gift, attack and dust replies are sent before any can-see check.
 
 ## Warnings you may see
 
@@ -151,7 +195,7 @@ The full set of messages you can see:
 - `price: more than 30 lines - line skipped`
 - `unknown setting - line ignored`
 - `intelligence below 6 - vendor can't speak`
-- `pref set - vendor attacks and can be hurt`
+- `bad attacks - line ignored`
 
 **At use:** a vendor with a missing/bad `store=` or bad `hours=` refuses to trade ("I'm not
 trading right now.") every time, and logs the `bad options - vendor disabled` warning the
@@ -196,7 +240,8 @@ running an older binary. Before rolling back:
 - Giving the vendor an item is refused ("I don't take gifts.") — exactly the cases where
   `give` would hand it to him.
 - Attacking him (melee, spells, skills) is cancelled; he says "Don't even think about it."
-  and never fights back (unless `pref` is set — see Side-specific vendors). Poison can
+  and never fights back (unless he started the fight himself — see "Who a vendor serves, and
+  whether it fights"). Poison can
   still be cast on him, but its damage each tick is cancelled too (silently). Dust aimed at
   him is refused outright, because a blinded vendor couldn't see anyone to trade with.
 - Bash: the damage is cancelled and he stays standing, but he still picks up the bash state

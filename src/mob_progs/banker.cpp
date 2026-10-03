@@ -57,27 +57,13 @@ bool parse_number(const std::string& s, int* out)
     return true;
 }
 
-/* Days since 1970-01-01 for a calendar date (proleptic Gregorian). */
-long days_from_civil(int y, int m, int d)
+/* The bank day a moment falls in. A day starts at start_hour_utc, the hour
+ * of the routine daily reboot, counted in UTC so that it never moves with
+ * daylight saving and always stays with the reboot. */
+long bank_day_index(time_t when, int start_hour_utc)
 {
-    y -= m <= 2;
-    const long era = (y >= 0 ? y : y - 399) / 400;
-    const unsigned yoe = (unsigned)(y - era * 400);
-    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return era * 146097 + (long)doe - 719468;
-}
-
-/* The bank day a moment falls in: its local date, or the day before when
- * the local hour is still short of the start hour. */
-long bank_day_index(time_t when, int start_hour)
-{
-    struct tm local { };
-    localtime_r(&when, &local);
-    long day = days_from_civil(local.tm_year + 1900, local.tm_mon + 1, local.tm_mday);
-    if (local.tm_hour < start_hour)
-        --day;
-    return day;
+    long long shifted = (long long)when - (long long)start_hour_utc * 3600;
+    return (long)(shifted >= 0 ? shifted / 86400 : -((-shifted + 86399) / 86400));
 }
 
 } // namespace
@@ -86,6 +72,7 @@ banker_config parse_banker_options(const char* text, std::vector<vendor_problem>
 {
     banker_config config;
     bool saw_hours = false, saw_fee = false, saw_maxdays = false, saw_markup = false;
+    bool saw_greeting = false, saw_greeting_other = false, saw_attacks = false;
     auto problem = [&](int line, const std::string& what) {
         if (problems)
             problems->push_back({ line, what });
@@ -107,6 +94,9 @@ banker_config parse_banker_options(const char* text, std::vector<vendor_problem>
         bool* seen = key == "hours" ? &saw_hours : key == "fee" ? &saw_fee
             : key == "maxdays"                                  ? &saw_maxdays
             : key == "racial_markup"                            ? &saw_markup
+            : key == "greeting"                                 ? &saw_greeting
+            : key == "greeting_other"                           ? &saw_greeting_other
+            : key == "attacks"                                  ? &saw_attacks
                                                                 : nullptr;
         if (!seen || eq == std::string::npos) {
             problem(line_no, "unknown setting - line ignored");
@@ -133,6 +123,15 @@ banker_config parse_banker_options(const char* text, std::vector<vendor_problem>
                 strict(line_no, "maxdays");
             else
                 config.maxdays = number;
+        } else if (key == "greeting") {
+            config.greeting = value;
+        } else if (key == "greeting_other") {
+            config.greeting_other = value;
+        } else if (key == "attacks") {
+            if (value == "yes" || value == "no")
+                config.attacks = value == "yes";
+            else
+                problem(line_no, "bad attacks - line ignored");
         } else {
             if (value == "yes")
                 config.markup = BANKER_MARKUP_DEFAULT;
@@ -142,6 +141,7 @@ banker_config parse_banker_options(const char* text, std::vector<vendor_problem>
                 config.markup = number;
         }
     }
+    config.fee_given = saw_fee;
     if (saw_fee && config.fee > 0 && !saw_maxdays) {
         config.ok = false;
         problem(0, "fee without maxdays - banker disabled");
@@ -174,9 +174,9 @@ const char* bank_side_file_name(int side)
     }
 }
 
-int bank_days_stored(time_t deposited, time_t now, int start_hour)
+int bank_days_stored(time_t deposited, time_t now, int start_hour_utc)
 {
-    long days = bank_day_index(now, start_hour) - bank_day_index(deposited, start_hour);
+    long days = bank_day_index(now, start_hour_utc) - bank_day_index(deposited, start_hour_utc);
     return days < 0 ? 0 : (int)days;
 }
 
@@ -292,7 +292,7 @@ bool deserialize_bank_vault(const std::string& json, bank_vault* vault, std::str
 namespace {
 
 std::function<std::string(const std::string&)> g_directory_resolver;
-std::function<void(struct char_data*)> g_character_saver;
+std::function<bool(struct char_data*, bool)> g_character_saver;
 std::function<time_t()> g_clock;
 
 /* Keyed "<normalized account name>#<side>". The ONLY copy of each vault. */
@@ -304,6 +304,9 @@ std::string game_account_directory(const std::string& account_name)
     struct stat st { };
     if (dir.empty() || stat(dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
         return "";
+    /* Every name that resolves to no account lands on one shared folder. */
+    if (account::is_invalid_account_storage_directory(dir))
+        return "";
     return dir;
 }
 
@@ -311,7 +314,9 @@ bool vault_location(const std::string& account_name, int side, std::string* key,
 {
     const char* file = bank_side_file_name(side);
     std::string name = account::normalize_account_name(account_name);
-    if (!file || name.empty()) {
+    /* An email finds the same folder as the account's name would, under a
+     * second key: two copies of one vault. Only the name is a key. */
+    if (!file || name.empty() || name.find('@') != std::string::npos) {
         *error = "No vault for that account and side.";
         return false;
     }
@@ -328,18 +333,46 @@ bool vault_location(const std::string& account_name, int side, std::string* key,
 } // namespace
 
 void bank_set_directory_resolver(std::function<std::string(const std::string&)> resolver) { g_directory_resolver = resolver; }
-void bank_set_character_saver(std::function<void(struct char_data*)> saver) { g_character_saver = saver; }
+void bank_set_character_saver(std::function<bool(struct char_data*, bool)> saver) { g_character_saver = saver; }
 void bank_set_clock(std::function<time_t()> clock) { g_clock = clock; }
 time_t bank_now() { return g_clock ? g_clock() : time(0); }
 
-void bank_save_character(struct char_data* ch)
+/* save_char and Crash_crashsave return nothing and fail quietly. Each sets
+ * its flag on the character only where its file was really written (see
+ * structs.h), so clearing both first tells this caller whether they did. */
+bool bank_save_character(struct char_data* ch, bool objects_too, bool* character_written)
 {
-    if (g_character_saver) {
-        g_character_saver(ch);
-        return;
+    if (g_character_saver) { /* tests; ch may be a stand-in or null */
+        if (ch)
+            ch->specials.saved_character_file = false;
+        bool saved = g_character_saver(ch, objects_too);
+        if (character_written)
+            *character_written = saved || (ch && ch->specials.saved_character_file);
+        if (ch)
+            ch->specials.saved_character_file = false;
+        return saved;
     }
+    ch->specials.saved_character_file = false;
+    ch->specials.saved_object_file = false;
     save_char(ch, NOWHERE, 0); /* the same pair do_save runs (act_othe.cpp) */
-    Crash_crashsave(ch);
+    /* An unsaved character file keeps its object file too: written alone, the
+     * object file would already lack an item a deposit is about to undo, and
+     * the item would live only in memory until the next autosave. */
+    if (ch->specials.saved_character_file)
+        Crash_crashsave(ch);
+    /* Coins live in the character file alone: undoing a coin withdrawal that
+     * file already holds would only leave a second copy in the vault. */
+    bool saved = ch->specials.saved_character_file && (ch->specials.saved_object_file || !objects_too);
+    if (character_written)
+        *character_written = ch->specials.saved_character_file;
+    ch->specials.saved_character_file = false;
+    ch->specials.saved_object_file = false;
+    if (!saved) {
+        char line[256];
+        snprintf(line, sizeof(line), "SYSERR: bank: %s was not saved", GET_NAME(ch));
+        log(line);
+    }
+    return saved;
 }
 
 void bank_vault_forget_all() { g_vaults.clear(); }
@@ -350,26 +383,59 @@ bank_vault* bank_vault_open(const std::string& account_name, int side, std::stri
     if (!vault_location(account_name, side, &key, &path, error))
         return nullptr;
     auto found = g_vaults.find(key);
-    if (found == g_vaults.end()) {
+    /* A vault read once is never read again: this table holds the only copy.
+     * One whose read failed holds nothing, so it is read again on each open
+     * and a repaired file works without a reboot. */
+    if (found == g_vaults.end() || !found->second.readable) {
         bank_vault vault;
-        std::ifstream in(path, std::ios::binary);
-        if (in.good()) {
-            std::ostringstream buffer;
-            buffer << in.rdbuf();
-            std::string read_error;
-            if (!deserialize_bank_vault(buffer.str(), &vault, &read_error)) {
-                vault = bank_vault();
-                vault.readable = false;
-                char line[512];
-                snprintf(line, sizeof(line), "SYSERR: bank: unreadable vault file %s: %s", path.c_str(), read_error.c_str());
-                log(line); /* once: the refused copy stays in the table */
+        /* Only a file that is not there is an empty vault. One that is there
+         * but can't be opened or parsed is refused, and so never replaced. */
+        std::string read_error;
+        struct stat st { };
+        if (stat(path.c_str(), &st) != 0) {
+            if (errno != ENOENT)
+                read_error = strerror(errno);
+        } else {
+            std::ifstream in(path, std::ios::binary);
+            if (!in.good())
+                read_error = "can't be opened";
+            else {
+                std::ostringstream buffer;
+                buffer << in.rdbuf();
+                deserialize_bank_vault(buffer.str(), &vault, &read_error);
             }
         }
-        found = g_vaults.emplace(key, vault).first;
+        if (!read_error.empty()) {
+            const bool logged = found != g_vaults.end() && found->second.read_error == read_error;
+            vault = bank_vault();
+            vault.readable = false;
+            vault.read_error = read_error;
+            if (!logged) { /* once per reason, not once per command */
+                char line[512];
+                snprintf(line, sizeof(line), "SYSERR: bank: unreadable vault file %s: %s", path.c_str(), read_error.c_str());
+                log(line);
+            }
+        }
+        if (found == g_vaults.end())
+            found = g_vaults.emplace(key, vault).first;
+        else
+            found->second = vault;
     }
     if (!found->second.readable) {
         *error = "That vault's file can't be read.";
         return nullptr;
+    }
+    /* A write that failed after this copy changed left the file holding
+     * something that is no longer here (bank_vault_file_extra). Any open -
+     * a balance, a look by staff - puts the file right as soon as it can. */
+    if (found->second.file_behind) {
+        std::string write_error;
+        if (bank_vault_write(account_name, side, &write_error)) { /* settles any "may still hold" alert */
+            char line[256];
+            snprintf(line, sizeof(line), "BANK: account %s side %d: vault file written again",
+                account::normalize_account_name(account_name).c_str(), side);
+            mudlog(line, NRM, LEVEL_AREAGOD, TRUE);
+        }
     }
     return &found->second;
 }
@@ -386,6 +452,7 @@ bool bank_vault_write(const std::string& account_name, int side, std::string* er
     }
     const std::string json = serialize_bank_vault(found->second);
     const std::string temp = path + ".tmp";
+    found->second.file_behind = true; /* until this write is known to have worked */
     int fd = open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
     FILE* file = fd >= 0 ? fdopen(fd, "w") : nullptr;
     if (!file) {
@@ -400,6 +467,7 @@ bool bank_vault_write(const std::string& account_name, int side, std::string* er
         remove(temp.c_str());
         return false;
     }
+    found->second.file_behind = false;
     return true;
 }
 
@@ -458,6 +526,10 @@ void append_record(struct obj_data* obj, int depth, std::vector<objects_json::Ob
     record.item_number = obj->item_number >= 0 ? obj_index[obj->item_number].virt : obj->item_number;
     for (int i = 0; i < 5; ++i)
         record.values[i] = obj->obj_flags.value[i];
+    /* Flags are stored as carried, ITEM_WILLPOWER (mystic attune) included,
+     * exactly as the rent save does. Attune is currently disabled. Any change
+     * to how that flag is kept or dropped must be made for rent
+     * (Crash_obj2store / Crash_obj2char) and here together. */
     record.extra_flags = obj->obj_flags.extra_flags;
     record.weight = obj->obj_flags.weight;
     record.timer = obj->obj_flags.timer;
@@ -480,15 +552,24 @@ void bank_records_from_obj(struct obj_data* obj, std::vector<objects_json::Objec
     append_record(obj, 0, out);
 }
 
-struct obj_data* bank_obj_from_records(const std::vector<objects_json::ObjectRecord>& records)
+bank_rebuild bank_rebuild_records(const std::vector<objects_json::ObjectRecord>& records)
 {
-    std::vector<struct obj_data*> at_depth;
+    bank_rebuild result;
+    std::vector<struct obj_data*> at_depth; /* nullptr where the stored object is gone */
     for (const objects_json::ObjectRecord& record : records) {
+        int depth = record.wear_pos;
+        if (depth < 0 || depth > (int)at_depth.size() || (depth == 0) != at_depth.empty()) {
+            for (struct obj_data* top : result.tops)
+                extract_obj(top); /* extract_obj takes the contents with it */
+            result.tops.clear();
+            result.bad_nesting = true;
+            return result;
+        }
         struct obj_file_elem elem { };
         elem.item_number = record.item_number;
         for (int i = 0; i < 5; ++i)
             elem.value[i] = (sh_int)record.values[i];
-        elem.extra_flags = record.extra_flags;
+        elem.extra_flags = record.extra_flags; /* as stored: see append_record on ITEM_WILLPOWER */
         elem.weight = record.weight;
         elem.timer = record.timer;
         elem.bitvector = record.bitvector;
@@ -497,24 +578,40 @@ struct obj_data* bank_obj_from_records(const std::vector<objects_json::ObjectRec
             elem.affected[i].location = record.affects[i].location;
             elem.affected[i].modifier = record.affects[i].modifier;
         }
-        int depth = record.wear_pos;
-        struct obj_data* obj = depth >= 0 && depth <= (int)at_depth.size() && (depth == 0) == at_depth.empty()
-            ? Crash_obj2char(nullptr, &elem)
-            : nullptr;
-        if (!obj) { /* prototype gone, or impossible nesting: build nothing */
-            if (!at_depth.empty())
-                extract_obj(at_depth[0]); /* extract_obj takes the contents with it */
-            return nullptr;
-        }
-        obj->touched = 1;
-        /* PR #343: once object versions are merged, refresh `obj` here, the
-         * same call Crash_load makes after Crash_obj2char. */
-        if (depth > 0)
-            obj_to_obj(obj, at_depth[depth - 1], TRUE);
+        struct obj_data* obj = Crash_obj2char(nullptr, &elem);
         at_depth.resize(depth);
         at_depth.push_back(obj);
+        if (!obj) { /* the prototype is gone: skipped, as the rent load skips it */
+            result.missing.push_back(record.item_number);
+            result.top_missing = result.top_missing || depth == 0;
+            continue;
+        }
+        obj->touched = 1;
+        /* Crash_obj2char refills a wand or staff from its prototype. In the
+         * vault the charges left are kept, never more than a new one has. */
+        if (GET_ITEM_TYPE(obj) == ITEM_WAND || GET_ITEM_TYPE(obj) == ITEM_STAFF)
+            obj->obj_flags.value[2] = std::max(0, std::min<int>(obj->obj_flags.value[2], record.values[2]));
+        /* PR #343: once object versions are merged, refresh `obj` here, the
+         * same call Crash_load makes after Crash_obj2char. */
+        struct obj_data* holder = nullptr;
+        for (int d = depth - 1; d >= 0 && !holder; --d)
+            holder = at_depth[d];
+        if (holder)
+            obj_to_obj(obj, holder, TRUE);
+        else
+            result.tops.push_back(obj);
     }
-    return at_depth.empty() ? nullptr : at_depth[0];
+    return result;
+}
+
+struct obj_data* bank_obj_from_records(const std::vector<objects_json::ObjectRecord>& records)
+{
+    bank_rebuild built = bank_rebuild_records(records);
+    if (built.missing.empty() && built.tops.size() == 1)
+        return built.tops[0];
+    for (struct obj_data* top : built.tops)
+        extract_obj(top);
+    return nullptr;
 }
 
 const char* bank_slot_name(const bank_slot& slot)
@@ -534,12 +631,6 @@ void add_speech_problem(const char_data& proto, std::vector<vendor_problem>* pro
 {
     if (proto.abilities.intel < 6)
         problems->push_back({ 0, "intelligence below 6 - banker can't speak" });
-}
-
-void add_pref_problem(const char_data& proto, std::vector<vendor_problem>* problems)
-{
-    if (proto.specials2.pref != 0)
-        problems->push_back({ 0, "pref set - banker attacks and can be hurt" });
 }
 
 struct bank_customer {
@@ -565,20 +656,20 @@ bool banker_admits(struct char_data* host, struct char_data* ch, const banker_co
         vendor_say(host, "I'm closed. Come back later.");
         return false;
     }
-    customer->side = IS_NPC(ch) ? BANK_SIDE_NONE : bank_side_for_race(GET_RACE(ch));
+    customer->side = IS_NPC(ch) || GET_LEVEL(ch) >= LEVEL_IMMORT ? BANK_SIDE_NONE : bank_side_for_race(GET_RACE(ch));
     if (customer->side == BANK_SIDE_NONE) {
         vendor_say(host, "I hold nothing for your kind.");
         return false;
     }
     if (!ch->desc || !*ch->desc->account_name) {
-        vendor_say(host, "I can't find your account.");
+        vendor_tell(host, ch, "I can't find your account.");
         return false;
     }
     customer->account = ch->desc->account_name;
     std::string error;
     customer->vault = bank_vault_open(customer->account, customer->side, &error);
     if (!customer->vault) {
-        vendor_say(host, "I can't open your vault right now.");
+        vendor_tell(host, ch, "I can't open your vault right now.");
         return false;
     }
     return true;
@@ -586,7 +677,7 @@ bool banker_admits(struct char_data* host, struct char_data* ch, const banker_co
 
 long long slot_fee(const banker_config& config, const bank_slot& slot, struct char_data* host, struct char_data* ch)
 {
-    int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_BANK_DAY_START_HOUR));
+    int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_DAILY_REBOOT_HOUR_UTC));
     return bank_fee(config, days, (int)slot.objects.size(), GET_RACE(ch) != GET_RACE(host));
 }
 
@@ -595,15 +686,33 @@ void banker_balance(struct char_data* host, struct char_data* ch, const banker_c
     std::vector<bank_balance_row> rows;
     for (const bank_slot& slot : customer.vault->slots) {
         long long fee = slot_fee(config, slot, host, ch);
-        rows.push_back({ bank_slot_name(slot), slot.objects.size() > 1 ? (int)slot.objects.size() - 1 : -1,
+        int rnum = real_object(slot.objects[0].item_number);
+        bool container = slot.objects.size() > 1 || (rnum >= 0 && GET_ITEM_TYPE(&obj_proto[rnum]) == ITEM_CONTAINER);
+        rows.push_back({ bank_slot_name(slot), container ? (int)slot.objects.size() - 1 : -1,
             fee > 0 ? money_message((int)std::min<long long>(fee, 2000000000LL), 0) : "free" });
     }
-    vendor_say(host, "Here is your vault.");
+    /* A plain header line, as the old shops open `list` with "You can buy:". */
+    bool other_race = GET_RACE(ch) != GET_RACE(host);
+    const std::string& greeting = other_race && !config.greeting_other.empty() ? config.greeting_other : config.greeting;
+    if (greeting.empty())
+        send_to_char("Your vault:\n\r", ch);
+    else
+        send_to_char((greeting + "\n\r").c_str(), ch);
     std::string coins = money_message(customer.vault->coins, 0);
     send_to_char(format_bank_balance(coins, boot_option(BOOT_BANK_COIN_LIMIT_GOLD), (int)customer.vault->slots.size(),
                      boot_option(BOOT_BANK_SLOTS), rows, config.fee > 0)
                      .c_str(),
         ch);
+}
+
+bool has_nodrop(struct obj_data* obj)
+{
+    if (IS_OBJ_STAT(obj, ITEM_NODROP))
+        return true;
+    for (struct obj_data* inside = obj->contains; inside; inside = inside->next_content)
+        if (has_nodrop(inside))
+            return true;
+    return false;
 }
 
 void bank_log(const std::string& line)
@@ -613,10 +722,39 @@ void bank_log(const std::string& line)
     log(buf);
 }
 
+/* A vault write failed after the vault in play changed (an undone deposit,
+ * a withdrawal, a vault take): the file may still hold what the vault in play
+ * no longer does. The vault in play is right and the next open writes the
+ * file again (file_behind, "vault file written again"). The alert reports the
+ * incident only; staff check with their own tools (the vault command shows
+ * the vault in play, not the file). */
+void bank_vault_file_extra(const std::string& account, int side, const std::string& what, const std::string& error)
+{
+    char buf[1024];
+    snprintf(buf, sizeof(buf),
+        "SYSERR: bank: account %s side %d: vault file write failed (%s); the file may still hold %s",
+        account::normalize_account_name(account).c_str(), side, error.c_str(), what.c_str());
+    mudlog(buf, NRM, LEVEL_AREAGOD, TRUE); /* mudlog's floor; online staff see it from area god up */
+}
+
 std::string bank_log_tail(struct char_data* host, const bank_customer& customer)
 {
     return " at mobile #" + std::to_string(host->nr >= 0 ? mob_index[host->nr].virt : -1) + ", account "
         + account::normalize_account_name(customer.account) + ", side " + std::to_string(customer.side);
+}
+
+void extract_all(const std::vector<struct obj_data*>& objects)
+{
+    for (struct obj_data* obj : objects)
+        extract_obj(obj); /* takes its contents with it */
+}
+
+/* One line per stored object that could not be rebuilt, so staff can see what
+ * a deleted prototype cost a player. */
+void log_missing(const bank_rebuild& built, const std::string& tail)
+{
+    for (int vnum : built.missing)
+        bank_log("BANK: stored object #" + std::to_string(vnum) + " no longer exists and was dropped" + tail);
 }
 
 /* "<N> gold|silver|copper|coins|coin" -> copper. *is_coins says whether the
@@ -626,10 +764,17 @@ bool parse_coins(const char* arg, bool* is_coins, long long* copper)
     char first[MAX_INPUT_LENGTH], second[MAX_INPUT_LENGTH], whole[MAX_INPUT_LENGTH];
     strncpy(whole, arg, sizeof(whole) - 1);
     whole[sizeof(whole) - 1] = 0;
+    for (size_t end = strlen(whole); end > 0 && whole[end - 1] == ' '; --end) /* "5 gold " is still coins */
+        whole[end - 1] = 0;
     half_chop(whole, first, second);
-    long long unit = !str_cmp(second, "gold") ? COPP_IN_GOLD : !str_cmp(second, "silver")       ? COPP_IN_SILV
-        : (!str_cmp(second, "copper") || !str_cmp(second, "coins") || !str_cmp(second, "coin")) ? 1
-                                                                                                : 0;
+    /* "5 gold coins" is five gold, not slot or item 5: a trailing "coins" after the unit is allowed. */
+    char unit_word[MAX_INPUT_LENGTH], extra[MAX_INPUT_LENGTH];
+    half_chop(second, unit_word, extra);
+    const bool plain = !*extra || !str_cmp(extra, "coins") || !str_cmp(extra, "coin");
+    long long unit = !plain ? 0 : !str_cmp(unit_word, "gold")                                            ? COPP_IN_GOLD
+        : !str_cmp(unit_word, "silver")                                                                  ? COPP_IN_SILV
+        : (!str_cmp(unit_word, "copper") || !str_cmp(unit_word, "coins") || !str_cmp(unit_word, "coin")) ? 1
+                                                                                                         : 0;
     const char* digits = *first == '-' ? first + 1 : first;
     *is_coins = unit != 0 && *digits && strspn(digits, "0123456789") == strlen(digits);
     if (!*is_coins)
@@ -644,12 +789,12 @@ void bank_deposit_coins(struct char_data* host, struct char_data* ch, const bank
 {
     char buf[256];
     if (copper > GET_GOLD(ch)) {
-        send_to_char("You don't have that much.\n\r", ch);
+        vendor_tell(host, ch, "You don't have that much.");
         return;
     }
     long long room = (long long)boot_option(BOOT_BANK_COIN_LIMIT_GOLD) * COPP_IN_GOLD - customer.vault->coins;
     if (room <= 0) {
-        vendor_say(host, "Your vault can hold no more coins.");
+        vendor_tell(host, ch, "Your vault can hold no more coins.");
         return;
     }
     long long take = std::min(copper, room);
@@ -657,11 +802,19 @@ void bank_deposit_coins(struct char_data* host, struct char_data* ch, const bank
     std::string error;
     if (!bank_vault_write(customer.account, customer.side, &error)) { /* vault first */
         customer.vault->coins -= (int)take;
-        vendor_say(host, "I can't reach the vault right now.");
+        vendor_tell(host, ch, "I can't reach the vault right now.");
         return;
     }
     GET_GOLD(ch) -= (int)take;
-    bank_save_character(ch);
+    if (!bank_save_character(ch, false)) { /* unsaved, the character file still holds the coins: undo */
+        GET_GOLD(ch) += (int)take;
+        customer.vault->coins -= (int)take;
+        if (!bank_vault_write(customer.account, customer.side, &error))
+            bank_vault_file_extra(customer.account, customer.side,
+                std::to_string(take) + " copper, " + GET_NAME(ch) + "'s deposit undone", error);
+        vendor_tell(host, ch, "I can't reach the vault right now.");
+        return;
+    }
     snprintf(buf, sizeof(buf), "You deposit %s.\n\r", money_message((int)take, 0));
     send_to_char(buf, ch);
     if (take < copper) {
@@ -671,20 +824,6 @@ void bank_deposit_coins(struct char_data* host, struct char_data* ch, const bank
     }
     bank_log(std::string("BANK: ") + GET_NAME(ch) + " deposits " + std::to_string(take) + " copper"
         + bank_log_tail(host, customer));
-}
-
-/* command_interpreter parses the command's targets first and, after this
- * program returns, still runs the SPECIAL_TARGET specials on them. An object
- * this program destroys must not be left in those targets. */
-void forget_target(struct waiting_type* wtl, struct obj_data* obj)
-{
-    if (!wtl)
-        return;
-    for (struct target_data* target : { &wtl->targ1, &wtl->targ2 })
-        if (target->type == TARGET_OBJ && target->ptr.obj == obj) {
-            target->type = TARGET_NONE;
-            target->ptr.other = 0;
-        }
 }
 
 void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const bank_customer& customer,
@@ -698,25 +837,25 @@ void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const
         return;
     }
     if (is_coins) {
-        vendor_say(host, "How much?");
+        vendor_tell(host, ch, "How much?");
         return;
     }
     one_argument(arg, name);
     if (!*name) {
-        vendor_say(host, "What would you like to deposit?");
+        vendor_tell(host, ch, "What would you like to deposit?");
         return;
     }
     struct obj_data* obj = get_obj_in_list_vis(ch, name, ch->carrying, 9999); /* loose inventory only */
     if (!obj) {
-        send_to_char("You don't have that.\n\r", ch);
+        vendor_tell(host, ch, "You don't have that.");
         return;
     }
-    if (!bank_obj_storable(obj)) {
-        vendor_say(host, "I can't keep that for you.");
+    if (!bank_obj_storable(obj) || has_nodrop(obj)) { /* cursed: the same items give refuses */
+        vendor_tell(host, ch, "I can't keep that for you.");
         return;
     }
     if ((int)customer.vault->slots.size() >= boot_option(BOOT_BANK_SLOTS)) {
-        vendor_say(host, "Your vault is full.");
+        vendor_tell(host, ch, "Your vault is full.");
         return;
     }
     bank_slot slot;
@@ -726,37 +865,59 @@ void bank_deposit(struct char_data* host, struct char_data* ch, char* arg, const
     std::string error;
     if (!bank_vault_write(customer.account, customer.side, &error)) { /* vault first */
         customer.vault->slots.pop_back();
-        vendor_say(host, "I can't reach the vault right now.");
+        vendor_tell(host, ch, "I can't reach the vault right now.");
         return;
     }
-    snprintf(buf, sizeof(buf), "You hand %s to %s.\n\r", obj->short_description, GET_NAME(host));
-    send_to_char(buf, ch);
+    /* The character is saved without the item before it is destroyed: an
+     * unsaved character file still holds it, and with the vault holding it
+     * too there would be a second copy at the next login. So undo instead. */
+    obj_from_char(obj);
+    if (!bank_save_character(ch)) {
+        obj_to_char(obj, ch);
+        customer.vault->slots.pop_back();
+        if (!bank_vault_write(customer.account, customer.side, &error))
+            bank_vault_file_extra(customer.account, customer.side,
+                "object #" + std::to_string(slot.objects[0].item_number) + ", " + GET_NAME(ch) + "'s deposit undone",
+                error);
+        vendor_tell(host, ch, "I can't reach the vault right now.");
+        return;
+    }
+    send_to_char(vendor_wrap(std::string("You hand over ") + obj->short_description + ".").c_str(), ch);
     act("$n deposits $p.", FALSE, ch, obj, 0, TO_ROOM);
     bank_log(std::string("BANK: ") + GET_NAME(ch) + " deposits " + obj->short_description + " ("
         + std::to_string(slot.objects[0].item_number) + ")" + bank_log_tail(host, customer));
-    forget_target(wtl, obj);
-    obj_from_char(obj);
+    vendor_forget_target(wtl, obj); /* before it is destroyed */
     extract_obj(obj); /* takes its contents with it */
-    bank_save_character(ch);
 }
 
 void bank_withdraw_coins(struct char_data* host, struct char_data* ch, const bank_customer& customer, long long copper)
 {
     char buf[256];
     if (copper > customer.vault->coins) {
-        vendor_say(host, "You don't have that much with me.");
+        vendor_tell(host, ch, "You don't have that much with me.");
         return;
     }
     if ((long long)GET_GOLD(ch) + copper > 2000000000LL) {
         send_to_char("You can't carry that much money.\n\r", ch);
         return;
     }
-    GET_GOLD(ch) += (int)copper;
-    bank_save_character(ch); /* character first */
-    customer.vault->coins -= (int)copper;
+    /* Nothing is handed out unless the vault file can be written: a vault
+     * that can't be saved would give the same coins again after a reboot. */
     std::string error;
+    if (!bank_vault_write(customer.account, customer.side, &error)) {
+        vendor_tell(host, ch, "I can't reach the vault right now.");
+        return;
+    }
+    GET_GOLD(ch) += (int)copper;
+    if (!bank_save_character(ch, false)) { /* character first; unsaved, the coins stay in the vault */
+        GET_GOLD(ch) -= (int)copper;
+        vendor_tell(host, ch, "I can't reach the vault right now.");
+        return;
+    }
+    customer.vault->coins -= (int)copper;
     if (!bank_vault_write(customer.account, customer.side, &error))
-        bank_log("SYSERR: bank: vault write failed after a coin withdrawal: " + error);
+        bank_vault_file_extra(customer.account, customer.side,
+            std::to_string(copper) + " copper, withdrawn by " + GET_NAME(ch), error);
     snprintf(buf, sizeof(buf), "You withdraw %s.\n\r", money_message((int)copper, 0));
     send_to_char(buf, ch);
     bank_log(std::string("BANK: ") + GET_NAME(ch) + " withdraws " + std::to_string(copper) + " copper"
@@ -774,17 +935,25 @@ void bank_withdraw(struct char_data* host, struct char_data* ch, char* arg, cons
         return;
     }
     if (is_coins) {
-        vendor_say(host, "How much?");
+        vendor_tell(host, ch, "How much?");
         return;
     }
-    one_argument(arg, want);
+    char* more = one_argument(arg, want);
     if (!*want) {
-        vendor_say(host, "What would you like to withdraw?");
+        vendor_tell(host, ch, "What would you like to withdraw?");
         return;
     }
     std::vector<bank_slot>& slots = customer.vault->slots;
     int pick = -1;
     if (strspn(want, "0123456789") == strlen(want)) { /* a balance number */
+        /* "5 gp", "5 golds", "5 gold sword": a number with more after it that
+         * was not a coin amount is not a request for slot 5. */
+        while (more && *more == ' ')
+            ++more;
+        if (more && *more) {
+            vendor_tell(host, ch, "What would you like to withdraw?");
+            return;
+        }
         int n = strlen(want) <= 4 ? atoi(want) : 0;
         if (n >= 1 && n <= (int)slots.size())
             pick = n - 1;
@@ -798,51 +967,91 @@ void bank_withdraw(struct char_data* host, struct char_data* ch, char* arg, cons
         }
     }
     if (pick < 0) {
-        vendor_say(host, "I hold nothing like that for you.");
+        vendor_tell(host, ch, "I hold nothing like that for you.");
         return;
     }
-    struct obj_data* obj = bank_obj_from_records(slots[pick].objects);
-    if (!obj) {
-        vendor_say(host, "I can't get that out right now.");
+    /* Rebuilt as the rent load does it: what still exists comes out, what a
+     * builder has deleted since is skipped and logged. */
+    bank_rebuild built = bank_rebuild_records(slots[pick].objects);
+    if (built.bad_nesting) {
+        vendor_tell(host, ch, "I can't get that out right now.");
         snprintf(buf, sizeof(buf), "SYSERR: bank: stored object #%d can't be rebuilt",
             slots[pick].objects[0].item_number);
         bank_log(buf);
         return;
     }
-    if (IS_CARRYING_N(ch) + 1 > CAN_CARRY_N(ch)) {
-        send_to_char("You can't carry that many items.\n\r", ch);
-        extract_obj(obj);
-        return;
+    /* The usual limits, while the stored item itself still exists. When it
+     * is gone its contents are loose and have nowhere else to go: they are
+     * all handed over, as the rent load hands gear over whatever it weighs. */
+    if (!built.top_missing) {
+        if (IS_CARRYING_N(ch) + 1 > CAN_CARRY_N(ch)) {
+            send_to_char("You can't carry that many items.\n\r", ch);
+            extract_all(built.tops);
+            return;
+        }
+        if (IS_CARRYING_W(ch) + GET_OBJ_WEIGHT(built.tops[0]) > CAN_CARRY_W(ch)) {
+            send_to_char("You can't carry that much weight.\n\r", ch);
+            extract_all(built.tops);
+            return;
+        }
     }
-    if (IS_CARRYING_W(ch) + GET_OBJ_WEIGHT(obj) > CAN_CARRY_W(ch)) {
-        send_to_char("You can't carry that much weight.\n\r", ch);
-        extract_obj(obj);
-        return;
-    }
-    long long fee = slot_fee(config, slots[pick], host, ch);
-    if (fee > (long long)GET_GOLD(ch) + customer.vault->coins) {
+    long long fee = built.tops.empty() ? 0 : slot_fee(config, slots[pick], host, ch); /* nothing left: no fee */
+    if (fee > (long long)std::max(0, GET_GOLD(ch)) + customer.vault->coins) { /* a purse in debt adds nothing */
         snprintf(buf, sizeof(buf), "That costs %s. You don't have it.",
             money_message((int)std::min<long long>(fee, 2000000000LL), 0));
-        vendor_say(host, buf);
-        extract_obj(obj);
+        vendor_tell(host, ch, buf);
+        extract_all(built.tops);
         return;
     }
-    int from_purse = (int)std::min<long long>(fee, GET_GOLD(ch));
+    std::string error;
+    if (!bank_vault_write(customer.account, customer.side, &error)) { /* see bank_withdraw_coins */
+        vendor_tell(host, ch, "I can't reach the vault right now.");
+        extract_all(built.tops);
+        return;
+    }
+    int from_purse = (int)std::min<long long>(fee, std::max(0, GET_GOLD(ch))); /* a purse in debt pays nothing */
     int from_vault = (int)(fee - from_purse);
     int vnum = slots[pick].objects[0].item_number;
 
     GET_GOLD(ch) -= from_purse;
-    obj_to_char(obj, ch);
-    bank_save_character(ch); /* character first */
+    for (struct obj_data* obj : built.tops)
+        obj_to_char(obj, ch);
+    bool character_written = false;
+    if (!bank_save_character(ch, true, &character_written)) { /* character first; unsaved, it all stays in the vault */
+        for (struct obj_data* obj : built.tops)
+            obj_from_char(obj);
+        extract_all(built.tops);
+        GET_GOLD(ch) += from_purse;
+        /* When the character file was written (only the object file failed),
+         * it holds the purse with the fee already out: write it again with
+         * the coins given back, or a crash before the next autosave keeps the
+         * fee taken while the item stays in the vault. When it was not
+         * written, the file on disk still holds the whole purse. */
+        if (from_purse && character_written && !bank_save_character(ch, false)) {
+            char line[256];
+            snprintf(line, sizeof(line),
+                "SYSERR: bank: %s: withdrawal undone; the character file may be %d copper short (fee)",
+                GET_NAME(ch), from_purse);
+            mudlog(line, NRM, LEVEL_AREAGOD, TRUE);
+        }
+        vendor_tell(host, ch, "I can't reach the vault right now.");
+        return;
+    }
     customer.vault->coins -= from_vault;
     slots.erase(slots.begin() + pick);
-    std::string error;
     if (!bank_vault_write(customer.account, customer.side, &error))
-        bank_log("SYSERR: bank: vault write failed after a withdrawal: " + error);
+        bank_vault_file_extra(customer.account, customer.side,
+            "object #" + std::to_string(vnum)
+                + (from_vault ? " and " + std::to_string(from_vault) + " copper of its fee" : std::string())
+                + ", withdrawn by " + GET_NAME(ch),
+            error);
 
-    snprintf(buf, sizeof(buf), "%s hands you %s.\n\r", GET_NAME(host), obj->short_description);
-    CAP(buf);
-    send_to_char(buf, ch);
+    for (struct obj_data* obj : built.tops)
+        send_to_char(vendor_wrap(std::string("You are handed ") + obj->short_description + ".").c_str(), ch);
+    if (built.tops.empty())
+        vendor_tell(host, ch, "That no longer exists. I have cleared it out.");
+    else if (!built.missing.empty())
+        vendor_tell(host, ch, "Some of it no longer exists.");
     if (from_purse > 0) {
         snprintf(buf, sizeof(buf), "You pay %s from your purse.\n\r", money_message(from_purse, 0));
         send_to_char(buf, ch);
@@ -852,9 +1061,13 @@ void bank_withdraw(struct char_data* host, struct char_data* ch, char* arg, cons
         CAP(buf);
         send_to_char(buf, ch);
     }
-    act("$n withdraws $p.", FALSE, ch, obj, 0, TO_ROOM);
-    bank_log(std::string("BANK: ") + GET_NAME(ch) + " withdraws " + obj->short_description + " ("
-        + std::to_string(vnum) + ")" + bank_log_tail(host, customer) + ", fee " + std::to_string(fee));
+    if (!built.tops.empty())
+        act("$n withdraws $p.", FALSE, ch, built.tops[0], 0, TO_ROOM);
+    const std::string tail = bank_log_tail(host, customer);
+    bank_log(std::string("BANK: ") + GET_NAME(ch) + " withdraws "
+        + (built.top_missing ? "what is left of deleted object" : built.tops[0]->short_description) + " ("
+        + std::to_string(vnum) + ")" + tail + ", fee " + std::to_string(fee));
+    log_missing(built, std::string(" from ") + GET_NAME(ch) + "'s withdrawal" + tail);
 }
 
 } // namespace
@@ -873,7 +1086,6 @@ void banker_config_check(const struct char_data* proto, int mob_vnum, struct cha
     std::vector<vendor_problem> problems;
     parse_banker_options(proto->specials.mob_options, &problems);
     add_speech_problem(*proto, &problems);
-    add_pref_problem(*proto, &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_vnum, problem), builder);
 }
@@ -889,8 +1101,20 @@ void banker_implement_check(int mob_rnum, struct char_data* builder)
         send_to_char(buf, builder);
     }
     banker_config config = parse_banker_options(mob_proto[mob_rnum].specials.mob_options, nullptr);
-    if (config.markup > 0 && config.fee == 0) {
+    if (config.markup > 0 && !config.fee_given) {
         snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: racial_markup without fee\n\r", mob_index[mob_rnum].virt);
+        send_to_char(buf, builder);
+    }
+    if (!config.attacks)
+        vendor_fight_flag_warnings(mob_rnum, builder);
+    /* Like the vendor's list=: a long message still shows, but wraps. */
+    const std::pair<const char*, const std::string*> greetings[] = { { "greeting", &config.greeting },
+        { "greeting_other", &config.greeting_other } };
+    for (const auto& greeting : greetings) {
+        if (greeting.second->size() <= BANKER_GREETING_MAX)
+            continue;
+        snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: %s longer than %d columns\n\r", mob_index[mob_rnum].virt,
+            greeting.first, (int)BANKER_GREETING_MAX);
         send_to_char(buf, builder);
     }
 }
@@ -907,7 +1131,6 @@ void banker_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
     if (!report)
         return;
     add_speech_problem(mob_proto[mob_rnum], &problems);
-    add_pref_problem(mob_proto[mob_rnum], &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_index[mob_rnum].virt, problem), builder);
 }
@@ -935,25 +1158,17 @@ SPECIAL(banker)
     const banker_config* config = banker_config_for(host->nr);
     if (!config)
         return FALSE;
-    if (callflag == SPECIAL_DAMAGE) { /* before ch == host: poison ticks are self-damage */
-        if (ch && ch != host)
-            vendor_say(host, "Don't even think about it.");
-        return TRUE;
-    }
+    int answer;
+    if (keeper_protection(host, ch, cmd, callflag, wtl, config->attacks, &answer)) /* shopkeeper.h */
+        return answer;
     if (!ch || ch == host)
         return FALSE;
-    if (callflag == SPECIAL_TARGET) { /* dust blinds even with its damage cancelled */
-        if (cmd != CMD_BLINDING || !wtl || wtl->targ1.type != TARGET_CHAR || wtl->targ1.ptr.ch != host)
-            return FALSE;
-        vendor_say(host, "Don't even think about it.");
-        return TRUE;
-    }
     if (callflag != SPECIAL_COMMAND)
         return FALSE;
     if (cmd == CMD_GIVE) {
         if (!arg || !give_targets(host, ch, arg))
             return FALSE;
-        vendor_say(host, "I don't take gifts.");
+        vendor_tell(host, ch, "I don't take gifts.");
         return TRUE;
     }
     if (cmd != CMD_BALANCE && cmd != CMD_DEPOSIT && cmd != CMD_WITHDRAW)
@@ -1029,7 +1244,7 @@ std::string format_vault_view(const bank_account_ref&, const std::string&, int s
         return out + "  (empty)\n\r";
     for (size_t i = 0; i < vault.slots.size(); ++i) {
         const bank_slot& slot = vault.slots[i];
-        int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_BANK_DAY_START_HOUR));
+        int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_DAILY_REBOOT_HOUR_UTC));
         snprintf(line, sizeof(line), "%2d  %-40.40s stored %d day%s\n\r", (int)(i + 1), stored_name(slot.objects[0]).c_str(),
             days, days == 1 ? "" : "s");
         out += line;
@@ -1093,23 +1308,19 @@ int vault_side_number(const char* text)
     return strlen(text) == 1 && *text >= '1' && *text <= '3' ? *text - '0' : BANK_SIDE_NONE;
 }
 
-void vault_show_side(struct char_data* ch, const bank_account_ref& account, const std::string& character, int side)
+std::string vault_side_text(const bank_account_ref& account, const std::string& character, int side, bool summary)
 {
     std::string error;
     bank_vault* vault = bank_vault_open(account.name, side, &error);
-    if (!vault) {
-        std::string line = std::string(side_title(side)) + " vault: "
+    if (!vault)
+        return std::string(side_title(side)) + " vault: "
             + (error == "That vault's file can't be read." ? "FILE UNREADABLE" : error) + "\n\r";
-        send_to_char(line.c_str(), ch);
-        return;
-    }
-    std::string view = format_vault_view(account, character, side, *vault);
-    if (view.size() >= MAX_STRING_LENGTH - 1 && ch->desc) {
-        std::vector<char> text(view.begin(), view.end());
-        text.push_back('\0');
-        page_string(ch->desc, text.data(), 1);
-    } else
-        send_to_char(view.c_str(), ch);
+    if (!summary)
+        return format_vault_view(account, character, side, *vault);
+    char line[160];
+    snprintf(line, sizeof(line), "%s vault: %s, %d of %d slots\n\r", side_title(side),
+        money_message(vault->coins, 0), (int)vault->slots.size(), boot_option(BOOT_BANK_SLOTS));
+    return line;
 }
 
 void vault_view(struct char_data* ch, const char* identifier, const char* side_text)
@@ -1132,23 +1343,31 @@ void vault_view(struct char_data* ch, const char* identifier, const char* side_t
             c = (char)tolower((unsigned char)c);
         character[0] = (char)toupper((unsigned char)character[0]);
     }
-    std::string header = "Account: " + account.name + " (" + account.email + ")";
-    if (!character.empty())
-        header += "   Character: " + character;
-    send_to_char((header + "\n\r").c_str(), ch);
-
+    /* One string, sent once: a second page_string would replace the first. */
+    std::string view = "Account: " + account.name + " (" + account.email + ")\n\r";
+    if (view.size() > 78 + 2)
+        view = "Account: " + account.name + "\n\rEmail: " + account.email + "\n\r";
     if (!character.empty()) {
-        int own = bank_side_for_race(race);
-        if (own == BANK_SIDE_NONE) {
-            send_to_char("That character has no vault.\n\r", ch);
-            return;
-        }
-        vault_show_side(ch, account, character, own);
-        return;
+        view += "Character: " + character + "\n\r";
+        if (side == BANK_SIDE_NONE) /* no side asked for: the character's own */
+            side = bank_side_for_race(race);
+        if (side == BANK_SIDE_NONE)
+            view += "That character has no vault.\n\r";
     }
+    /* An account with no side named gets one line per side; the slots are
+     * listed only for a single side. */
+    const bool summary = side == BANK_SIDE_NONE && character.empty();
     for (int s = BANK_SIDE_LIGHT; s <= BANK_SIDE_THIRD; ++s)
-        if (side == BANK_SIDE_NONE || side == s)
-            vault_show_side(ch, account, character, s);
+        if (side == s || summary)
+            view += vault_side_text(account, character, s, summary);
+    if (summary)
+        view += "To list one side: vault " + account.name + " <1 light | 2 dark | 3 third>\n\r";
+    if (ch->desc) { /* the pager sends a short view straight through */
+        std::vector<char> text(view.begin(), view.end());
+        text.push_back('\0');
+        page_string(ch->desc, text.data(), 1);
+    } else
+        send_to_char(view.c_str(), ch);
 }
 
 /* "coins <amount> [gold|silver|copper]"; a bare amount is copper. */
@@ -1167,10 +1386,31 @@ void vault_change(struct char_data* ch, bool take, char* text)
     char first[MAX_INPUT_LENGTH], amount[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
     half_chop(text, account_word, rest);
     half_chop(rest, side_word, what);
+    for (size_t end = strlen(what); end > 0 && what[end - 1] == ' '; --end) /* "take ... 3 " is still slot 3 */
+        what[end - 1] = 0;
     if (!*account_word || !*side_word || !*what) {
         vault_usage(ch);
         return;
     }
+    /* A character with no connection is not saved by save_char, so what it
+     * took would be gone from the vault and never on the character. Its own
+     * text reaches nobody; the log line tells whoever forced the command. */
+    /* A mob body an immortal has switched into is never saved either. */
+    if (IS_NPC(ch)) {
+        send_to_char("Return to your own body first.\n\r", ch);
+        return;
+    }
+    if (!ch->desc) {
+        send_to_char("You have no connection. Come back, or have the dead link cleared, first.\n\r", ch);
+        snprintf(buf, sizeof(buf), "(GC) %s: vault %s refused - %s has no connection", GET_NAME(ch),
+            take ? "take" : "put", GET_NAME(ch));
+        mudlog(buf, BRF, (sh_int)MAX(LEVEL_GRGOD, GET_INVIS_LEV(ch)), TRUE);
+        return;
+    }
+    const char* not_saved = "The vault file could not be saved yet. It is saved again the next time that\n\r"
+                            "vault is used; if the game restarts first, this will be back in it as well.\n\r";
+    const char* not_taken = "Your character could not be saved. Nothing was taken.\n\r";
+    const char* not_put = "Your character could not be saved. Nothing was put into the vault.\n\r";
     bank_account_ref account;
     if (!lookup_name(account_word, &account)) {
         send_to_char("Use the account name shown by 'vault <name>'.\n\r", ch);
@@ -1187,6 +1427,8 @@ void vault_change(struct char_data* ch, bool take, char* text)
         send_to_char((error + "\n\r").c_str(), ch);
         return;
     }
+    /* What moved, written only when it did: the (GC) line holds what was typed. */
+    const std::string log_tail = " the vault of account " + account.name + ", side " + std::to_string(side);
 
     half_chop(what, first, amount);
     if (!str_cmp(first, "coins")) {
@@ -1204,12 +1446,25 @@ void vault_change(struct char_data* ch, bool take, char* text)
                 send_to_char("You can't carry that much money.\n\r", ch);
                 return;
             }
+            if (!bank_vault_write(account.name, side, &error)) { /* see bank_withdraw_coins */
+                send_to_char((error + "\n\r").c_str(), ch);
+                return;
+            }
             GET_GOLD(ch) += (int)copper;
-            bank_save_character(ch); /* the immortal first */
+            if (!bank_save_character(ch, false)) { /* the immortal first */
+                GET_GOLD(ch) -= (int)copper;
+                send_to_char(not_taken, ch);
+                return;
+            }
             vault->coins -= (int)copper;
-            if (!bank_vault_write(account.name, side, &error))
-                bank_log("SYSERR: bank: vault write failed after vault take: " + error);
-            snprintf(buf, sizeof(buf), "You take %s from the vault.\n\r", money_message((int)copper, 0));
+            bool saved = bank_vault_write(account.name, side, &error);
+            if (!saved)
+                bank_vault_file_extra(account.name, side, std::to_string(copper) + " copper, taken by " + GET_NAME(ch),
+                    error);
+            bank_log(std::string("BANK: ") + GET_NAME(ch) + " takes " + std::to_string(copper) + " copper from"
+                + log_tail);
+            snprintf(buf, sizeof(buf), "You take %s from the vault.\n\r%s", money_message((int)copper, 0),
+                saved || mudlog_reaches(ch, LEVEL_AREAGOD, NRM) ? "" : not_saved); /* else told twice */
         } else {
             if (copper > GET_GOLD(ch)) {
                 send_to_char("You don't have that much.\n\r", ch);
@@ -1226,7 +1481,17 @@ void vault_change(struct char_data* ch, bool take, char* text)
                 return;
             }
             GET_GOLD(ch) -= (int)copper;
-            bank_save_character(ch);
+            if (!bank_save_character(ch, false)) { /* see bank_deposit_coins */
+                GET_GOLD(ch) += (int)copper;
+                vault->coins -= (int)copper;
+                if (!bank_vault_write(account.name, side, &error))
+                    bank_vault_file_extra(account.name, side,
+                        std::to_string(copper) + " copper, " + GET_NAME(ch) + "'s vault put undone", error);
+                send_to_char(not_put, ch);
+                return;
+            }
+            bank_log(std::string("BANK: ") + GET_NAME(ch) + " puts " + std::to_string(copper) + " copper into"
+                + log_tail);
             snprintf(buf, sizeof(buf), "You put %s into the vault.\n\r", money_message((int)copper, 0));
         }
         send_to_char(buf, ch);
@@ -1239,18 +1504,46 @@ void vault_change(struct char_data* ch, bool take, char* text)
             send_to_char("No such slot.\n\r", ch);
             return;
         }
-        struct obj_data* obj = bank_obj_from_records(vault->slots[n - 1].objects);
-        if (!obj) {
-            send_to_char("That item can't be rebuilt (missing prototype).\n\r", ch);
+        bank_rebuild built = bank_rebuild_records(vault->slots[n - 1].objects); /* see bank_withdraw */
+        if (built.bad_nesting) {
+            send_to_char("That slot can't be rebuilt (impossible nesting).\n\r", ch);
             return;
         }
-        obj_to_char(obj, ch);
-        bank_save_character(ch); /* the immortal first */
+        if (!bank_vault_write(account.name, side, &error)) { /* see bank_withdraw_coins */
+            send_to_char((error + "\n\r").c_str(), ch);
+            extract_all(built.tops);
+            return;
+        }
+        const int vnum = vault->slots[n - 1].objects[0].item_number;
+        for (struct obj_data* obj : built.tops)
+            obj_to_char(obj, ch);
+        if (!bank_save_character(ch)) { /* the immortal first */
+            for (struct obj_data* obj : built.tops)
+                obj_from_char(obj);
+            extract_all(built.tops);
+            send_to_char(not_taken, ch);
+            return;
+        }
         vault->slots.erase(vault->slots.begin() + (n - 1));
-        if (!bank_vault_write(account.name, side, &error))
-            bank_log("SYSERR: bank: vault write failed after vault take: " + error);
-        snprintf(buf, sizeof(buf), "You take %s from the vault.\n\r", obj->short_description);
-        send_to_char(buf, ch);
+        bool saved = bank_vault_write(account.name, side, &error);
+        if (!saved)
+            bank_vault_file_extra(account.name, side, "object #" + std::to_string(vnum) + ", taken by " + GET_NAME(ch),
+                error);
+        for (struct obj_data* obj : built.tops)
+            send_to_char(vendor_wrap(std::string("You take ") + obj->short_description + " from the vault.").c_str(), ch);
+        if (built.tops.empty())
+            send_to_char("That slot held only deleted objects. It is now empty.\n\r", ch);
+        for (int gone : built.missing) {
+            snprintf(buf, sizeof(buf), "Object #%d no longer exists and was dropped.\n\r", gone);
+            send_to_char(buf, ch);
+        }
+        if (!saved)
+            if (!mudlog_reaches(ch, LEVEL_AREAGOD, NRM)) /* else told twice */
+                send_to_char(not_saved, ch);
+        bank_log(std::string("BANK: ") + GET_NAME(ch) + " takes "
+            + (built.top_missing ? "what is left of deleted object" : built.tops[0]->short_description) + " ("
+            + std::to_string(vnum) + ") from" + log_tail);
+        log_missing(built, " from" + log_tail);
         return;
     }
 
@@ -1276,11 +1569,21 @@ void vault_change(struct char_data* ch, bool take, char* text)
         send_to_char((error + "\n\r").c_str(), ch);
         return;
     }
-    snprintf(buf, sizeof(buf), "You put %s into the vault.\n\r", obj->short_description);
-    send_to_char(buf, ch);
     obj_from_char(obj);
+    if (!bank_save_character(ch)) { /* see bank_deposit */
+        obj_to_char(obj, ch);
+        vault->slots.pop_back();
+        if (!bank_vault_write(account.name, side, &error))
+            bank_vault_file_extra(account.name, side,
+                "object #" + std::to_string(slot.objects[0].item_number) + ", " + GET_NAME(ch) + "'s vault put undone",
+                error);
+        send_to_char(not_put, ch);
+        return;
+    }
+    send_to_char(vendor_wrap(std::string("You put ") + obj->short_description + " into the vault.").c_str(), ch);
+    bank_log(std::string("BANK: ") + GET_NAME(ch) + " puts " + obj->short_description + " ("
+        + std::to_string(slot.objects[0].item_number) + ") into" + log_tail);
     extract_obj(obj);
-    bank_save_character(ch);
 }
 
 } // namespace
@@ -1298,7 +1601,11 @@ ACMD(do_vault)
     }
     /* One line per command, like other immortal commands; what the command
      * shows is never logged. */
-    snprintf(buf, sizeof(buf), "(GC) %s: vault %.200s", GET_NAME(ch), argument);
+    std::string typed; /* runs of spaces collapsed, so padding can't push the words off the line */
+    for (const char* c = argument; *c; ++c)
+        if (*c != ' ' || (!typed.empty() && typed.back() != ' '))
+            typed += *c;
+    snprintf(buf, sizeof(buf), "(GC) %s: vault %s", GET_NAME(ch), typed.c_str());
     mudlog(buf, BRF, (sh_int)MAX(LEVEL_GRGOD, GET_INVIS_LEV(ch)), TRUE);
 
     if (!str_cmp(first, "take") || !str_cmp(first, "put")) {

@@ -356,7 +356,6 @@ bool is_secret_input_state(int connection_state)
     case CON_PWDNEW:
     case CON_PWDNCNF:
     case CON_ACCTPWD:
-    case CON_ACCTLINKPWD:
     case CON_ACCTNEWPWD:
     case CON_ACCTNEWPWDCNF:
     case CON_ACCTRESETOLD:

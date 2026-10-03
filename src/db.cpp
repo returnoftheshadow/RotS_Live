@@ -3520,6 +3520,7 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
                 wrote_account_character_file = true;
         }
         if (wrote_account_character_file) {
+            ch->specials.saved_character_file = true;
             const std::string account_character_path = account::account_character_player_path(".", owner_account_name, GET_NAME(ch));
             std::string player_index_error;
             if (!update_player_index_entry_from_store(&chd, account_character_path.c_str(), &player_index_error)) {

@@ -1181,6 +1181,12 @@ struct char_special_data {
     struct memory_rec* memory; /* List of attackers to remember */
     sh_int current_bodypart; /* The number of current bodypart */
 
+    /* Never saved. A caller that must know a save worked clears both, calls
+     * save_char / Crash_crashsave, and reads them: each is set only where its
+     * file was really written. Nothing else looks at them. */
+    bool saved_character_file;
+    bool saved_object_file;
+
     ubyte tactics; /* combat tactics of a person */
     /* also, program pointer in call list for npc */
 
@@ -2039,7 +2045,7 @@ struct txt_q {
 #define CON_COLOR 25
 #define CON_ACCTPWD 26
 #define CON_ACCTSLCT 27
-#define CON_ACCTLINKPWD 28
+/* 28 was CON_ACCTLINKPWD (in-game linkaccount, removed) */
 #define CON_ACCTNEWCNF 29
 #define CON_ACCTNEWPWD 30
 #define CON_ACCTNEWPWDCNF 31

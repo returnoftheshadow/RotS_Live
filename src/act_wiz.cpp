@@ -3549,7 +3549,6 @@ bool is_live_authenticated_account_session(const descriptor_data* descriptor)
     case CON_SLCT:
     case CON_ACCTMENU:
     case CON_ACCTSLCT:
-    case CON_ACCTLINKPWD:
     case CON_ACCTLINKNAME:
     case CON_ACCTRESETOLD:
     case CON_ACCTRESETNEW:
@@ -3582,7 +3581,6 @@ const char* whoacct_session_label(const descriptor_data* descriptor)
         return "Password Reset";
     case CON_ACCTLINKNAME:
     case CON_ACCTLEGPWD:
-    case CON_ACCTLINKPWD:
         return "Linking Character";
     case CON_ACCTNEWCNF:
     case CON_ACCTNEWPWD:

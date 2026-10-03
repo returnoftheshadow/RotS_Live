@@ -107,7 +107,7 @@ vendor_config parse_vendor_options(
     const char* text, const vendor_lookups& lookups, std::vector<vendor_problem>* problems)
 {
     vendor_config config;
-    bool saw_store = false, saw_hours = false, saw_list = false;
+    bool saw_store = false, saw_hours = false, saw_list = false, saw_attacks = false;
     std::set<int> priced_items;
     auto problem = [&](int line, const std::string& what) {
         if (problems)
@@ -121,6 +121,8 @@ vendor_config parse_vendor_options(
         if (line.empty() || line.compare(0, 2, "//") == 0) /* blank or comment */
             continue;
         std::vector<std::string> words = split_words(line);
+        if (words.empty()) /* only \v or \f: trim keeps them, split_words drops them */
+            continue;
 
         if (words[0] == "price") {
             vendor_price price { 0, {}, false, line_no };
@@ -212,6 +214,16 @@ vendor_config parse_vendor_options(
             }
             saw_list = true;
             config.list_message = value;
+        } else if (key == "attacks" && eq != std::string::npos) {
+            if (saw_attacks) {
+                problem(line_no, "duplicate attacks - line ignored");
+                continue;
+            }
+            saw_attacks = true;
+            if (value == "yes" || value == "no")
+                config.attacks = value == "yes";
+            else
+                problem(line_no, "bad attacks - line ignored");
         } else {
             problem(line_no, "unknown setting - line ignored");
         }
@@ -288,19 +300,12 @@ bool is_vendor_proto(int rnum)
 }
 
 /* do_say refuses mobs with INT < 6 ("too stupid to talk"), which would leave
- * a vendor unable to answer. Warn the builder rather than special-case say. */
+ * a vendor unable to say why it won't serve. Warn the builder rather than
+ * special-case say. */
 void vendor_add_speech_problem(const char_data& proto, std::vector<vendor_problem>* problems)
 {
     if (proto.abilities.intel < 6)
         problems->push_back({ 0, "intelligence below 6 - vendor can't speak" });
-}
-
-/* pref makes a mob aggressive to those races; a vendor that attacks gets
- * fought back and is no longer protected. Use rp_flag to restrict trade. */
-void vendor_add_pref_problem(const char_data& proto, std::vector<vendor_problem>* problems)
-{
-    if (proto.specials2.pref != 0)
-        problems->push_back({ 0, "pref set - vendor attacks and can be hurt" });
 }
 
 } // namespace
@@ -335,9 +340,14 @@ std::string format_vendor_list(const std::vector<vendor_list_row>& rows)
         names.push_back(name);
     }
     std::string out;
+    const size_t cost_width = 78 - (4 + width + 2); /* what is left of the line for a cost */
     for (size_t i = 0; i < rows.size(); ++i) {
         std::vector<std::string> chunks = wrap_words(names[i], VENDOR_LIST_NAME_COLUMN_MAX);
-        size_t lines = std::max(chunks.size(), rows[i].costs.size());
+        std::vector<std::string> costs; /* one cost per line; a long currency name wraps */
+        for (const vendor_list_cost& cost : rows[i].costs)
+            for (const std::string& part : wrap_words(std::to_string(cost.qty) + " x " + cost.name, cost_width))
+                costs.push_back(part);
+        size_t lines = std::max(chunks.size(), costs.size());
         for (size_t l = 0; l < lines; ++l) {
             char number[8];
             snprintf(number, sizeof(number), "%2d. ", (int)(i + 1));
@@ -345,8 +355,8 @@ std::string format_vendor_list(const std::vector<vendor_list_row>& rows)
             std::string chunk = l < chunks.size() ? chunks[l] : "";
             line += chunk;
             line.append(width - chunk.size() + 2, ' ');
-            if (l < rows[i].costs.size())
-                line += std::to_string(rows[i].costs[l].qty) + " x " + rows[i].costs[l].name;
+            if (l < costs.size())
+                line += costs[l];
             line.erase(line.find_last_not_of(' ') + 1);
             out += line + "\n\r";
         }
@@ -376,12 +386,88 @@ std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem)
     return buf;
 }
 
+std::string vendor_wrap(const std::string& text, const std::string& indent)
+{
+    std::string out, rest = text;
+    while (rest.size() > 78) {
+        size_t lead = rest.find_first_not_of(' '); /* never break inside the leading indent */
+        size_t cut = rest.rfind(' ', 78);
+        if (cut == std::string::npos || lead == std::string::npos || cut <= lead)
+            cut = 78;
+        out += rest.substr(0, cut) + "\n\r";
+        rest.erase(0, rest[cut] == ' ' ? cut + 1 : cut);
+        rest.insert(0, indent);
+    }
+    return out + rest + "\n\r";
+}
+
+int vendor_takes_no_turn(bool attacks) { return attacks ? FALSE : TRUE; }
+
+SPECIAL(shop_keeper); /* shop.cpp */
+SPECIAL(banker); /* banker.cpp */
+void* virt_program_number(int number);
+
+bool mob_is_keeper(const struct char_data* mob)
+{
+    if (!mob || !IS_NPC(mob) || mob->nr < 0 || !mob_index || mob->nr > top_of_mobt)
+        return false;
+    /* The program the game would call, in the order activate_char_special
+     * (interpre.cpp) tries them: the index function only with MOB_SPEC and
+     * specials on, else the mob's own program number. */
+    void* program = nullptr;
+    if (mob_index[mob->nr].func && IS_SET(mob->specials2.act, MOB_SPEC) && !no_specials)
+        program = (void*)mob_index[mob->nr].func;
+    else if (mob->specials.store_prog_number)
+        program = virt_program_number(mob->specials.store_prog_number);
+    return program && (program == (void*)shop_keeper || program == (void*)barter_vendor || program == (void*)banker);
+}
+
+bool keeper_protection(struct char_data* host, struct char_data* ch, int cmd, int callflag,
+    struct waiting_type* wtl, bool attacks, int* answer)
+{
+    switch (callflag) {
+    case SPECIAL_SELF:
+        *answer = vendor_takes_no_turn(attacks);
+        return true;
+    case SPECIAL_DAMAGE:
+        if (ch && ch != host) /* a poison tick is cancelled without the keeper talking */
+            vendor_tell(host, ch, "Don't even think about it.");
+        *answer = TRUE;
+        return true;
+    case SPECIAL_TARGET:
+        *answer = FALSE;
+        if (ch && ch != host && cmd == CMD_BLINDING && wtl && wtl->targ1.type == TARGET_CHAR
+            && wtl->targ1.ptr.ch == host) {
+            vendor_tell(host, ch, "Don't even think about it.");
+            *answer = TRUE;
+        }
+        return true;
+    }
+    return false;
+}
+
+void vendor_fight_flag_warnings(int mob_rnum, struct char_data* builder)
+{
+    if (!builder || mob_rnum < 0 || mob_rnum > top_of_mobt)
+        return;
+    const std::pair<long, const char*> flags[] = { { MOB_SCAVENGER, "SCAVENGER" }, { MOB_AGGRESSIVE, "AGGR" },
+        { MOB_MEMORY, "MEMORY" }, { MOB_HELPER, "HELPER" }, { MOB_BODYGUARD, "BODYGUARD" }, { MOB_HUNTER, "HUNTER" },
+        { MOB_ASSISTANT, "ASSISTANT" } };
+    char buf[128];
+    for (const auto& flag : flags) {
+        if (!IS_SET(mob_proto[mob_rnum].specials2.act, flag.first))
+            continue;
+        snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: %s flag with attacks=no\n\r", mob_index[mob_rnum].virt,
+            flag.second);
+        send_to_char(buf, builder);
+    }
+}
+
 void vendor_config_check(const struct char_data* proto, int mob_vnum, struct char_data* builder)
 {
     std::vector<vendor_problem> problems;
     parse_vendor_options(proto->specials.mob_options, game_lookups(), &problems);
     vendor_add_speech_problem(*proto, &problems);
-    vendor_add_pref_problem(*proto, &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_vnum, problem), builder);
 }
@@ -399,6 +485,8 @@ void vendor_implement_check(int mob_rnum, struct char_data* builder)
         send_to_char(buf, builder);
     }
     vendor_config config = parse_vendor_options(mob_proto[mob_rnum].specials.mob_options, game_lookups(), nullptr);
+    if (!config.attacks)
+        vendor_fight_flag_warnings(mob_rnum, builder);
     if (config.list_message.size() > VENDOR_LIST_MESSAGE_MAX) {
         snprintf(buf, sizeof(buf), "MOB WARNING: mobile #%d: list longer than %d columns\n\r",
             mob_index[mob_rnum].virt, (int)VENDOR_LIST_MESSAGE_MAX);
@@ -418,7 +506,6 @@ void vendor_config_rebuild(int mob_rnum, struct char_data* builder, bool report)
     if (!report)
         return;
     vendor_add_speech_problem(mob_proto[mob_rnum], &problems);
-    vendor_add_pref_problem(mob_proto[mob_rnum], &problems);
     for (const vendor_problem& problem : problems)
         vendor_send(vendor_problem_line(mob_index[mob_rnum].virt, problem), builder);
 }
@@ -440,14 +527,56 @@ void vendor_config_boot()
     }
 }
 
-/* The vendor speaks with the normal `say`, heard by the room, like any mob.
- * (A vendor with INT < 6 can't; that's warned at boot/save/implement.)
- * Messages about the buyer's own inventory go to the buyer with send_to_char. */
+/* Vendors and bankers speak the way the old shopkeepers (shop.cpp) do: a
+ * refusal to serve at all is a real `say` the room hears, every other reply
+ * is a `tell` to the customer. */
 void vendor_say(struct char_data* vendor, const char* text)
 {
     char buf[MAX_INPUT_LENGTH];
     snprintf(buf, sizeof(buf), "%s", text);
     do_say(vendor, buf, 0, 0, 0);
+}
+
+void vendor_tell(struct char_data* vendor, struct char_data* ch, const char* text)
+{
+    if (!ch)
+        return;
+    /* The line do_tell sends, sent directly: a keeper's answer is the only
+     * reply the command gets, so it must also reach a customer who has tells
+     * turned off or whom the keeper can't see, where do_tell stays silent.
+     * act() reads '$' as a code, so it is doubled, as typed input is; the
+     * length cut must not leave half a pair. */
+    std::string line;
+    for (const char* c = text; *c; ++c)
+        line.append(*c == '$' ? 2 : 1, *c);
+    if (line.size() > VENDOR_TELL_MAX) {
+        line.resize(VENDOR_TELL_MAX);
+        size_t dollars = line.size() - (line.find_last_not_of('$') + 1);
+        if (dollars % 2)
+            line.pop_back();
+    }
+    char buf[VENDOR_TELL_MAX + 32];
+    snprintf(buf, sizeof(buf), "$CT$n tells you '%s'", line.c_str());
+    act(buf, FALSE, vendor, NULL, ch, TO_VICT);
+}
+
+/* command_interpreter parses the command's targets first and, after the
+ * program returns, still runs the SPECIAL_TARGET specials on them. An object
+ * the program destroys, or anything inside it, must not be left in them. */
+void vendor_forget_target(struct waiting_type* wtl, struct obj_data* obj)
+{
+    if (!wtl)
+        return;
+    for (struct target_data* target : { &wtl->targ1, &wtl->targ2 }) {
+        if (target->type != TARGET_OBJ)
+            continue;
+        for (struct obj_data* held = target->ptr.obj; held; held = held->in_obj)
+            if (held == obj) {
+                target->type = TARGET_NONE;
+                target->ptr.other = 0;
+                break;
+            }
+    }
 }
 
 bool vendor_serves_customer(struct char_data* vendor, struct char_data* ch)
@@ -535,7 +664,7 @@ void vendor_list(struct char_data* vendor, struct char_data* ch, const vendor_co
 {
     std::vector<stock_row> stock = vendor_stock(ch, config);
     if (stock.empty()) {
-        vendor_say(vendor, "I have nothing to sell right now.");
+        vendor_tell(vendor, ch, "I have nothing to sell right now.");
         return;
     }
     std::vector<vendor_list_row> rows;
@@ -550,12 +679,13 @@ void vendor_list(struct char_data* vendor, struct char_data* ch, const vendor_co
     send_to_char(format_vendor_list(rows).c_str(), ch);
 }
 
-void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const vendor_config& config)
+void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const vendor_config& config,
+    struct waiting_type* wtl)
 {
     char want[MAX_INPUT_LENGTH], buf[MAX_STRING_LENGTH];
     one_argument(arg, want);
     if (!*want) {
-        vendor_say(vendor, "What do you want to buy?");
+        vendor_tell(vendor, ch, "What do you want to buy?");
         return;
     }
     std::vector<stock_row> stock = vendor_stock(ch, config);
@@ -574,16 +704,23 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
             }
     }
     if (!pick) {
-        vendor_say(vendor, "I don't have that. Try 'list'.");
+        vendor_tell(vendor, ch, "I don't have that. Try 'list'.");
         return;
     }
     std::vector<vendor_shortfall> short_of = vendor_shortfalls(pick->price->costs,
         [ch](int vnum) { return (int)payable_copies(ch, vnum).size(); });
     if (!short_of.empty()) {
-        for (const vendor_shortfall& s : short_of) {
-            snprintf(buf, sizeof(buf), "You need %d x %s and have %d.\n\r", s.need, obj_vnum_short(s.obj_vnum), s.have);
-            send_to_char(buf, ch);
+        /* One tell, however many items are short. */
+        std::string need = "You need ";
+        for (size_t i = 0; i < short_of.size(); ++i) {
+            const char* joiner = "";
+            if (i > 0)
+                joiner = i + 1 == short_of.size() ? " and " : ", ";
+            snprintf(buf, sizeof(buf), "%s%d x %s (you have %d)", joiner, short_of[i].need,
+                obj_vnum_short(short_of[i].obj_vnum), short_of[i].have);
+            need += buf;
         }
+        vendor_tell(vendor, ch, (need + ".").c_str());
         return;
     }
 
@@ -617,13 +754,14 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
     }
 
     for (struct obj_data* obj : payment) {
+        vendor_forget_target(wtl, obj); /* "buy ruby" also names the ruby paid with */
         obj_from_char(obj);
         extract_obj(obj);
     }
 
-    std::string paid; /* one currency per line, so it stays within 78 columns */
+    std::string paid; /* one currency per line, wrapped, so it stays within 78 columns */
     for (const vendor_cost& cost : pick->price->costs)
-        paid += "  " + std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum) + "\n\r";
+        paid += vendor_wrap("  " + std::to_string(cost.qty) + " x " + obj_vnum_short(cost.obj_vnum), "    ");
     struct obj_data* bought;
     if (pick->price->deduct) {
         bought = pick->copy;
@@ -632,8 +770,7 @@ void vendor_buy(struct char_data* vendor, struct char_data* ch, char* arg, const
         bought = read_object(pick->copy->item_number, REAL);
     obj_to_char(bought, ch);
     bought->touched = 1; /* a player has it now: later gets are logged */
-    snprintf(buf, sizeof(buf), "You hand over:\n\r%sYou now have %s.\n\r", paid.c_str(), bought->short_description);
-    send_to_char(buf, ch);
+    send_to_char(("You hand over:\n\r" + paid + vendor_wrap(std::string("You now have ") + bought->short_description + ".")).c_str(), ch);
     act("$n buys $p.", FALSE, ch, bought, 0, TO_ROOM);
 
     std::string trade = std::string("VENDOR: ") + GET_NAME(ch) + " buys " + bought->short_description + " ("
@@ -681,25 +818,11 @@ SPECIAL(barter_vendor)
     const vendor_config* config = vendor_config_for(host->nr);
     if (!config)
         return FALSE;
-    /* Before the ch == host return: a poison tick is damage(host, host, ...),
-     * and it must be cancelled too, just without the vendor talking. */
-    if (callflag == SPECIAL_DAMAGE) {
-        if (ch && ch != host)
-            vendor_say(host, "Don't even think about it.");
-        return TRUE;
-    }
+    int answer;
+    if (keeper_protection(host, ch, cmd, callflag, wtl, config->attacks, &answer)) /* shopkeeper.h */
+        return answer;
     if (!ch || ch == host)
         return FALSE;
-
-    /* Dust blinds even when its damage is cancelled (on_dust_hit), and a
-     * blind vendor refuses every buyer, so refuse the command itself. */
-    if (callflag == SPECIAL_TARGET) {
-        if (cmd != CMD_BLINDING || !wtl || wtl->targ1.type != TARGET_CHAR
-            || wtl->targ1.ptr.ch != host)
-            return FALSE;
-        vendor_say(host, "Don't even think about it.");
-        return TRUE;
-    }
     if (callflag != SPECIAL_COMMAND)
         return FALSE;
     if (cmd != CMD_LIST && cmd != CMD_BUY && cmd != CMD_GIVE)
@@ -708,7 +831,7 @@ SPECIAL(barter_vendor)
     if (cmd == CMD_GIVE) {
         if (!arg || !give_targets(host, ch, arg))
             return FALSE;
-        vendor_say(host, "I don't take gifts.");
+        vendor_tell(host, ch, "I don't take gifts.");
         return TRUE;
     }
 
@@ -726,6 +849,6 @@ SPECIAL(barter_vendor)
     if (cmd == CMD_LIST)
         vendor_list(host, ch, *config);
     else
-        vendor_buy(host, ch, arg ? arg : (char*)"", *config);
+        vendor_buy(host, ch, arg ? arg : (char*)"", *config, wtl);
     return TRUE;
 }

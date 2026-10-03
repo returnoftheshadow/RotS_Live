@@ -38,6 +38,7 @@ struct vendor_config {
     std::vector<vendor_hours_window> hours; /* empty = always open */
     std::vector<vendor_price> prices; /* in options order */
     std::string list_message; /* empty = the default list header */
+    bool attacks = true; /* false: the mob AI never runs, so the vendor never starts a fight */
     bool usable() const { return store_ok && hours_ok; }
 };
 struct vendor_problem {
@@ -83,7 +84,39 @@ const vendor_config* vendor_config_for(int mob_rnum); /* nullptr if none */
 std::string vendor_problem_line(int mob_vnum, const vendor_problem& problem); /* formatted warning */
 
 /* Shared with the other service programs (banker). */
-void vendor_say(struct char_data* vendor, const char* text); /* the room hears it, like any say */
+/* As the old shopkeepers: a refusal to serve is a `say`, any other reply a `tell`. */
+void vendor_say(struct char_data* vendor, const char* text);
+void vendor_tell(struct char_data* vendor, struct char_data* ch, const char* text);
+constexpr size_t VENDOR_TELL_MAX = 1000; /* longest text a tell carries; more is cut */
+/* Breaks a line at spaces so no part passes 78 columns; adds the line end. */
+std::string vendor_wrap(const std::string& text, const std::string& indent = ""); /* indent: lines after the first */
+/* ---- Keeper protection. A keeper is a mob whose program serves players:
+ * an old shopkeeper (shop.cpp), a barter vendor, a banker. The protection
+ * lives here, in one place, so that no other code names the keeper types:
+ *   - the rest of the game asks mob_is_keeper();
+ *   - a keeper program calls keeper_protection() first.
+ * A new keeper type gets all of it by adding its program to the list in
+ * mob_is_keeper() (shopkeeper.cpp) and making that one call. */
+bool mob_is_keeper(const struct char_data* mob);
+/* True when the call was one the protection answers, with the program's
+ * return value in *answer:
+ *   SPECIAL_SELF   - the mob AI's turn: see vendor_takes_no_turn;
+ *   SPECIAL_DAMAGE - an attack (or a poison tick, damage(host, host, ...)) is
+ *                    cancelled; an attacker is told so;
+ *   SPECIAL_TARGET - blinding dust is refused: it blinds even when its damage
+ *                    is cancelled, and a blind keeper serves nobody. */
+bool keeper_protection(struct char_data* host, struct char_data* ch, int cmd, int callflag,
+    struct waiting_type* wtl, bool attacks, int* answer);
+/* "attacks=no": the answer a keeper program gives the mob AI on its own turn
+ * (SPECIAL_SELF). TRUE ends the turn there, so the keeper never attacks,
+ * assists, hunts, wanders or picks things up; a mob that never starts a
+ * fight is never left open to one (damage() only asks the program while the
+ * victim is not already fighting the attacker). */
+int vendor_takes_no_turn(bool attacks);
+/* /imp only, for a keeper with attacks=no: mob flags that can do nothing
+ * (fighting, helping a master, picking things up). */
+void vendor_fight_flag_warnings(int mob_rnum, struct char_data* builder);
+void vendor_forget_target(struct waiting_type* wtl, struct obj_data* obj); /* before destroying obj in a command */
 bool vendor_serves_customer(struct char_data* vendor, struct char_data* ch); /* every refusal but hours */
 bool give_targets(struct char_data* vendor, struct char_data* ch, char* arg); /* would do_give pick this mob? */
 void vendor_send(const std::string& line, struct char_data* builder); /* warning to the builder log */

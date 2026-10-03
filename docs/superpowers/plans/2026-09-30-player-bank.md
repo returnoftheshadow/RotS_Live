@@ -3862,3 +3862,13 @@ PR #343; proposal page example uses comma money text while the game prints "and"
 - **A broken settings file** (not valid JSON, or a non-number value) falls back to *all*
   defaults with one warning, because the JSON reader cannot resume after a bad value. An
   out-of-range number only resets that one setting.
+
+## After the plan: review changes (2026-10-01)
+
+This plan is the record of the first build (tasks 1-9). A code review afterwards changed some of
+the behaviour and wording shown in the task code above: the banker speaks as the old
+shopkeepers do (a refusal to serve is a `say`, every other reply a `tell`, the balance header a
+plain line), the hand-over lines name only the item, greetings were added, and several refusals
+and file-safety checks were tightened. The spec
+(`docs/superpowers/specs/2026-09-30-player-bank-design.md`) and `docs/systems/bank.md` are
+current; where this plan's code differs, they and the source win.

@@ -8,6 +8,7 @@
 
 #include "interpre.h"
 
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -15,7 +16,7 @@ constexpr const char* BOOT_OPTIONS_PATH = "misc/game_boot_options.json"; /* cwd 
 
 enum { BOOT_BANK_SLOTS,
     BOOT_BANK_COIN_LIMIT_GOLD,
-    BOOT_BANK_DAY_START_HOUR,
+    BOOT_DAILY_REBOOT_HOUR_UTC, /* the routine reboot, and the moment the bank's fee day starts */
     BOOT_OPTION_COUNT };
 
 struct boot_option_def {
@@ -41,6 +42,14 @@ int boot_option(int index); /* value in use this boot */
 int boot_option_pending(int index); /* value in the file: in use after the next reboot */
 bool boot_option_set(int index, int value, std::string* error, const char* path = BOOT_OPTIONS_PATH);
 void boot_options_set_running_for_tests(int index, int value);
+/* The file was there at boot but could not be read or parsed: defaults are in
+ * use and boot_option_set refuses, so the hand-edited file is not replaced. */
+bool boot_options_file_unreadable();
+
+/* Minutes until the routine daily reboot for which a notice is due at this
+ * moment: 30, 5, 4 or 1; 0 when it is time to reboot; -1 otherwise. The hour
+ * is counted in UTC, so the reboot never moves with daylight saving. */
+int daily_reboot_minutes_left(time_t now, int reboot_hour_utc);
 
 ACMD(do_gameoptions);
 

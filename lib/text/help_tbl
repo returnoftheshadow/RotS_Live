@@ -2301,15 +2301,20 @@ characters on the same side share it, at every banker on that side.
   withdraw <N> gold       Take coins back. Also: silver, copper.
 
 A vault holds a set number of items and a set amount of coins; 'balance'
-shows both limits. A container counts as one item however full it is, and
+shows both limits. A container takes one slot however full it is, and
 stays sealed while it is stored.
 
 Storing coins is free. Some bankers charge a fee on items, in copper, for
-each day stored. You pay it when you take the item out, from the coins
-you carry first, then from your vault. Taking something out the day you
-stored it is free. A bank day starts in the early morning, server time.
+each day stored. A container's fee counts it and everything inside it.
+You pay it when you take the item out, from the coins you carry first,
+then from your vault. Taking something out the day you stored it is
+free. A bank day starts in the early morning, server time.
 
-The bank refuses anything you could not keep when you rent.
+The bank refuses anything you could not keep when you rent, and anything
+cursed that you could not drop, loose or inside a container.
+
+A banker tells you its answers privately. It only speaks aloud to say why
+it will not serve someone.
 
 See also: RENT MONEY
 #~

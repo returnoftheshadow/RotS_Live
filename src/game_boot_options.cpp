@@ -5,28 +5,35 @@
 #include "structs.h"
 #include "utils.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
 
 const boot_option_def BOOT_OPTION_DEFS[BOOT_OPTION_COUNT] = {
     { "bank_slots", 10, 1, 100, "item slots in each bank vault" },
     { "bank_coin_limit_gold", 1000, 0, 100000, "most gold a bank vault holds" },
-    { "bank_day_start_hour", 5, 0, 23, "hour the bank's fee day starts" },
+    { "daily_reboot_hour_utc", 10, 0, 23, "hour (UTC) of the daily reboot and of the bank's new fee day" },
 };
 
 namespace {
 boot_options_values g_running = boot_options_defaults();
 boot_options_values g_pending = boot_options_defaults();
+bool g_file_unreadable = false;
 
 bool in_range(int index, long value)
 {
     return value >= BOOT_OPTION_DEFS[index].min && value <= BOOT_OPTION_DEFS[index].max;
 }
 } // namespace
+
+namespace {
+const char* const kUnreadableWarning = "BOOT OPTIONS: file unreadable - defaults used";
+}
 
 boot_options_values boot_options_defaults()
 {
@@ -76,7 +83,7 @@ boot_options_values boot_options_parse(const std::string& json, std::vector<std:
         &error);
     if (!ok) {
         if (warnings)
-            warnings->push_back("BOOT OPTIONS: file unreadable - defaults used");
+            warnings->push_back(kUnreadableWarning);
         return boot_options_defaults();
     }
     if (warnings)
@@ -98,7 +105,8 @@ void boot_options_load(const char* path)
 {
     std::string text;
     std::ifstream in(path, std::ios::binary);
-    if (in.good()) {
+    bool opened = in.good();
+    if (opened) {
         std::ostringstream buffer;
         buffer << in.rdbuf();
         text = buffer.str();
@@ -106,6 +114,9 @@ void boot_options_load(const char* path)
     std::vector<std::string> warnings;
     g_running = boot_options_parse(text, &warnings);
     g_pending = g_running;
+    /* There but not usable: the next set must not write defaults over it. */
+    g_file_unreadable = opened ? std::find(warnings.begin(), warnings.end(), kUnreadableWarning) != warnings.end()
+                               : access(path, F_OK) == 0;
     for (const std::string& warning : warnings) {
         char line[512];
         snprintf(line, sizeof(line), "%s", warning.c_str());
@@ -116,10 +127,15 @@ void boot_options_load(const char* path)
 int boot_option(int index) { return g_running.v[index]; }
 int boot_option_pending(int index) { return g_pending.v[index]; }
 void boot_options_set_running_for_tests(int index, int value) { g_running.v[index] = value; }
+bool boot_options_file_unreadable() { return g_file_unreadable; }
 
 bool boot_option_set(int index, int value, std::string* error, const char* path)
 {
     const boot_option_def& def = BOOT_OPTION_DEFS[index];
+    if (g_file_unreadable) {
+        *error = "The settings file was unreadable at boot. Fix or remove it first.";
+        return false;
+    }
     if (!in_range(index, value)) {
         *error = std::string(def.name) + " must be " + std::to_string(def.min) + "-" + std::to_string(def.max) + ".";
         return false;
@@ -143,12 +159,29 @@ bool boot_option_set(int index, int value, std::string* error, const char* path)
     return true;
 }
 
+int daily_reboot_minutes_left(time_t now, int reboot_hour_utc)
+{
+    const int hour = (int)((now / 3600) % 24), minute = (int)((now / 60) % 60);
+    if (hour == reboot_hour_utc)
+        return minute <= 1 ? 0 : -1; /* two minutes wide: the caller does not run every minute */
+    if (hour != (reboot_hour_utc + 23) % 24)
+        return -1;
+    return minute == 30 ? 30 : minute == 55 ? 5
+        : minute == 56                      ? 4
+        : minute == 59                      ? 1
+                                            : -1;
+}
+
 ACMD(do_gameoptions)
 {
     char name[MAX_INPUT_LENGTH], value[MAX_INPUT_LENGTH], line[256];
     half_chop(argument, name, value);
 
     if (!*name) {
+        if (boot_options_file_unreadable())
+            send_to_char("The settings file was unreadable at boot: defaults are in use, and no\n\r"
+                         "setting can be changed until the file is fixed or removed.\n\r\n\r",
+                ch);
         send_to_char("Setting                   Now  After reboot  Default  Range\n\r", ch);
         for (int i = 0; i < BOOT_OPTION_COUNT; ++i) {
             const boot_option_def& def = BOOT_OPTION_DEFS[i];

@@ -18,7 +18,7 @@ constexpr int PROG_BANKER = 34;
 constexpr int BANKER_FEE_MAX = 10000; /* copper per item per day */
 constexpr int BANKER_MAXDAYS_MAX = 365;
 constexpr int BANKER_MARKUP_DEFAULT = 30; /* racial_markup=yes */
-constexpr int BANKER_MARKUP_MAX = 300;
+constexpr int BANKER_MARKUP_MAX = 3000;
 
 enum { BANK_SIDE_NONE = 0,
     BANK_SIDE_LIGHT = 1,
@@ -26,13 +26,19 @@ enum { BANK_SIDE_NONE = 0,
     BANK_SIDE_THIRD = 3 };
 
 /* Banker settings: "hours=<windows>", "fee=<copper>", "maxdays=<n>",
- * "racial_markup=yes|<percent>". All optional. */
+ * "racial_markup=yes|<percent>", "greeting=<message>",
+ * "greeting_other=<message>", "attacks=yes|no". All optional. */
+constexpr size_t BANKER_GREETING_MAX = 78;
 struct banker_config {
     bool ok = true; /* false: the banker does no business */
     std::vector<vendor_hours_window> hours; /* empty = always open */
     int fee = 0; /* copper per item per day; 0 = free */
     int maxdays = 0;
     int markup = 0; /* percent added for another race; 0 = none */
+    bool fee_given = false; /* a fee= line was present, good or bad */
+    std::string greeting; /* shown on balance in place of the default line */
+    std::string greeting_other; /* the same, for a customer of another race */
+    bool attacks = true; /* false: the mob AI never runs, so the banker never starts a fight */
 };
 
 banker_config parse_banker_options(const char* text, std::vector<vendor_problem>* problems);
@@ -41,9 +47,9 @@ banker_config parse_banker_options(const char* text, std::vector<vendor_problem>
 int bank_side_for_race(int race);
 const char* bank_side_file_name(int side); /* nullptr for no side */
 
-/* How many day-start points (start_hour, server local time) lie between the
- * two times. Never negative. */
-int bank_days_stored(time_t deposited, time_t now, int start_hour);
+/* How many day-start points (start_hour_utc, the hour of the daily reboot,
+ * in UTC) lie between the two times. Never negative. */
+int bank_days_stored(time_t deposited, time_t now, int start_hour_utc);
 
 /* Copper to withdraw one slot holding `items` objects after `days` days. */
 long long bank_fee(const banker_config& config, int days, int items, bool other_race);
@@ -62,6 +68,10 @@ struct bank_vault {
     int coins = 0; /* copper */
     std::vector<bank_slot> slots;
     bool readable = true; /* false: the file on disk could not be read */
+    /* Runtime only: the last write of this vault failed, so the file may hold
+     * something this copy no longer does. The next open writes it again. */
+    bool file_behind = false;
+    std::string read_error; /* why not, as last logged; never stored */
 };
 
 std::string serialize_bank_vault(const bank_vault& vault);
@@ -75,15 +85,21 @@ struct waiting_type;
 /* The three things the bank asks the game for, replaceable by tests. Passing
  * an empty function restores the game behaviour. */
 void bank_set_directory_resolver(std::function<std::string(const std::string& account_name)> resolver);
-void bank_set_character_saver(std::function<void(struct char_data*)> saver);
+/* The saver is told whether the object file matters to the caller, and answers false if the save failed. */
+void bank_set_character_saver(std::function<bool(struct char_data*, bool objects_too)> saver);
 void bank_set_clock(std::function<time_t()> clock);
 time_t bank_now();
-void bank_save_character(struct char_data* ch);
+/* False: the character file, or (unless objects_too is false) its object file, was not saved. */
+/* *character_written (when given): the character file itself was written,
+ * whatever happened to the object file. A stand-in saver (tests) reports it
+ * by setting ch->specials.saved_character_file; otherwise its answer counts. */
+bool bank_save_character(struct char_data* ch, bool objects_too = true, bool* character_written = nullptr);
 
 /* The vault table holds the ONLY in-memory copy of each vault; nothing else
  * may read or write a vault file. bank_vault_open returns nullptr (with
  * *error set) when the account has no folder, the side is not 1-3, or the
- * file on disk could not be read. An unreadable file is never overwritten. */
+ * file on disk could not be read. An unreadable file is never overwritten;
+ * it is read again on the next open, so a repaired file works without a reboot. */
 bank_vault* bank_vault_open(const std::string& account_name, int side, std::string* error);
 /* Writes the in-memory copy to its file: temp file, then rename. */
 bool bank_vault_write(const std::string& account_name, int side, std::string* error);
@@ -101,15 +117,26 @@ const banker_config* banker_config_for(int mob_rnum); /* nullptr if none */
 
 /* Stored objects. Records mirror the rent save's, with depth in wear_pos. */
 void bank_records_from_obj(struct obj_data* obj, std::vector<objects_json::ObjectRecord>* out);
-/* The item with its contents rebuilt, in no room and on nobody; nullptr (and
- * nothing left behind) if any prototype is gone or the nesting is impossible. */
+/* A slot rebuilt the way the rent load does it: what still exists is built,
+ * what is gone is skipped and named in `missing`. Normally one object in
+ * `tops` (the item with its contents); when a container is gone its contents
+ * move up to the nearest surviving container, or into `tops` as loose items.
+ * Wands and staves keep their stored charges. All in no room and on nobody. */
+struct bank_rebuild {
+    std::vector<struct obj_data*> tops;
+    std::vector<int> missing; /* vnums with no prototype any more */
+    bool top_missing = false; /* the stored item itself is gone */
+    bool bad_nesting = false; /* impossible depths: nothing was built */
+};
+bank_rebuild bank_rebuild_records(const std::vector<objects_json::ObjectRecord>& records);
+/* The whole item or nothing: nullptr (and nothing left behind) if anything is missing. */
 struct obj_data* bank_obj_from_records(const std::vector<objects_json::ObjectRecord>& records);
 bool bank_obj_storable(struct obj_data* obj); /* false if it, or anything inside it, can't be rented */
 const char* bank_slot_name(const bank_slot& slot); /* short description of the stored item */
 
 struct bank_balance_row {
     std::string name;
-    int inside; /* objects inside a container; < 0 when it holds nothing */
+    int inside; /* objects inside a container; < 0 when it is not one */
     std::string fee; /* already worded; unused when the fee column is off */
 };
 std::string format_bank_balance(const std::string& coins, int coin_limit_gold, int slots_used, int slots_max,

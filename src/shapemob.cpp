@@ -2814,9 +2814,10 @@ void extra_coms_proto(struct char_data* ch, char* argument)
             = SHAPE_EDIT;
         break;
     case SHAPE_DONE: {
-        /* The save reports vendor problems exactly when this is true (the
+        /* The save reports vendor or banker problems exactly when this is true (the
          * same test replace_proto makes), so implement doesn't repeat them. */
-        bool save_reports = is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr);
+        bool save_reports = is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr)
+            || is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr);
         /* A failed save must not throw the edits away. */
         if (replace_proto(ch, argument) < 0) {
             send_to_char("Not saved - still shaping. Fix the problem and /done again,\n\r"
