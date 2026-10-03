@@ -42,10 +42,18 @@
 #include "player_file_finalize.h"
 #include "roster_cache.h"
 #include "skill_timer.h"
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 /**************************************************************************
@@ -167,8 +175,7 @@ void assign_the_shopkeepers(void);
 void build_player_index(void);
 void boot_mudlle();
 void boot_crimes();
-int file_to_string(char* name, char* buf);
-int file_to_string_alloc(char* name, char** buf);
+int file_to_string_alloc(const char* name, char** buf);
 void check_start_rooms(void);
 void renum_world(void);
 void reset_time(void);
@@ -3739,54 +3746,101 @@ void free_obj(struct obj_data* obj)
     RELEASE(obj);
 }
 
-/* read contets of a text file, alloc space, point buf to it */
-int file_to_string_alloc(char* name, char** buf)
+/* Reads the file 'name' into 'out_content': each line of the file, with its
+   '\n' when it has one, followed by '\r'. Lines are never split, and a last
+   line without '\n' is kept. An empty file yields "". Returns false if the
+   file cannot be opened. That is logged without a SYSERR tag because some
+   files are optional, such as LASTDEATH_FILE before anyone has died. */
+static bool file_to_string_read_lines(std::string_view name, std::string& out_content)
 {
-    char temp[MAX_STRING_LENGTH];
-
-    if (file_to_string(name, temp) < 0)
-        return -1;
-
-    RELEASE(*buf);
-
-    *buf = str_dup(temp);
-    return 0;
-}
-
-/* read contents of a text file, and place in buf */
-int file_to_string(char* name, char* buf)
-{
-    FILE* fl;
-    char tmp[100];
-
-    *buf = '\0';
-
-    if (!(fl = fopen(name, "r"))) {
-        sprintf(tmp, "Error reading %s", name);
-        perror(tmp);
-        *buf = '\0';
-        return (-1);
+    const std::filesystem::path file_path(name);
+    std::ifstream file_stream(file_path, std::ios::binary);
+    if (!file_stream.is_open()) {
+        const std::string message
+            = std::string(__func__) + ": could not open " + file_path.string();
+        log(message.c_str());
+        return false;
     }
 
-    do {
-        fgets(tmp, 99, fl);
+    // The size is only a hint for reading in one call. Whatever it does not
+    // cover, because it is unavailable or the file has grown, is read up to
+    // end of file.
+    std::string raw_content;
+    std::error_code size_error;
+    const std::uintmax_t file_size = std::filesystem::file_size(file_path, size_error);
+    const bool size_is_usable = !size_error && file_size <= raw_content.max_size();
+    if (size_is_usable) {
+        raw_content.resize(static_cast<std::size_t>(file_size));
+        file_stream.read(raw_content.data(), static_cast<std::streamsize>(raw_content.size()));
+        const std::streamsize bytes_read = file_stream.gcount();
+        raw_content.resize(static_cast<std::size_t>(bytes_read));
+    }
 
-        if (!feof(fl)) {
-            if (strlen(buf) + strlen(tmp) + 2 > MAX_STRING_LENGTH) {
-                log("SYSERR: fl->strng: string too big (db.c, file_to_string)");
-                *buf = '\0';
-                return (-1);
-            }
+    const bool may_have_more_content = !size_is_usable || raw_content.size() == file_size;
+    if (may_have_more_content) {
+        const std::istreambuf_iterator<char> stream_begin(file_stream);
+        const std::istreambuf_iterator<char> stream_end;
+        raw_content.append(stream_begin, stream_end);
+    }
 
-            strcat(buf, tmp);
-            *(buf + strlen(buf) + 1) = '\0';
-            *(buf + strlen(buf)) = '\r';
+    const std::ptrdiff_t newline_count = std::count(raw_content.begin(), raw_content.end(), '\n');
+    const bool has_unterminated_last_line = !raw_content.empty() && raw_content.back() != '\n';
+    std::size_t output_size = raw_content.size() + static_cast<std::size_t>(newline_count);
+    if (has_unterminated_last_line) {
+        output_size += 1;
+    }
+
+    out_content.clear();
+    out_content.reserve(output_size);
+
+    for (const char character : raw_content) {
+        out_content += character;
+        if (character == '\n') {
+            out_content += '\r';
         }
-    } while (!feof(fl));
+    }
 
-    fclose(fl);
+    if (has_unterminated_last_line) {
+        out_content += '\r';
+    }
 
-    return (0);
+    return true;
+}
+
+/* Reads the file 'name' as described at file_to_string_read_lines(). On
+   success releases the old 'buffer', points it at a new str_dup() copy of the
+   content and returns true. Returns false and leaves 'buffer' unchanged if the
+   file cannot be opened. */
+static bool replace_with_file_contents(std::string_view name, char*& buffer)
+{
+    std::string content;
+    if (!file_to_string_read_lines(name, content)) {
+        return false;
+    }
+
+    RELEASE(buffer);
+    buffer = str_dup(content.c_str());
+    return true;
+}
+
+/* Reads the file 'name' into *buf with no length limit, as described at
+   replace_with_file_contents(), and returns 0. Returns -1 and leaves *buf
+   unchanged if the file cannot be opened, or, logged as a SYSERR, if 'name' or
+   'buf' is null. */
+int file_to_string_alloc(const char* name, char** buf)
+{
+    if (name == nullptr || buf == nullptr) {
+        const std::string message
+            = std::string("SYSERR: ") + __func__ + ": called with a null name or buffer";
+        log(message.c_str());
+        return -1;
+    }
+
+    if (!replace_with_file_contents(name, *buf)) {
+        return -1;
+    }
+
+    return 0;
 }
 
 int get_char_directory(char* orig_name, char* filename)
