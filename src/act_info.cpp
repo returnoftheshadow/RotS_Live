@@ -20,6 +20,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -1964,52 +1965,7 @@ ACMD(do_score)
 
 ACMD(do_time)
 {
-    char* bufpt;
-    char* year;
-    int weekday, sunrise, sunset, hours;
-    extern int sun_events[12][2];
-    extern char* weekdays[];
-    extern struct time_info_data time_info;
-    int get_season();
-
-    bufpt = buf;
-    bufpt += sprintf(bufpt, "It is about %d:00 %s on ",
-        time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
-        time_info.hours >= 12 ? "PM" : "AM");
-
-    /* 35 days in a month */
-    weekday = ((30 * time_info.month) + time_info.day + 1) % 7;
-    bufpt += sprintf(bufpt, "%s, ", weekdays[weekday]);
-
-    /* Get the daytime */
-    day_to_str(&time_info, bufpt);
-    bufpt += strlen(bufpt);
-    bufpt += sprintf(bufpt, ".\r\n");
-
-    year = nth(time_info.year);
-    bufpt += sprintf(bufpt,
-        "By the Steward's Reckoning, it is "
-        "the %s year of the fourth age of Arda.\r\n",
-        year);
-    free(year);
-
-    /* A blurb on the phase of the moon */
-    bufpt += sprintf(bufpt, "The moon is %s and %s.\n\r", moon_phase[weather_info.moonphase],
-        weather_info.moonlight ? "shining" : "not shining");
-
-    /* When the sun will rise and set */
-    sunrise = sun_events[time_info.month][0];
-    sunset = sun_events[time_info.month][1];
-    if (time_info.hours >= sunrise && time_info.hours < sunset) {
-        hours = sunset - time_info.hours;
-        bufpt += sprintf(bufpt, "The sun will set in about %d hour%s.\r\n", hours,
-            hours == 1 ? "" : "s");
-    } else {
-        hours = sunrise + (time_info.hours < 12 ? -time_info.hours : 24 - time_info.hours);
-        bufpt += sprintf(bufpt, "The sun will rise in about %d hour%s.\n\r", hours,
-            hours == 1 ? "" : "s");
-    }
-    send_to_char(buf, ch);
+    send_to_char(game_time_text::time_report().c_str(), ch);
 }
 
 char* sky_look[6] = {

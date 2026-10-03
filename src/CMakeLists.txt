@@ -109,6 +109,7 @@ set(ROTS_SERVER_SOURCES
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp
+    game_time_text.cpp
     graph.cpp
     handler.cpp
     interpre.cpp
@@ -184,6 +185,7 @@ set(ROTS_TEST_SOURCES
     tests/exploits_json_tests.cpp
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
+    tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp

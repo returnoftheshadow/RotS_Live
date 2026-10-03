@@ -50,6 +50,7 @@ SOURCES := \
     db.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
+    game_time_text.cpp \
     graph.cpp \
     handler.cpp \
     interpre.cpp \
