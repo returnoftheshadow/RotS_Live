@@ -680,8 +680,6 @@ int CAN_SEE_OBJ(char_data* sub, obj_data* obj);
 #define PROF_ABBR(ch) (IS_NPC(ch) ? "--" : prof_abbrevs[(int)GET_PROF(ch)])
 #define RACE_ABBR(ch) (IS_NPC(ch) ? "--" : race_abbrevs[(int)GET_RACE(ch)])
 
-#define MOB_AGE_TICKS(ch, tm) (((tm) - (ch)->player.time.logon) / SECS_PER_MUD_HOUR)
-
 universal_list* pool_to_list(universal_list** list, universal_list** pool);
 void from_list_to_pool(universal_list** list, universal_list** head,
     universal_list* body);

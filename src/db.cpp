@@ -1828,15 +1828,18 @@ struct char_data* read_mobile(int nr, int type)
 
     GET_WILLPOWER(mob) = get_naked_willpower(mob);
 
+    const WorldClock::time_point spawn_time = WorldClock::now();
     if (boot_mode) {
         age = number(0, average_mob_life * 2);
         mob->player.time.birth = time(0) - age * SECS_PER_MUD_HOUR;
         mob->player.time.played = 0;
         mob->player.time.logon = time(0) - age * SECS_PER_MUD_HOUR;
+        utils::set_mob_age_in_ticks(*mob, age, spawn_time);
     } else {
         mob->player.time.birth = time(0);
         mob->player.time.played = 0;
         mob->player.time.logon = time(0);
+        utils::set_mob_age_in_ticks(*mob, 0, spawn_time);
     }
     if ((mob->specials.store_prog_number != 0) && (!IS_SET(mob->specials2.act, MOB_SPEC))) {
         //     mob->specials.poofIn=(char *)calloc(SPECIAL_STACKLEN,sizeof(long));

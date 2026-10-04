@@ -40,13 +40,13 @@ SOURCES := \
     char_utils.cpp \
     char_utils_combat.cpp \
     clerics.cpp \
-    clock.cpp \
     color.cpp \
     combat_manager.cpp \
     comm.cpp \
     config.cpp \
     consts.cpp \
     crashsave_schedule.cpp \
+    damage_meters.cpp \
     db.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
@@ -65,6 +65,7 @@ SOURCES := \
     exploits_json.cpp \
     json_utils.cpp \
     objects_json.cpp \
+    lap_timer.cpp \
     limits.cpp \
     mail.cpp \
     mystic.cpp \
@@ -106,6 +107,7 @@ SOURCES := \
     weapon_master_handler.cpp \
     wild_fighting_handler.cpp \
     weather.cpp \
+    world_clock.cpp \
     zone.cpp
 
 OBJFILES := $(SOURCES:.cpp=.o)
