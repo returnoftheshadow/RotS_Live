@@ -170,6 +170,7 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
     if (victim->specials.fighting != ch && mob_is_keeper(victim)) {
         waiting_type guard;
         guard.targ1.ptr.ch = victim;
+        guard.targ1.ch_num = victim->abs_number;
         guard.targ1.type = TARGET_CHAR;
         guard.targ2.ptr.other = NULL;
         guard.targ2.type = TARGET_NONE;
@@ -335,6 +336,7 @@ combat_result_struct damage_stat(struct char_data* killer, struct char_data* vic
     if (victim->specials.fighting != killer) {
         waiting_type wait_data;
         wait_data.targ1.ptr.ch = victim;
+        wait_data.targ1.ch_num = victim->abs_number;
         wait_data.targ1.type = TARGET_CHAR;
         wait_data.targ2.ptr.other = NULL;
         wait_data.targ2.type = TARGET_NONE;

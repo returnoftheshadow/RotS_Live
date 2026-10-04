@@ -1679,12 +1679,12 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
         case TARGET_CHAR:
             tmpch = wtl->targ1.ptr.ch;
             /* ch_num guards a target parsed earlier that may have died since.
-             * The SPECIAL_DAMAGE callers (fight.cpp, clerics.cpp) pass the
-             * victim they are hitting right now and never set ch_num, so the
-             * test was always "does character 0 exist": once the first mob
-             * loaded at boot was gone, no shopkeeper, vendor or banker was
-             * asked and all of them could be attacked. */
-            if (callflag != SPECIAL_DAMAGE && !char_exists(wtl->targ1.ch_num))
+             * Every caller that passes a character sets it. The SPECIAL_DAMAGE
+             * callers (fight.cpp, clerics.cpp) once left it at the
+             * constructor's 0, so the test was "does character 0 exist": once
+             * the first mob loaded at boot was gone, no shopkeeper, vendor or
+             * banker was asked and all of them could be attacked. */
+            if (!char_exists(wtl->targ1.ch_num))
                 break;
             if (activate_char_special(tmpch, ch, cmd, arg, callflag, wtl, in_room))
                 return 1;

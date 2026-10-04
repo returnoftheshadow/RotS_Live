@@ -18,8 +18,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
-#include <fstream>
 #include <map>
 #include <set>
 #include <sstream>
@@ -339,7 +337,9 @@ time_t bank_now() { return g_clock ? g_clock() : time(0); }
 
 /* save_char and Crash_crashsave return nothing and fail quietly. Each sets
  * its flag on the character only where its file was really written (see
- * structs.h), so clearing both first tells this caller whether they did. */
+ * structs.h), so clearing both first tells this caller whether they did.
+ * The banker tests install a stand-in; this real branch is run, with writes
+ * made to fail, by DbLoader.SaveResultFlagsAreSetOnlyWhereTheFileWasWritten. */
 bool bank_save_character(struct char_data* ch, bool objects_too, bool* character_written)
 {
     if (g_character_saver) { /* tests; ch may be a stand-in or null */
@@ -375,7 +375,9 @@ bool bank_save_character(struct char_data* ch, bool objects_too, bool* character
     return saved;
 }
 
-void bank_vault_forget_all() { g_vaults.clear(); }
+#ifdef TESTING
+void bank_vault_forget_all_for_tests() { g_vaults.clear(); }
+#endif
 
 bank_vault* bank_vault_open(const std::string& account_name, int side, std::string* error)
 {
@@ -396,14 +398,9 @@ bank_vault* bank_vault_open(const std::string& account_name, int side, std::stri
             if (errno != ENOENT)
                 read_error = strerror(errno);
         } else {
-            std::ifstream in(path, std::ios::binary);
-            if (!in.good())
-                read_error = "can't be opened";
-            else {
-                std::ostringstream buffer;
-                buffer << in.rdbuf();
-                deserialize_bank_vault(buffer.str(), &vault, &read_error);
-            }
+            std::string text;
+            if (account::read_text_file(path, &text, &read_error))
+                deserialize_bank_vault(text, &vault, &read_error);
         }
         if (!read_error.empty()) {
             const bool logged = found != g_vaults.end() && found->second.read_error == read_error;
@@ -450,25 +447,37 @@ bool bank_vault_write(const std::string& account_name, int side, std::string* er
         *error = "That vault is not open.";
         return false;
     }
-    const std::string json = serialize_bank_vault(found->second);
-    const std::string temp = path + ".tmp";
     found->second.file_behind = true; /* until this write is known to have worked */
-    int fd = open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    FILE* file = fd >= 0 ? fdopen(fd, "w") : nullptr;
-    if (!file) {
-        if (fd >= 0)
-            close(fd);
-        *error = std::string("Can't write the vault file: ") + strerror(errno);
-        return false;
-    }
-    size_t written = fwrite(json.data(), 1, json.size(), file);
-    if (fclose(file) != 0 || written != json.size() || rename(temp.c_str(), path.c_str()) != 0) {
-        *error = std::string("Can't write the vault file: ") + strerror(errno);
-        remove(temp.c_str());
+    std::string write_error;
+    if (!account::write_text_file_atomically(path, serialize_bank_vault(found->second), &write_error)) {
+        *error = "Can't write the vault file: " + write_error;
         return false;
     }
     found->second.file_behind = false;
     return true;
+}
+
+/* The table is the only right copy of a vault whose last write failed, and a
+ * shutdown or reboot drops the table: the file would be read back holding
+ * what was withdrawn since. Each such vault is written once more before that
+ * (comm.cpp); bank_vault_open does the same for a vault opened in play. */
+void bank_vaults_write_behind()
+{
+    for (auto& entry : g_vaults) {
+        if (!entry.second.readable || !entry.second.file_behind)
+            continue;
+        const size_t cut = entry.first.rfind('#'); /* the key is "<account>#<side>" */
+        const std::string account = entry.first.substr(0, cut);
+        const int side = atoi(entry.first.c_str() + cut + 1);
+        std::string error;
+        char line[512];
+        if (bank_vault_write(account, side, &error))
+            snprintf(line, sizeof(line), "BANK: account %s side %d: vault file written again", account.c_str(), side);
+        else
+            snprintf(line, sizeof(line), "SYSERR: bank: account %s side %d: vault file still not written at shutdown (%s)",
+                account.c_str(), side, error.c_str());
+        mudlog(line, NRM, LEVEL_AREAGOD, TRUE);
+    }
 }
 
 constexpr size_t BANK_NAME_COLUMN = 37; /* " #  " + 37 + 2 + a 35-column fee = 78 */
@@ -678,7 +687,13 @@ bool banker_admits(struct char_data* host, struct char_data* ch, const banker_co
 long long slot_fee(const banker_config& config, const bank_slot& slot, struct char_data* host, struct char_data* ch)
 {
     int days = bank_days_stored(slot.deposited, bank_now(), boot_option(BOOT_DAILY_REBOOT_HOUR_UTC));
-    return bank_fee(config, days, (int)slot.objects.size(), GET_RACE(ch) != GET_RACE(host));
+    /* Only what a withdrawal hands back is charged for: a stored object whose
+     * prototype a builder has deleted since is dropped (bank_rebuild_records). */
+    int items = 0;
+    for (const objects_json::ObjectRecord& record : slot.objects)
+        if (real_object(record.item_number) >= 0)
+            ++items;
+    return bank_fee(config, days, items, GET_RACE(ch) != GET_RACE(host));
 }
 
 void banker_balance(struct char_data* host, struct char_data* ch, const banker_config& config, const bank_customer& customer)
@@ -957,12 +972,12 @@ void bank_withdraw(struct char_data* host, struct char_data* ch, char* arg, cons
         int n = strlen(want) <= 4 ? atoi(want) : 0;
         if (n >= 1 && n <= (int)slots.size())
             pick = n - 1;
-    } else { /* a keyword; "2.sword" = the second matching slot */
+    } else { /* a keyword; "2.sword" = the second matching slot. Abbreviations as deposit takes them (get_obj_in_list_vis) */
         char* name = want;
         int nth = get_number(&name);
         for (size_t i = 0; i < slots.size() && pick < 0; ++i) {
             int rnum = real_object(slots[i].objects[0].item_number);
-            if (rnum >= 0 && isname(name, obj_proto[rnum].name) && --nth == 0)
+            if (rnum >= 0 && isname(name, obj_proto[rnum].name, 0) && --nth == 0)
                 pick = (int)i;
         }
     }

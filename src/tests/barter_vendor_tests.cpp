@@ -296,6 +296,8 @@ constexpr int kVendorVnum = 7000;
 
 class BarterVendorTest : public ::testing::Test {
 protected:
+    static constexpr int kVendorSlot = 4400; /* a character slot nothing else in the tests uses */
+
     void SetUp() override
     {
         m_saved_mob_proto = mob_proto;
@@ -355,6 +357,8 @@ protected:
 
         clear_char(&m_vendor, MOB_ISNPC);
         m_vendor.nr = 0;
+        m_vendor.abs_number = kVendorSlot; /* as register_npc_char gives every mob in the game */
+        set_char_exists(kVendorSlot);
         m_vendor.specials2.act = MOB_ISNPC | MOB_SPEC;
         m_vendor.player.name = m_vendor_name;
         m_vendor.player.short_descr = m_vendor_short;
@@ -385,6 +389,7 @@ protected:
 
     void TearDown() override
     {
+        remove_char_exists(kVendorSlot);
         while (object_list != nullptr)
             extract_obj(object_list);
         m_mob_proto[0].specials.store_prog_number = 0;
@@ -819,18 +824,28 @@ TEST(VendorParse, ALineOfOnlyVerticalTabOrFormFeedIsSkipped)
 /* damage() and the mental attack ask a victim's program through special().
  * It used to ask only while character slot 0 existed (the callers never set
  * the target's ch_num), so every keeper lost its protection once the first
- * mob loaded at boot was gone. */
+ * mob loaded at boot was gone. The callers now name the victim's own slot,
+ * which runs to MAX_CHARACTERS: past what the 16-bit ch_num once held. */
 TEST_F(BarterVendorTest, TheDamageQuestionReachesTheVendorWithoutCharacterSlotZero)
 {
+    constexpr int kHighSlot = 40000;
     const bool slot_zero_existed = char_exists(0);
     remove_char_exists(0);
     m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    m_vendor.abs_number = kHighSlot;
+    set_char_exists(kHighSlot);
     waiting_type wtl {};
     wtl.targ1.type = TARGET_CHAR;
     wtl.targ1.ptr.ch = &m_vendor;
+    wtl.targ1.ch_num = m_vendor.abs_number; /* as damage(), hit(), damage_stat() and do_mental() do */
+    EXPECT_EQ(wtl.targ1.ch_num, kHighSlot) << "ch_num holds every slot number";
     std::strcpy(m_arg, "");
     EXPECT_EQ(special(&m_buyer, 0, m_arg, SPECIAL_DAMAGE, &wtl), 1) << "the hit is cancelled";
     EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+
+    /* A target that has gone since (its slot is free) is not asked, for a hit as for a command. */
+    remove_char_exists(kHighSlot);
+    EXPECT_EQ(special(&m_buyer, 0, m_arg, SPECIAL_DAMAGE, &wtl), 0);
     if (slot_zero_existed)
         set_char_exists(0);
 }

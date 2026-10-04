@@ -1358,7 +1358,7 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
      * still parse (refresh is tolerant of a missing follower section) and
      * would replace the account's good copy with a short one. */
     const bool refreshed = wrote_aliases && written && closed && refresh_account_backed_object_file(ch);
-    if (wrote_aliases && written && closed && refreshed)
+    if (refreshed)
         ch->specials.saved_object_file = true; /* see structs.h */
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }

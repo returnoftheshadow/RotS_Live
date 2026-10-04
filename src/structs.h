@@ -341,8 +341,8 @@ struct target_data {
         struct txt_block* text;
         void* other;
     } ptr;
-    sh_int ch_num; /* abs_number, if the target is a character, or just some
-                   digit data*/
+    int ch_num; /* abs_number (up to MAX_CHARACTERS), if the target is a
+                   character, or just some digit data */
     int choice; /* what kind of target is this   */
     void cleanup(); /* cleans the target data, releases the text if nec. */
     void operator=(target_data t2);

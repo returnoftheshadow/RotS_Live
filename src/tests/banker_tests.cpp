@@ -390,7 +390,7 @@ protected:
         m_root = path;
         mkdir((m_root + "/tester").c_str(), 0700);
         mkdir((m_root + "/other").c_str(), 0700);
-        bank_vault_forget_all();
+        bank_vault_forget_all_for_tests();
         bank_set_directory_resolver([this](const std::string& name) {
             std::string dir = m_root + "/" + name;
             struct stat st { };
@@ -399,7 +399,7 @@ protected:
     }
     void TearDown() override
     {
-        bank_vault_forget_all();
+        bank_vault_forget_all_for_tests();
         bank_set_directory_resolver(nullptr);
         std::string command = "rm -rf " + m_root;
         ASSERT_EQ(system(command.c_str()), 0);
@@ -439,7 +439,7 @@ TEST_F(BankStoreTest, WriteThenForgetThenOpenReadsTheFile)
     vault->slots.push_back({ 99, { record(100, 0) } });
     ASSERT_TRUE(bank_vault_write("tester", BANK_SIDE_DARK, &error)) << error;
     EXPECT_NE(access(path("tester", "vault_dark.json.tmp").c_str(), F_OK), 0) << "no temp file left";
-    bank_vault_forget_all();
+    bank_vault_forget_all_for_tests();
     vault = bank_vault_open("tester", BANK_SIDE_DARK, &error);
     ASSERT_NE(vault, nullptr) << error;
     EXPECT_EQ(vault->coins, 1234);
@@ -1004,6 +1004,27 @@ TEST_F(BankerTest, WithdrawClearsASlotThatHoldsOnlyDeletedItems)
     EXPECT_EQ(output().find("You pay"), std::string::npos) << "no fee for nothing";
 }
 
+/* The fee is for what comes back: a stored object a builder has deleted since
+ * is dropped at withdrawal, so it is not charged for, in the pack or as the pack. */
+TEST_F(BankerTest, TheFeeCountsOnlyStoredObjectsThatStillExist)
+{
+    options("fee=50\nmaxdays=30");
+    vault()->slots.push_back({ at(2026, 9, 30, 12), { record(kPackVnum, 0), record(9999, 1), record(kSwordVnum, 1) } });
+    vault()->slots.push_back({ at(2026, 9, 30, 12), { record(9999, 0), record(kSwordVnum, 1) } });
+    m_now = at(2026, 10, 3, 12); /* three days: 150 copper for each object */
+    call(CMD_BALANCE, "");
+    EXPECT_NE(output().find("3 silver"), std::string::npos) << "two of the first slot's three: " << output();
+    EXPECT_EQ(output().find("4 silver and 50 copper"), std::string::npos) << output();
+    EXPECT_NE(output().find("1 silver and 50 copper"), std::string::npos) << "one of the second slot's two: " << output();
+
+    GET_GOLD(&m_player) = 1000;
+    testing::internal::CaptureStderr();
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    testing::internal::GetCapturedStderr();
+    EXPECT_EQ(GET_GOLD(&m_player), 700) << output();
+    EXPECT_EQ(carried(1), 1);
+}
+
 /* save_char and Crash_crashsave fail quietly; the banker must not empty the
  * vault for an item that was never saved on the character. */
 TEST_F(BankerTest, WithdrawIsUndoneWhenTheCharacterIsNotSaved)
@@ -1192,6 +1213,34 @@ TEST_F(BankerTest, AVaultFileLeftBehindIsWrittenAgainOnTheNextOpen)
     EXPECT_EQ(read_file(path("tester", "vault_light.json")).find("\"item_number\": 100"), std::string::npos)
         << "written again from the vault in play";
     EXPECT_EQ(carried(0), 1);
+}
+
+/* A reboot drops the vaults in play and reads the files back: one left behind
+ * would hand its item out a second time. The shutdown writes them first. */
+TEST_F(BankerTest, AVaultFileLeftBehindIsWrittenAgainBeforeAShutdown)
+{
+    give(0);
+    bank_set_character_saver([this](char_data*, bool) {
+        mkdir(path("tester", "vault_light.json.tmp").c_str(), 0700);
+        return false;
+    });
+    call(CMD_DEPOSIT, "sword"); /* undone, and the undo's write fails */
+    ASSERT_NE(read_file(path("tester", "vault_light.json")).find("\"item_number\": 100"), std::string::npos);
+
+    std::string logged = capture_stderr(path("tester", "stderr.log"), [] { bank_vaults_write_behind(); });
+    EXPECT_NE(logged.find("SYSERR: bank: account tester side 1: vault file still not written at shutdown ("),
+        std::string::npos)
+        << logged;
+    EXPECT_NE(read_file(path("tester", "vault_light.json")).find("\"item_number\": 100"), std::string::npos);
+
+    rmdir(path("tester", "vault_light.json.tmp").c_str());
+    logged = capture_stderr(path("tester", "stderr.log"), [] { bank_vaults_write_behind(); });
+    EXPECT_NE(logged.find("BANK: account tester side 1: vault file written again"), std::string::npos) << logged;
+    EXPECT_EQ(read_file(path("tester", "vault_light.json")).find("\"item_number\": 100"), std::string::npos)
+        << "written from the vault in play, with no one opening it";
+
+    logged = capture_stderr(path("tester", "stderr.log"), [] { bank_vaults_write_behind(); });
+    EXPECT_EQ(logged.find("vault file"), std::string::npos) << "nothing behind, nothing written: " << logged;
 }
 
 /* The same for a withdrawal whose last vault write fails: the item is handed
@@ -1511,6 +1560,29 @@ TEST_F(BankerTest, WithdrawItemByNumberAndByKeyword)
     EXPECT_NE(output().find("I hold nothing like that for you."), std::string::npos);
     EXPECT_EQ(call(CMD_WITHDRAW, "7"), TRUE);
     EXPECT_NE(output().find("I hold nothing like that for you."), std::string::npos);
+}
+
+/* deposit finds the item as every command does, abbreviations included
+ * (get_obj_in_list_vis); withdraw takes the same words. */
+TEST_F(BankerTest, WithdrawTakesTheAbbreviationsDepositTakes)
+{
+    give(0);
+    give(0);
+    give(1);
+    EXPECT_EQ(call(CMD_DEPOSIT, "swor"), TRUE);
+    EXPECT_EQ(call(CMD_DEPOSIT, "back"), TRUE);
+    EXPECT_EQ(call(CMD_DEPOSIT, "swor"), TRUE);
+    ASSERT_EQ(vault()->slots.size(), 3u) << output();
+    EXPECT_EQ(call(CMD_WITHDRAW, "2.swor"), TRUE);
+    ASSERT_EQ(vault()->slots.size(), 2u) << output();
+    EXPECT_EQ(vault()->slots[1].objects[0].item_number, kPackVnum) << "the second sword went, not the first";
+    EXPECT_EQ(call(CMD_WITHDRAW, "back"), TRUE);
+    EXPECT_EQ(carried(1), 1) << output();
+    EXPECT_EQ(call(CMD_WITHDRAW, "sw"), TRUE);
+    EXPECT_NE(output().find("I hold nothing like that for you."), std::string::npos)
+        << "two letters are too few, as for deposit: " << output();
+    EXPECT_EQ(call(CMD_WITHDRAW, "swor"), TRUE);
+    EXPECT_TRUE(vault()->slots.empty()) << output();
 }
 
 TEST_F(BankerTest, WithdrawItemSavesTheCharacterBeforeTheVaultFile)
@@ -2004,7 +2076,7 @@ TEST_F(BankStoreTest, AFileThatCannotBeOpenedIsNotAnEmptyVault)
     vault->coins = 500;
     ASSERT_TRUE(bank_vault_write("tester", BANK_SIDE_LIGHT, &error)) << error;
     const std::string before = read_file(file);
-    bank_vault_forget_all();
+    bank_vault_forget_all_for_tests();
     ASSERT_EQ(chmod(file.c_str(), 0000), 0);
 
     testing::internal::CaptureStderr();
@@ -2364,18 +2436,25 @@ TEST(BankGameFolder, TheSharedFolderForUnknownAccountsIsNeverAVault)
     ASSERT_NE(mkdtemp(root), nullptr);
     char old_cwd[4096];
     ASSERT_NE(getcwd(old_cwd, sizeof(old_cwd)), nullptr);
+    /* However the test ends: a failed ASSERT returns at once, and every later
+     * test would run from this folder. */
+    struct LeaveAndRemove {
+        const char* back;
+        const char* folder;
+        ~LeaveAndRemove()
+        {
+            bank_vault_forget_all_for_tests();
+            EXPECT_EQ(chdir(back), 0);
+            EXPECT_EQ(system((std::string("rm -rf ") + folder).c_str()), 0);
+        }
+    } leave { old_cwd, root };
     ASSERT_EQ(chdir(root), 0);
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir((std::string("accounts/") + "__invalid_account__").c_str(), 0700), 0);
-    bank_vault_forget_all();
+    bank_vault_forget_all_for_tests();
     bank_set_directory_resolver(nullptr); /* the game's own lookup */
 
     std::string error;
     EXPECT_EQ(bank_vault_open("nosuchaccountatall", BANK_SIDE_LIGHT, &error), nullptr);
     EXPECT_FALSE(error.empty());
-
-    bank_vault_forget_all();
-    ASSERT_EQ(chdir(old_cwd), 0);
-    std::string command = std::string("rm -rf ") + root;
-    ASSERT_EQ(system(command.c_str()), 0);
 }

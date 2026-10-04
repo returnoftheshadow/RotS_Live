@@ -18,9 +18,16 @@ std::string temp_file()
     std::remove(path); /* tests start with the file missing */
     return path;
 }
+
+/* The running values are one table for the whole test program: each test
+ * leaves the defaults behind, whatever it loaded or set and in any order. */
+class BootOptions : public ::testing::Test {
+protected:
+    void TearDown() override { boot_options_load(temp_file().c_str()); /* a missing file: all defaults */ }
+};
 } // namespace
 
-TEST(BootOptions, DefaultsWhenTextIsEmpty)
+TEST_F(BootOptions, DefaultsWhenTextIsEmpty)
 {
     std::vector<std::string> warnings;
     boot_options_values v = boot_options_parse("", &warnings);
@@ -30,7 +37,7 @@ TEST(BootOptions, DefaultsWhenTextIsEmpty)
     EXPECT_TRUE(warnings.empty());
 }
 
-TEST(BootOptions, MissingKeyKeepsItsDefault)
+TEST_F(BootOptions, MissingKeyKeepsItsDefault)
 {
     std::vector<std::string> warnings;
     boot_options_values v = boot_options_parse("{\"bank_slots\": 20}", &warnings);
@@ -39,7 +46,7 @@ TEST(BootOptions, MissingKeyKeepsItsDefault)
     EXPECT_TRUE(warnings.empty());
 }
 
-TEST(BootOptions, OutOfRangeValueUsesDefaultAndWarns)
+TEST_F(BootOptions, OutOfRangeValueUsesDefaultAndWarns)
 {
     std::vector<std::string> warnings;
     boot_options_values v = boot_options_parse(
@@ -51,7 +58,7 @@ TEST(BootOptions, OutOfRangeValueUsesDefaultAndWarns)
     EXPECT_EQ(warnings[0], "BOOT OPTIONS: bank_slots: 0 out of range 1-100 - default 10 used");
 }
 
-TEST(BootOptions, UnknownKeyWarnsAndIsSkipped)
+TEST_F(BootOptions, UnknownKeyWarnsAndIsSkipped)
 {
     std::vector<std::string> warnings;
     boot_options_values v = boot_options_parse("{\"bogus\": 3, \"bank_slots\": 12}", &warnings);
@@ -60,7 +67,7 @@ TEST(BootOptions, UnknownKeyWarnsAndIsSkipped)
     EXPECT_EQ(warnings[0], "BOOT OPTIONS: bogus: unknown setting - ignored");
 }
 
-TEST(BootOptions, BrokenFileUsesAllDefaultsAndWarnsOnce)
+TEST_F(BootOptions, BrokenFileUsesAllDefaultsAndWarnsOnce)
 {
     const char* broken[] = { "{", "not json", "{\"bank_slots\": \"ten\"}", "[1,2]" };
     for (const char* text : broken) {
@@ -73,7 +80,7 @@ TEST(BootOptions, BrokenFileUsesAllDefaultsAndWarnsOnce)
     }
 }
 
-TEST(BootOptions, SerializeRoundTrips)
+TEST_F(BootOptions, SerializeRoundTrips)
 {
     boot_options_values v = boot_options_defaults();
     v.v[BOOT_BANK_SLOTS] = 25;
@@ -83,14 +90,14 @@ TEST(BootOptions, SerializeRoundTrips)
     EXPECT_EQ(back.v[BOOT_BANK_SLOTS], 25);
 }
 
-TEST(BootOptions, IndexByName)
+TEST_F(BootOptions, IndexByName)
 {
     EXPECT_EQ(boot_option_index("bank_slots"), BOOT_BANK_SLOTS);
     EXPECT_EQ(boot_option_index("BANK_SLOTS"), -1);
     EXPECT_EQ(boot_option_index(""), -1);
 }
 
-TEST(BootOptions, MissingFileLoadsDefaults)
+TEST_F(BootOptions, MissingFileLoadsDefaults)
 {
     std::string path = temp_file();
     boot_options_load(path.c_str());
@@ -98,7 +105,7 @@ TEST(BootOptions, MissingFileLoadsDefaults)
     EXPECT_EQ(boot_option_pending(BOOT_BANK_SLOTS), 10);
 }
 
-TEST(BootOptions, SetWritesTheFileButNotTheRunningValue)
+TEST_F(BootOptions, SetWritesTheFileButNotTheRunningValue)
 {
     std::string path = temp_file();
     boot_options_load(path.c_str());
@@ -111,7 +118,7 @@ TEST(BootOptions, SetWritesTheFileButNotTheRunningValue)
     std::remove(path.c_str());
 }
 
-TEST(BootOptions, SetRefusesOutOfRangeAndLeavesTheFileAlone)
+TEST_F(BootOptions, SetRefusesOutOfRangeAndLeavesTheFileAlone)
 {
     std::string path = temp_file();
     boot_options_load(path.c_str());
@@ -122,7 +129,7 @@ TEST(BootOptions, SetRefusesOutOfRangeAndLeavesTheFileAlone)
     EXPECT_FALSE(std::ifstream(path).good());
 }
 
-TEST(BootOptions, SetIsRefusedWhileTheFileOnDiskWasUnreadableAtBoot)
+TEST_F(BootOptions, SetIsRefusedWhileTheFileOnDiskWasUnreadableAtBoot)
 {
     std::string path = temp_file();
     {

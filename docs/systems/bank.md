@@ -98,8 +98,11 @@ line for whoever forced it.
 ### Fees and bank days
 
 ```
-fee = min(days stored, maxdays) x fee per day x objects in the slot
+fee = min(days stored, maxdays) x fee per day x objects in the slot that still exist
 ```
+
+A stored object whose prototype a builder has deleted since is dropped at withdrawal, so it is
+not counted (`slot_fee`): the fee is for what comes back.
 
 `bank_fee` (`banker.cpp:183`). A customer whose race differs from the banker's pays
 `racial_markup` percent more, rounded up to a whole copper. Coins are never charged. The rate is
@@ -243,7 +246,11 @@ rewritten without the item. If the undo's own vault rewrite fails as well, the i
 character and still in the vault file: a second copy after a reboot. That needs two failures in
 a row. The vault in play is right, only its file is behind: `bank_vault_write` marks the vault
 `file_behind` until a write works, and the next `bank_vault_open` (any balance, deposit,
-withdrawal or staff look) writes it again, so the extra copy goes away by itself. Staff are told
+withdrawal or staff look) writes it again, so the extra copy goes away by itself. A shutdown,
+reboot or service stop writes every such vault once more first (`bank_vaults_write_behind`, called
+from `game_loop` in `comm.cpp` and from `hupsig` in `signals.cpp`), because the files are what the
+next boot reads; one that still can't be written is reported (`SYSERR: bank: account <name> side
+<n>: vault file still not written at shutdown (<error>)`). Staff are told
 on the syslog and online from area god up with their log at normal (`SYSERR: bank: account
 <name> side <n>: vault file write failed (<error>); the file may still hold <what>`, `mudlog`), as an incident report only: staff check with their own tools,
 remembering that `vault` shows the vault in play, not the file. The write that settles it is

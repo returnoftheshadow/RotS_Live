@@ -103,7 +103,13 @@ bool bank_save_character(struct char_data* ch, bool objects_too = true, bool* ch
 bank_vault* bank_vault_open(const std::string& account_name, int side, std::string* error);
 /* Writes the in-memory copy to its file: temp file, then rename. */
 bool bank_vault_write(const std::string& account_name, int side, std::string* error);
-void bank_vault_forget_all(); /* drops the table; for tests */
+/* Writes again every vault whose last write failed; before a shutdown or reboot. */
+void bank_vaults_write_behind();
+#ifdef TESTING
+/* Drops the table. Never in the game: the table is the only right copy of a
+ * vault whose last write failed (bank_vaults_write_behind). */
+void bank_vault_forget_all_for_tests();
+#endif
 
 /* Program 34. Mirrors the barter vendor's registry: configs are parsed at
  * boot and when a builder saves the mob, and kept by mob rnum. */

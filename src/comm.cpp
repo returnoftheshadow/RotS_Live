@@ -31,6 +31,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "mob_progs/banker.h"
 #include "protocol.h"
 #include "script.h"
 #include "skill_timer.h"
@@ -1311,6 +1312,7 @@ void game_loop(SocketType s)
                     Crash_crashsave(ch);
                 }
             }
+            bank_vaults_write_behind(); /* a vault file a failed write left behind */
         }
     }
 }
