@@ -1536,6 +1536,118 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableI
     EXPECT_EQ(character.carrying->obj_flags.weight, 4);
 }
 
+int Crash_obj2store(obj_data* obj, char_data* ch, int pos, FILE* fl);
+
+TEST(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    // The helm's prototype is at version 3 and now gives OB +2.
+    obj_proto[0].obj_flags.version = 3;
+    obj_proto[0].affected[0].location = APPLY_OB;
+    obj_proto[0].affected[0].modifier = 2;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, &character);
+
+    auto helm = [](int wear_pos, int version) {
+        objects_json::ObjectRecord record {};
+        record.item_number = 1001;
+        record.wear_pos = wear_pos;
+        record.version = version;
+        record.affects[0].location = APPLY_OB;
+        record.affects[0].modifier = 8; // what the old copies were saved with
+        return record;
+    };
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(helm(WEAR_HEAD, 0)); // worn, never versioned
+    objects_json::ObjectRecord pack {};
+    pack.item_number = 1002;
+    pack.wear_pos = MAX_WEAR;
+    object_data.objects.push_back(pack); // carried pack...
+    object_data.objects.push_back(helm(MAX_WEAR + 1, 2)); // ...holding an older-version helm
+    object_data.objects.push_back(helm(MAX_WEAR, 3)); // carried, already current
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(&character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    obj_data* worn = character.equipment[WEAR_HEAD];
+    ASSERT_NE(worn, nullptr);
+    EXPECT_EQ(worn->affected[0].modifier, 2);
+    EXPECT_EQ(worn->obj_flags.version, 3);
+
+    obj_data* current = nullptr;
+    obj_data* carried_pack = nullptr;
+    for (obj_data* obj = character.carrying; obj; obj = obj->next_content) {
+        if (obj_index[obj->item_number].virt == 1001)
+            current = obj;
+        else
+            carried_pack = obj;
+    }
+    ASSERT_NE(current, nullptr);
+    EXPECT_EQ(current->affected[0].modifier, 8) << "a copy already at the prototype's version is left alone";
+    EXPECT_EQ(current->obj_flags.version, 3);
+
+    ASSERT_NE(carried_pack, nullptr);
+    ASSERT_NE(carried_pack->contains, nullptr);
+    EXPECT_EQ(carried_pack->contains->affected[0].modifier, 2);
+    EXPECT_EQ(carried_pack->contains->obj_flags.version, 3);
+}
+
+TEST(DbLoader, CrashObj2StoreWritesTheVersionOnlyForVersionedObjects)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+
+    for (int version : { 0, 4 }) {
+        obj_data* obj = read_object(0, REAL);
+        ASSERT_NE(obj, nullptr);
+        obj->obj_flags.version = version;
+
+        FILE* file = tmpfile();
+        ASSERT_NE(file, nullptr);
+        ASSERT_EQ(Crash_obj2store(obj, &character, WEAR_HEAD, file), 1);
+        const long size = std::ftell(file);
+        std::rewind(file);
+        obj_file_elem record {};
+        ASSERT_EQ(std::fread(&record, sizeof(record), 1, file), 1u);
+        if (version == 0) {
+            EXPECT_EQ(size, (long)sizeof(obj_file_elem));
+            EXPECT_EQ(record.item_number_deprecated, DEPRECATED_ID_VALUE);
+        } else {
+            EXPECT_EQ(size, (long)(sizeof(obj_file_elem) + sizeof(int)));
+            EXPECT_EQ(record.item_number_deprecated, VERSIONED_ID_VALUE);
+            int stored = 0;
+            ASSERT_EQ(std::fread(&stored, sizeof(stored), 1, file), 1u);
+            EXPECT_EQ(stored, 4);
+        }
+        EXPECT_EQ(record.item_number, 1001);
+        std::fclose(file);
+    }
+}
+
 TEST(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMigration)
 {
     ScopedObjectPrototypeTable object_prototypes;

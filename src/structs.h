@@ -424,6 +424,9 @@ public:
     sh_int butcher_item; /* virtual item to butcher, 0 for none, -1 for butchered */
     int prog_number; /* for special objects... */
     int script_number; /* identifies the script which is triggered under certain conditions */
+    /* Prototype: 0 = never versioned, > 0 = on, < 0 = off (keeps the last number for the next
+     * bump). Saved copy: the version it was made or last refreshed from. See Crash_obj2char. */
+    int version;
     struct info_script* script_info; /* Pointer to char_script (protos.h) 0 if no script */
     bool poisoned;
     int poisondata[5];
@@ -1955,6 +1958,10 @@ struct follower_file_elem {
 
 constexpr const sh_int SENTINEL_ITEM_ID_VALUE = -17;
 constexpr const sh_int DEPRECATED_ID_VALUE = -255;
+// A record whose item_number_deprecated is VERSIONED_ID_VALUE is followed by one int, the object
+// version (obj_flag_data::version). Only objects with a non-zero version are written this way, so a
+// save holding no versioned objects is byte-for-byte what it was before versions existed.
+constexpr const sh_int VERSIONED_ID_VALUE = -254;
 struct obj_file_elem {
 
     sh_int item_number_deprecated; // this used to be the ID number, but it wasn't big enough.
