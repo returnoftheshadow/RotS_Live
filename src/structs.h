@@ -345,6 +345,10 @@ struct target_data {
                    character, or just some digit data */
     int choice; /* what kind of target is this   */
     void cleanup(); /* cleans the target data, releases the text if nec. */
+    /* Names a character as the target: the pointer and its slot together, so
+     * the slot (what special() checks before it runs a program) is never
+     * left at another character's number. */
+    void set_character(struct char_data* ch);
     void operator=(target_data t2);
     int operator==(target_data t2);
 

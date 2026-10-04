@@ -675,6 +675,13 @@ void report_wrong_position(struct char_data* ch)
     }
 }
 
+void target_data::set_character(struct char_data* ch)
+{
+    ptr.ch = ch;
+    ch_num = ch ? ch->abs_number : -1;
+    type = TARGET_CHAR;
+}
+
 void target_data::cleanup()
 {
     if (type == TARGET_TEXT)

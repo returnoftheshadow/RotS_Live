@@ -169,9 +169,7 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
      * round (see mob_is_keeper, mob_progs/shopkeeper.h). */
     if (victim->specials.fighting != ch && mob_is_keeper(victim)) {
         waiting_type guard;
-        guard.targ1.ptr.ch = victim;
-        guard.targ1.ch_num = victim->abs_number;
-        guard.targ1.type = TARGET_CHAR;
+        guard.targ1.set_character(victim);
         guard.targ2.ptr.other = NULL;
         guard.targ2.type = TARGET_NONE;
         if (special(ch, 0, "", SPECIAL_DAMAGE, &guard)) {
@@ -335,9 +333,7 @@ combat_result_struct damage_stat(struct char_data* killer, struct char_data* vic
 
     if (victim->specials.fighting != killer) {
         waiting_type wait_data;
-        wait_data.targ1.ptr.ch = victim;
-        wait_data.targ1.ch_num = victim->abs_number;
-        wait_data.targ1.type = TARGET_CHAR;
+        wait_data.targ1.set_character(victim);
         wait_data.targ2.ptr.other = NULL;
         wait_data.targ2.type = TARGET_NONE;
         int special_index = special(killer, 0, "", SPECIAL_DAMAGE, &wait_data);

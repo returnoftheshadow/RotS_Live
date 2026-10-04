@@ -282,6 +282,7 @@ int shop_keeper(struct char_data* host, struct char_data* ch, int cmd, char* arg
 extern struct char_data* combat_list;
 extern struct char_data* waiting_list;
 void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, int cmd, int subcmd);
+combat_result_struct damage_stat(struct char_data* killer, struct char_data* victim, int stat_num, int amount);
 extern int no_specials;
 void clear_char(struct char_data* ch, int mode);
 void clear_object(struct obj_data* obj);
@@ -835,9 +836,9 @@ TEST_F(BarterVendorTest, TheDamageQuestionReachesTheVendorWithoutCharacterSlotZe
     m_vendor.abs_number = kHighSlot;
     set_char_exists(kHighSlot);
     waiting_type wtl {};
-    wtl.targ1.type = TARGET_CHAR;
-    wtl.targ1.ptr.ch = &m_vendor;
-    wtl.targ1.ch_num = m_vendor.abs_number; /* as damage(), hit(), damage_stat() and do_mental() do */
+    wtl.targ1.set_character(&m_vendor); /* as damage(), hit(), damage_stat() and do_mental() name their victim */
+    EXPECT_EQ(wtl.targ1.type, TARGET_CHAR);
+    EXPECT_EQ(wtl.targ1.ptr.ch, &m_vendor);
     EXPECT_EQ(wtl.targ1.ch_num, kHighSlot) << "ch_num holds every slot number";
     std::strcpy(m_arg, "");
     EXPECT_EQ(special(&m_buyer, 0, m_arg, SPECIAL_DAMAGE, &wtl), 1) << "the hit is cancelled";
@@ -848,6 +849,27 @@ TEST_F(BarterVendorTest, TheDamageQuestionReachesTheVendorWithoutCharacterSlotZe
     EXPECT_EQ(special(&m_buyer, 0, m_arg, SPECIAL_DAMAGE, &wtl), 0);
     if (slot_zero_existed)
         set_char_exists(0);
+}
+
+/* A character that was never given a slot (stat file and set file build one
+ * to read a player file into) is slot -1, not slot 0: freeing it used to mark
+ * the first character registered at boot as gone. */
+TEST_F(BarterVendorTest, FreeingACharacterWithNoSlotLeavesSlotZeroAlone)
+{
+    const bool slot_zero_existed = char_exists(0);
+    set_char_exists(0);
+    char_data* loaded = (char_data*)calloc(1, sizeof(char_data));
+    clear_char(loaded, MOB_VOID);
+    EXPECT_EQ(loaded->abs_number, -1);
+    waiting_type wtl {};
+    wtl.targ1.set_character(loaded);
+    EXPECT_EQ(wtl.targ1.ch_num, -1);
+    EXPECT_FALSE(char_exists(-1)) << "no slot is no character";
+    EXPECT_FALSE(char_exists(MAX_CHARACTERS)) << "nor is a number past the table";
+    free_char(loaded);
+    EXPECT_TRUE(char_exists(0)) << "the character in slot 0 is still there";
+    if (!slot_zero_existed)
+        remove_char_exists(0);
 }
 
 /* A program that only counts its calls. */
@@ -902,12 +924,33 @@ TEST_F(BarterVendorTest, AMentalAttackIsRefusedLikeAPhysicalOne)
     m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
     SET_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
     std::strcpy(m_arg, "trader");
+    const bool slot_zero_existed = char_exists(0);
+    remove_char_exists(0); /* do_mental names the vendor's own slot, not this one */
     do_mental(&m_buyer, m_arg, nullptr, 0, 0);
+    if (slot_zero_existed)
+        set_char_exists(0);
     EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
     EXPECT_EQ(m_buyer.specials.fighting, nullptr) << "not left fighting the vendor";
     EXPECT_EQ(m_vendor.specials.fighting, nullptr);
 
     REMOVE_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+}
+
+/* Mental damage (a curse, a mental hit that lands) asks the victim's program
+ * through damage_stat(), which names the victim's own slot as the others do. */
+TEST_F(BarterVendorTest, MentalDamageAsksTheVendorByItsOwnSlot)
+{
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    const int hit_before = m_vendor.tmpabilities.hit;
+    const bool slot_zero_existed = char_exists(0);
+    remove_char_exists(0);
+    damage_stat(&m_buyer, &m_vendor, 0, 5);
+    if (slot_zero_existed)
+        set_char_exists(0);
+    EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+    EXPECT_EQ(m_buyer.specials.fighting, nullptr);
+    EXPECT_EQ(m_vendor.specials.fighting, nullptr);
+    EXPECT_EQ(m_vendor.tmpabilities.hit, hit_before);
 }
 
 /* An attacker already fighting a keeper that is not fighting back (it was

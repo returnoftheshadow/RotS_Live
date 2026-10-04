@@ -1023,6 +1023,13 @@ TEST_F(BankerTest, TheFeeCountsOnlyStoredObjectsThatStillExist)
     testing::internal::GetCapturedStderr();
     EXPECT_EQ(GET_GOLD(&m_player), 700) << output();
     EXPECT_EQ(carried(1), 1);
+
+    /* The pack itself is gone: its sword is handed over loose and is all that is charged for. */
+    testing::internal::CaptureStderr();
+    EXPECT_EQ(call(CMD_WITHDRAW, "1"), TRUE);
+    testing::internal::GetCapturedStderr();
+    EXPECT_EQ(GET_GOLD(&m_player), 550) << output();
+    EXPECT_TRUE(vault()->slots.empty());
 }
 
 /* save_char and Crash_crashsave fail quietly; the banker must not empty the
@@ -1231,6 +1238,7 @@ TEST_F(BankerTest, AVaultFileLeftBehindIsWrittenAgainBeforeAShutdown)
     EXPECT_NE(logged.find("SYSERR: bank: account tester side 1: vault file still not written at shutdown ("),
         std::string::npos)
         << logged;
+    EXPECT_NE(logged.find("Is a directory"), std::string::npos) << "the alert carries the system's reason: " << logged;
     EXPECT_NE(read_file(path("tester", "vault_light.json")).find("\"item_number\": 100"), std::string::npos);
 
     rmdir(path("tester", "vault_light.json.tmp").c_str());

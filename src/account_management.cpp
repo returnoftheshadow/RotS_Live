@@ -1991,17 +1991,26 @@ bool write_text_file_atomically(const std::string& path, const std::string& text
     if (file == nullptr)
         return false;
 
+    // The reason is read where the call failed: the cleanup below (fclose, remove) sets errno too,
+    // and "no space left on device" is what whoever reads the error needs to see.
+    errno = 0;
     const size_t written_length = std::fwrite(text.data(), sizeof(char), text.size(), file);
+    int write_errno = written_length != text.size() ? errno : 0;
+    errno = 0;
     const int close_result = std::fclose(file);
+    if (close_result != 0 && write_errno == 0)
+        write_errno = errno;
     if (written_length != text.size() || close_result != 0) {
         std::remove(temp_path.c_str());
-        set_error(error_message, "Failed to write temporary file '" + temp_path + "'.");
+        set_error(error_message, "Failed to write temporary file '" + temp_path + "'"
+            + (write_errno != 0 ? ": " + std::string(std::strerror(write_errno)) : std::string(".")));
         return false;
     }
 
     if (std::rename(temp_path.c_str(), path.c_str()) != 0) {
+        const int rename_errno = errno;
         std::remove(temp_path.c_str());
-        set_error(error_message, "Failed to move temporary file into place: " + std::string(std::strerror(errno)));
+        set_error(error_message, "Failed to move temporary file into place: " + std::string(std::strerror(rename_errno)));
         return false;
     }
 

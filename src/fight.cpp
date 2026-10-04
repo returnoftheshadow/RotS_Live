@@ -1672,9 +1672,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
 
     /* Call special procs on damage */
     if (victim->specials.fighting != attacker) {
-        tmpwtl.targ1.ptr.ch = victim;
-        tmpwtl.targ1.ch_num = victim->abs_number;
-        tmpwtl.targ1.type = TARGET_CHAR;
+        tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
         i = special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl);
@@ -2644,9 +2642,7 @@ void hit(char_data* ch, char_data* victim, int type)
      * this mess of position updating is also absolutely horrid.
      */
     if (ch->specials.fighting != victim) {
-        tmpwtl.targ1.ptr.ch = victim;
-        tmpwtl.targ1.ch_num = victim->abs_number;
-        tmpwtl.targ1.type = TARGET_CHAR;
+        tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
         tmp = special(ch, 0, "", SPECIAL_DAMAGE, &tmpwtl);

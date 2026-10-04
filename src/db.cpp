@@ -3889,6 +3889,10 @@ void reset_char(struct char_data* ch)
 void clear_char(struct char_data* ch, int mode)
 {
     memset((char*)ch, (char)'\0', (int)sizeof(struct char_data));
+    /* No slot yet: register_npc_char / register_pc_char give one. 0 is a real
+     * slot (the first character registered at boot), and a character left at 0
+     * marked that one gone when it was freed (stat file, set file). */
+    ch->abs_number = -1;
     CREATE1(ch->profs, char_prof_data);
     memset(ch->profs->colors, CNRM,
         sizeof(ch->profs->colors[0]) * MAX_COLOR_FIELDS);
