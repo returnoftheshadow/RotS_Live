@@ -11,6 +11,7 @@
 #ifndef DB_H
 #define DB_H
 
+#include <cstddef>
 #include <stdio.h> /* For the FILE structure */
 #include <string>
 #include <vector>
@@ -61,6 +62,9 @@
 #define SKILLS_FILE "text/skil_tbl" /* for MAN SKILL		*/
 #define SHAPE_FILE "text/shap_tbl" /* for MAN SHAPE		*/
 #define MSDP_FILE "text/msdp_tbl" /* for MAN MSDP */
+
+// The largest text file file_to_string_alloc() loads; a larger one is refused with a SYSERR.
+constexpr std::size_t text_file_byte_limit = 128 * 1024;
 
 #define LASTDEATH_FILE "../log/lastdeath" /* the last words of the dead mud */
 

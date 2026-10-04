@@ -18,8 +18,10 @@
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
+#include <fstream>
 #include <limits.h>
 #include <new>
+#include <random>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
@@ -43,6 +45,7 @@ void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(struct char_file_u* st, struct char_data* ch);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
+int file_to_string_alloc(const char* name, char** buf);
 
 namespace {
 
@@ -3006,4 +3009,295 @@ TEST(AffectPersistence, AStillEquippedItemReGrantsItsAffectOnLogin)
 
     while (character.affected)
         affect_remove(&character, character.affected);
+}
+
+namespace {
+
+// A uniquely named folder under the system temporary directory, removed with everything in it
+// when the object goes out of scope.
+class ScratchDirectory {
+public:
+    ScratchDirectory()
+    {
+        std::error_code error;
+        const std::filesystem::path temporary_root = std::filesystem::temp_directory_path(error);
+        if (error) {
+            ADD_FAILURE() << "no temporary directory: " << error.message();
+            return;
+        }
+
+        std::random_device random_source;
+        const int attempt_limit = 16;
+        for (int attempt = 0; attempt < attempt_limit; ++attempt) {
+            const std::string folder_name = "rots-db-loader-" + std::to_string(random_source());
+            const std::filesystem::path candidate = temporary_root / folder_name;
+            if (std::filesystem::create_directory(candidate, error)) {
+                m_path = candidate;
+                return;
+            }
+        }
+        ADD_FAILURE() << "could not create a scratch directory under " << temporary_root;
+    }
+
+    ~ScratchDirectory()
+    {
+        if (!m_path.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(m_path, error);
+        }
+    }
+
+    ScratchDirectory(const ScratchDirectory&) = delete;
+    ScratchDirectory& operator=(const ScratchDirectory&) = delete;
+
+    // The full path of 'file_name' inside this directory.
+    std::string file(std::string_view file_name) const
+    {
+        const std::filesystem::path file_path = m_path / std::filesystem::path(file_name);
+        return file_path.string();
+    }
+
+private:
+    std::filesystem::path m_path; // the created directory; empty if creation failed
+};
+
+// Writes 'contents' to 'file_path' byte for byte, replacing any existing file.
+void write_text_file(const std::string& file_path, std::string_view contents)
+{
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(output.is_open()) << file_path;
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    output.close();
+    ASSERT_FALSE(output.fail()) << file_path;
+}
+
+} // namespace
+
+TEST(DbLoader, FileToStringAllocLoadsFilesLongerThanMaxStringLength)
+{
+    // Content longer than MAX_STRING_LENGTH loads whole, without a SYSERR.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("oversized.txt");
+
+    std::string raw_content;
+    std::string expected;
+    const int line_count = 400;
+    for (int line_index = 0; line_index < line_count; ++line_index) {
+        char line_text[64];
+        std::snprintf(line_text, sizeof(line_text), "padding line %03d for the size limit\n",
+                      line_index);
+        raw_content += line_text;
+        expected += line_text;
+        expected += '\r';
+    }
+    ASSERT_GT(raw_content.size(), static_cast<std::size_t>(MAX_STRING_LENGTH))
+        << "the fixture must be longer than MAX_STRING_LENGTH";
+    write_text_file(file_path, raw_content);
+
+    char* loaded = nullptr;
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocAppendsACarriageReturnAfterEveryNewline)
+{
+    // Each line keeps its '\n' and gains a '\r'.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("small.txt");
+    write_text_file(file_path,
+        "Line one of the message.\n"
+        "Line two, shorter.\n"
+        "Final line here.\n");
+
+    const std::string expected = "Line one of the message.\n\r"
+                                 "Line two, shorter.\n\r"
+                                 "Final line here.\n\r";
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("empty.txt");
+    write_text_file(file_path, "");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_STREQ(loaded, "");
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocNeverSplitsALongLine)
+{
+    // A line of any length comes back whole, with one '\r' after its '\n'.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("long-line.txt");
+    const std::string long_line(150, 'x');
+    write_text_file(file_path, long_line + "\n");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    const std::string loaded_text(loaded);
+    EXPECT_EQ(loaded_text, long_line + "\n\r");
+    EXPECT_EQ(loaded_text.find('\r'), long_line.size() + 1)
+        << "no '\\r' may appear inside the line";
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocKeepsAnUnterminatedLastLine)
+{
+    // A last line without '\n' is kept and still gains a '\r'.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("unterminated.txt");
+    write_text_file(file_path, "First line.\nLast line without a newline");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), "First line.\n\rLast line without a newline\r");
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocLeavesTheStringAndLogsNoSyserrForAMissingFile)
+{
+    // Some files are optional, so a missing one is logged without a SYSERR
+    // and the caller's existing string is kept.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("missing.txt");
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_STREQ(loaded, "previous text");
+    EXPECT_NE(stderr_output.find("could not open"), std::string::npos) << stderr_output;
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRejectsANullNameWithASyserr)
+{
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(nullptr, &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRejectsANullBufferWithASyserr)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("present.txt");
+    write_text_file(file_path, "Some text.\n");
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), nullptr);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+}
+
+TEST(DbLoader, FileToStringAllocLoadsAFileExactlyAtTheSizeLimit)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("at-limit.txt");
+    const std::string contents(text_file_byte_limit, 'x');
+    write_text_file(file_path, contents);
+
+    char* loaded = nullptr;
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), contents + "\r");
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
+{
+    // The caller's existing string is kept, as for any other load failure.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("over-limit.txt");
+    write_text_file(file_path, std::string(text_file_byte_limit + 1, 'x'));
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_STREQ(loaded, "previous text");
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("limit"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST(DbLoader, FileToStringAllocRefusesADirectoryWithASyserr)
+{
+    // A directory where a text file belongs is refused, not loaded as empty text.
+    const ScratchDirectory scratch_directory;
+    const std::string directory_path = scratch_directory.file("not-a-file");
+    std::error_code create_error;
+    ASSERT_TRUE(std::filesystem::create_directory(directory_path, create_error))
+        << create_error.message();
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(directory_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("not a regular file"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
 }
