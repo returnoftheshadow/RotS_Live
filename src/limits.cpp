@@ -27,6 +27,7 @@
 
 #include "big_brother.h"
 #include "char_utils.h"
+#include "world_clock.h"
 #include <algorithm>
 #include <cmath>
 
@@ -541,7 +542,8 @@ int check_idling(char_data* character)
             SET_BIT(PLR_FLAGS(character), PLR_ISAFK);
 
             game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
-            bb_instance.on_character_afked(character);
+            const WorldClock::time_point now = WorldClock::now();
+            bb_instance.on_character_afked(character, now);
             if (!was_afk) {
                 send_to_char("You have been idle, and are now flagged as AFK.\r\n", character);
             }

@@ -836,7 +836,9 @@ void do_stat_character(struct char_data* ch, struct char_data* k)
             k->player.talks[2], SPELLS_TO_LEARN(k));
         send_to_char(buf, ch);
     } else {
-        sprintf(buf, "Exists for %ld ticks, Difficulty %d.\n\r", MOB_AGE_TICKS(k, time(0)), GET_DIFFICULTY(k));
+        const WorldClock::time_point now = WorldClock::now();
+        const int age_in_ticks = utils::get_mob_age_in_ticks(*k, now);
+        sprintf(buf, "Exists for %d ticks, Difficulty %d.\n\r", age_in_ticks, GET_DIFFICULTY(k));
         send_to_char(buf, ch);
     }
     sprintf(buf, "Str:[%d/%d/%d] Int:[%d/%d/%d] Wil:[%d/%d/%d] Dex:[%d/%d/%d] Con: [%d/%d/%d] Lea:[%d/%d/%d]\n\r",

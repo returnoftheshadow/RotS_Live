@@ -26,10 +26,12 @@
 #include "color.h"
 #include "comm.h"
 #include "crashsave_schedule.h"
+#include "damage_meters.h"
 #include "db.h"
 #include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
+#include "lap_timer.h"
 #include "limits.h"
 #include "protocol.h"
 #include "script.h"
@@ -40,9 +42,11 @@
 #include "warrior_spec_handlers.h"
 #include "zone.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <thread>
 #include <vector>
 
 #define MAX_HOSTNAME 256
@@ -220,7 +224,6 @@ SocketType pnew_descriptor(SocketType s);
 int process_output(struct descriptor_data* t);
 int process_input(struct descriptor_data* t);
 void close_sockets(SocketType s);
-struct timeval timediff(struct timeval* a, struct timeval* b);
 void flush_queues(struct descriptor_data* d);
 void nonblock(SocketType s);
 int perform_subst(struct descriptor_data* t, char* orig, char* subst);
@@ -334,7 +337,7 @@ void fast_update(void); /* In spells.c */
 void point_update(void); /* In limits.c */
 void mobile_activity(void);
 void string_add(struct descriptor_data* d, char* str);
-void perform_violence(int);
+void perform_violence();
 void show_string(struct descriptor_data* d, char* input);
 void check_reboot(void);
 int isbanned(char* hostname);
@@ -567,7 +570,6 @@ void untrack_specialized_mage(char_data* mage)
 void add_prompt(char* prompt, struct char_data* ch, long flag);
 
 /* Accept pnew connects, relay commands, and call 'heartbeat-functs' */
-timeval opt_time;
 int pulse = 0; // moved here from being a local variable
 
 static int get_stat_percent(int current, int maximum)
@@ -837,7 +839,11 @@ void check_state_deadlines(time_t now)
 void game_loop(SocketType s)
 {
     fd_set input_set, output_set, exc_set;
-    struct timeval last_time, now, timespent, timeout, null_time;
+    struct timeval null_time;
+    // The real time each pass of the loop is given.
+    constexpr std::chrono::microseconds PULSE_LENGTH(OPT_USEC);
+    // The earliest instant the next pass may start: each pass moves it to the end of its sleep.
+    std::chrono::steady_clock::time_point pulse_start = std::chrono::steady_clock::now();
     char comm[MAX_INPUT_LENGTH];
     char prompt[MAX_INPUT_LENGTH];
     char* pptr;
@@ -845,6 +851,8 @@ void game_loop(SocketType s)
     struct char_data *wait_ch, *wait_tmp;
     int mask;
     AutosaveTimer autosave_timer;
+    // Times each combat pulse, for the damage meters.
+    LapTimer combat_timer;
     int sockets_connected, sockets_playing;
     int tmp, was_updated;
     char disp, tmpflag;
@@ -852,10 +860,6 @@ void game_loop(SocketType s)
 
     null_time.tv_sec = 0;
     null_time.tv_usec = 0;
-
-    opt_time.tv_usec = OPT_USEC; /* Init time values */
-    opt_time.tv_sec = 0;
-    gettimeofday(&last_time, NULL);
 
     maxdesc = s;
 
@@ -896,17 +900,14 @@ void game_loop(SocketType s)
                 FD_SET(point->descriptor, &output_set);
             }
 
-        /* check out the time */
-        gettimeofday(&now, NULL);
-        timespent = timediff(&now, &last_time);
-        timeout = timediff(&opt_time, &timespent);
-        last_time.tv_sec = now.tv_sec + timeout.tv_sec;
-        last_time.tv_usec = now.tv_usec + timeout.tv_usec;
-
-        if (last_time.tv_usec >= 1000000) {
-            last_time.tv_usec -= 1000000;
-            last_time.tv_sec++;
+        /* check out the time: sleep off whatever this pass's work left of its budget */
+        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        const std::chrono::steady_clock::duration time_spent = now - pulse_start;
+        std::chrono::steady_clock::duration time_left = PULSE_LENGTH - time_spent;
+        if (time_left < std::chrono::steady_clock::duration::zero()) {
+            time_left = std::chrono::steady_clock::duration::zero();
         }
+        pulse_start = now + time_left;
 
         sigsetmask(mask);
 
@@ -917,12 +918,8 @@ void game_loop(SocketType s)
             }
         }
 
-        if (select(0, (fd_set*)0, (fd_set*)0, (fd_set*)0, &timeout) < 0) {
-            if (errno != EINTR) {
-                perror("Select sleep");
-                exit(1);
-            }
-        }
+        // sleep_for waits at least time_left, even if a signal arrives during it.
+        std::this_thread::sleep_for(time_left);
 
         sigsetmask(0);
 
@@ -1227,8 +1224,11 @@ void game_loop(SocketType s)
             mobile_activity();
             was_updated = 1;
         }
-        perform_violence(pulse % (PULSE_VIOLENCE * 2));
-        /* parry is restored in 2 combat (PULSE_VIOLENCE) rounds */
+        const float combat_seconds = combat_timer.get_elapsed_seconds();
+        // The meters run before combat, so a character killed during this pass is still
+        // credited with it.
+        tick_damage_meters(combat_seconds);
+        perform_violence();
 
         if (!((pulse % (SECS_PER_MUD_HOUR * 4)))) {
             weather_and_time(1);
@@ -1480,23 +1480,6 @@ void write_to_q_lang(char* txt, struct txt_q* queue, int freq)
         queue->tail = pnew;
         pnew->next = NULL;
     }
-}
-
-struct timeval timediff(struct timeval* a, struct timeval* b)
-{
-    struct timeval rslt, tmp;
-
-    tmp = *a;
-
-    if ((rslt.tv_usec = tmp.tv_usec - b->tv_usec) < 0) {
-        rslt.tv_usec += 1000000;
-        --(tmp.tv_sec);
-    }
-    if ((rslt.tv_sec = tmp.tv_sec - b->tv_sec) < 0) {
-        rslt.tv_usec = 0;
-        rslt.tv_sec = 0;
-    }
-    return (rslt);
 }
 
 /* Empty the queues before closing connection */

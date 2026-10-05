@@ -1748,7 +1748,8 @@ TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
     SET_BIT(opponent.specials2.act, MOB_ISNPC);
     opponent.player.short_descr = strdup("a snarling orc");
     opponent.player.level = 12;
-    opponent.player.time.logon = time(0);
+    const WorldClock::time_point now = WorldClock::now();
+    utils::set_mob_age_in_ticks(opponent, 0, now);
     opponent.abilities.hit = 200;
     opponent.tmpabilities.hit = 50;
     context.character.specials.fighting = &opponent;
@@ -1798,7 +1799,8 @@ TEST(MSDPProtocol, MsdpUpdateUsesDiagnoseAgeBandsForNpcOpponent)
         { average_mob_life * 2, "A snarling orc has been here for a very long time." },
     };
     for (const auto& c : cases) {
-        opponent.player.time.logon = time(0) - c.ticks * SECS_PER_MUD_HOUR;
+        const WorldClock::time_point now = WorldClock::now();
+        utils::set_mob_age_in_ticks(opponent, c.ticks, now);
         msdp_update();
         EXPECT_STREQ(
             context.descriptor.pProtocol->pVariables[eMSDP_OPPONENT_AGE]->pValueString, c.expected);

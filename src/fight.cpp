@@ -1110,7 +1110,8 @@ int exp_with_modifiers(char_data* character, char_data* dead_man, int base_exp)
         base_exp = 6 * base_exp / (GET_LEVEL(character) - GET_LEVEL(dead_man));
 
     exp = base_exp;
-    age = MOB_AGE_TICKS(dead_man, time(0)) * 40 / (GET_LEVEL(dead_man) + 20);
+    const WorldClock::time_point now = WorldClock::now();
+    age = utils::get_mob_age_in_ticks(*dead_man, now) * 40 / (GET_LEVEL(dead_man) + 20);
 
     if (GET_LEVEL(dead_man) > 5) {
         if (age < average_mob_life)
@@ -2762,44 +2763,10 @@ bool does_beorning_swipe_proc(struct char_data* character)
     return number() <= chance;
 }
 
-namespace {
-timeval last_time;
-timeval current_time;
-
-timeval timediff(struct timeval* a, struct timeval* b)
+// Runs one combat pulse for every character on combat_list.
+void perform_violence()
 {
-    struct timeval rslt, tmp;
-
-    tmp = *a;
-
-    if ((rslt.tv_usec = tmp.tv_usec - b->tv_usec) < 0) {
-        rslt.tv_usec += 1000000;
-        --(tmp.tv_sec);
-    }
-    if ((rslt.tv_sec = tmp.tv_sec - b->tv_sec) < 0) {
-        rslt.tv_usec = 0;
-        rslt.tv_sec = 0;
-    }
-    return (rslt);
-}
-}
-
-/*
- * Control all of the fights going on; works on PULSE_VIOLENCE
- */
-void perform_violence(int mini_tics)
-{
-    last_time = current_time;
-    gettimeofday(&current_time, NULL);
-    timeval time_difference = timediff(&current_time, &last_time);
-
-    float time_delta = time_difference.tv_sec + time_difference.tv_usec / 1000000.0f;
     for (char_data* fighter = combat_list; fighter; fighter = combat_next_dude) {
-        fighter->damage_details.tick(time_delta);
-        if (fighter->group) {
-            fighter->group->track_combat_time(fighter, time_delta);
-        }
-
         combat_next_dude = fighter->next_fighting;
 
         SET_CURRENT_PARRY(fighter) = std::min(GET_CURRENT_PARRY(fighter) + 3, 100);

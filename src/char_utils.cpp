@@ -15,9 +15,11 @@
 #include <cmath>
 
 #include "comm.h" // for send_to_char
+#include <chrono>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 
@@ -293,6 +295,39 @@ const char* get_name(const char_data& character)
         return character.player.short_descr;
 
     return character.player.name;
+}
+
+//============================================================================
+namespace {
+    // The world time that one game hour (tick) lasts.
+    constexpr std::chrono::seconds GAME_HOUR_LENGTH(SECS_PER_MUD_HOUR);
+
+    // GAME_HOUR_LENGTH in WorldClock's own units.
+    constexpr WorldClock::duration GAME_HOUR_IN_WORLD_TIME = GAME_HOUR_LENGTH;
+
+    // The longest WorldClock span, counted in game hours. get_mob_age_in_ticks() narrows ages to
+    // int on the strength of this bound.
+    constexpr WorldClock::rep MOST_GAME_HOURS_IN_A_WORLD_SPAN
+        = std::numeric_limits<WorldClock::rep>::max() / GAME_HOUR_IN_WORLD_TIME.count();
+    static_assert(MOST_GAME_HOURS_IN_A_WORLD_SPAN <= std::numeric_limits<int>::max(),
+        "A WorldClock span counted in game hours must fit in an int.");
+}
+
+//============================================================================
+int get_mob_age_in_ticks(const char_data& mob, WorldClock::time_point now)
+{
+    const WorldClock::duration age = now - mob.spawned_at;
+    const WorldClock::rep age_in_ticks = age / GAME_HOUR_LENGTH;
+    if (age_in_ticks < 0) {
+        return 0;
+    }
+    return static_cast<int>(age_in_ticks);
+}
+
+//============================================================================
+void set_mob_age_in_ticks(char_data& mob, int ticks, WorldClock::time_point now)
+{
+    mob.spawned_at = now - ticks * GAME_HOUR_LENGTH;
 }
 
 //============================================================================
