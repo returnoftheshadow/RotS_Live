@@ -17,6 +17,10 @@
 extern struct weather_data weather_info;
 extern sh_int square_root[];
 extern char get_current_time_phase(); // returns the portion number of the tick
+// Publishes the game hour's fast-update phase that get_current_time_phase() returns until
+// the next call. time_phase must be 0 to FAST_UPDATE_RATE - 1; any other value is logged
+// and ignored.
+void set_current_time_phase(int time_phase);
 extern int armor_absorb(struct obj_data* obj);
 extern int get_weapon_damage(struct obj_data* obj);
 

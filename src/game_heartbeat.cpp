@@ -28,7 +28,26 @@ void stat_update();
 void weather_and_time(int mode);
 extern int autosave_time;
 extern struct descriptor_data* descriptor_list;
-extern int pulse;
+
+//============================================================================
+GameHeartbeat::GameHeartbeat(const std::shared_ptr<GameTickSchedule>& schedule)
+    : tick_schedule(schedule)
+{
+    if (schedule == nullptr) {
+        report_schedule_loss();
+    }
+}
+
+//============================================================================
+void GameHeartbeat::report_schedule_loss()
+{
+    if (schedule_loss_logged) {
+        return;
+    }
+
+    schedule_loss_logged = true;
+    log("SYSERR: GameHeartbeat: no tick schedule; world updates are stopped.");
+}
 
 //============================================================================
 void GameHeartbeat::run_pass()
@@ -42,12 +61,20 @@ void GameHeartbeat::run_pass()
     /* Note: pulse now changes every 1/4 sec  */
 
     pulse++;
+    GameTickSchedule::WorldPass world_pass;
+    const std::shared_ptr<GameTickSchedule> live_schedule = tick_schedule.lock();
+    if (live_schedule) {
+        world_pass = live_schedule->next_pass();
+        set_current_time_phase(world_pass.time_phase);
+    } else {
+        report_schedule_loss();
+    }
     was_updated = 0;
 
-    if (!((pulse + 3) % PULSE_ZONE)) {
+    if (world_pass.run_zone_update) {
         zone_update();
     }
-    if (!((pulse + 9) % PULSE_MOBILE)) {
+    if (world_pass.run_mobile_activity) {
         mobile_activity();
         was_updated = 1;
     }
@@ -55,15 +82,17 @@ void GameHeartbeat::run_pass()
     // The meters run before combat, so a character killed during this pass is still
     // credited with it.
     tick_damage_meters(combat_seconds);
-    perform_violence();
+    if (world_pass.run_violence) {
+        perform_violence();
+    }
 
-    if (!((pulse % (SECS_PER_MUD_HOUR * 4)))) {
+    if (world_pass.run_hourly_update) {
         weather_and_time(1);
         point_update(); // putting affect_total call in point_update.
         stat_update();
         was_updated = 1;
     }
-    if (!(pulse % (PULSE_FAST_UPDATE)) /*&& !was_updated*/) {
+    if (world_pass.run_fast_update /*&& !was_updated*/) {
         // now increasing hp/mp/mana/spirit fast in fast_update..
         fast_update();
         affect_update();
@@ -87,10 +116,12 @@ void GameHeartbeat::run_pass()
         Crash_save_all();
     }
 
-    if (!(pulse % 4)) {
+    if (world_pass.run_skill_timer) {
         game_timer::skill_timer& st_instance = game_timer::skill_timer::instance();
         st_instance.update_skill_timer();
+    }
 
+    if (!(pulse % 4)) {
         check_state_deadlines(time(0));
     }
 

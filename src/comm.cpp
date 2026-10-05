@@ -32,6 +32,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "protocol.h"
+#include "real_time_tick_schedule.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -42,6 +43,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -483,7 +485,10 @@ void run_the_game(sh_int port)
     log("Entering game loop.");
 
     specialized_mages.clear();
-    GameHeartbeat heartbeat;
+    // Owns the schedule for the life of the loop; the heartbeat only observes it.
+    const std::shared_ptr<GameTickSchedule> tick_schedule
+        = std::make_shared<RealTimeTickSchedule>();
+    GameHeartbeat heartbeat(tick_schedule);
     game_loop(s, heartbeat);
 
     close_sockets(s);
@@ -559,9 +564,6 @@ void untrack_specialized_mage(char_data* mage)
 }
 
 void add_prompt(char* prompt, struct char_data* ch, long flag);
-
-/* Accept pnew connects, relay commands, and call 'heartbeat-functs' */
-int pulse = 0; // moved here from being a local variable
 
 static int get_stat_percent(int current, int maximum)
 {

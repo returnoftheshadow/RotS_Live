@@ -51,6 +51,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <limits>
+#include <string>
 
 extern struct time_data time_info;
 extern struct room_data world;
@@ -155,11 +157,30 @@ do_squareroot(int i, struct char_data* ch)
     return ((4 - i % 4) * square_root[i / 4] + (i % 4) * square_root[i / 4 + 1]);
 }
 
+namespace {
+// The game hour's fast-update phase last published through set_current_time_phase(); 0 until
+// the first one.
+int current_time_phase = 0;
+} // namespace
+
 char get_current_time_phase()
 {
-    extern int pulse;
+    static_assert(FAST_UPDATE_RATE <= std::numeric_limits<char>::max(),
+        "Every time phase fits in a char.");
+    return static_cast<char>(current_time_phase);
+}
 
-    return (pulse % (SECS_PER_MUD_HOUR * 4)) / PULSE_FAST_UPDATE;
+void set_current_time_phase(int time_phase)
+{
+    if (time_phase < 0 || time_phase >= FAST_UPDATE_RATE) {
+        const std::string message = std::string("SYSERR: ") + __func__ + ": ignoring time phase "
+            + std::to_string(time_phase) + ", outside 0 to " + std::to_string(FAST_UPDATE_RATE - 1)
+            + ".";
+        log(message.c_str());
+        return;
+    }
+
+    current_time_phase = time_phase;
 }
 
 int default_exit_width[] = {
