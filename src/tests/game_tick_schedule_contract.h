@@ -10,8 +10,9 @@
 
 // Checks one pass against the rules every GameTickSchedule keeps: the phase is in range, the
 // hourly update comes with the fast update at phase 0, and the phase advances by one,
-// wrapping to 0, exactly on a pass that runs the fast update. previous_phase is the phase
-// of the pass before, or 0 for a schedule's first pass.
+// wrapping to 0, exactly on a pass that runs the fast update. previous_phase is the phase in
+// effect before this pass: the previous pass's, or the phase the schedule starts in for its
+// first pass.
 inline testing::AssertionResult keeps_the_phase_contract(int previous_phase,
     const GameTickSchedule::WorldPass& world_pass)
 {

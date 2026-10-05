@@ -15,8 +15,13 @@
 class GameHeartbeat {
 public:
     // Observes schedule without keeping it alive. Once the schedule is gone, or if it is
-    // null, each pass runs the housekeeping only, and the loss is logged once.
+    // null, no world update runs, the last published time phase stands, and the loss is
+    // logged once.
     explicit GameHeartbeat(const std::shared_ptr<GameTickSchedule>& schedule);
+
+    // A copy would ask the same schedule for a pass of its own.
+    GameHeartbeat(const GameHeartbeat&) = delete;
+    GameHeartbeat& operator=(const GameHeartbeat&) = delete;
 
     // Runs one pass's periodic work. Call it once per game-loop pass, after output is written.
     void run_pass();

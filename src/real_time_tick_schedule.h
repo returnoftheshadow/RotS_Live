@@ -12,7 +12,7 @@ public:
     [[nodiscard]] WorldPass next_pass() override;
 
 private:
-    // The current pass's position in the game hour, 0 to 239. Position 0 is the pass on
+    // The most recent pass's position in the game hour, 0 to 239. Position 0 is the pass on
     // which the hour advances.
     int pulse_of_hour = 0;
 };

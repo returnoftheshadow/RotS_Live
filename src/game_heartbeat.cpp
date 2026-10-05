@@ -15,6 +15,7 @@
 
 #include <ctime>
 #include <stdio.h>
+#include <string>
 
 // Defined in translation units that publish no header declaration for them.
 void affect_update(void);
@@ -46,7 +47,9 @@ void GameHeartbeat::report_schedule_loss()
     }
 
     schedule_loss_logged = true;
-    log("SYSERR: GameHeartbeat: no tick schedule; world updates are stopped.");
+    const std::string message
+        = std::string("SYSERR: ") + __func__ + ": no tick schedule; world updates are stopped.";
+    log(message.c_str());
 }
 
 //============================================================================
@@ -57,18 +60,19 @@ void GameHeartbeat::run_pass()
     int was_updated;
     char buf[100];
 
-    /* handle heartbeat stuff */
-    /* Note: pulse now changes every 1/4 sec  */
+    // One pass is a quarter of a second.
 
     pulse++;
+
     GameTickSchedule::WorldPass world_pass;
     const std::shared_ptr<GameTickSchedule> live_schedule = tick_schedule.lock();
-    if (live_schedule) {
+    if (live_schedule != nullptr) {
         world_pass = live_schedule->next_pass();
         set_current_time_phase(world_pass.time_phase);
     } else {
         report_schedule_loss();
     }
+
     was_updated = 0;
 
     if (world_pass.run_zone_update) {
@@ -88,16 +92,15 @@ void GameHeartbeat::run_pass()
 
     if (world_pass.run_hourly_update) {
         weather_and_time(1);
-        point_update(); // putting affect_total call in point_update.
+        point_update(); // Also recalculates each character's affect totals.
         stat_update();
         was_updated = 1;
     }
-    if (world_pass.run_fast_update /*&& !was_updated*/) {
-        // now increasing hp/mp/mana/spirit fast in fast_update..
+    if (world_pass.run_fast_update) {
+        // fast_update() regenerates hit points, mana and moves.
         fast_update();
         affect_update();
 
-        // clean-up expose elements
         clean_expose_elements();
     }
 
@@ -108,10 +111,8 @@ void GameHeartbeat::run_pass()
         check_pre_login_idle();
     }
 
-    // Periodic point-in-time crash-save snapshot cadence, driven by the configurable seconds
-    // interval (autosave_time) through the unit-tested scheduler. Default 30s == 120 pulses (the
-    // source's original cadence). Crash_save_all now saves EVERY connected player each cadence
-    // (a consistent point-in-time snapshot), not only inventory-dirty ones.
+    // Saves every connected player each time the configured interval, autosave_time,
+    // elapses.
     if (autosave_timer.tick(autosave_interval_pulses(autosave_time, TICS_PER_SECOND))) {
         Crash_save_all();
     }
