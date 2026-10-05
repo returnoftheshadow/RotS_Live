@@ -88,6 +88,7 @@ SOURCES := \
     profs.cpp \
     protocol.cpp \
     ranger.cpp \
+    real_time_tick_schedule.cpp \
     save_benchmark.cpp \
     savebench.cpp \
     script.cpp \

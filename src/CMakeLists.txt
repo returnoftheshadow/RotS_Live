@@ -136,6 +136,7 @@ set(ROTS_SERVER_SOURCES
     profs.cpp
     protocol.cpp
     ranger.cpp
+    real_time_tick_schedule.cpp
     save_benchmark.cpp
     savebench.cpp
     script.cpp
@@ -213,6 +214,7 @@ set(ROTS_TEST_SOURCES
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
+    tests/real_time_tick_schedule_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
