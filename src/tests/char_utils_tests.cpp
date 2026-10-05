@@ -3,6 +3,8 @@
 #include "../object_utils.h"
 #include "../spells.h"
 #include "../utils.h"
+#include "../world_clock.h"
+#include <chrono>
 #include <gtest/gtest.h>
 
 namespace utils {
@@ -672,4 +674,44 @@ TEST(DamageReports, ReturnsFriendlyEmptyReports) {
 
     EXPECT_NE(player_report.get_damage_report(&context.character).find("has not recorded any damage dealt"), std::string::npos);
     EXPECT_NE(group_report.get_damage_report().find("have not recorded any damage dealt"), std::string::npos);
+}
+
+namespace {
+// An arbitrary fixed instant for the mob-age tests, so each sets the time explicitly.
+const WorldClock::time_point MOB_AGE_TEST_NOW = WorldClock::time_point {} + std::chrono::hours(10);
+// The world time one game hour (tick) lasts, from the production constant.
+constexpr std::chrono::seconds GAME_HOUR(SECS_PER_MUD_HOUR);
+} // namespace
+
+TEST(MobAge, IsZeroWhenTheMobileHasJustEntered) {
+    char_data mob {};
+    utils::set_mob_age_in_ticks(mob, 0, MOB_AGE_TEST_NOW);
+
+    EXPECT_EQ(utils::get_mob_age_in_ticks(mob, MOB_AGE_TEST_NOW), 0);
+}
+
+TEST(MobAge, ReportsTheAgeItWasGiven) {
+    char_data mob {};
+    utils::set_mob_age_in_ticks(mob, 37, MOB_AGE_TEST_NOW);
+
+    EXPECT_EQ(utils::get_mob_age_in_ticks(mob, MOB_AGE_TEST_NOW), 37);
+}
+
+TEST(MobAge, CountsOnlyWholeGameHours) {
+    char_data mob {};
+    utils::set_mob_age_in_ticks(mob, 0, MOB_AGE_TEST_NOW);
+
+    const WorldClock::time_point almost_three_hours_later
+        = MOB_AGE_TEST_NOW + 3 * GAME_HOUR - std::chrono::seconds(1);
+    const WorldClock::time_point three_hours_later = MOB_AGE_TEST_NOW + 3 * GAME_HOUR;
+    EXPECT_EQ(utils::get_mob_age_in_ticks(mob, almost_three_hours_later), 2);
+    EXPECT_EQ(utils::get_mob_age_in_ticks(mob, three_hours_later), 3);
+}
+
+TEST(MobAge, ReadsAsZeroWhenItStartsLaterThanNow) {
+    char_data mob {};
+    utils::set_mob_age_in_ticks(mob, 0, MOB_AGE_TEST_NOW);
+
+    const WorldClock::time_point an_hour_earlier = MOB_AGE_TEST_NOW - GAME_HOUR;
+    EXPECT_EQ(utils::get_mob_age_in_ticks(mob, an_hour_earlier), 0);
 }

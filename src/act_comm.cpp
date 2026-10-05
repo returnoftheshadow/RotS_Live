@@ -23,6 +23,7 @@
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+#include "world_clock.h"
 
 extern struct room_data world;
 extern struct descriptor_data* descriptor_list;
@@ -771,7 +772,8 @@ ACMD(do_afk)
 
     if (!affected_by_spell(ch, SPELL_ANGER)) {
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
-        bb_instance.on_character_afked(ch);
+        const WorldClock::time_point now = WorldClock::now();
+        bb_instance.on_character_afked(ch, now);
     } else {
         send_to_char("You are too angry to be granted the protection of the Gods... wait a few minutes.\n\r", ch);
     }

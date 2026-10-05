@@ -98,13 +98,13 @@ set(ROTS_SERVER_SOURCES
     char_utils.cpp
     char_utils_combat.cpp
     clerics.cpp
-    clock.cpp
     color.cpp
     combat_manager.cpp
     comm.cpp
     config.cpp
     consts.cpp
     crashsave_schedule.cpp
+    damage_meters.cpp
     db.cpp
     delayed_command_interpreter.cpp
     environment_utils.cpp
@@ -113,6 +113,7 @@ set(ROTS_SERVER_SOURCES
     graph.cpp
     handler.cpp
     interpre.cpp
+    lap_timer.cpp
     limits.cpp
     mage.cpp
     mail.cpp
@@ -154,6 +155,7 @@ set(ROTS_SERVER_SOURCES
     weapon_master_handler.cpp
     weather.cpp
     wild_fighting_handler.cpp
+    world_clock.cpp
     zone.cpp
 )
 
@@ -162,6 +164,7 @@ set(ROTS_TEST_SOURCES
     tests/resistance_tests.cpp
     tests/resist_item_slot_tests.cpp
     tests/battle_mage_handler_tests.cpp
+    tests/big_brother_tests.cpp
     tests/account_management_tests.cpp
     tests/account_cache_tests.cpp
     tests/account_index_tests.cpp
@@ -181,6 +184,7 @@ set(ROTS_TEST_SOURCES
     tests/character_json_tests.cpp
     tests/color_tests.cpp
     tests/crashsave_schedule_tests.cpp
+    tests/damage_meters_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp
@@ -190,6 +194,8 @@ set(ROTS_TEST_SOURCES
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
+    tests/kill_experience_tests.cpp
+    tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
     tests/mob_options_tests.cpp
     tests/sprintbit_tests.cpp
@@ -217,6 +223,7 @@ set(ROTS_TEST_SOURCES
     tests/test_random_utils.cpp
     tests/test_random_utils_tests.cpp
     tests/weapon_master_handler_tests.cpp
+    tests/world_clock_tests.cpp
     tests/load_scalp_tests.cpp
 )
 

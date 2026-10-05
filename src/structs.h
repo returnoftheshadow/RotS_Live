@@ -19,6 +19,7 @@
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 
 #include "protocol.h"
+#include "world_clock.h"
 #include <algorithm>
 #include <assert.h>
 #include <map>
@@ -1839,6 +1840,10 @@ public:
        this character's stale, pre-login copy. clear_char() memsets char_data, so it starts
        false for every freshly created character regardless of call ordering. */
     bool ppc_account_loaded = false;
+
+    // When this mobile entered the world, on the world timeline; its age is measured from here.
+    // Set when an NPC is loaded and unused for players. Runtime only: it is never saved.
+    WorldClock::time_point spawned_at {};
 };
 
 struct race_bodypart_data {

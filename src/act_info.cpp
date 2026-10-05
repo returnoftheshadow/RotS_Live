@@ -2759,7 +2759,8 @@ std::string mob_age_message(struct char_data* victim)
     if (!IS_NPC(victim) || (MOB_FLAGGED(victim, MOB_ORC_FRIEND) && MOB_FLAGGED(victim, MOB_PET)))
         return "";
 
-    age = MOB_AGE_TICKS(victim, time(0));
+    const WorldClock::time_point now = WorldClock::now();
+    age = utils::get_mob_age_in_ticks(*victim, now);
 
     if (age <= 1)
         sprintf(str, "%s has just arrived to this place.", GET_NAME(victim));

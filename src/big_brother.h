@@ -4,10 +4,11 @@
 
 #include "base_utils.h"
 #include "singleton.h"
+#include "world_clock.h"
 
+#include <chrono>
 #include <map>
 #include <set>
-#include <time.h>
 
 #ifndef USE_BIG_BROTHER
 #define USE_BIG_BROTHER 1
@@ -19,6 +20,10 @@ struct char_data;
 namespace game_rules {
 class big_brother : public world_singleton<big_brother> {
 public:
+    // How long a character must stay out of PK, attacking or attacked, before going AFK grants
+    // AFK protection.
+    static constexpr std::chrono::seconds PK_AFK_PROTECTION_DELAY { 900 };
+
     // Called before any character loots an item.  This enforces our PK loot rules.
     bool on_loot_item(char_data* looter, obj_data* corpse, obj_data* item);
 
@@ -44,12 +49,16 @@ public:
     // Called when a character dies to create information about loot rules.
     void on_character_died(char_data* character, char_data* killer, obj_data* corpse);
 
-    // Called when a character auto-AFKs so that they can [potentially] be protected.
-    void on_character_afked(const char_data* character);
+    // Called when a character goes AFK, by command or by idling. Grants AFK protection unless the
+    // character's last PK engagement was less than PK_AFK_PROTECTION_DELAY before now, the
+    // current time. The character is told when protection is newly granted, or that they engaged
+    // in PK too recently.
+    void on_character_afked(const char_data* character, WorldClock::time_point now);
 
-    // Called when a character successfully attacks another player.  This is used to
-    // track whether or not a character should get AFK protection.
-    void on_character_attacked_player(const char_data* attacker, const char_data* victim);
+    // Called when a character successfully attacks another player. Records now, the current
+    // time, as the last PK engagement of both characters, and clears both from looting status.
+    void on_character_attacked_player(const char_data* attacker, const char_data* victim,
+        WorldClock::time_point now);
 
     // When a character disconnects, let the Big Brother system know so that it can
     // clean up any references.
@@ -89,7 +98,7 @@ private:
     typedef std::map<obj_data*, player_corpse_data> corpse_map;
     typedef std::set<const char_data*> character_set;
     typedef std::set<int> character_id_set;
-    typedef std::map<const char_data*, tm> time_map;
+    typedef std::map<const char_data*, WorldClock::time_point> time_map;
     typedef std::set<int> skill_id_set;
 
     // Private constructor that we friend with our parent to grant access.
@@ -130,7 +139,8 @@ private:
     character_set m_afk_characters;
     character_id_set m_looting_characters;
 
-    // For tracking when people engaged in PK can get AFK protection.
+    // When each character last engaged in PK, for the AFK protection delay. An entry is removed
+    // once the delay has passed and protection is granted, or when the character disconnects.
     time_map m_last_engaged_pk_time;
 
     // For tracking which spells are harmful.
