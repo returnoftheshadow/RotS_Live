@@ -109,6 +109,7 @@ set(ROTS_SERVER_SOURCES
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp
+    game_heartbeat.cpp
     game_time_text.cpp
     graph.cpp
     handler.cpp
