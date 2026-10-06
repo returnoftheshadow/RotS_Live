@@ -60,11 +60,12 @@ owners/implementors.
 4. **Show the numeric menu**: `/0`.
 5. **Navigate**:
    - `/1` – display the previous/current/next commands for quick context.
-   - `/6` – move to the next command (filtered by current room if set).
+   - `/6` – move to the next command (filtered by the room filter if set).
    - `/7` – move to the previous command.
    - `/8` – jump to a specific command number (blank stays on the current one).
    - `/9` – delete the current command (`REMOVE current command?<yn>:`).
-   - `/12` – set the "current room" filter to a room vnum (`0` turns it off).
+   - `/12` – filter the list to one room's commands: enter its vnum (`0` turns
+     the filter off).
    - `/13` – swap the current command with the next one.
 6. **Create commands**:
    - `/10` – insert a blank command after the current entry.
@@ -85,9 +86,11 @@ owners/implementors.
      `%h` shows `man shape zone <letter>` and asks again (at `/3`, `man shape
      zone`; at other number prompts, `man shape zone N` if there is one).
    - `/5` – add/edit the one-line comment (`blank = keep, %q = empty`).
-7. **Use masks**: `/2` asks `Enter list mask: letter if_flag arg1 arg2 arg3
-   arg4 arg5 arg6 arg7 ('*' = any)` and then lists only matching commands.
-   Handy for locating all `O` commands in a room.
+7. **Filter the list**: `/2` asks for a command letter and, if you want, the
+   if-flag and the row's numbers in order (`*` for "any"), and `/50` then lists
+   only matching commands: `M` for every `M` row, `G * 6023` for every `G` row
+   giving object 6023, `=` for every section, `*` for the whole list again.
+   The list's first line shows the filter (`Filter is: M * * * * * * * *`).
 8. **Save / exit**: `/save` writes the `.zon` file (after copying the old one
    to `world/zon/oldzons/`), `/implement` syncs the live world, `/done` does both
    and exits, `/free` abandons the session without saving. If the save fails,
@@ -273,6 +276,49 @@ Modes:
 `L` updates the “last mobile/object” pointers so subsequent commands (like `A`,
 `E`, or `G`) operate on existing instances. Example: use `L` to find mounts in a
 stable, then `M` with if-flag `10` to spawn replacements only when needed.
+
+### `=` — Section
+
+```
+= <title>
+= <title> | <comment>
+```
+
+A section does nothing at reset. It is a title for the `/50` list, with an
+optional comment, so a long command list can be split into named parts. `/3`
+with `=` asks for the title (at most 66 characters; a longer one is cut, with
+a message) and then the comment; `/4` changes the title later and `/5` the
+comment.
+
+The list draws the title centred in a row of `=` that fills the line to 78
+columns, always with at least two `=` each side. A comment goes underneath,
+wrapped to the width of the title row, followed by a closing row of `=`;
+without a comment only the title row shows.
+
+```
+ 12 ========================= Shop Handling =========================
+      everything below is the shop; keep it together
+    =================================================================
+```
+
+- A command after a section still checks its if-flag against the command
+  before the section, so a section can sit anywhere, even between an `M` and
+  the `G`/`E` rows that depend on it.
+- The file holds only the title and comment, not the `=` fill. A `|` typed in
+  a title becomes `/`, because the first `|` on the line ends the title.
+- A section with no title is a plain row of `=`: a divider, or a mark for
+  where the part above it ends. `%q` at the title prompt removes a title.
+- Sections are listed under every room filter (`/12`, `/current`), and `/6`
+  and `/7` stop on them, so a one-room list still shows which part its rows
+  belong to. The letter filter (`/2`) hides them like any other row; set it to
+  `=` to list only the sections.
+- Changing a row's type between a section and another command leaves its text
+  as it is: a comment becomes the title, and `title | comment` becomes the
+  comment. Retype it with `/4` or `/5`.
+- A server built before sections existed does not know the row. It logs it at
+  boot as an unknown command, and because it reads the title as the row's
+  numbers, the command after the section can be skipped at reset. Deploy the
+  code before zone files that use them.
 
 ### Other command letters
 

@@ -56,6 +56,7 @@
 // External declarations
 extern struct room_data world;
 extern struct script_head* script_table;
+extern struct char_data* character_list;
 int shape_standup(struct char_data* ch, int pos);
 int shape_help_asked(const char* arg);
 void shape_prompt_help(struct char_data* ch, const char* chapter, const char* keyword, int position);
@@ -567,6 +568,13 @@ void implement_script(struct char_data* ch)
         last_command = newscript;
     }
 
+    /* A mob paused in this script by DO_WAIT would resume through a pointer
+     * into the rows just freed: it drops the paused run instead, and its
+     * next trigger starts the new version fresh. */
+    for (char_data* waiting = character_list; waiting; waiting = waiting->next)
+        if (waiting->specials.script_info && waiting->specials.script_info->index == SHAPE_SCRIPT(ch)->index_pos)
+            waiting->specials.script_info->next_command = 0;
+
     /* Tell the builder about any vnum in the script that names nothing. */
     check_script_vnums(SHAPE_SCRIPT(ch)->index_pos, ch);
 }
@@ -661,6 +669,14 @@ static void format_command(script_data* script)
     case SCRIPT_COMMAND_NONE:
         sprintf(buf, "[%d] *** No command: script will terminate here ***\n\r", script->number);
         break;
+
+    case SCRIPT_SECTION: {
+        char label[16];
+
+        sprintf(label, "[%d] ", script->number);
+        shape_section_show(buf, MAX_STRING_LENGTH, label, script->text, 0, 0);
+        break;
+    }
 
     case SCRIPT_DO_DROP:
         sprintf(buf, "[%d] ACT DO_DROP          character: %s, object: %s (%s)\n\r", script->number,
@@ -1358,6 +1374,7 @@ static const char* script_type_groups[][2] = {
     { "Move:    ", "OBJ_FROM_CHAR OBJ_TO_CHAR OBJ_FROM_ROOM OBJ_TO_ROOM TELEPORT_CHAR\n\r"
                    "  TELEPORT_CHAR_X TELEPORT_CHAR_XL CHANGE_EXIT_TO SET_EXIT_STATE" },
     { "Messages:", "SEND_TO_CHAR SEND_TO_ROOM SEND_TO_ROOM_X PAGE_ZONE_MAP" },
+    { "Notes:   ", "SECTION" },
 };
 
 /* The name of a command type, found by asking get_command about each name
@@ -1617,6 +1634,8 @@ void shape_center_script(struct char_data* ch, char* arg)
             key = "COMMAND LIST";
         else if ((field == 4 || (field >= 41 && field <= 49)) && SHAPE_SCRIPT(ch)->script)
             key = script_type_name(SHAPE_SCRIPT(ch)->script->command_type);
+        else if (field == 5 && SHAPE_SCRIPT(ch)->script && SHAPE_SCRIPT(ch)->script->command_type == SCRIPT_SECTION)
+            key = "SECTION"; /* a section's comment: the section help */
         shape_prompt_help(ch, "script", key, SHAPE_SCRIPT(ch)->position);
         REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
     }
@@ -1704,6 +1723,27 @@ void shape_center_script(struct char_data* ch, char* arg)
             break;
 
         case 4: // case 4: get if_flag and parameters etc
+
+            /* A section has a title where the other commands have parameters. */
+            if (SHAPE_SCRIPT(ch)->script->command_type == SCRIPT_SECTION) {
+                if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                    shape_section_prompt(str, sizeof(str), SHAPE_SCRIPT(ch)->script->text, SHAPE_SECTION_TITLE);
+                    send_to_char(str, ch);
+                    SHAPE_SCRIPT(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                    ch->specials.prompt_number = 2;
+                    SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    shape_prompt_hint(ch);
+                    return;
+                }
+                shape_standup(ch, SHAPE_SCRIPT(ch)->position);
+                ch->specials.prompt_number = 9;
+                REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                const char* note = shape_section_set(&SHAPE_SCRIPT(ch)->script->text, SHAPE_SECTION_TITLE, arg);
+                if (note)
+                    send_to_char(note, ch);
+                SHAPE_SCRIPT(ch)->editflag = 5;
+                break;
+            }
 
             switch (SHAPE_SCRIPT(ch)->script->command_type) {
 
@@ -2346,6 +2386,24 @@ void shape_center_script(struct char_data* ch, char* arg)
                 = 0;
             break;
         case 5: // case 5: set comment
+            /* A section's comment shares the text with its title. */
+            if (SHAPE_SCRIPT(ch)->script->command_type == SCRIPT_SECTION) {
+                if (!IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                    shape_section_prompt(str, sizeof(str), SHAPE_SCRIPT(ch)->script->text, SHAPE_SECTION_COMMENT);
+                    send_to_char(str, ch);
+                    SHAPE_SCRIPT(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                    ch->specials.prompt_number = 2;
+                    SET_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    shape_prompt_hint(ch);
+                    return;
+                }
+                shape_standup(ch, SHAPE_SCRIPT(ch)->position);
+                ch->specials.prompt_number = 9;
+                REMOVE_BIT(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_section_set(&SHAPE_SCRIPT(ch)->script->text, SHAPE_SECTION_COMMENT, arg);
+                SHAPE_SCRIPT(ch)->editflag = 0;
+                break;
+            }
             /* An empty message sends nothing. */
             if (IS_SET(SHAPE_SCRIPT(ch)->flags, SHAPE_DIGIT_ACTIVE)
                 && script_text_is_message(SHAPE_SCRIPT(ch)->script->command_type)
@@ -2450,6 +2508,8 @@ void shape_center_script(struct char_data* ch, char* arg)
                 SHAPE_SCRIPT(ch)
                     ->script
                     = tmpscript;
+                /* The new first row still pointed back at the freed one. */
+                tmpscript->prev = 0;
             } else {
                 SHAPE_SCRIPT(ch)
                     ->script->prev->next
@@ -2513,6 +2573,8 @@ void shape_center_script(struct char_data* ch, char* arg)
                 = script;
             CREATE(script->text, char, 1);
             script->text[0] = 0;
+            /* As /10 does: without it the new row listed as an unknown type. */
+            script->command_type = SCRIPT_COMMAND_NONE;
             SHAPE_SCRIPT(ch)
                 ->script
                 = SHAPE_SCRIPT(ch)->script->prev;
@@ -2561,6 +2623,9 @@ void shape_center_script(struct char_data* ch, char* arg)
                 SHAPE_SCRIPT(ch)
                     ->script
                     = script;
+                /* Numbers are saved in the file, so a swap that kept the old
+                 * ones stayed out of order after a save. */
+                renum_commands(SHAPE_SCRIPT(ch)->root);
                 send_to_char("Switched the current and the next commands,\n\rthe next command selected.\n\r", ch);
             }
             SHAPE_SCRIPT(ch)
@@ -2788,6 +2853,8 @@ int get_command(char* command)
         return 0;
 
     case 'S':
+        if (!strcmp(command, "SECTION"))
+            return SCRIPT_SECTION;
         if (!strcmp(command, "SEND_TO_CHAR"))
             return SCRIPT_SEND_TO_CHAR;
         if (!strcmp(command, "SEND_TO_ROOM"))

@@ -242,6 +242,35 @@ noted earlier.
 | `SEND_TO_ROOM` | Broadcast to the room (including the source). |
 | `SEND_TO_ROOM_X` | Broadcast to the room except a specific character (required). |
 
+### Sections
+
+| Command | Description |
+|---------|-------------|
+| `SECTION` | A title row for the `/50` list. It does nothing when the script runs. |
+
+`/3` `SECTION` asks for a title (at most 66 characters; a longer one is cut,
+with a message) and then an optional comment; `/4` changes the title later and
+`/5` the comment. The list draws the title centred in a row of `=` that fills
+the line to 78 columns, with the comment underneath, wrapped to the same width,
+and a closing row of `=`. Without a comment only the title row shows.
+
+```
+[12] ========================= Shop Handling =========================
+     everything below is the shop; keep it together
+     =================================================================
+```
+
+- A section can sit anywhere. Between an IF command and its `BEGIN` (or the
+  one command the IF guards) it changes nothing: the IF looks past it.
+- A section with no title is a plain row of `=`: a divider, or a mark for
+  where the part above it ends. `%q` at the title prompt removes a title.
+- The row's text holds `title | comment`. A `|` typed in a title becomes `/`.
+- Changing a row's type between `SECTION` and another command leaves its text
+  as it is. Retype it with `/4` or `/5`.
+- A server built before sections existed **stops the script** at a section,
+  as it does at any command it does not know. Deploy the code before script
+  files that use them.
+
 ## Rows that are skipped instead of crashing
 
 A row that needs a variable the trigger did not set, or cannot use, is

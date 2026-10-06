@@ -123,6 +123,9 @@ script, then you will need to use a SEND function.
     SET_EXIT_STATE       RAW_KILL
     CHANGE_EXIT_TO
 
+    Notes:
+    SECTION
+
 SEE ALSO: COMMANDS
 #
 TRIGGERS
@@ -782,6 +785,30 @@ DO_YELL
 
 Force a character to yell.  This command works exactly the
 same as the DO_SAY command.  Please see MAN SCRIPT DO_SAY.
+
+SEE ALSO: COMMANDS "COMMAND LIST"
+#
+SECTION
+
+A section is a title row in the command list.  It does nothing
+when the script runs; it is there to split a long script into
+parts and to say what each part is for.
+
+It asks for a title, at most 66 characters (a longer one is
+cut), and then a comment.  Both may be left empty.  /4 changes
+the title later and /5 the comment.
+
+The list shows the title in the middle of a row of = signs.  A
+comment is shown under it, wrapped to the width of that row,
+followed by a closing row of = signs.
+
+A section with no title is a plain row of = signs.  Use one as
+a divider, or to mark where the part above it ends.  At the
+title prompt, %q removes a title.
+
+A section may sit anywhere.  One placed between an IF command
+and its BEGIN (or the one command the IF guards) changes
+nothing: the IF looks past it.
 
 SEE ALSO: COMMANDS "COMMAND LIST"
 #
