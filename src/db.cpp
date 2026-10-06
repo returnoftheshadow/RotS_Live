@@ -38,6 +38,8 @@
 #include "character_json.h"
 #include "exploits_json.h"
 #include "mob_options.h"
+#include "game_boot_options.h"
+#include "mob_progs/banker.h"
 #include "mob_progs/shopkeeper.h"
 #include "player_file_finalize.h"
 #include "roster_cache.h"
@@ -489,8 +491,14 @@ void boot_db(void)
         assign_rooms();
     }
 
+    log("Reading game boot options.");
+    boot_options_load();
+
     log("Checking barter vendors.");
     vendor_config_boot();
+
+    log("Checking bankers.");
+    banker_config_boot();
 
     boot_time = time(0);
 
@@ -3524,6 +3532,7 @@ void save_char(struct char_data* ch, int load_room, int notify_char)
                 wrote_account_character_file = true;
         }
         if (wrote_account_character_file) {
+            ch->specials.saved_character_file = true;
             const std::string account_character_path = account::account_character_player_path(".", owner_account_name, GET_NAME(ch));
             std::string player_index_error;
             if (!update_player_index_entry_from_store(&chd, account_character_path.c_str(), &player_index_error)) {
@@ -3990,6 +3999,10 @@ void reset_char(struct char_data* ch)
 void clear_char(struct char_data* ch, int mode)
 {
     memset((char*)ch, (char)'\0', (int)sizeof(struct char_data));
+    /* No slot yet: register_npc_char / register_pc_char give one. 0 is a real
+     * slot (the first character registered at boot), and a character left at 0
+     * marked that one gone when it was freed (stat file, set file). */
+    ch->abs_number = -1;
     CREATE1(ch->profs, char_prof_data);
     memset(ch->profs->colors, CNRM,
         sizeof(ch->profs->colors[0]) * MAX_COLOR_FIELDS);

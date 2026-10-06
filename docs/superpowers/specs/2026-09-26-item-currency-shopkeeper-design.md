@@ -167,10 +167,12 @@ Side-specific vendors therefore use `rp_flag` (allowed races); no new setting is
 ### Messages
 Fixed built-in wording; no per-vendor message text. Every message we write is 78 columns or
 less.
-- **The vendor speaks with the normal `say`**, heard by the room: refusals, closed, nothing to
-  sell, "Don't even think about it.", refusing gifts.
-- **Lines about the buyer's own inventory go only to the buyer**: shortfalls ("You need 2 x a
-  grey wolf hide and have 1."), carry limits, and the purchase summary ("You hand over 1 x a
+- **The vendor speaks as the old shopkeepers do** (settled 2026-10-01): a refusal to serve at
+  all (aggressive, shadow, race, can't see, closed, bad options) is a real `say` the room
+  hears; every other reply (what to buy, not stocked, nothing to sell, the shortfall, "Don't
+  even think about it.", refusing gifts) is a real `tell` to the buyer. A shortfall is one tell
+  naming every missing item ("You need 2 x a grey wolf hide (you have 1).").
+- **Plain lines go only to the buyer**: the list, carry limits, and the purchase summary ("You hand over 1 x a
   leather belt, 2 x a grey wolf hide. You now have a hunter's belt.").
 - `say` refuses mobs with INT below 6, so a vendor needs INT 6 or more. This is warned (see
   Builder warnings) rather than special-cased in `say`.

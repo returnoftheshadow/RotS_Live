@@ -18,6 +18,7 @@
 #include "char_utils.h"
 #include "char_utils_combat.h"
 #include "object_utils.h"
+#include "mob_progs/shopkeeper.h"
 #include "warrior_spec_handlers.h"
 #include <algorithm>
 
@@ -157,6 +158,25 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
     if (not_ready) {
         send_to_char("Your mind is not ready yet.\n\r", ch);
         return;
+    }
+
+    /* As a physical attack does before it engages (fight.cpp): a keeper - a
+     * mob whose program serves players and cancels damage - is not drawn
+     * into a mental fight either, and the attacker is not left fighting it.
+     * Once a keeper is fighting ch (it started the fight) it is fair game,
+     * mentally as physically. Only keepers are asked: for every other mob a
+     * program call here would be one more turn of its program on each mental
+     * round (see mob_is_keeper, mob_progs/shopkeeper.h). */
+    if (victim->specials.fighting != ch && mob_is_keeper(victim)) {
+        waiting_type guard;
+        guard.targ1.set_character(victim);
+        guard.targ2.ptr.other = NULL;
+        guard.targ2.type = TARGET_NONE;
+        if (special(ch, 0, "", SPECIAL_DAMAGE, &guard)) {
+            if (ch->specials.fighting == victim) /* else it would be refused again every round */
+                stop_fighting(ch);
+            return;
+        }
     }
 
     if (!ch->specials.fighting && IS_MENTAL(ch)) {
@@ -313,8 +333,7 @@ combat_result_struct damage_stat(struct char_data* killer, struct char_data* vic
 
     if (victim->specials.fighting != killer) {
         waiting_type wait_data;
-        wait_data.targ1.ptr.ch = victim;
-        wait_data.targ1.type = TARGET_CHAR;
+        wait_data.targ1.set_character(victim);
         wait_data.targ2.ptr.other = NULL;
         wait_data.targ2.type = TARGET_NONE;
         int special_index = special(killer, 0, "", SPECIAL_DAMAGE, &wait_data);

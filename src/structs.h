@@ -342,10 +342,14 @@ struct target_data {
         struct txt_block* text;
         void* other;
     } ptr;
-    sh_int ch_num; /* abs_number, if the target is a character, or just some
-                   digit data*/
+    int ch_num; /* abs_number (up to MAX_CHARACTERS), if the target is a
+                   character, or just some digit data */
     int choice; /* what kind of target is this   */
     void cleanup(); /* cleans the target data, releases the text if nec. */
+    /* Names a character as the target: the pointer and its slot together, so
+     * the slot (what special() checks before it runs a program) is never
+     * left at another character's number. */
+    void set_character(struct char_data* ch);
     void operator=(target_data t2);
     int operator==(target_data t2);
 
@@ -1181,6 +1185,12 @@ struct char_special_data {
 
     struct memory_rec* memory; /* List of attackers to remember */
     sh_int current_bodypart; /* The number of current bodypart */
+
+    /* Never saved. A caller that must know a save worked clears both, calls
+     * save_char / Crash_crashsave, and reads them: each is set only where its
+     * file was really written. Nothing else looks at them. */
+    bool saved_character_file;
+    bool saved_object_file;
 
     ubyte tactics; /* combat tactics of a person */
     /* also, program pointer in call list for npc */
@@ -2044,7 +2054,7 @@ struct txt_q {
 #define CON_COLOR 25
 #define CON_ACCTPWD 26
 #define CON_ACCTSLCT 27
-#define CON_ACCTLINKPWD 28
+/* 28 was CON_ACCTLINKPWD (in-game linkaccount, removed) */
 #define CON_ACCTNEWCNF 29
 #define CON_ACCTNEWPWD 30
 #define CON_ACCTNEWPWDCNF 31

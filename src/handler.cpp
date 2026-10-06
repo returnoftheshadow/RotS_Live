@@ -2519,16 +2519,28 @@ char* money_message(int sum, int mode)
     return moneystr;
 }
 
+/* A number outside the table is no slot: -1 is a character that was never
+ * registered (clear_char), and it neither exists nor frees anyone's slot. */
+static bool is_char_slot(int num)
+{
+    return num >= 0 && num < MAX_CHARACTERS;
+}
 int char_exists(int num)
 {
+    if (!is_char_slot(num))
+        return 0;
     return (char_control_array[num / 8] & (1 << (num % 8)));
 }
 void set_char_exists(int num)
 {
+    if (!is_char_slot(num))
+        return;
     char_control_array[num / 8] |= (1 << (num % 8));
 }
 void remove_char_exists(int num)
 {
+    if (!is_char_slot(num))
+        return;
     char_control_array[num / 8] &= ~(1 << (num % 8));
 }
 int register_npc_char(struct char_data* mob)

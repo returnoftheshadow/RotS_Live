@@ -1665,6 +1665,7 @@ Special procedures:
 29: postmaster          30: dragon
 31: caster/mage (spec)  32: ranger (new)
 33: barter vendor. Sells items for other items (MAN SHAPE SHOPKEEPER).
+34: banker. Keeps the players' vaults (MAN SHAPE BANKER).
 
 Make sure to add flag SPEC to mobile.
 
@@ -1774,8 +1775,8 @@ lines into one. Blank lines are removed when you save the text, and lines
 starting with // (comments) are ignored. A # is saved as + and a ~ as -;
 text can't start with $ or pass 4000 characters.
 
-Each program that reads options documents its own settings. Today only
-program 33 does: see MAN SHAPE SHOPKEEPER.
+Each program that reads options documents its own settings: program 33,
+see MAN SHAPE SHOPKEEPER; program 34, see MAN SHAPE BANKER.
 #
 "SHOPKEEPER" "SHOPKEEPERS" "BARTER" "VENDOR"
 
@@ -1791,6 +1792,7 @@ Setting one up (extended mode, see MAN SHAPE MOB2 42):
   store=<room vnum>        the store room; its contents are the stock
   hours=<a>-<b>[,<c>-<d>...]  game hours (0-23) it trades
   list=<message>           the line shown above its list
+  attacks=yes|no           no: it never starts a fight
   price <item> <cur>x<qty> [<cur>x<qty>...] [deduct]
 Example:
   store=12345
@@ -1805,6 +1807,11 @@ overnight window such as 20-4 works.
 
 list: no list line, or an empty one, shows "What would you like to
 trade?". Keep it to one line of 78 columns or less.
+
+attacks: yes or no; left out means yes. With no, the vendor never
+attacks, assists, hunts, wanders or picks things up, whatever its flags;
+/implement warns about SCAVENGER, AGGR, MEMORY, HELPER, BODYGUARD, HUNTER
+and ASSISTANT on it, as they then do nothing. SENTINEL is not affected.
 
 A price line is the cost of one <item>: 1-4 currencies, each <qty>
 copies (1-100) of object <cur>, with a lowercase x. Up to 30 price lines;
@@ -1826,9 +1833,16 @@ Builder notes:
 - Invisible items in the store room are not listed to buyers who can't
   see invisible.
 - Keep the vendor's room lit: it refuses anyone it can't see.
-- The vendor needs INT 6 or more, or it can't speak.
-- Restrict who may trade with the roleplay flag (/39); don't use pref,
-  which makes it attack.
+- The vendor speaks like the old shopkeepers: it says aloud why it won't
+  serve someone, and tells the buyer everything else.
+- The vendor needs INT 6 or more, or it can't say why it won't serve.
+- Choose who may trade with race aggression (/11, extended /20), as the
+  old shopkeepers do, or with the roleplay flag (/39).
+- attacks=no makes the vendor never start a fight: race aggression then
+  only refuses those races. Without it the vendor attacks them, like an
+  old shopkeeper, and a vendor that started a fight can be hurt.
+- Put only one vendor, banker or shopkeeper in a room: the first one
+  answers every command and the others can't be reached.
 - Items sold count toward world limits; store room loads are best
   without a limit.
 
@@ -2152,4 +2166,66 @@ current extra description).
 
 No such command.
 
+#
+"BANKER" "BANKERS" "BANK"
+
+A banker (program 34) keeps the players' vaults: each account has one
+vault per side, and every banker on that side opens the same one. A
+banker has no stock of its own; it is an ordinary mob plus settings.
+
+Setting one up (extended mode, see MAN SHAPE MOB2 42):
+  /5  set flag SPEC (bit 0); NOBASH (bit 4) is recommended
+  /29 program 34
+  /42 the settings, one per line, all optional:
+  hours=<a>-<b>[,<c>-<d>...]  game hours (0-23) it is open
+  fee=<copper>                storage fee IN COPPER, per item, per day
+  maxdays=<days>              the most days a fee is charged for
+  racial_markup=yes           customers of another race than the banker
+                              pay 30% more; or a number, 1 to 3000
+  greeting=<message>          shown above the vault on 'balance'
+  greeting_other=<message>    the same, for a customer of another race
+                              than the banker
+  attacks=yes|no              no: the banker never starts a fight. Left
+                              out means yes (MAN SHAPE SHOPKEEPER)
+Example:
+  hours=6-20
+  fee=50
+  maxdays=30
+  racial_markup=yes
+  greeting=The clerk slides a heavy ledger across the counter.
+  greeting_other=The clerk eyes you coldly and opens a ledger.
+
+fee is 1 to 10000 copper and maxdays is 1 to 365. Leave fee out for a
+free banker. maxdays is required whenever fee is set. hours works as it
+does for a barter vendor (MAN SHAPE SHOPKEEPER).
+
+The fee for one stored item is days x fee, up to maxdays; a container is
+charged for itself and everything in it. A day starts in the early
+morning, real server time, and the day of the deposit is free. Coins are
+never charged.
+
+A greeting is shown exactly as written, to the customer alone, in place
+of the usual header, "Your vault:". With only greeting set, every
+customer gets it. With greeting_other set as well, customers of another
+race get that one. With only greeting_other set, the banker's own race
+gets the usual line. Keep a message to 78 columns: a longer one still
+shows, but wraps, and /implement warns about it.
+
+A bad value, or fee without maxdays, closes the banker and logs a warning
+until it is fixed. racial_markup with no fee line only warns on
+/implement.
+
+A banker speaks like the old shopkeepers: it says aloud why it won't
+serve someone, and tells the customer everything else. It needs INT 6 or
+more, or it can't say why it won't serve.
+
+Bankers refuse customers the way barter vendors do, refuse immortals
+(by level, whatever their race), refuse cursed (NODROP) items and refuse
+gifts. They can't be attacked, but one that starts a fight (attacks=yes,
+the default) can be hurt by the player it is fighting, like an old
+shopkeeper. Put only one banker in a room.
+
+A wand or staff comes out with the charges it went in with. If a stored
+object has been deleted since, the rest of that slot still comes out and
+the deleted object is logged.
 #~

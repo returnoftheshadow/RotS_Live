@@ -1508,7 +1508,7 @@ TEST(AccountManagement, RejectsAmbiguousLinkedCharacterOwnership)
     EXPECT_NE(error_message.find("Multiple account records claim"), std::string::npos);
 }
 
-TEST(AccountManagement, LinksAndMigratesCharacterAfterAuthenticatingAccount)
+TEST(AccountManagement, LinksAndMigratesCharacter)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -1521,14 +1521,11 @@ TEST(AccountManagement, LinksAndMigratesCharacterAfterAuthenticatingAccount)
 
     account::AccountData linked_account;
     account::CharacterMigrationData migration;
-    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "aragorn", 1700012223, &linked_account, &migration, &error_message)) << error_message;
 
     EXPECT_TRUE(account::account_has_character(linked_account, "aragorn"));
     EXPECT_EQ(migration.character_name, "aragorn");
     EXPECT_TRUE(migration.player_file.present);
-
-    EXPECT_FALSE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "WrongPass1", "aragorn", 1700012224, nullptr, nullptr, &error_message));
-    EXPECT_EQ(error_message, "Account authentication failed.");
 }
 
 TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
@@ -1544,7 +1541,7 @@ TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
 
     account::AccountData linked_account;
     account::CharacterMigrationData migration;
-    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "ValidPass1", "Pi", 1700012223, &linked_account, &migration, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "Pi", 1700012223, &linked_account, &migration, &error_message)) << error_message;
     EXPECT_TRUE(account::account_has_character(linked_account, "pi"));
     EXPECT_EQ(migration.character_name, "pi");
     EXPECT_TRUE(migration.player_file.present);
@@ -1589,7 +1586,7 @@ TEST(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)
     ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700012225, nullptr, &error_message)) << error_message;
     ASSERT_TRUE(account::admin_verify_email(temp_directory.path(), "alpha-admin", "VerifierAdmin", 1700012225, nullptr, &error_message)) << error_message;
 
-    EXPECT_FALSE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin", "ValidPass1", "aragorn", 1700012226, nullptr, nullptr, &error_message));
+    EXPECT_FALSE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "aragorn", 1700012226, nullptr, nullptr, &error_message));
     EXPECT_FALSE(error_message.empty());
 
     account::AccountData account_data;
@@ -5365,8 +5362,7 @@ TEST(AccountManagement, RefusesAConversionWhoseWrittenFileCannotBeReadBack)
 
     account::AccountData linked_account;
     account::CharacterMigrationData migration;
-    EXPECT_FALSE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin",
-        "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message));
+    EXPECT_FALSE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "aragorn", 1700012223, &linked_account, &migration, &error_message));
     EXPECT_NE(error_message.find("cannot be read back"), std::string::npos) << error_message;
 
     // The whole point of refusing before retirement: the character is exactly as it was.
@@ -5400,8 +5396,7 @@ TEST(AccountManagement, StillConvertsACharacterThatSurvivesTheRoundTrip)
 
     account::AccountData linked_account;
     account::CharacterMigrationData migration;
-    ASSERT_TRUE(account::link_and_migrate_character(temp_directory.path(), "alpha-admin",
-        "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message))
+    ASSERT_TRUE(account::admin_link_and_migrate_character(temp_directory.path(), "alpha-admin", "aragorn", 1700012223, &linked_account, &migration, &error_message))
         << error_message;
     EXPECT_TRUE(account::account_has_character(linked_account, "aragorn"));
 }
@@ -5440,8 +5435,7 @@ TEST(AccountManagement, AFailedConversionNeverLeavesACharacterWithNoCopyAtAll)
 
     account::AccountData linked_account;
     account::CharacterMigrationData migration;
-    const bool converted = account::link_and_migrate_character(root, "alpha-admin",
-        "ValidPass1", "aragorn", 1700012223, &linked_account, &migration, &error_message);
+    const bool converted = account::admin_link_and_migrate_character(root, "alpha-admin", "aragorn", 1700012223, &linked_account, &migration, &error_message);
 
     const bool legacy_survives = access(legacy_player_path.c_str(), F_OK) == 0;
     const bool account_native_survives = access(account_character_path.c_str(), F_OK) == 0;

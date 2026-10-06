@@ -274,6 +274,15 @@ extern struct room_data world;
 extern int top_of_world;
 extern struct descriptor_data* descriptor_list;
 extern struct time_info_data time_info;
+void remove_char_exists(int num);
+void set_char_exists(int num);
+int char_exists(int num);
+void set_fighting(struct char_data* ch, struct char_data* vict);
+int shop_keeper(struct char_data* host, struct char_data* ch, int cmd, char* arg, int callflag, struct waiting_type* wtl);
+extern struct char_data* combat_list;
+extern struct char_data* waiting_list;
+void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, int cmd, int subcmd);
+combat_result_struct damage_stat(struct char_data* killer, struct char_data* victim, int stat_num, int amount);
 extern int no_specials;
 void clear_char(struct char_data* ch, int mode);
 void clear_object(struct obj_data* obj);
@@ -288,6 +297,8 @@ constexpr int kVendorVnum = 7000;
 
 class BarterVendorTest : public ::testing::Test {
 protected:
+    static constexpr int kVendorSlot = 4400; /* a character slot nothing else in the tests uses */
+
     void SetUp() override
     {
         m_saved_mob_proto = mob_proto;
@@ -347,6 +358,8 @@ protected:
 
         clear_char(&m_vendor, MOB_ISNPC);
         m_vendor.nr = 0;
+        m_vendor.abs_number = kVendorSlot; /* as register_npc_char gives every mob in the game */
+        set_char_exists(kVendorSlot);
         m_vendor.specials2.act = MOB_ISNPC | MOB_SPEC;
         m_vendor.player.name = m_vendor_name;
         m_vendor.player.short_descr = m_vendor_short;
@@ -364,6 +377,7 @@ protected:
         m_descriptor.small_outbuf[0] = '\0';
         m_descriptor.bufspace = SMALL_BUFSIZE - 1;
         m_descriptor.connected = CON_PLYNG;
+        m_descriptor.descriptor = 1; /* do_say and do_tell only reach a connected player */
         m_descriptor.character = &m_buyer;
         m_buyer.desc = &m_descriptor;
 
@@ -376,6 +390,7 @@ protected:
 
     void TearDown() override
     {
+        remove_char_exists(kVendorSlot);
         while (object_list != nullptr)
             extract_obj(object_list);
         m_mob_proto[0].specials.store_prog_number = 0;
@@ -650,6 +665,53 @@ TEST_F(BarterVendorTest, BuyArgumentIsAListNumberOnlyWhenAllDigits)
     EXPECT_EQ(carried(0), 2);
 }
 
+TEST_F(BarterVendorTest, LowIntelligenceIsWarnedOnRebuild)
+{
+    m_mob_proto[0].abilities.intel = 3;
+    vendor_config_rebuild(0, &m_buyer);
+    EXPECT_EQ(output(), "MOB ERROR: mobile #7000: intelligence below 6 - vendor can't speak\n\r");
+    m_mob_proto[0].abilities.intel = 12;
+}
+
+/* act() would read a '$' in the text as a code and crash on an unknown one. */
+TEST_F(BarterVendorTest, ADollarSignInATellIsShownAsTyped)
+{
+    vendor_tell(&m_vendor, &m_buyer, "That is a $p and a $ and $x.");
+    EXPECT_NE(output().find(" tells you 'That is a $p and a $ and $x.'"), std::string::npos) << output();
+    clear_output();
+    std::string longest = std::string(VENDOR_TELL_MAX - 1, 'a') + "$$$";
+    vendor_tell(&m_vendor, &m_buyer, longest.c_str());
+    EXPECT_NE(output().find(std::string(VENDOR_TELL_MAX - 1, 'a') + "'"), std::string::npos) << output();
+}
+
+TEST_F(BarterVendorTest, ATellReachesABuyerWithTellsTurnedOff)
+{
+    SET_BIT(PRF_FLAGS(&m_buyer), PRF_NOTELL);
+    EXPECT_TRUE(call(CMD_BUY, ""));
+    EXPECT_NE(output().find(" tells you 'What do you want to buy?'"), std::string::npos) << output();
+    EXPECT_TRUE(PRF_FLAGGED(&m_buyer, PRF_NOTELL)) << "the buyer's own setting is left as it was";
+    REMOVE_BIT(PRF_FLAGS(&m_buyer), PRF_NOTELL);
+}
+
+/* Gifts, attacks and dust are answered before any can-see check. */
+TEST_F(BarterVendorTest, ATellReachesABuyerTheVendorCannotSee)
+{
+    SET_BIT(m_buyer.specials.affected_by, AFF_INVISIBLE);
+    EXPECT_TRUE(call(0, "", SPECIAL_DAMAGE));
+    EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+    REMOVE_BIT(m_buyer.specials.affected_by, AFF_INVISIBLE);
+}
+
+TEST_F(BarterVendorTest, AShortfallOfSeveralItemsIsOneTell)
+{
+    std::strcpy(m_options, "store=5000\nprice 100 200x2 300x1 deduct");
+    vendor_config_rebuild(0, nullptr);
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_NE(output().find(" tells you 'You need 2 x a wolf hide (you have 0) and 1 x a leather belt (you have 0).'"),
+        std::string::npos)
+        << output();
+}
+
 TEST_F(BarterVendorTest, RebuildCanSkipTheReport)
 {
     m_mob_proto[0].abilities.intel = 3;
@@ -658,18 +720,64 @@ TEST_F(BarterVendorTest, RebuildCanSkipTheReport)
     EXPECT_EQ(output(), "");
     vendor_config_rebuild(0, &m_buyer);
     EXPECT_EQ(output(), "MOB ERROR: mobile #7000: intelligence below 6 - vendor can't speak\n\r");
+    m_mob_proto[0].abilities.intel = 12;
 }
 
-TEST_F(BarterVendorTest, PrefIsWarnedOnRebuildAndCheck)
+/* 67 of the 75 old shopkeepers choose who they serve by race aggression. */
+TEST_F(BarterVendorTest, RaceAggressionIsNotReported)
 {
     m_mob_proto[0].specials2.pref = 1;
     vendor_config_rebuild(0, &m_buyer);
-    EXPECT_EQ(output(), "MOB ERROR: mobile #7000: pref set - vendor attacks and can be hurt\n\r");
-    m_descriptor.small_outbuf[0] = '\0';
-    m_descriptor.bufptr = 0;
-    m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    EXPECT_EQ(output(), "");
     vendor_config_check(&m_mob_proto[0], kVendorVnum, &m_buyer);
-    EXPECT_EQ(output(), "MOB ERROR: mobile #7000: pref set - vendor attacks and can be hurt\n\r");
+    EXPECT_EQ(output(), "");
+    m_mob_proto[0].specials2.pref = 0;
+}
+
+TEST_F(BarterVendorTest, AttacksOptionDefaultsToYesAndNoEndsTheMobsTurn)
+{
+    EXPECT_TRUE(vendor_config_for(0)->attacks);
+    EXPECT_FALSE(call(0, "", SPECIAL_SELF)) << "the mob AI carries on, as for an old shopkeeper";
+
+    std::strcpy(m_options, "store=5000\nattacks=no\nprice 100 200x2 deduct");
+    vendor_config_rebuild(0, nullptr);
+    EXPECT_FALSE(vendor_config_for(0)->attacks);
+    EXPECT_TRUE(call(0, "", SPECIAL_SELF)) << "the mob AI stops: no attack, assist or wandering";
+    EXPECT_TRUE(call(CMD_LIST, ""));
+    EXPECT_NE(output().find("hunter's belt"), std::string::npos) << "it still trades: " << output();
+
+    std::vector<vendor_problem> problems;
+    EXPECT_TRUE(parse_vendor_options("store=12345\nattacks=maybe", everything_exists(), &problems).attacks);
+    ASSERT_EQ(problems.size(), 1u);
+    EXPECT_EQ(problems[0].text, "bad attacks - line ignored");
+}
+
+TEST_F(BarterVendorTest, FightFlagsAreWarnedOnImplementOnlyWithAttacksOff)
+{
+    m_mob_proto[0].specials2.act |= MOB_NOBASH | MOB_MEMORY | MOB_HELPER;
+    vendor_implement_check(0, &m_buyer);
+    EXPECT_EQ(output(), "") << "a vendor that attacks may carry them";
+    std::strcpy(m_options, "store=5000\nattacks=no\nprice 100 200x2 deduct");
+    vendor_config_rebuild(0, nullptr);
+    vendor_implement_check(0, &m_buyer);
+    EXPECT_EQ(output(), "MOB WARNING: mobile #7000: MEMORY flag with attacks=no\n\r"
+                        "MOB WARNING: mobile #7000: HELPER flag with attacks=no\n\r");
+}
+
+TEST(VendorList, ALongCurrencyNameWrapsInsteadOfPassing78Columns)
+{
+    std::vector<vendor_list_row> rows = { { std::string(38, 'n'), -1,
+        { { 100, "a currency with a very long name that would otherwise run off the line" } } } };
+    std::string out = format_vendor_list(rows);
+    size_t start = 0;
+    while (start < out.size()) {
+        size_t end = out.find("\n\r", start);
+        ASSERT_NE(end, std::string::npos);
+        EXPECT_LE(end - start, 78u) << out.substr(start, end - start);
+        start = end + 2;
+    }
+    EXPECT_NE(out.find("100 x a currency with a very long"), std::string::npos) << out;
+    EXPECT_NE(out.find("the line"), std::string::npos) << out;
 }
 
 TEST_F(BarterVendorTest, VendorCandidateRule)
@@ -689,6 +797,236 @@ TEST_F(BarterVendorTest, VendorCandidateRule)
     m_mob_proto[0].specials.store_prog_number = PROG_BARTER_VENDOR;
 }
 
+/* "buy hide" makes the command parser pick the buyer's own hide as the
+ * command's target; the hide is then destroyed as payment, and the caller
+ * still reads the target afterwards. */
+TEST_F(BarterVendorTest, APaymentObjectIsDroppedFromTheCommandTargets)
+{
+    obj_data* hide = give_hides(2);
+    waiting_type wtl {};
+    wtl.targ1.type = TARGET_OBJ;
+    wtl.targ1.ptr.obj = hide;
+    std::strcpy(m_arg, "1");
+    EXPECT_TRUE(barter_vendor(&m_vendor, &m_buyer, CMD_BUY, m_arg, SPECIAL_COMMAND, &wtl));
+    EXPECT_EQ(carried(1), 0) << "both hides were paid";
+    EXPECT_EQ(wtl.targ1.type, TARGET_NONE);
+    EXPECT_EQ(wtl.targ1.ptr.other, nullptr);
+}
+
+/* trim() keeps \v and \f, the word splitter drops them. */
+TEST(VendorParse, ALineOfOnlyVerticalTabOrFormFeedIsSkipped)
+{
+    std::vector<vendor_problem> problems;
+    vendor_config c = parse_vendor_options("store=12345\n\v\n\f\f\nprice 5002 3333x4\n", everything_exists(), &problems);
+    EXPECT_TRUE(c.usable());
+    EXPECT_EQ(c.prices.size(), 1u);
+}
+
+/* damage() and the mental attack ask a victim's program through special().
+ * It used to ask only while character slot 0 existed (the callers never set
+ * the target's ch_num), so every keeper lost its protection once the first
+ * mob loaded at boot was gone. The callers now name the victim's own slot,
+ * which runs to MAX_CHARACTERS: past what the 16-bit ch_num once held. */
+TEST_F(BarterVendorTest, TheDamageQuestionReachesTheVendorWithoutCharacterSlotZero)
+{
+    constexpr int kHighSlot = 40000;
+    const bool slot_zero_existed = char_exists(0);
+    remove_char_exists(0);
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    m_vendor.abs_number = kHighSlot;
+    set_char_exists(kHighSlot);
+    waiting_type wtl {};
+    wtl.targ1.set_character(&m_vendor); /* as damage(), hit(), damage_stat() and do_mental() name their victim */
+    EXPECT_EQ(wtl.targ1.type, TARGET_CHAR);
+    EXPECT_EQ(wtl.targ1.ptr.ch, &m_vendor);
+    EXPECT_EQ(wtl.targ1.ch_num, kHighSlot) << "ch_num holds every slot number";
+    std::strcpy(m_arg, "");
+    EXPECT_EQ(special(&m_buyer, 0, m_arg, SPECIAL_DAMAGE, &wtl), 1) << "the hit is cancelled";
+    EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+
+    /* A target that has gone since (its slot is free) is not asked, for a hit as for a command. */
+    remove_char_exists(kHighSlot);
+    EXPECT_EQ(special(&m_buyer, 0, m_arg, SPECIAL_DAMAGE, &wtl), 0);
+    if (slot_zero_existed)
+        set_char_exists(0);
+}
+
+/* A character that was never given a slot (stat file and set file build one
+ * to read a player file into) is slot -1, not slot 0: freeing it used to mark
+ * the first character registered at boot as gone. */
+TEST_F(BarterVendorTest, FreeingACharacterWithNoSlotLeavesSlotZeroAlone)
+{
+    const bool slot_zero_existed = char_exists(0);
+    set_char_exists(0);
+    char_data* loaded = (char_data*)calloc(1, sizeof(char_data));
+    clear_char(loaded, MOB_VOID);
+    EXPECT_EQ(loaded->abs_number, -1);
+    waiting_type wtl {};
+    wtl.targ1.set_character(loaded);
+    EXPECT_EQ(wtl.targ1.ch_num, -1);
+    EXPECT_FALSE(char_exists(-1)) << "no slot is no character";
+    EXPECT_FALSE(char_exists(MAX_CHARACTERS)) << "nor is a number past the table";
+    free_char(loaded);
+    EXPECT_TRUE(char_exists(0)) << "the character in slot 0 is still there";
+    if (!slot_zero_existed)
+        remove_char_exists(0);
+}
+
+/* A program that only counts its calls. */
+int g_spy_program_calls = 0;
+int spy_program(struct char_data*, struct char_data*, int, char*, int, struct waiting_type*)
+{
+    ++g_spy_program_calls;
+    return 0;
+}
+
+/* The one place the rest of the game asks "is this a keeper?". */
+TEST_F(BarterVendorTest, MobIsKeeperGoesByTheProgramTheGameWouldCall)
+{
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    EXPECT_TRUE(mob_is_keeper(&m_vendor));
+    m_vendor.specials.store_prog_number = 5; /* an ordinary mob program */
+    EXPECT_FALSE(mob_is_keeper(&m_vendor));
+    m_vendor.specials.store_prog_number = 0;
+    EXPECT_FALSE(mob_is_keeper(&m_vendor));
+    m_mob_index[0].func = shop_keeper; /* an old shopkeeper: assigned by vnum at boot */
+    EXPECT_TRUE(mob_is_keeper(&m_vendor));
+    REMOVE_BIT(m_vendor.specials2.act, MOB_SPEC);
+    EXPECT_FALSE(mob_is_keeper(&m_vendor)) << "without MOB_SPEC the index function is never called";
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    EXPECT_TRUE(mob_is_keeper(&m_vendor)) << "but the mob's own program number still is (activate_char_special)";
+    m_vendor.specials.store_prog_number = 0;
+    SET_BIT(m_vendor.specials2.act, MOB_SPEC);
+
+    /* MOB_SPEC with an ordinary index function: the game calls only that one,
+     * never the program number, so a keeper number does not make a keeper. */
+    m_mob_index[0].func = spy_program;
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    EXPECT_FALSE(mob_is_keeper(&m_vendor));
+    /* Specials switched off: the index function is skipped, the number is called. */
+    m_mob_index[0].func = shop_keeper;
+    m_vendor.specials.store_prog_number = 0;
+    no_specials = 1;
+    EXPECT_FALSE(mob_is_keeper(&m_vendor));
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    EXPECT_TRUE(mob_is_keeper(&m_vendor));
+    no_specials = 0;
+    m_vendor.specials.store_prog_number = 0;
+    m_mob_index[0].func = nullptr;
+    EXPECT_FALSE(mob_is_keeper(&m_buyer)) << "a player";
+    EXPECT_FALSE(mob_is_keeper(nullptr));
+}
+
+/* A mental attack asks the same question before it engages, so a keeper is
+ * not drawn into the fight and the attacker is not left fighting it. */
+TEST_F(BarterVendorTest, AMentalAttackIsRefusedLikeAPhysicalOne)
+{
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    SET_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    std::strcpy(m_arg, "trader");
+    const bool slot_zero_existed = char_exists(0);
+    remove_char_exists(0); /* do_mental names the vendor's own slot, not this one */
+    do_mental(&m_buyer, m_arg, nullptr, 0, 0);
+    if (slot_zero_existed)
+        set_char_exists(0);
+    EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+    EXPECT_EQ(m_buyer.specials.fighting, nullptr) << "not left fighting the vendor";
+    EXPECT_EQ(m_vendor.specials.fighting, nullptr);
+
+    REMOVE_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+}
+
+/* Mental damage (a curse, a mental hit that lands) asks the victim's program
+ * through damage_stat(), which names the victim's own slot as the others do. */
+TEST_F(BarterVendorTest, MentalDamageAsksTheVendorByItsOwnSlot)
+{
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    const int hit_before = m_vendor.tmpabilities.hit;
+    const bool slot_zero_existed = char_exists(0);
+    remove_char_exists(0);
+    damage_stat(&m_buyer, &m_vendor, 0, 5);
+    if (slot_zero_existed)
+        set_char_exists(0);
+    EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+    EXPECT_EQ(m_buyer.specials.fighting, nullptr);
+    EXPECT_EQ(m_vendor.specials.fighting, nullptr);
+    EXPECT_EQ(m_vendor.tmpabilities.hit, hit_before);
+}
+
+/* An attacker already fighting a keeper that is not fighting back (it was
+ * stunned, or turned on someone else) is refused once and stops: left
+ * fighting, the refusal would come again on every round. */
+TEST_F(BarterVendorTest, ARefusedMentalAttackerStopsFighting)
+{
+    char_data* saved_combat_list = combat_list;
+    char_data* saved_waiting_list = waiting_list;
+    combat_list = nullptr;
+    waiting_list = nullptr;
+
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    SET_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    set_fighting(&m_buyer, &m_vendor);
+    std::strcpy(m_arg, "");
+    do_mental(&m_buyer, m_arg, nullptr, 0, 0); /* as perform_violence calls it each round */
+    EXPECT_NE(output().find(" tells you 'Don't even think about it.'"), std::string::npos) << output();
+    EXPECT_EQ(m_buyer.specials.fighting, nullptr) << "so the next round does not ask again";
+
+    REMOVE_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    combat_list = saved_combat_list;
+    waiting_list = saved_waiting_list;
+}
+
+/* Only keepers are asked before a mental attack engages. Any other program
+ * (the pale vampire's heals her on every call) must not get an extra turn
+ * out of every mental round aimed at its mob. */
+TEST_F(BarterVendorTest, AMentalAttackDoesNotCallTheProgramOfAMobThatIsNotAKeeper)
+{
+    char_data* saved_combat_list = combat_list;
+    char_data* saved_waiting_list = waiting_list;
+    combat_list = nullptr;
+    waiting_list = nullptr;
+
+    g_spy_program_calls = 0;
+    m_mob_index[0].func = spy_program;
+    SET_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    std::strcpy(m_arg, "trader");
+    do_mental(&m_buyer, m_arg, nullptr, 0, 0);
+    EXPECT_EQ(g_spy_program_calls, 0);
+    EXPECT_EQ(m_buyer.specials.fighting, &m_vendor) << "the attack itself goes ahead";
+
+    m_mob_index[0].func = nullptr;
+    REMOVE_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    m_buyer.specials.fighting = nullptr;
+    combat_list = saved_combat_list;
+    waiting_list = saved_waiting_list;
+}
+
+/* The other half: a keeper that started the fight is fair game, so the
+ * mental attack is not refused and the attacker engages. (A vendor's mind
+ * cannot be fathomed, which ends the attack there, with no dice rolled.) */
+TEST_F(BarterVendorTest, AKeeperThatStartedTheFightCanBeAttackedMentally)
+{
+    char_data* saved_combat_list = combat_list; /* the attack puts the buyer on both lists */
+    char_data* saved_waiting_list = waiting_list;
+    combat_list = nullptr;
+    waiting_list = nullptr;
+
+    m_vendor.specials.store_prog_number = PROG_BARTER_VENDOR;
+    m_vendor.specials.fighting = &m_buyer;
+    SET_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    std::strcpy(m_arg, "trader");
+    do_mental(&m_buyer, m_arg, nullptr, 0, 0);
+    EXPECT_EQ(output().find("Don't even think about it."), std::string::npos) << output();
+    EXPECT_EQ(m_buyer.specials.fighting, &m_vendor) << "the attacker engages";
+    EXPECT_NE(output().find("You cannot fathom"), std::string::npos) << output();
+
+    REMOVE_BIT(PRF_FLAGS(&m_buyer), PRF_MENTAL);
+    m_buyer.specials.fighting = nullptr;
+    m_vendor.specials.fighting = nullptr;
+    combat_list = saved_combat_list;
+    waiting_list = saved_waiting_list;
+}
+
 TEST_F(BarterVendorTest, ShortfallTakesNothing)
 {
     give_hides(1);
@@ -696,7 +1034,7 @@ TEST_F(BarterVendorTest, ShortfallTakesNothing)
     EXPECT_EQ(carried(0), 0);
     EXPECT_EQ(carried(1), 1);
     EXPECT_EQ(floor_belts(), 2);
-    EXPECT_EQ(output(), "You need 2 x a wolf hide and have 1.\n\r");
+    EXPECT_NE(output().find(" tells you 'You need 2 x a wolf hide (you have 1).'"), std::string::npos) << output();
 }
 
 TEST_F(BarterVendorTest, AFullContainerIsNeverTakenAsPayment)
@@ -710,7 +1048,7 @@ TEST_F(BarterVendorTest, AFullContainerIsNeverTakenAsPayment)
     EXPECT_EQ(carried(0), 0);
     EXPECT_EQ(carried(1), 2);
     EXPECT_EQ(full->contains, inside);
-    EXPECT_EQ(output(), "You need 2 x a wolf hide and have 1.\n\r");
+    EXPECT_NE(output().find(" tells you 'You need 2 x a wolf hide (you have 1).'"), std::string::npos) << output();
 }
 
 TEST_F(BarterVendorTest, SoldOutItemIsNotListedOrSold)
@@ -848,7 +1186,7 @@ TEST_F(BarterVendorTest, OneShortCurrencyOfTwoTakesNothing)
     EXPECT_EQ(carried(1), 2) << "the covered currency is not taken either";
     EXPECT_EQ(carried(0), 0);
     EXPECT_EQ(floor_belts(), 2);
-    EXPECT_EQ(output(), "You need 1 x a leather belt and have 0.\n\r");
+    EXPECT_NE(output().find(" tells you 'You need 1 x a leather belt (you have 0).'"), std::string::npos) << output();
 }
 
 TEST_F(BarterVendorTest, CurrencyInABagOrWornDoesNotCount)
@@ -861,7 +1199,7 @@ TEST_F(BarterVendorTest, CurrencyInABagOrWornDoesNotCount)
     m_buyer.equipment[WEAR_BODY] = worn;
 
     EXPECT_TRUE(call(CMD_BUY, "1"));
-    EXPECT_EQ(output(), "You need 2 x a wolf hide and have 1.\n\r");
+    EXPECT_NE(output().find(" tells you 'You need 2 x a wolf hide (you have 1).'"), std::string::npos) << output();
     EXPECT_EQ(carried(1), 1);
     EXPECT_NE(bag->contains, nullptr);
     EXPECT_EQ(floor_belts(), 2);
@@ -980,3 +1318,48 @@ TEST_F(BarterVendorTest, NoSpecialsBootHasNoVendors)
 }
 
 } // namespace
+
+/* As the old shopkeepers: a reply to the buyer is a tell nobody else sees, a
+ * refusal to serve at all is a say the room hears. */
+TEST_F(BarterVendorTest, RepliesAreTellsAndRefusalsAreSays)
+{
+    char_data watcher {};
+    descriptor_data watcher_descriptor {};
+    char watcher_name[] = "Watcher";
+    clear_char(&watcher, 0);
+    watcher.player.name = watcher_name;
+    watcher.player.race = RACE_HUMAN;
+    watcher.in_room = 0;
+    watcher_descriptor.output = watcher_descriptor.small_outbuf;
+    watcher_descriptor.small_outbuf[0] = '\0';
+    watcher_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    watcher_descriptor.connected = CON_PLYNG;
+    watcher_descriptor.descriptor = 2;
+    watcher_descriptor.character = &watcher;
+    watcher.desc = &watcher_descriptor;
+    GET_POS(&watcher) = POSITION_STANDING;
+    m_buyer.next_in_room = &watcher;
+    m_descriptor.descriptor = 1;
+    GET_POS(&m_buyer) = POSITION_STANDING;
+
+    EXPECT_TRUE(call(CMD_BUY, ""));
+    EXPECT_NE(output().find(" tells you 'What do you want to buy?'"), std::string::npos) << output();
+    EXPECT_TRUE(call(CMD_BUY, "nosuchthing"));
+    EXPECT_NE(output().find(" tells you 'I don't have that. Try 'list'.'"), std::string::npos) << output();
+    EXPECT_EQ(std::string(watcher_descriptor.output), "");
+
+    m_vendor.tmpabilities.intel = 3; /* do_tell has no "too stupid to talk" */
+    EXPECT_TRUE(call(CMD_BUY, ""));
+    EXPECT_NE(output().find(" tells you 'What do you want to buy?'"), std::string::npos) << output();
+    m_vendor.tmpabilities.intel = 12;
+
+    int saved_hours = time_info.hours;
+    std::strcpy(m_options, "store=5000\nhours=6-12\nprice 100 200x2 deduct");
+    vendor_config_rebuild(0, nullptr);
+    time_info.hours = 20;
+    EXPECT_TRUE(call(CMD_BUY, "1"));
+    EXPECT_NE(output().find(" says 'I'm closed. Come back later.'"), std::string::npos) << output();
+    EXPECT_NE(std::string(watcher_descriptor.output).find(" says 'I'm closed. Come back later.'"), std::string::npos);
+    time_info.hours = saved_hours;
+    m_buyer.next_in_room = nullptr;
+}
