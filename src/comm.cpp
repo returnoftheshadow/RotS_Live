@@ -397,6 +397,24 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
     return true;
 }
 
+void seed_random_numbers(
+    std::optional<unsigned int> requested_seed, RandomSeedSource& draw_fresh_seed)
+{
+    if (requested_seed.has_value()) {
+        std::srand(*requested_seed);
+        const std::string message = "Random numbers seeded with "
+            + std::to_string(*requested_seed) + " from --random-seed.";
+        log(message.c_str());
+        return;
+    }
+
+    const unsigned int fresh_seed = draw_fresh_seed();
+    std::srand(fresh_seed);
+    const std::string message = "Random numbers seeded with " + std::to_string(fresh_seed)
+        + "; start with --random-seed " + std::to_string(fresh_seed) + " to repeat them.";
+    log(message.c_str());
+}
+
 /* extern fcnts */
 void boot_db(void);
 void string_add(struct descriptor_data* d, char* str);
@@ -462,18 +480,9 @@ void sigsegv_handler(int sig)
 #ifndef TESTING
 namespace {
 
-// Seeds the generator behind number() and dice() with requested_seed, or with a fresh seed
-// when it is empty, and logs the seed so the run's random numbers can be repeated.
-void seed_random_numbers(std::optional<unsigned int> requested_seed)
+// Returns a seed taken from the system clock, which differs from one boot to the next.
+unsigned int draw_clock_seed()
 {
-    if (requested_seed.has_value()) {
-        std::srand(*requested_seed);
-        const std::string message = "Random numbers seeded with "
-            + std::to_string(*requested_seed) + " from --random-seed.";
-        log(message.c_str());
-        return;
-    }
-
     // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
     // std::rand needs only to differ between boots. Folding the high half into the low half keeps
     // the fast-changing nanoseconds and the date in the 32 bits std::srand takes.
@@ -482,11 +491,7 @@ void seed_random_numbers(std::optional<unsigned int> requested_seed)
     const std::uint64_t nanoseconds = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch).count());
     static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
-    const unsigned int fresh_seed = static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
-    std::srand(fresh_seed);
-    const std::string message = "Random numbers seeded with " + std::to_string(fresh_seed)
-        + "; start with --random-seed " + std::to_string(fresh_seed) + " to repeat them.";
-    log(message.c_str());
+    return static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
 }
 
 } // namespace
@@ -552,7 +557,7 @@ int main(int argc, char** argv)
     // Open command log
     system("mv -f last_cmds crash_cmds");
     fpCommand = fopen("last_cmds", "w");
-    seed_random_numbers(startup_options.random_seed);
+    seed_random_numbers(startup_options.random_seed, draw_clock_seed);
     run_the_game(startup_options.port);
     return (0);
 }

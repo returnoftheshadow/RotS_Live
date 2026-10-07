@@ -13,8 +13,10 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -390,6 +392,80 @@ TEST(StartupOptions, TakesARandomSeedAmongOtherOptions)
     EXPECT_EQ(options.port, 4000);
     ASSERT_TRUE(options.random_seed.has_value());
     EXPECT_EQ(*options.random_seed, 7u);
+}
+
+// The seed the fake seed source hands out, distinct from every seed a test requests.
+constexpr unsigned int FAKE_FRESH_SEED = 424242u;
+// How many std::rand results a test compares after seeding.
+constexpr int RANDOM_NUMBERS_COMPARED = 5;
+// How many times the fake seed source has been asked for a seed.
+int fake_seed_draws = 0;
+
+unsigned int draw_fake_fresh_seed()
+{
+    ++fake_seed_draws;
+    return FAKE_FRESH_SEED;
+}
+
+// Returns the next RANDOM_NUMBERS_COMPARED results of std::rand.
+std::vector<int> next_random_numbers()
+{
+    std::vector<int> numbers;
+    numbers.reserve(RANDOM_NUMBERS_COMPARED);
+    for (int index = 0; index < RANDOM_NUMBERS_COMPARED; ++index) {
+        numbers.push_back(std::rand());
+    }
+    return numbers;
+}
+
+// Clears the fake seed source's count before each test and afterwards reseeds std::rand with 1,
+// which the C standard makes the sequence a process starts with, so one test's seeding cannot
+// change the random numbers a later test sees.
+class RandomSeedTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        fake_seed_draws = 0;
+    }
+
+    void TearDown() override
+    {
+        std::srand(1);
+    }
+};
+
+TEST_F(RandomSeedTest, SeedsAndLogsTheRequestedSeed)
+{
+    const unsigned int requested_seed = 12345u;
+    std::srand(requested_seed);
+    const std::vector<int> expected_numbers = next_random_numbers();
+
+    testing::internal::CaptureStderr();
+    seed_random_numbers(requested_seed, draw_fake_fresh_seed);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(next_random_numbers(), expected_numbers);
+    EXPECT_EQ(fake_seed_draws, 0);
+    const std::string expected_line
+        = "Random numbers seeded with " + std::to_string(requested_seed) + " from --random-seed.";
+    EXPECT_NE(log_text.find(expected_line), std::string::npos) << log_text;
+}
+
+TEST_F(RandomSeedTest, SeedsAndLogsAFreshSeedWhenNoneIsRequested)
+{
+    std::srand(FAKE_FRESH_SEED);
+    const std::vector<int> expected_numbers = next_random_numbers();
+
+    testing::internal::CaptureStderr();
+    seed_random_numbers(std::nullopt, draw_fake_fresh_seed);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(next_random_numbers(), expected_numbers);
+    EXPECT_EQ(fake_seed_draws, 1);
+    const std::string fresh_seed_text = std::to_string(FAKE_FRESH_SEED);
+    const std::string expected_line = "Random numbers seeded with " + fresh_seed_text
+        + "; start with --random-seed " + fresh_seed_text + " to repeat them.";
+    EXPECT_NE(log_text.find(expected_line), std::string::npos) << log_text;
 }
 
 TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)
