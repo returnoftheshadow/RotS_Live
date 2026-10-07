@@ -1,0 +1,39 @@
+#1130
+harness token~
+a harness token~
+A small harness token lies here.~
+~
+12 0 1
+0 0 0 0 0
+1 0 0
+0 0 0 0 0
+#1136
+bag leather~
+a leather bag~
+A leather bag lies here.~
+~
+15 0 1
+3000 0 -1 0 0
+30 30 -1
+0 0 2 0 0
+#1137
+cap leather~
+a leather cap~
+A leather cap lies here.~
+~
+9 0 17
+0 0 0 0 0
+45 60 -1
+0 0 2 0 0
+#1138
+amulet sickly~
+a sickly amulet~
+A sickly green amulet lies here.~
+~
+11 0 5
+0 0 0 0 0
+5 10 -1
+0 0 2 0 0
+A
+28 11
+#99999
