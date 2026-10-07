@@ -268,6 +268,7 @@ TEST(StartupOptions, AcceptsCompactDashPPortForm)
 TEST(StartupOptions, HasNoRandomSeedWhenNoneIsGiven)
 {
     StartupOptions options {};
+    options.random_seed = 99u;
     std::string error_message;
     std::vector<std::string> args = { "ageland", "4000" };
     std::vector<char*> argv = build_argv(&args);
@@ -336,7 +337,8 @@ TEST(StartupOptions, RefusesARandomSeedTooLargeForAnUnsignedInt)
 
 TEST(StartupOptions, RefusesARandomSeedWithASignOrOtherCharacters)
 {
-    constexpr std::string_view malformed_seeds[] = { "-5", "+5", "12abc", " 7", "0x10" };
+    constexpr std::string_view malformed_seeds[]
+        = { "-5", "+5", "12abc", " 7", "0x10", "99999999999abc" };
     for (const std::string_view malformed_seed : malformed_seeds) {
         StartupOptions options {};
         std::string error_message;

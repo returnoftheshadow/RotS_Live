@@ -158,17 +158,18 @@ bool parse_random_seed_value(
     unsigned int parsed_seed = 0;
     const char* const text_end = text.data() + text.size();
     const std::from_chars_result result = std::from_chars(text.data(), text_end, parsed_seed);
+    // Characters after the digits make the value illegal even when the digits overflow.
+    if (result.ptr != text_end || result.ec == std::errc::invalid_argument) {
+        if (error_message) {
+            *error_message
+                = "Illegal random seed " + std::string(text) + "; use a whole number with no sign.";
+        }
+        return false;
+    }
     if (result.ec == std::errc::result_out_of_range) {
         if (error_message) {
             *error_message = "Random seed " + std::string(text) + " is too large; the largest is "
                 + std::to_string(std::numeric_limits<unsigned int>::max()) + ".";
-        }
-        return false;
-    }
-    if (result.ec != std::errc() || result.ptr != text_end) {
-        if (error_message) {
-            *error_message
-                = "Illegal random seed " + std::string(text) + "; use a whole number with no sign.";
         }
         return false;
     }
