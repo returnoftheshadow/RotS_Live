@@ -11,6 +11,7 @@
 #ifndef COMM_H
 #define COMM_H
 
+#include <optional>
 #include <string>
 #include <stdarg.h>
 
@@ -25,6 +26,8 @@ struct StartupOptions {
     bool restrict_game;
     bool no_specials;
     bool has_proxy;
+    // The seed given with --random-seed; empty when the server draws its own at boot.
+    std::optional<unsigned int> random_seed;
 };
 
 /* comm.c */

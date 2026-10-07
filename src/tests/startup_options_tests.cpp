@@ -14,7 +14,9 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -259,6 +261,135 @@ TEST(StartupOptions, AcceptsCompactDashPPortForm)
 
     EXPECT_EQ(options.port, 3791);
     EXPECT_FALSE(options.has_proxy);
+}
+
+TEST(StartupOptions, HasNoRandomSeedWhenNoneIsGiven)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "4000" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_FALSE(options.random_seed.has_value());
+}
+
+TEST(StartupOptions, TakesTheRandomSeedFromTheNextArgument)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed", "20261007" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, 20261007u);
+}
+
+TEST(StartupOptions, TakesTheRandomSeedAfterAnEqualsSign)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed=42" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, 42u);
+}
+
+TEST(StartupOptions, AcceptsTheLargestUnsignedRandomSeed)
+{
+    const unsigned int largest_seed = std::numeric_limits<unsigned int>::max();
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed", std::to_string(largest_seed) };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, largest_seed);
+}
+
+TEST(StartupOptions, RefusesARandomSeedTooLargeForAnUnsignedInt)
+{
+    const unsigned long long one_past_largest
+        = static_cast<unsigned long long>(std::numeric_limits<unsigned int>::max()) + 1;
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed", std::to_string(one_past_largest) };
+    std::vector<char*> argv = build_argv(&args);
+
+    EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message));
+    EXPECT_NE(error_message.find("too large"), std::string::npos) << error_message;
+}
+
+TEST(StartupOptions, RefusesARandomSeedWithASignOrOtherCharacters)
+{
+    constexpr std::string_view malformed_seeds[] = { "-5", "+5", "12abc", " 7", "0x10" };
+    for (const std::string_view malformed_seed : malformed_seeds) {
+        StartupOptions options {};
+        std::string error_message;
+        std::vector<std::string> args = { "ageland", "--random-seed", std::string(malformed_seed) };
+        std::vector<char*> argv = build_argv(&args);
+
+        EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+            << "seed '" << malformed_seed << "'";
+        EXPECT_NE(error_message.find("Illegal random seed"), std::string::npos) << error_message;
+    }
+}
+
+TEST(StartupOptions, RefusesARandomSeedOptionWithNoValue)
+{
+    const std::vector<std::vector<std::string>> argument_lists = {
+        { "ageland", "--random-seed" },
+        { "ageland", "--random-seed=" },
+    };
+    for (const std::vector<std::string>& argument_list : argument_lists) {
+        StartupOptions options {};
+        std::string error_message;
+        std::vector<std::string> args = argument_list;
+        std::vector<char*> argv = build_argv(&args);
+
+        EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+            << args.back();
+        EXPECT_NE(error_message.find("Random seed expected"), std::string::npos) << error_message;
+    }
+}
+
+TEST(StartupOptions, RefusesAnUnknownLongOption)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--no-such-option", "4000" };
+    std::vector<char*> argv = build_argv(&args);
+
+    EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message));
+    EXPECT_NE(error_message.find("--no-such-option"), std::string::npos) << error_message;
+}
+
+TEST(StartupOptions, TakesARandomSeedAmongOtherOptions)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-d", "lib", "--random-seed", "7", "-p", "4000" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_EQ(options.dir, "lib");
+    EXPECT_EQ(options.port, 4000);
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, 7u);
 }
 
 TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)

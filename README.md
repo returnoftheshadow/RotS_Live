@@ -351,6 +351,14 @@ If you want the game to expect the Rust proxy header, use the explicit proxy fla
 ./bin/ageland -x 3791
 ```
 
+Each start logs the seed its random numbers began from, such as `Random numbers seeded with 2915577`. To start from the same seed again, pass it with `--random-seed`:
+
+```bash
+./bin/ageland --random-seed 2915577 -p 3791
+```
+
+The dice then come out the same only when the same commands arrive at the same moments, so this mostly helps automated tests and reproducing a bug.
+
 ## Contributing
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.MD) for details on our code of
