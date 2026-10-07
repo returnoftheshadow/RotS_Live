@@ -403,6 +403,7 @@ constexpr int RANDOM_NUMBERS_COMPARED = 5;
 // How many times the fake seed source has been asked for a seed.
 int fake_seed_draws = 0;
 
+// Counts the draw in fake_seed_draws and returns FAKE_FRESH_SEED.
 unsigned int draw_fake_fresh_seed()
 {
     ++fake_seed_draws;

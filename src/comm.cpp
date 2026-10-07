@@ -144,31 +144,32 @@ bool parse_port_value(const char* text, sh_int* port, std::string* error_message
 constexpr std::string_view RANDOM_SEED_OPTION = "random-seed";
 
 // Reads a --random-seed value: decimal digits only, from 0 to the largest unsigned int. On
-// failure it leaves out_seed unchanged and, when error_message is not null, says why.
+// failure it leaves out_seed unchanged and, when out_error_message is not null, says why.
 bool parse_random_seed_value(
-    std::string_view text, unsigned int& out_seed, std::string* error_message)
+    std::string_view text, unsigned int& out_seed, std::string* out_error_message)
 {
     if (text.empty()) {
-        if (error_message) {
-            *error_message = "Random seed expected after option --random-seed.";
+        if (out_error_message) {
+            *out_error_message = "Random seed expected after option --random-seed.";
         }
         return false;
     }
 
     unsigned int parsed_seed = 0;
     const char* const text_end = text.data() + text.size();
-    const std::from_chars_result result = std::from_chars(text.data(), text_end, parsed_seed);
+    const std::from_chars_result parse_result = std::from_chars(text.data(), text_end, parsed_seed);
     // Characters after the digits make the value illegal even when the digits overflow.
-    if (result.ptr != text_end || result.ec == std::errc::invalid_argument) {
-        if (error_message) {
-            *error_message
+    if (parse_result.ptr != text_end || parse_result.ec == std::errc::invalid_argument) {
+        if (out_error_message) {
+            *out_error_message
                 = "Illegal random seed " + std::string(text) + "; use a whole number with no sign.";
         }
         return false;
     }
-    if (result.ec == std::errc::result_out_of_range) {
-        if (error_message) {
-            *error_message = "Random seed " + std::string(text) + " is too large; the largest is "
+    if (parse_result.ec == std::errc::result_out_of_range) {
+        if (out_error_message) {
+            *out_error_message = "Random seed " + std::string(text)
+                + " is too large; the largest is "
                 + std::to_string(std::numeric_limits<unsigned int>::max()) + ".";
         }
         return false;
@@ -487,10 +488,11 @@ unsigned int draw_clock_seed()
     // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
     // std::rand needs only to differ between boots. Folding the high half into the low half keeps
     // the fast-changing nanoseconds and the date in the 32 bits std::srand takes.
-    const std::chrono::system_clock::duration since_epoch
-        = std::chrono::system_clock::now().time_since_epoch();
-    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch).count());
+    const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    const std::chrono::system_clock::duration since_epoch = now.time_since_epoch();
+    const std::chrono::nanoseconds nanoseconds_since_epoch
+        = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch);
+    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(nanoseconds_since_epoch.count());
     static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
     return static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
 }
