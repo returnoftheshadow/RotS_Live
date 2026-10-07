@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -738,10 +739,25 @@ TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
 
 namespace {
 
+// An idnum far outside the 16-bit range.
+constexpr long kWideVictimIdnum = 1010009060L;
+
+// kWideVictimIdnum's low 16 bits read as a signed short: what a legacy record holds for it.
+constexpr long kWideVictimIdnumNarrowed = -31772L;
+
+// Size of one record in the legacy exploits/ file format.
+constexpr std::size_t kLegacyExploitRecordSize = 80;
+
 // Account reader for the faked account cache: "alpha-admin" owns only "aragorn" and has no
 // explicit character links, so every account-owned path resolves without a directory scan.
-bool fake_wide_id_account_reader(const std::string&, const std::string& account_name, account::AccountData* out_account, std::string* error_message)
+// A null `out_account` is reported as a test failure and returns false.
+bool fake_account_reader(const std::string&, const std::string& account_name, account::AccountData* out_account, std::string* error_message)
 {
+    if (out_account == nullptr) {
+        ADD_FAILURE() << "the account reader was given no output account";
+        return false;
+    }
+
     if (account_name != "alpha-admin") {
         if (error_message != nullptr) {
             *error_message = "unexpected account '" + account_name + "'";
@@ -758,9 +774,15 @@ bool fake_wide_id_account_reader(const std::string&, const std::string& account_
 }
 
 // Owner resolver for the faked account cache: "aragorn" belongs to "alpha-admin"; every other
-// character is unowned.
-bool fake_wide_id_owner_resolver(const std::string&, const std::string& character_name, std::string* out_owner_account_name, std::string*)
+// character is unowned. A null `out_owner_account_name` is reported as a test failure and
+// returns false.
+bool fake_owner_resolver(const std::string&, const std::string& character_name, std::string* out_owner_account_name, std::string*)
 {
+    if (out_owner_account_name == nullptr) {
+        ADD_FAILURE() << "the owner resolver was given no output owner name";
+        return false;
+    }
+
     if (character_name == "aragorn") {
         *out_owner_account_name = "alpha-admin";
     } else {
@@ -776,7 +798,7 @@ public:
     ScopedFakeAccountResolvers()
     {
         account_cache::invalidate_all();
-        account_cache::set_backing_resolvers_for_testing(fake_wide_id_account_reader, fake_wide_id_owner_resolver);
+        account_cache::set_backing_resolvers_for_testing(fake_account_reader, fake_owner_resolver);
         account_cache::set_enabled(true);
     }
 
@@ -863,8 +885,7 @@ TEST(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
     ASSERT_FALSE(temp_directory.path().empty());
     ScopedFakeAccountResolvers faked_resolvers;
 
-    constexpr long kWideVictimIdnum = 1010009060L;
-    const std::string wide_victim_id_json = "\"victim_id\": 1010009060,";
+    const std::string wide_victim_id_json = "\"victim_id\": " + std::to_string(kWideVictimIdnum) + ",";
     exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
     trophy.lVictimID = kWideVictimIdnum;
     std::vector<exploit_record> initial_records;
@@ -893,9 +914,6 @@ namespace {
 
 // A character the faked owner resolver treats as linked to no account.
 constexpr const char* kUnlinkedCharacter = "boromir";
-
-// Size of one record in the legacy exploits/ file format.
-constexpr std::uintmax_t kLegacyExploitRecordSize = 80;
 
 // Writes `contents` as the whole file at `path`, creating its parent directories. Returns false,
 // with a test failure reported, when the file cannot be written.
@@ -952,21 +970,21 @@ TEST(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
     ScopedFakeAccountResolvers faked_resolvers;
 
     exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
-    trophy.lVictimID = 1010009060L;
+    trophy.lVictimID = kWideVictimIdnum;
     const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
     ASSERT_TRUE(write_whole_binary_file(legacy_path, legacy_exploit_bytes({ trophy })));
 
     std::string error_message;
     const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:30:00 2026", "", 31, 0, 31);
     ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), kUnlinkedCharacter, level_record, &error_message)) << error_message;
-    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(2 * kLegacyExploitRecordSize));
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(2 * kLegacyExploitRecordSize)));
 
     std::vector<exploit_record> records;
     ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
     ASSERT_EQ(records.size(), 2u);
     EXPECT_EQ(records[0].type, EXPLOIT_LEVEL) << "new records go to the front";
     EXPECT_EQ(records[1].type, EXPLOIT_PK);
-    EXPECT_EQ(records[1].lVictimID, -31772L) << "a legacy file keeps only the low 16 bits of an id";
+    EXPECT_EQ(records[1].lVictimID, kWideVictimIdnumNarrowed) << "a legacy file keeps only the low 16 bits of an id";
     EXPECT_TRUE(file_size_if_present(legacy_path).has_value()) << "loading keeps a valid legacy file";
 }
 
@@ -987,7 +1005,7 @@ TEST(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
     EXPECT_EQ(records[0].type, EXPLOIT_LEVEL);
     EXPECT_STREQ(records[0].chtime, "Mon Jan  1 00:00:00 2024");
     EXPECT_EQ(records[0].iIntParam, 20);
-    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(kLegacyExploitRecordSize));
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(kLegacyExploitRecordSize)));
 }
 
 TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
@@ -1012,7 +1030,8 @@ TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
     EXPECT_FALSE(file_size_if_present(legacy_path).has_value()) << "the malformed file is removed";
     EXPECT_NE(logged.find("SYSERR"), std::string::npos) << logged;
     EXPECT_NE(logged.find(kUnlinkedCharacter), std::string::npos) << logged;
-    EXPECT_NE(logged.find("81 bytes"), std::string::npos) << logged;
+    const std::string logged_size = std::to_string(kLegacyExploitRecordSize + 1) + " bytes";
+    EXPECT_NE(logged.find(logged_size), std::string::npos) << logged;
 }
 
 TEST(DbLoader, LoadsAnEmptyLegacyFileAsAnEmptyHistoryAndKeepsIt)

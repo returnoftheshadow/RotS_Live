@@ -4878,8 +4878,7 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
     if (!read_binary_file_contents(runtime_path, &bytes, error_message))
         return false;
 
-    std::string decode_error;
-    if (exploits_json::exploit_records_from_binary(bytes, records, &decode_error)) {
+    if (exploits_json::exploit_records_from_binary(bytes, records, nullptr)) {
         set_db_error(error_message, "");
         return true;
     }
