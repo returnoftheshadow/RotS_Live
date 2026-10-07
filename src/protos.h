@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 
+#include <string>
+
 #include "db.h" /* For the reset_com structure */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 
@@ -247,5 +249,22 @@ void shape_range_footer(int start, int end, char* out);
 int shape_list_begin(struct char_data* ch);
 bool shape_list_fits(struct char_data* ch, const char* line, const char* footer, int* wrapped);
 void shape_list_finish(struct char_data* ch, const char* footer, bool cut);
+
+/*
+ * Section rows, shared by the zone and script editors (shapemob.cpp).  A
+ * section does nothing when the zone resets or the script runs: it is a
+ * title for the list, with an optional comment, kept in the row's one text
+ * field as "title | comment".
+ */
+#define SHAPE_LIST_WIDTH 78 /* a list line, under the 79-column screen */
+#define SHAPE_SECTION_TITLE_MAX 66 /* fits every list row up to number 999 */
+#define SHAPE_SECTION_TITLE 0
+#define SHAPE_SECTION_COMMENT 1
+std::string shape_section_title(const char* text);
+std::string shape_section_comment(const char* text);
+std::string shape_section_banner(const char* title, int width);
+const char* shape_section_set(char** text, int part, const char* typed);
+void shape_section_prompt(char* out, size_t outsz, const char* text, int part);
+void shape_section_show(char* out, size_t outsz, const char* label, const char* text, int lead, int comment_indent);
 
 #endif /* PROTOS_H */

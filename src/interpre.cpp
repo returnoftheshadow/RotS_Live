@@ -23,10 +23,12 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "game_boot_options.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
 #include "mail.h"
+#include "mob_progs/banker.h"
 #include "mob_csv_extract.h"
 #include "pkill.h"
 #include "profs.h"
@@ -62,6 +64,7 @@ extern struct player_index_element* player_table;
 extern struct char_data* character_list;
 extern struct descriptor_data* descriptor_list;
 extern struct index_data* mob_index;
+extern int top_of_mobt;
 extern struct index_data* obj_index;
 extern struct room_data world;
 
@@ -285,7 +288,6 @@ ACMD(do_retire);
 ACMD(do_top);
 ACMD(do_account);
 ACMD(do_whoacct);
-ACMD(do_linkaccount);
 ACMD(do_grouproll);
 ACMD(do_shoot);
 ACMD(do_rend);
@@ -535,7 +537,7 @@ const char* command[] = {
     "trophy",
     "trap", /* "trap",   */
     "account", /* 221 */
-    "linkaccount",
+    "", /* 222: was linkaccount, removed (no way into the game without an account) */
     "whoacct",
     "obj2html",
     "delete",
@@ -566,6 +568,8 @@ const char* command[] = {
     "", /* 250: reserved for harness, PR #309 */
     "debug",
     "unprotect", // 252
+    "vault",
+    "gameoptions", // 254
     "\n"
 };
 
@@ -669,6 +673,13 @@ void report_wrong_position(struct char_data* ch)
         send_to_char("No way!  You're fighting for your life!\n\r", ch);
         break;
     }
+}
+
+void target_data::set_character(struct char_data* ch)
+{
+    ptr.ch = ch;
+    ch_num = ch ? ch->abs_number : -1;
+    type = TARGET_CHAR;
 }
 
 void target_data::cleanup()
@@ -1579,7 +1590,7 @@ int activate_char_special(char_data* character, char_data* victim, int cmd, char
 {
     special_func tmp_func;
 
-    if (IS_MOB(character)) {
+    if (IS_MOB(character) && mob_index && character->nr <= top_of_mobt) { /* a mob with no index entry has no program */
         tmp_func = mob_index[character->nr].func;
         if (tmp_func && (IS_SET(character->specials2.act, MOB_SPEC) && !no_specials)) {
             if (tmp_func(character, victim, cmd, argument, callflag, wait_data)) {
@@ -1674,6 +1685,12 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
 
         case TARGET_CHAR:
             tmpch = wtl->targ1.ptr.ch;
+            /* ch_num guards a target parsed earlier that may have died since.
+             * Every caller that passes a character sets it. The SPECIAL_DAMAGE
+             * callers (fight.cpp, clerics.cpp) once left it at the
+             * constructor's 0, so the test was "does character 0 exist": once
+             * the first mob loaded at boot was gone, no shopkeeper, vendor or
+             * banker was asked and all of them could be attacked. */
             if (!char_exists(wtl->targ1.ch_num))
                 break;
             if (activate_char_special(tmpch, ch, cmd, arg, callflag, wtl, in_room))
@@ -2193,8 +2210,6 @@ void assign_command_pointers(void)
         CMD_MASK_NO_UNHIDE);
     COMMANDO(221, POSITION_DEAD, do_account, LEVEL_GRGOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
-    COMMANDO(222, POSITION_DEAD, do_linkaccount, 0, FALSE, 0,
-        FULL_TARGET, FULL_TARGET, CMD_MASK_NO_UNHIDE);
     COMMANDO(223, POSITION_DEAD, do_whoacct, LEVEL_GRGOD, FALSE, 0,
         FULL_TARGET, FULL_TARGET, 0);
     COMMANDO(224, POSITION_DEAD, do_obj2html, LEVEL_GRGOD, FALSE, 0,
@@ -2253,6 +2268,10 @@ void assign_command_pointers(void)
         TAR_NONE_OK, TAR_IGNORE, 0);
     COMMANDO(252, POSITION_STANDING, do_unprotect, 0, TRUE, 0,
         FULL_TARGET, TAR_IGNORE, 0);
+    COMMANDO(253, POSITION_DEAD, do_vault, LEVEL_GRGOD, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, 0);
+    COMMANDO(254, POSITION_DEAD, do_gameoptions, LEVEL_IMPL, FALSE, 0,
+        FULL_TARGET, FULL_TARGET, 0);
 }
 
 /* *************************************************************************
@@ -3674,62 +3693,6 @@ void nanny(struct descriptor_data* d, char* arg)
             complete_existing_character_login(d, load_result);
         }
         break;
-    case CON_ACCTLINKPWD: /* get password for in-game account linking */
-        echo_on(d->descriptor);
-
-        for (; isspace(*arg); arg++)
-            continue;
-
-        if (!*arg) {
-            SEND_TO_Q("Account linking cancelled.\n\r", d);
-            clear_account_login_state(d);
-            STATE(d) = CON_PLYNG;
-            return;
-        } else {
-            account::AccountData account_data;
-            account::CharacterMigrationData migration;
-            std::string error_message;
-
-            if (!account::link_and_migrate_character(kAccountStorageRoot, d->account_name, arg, GET_NAME(d->character), time(0), &account_data, &migration, &error_message)) {
-                // The success case below has always mudlogged. The failure case told the player and
-                // nobody else -- no log, no mudlog -- so a conversion that cannot complete was
-                // invisible unless the player thought to report it. That is the wrong way round:
-                // this is the one-way door onto the account system, and a character that will not
-                // convert is stuck outside it. It is not hypothetical either -- a legacy character
-                // whose description exceeds 511 bytes fails load_char outright, and there are
-                // hundreds of those on live.
-                account_errors::record(account_errors::Source::Migration, d->account_name,
-                    GET_NAME(d->character), error_message);
-                SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                clear_account_login_state(d);
-                STATE(d) = CON_PLYNG;
-                return;
-            }
-
-            vmudlog(BRF, "%s linked character %s to account %s", GET_NAME(d->character), GET_NAME(d->character), account_data.account_name.c_str());
-            const std::string success_message = "Successfully added "
-                + format_account_character_name_for_display(GET_NAME(d->character))
-                + " to your account.\n\r";
-            SEND_TO_Q(success_message.c_str(), d);
-            ppc_apply_account_to_character(account_data.account_name.c_str(), d->character);
-            /* Unlike every other caller of clear_account_login_state, this one hands the
-               descriptor straight back to CON_PLYNG instead of ending or restarting the
-               session, so the login scratch state (email, password, pending character name)
-               must go but the account identity must not: from here on this descriptor really
-               is an authenticated session of that account, and every account-level path keyed
-               off d->account_name -- PPC propagation, the live-sibling lookup, the account
-               menu's active-session scan -- reads an empty name as "not an account session".
-               save_char meanwhile resolves the owning account from the character-link index,
-               not from this field, so it keeps writing the account regardless. Leaving the
-               name cleared is what makes two characters of one account write each other's
-               settings back and forth on alternating autosaves, each write also flushing the
-               global account cache. Restore it, the way every other route into CON_PLYNG
-               leaves it populated. */
-            clear_account_login_state(d);
-            set_account_login_name(d, account_data.account_name);
-            STATE(d) = CON_PLYNG;
-        }
-        break;
     case CON_ACCTNEWCNF:
         for (; isspace(*arg); arg++)
             continue;
@@ -3949,7 +3912,7 @@ void nanny(struct descriptor_data* d, char* arg)
             account::CharacterMigrationData migration;
             std::string error_message;
             if (!account::admin_link_and_migrate_character(kAccountStorageRoot, d->account_name, legacy_name, time(0), &account_data, &migration, &error_message)) {
-                // Same reasoning as the in-game link path above: this is the one-way door onto
+                // A failure here is logged, not only shown to the player: this is the one-way door onto
                 // account storage, and a character that will not convert is stuck outside it.
                 // Telling only the player made that invisible -- and this is the path a returning
                 // player uses for a character that has been sitting in players/ for decades.

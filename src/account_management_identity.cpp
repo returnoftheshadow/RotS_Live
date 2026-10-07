@@ -1583,16 +1583,3 @@ bool admin_delete_linked_character(const std::string& root_directory, const std:
     return true;
 }
 
-bool link_and_migrate_character(const std::string& root_directory, const std::string& account_name, const std::string& password, const std::string& character_name, long updated_at, AccountData* account, CharacterMigrationData* migration, std::string* error_message)
-{
-    if (!validate_identifier_for_path(account_name, "Account name", error_message))
-        return false;
-    if (!is_valid_character_name(character_name, error_message))
-        return false;
-
-    AccountData authenticated_account;
-    if (!authenticate_account(root_directory, account_name, password, &authenticated_account, error_message))
-        return false;
-
-    return admin_link_and_migrate_character(root_directory, account_name, character_name, updated_at, account, migration, error_message);
-}

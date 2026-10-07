@@ -1084,7 +1084,7 @@ TEST(ActWiz, WhoAcctFormatsLongFieldsIntoStableColumns)
 
     descriptor_data linking_descriptor {};
     linking_descriptor.desc_num = 41;
-    linking_descriptor.connected = CON_ACCTLINKPWD;
+    linking_descriptor.connected = CON_ACCTLINKNAME;
     std::snprintf(linking_descriptor.account_name, sizeof(linking_descriptor.account_name), "%s", "acct-one");
     std::snprintf(linking_descriptor.account_email, sizeof(linking_descriptor.account_email), "%s",
         "verylongplayeremailaddress@example.com");

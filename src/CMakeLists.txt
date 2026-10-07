@@ -121,6 +121,8 @@ set(ROTS_SERVER_SOURCES
     mob_csv_extract.cpp
     mob_options.cpp
     mob_progs/shopkeeper.cpp
+    mob_progs/banker.cpp
+    game_boot_options.cpp
     mobact.cpp
     modify.cpp
     mudlle.cpp
@@ -163,6 +165,8 @@ set(ROTS_SERVER_SOURCES
 
 set(ROTS_TEST_SOURCES
     tests/barter_vendor_tests.cpp
+    tests/banker_tests.cpp
+    tests/game_boot_options_tests.cpp
     tests/resistance_tests.cpp
     tests/resist_item_slot_tests.cpp
     tests/battle_mage_handler_tests.cpp
@@ -208,6 +212,7 @@ set(ROTS_TEST_SOURCES
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
+    tests/shape_section_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
     tests/negative_room_report_tests.cpp

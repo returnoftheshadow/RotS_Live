@@ -117,4 +117,21 @@ TEST(LoadZones, ALongCommentDoesNotBecomeAPhantomCommand)
     EXPECT_EQ(200, z.zone().cmd[1].arg1);
 }
 
+/* A section row: '=' and then text, no numbers.  It loads as a command of
+ * its own with every number zero, whatever its title starts with. */
+TEST(LoadZones, ASectionRowIsACommandWithNoNumbers)
+{
+    LoadedZone z(zone_file("M 0 100 9001 0 100 100 1 1 a mob\r\n"
+                           "= 3 goblins and 4 wargs | the camp\r\n"
+        + kNextLine));
+    ASSERT_EQ(3, z.zone().cmdno);
+    EXPECT_EQ('M', z.zone().cmd[0].command);
+    EXPECT_EQ('=', z.zone().cmd[1].command);
+    EXPECT_EQ(0, z.zone().cmd[1].if_flag);
+    EXPECT_EQ(0, z.zone().cmd[1].arg1);
+    EXPECT_EQ(0, z.zone().cmd[1].arg7);
+    EXPECT_EQ('O', z.zone().cmd[2].command);
+    EXPECT_EQ(200, z.zone().cmd[2].arg1);
+}
+
 } // namespace

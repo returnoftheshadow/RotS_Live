@@ -64,6 +64,9 @@ int command_room(struct reset_com* com)
         else
             rom = shapezone_lastroom;
         break;
+    case '=': /* a section sits with the command before it */
+        rom = shapezone_lastroom;
+        break;
     default:
         rom = 0;
         break;
@@ -114,10 +117,13 @@ void renum_rooms(struct zone_tree* com)
     }
 }
 
-void show_command(char* str, struct zone_tree* zon)
+/* lead is how much the caller already put on the line ("Curr: "); only a
+ * section's title row, which fills the line, needs to know. */
+void show_command(char* str, struct zone_tree* zon, int lead = 0)
 {
     struct reset_com* com;
     char tmpc;
+    char label[16];
 
     com = &(zon->comm);
 
@@ -247,6 +253,13 @@ void show_command(char* str, struct zone_tree* zon)
         sprintf(str, "%3d *%s\n\r", zon->number, zon->comment);
         break;
 
+    case '=': /* section: a title and comment for the list, does nothing */
+        sprintf(label, "%3d ", zon->number);
+        /* Every caller's buffer holds MAX_STRING_LENGTH or more; lead is the
+         * part of it the caller has used. */
+        shape_section_show(str, MAX_STRING_LENGTH - lead, label, zon->comment, lead, 2);
+        break;
+
     case 'L': /* set last_mob or last_obj */
         sprintf(str, "%3d L:: Load_flg(%d) Mode:%d Room:%d Mob/Obj:%d Num:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
@@ -282,6 +295,11 @@ void write_command(FILE* f, struct zone_tree* zon)
     if (comm_char == '*') {
         /* A disabled row or a note: its text goes back exactly as read. */
         fprintf(f, "*%s\n", zon->comment ? zon->comment : "");
+        return;
+    }
+    if (comm_char == '=') {
+        /* A section has no numbers: its title, then " | " and its comment. */
+        fprintf(f, "= %s\n", zon->comment ? zon->comment : "");
         return;
     }
     if (comm_char <= ' ')
@@ -613,54 +631,55 @@ void implement_zone(struct char_data* ch)
             continue;                                                 \
         }                                                             \
     } while (0);
-#define LINECHANGE(line, addr)                                                              \
-    do {                                                                                    \
-        if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {                           \
-            sprintf(tmpstr, "Enter line %s (blank = keep, %%q = empty):\n\r[%s]\n\r", line, \
-                (addr) ? (char*)addr : "");                                                 \
-            send_to_char(tmpstr, ch);                                                       \
-            SHAPE_ZONE(ch)                                                                  \
-                ->position                                                                  \
-                = shape_standup(ch, POSITION_SHAPING);                                      \
-            ch->specials.prompt_number = 2;                                                 \
-            SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                             \
-            shape_prompt_hint(ch);                                                          \
-            return;                                                                         \
-        } else {                                                                            \
-            str[0] = 0;                                                                     \
-            if (!sscanf(arg, "%s", str)) {                                                  \
-                SHAPE_ZONE(ch)                                                              \
-                    ->editflag                                                              \
-                    = 0;                                                                    \
-                shape_standup(ch, SHAPE_ZONE(ch)->position);                                \
-                ch->specials.prompt_number = 7;                                             \
-                REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                      \
-                break;                                                                      \
-            }                                                                               \
-        }                                                                                   \
-        if (str[0] != 0) {                                                                  \
-            if (!strcmp(str, "%q")) {                                                       \
-                send_to_char("Empty line set.\n\r", ch);                                    \
-                arg[0] = 0;                                                                 \
-            }                                                                               \
-            RELEASE(addr);                                                                  \
-            /*addr=(char *)calloc(strlen(arg)+1,1);*/                                       \
-            CREATE(addr, char, strlen(arg) + 1);                                            \
-            strcpy(addr, arg);                                                              \
-            tmp[1] = strlen(addr);                                                          \
-            for (tmp[0] = 0; tmp[0] < tmp[1]; tmp[0]++) {                                   \
-                if (addr[tmp[0]] == '#')                                                    \
-                    addr[tmp[0]] = '+';                                                     \
-                if (addr[tmp[0]] == '~')                                                    \
-                    addr[tmp[0]] = '-';                                                     \
-            }                                                                               \
-        }                                                                                   \
-        REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                              \
-        shape_standup(ch, SHAPE_ZONE(ch)->position);                                        \
-        ch->specials.prompt_number = 7;                                                     \
-        SHAPE_ZONE(ch)                                                                      \
-            ->editflag                                                                      \
-            = 0;                                                                            \
+#define LINECHANGE(line, addr)                                                                   \
+    do {                                                                                         \
+        if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {                                \
+            /* str, not tmpstr[255]: a comment can be longer than that. */                       \
+            snprintf(str, sizeof(str), "Enter line %s (blank = keep, %%q = empty):\n\r[%s]\n\r", \
+                line, (addr) ? (char*)addr : "");                                                \
+            send_to_char(str, ch);                                                               \
+            SHAPE_ZONE(ch)                                                                       \
+                ->position                                                                       \
+                = shape_standup(ch, POSITION_SHAPING);                                           \
+            ch->specials.prompt_number = 2;                                                      \
+            SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                                  \
+            shape_prompt_hint(ch);                                                               \
+            return;                                                                              \
+        } else {                                                                                 \
+            str[0] = 0;                                                                          \
+            if (!sscanf(arg, "%s", str)) {                                                       \
+                SHAPE_ZONE(ch)                                                                   \
+                    ->editflag                                                                   \
+                    = 0;                                                                         \
+                shape_standup(ch, SHAPE_ZONE(ch)->position);                                     \
+                ch->specials.prompt_number = 7;                                                  \
+                REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                           \
+                break;                                                                           \
+            }                                                                                    \
+        }                                                                                        \
+        if (str[0] != 0) {                                                                       \
+            if (!strcmp(str, "%q")) {                                                            \
+                send_to_char("Empty line set.\n\r", ch);                                         \
+                arg[0] = 0;                                                                      \
+            }                                                                                    \
+            RELEASE(addr);                                                                       \
+            /*addr=(char *)calloc(strlen(arg)+1,1);*/                                            \
+            CREATE(addr, char, strlen(arg) + 1);                                                 \
+            strcpy(addr, arg);                                                                   \
+            tmp[1] = strlen(addr);                                                               \
+            for (tmp[0] = 0; tmp[0] < tmp[1]; tmp[0]++) {                                        \
+                if (addr[tmp[0]] == '#')                                                         \
+                    addr[tmp[0]] = '+';                                                          \
+                if (addr[tmp[0]] == '~')                                                         \
+                    addr[tmp[0]] = '-';                                                          \
+            }                                                                                    \
+        }                                                                                        \
+        REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);                                   \
+        shape_standup(ch, SHAPE_ZONE(ch)->position);                                             \
+        ch->specials.prompt_number = 7;                                                          \
+        SHAPE_ZONE(ch)                                                                           \
+            ->editflag                                                                           \
+            = 0;                                                                                 \
     } while (0);
 
 #define DIGITCHANGE(line, num)                                             \
@@ -965,6 +984,8 @@ void shape_center_zone(struct char_data* ch, char* arg)
             strcpy(key, "ZONE");
         else if (SHAPE_ZONE(ch)->editflag == 4 && SHAPE_ZONE(ch)->curr)
             sprintf(key, "ZONE %c", SHAPE_ZONE(ch)->curr->comm.command);
+        else if (SHAPE_ZONE(ch)->editflag == 5 && SHAPE_ZONE(ch)->curr && SHAPE_ZONE(ch)->curr->comm.command == '=')
+            strcpy(key, "ZONE ="); /* a section's comment: the section help */
         else
             sprintf(key, "ZONE %d", SHAPE_ZONE(ch)->editflag);
         shape_prompt_help(ch, "shape", key, SHAPE_ZONE(ch)->position);
@@ -979,18 +1000,18 @@ void shape_center_zone(struct char_data* ch, char* arg)
             if (current) {
                 if (current->prev) {
                     sprintf(str, "Prev: ");
-                    show_command(str + strlen(str), current->prev);
+                    show_command(str + strlen(str), current->prev, strlen(str));
                     send_to_char(str, ch);
                 } else
                     send_to_char("No previous command.\n\r", ch);
 
                 sprintf(str, "Curr: ");
-                show_command(str + strlen(str), current);
+                show_command(str + strlen(str), current, strlen(str));
                 send_to_char(str, ch);
 
                 if (current->next) {
                     sprintf(str, "Next: ");
-                    show_command(str + strlen(str), current->next);
+                    show_command(str + strlen(str), current->next, strlen(str));
                     send_to_char(str, ch);
                 } else
                     send_to_char("No next command.\n\r", ch);
@@ -1004,7 +1025,13 @@ void shape_center_zone(struct char_data* ch, char* arg)
         case 2: /*Set mask*/
 
             if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
-                sprintf(str, "Enter list mask: letter if_flag arg1 arg2 arg3 arg4 arg5 arg6 arg7\n\r  ('*' = any):\n\r");
+                sprintf(str, "Filter the list to rows that match. Enter a command letter, then, if you\n\r"
+                             "want, if_flag and the row's numbers in order. Use * for \"any\".\n\r"
+                             "  M          every M row\n\r"
+                             "  G * 6023   every G row giving object 6023\n\r"
+                             "  =          every section\n\r"
+                             "  *          the whole list again\n\r"
+                             "Enter filter:\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
                 shape_prompt_hint(ch);
@@ -1107,7 +1134,8 @@ void shape_center_zone(struct char_data* ch, char* arg)
                              "  D  set a door open/closed/locked\n\r"
                              "  L  select an existing mob or object\n\r"
                              "  K  kit the last mob with up to 7 objects\n\r"
-                             "  A  adjust the last mob or object\n\r\n\r"
+                             "  A  adjust the last mob or object\n\r"
+                             "  =  section: a title in this list, does nothing at reset\n\r\n\r"
                              "Enter command type:\n\r");
                 send_to_char(str, ch);
                 SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
@@ -1154,6 +1182,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 case 'l':
                 case 'a':
                 case 'k':
+                case '=':
                     /* The old numbers mean other things under a new letter,
                      * so the row starts from zeros. */
                     if (SHAPE_ZONE(ch)->curr->comm.command != toupper(st1[0])) {
@@ -1183,6 +1212,26 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
 
         case 4:
+            /* A section has a title where the other commands have numbers. */
+            if (SHAPE_ZONE(ch)->curr->comm.command == '=') {
+                if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                    shape_section_prompt(str, sizeof(str), SHAPE_ZONE(ch)->curr->comment, SHAPE_SECTION_TITLE);
+                    send_to_char(str, ch);
+                    SHAPE_ZONE(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                    ch->specials.prompt_number = 2;
+                    SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    shape_prompt_hint(ch);
+                    return;
+                }
+                shape_standup(ch, SHAPE_ZONE(ch)->position);
+                ch->specials.prompt_number = 7;
+                REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                const char* note = shape_section_set(&SHAPE_ZONE(ch)->curr->comment, SHAPE_SECTION_TITLE, arg);
+                if (note)
+                    send_to_char(note, ch);
+                SHAPE_ZONE(ch)->editflag = 5;
+                break;
+            }
             /* A blank answer keeps the row's values and goes on to the comment. */
             if (IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
                 for (i = 0; arg && arg[i] && arg[i] <= ' '; i++)
@@ -1327,12 +1376,31 @@ void shape_center_zone(struct char_data* ch, char* arg)
     shape_standup(ch,SHAPE_ZONE(ch)->position);
     break;
     */
+            /* A section's comment shares the text with its title. */
+            if (SHAPE_ZONE(ch)->curr->comm.command == '=') {
+                if (!IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                    shape_section_prompt(str, sizeof(str), SHAPE_ZONE(ch)->curr->comment, SHAPE_SECTION_COMMENT);
+                    send_to_char(str, ch);
+                    SHAPE_ZONE(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                    ch->specials.prompt_number = 2;
+                    SET_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                    shape_prompt_hint(ch);
+                    return;
+                }
+                shape_standup(ch, SHAPE_ZONE(ch)->position);
+                ch->specials.prompt_number = 7;
+                REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                shape_section_set(&SHAPE_ZONE(ch)->curr->comment, SHAPE_SECTION_COMMENT, arg);
+                SHAPE_ZONE(ch)->editflag = 0;
+                break;
+            }
             LINECHANGE("COMMENT", SHAPE_ZONE(ch)->curr->comment);
             break;
         case 6: /* Choose next */
             tmpzon = SHAPE_ZONE(ch)->curr->next;
             while (tmpzon) {
-                if (!SHAPE_ZONE(ch)->cur_room || (SHAPE_ZONE(ch)->cur_room == tmpzon->room))
+                if (!SHAPE_ZONE(ch)->cur_room || (SHAPE_ZONE(ch)->cur_room == tmpzon->room)
+                    || tmpzon->comm.command == '=')
                     break;
                 tmpzon = tmpzon->next;
             }
@@ -1353,7 +1421,8 @@ void shape_center_zone(struct char_data* ch, char* arg)
 
             tmpzon = SHAPE_ZONE(ch)->curr->prev;
             while (tmpzon) {
-                if (!SHAPE_ZONE(ch)->cur_room || (SHAPE_ZONE(ch)->cur_room == tmpzon->room))
+                if (!SHAPE_ZONE(ch)->cur_room || (SHAPE_ZONE(ch)->cur_room == tmpzon->room)
+                    || tmpzon->comm.command == '=')
                     break;
                 tmpzon = tmpzon->prev;
             }
@@ -1383,7 +1452,8 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 SHAPE_ZONE(ch)
                     ->curr
                     = tmpzon;
-                if (SHAPE_ZONE(ch)->cur_room && (SHAPE_ZONE(ch)->cur_room != tmpzon->room)) {
+                if (SHAPE_ZONE(ch)->cur_room && (SHAPE_ZONE(ch)->cur_room != tmpzon->room)
+                    && tmpzon->comm.command != '=') {
                     SHAPE_ZONE(ch)
                         ->cur_room
                         = tmpzon->room;
@@ -1499,7 +1569,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
 
         case 12:
-            REALDIGCHANGE("current room vnum (0 = off)", SHAPE_ZONE(ch)->cur_room);
+            REALDIGCHANGE("room vnum to filter the list by (0 = off)", SHAPE_ZONE(ch)->cur_room);
             if (IS_SET(SHAPE_ZONE(ch)->flags, SHAPE_CURRFLAG)) {
                 REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_CURRFLAG);
                 send_to_char("The auto 'current room' mode removed.\n\r", ch);
@@ -1818,7 +1888,7 @@ void list_help_zone(struct char_data* ch)
 
     send_to_char("possible fields are:\n\r", ch);
     send_to_char("1 - show current command;\n\r", ch);
-    send_to_char("2 - set mask for list of commands;\n\r", ch);
+    send_to_char("2 - filter the list by command letter and numbers (* = whole list);\n\r", ch);
     send_to_char("3 - change current command;\n\r", ch);
     send_to_char("4 - change parameters of the current command;\n\r", ch);
     send_to_char("5 - set comment on current command;\n\r", ch);
@@ -1829,7 +1899,7 @@ void list_help_zone(struct char_data* ch)
     send_to_char("9 - remove current command;\n\r", ch);
     send_to_char("10 - insert new command after the current one;\n\r", ch);
     send_to_char("11 - insert new command before the current one;\n\r", ch);
-    send_to_char("12 - define the 'current room' option (0 to ignore);\n\r", ch);
+    send_to_char("12 - filter the list to one room's commands (0 = whole zone);\n\r", ch);
     send_to_char("13 - switch the current and the next commands;\n\r\n\r", ch);
 
     if (ch->player.level >= LEVEL_AREAGOD) {
@@ -1870,7 +1940,7 @@ void list_zone(struct char_data* ch)
     int end = SHAPE_ZONE(ch)->list_end;
     int wrapped;
 
-    sprintf(str, "Mask is: %c ", mask->command);
+    sprintf(str, "Filter is: %c ", mask->command);
     if (mask->if_flag != -1)
         sprintf(str + strlen(str), "%d ", mask->if_flag);
     else
@@ -1914,7 +1984,9 @@ void list_zone(struct char_data* ch)
         if (end > 0 && zon->number > end)
             break;
         check = shape_range_includes(start, end, zon->number);
-        if (SHAPE_ZONE(ch)->cur_room) {
+        /* Sections show under every room filter: they say what the rows
+         * around them belong to. */
+        if (SHAPE_ZONE(ch)->cur_room && zon->comm.command != '=') {
             check &= (SHAPE_ZONE(ch)->cur_room == zon->room);
             //	 printf("check=%d, comm_room=%d\n",check,zon->room);
         }
@@ -2141,6 +2213,17 @@ int load_zone(struct char_data* ch, char* arg)
             zon->comm.arg4 = tmp5;
             zon->comm.arg5 = tmp6;
             zon->comm.arg6 = zon->comm.arg7 = 0;
+        } else if (str[0] == '=') {
+            /*
+             * A section: the rest of the line is "title | comment" and there
+             * are no numbers.  It is stored tidied, so a save writes it back
+             * the same way however it was typed into the file.
+             */
+            rest = str + 1;
+            rest += read_line_rest(f);
+            std::string title = shape_section_title(rest.c_str());
+            std::string comment = shape_section_comment(rest.c_str());
+            rest = comment.empty() ? title : (title.empty() ? "| " : title + " | ") + comment;
         } else {
             tmp1 = tmp2 = tmp3 = tmp4 = tmp5 = tmp6 = 0;
             fscanf(f, "%d %d %d %d %d %d", &tmp1, &tmp2, &tmp3, &tmp4, &tmp5, &tmp6);

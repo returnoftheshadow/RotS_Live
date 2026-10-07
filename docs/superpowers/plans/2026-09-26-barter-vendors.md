@@ -1920,3 +1920,9 @@ practical, and quit test characters at the end of every script. Record results i
   (`ps -o rss`).
 - [ ] **Step 11:** Report the results to the user. **Don't push or open a PR**; the user
   manual-tests first.
+
+## After the plan: speech as the old shopkeepers (2026-10-01)
+
+This plan is the record of the first build. Since then only a refusal to serve at all still
+runs `say` (`vendor_say`); every other reply is a `tell` to the buyer (`vendor_tell`), and a
+shortfall is one tell naming every missing item. The INT 6 requirement and its warning stay. `docs/systems/barter-vendors.md` and the spec are current.

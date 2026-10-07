@@ -27,6 +27,7 @@ void badcrash(int);
 void unrestrict_game(int);
 void reread_wizlists(int);
 void Emergency_save(void);
+void bank_vaults_write_behind(); /* mob_progs/banker.cpp */
 
 int graceful_tried = 0;
 
@@ -108,6 +109,7 @@ void hupsig(int fake)
     extern SocketType mother_desc;
     log("Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...");
     Emergency_save();
+    bank_vaults_write_behind(); /* a service stop ends here, not in game_loop */
     close_sockets(mother_desc);
     exit(0); /* something more elegant should perhaps be substituted */
 }

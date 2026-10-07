@@ -331,6 +331,9 @@ struct command_info {
 #define CMD_VALUE 40
 #define CMD_LIST 41
 #define CMD_GIVE 54
+#define CMD_BALANCE 138
+#define CMD_DEPOSIT 139
+#define CMD_WITHDRAW 140
 #define CMD_CAST 66
 #define CMD_RECITE 112
 #define CMD_USE 99

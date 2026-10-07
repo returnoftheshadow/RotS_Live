@@ -6,6 +6,7 @@
 #include "../db.h"
 #include "../exploits_json.h"
 #include "../handler.h"
+#include "../mob_progs/banker.h"
 #include "../objects_json.h"
 #include "../spells.h" /* SPELL_RESIST_* for the affect-persistence tests */
 #include "../utils.h"
@@ -1818,6 +1819,68 @@ TEST(DbLoader, SavingLinkedCharacterRefreshesStalePlayerIndexToAccountNativePath
     EXPECT_EQ(stat(account_character_path.c_str(), &file_info), 0);
     EXPECT_NE(stat(account::legacy_player_file_path(".", "aragorn").c_str(), &file_info), 0)
         << "Linked account-native saves should not revive a legacy player file.";
+}
+
+/* The bank must know a save worked (bank_save_character, mob_progs/banker.cpp).
+ * save_char and Crash_crashsave return nothing; each sets its flag on the
+ * character only where its file was really written. Run for real here: the
+ * banker tests replace the saver with a stand-in. */
+TEST(DbLoader, SaveResultFlagsAreSetOnlyWhereTheFileWasWritten)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    for (const char* directory : { "accounts", "accounts/A-E", "players", "players/A-E", "plrobjs", "plrobjs/A-E" })
+        ASSERT_EQ(mkdir(directory, 0700), 0) << directory;
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    char_data character {};
+    clear_char(&character, MOB_VOID);
+    store_to_char(&stored_character, &character);
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character.desc = &descriptor;
+
+    EXPECT_FALSE(character.specials.saved_character_file);
+    EXPECT_FALSE(character.specials.saved_object_file);
+    save_char(&character, NOWHERE, 0);
+    EXPECT_TRUE(character.specials.saved_character_file);
+    EXPECT_FALSE(character.specials.saved_object_file) << "save_char does not write the object file";
+    Crash_crashsave(&character);
+    EXPECT_TRUE(character.specials.saved_object_file);
+
+    bank_set_character_saver(nullptr); /* the real saver */
+    EXPECT_TRUE(bank_save_character(&character));
+    EXPECT_FALSE(character.specials.saved_character_file) << "cleared again: nothing else reads them";
+    EXPECT_FALSE(character.specials.saved_object_file);
+
+    /* The object file can't be opened: an item move is not saved, a coin move is. */
+    ASSERT_EQ(rename("plrobjs/A-E", "plrobjs/gone"), 0);
+    EXPECT_FALSE(bank_save_character(&character));
+    EXPECT_TRUE(bank_save_character(&character, false)) << "coins live in the character file alone";
+    ASSERT_EQ(rename("plrobjs/gone", "plrobjs/A-E"), 0);
+    EXPECT_TRUE(bank_save_character(&character));
+
+    /* No connection: save_char writes nothing at all, and then the object
+     * file is left as it was too, so the two never part. */
+    ASSERT_EQ(std::remove("plrobjs/A-E/aragorn.obj"), 0);
+    character.desc = nullptr;
+    EXPECT_FALSE(bank_save_character(&character));
+    struct stat object_file {};
+    EXPECT_NE(stat("plrobjs/A-E/aragorn.obj", &object_file), 0) << "the object file was not written";
+    EXPECT_FALSE(bank_save_character(&character, false));
+    character.desc = &descriptor;
+    EXPECT_TRUE(bank_save_character(&character, false));
 }
 
 TEST(DbLoader, SavingLinkedCharacterRepairsMissingAccountNativeCharacterFileDirectly)

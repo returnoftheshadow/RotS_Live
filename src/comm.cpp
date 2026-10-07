@@ -31,6 +31,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "mob_progs/banker.h"
 #include "protocol.h"
 #include "real_time_tick_schedule.h"
 #include "script.h"
@@ -352,7 +353,6 @@ bool is_secret_input_state(int connection_state)
     case CON_PWDNEW:
     case CON_PWDNCNF:
     case CON_ACCTPWD:
-    case CON_ACCTLINKPWD:
     case CON_ACCTNEWPWD:
     case CON_ACCTNEWPWDCNF:
     case CON_ACCTRESETOLD:
@@ -1214,6 +1214,7 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
                     Crash_crashsave(ch);
                 }
             }
+            bank_vaults_write_behind(); /* a vault file a failed write left behind */
         }
     }
 }
