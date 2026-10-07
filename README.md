@@ -357,7 +357,7 @@ Each start logs the seed its random numbers began from, such as `Random numbers 
 ./bin/ageland --random-seed 2915577 -p 3791
 ```
 
-The dice then come out the same only when the same commands arrive at the same moments, so this mostly helps automated tests and reproducing a bug.
+The same seed repeats the dice only when everything else matches too: the server starts from the same `lib/` files, at the same in-game time, and gets the same commands at the same moments. The game's calendar follows the real clock, and some random draws at boot and in the weather depend on it, so a rerun on another day can still differ. This mostly helps automated tests and reproducing a bug on a copy of the game's files.
 
 ## Contributing
 
