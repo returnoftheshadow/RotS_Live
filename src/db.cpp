@@ -4878,7 +4878,13 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
     if (!read_binary_file_contents(runtime_path, &bytes, error_message))
         return false;
 
-    if (exploits_json::exploit_records_from_binary(bytes, records, nullptr)) {
+    if (bytes.size() % exploits_json::kLegacyExploitRecordSize == 0) {
+        std::string decode_error;
+        if (!exploits_json::exploit_records_from_binary(bytes, records, &decode_error)) {
+            set_db_error(error_message, "Failed to decode exploit file '" + runtime_path + "': " + decode_error);
+            return false;
+        }
+
         set_db_error(error_message, "");
         return true;
     }
@@ -5059,16 +5065,17 @@ void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
                 // If we have a killer and he's unique, add it to the exploits.
                 if (cur_killer && !IS_NPC(cur_killer) && seen_chars.insert(cur_killer).second) {
                     // only trophies for chars
-                    // CREATE A TROPHY RECORD
-                    exploitrec.type = EXPLOIT_PK;
-                    snprintf(exploitrec.chtime, sizeof(exploitrec.chtime), "%s", tmstr);
-                    exploitrec.lVictimID = GET_IDNUM(victim);
-                    snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", GET_NAME(victim));
-                    exploitrec.iVictimLevel = GET_LEVEL(victim);
-                    exploitrec.iKillerLevel = GET_LEVEL(cur_killer);
+                    // A fresh record per trophy, so no bytes of an earlier one carry over.
+                    exploit_record trophy {};
+                    trophy.type = EXPLOIT_PK;
+                    snprintf(trophy.chtime, sizeof(trophy.chtime), "%s", tmstr);
+                    trophy.lVictimID = GET_IDNUM(victim);
+                    snprintf(trophy.chVictimName, sizeof(trophy.chVictimName), "%s", GET_NAME(victim));
+                    trophy.iVictimLevel = GET_LEVEL(victim);
+                    trophy.iKillerLevel = GET_LEVEL(cur_killer);
 
                     // player to write to, structure
-                    persist_exploit_record(*cur_killer, exploitrec);
+                    persist_exploit_record(*cur_killer, trophy);
                 }
             }
         }
@@ -5088,22 +5095,25 @@ void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
                 // If we have a killer and he's unique, add it to the exploits.
                 if (cur_killer && !IS_NPC(cur_killer) && seen_chars.insert(cur_killer).second) {
                     // only trophies for chars
-                    exploitrec.type = EXPLOIT_DEATH;
-                    exploitrec.lVictimID = GET_IDNUM(cur_killer);
+                    // A fresh record per entry, so a shorter name leaves no tail of a longer one.
+                    exploit_record death_entry {};
+                    death_entry.type = EXPLOIT_DEATH;
+                    snprintf(death_entry.chtime, sizeof(death_entry.chtime), "%s", tmstr);
+                    death_entry.lVictimID = GET_IDNUM(cur_killer);
                     // killed by..
-                    snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", GET_NAME(cur_killer));
-                    exploitrec.iVictimLevel = GET_LEVEL(victim);
-                    exploitrec.iKillerLevel = GET_LEVEL(cur_killer);
+                    snprintf(death_entry.chVictimName, sizeof(death_entry.chVictimName), "%s", GET_NAME(cur_killer));
+                    death_entry.iVictimLevel = GET_LEVEL(victim);
+                    death_entry.iKillerLevel = GET_LEVEL(cur_killer);
                     // used to indicate separators between subsequent deaths.
                     if (iFirstDeath == 0) {
-                        exploitrec.iIntParam = 1;
+                        death_entry.iIntParam = 1;
                         iFirstDeath++;
                     } else {
-                        exploitrec.iIntParam = 0;
+                        death_entry.iIntParam = 0;
                     }
 
                     // player to write to, structure
-                    persist_exploit_record(*victim, exploitrec);
+                    persist_exploit_record(*victim, death_entry);
                 }
             }
         }

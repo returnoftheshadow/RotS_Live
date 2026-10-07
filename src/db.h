@@ -257,13 +257,15 @@ struct help_index_summary {
 struct exploit_record {
     int type; /* type of record */
     char chtime[30]; /* str date of death */
-    long lVictimID; /* full idnum of the victim (PK trophy) or of the killer (death record) */
+    // Idnum of the victim (PK trophy) or killer (death record). Records read from a legacy file or
+    // snapshot, or written by older servers, hold only its low 16 bits.
+    long lVictimID;
     // Victim's name (PK trophy), killer's name (death record), or the type's text payload.
     char chVictimName[30];
     int iVictimLevel; /* at time of kill */
     int iKillerLevel; /* at time of kill */
-    // Level reached (level), level at the time (stat), killer's idnum (mob death), 1 on the first
-    // entry of a death; otherwise 0.
+    // Level reached (level), level at the time (stat), -1 (mob death: the killer is an NPC, whose
+    // GET_IDNUM is -1), 1 on the first entry of a death; otherwise 0.
     int iIntParam;
 };
 // Renames a live character, moving its files. Returns 1 on success and -1 when the rename was
@@ -276,7 +278,8 @@ int rename_char(struct char_data* ch, char* newname, std::string* error_message 
 // that JSON, or without an account, the legacy file is read, and a missing file is an empty
 // history. A legacy file that is not a whole number of records is logged, removed and read as
 // empty. Returns false with `error_message` set when `records` is null, the owner cannot be
-// resolved, the account JSON exists but cannot be read, or a file cannot be read or removed.
+// resolved, the account JSON exists but cannot be read, or a file cannot be read, decoded or
+// removed.
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
 bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
 bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message = nullptr);
