@@ -138,7 +138,7 @@ void forget_crimes(struct char_data*, int);
 // longer than the record's text field are truncated. NPC and immortal victims get nothing.
 void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, char* chParam);
 // Persists one finished exploit record into `recipient`'s history.
-using ExploitRecordWriterFn = void (*)(struct char_data* recipient, struct exploit_record* record);
+using ExploitRecordWriterFn = void (*)(struct char_data& recipient, const struct exploit_record& record);
 // Test-only: routes every record add_exploit_record() finishes to `writer` instead of
 // write_exploits(), which touches disk. nullptr restores write_exploits().
 void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer);

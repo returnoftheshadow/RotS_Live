@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <limits.h>
 #include <new>
 #include <optional>
@@ -898,12 +899,17 @@ constexpr std::uintmax_t kLegacyExploitRecordSize = 80;
 
 // Writes `contents` as the whole file at `path`, creating its parent directories. Returns false,
 // with a test failure reported, when the file cannot be written.
-bool write_whole_binary_file(const std::filesystem::path& path, const std::string& contents)
+bool write_whole_binary_file(const std::filesystem::path& path, std::string_view contents)
 {
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
     if (error) {
         ADD_FAILURE() << "cannot create " << path.parent_path().string() << ": " << error.message();
+        return false;
+    }
+
+    if (contents.size() > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
+        ADD_FAILURE() << "contents for " << path.string() << " are too large to write in one call";
         return false;
     }
 

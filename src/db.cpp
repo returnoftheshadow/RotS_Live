@@ -5007,14 +5007,16 @@ namespace {
 // Where add_exploit_record() sends finished records; nullptr means write_exploits().
 ExploitRecordWriterFn exploit_record_writer_override = nullptr;
 
-void persist_exploit_record(char_data* recipient, exploit_record* record)
+void persist_exploit_record(char_data& recipient, const exploit_record& record)
 {
     if (exploit_record_writer_override != nullptr) {
         exploit_record_writer_override(recipient, record);
         return;
     }
 
-    write_exploits(recipient, record);
+    // write_exploits() takes a mutable pointer; a copy keeps `record` read-only whatever it does.
+    exploit_record record_copy = record;
+    write_exploits(&recipient, &record_copy);
 }
 
 } // namespace
@@ -5067,7 +5069,7 @@ void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
                     exploitrec.iKillerLevel = GET_LEVEL(cur_killer);
 
                     // player to write to, structure
-                    persist_exploit_record(cur_killer, &exploitrec);
+                    persist_exploit_record(*cur_killer, exploitrec);
                 }
             }
         }
@@ -5102,7 +5104,7 @@ void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
                     }
 
                     // player to write to, structure
-                    persist_exploit_record(victim, &exploitrec);
+                    persist_exploit_record(*victim, exploitrec);
                 }
             }
         }
@@ -5111,19 +5113,19 @@ void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
     case EXPLOIT_LEVEL:
         exploitrec.iIntParam = iIntParam;
         exploitrec.type = EXPLOIT_LEVEL;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_BIRTH:
         exploitrec.type = EXPLOIT_BIRTH;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_STAT:
         exploitrec.type = EXPLOIT_STAT;
         snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
         exploitrec.iIntParam = iIntParam;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_MOBDEATH:
@@ -5131,34 +5133,34 @@ void add_exploit_record(int recordtype, char_data* victim, int iIntParam,
         snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
         exploitrec.iVictimLevel = GET_LEVEL(victim);
         exploitrec.iIntParam = iIntParam;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_RETIRED:
         exploitrec.type = EXPLOIT_RETIRED;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_ACHIEVEMENT:
         exploitrec.type = EXPLOIT_ACHIEVEMENT;
         snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_NOTE:
         exploitrec.type = EXPLOIT_NOTE;
         snprintf(exploitrec.chVictimName, sizeof(exploitrec.chVictimName), "%s", chParam);
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_POISON:
         exploitrec.type = EXPLOIT_POISON;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
 
     case EXPLOIT_REGEN_DEATH:
         exploitrec.type = EXPLOIT_REGEN_DEATH;
-        persist_exploit_record(victim, &exploitrec);
+        persist_exploit_record(*victim, exploitrec);
         break;
     }
     return;
