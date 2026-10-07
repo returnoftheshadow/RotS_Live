@@ -43,11 +43,11 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <limits>
 #include <memory>
-#include <random>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -474,8 +474,15 @@ void seed_random_numbers(std::optional<unsigned int> requested_seed)
         return;
     }
 
-    std::random_device seed_source;
-    const unsigned int fresh_seed = seed_source();
+    // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
+    // std::rand needs only to differ between boots. Folding the high half into the low half keeps
+    // the fast-changing nanoseconds and the date in the 32 bits std::srand takes.
+    const std::chrono::system_clock::duration since_epoch
+        = std::chrono::system_clock::now().time_since_epoch();
+    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch).count());
+    static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
+    const unsigned int fresh_seed = static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
     std::srand(fresh_seed);
     const std::string message = "Random numbers seeded with " + std::to_string(fresh_seed)
         + "; start with --random-seed " + std::to_string(fresh_seed) + " to repeat them.";
