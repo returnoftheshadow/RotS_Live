@@ -134,8 +134,8 @@ void forget_crimes(struct char_data*, int);
 // Appends one exploit record of `recordtype` to the histories it belongs in. EXPLOIT_PK gives a
 // trophy naming `victim` to every player fighting it (a fighting pet or orc-friend credits its
 // player master); EXPLOIT_DEATH gives `victim` one "killed by" entry per such player. Every other
-// type gives `victim` one record carrying `iIntParam` and/or the text `chParam`. NPC and
-// immortal victims get nothing.
+// type gives `victim` one record carrying `iIntParam` and/or the text `chParam`. Names and text
+// longer than the record's text field are truncated. NPC and immortal victims get nothing.
 void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, char* chParam);
 // Persists one finished exploit record into `recipient`'s history.
 using ExploitRecordWriterFn = void (*)(struct char_data* recipient, struct exploit_record* record);
@@ -255,7 +255,7 @@ struct help_index_summary {
 struct exploit_record {
     int type; /* type of record */
     char chtime[30]; /* str date of death */
-    sh_int shintVictimID; /* idnum of victim */
+    long lVictimID; /* full idnum of the victim (PK trophy) or of the killer (death record) */
     char chVictimName[30]; /* in case char has been deleted */
     int iVictimLevel; /* at time of kill */
     int iKillerLevel; /* at time of kill */

@@ -147,6 +147,8 @@ bool refresh_linked_character_snapshot(const std::string& root_directory, const 
         if (!write_account_exploit_file(root_directory, owner_account_name, character_name, existing_account_records, error_message))
             return false;
 
+        // The snapshot keeps the 80-byte legacy encoding, which narrows a wide victim id to its
+        // low 16 bits. Only a rollback that re-hydrates from this snapshot sees the narrowed id.
         std::string exploit_bytes;
         if (!exploits_json::exploit_records_to_binary(existing_account_records, &exploit_bytes, error_message))
             return false;

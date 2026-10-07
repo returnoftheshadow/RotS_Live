@@ -1,3 +1,4 @@
+#include "../account_cache.h"
 #include "../account_errors.h"
 #include "../account_index.h"
 #include "../account_management.h"
@@ -20,11 +21,13 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits.h>
 #include <new>
 #include <random>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <sys/stat.h>
 #include <system_error>
 #include <unistd.h>
@@ -436,9 +439,15 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     return player_text;
 }
 
+// `record` in the legacy exploits/ file encoding.
 std::string serialize_record(const exploit_record& record)
 {
-    return std::string(reinterpret_cast<const char*>(&record), sizeof(exploit_record));
+    std::vector<exploit_record> records;
+    records.push_back(record);
+    std::string bytes;
+    std::string error_message;
+    EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
+    return bytes;
 }
 
 exploit_record make_record(int type, const char* timestamp, const char* victim_name, int victim_level, int killer_level, int int_param)
@@ -722,6 +731,159 @@ TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].type, expected_records[0].type);
     EXPECT_EQ(records[0].iIntParam, expected_records[0].iIntParam);
+}
+
+namespace {
+
+// Account reader for the faked account cache: "alpha-admin" owns only "aragorn" and has no
+// explicit character links, so every account-owned path resolves without a directory scan.
+bool fake_wide_id_account_reader(const std::string&, const std::string& account_name, account::AccountData* out_account, std::string* error_message)
+{
+    if (account_name != "alpha-admin") {
+        if (error_message != nullptr) {
+            *error_message = "unexpected account '" + account_name + "'";
+        }
+        return false;
+    }
+
+    account::AccountData faked_account;
+    faked_account.account_name = "alpha-admin";
+    faked_account.normalized_email = "player@example.com";
+    faked_account.characters.push_back("aragorn");
+    *out_account = std::move(faked_account);
+    return true;
+}
+
+// Owner resolver for the faked account cache: "aragorn" belongs to "alpha-admin"; every other
+// character is unowned.
+bool fake_wide_id_owner_resolver(const std::string&, const std::string& character_name, std::string* out_owner_account_name, std::string*)
+{
+    if (character_name == "aragorn") {
+        *out_owner_account_name = "alpha-admin";
+    } else {
+        out_owner_account_name->clear();
+    }
+    return true;
+}
+
+// Serves account reads and owner lookups from the fakes above for one test, and restores the
+// uncached real resolvers on destruction so no other suite sees the enabled cache.
+class ScopedFakeAccountResolvers {
+public:
+    ScopedFakeAccountResolvers()
+    {
+        account_cache::invalidate_all();
+        account_cache::set_backing_resolvers_for_testing(fake_wide_id_account_reader, fake_wide_id_owner_resolver);
+        account_cache::set_enabled(true);
+    }
+
+    ~ScopedFakeAccountResolvers()
+    {
+        account_cache::set_enabled(false);
+        account_cache::set_backing_resolvers_for_testing(nullptr, nullptr);
+        account_cache::invalidate_all();
+    }
+
+    ScopedFakeAccountResolvers(const ScopedFakeAccountResolvers&) = delete;
+    ScopedFakeAccountResolvers& operator=(const ScopedFakeAccountResolvers&) = delete;
+};
+
+// A new, uniquely named directory under the system temporary directory, removed with its
+// contents on destruction. path() is empty, with a test failure reported, if none was created.
+class ScopedStandardTemporaryDirectory {
+public:
+    ScopedStandardTemporaryDirectory()
+    {
+        std::error_code error;
+        const std::filesystem::path temporary_root = std::filesystem::temp_directory_path(error);
+        if (error) {
+            ADD_FAILURE() << "no system temporary directory: " << error.message();
+            return;
+        }
+
+        std::random_device random_source;
+        constexpr int kMaximumAttempts = 16;
+        for (int attempt = 0; attempt < kMaximumAttempts && m_path.empty(); ++attempt) {
+            const std::string directory_name = "rots-db-loader-" + std::to_string(random_source());
+            const std::filesystem::path candidate = temporary_root / directory_name;
+            if (std::filesystem::create_directory(candidate, error)) {
+                m_path = candidate.string();
+            }
+        }
+        if (m_path.empty()) {
+            ADD_FAILURE() << "could not create a temporary directory under " << temporary_root.string();
+        }
+    }
+
+    ~ScopedStandardTemporaryDirectory()
+    {
+        if (!m_path.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(m_path, error);
+        }
+    }
+
+    ScopedStandardTemporaryDirectory(const ScopedStandardTemporaryDirectory&) = delete;
+    ScopedStandardTemporaryDirectory& operator=(const ScopedStandardTemporaryDirectory&) = delete;
+
+    const std::string& path() const { return m_path; }
+
+private:
+    // The created directory; empty when creation failed.
+    std::string m_path;
+};
+
+// The whole content of the file at `path`, or an empty string with a test failure reported when
+// it cannot be opened.
+std::string read_whole_text_file(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        ADD_FAILURE() << "cannot open " << path.string();
+        return std::string();
+    }
+
+    const std::istreambuf_iterator<char> content_begin(input);
+    const std::istreambuf_iterator<char> content_end;
+    return std::string(content_begin, content_end);
+}
+
+} // namespace
+
+// Appending a record re-reads the whole history first. For an account-owned character that
+// history is JSON with full idnums, and the re-read keeps them whole. The account comes from
+// faked cache resolvers because the on-disk account scan does not resolve under QEMU; the
+// exploit history files are real.
+TEST(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    constexpr long kWideVictimIdnum = 1010009060L;
+    const std::string wide_victim_id_json = "\"victim_id\": 1010009060,";
+    exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
+    trophy.lVictimID = kWideVictimIdnum;
+    std::vector<exploit_record> initial_records;
+    initial_records.push_back(trophy);
+    std::string error_message;
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", initial_records, &error_message)) << error_message;
+    const std::string exploits_path = account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn");
+    std::error_code exists_error;
+    ASSERT_TRUE(std::filesystem::exists(exploits_path, exists_error)) << "the seeded history lives at " << exploits_path;
+    ASSERT_NE(read_whole_text_file(exploits_path).find(wide_victim_id_json), std::string::npos) << "the seeded JSON carries the full idnum";
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:30:00 2026", "", 31, 0, 31);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), "aragorn", level_record, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL) << "new records go to the front";
+    EXPECT_EQ(records[1].type, EXPLOIT_PK);
+    EXPECT_EQ(records[1].lVictimID, kWideVictimIdnum) << "the re-read keeps the full idnum";
+    EXPECT_STREQ(records[1].chVictimName, "Grishkazh");
+    EXPECT_NE(read_whole_text_file(exploits_path).find(wide_victim_id_json), std::string::npos) << "the rewritten JSON still carries the full idnum";
 }
 
 TEST(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
