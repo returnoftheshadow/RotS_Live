@@ -705,6 +705,61 @@ char* rescue_message[MAX_RACES][2] = {
         "Roaring, $n fearlessly rescues $N.\r\n" }
 };
 
+/*
+ * Returns whoever in the rescuer's room is currently swinging at `victim`, or
+ * NULL if nobody eligible is.  Wraiths can only be pulled off by wraiths, and
+ * mortals can't step in front of a wraith's target.
+ */
+char_data* find_rescue_attacker(char_data* rescuer, char_data* victim)
+{
+    byte shadow_flag = IS_SHADOW(rescuer);
+    char_data* tmp_ch;
+
+    for (tmp_ch = world[rescuer->in_room].people;
+         tmp_ch && ((tmp_ch->specials.fighting != victim) || (shadow_flag && !IS_SHADOW(tmp_ch)) || (!shadow_flag && IS_NPC(tmp_ch) && IS_SHADOW(tmp_ch)));
+         tmp_ch = tmp_ch->next_in_room)
+        ;
+
+    return tmp_ch;
+}
+
+/* True when the leader has any charmed follower standing beside them. */
+bool has_charmed_follower_in_room(char_data* leader)
+{
+    for (follow_type* k = leader->followers; k; k = k->next)
+        if (k->follower->in_room == leader->in_room && IS_AFFECTED(k->follower, AFF_CHARM))
+            return true;
+
+    return false;
+}
+
+char_data* find_most_hurt_rescuable_follower(char_data* leader)
+{
+    char_data* worst = nullptr;
+    long long worst_health = 0;
+
+    for (follow_type* k = leader->followers; k; k = k->next) {
+        char_data* pet = k->follower;
+
+        if (pet->in_room != leader->in_room)
+            continue;
+        if (!IS_AFFECTED(pet, AFF_CHARM))
+            continue;
+        if (GET_MAX_HIT(pet) <= 0)
+            continue;
+        if (!find_rescue_attacker(leader, pet))
+            continue;
+
+        long long health = (1000LL * GET_HIT(pet)) / GET_MAX_HIT(pet);
+        if (!worst || health < worst_health) {
+            worst = pet;
+            worst_health = health;
+        }
+    }
+
+    return worst;
+}
+
 ACMD(do_rescue)
 {
 
@@ -724,18 +779,33 @@ ACMD(do_rescue)
         return;
     }
 
-    if (wtl) {
-        if ((wtl->targ1.type != TARGET_CHAR) || !char_exists(wtl->targ1.ch_num) || wtl->targ1.ptr.ch->in_room != ch->in_room) {
+    if (wtl && wtl->targ1.type == TARGET_CHAR) {
+        if (!char_exists(wtl->targ1.ch_num) || wtl->targ1.ptr.ch->in_room != ch->in_room) {
             send_to_char("Alas! You lost your victim.\n\r", ch);
             return;
         }
         victim = wtl->targ1.ptr.ch;
     } else {
+        /*
+         * Anything the interpreter could not resolve to a character in the room
+         * arrives here as text, which is where 'rescue followers' is understood.
+         * A real character in the room always wins the name, as it does for 'order'.
+         */
         one_argument(argument, arg);
 
         if (!(victim = get_char_room_vis(ch, arg))) {
-            send_to_char("Who do you want to rescue?\n\r", ch);
-            return;
+            if (!is_abbrev(arg, "followers")) {
+                send_to_char("Who do you want to rescue?\n\r", ch);
+                return;
+            }
+
+            if (!(victim = find_most_hurt_rescuable_follower(ch))) {
+                if (has_charmed_follower_in_room(ch))
+                    send_to_char("None of your followers need rescuing.\n\r", ch);
+                else
+                    send_to_char("None of your followers are here.\n\r", ch);
+                return;
+            }
         }
     }
     if (victim == ch) {
@@ -750,10 +820,7 @@ ACMD(do_rescue)
 
     shadow_flag = IS_SHADOW(ch);
 
-    for (tmp_ch = world[ch->in_room].people;
-         tmp_ch && ((tmp_ch->specials.fighting != victim) || (shadow_flag && !IS_SHADOW(tmp_ch)) || (!shadow_flag && IS_NPC(tmp_ch) && IS_SHADOW(tmp_ch)));
-         tmp_ch = tmp_ch->next_in_room)
-        ;
+    tmp_ch = find_rescue_attacker(ch, victim);
 
     if (!tmp_ch) {
         if (!shadow_flag)

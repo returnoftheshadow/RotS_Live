@@ -727,7 +727,7 @@ and magical doors.
 #
 RESCUE
 
-[Syntax      ] rescue <target>
+[Syntax      ] rescue <target> / rescue followers
 [Group       ] Warrior
 [Level       ] 3
 [Offensive   ] Yes
@@ -736,7 +736,14 @@ RESCUE
 replacing the target in combat with you.  It only works against
 one enemy, though, and it does not work at all for mental combat.
 
-> rescue quifael
+Rescuing 'followers' saves whichever of your charmed followers is closest
+to dying, measured as the fraction of health they have left.  Followers
+that nobody is fighting are passed over, and a guardian counts as a
+follower like any other.  A character in the room named 'follower' takes
+precedence, as it does for 'order'.
+
+> rescue quifael         - rescues Quifael.
+> rescue followers       - rescues whichever follower is worst off.
 
 #
 "FIND WEAKNESS"
