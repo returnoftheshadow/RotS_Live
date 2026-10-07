@@ -50,6 +50,7 @@ SOURCES := \
     db.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
+    game_heartbeat.cpp \
     game_time_text.cpp \
     graph.cpp \
     handler.cpp \
@@ -89,6 +90,7 @@ SOURCES := \
     profs.cpp \
     protocol.cpp \
     ranger.cpp \
+    real_time_tick_schedule.cpp \
     save_benchmark.cpp \
     savebench.cpp \
     script.cpp \

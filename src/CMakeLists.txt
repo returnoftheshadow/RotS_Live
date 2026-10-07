@@ -109,6 +109,7 @@ set(ROTS_SERVER_SOURCES
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp
+    game_heartbeat.cpp
     game_time_text.cpp
     graph.cpp
     handler.cpp
@@ -137,6 +138,7 @@ set(ROTS_SERVER_SOURCES
     profs.cpp
     protocol.cpp
     ranger.cpp
+    real_time_tick_schedule.cpp
     save_benchmark.cpp
     savebench.cpp
     script.cpp
@@ -188,12 +190,14 @@ set(ROTS_TEST_SOURCES
     tests/character_json_tests.cpp
     tests/color_tests.cpp
     tests/crashsave_schedule_tests.cpp
+    tests/current_time_phase_tests.cpp
     tests/damage_meters_tests.cpp
     tests/damage_tests.cpp
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp
     tests/interpre_account_menu_tests.cpp
     tests/fight_proc_tests.cpp
+    tests/game_heartbeat_tests.cpp
     tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
     tests/ObjFlagDataBuilder.cpp
@@ -217,6 +221,7 @@ set(ROTS_TEST_SOURCES
     tests/objects_json_tests.cpp
     tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
+    tests/real_time_tick_schedule_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp

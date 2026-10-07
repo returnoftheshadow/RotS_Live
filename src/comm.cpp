@@ -25,18 +25,16 @@
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
-#include "crashsave_schedule.h"
-#include "damage_meters.h"
 #include "db.h"
+#include "game_heartbeat.h"
 #include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
-#include "lap_timer.h"
 #include "limits.h"
 #include "mob_progs/banker.h"
 #include "protocol.h"
+#include "real_time_tick_schedule.h"
 #include "script.h"
-#include "skill_timer.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -46,6 +44,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -105,7 +104,6 @@ struct txt_block* txt_block_pool = 0;
 int txt_block_counter = 0;
 
 extern int nameserver_is_slow; /* see config.c */
-extern int autosave_time; /* see config.c */
 extern char* GREETINGS;
 
 int process_output(struct descriptor_data* t);
@@ -217,7 +215,7 @@ int finish_proxy_header_if_ready(descriptor_data* descriptor)
 /* functions in this file */
 int get_from_q(struct txt_q* queue, char* dest);
 void run_the_game(sh_int port);
-void game_loop(SocketType s);
+void game_loop(SocketType s, GameHeartbeat& heartbeat);
 SocketType init_socket(sh_int port);
 SocketType pnew_connection(SocketType s);
 void check_pre_login_idle(); /* below, in this file */
@@ -333,16 +331,10 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
 
 /* extern fcnts */
 void boot_db(void);
-void affect_update(void); /* In spells.c */
-void fast_update(void); /* In spells.c */
-void point_update(void); /* In limits.c */
-void mobile_activity(void);
 void string_add(struct descriptor_data* d, char* str);
-void perform_violence();
 void show_string(struct descriptor_data* d, char* input);
 void check_reboot(void);
 int isbanned(char* hostname);
-void weather_and_time(int mode);
 void* virt_program_number(int number);
 void* virt_obj_program_number(int number);
 void replace_aliases(char_data* ch, char* line);
@@ -493,7 +485,11 @@ void run_the_game(sh_int port)
     log("Entering game loop.");
 
     specialized_mages.clear();
-    game_loop(s);
+    // Owns the schedule for the life of the loop; the heartbeat only observes it.
+    const std::shared_ptr<GameTickSchedule> tick_schedule
+        = std::make_shared<RealTimeTickSchedule>();
+    GameHeartbeat heartbeat(tick_schedule);
+    game_loop(s, heartbeat);
 
     close_sockets(s);
     // fclose(player_fl);
@@ -568,9 +564,6 @@ void untrack_specialized_mage(char_data* mage)
 }
 
 void add_prompt(char* prompt, struct char_data* ch, long flag);
-
-/* Accept pnew connects, relay commands, and call 'heartbeat-functs' */
-int pulse = 0; // moved here from being a local variable
 
 static int get_stat_percent(int current, int maximum)
 {
@@ -836,7 +829,7 @@ void check_state_deadlines(time_t now)
     }
 }
 
-void game_loop(SocketType s)
+void game_loop(SocketType s, GameHeartbeat& heartbeat)
 {
     fd_set input_set, output_set, exc_set;
     struct timeval null_time;
@@ -850,11 +843,7 @@ void game_loop(SocketType s)
     struct descriptor_data *point, *next_point;
     struct char_data *wait_ch, *wait_tmp;
     int mask;
-    AutosaveTimer autosave_timer;
-    // Times each combat pulse, for the damage meters.
-    LapTimer combat_timer;
-    int sockets_connected, sockets_playing;
-    int tmp, was_updated;
+    int tmp;
     char disp, tmpflag;
     char buf[100];
 
@@ -1211,94 +1200,7 @@ void game_loop(SocketType s)
                 point->prompt_mode = 0;
             }
 
-        /* handle heartbeat stuff */
-        /* Note: pulse now changes every 1/4 sec  */
-
-        pulse++;
-        was_updated = 0;
-
-        if (!((pulse + 3) % PULSE_ZONE)) {
-            zone_update();
-        }
-        if (!((pulse + 9) % PULSE_MOBILE)) {
-            mobile_activity();
-            was_updated = 1;
-        }
-        const float combat_seconds = combat_timer.get_elapsed_seconds();
-        // The meters run before combat, so a character killed during this pass is still
-        // credited with it.
-        tick_damage_meters(combat_seconds);
-        perform_violence();
-
-        if (!((pulse % (SECS_PER_MUD_HOUR * 4)))) {
-            weather_and_time(1);
-            point_update(); // putting affect_total call in point_update.
-            stat_update();
-            was_updated = 1;
-        }
-        if (!(pulse % (PULSE_FAST_UPDATE)) /*&& !was_updated*/) {
-            // now increasing hp/mp/mana/spirit fast in fast_update..
-            fast_update();
-            affect_update();
-
-            // clean-up expose elements
-            clean_expose_elements();
-        }
-
-        msdp_update();
-
-        if (!(pulse % (60 * 4))) /* one minute */
-        {
-            check_pre_login_idle();
-        }
-
-        // Periodic point-in-time crash-save snapshot cadence, driven by the configurable seconds
-        // interval (autosave_time) through the unit-tested scheduler. Default 30s == 120 pulses (the
-        // source's original cadence). Crash_save_all now saves EVERY connected player each cadence
-        // (a consistent point-in-time snapshot), not only inventory-dirty ones.
-        if (autosave_timer.tick(autosave_interval_pulses(autosave_time, TICS_PER_SECOND))) {
-            Crash_save_all();
-        }
-
-        if (!(pulse % 4)) {
-            game_timer::skill_timer& st_instance = game_timer::skill_timer::instance();
-            st_instance.update_skill_timer();
-
-            check_state_deadlines(time(0));
-        }
-
-        if (!(pulse % 1200)) {
-            sockets_connected = sockets_playing = 0;
-
-            for (point = descriptor_list; point; point = next_point) {
-                next_point = point->next;
-                if (point->descriptor) {
-                    sockets_connected++;
-                    if (!point->connected) {
-                        sockets_playing++;
-                    }
-                }
-            }
-
-            sprintf(buf, "nusage: %-3d sockets connected, %-3d sockets playing", sockets_connected,
-                sockets_playing);
-            log(buf);
-
-#ifdef RUSAGE
-            {
-                struct rusage rusagedata;
-
-                getrusage(0, &rusagedata);
-                sprintf(buf, "rusage: %d %d %d %d %d %d %d", rusagedata.ru_utime.tv_sec,
-                    rusagedata.ru_stime.tv_sec, rusagedata.ru_maxrss, rusagedata.ru_ixrss,
-                    rusagedata.ru_ismrss, rusagedata.ru_idrss, rusagedata.ru_isrss);
-                log(buf);
-            }
-#endif
-        }
-
-        if (pulse >= 2400)
-            pulse = 0;
+        heartbeat.run_pass();
 
         tics++; /* tics since last checkpoint signal */
 
