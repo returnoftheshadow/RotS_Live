@@ -1,0 +1,109 @@
+#1503
+cloaked figure mysterious traveller man mage magegm guildmaster~
+a mysterious traveller~
+A cloaked figure walks about here, observing the area closely.~
+A copy of the traveller in zone 15, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 7 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#2043
+uruk guild master guildmaster~
+an uruk guildmaster~
+An uruk guildmaster stands here.~
+A copy of the uruk guildmaster in zone 20, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 11 0
+150 70 58 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+123 10 0 0 0 100 10240
+#4601
+mage orc uruk young~
+the young uruk mage~
+The young uruk mage stands at a window, staring out over Mirkwood Forest.~
+A copy of the young uruk mage in zone 46, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 11 0
+150 70 12 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+3 10 0 0 0 100 2048
+#10003
+scorther mage man~
+Scorther~
+A black-cloaked, withdrawn man is standing here.~
+A copy of Scorther in zone 100, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 16 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#13600
+tall magus magi lhuth uruk-lhuth~
+Magus~
+A tall uruk-hai, shrouded in robes of darkness, sits on the throne.~
+A copy of the Magus in zone 136, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 15 0
+150 70 30 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 32768
+#32200
+glass-eyed glass shaman orc goblin~
+a glass-eyed shaman~
+A goblin shaman stands here, a glass eye revolving aimlessly within one of his sockets.~
+A copy of the glass-eyed shaman in zone 322, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 13 0
+150 70 47 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+123 10 0 0 0 100 8192
+#99999
