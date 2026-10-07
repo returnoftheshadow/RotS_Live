@@ -443,15 +443,18 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     return player_text;
 }
 
-// `record` in the legacy exploits/ file encoding.
-std::string serialize_record(const exploit_record& record)
+// `records` in the legacy exploits/ file encoding.
+std::string legacy_exploit_bytes(const std::vector<exploit_record>& records)
 {
-    std::vector<exploit_record> records;
-    records.push_back(record);
     std::string bytes;
     std::string error_message;
     EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
     return bytes;
+}
+
+std::string serialize_record(const exploit_record& record)
+{
+    return legacy_exploit_bytes({ record });
 }
 
 exploit_record make_record(int type, const char* timestamp, const char* victim_name, int victim_level, int killer_level, int int_param)
@@ -949,15 +952,6 @@ std::optional<std::uintmax_t> file_size_if_present(const std::filesystem::path& 
     return size;
 }
 
-// `records` in the legacy exploits/ file encoding.
-std::string legacy_exploit_bytes(const std::vector<exploit_record>& records)
-{
-    std::string bytes;
-    std::string error_message;
-    EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
-    return bytes;
-}
-
 } // namespace
 
 TEST(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
@@ -974,7 +968,7 @@ TEST(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
     exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:30:00 2026", "Grishkazh", 30, 25, 0);
     trophy.lVictimID = kWideVictimIdnum;
     ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), kUnlinkedCharacter, trophy, &error_message)) << error_message;
-    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(2 * exploits_json::kLegacyExploitRecordSize)));
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(2 * exploits_json::LEGACY_EXPLOIT_RECORD_SIZE)));
 
     std::vector<exploit_record> records;
     ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
@@ -1003,7 +997,7 @@ TEST(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
     EXPECT_EQ(records[0].type, EXPLOIT_LEVEL);
     EXPECT_STREQ(records[0].chtime, "Mon Jan  1 00:00:00 2024");
     EXPECT_EQ(records[0].iIntParam, 20);
-    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(exploits_json::kLegacyExploitRecordSize)));
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE)));
 }
 
 TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
@@ -1013,7 +1007,7 @@ TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
     ScopedFakeAccountResolvers faked_resolvers;
 
     const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
-    ASSERT_TRUE(write_whole_binary_file(legacy_path, std::string(exploits_json::kLegacyExploitRecordSize + 1, 'x')));
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, std::string(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE + 1, 'x')));
 
     std::vector<exploit_record> records;
     records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "stale", 10, 0, 20));
@@ -1029,7 +1023,7 @@ TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
     EXPECT_NE(logged.find("SYSERR"), std::string::npos) << logged;
     const std::string logged_character = std::string("' for ") + kUnlinkedCharacter + ":";
     EXPECT_NE(logged.find(logged_character), std::string::npos) << logged;
-    const std::string logged_size = std::to_string(exploits_json::kLegacyExploitRecordSize + 1) + " bytes";
+    const std::string logged_size = std::to_string(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE + 1) + " bytes";
     EXPECT_NE(logged.find(logged_size), std::string::npos) << logged;
 }
 

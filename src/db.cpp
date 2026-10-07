@@ -4878,7 +4878,7 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
     if (!read_binary_file_contents(runtime_path, &bytes, error_message))
         return false;
 
-    if (bytes.size() % exploits_json::kLegacyExploitRecordSize == 0) {
+    if (bytes.size() % exploits_json::LEGACY_EXPLOIT_RECORD_SIZE == 0) {
         std::string decode_error;
         if (!exploits_json::exploit_records_from_binary(bytes, records, &decode_error)) {
             set_db_error(error_message, "Failed to decode exploit file '" + runtime_path + "': " + decode_error);
@@ -4894,7 +4894,6 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
     const std::string drop_message = std::string("SYSERR: ") + __func__ + ": removing exploit file '" + runtime_path
         + "' for " + character_name + ": " + std::to_string(bytes.size()) + " bytes is not a whole number of records.";
     log(drop_message.c_str());
-    records->clear();
     if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
         set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));
         return false;

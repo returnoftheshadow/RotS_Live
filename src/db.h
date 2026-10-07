@@ -131,11 +131,11 @@ int vnum_object(char*, struct char_data*);
 void record_crime(struct char_data*, struct char_data*, int, int);
 void add_crime(int, int, int, int, int);
 void forget_crimes(struct char_data*, int);
-// Adds one exploit record of `recordtype` to the front of the histories it belongs in. EXPLOIT_PK
+// Adds `recordtype` exploit records to the front of the histories they belong in. EXPLOIT_PK
 // gives a trophy naming `victim` to every player fighting it (a fighting pet or orc-friend credits
 // its player master); EXPLOIT_DEATH gives `victim` one "killed by" entry per such player. Every
-// other type gives `victim` one record carrying `iIntParam` and/or the text `chParam`. `victim`
-// must not be null; `chParam` must not be null for EXPLOIT_STAT, EXPLOIT_MOBDEATH,
+// other type gives `victim` one record carrying whichever of `iIntParam` and `chParam` it uses.
+// `victim` must not be null; `chParam` must not be null for EXPLOIT_STAT, EXPLOIT_MOBDEATH,
 // EXPLOIT_ACHIEVEMENT and EXPLOIT_NOTE and is ignored otherwise. Names and text longer than the
 // record's text field are truncated. NPC and immortal victims get nothing.
 void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, char* chParam);
@@ -255,8 +255,10 @@ struct help_index_summary {
 
 /* exploits */
 struct exploit_record {
-    int type; /* type of record */
-    char chtime[30]; /* str date of death */
+    // One of the EXPLOIT_* record types.
+    int type;
+    // asctime() text of when the record was made.
+    char chtime[30];
     // Idnum of the victim (PK trophy) or killer (death record). Records read from a legacy file or
     // snapshot, or written by older servers, hold only its low 16 bits.
     long lVictimID;
