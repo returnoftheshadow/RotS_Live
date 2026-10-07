@@ -131,7 +131,17 @@ int vnum_object(char*, struct char_data*);
 void record_crime(struct char_data*, struct char_data*, int, int);
 void add_crime(int, int, int, int, int);
 void forget_crimes(struct char_data*, int);
-void add_exploit_record(int, struct char_data*, int, char*);
+// Appends one exploit record of `recordtype` to the histories it belongs in. EXPLOIT_PK gives a
+// trophy naming `victim` to every player fighting it (a fighting pet or orc-friend credits its
+// player master); EXPLOIT_DEATH gives `victim` one "killed by" entry per such player. Every other
+// type gives `victim` one record carrying `iIntParam` and/or the text `chParam`. NPC and
+// immortal victims get nothing.
+void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, char* chParam);
+// Persists one finished exploit record into `recipient`'s history.
+using ExploitRecordWriterFn = void (*)(struct char_data* recipient, struct exploit_record* record);
+// Test-only: routes every record add_exploit_record() finishes to `writer` instead of
+// write_exploits(), which touches disk. nullptr restores write_exploits().
+void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer);
 int delete_exploits_file(char*);
 void delete_character_file(struct char_data*);
 void move_char_deleted(int);
