@@ -4886,6 +4886,9 @@ bool load_exploit_records_for_character(const std::string& root_directory, const
 
     // A legacy file that is not a whole number of records cannot be trusted at all; dropping it
     // lets the character's history restart instead of failing every later read and append.
+    const std::string drop_message = std::string("SYSERR: ") + __func__ + ": removing exploit file '" + runtime_path
+        + "' for " + character_name + ": " + std::to_string(bytes.size()) + " bytes is not a whole number of records.";
+    log(drop_message.c_str());
     records->clear();
     if (std::remove(runtime_path.c_str()) != 0 && errno != ENOENT) {
         set_db_error(error_message, "Failed to remove malformed exploit file '" + runtime_path + "': " + std::string(strerror(errno)));

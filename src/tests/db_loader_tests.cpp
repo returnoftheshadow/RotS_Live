@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -24,6 +25,7 @@
 #include <iterator>
 #include <limits.h>
 #include <new>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -884,6 +886,143 @@ TEST(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
     EXPECT_EQ(records[1].lVictimID, kWideVictimIdnum) << "the re-read keeps the full idnum";
     EXPECT_STREQ(records[1].chVictimName, "Grishkazh");
     EXPECT_NE(read_whole_text_file(exploits_path).find(wide_victim_id_json), std::string::npos) << "the rewritten JSON still carries the full idnum";
+}
+
+namespace {
+
+// A character the faked owner resolver treats as linked to no account.
+constexpr const char* kUnlinkedCharacter = "boromir";
+
+// Size of one record in the legacy exploits/ file format.
+constexpr std::uintmax_t kLegacyExploitRecordSize = 80;
+
+// Writes `contents` as the whole file at `path`, creating its parent directories. Returns false,
+// with a test failure reported, when the file cannot be written.
+bool write_whole_binary_file(const std::filesystem::path& path, const std::string& contents)
+{
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        ADD_FAILURE() << "cannot create " << path.parent_path().string() << ": " << error.message();
+        return false;
+    }
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    output.close();
+    if (!output) {
+        ADD_FAILURE() << "cannot write " << path.string();
+        return false;
+    }
+    return true;
+}
+
+// The size of the file at `path`, or nullopt when it does not exist or cannot be sized.
+std::optional<std::uintmax_t> file_size_if_present(const std::filesystem::path& path)
+{
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error) {
+        return std::nullopt;
+    }
+    return size;
+}
+
+// `records` in the legacy exploits/ file encoding.
+std::string legacy_exploit_bytes(const std::vector<exploit_record>& records)
+{
+    std::string bytes;
+    std::string error_message;
+    EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
+    return bytes;
+}
+
+} // namespace
+
+TEST(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
+    trophy.lVictimID = 1010009060L;
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, legacy_exploit_bytes({ trophy })));
+
+    std::string error_message;
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:30:00 2026", "", 31, 0, 31);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), kUnlinkedCharacter, level_record, &error_message)) << error_message;
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(2 * kLegacyExploitRecordSize));
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL) << "new records go to the front";
+    EXPECT_EQ(records[1].type, EXPLOIT_PK);
+    EXPECT_EQ(records[1].lVictimID, -31772L) << "a legacy file keeps only the low 16 bits of an id";
+    EXPECT_TRUE(file_size_if_present(legacy_path).has_value()) << "loading keeps a valid legacy file";
+}
+
+TEST(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20);
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, legacy_exploit_bytes({ level_record })));
+
+    std::vector<exploit_record> records;
+    std::string error_message;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL);
+    EXPECT_STREQ(records[0].chtime, "Mon Jan  1 00:00:00 2024");
+    EXPECT_EQ(records[0].iIntParam, 20);
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(kLegacyExploitRecordSize));
+}
+
+TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, std::string(kLegacyExploitRecordSize + 1, 'x')));
+
+    std::vector<exploit_record> records;
+    records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "stale", 10, 0, 20));
+    std::string error_message = "unchanged";
+    testing::internal::CaptureStderr();
+    const bool loaded = load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_TRUE(loaded);
+    EXPECT_TRUE(records.empty());
+    EXPECT_EQ(error_message, "");
+    EXPECT_FALSE(file_size_if_present(legacy_path).has_value()) << "the malformed file is removed";
+    EXPECT_NE(logged.find("SYSERR"), std::string::npos) << logged;
+    EXPECT_NE(logged.find(kUnlinkedCharacter), std::string::npos) << logged;
+    EXPECT_NE(logged.find("81 bytes"), std::string::npos) << logged;
+}
+
+TEST(DbLoader, LoadsAnEmptyLegacyFileAsAnEmptyHistoryAndKeepsIt)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, std::string()));
+
+    std::vector<exploit_record> records;
+    std::string error_message;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
+    EXPECT_TRUE(records.empty());
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(0));
 }
 
 TEST(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
