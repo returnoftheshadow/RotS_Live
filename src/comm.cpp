@@ -143,6 +143,8 @@ bool parse_port_value(const char* text, sh_int* port, std::string* error_message
 // The long option that sets the random seed, written after its leading "--".
 constexpr std::string_view RANDOM_SEED_OPTION = "random-seed";
 
+} // namespace
+
 // Reads a --random-seed value: decimal digits only, from 0 to the largest unsigned int. On
 // failure it leaves out_seed unchanged and, when out_error_message is not null, says why.
 bool parse_random_seed_value(
@@ -178,6 +180,8 @@ bool parse_random_seed_value(
     out_seed = parsed_seed;
     return true;
 }
+
+namespace {
 
 void populate_descriptor_host(descriptor_data* descriptor, in_addr_t peer_address)
 {

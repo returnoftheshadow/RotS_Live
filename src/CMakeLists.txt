@@ -242,6 +242,7 @@ set(ROTS_TEST_SOURCES
     tests/rotstool_fixture_spec_tests.cpp
     tests/rotstool_fixture_maker_tests.cpp
     tests/rotstool_fixture_lib_writer_tests.cpp
+    tests/rotstool_fixtures_write_tests.cpp
 )
 
 # The server's code, compiled once for every program built from it.
@@ -272,6 +273,7 @@ set(ROTSTOOL_COMMAND_SOURCES
     tools/rotstool/fixture_spec_parser.cpp
     tools/rotstool/fixture_character_maker.cpp
     tools/rotstool/fixture_lib_writer.cpp
+    tools/rotstool/fixtures_write_command.cpp
 )
 
 # A command-line tool for offline work on a lib, built from the server's own code.

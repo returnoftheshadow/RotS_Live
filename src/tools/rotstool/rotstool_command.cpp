@@ -1,5 +1,7 @@
 #include "rotstool_command.h"
 
+#include "fixtures_write_command.h"
+
 #include <cstddef>
 #include <ostream>
 
@@ -83,6 +85,8 @@ const std::vector<RotstoolCommand>& rotstool_commands()
 {
     static const std::vector<RotstoolCommand> commands = {
         { "help", "Lists the commands, or prints one command's usage.", "usage: rotstool help [command]", run_help },
+        { "fixtures write", "Writes a test account and characters into a lib from a fixture spec.",
+            fixtures_write_usage, run_fixtures_write },
     };
     return commands;
 }

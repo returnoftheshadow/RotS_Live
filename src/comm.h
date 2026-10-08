@@ -13,6 +13,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <stdarg.h>
 
 #include "utils.h" /* For the TRUE macro */
@@ -82,6 +83,10 @@ void seed_random_numbers(
 
 // Returns a seed taken from the system clock, which differs from one boot to the next.
 unsigned int draw_clock_seed();
+
+// Reads a random seed: decimal digits only, from 0 to the largest unsigned int. On failure it
+// leaves out_seed unchanged and, when out_error_message is not null, says why.
+bool parse_random_seed_value(std::string_view text, unsigned int& out_seed, std::string* out_error_message);
 
 // Prints a backtrace of up to ten stack frames to stderr and exits with status 1; installed for
 // SIGSEGV.
