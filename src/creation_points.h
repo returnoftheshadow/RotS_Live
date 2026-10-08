@@ -48,8 +48,8 @@ public:
 private:
     explicit CreationPoints(const Split& split);
 
-    // Points per profession, indexed like prof_coof, slot 0 zero; checked against the rules on
-    // construction.
+    // Points per profession, indexed like prof_coof, slot 0 zero; within the budget (see the
+    // class comment).
     Split split;
 };
 

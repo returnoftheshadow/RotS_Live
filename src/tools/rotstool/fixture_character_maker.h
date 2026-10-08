@@ -8,12 +8,13 @@
 #include <vector>
 
 // Makes one character the way the game makes and levels a new character and returns it as a
-// stored character, with idnum as its id and now as its last logon. out_knowledge receives the
-// knowledge percentage for each of spec.skill_practices, in order. The spec's hit, mana and move
-// become the stored character's current values.
+// stored character, with idnum as its id and now as its last logon. The stored name is spec.name
+// with its first letter capitalised. out_knowledge receives the knowledge percentage for each of
+// spec.skill_practices, in order. The spec's hit, mana and move become the stored character's
+// current values.
 //
-// Writes nothing to disk only when the working directory is the lib and the account named
-// account_name is on disk there and does not yet list this character. Leaves top_of_p_table and
+// Provided the working directory is the lib and the account named account_name is on disk there
+// without this character, writes nothing to disk. Leaves top_of_p_table and
 // top_idnum as it found them. Returns false with the reason in out_error_message when the
 // character does not reach spec.level, or a value the spec sets is below zero or above the
 // character's maximum.

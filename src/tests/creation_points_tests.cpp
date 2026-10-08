@@ -67,6 +67,19 @@ TEST(CreationPoints, StandardClassGivesTheClassPoints)
     EXPECT_EQ(wizard->total(), CREATION_POINT_BUDGET);
 }
 
+TEST(CreationPoints, StandardClassOffersEveryMenuLetterWithinTheBudget)
+{
+    const std::string menu_letters = "mtrwnihsba";
+    for (const char letter : menu_letters) {
+        const std::optional<CreationPoints> standard = CreationPoints::standard_class(letter);
+        ASSERT_TRUE(standard.has_value()) << letter;
+        for (int profession = PROF_MAGE; profession <= PROF_WARRIOR; ++profession) {
+            EXPECT_GE(standard->points(profession), 0) << letter;
+        }
+        EXPECT_LE(standard->total(), CREATION_POINT_BUDGET) << letter;
+    }
+}
+
 TEST(CreationPoints, CustomAcceptsTheWholeBudget)
 {
     std::string error_message;

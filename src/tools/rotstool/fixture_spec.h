@@ -13,7 +13,7 @@
 struct FixtureSpec {
     // One character the spec asks for.
     struct Character {
-        // The name as the player would type it; the maker capitalises the first letter.
+        // The name as the player would type it.
         std::string name;
         // RACE_* number of a race the creation menu offers.
         int race = 0;
@@ -27,11 +27,14 @@ struct FixtureSpec {
         int load_room = 0;
         // Practice sessions per skill, as (skill index, practices) pairs in spec order.
         std::vector<std::pair<int, int>> skill_practices;
-        // Current hit points after levelling, when the spec sets them; at most the maximum.
+        // Current hit points after levelling, 1 to 32767, when the spec sets it; make_fixture_character
+        // refuses a value above the levelled maximum.
         std::optional<int> hit;
-        // Current mana after levelling, when the spec sets them; at most the maximum.
+        // Current mana after levelling, 1 to 32767, when the spec sets it; make_fixture_character
+        // refuses a value above the levelled maximum.
         std::optional<int> mana;
-        // Current movement after levelling, when the spec sets them; at most the maximum.
+        // Current movement after levelling, 1 to 32767, when the spec sets it; make_fixture_character
+        // refuses a value above the levelled maximum.
         std::optional<int> move;
     };
 

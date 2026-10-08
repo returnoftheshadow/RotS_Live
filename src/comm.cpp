@@ -145,8 +145,6 @@ constexpr std::string_view RANDOM_SEED_OPTION = "random-seed";
 
 } // namespace
 
-// Reads a --random-seed value: decimal digits only, from 0 to the largest unsigned int. On
-// failure it leaves out_seed unchanged and, when out_error_message is not null, says why.
 bool parse_random_seed_value(
     std::string_view text, unsigned int& out_seed, std::string* out_error_message)
 {
@@ -421,7 +419,6 @@ void seed_random_numbers(
     log(message.c_str());
 }
 
-// Returns a seed taken from the system clock, which differs from one boot to the next.
 unsigned int draw_clock_seed()
 {
     // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
