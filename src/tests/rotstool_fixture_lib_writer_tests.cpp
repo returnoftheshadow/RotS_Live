@@ -156,6 +156,17 @@ protected:
         return lib / "accounts" / bucket / email;
     }
 
+    // Creates an empty legacy player entry named entry_name in players/<bucket> of the test lib.
+    void add_legacy_player_entry(std::string_view bucket, std::string_view entry_name) const
+    {
+        const std::filesystem::path bucket_directory = lib / "players" / bucket;
+        std::error_code error;
+        std::filesystem::create_directories(bucket_directory, error);
+        ASSERT_FALSE(error) << error.message();
+        std::ofstream entry(bucket_directory / entry_name);
+        ASSERT_TRUE(entry.good()) << entry_name;
+    }
+
     // The working directory before the test, restored after it.
     std::filesystem::path saved_working_directory;
     // The temporary lib the test writes into.
@@ -237,23 +248,20 @@ TEST_F(RotstoolFixtureLibWriter, RefusesANameAlreadyInTheLibRegardlessOfCase)
     ASSERT_TRUE(write_fixtures_to_lib(make_spec(writer_email, { make_character("Testmage", 5) }), lib, fixture_now,
         written, error_message))
         << error_message;
+    const std::map<std::string, std::string> files_before = files_under(lib);
 
     EXPECT_FALSE(write_fixtures_to_lib(make_spec(second_email, { make_character("testmage", 5) }), lib, fixture_now,
         written, error_message));
     EXPECT_NE(error_message.find("testmage is already in the lib"), std::string::npos) << error_message;
     EXPECT_TRUE(written.empty());
     EXPECT_FALSE(path_exists(account_directory("P-T", second_email)));
+    EXPECT_EQ(files_under(lib), files_before);
 }
 
 TEST_F(RotstoolFixtureLibWriter, RefusesANameUsedByALegacyPlayerFile)
 {
-    std::error_code error;
-    std::filesystem::create_directories(lib / "players" / "P-T", error);
-    ASSERT_FALSE(error) << error.message();
-    {
-        std::ofstream legacy_file(lib / "players" / "P-T" / "testlegacy.10.1.9000050.1700000000.0");
-        ASSERT_TRUE(legacy_file.good());
-    }
+    add_legacy_player_entry("P-T", "testlegacy.10.1.9000050.1700000000.0");
+    const std::map<std::string, std::string> files_before = files_under(lib);
 
     std::vector<WrittenFixtureCharacter> written;
     std::string error_message;
@@ -261,12 +269,59 @@ TEST_F(RotstoolFixtureLibWriter, RefusesANameUsedByALegacyPlayerFile)
         fixture_now, written, error_message));
     EXPECT_NE(error_message.find("Testlegacy is already in the lib"), std::string::npos) << error_message;
     EXPECT_FALSE(path_exists(account_directory("U-Z", writer_email)));
+    EXPECT_EQ(files_under(lib), files_before);
 
     ASSERT_TRUE(write_fixtures_to_lib(make_spec(writer_email, { make_character("Testnewer", 5) }), lib, fixture_now,
         written, error_message))
         << error_message;
     ASSERT_EQ(written.size(), 1u);
     EXPECT_EQ(written[0].idnum, 9000051);
+}
+
+TEST_F(RotstoolFixtureLibWriter, RefusesANameBootIndexesFromABareLegacyEntry)
+{
+    // Boot indexes every legacy entry by the text before its first '.', whatever follows.
+    add_legacy_player_entry("P-T", "testbare");
+    const std::map<std::string, std::string> files_before = files_under(lib);
+
+    std::vector<WrittenFixtureCharacter> written;
+    std::string error_message;
+    EXPECT_FALSE(write_fixtures_to_lib(make_spec(writer_email, { make_character("Testbare", 5) }), lib, fixture_now,
+        written, error_message));
+    EXPECT_NE(error_message.find("Testbare is already in the lib"), std::string::npos) << error_message;
+    EXPECT_TRUE(written.empty());
+    EXPECT_EQ(files_under(lib), files_before);
+}
+
+TEST_F(RotstoolFixtureLibWriter, RefusesIdnumsPastTheLargestBootCanHold)
+{
+    // The first character would take the largest int; the second would pass it.
+    add_legacy_player_entry("P-T", "testhigh.10.1.2147483646.1700000000.0");
+    const std::map<std::string, std::string> files_before = files_under(lib);
+
+    std::vector<WrittenFixtureCharacter> written;
+    std::string error_message;
+    EXPECT_FALSE(write_fixtures_to_lib(make_spec(writer_email, { make_character("Testfirst", 5),
+                                                     make_character("Testsecond", 5) }),
+        lib, fixture_now, written, error_message));
+    EXPECT_NE(error_message.find("leaves no room for the spec's characters (2) at or below 2147483647"), std::string::npos)
+        << error_message;
+    EXPECT_TRUE(written.empty());
+    EXPECT_EQ(files_under(lib), files_before);
+}
+
+TEST_F(RotstoolFixtureLibWriter, RefusesALegacyIdnumTooLargeToRead)
+{
+    add_legacy_player_entry("P-T", "testhuge.10.1.99999999999999999999.1700000000.0");
+    const std::map<std::string, std::string> files_before = files_under(lib);
+
+    std::vector<WrittenFixtureCharacter> written;
+    std::string error_message;
+    EXPECT_FALSE(write_fixtures_to_lib(make_spec(writer_email, { make_character("Testmage", 5) }), lib, fixture_now,
+        written, error_message));
+    EXPECT_NE(error_message.find("leaves no room for the spec's characters (1)"), std::string::npos) << error_message;
+    EXPECT_TRUE(written.empty());
+    EXPECT_EQ(files_under(lib), files_before);
 }
 
 TEST_F(RotstoolFixtureLibWriter, RefusesAnAccountThatAlreadyExists)

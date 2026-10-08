@@ -9,6 +9,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstddef>
+#include <limits>
 #include <set>
 #include <string_view>
 #include <system_error>
@@ -17,8 +18,8 @@
 namespace {
 
 // The legacy players/ buckets, as the account layer names them. Boot does not index ZZZ, the
-// archive of deleted characters; counting it too can only refuse more names and raise the first
-// idnum.
+// archive of deleted characters; counting it too also refuses the names archived there and can
+// raise the first idnum.
 constexpr std::array<std::string_view, 6> legacy_player_buckets = { "A-E", "F-J", "K-O", "P-T", "U-Z", "ZZZ" };
 
 // Fields in a legacy player file name: name.level.race.idnum.logtime.flags.
@@ -26,6 +27,9 @@ constexpr std::size_t legacy_player_file_field_count = 6;
 
 // Position of the idnum among a legacy player file name's fields.
 constexpr std::size_t legacy_player_file_idnum_field = 3;
+
+// The largest idnum boot can hold: it reads idnums into an int.
+constexpr long long largest_idnum = std::numeric_limits<int>::max();
 
 // Who the account's email verification is recorded as coming from.
 constexpr const char* email_verifier = "rotstool";
@@ -111,7 +115,7 @@ bool resolve_lib_directory(const std::filesystem::path& lib_directory, std::file
 // out_error_message, for an account record or a listed character file it cannot read: the server
 // would set either aside, and its idnum could clash with one written here.
 bool collect_account_characters(const std::filesystem::path& lib, std::set<std::string>& out_names_lower,
-    long& out_highest_idnum, std::string& out_error_message)
+    long long& out_highest_idnum, std::string& out_error_message)
 {
     const std::filesystem::path accounts_directory = lib / "accounts";
     std::error_code error;
@@ -145,7 +149,7 @@ bool collect_account_characters(const std::filesystem::path& lib, std::set<std::
                     + "' cannot be read: " + read_error;
                 return;
             }
-            out_highest_idnum = std::max(out_highest_idnum, stored.specials2.idnum);
+            out_highest_idnum = std::max(out_highest_idnum, static_cast<long long>(stored.specials2.idnum));
         }
     };
 
@@ -161,8 +165,18 @@ bool collect_account_characters(const std::filesystem::path& lib, std::set<std::
     return true;
 }
 
+// Returns the name boot indexes a legacy player entry under: the text before the first '.'. Returns
+// an empty name for an entry boot skips, one starting with '.' or "CVS".
+std::string_view legacy_player_entry_name(std::string_view entry_name)
+{
+    if (entry_name.empty() || entry_name.front() == '.' || entry_name.compare(0, 3, "CVS") == 0) {
+        return std::string_view();
+    }
+    return entry_name.substr(0, entry_name.find('.'));
+}
+
 // Splits a legacy player file name into its fields. Returns false when it does not have exactly
-// legacy_player_file_field_count fields or its name field is empty.
+// legacy_player_file_field_count fields.
 bool split_legacy_player_file_name(std::string_view file_name,
     std::array<std::string_view, legacy_player_file_field_count>& out_fields)
 {
@@ -178,14 +192,36 @@ bool split_legacy_player_file_name(std::string_view file_name,
             remaining.remove_prefix(separator + 1);
         }
     }
-    return !out_fields[0].empty();
+    return true;
 }
 
-// Adds the lower-cased name of every legacy player file in the lib to out_names_lower, and raises
-// out_highest_idnum to the highest of their idnums. A missing bucket holds nothing. Returns false,
-// with the reason in out_error_message, when a bucket cannot be listed.
+// Raises out_highest_idnum to the idnum in a six-field legacy player file name. An idnum too large
+// to read raises it to the largest long long, so the overflow check refuses it.
+void raise_to_legacy_idnum(std::string_view file_name, long long& out_highest_idnum)
+{
+    std::array<std::string_view, legacy_player_file_field_count> fields;
+    if (!split_legacy_player_file_name(file_name, fields)) {
+        return;
+    }
+    const std::string_view idnum_field = fields[legacy_player_file_idnum_field];
+    const char* const idnum_end = idnum_field.data() + idnum_field.size();
+    long long idnum = 0;
+    const std::from_chars_result parsed = std::from_chars(idnum_field.data(), idnum_end, idnum);
+    if (parsed.ec == std::errc::result_out_of_range && idnum_field.front() != '-') {
+        out_highest_idnum = std::numeric_limits<long long>::max();
+        return;
+    }
+    if (parsed.ec == std::errc() && parsed.ptr == idnum_end) {
+        out_highest_idnum = std::max(out_highest_idnum, idnum);
+    }
+}
+
+// Adds the lower-cased name of every legacy player entry in the lib to out_names_lower, under the
+// name boot indexes it by, and raises out_highest_idnum to the highest idnum among the six-field
+// names. A missing bucket holds nothing. Returns false, with the reason in out_error_message, when
+// a bucket cannot be listed.
 bool collect_legacy_characters(const std::filesystem::path& lib, std::set<std::string>& out_names_lower,
-    long& out_highest_idnum, std::string& out_error_message)
+    long long& out_highest_idnum, std::string& out_error_message)
 {
     for (const std::string_view bucket : legacy_player_buckets) {
         const std::filesystem::path bucket_directory = lib / "players" / bucket;
@@ -197,16 +233,10 @@ bool collect_legacy_characters(const std::filesystem::path& lib, std::set<std::s
         const std::filesystem::directory_iterator end;
         while (!error && entry != end) {
             const std::string file_name = entry->path().filename().string();
-            std::array<std::string_view, legacy_player_file_field_count> fields;
-            if (split_legacy_player_file_name(file_name, fields)) {
-                out_names_lower.insert(lower_case_copy(fields[0]));
-                const std::string_view idnum_field = fields[legacy_player_file_idnum_field];
-                const char* const idnum_end = idnum_field.data() + idnum_field.size();
-                long idnum = 0;
-                const std::from_chars_result parsed = std::from_chars(idnum_field.data(), idnum_end, idnum);
-                if (parsed.ec == std::errc() && parsed.ptr == idnum_end) {
-                    out_highest_idnum = std::max(out_highest_idnum, idnum);
-                }
+            const std::string_view indexed_name = legacy_player_entry_name(file_name);
+            if (!indexed_name.empty()) {
+                out_names_lower.insert(lower_case_copy(indexed_name));
+                raise_to_legacy_idnum(file_name, out_highest_idnum);
             }
             entry.increment(error);
         }
@@ -222,7 +252,7 @@ bool collect_legacy_characters(const std::filesystem::path& lib, std::set<std::s
 // index finds them, and the highest idnum among them (0 when there are none). Returns false, with
 // the reason in out_error_message, when the lib cannot be read.
 bool collect_existing_characters(const std::filesystem::path& lib, std::set<std::string>& out_names_lower,
-    long& out_highest_idnum, std::string& out_error_message)
+    long long& out_highest_idnum, std::string& out_error_message)
 {
     out_names_lower.clear();
     out_highest_idnum = 0;
@@ -242,6 +272,31 @@ bool refuse_names_in_lib(const FixtureSpec& spec, const std::set<std::string>& e
             return false;
         }
     }
+    return true;
+}
+
+// Sets out_first_idnum to the first idnum for spec's characters: one above highest_idnum, or
+// first_fixture_idnum if that is higher. Returns false, with the reason in out_error_message, when
+// the last of them would be above largest_idnum.
+bool choose_first_idnum(const FixtureSpec& spec, long long highest_idnum, long& out_first_idnum,
+    std::string& out_error_message)
+{
+    bool idnums_fit = highest_idnum < largest_idnum;
+    long long first_idnum = 0;
+    if (idnums_fit) {
+        first_idnum = std::max(highest_idnum + 1, static_cast<long long>(first_fixture_idnum));
+        // At least 1, because first_idnum is at most largest_idnum.
+        const unsigned long long idnums_left = static_cast<unsigned long long>(largest_idnum - first_idnum + 1);
+        idnums_fit = spec.characters.size() <= idnums_left;
+    }
+    if (!idnums_fit) {
+        out_error_message = "The lib's highest idnum, " + std::to_string(highest_idnum)
+            + ", leaves no room for the spec's characters (" + std::to_string(spec.characters.size())
+            + ") at or below " + std::to_string(largest_idnum) + ".";
+        return false;
+    }
+    // At most largest_idnum, which a long holds.
+    out_first_idnum = static_cast<long>(first_idnum);
     return true;
 }
 
@@ -461,9 +516,11 @@ bool write_fixtures_to_lib(const FixtureSpec& spec, const std::filesystem::path&
         return false;
     }
     std::set<std::string> existing_names_lower;
-    long highest_idnum = 0;
+    long long highest_idnum = 0;
+    long first_idnum = 0;
     if (!collect_existing_characters(lib, existing_names_lower, highest_idnum, out_error_message)
-        || !refuse_names_in_lib(spec, existing_names_lower, out_error_message)) {
+        || !refuse_names_in_lib(spec, existing_names_lower, out_error_message)
+        || !choose_first_idnum(spec, highest_idnum, first_idnum, out_error_message)) {
         return false;
     }
 
@@ -476,7 +533,6 @@ bool write_fixtures_to_lib(const FixtureSpec& spec, const std::filesystem::path&
         return false;
     }
 
-    const long first_idnum = std::max(highest_idnum + 1, first_fixture_idnum);
     std::vector<WrittenFixtureCharacter> written;
     if (!write_account_contents(spec, lib, now, first_idnum, account, written, out_error_message)) {
         remove_account_directory(lib, account, out_error_message);
