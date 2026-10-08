@@ -51,7 +51,10 @@ std::map<std::string, std::string> files_under(const std::filesystem::path& root
     while (!error && entry != end) {
         std::string relative_path = entry->path().lexically_relative(root).generic_string();
         std::error_code type_error;
-        std::string contents = entry->is_directory(type_error) ? "(directory)" : contents_of(entry->path());
+        std::string contents = "(directory)";
+        if (!entry->is_directory(type_error)) {
+            contents = contents_of(entry->path());
+        }
         contents_by_path.emplace(std::move(relative_path), std::move(contents));
         entry.increment(error);
     }

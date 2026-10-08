@@ -19,7 +19,8 @@ TEST(RotstoolCommand, HelpListsEveryCommandOnStandardOutput)
     std::ostringstream out;
     std::ostringstream err;
     EXPECT_EQ(rotstool::run_rotstool({ "help" }, out, err), rotstool::EXIT_CODE_SUCCESS);
-    for (const rotstool::RotstoolCommand& command : rotstool::rotstool_commands()) {
+    const std::vector<rotstool::RotstoolCommand>& commands = rotstool::rotstool_commands();
+    for (const rotstool::RotstoolCommand& command : commands) {
         EXPECT_NE(out.str().find(std::string(command.name)), std::string::npos) << command.name;
     }
 }

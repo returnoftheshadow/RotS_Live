@@ -49,7 +49,10 @@ std::string parse_error_of(const std::string& text)
     if (parse_fixture_spec(text, spec, error_message)) {
         return "";
     }
-    return error_message.empty() ? "(refused with no message)" : error_message;
+    if (error_message.empty()) {
+        return "(refused with no message)";
+    }
+    return error_message;
 }
 
 // Returns a spec with the valid account and the given character objects as its characters.

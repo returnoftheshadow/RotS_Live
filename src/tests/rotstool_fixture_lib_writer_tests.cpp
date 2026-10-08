@@ -173,7 +173,7 @@ protected:
     std::filesystem::path lib;
 };
 
-TEST_F(RotstoolFixtureLibWriter, WritesAVerifiedAccountAndFourFilesPerCharacter)
+TEST_F(RotstoolFixtureLibWriter, WritesAVerifiedAccountAndThreeFilesPerCharacter)
 {
     FixtureSpec::Character mage = make_character("testmage", 10);
     mage.skill_practices.emplace_back(SPELL_MAGIC_MISSILE, 5);

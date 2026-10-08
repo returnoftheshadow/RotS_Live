@@ -75,11 +75,11 @@ std::string set_value_refusal(const char* character_name, const char* field_name
         + " is above its maximum of " + std::to_string(maximum) + ".";
 }
 
-// Sets current to the value the spec sets, if any. Returns false, with the reason in
+// Sets out_current to the value the spec sets, if any. Returns false, with the reason in
 // out_error_message, when that value is below zero or above maximum.
 template <typename Points>
 bool set_current_value(const char* character_name, const char* field_name, const std::optional<int>& requested,
-    int maximum, Points& current, std::string& out_error_message)
+    int maximum, Points& out_current, std::string& out_error_message)
 {
     if (!requested) {
         return true;
@@ -89,7 +89,7 @@ bool set_current_value(const char* character_name, const char* field_name, const
         out_error_message = set_value_refusal(character_name, field_name, *requested, maximum);
         return false;
     }
-    current = static_cast<Points>(*requested);
+    out_current = static_cast<Points>(*requested);
     return true;
 }
 
@@ -173,12 +173,19 @@ bool make_fixture_character(const FixtureSpec::Character& spec, const std::strin
     affect_total(character.get());
 
     const char* const character_name = GET_NAME(character.get());
-    if (!set_current_value(character_name, "hit", spec.hit, GET_MAX_HIT(character.get()),
-            character->tmpabilities.hit, out_error_message)
-        || !set_current_value(character_name, "mana", spec.mana, GET_MAX_MANA(character.get()),
-            character->tmpabilities.mana, out_error_message)
-        || !set_current_value(character_name, "move", spec.move, GET_MAX_MOVE(character.get()),
-            character->tmpabilities.move, out_error_message)) {
+    const int levelled_max_hit = GET_MAX_HIT(character.get());
+    if (!set_current_value(character_name, "hit", spec.hit, levelled_max_hit, character->tmpabilities.hit,
+            out_error_message)) {
+        return false;
+    }
+    const int levelled_max_mana = GET_MAX_MANA(character.get());
+    if (!set_current_value(character_name, "mana", spec.mana, levelled_max_mana, character->tmpabilities.mana,
+            out_error_message)) {
+        return false;
+    }
+    const int levelled_max_move = GET_MAX_MOVE(character.get());
+    if (!set_current_value(character_name, "move", spec.move, levelled_max_move, character->tmpabilities.move,
+            out_error_message)) {
         return false;
     }
 
@@ -192,10 +199,17 @@ bool make_fixture_character(const FixtureSpec::Character& spec, const std::strin
     out_stored_character.last_logon = now;
 
     // char_to_store recomputes the maximums and clamps the current values to them.
-    return stored_value_matches(character_name, "hit", spec.hit, GET_MAX_HIT(character.get()),
-               out_stored_character.tmpabilities.hit, out_error_message)
-        && stored_value_matches(character_name, "mana", spec.mana, GET_MAX_MANA(character.get()),
-            out_stored_character.tmpabilities.mana, out_error_message)
-        && stored_value_matches(character_name, "move", spec.move, GET_MAX_MOVE(character.get()),
-            out_stored_character.tmpabilities.move, out_error_message);
+    const int stored_max_hit = GET_MAX_HIT(character.get());
+    if (!stored_value_matches(character_name, "hit", spec.hit, stored_max_hit, out_stored_character.tmpabilities.hit,
+            out_error_message)) {
+        return false;
+    }
+    const int stored_max_mana = GET_MAX_MANA(character.get());
+    if (!stored_value_matches(character_name, "mana", spec.mana, stored_max_mana,
+            out_stored_character.tmpabilities.mana, out_error_message)) {
+        return false;
+    }
+    const int stored_max_move = GET_MAX_MOVE(character.get());
+    return stored_value_matches(character_name, "move", spec.move, stored_max_move,
+        out_stored_character.tmpabilities.move, out_error_message);
 }

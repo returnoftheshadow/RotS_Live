@@ -37,16 +37,16 @@ constexpr const char* EMAIL_VERIFIER = "rotstool";
 // Makes a directory the process's working directory for one scope and restores the previous one.
 class ScopedWorkingDirectory {
 public:
-    // Makes directory the working directory. error is set, and the working directory is left as
-    // it was, when the current one cannot be read or directory cannot be entered.
-    ScopedWorkingDirectory(const std::filesystem::path& directory, std::error_code& error)
+    // Makes directory the working directory. out_error is set, and the working directory is left
+    // as it was, when the current one cannot be read or directory cannot be entered.
+    ScopedWorkingDirectory(const std::filesystem::path& directory, std::error_code& out_error)
     {
-        saved_directory = std::filesystem::current_path(error);
-        if (error) {
+        saved_directory = std::filesystem::current_path(out_error);
+        if (out_error) {
             return;
         }
-        std::filesystem::current_path(directory, error);
-        changed = !error;
+        std::filesystem::current_path(directory, out_error);
+        changed = !out_error;
     }
 
     ~ScopedWorkingDirectory()
@@ -59,15 +59,15 @@ public:
     ScopedWorkingDirectory& operator=(const ScopedWorkingDirectory&) = delete;
 
     // Restores the previous working directory now, so a caller can report a failure the
-    // destructor would have to ignore. error is set when it cannot be entered.
-    void restore(std::error_code& error)
+    // destructor would have to ignore. out_error is set when it cannot be entered.
+    void restore(std::error_code& out_error)
     {
-        error.clear();
+        out_error.clear();
         if (!changed) {
             return;
         }
-        std::filesystem::current_path(saved_directory, error);
-        changed = static_cast<bool>(error);
+        std::filesystem::current_path(saved_directory, out_error);
+        changed = static_cast<bool>(out_error);
     }
 
 private:
