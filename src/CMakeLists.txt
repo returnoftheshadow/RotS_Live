@@ -239,6 +239,7 @@ set(ROTS_TEST_SOURCES
     tests/creation_dialogue_tests.cpp
     tests/creation_points_tests.cpp
     tests/rotstool_command_tests.cpp
+    tests/rotstool_fixture_spec_tests.cpp
 )
 
 # The server's code, compiled once for every program built from it.
@@ -266,6 +267,7 @@ set_target_properties(ageland PROPERTIES
 # rotstool's commands; also built into the unit tests.
 set(ROTSTOOL_COMMAND_SOURCES
     tools/rotstool/rotstool_command.cpp
+    tools/rotstool/fixture_spec_parser.cpp
 )
 
 # A command-line tool for offline work on a lib, built from the server's own code.
