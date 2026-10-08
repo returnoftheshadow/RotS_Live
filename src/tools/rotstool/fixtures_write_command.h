@@ -9,7 +9,7 @@
 namespace rotstool {
 
 // The usage text of rotstool fixtures write, printed by help and after bad usage.
-constexpr std::string_view fixtures_write_usage
+constexpr std::string_view FIXTURES_WRITE_USAGE
     = "usage: rotstool fixtures write --lib <dir> [--random-seed <n>] [--verbose] <spec.json>\n"
       "\n"
       "Writes a verified account and the characters a fixture spec describes into <dir>, made and\n"

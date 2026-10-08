@@ -9,7 +9,7 @@
 #include <vector>
 
 // Idnum of the first fixture character in a lib that has none above it.
-constexpr long first_fixture_idnum = 9000001;
+constexpr long FIRST_FIXTURE_IDNUM = 9000001;
 
 // Writes spec's account and characters into lib_directory: the account, verified, linking every
 // character, and for each character its character, objects and exploits files, all through the

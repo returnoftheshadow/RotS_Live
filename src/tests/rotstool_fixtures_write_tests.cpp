@@ -205,7 +205,7 @@ protected:
     // Expects a bad-usage run: exit 2, a message naming the command, and the usage on stderr.
     static void expect_bad_usage(const RunResult& result)
     {
-        EXPECT_EQ(result.exit_code, rotstool::exit_usage);
+        EXPECT_EQ(result.exit_code, rotstool::EXIT_CODE_USAGE);
         EXPECT_NE(result.err.find("rotstool fixtures write: "), std::string::npos) << result.err;
         EXPECT_NE(result.err.find("usage: rotstool fixtures write"), std::string::npos) << result.err;
         EXPECT_TRUE(result.out.empty()) << result.out;
@@ -225,21 +225,21 @@ TEST_F(RotstoolFixturesWrite, WritesTheLibAndPrintsOneLinePerCharacter)
 {
     const RunResult result = run_tool({ "fixtures", "write", "--lib", lib.string(), spec_path.string() });
 
-    ASSERT_EQ(result.exit_code, rotstool::exit_success) << result.err;
+    ASSERT_EQ(result.exit_code, rotstool::EXIT_CODE_SUCCESS) << result.err;
     const std::vector<std::string> lines = lines_of(result.out);
     ASSERT_EQ(lines.size(), 2u) << result.out;
 
     const std::vector<std::string> mage_fields = fields_of(lines[0]);
     ASSERT_EQ(mage_fields.size(), 3u) << lines[0];
     EXPECT_EQ(mage_fields[0], "Testmage");
-    EXPECT_EQ(mage_fields[1], std::to_string(first_fixture_idnum));
+    EXPECT_EQ(mage_fields[1], std::to_string(FIRST_FIXTURE_IDNUM));
     EXPECT_EQ(std::filesystem::path(mage_fields[2]).filename(), "testmage.character.json");
     EXPECT_TRUE(path_exists(mage_fields[2])) << mage_fields[2];
 
     const std::vector<std::string> warrior_fields = fields_of(lines[1]);
     ASSERT_EQ(warrior_fields.size(), 3u) << lines[1];
     EXPECT_EQ(warrior_fields[0], "Testwarrior");
-    EXPECT_EQ(warrior_fields[1], std::to_string(first_fixture_idnum + 1));
+    EXPECT_EQ(warrior_fields[1], std::to_string(FIRST_FIXTURE_IDNUM + 1));
     EXPECT_EQ(std::filesystem::path(warrior_fields[2]).filename(), "testwarrior.character.json");
     EXPECT_TRUE(path_exists(warrior_fields[2])) << warrior_fields[2];
 
@@ -254,7 +254,7 @@ TEST_F(RotstoolFixturesWrite, VerboseAddsAKnowledgeLinePerSkill)
     const RunResult result
         = run_tool({ "fixtures", "write", "--lib", lib.string(), "--verbose", spec_path.string() });
 
-    ASSERT_EQ(result.exit_code, rotstool::exit_success) << result.err;
+    ASSERT_EQ(result.exit_code, rotstool::EXIT_CODE_SUCCESS) << result.err;
     const std::vector<std::string> lines = lines_of(result.out);
     ASSERT_EQ(lines.size(), 3u) << result.out;
 
@@ -272,7 +272,7 @@ TEST_F(RotstoolFixturesWrite, AcceptsBothOptionForms)
 {
     const RunResult separate = run_tool(
         { "fixtures", "write", "--lib", lib.string(), "--random-seed", "7", spec_path.string() });
-    ASSERT_EQ(separate.exit_code, rotstool::exit_success) << separate.err;
+    ASSERT_EQ(separate.exit_code, rotstool::EXIT_CODE_SUCCESS) << separate.err;
     EXPECT_EQ(lines_of(separate.out).size(), 2u) << separate.out;
 
     const std::filesystem::path second_lib = work_directory / "second-lib";
@@ -281,7 +281,7 @@ TEST_F(RotstoolFixturesWrite, AcceptsBothOptionForms)
     ASSERT_FALSE(error) << error.message();
     const RunResult joined = run_tool(
         { "fixtures", "write", "--lib=" + second_lib.string(), "--random-seed=7", spec_path.string() });
-    ASSERT_EQ(joined.exit_code, rotstool::exit_success) << joined.err;
+    ASSERT_EQ(joined.exit_code, rotstool::EXIT_CODE_SUCCESS) << joined.err;
     const std::vector<std::string> joined_lines = lines_of(joined.out);
     ASSERT_EQ(joined_lines.size(), 2u) << joined.out;
     const std::filesystem::path joined_path(fields_of(joined_lines[0]).back());
@@ -297,10 +297,10 @@ TEST_F(RotstoolFixturesWrite, SameSeedWritesTheSameCharacters)
 
     const RunResult first
         = run_tool({ "fixtures", "write", "--lib", lib.string(), "--random-seed", "42", spec_path.string() });
-    ASSERT_EQ(first.exit_code, rotstool::exit_success) << first.err;
+    ASSERT_EQ(first.exit_code, rotstool::EXIT_CODE_SUCCESS) << first.err;
     const RunResult second = run_tool(
         { "fixtures", "write", "--lib", second_lib.string(), "--random-seed", "42", spec_path.string() });
-    ASSERT_EQ(second.exit_code, rotstool::exit_success) << second.err;
+    ASSERT_EQ(second.exit_code, rotstool::EXIT_CODE_SUCCESS) << second.err;
 
     for (const char* name : { "testmage", "testwarrior" }) {
         char_file_u first_stored {};
@@ -366,7 +366,7 @@ TEST_F(RotstoolFixturesWrite, InvalidSpecFailsAndWritesNothing)
 
     const RunResult result = run_tool({ "fixtures", "write", "--lib", lib.string(), spec_path.string() });
 
-    EXPECT_EQ(result.exit_code, rotstool::exit_failure);
+    EXPECT_EQ(result.exit_code, rotstool::EXIT_CODE_FAILURE);
     EXPECT_NE(result.err.find("rotstool fixtures write: "), std::string::npos) << result.err;
     EXPECT_TRUE(result.out.empty()) << result.out;
     EXPECT_EQ(files_under(lib).size(), 0u);
@@ -378,7 +378,7 @@ TEST_F(RotstoolFixturesWrite, UnreadableSpecFileFails)
 
     const RunResult result = run_tool({ "fixtures", "write", "--lib", lib.string(), missing_spec.string() });
 
-    EXPECT_EQ(result.exit_code, rotstool::exit_failure);
+    EXPECT_EQ(result.exit_code, rotstool::EXIT_CODE_FAILURE);
     EXPECT_NE(result.err.find("rotstool fixtures write: "), std::string::npos) << result.err;
     EXPECT_EQ(files_under(lib).size(), 0u);
 }

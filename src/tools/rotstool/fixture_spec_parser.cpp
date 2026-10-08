@@ -22,7 +22,7 @@
 namespace {
 
 // The races the creation menu offers, as RACE_* numbers; each one's name is pc_races[race].
-constexpr std::array<int, 10> offered_races = {
+constexpr std::array<int, 10> OFFERED_RACES = {
     RACE_HUMAN, RACE_DWARF, RACE_WOOD, RACE_HOBBIT, RACE_URUK,
     RACE_ORC, RACE_MAGUS, RACE_BEORNING, RACE_OLOGHAI, RACE_HARADRIM,
 };
@@ -35,24 +35,24 @@ struct NamedClass {
     char letter;
 };
 
-constexpr std::array<NamedClass, 10> named_classes = { {
+constexpr std::array<NamedClass, 10> NAMED_CLASSES = { {
     { "mystic", 't' }, { "ranger", 'r' }, { "warrior", 'w' }, { "mage", 'm' }, { "conjurer", 'n' },
     { "wizard", 'i' }, { "healer", 'h' }, { "swashbuckler", 's' }, { "barbarian", 'b' }, { "adventurer", 'a' },
 } };
 
 // Most practice sessions one skill can store, because a character file keeps them in a byte.
-constexpr int max_practices = std::numeric_limits<unsigned char>::max();
+constexpr int MAX_PRACTICES = std::numeric_limits<unsigned char>::max();
 
 // Most a set value can be, because abilities are stored as sh_int.
-constexpr int max_set_value = std::numeric_limits<sh_int>::max();
+constexpr int MAX_SET_VALUE = std::numeric_limits<sh_int>::max();
 
 // Most bytes read_fixture_spec_file() reads: one past the limit, so a larger file is detected
 // without reading it in full.
-constexpr std::uintmax_t fixture_spec_read_limit = fixture_spec_byte_limit + 1;
+constexpr std::uintmax_t FIXTURE_SPEC_READ_LIMIT = FIXTURE_SPEC_BYTE_LIMIT + 1;
 
-static_assert(fixture_spec_read_limit <= static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()),
+static_assert(FIXTURE_SPEC_READ_LIMIT <= static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()),
     "the read limit must fit the stream's read count");
-static_assert(fixture_spec_read_limit <= std::numeric_limits<std::size_t>::max(),
+static_assert(FIXTURE_SPEC_READ_LIMIT <= std::numeric_limits<std::size_t>::max(),
     "the read limit must fit a string's size");
 
 using json_utils::JsonReader;
@@ -113,7 +113,7 @@ bool read_bounded_integer(JsonReader& reader, std::string_view key, int minimum,
 bool resolve_race(std::string_view race_name, int& out_race, std::string& out_error_message)
 {
     const std::string wanted = lower_case(race_name);
-    for (const int race : offered_races) {
+    for (const int race : OFFERED_RACES) {
         if (lower_case(pc_races[race]) == wanted) {
             out_race = race;
             return true;
@@ -141,9 +141,9 @@ bool resolve_class(
     std::string_view class_name, std::optional<CreationPoints>& out_creation_points, std::string& out_error_message)
 {
     const std::string wanted = lower_case(class_name);
-    const auto named_class = std::find_if(named_classes.begin(), named_classes.end(),
+    const auto named_class = std::find_if(NAMED_CLASSES.begin(), NAMED_CLASSES.end(),
         [&wanted](const NamedClass& candidate) -> bool { return candidate.name == wanted; });
-    if (named_class == named_classes.end()) {
+    if (named_class == NAMED_CLASSES.end()) {
         out_error_message = "'class': '" + std::string(class_name) + "' is not a class the creation menu offers.";
         return false;
     }
@@ -271,7 +271,7 @@ bool parse_skills_object(
             return false;
         }
         int practices = 0;
-        if (!read_bounded_integer(*property_reader, key, 1, max_practices, practices, out_error_message)) {
+        if (!read_bounded_integer(*property_reader, key, 1, MAX_PRACTICES, practices, out_error_message)) {
             return false;
         }
         out_skill_practices.emplace_back(skill_index, practices);
@@ -301,7 +301,7 @@ bool parse_set_object(JsonReader& reader, FixtureSpec::Character& out_character,
             return false;
         }
         int value = 0;
-        if (!read_bounded_integer(*property_reader, key, 1, max_set_value, value, out_error_message)) {
+        if (!read_bounded_integer(*property_reader, key, 1, MAX_SET_VALUE, value, out_error_message)) {
             return false;
         }
         *target = value;
@@ -400,7 +400,7 @@ bool parse_character_object(JsonReader& reader, FixtureSpec::Character& out_char
 // Reads up to buffer.size() - offset bytes from file into buffer at offset; returns the count read.
 std::size_t read_into(std::ifstream& file, std::string& buffer, std::size_t offset)
 {
-    // buffer never exceeds fixture_spec_read_limit, which the static_asserts above prove fits a
+    // buffer never exceeds FIXTURE_SPEC_READ_LIMIT, which the static_asserts above prove fits a
     // std::streamsize.
     file.read(buffer.data() + offset, static_cast<std::streamsize>(buffer.size() - offset));
     return static_cast<std::size_t>(file.gcount());
@@ -422,23 +422,23 @@ bool read_fixture_spec_file(
 
     // The size is only a hint: the file can change before it is read, so a read that fills the
     // hinted size reads on up to the limit.
-    std::uintmax_t initial_size = fixture_spec_read_limit;
-    if (!size_error && size_hint < fixture_spec_read_limit) {
+    std::uintmax_t initial_size = FIXTURE_SPEC_READ_LIMIT;
+    if (!size_error && size_hint < FIXTURE_SPEC_READ_LIMIT) {
         initial_size = size_hint;
     }
     std::string contents(static_cast<std::size_t>(initial_size), '\0');
     std::size_t bytes_read = read_into(file, contents, 0);
-    if (bytes_read == contents.size() && contents.size() < fixture_spec_read_limit) {
-        contents.resize(static_cast<std::size_t>(fixture_spec_read_limit));
+    if (bytes_read == contents.size() && contents.size() < FIXTURE_SPEC_READ_LIMIT) {
+        contents.resize(static_cast<std::size_t>(FIXTURE_SPEC_READ_LIMIT));
         bytes_read += read_into(file, contents, bytes_read);
     }
     if (file.bad()) {
         out_error_message = "Cannot read fixture spec '" + path.string() + "'.";
         return false;
     }
-    if (bytes_read > fixture_spec_byte_limit) {
+    if (bytes_read > FIXTURE_SPEC_BYTE_LIMIT) {
         out_error_message = "Fixture spec '" + path.string() + "' is larger than "
-            + std::to_string(fixture_spec_byte_limit) + " bytes.";
+            + std::to_string(FIXTURE_SPEC_BYTE_LIMIT) + " bytes.";
         return false;
     }
 

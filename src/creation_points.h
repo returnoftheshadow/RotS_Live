@@ -10,14 +10,14 @@
 struct char_data;
 
 // Most points a new character may spread across the four professions.
-constexpr int creation_point_budget = 150;
+constexpr int CREATION_POINT_BUDGET = 150;
 
 // Most points the creation dialogue lets one profession hold while a player is still adjusting.
 // A finished split never reaches it, because the budget is lower.
-constexpr int creation_point_step_cap = 165;
+constexpr int CREATION_POINT_STEP_CAP = 165;
 
 // A split of creation points across mage, mystic, ranger and warrior that a player could finish
-// creation with: none below zero and no more than creation_point_budget in total. Instances
+// creation with: none below zero and no more than CREATION_POINT_BUDGET in total. Instances
 // come only from the factories, which enforce that.
 class CreationPoints {
 public:

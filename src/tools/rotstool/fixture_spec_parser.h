@@ -8,10 +8,10 @@
 #include <string>
 
 // Largest fixture spec file read_fixture_spec_file() accepts, in bytes.
-constexpr std::uintmax_t fixture_spec_byte_limit = 1024 * 1024;
+constexpr std::uintmax_t FIXTURE_SPEC_BYTE_LIMIT = 1024 * 1024;
 
 // Reads a fixture spec file into out_contents. Refuses a missing or unreadable file and one over
-// fixture_spec_byte_limit, with the reason in out_error_message.
+// FIXTURE_SPEC_BYTE_LIMIT, with the reason in out_error_message.
 [[nodiscard]] bool read_fixture_spec_file(
     const std::filesystem::path& path, std::string& out_contents, std::string& out_error_message);
 

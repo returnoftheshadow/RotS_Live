@@ -211,13 +211,13 @@ TEST_F(RotstoolFixtureLibWriter, WritesAVerifiedAccountAndFourFilesPerCharacter)
 
     ASSERT_EQ(written.size(), 2u);
     EXPECT_EQ(written[0].name, "Testmage");
-    EXPECT_EQ(written[0].idnum, first_fixture_idnum);
+    EXPECT_EQ(written[0].idnum, FIRST_FIXTURE_IDNUM);
     EXPECT_EQ(written[0].character_file, account_path / "testmage.character.json");
     ASSERT_EQ(written[0].skill_knowledge.size(), 1u);
     EXPECT_EQ(written[0].skill_knowledge[0].first, SPELL_MAGIC_MISSILE);
     EXPECT_GT(written[0].skill_knowledge[0].second, 0);
     EXPECT_EQ(written[1].name, "Testwarrior");
-    EXPECT_EQ(written[1].idnum, first_fixture_idnum + 1);
+    EXPECT_EQ(written[1].idnum, FIRST_FIXTURE_IDNUM + 1);
     EXPECT_EQ(written[1].character_file, account_path / "testwarrior.character.json");
     EXPECT_TRUE(written[1].skill_knowledge.empty());
     EXPECT_EQ(stored_mage.specials2.idnum, written[0].idnum);
@@ -232,13 +232,13 @@ TEST_F(RotstoolFixtureLibWriter, StartsIdnumsAboveTheHighestInTheLib)
         written, error_message))
         << error_message;
     ASSERT_EQ(written.size(), 1u);
-    EXPECT_EQ(written[0].idnum, first_fixture_idnum);
+    EXPECT_EQ(written[0].idnum, FIRST_FIXTURE_IDNUM);
 
     ASSERT_TRUE(write_fixtures_to_lib(make_spec(second_email, { make_character("Testsecond", 5) }), lib, fixture_now,
         written, error_message))
         << error_message;
     ASSERT_EQ(written.size(), 1u);
-    EXPECT_EQ(written[0].idnum, first_fixture_idnum + 1);
+    EXPECT_EQ(written[0].idnum, FIRST_FIXTURE_IDNUM + 1);
 }
 
 TEST_F(RotstoolFixtureLibWriter, RefusesANameAlreadyInTheLibRegardlessOfCase)

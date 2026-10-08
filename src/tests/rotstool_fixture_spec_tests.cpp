@@ -289,7 +289,7 @@ TEST(RotstoolFixtureSpec, RefusesACustomSplitOverTheBudget)
     const std::string error_message = parse_error_of(
         spec_with_character("class", R"("points": { "mage": 100, "mystic": 51 })"));
     EXPECT_TRUE(contains(error_message, "'points': ")) << error_message;
-    EXPECT_TRUE(contains(error_message, "most is " + std::to_string(creation_point_budget))) << error_message;
+    EXPECT_TRUE(contains(error_message, "most is " + std::to_string(CREATION_POINT_BUDGET))) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesALevelOutOfRange)
@@ -368,14 +368,14 @@ TEST(RotstoolFixtureSpec, ReadRefusesAFileOverTheLimit)
     {
         std::ofstream file(path, std::ios::binary);
         ASSERT_TRUE(file.is_open());
-        const std::string contents(static_cast<size_t>(fixture_spec_byte_limit + 1), ' ');
+        const std::string contents(static_cast<size_t>(FIXTURE_SPEC_BYTE_LIMIT + 1), ' ');
         file.write(contents.data(), static_cast<std::streamsize>(contents.size()));
     }
 
     std::string contents;
     std::string error_message;
     EXPECT_FALSE(read_fixture_spec_file(path, contents, error_message));
-    EXPECT_TRUE(contains(error_message, "is larger than " + std::to_string(fixture_spec_byte_limit) + " bytes"))
+    EXPECT_TRUE(contains(error_message, "is larger than " + std::to_string(FIXTURE_SPEC_BYTE_LIMIT) + " bytes"))
         << error_message;
 
     std::error_code error;

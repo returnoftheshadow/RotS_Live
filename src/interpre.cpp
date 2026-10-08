@@ -4717,7 +4717,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
                 SEND_TO_Q("Ok, your abilities are now as follows:\n\r", d);
                 SEND_TO_Q(buf, d);
                 sprintf(buf, "Points remaining: %d\n\r",
-                    creation_point_budget - points_used(*d->character));
+                    CREATION_POINT_BUDGET - points_used(*d->character));
                 SEND_TO_Q(buf, d);
                 SEND_TO_Q("Your choice: ", d);
                 return CON_CREATE;
@@ -4748,7 +4748,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
             SEND_TO_Q("Your current abilities are:\n\r", d);
             draw_coofs(buf, d->character);
             SEND_TO_Q(buf, d);
-            sprintf(buf, "Points remaining: %d\n\r", creation_point_budget - points_used(*d->character));
+            sprintf(buf, "Points remaining: %d\n\r", CREATION_POINT_BUDGET - points_used(*d->character));
             SEND_TO_Q(buf, d);
             SEND_TO_Q("\n\rYour Choice: ", d);
             return CON_CREATE;
@@ -4760,19 +4760,19 @@ int new_player_select(struct descriptor_data* d, char* arg)
 
         switch (*arg) {
         case 'm':
-            GET_PROF_POINTS(PROF_MAGE, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_MAGE, d->character), creation_point_step_cap));
+            GET_PROF_POINTS(PROF_MAGE, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_MAGE, d->character), CREATION_POINT_STEP_CAP));
             break;
 
         case 't':
-            GET_PROF_POINTS(PROF_CLERIC, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_CLERIC, d->character), creation_point_step_cap));
+            GET_PROF_POINTS(PROF_CLERIC, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_CLERIC, d->character), CREATION_POINT_STEP_CAP));
             break;
 
         case 'r':
-            GET_PROF_POINTS(PROF_RANGER, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_RANGER, d->character), creation_point_step_cap));
+            GET_PROF_POINTS(PROF_RANGER, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_RANGER, d->character), CREATION_POINT_STEP_CAP));
             break;
 
         case 'w':
-            GET_PROF_POINTS(PROF_WARRIOR, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_WARRIOR, d->character), creation_point_step_cap));
+            GET_PROF_POINTS(PROF_WARRIOR, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_WARRIOR, d->character), CREATION_POINT_STEP_CAP));
             break;
 
         default:
@@ -4782,7 +4782,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
         }
         draw_coofs(buf, d->character);
         SEND_TO_Q(buf, d);
-        sprintf(buf, "Points remaining: %d\n\r", creation_point_budget - points_used(*d->character));
+        sprintf(buf, "Points remaining: %d\n\r", CREATION_POINT_BUDGET - points_used(*d->character));
         SEND_TO_Q(buf, d);
         SEND_TO_Q("Ok.\n\rYour choice: ", d);
     } else {

@@ -9,13 +9,13 @@
 namespace rotstool {
 
 // Exit code of a command that did what it was asked.
-constexpr int exit_success = 0;
+constexpr int EXIT_CODE_SUCCESS = 0;
 
 // Exit code of a command that ran and failed; nothing usable was left behind.
-constexpr int exit_failure = 1;
+constexpr int EXIT_CODE_FAILURE = 1;
 
 // Exit code for arguments a command does not accept.
-constexpr int exit_usage = 2;
+constexpr int EXIT_CODE_USAGE = 2;
 
 // Runs a command with the arguments that follow its name, writing results to out and errors to
 // err, and returns its exit code.
@@ -37,7 +37,7 @@ struct RotstoolCommand {
 const std::vector<RotstoolCommand>& rotstool_commands();
 
 // Runs rotstool with the arguments that follow the program name and returns the exit code. With
-// no arguments or an unknown command it lists the commands on err and returns exit_usage.
+// no arguments or an unknown command it lists the commands on err and returns EXIT_CODE_USAGE.
 int run_rotstool(const std::vector<std::string>& arguments, std::ostream& out, std::ostream& err);
 
 } // namespace rotstool

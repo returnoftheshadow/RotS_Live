@@ -64,7 +64,7 @@ int run_help(const std::vector<std::string>& arguments, std::ostream& out, std::
 {
     if (arguments.empty()) {
         list_commands(out);
-        return exit_success;
+        return EXIT_CODE_SUCCESS;
     }
 
     std::size_t word_count = 0;
@@ -72,11 +72,11 @@ int run_help(const std::vector<std::string>& arguments, std::ostream& out, std::
     if (command == nullptr || word_count != arguments.size()) {
         err << "rotstool help: no command named '" << arguments.front() << "'.\n";
         list_commands(err);
-        return exit_usage;
+        return EXIT_CODE_USAGE;
     }
 
     out << command->usage << "\n";
-    return exit_success;
+    return EXIT_CODE_SUCCESS;
 }
 
 } // namespace
@@ -86,7 +86,7 @@ const std::vector<RotstoolCommand>& rotstool_commands()
     static const std::vector<RotstoolCommand> commands = {
         { "help", "Lists the commands, or prints one command's usage.", "usage: rotstool help [command]", run_help },
         { "fixtures write", "Writes a test account and characters into a lib from a fixture spec.",
-            fixtures_write_usage, run_fixtures_write },
+            FIXTURES_WRITE_USAGE, run_fixtures_write },
     };
     return commands;
 }
@@ -95,7 +95,7 @@ int run_rotstool(const std::vector<std::string>& arguments, std::ostream& out, s
 {
     if (arguments.empty()) {
         list_commands(err);
-        return exit_usage;
+        return EXIT_CODE_USAGE;
     }
 
     std::size_t word_count = 0;
@@ -103,7 +103,7 @@ int run_rotstool(const std::vector<std::string>& arguments, std::ostream& out, s
     if (command == nullptr) {
         err << "rotstool: unknown command '" << arguments.front() << "'.\n";
         list_commands(err);
-        return exit_usage;
+        return EXIT_CODE_USAGE;
     }
 
     const std::vector<std::string> command_arguments(arguments.begin() + word_count, arguments.end());

@@ -22,7 +22,7 @@ namespace rotstool {
 namespace {
 
 // The prefix of every message the command writes to err.
-constexpr std::string_view message_prefix = "rotstool fixtures write: ";
+constexpr std::string_view MESSAGE_PREFIX = "rotstool fixtures write: ";
 
 // The options and spec path of one fixtures write run.
 struct FixturesWriteOptions {
@@ -170,31 +170,31 @@ int run_fixtures_write(const std::vector<std::string>& arguments, std::ostream& 
     FixturesWriteOptions options;
     std::string error_message;
     if (!parse_fixtures_write_options(arguments, options, error_message)) {
-        err << message_prefix << error_message << "\n" << fixtures_write_usage << "\n";
-        return exit_usage;
+        err << MESSAGE_PREFIX << error_message << "\n" << FIXTURES_WRITE_USAGE << "\n";
+        return EXIT_CODE_USAGE;
     }
 
     std::string spec_text;
     if (!read_fixture_spec_file(options.spec_path, spec_text, error_message)) {
-        err << message_prefix << error_message << "\n";
-        return exit_failure;
+        err << MESSAGE_PREFIX << error_message << "\n";
+        return EXIT_CODE_FAILURE;
     }
     FixtureSpec spec;
     if (!parse_fixture_spec(spec_text, spec, error_message)) {
-        err << message_prefix << error_message << "\n";
-        return exit_failure;
+        err << MESSAGE_PREFIX << error_message << "\n";
+        return EXIT_CODE_FAILURE;
     }
 
     seed_random_numbers(options.seed, draw_clock_seed);
     const long now = current_time_in_seconds();
     std::vector<WrittenFixtureCharacter> written;
     if (!write_fixtures_to_lib(spec, options.lib, now, written, error_message)) {
-        err << message_prefix << error_message << "\n";
-        return exit_failure;
+        err << MESSAGE_PREFIX << error_message << "\n";
+        return EXIT_CODE_FAILURE;
     }
 
     print_written_characters(spec, written, options.verbose, out);
-    return exit_success;
+    return EXIT_CODE_SUCCESS;
 }
 
 } // namespace rotstool

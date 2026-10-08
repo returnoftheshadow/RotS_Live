@@ -64,7 +64,7 @@ TEST(CreationPoints, StandardClassGivesTheClassPoints)
     EXPECT_EQ(wizard->points(PROF_CLERIC), 16);
     EXPECT_EQ(wizard->points(PROF_RANGER), 9);
     EXPECT_EQ(wizard->points(PROF_WARRIOR), 4);
-    EXPECT_EQ(wizard->total(), creation_point_budget);
+    EXPECT_EQ(wizard->total(), CREATION_POINT_BUDGET);
 }
 
 TEST(CreationPoints, CustomAcceptsTheWholeBudget)
@@ -72,7 +72,7 @@ TEST(CreationPoints, CustomAcceptsTheWholeBudget)
     std::string error_message;
     const std::optional<CreationPoints> split = CreationPoints::custom(make_split(70, 20, 0, 60), error_message);
     ASSERT_TRUE(split.has_value()) << error_message;
-    EXPECT_EQ(split->total(), creation_point_budget);
+    EXPECT_EQ(split->total(), CREATION_POINT_BUDGET);
 }
 
 TEST(CreationPoints, CustomAcceptsLessThanTheBudget)
@@ -84,8 +84,8 @@ TEST(CreationPoints, CustomAcceptsLessThanTheBudget)
 TEST(CreationPoints, CustomRefusesOnePointOverTheBudget)
 {
     std::string error_message;
-    EXPECT_FALSE(CreationPoints::custom(make_split(creation_point_budget, 1, 0, 0), error_message).has_value());
-    EXPECT_NE(error_message.find(std::to_string(creation_point_budget)), std::string::npos);
+    EXPECT_FALSE(CreationPoints::custom(make_split(CREATION_POINT_BUDGET, 1, 0, 0), error_message).has_value());
+    EXPECT_NE(error_message.find(std::to_string(CREATION_POINT_BUDGET)), std::string::npos);
 }
 
 TEST(CreationPoints, CustomRefusesANegativeProfession)
@@ -123,7 +123,7 @@ TEST(CreationPoints, ApplyToSetsTheCharacterPointsAndFromCharacterReadsThemBack)
     split->apply_to(character.get());
     EXPECT_EQ(GET_PROF_POINTS(PROF_MAGE, &character.get()), 70);
     EXPECT_EQ(GET_PROF_POINTS(PROF_WARRIOR, &character.get()), 60);
-    EXPECT_EQ(points_used(character.get()), creation_point_budget);
+    EXPECT_EQ(points_used(character.get()), CREATION_POINT_BUDGET);
 
     const std::optional<CreationPoints> read_back = CreationPoints::from_character(character.get(), error_message);
     ASSERT_TRUE(read_back.has_value()) << error_message;
@@ -133,7 +133,7 @@ TEST(CreationPoints, ApplyToSetsTheCharacterPointsAndFromCharacterReadsThemBack)
 TEST(CreationPoints, FromCharacterRefusesACharacterOverTheBudget)
 {
     ScopedCharacter character;
-    GET_PROF_POINTS(PROF_MAGE, &character.get()) = creation_point_step_cap;
+    GET_PROF_POINTS(PROF_MAGE, &character.get()) = CREATION_POINT_STEP_CAP;
     std::string error_message;
     EXPECT_FALSE(CreationPoints::from_character(character.get(), error_message).has_value());
 }

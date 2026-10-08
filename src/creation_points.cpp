@@ -11,7 +11,7 @@ namespace {
 
 // The standard classes the creation menu offers, by menu letter, with their points per
 // profession indexed like prof_coof.
-const prof_type standard_classes[DEFAULT_PROFS] = {
+const prof_type STANDARD_CLASSES[DEFAULT_PROFS] = {
     { 'm', { 0, 100, 25, 16, 9 } },
     { 't', { 0, 25, 100, 9, 16 } },
     { 'r', { 0, 16, 9, 100, 25 } },
@@ -42,7 +42,7 @@ CreationPoints::CreationPoints(const Split& split)
 
 std::optional<CreationPoints> CreationPoints::standard_class(char letter)
 {
-    for (const prof_type& standard : standard_classes) {
+    for (const prof_type& standard : STANDARD_CLASSES) {
         if (standard.letter == letter) {
             Split split {};
             std::copy(std::begin(standard.Class_points), std::end(standard.Class_points), split.begin());
@@ -63,16 +63,16 @@ std::optional<CreationPoints> CreationPoints::custom(const Split& split, std::st
         }
         // One profession over the budget already decides the answer, and checking it first keeps
         // the running total from overflowing on huge values.
-        if (profession_points > creation_point_budget) {
-            out_error_message = "Profession points total more than " + std::to_string(creation_point_budget) + ".";
+        if (profession_points > CREATION_POINT_BUDGET) {
+            out_error_message = "Profession points total more than " + std::to_string(CREATION_POINT_BUDGET) + ".";
             return std::nullopt;
         }
         total_points += profession_points;
     }
 
-    if (total_points > creation_point_budget) {
+    if (total_points > CREATION_POINT_BUDGET) {
         out_error_message = "Profession points total " + std::to_string(total_points) + "; the most is "
-            + std::to_string(creation_point_budget) + ".";
+            + std::to_string(CREATION_POINT_BUDGET) + ".";
         return std::nullopt;
     }
 

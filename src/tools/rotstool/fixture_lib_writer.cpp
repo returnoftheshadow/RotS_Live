@@ -20,19 +20,19 @@ namespace {
 // The legacy players/ buckets, as the account layer names them. Boot does not index ZZZ, the
 // archive of deleted characters; counting it too also refuses the names archived there and can
 // raise the first idnum.
-constexpr std::array<std::string_view, 6> legacy_player_buckets = { "A-E", "F-J", "K-O", "P-T", "U-Z", "ZZZ" };
+constexpr std::array<std::string_view, 6> LEGACY_PLAYER_BUCKETS = { "A-E", "F-J", "K-O", "P-T", "U-Z", "ZZZ" };
 
 // Fields in a legacy player file name: name.level.race.idnum.logtime.flags.
-constexpr std::size_t legacy_player_file_field_count = 6;
+constexpr std::size_t LEGACY_PLAYER_FILE_FIELD_COUNT = 6;
 
 // Position of the idnum among a legacy player file name's fields.
-constexpr std::size_t legacy_player_file_idnum_field = 3;
+constexpr std::size_t LEGACY_PLAYER_FILE_IDNUM_FIELD = 3;
 
 // The largest idnum boot can hold: it reads idnums into an int.
-constexpr long long largest_idnum = std::numeric_limits<int>::max();
+constexpr long long LARGEST_IDNUM = std::numeric_limits<int>::max();
 
 // Who the account's email verification is recorded as coming from.
-constexpr const char* email_verifier = "rotstool";
+constexpr const char* EMAIL_VERIFIER = "rotstool";
 
 // Makes a directory the process's working directory for one scope and restores the previous one.
 class ScopedWorkingDirectory {
@@ -176,14 +176,14 @@ std::string_view legacy_player_entry_name(std::string_view entry_name)
 }
 
 // Splits a legacy player file name into its fields. Returns false when it does not have exactly
-// legacy_player_file_field_count fields.
+// LEGACY_PLAYER_FILE_FIELD_COUNT fields.
 bool split_legacy_player_file_name(std::string_view file_name,
-    std::array<std::string_view, legacy_player_file_field_count>& out_fields)
+    std::array<std::string_view, LEGACY_PLAYER_FILE_FIELD_COUNT>& out_fields)
 {
     std::string_view remaining = file_name;
-    for (std::size_t field_index = 0; field_index < legacy_player_file_field_count; ++field_index) {
+    for (std::size_t field_index = 0; field_index < LEGACY_PLAYER_FILE_FIELD_COUNT; ++field_index) {
         const std::size_t separator = remaining.find('.');
-        const bool is_last_field = field_index + 1 == legacy_player_file_field_count;
+        const bool is_last_field = field_index + 1 == LEGACY_PLAYER_FILE_FIELD_COUNT;
         if (is_last_field != (separator == std::string_view::npos)) {
             return false;
         }
@@ -199,11 +199,11 @@ bool split_legacy_player_file_name(std::string_view file_name,
 // to read raises it to the largest long long, so the overflow check refuses it.
 void raise_to_legacy_idnum(std::string_view file_name, long long& out_highest_idnum)
 {
-    std::array<std::string_view, legacy_player_file_field_count> fields;
+    std::array<std::string_view, LEGACY_PLAYER_FILE_FIELD_COUNT> fields;
     if (!split_legacy_player_file_name(file_name, fields)) {
         return;
     }
-    const std::string_view idnum_field = fields[legacy_player_file_idnum_field];
+    const std::string_view idnum_field = fields[LEGACY_PLAYER_FILE_IDNUM_FIELD];
     const char* const idnum_end = idnum_field.data() + idnum_field.size();
     long long idnum = 0;
     const std::from_chars_result parsed = std::from_chars(idnum_field.data(), idnum_end, idnum);
@@ -223,7 +223,7 @@ void raise_to_legacy_idnum(std::string_view file_name, long long& out_highest_id
 bool collect_legacy_characters(const std::filesystem::path& lib, std::set<std::string>& out_names_lower,
     long long& out_highest_idnum, std::string& out_error_message)
 {
-    for (const std::string_view bucket : legacy_player_buckets) {
+    for (const std::string_view bucket : LEGACY_PLAYER_BUCKETS) {
         const std::filesystem::path bucket_directory = lib / "players" / bucket;
         std::error_code error;
         std::filesystem::directory_iterator entry(bucket_directory, error);
@@ -276,26 +276,26 @@ bool refuse_names_in_lib(const FixtureSpec& spec, const std::set<std::string>& e
 }
 
 // Sets out_first_idnum to the first idnum for spec's characters: one above highest_idnum, or
-// first_fixture_idnum if that is higher. Returns false, with the reason in out_error_message, when
-// the last of them would be above largest_idnum.
+// FIRST_FIXTURE_IDNUM if that is higher. Returns false, with the reason in out_error_message, when
+// the last of them would be above LARGEST_IDNUM.
 bool choose_first_idnum(const FixtureSpec& spec, long long highest_idnum, long& out_first_idnum,
     std::string& out_error_message)
 {
-    bool idnums_fit = highest_idnum < largest_idnum;
+    bool idnums_fit = highest_idnum < LARGEST_IDNUM;
     long long first_idnum = 0;
     if (idnums_fit) {
-        first_idnum = std::max(highest_idnum + 1, static_cast<long long>(first_fixture_idnum));
-        // At least 1, because first_idnum is at most largest_idnum.
-        const unsigned long long idnums_left = static_cast<unsigned long long>(largest_idnum - first_idnum + 1);
+        first_idnum = std::max(highest_idnum + 1, static_cast<long long>(FIRST_FIXTURE_IDNUM));
+        // At least 1, because first_idnum is at most LARGEST_IDNUM.
+        const unsigned long long idnums_left = static_cast<unsigned long long>(LARGEST_IDNUM - first_idnum + 1);
         idnums_fit = spec.characters.size() <= idnums_left;
     }
     if (!idnums_fit) {
         out_error_message = "The lib's highest idnum, " + std::to_string(highest_idnum)
             + ", leaves no room for the spec's characters (" + std::to_string(spec.characters.size())
-            + ") at or below " + std::to_string(largest_idnum) + ".";
+            + ") at or below " + std::to_string(LARGEST_IDNUM) + ".";
         return false;
     }
-    // At most largest_idnum, which a long holds.
+    // At most LARGEST_IDNUM, which a long holds.
     out_first_idnum = static_cast<long>(first_idnum);
     return true;
 }
@@ -381,7 +381,7 @@ bool make_and_write_characters(const FixtureSpec& spec, const std::filesystem::p
 bool link_characters_and_write_account(const std::filesystem::path& lib, long now,
     const std::vector<WrittenFixtureCharacter>& written, account::AccountData& account, std::string& out_error_message)
 {
-    account::verify_email(&account, email_verifier, now);
+    account::verify_email(&account, EMAIL_VERIFIER, now);
     std::string account_error;
     for (const WrittenFixtureCharacter& written_character : written) {
         if (!account::add_character_to_account(&account, written_character.name, &account_error)) {
