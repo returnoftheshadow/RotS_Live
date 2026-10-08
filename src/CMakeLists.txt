@@ -196,6 +196,7 @@ set(ROTS_TEST_SOURCES
     tests/db_loader_tests.cpp
     tests/exploits_json_tests.cpp
     tests/interpre_account_menu_tests.cpp
+    tests/intrusive_list_tests.cpp
     tests/fight_proc_tests.cpp
     tests/game_heartbeat_tests.cpp
     tests/game_time_text_tests.cpp
