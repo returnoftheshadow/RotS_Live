@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+// The pool write_to_output takes large output buffers from (comm.cpp).
+extern struct txt_block* bufpool;
+
 namespace {
 
 // A connection in the creation dialogue holding a fresh character, for driving nanny() one line
@@ -27,6 +30,7 @@ public:
 
     ~CreationDialogueConnection()
     {
+        release_large_output_buffer();
         descriptor.character->desc = nullptr;
         free_char(descriptor.character);
     }
@@ -62,8 +66,21 @@ public:
     }
 
 private:
+    // Returns the large output buffer, if write_to_output switched to one, to the shared pool,
+    // as flush_queues does when a connection closes.
+    void release_large_output_buffer()
+    {
+        if (descriptor.large_outbuf) {
+            descriptor.large_outbuf->next = bufpool;
+            bufpool = descriptor.large_outbuf;
+            descriptor.large_outbuf = nullptr;
+        }
+    }
+
+    // Empties the output and returns the connection to its small buffer.
     void clear_output()
     {
+        release_large_output_buffer();
         descriptor.output = descriptor.small_outbuf;
         descriptor.small_outbuf[0] = '\0';
         descriptor.bufptr = 0;
