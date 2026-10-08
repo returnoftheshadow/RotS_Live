@@ -10,6 +10,7 @@
 
 #include "platdef.h"
 #include <ctype.h>
+#include <optional>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,7 @@
 #include "mob_csv_extract.h"
 #include "pkill.h"
 #include "profs.h"
+#include "creation_points.h"
 #include "protos.h"
 #include "savebench.h"
 #include "spells.h"
@@ -59,7 +61,6 @@
 
 #define FULL_TARGET (131071 & ~TAR_SELF_NONO & ~TAR_IGNORE)
 
-extern struct prof_type existing_profs[DEFAULT_PROFS];
 extern struct player_index_element* player_table;
 extern struct char_data* character_list;
 extern struct descriptor_data* descriptor_list;
@@ -4262,10 +4263,12 @@ void nanny(struct descriptor_data* d, char* arg)
             return;
         }
 
-        for (tmp = 0; tmp < DEFAULT_PROFS; tmp++)
-            if (*arg == existing_profs[tmp].letter)
-                for (i = 0; i < 5; i++)
-                    GET_PROF_POINTS(i, d->character) = existing_profs[tmp].Class_points[i];
+        {
+            const std::optional<CreationPoints> standard_class = CreationPoints::standard_class(*arg);
+            if (standard_class) {
+                standard_class->apply_to(*d->character);
+            }
+        }
         STATE(d) = begin_creation_appearance_prompts(d);
         break;
     case CON_COLOR:
@@ -4683,7 +4686,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
  * returns CON_CREATE to continue creation, CON_SLCT to end
  */
 {
-    int tmp, tmp2, i, classpoints;
+    int tmp2, classpoints;
 
     if (STATE(d) == CON_CREATE) {
         tmp2 = 0;
@@ -4706,20 +4709,20 @@ int new_player_select(struct descriptor_data* d, char* arg)
             return CON_CREATE;
         }
 
-        if (*(arg + 1) == '\0')
-            for (tmp = 0; tmp < DEFAULT_PROFS; tmp++)
-                if (*arg == existing_profs[tmp].letter) {
-                    for (i = 0; i < 5; i++)
-                        GET_PROF_POINTS(i, d->character) = existing_profs[tmp].Class_points[i];
-                    draw_coofs(buf, d->character);
-                    SEND_TO_Q("Ok, your abilities are now as follows:\n\r", d);
-                    SEND_TO_Q(buf, d);
-                    sprintf(buf, "Points remaining: %d\n\r",
-                        150 - points_used(d->character));
-                    SEND_TO_Q(buf, d);
-                    SEND_TO_Q("Your choice: ", d);
-                    return CON_CREATE;
-                }
+        if (*(arg + 1) == '\0') {
+            const std::optional<CreationPoints> standard_class = CreationPoints::standard_class(*arg);
+            if (standard_class) {
+                standard_class->apply_to(*d->character);
+                draw_coofs(buf, d->character);
+                SEND_TO_Q("Ok, your abilities are now as follows:\n\r", d);
+                SEND_TO_Q(buf, d);
+                sprintf(buf, "Points remaining: %d\n\r",
+                    creation_point_budget - points_used(*d->character));
+                SEND_TO_Q(buf, d);
+                SEND_TO_Q("Your choice: ", d);
+                return CON_CREATE;
+            }
+        }
 
         if (isdigit(*arg) || (*arg == '-' && isdigit(*(arg + 1)))) {
             d->character->classpoints = atoi(arg);
@@ -4729,7 +4732,8 @@ int new_player_select(struct descriptor_data* d, char* arg)
         }
 
         if (*arg == '=') {
-            if (points_used(d->character) <= 150) {
+            std::string finish_error;
+            if (CreationPoints::from_character(*d->character, finish_error)) {
                 return begin_creation_appearance_prompts(d);
             } else {
                 SEND_TO_Q("You've allocated more than 150 creation points.\r\n"
@@ -4744,7 +4748,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
             SEND_TO_Q("Your current abilities are:\n\r", d);
             draw_coofs(buf, d->character);
             SEND_TO_Q(buf, d);
-            sprintf(buf, "Points remaining: %d\n\r", 150 - points_used(d->character));
+            sprintf(buf, "Points remaining: %d\n\r", creation_point_budget - points_used(*d->character));
             SEND_TO_Q(buf, d);
             SEND_TO_Q("\n\rYour Choice: ", d);
             return CON_CREATE;
@@ -4756,19 +4760,19 @@ int new_player_select(struct descriptor_data* d, char* arg)
 
         switch (*arg) {
         case 'm':
-            GET_PROF_POINTS(PROF_MAGE, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_MAGE, d->character), 165));
+            GET_PROF_POINTS(PROF_MAGE, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_MAGE, d->character), creation_point_step_cap));
             break;
 
         case 't':
-            GET_PROF_POINTS(PROF_CLERIC, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_CLERIC, d->character), 165));
+            GET_PROF_POINTS(PROF_CLERIC, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_CLERIC, d->character), creation_point_step_cap));
             break;
 
         case 'r':
-            GET_PROF_POINTS(PROF_RANGER, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_RANGER, d->character), 165));
+            GET_PROF_POINTS(PROF_RANGER, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_RANGER, d->character), creation_point_step_cap));
             break;
 
         case 'w':
-            GET_PROF_POINTS(PROF_WARRIOR, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_WARRIOR, d->character), 165));
+            GET_PROF_POINTS(PROF_WARRIOR, d->character) = MAX(0, MIN(classpoints + GET_PROF_POINTS(PROF_WARRIOR, d->character), creation_point_step_cap));
             break;
 
         default:
@@ -4778,7 +4782,7 @@ int new_player_select(struct descriptor_data* d, char* arg)
         }
         draw_coofs(buf, d->character);
         SEND_TO_Q(buf, d);
-        sprintf(buf, "Points remaining: %d\n\r", 150 - points_used(d->character));
+        sprintf(buf, "Points remaining: %d\n\r", creation_point_budget - points_used(*d->character));
         SEND_TO_Q(buf, d);
         SEND_TO_Q("Ok.\n\rYour choice: ", d);
     } else {

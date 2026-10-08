@@ -101,6 +101,7 @@ set(ROTS_SERVER_SOURCES
     color.cpp
     combat_manager.cpp
     comm.cpp
+    creation_points.cpp
     config.cpp
     consts.cpp
     crashsave_schedule.cpp
@@ -236,6 +237,7 @@ set(ROTS_TEST_SOURCES
     tests/world_clock_tests.cpp
     tests/load_scalp_tests.cpp
     tests/creation_dialogue_tests.cpp
+    tests/creation_points_tests.cpp
 )
 
 add_executable(ageland ${ROTS_SERVER_SOURCES})
