@@ -4,16 +4,19 @@
 #include "creation_points.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_random_utils.h"
 
 #include <gtest/gtest.h>
 
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
-#include <set>
+#include <fstream>
+#include <iterator>
+#include <map>
 #include <string>
-#include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 extern int top_of_p_table;
@@ -27,23 +30,58 @@ constexpr long fixture_idnum = 9000001;
 // The room every test character loads into.
 constexpr int fixture_load_room = 1101;
 
-// Returns every path under root, relative to it, or the error text as the only entry when the
-// directory cannot be listed.
-std::set<std::string> files_under(const std::filesystem::path& root)
+// Returns the contents of the file at path, or a marker when it cannot be opened.
+std::string contents_of(const std::filesystem::path& path)
 {
-    std::set<std::string> relative_paths;
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return "(unreadable)";
+    }
+    return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
+// Returns every path under root, relative to it, mapped to the file's contents ("(directory)" for
+// a directory), or the error text as the only entry when the directory cannot be listed.
+std::map<std::string, std::string> files_under(const std::filesystem::path& root)
+{
+    std::map<std::string, std::string> contents_by_path;
     std::error_code error;
     std::filesystem::recursive_directory_iterator entry(root, error);
     const std::filesystem::recursive_directory_iterator end;
     while (!error && entry != end) {
-        relative_paths.insert(entry->path().lexically_relative(root).generic_string());
+        std::string relative_path = entry->path().lexically_relative(root).generic_string();
+        std::error_code type_error;
+        std::string contents = entry->is_directory(type_error) ? "(directory)" : contents_of(entry->path());
+        contents_by_path.emplace(std::move(relative_path), std::move(contents));
         entry.increment(error);
     }
     if (error) {
-        relative_paths.insert("(listing failed: " + error.message() + ")");
+        contents_by_path.emplace("(listing failed)", error.message());
     }
-    return relative_paths;
+    return contents_by_path;
 }
+
+// Sets top_of_p_table for one test and puts its previous value back when the test ends.
+class ScopedPlayerTableTop {
+public:
+    explicit ScopedPlayerTableTop(int scoped_value)
+        : saved_value(top_of_p_table)
+    {
+        top_of_p_table = scoped_value;
+    }
+
+    ~ScopedPlayerTableTop()
+    {
+        top_of_p_table = saved_value;
+    }
+
+    ScopedPlayerTableTop(const ScopedPlayerTableTop&) = delete;
+    ScopedPlayerTableTop& operator=(const ScopedPlayerTableTop&) = delete;
+
+private:
+    // top_of_p_table before this object changed it.
+    int saved_value;
+};
 
 // Expects two ability sets to hold the same values.
 void expect_same_abilities(const char_ability_data& expected, const char_ability_data& actual)
@@ -66,6 +104,9 @@ class RotstoolFixtureMaker : public testing::Test {
 protected:
     void SetUp() override
     {
+        // Values another test queued for the wrapped number() would otherwise be used here.
+        clear_test_random_values();
+
         std::error_code error;
         saved_working_directory = std::filesystem::current_path(error);
         ASSERT_FALSE(error) << error.message();
@@ -160,6 +201,8 @@ TEST_F(RotstoolFixtureMaker, StoresPracticesAndReportsKnowledge)
 
 TEST_F(RotstoolFixtureMaker, DoesNotPromoteTheFirstCharacterToImplementor)
 {
+    // 0 is the value at which do_start promotes a new character to implementor.
+    const ScopedPlayerTableTop only_one_player(0);
     const FixtureSpec::Character spec = make_spec(1);
     char_file_u stored {};
     std::vector<int> knowledge;
@@ -168,6 +211,7 @@ TEST_F(RotstoolFixtureMaker, DoesNotPromoteTheFirstCharacterToImplementor)
         << error_message;
 
     EXPECT_EQ(stored.level, 1);
+    EXPECT_EQ(top_of_p_table, 0);
 }
 
 TEST_F(RotstoolFixtureMaker, ReachesAnImmortalLevel)
@@ -217,19 +261,21 @@ TEST_F(RotstoolFixtureMaker, RefusesASetValueAboveTheMaximum)
 
 TEST_F(RotstoolFixtureMaker, WritesNothingWhileMakingACharacter)
 {
-    const std::set<std::string> files_before = files_under(lib);
+    const std::map<std::string, std::string> files_before = files_under(lib);
     const FixtureSpec::Character spec = make_spec(30);
+    // A fixed seed makes the level-ups' stat gains, whose records the orphan guard drops, repeatable.
+    std::srand(4242);
     char_file_u stored {};
     std::vector<int> knowledge;
     std::string error_message;
     ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
         << error_message;
 
-    const std::set<std::string> files_after = files_under(lib);
+    const std::map<std::string, std::string> files_after = files_under(lib);
     EXPECT_EQ(files_before, files_after);
     bool lists_the_account_file = false;
-    for (const std::string_view relative_path : files_after) {
-        if (std::filesystem::path(relative_path).filename() == "account.json") {
+    for (const std::pair<const std::string, std::string>& file : files_after) {
+        if (std::filesystem::path(file.first).filename() == "account.json") {
             lists_the_account_file = true;
         }
     }
