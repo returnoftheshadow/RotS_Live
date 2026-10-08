@@ -801,27 +801,12 @@ struct room_data {
 #define ROOMAFF_SPELL 1
 #define ROOMAFF_EXIT 2
 
-/* 'prof' for PC's */
-#define MAX_PROFS 4
-#define PROF_GENERAL 0
-#define PROF_MAGIC_USER 1
-#define PROF_MAGE 1
-#define PROF_CLERIC 2
-#define PROF_THIEF 3
-#define PROF_RANGER 3
-#define PROF_WARRIOR 4
-
-#define DEFAULT_PROFS 10
+#include "professions.h"
 
 #define LANG_BASIC 0
 #define LANG_ANIMAL 121
 #define LANG_HUMAN 122
 #define LANG_ORC 123
-
-struct prof_type {
-    char letter;
-    sh_int Class_points[5];
-};
 
 namespace game_types {
 enum player_specs {
