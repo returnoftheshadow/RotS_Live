@@ -238,6 +238,7 @@ set(ROTS_TEST_SOURCES
     tests/load_scalp_tests.cpp
     tests/creation_dialogue_tests.cpp
     tests/creation_points_tests.cpp
+    tests/rotstool_command_tests.cpp
 )
 
 # The server's code, compiled once for every program built from it.
@@ -262,6 +263,26 @@ set_target_properties(ageland PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
 )
 
+# rotstool's commands; also built into the unit tests.
+set(ROTSTOOL_COMMAND_SOURCES
+    tools/rotstool/rotstool_command.cpp
+)
+
+# A command-line tool for offline work on a lib, built from the server's own code.
+add_executable(rotstool tools/rotstool/main.cpp ${ROTSTOOL_COMMAND_SOURCES})
+target_include_directories(rotstool PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/rotstool"
+)
+target_compile_options(rotstool PRIVATE
+    -w
+    -g
+)
+target_link_libraries(rotstool PRIVATE rots_server_objects rots_codegen crypt)
+set_target_properties(rotstool PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
+)
+
 if(BUILD_TESTING)
     # Built from source with the server's settings, so GoogleTest and the tests agree on -m32 and
     # char signedness; a system GoogleTest on a 64-bit host is 64-bit. To build offline, set
@@ -282,10 +303,11 @@ if(BUILD_TESTING)
     target_compile_options(gtest_main PRIVATE -w)
     include(GoogleTest)
 
-    add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})
+    add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTSTOOL_COMMAND_SOURCES} ${ROTS_TEST_SOURCES})
     target_include_directories(ageland_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/rotstool"
     )
     target_compile_definitions(ageland_tests PRIVATE TESTING)
     if(ROTS_SUPPRESS_TEST_WARNINGS)

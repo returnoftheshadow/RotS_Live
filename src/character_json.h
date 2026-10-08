@@ -219,6 +219,10 @@ std::string encode_color_slots_object(const char* colors, const color_slot_data*
 bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
     color_slot_data* color_settings, std::string* error_message = nullptr, bool skip_unknown_keys = false);
 
+// Returns the index of the skill whose key in a character file's "skills" object is key, or -1
+// when no skill has that key. When two skills share a key, the lower index.
+int skill_index_for_file_key(const std::string& key);
+
 } // namespace character_json
 
 #endif

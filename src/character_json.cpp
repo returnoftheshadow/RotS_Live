@@ -3231,4 +3231,9 @@ bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::
     return decode_flags(names, kHideFlags, sizeof(kHideFlags) / sizeof(kHideFlags[0]), flags, "hide", error_message);
 }
 
+int skill_index_for_file_key(const std::string& key)
+{
+    return skill_index_for_key_memoized(key);
+}
+
 } // namespace character_json
