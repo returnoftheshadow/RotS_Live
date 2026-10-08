@@ -41,11 +41,15 @@
 #include "warrior_spec_handlers.h"
 #include "zone.h"
 
+#include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -133,6 +137,45 @@ bool parse_port_value(const char* text, sh_int* port, std::string* error_message
     }
 
     *port = static_cast<sh_int>(parsed_port);
+    return true;
+}
+
+// The long option that sets the random seed, written after its leading "--".
+constexpr std::string_view RANDOM_SEED_OPTION = "random-seed";
+
+// Reads a --random-seed value: decimal digits only, from 0 to the largest unsigned int. On
+// failure it leaves out_seed unchanged and, when out_error_message is not null, says why.
+bool parse_random_seed_value(
+    std::string_view text, unsigned int& out_seed, std::string* out_error_message)
+{
+    if (text.empty()) {
+        if (out_error_message) {
+            *out_error_message = "Random seed expected after option --random-seed.";
+        }
+        return false;
+    }
+
+    unsigned int parsed_seed = 0;
+    const char* const text_end = text.data() + text.size();
+    const std::from_chars_result parse_result = std::from_chars(text.data(), text_end, parsed_seed);
+    // Characters after the digits make the value illegal even when the digits overflow.
+    if (parse_result.ptr != text_end || parse_result.ec == std::errc::invalid_argument) {
+        if (out_error_message) {
+            *out_error_message
+                = "Illegal random seed " + std::string(text) + "; use a whole number with no sign.";
+        }
+        return false;
+    }
+    if (parse_result.ec == std::errc::result_out_of_range) {
+        if (out_error_message) {
+            *out_error_message = "Random seed " + std::string(text)
+                + " is too large; the largest is "
+                + std::to_string(std::numeric_limits<unsigned int>::max()) + ".";
+        }
+        return false;
+    }
+
+    out_seed = parsed_seed;
     return true;
 }
 
@@ -297,6 +340,33 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
         case 'x':
             parsed_options.has_proxy = true;
             break;
+        case '-': {
+            // A long option, written --name value or --name=value.
+            const std::string_view long_option(argv[pos] + 2);
+            const std::size_t equals_position = long_option.find('=');
+            const std::string_view option_name = long_option.substr(0, equals_position);
+            if (option_name != RANDOM_SEED_OPTION) {
+                if (error_message) {
+                    *error_message = "SYSERR: Unknown option --" + std::string(option_name)
+                        + " in argument string.";
+                }
+                return false;
+            }
+
+            std::string_view seed_text;
+            if (equals_position != std::string_view::npos) {
+                seed_text = long_option.substr(equals_position + 1);
+            } else if (++pos < argc) {
+                seed_text = argv[pos];
+            }
+
+            unsigned int random_seed = 0;
+            if (!parse_random_seed_value(seed_text, random_seed, error_message)) {
+                return false;
+            }
+            parsed_options.random_seed = random_seed;
+            break;
+        }
         default:
             if (error_message) {
                 char local_buf[128];
@@ -327,6 +397,24 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
 
     *options = parsed_options;
     return true;
+}
+
+void seed_random_numbers(
+    std::optional<unsigned int> requested_seed, RandomSeedSource& draw_fresh_seed)
+{
+    if (requested_seed.has_value()) {
+        std::srand(*requested_seed);
+        const std::string message = "Random numbers seeded with "
+            + std::to_string(*requested_seed) + " from --random-seed.";
+        log(message.c_str());
+        return;
+    }
+
+    const unsigned int fresh_seed = draw_fresh_seed();
+    std::srand(fresh_seed);
+    const std::string message = "Random numbers seeded with " + std::to_string(fresh_seed)
+        + "; start with --random-seed " + std::to_string(fresh_seed) + " to repeat them.";
+    log(message.c_str());
 }
 
 /* extern fcnts */
@@ -392,12 +480,28 @@ void sigsegv_handler(int sig)
  *  main game loop and related stuff				       *
  ********************************************************************* */
 #ifndef TESTING
+namespace {
+
+// Returns a seed taken from the system clock, which differs from one boot to the next.
+unsigned int draw_clock_seed()
+{
+    // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
+    // std::rand needs only to differ between boots. Folding the high half into the low half keeps
+    // the fast-changing nanoseconds and the date in the 32 bits std::srand takes.
+    const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    const std::chrono::system_clock::duration since_epoch = now.time_since_epoch();
+    const std::chrono::nanoseconds nanoseconds_since_epoch
+        = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch);
+    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(nanoseconds_since_epoch.count());
+    static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
+    return static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
+}
+
+} // namespace
+
 int main(int argc, char** argv)
 {
     signal(SIGSEGV, sigsegv_handler);
-
-    // initialize the random number generator
-    std::srand(std::time(0));
 
     char buf[512];
     StartupOptions startup_options {};
@@ -409,7 +513,9 @@ int main(int argc, char** argv)
     if (!parse_startup_options(argc, argv, &startup_options, &parse_error)) {
         if (!parse_error.empty())
             log(parse_error.c_str());
-        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [ port # ]\n",
+        fprintf(stderr,
+            "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [--random-seed n] "
+            "[ port # ]\n",
             argv[0]);
         exit(0);
     }
@@ -454,7 +560,7 @@ int main(int argc, char** argv)
     // Open command log
     system("mv -f last_cmds crash_cmds");
     fpCommand = fopen("last_cmds", "w");
-    srandom(time(0));
+    seed_random_numbers(startup_options.random_seed, draw_clock_seed);
     run_the_game(startup_options.port);
     return (0);
 }

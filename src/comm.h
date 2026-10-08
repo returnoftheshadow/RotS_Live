@@ -11,6 +11,7 @@
 #ifndef COMM_H
 #define COMM_H
 
+#include <optional>
 #include <string>
 #include <stdarg.h>
 
@@ -25,6 +26,8 @@ struct StartupOptions {
     bool restrict_game;
     bool no_specials;
     bool has_proxy;
+    // The seed given with --random-seed; empty when the server draws its own at boot.
+    std::optional<unsigned int> random_seed;
 };
 
 /* comm.c */
@@ -67,6 +70,15 @@ void output_mark_overflow(struct descriptor_data* d);
 int wrap_added_length(const char* text);
 void page_string(struct descriptor_data* d, char* str, int keep_internal);
 bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::string* error_message);
+
+// A function that returns a fresh random seed each time it is called.
+using RandomSeedSource = unsigned int();
+
+// Seeds the random numbers behind number() and dice(): with requested_seed when it is set,
+// otherwise with a seed from draw_fresh_seed. Logs the seed used, so the run's random numbers
+// can be repeated by passing it to --random-seed.
+void seed_random_numbers(
+    std::optional<unsigned int> requested_seed, RandomSeedSource& draw_fresh_seed);
 
 /* #define SEND_TO_Q(messg, desc)  write_to_q((messg), &(desc)->output) */
 #define SEND_TO_Q(messg, desc) write_to_output((messg), desc)
