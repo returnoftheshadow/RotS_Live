@@ -240,7 +240,15 @@ set(ROTS_TEST_SOURCES
     tests/creation_points_tests.cpp
 )
 
-add_executable(ageland ${ROTS_SERVER_SOURCES})
+# The server's code, compiled once for every program built from it.
+add_library(rots_server_objects OBJECT ${ROTS_SERVER_SOURCES})
+target_compile_options(rots_server_objects PRIVATE
+    -w
+    -g
+)
+target_link_libraries(rots_server_objects PUBLIC rots_codegen)
+
+add_executable(ageland main.cpp)
 target_compile_options(ageland PRIVATE
     -w
     -g
@@ -249,7 +257,7 @@ target_compile_options(ageland PRIVATE
 target_link_options(ageland PRIVATE -g -rdynamic)
 # A bare "crypt" lets the linker find the libcrypt that matches -m32; a find_library() path
 # can resolve to the 64-bit library on a multilib host.
-target_link_libraries(ageland PRIVATE rots_codegen crypt)
+target_link_libraries(ageland PRIVATE rots_server_objects rots_codegen crypt)
 set_target_properties(ageland PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
 )
