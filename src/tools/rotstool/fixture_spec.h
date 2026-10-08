@@ -27,11 +27,11 @@ struct FixtureSpec {
         int load_room = 0;
         // Practice sessions per skill, as (skill index, practices) pairs in spec order.
         std::vector<std::pair<int, int>> skill_practices;
-        // Maximum and current hit points after levelling, when the spec sets them.
+        // Current hit points after levelling, when the spec sets them; at most the maximum.
         std::optional<int> hit;
-        // Maximum and current mana after levelling, when the spec sets them.
+        // Current mana after levelling, when the spec sets them; at most the maximum.
         std::optional<int> mana;
-        // Maximum and current movement after levelling, when the spec sets them.
+        // Current movement after levelling, when the spec sets them; at most the maximum.
         std::optional<int> move;
     };
 
