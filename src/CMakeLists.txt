@@ -235,6 +235,7 @@ set(ROTS_TEST_SOURCES
     tests/weapon_master_handler_tests.cpp
     tests/world_clock_tests.cpp
     tests/load_scalp_tests.cpp
+    tests/creation_dialogue_tests.cpp
 )
 
 add_executable(ageland ${ROTS_SERVER_SOURCES})
