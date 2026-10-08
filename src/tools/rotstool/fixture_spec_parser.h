@@ -19,8 +19,8 @@ constexpr std::uintmax_t fixture_spec_byte_limit = 1024 * 1024;
 // out_error_message: an unknown or repeated key, a missing field,
 // a race the creation menu does not offer, an unknown class or skill key, a split CreationPoints
 // refuses, a level outside 1 to LEVEL_IMPL, practices outside 1 to 255, set values outside 1 to
-// 32767, a name the account rules refuse or longer than MAX_NAME_LENGTH, two names that differ
-// only in case, a password the policy refuses, or no characters.
+// 32767, a name that is not MIN_NAME_LENGTH to MAX_NAME_LENGTH (3 to 12) letters, two names that
+// differ only in case, an email or password the account rules refuse, or no characters.
 [[nodiscard]] bool parse_fixture_spec(const std::string& json, FixtureSpec& out_spec, std::string& out_error_message);
 
 #endif /* FIXTURE_SPEC_PARSER_H */

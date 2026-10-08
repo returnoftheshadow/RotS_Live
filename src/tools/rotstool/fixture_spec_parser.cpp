@@ -3,7 +3,9 @@
 #include "account_management.h"
 #include "character_json.h"
 #include "json_utils.h"
+#include "spells.h"
 #include "structs.h"
+#include "utils.h"
 
 #include <algorithm>
 #include <array>
@@ -156,6 +158,19 @@ bool resolve_class(
     return true;
 }
 
+// Returns true when name is MIN_NAME_LENGTH to MAX_NAME_LENGTH ASCII letters, the names the
+// creation dialogue accepts, checked as written so spaces are not trimmed away.
+bool is_letters_only_name(std::string_view name)
+{
+    if (name.size() < static_cast<std::size_t>(MIN_NAME_LENGTH)
+        || name.size() > static_cast<std::size_t>(MAX_NAME_LENGTH)) {
+        return false;
+    }
+    return std::all_of(name.begin(), name.end(), [](unsigned char character) -> bool {
+        return std::isalpha(character) != 0;
+    });
+}
+
 bool parse_account_object(JsonReader& reader, FixtureSpec& out_spec, std::string& out_error_message)
 {
     std::set<std::string> seen_keys;
@@ -250,7 +265,8 @@ bool parse_skills_object(
             return false;
         }
         const int skill_index = character_json::skill_index_for_file_key(key);
-        if (skill_index < 0) {
+        // A slot with no skill still has a fallback key in character files; it names nothing to practise.
+        if (skill_index < 0 || get_skill_array()[skill_index].name[0] == '\0') {
             out_error_message = "Unknown skill key '" + key + "'.";
             return false;
         }
@@ -373,14 +389,9 @@ bool parse_character_object(JsonReader& reader, FixtureSpec::Character& out_char
         return false;
     }
 
-    std::string name_message;
-    if (!account::is_valid_character_name(out_character.name, &name_message)) {
-        out_error_message = "'name': '" + out_character.name + "': " + name_message;
-        return false;
-    }
-    if (out_character.name.size() > static_cast<std::size_t>(MAX_NAME_LENGTH)) {
-        out_error_message = "'name': '" + out_character.name + "' is longer than " + std::to_string(MAX_NAME_LENGTH)
-            + " characters.";
+    if (!is_letters_only_name(out_character.name)) {
+        out_error_message = "'name': '" + out_character.name + "' is not " + std::to_string(MIN_NAME_LENGTH) + " to "
+            + std::to_string(MAX_NAME_LENGTH) + " letters.";
         return false;
     }
     return true;

@@ -1,12 +1,16 @@
 #include "fixture_spec_parser.h"
 
+#include "account_management.h"
+#include "character_json.h"
 #include "spells.h"
 #include "structs.h"
+#include "utils.h"
 
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -160,91 +164,132 @@ TEST(RotstoolFixtureSpec, RefusesTextThatIsNotJson)
 
 TEST(RotstoolFixtureSpec, RefusesTextAfterTheSpec)
 {
-    EXPECT_NE(parse_error_of(valid_spec + " x"), "");
+    const std::string error_message = parse_error_of(valid_spec + " x");
+    EXPECT_TRUE(contains(error_message, "trailing")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesAnUnknownKey)
 {
     const std::string at_top_level = "{ " + valid_account + R"(, "characters": [ )"
         + character_object("", "") + R"( ], "colour": 1 })";
-    EXPECT_TRUE(contains(parse_error_of(at_top_level), "colour")) << parse_error_of(at_top_level);
+    EXPECT_TRUE(contains(parse_error_of(at_top_level), "Unknown key 'colour'")) << parse_error_of(at_top_level);
 
     const std::string in_account = R"({ "account": { "email": "harness@example.com", "password": "Harness1x",
         "colour": 1 }, "characters": [ )" + character_object("", "") + " ] }";
-    EXPECT_TRUE(contains(parse_error_of(in_account), "colour")) << parse_error_of(in_account);
+    EXPECT_TRUE(contains(parse_error_of(in_account), "'account': Unknown key 'colour'")) << parse_error_of(in_account);
 
     const std::string in_character = spec_with_character("", R"("colour": 1)");
-    EXPECT_TRUE(contains(parse_error_of(in_character), "colour")) << parse_error_of(in_character);
+    EXPECT_TRUE(contains(parse_error_of(in_character), "characters[0]: Unknown key 'colour'"))
+        << parse_error_of(in_character);
 
     const std::string in_points = spec_with_character("class", R"("points": { "mage": 10, "colour": 1 })");
-    EXPECT_TRUE(contains(parse_error_of(in_points), "colour")) << parse_error_of(in_points);
+    EXPECT_TRUE(contains(parse_error_of(in_points), "'points': Unknown key 'colour'")) << parse_error_of(in_points);
 
     const std::string in_set = spec_with_character("", R"("set": { "hit": 10, "colour": 1 })");
-    EXPECT_TRUE(contains(parse_error_of(in_set), "colour")) << parse_error_of(in_set);
+    EXPECT_TRUE(contains(parse_error_of(in_set), "'set': Unknown key 'colour'")) << parse_error_of(in_set);
 }
 
 TEST(RotstoolFixtureSpec, RefusesARepeatedKey)
 {
-    const std::string error_message = parse_error_of(spec_with_character("", R"("level": 31)"));
-    EXPECT_TRUE(contains(error_message, "level")) << error_message;
+    const std::string in_character = parse_error_of(spec_with_character("", R"("level": 31)"));
+    EXPECT_TRUE(contains(in_character, "characters[0]: Repeated key 'level'")) << in_character;
+
+    const std::string at_top_level = parse_error_of("{ " + valid_account + ", " + valid_account
+        + R"(, "characters": [ )" + character_object("", "") + " ] }");
+    EXPECT_TRUE(contains(at_top_level, "Repeated key 'account'")) << at_top_level;
+
+    const std::string in_account = parse_error_of(R"({ "account": { "email": "harness@example.com",
+        "email": "harness@example.com", "password": "Harness1x" }, "characters": [ )"
+        + character_object("", "") + " ] }");
+    EXPECT_TRUE(contains(in_account, "'account': Repeated key 'email'")) << in_account;
+
+    const std::string in_points = parse_error_of(
+        spec_with_character("class", R"("points": { "mage": 10, "mage": 20 })"));
+    EXPECT_TRUE(contains(in_points, "'points': Repeated key 'mage'")) << in_points;
+
+    const std::string in_skills = parse_error_of(
+        spec_with_character("", R"("skills": { "magic_missile": 5, "magic_missile": 6 })"));
+    EXPECT_TRUE(contains(in_skills, "'skills': Repeated key 'magic_missile'")) << in_skills;
+
+    const std::string in_set = parse_error_of(spec_with_character("", R"("set": { "hit": 10, "hit": 20 })"));
+    EXPECT_TRUE(contains(in_set, "'set': Repeated key 'hit'")) << in_set;
 }
 
 TEST(RotstoolFixtureSpec, RefusesAMissingRequiredField)
 {
     for (const std::string& key : { "name", "race", "sex", "level", "load_room" }) {
         const std::string error_message = parse_error_of(spec_with_character(key, ""));
-        EXPECT_TRUE(contains(error_message, key)) << key << ": " << error_message;
+        EXPECT_TRUE(contains(error_message, "characters[0]: Missing key '" + key + "'"))
+            << key << ": " << error_message;
     }
 
     const std::string without_account = R"({ "characters": [ )" + character_object("", "") + " ] }";
-    EXPECT_TRUE(contains(parse_error_of(without_account), "account")) << parse_error_of(without_account);
+    EXPECT_TRUE(contains(parse_error_of(without_account), "Missing key 'account'")) << parse_error_of(without_account);
 }
 
 TEST(RotstoolFixtureSpec, RefusesBothClassAndPoints)
 {
     const std::string error_message = parse_error_of(spec_with_character("", R"("points": { "mage": 10 })"));
-    EXPECT_TRUE(contains(error_message, "class")) << error_message;
-    EXPECT_TRUE(contains(error_message, "points")) << error_message;
+    EXPECT_TRUE(contains(error_message, "Give 'class' or 'points', not both")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesNeitherClassNorPoints)
 {
     const std::string error_message = parse_error_of(spec_with_character("class", ""));
-    EXPECT_TRUE(contains(error_message, "class")) << error_message;
-    EXPECT_TRUE(contains(error_message, "points")) << error_message;
+    EXPECT_TRUE(contains(error_message, "Missing key 'class' or 'points'")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesARaceTheCreationMenuDoesNotOffer)
 {
     for (const std::string& race : { "high elf", "god", "troll" }) {
         const std::string error_message = parse_error_of(spec_with_character("race", "\"race\": \"" + race + "\""));
-        EXPECT_TRUE(contains(error_message, race)) << race << ": " << error_message;
+        EXPECT_TRUE(contains(error_message, "'" + race + "' is not a race the creation menu offers"))
+            << race << ": " << error_message;
     }
 }
 
 TEST(RotstoolFixtureSpec, RefusesAnUnknownSex)
 {
     const std::string error_message = parse_error_of(spec_with_character("sex", R"("sex": "neuter")"));
-    EXPECT_TRUE(contains(error_message, "neuter")) << error_message;
+    EXPECT_TRUE(contains(error_message, "'neuter' is not 'male' or 'female'")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesAnUnknownClass)
 {
     const std::string error_message = parse_error_of(spec_with_character("class", R"("class": "necromancer")"));
-    EXPECT_TRUE(contains(error_message, "necromancer")) << error_message;
+    EXPECT_TRUE(contains(error_message, "'necromancer' is not a class the creation menu offers")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesAnUnknownSkillKey)
 {
     const std::string error_message = parse_error_of(spec_with_character("", R"("skills": { "magic missile": 5 })"));
-    EXPECT_TRUE(contains(error_message, "magic missile")) << error_message;
+    EXPECT_TRUE(contains(error_message, "Unknown skill key 'magic missile'")) << error_message;
+}
+
+TEST(RotstoolFixtureSpec, RefusesTheKeyOfASkillSlotWithNoSkill)
+{
+    const skill_data* skills = get_skill_array();
+    int empty_index = -1;
+    for (int index = 0; index < MAX_SKILLS; ++index) {
+        if (skills[index].name[0] == '\0') {
+            empty_index = index;
+            break;
+        }
+    }
+    ASSERT_GE(empty_index, 0) << "no skill slot without a name";
+    const std::string key = "skill_" + std::to_string(empty_index);
+    ASSERT_EQ(character_json::skill_index_for_file_key(key), empty_index);
+
+    const std::string error_message = parse_error_of(spec_with_character("", "\"skills\": { \"" + key + "\": 5 }"));
+    EXPECT_TRUE(contains(error_message, "Unknown skill key '" + key + "'")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesACustomSplitOverTheBudget)
 {
     const std::string error_message = parse_error_of(
         spec_with_character("class", R"("points": { "mage": 100, "mystic": 51 })"));
-    EXPECT_TRUE(contains(error_message, "points")) << error_message;
+    EXPECT_TRUE(contains(error_message, "'points': ")) << error_message;
+    EXPECT_TRUE(contains(error_message, "most is " + std::to_string(creation_point_budget))) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesALevelOutOfRange)
@@ -252,22 +297,39 @@ TEST(RotstoolFixtureSpec, RefusesALevelOutOfRange)
     for (const int level : { 0, LEVEL_IMPL + 1 }) {
         const std::string error_message = parse_error_of(
             spec_with_character("level", "\"level\": " + std::to_string(level)));
-        EXPECT_TRUE(contains(error_message, "level")) << level << ": " << error_message;
+        const std::string expected
+            = "'level': " + std::to_string(level) + " is outside 1 to " + std::to_string(LEVEL_IMPL);
+        EXPECT_TRUE(contains(error_message, expected)) << level << ": " << error_message;
     }
 }
 
-TEST(RotstoolFixtureSpec, RefusesANameLongerThanTwelve)
+TEST(RotstoolFixtureSpec, RefusesANameThatIsNotThreeToTwelveLetters)
 {
-    const std::string error_message = parse_error_of(spec_with_character("name", R"("name": "Abcdefghijklm")"));
-    EXPECT_TRUE(contains(error_message, "Abcdefghijklm")) << error_message;
+    const std::string expected_rule
+        = " is not " + std::to_string(MIN_NAME_LENGTH) + " to " + std::to_string(MAX_NAME_LENGTH) + " letters";
+    for (const std::string& name : { "Abcdefghijklm", " Testwiz", "Test_1", "12-x", "Ab", "" }) {
+        const std::string error_message = parse_error_of(
+            spec_with_character("name", "\"name\": \"" + name + "\""));
+        EXPECT_TRUE(contains(error_message, "'name': '" + name + "'" + expected_rule)) << name << ": " << error_message;
+    }
+}
+
+TEST(RotstoolFixtureSpec, AcceptsNamesOfThreeAndTwelveLetters)
+{
+    for (const std::string& name : { "Abc", "Abcdefghijkl" }) {
+        const std::string error_message = parse_error_of(
+            spec_with_character("name", "\"name\": \"" + name + "\""));
+        EXPECT_EQ(error_message, "") << name;
+    }
 }
 
 TEST(RotstoolFixtureSpec, RefusesNamesThatDifferOnlyInCase)
 {
     const std::string text = spec_with_characters(
-        character_object("", "") + ", " + character_object("name", R"("name": "TESTWIZ")"));
+        character_object("", "") + ", " + character_object("name", R"("name": "testwiz")"));
     const std::string error_message = parse_error_of(text);
-    EXPECT_TRUE(contains(error_message, "TESTWIZ")) << error_message;
+    EXPECT_TRUE(contains(error_message, "characters[1]: 'name': 'testwiz' is already the name of another character"))
+        << error_message;
 }
 
 TEST(RotstoolFixtureSpec, RefusesAPasswordThePolicyRefuses)
@@ -275,22 +337,28 @@ TEST(RotstoolFixtureSpec, RefusesAPasswordThePolicyRefuses)
     const std::string text = R"({ "account": { "email": "harness@example.com", "password": "short" },
         "characters": [ )" + character_object("", "") + " ] }";
     const std::string error_message = parse_error_of(text);
-    EXPECT_TRUE(contains(error_message, "password")) << error_message;
+    std::string policy_message;
+    ASSERT_FALSE(account::is_valid_password("short", &policy_message));
+    EXPECT_EQ(error_message, "'account': 'password': " + policy_message);
 }
 
 TEST(RotstoolFixtureSpec, RefusesPracticesOutOfRange)
 {
-    for (const int practices : { 0, 256 }) {
+    // A character file stores practices in a byte.
+    const int most_practices = std::numeric_limits<unsigned char>::max();
+    for (const int practices : { 0, most_practices + 1 }) {
         const std::string error_message = parse_error_of(
             spec_with_character("", "\"skills\": { \"magic_missile\": " + std::to_string(practices) + " }"));
-        EXPECT_TRUE(contains(error_message, "magic_missile")) << practices << ": " << error_message;
+        const std::string expected = "'skills': 'magic_missile': " + std::to_string(practices) + " is outside 1 to "
+            + std::to_string(most_practices);
+        EXPECT_TRUE(contains(error_message, expected)) << practices << ": " << error_message;
     }
 }
 
 TEST(RotstoolFixtureSpec, RefusesAnEmptyCharacterList)
 {
     const std::string error_message = parse_error_of(spec_with_characters(""));
-    EXPECT_TRUE(contains(error_message, "characters")) << error_message;
+    EXPECT_TRUE(contains(error_message, "'characters': the spec names no characters")) << error_message;
 }
 
 TEST(RotstoolFixtureSpec, ReadRefusesAFileOverTheLimit)
@@ -307,7 +375,8 @@ TEST(RotstoolFixtureSpec, ReadRefusesAFileOverTheLimit)
     std::string contents;
     std::string error_message;
     EXPECT_FALSE(read_fixture_spec_file(path, contents, error_message));
-    EXPECT_FALSE(error_message.empty());
+    EXPECT_TRUE(contains(error_message, "is larger than " + std::to_string(fixture_spec_byte_limit) + " bytes"))
+        << error_message;
 
     std::error_code error;
     std::filesystem::remove(path, error);
