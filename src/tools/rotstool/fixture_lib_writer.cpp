@@ -484,6 +484,40 @@ bool write_account_contents(const FixtureSpec& spec, const std::filesystem::path
         && read_back(spec, lib, out_written, out_error_message);
 }
 
+// Returns the directory that holds the account for normalized_email under lib.
+std::filesystem::path account_directory_for(const std::filesystem::path& lib, const std::string& normalized_email)
+{
+    const std::string account_file = account::account_file_path(lib.string(), normalized_email);
+    return std::filesystem::path(account_file).parent_path();
+}
+
+// Returns false, with the reason in out_error_message, when the directory an account for email
+// would use already exists or cannot be checked, so that cleanup after a failure removes only
+// what this run created. An email that normalises to nothing is left for account creation to
+// refuse.
+bool refuse_existing_account_directory(
+    const std::filesystem::path& lib, const std::string& email, std::string& out_error_message)
+{
+    const std::string normalized_email = account::normalize_email(email);
+    if (normalized_email.empty()) {
+        return true;
+    }
+    const std::filesystem::path account_directory = account_directory_for(lib, normalized_email);
+    std::error_code error;
+    const bool directory_exists = std::filesystem::exists(account_directory, error);
+    if (error) {
+        out_error_message = "Could not check the account directory '" + account_directory.string()
+            + "': " + error.message();
+        return false;
+    }
+    if (directory_exists) {
+        out_error_message = "The account directory '" + account_directory.string() + "' for " + email
+            + " already exists; remove it or use another email.";
+        return false;
+    }
+    return true;
+}
+
 // Removes the directory of an account this run created, appending to out_error_message when it
 // cannot.
 void remove_account_directory(const std::filesystem::path& lib, const account::AccountData& account,
@@ -494,8 +528,7 @@ void remove_account_directory(const std::filesystem::path& lib, const account::A
         out_error_message += " The account's directory was not removed: the account has no email.";
         return;
     }
-    const std::string account_file = account::account_file_path(lib.string(), account.normalized_email);
-    const std::filesystem::path account_directory = std::filesystem::path(account_file).parent_path();
+    const std::filesystem::path account_directory = account_directory_for(lib, account.normalized_email);
     std::error_code error;
     std::filesystem::remove_all(account_directory, error);
     if (error) {
@@ -521,6 +554,10 @@ bool write_fixtures_to_lib(const FixtureSpec& spec, const std::filesystem::path&
     if (!collect_existing_characters(lib, existing_names_lower, highest_idnum, out_error_message)
         || !refuse_names_in_lib(spec, existing_names_lower, out_error_message)
         || !choose_first_idnum(spec, highest_idnum, first_idnum, out_error_message)) {
+        return false;
+    }
+
+    if (!refuse_existing_account_directory(lib, spec.email, out_error_message)) {
         return false;
     }
 

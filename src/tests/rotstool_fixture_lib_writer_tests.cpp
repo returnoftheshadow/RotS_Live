@@ -340,6 +340,30 @@ TEST_F(RotstoolFixtureLibWriter, RefusesAnAccountThatAlreadyExists)
     EXPECT_EQ(files_under(lib), files_before);
 }
 
+TEST_F(RotstoolFixtureLibWriter, RefusesAnAccountDirectoryThatAlreadyExists)
+{
+    const std::filesystem::path existing_directory = account_directory("U-Z", writer_email);
+    std::error_code error;
+    std::filesystem::create_directories(existing_directory, error);
+    ASSERT_FALSE(error) << error.message();
+    const std::filesystem::path sentinel_path = existing_directory / "sentinel.txt";
+    {
+        std::ofstream sentinel(sentinel_path, std::ios::binary);
+        ASSERT_TRUE(sentinel.good());
+        sentinel << "not written by rotstool";
+    }
+    const std::map<std::string, std::string> files_before = files_under(lib);
+
+    std::vector<WrittenFixtureCharacter> written;
+    std::string error_message;
+    EXPECT_FALSE(write_fixtures_to_lib(make_spec(writer_email, { make_character("Testmage", 5) }), lib, fixture_now,
+        written, error_message));
+    EXPECT_NE(error_message.find("already exists"), std::string::npos) << error_message;
+    EXPECT_TRUE(written.empty());
+    EXPECT_EQ(files_under(lib), files_before);
+    EXPECT_EQ(contents_of(sentinel_path), "not written by rotstool");
+}
+
 TEST_F(RotstoolFixtureLibWriter, RefusesALibThatIsNotADirectory)
 {
     const FixtureSpec spec = make_spec(writer_email, { make_character("Testmage", 5) });

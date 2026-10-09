@@ -64,7 +64,7 @@ std::optional<CreationPoints> CreationPoints::custom(const Split& split, std::st
         // One profession over the budget already decides the answer, and checking it first keeps
         // the running total from overflowing on huge values.
         if (profession_points > CREATION_POINT_BUDGET) {
-            out_error_message = "Profession points total more than " + std::to_string(CREATION_POINT_BUDGET) + ".";
+            out_error_message = "One profession has more than " + std::to_string(CREATION_POINT_BUDGET) + " points.";
             return std::nullopt;
         }
         total_points += profession_points;

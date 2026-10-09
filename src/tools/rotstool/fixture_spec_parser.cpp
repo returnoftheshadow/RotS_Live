@@ -125,11 +125,12 @@ bool resolve_race(std::string_view race_name, int& out_race, std::string& out_er
 
 bool resolve_sex(std::string_view sex_name, int& out_sex, std::string& out_error_message)
 {
-    if (sex_name == "male") {
+    const std::string wanted = lower_case(sex_name);
+    if (wanted == "male") {
         out_sex = SEX_MALE;
         return true;
     }
-    if (sex_name == "female") {
+    if (wanted == "female") {
         out_sex = SEX_FEMALE;
         return true;
     }
@@ -411,6 +412,14 @@ std::size_t read_into(std::ifstream& file, std::string& buffer, std::size_t offs
 bool read_fixture_spec_file(
     const std::filesystem::path& path, std::string& out_contents, std::string& out_error_message)
 {
+    // A directory opens and reads as empty on some platforms, so it is refused by name here.
+    std::error_code status_error;
+    const std::filesystem::file_status status = std::filesystem::status(path, status_error);
+    if (std::filesystem::exists(status) && !std::filesystem::is_regular_file(status)) {
+        out_error_message = "Fixture spec '" + path.string() + "' is not a file.";
+        return false;
+    }
+
     std::error_code size_error;
     const std::uintmax_t size_hint = std::filesystem::file_size(path, size_error);
 

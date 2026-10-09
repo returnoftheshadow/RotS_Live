@@ -101,6 +101,13 @@ TEST(CreationPoints, CustomRefusesOnePointOverTheBudget)
     EXPECT_NE(error_message.find(std::to_string(CREATION_POINT_BUDGET)), std::string::npos);
 }
 
+TEST(CreationPoints, CustomRefusesOneProfessionOverTheBudget)
+{
+    std::string error_message;
+    EXPECT_FALSE(CreationPoints::custom(make_split(CREATION_POINT_BUDGET + 1, 0, 0, 0), error_message).has_value());
+    EXPECT_EQ(error_message, "One profession has more than " + std::to_string(CREATION_POINT_BUDGET) + " points.");
+}
+
 TEST(CreationPoints, CustomRefusesANegativeProfession)
 {
     std::string error_message;

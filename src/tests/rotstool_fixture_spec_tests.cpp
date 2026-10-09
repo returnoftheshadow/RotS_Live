@@ -251,6 +251,15 @@ TEST(RotstoolFixtureSpec, RefusesARaceTheCreationMenuDoesNotOffer)
     }
 }
 
+TEST(RotstoolFixtureSpec, AcceptsASexInAnyCase)
+{
+    FixtureSpec spec;
+    std::string error_message;
+    const std::string text = spec_with_character("sex", R"("sex": "Female")");
+    ASSERT_TRUE(parse_fixture_spec(text, spec, error_message)) << error_message;
+    EXPECT_EQ(spec.characters[0].sex, SEX_FEMALE);
+}
+
 TEST(RotstoolFixtureSpec, RefusesAnUnknownSex)
 {
     const std::string error_message = parse_error_of(spec_with_character("sex", R"("sex": "neuter")"));
@@ -402,6 +411,22 @@ TEST(RotstoolFixtureSpec, ReadReturnsTheFileContents)
 
     std::error_code error;
     std::filesystem::remove(path, error);
+}
+
+TEST(RotstoolFixtureSpec, ReadRefusesADirectory)
+{
+    const std::filesystem::path path = scratch_file_path("rotstool_fixture_spec_directory");
+    ASSERT_FALSE(path.empty());
+    std::error_code error;
+    std::filesystem::remove_all(path, error);
+    ASSERT_TRUE(std::filesystem::create_directory(path, error)) << error.message();
+
+    std::string contents;
+    std::string error_message;
+    EXPECT_FALSE(read_fixture_spec_file(path, contents, error_message));
+    EXPECT_TRUE(contains(error_message, "' is not a file")) << error_message;
+
+    std::filesystem::remove_all(path, error);
 }
 
 TEST(RotstoolFixtureSpec, ReadRefusesAMissingFile)
