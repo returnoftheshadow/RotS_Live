@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <vector>
+
 extern struct room_data world;
 extern int top_of_world;
 void recount_light_room(int room);
@@ -9,7 +12,10 @@ void recount_light_room(int room);
 namespace {
 
 // The light value a room holds before a recount, so a test can tell an overwrite from no change.
-constexpr int kLightBeforeRecount = 7;
+constexpr int LIGHT_BEFORE_RECOUNT = 7;
+
+// The room the fixture's top_of_world puts just outside the world.
+constexpr int ROOM_PAST_THE_WORLD = 1;
 
 class RecountLightRoomTest : public testing::Test {
 protected:
@@ -20,25 +26,52 @@ protected:
         }
 
         m_saved_top_of_world = top_of_world;
-        m_saved_people = world[0].people;
-        m_saved_contents = world[0].contents;
-        m_saved_light = world[0].light;
-
-        top_of_world = 1;
-        world[0].people = nullptr;
-        world[0].contents = nullptr;
-        world[0].light = kLightBeforeRecount;
+        m_saved_room = save_and_clear(0);
+        m_saved_room_past_the_world = save_and_clear(ROOM_PAST_THE_WORLD);
+        top_of_world = ROOM_PAST_THE_WORLD;
     }
 
     void TearDown() override
     {
-        world[0].light = m_saved_light;
-        world[0].contents = m_saved_contents;
-        world[0].people = m_saved_people;
         top_of_world = m_saved_top_of_world;
+        restore(ROOM_PAST_THE_WORLD, m_saved_room_past_the_world);
+        restore(0, m_saved_room);
     }
 
-    // Makes `item` a light with `hours_left` hours of fuel (negative never burns out).
+    // A room's lists and light as SetUp found them.
+    struct SavedRoom {
+        // Head of the room's people list when SetUp ran; restore puts it back.
+        char_data* people = nullptr;
+        // Head of the room's floor contents when SetUp ran; restore puts it back.
+        obj_data* contents = nullptr;
+        // The room's light value when SetUp ran; restore puts it back.
+        byte light = 0;
+    };
+
+    // Saves `room`'s lists and light, then empties the lists and sets the light to
+    // LIGHT_BEFORE_RECOUNT.
+    static SavedRoom save_and_clear(int room)
+    {
+        SavedRoom saved;
+        saved.people = world[room].people;
+        saved.contents = world[room].contents;
+        saved.light = world[room].light;
+        world[room].people = nullptr;
+        world[room].contents = nullptr;
+        world[room].light = LIGHT_BEFORE_RECOUNT;
+        return saved;
+    }
+
+    // Puts back what save_and_clear saved from `room`.
+    static void restore(int room, const SavedRoom& saved)
+    {
+        world[room].people = saved.people;
+        world[room].contents = saved.contents;
+        world[room].light = saved.light;
+    }
+
+    // Makes `item` a light with `hours_left` hours of fuel (negative never burns out), lit when
+    // `lit` is true.
     static void make_light(obj_data& item, int hours_left, bool lit)
     {
         item.obj_flags.type_flag = ITEM_LIGHT;
@@ -49,7 +82,8 @@ protected:
         }
     }
 
-    // Puts `person` at the head of room 0's people, as char_to_room does.
+    // Puts `person` at the head of room 0's people. char_to_room appends at the tail instead,
+    // which a count does not notice.
     static void enter_room(char_data& person)
     {
         person.next_in_room = world[0].people;
@@ -65,21 +99,19 @@ protected:
 
     // top_of_world before SetUp made room 0 the only room in range; TearDown restores it.
     int m_saved_top_of_world = 0;
-    // Room 0's people list before SetUp emptied it.
-    char_data* m_saved_people = nullptr;
-    // Room 0's floor contents before SetUp emptied it.
-    obj_data* m_saved_contents = nullptr;
-    // Room 0's light value before SetUp replaced it.
-    byte m_saved_light = 0;
+    // Room 0's lists and light before SetUp cleared them.
+    SavedRoom m_saved_room;
+    // ROOM_PAST_THE_WORLD's lists and light before SetUp cleared them.
+    SavedRoom m_saved_room_past_the_world;
 
-    // People a test stands in room 0.
+    // A person a test stands in room 0.
     char_data m_first_person { };
     // A second person, for tests that need the whole people list walked.
     char_data m_second_person { };
     // A third person, so the list has a middle as well as both ends.
     char_data m_third_person { };
 
-    // Objects a test equips, carries or drops.
+    // An object a test equips, carries or drops.
     obj_data m_first_item { };
     // A second object, for tests that count more than one.
     obj_data m_second_item { };
@@ -212,7 +244,6 @@ TEST_F(RecountLightRoomTest, IgnoresAnUnlitLightOnTheFloor)
 
 TEST_F(RecountLightRoomTest, CountsAFloorObjectOfAnyTypeWithItsLightValuesSet)
 {
-    // Unlike worn items, floor objects are counted on value[2] and value[3] alone.
     m_first_item.obj_flags.type_flag = ITEM_WEAPON;
     m_first_item.obj_flags.value[2] = 4;
     m_first_item.obj_flags.value[3] = 3;
@@ -251,6 +282,21 @@ TEST_F(RecountLightRoomTest, AddsWornAndFloorLightsTogether)
     EXPECT_EQ(3, world[0].light) << "one worn light plus both lights on the floor";
 }
 
+TEST_F(RecountLightRoomTest, WrapsACountPastTheRangeOfALightValue)
+{
+    // Two past the largest light value, so the count wraps to 1.
+    constexpr int LIT_FLOOR_OBJECTS = std::numeric_limits<byte>::max() + 2;
+    std::vector<obj_data> floor_lights(LIT_FLOOR_OBJECTS);
+    for (obj_data& item : floor_lights) {
+        make_light(item, 10, true);
+        drop_on_floor(item);
+    }
+
+    recount_light_room(0);
+
+    EXPECT_EQ(1, world[0].light) << LIT_FLOOR_OBJECTS << " lit floor objects wrap in a byte";
+}
+
 TEST_F(RecountLightRoomTest, LeavesTheLightAloneForARoomOutsideTheWorld)
 {
     make_light(m_first_item, 10, true);
@@ -259,7 +305,9 @@ TEST_F(RecountLightRoomTest, LeavesTheLightAloneForARoomOutsideTheWorld)
     recount_light_room(-1);
     recount_light_room(top_of_world);
 
-    EXPECT_EQ(kLightBeforeRecount, world[0].light);
+    EXPECT_EQ(LIGHT_BEFORE_RECOUNT, world[0].light) << "room -1 is not recounted as room 0";
+    EXPECT_EQ(LIGHT_BEFORE_RECOUNT, world[ROOM_PAST_THE_WORLD].light)
+        << "room top_of_world is not recounted";
 }
 
 } // namespace
