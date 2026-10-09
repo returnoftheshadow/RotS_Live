@@ -1045,7 +1045,17 @@ ACMD(do_move)
             char_data* follower = fol.first;
             if (!char_exists(fol.second))
                 continue;
-            if ((was_in == follower->in_room) && (GET_POS(follower) >= POSITION_STANDING)) {
+            if (was_in != follower->in_room)
+                continue;
+            /* Not standing or still delayed: the follower never gets to try
+               the move, so tell both sides here. */
+            if ((GET_POS(follower) < POSITION_STANDING) || (follower->delay.wait_value > 0)) {
+                if (char_exists(mover_number)) {
+                    /* A player follower the leader cannot see stays unannounced. */
+                    act("ACK! $n could not follow, you lost $m!", !IS_NPC(follower), follower, 0, ch, TO_VICT);
+                    act("ACK! You could not follow $M!", FALSE, follower, 0, ch, TO_CHAR);
+                }
+            } else {
                 //	  act("You follow $N.\n\r", FALSE, follower, 0, ch, TO_CHAR);
 
                 bzero((char*)&tmpwtl, sizeof(waiting_type));
