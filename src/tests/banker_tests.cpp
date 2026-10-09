@@ -2466,3 +2466,12 @@ TEST(BankGameFolder, TheSharedFolderForUnknownAccountsIsNeverAVault)
     EXPECT_EQ(bank_vault_open("nosuchaccountatall", BANK_SIDE_LIGHT, &error), nullptr);
     EXPECT_FALSE(error.empty());
 }
+
+TEST(BankerParse, GeneralLinesAreSkippedAndTyposStillReported)
+{
+    std::vector<vendor_problem> problems;
+    parse_banker_options("walker_type=bounded\n\rwalker_rooms=5,6\n\rwalkr_rooms=5\n\r", &problems);
+    ASSERT_EQ(problems.size(), 1u);
+    EXPECT_EQ(problems[0].line, 3);
+    EXPECT_EQ(problems[0].text, "unknown setting - line ignored");
+}

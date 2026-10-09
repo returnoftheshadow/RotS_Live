@@ -38,6 +38,7 @@
 #include "character_json.h"
 #include "exploits_json.h"
 #include "mob_options.h"
+#include "mob_walker.h"
 #include "game_boot_options.h"
 #include "mob_progs/banker.h"
 #include "mob_progs/shopkeeper.h"
@@ -499,6 +500,8 @@ void boot_db(void)
 
     log("Checking bankers.");
     banker_config_boot();
+
+    walker_config_boot();
 
     boot_time = time(0);
 

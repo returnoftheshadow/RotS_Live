@@ -1363,3 +1363,13 @@ TEST_F(BarterVendorTest, RepliesAreTellsAndRefusalsAreSays)
     time_info.hours = saved_hours;
     m_buyer.next_in_room = nullptr;
 }
+
+TEST(VendorParse, GeneralLinesAreSkippedAndTyposStillReported)
+{
+    vendor_lookups all { [](int) { return true; }, [](int) { return true; } };
+    std::vector<vendor_problem> problems;
+    parse_vendor_options("store=100\n\rwalker_type=path\n\rwalker_rooms=1-3\n\rwalker_typ=path\n\r", all, &problems);
+    ASSERT_EQ(problems.size(), 1u);
+    EXPECT_EQ(problems[0].line, 4);
+    EXPECT_EQ(problems[0].text, "unknown setting - line ignored");
+}

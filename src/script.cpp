@@ -67,6 +67,7 @@ script_data* char_has_script(int* index, char_data* ch, int script_type);
 int run_char_script(char_data* ch, void* sub1, void* sub2, script_data* position);
 int script_char_do_say(char_data* ch, char* line);
 int trigger_char_die(char_data* ch);
+int trigger_char_path_end(char_data* ch);
 int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1);
 int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room);
 int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch);
@@ -956,6 +957,10 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
 
     case ON_DIE:
         return_value = trigger_char_die((char_data*)subject); // we don't do anything with killer yet
+        break;
+
+    case ON_PATH_END:
+        return_value = trigger_char_path_end((char_data*)subject);
         break;
 
     case ON_DRINK:
@@ -2061,6 +2066,25 @@ int trigger_char_die(char_data* ch)
     if (IS_AFFECTED(ch, AFF_WAITING))
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_DIE)))
+        if (script_position->next) {
+            initialise_script_info_char(ch, index);
+            ch->specials.script_info->ch[0] = ch;
+            return_value = run_script(ch->specials.script_info, script_position->next);
+        }
+    return return_value;
+}
+
+// A walker mob has completed its route (path: at its end; loop: one lap done)
+
+int trigger_char_path_end(char_data* ch)
+{
+    int index;
+    int return_value = 1;
+    script_data* script_position;
+
+    if (IS_AFFECTED(ch, AFF_WAITING))
+        return 1;
+    if ((script_position = char_has_script(&index, ch->specials.script_number, ON_PATH_END)))
         if (script_position->next) {
             initialise_script_info_char(ch, index);
             ch->specials.script_info->ch[0] = ch;

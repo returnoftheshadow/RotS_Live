@@ -224,6 +224,8 @@ vendor_config parse_vendor_options(
                 config.attacks = value == "yes";
             else
                 problem(line_no, "bad attacks - line ignored");
+        } else if (mob_option_is_general(key)) {
+            continue; /* another feature's line (mob_general_options) */
         } else {
             problem(line_no, "unknown setting - line ignored");
         }

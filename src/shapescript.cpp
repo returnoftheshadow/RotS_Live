@@ -597,6 +597,10 @@ static void format_command(script_data* script)
         sprintf(buf, "[%d] TRIG ON_DIE          (%s)\n\r", script->number, script->text);
         break;
 
+    case ON_PATH_END:
+        sprintf(buf, "[%d] TRIG ON_PATH_END     (%s)\n\r", script->number, script->text);
+        break;
+
     case ON_EAT:
         sprintf(buf, "[%d] TRIG ON_EAT          (%s)\n\r", script->number, script->text);
         break;
@@ -1360,7 +1364,8 @@ void extra_coms_script(struct char_data* ch, char* argument)
 /* Command types offered at /3, grouped as the prompt lists them. */
 static const char* script_type_groups[][2] = {
     { "Triggers:", "ON_BEFORE_ENTER ON_DAMAGE ON_DIE ON_DRINK ON_EAT ON_ENTER\n\r"
-                   "  ON_EXAMINE_OBJECT ON_HEAR_SAY ON_HEAR_YELL ON_PULL ON_RECEIVE ON_WEAR" },
+                   "  ON_EXAMINE_OBJECT ON_HEAR_SAY ON_HEAR_YELL ON_PULL ON_RECEIVE ON_WEAR\n\r"
+                   "  ON_PATH_END" },
     { "Flow:    ", "BEGIN END END_ELSE_BEGIN ABORT RETURN_FALSE DO_WAIT" },
     { "Tests:   ", "IF_INT_EQUAL IF_INT_LESS IF_INT_GREATER IF_INT_TRUE IF_INT_FALSE\n\r"
                    "  IF_IS_NPC IF_ROOM_SUNLIT IF_STR_CONTAINS IF_STR_EQUAL" },
@@ -1766,6 +1771,12 @@ void shape_center_script(struct char_data* ch, char* arg)
                 break;
 
             case ON_DIE:
+                SHAPE_SCRIPT(ch)
+                    ->editflag
+                    = 5;
+                break;
+
+            case ON_PATH_END:
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
@@ -2820,6 +2831,8 @@ int get_command(char* command)
             return ON_DAMAGE;
         if (!strcmp(command, "ON_DIE"))
             return ON_DIE;
+        if (!strcmp(command, "ON_PATH_END"))
+            return ON_PATH_END;
         if (!strcmp(command, "ON_DRINK"))
             return ON_DRINK;
         if (!strcmp(command, "ON_EAT"))

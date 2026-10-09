@@ -12,6 +12,7 @@
 #include "mob_options.h"
 #include "mob_progs/banker.h"
 #include "mob_progs/shopkeeper.h"
+#include "mob_walker.h"
 #include "protos.h"
 #include "script.h"
 #include "structs.h"
@@ -2356,6 +2357,10 @@ int replace_proto(struct char_data* ch, char* arg)
             vendor_config_check(SHAPE_PROTO(ch)->proto, num, ch);
         if (is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
             banker_config_check(SHAPE_PROTO(ch)->proto, num, ch);
+        walker_config_check(SHAPE_PROTO(ch)->proto, num,
+            is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr)
+                || is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr),
+            ch);
         REMOVE_BIT(SHAPE_PROTO(ch)->flags, SHAPE_DELETE_ACTIVE);
     }
 
@@ -2471,6 +2476,10 @@ int append_proto(struct char_data* ch, char* arg)
         vendor_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
     if (is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr))
         banker_config_check(SHAPE_PROTO(ch)->proto, i1 + 1, ch);
+    walker_config_check(SHAPE_PROTO(ch)->proto, i1 + 1,
+        is_vendor_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr)
+            || is_banker_candidate(SHAPE_PROTO(ch)->proto, SHAPE_PROTO(ch)->proto->nr),
+        ch);
     sprintf(str, "Mobile added to database as #%d.\n\r", i1 + 1);
     send_to_char(str, ch);
     SHAPE_PROTO(ch)
@@ -2506,7 +2515,7 @@ int append_proto(struct char_data* ch, char* arg)
 
 /* report_vendor false: the caller already reported the vendor's problems
  * (the /save half of /done), so the registry is rebuilt silently. */
-void implement_proto(struct char_data* ch, bool report_vendor = true)
+void implement_proto(struct char_data* ch, bool report_vendor = true, bool report_walker = true)
 {
     int number;
     struct char_data* proto;
@@ -2580,6 +2589,10 @@ void implement_proto(struct char_data* ch, bool report_vendor = true)
     vendor_implement_check(number, ch);
     banker_config_rebuild(number, ch, report_vendor);
     banker_implement_check(number, ch);
+    walker_config_rebuild(number);
+    if (report_vendor && report_walker)
+        walker_config_check(mob_proto + number, mob_index[number].virt,
+            is_vendor_candidate(mob_proto + number, number) || is_banker_candidate(mob_proto + number, number), ch);
 }
 ACMD(do_shape)
 {
@@ -3113,7 +3126,8 @@ void extra_coms_proto(struct char_data* ch, char* argument)
                 ch);
             break;
         }
-        implement_proto(ch, !save_reports);
+        /* The save always reports walker problems, so implement never repeats those. */
+        implement_proto(ch, !save_reports, false);
         extra_coms_proto(ch, "free");
     } break;
     }

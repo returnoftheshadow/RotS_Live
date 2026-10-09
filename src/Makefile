@@ -78,6 +78,7 @@ SOURCES := \
     mudlle2.cpp \
     mob_csv_extract.cpp \
     mob_options.cpp \
+    mob_walker.cpp \
     mob_progs/shopkeeper.cpp \
     mob_progs/banker.cpp \
     game_boot_options.cpp \

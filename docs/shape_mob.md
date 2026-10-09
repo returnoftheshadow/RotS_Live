@@ -61,7 +61,10 @@ change nothing and show the current master and the usage line.
   field's `man shape` entry and then the editor commands. The editor lists all
   its commands when it opens (`%d` removes the last line, `%l` moves the
   cursor, `%s<old>~<new>` replaces). `/42` (options) uses the same editor but
-  refuses `%f`.
+  refuses `%f`. Some `/42` settings work on any mob, whatever its program: the
+  walker settings (`walker_type=`, `walker_rooms=`, `walker_move_chance=`,
+  `path_complete_extract=`, `path_complete_message=`, `continue_wandering=`);
+  see `docs/systems/mob-walkers.md`.
 - Numbers: a plain number sets the value; `+5` adds; `-5` **subtracts** (except
   the fields that accept negatives, below); `p7` sets bit 7 and `m7` clears it.
   Several go in one answer, left to right (`p1 p7 m2`); the list stops at the

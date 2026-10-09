@@ -154,6 +154,7 @@ triggers can live in one script (e.g., ON_ENTER plus ON_HEAR_SAY).
 | `ON_ENTER` | After a character enters the room. | `ch1`=owner mob, `ch2`=entrant, `rm1`=room (for objects: `ob1` owner, `ch1` entrant). | Ignored. |
 | `ON_BEFORE_ENTER` | Before the entrant is allowed in. | Same as `ON_ENTER`. | `FALSE` blocks entry; script must message the player. `TRUE` (default) lets them in. |
 | `ON_DIE` | Just before the owner would die. | `ch1`=owner (nothing else is set). | `FALSE` prevents death (script must restore HP, send messages). |
+| `ON_PATH_END` | A walker mob (`walker_type=path` or `loop` in its options) completed its route. Path: runs once, before the mob is removed or parked. Loop: runs each lap, right after it has stepped from the last room into the first. | `ch1`=owner (nothing else is set). | Ignored. |
 | `ON_RECEIVE` | When somebody gives the owner an object. | `ch1`=recipient, `ch2`=giver (optional), `ob1`=item. | Ignored. |
 | `ON_EXAMINE_OBJECT` | When someone examines the scripted object. | `ob1` owner, `ch1` examiner. | Ignored. |
 | `ON_DAMAGE` | Before damage is applied. Works on mobiles and wielded objects. | `ch1`=victim, `ch2`=attacker, `ob1`=weapon (objects only). | `FALSE` cancels damage (script must handle messaging and HP updates); `TRUE` lets combat proceed. |

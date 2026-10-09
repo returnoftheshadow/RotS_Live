@@ -624,3 +624,88 @@ TEST(ScriptSection, EveryKindOfIfLooksPastASection)
 }
 
 } // namespace
+
+/* ---- ON_PATH_END: a walker mob's end-of-route trigger (mob_walker.cpp) ---- */
+
+extern struct script_head* script_table;
+extern int top_of_script_table;
+
+namespace {
+
+/* Puts one script in the script table for the life of a test. */
+class OneScriptTable {
+public:
+    OneScriptTable(int number, const std::vector<int>& command_types)
+        : m_saved_table(script_table)
+        , m_saved_top(top_of_script_table)
+    {
+        m_nodes.resize(command_types.size());
+        for (size_t i = 0; i < command_types.size(); ++i) {
+            m_nodes[i].command_type = command_types[i];
+            m_nodes[i].number = static_cast<int>(i) + 1;
+            m_nodes[i].next = (i + 1 < command_types.size()) ? &m_nodes[i + 1] : nullptr;
+            m_nodes[i].prev = (i > 0) ? &m_nodes[i - 1] : nullptr;
+        }
+        m_head.number = number;
+        m_head.script = m_nodes.empty() ? nullptr : &m_nodes[0];
+        script_table = &m_head;
+        top_of_script_table = 0;
+    }
+
+    ~OneScriptTable()
+    {
+        script_table = m_saved_table;
+        top_of_script_table = m_saved_top;
+    }
+
+private:
+    script_head m_head {};
+    std::vector<script_data> m_nodes;
+    script_head* m_saved_table;
+    int m_saved_top;
+};
+
+} // namespace
+
+TEST(ScriptOnPathEnd, RunsItsBlock)
+{
+    OneScriptTable table(9900, { ON_DIE, SCRIPT_BEGIN, SCRIPT_END, ON_PATH_END, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
+    char_data mob {};
+    clear_char(&mob, MOB_ISNPC);
+    mob.specials.script_number = 9900;
+
+    EXPECT_EQ(0, call_trigger(ON_PATH_END, &mob, 0, 0)); // the block ran and returned FALSE
+
+    free(mob.specials.script_info);
+}
+
+/* The trigger is not run for a waiting mob (as ON_DIE); the walker code puts
+ * the end of the path off rather than lose the script (mob_walker.cpp). */
+TEST(ScriptOnPathEnd, DoesNotRunForAWaitingMob)
+{
+    OneScriptTable table(9900, { ON_PATH_END, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
+    char_data mob {};
+    clear_char(&mob, MOB_ISNPC);
+    mob.specials.script_number = 9900;
+    SET_BIT(mob.specials.affected_by, AFF_WAITING);
+    EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // the block would have returned FALSE
+
+    REMOVE_BIT(mob.specials.affected_by, AFF_WAITING);
+    EXPECT_EQ(0, call_trigger(ON_PATH_END, &mob, 0, 0)); // and does once the mob is free
+
+    free(mob.specials.script_info);
+}
+
+TEST(ScriptOnPathEnd, IsQuietWithoutABlockOrAScript)
+{
+    OneScriptTable table(9900, { ON_DIE, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
+    char_data mob {};
+    clear_char(&mob, MOB_ISNPC);
+    mob.specials.script_number = 9900;
+    EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // the script has no ON_PATH_END block
+
+    mob.specials.script_number = 0;
+    EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // no script at all
+
+    free(mob.specials.script_info);
+}

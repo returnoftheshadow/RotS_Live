@@ -44,6 +44,7 @@
 #define ON_WEAR 21 //  When a character places an object into their equipment (return false and wear fails)
 #define ON_PULL 22 //  When a character pulls a lever (return FALSE - lever is not pulled)
 #define ON_HEAR_YELL 23 // When a character hears another yell
+#define ON_PATH_END 24 // When a walker mob completes its route (mob_walker.cpp). Return value is ignored.
 
 #define SCRIPT_DO_SAY 30 //  Script command do_say - similar to ACMD
 #define SCRIPT_ASSIGN_STR 31 //  Assign the contents of param1 to script variable str1

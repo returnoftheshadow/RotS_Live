@@ -120,6 +120,7 @@ set(ROTS_SERVER_SOURCES
     mail.cpp
     mob_csv_extract.cpp
     mob_options.cpp
+    mob_walker.cpp
     mob_progs/shopkeeper.cpp
     mob_progs/banker.cpp
     game_boot_options.cpp
@@ -206,6 +207,7 @@ set(ROTS_TEST_SOURCES
     tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
     tests/mob_options_tests.cpp
+    tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp

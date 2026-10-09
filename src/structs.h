@@ -1154,6 +1154,7 @@ struct char_special_data {
     sh_int current_parry; /*parry currently affected by 'parry split' */
 
     signed char last_direction; /* The last direction the monster went     */
+    unsigned char walker_finished; /* walker mob: its path is complete (mob_walker.cpp); never saved */
     int attack_type; /* The Attack Type Bitvector for NPC's     */
 
     struct alias_list* alias; /* aliases, 0 for mobs */
