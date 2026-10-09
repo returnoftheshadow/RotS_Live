@@ -96,6 +96,8 @@ banker_config parse_banker_options(const char* text, std::vector<vendor_problem>
             : key == "greeting_other"                           ? &saw_greeting_other
             : key == "attacks"                                  ? &saw_attacks
                                                                 : nullptr;
+        if (!seen && mob_option_is_general(key))
+            continue; /* another feature's line (mob_general_options) */
         if (!seen || eq == std::string::npos) {
             problem(line_no, "unknown setting - line ignored");
             continue;

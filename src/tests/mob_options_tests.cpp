@@ -332,3 +332,27 @@ TEST(BoardHtml, LongPostExpandsLineBreaksWithoutABuffer)
     EXPECT_STREQ(head, "x<br>x<br>");
     fclose(f);
 }
+
+TEST(MobGeneralOptions, ListsEveryWalkerKey)
+{
+    for (const char* key : { "walker_type", "walker_rooms", "walker_move_chance", "path_complete_extract",
+             "path_complete_message", "continue_wandering" })
+        EXPECT_TRUE(mob_option_is_general(key)) << key;
+}
+
+TEST(MobGeneralOptions, ProgramKeysAndTyposAreNotGeneral)
+{
+    EXPECT_FALSE(mob_option_is_general("store"));
+    EXPECT_FALSE(mob_option_is_general("fee"));
+    EXPECT_FALSE(mob_option_is_general("walker_typ"));
+    EXPECT_FALSE(mob_option_is_general(""));
+}
+
+TEST(MobGeneralOptions, EveryKeyHasHelpOfAtMostSixtyColumns)
+{
+    for (const mob_general_option& option : mob_general_options()) {
+        ASSERT_NE(option.help, nullptr) << option.key;
+        EXPECT_GT(strlen(option.help), 0u) << option.key;
+        EXPECT_LE(strlen(option.help), 60u) << option.key;
+    }
+}

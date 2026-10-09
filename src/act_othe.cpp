@@ -374,12 +374,12 @@ void print_group_leader(const char_data* leader)
         ;
 
     for (mana_prompt_index = 0;
-         (1000 * GET_MANA(leader)) / GET_MAX_MANA(leader) > prompt_mana[mana_prompt_index].value;
+         mana_prompt_index < 6 && (1000 * GET_MANA(leader)) / (GET_MAX_MANA(leader) == 0 ? 1 : GET_MAX_MANA(leader)) > prompt_mana[mana_prompt_index].value;
          mana_prompt_index++)
         ;
 
     for (move_prompt_index = 0;
-         (1000 * GET_MOVE(leader)) / GET_MAX_MOVE(leader) > prompt_move[move_prompt_index].value;
+         move_prompt_index < 5 && (1000 * GET_MOVE(leader)) / (GET_MAX_MOVE(leader) == 0 ? 1 : GET_MAX_MOVE(leader)) > prompt_move[move_prompt_index].value;
          move_prompt_index++)
         ;
 
@@ -412,12 +412,12 @@ void print_group_member(const char_data* group_member)
         ;
 
     for (mana_prompt_index = 0;
-         (1000 * GET_MANA(group_member)) / (GET_MAX_MANA(group_member) == 0 ? 1 : GET_MAX_MANA(group_member)) > prompt_mana[mana_prompt_index].value;
+         mana_prompt_index < 6 && (1000 * GET_MANA(group_member)) / (GET_MAX_MANA(group_member) == 0 ? 1 : GET_MAX_MANA(group_member)) > prompt_mana[mana_prompt_index].value;
          mana_prompt_index++)
         ;
 
     for (move_prompt_index = 0;
-         (1000 * GET_MOVE(group_member)) / (GET_MAX_MOVE(group_member) == 0 ? 1 : GET_MAX_MOVE(group_member)) > prompt_move[move_prompt_index].value;
+         move_prompt_index < 5 && (1000 * GET_MOVE(group_member)) / (GET_MAX_MOVE(group_member) == 0 ? 1 : GET_MAX_MOVE(group_member)) > prompt_move[move_prompt_index].value;
          move_prompt_index++)
         ;
 
@@ -630,9 +630,9 @@ ACMD(do_report)
 
     for (tmp1 = 0; tmp1 < 7 && (1000LL * GET_HIT(ch)) / (GET_MAX_HIT(ch) == 0 ? 1 : GET_MAX_HIT(ch)) > prompt_hit[tmp1].value; tmp1++)
         ;
-    for (tmp2 = 0; (1000 * GET_MANA(ch)) / GET_MAX_MANA(ch) > prompt_mana[tmp2].value; tmp2++)
+    for (tmp2 = 0; tmp2 < 6 && (1000 * GET_MANA(ch)) / (GET_MAX_MANA(ch) == 0 ? 1 : GET_MAX_MANA(ch)) > prompt_mana[tmp2].value; tmp2++)
         ;
-    for (tmp3 = 0; (1000 * GET_MOVE(ch)) / GET_MAX_MOVE(ch) > prompt_move[tmp3].value; tmp3++)
+    for (tmp3 = 0; tmp3 < 5 && (1000 * GET_MOVE(ch)) / (GET_MAX_MOVE(ch) == 0 ? 1 : GET_MAX_MOVE(ch)) > prompt_move[tmp3].value; tmp3++)
         ;
 
     sprintf(

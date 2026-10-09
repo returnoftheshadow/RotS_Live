@@ -35,6 +35,16 @@ char* read_mob_options(FILE* f, char* context);
 /* Writes the options string; writes nothing for null/empty text. */
 void write_mob_options(FILE* f, const char* options);
 
+/* General settings: valid on any mob, whatever its program. A mob program's
+ * parser skips these lines instead of reporting them unknown. A new feature
+ * adds its keys here once, and to the options help (lib/text/shap_tbl). */
+struct mob_general_option {
+    const char* key;
+    const char* help; /* one line, at most 60 columns */
+};
+const std::vector<mob_general_option>& mob_general_options();
+bool mob_option_is_general(const std::string& key);
+
 /* Line helpers shared with the mob programs that parse options. */
 namespace mob_options_detail {
 std::string trim(const std::string& s); /* strips spaces, tabs, \r and \n at both ends */

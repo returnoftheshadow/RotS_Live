@@ -1777,6 +1777,63 @@ text can't start with $ or pass 4000 characters.
 
 Each program that reads options documents its own settings: program 33,
 see MAN SHAPE SHOPKEEPER; program 34, see MAN SHAPE BANKER.
+
+General settings work on any mob, whatever its program. A program skips
+them; on a mob that is not a working shopkeeper or banker, a line that
+is not a general setting is reported when you /save or /implement. The
+general settings are the walker settings, see MAN SHAPE WALKER.
+#
+"WALKER" "WALKERS" "WALKER_TYPE" "WALKER_ROOMS"
+
+A walker is a mob that follows a listed route or stays inside a listed
+area. It needs no program: put the settings in /42 (see MAN SHAPE MOB2
+42) on any mob that is not SENTINEL.
+
+  walker_type=path|loop|bounded   how walker_rooms is used
+  walker_rooms=1101-1150,1162     room vnums in order; lines join
+  walker_move_chance=1-100        chance a route step succeeds
+  path_complete_extract=yes       remove the mob at the end of a path
+  path_complete_message=<text>    shown to the room at the end
+  continue_wandering=yes          wander freely after a path ends
+
+path     Walks the rooms in order, once. In the last room, its first
+         successful attempt to leave ends the path: the ON_PATH_END
+         part of its script runs, then the mob is removed if
+         path_complete_extract=yes (what it wears and carries is
+         destroyed with it), then path_complete_message is shown to
+         the room. A mob that is not removed becomes SENTINEL with
+         no moves, or wanders if continue_wandering=yes.
+loop     As path, but from the last room it only steps into the
+         first. ON_PATH_END and the message run each lap, once it
+         has arrived; the message is shown in the last room.
+bounded  Wanders as usual but never steps into a room that is not
+         listed.
+
+- A room may be listed once. Ranges count up or down: 1105-1101.
+  A line holds 255 characters; use several walker_rooms lines for a
+  long route. At most 2000 rooms.
+- The mob moves when its normal wander roll picks the way to its next
+  room. walker_move_chance slows it further. ACTIVE makes it much
+  faster.
+- Like any wandering mob it needs movement points: a mob with none
+  never takes a step.
+- Off its list (it fled, was summoned) it wanders until it steps onto
+  a listed room, then carries on from there.
+- STAY-ZONE and STAY-TYPE still stop a step. HUNTER lets a player lead
+  it off its route.
+- /save and /implement report bad settings and route rooms that are
+  not joined by an exit. Nothing is checked at boot.
+- A shopkeeper or banker with attacks=no never moves, so it never
+  walks.
+
+Example:
+  walker_type=path
+  walker_rooms=1101-1150,1162
+  walker_move_chance=40
+  path_complete_extract=yes
+  path_complete_message=The caravan has dispersed.
+
+SEE ALSO: MAN SHAPE MOB2 42, MAN SCRIPT ON_PATH_END
 #
 "SHOPKEEPER" "SHOPKEEPERS" "BARTER" "VENDOR"
 

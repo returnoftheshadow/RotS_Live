@@ -58,6 +58,27 @@ bool mob_option_find(const char* options, const char* key, std::string* value)
     return false;
 }
 
+const std::vector<mob_general_option>& mob_general_options()
+{
+    static const std::vector<mob_general_option> options = {
+        { "walker_type", "path, loop or bounded: how walker_rooms is used" },
+        { "walker_rooms", "room vnums in order: 1101-1150,1162 (lines join)" },
+        { "walker_move_chance", "1-100: chance a route step succeeds (path, loop)" },
+        { "path_complete_extract", "yes: remove the mob at the end of a path" },
+        { "path_complete_message", "line shown to the room at the end (path, loop)" },
+        { "continue_wandering", "yes: wander freely after a path ends" },
+    };
+    return options;
+}
+
+bool mob_option_is_general(const std::string& key)
+{
+    for (const mob_general_option& option : mob_general_options())
+        if (key == option.key)
+            return true;
+    return false;
+}
+
 bool mob_options_storable(const char* text, const char** why)
 {
     if (!text)

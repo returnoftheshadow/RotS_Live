@@ -17,6 +17,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "mob_walker.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -47,10 +48,15 @@ extern int top_of_mobt;
 
 void mobile_activity(void)
 {
-    struct char_data* ch;
+    struct char_data *ch, *next_ch;
     SPECIAL(*tmpfunc);
 
-    for (ch = character_list; ch; ch = ch->next)
+    for (ch = character_list; ch; ch = next_ch) {
+        /* A turn can remove the character taking it (its script, a death).
+         * Its own next pointer is then gone, so the one saved before the
+         * turn is used; while it lives, its current one is, as always. */
+        next_ch = ch->next;
+        int abs_number = ch->abs_number;
         if (!number(0, 3)) {
             if (IS_NPC(ch))
                 one_mobile_activity(ch);
@@ -61,6 +67,10 @@ void mobile_activity(void)
                     tmpfunc(ch, ch, 0, "", SPECIAL_SELF, 0);
             }
         }
+        if (char_exists(abs_number))
+            next_ch = ch->next;
+    }
+    walker_remove_finished();
 }
 
 void one_mobile_activity(char_data* ch)
@@ -308,14 +318,24 @@ void one_mobile_activity(char_data* ch)
                 }
             } /* Scavenger */
 
-            if (!IS_SET(ch->specials2.act, MOB_SENTINEL) && (GET_POS(ch) == POSITION_STANDING) && (!ch->master) && ((door = number(0, 45)) < NUM_OF_DIRS) && CAN_GO(ch, door) && !IS_SET(world[EXIT(ch, door)->to_room].room_flags, NO_MOB) && !IS_SET(world[EXIT(ch, door)->to_room].room_flags, DEATH)) {
-                if (ch->specials.last_direction == door)
-                    ch->specials.last_direction = -1;
-                else {
-                    /* checking for STAY flags */
-                    if ((!IS_SET(ch->specials2.act, MOB_STAY_ZONE) || (world[EXIT(ch, door)->to_room].zone == world[ch->in_room].zone)) && (!IS_SET(ch->specials2.act, MOB_STAY_TYPE) || (world[EXIT(ch, door)->to_room].sector_type == world[ch->in_room].sector_type))) {
-                        ch->specials.last_direction = door;
-                        do_move(ch, "", 0, ++door, 0);
+            if (!IS_SET(ch->specials2.act, MOB_SENTINEL) && (GET_POS(ch) == POSITION_STANDING) && (!ch->master) && ((door = number(0, 45)) < NUM_OF_DIRS)) {
+                bool usable = CAN_GO(ch, door) && !IS_SET(world[EXIT(ch, door)->to_room].room_flags, NO_MOB) && !IS_SET(world[EXIT(ch, door)->to_room].room_flags, DEATH);
+                walker_result walked = walker_wander(ch, door, usable);
+                if (walked == WALKER_GONE)
+                    return; /* its ON_PATH_END script or its step removed the mob */
+                if (walked == WALKER_NOT_HANDLED && usable) {
+                    if (ch->specials.last_direction == door)
+                        ch->specials.last_direction = -1;
+                    else {
+                        /* checking for STAY flags */
+                        if ((!IS_SET(ch->specials2.act, MOB_STAY_ZONE) || (world[EXIT(ch, door)->to_room].zone == world[ch->in_room].zone)) && (!IS_SET(ch->specials2.act, MOB_STAY_TYPE) || (world[EXIT(ch, door)->to_room].sector_type == world[ch->in_room].sector_type))) {
+                            ch->specials.last_direction = door;
+                            int abs_number = ch->abs_number;
+                            do_move(ch, "", 0, ++door, 0);
+                            /* The step can remove the mob (a script where it arrives, a death). */
+                            if (!char_exists(abs_number))
+                                return;
+                        }
                     }
                 }
             } /* if can go */

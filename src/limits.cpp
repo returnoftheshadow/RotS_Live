@@ -9,6 +9,7 @@
  ************************************************************************ */
 
 #include "limits.h"
+#include "mob_walker.h"
 #include "game_boot_options.h"
 #include "comm.h"
 #include "db.h"
@@ -1376,8 +1377,14 @@ void affect_update_person(struct char_data* i, int mode)
                     // handled by hit_gain now.
                     break;
                 case SPELL_ACTIVITY:
-                    if (IS_NPC(i))
+                    if (IS_NPC(i)) {
+                        /* The mob's turn can remove the mob (its script, a death):
+                         * nothing of it, its affects included, is left to update. */
+                        int abs_number = i->abs_number;
                         one_mobile_activity(i);
+                        if (!char_exists(abs_number))
+                            return;
+                    }
                 case SPELL_CONFUSE:
                     if (IS_AFFECTED(i, AFF_CONCENTRATION) && (af->duration >= 10))
                         af->duration -= 3;
@@ -1562,6 +1569,7 @@ void affect_update()
         }
         tmplist3 = tmplist; /* prev item */
     }
+    walker_remove_finished(); /* walkers whose route ended during this pass */
 }
 
 void fast_update()

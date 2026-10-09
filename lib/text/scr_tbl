@@ -165,6 +165,7 @@ about a specific trigger, please refer to its manual page.
     ON_EAT
     ON_HEAR_SAY
     ON_HEAR_YELL  (runs on 'say' too; nothing calls it for yells)
+    ON_PATH_END   (a walker mob finished its route; MAN SHAPE WALKER)
     ON_PULL
     ON_WEAR
 
@@ -483,6 +484,36 @@ Variables:
            is in str1 after this trigger occurs.
 
 A 'say' also runs any ON_HEAR_YELL part of the script.
+
+Return value: ignored.
+
+SEE ALSO: TRIGGERS "TRIGGER LIST"
+#
+ON_PATH_END
+
+Triggered when a walker mob completes its route. A walker is a mob
+with walker_type=path or walker_type=loop in its options (see
+MAN SHAPE WALKER). Only a script owned by that mob runs.
+
+  path   Runs once, when the mob makes its first successful attempt
+         to leave the last room of its route. It runs before the mob
+         is removed (path_complete_extract=yes) and before the
+         path_complete_message line is shown.
+  loop   Runs each lap, right after the mob has stepped from the last
+         room of its route back into the first. The mob is in the
+         first room when it runs; the path_complete_message line is
+         shown in the last room. A step that fails runs nothing.
+
+ch1 is the mob. Nothing else is set.
+
+The script may remove the mob itself. With path_complete_extract=yes
+the mob is removed a moment after the script returns, once the game
+has finished that mob's turn, so a DO_WAIT in the script is cut short.
+
+The script does not run for a mob that is busy waiting (after a kick,
+for example). A mob that is waiting when its path or lap would end puts
+the end off to a later turn. A loop mob that becomes busy during the
+step that completes its lap skips the script for that lap only.
 
 Return value: ignored.
 
