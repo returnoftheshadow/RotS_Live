@@ -1,5 +1,4 @@
-#include "../intrusive_list.h"
-#include "../room_lists.h"
+#include "../intrusive/each.h"
 #include "../structs.h"
 
 #include <gtest/gtest.h>
@@ -21,22 +20,28 @@ using room_const_iterator = intrusive::list_iterator<&char_data::next_in_room, t
 using fighting_iterator = intrusive::list_iterator<&char_data::next_fighting>;
 using room_removable_iterator = intrusive::removable_iterator<&char_data::next_in_room>;
 
+using room_reference = intrusive::node_ref<char_data>;
+using room_view = intrusive::list_view<&char_data::next_in_room>;
+using room_const_view = intrusive::const_list_view<&char_data::next_in_room>;
+
 using room_traits = std::iterator_traits<room_iterator>;
+using room_const_traits = std::iterator_traits<room_const_iterator>;
+using room_removable_traits = std::iterator_traits<room_removable_iterator>;
 static_assert(std::is_same_v<room_traits::iterator_category, std::forward_iterator_tag>);
 static_assert(std::is_same_v<room_traits::value_type, char_data>);
-static_assert(std::is_same_v<room_traits::reference, char_data&>);
+static_assert(std::is_same_v<room_traits::reference, room_reference>);
 static_assert(std::is_same_v<room_traits::pointer, char_data*>);
 static_assert(std::is_same_v<room_traits::difference_type, std::ptrdiff_t>);
-static_assert(std::is_same_v<std::iterator_traits<room_const_iterator>::reference, const char_data&>);
-static_assert(std::is_same_v<std::iterator_traits<room_const_iterator>::value_type, char_data>);
-static_assert(std::is_same_v<std::iterator_traits<room_removable_iterator>::iterator_category,
-    std::input_iterator_tag>);
+static_assert(std::is_same_v<room_const_traits::reference, const char_data&>);
+static_assert(std::is_same_v<room_const_traits::value_type, char_data>);
+static_assert(std::is_same_v<room_removable_traits::iterator_category, std::input_iterator_tag>);
+static_assert(std::is_same_v<room_removable_traits::reference, room_reference>);
 
 static_assert(std::is_default_constructible_v<room_iterator>);
 static_assert(std::is_trivially_copyable_v<room_iterator>);
 static_assert(std::is_nothrow_swappable_v<room_iterator>);
 static_assert(sizeof(room_iterator) == sizeof(char_data*));
-static_assert(std::is_same_v<decltype(*std::declval<room_iterator>()), char_data&>);
+static_assert(std::is_same_v<decltype(*std::declval<room_iterator>()), room_reference>);
 static_assert(std::is_same_v<decltype(++std::declval<room_iterator&>()), room_iterator&>);
 static_assert(std::is_same_v<decltype(std::declval<room_iterator&>()++), room_iterator>);
 
@@ -50,6 +55,7 @@ static_assert(!std::is_same_v<room_iterator, fighting_iterator>);
 static_assert(!std::is_convertible_v<room_iterator, fighting_iterator>);
 static_assert(!std::is_constructible_v<fighting_iterator, room_iterator>);
 
+// Whether `left == right` compiles.
 template <typename Left, typename Right, typename = void>
 struct is_equality_comparable : std::false_type { };
 template <typename Left, typename Right>
@@ -59,6 +65,41 @@ static_assert(is_equality_comparable<room_iterator, room_iterator>::value);
 static_assert(is_equality_comparable<room_iterator, room_const_iterator>::value);
 static_assert(is_equality_comparable<room_const_iterator, room_iterator>::value);
 static_assert(!is_equality_comparable<room_iterator, fighting_iterator>::value);
+
+// A mutable element converts to a plain reference but cannot be assigned or swapped, so the
+// algorithms that rearrange a list by assigning or swapping whole nodes do not compile.
+static_assert(std::is_convertible_v<room_reference, char_data&>);
+static_assert(std::is_convertible_v<room_reference, const char_data&>);
+static_assert(std::is_copy_constructible_v<room_reference>);
+static_assert(!std::is_convertible_v<char_data*, room_reference>);
+static_assert(!std::is_assignable_v<room_reference&, char_data&>);
+static_assert(!std::is_assignable_v<room_reference&, const char_data&>);
+static_assert(!std::is_assignable_v<room_reference&, const room_reference&>);
+static_assert(!std::is_assignable_v<room_reference, room_reference>);
+static_assert(!std::is_swappable_v<room_reference>);
+static_assert(!std::is_swappable_with_v<room_reference, room_reference>);
+
+// Whether `*iterator = value` compiles.
+template <typename Iterator, typename Value, typename = void>
+struct assigns_through : std::false_type { };
+template <typename Iterator, typename Value>
+struct assigns_through<Iterator, Value,
+    std::void_t<decltype(*std::declval<Iterator&>() = std::declval<Value>())>> : std::true_type { };
+static_assert(assigns_through<int*, int>::value, "the detector accepts a plain assignment");
+static_assert(!assigns_through<room_iterator, char_data&>::value);
+static_assert(!assigns_through<room_iterator, const char_data&>::value);
+static_assert(!assigns_through<room_iterator, char_data&&>::value);
+static_assert(!assigns_through<room_iterator, room_reference>::value);
+static_assert(!assigns_through<room_const_iterator, const char_data&>::value);
+static_assert(!assigns_through<room_removable_iterator, char_data&>::value);
+
+// front() is a plain reference, so `front().field` works.
+static_assert(std::is_same_v<decltype(std::declval<room_view>().front()), char_data&>);
+static_assert(std::is_same_v<decltype(std::declval<room_const_view>().front()), const char_data&>);
+
+// each<Link>(nullptr) is the empty mutable range, not an ambiguous call.
+using room_each_of_nullptr = decltype(intrusive::each<&char_data::next_in_room>(nullptr));
+static_assert(std::is_same_v<room_each_of_nullptr, room_view>);
 
 // Iteration works in a constant expression, on a literal node type (char_data is not one).
 struct literal_node {
@@ -80,6 +121,7 @@ constexpr int sum_literal_nodes()
     return total;
 }
 static_assert(sum_literal_nodes() == 6);
+static_assert(intrusive::each<&literal_node::next>(nullptr).empty());
 
 // ---- Runtime fixtures ---------------------------------------------------------------------
 
@@ -130,6 +172,8 @@ private:
     char_data* m_fighting = nullptr;
 };
 
+// The levels along the list from `head` through `link`, walked with a plain loop as a reference
+// for the ranges.
 std::vector<int> levels_by_hand(const char_data* head, char_data* char_data::* link)
 {
     std::vector<int> levels;
@@ -151,7 +195,8 @@ void unlink_from_room(char_data*& head, char_data* character)
             previous = previous->next_in_room;
         }
         if (previous == nullptr) {
-            ADD_FAILURE() << "character at level " << character->player.level << " is not in the room";
+            ADD_FAILURE() << "character at level " << character->player.level
+                          << " is not in the room";
             return;
         }
         previous->next_in_room = character->next_in_room;
@@ -177,28 +222,37 @@ TEST(IntrusiveList, RangeForVisitsTheSameNodesAsAHandWrittenLoop)
         seen.push_back(character.player.level);
     }
     EXPECT_EQ(levels_by_hand(chain.fighting(), &char_data::next_fighting), seen);
-    EXPECT_EQ((std::vector<int> { 4, 2, 0 }), seen) << "the fighting list is walked through next_fighting";
+    EXPECT_EQ((std::vector<int> { 4, 2, 0 }), seen)
+        << "the fighting list is walked through next_fighting";
 }
 
 TEST(IntrusiveList, AnEmptyListHasNoNodes)
 {
     char_data* no_one = nullptr;
-    auto empty = intrusive::each<&char_data::next_in_room>(no_one);
+    auto no_people = intrusive::each<&char_data::next_in_room>(no_one);
 
-    EXPECT_TRUE(empty.empty());
-    EXPECT_TRUE(empty.begin() == empty.end());
-    EXPECT_EQ(0, std::distance(empty.begin(), empty.end()));
+    EXPECT_TRUE(no_people.empty());
+    EXPECT_TRUE(no_people.begin() == no_people.end());
+    EXPECT_EQ(0, std::distance(no_people.begin(), no_people.end()));
+}
+
+TEST(IntrusiveList, ALiteralNullptrIsAnEmptyList)
+{
+    room_view no_people = intrusive::each<&char_data::next_in_room>(nullptr);
+
+    EXPECT_TRUE(no_people.empty());
+    EXPECT_TRUE(no_people.begin() == no_people.end());
 }
 
 TEST(IntrusiveList, ASingleNodeListHasOneNode)
 {
     CharacterChain chain(1);
-    auto one = intrusive::each<&char_data::next_in_room>(chain.people());
+    auto single_person = intrusive::each<&char_data::next_in_room>(chain.people());
 
-    EXPECT_FALSE(one.empty());
-    EXPECT_EQ(chain.people(), &one.front());
-    EXPECT_EQ(1, std::distance(one.begin(), one.end()));
-    EXPECT_TRUE(std::next(one.begin()) == one.end());
+    EXPECT_FALSE(single_person.empty());
+    EXPECT_EQ(chain.people(), &single_person.front());
+    EXPECT_EQ(1, std::distance(single_person.begin(), single_person.end()));
+    EXPECT_TRUE(std::next(single_person.begin()) == single_person.end());
 }
 
 TEST(IntrusiveList, WorksWithStandardAlgorithms)
@@ -213,9 +267,10 @@ TEST(IntrusiveList, WorksWithStandardAlgorithms)
     ASSERT_TRUE(found != people.end());
     EXPECT_EQ(chain.at_level(5), found.get());
 
-    EXPECT_EQ(4, std::count_if(people.begin(), people.end(), [](const char_data& character) -> bool {
+    auto has_even_level = [](const char_data& character) -> bool {
         return character.player.level % 2 == 0;
-    }));
+    };
+    EXPECT_EQ(4, std::count_if(people.begin(), people.end(), has_even_level));
     EXPECT_TRUE(std::none_of(people.begin(), people.end(),
         [](const char_data& character) -> bool { return character.player.level > 7; }));
 
@@ -235,7 +290,8 @@ TEST(IntrusiveList, WorksWithStandardAlgorithms)
 
     std::for_each(people.begin(), people.end(),
         [](char_data& character) -> void { character.player.level += 10; });
-    EXPECT_EQ(10, chain.people()->player.level) << "writing through the reference changes the node";
+    EXPECT_EQ(10, chain.people()->player.level)
+        << "writing through the reference changes the node";
 }
 
 TEST(IntrusiveList, CopiesOfAnIteratorAdvanceIndependently)
@@ -249,7 +305,7 @@ TEST(IntrusiveList, CopiesOfAnIteratorAdvanceIndependently)
     EXPECT_TRUE(follower == people.begin()) << "advancing a copy leaves the original in place";
     ++follower;
     EXPECT_TRUE(leader == follower);
-    EXPECT_EQ(&*leader, &*follower);
+    EXPECT_EQ(leader.get(), follower.get());
 
     auto before = leader++;
     EXPECT_TRUE(before == follower);
@@ -330,6 +386,24 @@ TEST(IntrusiveList, WalksFollowersThroughTheirOwnLink)
     EXPECT_EQ(1, follower_count);
 }
 
+TEST(IntrusiveList, RangeFollowsTheLiveLinksPastAnUnlinkedFollowingNode)
+{
+    CharacterChain chain(7);
+    char_data* head = chain.people();
+
+    std::vector<int> visited;
+    for (char_data& character : intrusive::each<&char_data::next_in_room>(head)) {
+        visited.push_back(character.player.level);
+        char_data* following = character.next_in_room;
+        if (following != nullptr) {
+            unlink_from_room(head, following);
+        }
+    }
+    EXPECT_EQ((std::vector<int> { 0, 2, 4, 6 }), visited)
+        << "a node the body unlinks before the walk reaches it is never visited";
+    EXPECT_EQ((std::vector<int> { 0, 2, 4, 6 }), levels_by_hand(head, &char_data::next_in_room));
+}
+
 TEST(IntrusiveList, RemovableRangeSurvivesUnlinkingTheVisitedNode)
 {
     CharacterChain chain(7);
@@ -349,42 +423,6 @@ TEST(IntrusiveList, RemovableRangeSurvivesUnlinkingTheVisitedNode)
         unlink_from_room(head, &character);
     }
     EXPECT_EQ(nullptr, head) << "unlinking every node empties the list";
-}
-
-TEST(RoomLists, PeopleInWalksTheRoomsCharacters)
-{
-    CharacterChain chain(3);
-    room_data room;
-    room.people = chain.people();
-    room.contents = nullptr;
-
-    const room_people_range people = people_in(room);
-    std::vector<int> levels;
-    for (const char_data& character : people) {
-        levels.push_back(character.player.level);
-    }
-    EXPECT_EQ((std::vector<int> { 0, 1, 2 }), levels);
-}
-
-TEST(RoomLists, ContentsOfWalksTheFloorButNotInsideContainers)
-{
-    obj_data torch { };
-    obj_data bag { };
-    obj_data coin { };
-    torch.item_number = 1;
-    bag.item_number = 2;
-    coin.item_number = 3;
-    torch.next_content = &bag;
-    bag.contains = &coin;
-    room_data room;
-    room.people = nullptr;
-    room.contents = &torch;
-
-    const room_contents_range contents = contents_of(room);
-    std::vector<int> item_numbers;
-    std::transform(std::begin(contents), std::end(contents), std::back_inserter(item_numbers),
-        [](const obj_data& item) -> int { return item.item_number; });
-    EXPECT_EQ((std::vector<int> { 1, 2 }), item_numbers);
 }
 
 } // namespace

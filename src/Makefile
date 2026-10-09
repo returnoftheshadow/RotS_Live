@@ -145,7 +145,7 @@ clean:
 
 # See the warning above the root Makefile's format target before running this.
 format:
-	clang-format -i -style=WebKit *.cpp *.h
+	clang-format -i -style=WebKit *.cpp *.h intrusive/*.h
 
 # The unit tests are built by CMake only.
 test:
