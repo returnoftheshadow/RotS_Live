@@ -421,9 +421,8 @@ void seed_random_numbers(
 
 unsigned int draw_clock_seed()
 {
-    // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
-    // std::rand needs only to differ between boots. Folding the high half into the low half keeps
-    // the fast-changing nanoseconds and the date in the 32 bits std::srand takes.
+    // Folding the high half into the low half keeps both the fast-changing nanoseconds and the
+    // date in the 32 bits std::srand takes.
     const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
     const std::chrono::system_clock::duration since_epoch = now.time_since_epoch();
     const std::chrono::nanoseconds nanoseconds_since_epoch

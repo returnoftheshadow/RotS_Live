@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -27,9 +28,13 @@ const prof_type STANDARD_CLASSES[DEFAULT_PROFS] = {
 static_assert(std::size(prof_type {}.Class_points) == MAX_PROFS + 1,
     "a standard class has one entry per prof_coof slot");
 
-void log_failure(const char* function_name, const std::string& message)
+void log_failure(std::string_view function_name, std::string_view message)
 {
-    const std::string line = std::string(function_name) + ": " + message;
+    std::string line;
+    line.reserve(function_name.size() + 2 + message.size());
+    line.append(function_name);
+    line.append(": ");
+    line.append(message);
     log(line.c_str());
 }
 
@@ -42,14 +47,16 @@ CreationPoints::CreationPoints(const Split& split)
 
 std::optional<CreationPoints> CreationPoints::standard_class(char letter)
 {
-    for (const prof_type& standard : STANDARD_CLASSES) {
-        if (standard.letter == letter) {
-            Split split {};
-            std::copy(std::begin(standard.Class_points), std::end(standard.Class_points), split.begin());
-            return CreationPoints(split);
-        }
+    const prof_type* const classes_end = std::end(STANDARD_CLASSES);
+    const prof_type* const found = std::find_if(std::begin(STANDARD_CLASSES), classes_end,
+        [letter](const prof_type& standard) -> bool { return standard.letter == letter; });
+    if (found == classes_end) {
+        return std::nullopt;
     }
-    return std::nullopt;
+
+    Split split {};
+    std::copy(std::begin(found->Class_points), std::end(found->Class_points), split.begin());
+    return CreationPoints(split);
 }
 
 std::optional<CreationPoints> CreationPoints::custom(const Split& split, std::string& out_error_message)
