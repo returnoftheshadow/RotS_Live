@@ -167,7 +167,7 @@ void write_object(FILE* f, struct obj_data* obj, int num)
         obj->obj_flags.cost_per_day);
 
     fprintf(f, "%d %d %d %d %d\n\r", obj->obj_flags.level,
-        obj->obj_flags.rarity, obj->obj_flags.material, obj->obj_flags.script_number, 0);
+        obj->obj_flags.rarity, obj->obj_flags.material, obj->obj_flags.script_number, obj->obj_flags.version);
 
     for (tmpdesc = obj->ex_description; tmpdesc; tmpdesc = tmpdesc->next) {
 
@@ -231,6 +231,7 @@ void implement_object(struct char_data* ch)
     real->obj_flags.rarity = curr->obj_flags.rarity;
     real->obj_flags.material = curr->obj_flags.material;
     real->obj_flags.script_number = curr->obj_flags.script_number;
+    real->obj_flags.version = curr->obj_flags.version;
     /*  for(tmpdescr=real->ex_description ; tmpdescr ; tmpdescr=tmp2descr){
     tmp2descr=tmpdescr->next;
     RELEASE(tmpdescr->keyword);
@@ -981,6 +982,51 @@ void shape_center_obj(struct char_data* ch, char* arg)
                     = 0;
             break;
 
+        case 22: {
+            /* No typed numbers: a bump always goes past every number used before, so a copy
+             * stamped with an old number can never be skipped. Off keeps the number, negated. */
+            const int current = obj->obj_flags.version;
+            const int last = current < 0 ? -current : current;
+            if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+                sprintf(tmpstr, "   b   bump to %d (players' copies refresh at their next login)\n\r", last + 1);
+                send_to_char(tmpstr, ch);
+                if (current > 0) {
+                    sprintf(tmpstr, "   o   turn off (keeps %d for the next bump)\n\r", last);
+                    send_to_char(tmpstr, ch);
+                }
+                sprintf(tmpstr, "\n\rEnter VERSION: %s, blank keeps it [%s]:\n\r", current > 0 ? "b or o" : "b",
+                    object_version_text(current).c_str());
+                send_to_char(tmpstr, ch);
+                SHAPE_OBJECT(ch)->position = shape_standup(ch, POSITION_SHAPING);
+                ch->specials.prompt_number = 3;
+                SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+                return;
+            }
+            char* answer = arg;
+            while (*answer && isspace(*answer))
+                answer++;
+            if (LOWER(*answer) == 'b') {
+                obj->obj_flags.version = last + 1;
+                sprintf(tmpstr, "Version is now %s.\n\r", object_version_text(obj->obj_flags.version).c_str());
+                send_to_char(tmpstr, ch);
+            } else if (LOWER(*answer) == 'o' && current > 0) {
+                obj->obj_flags.version = -current;
+                sprintf(tmpstr, "Version is now %s.\n\r", object_version_text(obj->obj_flags.version).c_str());
+                send_to_char(tmpstr, ch);
+            } else if (*answer) {
+                send_to_char("Version unchanged.\n\r", ch);
+            }
+            shape_standup(ch, SHAPE_OBJECT(ch)->position);
+            ch->specials.prompt_number = 6;
+            REMOVE_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+
+            if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
+                SHAPE_OBJECT(ch)->editflag = obj_chain[22];
+            else
+                SHAPE_OBJECT(ch)->editflag = 0;
+            break;
+        }
+
 #undef DIGITCHANGE
 
         case 49:
@@ -1050,6 +1096,8 @@ void list_help_obj(struct char_data* ch)
     send_to_char("20 - program (not saved);\n\r", ch);
 
     send_to_char("21 - script number (for special cases only);\n\r", ch);
+
+    send_to_char("22 - version (refreshes players' copies at login);\n\r", ch);
 
     send_to_char("49 - object creation sequence;\n\r", ch);
 
@@ -1166,6 +1214,10 @@ void list_object(struct char_data* ch, struct obj_data* obj)
     send_to_char(str, ch);
 
     sprintf(str, "(21) script        :%d\n\r", obj->obj_flags.script_number);
+
+    send_to_char(str, ch);
+
+    sprintf(str, "(22) version       :%s\n\r", object_version_text(obj->obj_flags.version).c_str());
 
     send_to_char(str, ch);
 }
@@ -1384,6 +1436,9 @@ int load_object(struct char_data* ch, char* arg)
         SHAPE_OBJECT(ch)
             ->object->obj_flags.script_number
             = tmp4;
+        SHAPE_OBJECT(ch)
+            ->object->obj_flags.version
+            = tmp5;
 
         SHAPE_OBJECT(ch)
             ->object->ex_description

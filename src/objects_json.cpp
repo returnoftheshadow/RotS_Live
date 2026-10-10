@@ -39,6 +39,21 @@ namespace {
         bytes->append(reinterpret_cast<const char*>(&value), sizeof(T));
     }
 
+    // One object record, plus the version int that follows a VERSIONED_ID_VALUE record. The
+    // marker is normalised back to DEPRECATED_ID_VALUE so callers see an ordinary new-format record.
+    bool read_object_record_bytes(const std::string& bytes, size_t* offset, obj_file_elem* raw_object, int* version, std::string* error_message, const char* label)
+    {
+        *version = 0;
+        if (!read_pod(bytes, offset, raw_object, error_message, label))
+            return false;
+        if (raw_object->item_number_deprecated == VERSIONED_ID_VALUE) {
+            if (!read_pod(bytes, offset, version, error_message, label))
+                return false;
+            raw_object->item_number_deprecated = DEPRECATED_ID_VALUE;
+        }
+        return true;
+    }
+
     template <typename TargetType>
     bool validate_narrowed_range(long long value, const char* field_name, std::string* error_message)
     {
@@ -145,6 +160,8 @@ namespace {
                     return saw_wear_pos = true, nested_reader->parse_integer(&parsed_record.wear_pos, nested_error_message);
                 if (key == "loaded_by")
                     return saw_loaded_by = true, nested_reader->parse_integer(&parsed_record.loaded_by, nested_error_message);
+                if (key == "version")
+                    return nested_reader->parse_integer(&parsed_record.version, nested_error_message);
                 if (key == "affects") {
                     saw_affects = true;
                     std::vector<ObjectAffectData> affects;
@@ -288,6 +305,9 @@ namespace {
         output << indent << "  \"bitvector\": " << record.bitvector << ",\n";
         output << indent << "  \"wear_pos\": " << record.wear_pos << ",\n";
         output << indent << "  \"loaded_by\": " << record.loaded_by << ",\n";
+        // Optional: absent means 0, so saves without versioned objects keep their old shape.
+        if (record.version != 0)
+            output << indent << "  \"version\": " << record.version << ",\n";
         output << indent << "  \"affects\": [\n";
         for (size_t index = 0; index < record.affects.size(); ++index) {
             const ObjectAffectData& affect = record.affects[index];
@@ -334,7 +354,8 @@ bool object_save_data_from_binary_impl(
 
     while (true) {
         obj_file_elem raw_object {};
-        if (!read_pod(bytes, &offset, &raw_object, error_message, "top-level object record"))
+        int object_version = 0;
+        if (!read_object_record_bytes(bytes, &offset, &raw_object, &object_version, error_message, "top-level object record"))
             return false;
 
         if (raw_object.item_number_deprecated != DEPRECATED_ID_VALUE) {
@@ -359,6 +380,7 @@ bool object_save_data_from_binary_impl(
         }
         record.wear_pos = raw_object.wear_pos;
         record.loaded_by = raw_object.loaded_by;
+        record.version = object_version;
         parsed_data.objects.push_back(record);
     }
 
@@ -424,7 +446,8 @@ bool object_save_data_from_binary_impl(
 
         while (true) {
             obj_file_elem raw_object {};
-            if (!read_pod(bytes, &offset, &raw_object, error_message, "follower object record"))
+            int object_version = 0;
+            if (!read_object_record_bytes(bytes, &offset, &raw_object, &object_version, error_message, "follower object record"))
                 return false;
 
             if (raw_object.item_number_deprecated != DEPRECATED_ID_VALUE) {
@@ -449,6 +472,7 @@ bool object_save_data_from_binary_impl(
             }
             record.wear_pos = raw_object.wear_pos;
             record.loaded_by = raw_object.loaded_by;
+            record.version = object_version;
             follower.objects.push_back(record);
         }
 
@@ -520,7 +544,7 @@ bool object_save_data_to_binary(const ObjectSaveData& data, std::string* bytes, 
 
     auto append_object_record = [&serialized_bytes, error_message](const ObjectRecord& record) {
         obj_file_elem raw_object {};
-        raw_object.item_number_deprecated = DEPRECATED_ID_VALUE;
+        raw_object.item_number_deprecated = record.version != 0 ? VERSIONED_ID_VALUE : DEPRECATED_ID_VALUE;
         raw_object.item_number = record.item_number;
         for (size_t index = 0; index < record.values.size(); ++index) {
             if (!validate_narrowed_range<sh_int>(record.values[index], "object.value", error_message))
@@ -542,6 +566,8 @@ bool object_save_data_to_binary(const ObjectSaveData& data, std::string* bytes, 
         raw_object.wear_pos = static_cast<sh_int>(record.wear_pos);
         raw_object.loaded_by = record.loaded_by;
         append_pod(&serialized_bytes, raw_object);
+        if (record.version != 0)
+            append_pod(&serialized_bytes, record.version);
         return true;
     };
 
@@ -839,6 +865,8 @@ namespace {
             return path + ".wear_pos";
         if (a.loaded_by != b.loaded_by)
             return path + ".loaded_by";
+        if (a.version != b.version)
+            return path + ".version";
         return std::string();
     }
 

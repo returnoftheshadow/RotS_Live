@@ -182,7 +182,7 @@ Per record:
 <type_flag> <extra_flags> <wear_flags>
 <value0> <value1> <value2> <value3> <value4>
 <weight> <cost> <cost_per_day>
-<level> <rarity> <material> <script_number> <reserved>
+<level> <rarity> <material> <script_number> <version>
 ```
 Then, optionally:
 - Zero or more `E` extra-description blocks: `E` then `<keyword>~` `<description>~`
@@ -194,7 +194,15 @@ Notes:
 - `value[0..4]` meaning depends on `type_flag` (weapon dice, container capacity, light
   duration, etc.) — to be enumerated in the Objects system doc.
 - `level`, `rarity`, `material`, `script_number` are **RotS additions** (`:1531-1535`);
-  a 5th int on that line is read but currently unused. The old `poisoned`/`poisondata`
+  the 5th int is the object `version` (`obj_flag_data::version`): `0` = never versioned,
+  `N` = on, `-N` = off (keeps `N` for the next bump). Set only through the object editor's
+  field 22 (bump / off). When it is on and a player's saved copy holds a different number, the
+  copy's affects, extra flags (except `ITEM_BROKEN`) and bitvector are refreshed from the
+  prototype at login; an enchant is not carried over
+  (`refresh_object_to_prototype_version`, `utility.cpp`; called from `Crash_obj2char`). The
+  copy's version is saved with it: an optional `"version"` in the character's objects JSON,
+  and in the binary record as a `VERSIONED_ID_VALUE` marker followed by one int (`structs.h`).
+  The old `poisoned`/`poisondata`
   fields are commented out (`:1536-1540`).
 
 ---

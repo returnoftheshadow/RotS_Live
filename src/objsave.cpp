@@ -127,6 +127,24 @@ bool read_crashsave_record(FILE* file, void* buffer, size_t size, size_t count, 
     return false;
 }
 
+// Reads one object record and, after a VERSIONED_ID_VALUE record, the version int that follows.
+bool read_crashsave_object(FILE* file, obj_file_elem* object, int* version, const char* context)
+{
+    *version = 0;
+    if (!read_crashsave_record(file, object, sizeof(obj_file_elem), 1, context))
+        return false;
+    if (object->item_number_deprecated == VERSIONED_ID_VALUE) {
+        if (!read_crashsave_record(file, version, sizeof(int), 1, context))
+            return false;
+        object->item_number_deprecated = DEPRECATED_ID_VALUE;
+    }
+    return true;
+}
+
+// Names of items refreshed to a newer prototype version while a character loaded; shown to the
+// player after the room on entering the game (Crash_report_object_refreshes).
+std::unordered_map<const char_data*, std::vector<std::string>> g_refreshed_object_names;
+
 bool take_staged_account_backed_object_bytes_for_character(const char_data* character, std::string* bytes)
 {
     const std::string stage_key = account_backed_object_stage_key(character);
@@ -421,7 +439,7 @@ obj_data* load_scalp(int number);
 
 struct obj_data*
 
-Crash_obj2char(struct char_data* ch, struct obj_file_elem* object)
+Crash_obj2char(struct char_data* ch, struct obj_file_elem* object, int version, struct char_data* owner)
 {
     /*
      * this function loads an object with a virtual number of
@@ -429,6 +447,7 @@ Crash_obj2char(struct char_data* ch, struct obj_file_elem* object)
      * is then the object "prototype."  we modify that prototype
      * with what is stored in the obj_file_elem `object'.
      */
+    extern struct obj_data* obj_proto;
     int j;
     struct obj_data* obj;
 
@@ -464,6 +483,14 @@ Crash_obj2char(struct char_data* ch, struct obj_file_elem* object)
 
             for (j = 0; j < MAX_OBJ_AFFECT; j++)
                 obj->affected[j] = object->affected[j];
+
+            obj->obj_flags.version = version;
+            if (refresh_object_to_prototype_version(obj, &obj_proto[obj->item_number])) {
+                sprintf(buf1, "Object version refresh: obj %d, %d -> %d, player idnum %ld",
+                    object->item_number, version, obj->obj_flags.version, (long)GET_IDNUM(owner));
+                log(buf1);
+                g_refreshed_object_names[owner].push_back(obj->short_description);
+            }
         }
         return obj;
     }
@@ -502,6 +529,11 @@ void Crash_listrent(struct char_data* ch, char* name)
         if (ferror(fl)) {
             fclose(fl);
             return;
+        }
+        if (!feof(fl) && object.item_number_deprecated == VERSIONED_ID_VALUE) {
+            int version;
+            fread(&version, sizeof(version), 1, fl);
+            object.item_number_deprecated = DEPRECATED_ID_VALUE;
         }
         if (!feof(fl))
 
@@ -676,7 +708,8 @@ FILE* Crash_load(char_data* character)
 
     equip_counter = 1;
     while (true) {
-        if (!read_crashsave_record(fl, &object, sizeof(struct obj_file_elem), 1, "reading crash object data in Crash_load")) {
+        int object_version = 0;
+        if (!read_crashsave_object(fl, &object, &object_version, "reading crash object data in Crash_load")) {
             std::fclose(fl);
             return fail_closed();
         }
@@ -693,7 +726,7 @@ FILE* Crash_load(char_data* character)
             if (object.item_number < 0)
                 obj = &dummy_sack;
             else
-                obj = Crash_obj2char(character, &object);
+                obj = Crash_obj2char(character, &object, object_version, character);
 
             if (!obj) {
                 sprintf(buf, "LOAD ERROR, equipment lost for %s.", GET_NAME(character));
@@ -769,10 +802,25 @@ FILE* Crash_load(char_data* character)
     return fl;
 }
 
+void Crash_report_object_refreshes(struct char_data* ch)
+{
+    auto it = g_refreshed_object_names.find(ch);
+    if (it == g_refreshed_object_names.end())
+        return;
+
+    for (const std::string& name : it->second) {
+        sprintf(buf1, "Your item, %s, has been updated.\n\r", name.c_str());
+        send_to_char(buf1, ch);
+    }
+    g_refreshed_object_names.erase(it);
+}
+
 void load_character(struct char_data* ch)
 {
     extern struct char_data* character_list;
     FILE* fp;
+
+    g_refreshed_object_names.erase(ch);
 
     if (ch->in_room == NOWHERE)
         ch->in_room = ch->specials2.load_room;
@@ -891,7 +939,15 @@ int Crash_obj2store(obj_data* obj, char_data* ch,
         object.extra_flags = obj->obj_flags.value[4];
     }
 
+    const int version = obj->obj_flags.version;
+    if (version != 0)
+        object.item_number_deprecated = VERSIONED_ID_VALUE;
+
     if (fwrite(&object, sizeof(obj_file_elem), 1, fl) < 1) {
+        perror("Writing crash data Crash_obj2store");
+        return 0;
+    }
+    if (version != 0 && fwrite(&version, sizeof(version), 1, fl) < 1) {
         perror("Writing crash data Crash_obj2store");
         return 0;
     }
@@ -999,7 +1055,8 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
         char_to_room(mob, ch->in_room);
 
         while (true) {
-            if (!read_crashsave_record(fp, &object, sizeof(struct obj_file_elem), 1, "reading follower object data in Crash_follower_load")) {
+            int object_version = 0;
+            if (!read_crashsave_object(fp, &object, &object_version, "reading follower object data in Crash_follower_load")) {
                 fclose(fp);
                 return;
             }
@@ -1015,7 +1072,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             if (object.wear_pos > MAX_WEAR || object.wear_pos < 0)
                 continue;
 
-            obj = Crash_obj2char(mob, &object);
+            obj = Crash_obj2char(mob, &object, object_version, ch);
             if (!obj) {
                 sprintf(buf, "LOAD ERROR, equipment lost for follower of %s.", GET_NAME(ch));
                 log(buf);

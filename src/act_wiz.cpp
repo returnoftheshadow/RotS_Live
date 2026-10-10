@@ -621,6 +621,19 @@ void do_stat_object(struct char_data* ch, struct obj_data* j)
     sprintf(buf, "Script number: %d\n\r", j->obj_flags.script_number);
     send_to_char(buf, ch);
 
+    if (j->item_number >= 0) {
+        extern struct obj_data* obj_proto;
+        // A copy holds the prototype's number from when it was made or last refreshed; one made
+        // while the prototype was off holds that number negated.
+        const int copy_version = j->obj_flags.version;
+        std::string copy_text = copy_version == 0 ? "none" : std::to_string(copy_version < 0 ? -copy_version : copy_version);
+        if (copy_version < 0)
+            copy_text += " (made while off)";
+        sprintf(buf, "Version: prototype %s, this copy %s\n\r",
+            object_version_text(obj_proto[j->item_number].obj_flags.version).c_str(), copy_text.c_str());
+        send_to_char(buf, ch);
+    }
+
     strcpy(buf, "In room: ");
     if (j->in_room == NOWHERE)
         strcat(buf, "Nowhere");

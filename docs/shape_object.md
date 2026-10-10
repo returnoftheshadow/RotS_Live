@@ -174,6 +174,7 @@ Material ids:
 | `/19` | Object affects | Prompt lists the location codes and shows `Current: (a b) (c d)`. Type up to **two** pairs like `(18 10) (17 5)` for +10 OB and +5 dodge; extra pairs are ignored. A slot you don't type keeps its old value; a blank line keeps both. `(0 0)` is an empty slot and is not saved (an empty first slot no longer drops the second one). |
 | `/20` | Program | Not saved and has no effect on the prototype. Leave it alone. |
 | `/21` | Script vnum | A `world/scr` script number (not mudlle); `0` = none. Object triggers: ON_DAMAGE, ON_EAT, ON_ENTER, ON_EXAMINE_OBJECT, ON_DRINK, ON_PULL, ON_WEAR. The number is not checked to exist. |
+| `/22` | Version | Refreshes players' saved copies at their next login when this differs from the copy's version: affects, extra flags and bitvector come from the prototype; broken flag, drink/light and container contents, timer are kept; an enchant is removed; scalps never refresh. No typed number: `b` bumps to the highest number used + 1, `o` turns it off (keeps the number), blank keeps it. Shown as `none`, `3 (on)` or `3 (off)`. `%h` shows the help. The next bump counts up from the number in the world file, so if the file is replaced by an older copy (a backup, a stale copy from another port) the numbers go back and copies already stamped with a number are skipped until a bump passes it. |
 | `/49` | Creation sequence | See “Editing workflow” above. |
 | `/50` | List | Calls `list_object()` and prints every field for auditing. |
 
