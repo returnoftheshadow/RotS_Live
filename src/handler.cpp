@@ -41,6 +41,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "room_lists.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -48,7 +49,10 @@
 
 #include "base_utils.h"
 #include "char_utils.h"
+#include <algorithm>
+#include <cstddef>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -176,26 +180,31 @@ int other_side_num(int ch_race, int i_race)
 
 void recount_light_room(int room)
 {
-    struct char_data* tmpch;
-    struct obj_data* tmpobj;
-    int count, tmp;
-
-    if ((room < 0) || (room >= top_of_world))
+    if ((room < 0) || (room >= top_of_world)) {
         return;
+    }
 
-    count = 0;
-    for (tmpch = world[room].people; tmpch; tmpch = tmpch->next_in_room)
-        for (tmp = 0; tmp < MAX_WEAR; tmp++)
-            if (tmpch->equipment[tmp])
-                if (tmpch->equipment[tmp]->obj_flags.type_flag == ITEM_LIGHT)
-                    if ((tmpch->equipment[tmp]->obj_flags.value[2] != 0) && (tmpch->equipment[tmp]->obj_flags.value[3] != 0))
-                        count++;
+    // value[2] is the hours of fuel left (negative never runs out); value[3] is set while lit.
+    auto is_lit = [](const obj_data& item) -> bool {
+        return item.obj_flags.value[2] != 0 && item.obj_flags.value[3] != 0;
+    };
+    auto is_lit_light = [&is_lit](const obj_data* worn) -> bool {
+        return worn != nullptr && worn->obj_flags.type_flag == ITEM_LIGHT && is_lit(*worn);
+    };
 
-    for (tmpobj = world[room].contents; tmpobj; tmpobj = tmpobj->next_content)
-        if ((tmpobj->obj_flags.value[2] != 0) && (tmpobj->obj_flags.value[3] != 0))
-            count++;
+    std::ptrdiff_t light_sources = 0;
+    const room_people_range people = people_in(world[room]);
+    for (const char_data& person : people) {
+        light_sources += std::count_if(std::begin(person.equipment), std::end(person.equipment),
+            is_lit_light);
+    }
 
-    world[room].light = count;
+    // A floor object counts on its light values alone, whatever its type.
+    const room_contents_range contents = contents_of(world[room]);
+    light_sources += std::count_if(std::begin(contents), std::end(contents), is_lit);
+
+    // light is a byte, so a count past its range wraps.
+    world[room].light = static_cast<byte>(light_sources);
 }
 
 int isname(const char* str, const char* namelist, char full)

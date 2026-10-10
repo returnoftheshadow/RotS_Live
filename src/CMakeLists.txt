@@ -197,6 +197,8 @@ set(ROTS_TEST_SOURCES
     tests/exploit_record_tests.cpp
     tests/exploits_json_tests.cpp
     tests/interpre_account_menu_tests.cpp
+    tests/intrusive_list_tests.cpp
+    tests/room_lists_tests.cpp
     tests/fight_proc_tests.cpp
     tests/game_heartbeat_tests.cpp
     tests/game_time_text_tests.cpp
@@ -206,6 +208,7 @@ set(ROTS_TEST_SOURCES
     tests/kill_experience_tests.cpp
     tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
+    tests/room_light_tests.cpp
     tests/mob_options_tests.cpp
     tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
@@ -330,6 +333,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     file(GLOB ROTS_FORMAT_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/intrusive/*.h"
     )
     add_custom_target(format
         COMMAND "${CLANG_FORMAT_EXECUTABLE}" -i -style=WebKit ${ROTS_FORMAT_FILES}
