@@ -17,7 +17,7 @@ build matches how the live game behaves.
    repo is no longer publicly available. You need to obtain the world data and place it so
    that files exist at `lib/world/wld*`, `lib/world/mob*`, `lib/world/obj*`,
    `lib/world/zon*`, `lib/world/shp*`, etc. (The game `chdir`s into `lib/` at startup —
-   `src/comm.cpp` / `config.cpp:58 DFLT_DIR="lib"` — and reads the `world/...` prefixes from
+   `src/main.cpp` / `config.cpp:58 DFLT_DIR="lib"` — and reads the `world/...` prefixes from
    `src/db.h`.)
 
 ## Commands

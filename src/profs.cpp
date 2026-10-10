@@ -58,19 +58,6 @@ bool should_defer_account_backed_birth_persistence(char_data* character)
 
 }
 
-struct prof_type existing_profs[DEFAULT_PROFS] = {
-    { 'm', { 0, 100, 25, 16, 9 } },
-    { 't', { 0, 25, 100, 9, 16 } },
-    { 'r', { 0, 16, 9, 100, 25 } },
-    { 'w', { 0, 9, 16, 25, 100 } },
-    { 'n', { 0, 64, 64, 9, 13 } },
-    { 'i', { 0, 121, 16, 9, 4 } },
-    { 'h', { 0, 25, 121, 0, 4 } },
-    { 's', { 0, 9, 13, 64, 64 } },
-    { 'b', { 0, 0, 4, 25, 121 } },
-    { 'a', { 0, 36, 36, 36, 42 } },
-};
-
 sh_int race_modifiers[MAX_RACES][8] = {
     { 0, 0, 0, 0, 0, 0, 0, 0 }, // God
     { 0, 0, 0, 0, 0, 0, 0, 0 }, // Human
@@ -204,11 +191,6 @@ void draw_coofs(char* buf, struct char_data* ch)
     draw_line(buf2, GET_PROF_COOF(4, ch) / 20);
     strcat(buf, buf2);
     strcat(buf, "\n\r\0");
-}
-
-int points_used(char_data* character)
-{
-    return GET_PROF_POINTS(PROF_MAGE, character) + GET_PROF_POINTS(PROF_CLERIC, character) + GET_PROF_POINTS(PROF_RANGER, character) + GET_PROF_POINTS(PROF_WARRIOR, character);
 }
 
 void advance_level_prof(int prof, char_data* character)

@@ -13,6 +13,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <stdarg.h>
 
 #include "utils.h" /* For the TRUE macro */
@@ -79,6 +80,31 @@ using RandomSeedSource = unsigned int();
 // can be repeated by passing it to --random-seed.
 void seed_random_numbers(
     std::optional<unsigned int> requested_seed, RandomSeedSource& draw_fresh_seed);
+
+// Returns a seed taken from the system clock, which differs from one boot to the next.
+unsigned int draw_clock_seed();
+
+// Reads a random seed: decimal digits only, from 0 to the largest unsigned int. On failure it
+// leaves out_seed unchanged and, when out_error_message is not null, says why.
+bool parse_random_seed_value(std::string_view text, unsigned int& out_seed, std::string* out_error_message);
+
+// Prints a backtrace of up to ten stack frames to stderr and exits with status 1; installed for
+// SIGSEGV.
+void sigsegv_handler(int sig);
+
+// Opens the listening socket on port, boots the world, runs the game loop until shutdown and
+// closes the sockets; exits with status 52 instead of returning when a reboot was requested.
+void run_the_game(sh_int port);
+
+// 1 when connections arrive through the proxy server, set from the -x option at start-up.
+extern int has_proxy;
+
+// 1 when shops are not loaded and special routines are neither assigned nor run, set from the
+// -s option at start-up.
+extern int no_specials;
+
+// The command log, last_cmds in the data directory; opened by main() before the game runs.
+extern FILE* fpCommand;
 
 /* #define SEND_TO_Q(messg, desc)  write_to_q((messg), &(desc)->output) */
 #define SEND_TO_Q(messg, desc) write_to_output((messg), desc)

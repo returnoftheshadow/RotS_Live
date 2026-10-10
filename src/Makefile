@@ -1,7 +1,7 @@
 # Plain-make build of the ageland server, for hosts without CMake and for
 # scripts/rots-docker.sh. The CMake build driven by the root Makefile is the primary one.
-# SOURCES must list the same files as ROTS_SERVER_SOURCES in CMakeLists.txt; the order is
-# the link order.
+# SOURCES must list the same files as ROTS_SERVER_SOURCES in CMakeLists.txt, plus main.cpp; the
+# order is the link order.
 
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
@@ -43,6 +43,7 @@ SOURCES := \
     color.cpp \
     combat_manager.cpp \
     comm.cpp \
+    creation_points.cpp \
     config.cpp \
     consts.cpp \
     crashsave_schedule.cpp \
@@ -68,6 +69,7 @@ SOURCES := \
     objects_json.cpp \
     lap_timer.cpp \
     limits.cpp \
+    main.cpp \
     mail.cpp \
     mystic.cpp \
     number_text.cpp \

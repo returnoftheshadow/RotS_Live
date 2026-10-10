@@ -143,8 +143,8 @@ bool parse_port_value(const char* text, sh_int* port, std::string* error_message
 // The long option that sets the random seed, written after its leading "--".
 constexpr std::string_view RANDOM_SEED_OPTION = "random-seed";
 
-// Reads a --random-seed value: decimal digits only, from 0 to the largest unsigned int. On
-// failure it leaves out_seed unchanged and, when out_error_message is not null, says why.
+} // namespace
+
 bool parse_random_seed_value(
     std::string_view text, unsigned int& out_seed, std::string* out_error_message)
 {
@@ -178,6 +178,8 @@ bool parse_random_seed_value(
     out_seed = parsed_seed;
     return true;
 }
+
+namespace {
 
 void populate_descriptor_host(descriptor_data* descriptor, in_addr_t peer_address)
 {
@@ -417,6 +419,19 @@ void seed_random_numbers(
     log(message.c_str());
 }
 
+unsigned int draw_clock_seed()
+{
+    // Folding the high half into the low half keeps both the fast-changing nanoseconds and the
+    // date in the 32 bits std::srand takes.
+    const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    const std::chrono::system_clock::duration since_epoch = now.time_since_epoch();
+    const std::chrono::nanoseconds nanoseconds_since_epoch
+        = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch);
+    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(nanoseconds_since_epoch.count());
+    static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
+    return static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
+}
+
 /* extern fcnts */
 void boot_db(void);
 void string_add(struct descriptor_data* d, char* str);
@@ -479,92 +494,6 @@ void sigsegv_handler(int sig)
 /* *********************************************************************
  *  main game loop and related stuff				       *
  ********************************************************************* */
-#ifndef TESTING
-namespace {
-
-// Returns a seed taken from the system clock, which differs from one boot to the next.
-unsigned int draw_clock_seed()
-{
-    // The clock cannot fail, unlike std::random_device, whose source can be missing; a seed for
-    // std::rand needs only to differ between boots. Folding the high half into the low half keeps
-    // the fast-changing nanoseconds and the date in the 32 bits std::srand takes.
-    const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    const std::chrono::system_clock::duration since_epoch = now.time_since_epoch();
-    const std::chrono::nanoseconds nanoseconds_since_epoch
-        = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch);
-    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(nanoseconds_since_epoch.count());
-    static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
-    return static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
-}
-
-} // namespace
-
-int main(int argc, char** argv)
-{
-    signal(SIGSEGV, sigsegv_handler);
-
-    char buf[512];
-    StartupOptions startup_options {};
-    std::string parse_error;
-
-    /* lets put the rots process in rwxrwx--- file mode */
-    umask(S_IRWXO);
-
-    if (!parse_startup_options(argc, argv, &startup_options, &parse_error)) {
-        if (!parse_error.empty())
-            log(parse_error.c_str());
-        fprintf(stderr,
-            "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [--random-seed n] "
-            "[ port # ]\n",
-            argv[0]);
-        exit(0);
-    }
-
-    has_proxy = startup_options.has_proxy ? 1 : 0;
-    mini_mud = startup_options.mini_mud ? 1 : 0;
-    new_mud = startup_options.new_mud ? 1 : 0;
-    no_rent_check = startup_options.no_rent_check ? 1 : 0;
-    restrict = startup_options.restrict_game ? 1 : 0;
-    no_specials = startup_options.no_specials ? 1 : 0;
-
-    if (mini_mud)
-        log("Running in minimized mode & with no rent check.");
-    if (new_mud)
-        log("Running in pnew mode & with no rent check.");
-    if (!startup_options.mini_mud && !startup_options.new_mud && no_rent_check)
-        log("Quick boot mode -- rent check supressed.");
-    if (restrict)
-        log("Restricting game -- no pnew players allowed.");
-    if (no_specials)
-        log("Suppressing assignment of special routines.");
-    if (has_proxy)
-        log("Expecting proxy server.");
-
-    /* Create the pidfile and log some info */
-    sprintf(buf, "echo %d > .ageland.pid", getpid());
-    system(buf);
-    sprintf(buf, "Running game as pid %d.", getpid());
-    log(buf);
-
-    sprintf(buf, "Running game on port %d.", startup_options.port);
-    log(buf);
-
-    if (chdir(startup_options.dir.c_str()) < 0) {
-        perror("Fatal error changing to data directory");
-        exit(0);
-    }
-
-    sprintf(buf, "Using %s as data directory.", startup_options.dir.c_str());
-    log(buf);
-
-    // Open command log
-    system("mv -f last_cmds crash_cmds");
-    fpCommand = fopen("last_cmds", "w");
-    seed_random_numbers(startup_options.random_seed, draw_clock_seed);
-    run_the_game(startup_options.port);
-    return (0);
-}
-#endif
 
 // TODO(drelidan):  Move this into a place that makes sense.  We're cooking pasta!
 std::vector<char_data*> specialized_mages;
