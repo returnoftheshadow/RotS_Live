@@ -61,6 +61,15 @@ int get_index(const char_data& character);
 
 const char* get_name(const char_data& character);
 
+// Returns how many whole game hours (ticks) a mobile has been in the world at now; an age that
+// starts later than now reads as 0. Meaningful only after set_mob_age_in_ticks() has set the
+// mobile's age.
+int get_mob_age_in_ticks(const char_data& mob, WorldClock::time_point now);
+
+// Makes a mobile ticks game hours old at now, as if it had entered the world that long ago.
+// ticks is zero or more.
+void set_mob_age_in_ticks(char_data& mob, int ticks, WorldClock::time_point now);
+
 const char* get_skill_name(const int skill_id);
 
 int get_level_a(const char_data& character);

@@ -31,6 +31,68 @@ Additionally, if an offense is sufficiently severe or repetitive,
 the immortal in charge of punishment may choose to add a note to
 any punished character's exploits.
 #
+COLOR COLOUR COLORS COLOURS
+
+The COLOR command controls how different kinds of game text are shown
+in your client.  You can still use the classic ANSI colour syntax, or
+you can set foreground and background colours directly with RGB or hex
+values if your client supports true colour.
+
+Both COLOR and COLOUR are accepted in game.
+
+To see your current settings:
+
+> color
+
+To turn colours on or off:
+
+> color on
+> color off
+> color default
+
+Classic ANSI syntax still works:
+
+> color chat magenta
+> color weather bright cyan
+
+The available colour slots include:
+  narrate chat yell tell say roomname hit damage character object
+  enemy description group magic weather mob
+
+'character' colours the names of other players on your own side, and
+'enemy' the names of players on the other side.  'mob' colours the
+names of creatures run by the game, so you can tell them apart from
+players at a glance.
+
+The available ANSI colours are:
+  normal red green yellow blue magenta cyan white
+  bright red bright green bright yellow bright blue
+  bright magenta bright cyan bright white
+
+For explicit foreground or background control, use one of these forms:
+
+> color <slot> fg ansi <ansi colour>
+> color <slot> fg rgb <red> <green> <blue>
+> color <slot> fg hex #RRGGBB
+> color <slot> fg default
+
+> color <slot> bg ansi <ansi colour>
+> color <slot> bg rgb <red> <green> <blue>
+> color <slot> bg hex #RRGGBB
+> color <slot> bg default
+
+Examples:
+
+> color magic fg hex #B450FF
+> color weather bg hex #0A1423
+> color roomname fg ansi bright yellow
+> color chat bg default
+
+RGB values must be between 0 and 255. Hex values must look like #RRGGBB.
+
+If your terminal does not fully support true colour, these colours may
+not display exactly as chosen.
+#
 STEALTH
 
 Stealth, as commonly referred to in many of the skill manual
@@ -1201,6 +1263,10 @@ follows:
 
    You can then use practice <skill>, to practice the appropriate skill.
 
+   At a guildmaster, the number beside each skill is how many practice
+sessions you have spent on it. You can spend at most 51 sessions on any one
+skill.
+
    You will only gain a certain number of practice sessions for each level
 that you gain. The amount of sessions gained depends on your LEARNING
 ability, as represented in your LEA stat. You are not required to use these
@@ -1858,7 +1924,7 @@ set <parameter> [on|off|number|toggle]
 > set <parameter> toggle    -- will toggle from on to off and from off to on.
 
 See also: PROMPT, WIMPY, BRIEF, COMPACT, SPAM, NOTELL, NOCHAT, NONARRATE,
-NOSUMMON, ECHO, AUTOEXIT, INCOGNITO, SWIM, LATIN1
+NOSUMMON, ECHO, INCOGNITO, SWIM, LATIN1
 #
 AFK
 
@@ -2020,12 +2086,14 @@ CLEAR CLS
 
 Clears the screen on many terminals.
 #
-ANSI COLOR COLOUR
+ANSI
 
 If you have a colour-capable terminal and wish to see useful colour-coding
 of information, use the COLOUR command to select a colour scheme.  Note
 that simply enabling colours is not equivalent to setting colours; choosing
 a colour set is described in more detail below.
+
+Both COLOUR and COLOR are accepted in game.
 
 To enable ANSI colours, use:
   > colour on
@@ -2054,6 +2122,9 @@ Examples of colouring a field:
   > colour hit cyan
 Another example:
   > colour enemy bright white
+
+This page covers the classic ANSI colours only.  For the full list of
+colour slots, and for setting RGB or hex colours, see HELP COLOUR.
 #
 SHAPE
    The world here is built by builders through an online interface.
@@ -2196,6 +2267,13 @@ on yourself.
 
 See also: man power sanctuary
 #
+UNPROTECT
+
+UNPROTECT will remove any active protection spell that you currently have
+on yourself, so that a different protection can be cast on you.
+
+See also: man power protection
+#
 RECOVER
 
 RECOVER will gather all arrows expended after shooting a bow and place them
@@ -2207,4 +2285,36 @@ Examples:
 >recover
 
 You recover 2 arrows.
+#
+BANK BANKER BANKERS BALANCE DEPOSIT WITHDRAW
+
+Bankers keep a vault for you. It belongs to your account, so all your
+characters on the same side share it, at every banker on that side.
+
+  balance                 What is in your vault and what it costs to
+                          take each thing out at this banker.
+  deposit <item>          Store an item you are carrying (not one you
+                          are wearing).
+  deposit <N> gold        Store coins. Also: silver, copper.
+  withdraw <item or #>    Take an item back. # is its number from
+                          'balance'.
+  withdraw <N> gold       Take coins back. Also: silver, copper.
+
+A vault holds a set number of items and a set amount of coins; 'balance'
+shows both limits. A container takes one slot however full it is, and
+stays sealed while it is stored.
+
+Storing coins is free. Some bankers charge a fee on items, in copper, for
+each day stored. A container's fee counts it and everything inside it.
+You pay it when you take the item out, from the coins you carry first,
+then from your vault. Taking something out the day you stored it is
+free. A bank day starts in the early morning, server time.
+
+The bank refuses anything you could not keep when you rent, and anything
+cursed that you could not drop, loose or inside a container.
+
+A banker tells you its answers privately. It only speaks aloud to say why
+it will not serve someone.
+
+See also: RENT MONEY
 #~

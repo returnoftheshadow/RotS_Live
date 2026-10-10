@@ -518,8 +518,7 @@ SPECIAL(shop_keeper)
     }
 
     if (callflag == SPECIAL_DAMAGE) {
-        tmpwtl.targ1.ptr.ch = ch;
-        tmpwtl.targ1.type = TARGET_CHAR;
+        tmpwtl.targ1.set_character(ch);
         tmpwtl.targ2.ptr.text = get_from_txt_block_pool("Don't even think about it.");
         tmpwtl.targ2.type = TARGET_TEXT;
         tmpwtl.cmd = CMD_TELL;

@@ -13,6 +13,8 @@
 #include "comm.h"
 #include "db.h"
 #include "interpre.h"
+#include "mob_progs/banker.h"
+#include "mob_progs/shopkeeper.h"
 #include "platdef.h"
 #include "structs.h"
 #include "utils.h"
@@ -303,7 +305,9 @@ char* spec_pro_message[] = {
     "",
     "", // 30
     "",
-    ""
+    "",
+    "", // 33 barter vendor
+    "" // 34 banker
 };
 
 void* virt_program_number(int number)
@@ -375,6 +379,10 @@ void* virt_program_number(int number)
         return (void*)mob_magic_user_spec;
     case 32:
         return (void*)mob_ranger_new;
+    case 33:
+        return (void*)barter_vendor;
+    case 34:
+        return (void*)banker;
     default:
         log("Virt_assign: unknown prog_number for special mob.");
         return 0;
@@ -451,6 +459,10 @@ special_func_ptr get_special_function(int number)
         return &mob_magic_user_spec;
     case 32:
         return &mob_ranger_new;
+    case 33:
+        return &barter_vendor;
+    case 34:
+        return &banker;
     default:
         log("Virt_assign: unknown prog_number for special mob.");
         return 0;

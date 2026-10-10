@@ -22,7 +22,7 @@ void wait_list::wait_state(char_data* character, int wait_time)
     int sub_command = 0;
     int priority = 50;
     int delay_flag = 0;
-    sh_int ch_num = 0;
+    int ch_num = 0;
     void* argument = NULL;
 
     wait_state_full(character, wait_time, command, sub_command, priority,
@@ -93,7 +93,7 @@ namespace CODE_SAVER {
 
 //============================================================================
 void wait_list::wait_state_full(char_data* character, int wait_time, int command, int sub_command,
-    int priority, int delay_flag, signed short ch_num, void* argument, long affect_flag,
+    int priority, int delay_flag, int ch_num, void* argument, long affect_flag,
     signed char data_type)
 {
     if (!character)

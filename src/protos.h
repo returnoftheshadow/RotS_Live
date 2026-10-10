@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 
+#include <string>
+
 #include "db.h" /* For the reset_com structure */
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 
@@ -156,6 +158,8 @@ struct shape_zone {
     char symbol;
     struct reset_com mask; /* for masked listing */
     int cur_room; /* for 'in this room only' mode */
+    int list_start; /* /52 list range, command numbers; 0 = all */
+    int list_end; /* 0 = to the end */
     sh_int position;
     sh_int permission;
     char* tmpstr;
@@ -203,6 +207,8 @@ struct shape_script {
     char f_old[80]; //  Old file
     sh_int flags;
     int cur_room; //  Current room (if set)
+    int list_start; //  /52 list range, command numbers; 0 = all
+    int list_end; //  0 = to the end
     char editflag; //  Current shaping (internal) command
     char* name; //  Name of script
     char* description; //  Long description
@@ -229,7 +235,36 @@ void shape_center_script(struct char_data* ch, char* argument);
 void shape_center(struct char_data* ch, char* argument);
 int get_permission(int zonnum, struct char_data* ch, int mode = 0);
 /* mode != 0 denies permission to "unlocked" zones */
-void clean_text(char*); /* removes ~ and # from the string */
+void clean_text(char*); /* ~ everywhere, # at the start of a line (zone, mudlle) */
+void clean_record_text(char*); /* ~ and # everywhere (mob, obj, room, script) */
+bool ban_site_ok(char* site); /* ban.cpp: trims trailing blanks; false on inner spaces */
+void clean_record_name(char*); /* clean_record_text, then drop a leading $ */
 ACMD(do_shape);
+
+/* /52 list range, shared by the zone and script editors (shapemob.cpp). */
+void shape_range_prompt(struct char_data* ch, int start, int end);
+void shape_range_set(struct char_data* ch, const char* arg, int* start, int* end);
+bool shape_range_includes(int start, int end, int number);
+void shape_range_footer(int start, int end, char* out);
+int shape_list_begin(struct char_data* ch);
+bool shape_list_fits(struct char_data* ch, const char* line, const char* footer, int* wrapped);
+void shape_list_finish(struct char_data* ch, const char* footer, bool cut);
+
+/*
+ * Section rows, shared by the zone and script editors (shapemob.cpp).  A
+ * section does nothing when the zone resets or the script runs: it is a
+ * title for the list, with an optional comment, kept in the row's one text
+ * field as "title | comment".
+ */
+#define SHAPE_LIST_WIDTH 78 /* a list line, under the 79-column screen */
+#define SHAPE_SECTION_TITLE_MAX 66 /* fits every list row up to number 999 */
+#define SHAPE_SECTION_TITLE 0
+#define SHAPE_SECTION_COMMENT 1
+std::string shape_section_title(const char* text);
+std::string shape_section_comment(const char* text);
+std::string shape_section_banner(const char* title, int width);
+const char* shape_section_set(char** text, int part, const char* typed);
+void shape_section_prompt(char* out, size_t outsz, const char* text, int part);
+void shape_section_show(char* out, size_t outsz, const char* label, const char* text, int lead, int comment_indent);
 
 #endif /* PROTOS_H */
