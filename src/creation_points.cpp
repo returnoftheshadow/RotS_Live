@@ -28,12 +28,14 @@ const prof_type STANDARD_CLASSES[DEFAULT_PROFS] = {
 static_assert(std::size(prof_type {}.Class_points) == MAX_PROFS + 1,
     "a standard class has one entry per prof_coof slot");
 
+constexpr std::string_view LOG_SEPARATOR = ": ";
+
 void log_failure(std::string_view function_name, std::string_view message)
 {
     std::string line;
-    line.reserve(function_name.size() + 2 + message.size());
+    line.reserve(function_name.size() + LOG_SEPARATOR.size() + message.size());
     line.append(function_name);
-    line.append(": ");
+    line.append(LOG_SEPARATOR);
     line.append(message);
     log(line.c_str());
 }

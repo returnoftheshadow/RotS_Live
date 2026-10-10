@@ -3231,9 +3231,11 @@ bool decode_hide_flags(const std::vector<std::string>& names, long* flags, std::
     return decode_flags(names, kHideFlags, sizeof(kHideFlags) / sizeof(kHideFlags[0]), flags, "hide", error_message);
 }
 
-int skill_index_for_file_key(const std::string& key)
+int skill_index_for_file_key(std::string_view key)
 {
-    return skill_index_for_key_memoized(key);
+    // The table is keyed by std::string and C++17 has no heterogeneous lookup for unordered_map.
+    const std::string key_text(key);
+    return skill_index_for_key_memoized(key_text);
 }
 
 } // namespace character_json

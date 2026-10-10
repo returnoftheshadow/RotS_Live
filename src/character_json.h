@@ -8,6 +8,7 @@
 #include <array>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace character_json {
@@ -221,7 +222,7 @@ bool parse_color_slots_object(json_utils::JsonReader* reader, char* colors,
 
 // Returns the index of the skill whose key in a character file's "skills" object is key, or -1
 // when no skill has that key. When two skills share a key, the lower index.
-int skill_index_for_file_key(const std::string& key);
+int skill_index_for_file_key(std::string_view key);
 
 } // namespace character_json
 
