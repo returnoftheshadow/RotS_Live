@@ -2,6 +2,7 @@
 #include "../account_management.h"
 #include "../account_ppc.h"
 #include "../db.h"
+#include "../exploits_json.h"
 #include "../handler.h"
 #include "../interpre.h"
 #include "../limits.h"
@@ -4685,7 +4686,8 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
         ASSERT_EQ(std::fclose(file), 0);
         file = std::fopen(leftover_exploits_path.c_str(), "wb");
         ASSERT_NE(file, nullptr);
-        const std::string leftover_exploit_bytes(sizeof(exploit_record), '\0');
+        std::string leftover_exploit_bytes;
+        ASSERT_TRUE(exploits_json::exploit_records_to_binary({ exploit_record {} }, &leftover_exploit_bytes, &error_message)) << error_message;
         ASSERT_EQ(std::fwrite(leftover_exploit_bytes.data(), 1, leftover_exploit_bytes.size(), file), leftover_exploit_bytes.size());
         ASSERT_EQ(std::fclose(file), 0);
     }

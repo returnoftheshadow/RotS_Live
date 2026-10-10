@@ -131,7 +131,19 @@ int vnum_object(char*, struct char_data*);
 void record_crime(struct char_data*, struct char_data*, int, int);
 void add_crime(int, int, int, int, int);
 void forget_crimes(struct char_data*, int);
-void add_exploit_record(int, struct char_data*, int, char*);
+// Adds `recordtype` exploit records to the front of the histories they belong in. EXPLOIT_PK
+// gives a trophy naming `victim` to every player fighting it (a fighting pet or orc-friend credits
+// its player master); EXPLOIT_DEATH gives `victim` one "killed by" entry per such player. Every
+// other type gives `victim` one record carrying whichever of `iIntParam` and `chParam` it uses.
+// `victim` must not be null; `chParam` must not be null for EXPLOIT_STAT, EXPLOIT_MOBDEATH,
+// EXPLOIT_ACHIEVEMENT and EXPLOIT_NOTE and is ignored otherwise. Names and text longer than the
+// record's text field are truncated. NPC and immortal victims get nothing.
+void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, char* chParam);
+// Persists one finished exploit record into `recipient`'s history.
+using ExploitRecordWriterFn = void (*)(struct char_data& recipient, const struct exploit_record& record);
+// Test-only: routes every record add_exploit_record() finishes to `writer` instead of
+// write_exploits(), which touches disk. nullptr restores write_exploits().
+void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer);
 int delete_exploits_file(char*);
 void delete_character_file(struct char_data*);
 void move_char_deleted(int);
@@ -243,19 +255,33 @@ struct help_index_summary {
 
 /* exploits */
 struct exploit_record {
-    int type; /* type of record */
-    char chtime[30]; /* str date of death */
-    sh_int shintVictimID; /* idnum of victim */
-    char chVictimName[30]; /* in case char has been deleted */
+    // One of the EXPLOIT_* record types.
+    int type;
+    // asctime() text of when the record was made.
+    char chtime[30];
+    // Idnum of the victim (PK trophy) or killer (death record). Records read from a legacy file or
+    // snapshot, or written by older servers, hold only its low 16 bits.
+    long lVictimID;
+    // Victim's name (PK trophy), killer's name (death record), or the type's text payload.
+    char chVictimName[30];
     int iVictimLevel; /* at time of kill */
     int iKillerLevel; /* at time of kill */
-    int iIntParam; /* reserved */
+    // Level reached (level), level at the time (stat), -1 (mob death: the killer is an NPC, whose
+    // GET_IDNUM is -1), 1 on the first entry of a death; otherwise 0.
+    int iIntParam;
 };
 // Renames a live character, moving its files. Returns 1 on success and -1 when the rename was
 // REFUSED, in which case nothing was changed; `error_message`, when given, says why in words the
 // only caller (`wizset <victim> name <newname>`) can show an immortal.
 int rename_char(struct char_data* ch, char* newname, std::string* error_message = nullptr);
 
+// Reads the character's exploit history into `records`, newest first. A character linked to an
+// account reads its account-native JSON and removes any leftover legacy exploits/ file; without
+// that JSON, or without an account, the legacy file is read, and a missing file is an empty
+// history. A legacy file that is not a whole number of records is logged, removed and read as
+// empty. Returns false with `error_message` set when `records` is null, the owner cannot be
+// resolved, the account JSON exists but cannot be read, or a file cannot be read, decoded or
+// removed.
 bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
 bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
 bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message = nullptr);
