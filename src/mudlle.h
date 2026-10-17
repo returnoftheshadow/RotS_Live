@@ -7,17 +7,17 @@
 #include "structs.h" /* For the txt_block structure */
 
 /* the following are the types of special_list entries */
-#define SPECIAL_MARK -2
-#define SPECIAL_VOID -1
-#define SPECIAL_NULL TARGET_NONE
-#define SPECIAL_CHAR TARGET_CHAR
-#define SPECIAL_OBJ TARGET_OBJ
-#define SPECIAL_ROOM TARGET_ROOM
-#define SPECIAL_TEXT TARGET_TEXT
-#define SPECIAL_FILE 17 // naturally has no analog in mud targets
+inline constexpr int SPECIAL_MARK = -2;
+inline constexpr int SPECIAL_VOID = -1;
+inline constexpr int SPECIAL_NULL = TARGET_NONE;
+inline constexpr int SPECIAL_CHAR = TARGET_CHAR;
+inline constexpr int SPECIAL_OBJ = TARGET_OBJ;
+inline constexpr int SPECIAL_ROOM = TARGET_ROOM;
+inline constexpr int SPECIAL_TEXT = TARGET_TEXT;
+inline constexpr int SPECIAL_FILE = 17; // naturally has no analog in mud targets
 
-#define SPECIAL_CALLLIST 10
-#define SPECIAL_STACKLEN 50
+inline constexpr int SPECIAL_CALLLIST = 10;
+inline constexpr int SPECIAL_STACKLEN = 50;
 #define SPECIAL_STACK(ch) ((long*)((ch)->specials.poofIn))
 #define PROG_POINT(ch) (ch)->specials.union2.prog_point[(ch)->specials.tactics]
 #define PROG_NUMBER(ch) (ch)->specials.union1.prog_number[(ch)->specials.tactics]

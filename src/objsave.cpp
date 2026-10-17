@@ -10,6 +10,7 @@
 
 #include "platdef.h"
 #include <ctype.h>
+#include <cctype>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,10 +26,12 @@
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+#include "account_management.h"
 
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 /* these factors should be unique integers */
 #define RENT_FACTOR 1
@@ -45,7 +48,7 @@
 #define MIN_RANK 1
 #define MAX_RANK 10
 
-int cost_per_day(struct obj_data* obj);
+int cost_per_day(const struct obj_data* obj);
 
 extern struct room_data world;
 extern struct index_data* mob_index;
@@ -66,11 +69,212 @@ SPECIAL(cryogenicist);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
 void Crash_follower_load(struct char_data* ch, FILE* fp);
 int calc_load_room(struct char_data* ch, int load_result);
+int Crash_get_filename(const char* orig_name, char* filename);
 
 FILE* fd;
-int Crash_is_unrentable(struct obj_data* obj);
+int Crash_is_unrentable(const struct obj_data* obj);
 
-int Crash_get_filename(char* orig_name, char* filename)
+namespace {
+
+std::unordered_map<std::string, std::string> g_staged_account_backed_object_bytes;
+
+std::string account_backed_object_stage_key(const char_data* character)
+{
+    if (character == nullptr || GET_NAME(character) == nullptr || *GET_NAME(character) == '\0')
+        return "";
+
+    std::string key = GET_NAME(character);
+    for (char& ch : key)
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return key;
+}
+
+std::string build_empty_account_backed_object_bytes()
+{
+    std::string bytes;
+
+    rent_info rent {};
+    rent.rentcode = RENT_CRASH;
+    const follower_file_elem follower_sentinel { -17, 0, 0, 0, 0, 0, 0 };
+
+    obj_file_elem object_sentinel {};
+    object_sentinel.item_number = SENTINEL_ITEM_ID_VALUE;
+    object_sentinel.item_number_deprecated = DEPRECATED_ID_VALUE;
+
+    const sh_int board_points[MAX_MAXBOARD] = {};
+    const char alias_terminator[20] = {};
+
+    bytes.append(reinterpret_cast<const char*>(&rent), sizeof(rent));
+    bytes.append(reinterpret_cast<const char*>(&object_sentinel), sizeof(object_sentinel));
+    bytes.append(reinterpret_cast<const char*>(board_points), sizeof(board_points));
+    bytes.append(alias_terminator, sizeof(alias_terminator));
+    bytes.append(reinterpret_cast<const char*>(&follower_sentinel), sizeof(follower_sentinel));
+    return bytes;
+}
+
+bool read_crashsave_record(FILE* file, void* buffer, size_t size, size_t count, const char* context)
+{
+    if (std::fread(buffer, size, count, file) == count)
+        return true;
+
+    if (std::ferror(file))
+        perror(context);
+    else {
+        sprintf(buf1, "SYSERR: truncated crashsave data while %s.", context);
+        log(buf1);
+    }
+
+    return false;
+}
+
+// Reads one object record and what follows a VERSIONED_ID_VALUE or ENCHANTED_ID_VALUE record.
+bool read_crashsave_object(FILE* file, obj_file_elem* object, obj_file_extra* extra, const char* context)
+{
+    *extra = obj_file_extra {};
+    if (!read_crashsave_record(file, object, sizeof(obj_file_elem), 1, context))
+        return false;
+    if (object->item_number_deprecated == VERSIONED_ID_VALUE) {
+        if (!read_crashsave_record(file, &extra->version, sizeof(int), 1, context))
+            return false;
+        object->item_number_deprecated = DEPRECATED_ID_VALUE;
+    } else if (object->item_number_deprecated == ENCHANTED_ID_VALUE) {
+        if (!read_crashsave_record(file, extra, sizeof(obj_file_extra), 1, context))
+            return false;
+        object->item_number_deprecated = DEPRECATED_ID_VALUE;
+    }
+    return true;
+}
+
+// Names of items refreshed to a newer prototype version while a character loaded; shown to the
+// player after the room on entering the game (Crash_report_object_refreshes).
+std::unordered_map<const char_data*, std::vector<std::string>> g_refreshed_object_names;
+
+bool take_staged_account_backed_object_bytes_for_character(const char_data* character, std::string* bytes)
+{
+    const std::string stage_key = account_backed_object_stage_key(character);
+    if (stage_key.empty())
+        return false;
+
+    const auto it = g_staged_account_backed_object_bytes.find(stage_key);
+    if (it == g_staged_account_backed_object_bytes.end())
+        return false;
+
+    *bytes = it->second.empty() ? build_empty_account_backed_object_bytes() : it->second;
+    g_staged_account_backed_object_bytes.erase(it);
+    return true;
+}
+
+FILE* open_account_backed_object_stream(const char_data* character)
+{
+    std::string object_bytes;
+    if (!take_staged_account_backed_object_bytes_for_character(character, &object_bytes))
+        return nullptr;
+
+    FILE* stream = tmpfile();
+    if (stream == nullptr) {
+        sprintf(buf1, "SYSERR: unable to create temporary object stream for %s: %s", GET_NAME(character), strerror(errno));
+        log(buf1);
+        return nullptr;
+    }
+
+    if (std::fwrite(object_bytes.data(), sizeof(char), object_bytes.size(), stream) != object_bytes.size()) {
+        sprintf(buf1, "SYSERR: unable to stage account-backed object data for %s.", GET_NAME(character));
+        log(buf1);
+        std::fclose(stream);
+        return nullptr;
+    }
+
+    if (std::fflush(stream) != 0 || std::fseek(stream, 0, SEEK_SET) != 0) {
+        sprintf(buf1, "SYSERR: unable to rewind account-backed object stream for %s.", GET_NAME(character));
+        log(buf1);
+        std::fclose(stream);
+        return nullptr;
+    }
+
+    return stream;
+}
+
+bool read_binary_file_contents(const char* path, std::string* bytes)
+{
+    if (path == nullptr || bytes == nullptr)
+        return false;
+
+    FILE* file = std::fopen(path, "rb");
+    if (file == nullptr)
+        return false;
+
+    std::string loaded_bytes;
+    char buffer[1024];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            loaded_bytes.append(buffer, bytes_read);
+
+        if (bytes_read < sizeof(buffer)) {
+            const bool had_error = std::ferror(file) != 0;
+            std::fclose(file);
+            if (had_error)
+                return false;
+            break;
+        }
+    }
+
+    *bytes = std::move(loaded_bytes);
+    return true;
+}
+
+/* False when the account's copy of the object file should have been written
+ * and was not. A character on no account has no copy to write. */
+bool refresh_account_backed_object_file(const char_data* character)
+{
+    if (character == nullptr || IS_NPC(character))
+        return false;
+
+    char path[MAX_INPUT_LENGTH];
+    if (!Crash_get_filename(const_cast<char*>(GET_NAME(character)), path))
+        return false;
+
+    std::string object_bytes;
+    if (!read_binary_file_contents(path, &object_bytes))
+        return false;
+
+    std::string error_message;
+    if (account::write_linked_character_object_file(".", GET_NAME(character), object_bytes, &error_message))
+        return true;
+    if (!error_message.empty()) {
+        sprintf(buf1, "SYSERR: failed to refresh account-native object file for %s: %s",
+            GET_NAME(character), error_message.c_str());
+        log(buf1);
+    }
+    return false;
+}
+
+} // namespace
+
+void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length)
+{
+    const std::string stage_key = account_backed_object_stage_key(ch);
+    if (stage_key.empty())
+        return;
+
+    if (bytes == nullptr || length == 0) {
+        g_staged_account_backed_object_bytes[stage_key] = std::string();
+        return;
+    }
+
+    g_staged_account_backed_object_bytes[stage_key] = std::string(bytes, length);
+}
+
+void clear_account_backed_object_bytes_for_character(const struct char_data* ch)
+{
+    const std::string stage_key = account_backed_object_stage_key(ch);
+    if (stage_key.empty())
+        return;
+
+    g_staged_account_backed_object_bytes.erase(stage_key);
+}
+
+int Crash_get_filename(const char* orig_name, char* filename)
 {
 
     char *ptr, name[30];
@@ -125,20 +329,25 @@ int Crash_get_filename(char* orig_name, char* filename)
     return 1;
 }
 
-FILE* Crash_get_file_by_name(char* name, char* mode)
+FILE* Crash_get_file_by_name(const char* name, const char* mode)
 {
     FILE* fp;
 
     if (!Crash_get_filename(name, buf))
         return 0;
     if (!(fp = fopen(buf, mode))) {
-        log("crashsave: mark0");
+        const bool suppress_missing_read_side_file = (errno == ENOENT) && (mode != nullptr) && (mode[0] == 'r');
+        if (!suppress_missing_read_side_file) {
+            snprintf(buf1, sizeof(buf1), "SYSERR: unable to open crashsave file '%s' for %s: %s",
+                buf, name, strerror(errno));
+            log(buf1);
+        }
         return 0;
     }
     return fp;
 }
 
-int Crash_delete_file(char* name)
+int Crash_delete_file(const char* name)
 {
 
     char filename[50];
@@ -165,7 +374,7 @@ int Crash_delete_file(char* name)
     return (1);
 }
 
-int Crash_delete_crashfile(struct char_data* ch)
+int Crash_delete_crashfile(const struct char_data* ch)
 {
 
     char fname[MAX_INPUT_LENGTH];
@@ -190,7 +399,7 @@ int Crash_delete_crashfile(struct char_data* ch)
     return 1;
 }
 
-int Crash_clean_file(char* name)
+int Crash_clean_file(const char* name)
 {
 
     char fname[MAX_STRING_LENGTH];
@@ -232,9 +441,36 @@ extern int generic_scalp;
 
 obj_data* load_scalp(int number);
 
+/*
+ * Brings a copy just built from a save up to its prototype's version when that is due, and says
+ * so in the server log. `idnum` is the player the copy belongs to. Scalps never refresh.
+ */
+bool Crash_refresh_object(struct obj_data* obj, long idnum)
+{
+    extern struct obj_data* obj_proto;
+
+    if (obj->item_number < 0 || obj_index[obj->item_number].virt == generic_scalp)
+        return false;
+
+    const int old_version = obj->obj_flags.version;
+    const int enchants_before = count_object_enchants(obj);
+    if (!refresh_object_to_prototype_version(obj, &obj_proto[obj->item_number]))
+        return false;
+
+    const char* enchant_note = "";
+    if (enchants_before > 0)
+        enchant_note = count_object_enchants(obj) == enchants_before ? ", enchant kept" : ", enchant dropped";
+    sprintf(buf1, "Object version refresh: obj %d, %d -> %d, player idnum %ld%s",
+        obj_index[obj->item_number].virt, old_version, obj->obj_flags.version, idnum, enchant_note);
+    log(buf1);
+    return true;
+}
+
+/* `owner` is the player the object is loading for; with none (the bank vault rebuilding a stored
+ * object) the copy is not refreshed here, and the caller does that when it hands the object over. */
 struct obj_data*
 
-Crash_obj2char(struct char_data* ch, struct obj_file_elem* object)
+Crash_obj2char(const struct char_data* ch, const struct obj_file_elem* object, const struct obj_file_extra& extra, const struct char_data* owner)
 {
     /*
      * this function loads an object with a virtual number of
@@ -277,6 +513,12 @@ Crash_obj2char(struct char_data* ch, struct obj_file_elem* object)
 
             for (j = 0; j < MAX_OBJ_AFFECT; j++)
                 obj->affected[j] = object->affected[j];
+
+            obj->obj_flags.version = extra.version;
+            for (j = 0; j < MAX_OBJ_ENCHANT; j++)
+                obj->enchants[j] = extra.enchants[j];
+            if (owner && Crash_refresh_object(obj, (long)GET_IDNUM(owner)))
+                g_refreshed_object_names[owner].push_back(obj->short_description);
         }
         return obj;
     }
@@ -286,7 +528,7 @@ Crash_obj2char(struct char_data* ch, struct obj_file_elem* object)
 const char* overflow_str = "The buffer was overflowed, aborting.\r\n";
 const size_t overflow_len = strlen(overflow_str) + 1;
 
-void Crash_listrent(struct char_data* ch, char* name)
+void Crash_listrent(const struct char_data* ch, const char* name)
 {
     FILE* fl;
     char buf[MAX_STRING_LENGTH];
@@ -315,6 +557,15 @@ void Crash_listrent(struct char_data* ch, char* name)
         if (ferror(fl)) {
             fclose(fl);
             return;
+        }
+        if (!feof(fl) && object.item_number_deprecated == VERSIONED_ID_VALUE) {
+            int version;
+            fread(&version, sizeof(version), 1, fl);
+            object.item_number_deprecated = DEPRECATED_ID_VALUE;
+        } else if (!feof(fl) && object.item_number_deprecated == ENCHANTED_ID_VALUE) {
+            struct obj_file_extra extra;
+            fread(&extra, sizeof(extra), 1, fl);
+            object.item_number_deprecated = DEPRECATED_ID_VALUE;
         }
         if (!feof(fl))
 
@@ -345,7 +596,7 @@ void Crash_listrent(struct char_data* ch, char* name)
     fclose(fl);
 }
 
-int Crash_write_rentcode(struct char_data* ch, FILE* fl, struct rent_info* rent)
+int Crash_write_rentcode(const struct char_data* ch, FILE* fl, const struct rent_info* rent)
 {
     if (fwrite(rent, sizeof(struct rent_info), 1, fl) < 1) {
         perror("Writing rent code.");
@@ -393,24 +644,33 @@ void recalc_worn_weight(char_data* character)
 FILE* Crash_load(char_data* character)
 {
     FILE* fl;
-    struct obj_data* equip_array[11];
+    struct obj_data* equip_array[20];
     struct obj_data* obj;
     struct obj_file_elem object;
     struct rent_info rent;
     int cost, orig_rent_code, equip_lost;
     int num_of_hours, tmp, equip_counter;
     struct obj_data dummy_sack;
+    auto fail_closed = [&character]() -> FILE* {
+        REMOVE_BIT(character->specials.affected_by, AFF_TWOHANDED);
+        return nullptr;
+    };
 
     clear_object(&dummy_sack);
 
     equip_lost = 0;
 
     /* zero out our equipment array */
-    for (tmp = 0; tmp < 11; tmp++)
+    for (tmp = 0; tmp < (int)(sizeof(equip_array) / sizeof(equip_array[0])); tmp++)
         equip_array[tmp] = 0;
 
     /* ok. is their rent file intact? */
-    if (!(fl = Crash_get_file_by_name(GET_NAME(character), "r+b"))) {
+    fl = Crash_get_file_by_name(GET_NAME(character), "r+b");
+    if (!fl)
+        fl = open_account_backed_object_stream(character);
+
+    if (!fl) {
+        REMOVE_BIT(character->specials.affected_by, AFF_TWOHANDED);
         send_to_char("*** Your equipment was lost! Please contact an immortal. ***\n\r", character);
         sprintf(buf, "%s entering game with no equipment.", GET_NAME(character));
         GET_ALIAS(character) = 0;
@@ -418,8 +678,10 @@ FILE* Crash_load(char_data* character)
         character->specials2.load_room = calc_load_room(character, RENT_UNDEF);
         return fl;
     }
-    if (!feof(fl))
-        fread(&rent, sizeof(struct rent_info), 1, fl);
+    if (!read_crashsave_record(fl, &rent, sizeof(struct rent_info), 1, "reading crash rent data in Crash_load")) {
+        std::fclose(fl);
+        return fail_closed();
+    }
 
     /* ok, we have a file. now we find out how much to charge them */
     cost = (rent.net_cost_per_hour * RENT_HALFTIME * num_of_hours / (RENT_HALFTIME + num_of_hours));
@@ -477,12 +739,11 @@ FILE* Crash_load(char_data* character)
     }
 
     equip_counter = 1;
-    while (!feof(fl)) {
-        fread(&object, sizeof(struct obj_file_elem), 1, fl);
-        if (ferror(fl)) {
-            perror("Reading crash file: Crash_load.");
-            fclose(fl);
-            return fl;
+    while (true) {
+        obj_file_extra object_extra;
+        if (!read_crashsave_object(fl, &object, &object_extra, "reading crash object data in Crash_load")) {
+            std::fclose(fl);
+            return fail_closed();
         }
 
         if (object.item_number_deprecated != DEPRECATED_ID_VALUE) {
@@ -493,11 +754,11 @@ FILE* Crash_load(char_data* character)
         if (object.item_number == SENTINEL_ITEM_ID_VALUE) /* the alias marker */
             break;
 
-        if (!feof(fl) && !equip_lost) {
+        if (!equip_lost) {
             if (object.item_number < 0)
                 obj = &dummy_sack;
             else
-                obj = Crash_obj2char(character, &object);
+                obj = Crash_obj2char(character, &object, object_extra, character);
 
             if (!obj) {
                 sprintf(buf, "LOAD ERROR, equipment lost for %s.", GET_NAME(character));
@@ -519,9 +780,35 @@ FILE* Crash_load(char_data* character)
                     obj_to_char(obj, character);
                 equip_array[0] = obj;
             } else {
-                if (obj != &dummy_sack)
-                    obj_to_obj(obj, equip_array[object.wear_pos - MAX_WEAR - 1], TRUE);
-                equip_array[object.wear_pos - MAX_WEAR] = obj;
+                /* wear_pos above MAX_WEAR encodes container nesting depth and comes straight
+                   off disk, so it has to be bounded before it indexes equip_array. An entry
+                   past the end is put in the character's inventory instead of being lost, and
+                   logged; writing it would smash the stack. */
+                const int depth = object.wear_pos - MAX_WEAR;
+                const bool depth_in_range = depth >= 1
+                    && depth < (int)(sizeof(equip_array) / sizeof(equip_array[0]));
+
+                /* An in-range depth still only names a slot; nothing guarantees the row that
+                   would have filled it was present. obj_to_obj() starts `if (!item ||
+                   !container) return;`, so a missing parent used to leave the object on
+                   object_list with no room, no carrier and no container - not destroyed, not
+                   given to the player, not logged, and holding memory until reboot. Both
+                   failures cost the player nesting rather than the item. */
+                if (!depth_in_range || !equip_array[depth - 1]) {
+                    sprintf(buf, "LOAD ERROR: %s has an object at container depth %d (%s); "
+                                 "loaded to inventory.",
+                        GET_NAME(character), depth,
+                        depth_in_range ? "its container is missing" : "out of range");
+                    log(buf);
+                    if (obj != &dummy_sack)
+                        obj_to_char(obj, character);
+                    if (depth_in_range)
+                        equip_array[depth] = obj;
+                } else {
+                    if (obj != &dummy_sack)
+                        obj_to_obj(obj, equip_array[depth - 1], TRUE);
+                    equip_array[depth] = obj;
+                }
             }
         }
     }
@@ -539,16 +826,37 @@ FILE* Crash_load(char_data* character)
     }
 
     recalc_worn_weight(character);
+    if (IS_TWOHANDED(character) && (!character->equipment[WIELD] || character->equipment[WEAR_SHIELD]))
+        REMOVE_BIT(character->specials.affected_by, AFF_TWOHANDED);
 
     character->specials2.load_room = calc_load_room(character, rent.rentcode);
 
     return fl;
 }
 
+void Crash_tell_object_refresh(const struct char_data* ch, const char* name)
+{
+    snprintf(buf1, sizeof(buf1), "Your item, %s, has been updated.\n\r", name);
+    send_to_char(buf1, ch);
+}
+
+void Crash_report_object_refreshes(const struct char_data* ch)
+{
+    auto it = g_refreshed_object_names.find(ch);
+    if (it == g_refreshed_object_names.end())
+        return;
+
+    for (const std::string& name : it->second)
+        Crash_tell_object_refresh(ch, name.c_str());
+    g_refreshed_object_names.erase(it);
+}
+
 void load_character(struct char_data* ch)
 {
     extern struct char_data* character_list;
     FILE* fp;
+
+    g_refreshed_object_names.erase(ch);
 
     if (ch->in_room == NOWHERE)
         ch->in_room = ch->specials2.load_room;
@@ -632,7 +940,7 @@ int calc_load_room(struct char_data* ch, int load_result)
     return load_room;
 }
 
-int Crash_obj2store(obj_data* obj, char_data* ch,
+int Crash_obj2store(const obj_data* obj, const char_data* ch,
     int pos, FILE* fl)
 {
     obj_file_elem object;
@@ -667,7 +975,25 @@ int Crash_obj2store(obj_data* obj, char_data* ch,
         object.extra_flags = obj->obj_flags.value[4];
     }
 
+    obj_file_extra extra {};
+    extra.version = obj->obj_flags.version;
+    for (int index = 0; index < MAX_OBJ_ENCHANT; index++)
+        extra.enchants[index] = obj->enchants[index];
+    const bool enchanted = count_object_enchants(obj) > 0;
+    if (enchanted)
+        object.item_number_deprecated = ENCHANTED_ID_VALUE;
+    else if (extra.version != 0)
+        object.item_number_deprecated = VERSIONED_ID_VALUE;
+
     if (fwrite(&object, sizeof(obj_file_elem), 1, fl) < 1) {
+        perror("Writing crash data Crash_obj2store");
+        return 0;
+    }
+    if (enchanted && fwrite(&extra, sizeof(extra), 1, fl) < 1) {
+        perror("Writing crash data Crash_obj2store");
+        return 0;
+    }
+    if (!enchanted && extra.version != 0 && fwrite(&extra.version, sizeof(extra.version), 1, fl) < 1) {
         perror("Writing crash data Crash_obj2store");
         return 0;
     }
@@ -675,9 +1001,9 @@ int Crash_obj2store(obj_data* obj, char_data* ch,
     return 1;
 }
 
-int Crash_save(struct obj_data* obj, struct char_data* ch, int pos, FILE* fp);
+int Crash_save(const struct obj_data* obj, const struct char_data* ch, int pos, FILE* fp);
 
-void Crash_follower_save(struct char_data* ch, FILE* fp)
+void Crash_follower_save(const struct char_data* ch, FILE* fp)
 {
     extern struct index_data* mob_index;
     struct follow_type *k, *next_fol;
@@ -721,7 +1047,7 @@ void Crash_follower_save(struct char_data* ch, FILE* fp)
             if (k->follower->equipment[x])
                 if (!Crash_is_unrentable(k->follower->equipment[x]))
                     if (!Crash_save(k->follower->equipment[x], k->follower, x, fp)) {
-                        fclose(fp);
+                        /* the caller owns fp and closes it; closing it here too was a double fclose */
                         return;
                     }
         if (fwrite(&dummy_object, sizeof(struct obj_file_elem), 1, fp) < 1) {
@@ -763,14 +1089,9 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
     int tmp;
 
     do {
-        if (feof(fp))
+        /* fp stays open on every way out: the caller closes it. */
+        if (!read_crashsave_record(fp, &fol_elem, sizeof(struct follower_file_elem), 1, "reading follower data in Crash_follower_load"))
             return;
-        fread(&fol_elem, sizeof(struct follower_file_elem), 1, fp);
-        if (ferror(fp)) {
-            perror("Reading crash file: Crash_follower_load.");
-            fclose(fp);
-            return;
-        }
         if (fol_elem.fol_vnum == -17)
             break;
         if ((tmp = real_mobile(fol_elem.fol_vnum)) < 0)
@@ -778,12 +1099,10 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
         mob = read_mobile(tmp, REAL);
         char_to_room(mob, ch->in_room);
 
-        while (!feof(fp)) {
-            fread(&object, sizeof(struct obj_file_elem), 1, fp);
-            if (ferror(fp)) {
-                perror("Reading crash file: Crash_load.");
-                fclose(fp);
-            }
+        while (true) {
+            obj_file_extra object_extra;
+            if (!read_crashsave_object(fp, &object, &object_extra, "reading follower object data in Crash_follower_load"))
+                return;
 
             if (object.item_number_deprecated != DEPRECATED_ID_VALUE) {
                 object.item_number = object.item_number_deprecated;
@@ -796,7 +1115,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             if (object.wear_pos > MAX_WEAR || object.wear_pos < 0)
                 continue;
 
-            obj = Crash_obj2char(mob, &object);
+            obj = Crash_obj2char(mob, &object, object_extra, ch);
             if (!obj) {
                 sprintf(buf, "LOAD ERROR, equipment lost for follower of %s.", GET_NAME(ch));
                 log(buf);
@@ -885,7 +1204,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
     } while (1);
 }
 
-void extract_followers(struct char_data* ch)
+void extract_followers(const struct char_data* ch)
 {
     struct obj_data* obj;
     struct follow_type *k, *next_fol;
@@ -915,27 +1234,40 @@ int Crash_alias_load(struct char_data* ch, FILE* fp)
 
     GET_ALIAS(ch) = 0;
     count = 0;
-    if (!feof(fp))
-        tmp = fread(ch->specials.board_point, sizeof(sh_int), MAX_MAXBOARD, fp);
+    tmp = 0;
+    if (!read_crashsave_record(fp, ch->specials.board_point, sizeof(sh_int), MAX_MAXBOARD, "reading board points in Crash_alias_load"))
+        return FALSE;
     do {
         CREATE1(list2, alias_list);
-        fread(&(list2->keyword), 20, 1, fp);
+        if (!read_crashsave_record(fp, &(list2->keyword), 20, 1, "reading alias keyword in Crash_alias_load")) {
+            RELEASE(list2);
+            return FALSE;
+        }
+        // The legacy field is 20 raw bytes, so a keyword that fills it arrives with
+        // no terminator of its own; keep only the characters that can be stored.
+        list2->keyword[MAX_ALIAS_KEYWORD_LENGTH] = '\0';
         if (!*(list2->keyword)) {
             RELEASE(list2);
             return TRUE;
         }
-        fread(&tmp, sizeof(int), 1, fp);
+        if (!read_crashsave_record(fp, &tmp, sizeof(int), 1, "reading alias length in Crash_alias_load")) {
+            RELEASE(list2);
+            return FALSE;
+        }
         if (tmp <= 0) {
             log("Alias_load error!");
+            RELEASE(list2);
             return FALSE;
         }
         CREATE(list2->command, char, tmp + 1);
-        fread(list2->command, tmp, 1, fp);
-        if (ferror(fp)) {
-            perror("Reading crash file: Crash_load.");
+        if (!read_crashsave_record(fp, list2->command, tmp, 1, "reading alias command in Crash_alias_load")) {
+            RELEASE(list2->command);
+            RELEASE(list2);
             return FALSE;
         }
+        list2->command[tmp] = '\0';
         if (count > MAX_ALIAS) { // We should have a create_alias function
+            RELEASE(list2->command);
             RELEASE(list2); // to take care of this stuff
             continue;
         }
@@ -949,7 +1281,7 @@ int Crash_alias_load(struct char_data* ch, FILE* fp)
     } while (1);
 }
 
-int Crash_alias_save(struct char_data* ch, FILE* fp)
+int Crash_alias_save(const struct char_data* ch, FILE* fp)
 {
     static struct obj_data dummy_obj;
     struct alias_list* list;
@@ -996,7 +1328,7 @@ int Crash_alias_save(struct char_data* ch, FILE* fp)
     return TRUE;
 }
 
-int Crash_save(struct obj_data* obj, struct char_data* ch, int pos, FILE* fp)
+int Crash_save(const struct obj_data* obj, const struct char_data* ch, int pos, FILE* fp)
 {
     struct obj_data* tmp;
     int result, tmpos;
@@ -1022,7 +1354,7 @@ int Crash_save(struct obj_data* obj, struct char_data* ch, int pos, FILE* fp)
     return TRUE;
 }
 
-void Crash_restore_weight(struct obj_data* obj)
+void Crash_restore_weight(const struct obj_data* obj)
 {
     if (obj) {
         Crash_restore_weight(obj->contains);
@@ -1041,7 +1373,7 @@ void Crash_extract_objs(struct obj_data* obj)
     }
 }
 
-int Crash_is_unrentable(struct obj_data* obj)
+int Crash_is_unrentable(const struct obj_data* obj)
 {
     if (!obj)
         return 0;
@@ -1073,7 +1405,7 @@ void Crash_extract_expensive(struct obj_data* obj)
     extract_obj(max);
 }
 
-void Crash_calculate_rent(struct obj_data* obj, int* cost)
+void Crash_calculate_rent(const struct obj_data* obj, int* cost)
 {
     if (obj) {
         *cost += MAX(0, cost_per_day(obj) >> 4);
@@ -1118,13 +1450,20 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
             }
             Crash_restore_weight(ch->equipment[j]);
         }
-    Crash_alias_save(ch, fp);
+    const bool wrote_aliases = Crash_alias_save(ch, fp);
     Crash_follower_save(ch, fp);
-    fclose(fp);
+    const bool written = !ferror(fp); /* fclose only reports the last flush */
+    const bool closed = fclose(fp) == 0;
+    /* Only a file written whole is copied to the account: a cut-off one could
+     * still parse (refresh is tolerant of a missing follower section) and
+     * would replace the account's good copy with a short one. */
+    const bool refreshed = wrote_aliases && written && closed && refresh_account_backed_object_file(ch);
+    if (refreshed)
+        ch->specials.saved_object_file = true; /* see structs.h */
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 
-void Crash_idlesave(struct char_data* ch)
+void Crash_idlesave(const struct char_data* ch)
 {
     char buf[MAX_INPUT_LENGTH];
     struct rent_info rent;
@@ -1167,9 +1506,10 @@ void Crash_idlesave(struct char_data* ch)
                 fclose(fp);
                 return;
             }
-        }
+    }
     Crash_alias_save(ch, fp);
     fclose(fp);
+    refresh_account_backed_object_file(ch);
 
     Crash_extract_objs(ch->carrying);
 }
@@ -1219,6 +1559,7 @@ void Crash_rentsave(struct char_data* ch, int cost)
     Crash_follower_save(ch, fp);
     extract_followers(ch);
     fclose(fp);
+    refresh_account_backed_object_file(ch);
 
     Crash_extract_objs(ch->carrying);
 }
@@ -1228,7 +1569,7 @@ void Crash_rentsave(struct char_data* ch, int cost)
  ************************************************************************* */
 
 int Crash_report_unrentables(struct char_data* ch, struct char_data* recep,
-    struct obj_data* obj)
+    const struct obj_data* obj)
 {
     char buf[128];
     int has_norents = 0;
@@ -1246,8 +1587,8 @@ int Crash_report_unrentables(struct char_data* ch, struct char_data* recep,
     return has_norents;
 }
 
-void Crash_report_rent(struct char_data* ch, struct char_data* recep,
-    struct obj_data* obj, long* cost, long* nitems, int factor)
+void Crash_report_rent(const struct char_data* ch, const struct char_data* recep,
+    const struct obj_data* obj, long* cost, long* nitems, int factor)
 {
     if (obj) {
         if (!Crash_is_unrentable(obj)) {
@@ -1358,7 +1699,7 @@ int Crash_offer_rent(struct char_data* ch, struct char_data* receptionist,
     return totalcost;
 }
 
-int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
+int gen_receptionist(struct char_data* ch, int cmd, const char* arg, int mode)
 {
     int cost = 0;
     static char newname[MAX_NAME_LENGTH + 1];
@@ -1371,8 +1712,7 @@ int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
     long rent_deadline;
 
     extern int valid_name(char*);
-    extern int rename_char(struct char_data*, char*);
-    extern int _parse_name(char*, char*);
+    extern int _parse_name(const char*, char*);
     extern int number(int, int);
     extern int r_retirement_home_room;
 
@@ -1599,8 +1939,15 @@ int gen_receptionist(struct char_data* ch, int cmd, char* arg, int mode)
         act("$n helps $N into $S private chamber.", FALSE, recep, 0, ch, TO_NOTVICT);
         save_room = ch->in_room;
         extract_char(ch);
-        ch->in_room = world[save_room].number;
-        save_char(ch, ch->in_room, 0);
+        /* save_char() wants the room's VNUM, but ch->in_room is an INDEX into world[].
+           Pass the vnum straight through instead of staging it in in_room: writing it
+           there left a live char_data whose in_room held a vnum, and msdp_update() then
+           published world[<vnum>] -- a real, valid, completely unrelated room -- to the
+           client. That was the origin of the bogus MSDP rooms seen at rent. extract_char()
+           has already removed the character from the world, and load_character() re-derives
+           the room from specials2.load_room (which save_char is writing right here), so
+           leaving in_room as NOWHERE is both correct and what the re-entry path expects. */
+        save_char(ch, world[save_room].number, 0);
     } else { /* Offer */
         Crash_offer_rent(ch, recep, mode, TRUE);
         act("$N gives $n an offer.", FALSE, ch, 0, recep, TO_ROOM);
@@ -1652,24 +1999,30 @@ ACMD(do_rent)
 
     save_room = ch->in_room;
     extract_char(ch);
-    ch->in_room = world[save_room].number;
-    save_char(ch, ch->in_room, 0);
+    /* Same vnum-into-an-index-field hazard as the receptionist rent path above. */
+    save_char(ch, world[save_room].number, 0);
 }
 
 void Crash_save_all(void)
 {
     struct descriptor_data* d;
     for (d = descriptor_list; d; d = d->next) {
-        if ((d->connected == CON_PLYNG) && !IS_NPC(d->character)) {
-            if (PLR_FLAGGED(d->character, PLR_CRASH)) {
-                Crash_crashsave(d->character);
-                if (GET_LEVEL(d->character) < LEVEL_IMMORT)
-                    save_char(d->character, NOWHERE, 1);
-                else
-                    save_char(d->character, NOWHERE, 0);
-                REMOVE_BIT(PLR_FLAGS(d->character), PLR_CRASH);
-            }
+        if (d->connected != CON_PLYNG)
+            continue;
+        if (d->character == nullptr) {
+            // Defensive: a CON_PLYNG descriptor should always have a character. Skip and log a
+            // broken one rather than aborting the whole point-in-time snapshot for everyone else.
+            log("Crash_save_all: CON_PLYNG descriptor with no character; skipping its snapshot.");
+            continue;
         }
+        if (IS_NPC(d->character))
+            continue;
+        // Point-in-time snapshot: save EVERY connected player each cadence (no PLR_CRASH dirty
+        // gate) so PvP/group participants recover to the same moment, silently (notify=0) so a
+        // routine snapshot does not spam "Saving X.". Crash_crashsave also clears PLR_CRASH, so
+        // the previous explicit REMOVE_BIT here is now redundant. Modeled on Emergency_save below.
+        Crash_crashsave(d->character);
+        save_char(d->character, NOWHERE, 0);
     }
 }
 
@@ -1684,13 +2037,13 @@ void Emergency_save(void)
     }
 }
 
-int cost_per_day(struct obj_data* obj)
+int cost_per_day(const struct obj_data* obj)
 {
     return (((obj->obj_flags.cost_per_day == -1) ? obj->obj_flags.cost / 100 : obj->obj_flags.cost_per_day) / ((obj->obj_flags.level <= 5) ? 8 : 4));
 }
 
 #define RENT_TIME 2592000 /* number of seconds one must remain retired */
-long secs_to_unretire(struct char_data* ch)
+long secs_to_unretire(const struct char_data* ch)
 /* returns the time, in seconds, until one may unretire */
 {
     if (!IS_SET(PLR_FLAGS(ch), PLR_RETIRED))

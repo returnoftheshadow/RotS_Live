@@ -10,6 +10,7 @@
 
 #include "platdef.h"
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,7 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "char_utils_combat.h"
+#include "mob_progs/ranger_prog.h"
 
 #include <ctime>
 
@@ -51,7 +53,7 @@ extern int mortal_start_room[];
 extern int r_mortal_start_room[];
 extern int r_immort_start_room;
 extern struct index_data* mob_index;
-extern int armor_absorb(struct obj_data* obj);
+extern int armor_absorb(const struct obj_data* obj);
 extern const int average_mob_life;
 extern skill_data skills[];
 extern int max_race_str[];
@@ -61,8 +63,8 @@ extern const int max_npc_corpse_time, max_pc_corpse_time;
 extern char* pc_star_types[];
 
 /* External procedures */
-char* fread_string(FILE* fl, char* error);
-int check_resistances(char_data* ch, int attacktype);
+char* fread_string(FILE* fl, const char* error);
+int check_resistances(const char_data* ch, int attacktype, int* matched_resist_type = nullptr);
 void stop_hiding(struct char_data*, char);
 void break_meditation(char_data* ch);
 ACMD(do_flee);
@@ -72,10 +74,10 @@ ACMD(do_mental);
 /* local procedures */
 void hit(struct char_data* ch, struct char_data* victim, int type);
 void do_parry(struct char_data* ch, struct char_data* victim, int type);
-void forget(struct char_data* ch, struct char_data* victim);
+void forget(struct char_data* ch, const struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
 void complete_delay(struct char_data* ch);
-void group_gain(struct char_data* ch, struct char_data* victim);
+void group_gain(struct char_data* ch, const struct char_data* victim);
 void do_pass_through(struct char_data* ch, struct char_data* victim, int type);
 /* riposte doesn't use int type, but maybe when messages are sorted... */
 void do_riposte(struct char_data* ch, struct char_data* victim);
@@ -320,7 +322,7 @@ void stop_fighting(struct char_data* ch)
     }
 }
 
-void stop_fighting_him(struct char_data* ch)
+void stop_fighting_him(const struct char_data* ch)
 {
 
     struct char_data *tmp, *next_fighter;
@@ -380,7 +382,7 @@ int check_sanctuary(char_data* ch, char_data* victim)
  * This function gives to us our corpses "death_type"
  * effectively just returning a string.
  */
-void get_corpse_desc(struct obj_data* corpse, struct char_data* ch,
+void get_corpse_desc(struct obj_data* corpse, const struct char_data* ch,
     int attacktype)
 {
 #define BUF_LEN 32
@@ -568,7 +570,7 @@ void move_gold(struct char_data* ch, struct obj_data* object, int option)
  * of the function. Might be nice to have varying decay
  * times in certain circumstances.
  */
-void corpse_decay_time(char_data* character, obj_data* corpse, int duration)
+void corpse_decay_time(const char_data* character, obj_data* corpse, int duration)
 {
     if (duration > 0) {
         corpse->obj_flags.timer = duration;
@@ -591,7 +593,7 @@ void corpse_decay_time(char_data* character, obj_data* corpse, int duration)
  * The first two objects that an NPC carries are immune to the
  * chance of being taken.
  */
-void remove_random_item(struct char_data* ch, struct obj_data* corpse)
+void remove_random_item(const struct char_data* ch, const struct obj_data* corpse)
 {
     int chance, i;
     struct obj_data* obj;
@@ -648,7 +650,7 @@ void move_from_container_to_corpse(obj_data* corpse, obj_data* item)
 // Recursively parses the container passed in, moving any wearable or key items
 // from the container into the corpse's inventory.
 //============================================================================
-void parse_container(obj_data* corpse, obj_data* container)
+void parse_container(obj_data* corpse, const obj_data* container)
 {
     obj_data* next_item = NULL;
     for (obj_data* item = container->contains; item; item = next_item) {
@@ -682,7 +684,7 @@ void move_wearables_to_corpse(obj_data* corpse)
 //============================================================================
 // Makes a corpse from the character passed in.  Returns a pointer to the corpse.
 //============================================================================
-obj_data* make_physical_corpse(char_data* character, char_data* killer, int attack_type)
+obj_data* make_physical_corpse(char_data* character, const char_data* killer, int attack_type)
 {
     obj_data* corpse = NULL;
 
@@ -777,7 +779,7 @@ void spirit_death(char_data* character)
     move_gold(character, NULL, 1);
 }
 
-obj_data* make_corpse(char_data* character, char_data* killer, int attack_type)
+obj_data* make_corpse(char_data* character, const char_data* killer, int attack_type)
 {
     if (!IS_SHADOW(character)) {
         return make_physical_corpse(character, killer, attack_type);
@@ -788,7 +790,7 @@ obj_data* make_corpse(char_data* character, char_data* killer, int attack_type)
 }
 
 /* When ch kills victim */
-void change_alignment(struct char_data* ch, struct char_data* victim)
+void change_alignment(struct char_data* ch, const struct char_data* victim)
 {
     int align;
     extern int min_race_align[];
@@ -874,11 +876,11 @@ void death_cry(struct char_data* ch)
     }
 }
 
-void raw_kill(char_data* dead_man, char_data* killer, int attack_type)
+void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;
 
-    if ((dead_man->delay.wait_value >= 0) && (dead_man->delay.cmd > 0)) {
+    if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
         complete_delay(dead_man);
     }
@@ -1092,7 +1094,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     raw_kill(dead_man, killer, attack_type);
 }
 
-int exp_with_modifiers(char_data* character, char_data* dead_man, int base_exp)
+int exp_with_modifiers(const char_data* character, const char_data* dead_man, int base_exp)
 {
     int exp, age;
 
@@ -1109,7 +1111,8 @@ int exp_with_modifiers(char_data* character, char_data* dead_man, int base_exp)
         base_exp = 6 * base_exp / (GET_LEVEL(character) - GET_LEVEL(dead_man));
 
     exp = base_exp;
-    age = MOB_AGE_TICKS(dead_man, time(0)) * 40 / (GET_LEVEL(dead_man) + 20);
+    const WorldClock::time_point now = WorldClock::now();
+    age = utils::get_mob_age_in_ticks(*dead_man, now) * 40 / (GET_LEVEL(dead_man) + 20);
 
     if (GET_LEVEL(dead_man) > 5) {
         if (age < average_mob_life)
@@ -1166,7 +1169,7 @@ bool master_gets_credit(const char_data* character)
 }
 }
 
-void group_gain(char_data* killer, char_data* dead_man)
+void group_gain(char_data* killer, const char_data* dead_man)
 {
     if (killer == nullptr || dead_man == nullptr)
         return;
@@ -1293,7 +1296,7 @@ void group_gain(char_data* killer, char_data* dead_man)
         int group_bonus = std::min(share * capped_level / 2, (level_total - npc_level_malus - capped_level) * share / 4);
         int tmp = exp_with_modifiers(character, dead_man, share * capped_level + group_bonus);
 
-        vsend_to_char(character, "You receive your share of experience -- %d points.\r\n", tmp);
+        vsend_to_char(character, "You receive your share of experience -- %d points.\r\n", cap_exp_gain(tmp));
         gain_exp(character, tmp);
         change_alignment(character, dead_man);
 
@@ -1301,16 +1304,16 @@ void group_gain(char_data* killer, char_data* dead_man)
         player_spec::wild_fighting_handler wild_fighting(character);
         wild_fighting.on_unit_killed(dead_man);
 
-        /* save only 10% of the time to avoid lag in big groups */
-        if (number(0, 9) == 0) {
-            save_char(character, NOWHERE, 1);
-        }
+        // XP persistence is now covered by the point-in-time autosave snapshot (Crash_save_all saves
+        // every connected player each cadence) plus the death/level anti-rollback saves. The former
+        // per-kill 10%-chance save_char here (which also produced a visible "Saving X.") was removed
+        // with the save-all snapshot to avoid redundant saves in large groups.
     }
 }
 
 char replace_string_buf[500];
 
-char* replace_string(char* str, char* weapon_singular, char* weapon_plural, char* bodypart)
+char* replace_string(const char* str, const char* weapon_singular, const char* weapon_plural, const char* bodypart)
 {
     char* buf;
     char* cp;
@@ -1443,7 +1446,7 @@ const attack_hit_type& get_hit_text(int w_type)
     return attack_hit_text[w_type];
 }
 
-void dam_message(int damage, char_data* attacker, char_data* victim, int w_type, char* bodypart)
+void dam_message(int damage, char_data* attacker, char_data* victim, int w_type, const char* bodypart)
 {
     obj_data* wield = attacker->equipment[WIELD];
 
@@ -1547,7 +1550,7 @@ void generate_damage_message(char_data* attacker, char_data* victim, int damage,
 }
 
 // TODO:(maga) Remove modifier mod
-int maul_damage_reduction(char_data* ch, int damage)
+int maul_damage_reduction(const char_data* ch, int damage)
 {
     using namespace utils;
     double damage_reduction = 0.10;
@@ -1581,6 +1584,36 @@ int maul_damage_reduction(char_data* ch, int damage)
     return damage = std::max(damage, 1);
 }
 
+/* Reduce dam by magnitude percent. Kept as a free function so the arithmetic is testable
+   without a character. */
+int apply_resistance(int dam, int magnitude)
+{
+    if (magnitude <= 0)
+        return dam;
+
+    const double reduced = round((double)dam * ((double)magnitude / 100.0));
+    return dam - (int)reduced;
+}
+
+/* The magnitude the victim has against this element, or 0 if the resistance came from a
+   mob or object flag rather than a spell affect. Matching on location+modifier finds both
+   SPELL_RESIST_* and SPELL_PROTECTION, which write the same shape. The two can coexist on
+   one element - they are different affect types and each only strips its own - so the whole
+   list is scanned and the largest wins. They do not stack, and the answer does not depend on
+   which was applied last. */
+int resist_magnitude_for(const char_data* victim, int resist_type)
+{
+    int magnitude = 0;
+    int count = 0;
+
+    for (affected_type* aff = victim->affected; aff && count < MAX_AFFECT; aff = aff->next, count++) {
+        if (aff->location == APPLY_RESIST && aff->modifier == resist_type)
+            magnitude = std::max(magnitude, (int)aff->effect_modifier);
+    }
+
+    return magnitude;
+}
+
 /*
  * damage now modified to return int - 1 if the victim was
  * killed, 0 if not.
@@ -1590,7 +1623,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     struct affected_type* aff;
     int i, tmp, tmp1;
     struct waiting_type tmpwtl;
-    extern void record_spell_damage(struct char_data*, struct char_data*,
+    extern void record_spell_damage(const struct char_data*, const struct char_data*,
         int, int);
 
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
@@ -1641,8 +1674,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
 
     /* Call special procs on damage */
     if (victim->specials.fighting != attacker) {
-        tmpwtl.targ1.ptr.ch = victim;
-        tmpwtl.targ1.type = TARGET_CHAR;
+        tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
         i = special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl);
@@ -1678,13 +1710,6 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                 stop_riding(attacker);
             if (IS_RIDING(victim) && (victim->mount_data.mount == attacker))
                 stop_riding(victim);
-
-            if (IS_NPC(attacker) && IS_NPC(victim) && victim->master && !number(0, 10) && IS_AFFECTED(victim, AFF_CHARM) && (victim->master->in_room == attacker->in_room)) {
-                if (attacker->specials.fighting)
-                    stop_fighting(attacker);
-                hit(attacker, victim->master, TYPE_UNDEFINED);
-                return 0;
-            }
         }
 
         if (GET_POS(victim) > POSITION_STUNNED) {
@@ -1739,19 +1764,56 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     if (IS_NPC(victim) && victim->specials.attacked_level < GET_LEVELB(attacker))
         victim->specials.attacked_level = GET_LEVELB(attacker);
 
-    /* 33% chance to resist with protection physical*/
-    tmp = check_resistances(victim, attacktype);
-    if (number(0, 2) == 0 && IS_PHYSICAL(attacktype))
-        tmp = 0;
+    /* The element the magnitude is read for is whichever bit actually decided the outcome, not
+       the one the attack nominally belongs to: a weapon hit resolved on the preserved legacy bit
+       has no magnitude behind it and must take the flat rule. */
+    int resist_type = resist_type_for_attack(attacktype);
+    tmp = check_resistances(victim, attacktype, &resist_type);
 
-    if (tmp > 0) {
-        send_to_char("You resist a lot.\n\r", victim);
-        act("$n resists a lot.\n\r",
-            TRUE, victim, 0, 0, TO_ROOM);
-        dam = dam * 2 / 3;
+    /* Rolled unconditionally, exactly where the old code rolled it, so that the shared RNG
+       stream is not shifted by whether this victim happens to be resistant.
+
+       The roll gates BOTH sides of check_resistances. The old code expressed that by zeroing
+       tmp, which skipped the resistance branch and the vulnerability branch together; naming
+       the roll instead makes it easy to guard only one of them, so both uses are spelled out
+       below. A magnitude-backed resistance is the one thing it does not gate - a percentage
+       written by a spell or an item applies on every swing. */
+    const bool physical_check_misses = (number(0, 2) == 0 && IS_PHYSICAL(attacktype));
+
+    /* damage() is the hottest function in the server and buf is the shared scratch buffer, so
+       the diagnostic is formatted only when someone has asked to see it. */
+    if (has_debug_flag(victim)) {
+        sprintf(buf, "::DAMAGE:: attacktype %d resist_type %d check %d dam %d\n\r",
+            attacktype, resist_type, tmp, dam);
+        debug_flag_msg(buf, victim);
     }
 
-    if (tmp < 0) {
+    if (tmp > 0) {
+        const int magnitude = resist_magnitude_for(victim, resist_type);
+        if (magnitude > 0) {
+            dam = apply_resistance(dam, magnitude);
+            if (has_debug_flag(victim)) {
+                sprintf(buf, "::DAMAGE:: resisted %d%% -> dam %d\n\r", magnitude, dam);
+                debug_flag_msg(buf, victim);
+            }
+            send_to_char("You resist a lot.\n\r", victim);
+            act("$n resists a lot.\n\r", TRUE, victim, 0, 0, TO_ROOM);
+        } else if (!physical_check_misses) {
+            /* Flag resistance from a mob record or an APPLY_RESIST item: no magnitude
+               exists, so the original flat rule applies unchanged, including the 1-in-3
+               chance that a physical resistance does not fire at all. */
+            dam = dam * 2 / 3;
+            debug_flag_msg("::DAMAGE:: flag resistance, flat 1/3\n\r", victim);
+            send_to_char("You resist a lot.\n\r", victim);
+            act("$n resists a lot.\n\r", TRUE, victim, 0, 0, TO_ROOM);
+        }
+    }
+
+    /* Guarded by the same roll as the flat resistance above: before this rewrite the roll
+       zeroed tmp, so a physical vulnerability was skipped on about one swing in three. Leaving
+       this branch unguarded made it fire on every swing - roughly 25% more damage against
+       anyone carrying V-PHYSICAL, which no part of the resistance work asked for. */
+    if (tmp < 0 && !physical_check_misses) {
         send_to_char("You feel it a lot.\n\r", victim);
         dam = dam * 3 / 2;
     }
@@ -1935,7 +1997,7 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     }
 }
 
-bool does_victim_save_on_weapon_poison(struct char_data* victim, struct obj_data* weapon)
+bool does_victim_save_on_weapon_poison(const struct char_data* victim, const struct obj_data* weapon)
 {
     int multipler = weapon->obj_flags.get_poison_multipler();
     int strength = weapon->obj_flags.get_poison_strength();
@@ -2080,7 +2142,7 @@ int check_find_weakness(struct char_data* ch, struct char_data* victim, int dam)
  * NOTE: A weapon is considered one handed if it has a bulk of
  * 4 or less.
  */
-void check_grip(struct char_data* ch, struct obj_data* wielded)
+void check_grip(struct char_data* ch, const struct obj_data* wielded)
 {
     int bulk;
 
@@ -2107,14 +2169,27 @@ void check_grip(struct char_data* ch, struct obj_data* wielded)
 int check_riposte(struct char_data* ch, struct char_data* victim)
 {
     int dam;
-    int prob;
+    int prob = 0;
+    int can_riposte = 0;
     struct obj_data* wielded;
-
     wielded = victim->equipment[WIELD];
 
-    if (GET_SKILL(victim, SKILL_RIPOSTE) && !IS_NPC(victim) && wielded && GET_POS(victim) == POSITION_FIGHTING && !IS_SET(victim->specials.affected_by, AFF_BASH))
+    if (!wielded || GET_POS(victim) != POSITION_FIGHTING || IS_SET(victim->specials.affected_by, AFF_BASH)) {
+        return 0;
+    }
+
+    if (IS_NPC(victim)) {
+        if (ranger_settings(victim).riposte) {
+            can_riposte = 1;
+            prob = 75;
+        }
+    } else {
+        can_riposte = 1;
+        prob = GET_SKILL(victim, SKILL_RIPOSTE);
+    }
+
+    if (can_riposte && prob)
         if (wielded->obj_flags.value[2] <= 3) {
-            prob = GET_SKILL(victim, SKILL_RIPOSTE);
             prob += GET_SKILL(victim, SKILL_STEALTH);
             prob += GET_DEX(victim) * 5;
             prob *= GET_PROF_LEVEL(PROF_RANGER, victim);
@@ -2124,12 +2199,11 @@ int check_riposte(struct char_data* ch, struct char_data* victim)
                 do_riposte(victim, ch);
                 dam = get_weapon_damage(wielded) * std::min(static_cast<int>(GET_DEX(victim)), 20) / number(50, 100);
 
-                if (damage(victim, ch, dam,
-                        weapon_hit_type(wielded->obj_flags.value[3]), 1))
+                if (damage(victim, ch, dam, weapon_hit_type(wielded->obj_flags.value[3]), 1)) {
                     return 1;
+                }
             }
         }
-
     return 0;
 }
 
@@ -2336,7 +2410,7 @@ int get_evasion_malus(const char_data& attacker, const char_data& victim)
     return BASE_VALUE + spec_bonus + defender_bonus - attacker_offset;
 }
 
-int natural_attack_dam(struct char_data* attacker)
+int natural_attack_dam(const struct char_data* attacker)
 {
     int dam, level_factor, str_factor, warrior_factor;
 
@@ -2569,8 +2643,7 @@ void hit(char_data* ch, char_data* victim, int type)
      * this mess of position updating is also absolutely horrid.
      */
     if (ch->specials.fighting != victim) {
-        tmpwtl.targ1.ptr.ch = victim;
-        tmpwtl.targ1.type = TARGET_CHAR;
+        tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
         tmp = special(ch, 0, "", SPECIAL_DAMAGE, &tmpwtl);
@@ -2657,7 +2730,7 @@ bool does_double_hit_proc(const char_data* character)
     return number() >= 0.80;
 }
 
-bool can_beorning_swipe(struct char_data* character)
+bool can_beorning_swipe(const struct char_data* character)
 {
     assert(character);
 
@@ -2677,7 +2750,7 @@ bool can_beorning_swipe(struct char_data* character)
  * NOTE: Max probability should be 31 for a level 90
  * bear with 36w and fully practiced swipe
  */
-bool does_beorning_swipe_proc(struct char_data* character)
+bool does_beorning_swipe_proc(const struct char_data* character)
 {
     int warrior_level, skill_level, ch_level;
     double chance;
@@ -2688,44 +2761,10 @@ bool does_beorning_swipe_proc(struct char_data* character)
     return number() <= chance;
 }
 
-namespace {
-timeval last_time;
-timeval current_time;
-
-timeval timediff(struct timeval* a, struct timeval* b)
+// Runs one combat pulse for every character on combat_list.
+void perform_violence()
 {
-    struct timeval rslt, tmp;
-
-    tmp = *a;
-
-    if ((rslt.tv_usec = tmp.tv_usec - b->tv_usec) < 0) {
-        rslt.tv_usec += 1000000;
-        --(tmp.tv_sec);
-    }
-    if ((rslt.tv_sec = tmp.tv_sec - b->tv_sec) < 0) {
-        rslt.tv_usec = 0;
-        rslt.tv_sec = 0;
-    }
-    return (rslt);
-}
-}
-
-/*
- * Control all of the fights going on; works on PULSE_VIOLENCE
- */
-void perform_violence(int mini_tics)
-{
-    last_time = current_time;
-    gettimeofday(&current_time, NULL);
-    timeval time_difference = timediff(&current_time, &last_time);
-
-    float time_delta = time_difference.tv_sec + time_difference.tv_usec / 1000000.0f;
     for (char_data* fighter = combat_list; fighter; fighter = combat_next_dude) {
-        fighter->damage_details.tick(time_delta);
-        if (fighter->group) {
-            fighter->group->track_combat_time(fighter, time_delta);
-        }
-
         combat_next_dude = fighter->next_fighting;
 
         SET_CURRENT_PARRY(fighter) = std::min(GET_CURRENT_PARRY(fighter) + 3, 100);

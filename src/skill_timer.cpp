@@ -40,10 +40,11 @@ int skill_timer::report_skill_status(int player_id, char* buffer)
 
 void skill_timer::update_skill_timer()
 {
-    for (int i = 0; i < m_skill_timer.size(); ++i) {
+    for (int i = 0; i < m_skill_timer.size();) {
         auto& data = m_skill_timer[i];
         if (data.counter > 0) {
             data.counter -= 1;
+            ++i;
         } else {
             m_skill_timer.erase(m_skill_timer.begin() + i);
         }

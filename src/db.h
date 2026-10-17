@@ -11,243 +11,347 @@
 #ifndef DB_H
 #define DB_H
 
+#include <cstddef>
 #include <stdio.h> /* For the FILE structure */
+#include <string>
+#include <vector>
 
 #include "interpre.h" /* For the SPECIAL macro */
-#include "platdef.h"  /* For sh_int, ush_int, byte, etc. */
-#include "structs.h"  /* For MAX_NAME_LENGTH and MAX_STRING_LENGTH */
+#include "platdef.h" /* For sh_int, ush_int, byte, etc. */
+#include "structs.h" /* For MAX_NAME_LENGTH and MAX_STRING_LENGTH */
 
 /* arbitrary constants used by index_boot() (must be unique) */
-#define DB_BOOT_WLD 0
-#define DB_BOOT_MOB 1
-#define DB_BOOT_OBJ 2
-#define DB_BOOT_ZON 3
-#define DB_BOOT_SHP 4
-#define DB_BOOT_MDL 6
-#define DB_BOOT_SCR 7
+inline constexpr int DB_BOOT_WLD = 0;
+inline constexpr int DB_BOOT_MOB = 1;
+inline constexpr int DB_BOOT_OBJ = 2;
+inline constexpr int DB_BOOT_ZON = 3;
+inline constexpr int DB_BOOT_SHP = 4;
+inline constexpr int DB_BOOT_MDL = 6;
+inline constexpr int DB_BOOT_SCR = 7;
 
 /* names of various files and directories */
-#define INDEX_FILE "index"      /* index of world files		*/
-#define MINDEX_FILE "index.min" /* ... and for mini-mud-mode	*/
-#define NEWINDEX_FILE "index.new"
-#define WLD_PREFIX "world/wld" /* room definitions		*/
-#define MOB_PREFIX "world/mob" /* monster prototypes		*/
-#define OBJ_PREFIX "world/obj" /* object prototypes		*/
-#define ZON_PREFIX "world/zon" /* zon defs & command tables	*/
-#define SHP_PREFIX "world/shp" /* shop definitions		*/
-#define MDL_PREFIX "world/mdl" /* mudlle(asima) programs     	*/
-#define SCR_PREFIX "world/scr" /* scripts */
+inline constexpr char INDEX_FILE[] = "index"; /* index of world files		*/
+inline constexpr char MINDEX_FILE[] = "index.min"; /* ... and for mini-mud-mode	*/
+inline constexpr char NEWINDEX_FILE[] = "index.new";
+inline constexpr char WLD_PREFIX[] = "world/wld"; /* room definitions		*/
+inline constexpr char MOB_PREFIX[] = "world/mob"; /* monster prototypes		*/
+inline constexpr char OBJ_PREFIX[] = "world/obj"; /* object prototypes		*/
+inline constexpr char ZON_PREFIX[] = "world/zon"; /* zon defs & command tables	*/
+inline constexpr char SHP_PREFIX[] = "world/shp"; /* shop definitions		*/
+inline constexpr char MDL_PREFIX[] = "world/mdl"; /* mudlle(asima) programs     	*/
+inline constexpr char SCR_PREFIX[] = "world/scr"; /* scripts */
 
-#define CREDITS_FILE "text/credits"    /* for the 'credits' command	*/
-#define NEWS_FILE "text/news"          /* for the 'news' command	*/
-#define MOTD_FILE "text/motd"          /* messages of the day / mortal	*/
-#define IMOTD_FILE "text/imotd"        /* messages of the day / immort	*/
-#define IDEA_FILE "text/ideas"         /* for the 'idea'-command	*/
-#define TYPO_FILE "text/typos"         /*         'typo'		*/
-#define BUG_FILE "text/bugs"           /*         'bug'		*/
-#define HELP_KWRD_FILE "text/help_tbl" /* for HELP <keywrd>	       */
-#define HELP_PAGE_FILE "text/help"     /* for HELP <CR>		*/
-#define INFO_FILE "text/info"          /* for INFO			*/
-#define WIZLIST_FILE "text/wizlist"    /* for WIZLIST			*/
-#define IMMLIST_FILE "text/immlist"    /* for IMMLIST			*/
-#define BACKGROUND_FILE "text/backgr"  /* for the background story	*/
-#define POLICIES_FILE "text/policies"  /* player policies/rules	*/
-#define HANDBOOK_FILE "text/handbook"  /* handbook for new immorts	*/
-#define SPELL_FILE "text/spel_tbl"     /* for MAN SPELL		*/
-#define POWER_FILE "text/pray_tbl"     /* for MAN POWER		*/
-#define ASIMA_FILE "text/mudl_tbl"     /* for MAN ASIMA		*/
-#define SKILLS_FILE "text/skil_tbl"    /* for MAN SKILL		*/
-#define SHAPE_FILE "text/shap_tbl"     /* for MAN SHAPE		*/
-#define MSDP_FILE "text/msdp_tbl"      /* for MAN MSDP */
+inline constexpr char CREDITS_FILE[] = "text/credits"; /* for the 'credits' command	*/
+inline constexpr char NEWS_FILE[] = "text/news"; /* for the 'news' command	*/
+inline constexpr char MOTD_FILE[] = "text/motd"; /* messages of the day / mortal	*/
+inline constexpr char IMOTD_FILE[] = "text/imotd"; /* messages of the day / immort	*/
+inline constexpr char IDEA_FILE[] = "text/ideas"; /* for the 'idea'-command	*/
+inline constexpr char TYPO_FILE[] = "text/typos"; /*         'typo'		*/
+inline constexpr char BUG_FILE[] = "text/bugs"; /*         'bug'		*/
+inline constexpr char HELP_KWRD_FILE[] = "text/help_tbl"; /* for HELP <keywrd>	       */
+inline constexpr char HELP_PAGE_FILE[] = "text/help"; /* for HELP <CR>		*/
+inline constexpr char INFO_FILE[] = "text/info"; /* for INFO			*/
+inline constexpr char WIZLIST_FILE[] = "text/wizlist"; /* for WIZLIST			*/
+inline constexpr char IMMLIST_FILE[] = "text/immlist"; /* for IMMLIST			*/
+inline constexpr char BACKGROUND_FILE[] = "text/backgr"; /* for the background story	*/
+inline constexpr char POLICIES_FILE[] = "text/policies"; /* player policies/rules	*/
+inline constexpr char HANDBOOK_FILE[] = "text/handbook"; /* handbook for new immorts	*/
+inline constexpr char SPELL_FILE[] = "text/spel_tbl"; /* for MAN SPELL		*/
+inline constexpr char POWER_FILE[] = "text/pray_tbl"; /* for MAN POWER		*/
+inline constexpr char ASIMA_FILE[] = "text/mudl_tbl"; /* for MAN ASIMA		*/
+inline constexpr char SKILLS_FILE[] = "text/skil_tbl"; /* for MAN SKILL		*/
+inline constexpr char SHAPE_FILE[] = "text/shap_tbl"; /* for MAN SHAPE		*/
+inline constexpr char MSDP_FILE[] = "text/msdp_tbl"; /* for MAN MSDP */
 
-#define LASTDEATH_FILE "../log/lastdeath" /* the last words of the dead mud */
+// The largest text file file_to_string_alloc() loads; a larger one is refused with a SYSERR.
+constexpr std::size_t text_file_byte_limit = 128 * 1024;
 
-#define PLAYER_FILE "misc/players"       /* the player database		*/
-#define MESS_FILE "misc/messages"        /* damage message		*/
-#define SOCMESS_FILE "misc/socials"      /* messgs for social acts	*/
-#define MAIL_FILE "misc/plrmail"         /* for the mudmail system	*/
-#define BAN_FILE "misc/badsites"         /* for the siteban system	*/
-#define XNAME_FILE "misc/xnames"         /* invalid name substrings	*/
-#define MUDLLE_FILE "misc/mudlle"        /* mudlle programs              */
-#define MUDLLE_OLDFILE "misc/mudlle.old" /* backup from shaping        */
-#define PKILL_FILE "misc/pklist"         /*the list of player killings   */
-#define CRIME_FILE "misc/crimelist"      /*the list of player crimes	*/
+inline constexpr char LASTDEATH_FILE[] = "../log/lastdeath"; /* the last words of the dead mud */
+
+inline constexpr char PLAYER_FILE[] = "misc/players"; /* the player database		*/
+inline constexpr char MESS_FILE[] = "misc/messages"; /* damage message		*/
+inline constexpr char SOCMESS_FILE[] = "misc/socials"; /* messgs for social acts	*/
+inline constexpr char MAIL_FILE[] = "misc/plrmail"; /* for the mudmail system	*/
+inline constexpr char BAN_FILE[] = "misc/badsites"; /* for the siteban system	*/
+inline constexpr char XNAME_FILE[] = "misc/xnames"; /* invalid name substrings	*/
+inline constexpr char MUDLLE_FILE[] = "misc/mudlle"; /* mudlle programs              */
+inline constexpr char MUDLLE_OLDFILE[] = "misc/mudlle.old"; /* backup from shaping        */
+inline constexpr char PKILL_FILE[] = "misc/pklist"; /*the list of player killings   */
+inline constexpr char CRIME_FILE[] = "misc/crimelist"; /*the list of player crimes	*/
 
 // exploit types
-#define EXPLOIT_PK 1
-#define EXPLOIT_DEATH 2
-#define EXPLOIT_LEVEL 3
-#define EXPLOIT_BIRTH 4
-#define EXPLOIT_STAT 5
-#define EXPLOIT_MOBDEATH 6
-#define EXPLOIT_RETIRED 8
-#define EXPLOIT_ACHIEVEMENT 9
-#define EXPLOIT_NOTE 10
-#define EXPLOIT_POISON 11
-#define EXPLOIT_REGEN_DEATH 12
+inline constexpr int EXPLOIT_PK = 1;
+inline constexpr int EXPLOIT_DEATH = 2;
+inline constexpr int EXPLOIT_LEVEL = 3;
+inline constexpr int EXPLOIT_BIRTH = 4;
+inline constexpr int EXPLOIT_STAT = 5;
+inline constexpr int EXPLOIT_MOBDEATH = 6;
+inline constexpr int EXPLOIT_RETIRED = 8;
+inline constexpr int EXPLOIT_ACHIEVEMENT = 9;
+inline constexpr int EXPLOIT_NOTE = 10;
+inline constexpr int EXPLOIT_POISON = 11;
+inline constexpr int EXPLOIT_REGEN_DEATH = 12;
 
-#define SAVE_VERSION 1
+inline constexpr int SAVE_VERSION = 1;
 
 // Players who load in these rooms [x][...] will be moved to [...][y]
-#define MAX_MAZE_RENT_MAPPINGS 6
+inline constexpr int MAX_MAZE_RENT_MAPPINGS = 6;
 
 static const int mortal_maze_room[MAX_MAZE_RENT_MAPPINGS][2] = {
-    {23500, 10700}, {23600, 10700}, {23700, 10700},
-    {23100, 6330},  {23200, 6330},  {23300, 6330}};
+    { 23500, 10700 }, { 23600, 10700 }, { 23700, 10700 },
+    { 23100, 6330 }, { 23200, 6330 }, { 23300, 6330 }
+};
 
 /* public procedures in db.c */
 void boot_db(void);
-void char_to_store(struct char_data *, struct char_file_u *);
-void store_to_char(struct char_file_u *, struct char_data *);
-int load_char(char *, struct char_file_u *);
-void save_char(struct char_data *, int, int);
-int create_entry(char *);
-void init_char(struct char_data *);
-void clear_char(struct char_data *, int);
-void clear_object(struct obj_data *);
-void reset_char(struct char_data *);
-void free_char(struct char_data *);
-void free_obj(struct obj_data *);
+void char_to_store(struct char_data*, struct char_file_u*);
+void store_to_char(const struct char_file_u*, struct char_data*);
+bool write_player_text(struct char_data* ch, int load_room, const char* scratch_path);
+int load_char(char*, struct char_file_u*);
+int load_char_from_text(char*, const char*, struct char_file_u*);
+void save_char(struct char_data*, int, int);
+int create_entry(const char*);
+int ensure_player_index_entry(const char*);
+void update_player_index_entry_from_store(struct char_file_u*);
+bool update_player_index_entry_from_store(
+    struct char_file_u*, const char*, std::string* error_message = nullptr);
+void init_char(struct char_data*);
+void clear_char(struct char_data*, int);
+void clear_object(struct obj_data*);
+void reset_char(struct char_data*);
+void free_char(struct char_data*);
+void free_obj(struct obj_data*);
 int real_room(int);
 int real_program(int);
-char *fread_string(FILE *, char *);
+char* fread_string(FILE*, const char*);
 int real_object(int);
 int real_mobile(int);
-int vnum_mobile(char *, struct char_data *);
-int vnum_object(char *, struct char_data *);
-void record_crime(struct char_data *, struct char_data *, int, int);
+int vnum_mobile(const char*, const struct char_data*);
+int vnum_object(const char*, const struct char_data*);
+void record_crime(const struct char_data*, const struct char_data*, int, int);
 void add_crime(int, int, int, int, int);
-void forget_crimes(struct char_data *, int);
-void add_exploit_record(int, struct char_data *, int, char *);
-int delete_exploits_file(char *);
-void delete_character_file(struct char_data *);
+void forget_crimes(const struct char_data*, int);
+// Adds `recordtype` exploit records to the front of the histories they belong in. EXPLOIT_PK
+// gives a trophy naming `victim` to every player fighting it (a fighting pet or orc-friend credits
+// its player master); EXPLOIT_DEATH gives `victim` one "killed by" entry per such player. Every
+// other type gives `victim` one record carrying whichever of `iIntParam` and `chParam` it uses.
+// `victim` must not be null; `chParam` must not be null for EXPLOIT_STAT, EXPLOIT_MOBDEATH,
+// EXPLOIT_ACHIEVEMENT and EXPLOIT_NOTE and is ignored otherwise. Names and text longer than the
+// record's text field are truncated. NPC and immortal victims get nothing.
+void add_exploit_record(int recordtype, struct char_data* victim, int iIntParam, const char* chParam);
+// Persists one finished exploit record into `recipient`'s history.
+using ExploitRecordWriterFn = void (*)(struct char_data& recipient, const struct exploit_record& record);
+// Test-only: routes every record add_exploit_record() finishes to `writer` instead of
+// write_exploits(), which touches disk. nullptr restores write_exploits().
+void set_exploit_record_writer_for_testing(ExploitRecordWriterFn writer);
+int delete_exploits_file(const char*);
+void delete_character_file(const struct char_data*);
 void move_char_deleted(int);
-int get_char_directory(char *, char *);
-int load_player(char *, struct char_file_u *);
+// System deletion (boot-time idle sweep, immortal 'delete'). Unlinks account-linked characters
+// through the account layer so account.json stops listing them; returns false if it declined to
+// delete, in which case the character is left untouched.
+bool delete_player_character_by_index(int);
+int get_char_directory(const char*, char*);
+int load_player(char*, struct char_file_u*);
+int load_player_from_text(char*, const char*, struct char_file_u*);
 
 // Implemented in consts.cc
 
 /* Returns an array of size MAX_WEAR that contains item encumbrance multipliers.
  */
-sh_int *get_encumb_table();
+sh_int* get_encumb_table();
 
 /* Returns an array of size MAX_WEAR that contains item leg encumbrance
  * multipliers. */
-sh_int *get_leg_encumb_table();
+sh_int* get_leg_encumb_table();
 
-#define REAL 0
-#define VIRT 1
+inline constexpr int REAL = 0;
+inline constexpr int VIRT = 1;
 
-struct obj_data *read_object(int, int);
-struct char_data *read_mobile(int, int);
+struct obj_data* read_object(int, int);
+struct char_data* read_mobile(int, int);
 
 struct crime_record_type {
-  int crime_time;
-  sh_int criminal;
-  sh_int victim;
-  int crime;
-  sh_int witness;
-  sh_int witness_type;
+    int crime_time;
+    sh_int criminal;
+    sh_int victim;
+    int crime;
+    sh_int witness;
+    sh_int witness_type;
 };
 
 /* structure for the reset commands */
 struct reset_com {
-  char command; /* current command */
-  int if_flag;  /* if TRUE: exe only if preceding exe'd */
-  int arg1;
-  int arg2; /* Arguments to the command */
-  int arg3;
-  int arg4;
-  int arg5;
-  int arg6;
-  int arg7;
-  int existing;
-  /*
-   *  Commands:
-   *  'M': Read a mobile
-   *  'O': Read an object
-   *  'G': Give obj to mob
-   *  'P': Put obj in obj
-   *  'G': Obj to char
-   *  'E': Obj to char equip
-   *  'D': Set state of door
-   */
+    char command; /* current command */
+    int if_flag; /* if TRUE: exe only if preceding exe'd */
+    int arg1;
+    int arg2; /* Arguments to the command */
+    int arg3;
+    int arg4;
+    int arg5;
+    int arg6;
+    int arg7;
+    int existing;
+    /*
+     * Set by renum_zone_one when one of the args above did not resolve and the
+     * command was left enabled anyway (a K equipment slot, a P room or
+     * container): 0 if none, else 1 + the zone_ref_kind that failed.  It
+     * runs at every reset and quietly loads nothing; reset_zone reports that
+     * each time it happens, so the log shows how often it is actually hit.
+     */
+    char bad_arg;
+    /*
+     *  Commands:
+     *  'M': Read a mobile
+     *  'O': Read an object
+     *  'G': Give obj to mob
+     *  'P': Put obj in obj
+     *  'G': Obj to char
+     *  'E': Obj to char equip
+     *  'D': Set state of door
+     */
 };
 
 /* element in monster and object index-tables */
 struct index_data {
-  int virt;       /* virt number of this mob/obj */
-  int number;     /* number of existing units of this mob/obj	*/
-  SPECIAL(*func); /* special procedure for this mob/obj */
+    int virt; /* virt number of this mob/obj */
+    int number; /* number of existing units of this mob/obj	*/
+    SPECIAL(*func); /* special procedure for this mob/obj */
 };
 
 struct player_index_element {
-  char *name;
-  sh_int level;
-  sh_int race;
-  int idnum;
-  time_t log_time;
-  long flags;
-  int warpoints;
-  int rank;
-  int totalrank;
-  char ch_file[80]; /* for speed in locating the file to load */
+    char* name;
+    sh_int level;
+    sh_int race;
+    int idnum;
+    time_t log_time;
+    long flags;
+    int warpoints;
+    int rank;
+    int totalrank;
+    // 31 bytes of fixed structure ("./accounts/<bucket>/" + "/" + ".character.json") plus the
+    // email plus the character name. At 80 that left 36 bytes for an email address, and
+    // nothing caps email length -- so an ordinary address made the conversion write files whose
+    // path the index could not hold, and the NEXT boot exit(1)'d. This struct is built fresh at
+    // boot and never serialized, so the width is free to choose; 160 leaves 117 for email plus
+    // name, past any real address, at ~80 bytes more per character in memory.
+    char ch_file[160]; /* for speed in locating the file to load */
 };
 
 struct help_index_element {
-  char *keyword;
-  long pos;
+    char* keyword;
+    long pos;
 };
 
 struct help_index_summary {
-  char *keyword;
-  char *descr;
-  char *filename;
-  FILE *file;
-  int top_of_helpt;
-  char imm_only;
-  struct help_index_element *index;
+    char* keyword;
+    char* descr;
+    char* filename;
+    FILE* file;
+    int top_of_helpt;
+    char imm_only;
+    struct help_index_element* index;
 };
 
 /* exploits */
 struct exploit_record {
-  int type;              /* type of record */
-  char chtime[30];       /* str date of death */
-  sh_int shintVictimID;  /* idnum of victim */
-  char chVictimName[30]; /* in case char has been deleted */
-  int iVictimLevel;      /* at time of kill */
-  int iKillerLevel;      /* at time of kill */
-  int iIntParam;         /* reserved */
+    // One of the EXPLOIT_* record types.
+    int type;
+    // asctime() text of when the record was made.
+    char chtime[30];
+    // Idnum of the victim (PK trophy) or killer (death record). Records read from a legacy file or
+    // snapshot, or written by older servers, hold only its low 16 bits.
+    long lVictimID;
+    // Victim's name (PK trophy), killer's name (death record), or the type's text payload.
+    char chVictimName[30];
+    int iVictimLevel; /* at time of kill */
+    int iKillerLevel; /* at time of kill */
+    // Level reached (level), level at the time (stat), -1 (mob death: the killer is an NPC, whose
+    // GET_IDNUM is -1), 1 on the first entry of a death; otherwise 0.
+    int iIntParam;
 };
+// Renames a live character, moving its files. Returns 1 on success and -1 when the rename was
+// REFUSED, in which case nothing was changed; `error_message`, when given, says why in words the
+// only caller (`wizset <victim> name <newname>`) can show an immortal.
+int rename_char(struct char_data* ch, char* newname, std::string* error_message = nullptr);
+
+// Reads the character's exploit history into `records`, newest first. A character linked to an
+// account reads its account-native JSON and removes any leftover legacy exploits/ file; without
+// that JSON, or without an account, the legacy file is read, and a missing file is an empty
+// history. A legacy file that is not a whole number of records is logged, removed and read as
+// empty. Returns false with `error_message` set when `records` is null, the owner cannot be
+// resolved, the account JSON exists but cannot be read, or a file cannot be read, decoded or
+// removed.
+bool load_exploit_records_for_character(const std::string& root_directory, const std::string& character_name, std::vector<exploit_record>* records, std::string* error_message = nullptr);
+bool write_exploit_record_for_character(const std::string& root_directory, const std::string& character_name, const exploit_record& record, std::string* error_message = nullptr);
+bool load_object_save_bytes_for_character(const std::string& root_directory, const std::string& character_name, std::string* bytes, std::string* error_message = nullptr);
+namespace objects_json {
+struct ObjectSaveData;
+}
+// Records the enchant weapon casts in a save from before enchants were recorded; see db.cpp.
+int record_old_object_enchants(objects_json::ObjectSaveData* data);
 
 struct social_messg {
-  int hide;
-  int min_victim_position; /* Position of victim */
-  int min_actor_position;  /* Position of victim */
-  char *command;
-  char *char_no_arg; /* No argument was supplied */
-  char *others_no_arg;
-  char *char_found; /* if NULL, read no further, ignore args */
-  char *others_found;
-  char *vict_found;
-  char *not_found; /* An argument was there, but no victim was found */
-  char *char_auto; /* The victim turned out to be the character */
-  char *others_auto;
+    int hide;
+    int min_victim_position; /* Position of victim */
+    int min_actor_position; /* Position of victim */
+    char* command;
+    char* char_no_arg; /* No argument was supplied */
+    char* others_no_arg;
+    char* char_found; /* if NULL, read no further, ignore args */
+    char* others_found;
+    char* vict_found;
+    char* not_found; /* An argument was there, but no victim was found */
+    char* char_auto; /* The victim turned out to be the character */
+    char* others_auto;
 };
 
 /* don't change these */
-#define BAN_NOT 0
-#define BAN_NEW 1
-#define BAN_SELECT 2
-#define BAN_ALL 3
+inline constexpr int BAN_NOT = 0;
+inline constexpr int BAN_NEW = 1;
+inline constexpr int BAN_SELECT = 2;
+inline constexpr int BAN_ALL = 3;
 
-#define BANNED_SITE_LENGTH 50
+inline constexpr int BANNED_SITE_LENGTH = 50;
 struct ban_list_element {
-  char name[MAX_NAME_LENGTH + 1];
-  char site[BANNED_SITE_LENGTH + 1];
-  int type;
-  long date;
-  struct ban_list_element *next;
+    char name[MAX_NAME_LENGTH + 1];
+    char site[BANNED_SITE_LENGTH + 1];
+    int type;
+    long date;
+    struct ban_list_element* next;
+};
+
+// Builds the account index and the account-native half of the player table at boot. Declared here
+// rather than kept file-local so its boot-failure behaviour can be tested.
+void build_account_native_player_index(void);
+
+/*
+ * Vnum of the mob one_mobile_activity is running for, or -1, and of the room
+ * it started that turn in.  A negative world[] lookup made there names both,
+ * since the function alone does not say which mob, and by then its room may
+ * already be gone.  The guard restores the previous values on every return
+ * path.
+ */
+extern int running_mob_vnum;
+extern int running_mob_room_vnum;
+/* One backtrace_symbols() line as "function(args)+0x1f"; empty if it has no
+ * name.  Cuts the line up in place. */
+void negative_room_caller_name(char* line, char* out, size_t out_size);
+struct running_mob_guard {
+    int saved_vnum;
+    int saved_room_vnum;
+    running_mob_guard(int vnum, int room_vnum)
+        : saved_vnum(running_mob_vnum)
+        , saved_room_vnum(running_mob_room_vnum)
+    {
+        running_mob_vnum = vnum;
+        running_mob_room_vnum = room_vnum;
+    }
+    ~running_mob_guard()
+    {
+        running_mob_vnum = saved_vnum;
+        running_mob_room_vnum = saved_room_vnum;
+    }
 };
 
 extern char buf[MAX_STRING_LENGTH];

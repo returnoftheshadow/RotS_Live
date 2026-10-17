@@ -38,6 +38,12 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | [Ranger skills](systems/ranger-skills.md) | ✅ skill catalog + DEX-vs-ranger-level for dodge/skills | `ranger.cpp`, `utility.cpp`, `consts.cpp` |
 | [Magic system — mage spells](systems/magic-system.md) | ✅ damage, saves, resistance, penetration, scaling, mana regen | `mage.cpp`, `spell_pa.cpp`, `consts.cpp` |
 | [Cleric / Mystic system](systems/cleric-mystic-system.md) | ✅ powers, saves, mental combat, spirit, scaling | `mystic.cpp`, `clerics.cpp`, `spell_pa.cpp` |
+| [Idle, the void & followers](systems/idle-void-and-followers.md) | ✅ observed live; historic behaviour, not to be changed | `limits.cpp::check_idling`, `handler.cpp`, `objsave.cpp` |
+| [Barter vendors](systems/barter-vendors.md) | ✅ builder guide: program 33 + mob options; list/buy, warnings, rollback | `mob_progs/shopkeeper.cpp`, `mob_options.cpp` |
+| [Mob walkers](systems/mob-walkers.md) | ✅ builder guide: route and area walkers from mob options; `ON_PATH_END`; general option keys | `mob_walker.cpp`, `mobact.cpp`, `mob_options.cpp` |
+| [Mage program](systems/mage-program.md) | ✅ builder guide: program 31 + mob options (types, conjurer, shield, terror); health bands, interrupt limit, target picker | `spec_pro.cpp`, `mob_progs/mage_prog.cpp` |
+| [Ranger program](systems/ranger-program.md) | ✅ builder guide: program 32 + mob options (hide, ambush, track, riposte); turn order, supported flags | `spec_pro.cpp`, `mob_progs/ranger_prog.cpp`, `mobact.cpp` |
+| [Player bank](systems/bank.md) | ✅ program 34 bankers, account vaults per side, fees, `vault` and `gameoptions` | `mob_progs/banker.cpp`, `game_boot_options.cpp` |
 
 ⬜ Races ·
 XP/leveling · Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·

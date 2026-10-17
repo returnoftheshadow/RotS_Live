@@ -111,7 +111,7 @@ void big_brother::populate_skill_sets()
 //============================================================================
 // Returns true if the item can be looted from the corpse.
 //============================================================================
-bool big_brother::on_loot_item(char_data* looter, obj_data* corpse, obj_data* item)
+bool big_brother::on_loot_item(const char_data* looter, obj_data* corpse, const obj_data* item)
 {
 #if USE_BIG_BROTHER
     // Something's not right.  Go for it, we won't stop you.
@@ -198,7 +198,7 @@ bool big_brother::on_loot_item(char_data* looter, obj_data* corpse, obj_data* it
 }
 
 //============================================================================
-void big_brother::log_item_looted(const char_data* looter, corpse_map::iterator& corpse_iter, obj_data* item) const
+void big_brother::log_item_looted(const char_data* looter, corpse_map::iterator& corpse_iter, const obj_data* item) const
 {
 #if USE_BIG_BROTHER
     // This is the last item from the corpse.  Stop tracking the corpse.
@@ -263,7 +263,7 @@ bool big_brother::is_corpse_protected(const char_data* looter, obj_data* corpse)
 }
 
 //============================================================================
-bool big_brother::is_target_valid(char_data* attacker, const char_data* victim) const
+bool big_brother::is_target_valid(const char_data* attacker, const char_data* victim) const
 {
 #if USE_BIG_BROTHER
     // Not Big Brother's job to check these pointers.
@@ -322,7 +322,7 @@ bool big_brother::is_target_valid(char_data* attacker, const char_data* victim) 
 }
 
 //============================================================================
-bool big_brother::is_target_valid(char_data* attacker, const char_data* victim, int skill_id) const
+bool big_brother::is_target_valid(const char_data* attacker, const char_data* victim, int skill_id) const
 {
 #if USE_BIG_BROTHER
     // If the target isn't protected, just return true.
@@ -425,7 +425,7 @@ bool big_brother::is_same_side_race_war(int attacker_race, int victim_race) cons
 }
 
 //============================================================================
-char_data* big_brother::get_valid_target(char_data* attacker, const char_data* victim, const char* argument) const
+char_data* big_brother::get_valid_target(const char_data* attacker, const char_data* victim, const char* argument) const
 {
     // TODO(drelidan):  Implement logic here.
     return NULL;
@@ -437,7 +437,7 @@ char_data* big_brother::get_valid_target(char_data* attacker, const char_data* v
 //============================================================================
 
 //============================================================================
-void big_brother::on_character_died(char_data* character, char_data* killer, obj_data* corpse)
+void big_brother::on_character_died(const char_data* character, const char_data* killer, obj_data* corpse)
 {
 #if USE_BIG_BROTHER
     assert(character);
@@ -469,19 +469,15 @@ void big_brother::on_character_died(char_data* character, char_data* killer, obj
 }
 
 //============================================================================
-void big_brother::on_character_attacked_player(const char_data* attacker, const char_data* victim)
+void big_brother::on_character_attacked_player(const char_data* attacker, const char_data* victim,
+    WorldClock::time_point now)
 {
 #if USE_BIG_BROTHER
     assert(attacker);
     assert(victim);
 
-    // Get the current time.
-    time_t current_time;
-    time(&current_time);
-
-    tm* time_info = localtime(&current_time);
-    m_last_engaged_pk_time[attacker] = *time_info; // copy tm_struct into map
-    m_last_engaged_pk_time[victim] = *time_info; // copy tm_struct into map
+    m_last_engaged_pk_time[attacker] = now;
+    m_last_engaged_pk_time[victim] = now;
 
     // If you attack someone in PK, you are no longer considered looting.
     remove_character_from_looting_set(attacker->abs_number);
@@ -490,28 +486,20 @@ void big_brother::on_character_attacked_player(const char_data* attacker, const 
 }
 
 //============================================================================
-void big_brother::on_character_afked(const char_data* character)
+void big_brother::on_character_afked(const char_data* character,
+    WorldClock::time_point now)
 {
 #if USE_BIG_BROTHER
     assert(character);
 
     // This is one possible implementation.  Another is to do the time-check in the
     // "is-character-afk" test.
-    const double CUTOFF_SECS = 900;
-    typedef time_map::iterator map_iter;
-
     bool insert = true;
 
-    map_iter attack_time = m_last_engaged_pk_time.find(character);
+    time_map::iterator attack_time = m_last_engaged_pk_time.find(character);
     if (attack_time != m_last_engaged_pk_time.end()) {
-        time_t current_time;
-        time(&current_time);
-
-        time_t pk_time = mktime(&attack_time->second);
-
-        // Only give AFK protection if a character hasn't PK'd for 15 minutes.
-        double seconds_since = difftime(current_time, pk_time);
-        insert = seconds_since >= CUTOFF_SECS;
+        const WorldClock::duration time_since_pk = now - attack_time->second;
+        insert = time_since_pk >= PK_AFK_PROTECTION_DELAY;
         if (insert) {
             // They're clear from PK - don't track the state anymore.
             m_last_engaged_pk_time.erase(attack_time);
@@ -622,7 +610,7 @@ void big_brother::on_corpse_decayed(obj_data* corpse)
 // Private Data Structure implementation
 //============================================================================
 //============================================================================
-big_brother::player_corpse_data::player_corpse_data(char_data* dead_man)
+big_brother::player_corpse_data::player_corpse_data(const char_data* dead_man)
     : num_items_looted(0)
     , killer_id(-1)
     , is_killer_pc(false)
@@ -638,7 +626,7 @@ big_brother::player_corpse_data::player_corpse_data(char_data* dead_man)
 }
 
 //============================================================================
-big_brother::player_corpse_data::player_corpse_data(char_data* dead_man, char_data* killer)
+big_brother::player_corpse_data::player_corpse_data(const char_data* dead_man, const char_data* killer)
     : num_items_looted(0)
 {
     assert(dead_man);

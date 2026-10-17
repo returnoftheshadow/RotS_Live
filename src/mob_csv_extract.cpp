@@ -51,7 +51,7 @@ struct mob_csv_data {
     long script {};
     int special_program_number {};
     int call_mask {};
-    long affected_bits{};
+    long affected_bits {};
     int resistances {};
     int vulnerabilities {};
     int body_type {};
@@ -106,7 +106,7 @@ struct mob_csv_data {
     }
 };
 
-void mob_csv_extract::create_header(char_data* ch) const
+void mob_csv_extract::create_header(const char_data* ch) const
 {
     fprintf(file,
         "\"vnum\",\"name\",\"aliases\",\"title\",\"race\","
@@ -121,7 +121,7 @@ void mob_csv_extract::create_header(char_data* ch) const
         "\"resistances\",\"vulnerabilities\",\"body_type\"\n");
 }
 
-void mob_csv_extract::create_file(char_data* ch)
+void mob_csv_extract::create_file(const char_data* ch)
 {
     file = fopen(file_location.c_str(), "w");
     if (!file) {
@@ -131,17 +131,17 @@ void mob_csv_extract::create_file(char_data* ch)
     chmod("../mobs/mob.csv", S_IRWXU | S_IRWXG | S_IRWXO);
 }
 
-void mob_csv_extract::close_file(char_data* ch) const
+void mob_csv_extract::close_file(const char_data* ch) const
 {
     fclose(file);
 }
 
-void mob_csv_extract::write_to_file(char_data* ch, const std::string& mob_data) const
+void mob_csv_extract::write_to_file(const char_data* ch, const std::string& mob_data) const
 {
     fprintf(file, "%s", mob_data.c_str());
 }
 
-std::string mob_csv_extract::generate_npc_stat(char_data* mob)
+std::string mob_csv_extract::generate_npc_stat(const char_data* mob)
 {
     mob_csv_data mob_data;
 

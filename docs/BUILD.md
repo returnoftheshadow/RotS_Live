@@ -1,9 +1,11 @@
-# Building & running RotS locally (32-bit Linux via Docker)
+# Building & running RotS locally (Linux via Docker)
 
 RotS compiles **32-bit** (`-m32` in `src/Makefile`). That cannot build or run natively
 on Apple Silicon / modern macOS (Apple removed 32-bit support in 2019). We build and run
-it **unchanged** inside a 32-bit Linux (i386) container. On arm64 Macs, Docker runs the
-i386 image via QEMU emulation — slower than native, but fine for development.
+it **unchanged** inside an amd64 Ubuntu 22.04 container, the game server's Linux and
+compiler (g++ 11.4), where the game is still built 32-bit. On arm64 Macs, Docker emulates
+the amd64 image (with Rosetta when Docker Desktop enables it) and runs the 32-bit game and
+tests under QEMU — slower than native, but fine for development.
 
 This keeps the original binary save-file format intact (no code changes), so a Docker
 build matches how the live game behaves.
@@ -25,7 +27,7 @@ build matches how the live game behaves.
 A helper script wraps the common flows (`scripts/rots-docker.sh`):
 
 ```bash
-scripts/rots-docker.sh build      # build the i386 toolchain image (first time / Dockerfile changes)
+scripts/rots-docker.sh build      # build the toolchain image (first time / Dockerfile changes)
 scripts/rots-docker.sh compile    # make setup + make all  -> bin/ageland  (no world files needed)
 scripts/rots-docker.sh boot       # compile then start the server on port 1024 (needs world files)
 scripts/rots-docker.sh shell      # interactive shell inside the container
@@ -65,7 +67,7 @@ proxy in front of the game.
 ## Notes
 
 - Build artifacts (`bin/ageland`, `*.o`) land on the host via the bind mount, but the
-  binary is a Linux i386 ELF — it only runs inside the container.
+  binary is a 32-bit Linux (i386) ELF — it only runs inside the container.
 - "deprecated function" warnings during `make all` are expected and harmless.
 - The Rust proxy (`proxy/`) is not needed for telnet play; it builds natively on macOS
   with `cargo build -p proxy` if you later want browser-client access.

@@ -27,13 +27,13 @@
 #endif
 
 #include <assert.h>
+#include <cstring>
 #include <ctype.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <cstring>
 
 #include "color.h"
 #include "comm.h"
@@ -50,6 +50,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <limits>
+#include <string>
 
 extern struct time_data time_info;
 extern struct room_data world;
@@ -59,9 +62,9 @@ extern struct char_data* character_list;
 extern struct char_data* mob_proto;
 extern int max_race_str[];
 extern struct char_data* waiting_list;
-int get_power_of_arda(char_data* ch);
+int get_power_of_arda(const char_data* ch);
 
-static void check_container_proto(struct obj_data* obj, struct char_data* ch);
+static void check_container_proto(const struct obj_data* obj, struct char_data* ch);
 
 /*
  * Adds data to the char_data structure specifying that
@@ -154,11 +157,30 @@ do_squareroot(int i, struct char_data* ch)
     return ((4 - i % 4) * square_root[i / 4] + (i % 4) * square_root[i / 4 + 1]);
 }
 
+namespace {
+// The game hour's fast-update phase last published through set_current_time_phase(); 0 until
+// the first one.
+int current_time_phase = 0;
+} // namespace
+
 char get_current_time_phase()
 {
-    extern int pulse;
+    static_assert(FAST_UPDATE_RATE <= std::numeric_limits<char>::max(),
+        "Every time phase fits in a char.");
+    return static_cast<char>(current_time_phase);
+}
 
-    return (pulse % (SECS_PER_MUD_HOUR * 4)) / PULSE_FAST_UPDATE;
+void set_current_time_phase(int time_phase)
+{
+    if (time_phase < 0 || time_phase >= FAST_UPDATE_RATE) {
+        const std::string message = std::string("SYSERR: ") + __func__ + ": ignoring time phase "
+            + std::to_string(time_phase) + ", outside 0 to " + std::to_string(FAST_UPDATE_RATE - 1)
+            + ".";
+        log(message.c_str());
+        return;
+    }
+
+    current_time_phase = time_phase;
 }
 
 int default_exit_width[] = {
@@ -178,7 +200,7 @@ int default_exit_width[] = {
     0
 };
 
-int get_race_weight(struct char_data* ch)
+int get_race_weight(const struct char_data* ch)
 {
     int gender_mod;
 
@@ -243,7 +265,7 @@ int get_race_weight(struct char_data* ch)
     return 0;
 }
 
-int get_race_height(struct char_data* ch)
+int get_race_height(const struct char_data* ch)
 {
     int gender_mod;
 
@@ -309,7 +331,7 @@ int get_race_height(struct char_data* ch)
 }
 
 sh_int
-get_race_perception(struct char_data* ch)
+get_race_perception(const struct char_data* ch)
 {
     switch (GET_RACE(ch)) {
     case RACE_GOD:
@@ -351,7 +373,7 @@ get_race_perception(struct char_data* ch)
 }
 
 sh_int
-get_naked_perception(struct char_data* ch)
+get_naked_perception(const struct char_data* ch)
 {
     int tmp;
 
@@ -369,12 +391,12 @@ get_naked_perception(struct char_data* ch)
 }
 
 sh_int
-get_naked_willpower(struct char_data* ch)
+get_naked_willpower(const struct char_data* ch)
 {
     return GET_PROF_LEVEL(PROF_CLERIC, ch) + GET_WILL(ch) - (get_confuse_modifier(ch) / 10);
 }
 
-int get_exit_width(struct room_data* room, int dir)
+int get_exit_width(const struct room_data* room, int dir)
 {
     if (!room || (dir < 0) || (dir >= NUM_OF_DIRS))
         return -1;
@@ -387,13 +409,45 @@ int get_exit_width(struct room_data* room, int dir)
     return default_exit_width[room->sector_type];
 }
 
-int string_to_new_value(char* arg, int* value)
+/*
+ * A flag answer can hold several changes, "p4 m2 p7", applied left to right.
+ * It stops at the first word that is not p or m plus a bit number 0-31; that
+ * word is left in *stopped (the changes before it stay made).
+ */
+int string_to_new_value(char* arg, int* value, char** stopped)
 {
+    char* p;
+    int bit;
+
+    if (stopped)
+        *stopped = 0;
     while (*arg && (*arg <= ' '))
         arg++;
 
     if (!*arg)
         return *value;
+
+    if (*arg == 'p' || *arg == 'P' || *arg == 'm' || *arg == 'M') {
+        while (*arg) {
+            p = arg + 1;
+            bit = 0;
+            while (isdigit((unsigned char)*p) && bit <= 31)
+                bit = bit * 10 + (*p++ - '0');
+            if ((*arg != 'p' && *arg != 'P' && *arg != 'm' && *arg != 'M')
+                || p == arg + 1 || bit > 31 || (*p && *p > ' ')) {
+                if (stopped)
+                    *stopped = arg;
+                break;
+            }
+            if (*arg == 'p' || *arg == 'P')
+                *value |= (int)(1u << bit);
+            else
+                *value &= ~(int)(1u << bit);
+            for (arg = p; *arg && *arg <= ' '; arg++)
+                ;
+        }
+        return *value;
+    }
 
     if (isdigit(*arg))
         *value = atoi(arg);
@@ -401,12 +455,26 @@ int string_to_new_value(char* arg, int* value)
         *value += atoi(arg + 1);
     if (*arg == '-')
         *value -= atoi(arg + 1);
-    if ((*arg == 'p') || (*arg == 'P'))
-        *value |= 1 << atoi(arg + 1);
-    if ((*arg == 'm') || (*arg == 'M'))
-        *value &= ~(1 << atoi(arg + 1));
 
     return *value;
+}
+
+/*
+ * For the few prompts where a negative number is a real value (alignment,
+ * saving throw, an exit's "no keyhole" key or "leads nowhere" room): a typed
+ * "-N" sets -N, where string_to_new_value would subtract N.  Returns 1 if it
+ * set the value, 0 if the input was anything else.
+ */
+int string_to_negative_value(const char* arg, int* value)
+{
+    while (*arg && (*arg <= ' '))
+        arg++;
+
+    if (*arg == '-' && isdigit(arg[1])) {
+        *value = -atoi(arg + 1);
+        return 1;
+    }
+    return 0;
 }
 
 //============================================================================
@@ -525,7 +593,7 @@ int get_weapon_damage(struct obj_data* obj)
     return dam_coef; /* returning damage * 10 */
 }
 
-int weight_coof(struct obj_data* obj)
+int weight_coof(const struct obj_data* obj)
 {
     if (CAN_WEAR(obj, ITEM_WEAR_BODY))
         return 3;
@@ -537,7 +605,7 @@ int weight_coof(struct obj_data* obj)
     return 1;
 }
 
-int armor_absorb(struct obj_data* obj)
+int armor_absorb(const struct obj_data* obj)
 {
     int absorb, points, encumb_points;
 
@@ -571,7 +639,7 @@ int armor_absorb(struct obj_data* obj)
  * into account specialization and sneak in addition to
  * stealth skill, race, sector type and encumbrance.
  */
-int get_real_stealth(struct char_data* ch)
+int get_real_stealth(const struct char_data* ch)
 {
     int percent;
 
@@ -857,7 +925,7 @@ int get_real_parry(struct char_data* ch)
     return tmpparry;
 }
 
-int get_real_dodge(struct char_data* ch)
+int get_real_dodge(const struct char_data* ch)
 {
     int sun_mod = 0;
 
@@ -909,7 +977,7 @@ int get_real_dodge(struct char_data* ch)
     };
 }
 
-int get_followers_level(char_data* ch) /* summ of levels of mobs/players charmed by ch */
+int get_followers_level(const char_data* ch) /* summ of levels of mobs/players charmed by ch */
 {
     int levels = 0;
 
@@ -1008,7 +1076,7 @@ char* str_dup(const char* source)
 
 /* returns: 0 if equal, 1 if arg1 > arg2, -1 if arg1 < arg2  */
 /* scan 'till found different or end of both                 */
-int str_cmp(char* arg1, char* arg2)
+int str_cmp(const char* arg1, const char* arg2)
 {
     int chk, i;
 
@@ -1023,7 +1091,7 @@ int str_cmp(char* arg1, char* arg2)
 
 /* returns: 0 if equal, 1 if arg1 > arg2, -1 if arg1 < arg2  */
 /* scan 'till found different, end of both, or n reached     */
-int strn_cmp(char* arg1, char* arg2, int n)
+int strn_cmp(const char* arg1, const char* arg2, int n)
 {
     int chk, i;
 
@@ -1038,7 +1106,7 @@ int strn_cmp(char* arg1, char* arg2, int n)
 }
 
 /* log a death trap hit */
-void log_death_trap(struct char_data* ch)
+void log_death_trap(const struct char_data* ch)
 {
     char buf[150];
     //   extern struct room_data world;
@@ -1065,7 +1133,7 @@ void log(const char* str)
     fprintf(stderr, "%-19.19s :: %s\n", tmstr, str);
 }
 
-void mudlog(char* str, char type, sh_int level, byte file)
+void mudlog(const char* str, char type, sh_int level, byte file)
 {
     char buf[8000];
     extern struct descriptor_data* descriptor_list;
@@ -1102,17 +1170,44 @@ void mudlog(char* str, char type, sh_int level, byte file)
     return;
 }
 
-void mudlog_debug_mob(char *buf, char_data *ch) {
+/* Whether mudlog(..., type, level, ...) would show a message to ch.  Mirrors
+ * mudlog's own test, so a caller that also tells a builder directly does not
+ * tell them the same thing twice. */
+bool mudlog_reaches(const struct char_data* ch, int level, int type)
+{
+    if (!ch || !ch->desc || ch->desc->connected || PLR_FLAGGED(ch, PLR_WRITING))
+        return false;
+    if (level < LEVEL_AREAGOD)
+        level = LEVEL_AREAGOD;
+    int tp = (PRF_FLAGGED(ch, PRF_LOG1) ? 1 : 0) + (PRF_FLAGGED(ch, PRF_LOG2) ? 2 : 0)
+        + (PRF_FLAGGED(ch, PRF_LOG3) ? 4 : 0);
+    return GET_LEVEL(ch) >= level && tp >= type;
+}
+
+void mudlog_debug_mob(const char* buf, const char_data* ch)
+{
     mudlog_aliased_mob(buf, ch, "debug");
 }
 
-void mudlog_aliased_mob(char *buf, char_data *ch, char *mob_alias) {
-    if(strstr(ch->player.name, mob_alias)) {
+void mudlog_aliased_mob(const char* buf, const char_data* ch, const char* mob_alias)
+{
+    if (strstr(ch->player.name, mob_alias)) {
         mudlog(buf, SPL, LEVEL_GOD, FALSE);
     }
 }
 
-void vmudlog(char type, char* format, ...)
+int has_debug_flag(const char_data* ch)
+{
+    return ch ? ch->debug_flag : 0;
+}
+
+void debug_flag_msg(const char* buf, const char_data* ch)
+{
+    if (has_debug_flag(ch))
+        send_to_char(buf, ch);
+}
+
+void vmudlog(char type, const char* format, ...)
 {
 #define BUFSIZE 2048
     char buf[BUFSIZE];
@@ -1134,16 +1229,14 @@ void sprintbit(long vektor, char* names[], char* result, int var)
 {
     long nr;
     int count;
+    // Flags are 32 bits. Take the low 32 unsigned so bit 31 (e.g. PRF_ADVANCED_PROMPT) neither
+    // sign-extends nor, where long is 64-bit, fills the upper half with extra bits.
+    unsigned long bits = (unsigned long)(unsigned int)vektor;
 
     *result = '\0';
     count = 0;
 
-    if (vektor < 0) {
-        strcpy(result, "SPRINTBIT ERROR!");
-        return;
-    }
-
-    if (vektor == 0) {
+    if (bits == 0) {
         if (var != 0)
             strcpy(result, "has no additional attributes. ");
         else
@@ -1151,43 +1244,42 @@ void sprintbit(long vektor, char* names[], char* result, int var)
         return;
     }
 
-    for (nr = 0; vektor; vektor >>= 1) {
-        if (IS_SET(1, vektor) && (vektor != BFS_MARK)) {
-            if (*names[nr] != '\n') {
-                /*
-                 * Where the variable passed in is not 0
-                 * then identify is using sprintbit
-                 * The block of code contained here is used only
-                 * for identify.
-                 */
-                if (var != 0) {
-                    if (var == 2) {
-                        if (count == 0)
-                            strcat(result, " ");
-                        else
-                            strcat(result, " and ");
-                    } else {
-                        if (count == 0)
-                            strcat(result, "has the following attributes.\r\n");
-                        else
-                            strcat(result, ".\r\n");
-                    }
-                } else /* normal sprintbit resumes here */
-                    strcat(result, " ");
-                strcat(result, names[nr]);
-                count++;
-            } else {
-                strcat(result, "UNDEFINE ");
-            }
+    for (nr = 0; bits; bits >>= 1) {
+        if (IS_SET(1, bits) && (bits != BFS_MARK)) {
+            /*
+             * Where the variable passed in is not 0
+             * then identify is using sprintbit
+             * The block of code contained here is used only
+             * for identify.
+             */
+            if (var != 0) {
+                if (var == 2) {
+                    if (count == 0)
+                        strcat(result, " ");
+                    else
+                        strcat(result, " and ");
+                } else {
+                    if (count == 0)
+                        strcat(result, "has the following attributes:\r\n");
+                    else
+                        strcat(result, "\r\n");
+                }
+            } else /* normal sprintbit resumes here */
+                strcat(result, " ");
+            // A bit past the end of the names list still gets a separator.
+            strcat(result, *names[nr] != '\n' ? names[nr] : "UNDEFINE");
+            count++;
         }
-        if (*names[nr] != '\r\n')
+        if (*names[nr] != '\n')
             nr++;
     }
 
     if (!*result)
         strcat(result, "NOFLAGS");
 
-    strcat(result, ".");
+    // Identify lists one attribute per line, without a closing period.
+    if (var != 1)
+        strcat(result, ".");
 }
 
 void sprinttype(int type, char* names[], char* result)
@@ -1200,6 +1292,81 @@ void sprinttype(int type, char* names[], char* result)
         strcpy(result, names[type]);
     else
         strcpy(result, "UNDEFINED");
+}
+
+void lowercase(char* str)
+{
+    for (int i = 0; str[i]; i++)
+        str[i] = tolower(str[i]);
+}
+
+/* Copy str into result with every occurrence of patern removed.
+
+   The previous form consumed the pattern and then unconditionally copied the character sitting
+   after it, which at the end of the string was the terminator itself - copied into result, after
+   which the loop's own i++ stepped past it and kept reading past the end of str. Advancing over
+   the match and letting the loop re-test its condition removes that case: the terminator is only
+   ever reached by the guard, never consumed as data. */
+void remove_pattern(const char* str, char* result, const char* patern)
+{
+    const int pattern_length = (int)strlen(patern);
+    int n = 0;
+
+    for (int i = 0; str[i] != '\0';) {
+        if (pattern_length > 0 && strncmp(str + i, patern, pattern_length) == 0) {
+            i += pattern_length;
+            continue;
+        }
+
+        result[n++] = str[i++];
+    }
+
+    result[n] = '\0';
+}
+
+/* Render a resistance or vulnerability bitvector, one per line, with the strength that
+   actually applies.
+
+   use_affect_magnitudes says which of the two tables is being drawn, and it is a flag rather
+   than a sentinel default_percent so that the call site states which table it means instead of
+   encoding it in a number that also has to read as a percentage.
+
+   For the resistance table, when a spell or item affect wrote an APPLY_RESIST entry for this
+   element the largest effect_modifier on the list wins; the lookup is resist_magnitude_for(),
+   the same function the damage path uses, so display and damage cannot drift apart. A bit with
+   no backing affect - set by a mob record or a flag-only APPLY_RESIST item - falls back to the
+   flat legacy default.
+
+   For the vulnerability table the affect list is never consulted: APPLY_RESIST affects say
+   nothing about vulnerability, and reading them here printed a resistance's percentage on the
+   vulnerable line for the same element. Vulnerability has no magnitude of its own, so it always
+   renders the flat default. */
+void sprintbit_resistances(const char_data* ch, long vektor, char* names[], char* result,
+    int default_percent, int use_affect_magnitudes)
+{
+    char tmp[255];
+    int nr = 0;
+
+    *result = '\0';
+    if (vektor < 1)
+        return;
+
+    for (; vektor; vektor >>= 1, nr++) {
+        if (!(vektor & 1))
+            continue;
+        if (*names[nr] == '\n')
+            break;
+        if (!*names[nr])
+            continue;
+
+        remove_pattern(names[nr], tmp, (char*)"V-");
+        lowercase(tmp);
+
+        const int magnitude = use_affect_magnitudes ? resist_magnitude_for(ch, nr) : 0;
+        const int percent = magnitude > 0 ? magnitude : default_percent;
+
+        sprintf(result, "%s   %s (%d%%)\n\r", result, tmp, percent);
+    }
 }
 
 /* Calculate the REAL time passed over the last t2-t1 centuries (secs) */
@@ -1245,7 +1412,7 @@ struct time_info_data mud_time_passed(time_t t2, time_t t1)
     return now;
 }
 
-struct time_info_data age(struct char_data* ch)
+struct time_info_data age(const struct char_data* ch)
 {
     struct time_info_data player_age;
 
@@ -1389,7 +1556,7 @@ void decrypt_line(unsigned char* lp, int len)
         lp[tmp] = line[tmp];
 }
 
-char* strcpy_lang(char* str1, char* str2, byte freq, int maxlen)
+char* strcpy_lang(char* str1, const char* str2, byte freq, int maxlen)
 {
     int i, len;
 
@@ -1444,7 +1611,7 @@ void reshuffle(int* arr, int len)
 /*
  * Can character see at all?
  */
-int CAN_SEE(struct char_data* sub)
+int CAN_SEE(const struct char_data* sub)
 {
     if ((sub)->in_room == NOWHERE)
         return 0;
@@ -1543,7 +1710,7 @@ int CAN_SEE(struct char_data* sub, struct char_data* obj, int light_mode)
  * can they sense a hidden character?  Returns 1 if sub
  * can see obj, returns 0 otherwise.
  */
-int can_sense(char_data* sub, char_data* obj)
+int can_sense(const char_data* sub, const char_data* obj)
 {
     if (!IS_AFFECTED((sub), AFF_DETECT_HIDDEN) || GET_PERCEPTION(obj) <= 0)
         return 0;
@@ -1554,7 +1721,7 @@ int can_sense(char_data* sub, char_data* obj)
         return 0;
 }
 
-int CAN_SEE_OBJ(char_data* sub, obj_data* obj)
+int CAN_SEE_OBJ(const char_data* sub, const obj_data* obj)
 {
     if (!sub || !obj)
         return 0;
@@ -1572,7 +1739,7 @@ int CAN_SEE_OBJ(char_data* sub, obj_data* obj)
 }
 
 /* moved from utils.h */
-int CAN_GO(struct char_data* ch, int door)
+int CAN_GO(const struct char_data* ch, int door)
 {
     if ((EXIT(ch, door) && (EXIT(ch, door)->to_room != NOWHERE)) && (!(IS_SHADOW(ch) ? (IS_SET(EXIT(ch, door)->exit_info, EX_DOORISHEAVY) && IS_SET(EXIT(ch, door)->exit_info, EX_CLOSED)) : IS_SET(EXIT(ch, door)->exit_info, EX_CLOSED)) || IS_SET(EXIT(ch, door)->exit_info, EX_ISBROKEN)))
         return 1;
@@ -1580,7 +1747,7 @@ int CAN_GO(struct char_data* ch, int door)
     return 0;
 }
 
-int get_confuse_modifier(struct char_data* ch)
+int get_confuse_modifier(const struct char_data* ch)
 {
     struct affected_type* aff;
     int modifier = 0;
@@ -1593,7 +1760,7 @@ int get_confuse_modifier(struct char_data* ch)
     return modifier;
 }
 
-int get_power_of_arda(struct char_data* ch)
+int get_power_of_arda(const struct char_data* ch)
 {
     struct affected_type* aff;
     int sun_mod;
@@ -1607,7 +1774,7 @@ int get_power_of_arda(struct char_data* ch)
     return sun_mod;
 }
 
-int has_critical_stat_damage(struct char_data* ch)
+int has_critical_stat_damage(const struct char_data* ch)
 {
     if (((GET_STR(ch) * 100) / GET_STR_BASE(ch) < 30) || ((GET_DEX(ch) * 100) / GET_DEX_BASE(ch) < 30) || ((GET_CON(ch) * 100) / GET_CON_BASE(ch) < 30))
         return 1;
@@ -1615,7 +1782,7 @@ int has_critical_stat_damage(struct char_data* ch)
         return 0;
 }
 
-int can_breathe(struct char_data* ch)
+int can_breathe(const struct char_data* ch)
 {
     int result;
 
@@ -1671,7 +1838,7 @@ char* nth(int n)
     return r;
 }
 
-void day_to_str(struct time_info_data* loc_time_info, char* str)
+void day_to_str(const struct time_info_data* loc_time_info, char* str)
 {
     char* s;
     int day;
@@ -1686,7 +1853,7 @@ void day_to_str(struct time_info_data* loc_time_info, char* str)
     free(s);
 }
 
-int find_player_in_table(char* name, int idnum)
+int find_player_in_table(const char* name, int idnum)
 {
     int i;
 
@@ -1789,25 +1956,177 @@ void from_list_to_pool(universal_list** list, universal_list** head, universal_l
     free(body);
 }
 
-int check_resistances(char_data* victim, int attack_type)
+/* The RESIST_* an attack is resisted as. Weapon damage types and archery have no skills[]
+   row of their own and all count as physical. */
+int resist_type_for_attack(int attack_type)
 {
     extern skill_data skills[];
 
-    if ((attack_type < MAX_SKILLS) && IS_RESISTANT(victim, skills[attack_type].skill_spec))
-        return 1;
+    if (((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH)) || (attack_type == SKILL_ARCHERY))
+        return RESIST_PHYS;
 
-    if ((attack_type < MAX_SKILLS) && IS_VULNERABLE(victim, skills[attack_type].skill_spec))
-        return -1;
+    if ((attack_type >= 0) && (attack_type < MAX_SKILLS))
+        return skills[attack_type].resist;
 
-    if ((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH) || attack_type == SKILL_ARCHERY) {
-        if (IS_RESISTANT(victim, PLRSPEC_WILD))
-            return 1;
+    return RESIST_NONE;
+}
 
-        if (IS_VULNERABLE(victim, PLRSPEC_WILD))
-            return -1;
+/* True for the attacks whose resistance the live code resolves through a skills[] row that was
+   never meant to describe them: weapon damage types (TYPE_HIT..TYPE_CRUSH) and archery all sit
+   below MAX_SKILLS, so the live generic lookup reaches them first. */
+static bool uses_legacy_weapon_spec(int attack_type)
+{
+    return ((attack_type >= TYPE_HIT) && (attack_type <= TYPE_CRUSH))
+        || (attack_type == SKILL_ARCHERY);
+}
+
+/* 1 resistant, -1 vulnerable, 0 neither. matched_resist_type, when given, receives the RESIST_*
+   whose bit actually decided it, so the caller reads the magnitude for that element rather than
+   for the one the attack nominally belongs to.
+
+   Weapon types and archery keep the live order: the legacy spec bit first, the real element
+   second. Those rows are blank placeholders naming bit 0, plus "defend" (bit 14) colliding with
+   bludgeon, and they only came into play when MAX_SKILLS went 128 -> 256 in 2018. Correcting it
+   would change 46 live mobs, so it is deliberately held back: doing it here would mix a mob
+   toughness change into the release that introduces resistance magnitudes and make the two
+   impossible to tell apart when testing. See docs/systems/magic-system.md.
+
+   No legacy bit carries a magnitude - nothing writes an APPLY_RESIST affect for RESIST_NONE or
+   for the defend spec - so a hit resolved on one falls back to the flat rule, exactly as live. */
+int check_resistances(const char_data* victim, int attack_type, int* matched_resist_type)
+{
+    extern skill_data skills[];
+
+    const int resist_type = resist_type_for_attack(attack_type);
+    int matched = resist_type;
+    int result = 0;
+
+    if (uses_legacy_weapon_spec(attack_type)) {
+        const int legacy_spec = skills[attack_type].skill_spec;
+        if (legacy_spec != resist_type) {
+            if (IS_RESISTANT(victim, legacy_spec)) {
+                matched = legacy_spec;
+                result = 1;
+            } else if (IS_VULNERABLE(victim, legacy_spec)) {
+                matched = legacy_spec;
+                result = -1;
+            }
+        }
     }
 
-    return 0;
+    if (result == 0) {
+        if (IS_RESISTANT(victim, resist_type))
+            result = 1;
+        else if (IS_VULNERABLE(victim, resist_type))
+            result = -1;
+    }
+
+    if (matched_resist_type)
+        *matched_resist_type = matched;
+
+    return result;
+}
+
+std::string object_version_text(int version)
+{
+    if (version == 0)
+        return "none";
+    return std::to_string(version > 0 ? version : -version) + (version > 0 ? " (on)" : " (off)");
+}
+
+int count_object_enchants(const obj_data* obj)
+{
+    int count = 0;
+    for (int i = 0; i < MAX_OBJ_ENCHANT; i++)
+        if (obj->enchants[i].type != ENCHANT_NONE)
+            count++;
+    return count;
+}
+
+std::string object_enchants_text(const obj_data* obj)
+{
+    std::string text;
+    for (int i = 0; i < MAX_OBJ_ENCHANT; i++) {
+        const obj_enchant_type& enchant = obj->enchants[i];
+        if (enchant.type == ENCHANT_NONE)
+            continue;
+        if (!text.empty())
+            text += ", ";
+        text += enchant.type == ENCHANT_OB ? "ob" : "unknown";
+        text += (enchant.amount < 0 ? " " : " +") + std::to_string(enchant.amount);
+        text += enchant.align == ENCHANT_ALIGN_GOOD ? " (good)" : enchant.align == ENCHANT_ALIGN_EVIL ? " (evil)" : " (neutral)";
+    }
+    return text.empty() ? "none" : text;
+}
+
+/* ENCHANT_OB is the enchant weapon spell, and this is the spell's own test. */
+bool object_takes_enchant(const obj_data* obj, const obj_enchant_type& enchant)
+{
+    if (enchant.type != ENCHANT_OB)
+        return false;
+    if (obj->obj_flags.type_flag != ITEM_WEAPON || IS_SET(obj->obj_flags.extra_flags, ITEM_MAGIC))
+        return false;
+    for (int i = 0; i < MAX_OBJ_AFFECT; i++)
+        if (obj->affected[i].location != APPLY_NONE)
+            return false;
+    return true;
+}
+
+/* Puts the enchant's effect on the object; the caller has asked object_takes_enchant. */
+void apply_object_enchant(obj_data* obj, const obj_enchant_type& enchant)
+{
+    if (enchant.type != ENCHANT_OB)
+        return;
+    SET_BIT(obj->obj_flags.extra_flags, ITEM_MAGIC);
+    obj->affected[0].location = APPLY_OB;
+    obj->affected[0].modifier = enchant.amount;
+    if (enchant.align == ENCHANT_ALIGN_GOOD)
+        SET_BIT(obj->obj_flags.extra_flags, ITEM_ANTI_EVIL);
+    else if (enchant.align == ENCHANT_ALIGN_EVIL)
+        SET_BIT(obj->obj_flags.extra_flags, ITEM_ANTI_GOOD);
+}
+
+bool record_object_enchant(obj_data* obj, const obj_enchant_type& enchant)
+{
+    for (int i = 0; i < MAX_OBJ_ENCHANT; i++)
+        if (obj->enchants[i].type == ENCHANT_NONE) {
+            obj->enchants[i] = enchant;
+            return true;
+        }
+    return false;
+}
+
+/*
+ * A saved copy keeps its own affects, flags and bitvector (Crash_obj2char), so prototype changes
+ * never reached it. When the prototype's version is on and differs from the copy's, those three
+ * are taken from the prototype instead and the copy is stamped with the prototype's version.
+ * Play state a save keeps is left alone: a broken key stays broken, drink and light contents,
+ * the timer and loaded_by are untouched. Each enchant recorded on the copy is then put back if
+ * the object as the prototype now makes it can still take that enchant; one it cannot take is
+ * forgotten. Only the recorded list is used: nothing here guesses at an enchant from the affects.
+ */
+bool refresh_object_to_prototype_version(obj_data* obj, const obj_data* proto)
+{
+    const int proto_version = proto->obj_flags.version;
+    if (proto_version <= 0 || obj->obj_flags.version == proto_version)
+        return false;
+
+    const long broken = obj->obj_flags.extra_flags & ITEM_BROKEN;
+    obj->obj_flags.extra_flags = proto->obj_flags.extra_flags | broken;
+    obj->obj_flags.bitvector = proto->obj_flags.bitvector;
+    for (int i = 0; i < MAX_OBJ_AFFECT; i++)
+        obj->affected[i] = proto->affected[i];
+    obj->obj_flags.version = proto_version;
+
+    for (int i = 0; i < MAX_OBJ_ENCHANT; i++) {
+        if (obj->enchants[i].type == ENCHANT_NONE)
+            continue;
+        if (object_takes_enchant(obj, obj->enchants[i]))
+            apply_object_enchant(obj, obj->enchants[i]);
+        else
+            obj->enchants[i] = obj_enchant_type {};
+    }
+    return true;
 }
 
 /*
@@ -1815,7 +2134,7 @@ int check_resistances(char_data* victim, int attack_type)
  * is altered, and 1 if it's the same.  If no prototype is
  * found, we return -1.
  */
-int compare_obj_to_proto(struct obj_data* obj)
+int compare_obj_to_proto(const struct obj_data* obj)
 {
     int diff = 0, i;
     struct obj_data* tmp;
@@ -2133,7 +2452,7 @@ void check_equipment_proto(struct char_data* ch)
     }
 }
 
-static void check_container_proto(struct obj_data* obj, struct char_data* ch)
+static void check_container_proto(const struct obj_data* obj, struct char_data* ch)
 {
     int result = 0;
     struct obj_data* tmp;
@@ -2202,8 +2521,18 @@ char* PERS(struct char_data* target, struct char_data* observer,
     return name;
 }
 
-int has_alias(char_data* host, char *keyword) {
-    if(strstr(host->player.name, keyword)) {
+int has_alias(const char_data* host, const char* keyword)
+{
+    if (strstr(host->player.name, keyword)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int has_program(const char_data* host, int num)
+{
+    if ((int)host->specials.store_prog_number == num) {
         return 1;
     } else {
         return 0;

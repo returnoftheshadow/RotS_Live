@@ -408,8 +408,8 @@ struct obj2html_type obj2html_types[] = {
  * function for an item of type ITEM_xxx match the format of
  * data printed in obj2html_xxx().
  */
-void obj2html_newtable(struct char_data* ch, FILE* f,
-    struct obj2html_type* t, int type)
+void obj2html_newtable(const struct char_data* ch, FILE* f,
+    const struct obj2html_type* t, int type)
 {
     vsend_to_char(ch, "Constructing object table '%s':\n",
         t->title);
@@ -494,8 +494,8 @@ void obj2html_newtable(struct char_data* ch, FILE* f,
  * Finishes the writing of an HTML table; increments the total
  * number of entries by the entries in this table and sends output.
  */
-void obj2html_endtable(struct char_data* ch, FILE* f,
-    struct obj2html_type* t)
+void obj2html_endtable(const struct char_data* ch, FILE* f,
+    const struct obj2html_type* t)
 {
     vsend_to_char(ch, "\r\nTable '%s' created with %d entries.\r\n",
         t->title, entries);
@@ -623,7 +623,7 @@ int obj2html(FILE* f, struct obj_data* o)
  * typemask will also be set.  Returns the number of types and
  * subtypes with matching keywords.
  */
-int check_keywords(struct obj2html_type* list, char* arg)
+int check_keywords(struct obj2html_type* list, const char* arg)
 {
     int i, j;
     int types_selected;
@@ -701,7 +701,7 @@ void build_output(struct obj2html_type* list, struct obj_data* o)
  * per-vnum output.  This can probably be removed once the the whole
  * system is known to be working.
  */
-void dump_output(struct char_data* ch, FILE* f, struct obj2html_type* list)
+void dump_output(const struct char_data* ch, FILE* f, struct obj2html_type* list)
 {
     int i, j, vnum;
 
@@ -763,7 +763,7 @@ ACMD(do_obj2html)
     char* c;
     int i, selected;
     FILE* obj2html_start(void);
-    FILE* obj2html_finish(struct char_data*, FILE * f);
+    FILE* obj2html_finish(const struct char_data*, FILE * f);
 
     /* Clear all output lists and valid type masks */
     obj2html_clear(obj2html_types);
@@ -851,7 +851,7 @@ FILE* obj2html_start(void)
  * Finishes the entire HTML page.  Closes the file and makes
  * a usage announcement.
  */
-FILE* obj2html_finish(struct char_data* ch, FILE* f)
+FILE* obj2html_finish(const struct char_data* ch, FILE* f)
 {
     fprintf(f, "</BODY>\n"
                "</HTML>\n");

@@ -67,7 +67,7 @@ int __pkill_side(int race)
 /*
  * Copy the PKILL structure at 'src' into 'dest'.
  */
-void pkill_copy(PKILL* dest, PKILL* src)
+void pkill_copy(PKILL* dest, const PKILL* src)
 {
     dest->kill_time = src->kill_time;
     dest->killer = src->killer;
@@ -81,7 +81,7 @@ void pkill_copy(PKILL* dest, PKILL* src)
 /*
  * Return 1 if the PKILL record p has expired; otherwise return 0.
  */
-int pkill_expired(PKILL* p)
+int pkill_expired(const PKILL* p)
 {
     int days_passed, days_allowed;
 
@@ -108,7 +108,7 @@ int pkill_expired(PKILL* p)
  * opponents and levels (relative to his own level), then the
  * weight will be large.
  */
-int pkill_weight(struct char_data* victim)
+int pkill_weight(const struct char_data* victim)
 {
     int total_levels;
     struct char_data* c;
@@ -133,7 +133,7 @@ int pkill_weight(struct char_data* victim)
  * Return 0 if 'c' is not a valid player killer.  Otherwise,
  * return 1.
  */
-int pkill_valid_killer(struct char_data* killer, struct char_data* victim)
+int pkill_valid_killer(const struct char_data* killer, const struct char_data* victim)
 {
     /* The only valid NPCs are orc followers */
     if (IS_NPC(killer)) {
@@ -157,7 +157,7 @@ int pkill_valid_killer(struct char_data* killer, struct char_data* victim)
     return 1;
 }
 
-int pkill_opponents(struct char_data* victim)
+int pkill_opponents(const struct char_data* victim)
 {
     int total_opponents;
     struct char_data* c;
@@ -174,7 +174,7 @@ int pkill_opponents(struct char_data* victim)
 /*
  * Same side kills are awarded zero points.
  */
-int pkill_points(struct char_data* victim, struct char_data* killer, int weight)
+int pkill_points(const struct char_data* victim, const struct char_data* killer, int weight)
 {
     if (other_side(victim, killer))
         return GET_LEVEL(killer) * weight;
@@ -182,7 +182,7 @@ int pkill_points(struct char_data* victim, struct char_data* killer, int weight)
         return 0;
 }
 
-int pkill_level(struct char_data* c)
+int pkill_level(const struct char_data* c)
 {
     if (PLR_FLAGGED(c, PLR_INCOGNITO))
         return 50;
@@ -195,7 +195,7 @@ int pkill_level(struct char_data* c)
  * Note that the caller of this function has to take care of
  * refilling all of the values obliterated by this shift!
  */
-void __shift_rank(RANKING* rnk, int a, int b, int shift, bool total)
+void __shift_rank(const RANKING* rnk, int a, int b, int shift, bool total)
 {
     int i, n;
     long x; /* Dummy index to player table */
@@ -386,7 +386,7 @@ void __pkill_extend_tab(int n)
  * file.  Store them in the global variable pkill_tab and
  * return the number of pkills read from the file.
  */
-int pkill_read_file(char* file)
+int pkill_read_file(const char* file)
 {
     int i;
     int nread; /* Number of pkills read from the file */
@@ -419,7 +419,7 @@ int pkill_read_file(char* file)
     return MIN(i, nread);
 }
 
-void pkill_delete_file(char* file)
+void pkill_delete_file(const char* file)
 {
     FILE* f;
 
@@ -434,7 +434,7 @@ void pkill_delete_file(char* file)
  * Write out all pkills which haven't expired to the given
  * pkill file.
  */
-int pkill_update_file(char* file, PKILL pkills[], int n)
+int pkill_update_file(const char* file, PKILL pkills[], int n)
 {
     int i, nwritten;
     FILE* f;
@@ -503,7 +503,7 @@ int pkill_update_player_tab(PKILL pkills[], int nkills)
  * and that the pkill statistics weight w and opponents n pertain
  * to this pkill.
  */
-int pkill_update_pkill_tab(struct char_data* victim, int w, int n)
+int pkill_update_pkill_tab(const struct char_data* victim, int w, int n)
 {
     int i, start;
     int points;
@@ -540,7 +540,7 @@ int pkill_update_pkill_tab(struct char_data* victim, int w, int n)
     return start;
 }
 
-void pkill_create(struct char_data* victim)
+void pkill_create(const struct char_data* victim)
 {
     int weight;
     int opponents;
@@ -565,7 +565,7 @@ void pkill_create(struct char_data* victim)
  *
  * Also note: requires that 'c' be in the player table.
  */
-void pkill_unref_character(struct char_data* c)
+void pkill_unref_character(const struct char_data* c)
 {
     int idx;
 
@@ -639,7 +639,7 @@ char* __pkill_name(int i)
  * PKILL_STRING_SLAIN.  These define from which viewpoint
  * the pkill string is created.
  */
-char* pkill_get_string(PKILL* p, int flag)
+char* pkill_get_string(const PKILL* p, int flag)
 {
     char *killer, *victim;
     char* ret;
@@ -737,7 +737,7 @@ int pkill_get_evil_fame()
 }
 
 LEADER*
-__new_leader(char* name, int idx, int rank, int fame, int race, int side, int invalid)
+__new_leader(const char* name, int idx, int rank, int fame, int race, int side, int invalid)
 {
     LEADER* ldr;
 
@@ -815,7 +815,7 @@ pkill_get_leader_by_rank(int rank, int race)
  * Given a char_data structure, return the character's rank in
  * O(1) time.
  */
-int pkill_get_rank_by_character(struct char_data* c, bool totalRank)
+int pkill_get_rank_by_character(const struct char_data* c, bool totalRank)
 {
     return pkill_get_totalrank_by_character_id(GET_INDEX(c), totalRank);
 }

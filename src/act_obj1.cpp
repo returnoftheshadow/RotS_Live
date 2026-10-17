@@ -147,7 +147,7 @@ ACMD(do_put)
     }
 }
 
-int can_take_obj(char_data* character, obj_data* item)
+int can_take_obj(const char_data* character, const obj_data* item)
 {
     if (IS_CARRYING_N(character) >= CAN_CARRY_N(character)) {
         sprintf(buf, "%s: You can't carry that many items.\n\r", OBJS(item, character));
@@ -180,7 +180,7 @@ void get_check_money(struct char_data* ch, struct obj_data* obj)
     }
 }
 
-bool is_corpse(obj_data* container)
+bool is_corpse(const obj_data* container)
 {
     return container && container->obj_flags.type_flag == ITEM_CONTAINER && container->obj_flags.value[3] == 1;
 }
@@ -223,7 +223,7 @@ void perform_get_from_container(char_data* character, obj_data* item, obj_data* 
     }
 }
 
-void get_from_container(struct char_data* ch, struct obj_data* cont, char* arg, int mode)
+void get_from_container(struct char_data* ch, struct obj_data* cont, const char* arg, int mode)
 {
     struct obj_data *obj, *next_obj;
     int obj_dotmode, found = 0;
@@ -884,7 +884,10 @@ obj_data* load_scalp(int number)
     if (number > 0) {
         trophy_num = real_mobile(number);
         w_type = 0;
-        if (mob_proto[trophy_num].player.bodytype == 0)
+        // real_mobile is -1 when the mob has since been removed from the world; indexing with it
+        // read mob_proto[-1]. Such a scalp falls through to the "old skull" below, as a deleted
+        // player's head already does, instead of being lost at login.
+        if (trophy_num >= 0 && mob_proto[trophy_num].player.bodytype == 0)
             return 0;
     }
     if (number < 0) {
