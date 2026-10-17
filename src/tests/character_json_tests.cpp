@@ -1161,3 +1161,14 @@ TEST(CharacterJson, ReadsAnAffectWithNoEffectModifierAsZero)
 }
 
 } // namespace
+
+TEST(CharacterJsonSkillKeys, FileKeyFindsTheSkillItNames)
+{
+    EXPECT_EQ(character_json::skill_index_for_file_key("magic_missile"), SPELL_MAGIC_MISSILE);
+}
+
+TEST(CharacterJsonSkillKeys, UnknownFileKeyIsMinusOne)
+{
+    EXPECT_EQ(character_json::skill_index_for_file_key("no_such_skill"), -1);
+    EXPECT_EQ(character_json::skill_index_for_file_key("magic missile"), -1);
+}

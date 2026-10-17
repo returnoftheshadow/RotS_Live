@@ -829,27 +829,12 @@ inline constexpr int APPLY_SPELL_POW = 39;
 inline constexpr int ROOMAFF_SPELL = 1;
 inline constexpr int ROOMAFF_EXIT = 2;
 
-/* 'prof' for PC's */
-inline constexpr int MAX_PROFS = 4;
-inline constexpr int PROF_GENERAL = 0;
-inline constexpr int PROF_MAGIC_USER = 1;
-inline constexpr int PROF_MAGE = 1;
-inline constexpr int PROF_CLERIC = 2;
-inline constexpr int PROF_THIEF = 3;
-inline constexpr int PROF_RANGER = 3;
-inline constexpr int PROF_WARRIOR = 4;
-
-inline constexpr int DEFAULT_PROFS = 10;
+#include "professions.h"
 
 inline constexpr int LANG_BASIC = 0;
 inline constexpr int LANG_ANIMAL = 121;
 inline constexpr int LANG_HUMAN = 122;
 inline constexpr int LANG_ORC = 123;
-
-struct prof_type {
-    char letter;
-    sh_int Class_points[5];
-};
 
 namespace game_types {
 enum player_specs {

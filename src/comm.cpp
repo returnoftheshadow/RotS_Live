@@ -33,7 +33,6 @@
 #include "limits.h"
 #include "mob_progs/banker.h"
 #include "protocol.h"
-#include "real_time_tick_schedule.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -41,11 +40,15 @@
 #include "warrior_spec_handlers.h"
 #include "zone.h"
 
+#include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -136,6 +139,47 @@ bool parse_port_value(const char* text, sh_int* port, std::string* error_message
     return true;
 }
 
+// The long option that sets the random seed, written after its leading "--".
+constexpr std::string_view RANDOM_SEED_OPTION = "random-seed";
+
+} // namespace
+
+bool parse_random_seed_value(
+    std::string_view text, unsigned int& out_seed, std::string* out_error_message)
+{
+    if (text.empty()) {
+        if (out_error_message) {
+            *out_error_message = "Random seed expected after option --random-seed.";
+        }
+        return false;
+    }
+
+    unsigned int parsed_seed = 0;
+    const char* const text_end = text.data() + text.size();
+    const std::from_chars_result parse_result = std::from_chars(text.data(), text_end, parsed_seed);
+    // Characters after the digits make the value illegal even when the digits overflow.
+    if (parse_result.ptr != text_end || parse_result.ec == std::errc::invalid_argument) {
+        if (out_error_message) {
+            *out_error_message
+                = "Illegal random seed " + std::string(text) + "; use a whole number with no sign.";
+        }
+        return false;
+    }
+    if (parse_result.ec == std::errc::result_out_of_range) {
+        if (out_error_message) {
+            *out_error_message = "Random seed " + std::string(text)
+                + " is too large; the largest is "
+                + std::to_string(std::numeric_limits<unsigned int>::max()) + ".";
+        }
+        return false;
+    }
+
+    out_seed = parsed_seed;
+    return true;
+}
+
+namespace {
+
 void populate_descriptor_host(descriptor_data* descriptor, in_addr_t peer_address)
 {
     struct hostent* from;
@@ -214,7 +258,6 @@ int finish_proxy_header_if_ready(descriptor_data* descriptor)
 
 /* functions in this file */
 int get_from_q(struct txt_q* queue, char* dest);
-void run_the_game(sh_int port);
 void game_loop(SocketType s, GameHeartbeat& heartbeat);
 SocketType init_socket(sh_int port);
 SocketType pnew_connection(SocketType s);
@@ -297,6 +340,33 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
         case 'x':
             parsed_options.has_proxy = true;
             break;
+        case '-': {
+            // A long option, written --name value or --name=value.
+            const std::string_view long_option(argv[pos] + 2);
+            const std::size_t equals_position = long_option.find('=');
+            const std::string_view option_name = long_option.substr(0, equals_position);
+            if (option_name != RANDOM_SEED_OPTION) {
+                if (error_message) {
+                    *error_message = "SYSERR: Unknown option --" + std::string(option_name)
+                        + " in argument string.";
+                }
+                return false;
+            }
+
+            std::string_view seed_text;
+            if (equals_position != std::string_view::npos) {
+                seed_text = long_option.substr(equals_position + 1);
+            } else if (++pos < argc) {
+                seed_text = argv[pos];
+            }
+
+            unsigned int random_seed = 0;
+            if (!parse_random_seed_value(seed_text, random_seed, error_message)) {
+                return false;
+            }
+            parsed_options.random_seed = random_seed;
+            break;
+        }
         default:
             if (error_message) {
                 char local_buf[128];
@@ -327,6 +397,37 @@ bool parse_startup_options(int argc, char** argv, StartupOptions* options, std::
 
     *options = parsed_options;
     return true;
+}
+
+void seed_random_numbers(
+    std::optional<unsigned int> requested_seed, RandomSeedSource& draw_fresh_seed)
+{
+    if (requested_seed.has_value()) {
+        std::srand(*requested_seed);
+        const std::string message = "Random numbers seeded with "
+            + std::to_string(*requested_seed) + " from --random-seed.";
+        log(message.c_str());
+        return;
+    }
+
+    const unsigned int fresh_seed = draw_fresh_seed();
+    std::srand(fresh_seed);
+    const std::string message = "Random numbers seeded with " + std::to_string(fresh_seed)
+        + "; start with --random-seed " + std::to_string(fresh_seed) + " to repeat them.";
+    log(message.c_str());
+}
+
+unsigned int draw_clock_seed()
+{
+    // Folding the high half into the low half keeps both the fast-changing nanoseconds and the
+    // date in the 32 bits std::srand takes.
+    const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    const std::chrono::system_clock::duration since_epoch = now.time_since_epoch();
+    const std::chrono::nanoseconds nanoseconds_since_epoch
+        = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch);
+    const std::uint64_t nanoseconds = static_cast<std::uint64_t>(nanoseconds_since_epoch.count());
+    static_assert(std::numeric_limits<unsigned int>::digits >= 32, "the folded seed must fit");
+    return static_cast<std::uint32_t>(nanoseconds ^ (nanoseconds >> 32));
 }
 
 /* extern fcnts */
@@ -391,80 +492,12 @@ void sigsegv_handler(int sig)
 /* *********************************************************************
  *  main game loop and related stuff				       *
  ********************************************************************* */
-#ifndef TESTING
-int main(int argc, char** argv)
-{
-    signal(SIGSEGV, sigsegv_handler);
-
-    // initialize the random number generator
-    std::srand(std::time(0));
-
-    char buf[512];
-    StartupOptions startup_options {};
-    std::string parse_error;
-
-    /* lets put the rots process in rwxrwx--- file mode */
-    umask(S_IRWXO);
-
-    if (!parse_startup_options(argc, argv, &startup_options, &parse_error)) {
-        if (!parse_error.empty())
-            log(parse_error.c_str());
-        fprintf(stderr, "Usage: %s [-m] [-q] [-r] [-s] [-x] [-d pathname] [-p port #] [ port # ]\n",
-            argv[0]);
-        exit(0);
-    }
-
-    has_proxy = startup_options.has_proxy ? 1 : 0;
-    mini_mud = startup_options.mini_mud ? 1 : 0;
-    new_mud = startup_options.new_mud ? 1 : 0;
-    no_rent_check = startup_options.no_rent_check ? 1 : 0;
-    restrict = startup_options.restrict_game ? 1 : 0;
-    no_specials = startup_options.no_specials ? 1 : 0;
-
-    if (mini_mud)
-        log("Running in minimized mode & with no rent check.");
-    if (new_mud)
-        log("Running in pnew mode & with no rent check.");
-    if (!startup_options.mini_mud && !startup_options.new_mud && no_rent_check)
-        log("Quick boot mode -- rent check supressed.");
-    if (restrict)
-        log("Restricting game -- no pnew players allowed.");
-    if (no_specials)
-        log("Suppressing assignment of special routines.");
-    if (has_proxy)
-        log("Expecting proxy server.");
-
-    /* Create the pidfile and log some info */
-    sprintf(buf, "echo %d > .ageland.pid", getpid());
-    system(buf);
-    sprintf(buf, "Running game as pid %d.", getpid());
-    log(buf);
-
-    sprintf(buf, "Running game on port %d.", startup_options.port);
-    log(buf);
-
-    if (chdir(startup_options.dir.c_str()) < 0) {
-        perror("Fatal error changing to data directory");
-        exit(0);
-    }
-
-    sprintf(buf, "Using %s as data directory.", startup_options.dir.c_str());
-    log(buf);
-
-    // Open command log
-    system("mv -f last_cmds crash_cmds");
-    fpCommand = fopen("last_cmds", "w");
-    srandom(time(0));
-    run_the_game(startup_options.port);
-    return (0);
-}
-#endif
 
 // TODO(drelidan):  Move this into a place that makes sense.  We're cooking pasta!
 std::vector<char_data*> specialized_mages;
 
 /* Init sockets, run game, and cleanup sockets */
-void run_the_game(sh_int port)
+void run_the_game(sh_int port, std::shared_ptr<GameTickSchedule> schedule)
 {
     int s;
 
@@ -485,10 +518,8 @@ void run_the_game(sh_int port)
     log("Entering game loop.");
 
     specialized_mages.clear();
-    // Owns the schedule for the life of the loop; the heartbeat only observes it.
-    const std::shared_ptr<GameTickSchedule> tick_schedule
-        = std::make_shared<RealTimeTickSchedule>();
-    GameHeartbeat heartbeat(tick_schedule);
+    // The heartbeat only observes the schedule; the parameter keeps it alive for the loop.
+    GameHeartbeat heartbeat(schedule);
     game_loop(s, heartbeat);
 
     close_sockets(s);

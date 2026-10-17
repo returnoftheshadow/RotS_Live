@@ -13,8 +13,12 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -259,6 +263,212 @@ TEST(StartupOptions, AcceptsCompactDashPPortForm)
 
     EXPECT_EQ(options.port, 3791);
     EXPECT_FALSE(options.has_proxy);
+}
+
+TEST(StartupOptions, HasNoRandomSeedWhenNoneIsGiven)
+{
+    StartupOptions options {};
+    options.random_seed = 99u;
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "4000" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_FALSE(options.random_seed.has_value());
+}
+
+TEST(StartupOptions, TakesTheRandomSeedFromTheNextArgument)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed", "20261007" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, 20261007u);
+}
+
+TEST(StartupOptions, TakesTheRandomSeedAfterAnEqualsSign)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed=42" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, 42u);
+}
+
+TEST(StartupOptions, AcceptsTheLargestUnsignedRandomSeed)
+{
+    const unsigned int largest_seed = std::numeric_limits<unsigned int>::max();
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed", std::to_string(largest_seed) };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, largest_seed);
+}
+
+TEST(StartupOptions, RefusesARandomSeedTooLargeForAnUnsignedInt)
+{
+    const unsigned long long one_past_largest
+        = static_cast<unsigned long long>(std::numeric_limits<unsigned int>::max()) + 1;
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--random-seed", std::to_string(one_past_largest) };
+    std::vector<char*> argv = build_argv(&args);
+
+    EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message));
+    EXPECT_NE(error_message.find("too large"), std::string::npos) << error_message;
+}
+
+TEST(StartupOptions, RefusesARandomSeedWithASignOrOtherCharacters)
+{
+    constexpr std::string_view malformed_seeds[]
+        = { "-5", "+5", "12abc", " 7", "0x10", "99999999999abc" };
+    for (const std::string_view malformed_seed : malformed_seeds) {
+        StartupOptions options {};
+        std::string error_message;
+        std::vector<std::string> args = { "ageland", "--random-seed", std::string(malformed_seed) };
+        std::vector<char*> argv = build_argv(&args);
+
+        EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+            << "seed '" << malformed_seed << "'";
+        EXPECT_NE(error_message.find("Illegal random seed"), std::string::npos) << error_message;
+    }
+}
+
+TEST(StartupOptions, RefusesARandomSeedOptionWithNoValue)
+{
+    const std::vector<std::vector<std::string>> argument_lists = {
+        { "ageland", "--random-seed" },
+        { "ageland", "--random-seed=" },
+    };
+    for (const std::vector<std::string>& argument_list : argument_lists) {
+        StartupOptions options {};
+        std::string error_message;
+        std::vector<std::string> args = argument_list;
+        std::vector<char*> argv = build_argv(&args);
+
+        EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+            << args.back();
+        EXPECT_NE(error_message.find("Random seed expected"), std::string::npos) << error_message;
+    }
+}
+
+TEST(StartupOptions, RefusesAnUnknownLongOption)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "--no-such-option", "4000" };
+    std::vector<char*> argv = build_argv(&args);
+
+    EXPECT_FALSE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message));
+    EXPECT_NE(error_message.find("--no-such-option"), std::string::npos) << error_message;
+}
+
+TEST(StartupOptions, TakesARandomSeedAmongOtherOptions)
+{
+    StartupOptions options {};
+    std::string error_message;
+    std::vector<std::string> args = { "ageland", "-d", "lib", "--random-seed", "7", "-p", "4000" };
+    std::vector<char*> argv = build_argv(&args);
+
+    ASSERT_TRUE(parse_startup_options(static_cast<int>(argv.size()), argv.data(), &options, &error_message))
+        << error_message;
+
+    EXPECT_EQ(options.dir, "lib");
+    EXPECT_EQ(options.port, 4000);
+    ASSERT_TRUE(options.random_seed.has_value());
+    EXPECT_EQ(*options.random_seed, 7u);
+}
+
+// The seed the fake seed source hands out, distinct from every seed a test requests.
+constexpr unsigned int FAKE_FRESH_SEED = 424242u;
+// How many std::rand results a test compares after seeding.
+constexpr int RANDOM_NUMBERS_COMPARED = 5;
+// How many times the fake seed source has been asked for a seed.
+int fake_seed_draws = 0;
+
+// Counts the draw in fake_seed_draws and returns FAKE_FRESH_SEED.
+unsigned int draw_fake_fresh_seed()
+{
+    ++fake_seed_draws;
+    return FAKE_FRESH_SEED;
+}
+
+// Returns the next RANDOM_NUMBERS_COMPARED results of std::rand.
+std::vector<int> next_random_numbers()
+{
+    std::vector<int> numbers;
+    numbers.reserve(RANDOM_NUMBERS_COMPARED);
+    for (int index = 0; index < RANDOM_NUMBERS_COMPARED; ++index) {
+        numbers.push_back(std::rand());
+    }
+    return numbers;
+}
+
+// Clears the fake seed source's count before each test and afterwards reseeds std::rand with 1,
+// which the C standard makes the sequence a process starts with, so one test's seeding cannot
+// change the random numbers a later test sees.
+class RandomSeedTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        fake_seed_draws = 0;
+    }
+
+    void TearDown() override
+    {
+        std::srand(1);
+    }
+};
+
+TEST_F(RandomSeedTest, SeedsAndLogsTheRequestedSeed)
+{
+    const unsigned int requested_seed = 12345u;
+    std::srand(requested_seed);
+    const std::vector<int> expected_numbers = next_random_numbers();
+
+    testing::internal::CaptureStderr();
+    seed_random_numbers(requested_seed, draw_fake_fresh_seed);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(next_random_numbers(), expected_numbers);
+    EXPECT_EQ(fake_seed_draws, 0);
+    const std::string expected_line
+        = "Random numbers seeded with " + std::to_string(requested_seed) + " from --random-seed.";
+    EXPECT_NE(log_text.find(expected_line), std::string::npos) << log_text;
+}
+
+TEST_F(RandomSeedTest, SeedsAndLogsAFreshSeedWhenNoneIsRequested)
+{
+    std::srand(FAKE_FRESH_SEED);
+    const std::vector<int> expected_numbers = next_random_numbers();
+
+    testing::internal::CaptureStderr();
+    seed_random_numbers(std::nullopt, draw_fake_fresh_seed);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(next_random_numbers(), expected_numbers);
+    EXPECT_EQ(fake_seed_draws, 1);
+    const std::string fresh_seed_text = std::to_string(FAKE_FRESH_SEED);
+    const std::string expected_line = "Random numbers seeded with " + fresh_seed_text
+        + "; start with --random-seed " + fresh_seed_text + " to repeat them.";
+    EXPECT_NE(log_text.find(expected_line), std::string::npos) << log_text;
 }
 
 TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)

@@ -11,22 +11,28 @@ CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
 # Extra ctest arguments, e.g. CTEST_ARGS='-R JsonUtils'.
 CTEST_ARGS ?=
+# Python used for the integration harness; point it at a virtual environment's python.
+PYTHON ?= python3
+# Scenario group for make integration, e.g. GROUP=boot; empty runs every scenario.
+GROUP ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help configure setup build test run smoke-account format clean
+.PHONY: help configure setup build test run smoke-account integration-unit integration format clean
 
 help:
 	@printf "Available targets:\n"
-	@printf "  make configure      Configure the CMake build in %s\n" "$(BUILD_DIR)"
-	@printf "  make setup          Create runtime directories and bootstrap files\n"
-	@printf "  make build          Build the ageland server binary\n"
-	@printf "  make test           Run the C++ unit tests\n"
-	@printf "  make smoke-account  Build the game/proxy and run the account smoke flow\n"
-	@printf "  make format         clang-format the WHOLE tree -- see the warning above the target;\n"
-	@printf "                      format only your changed files instead\n"
-	@printf "  make run            Build and start the server in the foreground\n"
-	@printf "  make clean          Clean the configured CMake build tree\n"
-	@printf "\nVariables: BUILD_DIR (%s), JOBS (%s), CMAKE_CONFIGURE_ARGS, CTEST_ARGS\n" "$(BUILD_DIR)" "$(JOBS)"
+	@printf "  make configure         Configure the CMake build in %s\n" "$(BUILD_DIR)"
+	@printf "  make setup             Create runtime directories and bootstrap files\n"
+	@printf "  make build             Build the ageland server binary\n"
+	@printf "  make test              Run the C++ unit tests\n"
+	@printf "  make smoke-account     Build the game/proxy and run the account smoke flow\n"
+	@printf "  make integration-unit  Run the integration harness's own unit tests (no server)\n"
+	@printf "  make integration       Run the integration scenarios (GROUP=<name> for one group)\n"
+	@printf "  make format            clang-format the WHOLE tree -- see the warning above the target;\n"
+	@printf "                         format only your changed files instead\n"
+	@printf "  make run               Build and start the server in the foreground\n"
+	@printf "  make clean             Clean the configured CMake build tree\n"
+	@printf "\nVariables: BUILD_DIR (%s), JOBS (%s), CMAKE_CONFIGURE_ARGS, CTEST_ARGS, PYTHON, GROUP\n" "$(BUILD_DIR)" "$(JOBS)"
 	@printf "Changing CMAKE_CONFIGURE_ARGS needs a fresh BUILD_DIR; an existing tree keeps its cache.\n"
 
 $(CMAKE_CACHE):
@@ -51,6 +57,12 @@ run: build
 smoke-account: setup build
 	cargo build -p proxy
 	python3 tools/account_smoke.py
+
+integration-unit:
+	$(PYTHON) -m pytest tests/integration/unit -q
+
+integration:
+	$(PYTHON) -m pytest tests/integration/scenarios -q -m "scenario$(if $(GROUP), and ($(GROUP)))"
 
 # DO NOT RUN THIS on a change you are about to commit. It is clang-format over the WHOLE
 # tree: ~1200 lines nobody touched get rewritten (db.cpp and act_wiz.cpp worst), and the

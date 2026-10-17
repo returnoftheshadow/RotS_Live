@@ -329,7 +329,7 @@ ACMD(do_insult)
                 sprintf(buf, "You insult %s.\n\r", PERS(victim, ch, FALSE, FALSE));
                 send_to_char(buf, ch);
 
-                switch (random() % 3) {
+                switch (number(0, 2)) {
                 case 0:
                     if (GET_SEX(ch) == SEX_MALE) {
                         if (GET_SEX(victim) == SEX_MALE)

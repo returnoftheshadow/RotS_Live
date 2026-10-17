@@ -101,6 +101,7 @@ set(ROTS_SERVER_SOURCES
     color.cpp
     combat_manager.cpp
     comm.cpp
+    creation_points.cpp
     config.cpp
     consts.cpp
     crashsave_schedule.cpp
@@ -145,6 +146,7 @@ set(ROTS_SERVER_SOURCES
     save_benchmark.cpp
     savebench.cpp
     script.cpp
+    server_startup.cpp
     shapemdl.cpp
     shapemob.cpp
     shapeobj.cpp
@@ -233,6 +235,17 @@ set(ROTS_TEST_SOURCES
     tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
     tests/real_time_tick_schedule_tests.cpp
+    tests/harness_affect_hours_schedule_tests.cpp
+    tests/harness_advance_hours_request_tests.cpp
+    tests/harness_request_dispatch_tests.cpp
+    tests/harness_request_registry_tests.cpp
+    tests/harness_schedule_registry_tests.cpp
+    tests/harness_background_line_reader_tests.cpp
+    tests/harness_standard_stream_channel_tests.cpp
+    tests/harness_controlled_schedule_tests.cpp
+    tests/harness_affect_hours_transcript_tests.cpp
+    tests/harness_command_line_parser_tests.cpp
+    tests/harness_options_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
@@ -246,9 +259,24 @@ set(ROTS_TEST_SOURCES
     tests/weapon_master_handler_tests.cpp
     tests/world_clock_tests.cpp
     tests/load_scalp_tests.cpp
+    tests/creation_dialogue_tests.cpp
+    tests/creation_points_tests.cpp
+    tests/rotstool_command_tests.cpp
+    tests/rotstool_fixture_spec_tests.cpp
+    tests/rotstool_fixture_maker_tests.cpp
+    tests/rotstool_fixture_lib_writer_tests.cpp
+    tests/rotstool_fixtures_write_tests.cpp
 )
 
-add_executable(ageland ${ROTS_SERVER_SOURCES})
+# The server's code, compiled once for every program built from it.
+add_library(rots_server_objects OBJECT ${ROTS_SERVER_SOURCES})
+target_compile_options(rots_server_objects PRIVATE
+    -w
+    -g
+)
+target_link_libraries(rots_server_objects PUBLIC rots_codegen)
+
+add_executable(ageland main.cpp)
 target_compile_options(ageland PRIVATE
     -w
     -g
@@ -257,8 +285,72 @@ target_compile_options(ageland PRIVATE
 target_link_options(ageland PRIVATE -g -rdynamic)
 # A bare "crypt" lets the linker find the libcrypt that matches -m32; a find_library() path
 # can resolve to the 64-bit library on a multilib host.
-target_link_libraries(ageland PRIVATE rots_codegen crypt)
+target_link_libraries(ageland PRIVATE rots_server_objects rots_codegen crypt)
 set_target_properties(ageland PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
+)
+
+# rotstool's commands; also built into the unit tests.
+set(ROTSTOOL_COMMAND_SOURCES
+    tools/rotstool/rotstool_command.cpp
+    tools/rotstool/fixture_spec_parser.cpp
+    tools/rotstool/fixture_character_maker.cpp
+    tools/rotstool/fixture_lib_writer.cpp
+    tools/rotstool/fixtures_write_command.cpp
+)
+
+# A command-line tool for offline work on a lib, built from the server's own code.
+add_executable(rotstool tools/rotstool/main.cpp ${ROTSTOOL_COMMAND_SOURCES})
+target_include_directories(rotstool PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/rotstool"
+)
+target_compile_options(rotstool PRIVATE
+    -w
+    -g
+)
+target_link_libraries(rotstool PRIVATE rots_server_objects rots_codegen crypt)
+set_target_properties(rotstool PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
+)
+
+find_package(Threads REQUIRED)
+
+# The harness binary's own code; also built into the unit tests.
+set(HARNESS_SOURCES
+    harness/advance_hours_request.cpp
+    harness/affect_hours_registration.cpp
+    harness/affect_hours_schedule.cpp
+    harness/background_line_reader.cpp
+    harness/command_line_parser.cpp
+    harness/harness_controlled_schedule.cpp
+    harness/harness_options.cpp
+    harness/harness_request_registry.cpp
+    harness/request_dispatch.cpp
+    harness/schedule_registry.cpp
+    harness/standard_stream_channel.cpp
+)
+
+# The test build of the server, whose world time advances only on the integration harness's
+# requests over standard input.
+add_executable(ageland_harness harness/main.cpp ${HARNESS_SOURCES})
+target_include_directories(ageland_harness PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/harness"
+)
+target_compile_options(ageland_harness PRIVATE
+    -w
+    -g
+)
+# -rdynamic exports the server's symbols so backtrace_symbols() can name crash frames.
+target_link_options(ageland_harness PRIVATE -g -rdynamic)
+target_link_libraries(ageland_harness PRIVATE
+    rots_server_objects
+    rots_codegen
+    crypt
+    Threads::Threads
+)
+set_target_properties(ageland_harness PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"
 )
 
@@ -282,10 +374,17 @@ if(BUILD_TESTING)
     target_compile_options(gtest_main PRIVATE -w)
     include(GoogleTest)
 
-    add_executable(ageland_tests ${ROTS_SERVER_SOURCES} ${ROTS_TEST_SOURCES})
+    add_executable(ageland_tests
+        ${ROTS_SERVER_SOURCES}
+        ${ROTSTOOL_COMMAND_SOURCES}
+        ${HARNESS_SOURCES}
+        ${ROTS_TEST_SOURCES}
+    )
     target_include_directories(ageland_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/rotstool"
+        "${CMAKE_CURRENT_SOURCE_DIR}/harness"
     )
     target_compile_definitions(ageland_tests PRIVATE TESTING)
     if(ROTS_SUPPRESS_TEST_WARNINGS)
@@ -296,7 +395,7 @@ if(BUILD_TESTING)
             -Wextra
         )
     endif()
-    target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt)
+    target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt Threads::Threads)
     # Routes both number() overloads through the seeded test RNG in tests/test_random_utils.cpp.
     target_link_options(ageland_tests PRIVATE
         -Wl,--wrap=_Z6numberv

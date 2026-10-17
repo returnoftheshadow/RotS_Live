@@ -1,0 +1,86 @@
+name: Integration
+
+# Runs the integration scenarios a pull request asks for. Separate from ci.yml so that editing
+# the description reruns only this job. tests/integration/rots_harness/ci_groups.py chooses the
+# groups: boot always, each @integration-test-<group> in the description, the groups of changed
+# scenario files, and every group for @integration-test-all, a harness change or a push.
+
+on:
+  push:
+    branches:
+      - release-frodo
+  pull_request:
+    branches:
+      - master
+      - release-frodo
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer push or description edit replaces the run in progress.
+  group: integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scenarios:
+    name: Integration scenarios (Ubuntu 22.04 image)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The full history, so the pull request's changed files can be listed.
+          fetch-depth: 0
+
+      - name: Choose the scenario groups
+        id: select
+        env:
+          # Read only through the environment, so the description is never part of a command.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed_files="$RUNNER_TEMP/changed-files.txt"
+          : > "$changed_files"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git diff --name-only "$BASE_SHA...$HEAD_SHA" > "$changed_files"
+          fi
+          cd tests/integration
+          python3 -m rots_harness.ci_groups --event "$EVENT_NAME" --changed-files "$changed_files" \
+            --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the development image
+        run: docker build --tag rots-dev:ci .
+
+      - name: Build the server, the harness server and rotstool
+        # Running as the runner's user keeps the build tree writable by later steps.
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots
+          rots-dev:ci bash -lc 'make configure && cmake --build build --target ageland ageland_harness rotstool --parallel "$(nproc)"'
+
+      - name: Run the scenarios
+        env:
+          GROUP: ${{ steps.select.outputs.group }}
+        # The local launcher runs the programs directly inside the image; make integration reads
+        # GROUP from the environment, and an empty GROUP runs every scenario.
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots
+          --env GROUP --env HOME=/tmp --env ROTS_IT_LAUNCHER=local
+          rots-dev:ci bash -lc 'ulimit -c 0;
+          python3 -m venv /tmp/harness-venv &&
+          /tmp/harness-venv/bin/pip install --quiet --requirement tests/integration/requirements.txt &&
+          make integration PYTHON=/tmp/harness-venv/bin/python'
+
+      - name: Upload the kept run directories
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-runs
+          path: build/integration/runs/
+          if-no-files-found: ignore
