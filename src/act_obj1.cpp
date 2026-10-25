@@ -1016,6 +1016,10 @@ obj_data* load_scalp(int number)
     }
     scalp->next = object_list;
     object_list = scalp;
+    /* Counted as a copy of its prototype, as read_object counts one; extract_obj uncounts it. */
+    if (scalp->item_number >= 0) {
+        obj_index[scalp->item_number].number++;
+    }
 
     return scalp;
 }

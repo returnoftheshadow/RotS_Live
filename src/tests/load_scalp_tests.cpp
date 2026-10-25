@@ -131,6 +131,21 @@ TEST_F(LoadScalpTest, AScalpOwnsTheTextItIsMadeWith)
     EXPECT_EQ(object_list, nullptr);
 }
 
+/* A scalp counts as a copy of the scalp prototype while it is in the game, as any copy does. */
+TEST_F(LoadScalpTest, AScalpCountsAsACopyOfItsPrototypeUntilExtracted)
+{
+    const int count_before = m_obj_index[0].number;
+
+    obj_data* scalp = load_scalp(kWargVnum);
+
+    ASSERT_NE(scalp, nullptr);
+    ASSERT_EQ(scalp->item_number, 0) << "the scalp prototype is the first in the table";
+    EXPECT_EQ(m_obj_index[0].number, count_before + 1);
+
+    extract_obj(scalp);
+    EXPECT_EQ(m_obj_index[0].number, count_before);
+}
+
 /* Two copies of a corpse prototype on the floor of room 0, sharing its text the way copies do,
  * and a character there holding a club. */
 class BeheadCorpseTest : public LoadScalpTest {
