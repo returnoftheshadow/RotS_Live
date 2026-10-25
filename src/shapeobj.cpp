@@ -385,13 +385,18 @@ void implement_object(const struct char_data* ch)
             ch->specials.prompt_number = 1;                           \
             SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_SIMPLE_ACTIVE);    \
             str[0] = 0;                                               \
-            SHAPE_OBJECT(ch)                                          \
-                ->tmpstr                                              \
-                = str_dup(addr);                                      \
+            /* string_add_init edits its own copy of any text. */     \
+            char* field_copy = str_dup(addr);                         \
+            SHAPE_OBJECT(ch)->tmpstr = field_copy;                    \
             string_add_init(ch->desc, &(SHAPE_OBJECT(ch)->tmpstr));   \
+            if (SHAPE_OBJECT(ch)->tmpstr != field_copy) {             \
+                RELEASE(field_copy);                                  \
+            }                                                         \
             return;                                                   \
         } else {                                                      \
             if (SHAPE_OBJECT(ch)->tmpstr) {                           \
+                /* The session object owns the text replaced. */      \
+                RELEASE(addr);                                        \
                 addr = SHAPE_OBJECT(ch)->tmpstr;                      \
                 clean_record_text(addr);                              \
             }                                                         \

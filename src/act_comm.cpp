@@ -384,6 +384,8 @@ ACMD(do_write)
         /* we can write - hooray! */
         send_to_char("Ok.. go ahead and write.. end the note with a @.\n\r", ch);
         act("$n begins to jot down a note.", TRUE, ch, 0, 0, TO_ROOM);
+        /* The editor allocates the note's text, so the note owns it. */
+        paper->set_owned_text(object_text::action_description, nullptr);
         ch->desc->str = &paper->action_description;
         ch->desc->max_str = MAX_NOTE_LENGTH;
     }

@@ -3172,6 +3172,44 @@ TEST(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
     EXPECT_EQ(session.builder.temp, nullptr);
 }
 
+void string_add(struct descriptor_data* d, char* str);
+
+/* Each edit of the look text starts from the text before it and replaces it, and leaving the editor
+ * frees the last. */
+TEST(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
+{
+    SkinEditorSession session(4530);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    new_obj(&session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+
+    /* /4: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_look_text_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = 4;
+        shape_center_obj(&session.builder, prompt);
+        ASSERT_EQ(session.builder.desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder.desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder.desc, finish);
+        shape_center_obj(&session.builder, prompt);
+    };
+
+    add_look_text_line("A plain brass lantern.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\r");
+    add_look_text_line("It is dented.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\rIt is dented.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_object(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 
