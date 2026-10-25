@@ -5782,3 +5782,45 @@ TEST(ParseName, RefusesEmptyAndNonLetterNames)
     EXPECT_EQ(_parse_name("Seventeenletterss", name), 1);
     EXPECT_EQ(_parse_name("Sixteenletterssx", name), 0);
 }
+
+TEST(ParseName, AcceptsOneToSixteenLettersAfterLeadingWhitespace)
+{
+    char name[MAX_PARSED_NAME_LENGTH + 1];
+
+    EXPECT_TRUE(parse_name("Frodo", name));
+    EXPECT_STREQ(name, "Frodo");
+    EXPECT_TRUE(parse_name(" \t\n\v\f\rSam", name));
+    EXPECT_STREQ(name, "Sam");
+    EXPECT_TRUE(parse_name("x", name));
+    EXPECT_STREQ(name, "x");
+    EXPECT_TRUE(parse_name("Sixteenletterssx", name));
+    EXPECT_STREQ(name, "Sixteenletterssx");
+}
+
+TEST(ParseName, RefusesAnythingButOneToSixteenLetters)
+{
+    char name[MAX_PARSED_NAME_LENGTH + 1];
+
+    EXPECT_FALSE(parse_name("Seventeenletterss", name));
+    EXPECT_FALSE(parse_name("Frodo2", name));
+    EXPECT_FALSE(parse_name("Frodo ", name));
+    EXPECT_FALSE(parse_name("Fro do", name));
+    EXPECT_FALSE(parse_name("", name));
+    EXPECT_FALSE(parse_name(" \t ", name));
+}
+
+TEST(ParseName, ARefusedNameLeavesAnEmptyName)
+{
+    // Callers such as mail look the name up even when it is refused. The buffer starts as a
+    // terminated run of 'x's, so a partial copy left behind still reads as a string.
+    char name[MAX_PARSED_NAME_LENGTH + 1];
+    std::memset(name, 'x', sizeof(name) - 1);
+    name[MAX_PARSED_NAME_LENGTH] = '\0';
+
+    EXPECT_EQ(_parse_name("frodo2", name), 1);
+    EXPECT_STREQ(name, "");
+
+    std::memset(name, 'x', sizeof(name) - 1);
+    EXPECT_FALSE(parse_name("Seventeenletterss", name));
+    EXPECT_STREQ(name, "");
+}

@@ -9,6 +9,7 @@
  **************************************************************************/
 
 #include "platdef.h"
+#include <algorithm>
 #include <ctype.h>
 #include <optional>
 #include <stdio.h>
@@ -2299,23 +2300,30 @@ int find_name(const char* name)
     return -1;
 }
 
+bool parse_name(std::string_view arg, char* name)
+{
+    size_t name_start = 0;
+    while (name_start < arg.size() && isspace(static_cast<unsigned char>(arg[name_start])))
+        ++name_start;
+    const std::string_view letters = arg.substr(name_start);
+
+    const bool fits = !letters.empty() && letters.size() <= static_cast<size_t>(MAX_PARSED_NAME_LENGTH);
+    const bool accepted = fits
+        && std::all_of(letters.begin(), letters.end(), [](unsigned char letter) { return isalpha(letter) != 0; });
+    if (!accepted) {
+        name[0] = '\0';
+        return false;
+    }
+
+    letters.copy(name, letters.size());
+    name[letters.size()] = '\0';
+    return true;
+}
+
+// Returns 0 when 'arg' holds a name, 1 when it is refused; see parse_name.
 int _parse_name(const char* arg, char* name)
 {
-    int i;
-
-    /* skip whitespaces */
-    for (; isspace(*arg); arg++)
-        ;
-
-    for (i = 0; (*name = *arg); arg++, i++, name++)
-        if (!isalpha(*arg) || i > 15)
-            return 1;
-
-    // The copy ends with the terminator already written.
-    if (!i)
-        return 1;
-
-    return 0;
+    return parse_name(arg, name) ? 0 : 1;
 }
 
 namespace {
