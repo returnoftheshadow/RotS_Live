@@ -3409,6 +3409,74 @@ TEST(DbLoader, RoomEditorRemovesAnExit)
     free_room(&session.builder);
 }
 
+/* A new exit leads where it is told, with empty text, no door and no key, and is freed like every
+ * other exit. */
+TEST(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
+{
+    const int ROOM_NUMBER = 4530;
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    world[0].number = ROOM_NUMBER;
+    world[0].dir_option[DOWN] = nullptr;
+
+    world[0].create_exit(DOWN, 0, FALSE);
+
+    room_direction_data* const room_exit = world[0].dir_option[DOWN];
+    ASSERT_NE(room_exit, nullptr);
+    EXPECT_STREQ(room_exit->general_description, "");
+    EXPECT_STREQ(room_exit->keyword, "");
+    EXPECT_EQ(room_exit->exit_width, 0);
+    EXPECT_EQ(room_exit->exit_info, 0);
+    EXPECT_EQ(room_exit->key, -1);
+    EXPECT_EQ(room_exit->to_room, 0);
+
+    RELEASE(room_exit->general_description);
+    RELEASE(room_exit->keyword);
+    RELEASE(world[0].dir_option[DOWN]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+}
+
+/* Creating a room in a free slot gives it fresh placeholder text in place of the text the slot held. */
+TEST(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
+{
+    const int saved_top_of_world = top_of_world;
+    const int ROOMS_CREATED = 2;
+    for (int created = 0; created < ROOMS_CREATED; created++) {
+        int free_slot = 0;
+        while (world[free_slot].number >= 0) {
+            free_slot++;
+        }
+        const room_data saved_slot = world[free_slot];
+        const bool slot_had_text = saved_slot.name != nullptr;
+        if (!slot_had_text) {
+            world[free_slot].name = str_dup("New room");
+            world[free_slot].description = str_dup("\n\r");
+        }
+
+        const int room = world.create_room(0);
+
+        ASSERT_EQ(room, free_slot);
+        EXPECT_STREQ(world[room].name, "New room");
+        EXPECT_STREQ(world[room].description, "\n\r");
+        EXPECT_GE(world[room].number, 0);
+
+        /* Put the slot back as it was; a slot that held text keeps the text it holds now. */
+        char* const created_name = world[room].name;
+        char* const created_description = world[room].description;
+        world[room] = saved_slot;
+        if (slot_had_text) {
+            world[room].name = created_name;
+            world[room].description = created_description;
+        } else {
+            free(created_name);
+            free(created_description);
+        }
+    }
+    top_of_world = saved_top_of_world;
+}
+
 void free_zone(struct char_data* ch);
 
 /* Leaving the zone editor frees a loaded zone's name, description and map. */

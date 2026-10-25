@@ -4500,7 +4500,8 @@ void room_data::create_exit(int dir, int room, char connect)
         //    RELEASE(dir_option[dir]->general_description);
         //    RELEASE(dir_option[dir]->keyword);
     } else {
-        dir_option[dir] = new room_direction_data;
+        /* CREATE, not new: exits are freed with RELEASE. */
+        CREATE1(dir_option[dir], room_direction_data);
         dir_option[dir]->general_description = str_dup("");
         dir_option[dir]->keyword = str_dup("");
         dir_option[dir]->exit_width = 0;
@@ -4561,6 +4562,10 @@ int room_data::create_room(int zone)
     } else
         new_room = &world[place];
 
+    /* A free slot holds either nothing (a booted world's spare slot) or the placeholder text
+     * dummy_room_data gave it, which it replaces. */
+    RELEASE(new_room->name);
+    RELEASE(new_room->description);
     dummy_room_data(new_room);
     if (place == 0)
         new_room->number = 0;
