@@ -206,18 +206,9 @@ void write_room(FILE* f, const struct room_data* m, int num)
     fprintf(f, "S\n\r");
 }
 
-/*
- * This was the previous definition of SUBT that was used
- * when the Windows processing macro was defined.  It's
- * interesting because it releases real->, unless our
- * current SUBST().
- * #define SUBST(x)                              \
- *  if (real->x)                                \
- *    RELEASE(real->x);                         \
- *  CREATE(real->x, char, strlen(curr->x) + 1); \
- *  strcpy(real->x, curr->x);                   \
- */
+/* Copies the editor's text x over the live room's, freeing the text it replaces. */
 #define SUBST(x)                                \
+    RELEASE(real->x);                           \
     CREATE(real->x, char, strlen(curr->x) + 1); \
     strcpy(real->x, curr->x);
 
@@ -314,6 +305,7 @@ void implement_room(const struct char_data* ch)
                 SUBST(dir_option[i]->general_description);
             } else {
                 //	  real->dir_option[i]->general_description=(char *)calloc(1,1);
+                RELEASE(real->dir_option[i]->general_description);
                 CREATE(real->dir_option[i]->general_description, char, 1);
             }
             SUBST(dir_option[i]->keyword);
@@ -1709,12 +1701,20 @@ void free_room(struct char_data* ch)
     if (!SHAPE_ROOM(ch))
         return;
     if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_ROOM_LOADED)) {
-        for (i = 0; i < NUM_OF_DIRS; i++)
+        for (i = 0; i < NUM_OF_DIRS; i++) {
+            room_direction_data* const room_exit = SHAPE_ROOM(ch)->room->dir_option[i];
+            if (room_exit) {
+                RELEASE(room_exit->general_description);
+                RELEASE(room_exit->keyword);
+            }
             RELEASE(SHAPE_ROOM(ch)->room->dir_option[i]);
+        }
 
         tmpdescr = SHAPE_ROOM(ch)->room->ex_description;
         while (tmpdescr) {
             tmpdescr2 = tmpdescr->next;
+            RELEASE(tmpdescr->keyword);
+            RELEASE(tmpdescr->description);
             RELEASE(tmpdescr);
             tmpdescr = tmpdescr2;
         }

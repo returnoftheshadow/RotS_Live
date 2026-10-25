@@ -2470,6 +2470,8 @@ void free_zone(struct char_data* ch)
             ->curr
             = 0;
         RELEASE(SHAPE_ZONE(ch)->zone_name);
+        RELEASE(SHAPE_ZONE(ch)->zone_descr);
+        RELEASE(SHAPE_ZONE(ch)->zone_map);
     }
     RELEASE(SHAPE_ZONE(ch)->tmpstr);
     owner = SHAPE_ZONE(ch)->root_owner;

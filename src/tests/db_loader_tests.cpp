@@ -3290,6 +3290,116 @@ TEST(DbLoader, RoomEditorDescriptionEditsReplaceEachOther)
     EXPECT_EQ(session.builder.temp, nullptr);
 }
 
+void implement_room(const struct char_data* ch);
+
+/* An exit made the way boot makes one: its own copy of each text. */
+room_direction_data* make_room_exit(const char* description, const char* keyword, int to_room)
+{
+    room_direction_data* room_exit = nullptr;
+    CREATE1(room_exit, room_direction_data);
+    room_exit->general_description = str_dup(description);
+    room_exit->keyword = str_dup(keyword);
+    room_exit->to_room = to_room;
+    return room_exit;
+}
+
+/* Implementing a room gives the live room copies of the editor's name, description and exit text, and
+ * an exit the editor leaves undescribed an empty description. */
+TEST(DbLoader, ImplementingARoomCopiesTheEditorsText)
+{
+    const int ROOM_NUMBER = 4530;
+    SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    editor->permission = 1;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, ROOM_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    room_data* const edited = editor->room;
+    RELEASE(edited->name);
+    edited->name = str_dup("A lit cave");
+    RELEASE(edited->description);
+    edited->description = str_dup("Torches burn.\n\r");
+    edited->dir_option[NORTH] = make_room_exit("", "gate", ROOM_NUMBER);
+
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    room_data& live = world[0];
+    live.number = ROOM_NUMBER;
+    live.name = str_dup("A dark cave");
+    live.description = str_dup("It is dark.\n\r");
+    live.ex_description = nullptr;
+    live.affected = nullptr;
+    for (int direction = 0; direction < NUM_OF_DIRS; direction++) {
+        live.dir_option[direction] = nullptr;
+    }
+    live.dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", 0);
+
+    implement_room(&session.builder);
+
+    EXPECT_STREQ(live.name, "A lit cave");
+    EXPECT_STREQ(live.description, "Torches burn.\n\r");
+    ASSERT_NE(live.dir_option[NORTH], nullptr);
+    EXPECT_STREQ(live.dir_option[NORTH]->general_description, "");
+    EXPECT_STREQ(live.dir_option[NORTH]->keyword, "gate");
+    EXPECT_NE(live.name, edited->name);
+
+    RELEASE(live.name);
+    RELEASE(live.description);
+    RELEASE(live.dir_option[NORTH]->general_description);
+    RELEASE(live.dir_option[NORTH]->keyword);
+    RELEASE(live.dir_option[NORTH]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+    free_room(&session.builder);
+}
+
+/* Leaving the room editor frees a loaded room with its exits and extra descriptions. */
+TEST(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
+{
+    const int ROOM_NUMBER = 4530;
+    SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, ROOM_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    editor->room->dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", ROOM_NUMBER);
+    editor->room->dir_option[SOUTH] = make_room_exit("", "", ROOM_NUMBER);
+    extra_descr_data* extra = nullptr;
+    CREATE1(extra, extra_descr_data);
+    extra->keyword = str_dup("torch");
+    extra->description = str_dup("It burns low.\n\r");
+    editor->room->ex_description = extra;
+
+    free_room(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+void free_zone(struct char_data* ch);
+
+/* Leaving the zone editor frees a loaded zone's name, description and map. */
+TEST(DbLoader, LeavingTheZoneEditorFreesItsText)
+{
+    SkinEditorSession session(4530); /* only its builder: the zone editor replaces temp */
+    shape_zone* editor = nullptr; /* free_zone frees the editor state, so it is allocated */
+    CREATE(editor, shape_zone, 1);
+    editor->procedure = SHAPE_EDIT;
+    SET_BIT(editor->flags, SHAPE_ZONE_LOADED);
+    editor->zone_name = str_dup("The Old Forest");
+    editor->zone_descr = str_dup("Trees crowd the path.\n\r");
+    editor->zone_map = str_dup("[ ]-[ ]\n\r");
+    session.builder.temp = editor;
+
+    free_zone(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 
