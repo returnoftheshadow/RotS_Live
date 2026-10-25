@@ -3143,6 +3143,35 @@ TEST(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
     EXPECT_NE(saved.find("12 0 4 0 2 4512 0\n\r"), std::string::npos) << saved;
 }
 
+void free_object(struct char_data* ch);
+void new_obj(const struct char_data* ch);
+
+/* Leaving the object editor frees the object it was editing, its text and extra descriptions too. */
+TEST(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
+{
+    SkinEditorSession session(4530);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    new_obj(&session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+    add_extra_description(*editor->object, "dent", "A deep dent.");
+
+    /* /1: the first call shows the prompt, the second takes the new aliases. */
+    char prompt[] = "";
+    char aliases[] = "lantern brass";
+    editor->editflag = 1;
+    shape_center_obj(&session.builder, prompt);
+    shape_center_obj(&session.builder, aliases);
+    ASSERT_STREQ(editor->object->name, "lantern brass");
+    ASSERT_STREQ(editor->object->short_description, "gizmo");
+
+    free_object(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 

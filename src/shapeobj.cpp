@@ -2340,6 +2340,13 @@ void free_object(struct char_data* ch)
             RELEASE(tmp);
             tmp = tmp2;
         }
+        /* The session's object holds its own copy of every text field: load_object reads each
+         * from the file, new_obj duplicates them, and an edit replaces one with a new copy. */
+        obj_data* const session_object = SHAPE_OBJECT(ch)->object;
+        RELEASE(session_object->name);
+        RELEASE(session_object->short_description);
+        RELEASE(session_object->description);
+        RELEASE(session_object->action_description);
         RELEASE(SHAPE_OBJECT(ch)->object);
         SHAPE_OBJECT(ch)
             ->object
