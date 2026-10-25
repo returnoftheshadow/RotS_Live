@@ -445,6 +445,7 @@ TEST_F(ObjectSkins, RestyleFilledDrinkKeepsLiquidWord)
     ASSERT_EQ(restyle_object(drink, rn(kSkin), &n), restyle_result::ok);
     EXPECT_STREQ(drink->name, "water jug clay");
     EXPECT_NE(drink->name, m_proto[2].name) << "the copy owns its liquid name";
+    EXPECT_TRUE(drink->owns_text(object_text::name));
 
     name_from_drinkcon(drink);
     EXPECT_STREQ(drink->name, "jug clay");
@@ -468,6 +469,7 @@ TEST_F(ObjectSkins, RestyleEmptiedDrinkTakesTargetName)
     obj_data* n = nullptr;
     ASSERT_EQ(restyle_object(drink, rn(kSkin), &n), restyle_result::ok);
     EXPECT_EQ(drink->name, m_proto[2].name);
+    EXPECT_FALSE(drink->owns_text(object_text::name)) << "the target's name is borrowed";
 }
 
 /* Prototypes that start full have the liquid as their first name word ("water flask leather").
@@ -507,6 +509,28 @@ TEST_F(ObjectSkins, RestyleDrinkFromFullPrototypes)
     EXPECT_STREQ(wine->name, "wine jug clay");
     name_from_drinkcon(wine);
     EXPECT_STREQ(wine->name, "jug clay");
+}
+
+/* Filling and emptying a copy over and over frees each name it made, never its prototype's (a
+ * static buffer here, so a free of it would abort). */
+TEST_F(ObjectSkins, DrinkNameCyclesFreeOnlyNamesTheCopyMade)
+{
+    static char flask[] = "flask";
+    m_proto[0].obj_flags.type_flag = ITEM_DRINKCON;
+    m_proto[0].name = flask;
+    obj_data* drink = load(kBase);
+    obj_to_char(drink, &m_ch);
+    EXPECT_FALSE(drink->owns_text(object_text::name));
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        name_to_drinkcon(drink, 0);
+        EXPECT_STREQ(drink->name, "water flask");
+        EXPECT_TRUE(drink->owns_text(object_text::name));
+        name_from_drinkcon(drink);
+        EXPECT_STREQ(drink->name, "flask");
+        EXPECT_NE(drink->name, m_proto[0].name);
+    }
+    EXPECT_STREQ(m_proto[0].name, "flask");
 }
 
 /* After an implement a copy can still point at the prototype's old text, which other copies share

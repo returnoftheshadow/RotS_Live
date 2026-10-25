@@ -494,6 +494,14 @@ inline constexpr int ENCHANT_ALIGN_NEUTRAL = 0;
 inline constexpr int ENCHANT_ALIGN_GOOD = 1; /* ITEM_ANTI_EVIL */
 inline constexpr int ENCHANT_ALIGN_EVIL = 2; /* ITEM_ANTI_GOOD */
 
+/* An object's text fields, each a bit of obj_data::owned_text. */
+enum class object_text : int {
+    name = 1 << 0,
+    short_description = 1 << 1,
+    description = 1 << 2,
+    action_description = 1 << 3,
+};
+
 /* ======================== Structure for object ========================= */
 struct obj_data {
 public:
@@ -523,6 +531,23 @@ public:
     // Returns true if the weapon is a ranged weapon.
     bool is_ranged_weapon() const;
 
+    // True when freeing this object frees `field`: every field of an object with no prototype
+    // (item_number < 0), and only the fields a prototype's copy allocated itself.
+    bool owns_text(object_text field) const;
+
+    // Puts `text`, allocated for this object alone, in `field`; freeing the object frees it.
+    // Frees the text it replaces if this object owned it.
+    void set_owned_text(object_text field, char* text);
+
+    // Puts `text`, which a prototype owns, in `field`. Frees the text it replaces if this object
+    // owned it. Only for a prototype's copy: an object with no prototype frees all its text, so
+    // it is refused and logged.
+    void set_borrowed_text(object_text field, char* text);
+
+    // Frees the fields this object allocated itself (owned_text) and leaves them null. free_obj
+    // calls it for a prototype's copy.
+    void release_owned_text();
+
 public:
     int item_number; /* Where in data-base               */
     int in_room; /* In what room -1 when conta/carr  */
@@ -536,6 +561,9 @@ public:
     char* short_description; /* when worn/carry/in cont.         */
     char* action_description; /* What to write when used          */
     struct extra_descr_data* ex_description; /* extra descriptions     */
+    // object_text bits: the text fields this copy allocated and frees. A prototype owns none, so
+    // a fresh copy owns none and borrows all its text.
+    int owned_text;
     struct char_data* carried_by; /* Carried by :NULL in room/conta   */
 
     int owner;

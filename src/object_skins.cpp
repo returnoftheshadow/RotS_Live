@@ -182,11 +182,7 @@ int read_object_level_line(FILE* f, int nums[7])
 /* The name a drink container takes from target, built the way filling and emptying do
  * (name_to_drinkcon / name_from_drinkcon): a full prototype's name starts with its liquid, so that
  * word is dropped, and the copy's own liquid goes in front if the copy is full. Returns the
- * prototype's name when that is the answer, otherwise a new string the copy owns.
- *
- * The copy's old name is never freed. After an implement, older copies can share one name
- * string that looks like the copy's own, and freeing it would leave the others pointing at freed
- * memory. Leaving it costs a few bytes per restyle of a drink container. */
+ * prototype's name when that is the answer, otherwise a new string the copy owns. */
 static char* drink_name_from(const obj_data& obj, const obj_data& target)
 {
     extern char* drinknames[];
@@ -224,12 +220,20 @@ restyle_result restyle_object(obj_data* obj, int target_rnum, obj_data** new_obj
     obj_index[obj->item_number].number--;
     obj_index[target_rnum].number++;
     obj->item_number = target_rnum;
-    obj->name = (obj->obj_flags.type_flag == ITEM_DRINKCON && target.name)
-        ? drink_name_from(*obj, target)
-        : target.name;
-    obj->short_description = target.short_description;
-    obj->description = target.description;
-    obj->action_description = target.action_description;
+    /* Text the copy owned is freed as it is replaced. */
+    if (obj->obj_flags.type_flag == ITEM_DRINKCON && target.name) {
+        char* const drink_name = drink_name_from(*obj, target);
+        if (drink_name == target.name) {
+            obj->set_borrowed_text(object_text::name, drink_name);
+        } else {
+            obj->set_owned_text(object_text::name, drink_name);
+        }
+    } else {
+        obj->set_borrowed_text(object_text::name, target.name);
+    }
+    obj->set_borrowed_text(object_text::short_description, target.short_description);
+    obj->set_borrowed_text(object_text::description, target.description);
+    obj->set_borrowed_text(object_text::action_description, target.action_description);
     obj->ex_description = target.ex_description;
     obj->obj_flags.cost = target.obj_flags.cost;
     obj->obj_flags.material = target.obj_flags.material;

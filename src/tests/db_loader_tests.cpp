@@ -3035,6 +3035,50 @@ TEST(DbLoader, ImplementLeavesNoObjectHoldingTheReplacedText)
     }
 }
 
+void name_to_drinkcon(struct obj_data* obj, int type);
+
+/* Filling a copy made before an implement leaves the old name it shares with other such copies
+ * alone: they all still show it. */
+TEST(DbLoader, FillingACopyKeepsTheOldNameOtherCopiesShare)
+{
+    SkinEditorSession session(4700);
+    obj_data* const filled = read_object(4, REAL);
+    obj_data* const untouched = read_object(4, REAL);
+    ASSERT_NE(filled, nullptr);
+    ASSERT_NE(untouched, nullptr);
+    implement_object(&session.builder);
+    ASSERT_STREQ(obj_proto[4].name, "cloak");
+
+    name_to_drinkcon(filled, 0);
+
+    EXPECT_STREQ(filled->name, "water thing");
+    EXPECT_STREQ(untouched->name, "thing");
+
+    extract_obj(filled);
+    extract_obj(untouched);
+}
+
+/* A copy starts out owning none of its text, so freeing it never frees its prototype's. */
+TEST(DbLoader, ACopyStartsOwningNoneOfItsText)
+{
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    staff.owned_text = static_cast<int>(object_text::name); /* a stray mark on the prototype */
+
+    obj_data* const copy = read_object(4, REAL);
+    staff.owned_text = 0;
+
+    ASSERT_NE(copy, nullptr);
+    EXPECT_EQ(copy->name, staff.name);
+    EXPECT_FALSE(copy->owns_text(object_text::name));
+    EXPECT_FALSE(copy->owns_text(object_text::short_description));
+    EXPECT_FALSE(copy->owns_text(object_text::description));
+    EXPECT_FALSE(copy->owns_text(object_text::action_description));
+
+    extract_obj(copy);
+    EXPECT_STREQ(staff.name, "thing");
+}
+
 /* A note can't be a base: /23 refuses it, like a key. */
 TEST(DbLoader, ObjectEditorRefusesNoteBase)
 {

@@ -2123,6 +2123,7 @@ struct obj_data* read_object(int nr, int type)
 
     CREATE(obj, struct obj_data, 1);
     *obj = obj_proto[i];
+    obj->owned_text = 0; /* every copy starts borrowing its prototype's text */
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)
@@ -3765,23 +3766,9 @@ void free_obj(struct obj_data* obj)
                 RELEASE(thith->description);
                 RELEASE(thith);
             }
-    } /* else {
-     if (obj->name && obj->name != obj_proto[nr].name)
-       RELEASE(obj->name);
-     if (obj->description && obj->description != obj_proto[nr].description)
-       RELEASE(obj->description);
-     if (obj->short_description && obj->short_description !=
-   obj_proto[nr].short_description) RELEASE(obj->short_description); if
-   (obj->action_description && obj->action_description !=
-   obj_proto[nr].action_description) RELEASE(obj->action_description); if
-   (obj->ex_description && obj->ex_description != obj_proto[nr].ex_description)
-       for (thith = obj->ex_description; thith; thith = next_one) {
-         next_one = thith->next;
-         RELEASE(thith->keyword);
-         RELEASE(thith->description);
-         RELEASE(thith);
-       }
-   } */
+    } else {
+        obj->release_owned_text();
+    }
 
     RELEASE(obj);
 }
