@@ -98,9 +98,6 @@ int resist_type_for_attack(int attack_type);
 int resist_magnitude_for(const char_data* victim, int resist_type);
 int effective_resist_magnitude(const char_data* victim, int resist_type, bool physical_attack);
 int compare_obj_to_proto(const obj_data* obj);
-struct obj_data* obj_to_proto(obj_data* obj);
-void check_inventory_proto(char_data* ch);
-void check_equipment_proto(char_data* ch);
 // "none", "3 (on)" or "3 (off)" for an obj_flag_data::version value.
 std::string object_version_text(int version);
 // Brings a saved copy up to its prototype's version when the prototype's version is on (> 0) and
