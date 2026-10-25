@@ -3210,6 +3210,86 @@ TEST(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
     EXPECT_EQ(session.builder.temp, nullptr);
 }
 
+void shape_center_proto(struct char_data* ch, char* arg);
+void new_mob(const struct char_data* ch);
+void free_proto(struct char_data* ch);
+
+/* Each edit of a mob's description starts from the text before it and replaces it, and leaving the
+ * editor frees the last. */
+TEST(DbLoader, MobEditorDescriptionEditsReplaceEachOther)
+{
+    SkinEditorSession session(4530); /* only its builder and output: the mob editor replaces temp */
+    shape_proto* editor = nullptr; /* free_proto frees the editor state, so it is allocated */
+    CREATE(editor, shape_proto, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    new_mob(&session.builder);
+    SET_BIT(editor->flags, SHAPE_PROTO_LOADED);
+
+    /* /4: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_description_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = 4;
+        shape_center_proto(&session.builder, prompt);
+        ASSERT_EQ(session.builder.desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder.desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder.desc, finish);
+        shape_center_proto(&session.builder, prompt);
+    };
+
+    add_description_line("A clay golem.");
+    EXPECT_STREQ(editor->proto->player.description, "golem\n\rA clay golem.\n\r");
+    add_description_line("It is cracked.");
+    EXPECT_STREQ(editor->proto->player.description, "golem\n\rA clay golem.\n\rIt is cracked.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_proto(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+void shape_center_room(struct char_data* ch, char* arg);
+int new_room(const struct char_data* ch, int number);
+void free_room(struct char_data* ch);
+
+/* Each edit of a room's description starts from the text before it and replaces it, and leaving the
+ * editor frees the last. */
+TEST(DbLoader, RoomEditorDescriptionEditsReplaceEachOther)
+{
+    SkinEditorSession session(4530); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, 4530), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+
+    /* /2: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_description_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = 2;
+        shape_center_room(&session.builder, prompt);
+        ASSERT_EQ(session.builder.desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder.desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder.desc, finish);
+        shape_center_room(&session.builder, prompt);
+    };
+
+    add_description_line("A bare cave.");
+    EXPECT_STREQ(editor->room->description, "A bare cave.\n\r");
+    add_description_line("Water drips.");
+    EXPECT_STREQ(editor->room->description, "A bare cave.\n\rWater drips.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_room(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 

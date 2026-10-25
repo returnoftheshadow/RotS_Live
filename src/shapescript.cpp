@@ -1272,6 +1272,8 @@ void extra_coms_script(struct char_data* ch, char* argument)
             return;                                                   \
         } else {                                                      \
             if (SHAPE_SCRIPT(ch)->tmpstr) {                           \
+                /* The session owns the text replaced. */             \
+                RELEASE(addr);                                        \
                 addr = SHAPE_SCRIPT(ch)->tmpstr;                      \
                 clean_record_text(addr);                              \
             }                                                         \

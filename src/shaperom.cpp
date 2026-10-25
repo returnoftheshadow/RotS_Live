@@ -355,6 +355,8 @@ void implement_room(const struct char_data* ch)
             return;                                                   \
         } else {                                                      \
             if (SHAPE_ROOM(ch)->tmpstr) {                             \
+                /* The session owns the text replaced. */             \
+                RELEASE(addr);                                        \
                 addr = SHAPE_ROOM(ch)->tmpstr;                        \
                 clean_record_text(addr);                              \
             }                                                         \

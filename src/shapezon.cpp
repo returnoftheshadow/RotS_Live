@@ -616,6 +616,8 @@ void implement_zone(const struct char_data* ch)
             return;                                                   \
         } else {                                                      \
             if (SHAPE_ZONE(ch)->tmpstr) {                             \
+                /* The session owns the text replaced. */             \
+                RELEASE(addr);                                        \
                 addr = SHAPE_ZONE(ch)->tmpstr;                        \
                 clean_text(addr);                                     \
             }                                                         \
