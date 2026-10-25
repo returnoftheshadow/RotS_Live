@@ -351,12 +351,18 @@ public:
 
     ~ScopedObjectPrototypeTable()
     {
+        // read_object allocates with CREATE, so each copy goes back through free_obj.
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list);
             object_list = next;
         }
 
+        for (int index = 0; index <= top_of_objt; ++index) {
+            free(obj_proto[index].name);
+            free(obj_proto[index].short_description);
+            free(obj_proto[index].description);
+        }
         delete[] obj_proto;
         delete[] obj_index;
         obj_proto = m_previous_obj_proto;
@@ -2431,8 +2437,9 @@ TEST(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNo
     index_data* const previous_obj_index = obj_index;
     obj_data* const previous_obj_proto = obj_proto;
     const int previous_top_of_objt = top_of_objt;
-    obj_index = new index_data[4] {};
-    obj_proto = new obj_data[4] {};
+    const int prototype_slots = 4;
+    obj_index = new index_data[prototype_slots] {};
+    obj_proto = new obj_data[prototype_slots] {};
 
     char name[] = "sword";
     char short_description[] = "a sword";
@@ -2484,6 +2491,13 @@ TEST(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNo
     EXPECT_EQ(obj_proto[3].obj_flags.skin_base, 2001);
     EXPECT_EQ(obj_proto[3].obj_flags.skin_own, SKIN_OWN_COST | SKIN_OWN_MATERIAL);
 
+    // load_objects read each prototype's text with fread_string; slots it never filled hold nulls.
+    for (int index = 0; index < prototype_slots; ++index) {
+        RELEASE(obj_proto[index].name);
+        RELEASE(obj_proto[index].short_description);
+        RELEASE(obj_proto[index].description);
+        RELEASE(obj_proto[index].action_description);
+    }
     delete[] obj_proto;
     delete[] obj_index;
     obj_proto = previous_obj_proto;
@@ -4380,9 +4394,10 @@ public:
 
     ~ScopedResistCharmPrototype()
     {
+        // read_object allocates with CREATE, so each copy goes back through free_obj.
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list);
             object_list = next;
         }
 
