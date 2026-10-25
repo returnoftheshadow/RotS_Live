@@ -494,7 +494,8 @@ void string_add(struct descriptor_data* d, char* str)
                 tmp = (int)(tmp / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
                 CREATE(tmpstr, char, tmp);
                 d->max_str = tmp;
-                memcpy(tmpstr, *d->str, tmp - 2);
+                /* The old buffer can be smaller than the new size: copy only its text and terminator. */
+                memcpy(tmpstr, *d->str, d->len_str + 1);
                 RELEASE(*d->str);
                 *d->str = tmpstr;
                 tmpstr = 0;

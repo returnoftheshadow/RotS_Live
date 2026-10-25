@@ -220,6 +220,36 @@ TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
     EXPECT_EQ(m_note->action_description, nullptr);
 }
 
+/* %e keeps every line typed, though finishing makes the editor regrow the note's first small buffer. */
+TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
+{
+    start_writing();
+    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+
+    type("Meet me at the ford.");
+    type("%e");
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_STREQ(m_note->action_description, "Meet me at the ford.\n\r");
+}
+
+/* A line that carries the note past one editor block keeps the lines before it and itself whole. */
+TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
+{
+    start_writing();
+    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    const std::string long_line(BLOCK_STR_LEN, 'x');
+
+    type("Meet me at the ford.");
+    type(long_line.c_str());
+    type("%e");
+
+    const std::string expected_note = "Meet me at the ford.\n\r" + long_line + "\n\r";
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    ASSERT_NE(m_note->action_description, nullptr);
+    EXPECT_EQ(std::string(m_note->action_description), expected_note);
+}
+
 /* A note's copy that nobody has written on owns none of its text. */
 TEST_F(NoteWritingTest, AnUnwrittenNoteOwnsNoText)
 {
