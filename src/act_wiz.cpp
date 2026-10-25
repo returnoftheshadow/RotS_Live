@@ -1202,7 +1202,7 @@ ACMD(do_wizstat)
                 free_char(victim);
             } else {
                 send_to_char("There is no such player.\n\r", ch);
-                RELEASE(victim);
+                free_char(victim);
             }
         }
     } else if (is_abbrev(buf1, "object")) {
@@ -2927,7 +2927,7 @@ ACMD(do_wizset)
             cbuf->desc = &descr;
             vict = cbuf;
         } else {
-            RELEASE(cbuf);
+            free_char(cbuf);
             send_to_char("There is no such player.\n\r", ch);
             return;
         }

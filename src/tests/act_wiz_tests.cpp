@@ -26,6 +26,7 @@ ACMD(do_shutdown);
 ACMD(do_whoacct);
 ACMD(do_obj2html);
 ACMD(do_wizset);
+ACMD(do_wizstat);
 extern struct player_index_element* player_table;
 extern struct descriptor_data* descriptor_list;
 extern struct char_data* character_list;
@@ -1199,6 +1200,42 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
 
     EXPECT_EQ(std::string(descriptor.output), "You changed their name successfully.\n\r");
     EXPECT_STREQ(implementor->player.name, "Bartholomew");
+
+    free(implementor->player.name);
+    delete implementor;
+}
+
+/* `stat file` for a name with no player file says so, and frees its scratch character. */
+TEST(ActWiz, StatFileReportsAMissingPlayer)
+{
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    descriptor_data descriptor = make_descriptor();
+    char_data* implementor = attach_active_character(&descriptor, "gandalf", LEVEL_IMPL, 1234);
+
+    char command[] = "file nobody";
+    do_wizstat(implementor, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "There is no such player.\n\r");
+
+    free(implementor->player.name);
+    delete implementor;
+}
+
+/* `wizset file` for a name with no player file says so, and frees its scratch character. */
+TEST(ActWiz, WizsetFileReportsAMissingPlayer)
+{
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    descriptor_data descriptor = make_descriptor();
+    char_data* implementor = attach_active_character(&descriptor, "gandalf", LEVEL_IMPL, 1234);
+
+    char command[] = "file nobody level 5";
+    do_wizset(implementor, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "There is no such player.\n\r");
 
     free(implementor->player.name);
     delete implementor;
