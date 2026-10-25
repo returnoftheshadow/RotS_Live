@@ -2648,6 +2648,17 @@ private:
 
 bool has(const std::string& text, const char* line) { return text.find(line) != std::string::npos; }
 
+/* Puts an extra description at the front of `object`'s list, allocated as boot allocates one. */
+void add_extra_description(obj_data& object, const char* keyword, const char* description)
+{
+    extra_descr_data* node = nullptr;
+    CREATE(node, extra_descr_data, 1);
+    node->keyword = strdup(keyword);
+    node->description = strdup(description);
+    node->next = object.ex_description;
+    object.ex_description = node;
+}
+
 } // namespace
 
 TEST(DbLoader, ObjectEditorSetsSkinBase)
@@ -2977,6 +2988,50 @@ TEST(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
         const std::string want = std::string("Obj 4512 has skins (4513, 4514); it can't become ")
             + (type == ITEM_KEY ? "a key" : "a note") + ".\n\rNot implemented.\n\r";
         EXPECT_TRUE(has(out, want.c_str())) << out;
+    }
+}
+
+/* A copy in the game when its prototype is implemented keeps the text it was made with. */
+TEST(DbLoader, ImplementKeepsTheTextALiveCopyShows)
+{
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    add_extra_description(staff, "runes", "Runes run along the staff.");
+    obj_data* const copy = read_object(4, REAL);
+    ASSERT_NE(copy, nullptr);
+
+    implement_object(&session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    EXPECT_STREQ(copy->name, "thing");
+    EXPECT_STREQ(copy->short_description, "a wooden staff");
+    EXPECT_STREQ(copy->description, "a wooden staff");
+    EXPECT_STREQ(copy->action_description, "");
+    ASSERT_NE(copy->ex_description, nullptr);
+    EXPECT_STREQ(copy->ex_description->keyword, "runes");
+    EXPECT_STREQ(copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(copy);
+}
+
+/* With no copy in the game, no object holds the prototype's replaced text after implement. */
+TEST(DbLoader, ImplementLeavesNoObjectHoldingTheReplacedText)
+{
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    add_extra_description(staff, "runes", "Runes run along the staff.");
+    const char* const old_short_description = staff.short_description;
+    const extra_descr_data* const old_extra_descriptions = staff.ex_description;
+
+    implement_object(&session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    for (const obj_data* object = object_list; object; object = object->next) {
+        /* Compared as addresses: a failure message must not read the freed text. */
+        EXPECT_NE(static_cast<const void*>(object->short_description), static_cast<const void*>(old_short_description));
+        EXPECT_NE(static_cast<const void*>(object->ex_description), static_cast<const void*>(old_extra_descriptions));
     }
 }
 
