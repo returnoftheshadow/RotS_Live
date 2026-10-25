@@ -36,6 +36,8 @@
 #include "warrior_spec_handlers.h"
 #include "zone.h"
 
+#include <memory>
+
 const int IMM_SEE_INVIS_OBJ_MIN_LVL = 92;
 
 /*   external vars  */
@@ -2864,6 +2866,8 @@ ACMD(do_wizset)
     int on = 0, off = 0, value = 0;
     char is_file = 0, is_mob = 0, is_player = 0;
     int player_i;
+    // Owns cbuf, the character `file` mode loads, so every return frees it.
+    std::unique_ptr<char_data, void (*)(char_data*)> file_character_owner(nullptr, free_char);
 
     int advance_perm(const struct char_data*, const struct char_data*, int);
 
@@ -2913,10 +2917,10 @@ ACMD(do_wizset)
     } else if (is_file) {
         CREATE(cbuf, struct char_data, 1);
         clear_char(cbuf, MOB_VOID);
+        file_character_owner.reset(cbuf);
         if ((player_i = load_char(name, &tmp_store)) > -1) {
             store_to_char(&tmp_store, cbuf);
             if (GET_LEVEL(cbuf) >= GET_LEVEL(ch)) {
-                free_char(cbuf);
                 send_to_char("Sorry, you can't do that.\n\r", ch);
                 return;
             }
@@ -2927,7 +2931,6 @@ ACMD(do_wizset)
             cbuf->desc = &descr;
             vict = cbuf;
         } else {
-            free_char(cbuf);
             send_to_char("There is no such player.\n\r", ch);
             return;
         }
@@ -3316,7 +3319,6 @@ ACMD(do_wizset)
     if (is_file) {
         char_to_store(vict, &tmp_store);
         save_char(vict, vict->in_room, 0);
-        free_char(cbuf);
         send_to_char("Saved in file.\n\r", ch);
     }
 }
