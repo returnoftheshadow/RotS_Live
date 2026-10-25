@@ -1230,7 +1230,7 @@ TEST(ActWiz, ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt)
 
 ACMD(do_restyle);
 void do_stat_object(const struct char_data* ch, struct obj_data* j);
-void do_stat_room(struct char_data* ch);
+void do_stat_room(struct char_data* character);
 void clear_object(struct obj_data* obj);
 extern struct index_data* obj_index;
 extern struct obj_data* obj_proto;
@@ -1619,7 +1619,7 @@ TEST(ActWiz, StatShowsSkinLines)
 
 TEST(ActWiz, StatRoomShowsNoPrototypeNumberForACorpse)
 {
-    SkinWorld w;
+    SkinWorld skin_world;
     // stat room asks for zone authority, so room 0's zone exists here with no owner.
     owner_list public_owner {};
     zone_data room_zone {};
@@ -1638,16 +1638,16 @@ TEST(ActWiz, StatRoomShowsNoPrototypeNumberForACorpse)
     corpse.short_description = corpse_description;
     obj_to_room(&corpse, 0);
     // The sword is listed first, so a number left over from its line could follow the corpse.
-    obj_data* sword = w.load(kSkinBase);
+    obj_data* sword = skin_world.load(kSkinBase);
     obj_to_room(sword, 0);
 
-    w.imm_desc.small_outbuf[0] = '\0';
-    w.imm_desc.bufptr = 0;
-    do_stat_room(w.imm);
+    skin_world.imm_desc.small_outbuf[0] = '\0';
+    skin_world.imm_desc.bufptr = 0;
+    do_stat_room(skin_world.imm);
 
-    EXPECT_NE(w.imm_out().find("a long steel sword [4512]"), std::string::npos) << w.imm_out();
-    EXPECT_NE(w.imm_out().find("the corpse of a goblin"), std::string::npos) << w.imm_out();
-    EXPECT_EQ(w.imm_out().find("the corpse of a goblin ["), std::string::npos) << w.imm_out();
+    EXPECT_NE(skin_world.imm_out().find("a long steel sword [4512]"), std::string::npos) << skin_world.imm_out();
+    EXPECT_NE(skin_world.imm_out().find("the corpse of a goblin"), std::string::npos) << skin_world.imm_out();
+    EXPECT_EQ(skin_world.imm_out().find("the corpse of a goblin ["), std::string::npos) << skin_world.imm_out();
 
     obj_from_room(&corpse);
     extract_obj(sword);

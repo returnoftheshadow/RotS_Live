@@ -4916,12 +4916,16 @@ std::string written_player_text(descriptor_data* descriptor)
     std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
     stored_character.race = RACE_HUMAN;
     stored_character.level = 10;
-    char_data character {};
-    clear_char(&character, MOB_VOID);
-    store_to_char(&stored_character, &character);
-    character.desc = descriptor;
+    char_data* character = nullptr;
+    CREATE(character, struct char_data, 1);
+    clear_char(character, MOB_VOID);
+    store_to_char(&stored_character, character);
+    character->desc = descriptor;
 
-    if (!write_player_text(&character, 3001, player_path.c_str())) {
+    const bool written = write_player_text(character, 3001, player_path.c_str());
+    character->desc = nullptr;
+    free_char(character);
+    if (!written) {
         ADD_FAILURE() << "write_player_text failed for " << player_path;
         return std::string();
     }

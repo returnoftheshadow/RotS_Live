@@ -3245,8 +3245,8 @@ void encrypt_line(unsigned char* line, int len);
 
 // Serialize ch to scratch_path in the legacy versioned-text format. Returns false and
 // removes the partial scratch on any write/close error, so the caller skips finalize and
-// never destroys the live file. Body is the former save_player serialization, unchanged,
-// so its bytes stay identical to the legacy path (pinned by the A/B oracle + round-trip test).
+// never destroys the live file. Its bytes match the legacy save_player output except where
+// that wrote garbage past an unterminated password or host field.
 bool write_player_text(struct char_data* ch, int load_room, const char* scratch_path)
 {
     struct char_file_u chd;
