@@ -127,6 +127,27 @@ char* format_string(const char* str)
     return str_dup(buf);
 }
 
+/*
+ * True when an edit that leaves the text new_length characters long fits d->str_limit.  An edit
+ * that does not lengthen the text always fits, so a text already past the limit can still be cut.
+ * Otherwise tells the writer the edit was refused and returns false.
+ */
+static bool edit_fits_limit(descriptor_data* d, size_t current_length, size_t new_length)
+{
+    if (d->str_limit == 0 || new_length <= d->str_limit || new_length <= current_length) {
+        return true;
+    }
+
+    char message[128];
+    snprintf(message, sizeof(message),
+        "That would take the text past its limit of %u characters, so it was not changed.\n\r",
+        d->str_limit);
+    SEND_TO_Q(message, d);
+    return false;
+}
+
+/* Replaces every pattern in the text with new_pattern and returns how many were replaced, or -1,
+ * leaving the text unchanged, when the result would pass d->str_limit. */
 int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
 {
     unsigned int len, pat_len, new_len, count, tmp, bufscan;
@@ -141,6 +162,7 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
     pat_len = strlen(pattern);
     new_len = strlen(new_pattern);
     count = 0;
+    const unsigned int original_cursor = d->cur_str;
 
     for (tmp = 0; tmp < len; tmp++) {
         if (!strncmp(*d->str + tmp, pattern, pat_len)) {
@@ -160,6 +182,11 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
 
     if (!count)
         return 0;
+
+    if (!edit_fits_limit(d, len, bufscan)) {
+        d->cur_str = original_cursor;
+        return -1;
+    }
 
     d->len_str = bufscan;
 
@@ -224,6 +251,7 @@ void string_add_init(struct descriptor_data* d, char** str)
         }
 
     d->str = str;
+    d->str_limit = 0;
     if (!d->str) {
         printf("creating d->str\n");
         CREATE1(d->str, char*);
@@ -268,6 +296,7 @@ void string_add_finish(struct descriptor_data* d)
         *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
 
     d->str = 0;
+    d->str_limit = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
         REMOVE_BIT(PLR_FLAGS(d->character), PLR_WRITING);
         act("$n finished writing.", TRUE, d->character, 0, 0, TO_ROOM);
@@ -396,13 +425,16 @@ void string_add(struct descriptor_data* d, char* str)
             else {
                 *tmpstr2 = 0;
                 tmp = replace_pattern(d, tmpstr, tmpstr2 + 1);
-                sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", tmp,
-                    !tmp ? "" : "s");
-                send_to_char(buf, d->character);
-                send_to_char(*d->str, d->character);
+                if (tmp >= 0) {
+                    sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", tmp,
+                        !tmp ? "" : "s");
+                    send_to_char(buf, d->character);
+                    send_to_char(*d->str, d->character);
+                }
                 tmpmark = d->cur_str;
             }
             *str = 0;
+            crmark = 0;
             break;
         case 'f': {
             const char* chapter;
@@ -482,7 +514,15 @@ void string_add(struct descriptor_data* d, char* str)
     }
 
     if (terminator >= 0) {
-        if (!(*d->str)) {
+        size_t current_length = 0;
+        size_t new_length = strlen(str) + 2;
+        if (*d->str) {
+            current_length = d->len_str;
+            new_length = d->len_str - (d->cur_str - tmpmark) + strlen(str) + 2 * crmark;
+        }
+        if (!edit_fits_limit(d, current_length, new_length)) {
+            /* The line is dropped; the text and cursor stay as they were. */
+        } else if (!(*d->str)) {
             CREATE(*d->str, char, strlen(str) + 3);
             d->max_str = strlen(str) + 3;
             strcpy(*d->str, str);

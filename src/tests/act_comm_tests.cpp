@@ -259,4 +259,118 @@ TEST_F(NoteWritingTest, AnUnwrittenNoteOwnsNoText)
     EXPECT_FALSE(m_note->owns_text(object_text::action_description));
 }
 
+/* The part of the editor's refusal that names the note's limit. */
+std::string past_limit_message()
+{
+    return "past its limit of " + std::to_string(MAX_NOTE_LENGTH) + " characters";
+}
+
+/* A first line of MAX_NOTE_LENGTH - 10 characters leaves the note 8 characters short of its limit. */
+const size_t NEAR_LIMIT_LINE_LENGTH = MAX_NOTE_LENGTH - 10;
+
+/* Writing on a note limits it to MAX_NOTE_LENGTH characters. */
+TEST_F(NoteWritingTest, WritingLimitsTheNoteToMaxNoteLength)
+{
+    start_writing();
+
+    EXPECT_EQ(m_descriptor.str_limit, static_cast<unsigned int>(MAX_NOTE_LENGTH));
+}
+
+/* A line that leaves the note under its limit is added. */
+TEST_F(NoteWritingTest, ALineUnderTheLimitIsAdded)
+{
+    start_writing();
+    const std::string first_line(NEAR_LIMIT_LINE_LENGTH, 'x');
+
+    type(first_line.c_str());
+    type("ford");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\rford\n\r");
+    EXPECT_EQ(std::string(m_descriptor.output).find(past_limit_message()), std::string::npos);
+}
+
+/* A line that would take the note past its limit is refused with a message, and the note keeps its text. */
+TEST_F(NoteWritingTest, ALinePastTheLimitIsRefusedAndTheTextKept)
+{
+    start_writing();
+    const std::string first_line(NEAR_LIMIT_LINE_LENGTH, 'x');
+
+    type(first_line.c_str());
+    type("the river");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\r");
+    EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message()), std::string::npos);
+
+    type("%e");
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(m_note->action_description), first_line + "\n\r");
+}
+
+/* A line that brings the note to exactly its limit is added. */
+TEST_F(NoteWritingTest, ALineReachingExactlyTheLimitIsAdded)
+{
+    start_writing();
+    const std::string first_line(NEAR_LIMIT_LINE_LENGTH, 'x');
+
+    type(first_line.c_str());
+    type("ford!!");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\rford!!\n\r");
+    EXPECT_EQ(std::strlen(*m_descriptor.str), static_cast<size_t>(MAX_NOTE_LENGTH));
+    EXPECT_EQ(std::string(m_descriptor.output).find(past_limit_message()), std::string::npos);
+}
+
+/* %s is refused when its replacement would take the note past its limit, and allowed when it fits. */
+TEST_F(NoteWritingTest, AReplacementPastTheLimitIsRefusedAndTheTextKept)
+{
+    start_writing();
+    const std::string first_line = "ford " + std::string(NEAR_LIMIT_LINE_LENGTH - 5, 'x');
+
+    type(first_line.c_str());
+    type("%sford~shallow river crossing");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\r");
+    EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message()), std::string::npos);
+    EXPECT_EQ(std::string(m_descriptor.output).find("Replaced"), std::string::npos);
+
+    type("%sford~ferry");
+
+    EXPECT_EQ(std::string(*m_descriptor.str), "ferry " + std::string(NEAR_LIMIT_LINE_LENGTH - 5, 'x') + "\n\r");
+}
+
+/* Finishing a note lifts its limit, so the next text edited is not held to it. */
+TEST_F(NoteWritingTest, FinishingTheNoteClearsTheLimit)
+{
+    start_writing();
+
+    type("Meet me at the ford.");
+    type("%e");
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_EQ(m_descriptor.str_limit, 0u);
+}
+
+/* The text editor opened on other text has no limit, whatever limit the descriptor held before. */
+TEST_F(NoteWritingTest, TheTextEditorHasNoLimit)
+{
+    char* text = nullptr;
+    m_descriptor.str_limit = MAX_NOTE_LENGTH;
+
+    string_add_init(&m_descriptor, &text);
+
+    EXPECT_EQ(m_descriptor.str_limit, 0u);
+    const std::string long_line(MAX_NOTE_LENGTH + 10, 'x');
+    type(long_line.c_str());
+    type("%e");
+    ASSERT_NE(text, nullptr);
+    EXPECT_EQ(std::string(text), "\n\r" + long_line + "\n\r");
+    EXPECT_EQ(std::string(m_descriptor.output).find(past_limit_message()), std::string::npos);
+    RELEASE(text);
+}
+
 } // namespace
