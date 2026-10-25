@@ -2871,7 +2871,10 @@ void store_to_char(const struct char_file_u* st, struct char_data* ch)
     for (i = 0; i < MAX_TOUNGE; i++)
         ch->player.talks[i] = st->talks[i];
 
-    CREATE1(ch->profs, char_prof_data);
+    /* Reuse the block clear_char made: the copy overwrites all of it. */
+    if (!ch->profs) {
+        CREATE1(ch->profs, char_prof_data);
+    }
     memcpy(ch->profs, &(st->profs), sizeof(struct char_prof_data));
     ch->specials.alias = 0;
 

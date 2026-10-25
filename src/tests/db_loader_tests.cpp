@@ -1742,6 +1742,30 @@ TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
 }
 
+/* Login clears a character before loading it, so the load fills the profs block the clear made
+   instead of replacing it. */
+TEST(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
+{
+    char_data* character = nullptr;
+    CREATE(character, char_data, 1);
+    clear_char(character, MOB_VOID);
+    const char_prof_data* const cleared_profs = character->profs;
+    ASSERT_NE(cleared_profs, nullptr);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    stored_character.race = RACE_HUMAN;
+    stored_character.level = 10;
+    stored_character.weight = 210;
+    stored_character.profs.prof_level[PROF_RANGER] = 7;
+    store_to_char(&stored_character, character);
+
+    EXPECT_EQ(character->profs, cleared_profs);
+    EXPECT_EQ(character->profs->prof_level[PROF_RANGER], 7);
+
+    free_char(character);
+}
+
 /* A rent row whose container parent never loaded must not vanish.
 
    wear_pos above MAX_WEAR encodes container nesting depth, and Crash_load places each object
