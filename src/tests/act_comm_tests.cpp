@@ -14,6 +14,7 @@ ACMD(do_write);
 void clear_char(struct char_data* ch, int mode);
 void string_add(struct descriptor_data* d, char* str);
 void string_add_finish(struct descriptor_data* d);
+int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern);
 extern struct obj_data* obj_proto;
 extern struct index_data* obj_index;
 extern int top_of_objt;
@@ -259,10 +260,10 @@ TEST_F(NoteWritingTest, AnUnwrittenNoteOwnsNoText)
     EXPECT_FALSE(m_note->owns_text(object_text::action_description));
 }
 
-/* The part of the editor's refusal that names the note's limit. */
-std::string past_limit_message()
+/* The part of the editor's refusal that names the limit, by default the note's. */
+std::string past_limit_message(int limit = MAX_NOTE_LENGTH)
 {
-    return "past its limit of " + std::to_string(MAX_NOTE_LENGTH) + " characters";
+    return "past its limit of " + std::to_string(limit) + " characters";
 }
 
 /* A first line of MAX_NOTE_LENGTH - 10 characters leaves the note 8 characters short of its limit. */
@@ -406,32 +407,117 @@ TEST_F(NoteWritingTest, AReplacementOnAnEmptyNoteReplacesNothing)
     EXPECT_NE(std::string(m_descriptor.output).find("Replaced 0 occurence"), std::string::npos);
 }
 
-/* %s can grow a text past MAX_STRING_LENGTH while it is being edited. */
-TEST_F(NoteWritingTest, AReplacementGrowsALongTextPastMaxStringLength)
+/* A replacement of a match the cursor falls inside leaves the cursor at the end of the replacement. */
+TEST_F(NoteWritingTest, AReplacementAroundTheCursorLeavesItAfterTheReplacement)
+{
+    char* text = str_dup("abcdef");
+    m_descriptor.str = &text;
+    m_descriptor.len_str = 6;
+    m_descriptor.max_str = 6;
+    m_descriptor.cur_str = 3; /* abc|def */
+
+    EXPECT_EQ(replace_pattern(&m_descriptor, "bcde", "X"), 1);
+
+    EXPECT_STREQ(text, "aXf");
+    EXPECT_EQ(m_descriptor.len_str, 3u);
+    EXPECT_EQ(m_descriptor.cur_str, 2u); /* aX|f */
+    m_descriptor.str = nullptr;
+    RELEASE(text);
+}
+
+/* A replacement that shrinks the text around the cursor never leaves the cursor past the text's end. */
+TEST_F(NoteWritingTest, AShrinkingReplacementKeepsTheCursorWithinTheText)
+{
+    char* text = str_dup("abcdef");
+    m_descriptor.str = &text;
+    m_descriptor.len_str = 6;
+    m_descriptor.max_str = 6;
+    m_descriptor.cur_str = 5;
+
+    EXPECT_EQ(replace_pattern(&m_descriptor, "abcdef", ""), 1);
+
+    EXPECT_STREQ(text, "");
+    EXPECT_EQ(m_descriptor.len_str, 0u);
+    EXPECT_EQ(m_descriptor.cur_str, 0u);
+    m_descriptor.str = nullptr;
+    RELEASE(text);
+}
+
+/* %s may grow a text to exactly MAX_EDITED_TEXT_LENGTH characters. */
+TEST_F(NoteWritingTest, AReplacementMayGrowATextToTheEditorsCap)
 {
     char* text = nullptr;
     string_add_init(&m_descriptor, &text);
-    const int LINE_COUNT = 30; /* 100-character lines: about 3,000 characters, tripled past MAX_STRING_LENGTH */
+    /* 26 lines of 98 and a line of 78 'a's and a 'b': tripling every 'a' gives exactly the cap. */
+    const int LONG_LINE_COUNT = 26;
+    const std::string line(98, 'a');
+    const std::string last_line = std::string(78, 'a') + "b";
+    std::string expected_after = "\n\r";
+    for (int line_number = 0; line_number < LONG_LINE_COUNT; line_number++) {
+        type(line.c_str());
+        expected_after += std::string(3 * line.size(), 'a') + "\n\r";
+    }
+    type(last_line.c_str());
+    expected_after += std::string(3 * 78, 'a') + "b\n\r";
+    ASSERT_EQ(expected_after.size(), static_cast<size_t>(MAX_EDITED_TEXT_LENGTH));
+
+    type("%sa~aaa");
+
+    EXPECT_EQ(std::string(text), expected_after);
+    EXPECT_EQ(m_descriptor.len_str, expected_after.size());
+    EXPECT_GT(m_descriptor.max_str, m_descriptor.len_str);
+    EXPECT_EQ(m_descriptor.cur_str, m_descriptor.len_str);
+    EXPECT_EQ(std::string(m_descriptor.output).find(past_limit_message(MAX_EDITED_TEXT_LENGTH)), std::string::npos);
+    m_descriptor.str = nullptr;
+    RELEASE(text);
+}
+
+/* %s growing a text past MAX_EDITED_TEXT_LENGTH is refused in an editor with no limit of its own, and
+ * the text and cursor stay as they were. */
+TEST_F(NoteWritingTest, AReplacementPastTheEditorsCapIsRefused)
+{
+    char* text = nullptr;
+    string_add_init(&m_descriptor, &text);
+    const int LINE_COUNT = 30; /* 100-character lines: about 3,000 characters, tripled past the cap */
     const std::string line(98, 'a');
     std::string expected = "\n\r";
     for (int line_number = 0; line_number < LINE_COUNT; line_number++) {
         type(line.c_str());
         expected += line + "\n\r";
     }
-    const std::string tripled_line(3 * line.size(), 'a');
-    std::string expected_after = "\n\r";
-    for (int line_number = 0; line_number < LINE_COUNT; line_number++) {
-        expected_after += tripled_line + "\n\r";
-    }
     ASSERT_EQ(std::string(text), expected);
+    const unsigned int cursor_before = m_descriptor.cur_str;
 
     type("%sa~aaa");
 
-    ASSERT_GT(expected_after.size(), static_cast<size_t>(MAX_STRING_LENGTH));
-    EXPECT_EQ(std::string(text), expected_after);
-    EXPECT_EQ(m_descriptor.len_str, expected_after.size());
-    EXPECT_GT(m_descriptor.max_str, m_descriptor.len_str);
-    EXPECT_EQ(m_descriptor.cur_str, m_descriptor.len_str);
+    EXPECT_EQ(std::string(text), expected);
+    EXPECT_EQ(m_descriptor.len_str, expected.size());
+    EXPECT_EQ(m_descriptor.cur_str, cursor_before);
+    EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message(MAX_EDITED_TEXT_LENGTH)), std::string::npos);
+    m_descriptor.str = nullptr;
+    RELEASE(text);
+}
+
+/* A line that would take a text past MAX_EDITED_TEXT_LENGTH is refused in an editor with no limit of
+ * its own. */
+TEST_F(NoteWritingTest, ALinePastTheEditorsCapIsRefused)
+{
+    char* text = nullptr;
+    string_add_init(&m_descriptor, &text);
+    const int LINE_COUNT = 7; /* 1,002-character lines: about 7,000 characters, one more passes the cap */
+    const std::string line(1000, 'x');
+    std::string expected = "\n\r";
+    for (int line_number = 0; line_number < LINE_COUNT; line_number++) {
+        type(line.c_str());
+        expected += line + "\n\r";
+    }
+    ASSERT_EQ(std::string(text), expected);
+
+    type(line.c_str());
+
+    EXPECT_EQ(std::string(text), expected);
+    EXPECT_EQ(m_descriptor.len_str, expected.size());
+    EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message(MAX_EDITED_TEXT_LENGTH)), std::string::npos);
     m_descriptor.str = nullptr;
     RELEASE(text);
 }

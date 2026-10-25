@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <algorithm>
 #include <limits>
 #include <string_view>
 
@@ -130,27 +131,33 @@ char* format_string(const char* str)
 }
 
 /*
- * True when an edit that leaves the text new_length characters long fits d->str_limit.  An edit
- * that does not lengthen the text always fits, so a text already past the limit can still be cut.
- * Otherwise tells the writer the edit was refused and returns false.
+ * True when an edit that leaves the text new_length characters long fits its limit: d->str_limit
+ * when set, and never more than MAX_EDITED_TEXT_LENGTH.  An edit that does not lengthen the text
+ * always fits, so a text already past the limit can still be cut.  Otherwise tells the writer the
+ * edit was refused and returns false.
  */
 static bool edit_fits_limit(descriptor_data* d, size_t current_length, size_t new_length)
 {
-    if (d->str_limit == 0 || new_length <= d->str_limit || new_length <= current_length) {
+    size_t limit = MAX_EDITED_TEXT_LENGTH;
+    if (d->str_limit != 0 && d->str_limit < limit) {
+        limit = d->str_limit;
+    }
+    if (new_length <= current_length || new_length <= limit) {
         return true;
     }
 
     char message[128];
     snprintf(message, sizeof(message),
         "That would take the text past its limit of %u characters, so it was not changed.\n\r",
-        d->str_limit);
+        static_cast<unsigned int>(limit));
     SEND_TO_Q(message, d);
     return false;
 }
 
 /* Replaces every pattern in the text with new_pattern and returns how many were replaced, or -1,
- * leaving the text unchanged, when the result would pass d->str_limit.  The cursor keeps its place
- * in the text, moving by the size change of each replacement wholly before it. */
+ * leaving the text unchanged, when the result would not fit its limit (edit_fits_limit).  The
+ * cursor keeps its place in the text: it moves by the size change of each replacement wholly before
+ * it, and to the end of the replacement of a match it falls inside. */
 int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
 {
     if (!pattern || !*pattern || !new_pattern || !*d->str)
@@ -162,17 +169,30 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
 
     /* Count first, so the limit is checked before anything changes and the result is sized once. */
     size_t count = 0;
-    size_t cursor = d->cur_str;
     for (size_t match = text.find(old_text); match != std::string_view::npos;
          match = text.find(old_text, match + old_text.size())) {
-        if (match + old_text.size() <= d->cur_str)
-            cursor = cursor - old_text.size() + new_text.size();
         count++;
     }
     if (!count)
         return 0;
 
-    const size_t new_length = text.size() - count * old_text.size() + count * new_text.size();
+    /* Growth is checked against the cap before it is multiplied out, so the sum cannot wrap; any
+     * length past the cap is refused alike. */
+    size_t new_length = text.size();
+    if (new_text.size() >= old_text.size()) {
+        const size_t growth = new_text.size() - old_text.size();
+        size_t room = 0;
+        if (text.size() < static_cast<size_t>(MAX_EDITED_TEXT_LENGTH)) {
+            room = MAX_EDITED_TEXT_LENGTH - text.size();
+        }
+        if (growth != 0 && count > room / growth) {
+            new_length = std::max(text.size(), static_cast<size_t>(MAX_EDITED_TEXT_LENGTH)) + 1;
+        } else {
+            new_length = text.size() + count * growth;
+        }
+    } else {
+        new_length = text.size() - count * (old_text.size() - new_text.size());
+    }
     if (!edit_fits_limit(d, text.size(), new_length))
         return -1;
     const size_t allocation = (new_length / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
@@ -185,6 +205,7 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
     CREATE(replaced, char, allocation);
     size_t written = 0;
     size_t copied_to = 0;
+    size_t cursor = d->cur_str;
     for (size_t match = text.find(old_text); match != std::string_view::npos;
          match = text.find(old_text, match + old_text.size())) {
         memcpy(replaced + written, text.data() + copied_to, match - copied_to);
@@ -192,6 +213,10 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
         memcpy(replaced + written, new_text.data(), new_text.size());
         written += new_text.size();
         copied_to = match + old_text.size();
+        if (copied_to <= d->cur_str)
+            cursor = written + (d->cur_str - copied_to);
+        else if (match < d->cur_str)
+            cursor = written;
     }
     memcpy(replaced + written, text.data() + copied_to, text.size() - copied_to);
     written += text.size() - copied_to;
@@ -201,7 +226,8 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
     *d->str = replaced;
     d->max_str = static_cast<unsigned int>(allocation);
     d->len_str = static_cast<unsigned int>(new_length);
-    d->cur_str = static_cast<unsigned int>(cursor);
+    /* string_add moves the text after the cursor, so the cursor must never pass the end. */
+    d->cur_str = static_cast<unsigned int>(std::min(cursor, new_length));
     return static_cast<int>(count);
 }
 
@@ -295,8 +321,8 @@ void string_add_finish(struct descriptor_data* d)
      * passes MAX_STRING_LENGTH.  The 256-byte headroom keeps anything saved
      * here loadable, and also stops fread_string writing one byte past its
      * buffer at the very top of the range. */
-    else if (strlen(*d->str) >= MAX_STRING_LENGTH - 256)
-        *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
+    else if (strlen(*d->str) > MAX_EDITED_TEXT_LENGTH)
+        *(*d->str + MAX_EDITED_TEXT_LENGTH) = 0;
 
     d->str = 0;
     d->str_limit = 0;
