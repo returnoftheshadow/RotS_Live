@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <limits>
+#include <string_view>
 
 #include "comm.h"
 #include "db.h"
@@ -147,59 +149,60 @@ static bool edit_fits_limit(descriptor_data* d, size_t current_length, size_t ne
 }
 
 /* Replaces every pattern in the text with new_pattern and returns how many were replaced, or -1,
- * leaving the text unchanged, when the result would pass d->str_limit. */
+ * leaving the text unchanged, when the result would pass d->str_limit.  The cursor keeps its place
+ * in the text, moving by the size change of each replacement wholly before it. */
 int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
 {
-    unsigned int len, pat_len, new_len, count, tmp, bufscan;
-
-    if (!pattern || !*pattern || !new_pattern)
+    if (!pattern || !*pattern || !new_pattern || !*d->str)
         return 0;
 
-    bzero(buf, MAX_STRING_LENGTH);
+    const std::string_view text(*d->str);
+    const std::string_view old_text(pattern);
+    const std::string_view new_text(new_pattern);
 
-    bufscan = 0;
-    len = strlen(*d->str);
-    pat_len = strlen(pattern);
-    new_len = strlen(new_pattern);
-    count = 0;
-    const unsigned int original_cursor = d->cur_str;
-
-    for (tmp = 0; tmp < len; tmp++) {
-        if (!strncmp(*d->str + tmp, pattern, pat_len)) {
-            tmp += pat_len - 1;
-            strncpy(buf + bufscan, new_pattern, new_len);
-            bufscan += new_len;
-            if (tmp < d->cur_str)
-                d->cur_str = d->cur_str + new_len - pat_len;
-
-            count++;
-        } else {
-            buf[bufscan] = *(*d->str + tmp);
-            bufscan++;
-        }
+    /* Count first, so the limit is checked before anything changes and the result is sized once. */
+    size_t count = 0;
+    size_t cursor = d->cur_str;
+    for (size_t match = text.find(old_text); match != std::string_view::npos;
+         match = text.find(old_text, match + old_text.size())) {
+        if (match + old_text.size() <= d->cur_str)
+            cursor = cursor - old_text.size() + new_text.size();
+        count++;
     }
-    buf[bufscan] = 0;
-
     if (!count)
         return 0;
 
-    if (!edit_fits_limit(d, len, bufscan)) {
-        d->cur_str = original_cursor;
+    const size_t new_length = text.size() - count * old_text.size() + count * new_text.size();
+    if (!edit_fits_limit(d, text.size(), new_length))
+        return -1;
+    const size_t allocation = (new_length / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
+    if (allocation > std::numeric_limits<unsigned int>::max()) {
+        log("SYSERR: replace_pattern: the replaced text is too long to edit");
         return -1;
     }
 
-    d->len_str = bufscan;
-
-    if (bufscan < d->max_str) {
-        strcpy(*d->str, buf);
-        *(*d->str + bufscan) = 0;
-    } else {
-        RELEASE(*d->str);
-        CREATE(*d->str, char, bufscan + BLOCK_STR_LEN);
-        strcpy(*d->str, buf);
-        *(*d->str + bufscan) = 0;
+    char* replaced = nullptr;
+    CREATE(replaced, char, allocation);
+    size_t written = 0;
+    size_t copied_to = 0;
+    for (size_t match = text.find(old_text); match != std::string_view::npos;
+         match = text.find(old_text, match + old_text.size())) {
+        memcpy(replaced + written, text.data() + copied_to, match - copied_to);
+        written += match - copied_to;
+        memcpy(replaced + written, new_text.data(), new_text.size());
+        written += new_text.size();
+        copied_to = match + old_text.size();
     }
-    return count;
+    memcpy(replaced + written, text.data() + copied_to, text.size() - copied_to);
+    written += text.size() - copied_to;
+    replaced[written] = 0;
+
+    RELEASE(*d->str);
+    *d->str = replaced;
+    d->max_str = static_cast<unsigned int>(allocation);
+    d->len_str = static_cast<unsigned int>(new_length);
+    d->cur_str = static_cast<unsigned int>(cursor);
+    return static_cast<int>(count);
 }
 
 int shape_text_field(const struct char_data* ch, char** str, const char** chapter, char* key, int* no_format);

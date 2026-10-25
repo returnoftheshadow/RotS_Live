@@ -373,4 +373,67 @@ TEST_F(NoteWritingTest, TheTextEditorHasNoLimit)
     RELEASE(text);
 }
 
+/* %s replaces every match, reports how many, and keeps the cursor in its place in the text. */
+TEST_F(NoteWritingTest, AReplacementKeepsTheCursorInPlace)
+{
+    char* text = str_dup("ford\n\rford\n\r");
+    string_add_init(&m_descriptor, &text);
+
+    type("%l1");
+    type("%sford~river");
+
+    ASSERT_NE(text, nullptr);
+    EXPECT_STREQ(text, "river\n\rriver\n\r");
+    EXPECT_NE(std::string(m_descriptor.output).find("Replaced 2 occurences"), std::string::npos);
+    EXPECT_EQ(m_descriptor.len_str, std::strlen(text));
+    EXPECT_EQ(m_descriptor.cur_str, std::strlen("river\n\r"));
+
+    type("mid");
+    type("%e");
+    EXPECT_STREQ(text, "river\n\rmid\n\rriver\n\r");
+    RELEASE(text);
+}
+
+/* %s on a note with nothing written yet replaces nothing and leaves the note blank. */
+TEST_F(NoteWritingTest, AReplacementOnAnEmptyNoteReplacesNothing)
+{
+    start_writing();
+
+    type("%sford~river");
+
+    EXPECT_EQ(m_descriptor.str, &m_note->action_description);
+    EXPECT_STREQ(m_note->action_description, "\n\r"); /* a command starts an empty text with a line break */
+    EXPECT_NE(std::string(m_descriptor.output).find("Replaced 0 occurence"), std::string::npos);
+}
+
+/* %s can grow a text past MAX_STRING_LENGTH while it is being edited. */
+TEST_F(NoteWritingTest, AReplacementGrowsALongTextPastMaxStringLength)
+{
+    char* text = nullptr;
+    string_add_init(&m_descriptor, &text);
+    const int LINE_COUNT = 30; /* 100-character lines: about 3,000 characters, tripled past MAX_STRING_LENGTH */
+    const std::string line(98, 'a');
+    std::string expected = "\n\r";
+    for (int line_number = 0; line_number < LINE_COUNT; line_number++) {
+        type(line.c_str());
+        expected += line + "\n\r";
+    }
+    const std::string tripled_line(3 * line.size(), 'a');
+    std::string expected_after = "\n\r";
+    for (int line_number = 0; line_number < LINE_COUNT; line_number++) {
+        expected_after += tripled_line + "\n\r";
+    }
+    ASSERT_EQ(std::string(text), expected);
+
+    type("%sa~aaa");
+
+    ASSERT_GT(expected_after.size(), static_cast<size_t>(MAX_STRING_LENGTH));
+    EXPECT_EQ(std::string(text), expected_after);
+    EXPECT_EQ(m_descriptor.len_str, expected_after.size());
+    EXPECT_GT(m_descriptor.max_str, m_descriptor.len_str);
+    EXPECT_EQ(m_descriptor.cur_str, m_descriptor.len_str);
+    m_descriptor.str = nullptr;
+    RELEASE(text);
+}
+
 } // namespace
