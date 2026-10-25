@@ -4903,6 +4903,24 @@ std::string read_tilde_terminated_string(std::string_view contents)
     return copy;
 }
 
+// Letters on each of fread_string_full_lines's lines.
+constexpr size_t FULL_LINE_LETTERS = 999;
+// Lines fread_string_full_lines writes.
+constexpr size_t FULL_LINE_COUNT = 8;
+// Bytes fread_string keeps for those lines: each line's letters, its newline and an added '\r'.
+constexpr size_t FULL_LINES_KEPT_LENGTH = FULL_LINE_COUNT * (FULL_LINE_LETTERS + 2);
+
+// The opening lines of a long string for fread_string, none of them ending it.
+std::string fread_string_full_lines()
+{
+    std::string contents;
+    for (size_t line_number = 0; line_number < FULL_LINE_COUNT; ++line_number) {
+        contents.append(FULL_LINE_LETTERS, 'a');
+        contents += '\n';
+    }
+    return contents;
+}
+
 // The player file write_player_text writes for a level 10 character whose connection carries
 // 'descriptor''s password and host.
 std::string written_player_text(descriptor_data* descriptor)
@@ -4961,6 +4979,42 @@ TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
     EXPECT_EQ(read_tilde_terminated_string("A dusty hall.\n~\nignored\n"), "A dusty hall.\n\r");
     EXPECT_EQ(read_tilde_terminated_string("A dusty hall.~\n"), "A dusty hall.");
     EXPECT_EQ(read_tilde_terminated_string("~\n"), "");
+}
+
+TEST(DbLoader, FreadStringLoadsTheLargestStringThatFits)
+{
+    // The last line takes the accumulated text to one byte short of the buffer, leaving room for
+    // the terminator.
+    const size_t last_line_letters = MAX_STRING_LENGTH - 1 - FULL_LINES_KEPT_LENGTH - 2;
+    const std::string contents = fread_string_full_lines() + std::string(last_line_letters, 'b') + "~\n";
+
+    std::string expected;
+    for (size_t line_number = 0; line_number < FULL_LINE_COUNT; ++line_number) {
+        expected.append(FULL_LINE_LETTERS, 'a');
+        expected += "\n\r";
+    }
+    expected.append(last_line_letters, 'b');
+
+    EXPECT_EQ(read_tilde_terminated_string(contents), expected);
+}
+
+TEST(DbLoader, FreadStringRefusesAStringWithNoRoomForItsTerminator)
+{
+    // The last line takes the accumulated text to the whole buffer.
+    const size_t last_line_letters = MAX_STRING_LENGTH - FULL_LINES_KEPT_LENGTH - 2;
+    const std::string contents = fread_string_full_lines() + std::string(last_line_letters, 'b') + "~\n";
+
+    EXPECT_EXIT(read_tilde_terminated_string(contents), ::testing::ExitedWithCode(0), "string too large");
+}
+
+TEST(DbLoader, FreadStringRefusesALineBreakWithNoRoomForItsTerminator)
+{
+    // A line that does not end the string takes the accumulated text to one byte short of the
+    // buffer, so the '\r' added after it leaves no room for the terminator.
+    const size_t line_letters = MAX_STRING_LENGTH - 1 - FULL_LINES_KEPT_LENGTH - 1;
+    const std::string contents = fread_string_full_lines() + std::string(line_letters, 'c') + "\n~\n";
+
+    EXPECT_EXIT(read_tilde_terminated_string(contents), ::testing::ExitedWithCode(0), "string too large");
 }
 
 TEST(DbLoader, WritePlayerTextWritesExactlyThePasswordFieldWidth)

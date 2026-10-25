@@ -3614,7 +3614,8 @@ char* fread_string(FILE* fl, const char* error)
         for (tmppoint = tmp; (*tmppoint < ' ') && (*tmppoint != 0); tmppoint++)
             continue;
 
-        if (strlen(tmppoint) + strlen(buf) > MAX_STRING_LENGTH) {
+        // The text needs room for its terminator.
+        if (strlen(tmppoint) + strlen(buf) >= MAX_STRING_LENGTH) {
             log("SYSERR: fread_string: string too large (db.c)");
             exit(0);
         } else
@@ -3629,6 +3630,11 @@ char* fread_string(FILE* fl, const char* error)
         if (flag)
             buf[last_index] = 0;
         else if (strlen(buf)) {
+            // The line break adds '\r' before the terminator.
+            if (strlen(buf) + 2 > MAX_STRING_LENGTH) {
+                log("SYSERR: fread_string: string too large (db.c)");
+                exit(0);
+            }
             *(buf + strlen(buf) + 1) = '\0';
             *(buf + strlen(buf)) = '\r';
         }
