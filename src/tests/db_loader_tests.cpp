@@ -3380,6 +3380,35 @@ TEST(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
     EXPECT_EQ(session.builder.temp, nullptr);
 }
 
+/* Removing an exit in the room editor removes it with its text, and leaves the other exits. */
+TEST(DbLoader, RoomEditorRemovesAnExit)
+{
+    const int ROOM_NUMBER = 4530;
+    SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, ROOM_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    editor->room->dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", ROOM_NUMBER);
+    editor->room->dir_option[SOUTH] = make_room_exit("A narrow path.\n\r", "path", ROOM_NUMBER);
+
+    /* /7: the first call asks which exit, the second takes the answer. */
+    char prompt[] = "";
+    editor->editflag = 7;
+    shape_center_room(&session.builder, prompt);
+    char north[] = "n";
+    shape_center_room(&session.builder, north);
+
+    EXPECT_EQ(editor->room->dir_option[NORTH], nullptr);
+    ASSERT_NE(editor->room->dir_option[SOUTH], nullptr);
+    EXPECT_STREQ(editor->room->dir_option[SOUTH]->keyword, "path");
+    EXPECT_NE(session.take().find("removed"), std::string::npos);
+
+    free_room(&session.builder);
+}
+
 void free_zone(struct char_data* ch);
 
 /* Leaving the zone editor frees a loaded zone's name, description and map. */

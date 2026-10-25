@@ -695,6 +695,8 @@ void shape_center_room(struct char_data* ch, char* arg)
                 }
             }
             if (SHAPE_ROOM(ch)->room->dir_option[tmp]) {
+                RELEASE(SHAPE_ROOM(ch)->room->dir_option[tmp]->general_description);
+                RELEASE(SHAPE_ROOM(ch)->room->dir_option[tmp]->keyword);
                 RELEASE(SHAPE_ROOM(ch)->room->dir_option[tmp]);
                 SHAPE_ROOM(ch)
                     ->room->dir_option[tmp]
