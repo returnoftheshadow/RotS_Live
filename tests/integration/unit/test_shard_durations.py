@@ -107,3 +107,83 @@ def test_an_unreadable_results_file_is_a_usage_error(integration_root: Path, tmp
     assert shard_durations.main([str(tmp_path / "results"), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
     assert not output.exists()
     assert "error:" in capsys.readouterr().err
+
+
+# A run with a plain skip, three unusable times and one good one.
+ODD_RESULTS = """<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest">
+<testcase classname="scenarios.test_bank" name="test_skipped" time="0.0"><skipped type="pytest.skip" message="not here" /></testcase>
+<testcase classname="scenarios.test_bank" name="test_not_a_number" time="soon" />
+<testcase classname="scenarios.test_bank" name="test_infinite" time="inf" />
+<testcase classname="scenarios.test_bank" name="test_negative" time="-1.0" />
+<testcase classname="scenarios.test_bank" name="test_a_deposit" time="10.0" />
+</testsuite></testsuites>
+"""
+
+
+def refresh(integration_root: Path, tmp_path: Path, content: str, *extra_arguments: str) -> tuple[int, Path]:
+    """Runs the tool on one shard holding content, writing tmp_path/shard_durations.json; returns its status and the file."""
+    results = tmp_path / "results"
+    if not results.exists():
+        write_run(results, 1, content)
+    output = tmp_path / "shard_durations.json"
+    status = shard_durations.main([str(results), "--output", str(output), *extra_arguments], integration_root=integration_root)
+    return status, output
+
+
+def test_a_plain_skip_and_unusable_times_are_left_out_with_a_warning(integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    status, output = refresh(integration_root, tmp_path, ODD_RESULTS)
+    assert status == 0
+    assert durations.read_durations(output) == {"scenarios/test_bank.py::test_a_deposit": 10.0}
+    errors = capsys.readouterr().err
+    for name in ("test_not_a_number", "test_infinite", "test_negative"):
+        assert f"{name} has time" in errors
+    assert "test_skipped" not in errors
+
+
+@pytest.mark.parametrize("markup", ['<!DOCTYPE lol [<!ENTITY a "aaaa">]>', '<!ENTITY a "aaaa">'])
+def test_a_results_file_with_a_doctype_or_entity_is_refused(integration_root: Path, tmp_path: Path, markup: str, capsys: pytest.CaptureFixture) -> None:
+    content = FIRST_RESULTS.replace("<testsuites", markup + "<testsuites", 1)
+    status, output = refresh(integration_root, tmp_path, content)
+    assert status == shard_durations.EXIT_USAGE
+    assert not output.exists()
+    assert "error:" in capsys.readouterr().err
+
+
+def test_a_results_file_over_the_size_cap_is_refused(integration_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shard_durations, "MAX_RESULTS_BYTES", 100)
+    status, output = refresh(integration_root, tmp_path, FIRST_RESULTS)
+    assert status == shard_durations.EXIT_USAGE
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("class_name", ["..integration.scenarios.test_bank", ".scenarios.test_bank", "scenarios..test_bank"])
+def test_a_class_name_with_an_empty_part_has_no_node_id(integration_root: Path, class_name: str) -> None:
+    assert shard_durations.node_id(class_name, "test_a_deposit", integration_root) is None
+
+
+def test_a_module_outside_the_integration_folder_never_matches(integration_root: Path, tmp_path: Path) -> None:
+    # A link inside the folder leading to a scenario file outside it.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "test_secret.py").write_text("", encoding="utf-8")
+    (integration_root / "linked").symlink_to(outside, target_is_directory=True)
+    assert shard_durations.node_id("linked.test_secret", "test_x", integration_root) is None
+
+
+def test_a_refresh_covering_far_fewer_tests_is_refused_unless_forced(integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    output = tmp_path / "shard_durations.json"
+    existing = {f"scenarios/test_bank.py::test_{index}": 5.0 for index in range(10)}
+    output.write_text(json.dumps(existing), encoding="utf-8")
+    status, _ = refresh(integration_root, tmp_path, FIRST_RESULTS)
+    assert status == shard_durations.EXIT_USAGE
+    assert durations.read_durations(output) == existing
+    assert "--force" in capsys.readouterr().err
+    status, _ = refresh(integration_root, tmp_path, FIRST_RESULTS, "--force")
+    assert status == 0
+    assert len(durations.read_durations(output)) == 3
+
+
+def test_writing_leaves_no_temporary_file_behind(integration_root: Path, tmp_path: Path) -> None:
+    status, output = refresh(integration_root, tmp_path, FIRST_RESULTS)
+    assert status == 0
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["integration", "results", output.name]

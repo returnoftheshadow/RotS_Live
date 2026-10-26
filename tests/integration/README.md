@@ -224,8 +224,11 @@ directories are uploaded as that job's `integration-runs-shard-<k>` artifact.
 
 The shards are balanced by each test's time in `tests/integration/shard_durations.json`, so
 every shard takes about as long; a test the file lacks counts 15 seconds. Each test still runs in
-exactly one shard. Refresh the file when tests are added or their times change, from the results
-of one or more recent full runs (a push, or a pull request with `@integration-test-all`):
+exactly one shard. Refresh the file when tests are added or their times change, from every
+shard's results of one or more recent full runs that ran with the workflow's current
+`INTEGRATION_SHARDS` and `INTEGRATION_JOBS_PER_SHARD`. Take them only from a push to
+`release-frodo` or `release-frodo-next`, or from a pull request whose branch is in this repository
+(not a fork), since the file decides how CI splits every later run:
 
 ```bash
 gh run download <run id> --pattern 'integration-results-shard-*' --dir build/ci-results/<run id>
@@ -233,7 +236,12 @@ make integration-shard-durations PYTHON=.venv/bin/python RESULTS=build/ci-result
 ```
 
 Each test's time is its median over every `results.xml` under `RESULTS`, leaving out runs where it
-failed; a test no result file timed is dropped from the file.
+failed, errored or was skipped (an expected failure counts); a test no result file timed is dropped
+from the file. A results file holding a DOCTYPE or entity declaration, or larger than 16 MB, stops
+the refresh, and a time that is not a number of seconds is left out with a warning. A refresh that
+would time fewer than 90% of the tests the file holds now, such as one missing a shard, is
+refused; after removing tests on purpose, run
+`PYTHONPATH=tests/integration .venv/bin/python -m rots_harness.shard_durations --force build/ci-results`.
 
 Each job loads the development image from the Actions cache, or from the repository's
 `dev-image-jammy-<hash>` pre-release for the `Dockerfile`'s hash, and builds it from the Ubuntu
