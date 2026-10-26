@@ -1010,46 +1010,6 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
     raw_kill_by(dead_man, killer, killer_is_npc, attack_type);
 }
 
-/*
- * Simple enough function to check whether a character has
- * Death_ward up or not.
- */
-int check_death_ward(struct char_data* ch)
-{
-    const affected_type* ward = affected_by_spell(ch, SPELL_DEATH_WARD);
-    if (ward != NULL) {
-        /* Removing the ward frees it, so its strength is read first. */
-        const int ward_strength = ward->modifier;
-        affect_from_char(ch, SPELL_DEATH_WARD);
-        affect_total(ch);
-
-        if (GET_HIT(ch) <= 0 && GET_HIT(ch) + ward_strength > 0) {
-            act("$n's whole body flashes with blinding light, "
-                "and stirs back to life!",
-                FALSE, ch, 0, 0, TO_ROOM);
-            send_to_char("Your ward flares up and sinks into your body."
-                         "You are alive!\n\r",
-                ch);
-
-            if (GET_HIT(ch) < 0) {
-                GET_HIT(ch) += ward_strength;
-                if (!GET_HIT(ch))
-                    GET_HIT(ch) = 1;
-            }
-            stop_fighting_him(ch);
-            stop_fighting(ch);
-            update_pos(ch);
-            return TRUE;
-        } else {
-            send_to_char("Your ward sends one short pulse through your veins, "
-                         "then fades.\r\n",
-                ch);
-            return FALSE;
-        }
-    } else
-        return FALSE;
-}
-
 void die(char_data* dead_man, char_data* killer, int attack_type)
 {
     freed_watch dead_man_watch(dead_man);
