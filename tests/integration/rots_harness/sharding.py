@@ -15,6 +15,9 @@ SHARD_PATTERN = re.compile(r"([0-9]+)/([0-9]+)")
 # The committed per-test seconds the shards are balanced by, relative to tests/integration;
 # make integration-shard-durations refreshes it from CI's results.
 SHARD_DURATIONS_RELATIVE = Path("shard_durations.json")
+# The least seconds the split counts for any test, so tests recorded at or near 0 s (a skip, say)
+# still spread across the shards instead of all joining the shard with the least time.
+MINIMUM_SPLIT_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -45,14 +48,14 @@ def in_shard(node_ids: Iterable[str], shard: Shard, recorded_seconds: Optional[M
     Every id lands in exactly one of the count shards, and the shares depend only on the set of
     ids and recorded_seconds, never on their order, so every shard and every pytest-xdist worker
     of the same selection agrees on which shard owns each test. A test with no recorded time
-    counts DEFAULT_TEST_SECONDS. With no recorded times at all, the shards take turns in sorted
+    counts DEFAULT_TEST_SECONDS, and every test at least MINIMUM_SPLIT_SECONDS. With no recorded times at all, the shards take turns in sorted
     node id order, starting at shard 1.
     """
     seconds = recorded_seconds or {}
     unique_ids = set(node_ids)
 
     def test_seconds(node_id: str) -> float:
-        return seconds.get(node_id, DEFAULT_TEST_SECONDS)
+        return max(seconds.get(node_id, DEFAULT_TEST_SECONDS), MINIMUM_SPLIT_SECONDS)
 
     # Longest first, each to the shard with the least time so far (the lowest number on a tie):
     # the classic greedy split, whose slowest shard is never a third slower than the best

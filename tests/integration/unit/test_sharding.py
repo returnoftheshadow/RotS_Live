@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from rots_harness.durations import DEFAULT_TEST_SECONDS, read_durations
-from rots_harness.sharding import SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
+from rots_harness.sharding import MINIMUM_SPLIT_SECONDS, SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
 
 # tests/integration, which holds the committed shard durations file.
 INTEGRATION_ROOT = Path(__file__).resolve().parents[1]
@@ -129,3 +129,23 @@ def test_the_committed_times_split_the_suite_and_a_new_test_into_every_shard_onc
     shares = [in_shard(node_ids, Shard(number, count), recorded) for number in range(1, count + 1)]
     kept = [node_id for share in shares for node_id in share]
     assert sorted(kept) == sorted(node_ids)
+
+
+@pytest.mark.parametrize("count", [2, 3, 4, 7])
+def test_tests_recorded_at_no_time_spread_across_the_shards(count: int) -> None:
+    recorded = {node_id: 0.0 for node_id in NODE_IDS}
+    sizes = [len(in_shard(NODE_IDS, Shard(number, count), recorded)) for number in range(1, count + 1)]
+    assert sum(sizes) == len(NODE_IDS)
+    assert max(sizes) - min(sizes) <= 1
+
+
+def test_a_long_shard_takes_no_more_near_zero_tests_than_the_floor_allows() -> None:
+    # One 10 s test against twenty tests recorded at 0 s: counted at the floor, ten of them fill the
+    # other shard before any joins the long one.
+    short_ids = [f"short_{index:02}" for index in range(20)]
+    recorded = {"long": 10 * MINIMUM_SPLIT_SECONDS, **{node_id: 0.0 for node_id in short_ids}}
+    long_shard = in_shard(["long", *short_ids], Shard(1, 2), recorded)
+    other_shard = in_shard(["long", *short_ids], Shard(2, 2), recorded)
+    assert "long" in long_shard
+    assert len(other_shard) == 15
+    assert sorted(long_shard | other_shard) == sorted(["long", *short_ids])
