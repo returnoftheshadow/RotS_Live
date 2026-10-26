@@ -18,7 +18,6 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
-#include "death_extraction_hold.h"
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
@@ -1017,18 +1016,10 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 {
     freed_watch dead_man_watch(dead_man);
     freed_watch killer_watch(killer);
-    int die_trigger_result;
-    /* An ON_DIE script that removes the dying mob (EXTRACT_CHAR) has it removed only once the
-     * death is done: the killer still gains from it and the kill is logged as for any death,
-     * and the mob then goes the way the script asked, its inventory left in the room and no
-     * corpse made. */
-    bool removed_by_its_script;
-    {
-        death_extraction_hold extraction_hold(dead_man);
-        die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
-        removed_by_its_script = extraction_hold.extraction_requested();
-    }
-    /* Freed some other way (a RAW_KILL, say): there is nothing left to finish. */
+    const int die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
+    /* A death script that removed the dying mob (EXTRACT_CHAR, RAW_KILL ch1, or anything it set
+     * off) has ended the death itself, whatever it returned: nobody gains from it, no kill is
+     * logged, no corpse is made and the mob is not removed again. */
     if (dead_man_watch.freed()) {
         return;
     }
@@ -1038,10 +1029,6 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     }
 
     /* Character doesn't die if call_trigger returns FALSE */
-    if (die_trigger_result == FALSE && removed_by_its_script) {
-        extract_char(dead_man);
-        return;
-    }
     if (die_trigger_result == FALSE) {
         stop_fighting_him(dead_man);
         stop_fighting(dead_man);
@@ -1080,10 +1067,6 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 
     /* A mob died.  Who cares. */
     if (IS_NPC(dead_man)) {
-        if (removed_by_its_script) {
-            extract_char(dead_man);
-            return;
-        }
         raw_kill(dead_man, killer, attack_type);
         return;
     }

@@ -27,7 +27,6 @@
 
 #include "comm.h"
 #include "db.h"
-#include "death_extraction_hold.h"
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
@@ -578,7 +577,6 @@ void note_object_freed(obj_data* object)
 void note_char_freed(char_data* character)
 {
     freed_watch::note_freed(character);
-    death_extraction_hold::note_freed(character);
     running_script_frame::forget(character);
     release_script_state(character->specials.script_info);
 }
@@ -1886,8 +1884,7 @@ static int run_script_or(struct info_script* info, struct script_data* position,
             if (curr->param[0]) {
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch) {
-                    /* A mob dying in die() goes once its death is done (death_extraction_hold). */
-                    if (IS_NPC(tmpch) && !death_extraction_hold::hold_extraction(tmpch))
+                    if (IS_NPC(tmpch))
                         extract_char(tmpch);
                     tmpch = 0;
                     assign_char_param(curr->param[0], info, tmpch);

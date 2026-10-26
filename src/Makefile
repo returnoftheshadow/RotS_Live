@@ -49,7 +49,6 @@ SOURCES := \
     crashsave_schedule.cpp \
     damage_meters.cpp \
     db.cpp \
-    death_extraction_hold.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
     freed_watch.cpp \

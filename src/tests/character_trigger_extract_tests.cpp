@@ -8,7 +8,6 @@
 
 #include "../big_brother.h"
 #include "../comm.h"
-#include "../death_extraction_hold.h"
 #include "../spells.h"
 
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
@@ -312,32 +311,40 @@ TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
 
 /* ---- dying (ON_DIE) ---- */
 
-/* A mob whose death script removes it gives its killer the experience any death would, and then
- * goes as the script asked: its things left in the room, and no corpse. */
-TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesStillGivesExperienceButNoCorpse)
+/* A mob that its own death script removes has had its end there: its killer gains nothing, no
+ * kill is logged and no corpse is made. The mob's things are left in the room, as EXTRACT_CHAR
+ * leaves them, and the rest of the script finds ch1 empty. */
+TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesGivesNothingAndLeavesNoCorpse)
 {
-    install_script(ON_DIE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    install_script(ON_DIE,
+        { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+            { SCRIPT_SEND_TO_ROOM, "The dying one lingers.", { SCRIPT_PARAM_CH1_ROOM } } });
     char_data* victim = make_mob("victim", SCRIPT_VNUM);
-    victim->points.exp = 5000;
+    victim->points.exp = 5000; /* worth gaining from */
     obj_data* stone = make_object(STONE_VNUM, 0);
     obj_to_char(stone, victim);
     const int experience_before = GET_EXP(&m_player);
 
+    testing::internal::CaptureStderr();
     die(victim, &m_player, 0);
+    const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(experience_before, GET_EXP(&m_player));
     EXPECT_EQ(stone, world[0].contents) << "its things are left in the room, and no corpse";
     EXPECT_EQ(nullptr, stone->next_content);
-    EXPECT_GT(GET_EXP(&m_player), experience_before);
+    EXPECT_EQ(std::string::npos, logged.find("killed by")) << logged;
+    EXPECT_FALSE(output_has("The dying one lingers.")) << "ch1 is empty: nobody's room to tell";
 }
 
-/* A death script that kills its own mob outright (RAW_KILL ch1) leaves the death nothing to finish:
- * the mob is gone once, with no second removal. */
-TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightIsGoneOnce)
+/* The same for a death script that kills its own mob outright (RAW_KILL ch1): that kill makes the
+ * mob's corpse, and the death makes no second one. */
+TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightGivesNothingAndHasOneCorpse)
 {
     install_script(ON_DIE, { { SCRIPT_RAW_KILL, nullptr, { SCRIPT_PARAM_CH1 } } });
     game_rules::big_brother::create(weather_info, &world); /* made at boot; a death tells it */
     char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    victim->points.exp = 5000;
     /* Its corpse is marked with its prototype's number. */
     index_data prototype_index[1] {};
     index_data* saved_mob_index = mob_index;
@@ -345,23 +352,32 @@ TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightIsGoneOnce)
     mob_index = prototype_index;
     top_of_mobt = 0;
     victim->nr = 0;
+    const int experience_before = GET_EXP(&m_player);
 
     die(victim, &m_player, 0);
 
     mob_index = saved_mob_index;
     top_of_mobt = saved_top_of_mobt;
     EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(experience_before, GET_EXP(&m_player));
+    ASSERT_NE(nullptr, world[0].contents);
+    EXPECT_EQ(nullptr, world[0].contents->next_content) << "one corpse";
 }
 
-TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAndRefusesToDieIsNotTouchedAgain)
+/* The same when the death script also refuses the death: the mob is gone, and nothing more. */
+TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAndRefusesToDieGivesNothing)
 {
     install_script(ON_DIE,
         { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } }, { SCRIPT_RETURN_FALSE, nullptr, {} } });
     char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    victim->points.exp = 5000;
+    const int experience_before = GET_EXP(&m_player);
 
-    die(victim, nullptr, 0);
+    die(victim, &m_player, 0);
 
     EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(experience_before, GET_EXP(&m_player));
+    EXPECT_EQ(nullptr, world[0].contents);
 }
 
 TEST_F(CharacterTriggerTest, AMobWhoseDieScriptRefusesStaysInTheRoom)
@@ -873,28 +889,4 @@ TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
     const size_t first = logged.find(refusal);
     ASSERT_NE(std::string::npos, first) << logged.substr(0, 400);
     EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
-}
-
-/* ---- the hold on a dying mob's removal ---- */
-
-TEST(DeathExtractionHold, HoldsBackTheDyingCharactersRemoval)
-{
-    char_data dying {};
-    death_extraction_hold hold(&dying);
-
-    EXPECT_TRUE(death_extraction_hold::hold_extraction(&dying));
-    EXPECT_TRUE(hold.extraction_requested());
-}
-
-/* The dying character freed some other way (a RAW_KILL, a flee into a death room): a character
- * made later at the same address, as a LOAD_MOB may make, is removed as asked. */
-TEST(DeathExtractionHold, HoldsNothingOnceTheDyingCharacterIsFreed)
-{
-    char_data dying {};
-    death_extraction_hold hold(&dying);
-
-    death_extraction_hold::note_freed(&dying);
-
-    EXPECT_FALSE(death_extraction_hold::hold_extraction(&dying));
-    EXPECT_FALSE(hold.extraction_requested());
 }
