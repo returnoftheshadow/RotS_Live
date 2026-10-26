@@ -1826,6 +1826,17 @@ static void install_resist_affect(char_data* victim, int resist_type, int modifi
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str)
 {
+    /* A staff of it, or a wand of it pointed at an object, has nobody to make resistant; only a
+     * builder's item can be one. */
+    if (!victim) {
+        vmudlog(NRM, "SYSERR: %s: resist spell %d used with no character (a staff or wand).",
+            __func__, resist_type);
+        if (caster) {
+            send_to_char("Nothing seems to happen.\n\r", caster);
+        }
+        return;
+    }
+
     affected_type* current_effect = affected_by_spell(victim, resist_type);
 
     if (type == SPELL_TYPE_ANTI) {

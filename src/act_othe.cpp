@@ -739,6 +739,19 @@ ACMD(do_split)
     send_to_char(buf, ch);
 }
 
+/* The spell a wand's or staff's value[3] names, or null for none. A number outside the skills
+ * table, which only a builder's mistake can give, names none and is logged. */
+static decltype(skill_data::spell_pointer) find_stick_spell(const obj_data* stick)
+{
+    const int spell_number = stick->obj_flags.value[3];
+    if (spell_number < 0 || spell_number >= MAX_SKILLS) {
+        vmudlog(NRM, "SYSERR: %s: '%s' names spell %d, outside the skills table.", __func__,
+            stick->short_description, spell_number);
+        return nullptr;
+    }
+    return skills[spell_number].spell_pointer;
+}
+
 ACMD(do_use)
 {
     int bits;
@@ -760,9 +773,9 @@ ACMD(do_use)
 
         if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
             stick->obj_flags.value[2]--;
-            if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                ((*skills[stick->obj_flags.value[3]].spell_pointer)(ch, "", SPELL_TYPE_STAFF, 0, 0,
-                    0, 0));
+            const auto spell = find_stick_spell(stick);
+            if (spell)
+                spell(ch, "", SPELL_TYPE_STAFF, 0, 0, 0, 0);
 
         } else
             send_to_char("The staff seems powerless.\n\r", ch);
@@ -780,9 +793,9 @@ ACMD(do_use)
 
             if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
                 stick->obj_flags.value[2]--;
-                if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                    ((*skills[stick->obj_flags.value[3]].spell_pointer)(
-                        ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0));
+                const auto spell = find_stick_spell(stick);
+                if (spell)
+                    spell(ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0);
             } else
                 send_to_char("The wand seems powerless.\n\r", ch);
         } else
@@ -1946,8 +1959,7 @@ ACMD(do_specialize)
 
 ACMD(do_fish)
 {
-    int fish = 7230;
-    struct obj_data* tmpobj;
+    const int fish_vnum = 7230;
     struct room_data* cur_room;
 
     if (IS_SHADOW(ch)) {
@@ -1960,9 +1972,6 @@ ACMD(do_fish)
     move_use = 25 - percent / 5;
 
     cur_room = &world[ch->in_room];
-
-    fish = real_object(fish);
-    tmpobj = read_object(fish, REAL);
 
     switch (subcmd) {
     case -1:
@@ -2004,9 +2013,13 @@ ACMD(do_fish)
             send_to_char("You give up, having failed to catch anything.\n\r", ch);
 
         else if (number(0, 125) <= percent) {
-            obj_to_char(tmpobj, ch);
-            act("$n catches $p.", TRUE, ch, tmpobj, 0, TO_ROOM);
-            act("You catch $p.", TRUE, ch, tmpobj, 0, TO_CHAR);
+            /* The fish is made only once it is caught. */
+            obj_data* fish = read_object(real_object(fish_vnum), REAL);
+            if (fish) {
+                obj_to_char(fish, ch);
+                act("$n catches $p.", TRUE, ch, fish, 0, TO_ROOM);
+                act("You catch $p.", TRUE, ch, fish, 0, TO_CHAR);
+            }
         }
 
         abort_delay(ch);
