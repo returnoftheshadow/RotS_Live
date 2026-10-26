@@ -884,19 +884,23 @@ void death_cry(struct char_data* ch)
     }
 }
 
-void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
+/* raw_kill() for a death whose killer may already be gone: <killer_was_npc> says whether the
+ * killer was a mob when the death began, and alone decides whether the wearables in the dead
+ * one's containers are gathered into the corpse. Everything else reads <killer>, null when
+ * nobody is left. */
+static void raw_kill_by(char_data* dead_man, const char_data* killer, bool killer_was_npc,
+    int attack_type)
 {
     waiting_type tmpwtl;
     /* What the death sets off on the way can remove the killer: the interrupted command, the
      * dying one's death procedure, or an item spell cast as its gear comes off. The death then
      * goes on with no killer, as when a death script removes it (die). */
     freed_watch killer_watch(killer);
-    /* Read while the killer is surely there. Someone who dies to poison, a player or no killer at
-     * all has the wearable gear in their containers gathered into the corpse; a player who dies
-     * to a player recovers as one. */
-    const bool killer_is_npc = IS_NPC(killer);
-    const bool gather_wearables = attack_type == SPELL_POISON || !killer_is_npc;
-    const bool killed_by_player = killer != nullptr && !killer_is_npc;
+    /* Someone who dies to poison, to a player or to no killer at all has the wearable gear in
+     * their containers gathered into the corpse. A player who dies to a player recovers as one;
+     * that is read while the killer is surely there. */
+    const bool gather_wearables = attack_type == SPELL_POISON || !killer_was_npc;
+    const bool killed_by_player = killer != nullptr && !IS_NPC(killer);
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
@@ -1000,6 +1004,12 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
     }
 }
 
+void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
+{
+    const bool killer_is_npc = IS_NPC(killer);
+    raw_kill_by(dead_man, killer, killer_is_npc, attack_type);
+}
+
 /*
  * Simple enough function to check whether a character has
  * Death_ward up or not.
@@ -1044,6 +1054,8 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 {
     freed_watch dead_man_watch(dead_man);
     freed_watch killer_watch(killer);
+    /* The corpse is made as the killer struck, even if the death script removes it. */
+    const bool killer_was_npc = IS_NPC(killer);
     const int die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
     /* A death script that removed the dying mob (EXTRACT_CHAR, RAW_KILL ch1, or anything it set
      * off) has ended the death itself, whatever it returned: nobody gains from it, no kill is
@@ -1095,7 +1107,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 
     /* A mob died.  Who cares. */
     if (IS_NPC(dead_man)) {
-        raw_kill(dead_man, killer, attack_type);
+        raw_kill_by(dead_man, killer, killer_was_npc, attack_type);
         return;
     }
 
@@ -1120,7 +1132,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
             // TODO(drelidan):  Only early-out if the dead man isn't in combat.  Otherwise continue
             // so that proper exploits are given out.
             if (dead_man->specials.fighting == NULL) {
-                raw_kill(dead_man, killer, attack_type);
+                raw_kill_by(dead_man, killer, killer_was_npc, attack_type);
                 return;
             }
         }
@@ -1149,7 +1161,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     GET_COND(dead_man, THIRST) = 24;
     GET_COND(dead_man, DRUNK) = 0;
 
-    raw_kill(dead_man, killer, attack_type);
+    raw_kill_by(dead_man, killer, killer_was_npc, attack_type);
 }
 
 int exp_with_modifiers(const char_data* character, const char_data* dead_man, int base_exp)
