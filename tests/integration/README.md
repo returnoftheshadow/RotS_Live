@@ -227,7 +227,7 @@ A sharded run also checks its own coverage. The select job lists the selected sc
 and says in its summary how many of them have no time in `shard_durations.json`. After the
 shards finish, pass or fail, the "Check every selected scenario ran once" job compares every
 shard's `results.xml` with that list. It fails when a shard uploaded no results, or when a
-selected scenario ran no times or more than once, or a scenario ran that was not selected.
+selected scenario ran in no shard or in more than one, or a scenario ran that was not selected.
 
 The shards are balanced by each test's time in `tests/integration/shard_durations.json`, so
 every shard takes about as long; a test the file lacks counts 15 seconds. Each test still runs in

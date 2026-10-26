@@ -7,7 +7,7 @@ and how many of the file's entries name no selected test.
 
 `check` reads that list and every shard's downloaded results.xml (one folder per shard, as
 `integration-results-shard-<k>`). It fails when a shard's results are missing, or when a
-selected test ran no times or more than once, or a test ran that was not selected.
+selected test ran in no shard or in more than one, or a test ran that was not selected.
 
 Run from tests/integration as `python3 -m rots_harness.shard_coverage selection|check ...`.
 """
@@ -41,22 +41,25 @@ def coverage_problems(selected: Sequence[str], shard_runs: Mapping[int, Optional
     """One line per problem in a sharded run, or none when every selected test ran exactly once.
 
     shard_runs gives each shard number's node ids as its results list them, or None when its
-    results are missing; a shard from 1 to shard_count that it leaves out counts as missing.
+    results are missing; a shard from 1 to shard_count that it leaves out counts as missing. A node
+    id listed twice by one shard counts once: pytest's JUnit file lists a test whose call failed and
+    whose teardown then errored as two testcases, and a shard never runs a test twice.
     """
     problems = []
+    # Shards each node id ran in.
     runs: Counter[str] = Counter()
     for number in range(1, shard_count + 1):
         node_ids = shard_runs.get(number)
         if node_ids is None:
             problems.append(f"shard {number}/{shard_count}: no results")
             continue
-        runs.update(node_ids)
+        runs.update(set(node_ids))
     selected_set = set(selected)
     never = [node_id for node_id in selected if runs[node_id] == 0]
     repeated = sorted(node_id for node_id, count in runs.items() if count > 1)
     unselected = sorted(node_id for node_id in runs if node_id not in selected_set)
     problems.extend(_listed("never ran", never))
-    problems.extend(_listed("ran more than once", [f"{node_id} ({runs[node_id]} times)" for node_id in repeated]))
+    problems.extend(_listed("ran in more than one shard", [f"{node_id} ({runs[node_id]} shards)" for node_id in repeated]))
     problems.extend(_listed("ran but was not selected", unselected))
     return problems
 

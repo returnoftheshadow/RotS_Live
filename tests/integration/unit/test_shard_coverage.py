@@ -25,12 +25,11 @@ def test_a_test_no_shard_ran_is_a_problem() -> None:
 
 def test_a_test_two_shards_ran_is_a_problem() -> None:
     problems = shard_coverage.coverage_problems(SELECTED, {1: SELECTED[:2], 2: SELECTED[1:]}, 2)
-    assert problems == [f"ran more than once: {SELECTED[1]} (2 times)"]
+    assert problems == [f"ran in more than one shard: {SELECTED[1]} (2 shards)"]
 
 
-def test_a_test_run_twice_in_one_shard_is_a_problem() -> None:
-    problems = shard_coverage.coverage_problems(SELECTED, {1: [*SELECTED, SELECTED[0]]}, 1)
-    assert problems == [f"ran more than once: {SELECTED[0]} (2 times)"]
+def test_a_test_listed_twice_by_one_shard_counts_once() -> None:
+    assert shard_coverage.coverage_problems(SELECTED, {1: [*SELECTED, SELECTED[0]]}, 1) == []
 
 
 def test_a_test_outside_the_selection_is_a_problem() -> None:
@@ -94,14 +93,40 @@ def test_check_passes_when_the_real_scenario_files_ran_once(tmp_path: Path) -> N
     assert "ran exactly once across 2 shards" in summary
 
 
-def test_check_fails_for_a_missing_shard_and_a_repeated_test(tmp_path: Path) -> None:
+def test_check_fails_for_a_missing_shard(tmp_path: Path) -> None:
     selected = ["scenarios/test_boot.py::test_a", "scenarios/test_boot.py::test_b"]
-    write_shard(tmp_path / "results", 1, [("scenarios.test_boot", "test_a"), ("scenarios.test_boot", "test_a")])
+    write_shard(tmp_path / "results", 1, [("scenarios.test_boot", "test_a")])
     status, summary = run_check(tmp_path, selected, "[1, 2]")
     assert status == shard_coverage.EXIT_COVERAGE_FAILED
     assert "shard 2/2: no results" in summary
     assert "never ran: scenarios/test_boot.py::test_b" in summary
-    assert "ran more than once: scenarios/test_boot.py::test_a (2 times)" in summary
+
+
+def test_check_fails_for_a_test_two_shards_ran(tmp_path: Path) -> None:
+    selected = ["scenarios/test_boot.py::test_a", "scenarios/test_boot.py::test_b"]
+    write_shard(tmp_path / "results", 1, [("scenarios.test_boot", "test_a"), ("scenarios.test_boot", "test_b")])
+    write_shard(tmp_path / "results", 2, [("scenarios.test_boot", "test_a")])
+    status, summary = run_check(tmp_path, selected, "[1, 2]")
+    assert status == shard_coverage.EXIT_COVERAGE_FAILED
+    assert "ran in more than one shard: scenarios/test_boot.py::test_a (2 shards)" in summary
+
+
+# How pytest's JUnit file lists a test whose call failed and whose teardown then errored: two
+# testcases with the same class and name, the first with the failure and the second with the error.
+FAILED_THEN_TEARDOWN_ERROR_RESULTS = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
+<testcase classname="scenarios.test_boot" name="test_a" time="3.0"><failure message="assert False">assert False</failure></testcase>
+<testcase classname="scenarios.test_boot" name="test_a" time="0.5"><error message="failed on teardown">boom</error></testcase>
+<testcase classname="scenarios.test_boot" name="test_b" time="1.0" />
+</testsuite></testsuites>
+"""
+
+
+def test_check_passes_for_a_failed_test_whose_teardown_also_errored(tmp_path: Path) -> None:
+    shard_folder = tmp_path / "results" / shard_coverage.SHARD_FOLDER_FORMAT.format(number=1)
+    shard_folder.mkdir(parents=True)
+    (shard_folder / "results.xml").write_text(FAILED_THEN_TEARDOWN_ERROR_RESULTS, encoding="utf-8")
+    status, summary = run_check(tmp_path, ["scenarios/test_boot.py::test_a", "scenarios/test_boot.py::test_b"], "[1]")
+    assert status == 0, summary
 
 
 @pytest.mark.parametrize("shards", ["", "[]", "{}", '["1"]', "[true]"])

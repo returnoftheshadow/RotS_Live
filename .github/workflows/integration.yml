@@ -170,8 +170,8 @@ jobs:
           if-no-files-found: ignore
 
   coverage:
-    # Fails the run when a shard's results are missing, or a selected scenario ran no times or more
-    # than once across the shards. Runs after failed shards too, but not after a cancelled run.
+    # Fails the run when a shard's results are missing, or a selected scenario ran in no shard or in
+    # more than one. Runs after failed shards too, but not after a cancelled run.
     needs: [select, scenarios]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[1]' }}
     name: Check every selected scenario ran once
