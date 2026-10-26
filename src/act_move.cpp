@@ -324,11 +324,16 @@ void set_blood_trail(const struct char_data* ch, int dir)
     }
 }
 
+/* What perform_move_mount returns when a special procedure or script removed the mount or a
+ * rider before anyone moved: the move did not happen. */
+constexpr int MOUNT_MOVE_CALLED_OFF = -1;
+
 /*
  * moves the mount and everybody riding it..
  * performs special() on everybody except the primary rider
  * or the mount itself, depending on who is moving.
- * Returns 1 on success, 0 otherwise
+ * Returns 1 on success, MOUNT_MOVE_CALLED_OFF when someone was removed before anyone moved, and
+ * 0 otherwise
  *
  * assumes the move is legal, e.g. the door is open.
  */
@@ -361,7 +366,7 @@ int perform_move_mount(struct char_data* ch, int dir)
     special(ch->mount_data.rider, dir + 1, "", SPECIAL_COMMAND, 0);
     /* Removing a rider unseats it: with the mount or every rider gone, the move is off. */
     if (mount_watch.freed() || !ch->mount_data.rider) {
-        return 0;
+        return MOUNT_MOVE_CALLED_OFF;
     }
 
     for (tmpch = ch->mount_data.rider->mount_data.next_rider,
@@ -377,12 +382,12 @@ int perform_move_mount(struct char_data* ch, int dir)
         tmp = check_simple_move(tmpch, dir, &move_cost, SCMD_CARRIED);
         /* Something the rider's check set off removed the mount: nobody is left to carry. */
         if (carrying_mount_watch.freed()) {
-            return 0;
+            return MOUNT_MOVE_CALLED_OFF;
         }
         if (rider_watch.freed()) {
             /* An ON_BEFORE_ENTER script removed the rider: the move is off, as below. */
             stop_riding_all(ch);
-            return 0;
+            return MOUNT_MOVE_CALLED_OFF;
         }
         if (tmp) {
             if (tmp == 3)
@@ -546,8 +551,12 @@ void parse_container_for_stay_zone(char_data* ch, const obj_data* container, con
     }
 };
 
-void prohibit_item_stay_zone_move(char_data* ch, int room)
+/* Leaves in <room> the stay-zone items <ch> wears or carries, as <ch> moves to another zone.
+ * Returns false when taking a worn one off freed ch (unequip_char): the item then lies in room,
+ * and ch must not be touched again. */
+bool prohibit_item_stay_zone_move(char_data* ch, int room)
 {
+    freed_watch mover_watch(ch);
     // Check for gear that character is wearing.
     for (int gear_index = 0; gear_index < MAX_WEAR; gear_index++) {
         obj_data* item = ch->equipment[gear_index];
@@ -564,6 +573,9 @@ void prohibit_item_stay_zone_move(char_data* ch, int room)
         if (IS_OBJ_STAT(ch->equipment[gear_index], ITEM_STAY_ZONE)) {
             obj_data* item = unequip_char(ch, gear_index);
             obj_to_room(item, room);
+            if (mover_watch.freed()) {
+                return false;
+            }
         }
     }
 
@@ -584,6 +596,7 @@ void prohibit_item_stay_zone_move(char_data* ch, int room)
             obj_to_room(item, room);
         }
     }
+    return true;
 }
 
 /*
@@ -968,8 +981,10 @@ ACMD(do_move)
             }
 
             // Check for item_stay_zone in players inventory and equipment.
-            if (different_zone) {
-                prohibit_item_stay_zone_move(ch, was_in);
+            /* Taking the gear off can remove the mover before it moves, as a failed check
+             * does: then nothing moves. */
+            if (different_zone && !prohibit_item_stay_zone_move(ch, was_in)) {
+                return;
             }
 
             char_from_room(ch);
@@ -1122,6 +1137,11 @@ ACMD(do_move)
             act(buf2, FALSE, ch->mount_data.mount, 0, ch, TO_CHAR);
 
             res_flag = perform_move_mount(ch->mount_data.mount, cmd);
+            /* A move called off before anyone moved is a failed move: nobody follows, as when a
+             * walker's check fails above. */
+            if (res_flag == MOUNT_MOVE_CALLED_OFF) {
+                return;
+            }
             /* Arriving can remove the rider as it can a walker, above. */
             mover_gone = mover_watch.freed();
         }

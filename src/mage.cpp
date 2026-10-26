@@ -127,7 +127,7 @@ bool different_zone(int was_in, int to_room)
 extern struct obj_data* obj_proto;
 extern struct obj_data* object_list;
 extern struct char_data* character_list;
-extern void prohibit_item_stay_zone_move(char_data* ch, int was_in);
+extern bool prohibit_item_stay_zone_move(char_data* ch, int was_in);
 extern int rev_dir[];
 extern int top_of_world;
 extern char* dirs[];
@@ -800,8 +800,9 @@ ASPELL(spell_summon)
     was_in = victim->in_room;
     to_room = caster->in_room;
 
-    if (different_zone(was_in, to_room)) {
-        prohibit_item_stay_zone_move(victim, was_in);
+    /* Taking its gear off can remove the victim: there is then nobody to summon. */
+    if (different_zone(was_in, to_room) && !prohibit_item_stay_zone_move(victim, was_in)) {
+        return;
     }
 
     ch_x = zone_table[world[caster->in_room].zone].x;
@@ -951,8 +952,10 @@ ASPELL(spell_blink)
         stop_riding(victim);
         if (caster != victim)
             send_to_char("You relocated your victim.\n\r", caster);
-        if (different_zone(was_in, room)) {
-            prohibit_item_stay_zone_move(caster, was_in);
+        /* Taking the caster's gear off can remove the caster, and the victim with it when they
+         * are one. */
+        if (different_zone(was_in, room) && !prohibit_item_stay_zone_move(caster, was_in)) {
+            return;
         }
         send_to_char("The world spinned around you, and changed.\n\r", victim);
         act("$n disappeared in a flash of light.\n\r", TRUE, victim, 0, 0, TO_ROOM);
@@ -1133,8 +1136,9 @@ ASPELL(spell_relocate)
     }
 
     if (tmp <= top_of_world) {
-        if (different_zone(was_in, tmp)) {
-            prohibit_item_stay_zone_move(caster, was_in);
+        /* Taking its gear off can remove the caster: nobody is then left to move. */
+        if (different_zone(was_in, tmp) && !prohibit_item_stay_zone_move(caster, was_in)) {
+            return;
         }
         stop_riding(caster);
         act("$n screams a shrill wail of pain, and suddenly disappears.\n\r",

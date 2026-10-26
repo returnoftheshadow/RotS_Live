@@ -3360,11 +3360,18 @@ SPECIAL(ghoul)
             mob = host->followers->follower;
             if (!mob->followers) {
                 act("$n seems to fade away into the ground.", TRUE, host, 0, 0, TO_ROOM);
-                for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
-                    if (mob->equipment[tmpno])
+                /* Taking an item off can kill the ghoul (its poison) or set off a script that
+                 * removes it: there is then nothing left to remove. */
+                freed_watch ghoul_watch(mob);
+                for (tmpno = 0; tmpno < MAX_WEAR && !ghoul_watch.freed(); tmpno++) {
+                    if (mob->equipment[tmpno]) {
                         extract_obj(unequip_char(mob, tmpno));
+                    }
+                }
                 /* What it carries falls to the ground (extract_char). */
-                extract_char(mob);
+                if (!ghoul_watch.freed()) {
+                    extract_char(mob);
+                }
             }
         }
         return 0;
@@ -3641,9 +3648,17 @@ SPECIAL(vampire_huntress)
         act("$n flaps her great wings, and flies away.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
-            if (host->equipment[tmpno])
+        /* Taking an item off can kill the bat (its poison) or set off a script that removes it:
+         * nothing is then left to change into the vampire. */
+        freed_watch bat_watch(host);
+        for (tmpno = 0; tmpno < MAX_WEAR; tmpno++) {
+            if (host->equipment[tmpno]) {
                 extract_obj(unequip_char(host, tmpno));
+                if (bat_watch.freed()) {
+                    return 1;
+                }
+            }
+        }
         for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
             obj = host->carrying;
             obj_from_char(host->carrying);
@@ -3720,9 +3735,17 @@ SPECIAL(thuringwethil)
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
-            if (host->equipment[tmpno])
+        /* Taking an item off can kill the vampire (its poison) or set off a script that removes
+         * her: nothing is then left to change back into the bat. */
+        freed_watch vampire_watch(host);
+        for (tmpno = 0; tmpno < MAX_WEAR; tmpno++) {
+            if (host->equipment[tmpno]) {
                 extract_obj(unequip_char(host, tmpno));
+                if (vampire_watch.freed()) {
+                    return 1;
+                }
+            }
+        }
         for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
             obj = host->carrying;
             obj_from_char(host->carrying);
