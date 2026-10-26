@@ -30,7 +30,7 @@ env:
   INTEGRATION_SHARDS: 4
   # The pytest-xdist workers each scenarios job runs (make integration's JOBS); 1 runs the
   # scenarios one at a time.
-  INTEGRATION_JOBS_PER_SHARD: 4
+  INTEGRATION_JOBS_PER_SHARD: 8
 
 concurrency:
   # A newer push or description edit replaces the run in progress.
