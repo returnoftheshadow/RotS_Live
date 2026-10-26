@@ -266,7 +266,7 @@ Environment variables:
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds to wait for the Docker lock, a finite number |
 | `ROTS_IT_DOCKER_LOCK_DIR` | `/tmp/rots-docker-lock` | the shared Docker lock directory |
 | `ROTS_IT_HOUR_TIMEOUT` | `10.0` | seconds `server.advance_hours` allows per game hour, a positive finite number |
-| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only the k-th of N shares of the selected tests, balanced by `shard_durations.json` (see Continuous integration); a shard left with no tests passes when `JOBS` runs no workers |
+| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only the k-th of N shares of the selected tests, balanced by `shard_durations.json` (see Continuous integration); a shard left with no tests passes, with or without `JOBS` workers |
 | `ROTS_IT_ALLOW_STALE` | unset | `1` runs a program older than its sources, for example to test an old build on purpose |
 | `ROTS_IT_CONFIRM_MINUTES` | `10` | the estimate, in minutes, from which `make integration` without a terminal needs `CONFIRM=yes`; a positive number (see The run plan) |
 

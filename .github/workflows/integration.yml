@@ -122,8 +122,8 @@ jobs:
           JOBS: ${{ env.INTEGRATION_JOBS_PER_SHARD }}
         # The local launcher runs the programs directly inside the image; make integration reads
         # GROUP and JOBS from the environment, and an empty GROUP runs every scenario. A shard whose
-        # share of the selection is empty passes when it runs without workers. CI=true makes make
-        # integration run without its plan and confirmation.
+        # share of the selection is empty passes. CI=true makes make integration run without its
+        # plan and confirmation.
         run: >-
           docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots
           --env CI --env GROUP --env ROTS_IT_SHARD --env JOBS --env HOME=/tmp --env ROTS_IT_LAUNCHER=local
