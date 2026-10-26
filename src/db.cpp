@@ -3245,8 +3245,8 @@ void encrypt_line(unsigned char* line, int len);
 
 // Serialize ch to scratch_path in the legacy versioned-text format. Returns false and
 // removes the partial scratch on any write/close error, so the caller skips finalize and
-// never destroys the live file. Body is the former save_player serialization, unchanged,
-// so its bytes stay identical to the legacy path (pinned by the A/B oracle + round-trip test).
+// never destroys the live file. Its bytes match the legacy save_player output except where
+// that wrote garbage past an unterminated password or host field.
 bool write_player_text(struct char_data* ch, int load_room, const char* scratch_path)
 {
     struct char_file_u chd;
@@ -3260,6 +3260,7 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     char_to_store(ch, &chd);
     strcpy(chd.pwd, ch->desc->pwd);
     strncpy(chd.host, ch->desc->host, HOST_LEN);
+    chd.host[HOST_LEN] = '\0'; // strncpy leaves a host of HOST_LEN or more bytes unterminated
     if (!PLR_FLAGGED(ch, PLR_LOADROOM))
         chd.specials2.load_room = load_room;
 
@@ -3282,7 +3283,9 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     fprintf(pf, "last_logon  %ld\n", chd.last_logon);
     memcpy(pwdcrypt, chd.pwd, MAX_PWD_LENGTH);
     encrypt_line((unsigned char*)pwdcrypt, MAX_PWD_LENGTH);
-    fprintf(pf, "password    %s\n", pwdcrypt);
+    // The encrypted password fills pwdcrypt with no terminator, and the loader reads
+    // MAX_PWD_LENGTH bytes back.
+    fprintf(pf, "password    %.*s\n", MAX_PWD_LENGTH, pwdcrypt);
     fprintf(pf, "host        %s\n", chd.host);
     fprintf(pf, "idnum       %ld\n", chd.specials2.idnum);
     fprintf(pf, "load_room   %d\n", chd.specials2.load_room);
@@ -3587,7 +3590,7 @@ char* fread_string(FILE* fl, const char* error)
 {
     char buf[MAX_STRING_LENGTH], tmp[MAX_STRING_LENGTH];
     char* rslt;
-    register char *point, *tmppoint;
+    char* tmppoint;
     int flag, markfirst;
 
     bzero(buf, MAX_STRING_LENGTH);
@@ -3611,18 +3614,27 @@ char* fread_string(FILE* fl, const char* error)
         for (tmppoint = tmp; (*tmppoint < ' ') && (*tmppoint != 0); tmppoint++)
             continue;
 
-        if (strlen(tmppoint) + strlen(buf) > MAX_STRING_LENGTH) {
+        // The text needs room for its terminator.
+        if (strlen(tmppoint) + strlen(buf) >= MAX_STRING_LENGTH) {
             log("SYSERR: fread_string: string too large (db.c)");
             exit(0);
         } else
             strcat(buf, tmppoint);
 
-        for (point = buf + strlen(buf) - 2; point >= buf && isspace(*point);
-            point--)
-            continue;
-        if ((flag = (*point == '~')))
-            *point = 0;
+        // Walk back from before the kept newline to the last non-blank byte. A blank first line
+        // leaves buf empty, so the walk can end in front of buf, where there is nothing to test.
+        int last_index = static_cast<int>(strlen(buf)) - 2;
+        while (last_index >= 0 && isspace(static_cast<unsigned char>(buf[last_index])))
+            last_index--;
+        flag = last_index >= 0 && buf[last_index] == '~';
+        if (flag)
+            buf[last_index] = 0;
         else if (strlen(buf)) {
+            // The line break adds '\r' before the terminator.
+            if (strlen(buf) + 2 > MAX_STRING_LENGTH) {
+                log("SYSERR: fread_string: string too large (db.c)");
+                exit(0);
+            }
             *(buf + strlen(buf) + 1) = '\0';
             *(buf + strlen(buf)) = '\r';
         }

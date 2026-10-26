@@ -21,6 +21,7 @@ int apply_resistance(int dam, int magnitude);
 int resist_magnitude_for(const char_data* victim, int resist_type);
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location);
 void affect_naked(char_data* ch);
+void affect_update_person(char_data* character, int mode);
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str);
 const char* room_spell_message_for(int location);
@@ -1000,6 +1001,25 @@ TEST(SpellWearOffNotify, SurvivesAnAffectWhoseTypeHasNoTableEntry)
 
     EXPECT_EQ(context.mob.affected, nullptr)
         << "the affect is still removed, just without a wear-off line";
+}
+
+TEST(AffectUpdatePerson, ExpiringAngerClearsTheAttackedLevel)
+{
+    // The tick removes, and so frees, an expired affect before checking whether it was anger.
+    ProtoMobContext context(0, 0);
+    context.mob.specials.attacked_level = 5;
+
+    affected_type anger {};
+    anger.type = SPELL_ANGER;
+    anger.duration = 0;
+    anger.location = APPLY_NONE;
+    affect_to_char(&context.mob, &anger);
+    ASSERT_NE(context.mob.affected, nullptr);
+
+    affect_update_person(&context.mob, 0);
+
+    EXPECT_EQ(context.mob.affected, nullptr) << "the expired anger is removed";
+    EXPECT_EQ(context.mob.specials.attacked_level, 0) << "anger running out clears the attacked level";
 }
 
 /* room_spell_message[] is indexed by spell number but is far shorter than MAX_SKILLS, which is

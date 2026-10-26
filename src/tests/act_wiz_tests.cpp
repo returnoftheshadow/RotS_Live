@@ -1226,9 +1226,11 @@ TEST(ActWiz, ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt)
 /* restyle and the skin lines of stat */
 
 #include "../object_skins.h"
+#include "../zone.h"
 
 ACMD(do_restyle);
 void do_stat_object(const struct char_data* ch, struct obj_data* j);
+void do_stat_room(struct char_data* character);
 void clear_object(struct obj_data* obj);
 extern struct index_data* obj_index;
 extern struct obj_data* obj_proto;
@@ -1613,6 +1615,44 @@ TEST(ActWiz, StatShowsSkinLines)
     w.imm_desc.bufptr = 0;
     do_stat_object(w.imm, key);
     EXPECT_EQ(w.imm_out().find("Skin"), std::string::npos);
+}
+
+TEST(ActWiz, StatRoomShowsNoPrototypeNumberForACorpse)
+{
+    SkinWorld skin_world;
+    // stat room asks for zone authority, so room 0's zone exists here with no owner.
+    owner_list public_owner {};
+    zone_data room_zone {};
+    room_zone.number = world[0].number / 100;
+    room_zone.owners = &public_owner;
+    zone_data* const saved_zone_table = zone_table;
+    const int saved_top_of_zone_table = top_of_zone_table;
+    zone_table = &room_zone;
+    top_of_zone_table = 0;
+
+    // A corpse is made in play from no prototype, so it has no prototype number to show.
+    obj_data corpse {};
+    clear_object(&corpse);
+    corpse.item_number = -1;
+    char corpse_description[] = "the corpse of a goblin";
+    corpse.short_description = corpse_description;
+    obj_to_room(&corpse, 0);
+    // The sword is listed first, so a number left over from its line could follow the corpse.
+    obj_data* sword = skin_world.load(kSkinBase);
+    obj_to_room(sword, 0);
+
+    skin_world.imm_desc.small_outbuf[0] = '\0';
+    skin_world.imm_desc.bufptr = 0;
+    do_stat_room(skin_world.imm);
+
+    EXPECT_NE(skin_world.imm_out().find("a long steel sword [4512]"), std::string::npos) << skin_world.imm_out();
+    EXPECT_NE(skin_world.imm_out().find("the corpse of a goblin"), std::string::npos) << skin_world.imm_out();
+    EXPECT_EQ(skin_world.imm_out().find("the corpse of a goblin ["), std::string::npos) << skin_world.imm_out();
+
+    obj_from_room(&corpse);
+    extract_obj(sword);
+    zone_table = saved_zone_table;
+    top_of_zone_table = saved_top_of_zone_table;
 }
 
 /* A skin named exactly "gizmo" is a placeholder and stays hidden, as every other gizmo does: not

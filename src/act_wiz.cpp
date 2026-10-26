@@ -508,8 +508,11 @@ void do_stat_room(struct char_data* ch)
             if (!CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL)
                 continue;
             sprintf(buf2, "%s %s", found++ ? "," : "", j->short_description);
-            if (found > 0 && ch->player.level > 91)
+            // A corpse is made from no prototype, so it has no number to show.
+            if (found > 0 && ch->player.level > 91 && j->item_number >= 0)
                 sprintf(buf1, " [%d]", obj_index[j->item_number].virt);
+            else
+                *buf1 = '\0';
             strcat(buf2, buf1);
             strcat(buf, buf2);
             if (strlen(buf) >= 62) {
