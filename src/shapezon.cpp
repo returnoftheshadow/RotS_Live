@@ -2092,7 +2092,7 @@ int load_zone(struct char_data* ch, const char* arg)
     struct owner_list* owner;
     std::string rest;
 
-    if (2 != sscanf(arg, "%s %d\n", str, &number)) {
+    if (2 != sscanf(arg, "%254s %d\n", str, &number)) {
         send_to_char("Choose a zone by 'shape zone <zone_number>'\n\r", ch);
         return -1;
     }
@@ -2133,8 +2133,11 @@ int load_zone(struct char_data* ch, const char* arg)
     }
     get_text(f, &(SHAPE_ZONE(ch)->zone_descr));
     get_text(f, &(SHAPE_ZONE(ch)->zone_map));
-    sprintf(str, " loading zone #%d %s\n\r", tmp, SHAPE_ZONE(ch)->zone_name);
-    send_to_char(str, ch);
+    /* The zone name is as long as the file makes it; str is only 255. */
+    std::string loading_message = " loading zone #" + std::to_string(tmp) + " ";
+    loading_message += SHAPE_ZONE(ch)->zone_name ? SHAPE_ZONE(ch)->zone_name : "(null)";
+    loading_message += "\n\r";
+    send_to_char(loading_message.c_str(), ch);
 
     CREATE1(SHAPE_ZONE(ch)->root_owner, owner_list);
     SHAPE_ZONE(ch)

@@ -1782,13 +1782,14 @@ void list_help(const struct char_data* ch)
 /*********--------------------------------*********/
 void list_simple_proto(const struct char_data* ch, const struct char_data* mob)
 {
-    char str[255];
+    /* Sized for the typed alias and short description lines, as list_proto's is. */
+    char str[MAX_STRING_LENGTH];
 
     //  recalculate_mob(ch);
     send_to_char("Simple editing mode.\n\r", ch);
-    sprintf(str, "(1) alias(es)         :%s\n\r", mob->player.name);
+    snprintf(str, sizeof(str), "(1) alias(es)         :%s\n\r", mob->player.name);
     send_to_char(str, ch);
-    sprintf(str, "(2) reference description  :%s\n\r", mob->player.short_descr);
+    snprintf(str, sizeof(str), "(2) reference description  :%s\n\r", mob->player.short_descr);
     send_to_char(str, ch);
     sprintf(str, "(3) full  description   :\n\r");
     send_to_char(str, ch);
@@ -1824,9 +1825,9 @@ void list_proto(const struct char_data* ch, const struct char_data* mob)
 {
     static char str[MAX_STRING_LENGTH];
     send_to_char("Full editing mode.\n\r", ch);
-    sprintf(str, "(1) alias(es)         :%s\n\r", mob->player.name);
+    snprintf(str, sizeof(str), "(1) alias(es)         :%s\n\r", mob->player.name);
     send_to_char(str, ch);
-    sprintf(str, "(2) reference description  :%s\n\r", mob->player.short_descr);
+    snprintf(str, sizeof(str), "(2) reference description  :%s\n\r", mob->player.short_descr);
     send_to_char(str, ch);
     sprintf(str, "(3) full  description   :\n\r");
     send_to_char(str, ch);

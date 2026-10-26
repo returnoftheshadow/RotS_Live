@@ -440,6 +440,7 @@ int pkill_update_file(const char* file, PKILL pkills[], int n)
     FILE* f;
     PKILL p;
     extern struct player_index_element* player_table;
+    extern int top_of_p_table;
 
     f = fopen(file, "a");
     if (f == NULL) {
@@ -449,6 +450,15 @@ int pkill_update_file(const char* file, PKILL pkills[], int n)
 
     nwritten = 0;
     for (i = 0; i < n; ++i) {
+        /* A record whose killer or victim is not in the player index (deleted, purged or
+           unreadable, so -1) has no idnum to write; it is dropped from the file. */
+        if (pkills[i].killer < 0 || pkills[i].killer > top_of_p_table
+            || pkills[i].victim < 0 || pkills[i].victim > top_of_p_table) {
+            vmudlog(BRF, "SYSERR: pkill_update_file: dropping a pkill record naming a player "
+                         "missing from the player index (killer index %d, victim index %d).",
+                pkills[i].killer, pkills[i].victim);
+            continue;
+        }
         if (!pkill_expired(&pkills[i])) {
             /*
              * The pkill file stores killer and victim IDs, not
