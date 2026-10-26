@@ -1136,13 +1136,14 @@ SPECIAL(intelligent)
 
         case 'K':
             tmpvar = FROM_STACK(host);
-            if (tmpvar >= num_of_programs)
+            /* Programs are numbered from 1. */
+            if (tmpvar < 1 || tmpvar >= num_of_programs)
                 break;
             if (host->specials.tactics >= SPECIAL_CALLLIST - 1)
                 break;
             //  prog_point is automatic.,.
             host->specials.tactics++;
-            PROG_NUMBER(ch) = tmpvar;
+            PROG_NUMBER(host) = tmpvar;
             PROG_POINT(host) = -1;
             cmd_line = SPECIAL_PROGRAM(host);
             cmd_leng = strlen(cmd_line);

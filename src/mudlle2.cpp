@@ -27,15 +27,14 @@ void TO_STACK(struct char_data* host, long x)
 {
     int tmp;
 
-    SPECIAL_STACK(host)
-    [SPECIAL_STACKPOINT(host)] = x;
-
-    if (SPECIAL_STACKPOINT(host) == SPECIAL_STACKLEN) {
+    /* A full stack drops its oldest value to make room at the top. */
+    if (SPECIAL_STACKPOINT(host) >= SPECIAL_STACKLEN) {
         for (tmp = 0; tmp < SPECIAL_STACKLEN - 1; tmp++)
             SPECIAL_STACK(host)
         [tmp] = SPECIAL_STACK(host)[tmp + 1];
         SPECIAL_STACK(host)
-        [SPECIAL_STACKPOINT(host)] = x;
+        [SPECIAL_STACKLEN - 1] = x;
+        SPECIAL_STACKPOINT(host) = SPECIAL_STACKLEN;
     } else {
         SPECIAL_STACK(host)
         [SPECIAL_STACKPOINT(host)] = x;
@@ -47,7 +46,7 @@ void TO_STACK(struct char_data* host, long x)
 long STACK_VALUE(const struct char_data* host)
 {
     int tmp;
-    if (SPECIAL_STACKPOINT(host) < 0)
+    if (SPECIAL_STACKPOINT(host) <= 0)
         tmp = 0;
     else
         tmp = SPECIAL_STACK(host)[SPECIAL_STACKPOINT(host) - 1];
@@ -71,8 +70,12 @@ void DOWN_STACK(const struct char_data* host)
 {
     int tmp;
 
+    /* An empty stack has nothing to turn. */
+    if (SPECIAL_STACKPOINT(host) <= 0)
+        return;
+
     tmp = SPECIAL_STACK(host)[0];
-    memmove(SPECIAL_STACK(host), SPECIAL_STACK(host) + sizeof(long),
+    memmove(SPECIAL_STACK(host), SPECIAL_STACK(host) + 1,
         sizeof(long) * (SPECIAL_STACKLEN - 1));
     SPECIAL_STACK(host)
     [SPECIAL_STACKPOINT(host) - 1] = tmp;
@@ -82,7 +85,7 @@ void UP_STACK(const struct char_data* host)
 {
     int tmp;
     tmp = STACK_VALUE(host);
-    memmove(SPECIAL_STACK(host) + sizeof(long), SPECIAL_STACK(host),
+    memmove(SPECIAL_STACK(host) + 1, SPECIAL_STACK(host),
         sizeof(long) * (SPECIAL_STACKLEN - 1));
     SPECIAL_STACK(host)
     [0] = tmp;
