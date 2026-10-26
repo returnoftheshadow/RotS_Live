@@ -303,6 +303,8 @@ def test_a_harness_change_runs_every_group(path: str) -> None:
         ".github/workflows/ci.yml",
         # The on-request ASan run builds its own programs and never changes how this workflow runs a scenario.
         ".github/workflows/asan.yml",
+        # Only the ASan workflow runs its selector; nothing a scenario runs imports it.
+        "tests/integration/rots_harness/asan_selection.py",
         "lib/misc/game_boot_options.json",
         "lib/plrobjs/a/alice",
         "lib/world/wld/11.wld",
