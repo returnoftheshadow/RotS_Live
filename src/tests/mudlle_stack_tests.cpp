@@ -18,6 +18,9 @@ void UP_STACK(const char_data* host);
 void TO_LIST(const char_data* host, void* entr, int type);
 void REMOVE_LIST(char_data* host);
 void UP_LIST(char_data* host);
+void DOWN_LIST(char_data* host);
+void turn_stack(const char_data* host, int turns, void (*turn_once)(const char_data*));
+void turn_list(char_data* host, int turns, void (*turn_once)(char_data*));
 
 extern char** mobile_program;
 extern int num_of_programs;
@@ -29,6 +32,11 @@ namespace {
 constexpr int VALUES_PUSHED = SPECIAL_STACKLEN + 10;
 /* How many entries a test adds to a list that fills up. */
 constexpr int ENTRIES_ADDED = SPECIAL_STACKLEN + 10;
+/* A turn count that would take minutes turned one place at a time: 3 more than a multiple of
+ * 30, and so of both test depths below (5 values, 6 entries with the mark). */
+constexpr int HUGE_TURNS = 2'000'000'013;
+/* What HUGE_TURNS comes to on those depths. */
+constexpr int EQUIVALENT_TURNS = 3;
 /* Every program number a mob's call list can hold one of. */
 constexpr int ALL_CALLFLAGS = 255;
 
@@ -278,4 +286,123 @@ TEST_F(MudlleListTest, TurningTheListUpMovesTheHeadToTheTail)
     EXPECT_EQ(SPECIAL_MARK, m_host_memory.targets.field[chain[1]].type);
     EXPECT_EQ(&second_room, m_host_memory.targets.field[chain[2]].ptr.room);
     EXPECT_EQ(-1, m_host_memory.targets.next[chain[2]]);
+}
+
+/* The values on <host>'s stack, held in <stack>, top first. */
+static std::vector<long> stack_values(const char_data& host, const std::vector<long>& stack)
+{
+    return std::vector<long>(stack.rbegin() + (SPECIAL_STACKLEN - SPECIAL_STACKPOINT(&host)), stack.rend());
+}
+
+TEST_F(MudlleStackTest, AHugeTurnOfTheStackEndsAsItsEquivalentSmallTurnDoes)
+{
+    char_data reference {};
+    program_memory reference_memory;
+    give_program_memory(reference, reference_memory);
+    for (int value = 1; value <= 5; ++value) {
+        TO_STACK(&m_host, value);
+        TO_STACK(&reference, value);
+    }
+
+    turn_stack(&m_host, HUGE_TURNS, UP_STACK);
+    for (int turn = 0; turn < EQUIVALENT_TURNS; ++turn) {
+        UP_STACK(&reference);
+    }
+
+    EXPECT_EQ(stack_values(reference, reference_memory.stack), stack_values(m_host, m_host_memory.stack));
+}
+
+/* A program turning its stack down by a huge count finishes, with the order a small count gives:
+ * the count 2000000004 is 2000000003 turns, 2 on three values, and 7 8 9 turned down twice reads
+ * 8 7 9 from the top. */
+TEST_F(MudlleStackTest, AProgramsHugeStackTurnFinishes)
+{
+    load_programs({ "7 8 9 2000000004Sb;" });
+    char no_argument[] = "";
+
+    intelligent(&m_host, &m_host, 0, no_argument, SPECIAL_DELAY, nullptr);
+
+    const std::vector<long> expected = { 8, 7, 9 };
+    EXPECT_EQ(expected, stack_values(m_host, m_host_memory.stack));
+}
+
+TEST_F(MudlleStackTest, ANonPositiveStackTurnChangesNothing)
+{
+    TO_STACK(&m_host, 1);
+    TO_STACK(&m_host, 2);
+
+    turn_stack(&m_host, 0, UP_STACK);
+    turn_stack(&m_host, -5, DOWN_STACK);
+
+    const std::vector<long> expected = { 2, 1 };
+    EXPECT_EQ(expected, stack_values(m_host, m_host_memory.stack));
+}
+
+/* Gives <host> five room entries above its mark, the fifth at the head. */
+static void fill_with_rooms(char_data& host, std::vector<room_data>& rooms)
+{
+    for (room_data& room : rooms) {
+        TO_LIST(&host, &room, TARGET_ROOM);
+    }
+}
+
+TEST_F(MudlleListTest, AHugeTurnOfTheListEndsAsItsEquivalentSmallTurnDoes)
+{
+    for (void (*turn_once)(char_data*) : { UP_LIST, DOWN_LIST }) {
+        char_data turned {};
+        program_memory turned_memory;
+        give_program_memory(turned, turned_memory);
+        char_data reference {};
+        program_memory reference_memory;
+        give_program_memory(reference, reference_memory);
+        std::vector<room_data> rooms(5);
+        fill_with_rooms(turned, rooms);
+        fill_with_rooms(reference, rooms);
+
+        turn_list(&turned, HUGE_TURNS, turn_once);
+        for (int turn = 0; turn < EQUIVALENT_TURNS; ++turn) {
+            turn_once(&reference);
+        }
+
+        EXPECT_EQ(list_chain(reference_memory), list_chain(turned_memory));
+    }
+}
+
+/* A program turning its list up by a huge count finishes: the count 2000000003 is 2000000002
+ * turns, as many as 2000000002 % 6 on five rooms and the mark. */
+TEST_F(MudlleListTest, AProgramsHugeListTurnFinishes)
+{
+    load_programs({ "2000000003SF;" });
+    std::vector<room_data> rooms(5);
+    fill_with_rooms(m_host, rooms);
+    char_data reference {};
+    program_memory reference_memory;
+    give_program_memory(reference, reference_memory);
+    fill_with_rooms(reference, rooms);
+    for (int turn = 0; turn < 2'000'000'002 % 6; ++turn) {
+        UP_LIST(&reference);
+    }
+    char no_argument[] = "";
+
+    intelligent(&m_host, &m_host, 0, no_argument, SPECIAL_DELAY, nullptr);
+
+    EXPECT_EQ(list_chain(reference_memory), list_chain(m_host_memory));
+}
+
+/* A whole number of turns brings every entry to the head once, which clears a character no longer
+ * in the game; the shortened turn clears it as well, and leaves the order as it was. */
+TEST_F(MudlleListTest, AWholeTurnOfTheListClearsACharacterNoLongerInTheGame)
+{
+    room_data room {};
+    char_data departed {};
+    departed.abs_number = -1; /* in no character slot */
+    TO_LIST(&m_host, &room, TARGET_ROOM);
+    TO_LIST(&m_host, &departed, TARGET_CHAR);
+    const std::vector<int> before = list_chain(m_host_memory);
+
+    turn_list(&m_host, static_cast<int>(before.size()), UP_LIST);
+
+    EXPECT_EQ(before, list_chain(m_host_memory));
+    EXPECT_EQ(TARGET_NONE, m_host_memory.targets.field[before[0]].type);
+    EXPECT_EQ(nullptr, m_host_memory.targets.field[before[0]].ptr.other);
 }
