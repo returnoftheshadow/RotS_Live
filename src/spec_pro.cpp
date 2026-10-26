@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include <string.h>
 #include <strings.h>
 #include <vector>
@@ -1546,6 +1547,22 @@ int spell_list[][4] = {
 
 };
 
+/*
+ * The spell a program-4 mage casts for <level_roll>, a number from 0 to its mage level, from
+ * column <spell_type> of spell_list (0 to 3). A roll picks a later row every five levels, or
+ * every eight above 50; a roll past the last row casts from the last row.
+ */
+int mage_spell_for_roll(int level_roll, int spell_type)
+{
+    constexpr int last_row = static_cast<int>(sizeof(spell_list) / sizeof(spell_list[0])) - 1;
+    int row = level_roll / 5;
+    if (level_roll > 50) {
+        row = level_roll / 8;
+    }
+    row = std::min(row, last_row);
+    return spell_list[row][spell_type];
+}
+
 namespace {
 int choose_mystic_spell(const char_data* caster, const char_data* target)
 {
@@ -1620,23 +1637,9 @@ int choose_mage_spell(const char_data* caster, const char_data* target)
         return 0;
     }
 
-    /*
-     * Since we have a list of 10 spells to choose from, and
-     * since some of our in-game mobs are over 50 in level
-     * any mob over level 50 will have its random number
-     * divided by eight rather than 5 to ensure a spell
-     * is picked from the array spell_list.
-     * This will very soon be replaced with each mob having
-     * a bitvector list of spells that each can cast from.
-     */
-    int spell_list_index = number(0, GET_PROF_LEVEL(PROF_MAGIC_USER, caster));
-    if (spell_list_index > 50)
-        spell_list_index = spell_list_index / 8;
-    else
-        spell_list_index = spell_list_index / 5;
-
+    int level_roll = number(0, GET_PROF_LEVEL(PROF_MAGIC_USER, caster));
     int spell_var = get_mob_spell_type(caster);
-    return spell_list[spell_list_index][spell_var];
+    return mage_spell_for_roll(level_roll, spell_var);
 }
 
 bool is_engaged_with_victim(const char_data* character, const char_data* victim)
@@ -3331,7 +3334,8 @@ SPECIAL(ar_tarthalon)
             tmpwtl.cmd = 0;
         }
         tmpwtl.subcmd = 0;
-        if (CAN_GO(victim, tmpwtl.cmd - 1))
+        /* No step (cmd 0) in his chamber 8483 or any room off the route. */
+        if (tmpwtl.cmd > 0 && CAN_GO(victim, tmpwtl.cmd - 1))
             do_move(victim, "", &tmpwtl, tmpwtl.cmd, 0);
         tmpwtl.targ1.cleanup();
     }
@@ -3350,7 +3354,6 @@ SPECIAL(ghoul)
     struct char_data* mob;
     int tmpno, num_followers = 0;
     struct follow_type *j, *k;
-    obj_data* obj;
 
     if (GET_POS(host) != POSITION_FIGHTING) {
         if (host->followers && !number(0, 10)) {
@@ -3360,11 +3363,7 @@ SPECIAL(ghoul)
                 for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
                     if (mob->equipment[tmpno])
                         extract_obj(unequip_char(mob, tmpno));
-                for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
-                    obj = mob->carrying;
-                    obj_from_char(mob->carrying);
-                    extract_obj(obj);
-                }
+                /* What it carries falls to the ground (extract_char). */
                 extract_char(mob);
             }
         }
@@ -3849,7 +3848,8 @@ SPECIAL(vampire_killer)
         }
         tmpwtl.subcmd = 0;
         if (tmpwtl.cmd == 1) {
-            if (IS_SET(room->dir_option[0]->exit_info, EX_CLOSED)) {
+            room = &world[host->in_room];
+            if (room->dir_option[0] && IS_SET(room->dir_option[0]->exit_info, EX_CLOSED)) {
                 do_unlock(host, "irondoor", 0, 0, 0);
                 do_open(host, "irondoor", 0, 0, 0);
             }
@@ -3906,7 +3906,8 @@ SPECIAL(vampire_killer)
             tmpwtl.cmd = 0;
         }
         tmpwtl.subcmd = 0;
-        if (CAN_GO(host, tmpwtl.cmd - 1))
+        /* No step (cmd 0) from a room off his route. */
+        if (tmpwtl.cmd > 0 && CAN_GO(host, tmpwtl.cmd - 1))
             do_move(host, "", &tmpwtl, tmpwtl.cmd, 0);
         tmpwtl.targ1.cleanup();
     }
@@ -3963,20 +3964,21 @@ SPECIAL(wolf_summoner)
             return 0;
 
         act("$n rises his head high and howls loudly into the caverns.", TRUE, host, 0, 0, TO_ROOM);
-        wolf = read_mobile(real_mobile(FOLLOWER), REAL);
-        if (!wolf) {
+        int helper_number = real_mobile(FOLLOWER);
+        if (helper_number < 0) {
             mudlog("wolf_summoner: follower does not exist!", BRF, LEVEL_GOD, TRUE);
             return 0;
-        };
+        }
+        wolf = read_mobile(helper_number, REAL);
         if (!wolf->player.death_cry2) {
             mudlog("wolf_summoner: follower has no death cry ", BRF, LEVEL_GOD, TRUE);
+            extract_char(wolf);
             return 0;
         }
         act(wolf->player.death_cry2, TRUE, host, 0, 0, TO_ROOM);
 
-        // This is really a question I have not answered yet: can i free(death_cry2) or not? (yes!)
-
-        RELEASE(wolf->player.death_cry2);
+        /* The death cry is the prototype's text, shared by every copy: this copy only lets go of
+         * it, so the helper dies without it. */
         wolf->player.death_cry2 = NULL;
         char_to_room(wolf, host->in_room);
         add_follower(wolf, host, FOLLOW_MOVE);
@@ -3996,7 +3998,7 @@ SPECIAL(reciter)
     int quitting = 0;
     char* e;
     char* c = host->specials.recite_lines;
-    if (GET_HIT(ch) < 1) {
+    if (ch && GET_HIT(ch) < 1) {
         quitting = 1;
         goto remove_scroll;
     } // Hm, sbdy just has spoken his last line...
@@ -4007,20 +4009,29 @@ SPECIAL(reciter)
     if (c) { // singing already...
         e = strchr(c, '\n');
         if (e) {
-            *e = '\0';
-            if (*c == '+')
-                act((char*)(c + 1), TRUE, host, 0, 0, TO_ROOM);
+            /* The poem is the scroll prototype's text, shared by every copy: the line is copied
+             * out rather than cut off in place. */
+            std::string line(c, e - c);
+            freed_watch reciter_watch(host);
+            if (line[0] == '+')
+                act(line.c_str() + 1, TRUE, host, 0, 0, TO_ROOM);
             else
-                do_say(host, c, 0, 0, 0);
-            *e = '\n';
-            host->specials.recite_lines = e + 2; // it appears, asif each line is terminated by a two character combination
+                do_say(host, line.data(), 0, 0, 0);
+            /* A listener's script can remove the reciter as it speaks. */
+            if (reciter_watch.freed())
+                return 0;
+            /* Lines end in "\n\r"; the next line starts after both, or after a lone '\n'. */
+            ++e;
+            if (*e == '\r')
+                ++e;
+            host->specials.recite_lines = e;
         } else
             host->specials.recite_lines = NULL;
         return 0;
     }
 // Not singing
 remove_scroll:
-    for (o = host->carrying; ((o) && (o->name) && (strcmp(o->name, "textscroll"))); o = o->next)
+    for (o = host->carrying; ((o) && (o->name) && (strcmp(o->name, "textscroll"))); o = o->next_content)
         ; // find a scroll
     if (o) { // found the scroll?
         if (!o->ex_description) { // scroll has no extended description
@@ -4045,9 +4056,43 @@ remove_scroll:
 
 #define HERALD_LEN 1024
 
+namespace {
+/*
+ * <text> with its first "%s" replaced by <name> and its second by <title>, "%%" read as one '%',
+ * and every other character kept as written, cut to <limit> characters. A null name or title is
+ * replaced by nothing.
+ */
+std::string herald_announcement(const char* text, const char* name, const char* title,
+    std::size_t limit)
+{
+    const char* const substitutes[] = { name, title };
+    const std::size_t substitute_count = sizeof(substitutes) / sizeof(substitutes[0]);
+    std::size_t substituted = 0;
+    std::string announcement;
+    for (const char* cursor = text; *cursor; ++cursor) {
+        if (cursor[0] == '%' && cursor[1] == 's' && substituted < substitute_count) {
+            const char* substitute = substitutes[substituted];
+            ++substituted;
+            if (substitute) {
+                announcement += substitute;
+            }
+            ++cursor;
+        } else if (cursor[0] == '%' && cursor[1] == '%') {
+            announcement += '%';
+            ++cursor;
+        } else {
+            announcement += cursor[0];
+        }
+    }
+    if (announcement.size() > limit) {
+        announcement.resize(limit);
+    }
+    return announcement;
+}
+} // namespace
+
 SPECIAL(herald)
 {
-    char hbuf[HERALD_LEN];
     struct memory_rec *mr, *pr;
 
     if (GET_HIT(host) < 1) { /* herald dead? */
@@ -4082,8 +4127,10 @@ SPECIAL(herald)
         mudlog("herald: missing death_cry2", BRF, LEVEL_GOD, TRUE);
         return 0;
     }
-    snprintf(hbuf, HERALD_LEN - 1, host->player.death_cry2, ch->player.name, ch->player.title);
-    do_say(host, hbuf, 0, 0, 0);
+    /* The text the builder wrote names where the name and title go; it is never a format. */
+    std::string announcement = herald_announcement(host->player.death_cry2, ch->player.name,
+        ch->player.title, HERALD_LEN - 2);
+    do_say(host, announcement.data(), 0, 0, 0);
 
     return 0;
 }
