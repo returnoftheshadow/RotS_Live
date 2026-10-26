@@ -161,19 +161,6 @@ void mobile_activity(void)
     walker_remove_finished();
 }
 
-/* True if <entry> is on <leader>'s follower list and still stands for <follower>. <entry> and
- * <follower> are compared by address until <entry> is found there, so either may have gone. */
-static bool is_follower_entry(const char_data* leader, const follow_type* entry,
-    const char_data* follower)
-{
-    for (const follow_type* listed = leader->followers; listed; listed = listed->next) {
-        if (listed == entry) {
-            return listed->follower == follower;
-        }
-    }
-    return false;
-}
-
 /* True if <item> is on the content list that starts at <first_listed>. */
 static bool is_on_content_list(const obj_data* first_listed, const obj_data* item)
 {

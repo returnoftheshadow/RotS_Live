@@ -110,6 +110,37 @@ void char_from_room(struct char_data* ch);
 void char_to_room(struct char_data* ch, int room);
 void extract_char(struct char_data* ch, int new_room = -1);
 
+/* Lends a character a room it does not stand in, for code that asks where it is (the procedures
+ * on the far side of a door it knocks on), while it stays on its own room's list of people.
+ * char_from_room and extract_char first end any lend of the character they are given, putting it
+ * back where it stands, so that it leaves the right room; otherwise the lend puts it back when it
+ * goes out of scope. A lend must be a local variable: lends nest, and each ends in the reverse
+ * order of its making. */
+class room_lend {
+public:
+    /* Lends <character>, which stands in a room, the room <lent_room>. */
+    room_lend(char_data* character, int lent_room);
+    ~room_lend();
+
+    room_lend(const room_lend&) = delete;
+    room_lend& operator=(const room_lend&) = delete;
+
+    /* Ends every lend of <character>, putting it back in the room it stands in. */
+    static void end_for(char_data* character);
+
+private:
+    // The newest lend still in scope; each points on to the one made before it. Null when nothing
+    // is lent, which is nearly always, so char_from_room pays one test.
+    static room_lend* newest;
+
+    // The character lent the room; null once the lend has ended.
+    char_data* m_character;
+    // The room the character stands in, given back when the lend ends.
+    int m_own_room;
+    // The lend made before this one, which is the newest again once this one goes.
+    room_lend* m_older;
+};
+
 int in_affected_list(const struct char_data* ch);
 
 /* find if character can see */
@@ -146,6 +177,10 @@ void add_follower(struct char_data* ch, struct char_data* leader, int mode);
 void stop_follower(struct char_data* ch, int mode);
 char circle_follow(const struct char_data* ch, struct char_data* victim, int mode);
 void die_follower(struct char_data* ch);
+/* True if <entry> is on <leader>'s follower list and still stands for <follower>. <entry> and
+ * <follower> are compared by address until <entry> is found there, so either may have gone (a
+ * null one is never found). */
+bool is_follower_entry(const char_data* leader, const follow_type* entry, const char_data* follower);
 
 inline constexpr int FOLLOW_MOVE = 1;
 inline constexpr int FOLLOW_GROUP = 2;

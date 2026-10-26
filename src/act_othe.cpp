@@ -738,6 +738,19 @@ ACMD(do_split)
     send_to_char(buf, ch);
 }
 
+/* The spell a wand's or staff's value[3] names, or null for none. A number outside the skills
+ * table, which only a builder's mistake can give, names none and is logged. */
+static decltype(skill_data::spell_pointer) find_stick_spell(const obj_data* stick)
+{
+    const int spell_number = stick->obj_flags.value[3];
+    if (spell_number < 0 || spell_number >= MAX_SKILLS) {
+        vmudlog(NRM, "SYSERR: %s: '%s' names spell %d, outside the skills table.", __func__,
+            stick->short_description, spell_number);
+        return nullptr;
+    }
+    return skills[spell_number].spell_pointer;
+}
+
 ACMD(do_use)
 {
     int bits;
@@ -759,9 +772,9 @@ ACMD(do_use)
 
         if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
             stick->obj_flags.value[2]--;
-            if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                ((*skills[stick->obj_flags.value[3]].spell_pointer)(ch, "", SPELL_TYPE_STAFF, 0, 0,
-                    0, 0));
+            const auto spell = find_stick_spell(stick);
+            if (spell)
+                spell(ch, "", SPELL_TYPE_STAFF, 0, 0, 0, 0);
 
         } else
             send_to_char("The staff seems powerless.\n\r", ch);
@@ -779,9 +792,9 @@ ACMD(do_use)
 
             if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
                 stick->obj_flags.value[2]--;
-                if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                    ((*skills[stick->obj_flags.value[3]].spell_pointer)(
-                        ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0));
+                const auto spell = find_stick_spell(stick);
+                if (spell)
+                    spell(ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0);
             } else
                 send_to_char("The wand seems powerless.\n\r", ch);
         } else
@@ -1723,7 +1736,7 @@ ACMD(do_next)
 
 ACMD(do_knock)
 {
-    int tmp, room, oldroom;
+    int tmp, room;
     char str[200];
 
     if (IS_SHADOW(ch)) {
@@ -1751,8 +1764,10 @@ ACMD(do_knock)
 
                     room = EXIT(ch, tmp)->to_room;
                     if (room != NOWHERE) {
-                        oldroom = ch->in_room;
-                        ch->in_room = room;
+                        /* The knock is heard on the far side and its procedures are asked as if
+                         * the knocker stood there. A procedure that removes or moves it ends the
+                         * lend first, so it leaves the room it stands in. */
+                        room_lend far_side(ch, room);
                         if (EXIT(ch, rev_dir[tmp])) {
                             if (IS_SET(EXIT(ch, rev_dir[tmp])->exit_info, EX_ISDOOR) && EXIT(ch, rev_dir[tmp])->keyword) {
                                 sprintf(str, "You hear a knock on the %s.\n",
@@ -1770,7 +1785,6 @@ ACMD(do_knock)
                         ch->delay.targ1.type = TARGET_OTHER;
                         ch->delay.targ1.ch_num = rev_dir[tmp];
                         special(ch, CMD_KNOCK, argument, SPECIAL_NONE, 0);
-                        ch->in_room = oldroom;
                     }
 
                     return;
@@ -1940,8 +1954,7 @@ ACMD(do_specialize)
 
 ACMD(do_fish)
 {
-    int fish = 7230;
-    struct obj_data* tmpobj;
+    const int fish_vnum = 7230;
     struct room_data* cur_room;
 
     if (IS_SHADOW(ch)) {
@@ -1954,9 +1967,6 @@ ACMD(do_fish)
     move_use = 25 - percent / 5;
 
     cur_room = &world[ch->in_room];
-
-    fish = real_object(fish);
-    tmpobj = read_object(fish, REAL);
 
     switch (subcmd) {
     case -1:
@@ -1998,9 +2008,13 @@ ACMD(do_fish)
             send_to_char("You give up, having failed to catch anything.\n\r", ch);
 
         else if (number(0, 125) <= percent) {
-            obj_to_char(tmpobj, ch);
-            act("$n catches $p.", TRUE, ch, tmpobj, 0, TO_ROOM);
-            act("You catch $p.", TRUE, ch, tmpobj, 0, TO_CHAR);
+            /* The fish is made only once it is caught. */
+            obj_data* fish = read_object(real_object(fish_vnum), REAL);
+            if (fish) {
+                obj_to_char(fish, ch);
+                act("$n catches $p.", TRUE, ch, fish, 0, TO_ROOM);
+                act("You catch $p.", TRUE, ch, fish, 0, TO_CHAR);
+            }
         }
 
         abort_delay(ch);
