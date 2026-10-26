@@ -3798,6 +3798,8 @@ void free_char(struct char_data* ch)
     note_char_freed(ch);
     untrack_specialized_mage(ch);
     forget_freed_exposed_target(ch);
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_character_freed(ch);
     /* Its own describe command or an immortal's string command may be typing into one. */
     stop_editing_text({ &ch->player.name, &ch->player.title, &ch->player.short_descr,
         &ch->player.long_descr, &ch->player.description });
@@ -3879,6 +3881,8 @@ void free_obj(struct obj_data* obj)
 {
     note_object_freed(obj);
     stop_writing_on_note(*obj);
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_object_freed(obj);
     log_hand_set_object_text(*obj);
 
     /* "setfree off" keeps freed memory for debugging, as RELEASE does. Deleting the object lets go

@@ -556,6 +556,26 @@ void big_brother::on_character_disconnected(const char_data* character)
 }
 
 //============================================================================
+void big_brother::on_character_freed(const char_data* character)
+{
+#if USE_BIG_BROTHER
+    assert(character);
+    m_afk_characters.erase(character);
+    m_last_engaged_pk_time.erase(character);
+#endif
+}
+
+//============================================================================
+void big_brother::on_object_freed(const obj_data* object)
+{
+#if USE_BIG_BROTHER
+    assert(object);
+    // The map's key type is non-const; erase only compares the address.
+    m_corpse_map.erase(const_cast<obj_data*>(object));
+#endif
+}
+
+//============================================================================
 void big_brother::remove_character_from_afk_set(const char_data* character)
 {
 #if USE_BIG_BROTHER
