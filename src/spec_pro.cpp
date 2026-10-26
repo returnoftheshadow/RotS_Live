@@ -3359,12 +3359,6 @@ SPECIAL(ar_tarthalon)
     return 0;
 }
 
-/*
- * In true horror tradition, more and more ghouls appear
- * until the character is forced to flee
- * If the spawned Ghouls are not fighting they
- * return to the ground whence they came
- */
 /* The ghoul the ghoul special raises from the ground. */
 constexpr int RISEN_GHOUL_VNUM = 15300;
 
@@ -3381,6 +3375,12 @@ static char_data* first_risen_ghoul(const char_data* host)
     return nullptr;
 }
 
+/*
+ * In true horror tradition, more and more ghouls appear
+ * until the character is forced to flee
+ * If the spawned Ghouls are not fighting they
+ * return to the ground whence they came
+ */
 SPECIAL(ghoul)
 {
     struct char_data* mob;
