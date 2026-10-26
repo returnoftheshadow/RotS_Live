@@ -202,7 +202,8 @@ broken world fails in seconds. A pull request runs:
 - every group when it changes the harness: `rots_harness/`, `conftest.py`, `pytest.ini`,
   `requirements.txt`, the test world (other than its notes), a scenario file other than a
   `test_*.py`, `src/harness/`, `src/tools/rotstool/`, the `Dockerfile`, the image action
-  (`.github/actions/dev-image/`) or the workflow itself;
+  (`.github/actions/dev-image/`) or `integration.yml` itself, though not the ASan workflow
+  (below);
 - every group when it changes `src/CMakeLists.txt`, whose compile settings reach every program,
   or a `lib/` file the harness copies into every test's lib (`lib/text/` and the tracked
   `lib/misc` files in `rots_harness/libbuilder.py`).
@@ -235,7 +236,8 @@ exactly one shard. Refresh the file when tests are added or their times change, 
 shard's results of one or more recent full runs that ran with the workflow's current
 `INTEGRATION_SHARDS` and `INTEGRATION_JOBS_PER_SHARD`. Take them only from a push to
 `release-frodo` or `release-frodo-next`, or from a pull request whose branch is in this repository
-(not a fork), since the file decides how CI splits every later run:
+(not a fork), and never from an ASan run, whose artifacts share these names but whose times are
+slower, since the file decides how CI splits every later run:
 
 ```bash
 gh run download <run id> --pattern 'integration-results-shard-*' --dir build/ci-results/<run id>
@@ -255,6 +257,77 @@ Each job loads the development image from the Actions cache, or from the reposit
 `dev-image-jammy-<hash>` pre-release for the `Dockerfile`'s hash, and builds it from the Ubuntu
 snapshot only when neither has it, so a snapshot outage stops only a pull request that changes
 the `Dockerfile`. `.github/workflows/dev-image.yml` publishes that pre-release on a push.
+
+### Memory checks on request (ASan)
+
+The `ASan` workflow (`.github/workflows/asan.yml`) builds the unit tests, the server, the
+harness server and `rotstool` with AddressSanitizer and runs the tests a pull request's
+description asks for, so a pull request can show it adds no memory errors. A pull request that
+fixes memory errors names the tests that prove them. Without a token nothing runs. The tokens,
+read outside HTML comments as above (`rots_harness/asan_selection.py`):
+
+| Token | Runs |
+| --- | --- |
+| `@asan-test-all` | every unit test, and every scenario split across shards; it wins over every other token |
+| `@asan-test-<group>` | one group or subgroup, named as for `@integration-test-<group>` |
+| `@asan-test-unit=<filter>` | the unit tests a GoogleTest filter matches, such as `@asan-test-unit=BankGameFolder.*`; repeatable |
+| `@asan-test-scenario=<id>` | one scenario file or test, relative to `tests/integration`, such as `@asan-test-scenario=scenarios/test_bank.py` or `@asan-test-scenario=scenarios/test_boot.py::test_an_implementor_logs_in_to_immortal_start`; repeatable |
+
+Tokens combine: each unit filter, group and scenario token adds its tests. Unit tests run only
+for `all` or a unit token, and scenarios only for `all`, a group or a scenario token, so a pull
+request asking only for unit tests builds no server and runs no scenario. The unit filters are
+joined with `:` into one `--gtest_filter`. Each value runs to the next whitespace, so write a
+token as plain text with a space or line break after it, and it must pass a strict check:
+
+- A filter holds only letters, digits and `_ . * ? :`, with `:` between patterns. A `-` is
+  refused: GoogleTest reads the first one as the start of the tests to leave out, so beside
+  another unit token it would leave out that token's tests too. Name the tests to run instead.
+- A scenario id is `scenarios/test_<name>.py`, optionally followed by `::<test name>` and a
+  parameter id in brackets made of letters, digits and `_ - . / % ~`, such as
+  `[exactly-100]`. The file must exist. A parameter id with a space cannot be named; name the
+  test to run every case.
+- `all`, `unit` and `scenario` are never group names. A group no group file registers fails the
+  job and lists the registered ones.
+
+A token that fails its check stops the "Choose the ASan tests" job, naming the token and the
+reason. A token that selects no test fails the run too: each group and scenario token is
+collected in that job before anything is built, and each unit filter is listed against the unit
+tests binary before the unit tests run, since GoogleTest passes a run of no tests.
+
+A push reruns the workflow while the description has tokens. An edit reruns it only when it
+changes the set of tokens, compared with the description before the edit, so correcting other
+text never restarts a long run. An edit that removes every token starts nothing and leaves a run
+in progress to finish.
+
+The jobs:
+
+- "Choose the ASan tests" reads the tokens and lists what runs and why in its summary.
+- "ASan unit tests" builds `ageland_tests` and runs it once, with the joined filter or every
+  test. One hour.
+- "ASan scenarios" builds `ageland`, `ageland_harness` and `rotstool` and runs the scenarios on
+  `ASAN_JOBS_PER_SHARD` (4) pytest-xdist workers, one per runner CPU. A run of chosen scenarios
+  is one job; `@asan-test-all` splits every scenario across `ASAN_SHARDS` (8) jobs as a full
+  `Integration` run does, and a coverage job checks each ran once. One hour per job.
+
+ASan runs code 2 to 3 times slower, so these run half the workers of an `Integration` job on twice
+the shards, and `ROTS_IT_HOUR_TIMEOUT` is 30. Eight shards and the unit job take 9 runners, leaving
+room for `CI` and a full `Integration` run under the account's limit of 20 concurrent jobs. The
+workflow has no workflow-wide concurrency group. Each long job replaces only the same job of an
+older ASan run of the pull request, never an `Integration` or `CI` job.
+
+Every program runs with `ASAN_OPTIONS=detect_leaks=0:detect_container_overflow=0`, and the build
+step fails when a program lacks the sanitizer. A sanitizer report fails the run:
+
+- In the unit tests, the first report ends the binary with a non-zero status.
+- In a scenario, the server's output is its `game.log`. The harness fails the test on the
+  report's `AddressSanitizer` line or the server exiting (the list under "What it is"). A report from `rotstool`
+  fails the test's lib build. Each failed scenario's run directory, with its `game.log`, is
+  uploaded as `asan-runs-shard-<k>`.
+
+The build is `make configure BUILD_DIR=build-asan` with the workflow's `CMAKE_CONFIGURE_ARGS`
+(`-DCMAKE_BUILD_TYPE=Debug` and `-fsanitize=address -fno-omit-frame-pointer -g`). It writes the
+programs to `bin/`, where the harness runs all three from, so reproduce it in a fresh clone or a
+copy of the checkout rather than over a working `bin/`.
 
 ## Launchers
 

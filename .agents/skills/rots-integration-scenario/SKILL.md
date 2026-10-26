@@ -132,6 +132,9 @@ a change to the game's code runs a group or subgroup only when the description n
 `@integration-test-<name>`. A change to the harness, the test world, `src/CMakeLists.txt` or a
 `lib/` file the harness copies into every test's lib runs every group, as does every push
 (integration README, "Continuous integration").
+To run a scenario against an AddressSanitizer build, such as one that proves a memory fix, name
+it in the description as `@asan-test-scenario=scenarios/test_<file>.py::<test>`, or its group as
+`@asan-test-<name>` (integration README, "Memory checks on request (ASan)").
 
 ## 9. Run it repeatedly
 
