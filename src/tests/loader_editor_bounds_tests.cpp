@@ -39,6 +39,11 @@ int pkill_update_file(const char* file, PKILL pkills[], int n);
 void list_zone(const struct char_data* ch);
 ACMD(do_fame);
 ACMD(do_shape);
+ACMD(do_say);
+int create_room(struct char_data* ch, const char* arg);
+int append_room(struct char_data* ch, const char* arg);
+int append_object(struct char_data* ch, char* arg);
+ACMD(do_emote);
 extern PKILL* pkill_tab;
 extern int pkill_tab_len;
 
@@ -955,6 +960,204 @@ TEST_F(ActMessageTest, DropsAnUnknownCodeBeforeAnyOther)
     testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(output, "Ab\n\r");
+}
+
+/* ---------------------------------------------------------------- typed text in act formats */
+
+// A speaker and a listener standing in room 0. Typed text reaches commands with every '$'
+// doubled by process_input, so the tests pass it that way.
+class TypedTextChannelTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        m_saved_people = world[0].people;
+        set_up(m_speaker, m_speaker_name, m_speaker_descriptor);
+        set_up(m_listener, m_listener_name, m_listener_descriptor);
+        SET_BIT(PRF_FLAGS(&m_speaker), PRF_ECHO);
+        m_speaker.next_in_room = &m_listener;
+        m_listener.next_in_room = nullptr;
+        world[0].people = &m_speaker;
+    }
+
+    void TearDown() override { world[0].people = m_saved_people; }
+
+    // Makes <person> a standing player called <name> in room 0, reading through <descriptor>.
+    static void set_up(char_data& person, char* name, CapturingDescriptor& descriptor)
+    {
+        clear_char(&person, MOB_VOID);
+        person.player.name = name;
+        person.player.level = 10;
+        person.in_room = 0;
+        person.specials.position = POSITION_STANDING;
+        person.desc = descriptor.get();
+        descriptor.get()->character = &person;
+        descriptor.get()->descriptor = 1; /* say speaks only to connected listeners */
+    }
+
+    // Collects what the speaker is told.
+    CapturingDescriptor m_speaker_descriptor;
+    // Collects what the listener hears.
+    CapturingDescriptor m_listener_descriptor;
+    // Storage for the speaker's name.
+    char m_speaker_name[16] = "Speaker";
+    // Storage for the listener's name.
+    char m_listener_name[16] = "Listener";
+    // The player typing.
+    char_data m_speaker {};
+    // The player hearing.
+    char_data m_listener {};
+    // Room 0's people before the test.
+    char_data* m_saved_people = nullptr;
+};
+
+TEST_F(TypedTextChannelTest, SayShowsTypedCodesLiterally)
+{
+    char typed[] = "$$o $$T $$F $$p $$n hello";
+
+    do_say(&m_speaker, typed, nullptr, 0, 0);
+
+    EXPECT_EQ(m_listener_descriptor.output(), "Speaker says '$o $T $F $p $n hello'\n\r");
+    EXPECT_EQ(m_speaker_descriptor.output(), "You say '$o $T $F $p $n hello'\n\r");
+}
+
+TEST_F(TypedTextChannelTest, SayShowsOrdinaryTextAsBefore)
+{
+    char typed[] = "well met";
+
+    do_say(&m_speaker, typed, nullptr, 0, 0);
+
+    EXPECT_EQ(m_listener_descriptor.output(), "Speaker says 'well met'\n\r");
+}
+
+TEST_F(TypedTextChannelTest, EmoteShowsTypedCodesLiterally)
+{
+    char typed[] = "grins $$o $$T $$F $$p";
+
+    do_emote(&m_speaker, typed, nullptr, 0, 0);
+
+    EXPECT_EQ(m_listener_descriptor.output(), "Speaker grins $o $T $F $p\n\r");
+    EXPECT_EQ(m_speaker_descriptor.output(), "Speaker grins $o $T $F $p\n\r");
+}
+
+/* ---------------------------------------------------------------- pager */
+
+TEST(Pager, ShowsAPageLongerThanItsBufferInParts)
+{
+    CapturingDescriptor descriptor;
+    std::string text(MAX_STRING_LENGTH + 2000, 'p');
+    text += "\n\r";
+
+    page_string(descriptor.get(), &text[0], 1);
+
+    EXPECT_EQ(descriptor.output(), std::string(MAX_STRING_LENGTH - 2, 'p'));
+    ASSERT_NE(descriptor.get()->showstr_point, nullptr) << "the rest waits for the next page";
+    EXPECT_EQ(std::string(descriptor.get()->showstr_point), std::string(2002, 'p') + "\n\r");
+    free(descriptor.get()->showstr_head);
+}
+
+TEST(Pager, ShowsAShortPageAsBefore)
+{
+    CapturingDescriptor descriptor;
+    char text[] = "first line\n\rsecond line\n\r";
+
+    page_string(descriptor.get(), text, 1);
+
+    EXPECT_EQ(descriptor.output(), "first line\n\rsecond line\n\r");
+    EXPECT_EQ(descriptor.get()->showstr_point, nullptr);
+}
+
+/* ---------------------------------------------------------------- editor file names */
+
+// A builder in the room or object editor, whose editor state is a member.
+class EditorFileNameTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        clear_char(&m_builder, MOB_VOID);
+        m_builder.player.name = m_builder_name;
+        m_builder.player.level = LEVEL_IMMORT;
+        m_builder.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_builder;
+    }
+
+    void TearDown() override { m_builder.temp = nullptr; }
+
+    // A command naming a file far too long for the editors' 80-byte file fields.
+    static std::string long_name_command(std::string_view command)
+    {
+        std::string text(command);
+        text += " 12";
+        text.append(100, 'x');
+        return text;
+    }
+
+    // Collects what the builder is shown.
+    CapturingDescriptor m_descriptor;
+    // Storage for the builder's name.
+    char m_builder_name[16] = "Builder";
+    // The builder.
+    char_data m_builder {};
+    // Room editor state, when a test uses the room editor.
+    shape_room m_room_editor {};
+    // Object editor state, when a test uses the object editor.
+    shape_object m_object_editor {};
+};
+
+TEST_F(EditorFileNameTest, RoomCreateRefusesAFileNameTooLongToStore)
+{
+    m_builder.temp = &m_room_editor;
+    const std::string command = long_name_command("create");
+
+    EXPECT_EQ(create_room(&m_builder, command.c_str()), -1);
+
+    EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
+}
+
+TEST_F(EditorFileNameTest, RoomAddReadsTheFileNameTyped)
+{
+    m_builder.temp = &m_room_editor;
+
+    EXPECT_EQ(append_room(&m_builder, "add 45"), -1); /* no permission in the test */
+
+    EXPECT_STREQ(m_room_editor.f_from, "world/wld/45.wld");
+    EXPECT_STREQ(m_room_editor.f_old, "world/wld/oldroms/45.wld");
+}
+
+TEST_F(EditorFileNameTest, RoomAddRefusesAFileNameTooLongToStore)
+{
+    m_builder.temp = &m_room_editor;
+    const std::string command = long_name_command("add");
+
+    EXPECT_EQ(append_room(&m_builder, command.c_str()), -1);
+
+    EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
+    EXPECT_STREQ(m_room_editor.f_from, "");
+}
+
+TEST_F(EditorFileNameTest, ObjectAddStoresAFileNameThatFitsAsBefore)
+{
+    m_builder.temp = &m_object_editor;
+    m_object_editor.permission = 1;
+    m_object_editor.number = -1;
+    char command[] = "add 45";
+
+    EXPECT_EQ(append_object(&m_builder, command), -1); /* no object loaded in the test */
+
+    EXPECT_STREQ(m_object_editor.f_from, "world/mob/45.mob");
+}
+
+TEST_F(EditorFileNameTest, ObjectAddRefusesAFileNameTooLongToStore)
+{
+    m_builder.temp = &m_object_editor;
+    m_object_editor.permission = 1;
+    m_object_editor.number = -1;
+    std::string command = long_name_command("add");
+
+    EXPECT_EQ(append_object(&m_builder, &command[0]), -1);
+
+    EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
+    EXPECT_STREQ(m_object_editor.f_from, "");
 }
 
 } // namespace
