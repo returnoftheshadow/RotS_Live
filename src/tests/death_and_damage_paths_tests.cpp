@@ -496,6 +496,24 @@ TEST_F(DeathAndDamagePathsTest, AResetPutsTheStoneInTheRingItsMobWears)
     EXPECT_EQ(real_number_of(STONE_VNUM), ring->contains->item_number);
 }
 
+/* The same reset on a mob already wearing a ring there: no second ring is made, and the stone
+ * meant for the last object loaded has nothing to go in, and is not made either. */
+TEST_F(DeathAndDamagePathsTest, AResetMakesNoItemForAWearSlotItsMobHasFilled)
+{
+    char_data* keeper = make_mob("keeper", 0);
+    obj_data* worn_ring = make_object(RING_VNUM, 0);
+    ASSERT_NE(nullptr, worn_ring);
+    equip_char(keeper, worn_ring, WEAR_FINGER_R);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    EXPECT_EQ(worn_ring, keeper->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, worn_ring->contains);
+    EXPECT_EQ(1, count_objects_of(RING_VNUM));
+    EXPECT_EQ(0, count_objects_of(STONE_VNUM));
+}
+
 /* Nobody in no room is hurt: a blow at someone being taken out of the game lands nowhere. */
 TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
 {
