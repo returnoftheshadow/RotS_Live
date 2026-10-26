@@ -239,6 +239,7 @@ set(ROTS_TEST_SOURCES
     tests/object_trigger_extract_tests.cpp
     tests/character_trigger_extract_tests.cpp
     tests/freed_watch_tests.cpp
+    tests/memory_release_tests.cpp
     tests/combat_movement_extract_tests.cpp
     tests/death_and_damage_paths_tests.cpp
     tests/stay_zone_death_tests.cpp
