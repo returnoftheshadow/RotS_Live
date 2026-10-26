@@ -581,6 +581,11 @@ void note_char_freed(char_data* character)
     release_script_state(character->specials.script_info);
 }
 
+void release_char_script_state(char_data* character)
+{
+    release_script_state(character->specials.script_info);
+}
+
 
 char**
 get_text_param_writable(int param, struct info_script* info)
