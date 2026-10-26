@@ -552,11 +552,15 @@ void parse_container_for_stay_zone(char_data* ch, const obj_data* container, con
 };
 
 /* Leaves in <room> the stay-zone items <ch> wears or carries, as <ch> moves to another zone.
- * Returns false when taking a worn one off freed ch (unequip_char): the item then lies in room,
- * and ch must not be touched again. */
+ * Returns false when taking a worn one off (unequip_char) killed or removed ch: the item then
+ * lies in room, and the move must not go on. ch may then be freed, so it must not be touched
+ * again. */
 bool prohibit_item_stay_zone_move(char_data* ch, int room)
 {
     freed_watch mover_watch(ch);
+    /* A player with a link who dies is not freed: the death moves them to their start room, or
+     * to the character menu in no room. Either way they are no longer where they stood. */
+    const int mover_room = ch->in_room;
     // Check for gear that character is wearing.
     for (int gear_index = 0; gear_index < MAX_WEAR; gear_index++) {
         obj_data* item = ch->equipment[gear_index];
@@ -573,7 +577,7 @@ bool prohibit_item_stay_zone_move(char_data* ch, int room)
         if (IS_OBJ_STAT(ch->equipment[gear_index], ITEM_STAY_ZONE)) {
             obj_data* item = unequip_char(ch, gear_index);
             obj_to_room(item, room);
-            if (mover_watch.freed()) {
+            if (mover_watch.freed() || ch->in_room != mover_room) {
                 return false;
             }
         }
@@ -981,8 +985,8 @@ ACMD(do_move)
             }
 
             // Check for item_stay_zone in players inventory and equipment.
-            /* Taking the gear off can remove the mover before it moves, as a failed check
-             * does: then nothing moves. */
+            /* Taking the gear off can kill or remove the mover before it moves, as a failed
+             * check does: then nothing moves. */
             if (different_zone && !prohibit_item_stay_zone_move(ch, was_in)) {
                 return;
             }

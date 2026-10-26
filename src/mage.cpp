@@ -800,7 +800,7 @@ ASPELL(spell_summon)
     was_in = victim->in_room;
     to_room = caster->in_room;
 
-    /* Taking its gear off can remove the victim: there is then nobody to summon. */
+    /* Taking its gear off can kill or remove the victim: there is then nobody to summon. */
     if (different_zone(was_in, to_room) && !prohibit_item_stay_zone_move(victim, was_in)) {
         return;
     }
@@ -952,8 +952,8 @@ ASPELL(spell_blink)
         stop_riding(victim);
         if (caster != victim)
             send_to_char("You relocated your victim.\n\r", caster);
-        /* Taking the caster's gear off can remove the caster, and the victim with it when they
-         * are one. */
+        /* Taking the caster's gear off can kill or remove the caster, and the victim with it when
+         * they are one. */
         if (different_zone(was_in, room) && !prohibit_item_stay_zone_move(caster, was_in)) {
             return;
         }
@@ -1136,7 +1136,7 @@ ASPELL(spell_relocate)
     }
 
     if (tmp <= top_of_world) {
-        /* Taking its gear off can remove the caster: nobody is then left to move. */
+        /* Taking its gear off can kill or remove the caster: nobody is then left to move. */
         if (different_zone(was_in, tmp) && !prohibit_item_stay_zone_move(caster, was_in)) {
             return;
         }
