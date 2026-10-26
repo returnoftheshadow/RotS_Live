@@ -2326,7 +2326,7 @@ TEST_F(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
 
 // A follower's gear saved in a slot one past the last (a damaged save) is read past, as gear in a
 // container is: nothing is put on there, and the follower's next item still loads.
-TEST(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
+TEST_F(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
 {
     constexpr int FOLLOWER_VNUM = 6601;
     constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
@@ -2390,10 +2390,13 @@ TEST(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
     EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
     EXPECT_EQ(character.followers->next, nullptr);
 
-    /* The follower is left unfreed, as its prototype's strings are the test's. */
+    /* The follower is freed as extract_char frees a mob, which leaves its profession block to the
+     * prototype; the prototype's is freed below. Its helm goes with the object table. */
     char_from_room(loaded);
     remove_char_exists(loaded->abs_number);
-    character.followers = nullptr;
+    RELEASE(character.followers);
+    free_char(loaded);
+    release_cleared_character(&follower_prototype);
     mob_proto = saved_mob_proto;
     mob_index = saved_mob_index;
     top_of_mobt = saved_top_of_mobt;

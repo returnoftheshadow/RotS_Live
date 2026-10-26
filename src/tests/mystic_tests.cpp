@@ -3,6 +3,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -87,10 +88,7 @@ protected:
 
     void TearDown() override
     {
-        if (m_descriptor.large_outbuf != nullptr) {
-            free(m_descriptor.large_outbuf->text);
-            free(m_descriptor.large_outbuf);
-        }
+        release_test_descriptor(&m_descriptor);
         for (int index = 0; index < ROOM_COUNT; ++index) {
             world[DIVINATION_ROOM + index] = m_saved_rooms[index];
         }

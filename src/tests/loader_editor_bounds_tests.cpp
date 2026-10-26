@@ -7,6 +7,7 @@
 #include "../protos.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -65,13 +66,7 @@ public:
         m_descriptor.connected = CON_PLYNG;
     }
 
-    ~CapturingDescriptor()
-    {
-        if (m_descriptor.large_outbuf != nullptr) {
-            free(m_descriptor.large_outbuf->text);
-            free(m_descriptor.large_outbuf);
-        }
-    }
+    ~CapturingDescriptor() { release_test_descriptor(&m_descriptor); }
 
     CapturingDescriptor(const CapturingDescriptor&) = delete;
     CapturingDescriptor& operator=(const CapturingDescriptor&) = delete;
@@ -221,8 +216,12 @@ protected:
     char m_innkeeper_short[16] = "the innkeeper";
     // The player offering.
     char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
     // The innkeeper refusing.
     char_data m_innkeeper {};
+    // Frees what clear_char gave m_innkeeper when the test ends.
+    ClearedCharacterRelease m_innkeeper_release { &m_innkeeper };
     // The unrentable item offered.
     obj_data m_item {};
 };
@@ -269,8 +268,12 @@ protected:
     char m_empty_text[1] = "";
     // The builder.
     char_data m_builder {};
+    // Frees what clear_char gave m_builder when the test ends.
+    ClearedCharacterRelease m_builder_release { &m_builder };
     // The prototype being listed.
     char_data m_mob {};
+    // Frees what clear_char gave m_mob when the test ends.
+    ClearedCharacterRelease m_mob_release { &m_mob };
 };
 
 TEST_F(MobEditorListingTest, SimpleListingShowsATypedLineAliasAndShortDescription)
@@ -363,6 +366,8 @@ protected:
     char m_builder_name[16] = "Builder";
     // The builder, whose temp holds the zone editor's state.
     char_data m_builder {};
+    // Frees what clear_char gave m_builder when the test ends.
+    ClearedCharacterRelease m_builder_release { &m_builder };
 };
 
 TEST_F(ZoneEditorLoadTest, ReportsAnOrdinaryZoneNameAsBefore)
@@ -796,6 +801,8 @@ protected:
     char m_player_name[16] = "Looker";
     // The player typing fame.
     char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
     // The PK table while a test runs.
     std::vector<PKILL> m_kills;
     // The PK table before the test.
@@ -886,6 +893,7 @@ TEST(ShapeCommand, RefusesAnUnknownWordLongerThanTheOldBuffer)
     char builder_name[16] = "Builder";
     char_data builder {};
     clear_char(&builder, MOB_VOID);
+    ClearedCharacterRelease builder_release(&builder);
     builder.player.name = builder_name;
     builder.player.level = LEVEL_IMMORT;
     builder.desc = descriptor.get();
@@ -927,6 +935,8 @@ protected:
     char m_player_name[16] = "Speaker";
     // The player.
     char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
 };
 
 TEST_F(ActMessageTest, SendsAnOrdinaryMessageAsBefore)
@@ -1006,8 +1016,12 @@ protected:
     char m_listener_name[16] = "Listener";
     // The player typing.
     char_data m_speaker {};
+    // Frees what clear_char gave m_speaker when the test ends.
+    ClearedCharacterRelease m_speaker_release { &m_speaker };
     // The player hearing.
     char_data m_listener {};
+    // Frees what clear_char gave m_listener when the test ends.
+    ClearedCharacterRelease m_listener_release { &m_listener };
     // Room 0's people before the test.
     char_data* m_saved_people = nullptr;
 };
@@ -1099,6 +1113,8 @@ protected:
     char m_builder_name[16] = "Builder";
     // The builder.
     char_data m_builder {};
+    // Frees what clear_char gave m_builder when the test ends.
+    ClearedCharacterRelease m_builder_release { &m_builder };
     // Room editor state, when a test uses the room editor.
     shape_room m_room_editor {};
     // Object editor state, when a test uses the object editor.
