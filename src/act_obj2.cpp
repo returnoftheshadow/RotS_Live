@@ -700,14 +700,15 @@ bool beorning_item_restriction(const char_data* character, const obj_data* item)
 
     return true;
 }
-void perform_remove(struct char_data* ch, int pos);
+bool perform_remove(struct char_data* ch, int pos);
 
 /* Puts <item>, which <character> carries, on in <item_slot> with the checks and messages of the
  * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
- * is there is taken off first. Returns false only when the item's ON_WEAR script freed the item or
- * the wearer: the caller must touch neither again, and one that must know which watches the
- * wearer with a freed_watch. Returns true otherwise, whether or not the item was worn; an item
- * the script took out of the wearer's hands is not worn. */
+ * is there is taken off first. Returns false only when the item or the wearer was freed: by the
+ * item's ON_WEAR script, or by what taking the old item off or putting this one on did to the
+ * wearer (equip_char). The caller must then touch neither again, and one that must know which
+ * watches the wearer with a freed_watch. Returns true otherwise, whether or not the item was
+ * worn; an item the script took out of the wearer's hands is not worn. */
 bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
 {
     static int item_slots[] = {
@@ -839,14 +840,20 @@ bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
             send_to_char("Your hands are already full!\n\r", character);
             return true;
         } else {
-            perform_remove(character, item_slot);
+            /* Taking the old item off can kill the wearer, whose corpse then holds this one. */
+            freed_watch item_watch(item);
+            if (!perform_remove(character, item_slot) || item_watch.freed()) {
+                return false;
+            }
+            if (item->carried_by != character) {
+                return true;
+            }
         }
     }
 
     obj_from_char(item);
     wear_message(character, item, item_slot);
-    equip_char(character, item, item_slot);
-    return true;
+    return equip_char(character, item, item_slot);
 }
 
 int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg)
@@ -1084,22 +1091,48 @@ ACMD(do_grab)
     }
 }
 
-void perform_remove(struct char_data* ch, int pos)
+/* Takes the item in <pos> off <ch>, into the inventory or, with <to_floor>, onto the floor, and
+ * gives the messages for it. Returns false when taking it off freed ch (equip_char's poison): the
+ * item then lies where ch was, and ch must not be touched again. */
+static bool take_off_item(char_data* ch, int pos, bool to_floor)
+{
+    const int room = ch->in_room;
+    freed_watch wearer_watch(ch);
+    obj_data* obj = unequip_char(ch, pos);
+    if (wearer_watch.freed()) {
+        obj_to_room(obj, room);
+        return false;
+    }
+
+    if (to_floor) {
+        obj_to_room(obj, room);
+        act("You can't carry that much; $p falls to the ground.", FALSE, ch, obj, 0, TO_CHAR);
+        act("$p falls to the ground.", TRUE, ch, obj, 0, TO_ROOM);
+    } else {
+        obj_to_char(obj, ch);
+        act("You stop using $p.", FALSE, ch, obj, 0, TO_CHAR);
+        act("$n stops using $p.", TRUE, ch, obj, 0, TO_ROOM);
+    }
+    return true;
+}
+
+/* Takes off what <ch> wears in <pos> for the remove command; a belt takes what hangs on it with it.
+ * Returns false when taking something off freed ch, which must then not be touched again. */
+bool perform_remove(struct char_data* ch, int pos)
 {
     struct obj_data* obj;
 
     if (!(obj = ch->equipment[pos])) {
         log("Error in perform_remove: bad pos passed.");
-        return;
+        return true;
     }
 
     if (IS_CARRYING_N(ch) >= CAN_CARRY_N(ch))
         act("$p: you can't carry that many items!", FALSE, ch, obj, 0, TO_CHAR);
     else {
-        obj_to_char(unequip_char(ch, pos), ch);
-
-        act("You stop using $p.", FALSE, ch, obj, 0, TO_CHAR);
-        act("$n stops using $p.", TRUE, ch, obj, 0, TO_ROOM);
+        if (!take_off_item(ch, pos, false)) {
+            return false;
+        }
 
         // If this is a "belt" (waist item) being removed:
         // Check for items on the belt.  If there are any, they are removed as
@@ -1107,51 +1140,13 @@ void perform_remove(struct char_data* ch, int pos)
         // ground.
 
         if (pos == WEAR_WAISTE) {
-            if (ch->equipment[WEAR_BELT_1]) {
-                obj = ch->equipment[WEAR_BELT_1];
-
-                if (IS_CARRYING_N(ch) >= CAN_CARRY_N(ch)) {
-                    obj_to_room(unequip_char(ch, WEAR_BELT_1), ch->in_room);
-
-                    act("You can't carry that much; $p falls to the ground.", FALSE, ch, obj, 0, TO_CHAR);
-                    act("$p falls to the ground.", TRUE, ch, obj, 0, TO_ROOM);
-                } else {
-                    obj_to_char(unequip_char(ch, WEAR_BELT_1), ch);
-
-                    act("You stop using $p.", FALSE, ch, obj, 0, TO_CHAR);
-                    act("$n stops using $p.", TRUE, ch, obj, 0, TO_ROOM);
-                }
-            }
-
-            if (ch->equipment[WEAR_BELT_2]) {
-                obj = ch->equipment[WEAR_BELT_2];
-
-                if (IS_CARRYING_N(ch) >= CAN_CARRY_N(ch)) {
-                    obj_to_room(unequip_char(ch, WEAR_BELT_2), ch->in_room);
-
-                    act("You can't carry that much; $p falls to the ground.", FALSE, ch, obj, 0, TO_CHAR);
-                    act("$p falls to the ground.", TRUE, ch, obj, 0, TO_ROOM);
-                } else {
-                    obj_to_char(unequip_char(ch, WEAR_BELT_2), ch);
-
-                    act("You stop using $p.", FALSE, ch, obj, 0, TO_CHAR);
-                    act("$n stops using $p.", TRUE, ch, obj, 0, TO_ROOM);
-                }
-            }
-
-            if (ch->equipment[WEAR_BELT_3]) {
-                obj = ch->equipment[WEAR_BELT_3];
-
-                if (IS_CARRYING_N(ch) >= CAN_CARRY_N(ch)) {
-                    obj_to_room(unequip_char(ch, WEAR_BELT_3), ch->in_room);
-
-                    act("You can't carry that much; $p falls to the ground.", FALSE, ch, obj, 0, TO_CHAR);
-                    act("$p falls to the ground.", TRUE, ch, obj, 0, TO_ROOM);
-                } else {
-                    obj_to_char(unequip_char(ch, WEAR_BELT_3), ch);
-
-                    act("You stop using $p.", FALSE, ch, obj, 0, TO_CHAR);
-                    act("$n stops using $p.", TRUE, ch, obj, 0, TO_ROOM);
+            static const int BELT_SLOTS[] = { WEAR_BELT_1, WEAR_BELT_2, WEAR_BELT_3 };
+            for (const int belt_slot : BELT_SLOTS) {
+                if (ch->equipment[belt_slot]) {
+                    const bool to_floor = IS_CARRYING_N(ch) >= CAN_CARRY_N(ch);
+                    if (!take_off_item(ch, belt_slot, to_floor)) {
+                        return false;
+                    }
                 }
             }
         }
@@ -1160,6 +1155,7 @@ void perform_remove(struct char_data* ch, int pos)
         //	 if (obj->obj_flags.value[2] && obj->obj_flags.value[3])
         //	    world[ch->in_room].light--;
     }
+    return true;
 }
 
 ACMD(do_remove)
@@ -1180,7 +1176,9 @@ ACMD(do_remove)
         for (i = 0; i < MAX_WEAR; i++)
             if (ch->equipment[i]) {
                 //	   printf("going to perform remove\n");
-                perform_remove(ch, i);
+                if (!perform_remove(ch, i)) {
+                    return;
+                }
                 found = 1;
             }
         if (!found)
@@ -1192,7 +1190,9 @@ ACMD(do_remove)
             found = 0;
             for (i = 0; i < MAX_WEAR; i++)
                 if (ch->equipment[i] && CAN_SEE_OBJ(ch, ch->equipment[i]) && isname(arg, ch->equipment[i]->name, 0)) {
-                    perform_remove(ch, i);
+                    if (!perform_remove(ch, i)) {
+                        return;
+                    }
                     found = 1;
                 }
             if (!found) {
