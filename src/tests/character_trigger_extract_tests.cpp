@@ -1050,9 +1050,12 @@ TEST_F(CharacterTriggerTest, AMobGivenAnotherScriptByAZoneResetRunsTheNewOneAfre
     zone_data zone {};
     zone.cmd = commands;
     zone.cmdno = 2;
+    /* The fixture's zone table goes back before the local zone does. */
+    zone_data* const fixture_zone_table = zone_table;
     zone_table = &zone;
 
     reset_zone(0);
+    zone_table = fixture_zone_table;
 
     EXPECT_EQ(OTHER_SCRIPT_VNUM, mob->specials.script_number);
     EXPECT_EQ(nullptr, mob->specials.script_info) << "the old script's state was let go";
