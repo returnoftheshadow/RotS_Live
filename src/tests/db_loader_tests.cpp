@@ -2666,6 +2666,12 @@ TEST_F(DbLoader, SkinLevelLineWrittenOnlyForSkins)
  * the 6th and 7th numbers become skin_base and skin_own. */
 TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNone)
 {
+    // A second run in one process (--gtest_repeat) would start past the end of the table below.
+    static bool load_objects_has_run = false;
+    if (load_objects_has_run)
+        GTEST_SKIP() << "load_objects fills the prototype table once per process";
+    load_objects_has_run = true;
+
     index_data* const previous_obj_index = obj_index;
     obj_data* const previous_obj_proto = obj_proto;
     const int previous_top_of_objt = top_of_objt;
