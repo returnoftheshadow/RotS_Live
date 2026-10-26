@@ -22,6 +22,13 @@ constexpr int FISH_PULL_IN = 1;
 /* A spell number past the end of the skills table, and one before its start. */
 constexpr int SPELL_PAST_THE_TABLE = MAX_SKILLS + 44;
 constexpr int SPELL_BEFORE_THE_TABLE = -5;
+/* Every spell whose procedure needs someone to work on, and is refused without one. */
+constexpr int SPELLS_NEEDING_SOMEONE[] = { SPELL_MAGIC_MISSILE, SPELL_CHILL_RAY,
+    SPELL_LIGHTNING_BOLT, SPELL_DARK_BOLT, SPELL_FIREBOLT, SPELL_LIGHTNING_STRIKE,
+    SPELL_SEARING_DARKNESS, SPELL_FIREBALL, SPELL_WORD_OF_PAIN, SPELL_LEACH, SPELL_BLACK_ARROW,
+    SPELL_WORD_OF_AGONY, SPELL_SPEAR_OF_DARKNESS, SPELL_CURSE, SPELL_REVIVE, SPELL_INSIGHT,
+    SPELL_PRAGMATISM, SPELL_DEATH_WARD, SPELL_RESIST_FIRE, SPELL_RESIST_COLD, SPELL_RESIST_LIGHT,
+    SPELL_RESIST_ILLUSION, SPELL_RESIST_PHYSICAL, SPELL_RESIST_DARK };
 
 class FishAndUseTest : public ScriptedRoomFixture {
 protected:
@@ -30,6 +37,9 @@ protected:
         ScriptedRoomFixture::SetUp();
         link_second_room();
         m_saved_sector = world[0].sector_type;
+        for (int room = 0; room <= SECOND_ROOM; ++room) {
+            m_saved_room_flags[room] = world[room].room_flags;
+        }
         obj_index[FISH_PROTOTYPE].virt = FISH_VNUM;
         m_player.tmpabilities.move = 100;
     }
@@ -37,6 +47,9 @@ protected:
     void TearDown() override
     {
         world[0].sector_type = m_saved_sector;
+        for (int room = 0; room <= SECOND_ROOM; ++room) {
+            world[room].room_flags = m_saved_room_flags[room];
+        }
         while (m_player.affected) {
             affect_remove(&m_player, m_player.affected);
         }
@@ -65,6 +78,14 @@ protected:
         return stick;
     }
 
+    /* Empties what the player has been sent. */
+    void clear_output()
+    {
+        m_descriptor.small_outbuf[0] = '\0';
+        m_descriptor.bufptr = 0;
+        m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    }
+
     /* How many objects are in the game. */
     static int count_objects()
     {
@@ -79,8 +100,10 @@ protected:
     static int fish_in_the_world() { return obj_index[FISH_PROTOTYPE].number; }
 
 private:
-    // What SetUp found as room 0's terrain, put back by TearDown.
+    // What SetUp found as room 0's terrain and rooms 0 and SECOND_ROOM's flags, put back by
+    // TearDown.
     int m_saved_sector = 0;
+    long m_saved_room_flags[SECOND_ROOM + 1] {};
     // The pole's keywords; do_fish looks for "fishing".
     char m_pole_keywords[24] = "pole fishing";
 };
@@ -188,4 +211,49 @@ TEST_F(FishAndUseTest, AWandOfAResistSpellPointedAtSomeoneMakesThemResistant)
 
     EXPECT_TRUE(output_has("You feel resistant to fire!")) << output();
     EXPECT_NE(nullptr, affected_by_spell(&m_player, SPELL_RESIST_FIRE));
+}
+
+TEST_F(FishAndUseTest, AStaffOfASpellThatNeedsSomeoneHasNobodyToWorkOn)
+{
+    for (const int spell_number : SPELLS_NEEDING_SOMEONE) {
+        clear_output();
+        hold_stick(ITEM_STAFF, spell_number);
+
+        run_command(do_use, "ring");
+
+        EXPECT_TRUE(output_has("Nothing seems to happen.")) << "spell " << spell_number << ": "
+                                                            << output();
+        extract_obj(unequip_char(&m_player, HOLD));
+    }
+}
+
+TEST_F(FishAndUseTest, AWandOfASpellThatNeedsSomeonePointedAtAnObjectHasNobodyToWorkOn)
+{
+    obj_to_room(make_object(STONE_VNUM, 0), 0);
+    for (const int spell_number : SPELLS_NEEDING_SOMEONE) {
+        clear_output();
+        hold_stick(ITEM_WAND, spell_number);
+
+        run_command(do_use, "ring stone");
+
+        EXPECT_TRUE(output_has("Nothing seems to happen.")) << "spell " << spell_number << ": "
+                                                            << output();
+        extract_obj(unequip_char(&m_player, HOLD));
+    }
+}
+
+/* The world's one wand (object 9062) is of blink: pointed at an object, it blinks its user, as
+ * blink does with nobody named. Nowhere here can be blinked to, so the blink fails. */
+TEST_F(FishAndUseTest, AWandOfBlinkPointedAtAnObjectBlinksItsUser)
+{
+    for (int room = 0; room <= SECOND_ROOM; ++room) {
+        SET_BIT(world[room].room_flags, NO_TELEPORT);
+    }
+    hold_stick(ITEM_WAND, SPELL_BLINK);
+    obj_to_room(make_object(STONE_VNUM, 0), 0);
+
+    run_command(do_use, "ring stone");
+
+    EXPECT_TRUE(output_has("The world spins around, but nothing happens.")) << output();
+    EXPECT_FALSE(output_has("Nothing seems to happen.")) << output();
 }

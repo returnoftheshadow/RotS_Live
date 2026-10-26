@@ -120,6 +120,9 @@ combat_result_struct damage_stat(char_data* killer, char_data* caster, int stat_
 
 ASPELL(spell_curse)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_CURSE)) {
+        return;
+    }
     const int DAMAGE_TABLE_SIZE = 7;
     const int NUM_STATS = 6;
 
@@ -219,6 +222,9 @@ int restore_stat(char_data* caster, int stat_num, int amount);
 
 ASPELL(spell_revive)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_REVIVE)) {
+        return;
+    }
     int i, i2, num, count, actual_count, stat_dam, stat_dam2;
     int revive_table[7];
 
@@ -333,6 +339,9 @@ ASPELL(spell_mind_block)
 
 ASPELL(spell_insight)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_INSIGHT)) {
+        return;
+    }
     affected_type af{};
     affected_type* afptr;
     int my_duration;
@@ -386,6 +395,9 @@ ASPELL(spell_insight)
 
 ASPELL(spell_pragmatism)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_PRAGMATISM)) {
+        return;
+    }
     affected_type af{};
     affected_type* afptr;
     int my_duration;
@@ -1430,6 +1442,9 @@ ASPELL(spell_enchant_weapon)
 
 ASPELL(spell_death_ward)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_DEATH_WARD)) {
+        return;
+    }
     affected_type af{};
 
     if ((type == SPELL_TYPE_ANTI) || is_object) {
@@ -1826,14 +1841,7 @@ static void install_resist_affect(char_data* victim, int resist_type, int modifi
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str)
 {
-    /* A staff of it, or a wand of it pointed at an object, has nobody to make resistant; only a
-     * builder's item can be one. */
-    if (!victim) {
-        vmudlog(NRM, "SYSERR: %s: resist spell %d used with no character (a staff or wand).",
-            __func__, resist_type);
-        if (caster) {
-            send_to_char("Nothing seems to happen.\n\r", caster);
-        }
+    if (spell_lacks_victim(caster, victim, resist_type)) {
         return;
     }
 

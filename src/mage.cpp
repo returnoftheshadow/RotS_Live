@@ -1336,6 +1336,9 @@ int get_save_bonus(const char_data& caster, const char_data& victim, game_types:
 
 ASPELL(spell_magic_missile)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_MAGIC_MISSILE)) {
+        return;
+    }
     int mag_power = get_magic_power(caster);
     int dam = 12 + number(1, mag_power / 6);
 
@@ -1372,6 +1375,9 @@ void apply_chilled_effect(const char_data* caster, char_data* victim)
  */
 ASPELL(spell_chill_ray)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_CHILL_RAY)) {
+        return;
+    }
     int mag_power = get_magic_power(caster);
     int dam = 20 + number(1, mag_power) / 2;
 
@@ -1417,6 +1423,9 @@ ASPELL(spell_chill_ray)
 
 ASPELL(spell_lightning_bolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LIGHTNING_BOLT)) {
+        return;
+    }
     int dam = 25 + number(0, get_magic_power(caster)) / 2;
 
     if (OUTSIDE(caster) || (utils::get_specialization(*caster) == game_types::PS_Lightning)) {
@@ -1451,6 +1460,9 @@ ASPELL(spell_lightning_bolt)
 
 ASPELL(spell_dark_bolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_DARK_BOLT)) {
+        return;
+    }
     int dam = 25 + number(0, get_magic_power(caster)) / 2;
     if (!SUN_PENALTY(caster)) {
         dam += 4 + number(0, get_magic_power(caster)) / 4;
@@ -1483,6 +1495,9 @@ ASPELL(spell_dark_bolt)
 
 ASPELL(spell_firebolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_FIREBOLT)) {
+        return;
+    }
     int dam = number(1, 65) + number(1, get_magic_power(caster)) / 4 + number(1, get_magic_power(caster)) / 4 + number(1, get_magic_power(caster)) / 8 + number(1, get_magic_power(caster)) / 8 + number(1, get_magic_power(caster)) / 16 + number(1, get_magic_power(caster)) / 16;
 
     // Fire spec mages get a minimum damage value on firebolt.
@@ -1743,6 +1758,9 @@ ASPELL(spell_earthquake)
 
 ASPELL(spell_lightning_strike)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LIGHTNING_STRIKE)) {
+        return;
+    }
     int dam = 40 + number(0, get_magic_power(caster)) + number(0, get_magic_power(caster)) / 2;
 
     if (!OUTSIDE(caster)) {
@@ -1781,6 +1799,9 @@ ASPELL(spell_lightning_strike)
 
 ASPELL(spell_searing_darkness)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_SEARING_DARKNESS)) {
+        return;
+    }
     game_types::player_specs caster_spec = utils::get_specialization(*caster);
 
     int darkness_damage = 15 + number(0, get_magic_power(caster)) / 2;
@@ -1847,6 +1868,10 @@ ASPELL(spell_fireball)
         send_to_char("You fail to control the fire you invoke!\n\r", caster);
         victim = caster;
         fireball_damage = fireball_damage / 3;
+    }
+    /* A fireball that slips out of an orc's control burns the caster even from a staff. */
+    if (spell_lacks_victim(caster, victim, SPELL_FIREBALL)) {
+        return;
     }
 
     bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
@@ -1930,6 +1955,9 @@ ASPELL(spell_fireball)
  */
 ASPELL(spell_word_of_pain)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_WORD_OF_PAIN)) {
+        return;
+    }
     int dam = 12 + number(1, get_magic_power(caster) / 6);
 
     bool saved = new_saves_spell(caster, victim, 0);
@@ -1950,6 +1978,9 @@ ASPELL(spell_word_of_pain)
  */
 ASPELL(spell_leach)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LEACH)) {
+        return;
+    }
     int mag_power = get_magic_power(caster);
     int dam = 18 + number(1, mag_power / 4);
 
@@ -2063,6 +2094,9 @@ ASPELL(spell_word_of_shock)
  */
 ASPELL(spell_black_arrow)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_BLACK_ARROW)) {
+        return;
+    }
     int dam = 13 + number(1, get_magic_power(caster)) / 2 + number(1, get_magic_power(caster)) / 2;
 
     if (!SUN_PENALTY(caster) || utils::get_specialization(*caster) == game_types::PS_Darkness) {
@@ -2111,6 +2145,9 @@ ASPELL(spell_black_arrow)
  */
 ASPELL(spell_word_of_agony)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_WORD_OF_AGONY)) {
+        return;
+    }
     int dam = 20 + number(1, get_magic_power(caster)) / 2 + number(1, get_magic_power(caster)) / 2;
 
     bool saved = new_saves_spell(caster, victim, -2);
@@ -2167,6 +2204,9 @@ ASPELL(spell_shout_of_pain)
  */
 ASPELL(spell_spear_of_darkness)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_SPEAR_OF_DARKNESS)) {
+        return;
+    }
     int dam = 0;
     if (SUN_PENALTY(caster)) {
         send_to_char("Your spell is weakened by the intensity of light.\n\r", caster);
