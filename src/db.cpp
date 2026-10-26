@@ -2412,6 +2412,10 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
             log_slot_out_of_range(name, line, tmp1, MAX_AFFECT);              \
             break;                                                            \
         }                                                                     \
+        if (tmp2 < 0 || tmp2 >= MAX_SKILLS) {                                 \
+            log_affect_type_out_of_range(name, tmp1, tmp2);                   \
+            break;                                                            \
+        }                                                                     \
         char_element->affected[tmp1].type = tmp2;                             \
         char_element->affected[tmp1].duration = tmp3;                         \
         char_element->affected[tmp1].modifier = tmp4;                         \
@@ -2503,6 +2507,16 @@ void log_slot_out_of_range(const char* player_name, const char* key, int slot, i
     snprintf(buf, sizeof(buf),
         "SYSERR: load_player_from_text: %s's '%s' line names slot %d, outside 0-%d; line skipped.",
         player_name, key, slot, slot_count - 1);
+    log(buf);
+}
+
+/* Logs a player file affect whose <type> is outside the skill table every affect reader
+ * indexes; the affect is not loaded. */
+void log_affect_type_out_of_range(const char* player_name, int slot, int type)
+{
+    snprintf(buf, sizeof(buf),
+        "SYSERR: load_player_from_text: %s's affect in slot %d has type %d, outside 0-%d; skipped.",
+        player_name, slot, type, MAX_SKILLS - 1);
     log(buf);
 }
 

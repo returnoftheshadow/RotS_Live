@@ -1,3 +1,4 @@
+#include "../character_json.h"
 #include "../comm.h"
 #include "../db.h"
 #include "../handler.h"
@@ -1158,6 +1159,56 @@ TEST_F(EditorFileNameTest, ObjectAddRefusesAFileNameTooLongToStore)
 
     EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
     EXPECT_STREQ(m_object_editor.f_from, "");
+}
+
+/* ---------------------------------------------------------------- affect types at load */
+
+TEST(LegacyPlayerLoader, SkipsAndLogsAnAffectTypeOutsideTheSkillTable)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto expected = std::make_unique<char_file_u>();
+    auto loaded = std::make_unique<char_file_u>();
+    ASSERT_EQ(load_text(player_text_with(""), expected.get()), 1);
+
+    testing::internal::CaptureStderr();
+    const int result = load_text(player_text_with("affect      2 " + std::to_string(MAX_SKILLS) + " 10 1 2 0\n"
+                                     + "affect      3 -4 10 1 2 0\n"),
+        loaded.get());
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 1);
+    EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
+    EXPECT_NE(log_text.find("has type " + std::to_string(MAX_SKILLS)), std::string::npos) << log_text;
+    EXPECT_NE(log_text.find("has type -4"), std::string::npos) << log_text;
+}
+
+TEST(CharacterJsonLoader, SkipsAndLogsAnAffectTypeOutsideTheSkillTable)
+{
+    auto source = std::make_unique<char_file_u>();
+    std::snprintf(source->name, sizeof(source->name), "%s", "aragorn");
+    source->affected[0].type = 5;
+    source->affected[0].duration = 10;
+    source->affected[1].type = MAX_SKILLS + 10;
+    source->affected[1].duration = 10;
+    source->affected[1].bitvector = AFF_POISON;
+    source->affected[2].type = -4;
+    source->affected[2].duration = 10;
+    const character_json::CharacterData character = character_json::character_data_from_store(*source);
+    auto stored = std::make_unique<char_file_u>();
+    std::string error_message;
+
+    testing::internal::CaptureStderr();
+    const bool applied = character_json::apply_character_data_to_store(character, stored.get(), &error_message);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    ASSERT_TRUE(applied) << error_message;
+    EXPECT_EQ(stored->affected[0].type, 5);
+    EXPECT_EQ(stored->affected[0].duration, 10);
+    EXPECT_EQ(stored->affected[1].type, 0);
+    EXPECT_EQ(stored->affected[1].bitvector, 0);
+    EXPECT_EQ(stored->affected[2].type, 0);
+    EXPECT_NE(log_text.find("has type " + std::to_string(MAX_SKILLS + 10)), std::string::npos) << log_text;
+    EXPECT_NE(log_text.find("has type -4"), std::string::npos) << log_text;
 }
 
 } // namespace
