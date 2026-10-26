@@ -234,6 +234,19 @@ TEST_F(ExposeElementsTest, TheSweepLiftsAMarkWhenTheTargetLeavesTheRoom)
     EXPECT_EQ(output(), LOST_MARK_MESSAGE);
 }
 
+TEST_F(ExposeElementsTest, TheSweepPassesOverAMageInNoRoom)
+{
+    utils::set_specialization(*m_mage, game_types::PS_Cold);
+    expose(m_target);
+    clear_output();
+    leave_room(m_mage); // a player gone to the menu
+
+    clean_expose_elements();
+
+    EXPECT_EQ(mage_spec()->exposed_target, m_target);
+    EXPECT_EQ(output(), "");
+}
+
 TEST_F(ExposeElementsTest, FreeingTheTargetClearsTheMarkAtOnce)
 {
     utils::set_specialization(*m_mage, game_types::PS_Fire);

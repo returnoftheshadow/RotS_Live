@@ -542,6 +542,8 @@ void clean_expose_elements()
             elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
             if (spec_data == NULL) {
                 log("SYSERR: clean_expose_elements: a mage specialisation has no expose-elements data");
+            } else if (mage->in_room == NOWHERE) {
+                // A mage in no room (a player at the menu) keeps the mark until back in the world.
             } else if (spec_data->exposed_target || spec_data->exposed_target_freed) {
                 // The mage has cast 'expose elements' on a target.  If that target is no longer
                 // in the room, remove this.  A freed target is in no room: its mark is already
