@@ -136,9 +136,12 @@ void mobile_activity(void)
     for (ch = character_list; ch; ch = next_ch) {
         /* A turn can remove the character taking it (its script, a death).
          * Its own next pointer is then gone, so the one saved before the
-         * turn is used; while it lives, its current one is, as always. */
+         * turn is used; while it lives, its current one is, as always.
+         * A turn that removed that one too leaves nobody known to go on
+         * from: the rest wait for the next pass. */
         next_ch = ch->next;
         int abs_number = ch->abs_number;
+        freed_watch next_watch(next_ch);
         if (!number(0, 3)) {
             if (IS_NPC(ch))
                 one_mobile_activity(ch);
@@ -149,10 +152,26 @@ void mobile_activity(void)
                     tmpfunc(ch, ch, 0, "", SPECIAL_SELF, 0);
             }
         }
-        if (char_exists(abs_number))
+        if (char_exists(abs_number)) {
             next_ch = ch->next;
+        } else if (next_watch.freed()) {
+            break;
+        }
     }
     walker_remove_finished();
+}
+
+/* True if <entry> is on <leader>'s follower list and still stands for <follower>. <entry> and
+ * <follower> are compared by address until <entry> is found there, so either may have gone. */
+static bool is_follower_entry(const char_data* leader, const follow_type* entry,
+    const char_data* follower)
+{
+    for (const follow_type* listed = leader->followers; listed; listed = listed->next) {
+        if (listed == entry) {
+            return listed->follower == follower;
+        }
+    }
+    return false;
 }
 
 /* True if <item> is on the content list that starts at <first_listed>. */
@@ -215,6 +234,10 @@ void one_mobile_activity(char_data* ch)
     }
 
     if (IS_MOB(ch) && ch->delay.wait_value <= 1 && !is_passive) {
+        /* Its own procedure, and each fight, rescue, assist or flee below, can remove the mob (a
+         * riposte, a script, a death room where it fled); its turn ends there. */
+        freed_watch mob_watch(ch);
+
         /* Tamed mobs can stay in non-default positions... */
         if (!IS_AFFECTED(ch, AFF_CHARM)) {
             enforce_position(ch, ch->specials.default_pos);
@@ -246,6 +269,9 @@ void one_mobile_activity(char_data* ch)
                 }
             }
         }
+        if (mob_watch.freed()) {
+            return;
+        }
 
         // STOP here if mob is now busy (I believe this occurs when methods above return FALSE when they should be TRUE )
         // BECAUSE: other things are checking subcmd and delay time BUT subcmd gets set to 0 ABOVE!??
@@ -264,10 +290,6 @@ void one_mobile_activity(char_data* ch)
         if (!char_exists(helper_number))
             return; /* a script on its line removed it */
 
-        /* Each fight, rescue, assist or flee below can remove the mob (a riposte, a script, a
-         * death room where it fled); its turn ends there. */
-        freed_watch mob_watch(ch);
-
         /* bodyguard - follower */
         if (AWAKE(ch) && IS_SET(ch->specials2.act, MOB_BODYGUARD) && ch->master && (ch->master->in_room == ch->in_room)) {
 
@@ -275,6 +297,8 @@ void one_mobile_activity(char_data* ch)
                 do_stand(ch, "", 0, 0, 0);
 
             tmp_ch = (ch->master)->specials.fighting;
+            /* The rescue can remove the master's foe (the rest of the master's paused script). */
+            freed_watch foe_watch(tmp_ch);
 
             if (tmp_ch && (tmp_ch->specials.fighting == ch->master)) {
                 sscanf(ch->master->player.name, "%s", buf);
@@ -287,6 +311,9 @@ void one_mobile_activity(char_data* ch)
                 if (mob_watch.freed()) {
                     return;
                 }
+            }
+            if (foe_watch.freed()) {
+                tmp_ch = nullptr;
             }
             if (tmp_ch && !(ch->specials.fighting)) {
                 sscanf(tmp_ch->player.name, "%s", buf);
@@ -314,13 +341,16 @@ void one_mobile_activity(char_data* ch)
                     wtl.targ1.ptr.ch = tmpfol->follower;
                     wtl.targ1.ch_num = tmpfol->follower->abs_number;
                     wtl.cmd = CMD_RESCUE;
-                    freed_watch rescued_watch(tmpfol->follower);
+                    char_data* rescued = tmpfol->follower;
+                    freed_watch rescued_watch(rescued);
                     do_rescue(ch, buf, &wtl, 0, 0);
                     if (mob_watch.freed()) {
                         return;
                     }
-                    /* A follower the rescue removed took its place in the list with it. */
-                    if (rescued_watch.freed()) {
+                    /* The rescue can end the rescued one's following (removing it, or a script
+                     * making it follow another), which takes its place in the list with it: the
+                     * rescues end there. */
+                    if (rescued_watch.freed() || !is_follower_entry(ch, tmpfol, rescued)) {
                         break;
                     }
                 }
