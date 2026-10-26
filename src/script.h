@@ -165,7 +165,34 @@ inline constexpr int SCRIPT_PARAM_OB2_VNUM = 502;
 inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
+/* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
+ * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
+ * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
+ * call_object_trigger instead: given one of those, call_trigger runs nothing, logs an error and
+ * returns 1. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
+
+/* How an object's own trigger script ended, for the command that fired it. */
+enum class object_trigger_result {
+    proceed, /* there is no such script, or it ended without RETURN_FALSE */
+    refused, /* it ended with RETURN_FALSE; the command decides what that stops */
+    object_extracted, /* the object was freed while the script ran, whatever the script returned */
+};
+
+/* Runs <object>'s own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL or ON_WEAR script, with the
+ * object as ob1 and <ch> (which may be null) as ch1.
+ *
+ * After object_extracted the caller must not read, write or free the object again: it is gone,
+ * whether the script extracted it itself or something the script set off did (a container
+ * extracted with it, another script). A null <object> is logged and returns object_extracted,
+ * as there is nothing to touch; any other trigger_type runs nothing, is logged and returns
+ * proceed. */
+[[nodiscard]] object_trigger_result call_object_trigger(int trigger_type, obj_data* object,
+    char_data* ch);
+
+/* Tells the object trigger scripts that are running that <object> is being freed, so that each
+ * whose object it is reports object_extracted. free_obj calls it for every object it frees. */
+void note_object_freed(const obj_data* object);
 void continue_char_script(char_data* ch);
 
 /* Report script lines whose vnums name nothing -- informational only. */

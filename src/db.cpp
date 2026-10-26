@@ -23,6 +23,7 @@
 #include "mudlle.h"
 #include "pkill.h"
 #include "protos.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -3749,6 +3750,8 @@ void free_obj(struct obj_data* obj)
 {
     int nr;
     struct extra_descr_data *thith, *next_one;
+
+    note_object_freed(obj);
 
     if ((nr = obj->item_number) == -1) {
         RELEASE(obj->name);

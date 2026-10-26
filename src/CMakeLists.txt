@@ -224,6 +224,7 @@ set(ROTS_TEST_SOURCES
     tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
+    tests/object_trigger_extract_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp

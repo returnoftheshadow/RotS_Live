@@ -2679,7 +2679,13 @@ void hit(char_data* ch, char_data* victim, int type)
                 damage(ch, victim, dam, w_type, location);
 
                 if (dam > 0) {
-                    check_grip(ch, wielded);
+                    /* The weapon's ON_DAMAGE script may have extracted it during damage(), which
+                     * frees it, so wielded may dangle: look the weapon up again, as above. */
+                    obj_data* weapon_after_damage = ch->equipment[WIELD];
+                    if (weapon_after_damage
+                        && weapon_after_damage->obj_flags.type_flag == ITEM_WEAPON) {
+                        check_grip(ch, weapon_after_damage);
+                    }
                 }
 
                 /* so we won't check engagement for hit people */

@@ -204,7 +204,12 @@ ACMD(do_drink)
         affect_join(ch, &af, FALSE, FALSE);
     }
 
-    call_trigger(ON_DRINK, temp, ch, 0);
+    /* What the script returns does not matter to drinking, but a script that extracted the
+     * container has freed it: the drink above is all there is. */
+    const object_trigger_result drink_result = call_object_trigger(ON_DRINK, temp, ch);
+    if (drink_result == object_trigger_result::object_extracted) {
+        return;
+    }
 
     /* empty the container, and no longer poison. */
     if (temp != &generic_water && temp != &generic_poison)
@@ -279,7 +284,12 @@ ACMD(do_eat)
         affect_join(ch, &af, FALSE, FALSE);
     }
 
-    call_trigger(ON_EAT, food, ch, 0);
+    /* What the script returns does not matter to eating, but a script that extracted the food
+     * has freed it, so it is not used up a second time. */
+    const object_trigger_result eat_result = call_object_trigger(ON_EAT, food, ch);
+    if (eat_result == object_trigger_result::object_extracted) {
+        return;
+    }
 
     if (subcmd == SCMD_EAT)
         extract_obj(food);
@@ -692,7 +702,12 @@ bool beorning_item_restriction(const char_data* character, const obj_data* item)
 }
 void perform_remove(struct char_data* ch, int pos);
 
-void perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
+/* Puts <item>, which <character> carries, on in <item_slot> with the checks and messages of the
+ * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
+ * is there is taken off first. Returns false only when the item's ON_WEAR script extracted it:
+ * the item is freed, so the caller must not touch it again. Returns true otherwise, whether or
+ * not the item was worn. */
+bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
 {
     static int item_slots[] = {
         ITEM_TAKE, ITEM_WEAR_FINGER, ITEM_WEAR_FINGER, ITEM_WEAR_NECK,
@@ -756,34 +771,39 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     /*---------- Beorning item restriction here ----------*/
     if (GET_RACE(character) == RACE_BEORNING) {
         if (!beorning_item_restriction(character, item)) {
-            return;
+            return true;
         }
     }
 
     if (ologhai_item_restriction(character, item)) {
-        return;
+        return true;
     }
 
     /* see if this is shield, and weapon is in two hands */
     if ((GET_ITEM_TYPE(item) == ITEM_SHIELD) && IS_TWOHANDED(character) && character->equipment[WIELD]) {
         send_to_char("You cannot wear a shield while wielding a weapon in two hands\n\r", character);
-        return;
+        return true;
     }
 
     /* first, make sure that the wear position is valid. */
     if (!CAN_WEAR(item, item_slots[item_slot])) {
         act("You can't wear $p there.", FALSE, character, item, 0, TO_CHAR);
-        return;
+        return true;
     }
 
     /* if this is a belt item, make sure the person is wearing a belt */
     if ((item_slot == WEAR_BELT_1) && (!character->equipment[WEAR_WAISTE])) {
         send_to_char("You are not wearing a belt to put that on.\n\r", character);
-        return;
+        return true;
     }
 
-    if (!call_trigger(ON_WEAR, item, character, 0))
-        return;
+    const object_trigger_result wear_result = call_object_trigger(ON_WEAR, item, character);
+    if (wear_result == object_trigger_result::object_extracted) {
+        return false;
+    }
+    if (wear_result == object_trigger_result::refused) {
+        return true;
+    }
 
     /* for neck, finger, and wrist, try pos 2 if pos 1 is already full */
     if ((item_slot == WEAR_FINGER_R) || (item_slot == WEAR_NECK_1) || (item_slot == WEAR_WRIST_R))
@@ -805,11 +825,11 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
             } else {
                 send_to_char(already_wearing_messages[item_slot], character);
             }
-            return;
+            return true;
         }
         if (IS_CARRYING_N(character) >= CAN_CARRY_N(character)) {
             send_to_char("Your hands are already full!\n\r", character);
-            return;
+            return true;
         } else {
             perform_remove(character, item_slot);
         }
@@ -818,6 +838,7 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     obj_from_char(item);
     wear_message(character, item, item_slot);
     equip_char(character, item, item_slot);
+    return true;
 }
 
 int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg)
@@ -997,8 +1018,8 @@ ACMD(do_wield)
             }
         } else {
             REMOVE_BIT(ch->specials.affected_by, AFF_TWOHANDED);
-            perform_wear(ch, obj, WIELD);
-            if (obj->obj_flags.value[2] > 4 && !ch->equipment[WEAR_SHIELD]) {
+            const bool weapon_still_exists = perform_wear(ch, obj, WIELD);
+            if (weapon_still_exists && obj->obj_flags.value[2] > 4 && !ch->equipment[WEAR_SHIELD]) {
                 do_twohand(ch, 0, 0, 0, SCMD_TWOHANDED);
             }
         }
