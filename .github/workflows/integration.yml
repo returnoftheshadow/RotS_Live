@@ -83,6 +83,26 @@ jobs:
           python3 -m rots_harness.ci_groups --event "$EVENT_NAME" --changed-files "$changed_files" \
             --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" --full-suite-shards "$INTEGRATION_SHARDS"
 
+      - name: List the selected scenarios
+        # Only a sharded run needs the list: the coverage job checks every shard's results against
+        # it. The summary also says how many selected tests have no committed shard time.
+        if: steps.select.outputs.shards != '[1]'
+        env:
+          GROUP: ${{ steps.select.outputs.group }}
+        run: |
+          cd tests/integration
+          "$RUNNER_TEMP/harness-venv/bin/python" -m rots_harness.shard_coverage selection \
+            --python "$RUNNER_TEMP/harness-venv/bin/python" --group "$GROUP" \
+            --output "$RUNNER_TEMP/selection.json" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the selected scenarios
+        if: steps.select.outputs.shards != '[1]'
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-selection
+          path: ${{ runner.temp }}/selection.json
+          if-no-files-found: error
+
   scenarios:
     needs: select
     name: >-
@@ -148,3 +168,39 @@ jobs:
           name: integration-runs-shard-${{ matrix.shard }}
           path: build/integration/runs/
           if-no-files-found: ignore
+
+  coverage:
+    # Fails the run when a shard's results are missing, or a selected scenario ran no times or more
+    # than once across the shards. Runs after failed shards too, but not after a cancelled run.
+    needs: [select, scenarios]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[1]' }}
+    name: Check every selected scenario ran once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the selected scenarios
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-selection
+          path: ${{ runner.temp }}/selection
+
+      - name: Download every shard's results
+        # One folder per artifact, named after it; a shard that uploaded nothing has no folder.
+        uses: actions/download-artifact@v4
+        with:
+          pattern: integration-results-shard-*
+          path: ${{ runner.temp }}/results
+
+      - name: Check every selected scenario ran exactly once
+        env:
+          SHARDS: ${{ needs.select.outputs.shards }}
+        run: |
+          cd tests/integration
+          python3 -m rots_harness.shard_coverage check --selection "$RUNNER_TEMP/selection/selection.json" \
+            --results "$RUNNER_TEMP/results" --shards "$SHARDS" --summary "$GITHUB_STEP_SUMMARY"

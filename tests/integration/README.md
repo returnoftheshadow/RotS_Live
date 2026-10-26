@@ -215,12 +215,19 @@ Tokens inside an HTML comment (`<!-- -->`) are ignored. Editing the description 
 and the "Choose the integration groups" job's summary lists the groups that run and why. A run of
 every group is split across `INTEGRATION_SHARDS` parallel jobs, `shard 1/N` to `shard N/N`, through
 `ROTS_IT_SHARD`; a run of chosen groups is one job. Every job runs its scenarios on
-`INTEGRATION_JOBS_PER_SHARD` pytest-xdist workers (`JOBS`). Both values are set once, at the top
-of `.github/workflows/integration.yml`. A GitHub-hosted runner has 4 CPUs, and every job takes one
+`INTEGRATION_JOBS_PER_SHARD` pytest-xdist workers (`JOBS`), the one job of a run of chosen groups
+included. Both values are set once, at the top of `.github/workflows/integration.yml`. A GitHub-hosted runner has 4 CPUs, and every job takes one
 runner from the account's shared limit on concurrent jobs. Each job uploads its
 `build/integration/results.xml`, with every test's result and time, as its
 `integration-results-shard-<k>` artifact, pass or fail. When a scenario fails, its kept run
 directories are uploaded as that job's `integration-runs-shard-<k>` artifact.
+
+A sharded run also checks its own coverage. The select job lists the selected scenarios
+(`rots_harness/shard_coverage.py`), uploads the list as the `integration-selection` artifact,
+and says in its summary how many of them have no time in `shard_durations.json`. After the
+shards finish, pass or fail, the "Check every selected scenario ran once" job compares every
+shard's `results.xml` with that list. It fails when a shard uploaded no results, or when a
+selected scenario ran no times or more than once, or a scenario ran that was not selected.
 
 The shards are balanced by each test's time in `tests/integration/shard_durations.json`, so
 every shard takes about as long; a test the file lacks counts 15 seconds. Each test still runs in
