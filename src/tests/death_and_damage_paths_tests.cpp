@@ -22,6 +22,7 @@ void assign_command_pointers(void);
 void complete_delay(struct char_data* ch);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 void fast_update();
+SPECIAL(ghoul);
 void affect_update_room(struct room_data* room);
 
 namespace olog_hai {
@@ -444,4 +445,53 @@ TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
     do_cleave(olog, empty_argument(), nullptr, 0, 0);
 
     EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
+}
+
+/* ---- a ghoul sinking back into the ground ---- */
+
+/* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
+ * second time, and its body is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_to_char(make_object(RING_VNUM, 0), risen);
+    obj_to_char(make_object(SWORD_VNUM, 0), risen);
+    run_command_as(risen, do_wear, "ring");
+    run_command_as(risen, do_wield, "sword");
+    ASSERT_NE(nullptr, risen->equipment[WEAR_FINGER_R]);
+    ASSERT_NE(nullptr, risen->equipment[WIELD]);
+    risen->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_TRUE(is_in_game(summoner));
+    EXPECT_EQ(nullptr, summoner->followers);
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+/* A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is
+ * destroyed and nothing is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGround)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, risen);
+    run_command_as(risen, do_wear, "ring");
+    ASSERT_EQ(ring, risen->equipment[WEAR_FINGER_R]);
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(0, count_corpses_in_room());
 }
