@@ -29,6 +29,7 @@ void badcrash(int);
 void unrestrict_game(int);
 void reread_wizlists(int);
 void Emergency_save(void);
+void Crash_save_all(void);
 void bank_vaults_write_behind(); /* mob_progs/banker.cpp */
 
 int graceful_tried = 0;
@@ -119,10 +120,11 @@ public:
     void stop(int signal_number) override
     {
         log("Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...");
-        // No save here: the autosave writes every connected player every autosave_time seconds,
-        // so a stop leaves the same files whether or not the game loop is still running.
+        // The autosave's snapshot: every playing character and their gear at one moment, so a
+        // file written by save, rent or a level since the last autosave is not left out of step.
         // Connections are not closed one by one: closing a playing connection saves the character
-        // but not their gear; exit closes the connections without saving either.
+        // again without their gear; exit closes the connections without saving.
+        Crash_save_all();
         bank_vaults_write_behind(); /* a service stop skips game_loop's shutdown saving */
         close(mother_desc);
         exit(0);
