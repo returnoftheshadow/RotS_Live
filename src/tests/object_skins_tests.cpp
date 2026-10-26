@@ -406,7 +406,8 @@ TEST_F(ObjectSkins, RestyleTakesAllTextOfTarget)
 {
     static char name[2][16] = { "sword long", "blade" }, desc[2][16] = { "lies", "rests" },
                 act[2][16] = { "act a", "act b" };
-    extra_descr_data ex[2] {};
+    /* Static like the texts: the sword still holds one when TearDown frees it. */
+    static extra_descr_data ex[2] {};
     for (int i = 0; i < 2; i++) {
         obj_data& p = m_proto[i == 0 ? 0 : 2];
         p.name = name[i];
