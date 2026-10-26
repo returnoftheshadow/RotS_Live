@@ -40,6 +40,7 @@
 #include "exploits_json.h"
 #include "mob_options.h"
 #include "object_skins.h"
+#include "retired_prototype_text.h"
 #include "mob_walker.h"
 #include "game_boot_options.h"
 #include "mob_progs/banker.h"
@@ -1208,11 +1209,25 @@ bool delete_player_character_by_index(int index)
     return true;
 }
 
+/* Frees the player index and the name create_entry gave each entry, leaving it empty. */
+static void release_player_table()
+{
+    if (player_table) {
+        for (int index = 0; index <= top_of_p_table; ++index) {
+            RELEASE(player_table[index].name);
+        }
+        RELEASE(player_table);
+    }
+    top_of_p_table = -1;
+}
+
 void build_player_index(void)
 {
     int nr, tt;
 
-    top_of_p_file = top_of_p_table = -1;
+    /* The walks below index every player file from scratch, so the current index is freed. */
+    release_player_table();
+    top_of_p_file = -1;
     top_idnum = 1;
 
     build_directory("players/A-E/");
@@ -3843,6 +3858,7 @@ void free_obj(struct obj_data* obj)
             }
     } else {
         obj->release_owned_text();
+        release_retired_text_left_by(*obj);
     }
 
     RELEASE(obj);

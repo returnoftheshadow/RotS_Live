@@ -11,6 +11,7 @@
 #include "../object_skins.h"
 #include "../objects_json.h"
 #include "../protos.h" /* shape_object, for the object editor's version field */
+#include "../retired_prototype_text.h"
 #include "../script.h" /* check_script_vnums, for the RESTYLE_OBJ target check */
 #include "../spells.h" /* SPELL_RESIST_* for the affect-persistence tests */
 #include "../utils.h"
@@ -3187,6 +3188,61 @@ TEST_F(DbLoader, ImplementLeavesNoObjectHoldingTheReplacedText)
         EXPECT_NE(static_cast<const void*>(object->short_description), static_cast<const void*>(old_short_description));
         EXPECT_NE(static_cast<const void*>(object->ex_description), static_cast<const void*>(old_extra_descriptions));
     }
+}
+
+/* Text a prototype replaced while copies showed it is kept while any copy shows it: one copy
+ * still reads it after the other is extracted, and it goes with the last. */
+TEST_F(DbLoader, ImplementKeepsTheReplacedTextUntilTheLastCopyShowingItGoes)
+{
+    const std::size_t retired_before = retired_prototype_text_count();
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    add_extra_description(staff, "runes", "Runes run along the staff.");
+    obj_data* const first_copy = read_object(4, REAL);
+    obj_data* const second_copy = read_object(4, REAL);
+    ASSERT_NE(first_copy, nullptr);
+    ASSERT_NE(second_copy, nullptr);
+
+    implement_object(&session.builder);
+    /* The name, three descriptions and the extra-description list. */
+    EXPECT_EQ(retired_prototype_text_count(), retired_before + 5);
+
+    extract_obj(first_copy);
+    EXPECT_EQ(retired_prototype_text_count(), retired_before + 5);
+    EXPECT_STREQ(second_copy->name, "thing");
+    EXPECT_STREQ(second_copy->short_description, "a wooden staff");
+    ASSERT_NE(second_copy->ex_description, nullptr);
+    EXPECT_STREQ(second_copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(second_copy);
+    EXPECT_EQ(retired_prototype_text_count(), retired_before);
+}
+
+/* A copy made between two implements shows the first one's text, which the second keeps for it
+ * apart from the boot text an older copy shows; each goes with the copy showing it. */
+TEST_F(DbLoader, EachImplementsReplacedTextGoesWithTheCopiesShowingIt)
+{
+    const std::size_t retired_before = retired_prototype_text_count();
+    SkinEditorSession session(4700);
+    obj_data* const boot_copy = read_object(4, REAL);
+    ASSERT_NE(boot_copy, nullptr);
+    implement_object(&session.builder);
+    obj_data* const implemented_copy = read_object(4, REAL);
+    ASSERT_NE(implemented_copy, nullptr);
+
+    implement_object(&session.builder);
+    /* Each implement replaced a name and three descriptions; neither prototype had extras. */
+    EXPECT_EQ(retired_prototype_text_count(), retired_before + 8);
+    EXPECT_NE(static_cast<const void*>(implemented_copy->short_description),
+        static_cast<const void*>(obj_proto[4].short_description));
+
+    extract_obj(boot_copy);
+    EXPECT_EQ(retired_prototype_text_count(), retired_before + 4);
+    EXPECT_STREQ(implemented_copy->short_description, "a grey cloak");
+
+    extract_obj(implemented_copy);
+    EXPECT_EQ(retired_prototype_text_count(), retired_before);
+    EXPECT_STREQ(obj_proto[4].short_description, "a grey cloak");
 }
 
 void name_to_drinkcon(struct obj_data* obj, int type);
