@@ -293,6 +293,15 @@ private:
     bool m_had_original_value = false;
 };
 
+/* A zeroed character allocated the way the game does, so free_char, which releases with free,
+   can release it whether the test or the game frees it. */
+char_data* allocate_character()
+{
+    char_data* character = nullptr;
+    CREATE1(character, char_data);
+    return character;
+}
+
 std::string write_valid_legacy_player_file(const std::string& root_directory, const char_file_u& stored_character)
 {
     ScopedWorkingDirectory working_directory(root_directory);
@@ -308,7 +317,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data* character = new char_data {};
+    char_data* character = allocate_character();
     clear_char(character, MOB_VOID);
 
     char_file_u mutable_store = stored_character;
@@ -436,7 +445,7 @@ descriptor_data* allocate_descriptor()
 char_data* attach_active_character(
     descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
 {
-    char_data* character = new char_data {};
+    char_data* character = allocate_character();
     clear_char(character, MOB_VOID);
     character->player.name = strdup(name);
     character->player.level = level;
@@ -1306,7 +1315,7 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     EXPECT_EQ(std::string(descriptor.output).find("You are already connected as Aragorn."), std::string::npos)
         << descriptor.output;
 
-    char_data* linkless_legolas = new char_data {};
+    char_data* linkless_legolas = allocate_character();
     clear_char(linkless_legolas, MOB_VOID);
     linkless_legolas->player.name = strdup("legolas");
     linkless_legolas->player.level = 45;
@@ -2228,7 +2237,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuBlocksDifferentActiveLo
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_SLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     descriptor.character->player.name = strdup("legolas");
     descriptor.character->player.level = 45;
@@ -2282,7 +2291,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenAnyA
     high_level_descriptor.next = &low_level_descriptor;
     descriptor_list = &high_level_descriptor;
 
-    char_data* selected_character_body = new char_data {};
+    char_data* selected_character_body = allocate_character();
     clear_char(selected_character_body, MOB_VOID);
     selected_character_body->player.name = strdup("legolas");
     selected_character_body->player.level = 45;
@@ -2293,7 +2302,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenAnyA
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_SLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     descriptor.character->player.name = strdup("legolas");
     descriptor.character->player.level = 45;
@@ -2350,7 +2359,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenLink
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
-    char_data* selected_character_body = new char_data {};
+    char_data* selected_character_body = allocate_character();
     clear_char(selected_character_body, MOB_VOID);
     selected_character_body->player.name = strdup("legolas");
     selected_character_body->player.level = 45;
@@ -2361,7 +2370,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenLink
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_SLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     descriptor.character->player.name = strdup("legolas");
     descriptor.character->player.level = 45;
@@ -2534,7 +2543,7 @@ TEST(InterpreAccountMenu, StaleAccountCreationWizardBlocksBirthWhenLowLevelChara
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_CREATE;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     descriptor.character->player.name = strdup("legolas");
     descriptor.character->player.race = RACE_HUMAN;
@@ -2588,7 +2597,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowStaleAccountCreationWizardBirt
     descriptor_data descriptor = make_descriptor();
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "unlock-birth");
     descriptor.connected = CON_CREATE;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     descriptor.character->player.name = strdup("legolas");
     descriptor.character->player.race = RACE_HUMAN;
@@ -2642,7 +2651,7 @@ TEST(InterpreAccountMenu, StaleAccountCreationWizardCannotOverwriteSameNameActiv
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_CREATE;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     descriptor.character->player.name = strdup("aragorn");
     descriptor.character->player.race = RACE_HUMAN;
@@ -2899,7 +2908,7 @@ TEST(InterpreAccountMenu, AccountMenuNewCharacterConfirmationSkipsLegacyPassword
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -3612,7 +3621,7 @@ TEST(InterpreAccountMenu, CharacterMenuDeleteOptionRoutesAccountBackedCharacters
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "*ACCOUNT*");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->player.level = 10;
@@ -3714,7 +3723,7 @@ TEST(InterpreAccountMenu, AccountBackedDeleteVerificationRejectsIncorrectAccount
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTDELCNF1;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->player.level = 10;
@@ -3746,7 +3755,7 @@ TEST(InterpreAccountMenu, AccountBackedDeleteVerificationAcceptsCorrectAccountPa
     descriptor.connected = CON_ACCTDELCNF1;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->player.level = 10;
@@ -3787,7 +3796,7 @@ TEST(InterpreAccountMenu, ConfirmedAccountBackedDeleteReturnsToUsableAccountMenu
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->player.level = 10;
@@ -3895,7 +3904,7 @@ TEST(InterpreAccountMenu, SelectingAnotherLinkedCharacterAfterDeleteRecreatesDes
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -3991,7 +4000,7 @@ TEST(InterpreAccountMenu, FailedSelectionAfterDeleteDoesNotLeaveReplacementDescr
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4067,7 +4076,7 @@ TEST(InterpreAccountMenu, CreatingNewCharacterAfterDeleteRecreatesDescriptorChar
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4181,7 +4190,7 @@ TEST(InterpreAccountMenu, ExtractCharReturnsAccountBackedCharactersToAccountAwar
     descriptor.connected = CON_PLYNG;
     descriptor.descriptor = 1;
 
-    char_data* character = new char_data {};
+    char_data* character = allocate_character();
     clear_char(character, MOB_VOID);
     register_pc_char(character);
     character->desc = &descriptor;
@@ -4229,7 +4238,7 @@ TEST(InterpreAccountMenu, AccountSelectionKeepsAccountSessionForCharacterMenuOpt
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4285,7 +4294,7 @@ TEST(InterpreAccountMenu, AccountSelectionLoadsTheSecondNumberedLinkedCharacter)
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4332,7 +4341,7 @@ TEST(InterpreAccountMenu, AccountSelectionReplacesRentedCharacterShellSoStoredAf
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4392,7 +4401,7 @@ TEST(InterpreAccountMenu, ReturningToAccountAndReselectingSameCharacterDoesNotDu
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4457,7 +4466,7 @@ TEST(InterpreAccountMenu, AccountSelectionKeepsBackToAccountMenuLabelWhenMenuRer
 
     descriptor_data descriptor = make_descriptor();
     descriptor.connected = CON_ACCTSLCT;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4502,7 +4511,7 @@ TEST(InterpreAccountMenu, AccountBackedNewCharactersAreBornWithStartRoomAndNaked
     ScopedStartRoomOverride start_room_override(RACE_HUMAN, 0);
     ensure_test_world_room(1200);
 
-    char_data* character = new char_data {};
+    char_data* character = allocate_character();
     clear_char(character, MOB_VOID);
     character->player.race = RACE_HUMAN;
     character->player.sex = SEX_MALE;
@@ -4543,7 +4552,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharactersAvoidsLegacyFil
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4621,7 +4630,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharactersAvoidsLegacyFil
     ASSERT_EQ(exploit_records.size(), 1u);
     EXPECT_EQ(exploit_records[0].type, EXPLOIT_BIRTH);
 
-    char_data* loaded_character = new char_data {};
+    char_data* loaded_character = allocate_character();
     clear_char(loaded_character, MOB_VOID);
     store_to_char(&stored_character, loaded_character);
     descriptor_data loaded_descriptor = make_descriptor();
@@ -4693,7 +4702,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
     }
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4720,7 +4729,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
     ASSERT_TRUE(account::read_account_character_file(".", "acct", "aragorn", &stored_character, &error_message)) << error_message;
     std::string object_bytes;
     ASSERT_TRUE(load_object_save_bytes_for_character(".", "aragorn", &object_bytes, &error_message)) << error_message;
-    char_data* loaded_character = new char_data {};
+    char_data* loaded_character = allocate_character();
     clear_char(loaded_character, MOB_VOID);
     store_to_char(&stored_character, loaded_character);
     descriptor_data loaded_descriptor = make_descriptor();
@@ -4766,7 +4775,7 @@ TEST(InterpreAccountMenu, IntroduceCharRejectsTooLongAccountNativeIndexPathWitho
         << "Test setup must exceed the legacy player index path buffer.";
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4905,7 +4914,7 @@ TEST(InterpreAccountMenu, IntroduceCharRollbackDoesNotLeaveLegacyOrAccountNative
     ASSERT_EQ(mkdir(blocking_exploit_path.c_str(), 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -4977,7 +4986,7 @@ TEST(InterpreAccountMenu, IntroduceCharRejectsNameLinkedToAnotherAccountBeforeWr
     ASSERT_TRUE(account::admin_link_character(".", "other", "aragorn", 1700010202, &owner_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;
@@ -5051,7 +5060,7 @@ TEST(InterpreAccountMenu, AdvanceLevelStillPersistsWhenAccountOwnershipLookupFai
     descriptor_data descriptor = make_descriptor();
     descriptor.output = descriptor.small_outbuf;
     descriptor.bufspace = SMALL_BUFSIZE - 1;
-    descriptor.character = new char_data {};
+    descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
     descriptor.character->desc = &descriptor;

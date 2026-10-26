@@ -104,7 +104,9 @@ public:
         : m_previous_player_table(player_table)
         , m_previous_top_of_p_table(top_of_p_table)
     {
-        player_table = new player_index_element[1] {};
+        // A rename grows the table through inc_p_table, which frees it and allocates the
+        // replacement with CREATE, so the table is allocated and released the same way.
+        CREATE(player_table, player_index_element, 1);
         top_of_p_table = 0;
         player_table[0].name = strdup(name);
     }
@@ -112,7 +114,7 @@ public:
     ~ScopedPlayerTableEntry()
     {
         free(player_table[0].name);
-        delete[] player_table;
+        free(player_table);
         player_table = m_previous_player_table;
         top_of_p_table = m_previous_top_of_p_table;
     }
@@ -170,7 +172,9 @@ descriptor_data make_descriptor()
 char_data* attach_active_character(
     descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
 {
-    char_data* character = new char_data {};
+    // free_char releases the character with free, so it is allocated the way the game does.
+    char_data* character = nullptr;
+    CREATE1(character, char_data);
     clear_char(character, MOB_VOID);
     character->player.name = strdup(name);
     character->player.level = level;
@@ -1174,8 +1178,7 @@ TEST(ActWiz, WizsetNameReportsARefusedRenameRatherThanClaimingSuccess)
         << "and told why, rather than being sent to the syslog -- got: " << output;
     EXPECT_STREQ(implementor->player.name, "aragorn") << "the character must keep its name";
 
-    free(implementor->player.name);
-    delete implementor;
+    free_char(implementor);
 }
 
 TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
@@ -1200,8 +1203,7 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
     EXPECT_EQ(std::string(descriptor.output), "You changed their name successfully.\n\r");
     EXPECT_STREQ(implementor->player.name, "Bartholomew");
 
-    free(implementor->player.name);
-    delete implementor;
+    free_char(implementor);
 }
 
 TEST(ActWiz, ShutdownStaysOneLevelBelowGreaterGodUnlessADeployLowersIt)
@@ -1307,8 +1309,7 @@ struct SkinWorld {
                     extract_obj(c->equipment[slot]);
             while (c->carrying)
                 extract_obj(c->carrying);
-            free(c->player.name);
-            delete c;
+            free_char(c);
         }
         world[0].light = saved_light;
         obj_index = saved_index;

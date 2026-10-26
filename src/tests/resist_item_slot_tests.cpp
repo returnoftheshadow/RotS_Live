@@ -125,9 +125,11 @@ struct ItemResistBench {
         while (character.affected)
             affect_remove(&character, character.affected);
 
+        // read_object allocates with CREATE, so free_obj releases each copy. It leaves the text
+        // shared with obj_proto alone, since every copy has a prototype item_number.
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list);
             object_list = next;
         }
 
