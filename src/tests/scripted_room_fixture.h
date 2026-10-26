@@ -10,6 +10,7 @@
 #include "../script.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_random_utils.h"
 
 #include <gtest/gtest.h>
 
@@ -37,6 +38,9 @@ void clear_object(struct obj_data* obj);
 namespace scripted_room {
 
 constexpr int ROOM_VNUM = 5100;
+/* The room link_second_room joins to room 0. */
+constexpr int SECOND_ROOM_VNUM = 5101;
+constexpr int SECOND_ROOM = 1;
 /* The script install_script writes; tests that need more than one script add the others. */
 constexpr int SCRIPT_VNUM = 9950;
 constexpr int OTHER_SCRIPT_VNUM = 9951;
@@ -127,10 +131,15 @@ protected:
         if (room_data::BASE_WORLD == nullptr) {
             world.create_bulk(1);
         }
-        m_saved_room_number = world[0].number;
-        m_saved_room_light = world[0].light;
-        m_saved_room_contents = world[0].contents;
-        m_saved_room_people = world[0].people;
+        for (int room = 0; room < 2; ++room) {
+            m_saved_rooms[room].number = world[room].number;
+            m_saved_rooms[room].light = world[room].light;
+            m_saved_rooms[room].contents = world[room].contents;
+            m_saved_rooms[room].people = world[room].people;
+            for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+                m_saved_rooms[room].exits[direction] = world[room].dir_option[direction];
+            }
+        }
 
         descriptor_list = nullptr;
         object_list = nullptr;
@@ -199,6 +208,7 @@ protected:
         while (character_list != nullptr) {
             extract_char(character_list);
         }
+        clear_test_random_values();
         for (int slot = 0; slot < MAX_WEAR; ++slot) {
             m_player.equipment[slot] = nullptr;
         }
@@ -212,10 +222,15 @@ protected:
         RELEASE(m_player.skills);
         RELEASE(m_player.knowledge);
 
-        world[0].number = m_saved_room_number;
-        world[0].light = m_saved_room_light;
-        world[0].contents = m_saved_room_contents;
-        world[0].people = m_saved_room_people;
+        for (int room = 0; room < 2; ++room) {
+            world[room].number = m_saved_rooms[room].number;
+            world[room].light = m_saved_rooms[room].light;
+            world[room].contents = m_saved_rooms[room].contents;
+            world[room].people = m_saved_rooms[room].people;
+            for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+                world[room].dir_option[direction] = m_saved_rooms[room].exits[direction];
+            }
+        }
         obj_proto = m_saved_obj_proto;
         obj_index = m_saved_obj_index;
         top_of_objt = m_saved_top_of_objt;
@@ -292,9 +307,9 @@ protected:
     /* A fresh object from the prototype with this vnum, running script SCRIPT_VNUM, not placed. */
     obj_data* make_scripted(int vnum) { return make_object(vnum, SCRIPT_VNUM); }
 
-    /* A mob in room 0, after everyone already there, running <script_vnum> (none for 0). The
+    /* A mob in <room>, after everyone already there, running <script_vnum> (none for 0). The
      * game frees it when it is extracted; TearDown extracts any still in the game. */
-    char_data* make_mob(const char* keywords, int script_vnum)
+    char_data* make_mob(const char* keywords, int script_vnum, int room = 0)
     {
         char_data* mob = nullptr;
         CREATE1(mob, char_data);
@@ -317,8 +332,33 @@ protected:
         mob->specials.script_number = script_vnum;
         mob->next = character_list;
         character_list = mob;
-        char_to_room(mob, 0);
+        /* Registered as read_mobile does, so riding and the other char_exists checks see it. */
+        register_npc_char(mob);
+        char_to_room(mob, room);
         return mob;
+    }
+
+    /* Makes room SECOND_ROOM a lit room joined to room 0 by an exit in every direction, so that
+     * a move or a flee from room 0 in any direction leads there; the way back is south. */
+    void link_second_room()
+    {
+        top_of_world = SECOND_ROOM;
+        world[SECOND_ROOM].number = SECOND_ROOM_VNUM;
+        world[SECOND_ROOM].light = 1;
+        world[SECOND_ROOM].contents = nullptr;
+        world[SECOND_ROOM].people = nullptr;
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            m_exits[direction] = room_direction_data {};
+            m_exits[direction].keyword = m_exit_keyword;
+            m_exits[direction].general_description = m_exit_keyword;
+            m_exits[direction].key = -1;
+            m_exits[direction].to_room = SECOND_ROOM;
+            world[0].dir_option[direction] = &m_exits[direction];
+            world[SECOND_ROOM].dir_option[direction] = nullptr;
+        }
+        m_way_back = m_exits[NORTH];
+        m_way_back.to_room = 0;
+        world[SECOND_ROOM].dir_option[SOUTH] = &m_way_back;
     }
 
     /* Whether this character is still in the game. Compares addresses only, so it may be given
@@ -456,6 +496,22 @@ private:
     // Writable copies of the commands' texts; a deque, so earlier texts never move.
     std::deque<std::string> m_script_texts;
 
+    // The exits link_second_room makes: one from room 0 in each direction, and the way back.
+    room_direction_data m_exits[NUM_OF_DIRS] {};
+    room_direction_data m_way_back {};
+    // The exits' (empty) keyword and description.
+    char m_exit_keyword[1] = "";
+
+    /* What SetUp found in rooms 0 and 1. */
+    struct saved_room {
+        // The fields the tests change.
+        int number = 0;
+        byte light = 0;
+        obj_data* contents = nullptr;
+        char_data* people = nullptr;
+        room_direction_data* exits[NUM_OF_DIRS] {};
+    };
+
     // The game state SetUp replaces, put back by TearDown.
     obj_data* m_saved_obj_proto = nullptr;
     index_data* m_saved_obj_index = nullptr;
@@ -468,10 +524,7 @@ private:
     descriptor_data* m_saved_descriptor_list = nullptr;
     script_head* m_saved_script_table = nullptr;
     int m_saved_top_of_script_table = 0;
-    int m_saved_room_number = 0;
-    byte m_saved_room_light = 0;
-    obj_data* m_saved_room_contents = nullptr;
-    char_data* m_saved_room_people = nullptr;
+    saved_room m_saved_rooms[2] {};
 };
 
 } // namespace scripted_room

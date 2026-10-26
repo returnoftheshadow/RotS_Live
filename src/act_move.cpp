@@ -356,7 +356,12 @@ int perform_move_mount(struct char_data* ch, int dir)
             stop_riding(tmpch);
 
         freed_watch rider_watch(tmpch);
+        freed_watch carrying_mount_watch(ch);
         tmp = check_simple_move(tmpch, dir, &move_cost, SCMD_CARRIED);
+        /* Something the rider's check set off removed the mount: nobody is left to carry. */
+        if (carrying_mount_watch.freed()) {
+            return 0;
+        }
         if (rider_watch.freed()) {
             /* An ON_BEFORE_ENTER script removed the rider: the move is off, as below. */
             stop_riding_all(ch);
@@ -884,6 +889,10 @@ ACMD(do_move)
                     command_interpreter(follower, argument, &tmpwtl);
                 }
             }
+            /* A follower moving ahead can set off scripts that remove the mover. */
+            if (mover_watch.freed()) {
+                return;
+            }
 
             if (!IS_AFFECTED(ch, AFF_SNEAK) || (subcmd == SCMD_FLEE) || number(0, 125) > GET_SKILL(ch, SKILL_SNEAK) + get_real_stealth(ch)) {
                 sprintf(buf2, " leaves %s.", dirs[cmd]);
@@ -1071,7 +1080,15 @@ ACMD(do_move)
                     command_interpreter(follower, argument, &tmpwtl);
                 }
             }
+            /* A follower moving ahead can set off scripts that remove the mover. */
+            if (mover_watch.freed()) {
+                return;
+            }
 
+            /* ... or that unseat it, or remove its mount (which unseats it too). */
+            if (!IS_RIDING(ch)) {
+                return;
+            }
             GET_MOVE(ch->mount_data.mount) -= tmp_move;
 
             sprintf(buf2, "$N has forced you %s.\n\r", dirs[cmd]);

@@ -1059,14 +1059,21 @@ ACMD(do_kick)
         dam *= wild_fighting.get_wild_swing_damage_multiplier();
     }
 
-    if (prob < 0)
-        damage(ch, victim, 0, attacktype, 0);
-    else {
-        // Heavy fighters kick 20% harder.
-        if (utils::get_specialization(*ch) == (int)game_types::PS_HeavyFighting) {
-            dam += dam / 5;
+    {
+        /* The blow's scripts can remove the kicker; then it has no recovery to wait out. */
+        freed_watch kicker_watch(ch);
+        if (prob < 0)
+            damage(ch, victim, 0, attacktype, 0);
+        else {
+            // Heavy fighters kick 20% harder.
+            if (utils::get_specialization(*ch) == (int)game_types::PS_HeavyFighting) {
+                dam += dam / 5;
+            }
+            damage(ch, victim, dam, attacktype, 0);
         }
-        damage(ch, victim, dam, attacktype, 0);
+        if (kicker_watch.freed()) {
+            return;
+        }
     }
 
 delay:
@@ -1265,6 +1272,8 @@ ACMD(do_rend)
 
     int prob = get_prob_skill(ch, victim, SKILL_REND);
 
+    /* The blow's scripts can remove the attacker; then it has no recovery to wait out. */
+    freed_watch attacker_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_REND, 0);
     } else {
@@ -1277,6 +1286,9 @@ ACMD(do_rend)
             }
         }
         damage(ch, victim, dam, SKILL_REND, 0);
+    }
+    if (attacker_watch.freed()) {
+        return;
     }
 
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
@@ -1352,6 +1364,8 @@ ACMD(do_bite)
 
     int prob = get_prob_skill(ch, victim, SKILL_BITE);
 
+    /* The blow's scripts can remove the attacker; then it has no recovery to wait out. */
+    freed_watch attacker_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_BITE, 0);
     } else {
@@ -1364,6 +1378,9 @@ ACMD(do_bite)
             }
         }
         damage(ch, victim, dam, SKILL_BITE, 0);
+    }
+    if (attacker_watch.freed()) {
+        return;
     }
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
         AFF_WAITING, TARGET_NONE);
@@ -1487,12 +1504,17 @@ ACMD(do_maul)
 
     int prob = get_prob_skill(ch, victim, SKILL_MAUL);
 
+    /* The blow's scripts can remove the mauler; then there is nobody to tire. */
+    freed_watch mauler_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_MAUL, 0);
     } else {
         apply_maul_victim(victim, ch);
         apply_maul_char(ch);
         damage(ch, victim, number(1, 4), SKILL_MAUL, 0);
+    }
+    if (mauler_watch.freed()) {
+        return;
     }
     GET_MOVE(ch) -= maul_cost;
 }

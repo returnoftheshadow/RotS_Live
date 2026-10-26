@@ -7,6 +7,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -268,7 +269,12 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
             }
 
             if (damage_result.wants_to_flee) {
+                freed_watch fleeing_watch(victim);
                 do_flee(victim, "", NULL, 0, 0);
+                /* Fleeing can remove the victim (a script where it arrives, a death room). */
+                if (fleeing_watch.freed()) {
+                    return;
+                }
             }
 
             if (victim->delay.cmd == CMD_PREPARE && (victim->delay.targ1.type == TARGET_IGNORE)) {
@@ -293,7 +299,11 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
             if (!damage_result.will_die) {
                 check_break_prep(ch);
                 if (damage_result.wants_to_flee) {
+                    freed_watch fleeing_watch(ch);
                     do_flee(ch, "", NULL, 0, 0);
+                    if (fleeing_watch.freed()) {
+                        return;
+                    }
                 }
             }
 

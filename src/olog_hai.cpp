@@ -6,7 +6,9 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
+#include "script.h"
 #include "skill_timer.h"
 #include "spells.h"
 #include "structs.h"
@@ -239,10 +241,16 @@ void apply_smash_damage(char_data* attacker, char_data* victim, int prob)
     if (IS_RIDING(victim) && number() >= 0.80) {
         dam *= 1.25;
         char_data* mount = victim->mount_data.mount;
-        damage(attacker, victim, dam, SKILL_SMASH, 0);
+        freed_watch attacker_watch(attacker);
+        freed_watch mount_watch(mount);
+        /* A victim the blow killed or removed is not knocked off its mount, and a script the
+         * blow set off can remove the attacker or the mount. */
+        if (damage(attacker, victim, dam, SKILL_SMASH, 0) || attacker_watch.freed()) {
+            return;
+        }
         generate_smash_dismount_messages(attacker, victim);
         do_dismount(victim, "", 0, 0, 0);
-        if (number() >= 0.50) {
+        if (number() >= 0.50 && !mount_watch.freed()) {
             damage(attacker, mount, dam / 2, SKILL_SMASH, 0);
         }
         return;
@@ -354,17 +362,27 @@ void apply_frenzy_affect(char_data* character)
     SET_TACTICS(character, TACTICS_BERSERK);
 }
 
-void room_target(char_data* ch, void (*skill_damage)(char_data* character, char_data* victim))
+/* Applies <skill_damage> from <ch> to everyone else in its room but its mount. Returns false if
+ * a blow's scripts removed ch, which must then not be touched; the room's later people are spared. */
+[[nodiscard]] bool room_target(char_data* ch, void (*skill_damage)(char_data* character, char_data* victim))
 {
     char_data* victim = nullptr;
     char_data* nxt_victim = nullptr;
     auto mount = ch->mount_data.mount;
-    for (victim = world[ch->in_room].people; victim; victim = nxt_victim) {
+    room_data& room = world[ch->in_room];
+    freed_watch attacker_watch(ch);
+    for (victim = room.people; victim; victim = nxt_victim) {
         nxt_victim = victim->next_in_room;
         if (victim != ch && mount != victim) {
+            freed_watch victim_watch(victim);
             skill_damage(ch, victim);
+            if (attacker_watch.freed()) {
+                return false;
+            }
+            nxt_victim = next_person_after_trigger(room, victim, victim_watch.freed(), nxt_victim);
         }
     }
+    return true;
 }
 } // namespace olog_hai
 
@@ -385,7 +403,9 @@ ACMD(do_cleave)
 
     olog_hai::do_sanctuary_check(ch);
     send_to_char("You arch back and swing your weapon with great velocity!\n\r", ch);
-    olog_hai::room_target(ch, &olog_hai::apply_cleave_damage);
+    if (!olog_hai::room_target(ch, &olog_hai::apply_cleave_damage)) {
+        return;
+    }
     timer.add_skill_timer(*ch, SKILL_CLEAVE, CLEAVE_TIMER);
     // Stun the Olog-hai after using the skill
     int wait_delay = number(8, PULSE_VIOLENCE);
@@ -520,8 +540,12 @@ ACMD(do_overrun)
         REMOVE_BIT(ch->specials.affected_by, AFF_HUNT);
     }
 
+    /* Each blow, and each step (a script where it lands, a death room), can remove the olog-hai. */
+    freed_watch overrunner_watch(ch);
     for (dis = 0; dis <= total_moves; dis++) {
-        olog_hai::room_target(ch, &olog_hai::apply_overrun_damage);
+        if (!olog_hai::room_target(ch, &olog_hai::apply_overrun_damage)) {
+            return;
+        }
 
         if (!CAN_GO(ch, cmd)) {
             break;
@@ -534,13 +558,19 @@ ACMD(do_overrun)
 
         stop_fighting(ch);
         do_move(ch, "", 0, cmd + 1, 0);
+        if (overrunner_watch.freed()) {
+            return;
+        }
     }
 
     if (dis < total_moves) {
         damage(ch, ch, 50, SKILL_OVERRUN, 0);
+        if (overrunner_watch.freed()) {
+            return;
+        }
         olog_delay *= 1.5;
-    } else {
-        olog_hai::room_target(ch, &olog_hai::apply_overrun_damage);
+    } else if (!olog_hai::room_target(ch, &olog_hai::apply_overrun_damage)) {
+        return;
     }
     WAIT_STATE_FULL(ch, olog_delay, 0, 0, 1, 0, 0, 0, AFF_WAITING, TARGET_NONE);
     timer.add_skill_timer(*ch, SKILL_OVERRUN, OVERRUN_TIMER);
@@ -585,7 +615,9 @@ ACMD(do_stomp)
 
     olog_hai::do_sanctuary_check(ch);
     send_to_char("You jump into the air and slam down feet first onto the ground!\n\r", ch);
-    olog_hai::room_target(ch, &olog_hai::apply_stomp_affect);
+    if (!olog_hai::room_target(ch, &olog_hai::apply_stomp_affect)) {
+        return;
+    }
     timer.add_skill_timer(*ch, SKILL_STOMP, STOMP_TIMER);
 
     // Stun the Olog-hai after using the skill

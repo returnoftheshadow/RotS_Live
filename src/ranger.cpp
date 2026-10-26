@@ -19,6 +19,7 @@
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -1708,8 +1709,11 @@ ACMD(do_whistle)
                 if (MOB_FLAGGED(tmpch, MOB_PET) && (tmpch->master == ch)) {
                     if (GET_POS(tmpch) == POSITION_FIGHTING) {
                         /* in combat: just try to disengage this whistle; the
-                         * normal recall runs next time it's whistled while not fighting */
+                         * normal recall runs next time it's whistled while not fighting.
+                         * The flee can remove it, or take its followers along. */
+                        freed_watch fleeing_watch(tmpch);
                         do_flee(tmpch, "", 0, 0, 0);
+                        next_tmpch = next_person_after_trigger(*rm, tmpch, fleeing_watch.freed(), next_tmpch);
                         continue;
                     }
 
@@ -3706,7 +3710,10 @@ void on_windblast_success(char_data* ch, int mana_cost, int move_cost)
 
     send_to_char("Vile black wind eminates from you, slamming into all!\r\n", ch);
 
-    for (tmpch = world[ch->in_room].people; tmpch; tmpch = tmpch_next) {
+    /* A push or a blow can remove the one hit (a script where it lands or that it sets off, a
+     * death room) or, through a script, the caster. */
+    freed_watch caster_watch(ch);
+    for (tmpch = cur_room->people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != ch) {
             if (!bb_instance.is_target_valid(ch, tmpch)) {
@@ -3715,14 +3722,21 @@ void on_windblast_success(char_data* ch, int mana_cost, int move_cost)
                 continue;
             }
 
+            freed_watch target_watch(tmpch);
             int saved = harad_skill_calculate_save(ch, tmpch, 0);
             if (saved < 0) {
                 dam_value >> 1;
                 damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
             } else {
                 on_windblast_hit(tmpch);
-                damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
+                if (!target_watch.freed()) {
+                    damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
+                }
             }
+            if (caster_watch.freed()) {
+                return;
+            }
+            tmpch_next = next_person_after_trigger(*cur_room, tmpch, target_watch.freed(), tmpch_next);
         }
     }
 }

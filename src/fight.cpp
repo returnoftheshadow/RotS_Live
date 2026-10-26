@@ -2800,6 +2800,8 @@ void hit(char_data* ch, char_data* victim, int type)
         GET_POS(victim) = POSITION_FIGHTING;
     }
 
+    /* Fleeing can remove the victim (a script where it arrives, a death room), as in damage(). */
+    freed_watch fleeing_watch(victim);
     if (GET_HIT(victim) < GET_MAX_HIT(victim) / 5) {
         act("You wish that your wounds would stop BLEEDING so much!",
             FALSE, victim, 0, 0, TO_CHAR);
@@ -2807,6 +2809,9 @@ void hit(char_data* ch, char_data* victim, int type)
             if (IS_SET(victim->specials2.act, MOB_WIMPY))
                 if (GET_POSITION(victim) > POSITION_SLEEPING)
                     do_flee(victim, "", 0, 0, 0);
+        if (fleeing_watch.freed()) {
+            return;
+        }
     }
 
     if (!IS_NPC(victim) && WIMP_LEVEL(victim) && victim != ch && GET_HIT(victim) < WIMP_LEVEL(victim)) {
@@ -2814,10 +2819,16 @@ void hit(char_data* ch, char_data* victim, int type)
             send_to_char("You wimp out, and attempt to flee!\n\r", victim);
             do_flee(victim, "", 0, 0, 0);
         }
+        if (fleeing_watch.freed()) {
+            return;
+        }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && victim->specials.fighting && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (fleeing_watch.freed()) {
+            return;
+        }
         victim->specials.was_in_room = victim->in_room;
     }
 }

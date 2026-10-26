@@ -228,6 +228,7 @@ set(ROTS_TEST_SOURCES
     tests/object_trigger_extract_tests.cpp
     tests/character_trigger_extract_tests.cpp
     tests/freed_watch_tests.cpp
+    tests/combat_movement_extract_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
