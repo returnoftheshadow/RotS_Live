@@ -435,3 +435,33 @@ TEST_F(DeathAndDamagePathsTest, AnOrderGoesOnPastAFollowerItRemoves)
     EXPECT_FALSE(is_in_game(followers[1]));
     EXPECT_EQ(nullptr, m_player.followers);
 }
+
+/* ---- an NPC olog-hai's skills ---- */
+
+/* An NPC has no tactics; its olog-hai skills strike as on normal tactics. */
+TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiStrikesAsOnNormalTactics)
+{
+    char_data* olog = make_mob("olog", 0);
+    olog->player.race = RACE_OLOGHAI;
+    const int prob = 50;
+    const int expected = (2 + utils::get_prof_level(PROF_WARRIOR, *olog)) * (100 + prob)
+        / (1000 / TACTICS_NORMAL);
+
+    EXPECT_EQ(expected, olog_hai::get_base_skill_damage(*olog, prob));
+}
+
+/* An NPC olog-hai's cleave hurts the mob next to it. */
+TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
+{
+    take_player_out_of_the_room();
+    char_data* olog = make_mob("olog", 0);
+    olog->player.race = RACE_OLOGHAI;
+    olog->points.OB = 200; /* sure to land; a mob knows every skill at 80 */
+    equip_char(olog, make_object(SWORD_VNUM, 0), WIELD);
+    char_data* victim = make_mob("victim", 0);
+    push_test_random_value(0.99); /* the cleave's to-hit roll: it lands */
+
+    do_cleave(olog, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
+}
