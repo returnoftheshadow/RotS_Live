@@ -1208,11 +1208,25 @@ bool delete_player_character_by_index(int index)
     return true;
 }
 
+/* Frees the player index and the name create_entry gave each entry, leaving it empty. */
+static void release_player_table()
+{
+    if (player_table) {
+        for (int index = 0; index <= top_of_p_table; ++index) {
+            RELEASE(player_table[index].name);
+        }
+        RELEASE(player_table);
+    }
+    top_of_p_table = -1;
+}
+
 void build_player_index(void)
 {
     int nr, tt;
 
-    top_of_p_file = top_of_p_table = -1;
+    /* The walks below index every player file from scratch, so the current index is freed. */
+    release_player_table();
+    top_of_p_file = -1;
     top_idnum = 1;
 
     build_directory("players/A-E/");
