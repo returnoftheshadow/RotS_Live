@@ -107,7 +107,6 @@ void logsig(int fake)
 
 /* kick out players etc */
 
-void close_sockets(SocketType s);
 void reboot_wizlists(void);
 extern int restrict;
 extern int num_invalid;
@@ -120,9 +119,12 @@ public:
     void stop(int signal_number) override
     {
         log("Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...");
-        Emergency_save();
+        // No save here: the autosave writes every connected player every autosave_time seconds,
+        // so a stop leaves the same files whether or not the game loop is still running.
+        // Connections are not closed one by one: closing a playing connection saves the character
+        // but not their gear; exit closes the connections without saving either.
         bank_vaults_write_behind(); /* a service stop skips game_loop's shutdown saving */
-        close_sockets(mother_desc);
+        close(mother_desc);
         exit(0);
     }
 
