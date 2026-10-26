@@ -1,6 +1,8 @@
 #include "../big_brother.h"
+#include "../db.h"
 #include "../interpre.h"
 #include "../structs.h"
+#include "../utils.h"
 #include "../world_clock.h"
 
 #include <chrono>
@@ -256,4 +258,69 @@ TEST(BigBrotherCorpseLoot, EnemyMayNotLootBag)
     // The refused bag did not use up an item.
     EXPECT_TRUE(context.enemy_loots(context.bread));
     EXPECT_TRUE(context.enemy_loots(context.key));
+}
+
+namespace {
+// A player character and a PK opponent in level range of it, neither on any list.
+void make_pk_pair(char_data& player, char_data& opponent)
+{
+    player.abs_number = 4301;
+    player.player.level = 30;
+    opponent.abs_number = 4302;
+    opponent.player.level = 30;
+}
+} // namespace
+
+/* Big Brother holds AFK protection under a character's address. free_char must make it forget
+ * them: the allocator may put the next character at that address. "setfree off" keeps the freed
+ * memory, so the test can stand a character there. */
+TEST(BigBrotherFreedCharacter, ACharacterFreedWhileAfkLeavesNoProtectionAtItsAddress)
+{
+    big_brother::create(weather_info, &world);
+    big_brother& rules = big_brother::instance();
+    char_data* freed = nullptr;
+    CREATE1(freed, char_data);
+    char_data attacker {};
+    make_pk_pair(*freed, attacker);
+    rules.on_character_afked(freed, REFERENCE_TIME);
+    ASSERT_FALSE(rules.is_target_valid(&attacker, freed)) << "AFK protection was not granted";
+
+    global_release_flag = 0;
+    free_char(freed);
+    global_release_flag = 1;
+    char_data* const successor = freed;
+    make_pk_pair(*successor, attacker);
+
+    EXPECT_TRUE(rules.is_target_valid(&attacker, successor))
+        << "a character at a freed character's address inherited its AFK protection";
+    RELEASE(freed);
+}
+
+/* Big Brother holds a corpse's protection under the corpse's address. free_obj must make it
+ * forget it: the allocator may put the next object at that address. "setfree off" keeps the
+ * freed memory, so the test can stand an object there. */
+TEST(BigBrotherFreedObject, ACorpseFreedWhileProtectedLeavesNoProtectionAtItsAddress)
+{
+    big_brother::create(weather_info, &world);
+    big_brother& rules = big_brother::instance();
+    char_data dead {};
+    char_data killer {};
+    make_pk_pair(dead, killer);
+    obj_data bread {};
+    obj_data* const corpse = new obj_data {};
+    corpse->contains = &bread;
+    rules.on_character_died(&dead, &killer, corpse);
+    ASSERT_TRUE(rules.is_corpse_protected(&killer, corpse)) << "the corpse was not protected";
+
+    corpse->contains = nullptr;
+    global_release_flag = 0;
+    free_obj(corpse);
+    global_release_flag = 1;
+    obj_data* const successor = corpse;
+
+    EXPECT_FALSE(rules.is_corpse_protected(&killer, successor))
+        << "an object at a freed corpse's address inherited its protection";
+    delete successor;
+    // The dead player's looting protection is held by id and outlives the corpse.
+    rules.on_character_disconnected(&dead);
 }

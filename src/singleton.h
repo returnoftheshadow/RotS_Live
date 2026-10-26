@@ -52,6 +52,9 @@ public:
         m_pInstance = &theInstance;
     }
 
+    // Whether create has made the instance yet.
+    static bool is_created() { return m_pInstance != nullptr; }
+
     static T& instance()
     {
         if (!m_pInstance) {

@@ -1,3 +1,4 @@
+#include "../handler.h"
 #include "../spells.h"
 #include "../utils.h"
 #include "test_random_utils.h"
@@ -124,6 +125,16 @@ struct MageTestContext {
         victim.specials.position = POSITION_STANDING;
         caster.in_room = 7;
         victim.in_room = 7;
+    }
+
+    // A spell's damage angers the caster, and an affect puts its character on the global
+    // affected list, so the affects go before the characters do.
+    ~MageTestContext() {
+        for (char_data *character : {&caster, &victim, &master}) {
+            while (character->affected) {
+                affect_remove(character, character->affected);
+            }
+        }
     }
 
     void prepare_for_spell_damage() {

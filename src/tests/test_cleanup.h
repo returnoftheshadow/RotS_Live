@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../db.h"
+#include "../interpre.h"
 #include "../protocol.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -109,4 +110,16 @@ private:
     player_index_element* m_previous_player_table;
     // The position of its last entry, put back with it.
     int m_previous_top_of_p_table;
+};
+
+// Drops every linked-character selection unlock on entry and when the scope ends, so an unlock
+// the test grants and never uses is not still pending in a later test or a repeat of this one.
+class ScopedSelectionUnlockReset {
+public:
+    ScopedSelectionUnlockReset() { clear_account_character_selection_unlocks(); }
+
+    ~ScopedSelectionUnlockReset() { clear_account_character_selection_unlocks(); }
+
+    ScopedSelectionUnlockReset(const ScopedSelectionUnlockReset&) = delete;
+    ScopedSelectionUnlockReset& operator=(const ScopedSelectionUnlockReset&) = delete;
 };
