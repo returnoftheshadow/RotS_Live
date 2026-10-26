@@ -826,6 +826,21 @@ SPECIAL(snake)
     return FALSE;
 }
 
+/* Has <host> say <words>, or yell them when <yell> is set. The hearers' scripts (a yell sets off
+ * the procedures of its zone) can remove the one speaking: true if it is still there. */
+static bool speak_and_stay(char_data* host, const char* words, bool yell)
+{
+    freed_watch speaker_watch(host);
+    /* Both commands only read the words. */
+    char* spoken = const_cast<char*>(words);
+    if (yell) {
+        do_gen_com(host, spoken, 0, 0, SCMD_YELL);
+    } else {
+        do_say(host, spoken, 0, 0, 0);
+    }
+    return !speaker_watch.freed();
+}
+
 /*
  * This function is not highly commented, except for its
  * differences from gatekeeper2.  If you'd like commentary,
@@ -936,20 +951,23 @@ SPECIAL(gatekeeper)
     }
 
     if (!host->delay.cmd || !host->delay.subcmd) {
-        do_say(host, "Ugh, I forgot what I'm doing.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ugh, I forgot what I'm doing.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -1) {
-        do_say(host, "There is nothing like that here.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "There is nothing like that here.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -2) {
-        do_say(host, "Ah, there is no door for me to open.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ah, there is no door for me to open.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -960,9 +978,11 @@ SPECIAL(gatekeeper)
 
     if (ch != NULL && IS_AGGR_TO(host, ch)) {
         asprintf(&msg, "To arms! The enemy is at %s!", world[ch->in_room].name);
-        do_gen_com(host, msg, 0, 0, SCMD_YELL);
+        const bool still_here = speak_and_stay(host, msg, true);
         free(msg);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (still_here) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -985,8 +1005,9 @@ SPECIAL(gatekeeper)
 
     if (host->delay.subcmd == 2) {
         if (CAN_GO(host, doordir)) {
-            do_say(host, "Ah, the door is open. You are free to go.", 0, 0, 0);
-            host->delay.cmd = host->delay.subcmd = 0;
+            if (speak_and_stay(host, "Ah, the door is open. You are free to go.", false)) {
+                host->delay.cmd = host->delay.subcmd = 0;
+            }
             return FALSE;
         }
     }
@@ -1188,20 +1209,23 @@ SPECIAL(gatekeeper2)
      * bash (or anything else, for that matter)
      */
     if (!host->delay.cmd || !host->delay.subcmd) {
-        do_say(host, "Ugh, I forgot what I'm doing.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ugh, I forgot what I'm doing.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -1) {
-        do_say(host, "There is nothing like that here.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "There is nothing like that here.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -2) {
-        do_say(host, "Ah, there is no door for me to open.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ah, there is no door for me to open.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -1212,9 +1236,11 @@ SPECIAL(gatekeeper2)
 
     if (ch && IS_AGGR_TO(host, ch)) {
         asprintf(&msg, "To arms! The enemy is at %s!", world[ch->in_room].name);
-        do_gen_com(host, msg, 0, 0, SCMD_YELL);
+        const bool still_here = speak_and_stay(host, msg, true);
         free(msg);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (still_here) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -1230,8 +1256,9 @@ SPECIAL(gatekeeper2)
 
     if (host->delay.subcmd == 2) {
         if (CAN_GO(host, doordir)) {
-            do_say(host, "Ah, the door is open. You are free to go.", 0, 0, 0);
-            host->delay.cmd = host->delay.subcmd = 0;
+            if (speak_and_stay(host, "Ah, the door is open. You are free to go.", false)) {
+                host->delay.cmd = host->delay.subcmd = 0;
+            }
             return FALSE;
         }
     }
@@ -3361,9 +3388,34 @@ SPECIAL(ghoul)
 
 SPECIAL(swarm) { return 0; }
 
+/* Whoever a breath over <room> goes on to after <victim>, given <following>, who stood after the
+ * victim before the breath struck it: nobody if nobody did; <following> if still in the room;
+ * otherwise whoever now stands after the victim, if it is still in the room (<victim_freed>
+ * false); otherwise nobody. <victim> and <following> are compared by address until found in the
+ * room, so either may have been freed. */
+static char_data* next_breath_victim(const room_data& room, char_data* victim, bool victim_freed,
+    char_data* following)
+{
+    if (!following) {
+        return nullptr;
+    }
+    bool victim_here = false;
+    for (char_data* person = room.people; person; person = person->next_in_room) {
+        if (person == following) {
+            return following;
+        }
+        if (person == victim) {
+            victim_here = true;
+        }
+    }
+    if (victim_here && !victim_freed) {
+        return victim->next_in_room;
+    }
+    return nullptr;
+}
+
 SPECIAL(dragon)
 {
-    struct char_data *tmpch, *tmpch_next;
     int dam_value, mob_level;
 
     if (GET_POS(host) != POSITION_FIGHTING) {
@@ -3378,11 +3430,23 @@ SPECIAL(dragon)
 
     dam_value = dice(mob_level, 6);
 
-    for (tmpch = world[host->in_room].people; tmpch; tmpch = tmpch_next) {
-        tmpch_next = tmpch->next_in_room;
-        if (tmpch != host) {
-            damage(host, tmpch, dam_value, SPELL_DRAGONSBREATH, 0);
+    /* Each blow can remove the dragon, the victim or anyone else here (a death, a damage
+     * script); the breath ends with the dragon. */
+    const room_data& room = world[host->in_room];
+    freed_watch dragon_watch(host);
+    char_data* victim = room.people;
+    while (victim) {
+        char_data* following = victim->next_in_room;
+        if (victim == host) {
+            victim = following;
+            continue;
         }
+        freed_watch victim_watch(victim);
+        damage(host, victim, dam_value, SPELL_DRAGONSBREATH, 0);
+        if (dragon_watch.freed()) {
+            return 0;
+        }
+        victim = next_breath_victim(room, victim, victim_watch.freed(), following);
     }
     return 0;
 }
@@ -3627,7 +3691,10 @@ SPECIAL(thuringwethil)
             break;
 
     if (GET_HIT(host) <= 500) {
-        do_say(host, "Curse you all, I will remember this outrage!\n\r", 0, 0, 0);
+        /* Her last words can set off scripts that remove her first. */
+        if (!speak_and_stay(host, "Curse you all, I will remember this outrage!\n\r", false)) {
+            return 1;
+        }
         if (obj)
             act("$n hides her face from the glowing plate!", FALSE, host, 0, 0, TO_ROOM);
         for (tmpch = combat_list; tmpch; tmpch = tmpch->next_fighting)

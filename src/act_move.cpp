@@ -146,8 +146,9 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
      Returns :
 
      0 : success
-     1 : intercepted by specials, or something like that; also when an
-         ON_BEFORE_ENTER script removed ch, which the caller must then not touch
+     1 : intercepted by specials, or something like that; also when a special
+         procedure or an ON_BEFORE_ENTER script removed ch, which the caller must
+         then not touch
      2 : need a boat
      3 : not enough move points
      4 : mount exhausted // obsolete
@@ -352,8 +353,16 @@ int perform_move_mount(struct char_data* ch, int dir)
 
     is_death = IS_SET(world[new_room].room_flags, DEATH);
 
+    /* A special procedure, a script or a death below can remove the mount; it is not touched
+     * again once it is gone. */
+    freed_watch mount_watch(ch);
+
     /* supposedly, the primary rider has already passed special() */
     special(ch->mount_data.rider, dir + 1, "", SPECIAL_COMMAND, 0);
+    /* Removing a rider unseats it: with the mount or every rider gone, the move is off. */
+    if (mount_watch.freed() || !ch->mount_data.rider) {
+        return 0;
+    }
 
     for (tmpch = ch->mount_data.rider->mount_data.next_rider,
         num2 = ch->mount_data.rider->mount_data.next_rider_number;
@@ -424,8 +433,19 @@ int perform_move_mount(struct char_data* ch, int dir)
         }
         char_from_room(tmpch);
         char_to_room(tmpch, new_room);
-        if (is_death)
+        if (is_death) {
+            /* The death (its special procedure, the rest of a paused script it runs) can
+             * remove the mount or the next rider: the riders after a removed one are left
+             * where they are. */
+            freed_watch next_rider_watch(tmpch2);
             raw_kill(tmpch, NULL, 0);
+            if (mount_watch.freed()) {
+                return 0;
+            }
+            if (next_rider_watch.freed()) {
+                break;
+            }
+        }
     }
     /* Setting tracks in room */
     if ((IS_NPC(ch) || (GET_RACE(ch) != RACE_GOD)) && !(IS_AFFECTED(ch, AFF_FLYING))) {
@@ -480,7 +500,6 @@ int perform_move_mount(struct char_data* ch, int dir)
 
     /* Arriving can remove the mount or a rider (a special, a script). The move has happened, so
      * the function still returns 1, but nobody removed is used again. */
-    freed_watch mount_watch(ch);
     for (tmpch = ch->mount_data.rider; tmpch; tmpch = tmpch2) {
         tmpch2 = tmpch->mount_data.next_rider;
         freed_watch rider_watch(tmpch);
