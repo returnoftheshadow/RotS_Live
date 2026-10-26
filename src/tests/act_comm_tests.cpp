@@ -1,6 +1,7 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
+#include "../note_writing.h"
 #include "../structs.h"
 #include "../utils.h"
 #include "test_cleanup.h"
@@ -145,6 +146,7 @@ protected:
 
     void TearDown() override
     {
+        finish_writing_note(m_descriptor);
         m_descriptor.str = nullptr;
         while (object_list != nullptr) {
             extract_obj(object_list);
@@ -194,7 +196,7 @@ private:
 TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the ford.");
     /* Finished directly: %e regrows the text with a copy that reads past the old buffer. */
@@ -214,7 +216,7 @@ TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
 TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the");
     type("%q");
@@ -227,7 +229,7 @@ TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
 TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the ford.");
     type("%e");
@@ -240,7 +242,7 @@ TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
 TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
     const std::string long_line(BLOCK_STR_LEN, 'x');
 
     type("Meet me at the ford.");
@@ -404,7 +406,7 @@ TEST_F(NoteWritingTest, AReplacementOnAnEmptyNoteReplacesNothing)
 
     type("%sford~river");
 
-    EXPECT_EQ(m_descriptor.str, &m_note->action_description);
+    EXPECT_EQ(m_descriptor.written_note, m_note);
     EXPECT_STREQ(m_note->action_description, "\n\r"); /* a command starts an empty text with a line break */
     EXPECT_NE(std::string(m_descriptor.output).find("Replaced 0 occurence"), std::string::npos);
 }
@@ -542,6 +544,38 @@ TEST_F(NoteWritingTest, ANoteFreedWhileBeingWrittenOnEndsTheWriting)
     EXPECT_NE(std::string(m_descriptor.output).find("What you were writing is gone."),
         std::string::npos)
         << m_descriptor.output;
+    EXPECT_EQ(m_descriptor.written_note, nullptr);
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
+}
+
+/* Each line typed shows on the note at once, in a copy of its own: the editor keeps its buffer. */
+TEST_F(NoteWritingTest, EachLineTypedShowsOnTheNote)
+{
+    start_writing();
+
+    type("Meet me at the");
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\r");
+    type("ford.");
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\rford.\n\r");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_NE(static_cast<const void*>(m_note->action_description),
+        static_cast<const void*>(*m_descriptor.str));
+}
+
+/* A writer whose connection goes keeps on the note what it wrote so far and lets go of the
+ * editor's buffer. */
+TEST_F(NoteWritingTest, FinishingAWriterKeepsWhatItWrote)
+{
+    start_writing();
+    type("Meet me at the");
+
+    finish_writing_note(m_descriptor);
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_EQ(m_descriptor.written_note, nullptr);
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\r");
 }
 
 } // namespace

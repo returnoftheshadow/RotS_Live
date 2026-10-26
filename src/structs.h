@@ -2184,6 +2184,11 @@ struct descriptor_data {
     unsigned int str_limit; /* most characters string_add lets *str hold; 0 = no limit */
     unsigned int len_str; /* present length of *str               */
     unsigned int cur_str; /* current pointer position in *str     */
+    // The note this descriptor's editor writes on (note_writing.h); null when it writes none.
+    struct obj_data* written_note = nullptr;
+    // The editor's text for written_note, which str points at while it is written; this
+    // descriptor owns it.
+    char* written_note_text = nullptr;
     int prompt_mode; /* control of prompt-printing		*/
     bool bare_prompt_pending; /* true if the last thing written to this socket was a bare
                                   prompt/menu marker with no trailing newline, so the next

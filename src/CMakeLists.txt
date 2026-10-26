@@ -133,6 +133,7 @@ set(ROTS_SERVER_SOURCES
     mudlle.cpp
     mudlle2.cpp
     mystic.cpp
+    note_writing.cpp
     number_text.cpp
     obj2html.cpp
     object_skins.cpp

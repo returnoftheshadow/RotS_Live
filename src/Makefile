@@ -73,6 +73,7 @@ SOURCES := \
     main.cpp \
     mail.cpp \
     mystic.cpp \
+    note_writing.cpp \
     number_text.cpp \
     mage.cpp \
     mobact.cpp \

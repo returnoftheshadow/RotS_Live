@@ -21,6 +21,7 @@
 #include "limits.h"
 #include "mail.h"
 #include "mudlle.h"
+#include "note_writing.h"
 #include "pkill.h"
 #include "protos.h"
 #include "script.h"
@@ -3839,6 +3840,7 @@ void free_obj(struct obj_data* obj)
     struct extra_descr_data *thith, *next_one;
 
     note_object_freed(obj);
+    stop_writing_on_note(*obj);
     /* Someone writing on a note is typing into its text. */
     stop_editing_text({ &obj->name, &obj->description, &obj->short_description,
         &obj->action_description });

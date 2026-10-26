@@ -50,7 +50,7 @@ skin_base_rule check_skin_base(int skin_vnum, int base_vnum)
     const obj_data& base = obj_proto[rnum];
     if (base.obj_flags.type_flag == ITEM_KEY)
         return skin_base_rule::base_is_key;
-    /* A player writing on a note edits its text in place; a restyle would swap it underneath. */
+    /* A note shows what a player wrote on it; a restyle would replace that with its target's. */
     if (base.obj_flags.type_flag == ITEM_NOTE)
         return skin_base_rule::base_is_note;
     if (base.obj_flags.skin_base != 0)
