@@ -637,6 +637,25 @@ void recalc_worn_weight(char_data* character)
     }
 }
 
+/* Puts <item>, just loaded from <owner>'s save, on <wearer> (the owner or a follower) in <slot>,
+ * quietly. A save that names a slot twice (damaged or hand-edited) cannot wear both: the second
+ * item goes into <owner>'s inventory, so the player keeps it, and the clash is logged. */
+static void equip_loaded_item(char_data* wearer, obj_data* item, int slot, char_data* owner)
+{
+    /* equip_char refuses a filled slot without placing the item, which would leave it held by
+       nobody and never freed. */
+    if (wearer->equipment[slot] != nullptr) {
+        sprintf(buf, "SYSERR: %s's save puts object %d in wear slot %d of %s, which is already "
+                     "filled; put in the inventory.",
+            GET_NAME(owner), obj_index[item->item_number].virt, slot, GET_NAME(wearer));
+        log(buf);
+        obj_to_char(item, owner);
+        return;
+    }
+
+    equip_char(wearer, item, slot, gear_change::quiet);
+}
+
 FILE* Crash_load(char_data* character)
 {
     FILE* fl;
@@ -771,7 +790,7 @@ FILE* Crash_load(char_data* character)
                 /* Quietly: the character is in no room yet, and in_room holds the load room's
                    vnum, so a blow or a death here would land in the wrong room. */
                 if (obj != &dummy_sack)
-                    equip_char(character, obj, object.wear_pos, gear_change::quiet);
+                    equip_loaded_item(character, obj, object.wear_pos, character);
                 equip_array[0] = obj;
             } else if ((object.wear_pos == MAX_WEAR) || !equip_array[0]) {
                 if (obj != &dummy_sack)
@@ -1123,7 +1142,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
                 return;
             }
             /* Quietly, as its leader's gear goes back on (Crash_load). */
-            equip_char(mob, obj, object.wear_pos, gear_change::quiet);
+            equip_loaded_item(mob, obj, object.wear_pos, ch);
         }
         switch (fol_elem.flag_config) {
         case FOL_ORC_FRIEND: // We should really have an add_recruit function
