@@ -363,6 +363,13 @@ void string_add(struct descriptor_data* d, char* str)
     int terminator = 0;
     int tmp, tmp2, tmpmark, crmark;
 
+    /* A text not started yet has no length, whatever an earlier edit on this connection left. */
+    if (!d->str || !*d->str) {
+        d->len_str = 0;
+        d->cur_str = 0;
+        d->max_str = 0;
+    }
+
     tmpmark = d->cur_str;
     crmark = 1;
 
