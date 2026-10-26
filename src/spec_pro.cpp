@@ -3365,6 +3365,22 @@ SPECIAL(ar_tarthalon)
  * If the spawned Ghouls are not fighting they
  * return to the ground whence they came
  */
+/* The ghoul the ghoul special raises from the ground. */
+constexpr int RISEN_GHOUL_VNUM = 15300;
+
+/* The first of <host>'s followers that is a ghoul it raised; null if none is. Anyone else
+ * following it, a player above all, is passed over. */
+static char_data* first_risen_ghoul(const char_data* host)
+{
+    for (const follow_type* following = host->followers; following; following = following->next) {
+        char_data* follower = following->follower;
+        if (IS_NPC(follower) && follower->nr >= 0 && mob_index[follower->nr].virt == RISEN_GHOUL_VNUM) {
+            return follower;
+        }
+    }
+    return nullptr;
+}
+
 SPECIAL(ghoul)
 {
     struct char_data* mob;
@@ -3373,8 +3389,8 @@ SPECIAL(ghoul)
 
     if (GET_POS(host) != POSITION_FIGHTING) {
         if (host->followers && !number(0, 10)) {
-            mob = host->followers->follower;
-            if (!mob->followers) {
+            mob = first_risen_ghoul(host);
+            if (mob && !mob->followers) {
                 act("$n seems to fade away into the ground.", TRUE, host, 0, 0, TO_ROOM);
                 /* What it carries falls to the ground (extract_char). */
                 if (destroy_equipment_and_stay(mob)) {
@@ -3393,7 +3409,7 @@ SPECIAL(ghoul)
     if (num_followers < 3) {
         act("Decaying hands claw their way out of the ground as $n emerges.", TRUE, host, 0, 0,
             TO_ROOM);
-        mob = read_mobile(real_mobile(15300), REAL);
+        mob = read_mobile(real_mobile(RISEN_GHOUL_VNUM), REAL);
         char_to_room(mob, host->in_room);
         add_follower(mob, host, FOLLOW_MOVE);
     }
