@@ -966,8 +966,10 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
             }
         }
 
-        // Cut short by a stop signal that reaches the process during the wait: SIGINT, which the
-        // mask lets through, or any stop the harness's input thread receives.
+        // Cut short, within STOP_POLL_INTERVAL, only by a stop that reaches the process during
+        // the wait: SIGINT, which the mask lets through, or any stop the harness's input thread
+        // receives. The mask holds SIGTERM and SIGHUP back through the wait, so on the production
+        // server those are acted on below, within one pulse.
         sleep_unless_stop_requested(time_left);
 
         // Delivers the signals the mask held back, then acts on every signal recorded since the
