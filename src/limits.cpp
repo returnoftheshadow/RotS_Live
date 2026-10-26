@@ -1543,14 +1543,8 @@ void affect_update_room(struct room_data* room)
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
-                            /* Its blow can remove, through what it sets off (a death, a script),
-                             * the one to be struck next: the spell then strikes no one else. */
-                            freed_watch next_watch(next_tmpch);
                             (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
                                 tmpch, 0, 0, 0);
-                            if (next_watch.freed()) {
-                                break;
-                            }
                         }
                         if (next_occupant_watch.freed())
                             break;
