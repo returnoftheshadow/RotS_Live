@@ -528,9 +528,14 @@ void get_corpse_desc(object_text::fields& out_text, const struct char_data* ch,
     default:
         strncpy(condition, "silent", BUF_LEN - 1);
     }
-    const char* whose = pc_star_types[GET_RACE(ch)];
+    const char* whose = nullptr;
     if (IS_NPC(ch)) {
         whose = GET_NAME(ch);
+    } else {
+        whose = pc_star_types[GET_RACE(ch)];
+    }
+    if (!whose) {
+        whose = "(null)"; /* as printf showed a missing name */
     }
     const std::string corpse_of = std::string(condition) + " corpse of " + whose;
     if (world[ch->in_room].sector_type == SECT_WATER_NOSWIM || world[ch->in_room].sector_type == SECT_WATER_SWIM || world[ch->in_room].sector_type == SECT_UNDERWATER)
