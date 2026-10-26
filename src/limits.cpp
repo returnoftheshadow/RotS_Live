@@ -1623,8 +1623,9 @@ void fast_update()
         if (GET_HIT(character) < 0 && hitregen < 0) {
             act("$n suddenly collapses on the ground.", TRUE, character, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, TYPE_UNDEFINED);
+            /* Recorded before the death, which frees a mob or a linkless player. */
             add_exploit_record(EXPLOIT_REGEN_DEATH, character, 0, NULL);
+            raw_kill(character, NULL, TYPE_UNDEFINED);
             return;
         }
 

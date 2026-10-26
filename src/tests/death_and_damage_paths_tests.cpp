@@ -271,3 +271,19 @@ TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
     EXPECT_TRUE(is_in_game(victim));
     EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(victim));
 }
+
+/* ---- dying of negative regeneration ---- */
+
+/* A mob whose regeneration drains its last hit points dies of it, and its death is noted
+ * without touching what is left of it. */
+TEST_F(DeathAndDamagePathsTest, AMobNegativeRegenerationKillsIsLetGo)
+{
+    char_data* drained = make_mob("drained", 0);
+    drained->tmpabilities.hit = 0;
+    drained->points.health_regen = -10 * MOB_HIT_POINTS;
+
+    fast_update();
+
+    EXPECT_FALSE(is_in_game(drained));
+    EXPECT_EQ(1, count_corpses_in_room());
+}
