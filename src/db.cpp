@@ -3843,7 +3843,7 @@ void free_obj(struct obj_data* obj)
     /* Someone writing on a note is typing into its text. */
     stop_editing_text({ &obj->name, &obj->description, &obj->short_description,
         &obj->action_description });
-    /* "string obj <name> extra <keyword>" types into an extra description. */
+    /* Only the disabled "string obj ... extra" ever edited these; kept so re-enabling it is safe. */
     for (extra_descr_data* extra = obj->ex_description; extra; extra = extra->next) {
         stop_editing_text({ &extra->description });
     }
