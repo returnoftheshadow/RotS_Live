@@ -2823,7 +2823,7 @@ struct set_struct {
     { "", LEVEL_GOD, PC, BINARY },
     { "level", LEVEL_GOD, BOTH, NUMBER },
     { "roomflag", LEVEL_GRGOD, PC, BINARY }, /* 35 */
-    { "room", LEVEL_IMPL, BOTH, NUMBER },
+    { "", LEVEL_IMPL, BOTH, NUMBER },
     { "siteok", LEVEL_GRGOD, PC, BINARY },
     { "xxdeleted", LEVEL_IMPL, PC, BINARY }, // use delete command
     { "prof", LEVEL_GRGOD, BOTH, MISC },
@@ -3134,16 +3134,6 @@ ACMD(do_wizset)
         break;
     case 35:
         SET_OR_REMOVE(PRF_FLAGS(vict), PRF_ROOMFLAGS);
-        break;
-    case 36:
-        if ((i = real_room(value)) < 0) {
-            send_to_char("No room exists with that number.\n\r", ch);
-            return;
-        }
-        if (IS_RIDING(vict))
-            stop_riding(vict);
-        char_from_room(vict);
-        char_to_room(vict, i);
         break;
     case 37:
         SET_OR_REMOVE(PLR_FLAGS(vict), PLR_SITEOK);
