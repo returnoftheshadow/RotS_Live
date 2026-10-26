@@ -1066,12 +1066,17 @@ void reset_zone(int zone)
                 }
                 {
                     /* Putting gear on can kill the mob (an item's poison) or set off a script
-                     * that removes it: the commands after this one then have no mob. */
+                     * that removes it or the last item loaded: the commands after this one then
+                     * have no mob, or no last object to put things in. */
                     freed_watch mob_watch(mob);
+                    freed_watch obj_watch(obj);
                     do_wear(mob, "all", 0, 0, 0);
                     if (mob_watch.freed()) {
                         mob = 0;
                         last_mob = 0;
+                    }
+                    if (obj_watch.freed()) {
+                        obj = 0;
                     }
                 }
                 last_cmd = 1;
@@ -1089,10 +1094,14 @@ void reset_zone(int zone)
                         obj = read_object(ZCMD.arg1, REAL);
                         /* As for 'K'. */
                         freed_watch mob_watch(mob);
+                        freed_watch obj_watch(obj);
                         equip_char(mob, obj, ZCMD.arg2);
                         if (mob_watch.freed()) {
                             mob = 0;
                             last_mob = 0;
+                        }
+                        if (obj_watch.freed()) {
+                            obj = 0;
                         }
                         last_cmd = 1;
                     }
