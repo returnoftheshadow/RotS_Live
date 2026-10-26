@@ -649,7 +649,7 @@ ASPELL(spell_shield)
         level += 5;
     }
 
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_SHIELD;
     af.duration = level + 5;
     af.modifier = level * 5; /* % of HP */
@@ -673,7 +673,7 @@ ASPELL(spell_flash)
 {
     char_data* tmpch;
     affected_type* tmpaf;
-    affected_type newaf;
+    affected_type newaf{};
     int afflevel, maxlevel;
 
     if (caster->in_room < 0)
@@ -842,7 +842,7 @@ ASPELL(spell_summon)
 
 ASPELL(spell_identify)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!obj) {
         send_to_char("You should cast this on objects only.\n\r", caster);
@@ -996,7 +996,7 @@ ASPELL(spell_relocate)
     int zon_start, zon_target, zon_try, dist, was_in;
     int x, y, del_x, del_y, tmp, tmp2, num, tmpnum;
     struct room_data* room;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (caster->in_room == NOWHERE)
         return;
@@ -1186,7 +1186,7 @@ ASPELL(spell_relocate)
 ASPELL(spell_beacon)
 {
 
-    affected_type newaf;
+    affected_type newaf{};
     int mode;
     waiting_type* wtl = &caster->delay;
     mode = 0;
@@ -2082,7 +2082,7 @@ ASPELL(spell_black_arrow)
         dam >>= 1;
     } else if (number(1, 50) < level && GET_HIT(victim) > min_poison_dam) {
         // TODO(drelidan):  Should this conditional poison apply after damage is applied?
-        affected_type af;
+        affected_type af{};
         af.type = SPELL_POISON;
         af.duration = level + 1;
         af.modifier = -2;
@@ -2191,7 +2191,7 @@ ASPELL(spell_spear_of_darkness)
 
 ASPELL(spell_blaze)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     struct char_data* tmpch;
     struct char_data* tmpch_next;
@@ -2329,7 +2329,7 @@ ASPELL(spell_freeze)
  */
 ASPELL(spell_mist_of_baazunga)
 {
-    struct affected_type af, af2;
+    struct affected_type af{}, af2{};
     struct affected_type* oldaf;
     struct room_data* room;
     int modifier, direction, mod, roomnum;

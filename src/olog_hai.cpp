@@ -363,7 +363,7 @@ void apply_frenzy_affect(char_data* character)
     // generate messages
     generate_frenzy_message(character);
     // create affect
-    struct affected_type af;
+    struct affected_type af{};
     af.type = SKILL_FRENZY;
     af.duration = 20;
     af.modifier = 20;
