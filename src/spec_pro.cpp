@@ -842,20 +842,15 @@ static bool speak_and_stay(char_data* host, const char* words, bool yell)
     return !speaker_watch.freed();
 }
 
-/* Destroys everything <wearer> has equipped. Taking an item off can kill or remove the wearer
- * (gear poison, an item spell): true if it is still there. */
-static bool destroy_equipment_and_stay(char_data* wearer)
+/* Destroys everything <wearer> has equipped, taking it off quietly (gear_change::quiet), for a
+ * wearer about to leave the game. */
+static void destroy_equipment(char_data* wearer)
 {
-    freed_watch wearer_watch(wearer);
     for (int position = 0; position < MAX_WEAR; ++position) {
         if (wearer->equipment[position]) {
-            extract_obj(unequip_char(wearer, position));
-            if (wearer_watch.freed()) {
-                return false;
-            }
+            extract_obj(unequip_char(wearer, position, gear_change::quiet));
         }
     }
-    return true;
 }
 
 /*
@@ -3393,9 +3388,8 @@ SPECIAL(ghoul)
             if (mob && !mob->followers) {
                 act("$n seems to fade away into the ground.", TRUE, host, 0, 0, TO_ROOM);
                 /* What it carries falls to the ground (extract_char). */
-                if (destroy_equipment_and_stay(mob)) {
-                    extract_char(mob);
-                }
+                destroy_equipment(mob);
+                extract_char(mob);
             }
         }
         return 0;
@@ -3672,9 +3666,7 @@ SPECIAL(vampire_huntress)
         act("$n flaps her great wings, and flies away.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        if (!destroy_equipment_and_stay(host)) {
-            return 1;
-        }
+        destroy_equipment(host);
         for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
             obj = host->carrying;
             obj_from_char(host->carrying);
@@ -3751,9 +3743,7 @@ SPECIAL(thuringwethil)
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        if (!destroy_equipment_and_stay(host)) {
-            return 1;
-        }
+        destroy_equipment(host);
         for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
             obj = host->carrying;
             obj_from_char(host->carrying);

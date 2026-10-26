@@ -228,6 +228,7 @@ set(ROTS_TEST_SOURCES
     tests/affect_join_tests.cpp
     tests/affect_tick_tests.cpp
     tests/raw_kill_kit_flag_tests.cpp
+    tests/quiet_gear_change_tests.cpp
     tests/room_light_tests.cpp
     tests/weather_tests.cpp
     tests/mob_options_tests.cpp

@@ -1395,7 +1395,22 @@ void obj_from_char(struct obj_data* object)
         object->obj_flags.prog_number = 0;
 }
 
-bool equip_char(char_data* character, obj_data* item, int item_slot)
+/* Whether <change> lets the item affect at <affect_index> of <item> change its wearer through
+ * affect_modify. A quiet change passes over a spell that is not a worn affect: casting it is the
+ * side effect a quiet change leaves out. */
+static bool changes_wearer_through_affect(const obj_data* item, int affect_index, gear_change change)
+{
+    const obj_affected_type& affect = item->affected[affect_index];
+    if (change == gear_change::cast || affect.location != APPLY_SPELL) {
+        return true;
+    }
+
+    /* The spell number, decoded as affect_modify decodes it. */
+    const int spell_number = affect.modifier & 255;
+    return item_spell_is_worn_affect(spell_number);
+}
+
+bool equip_char(char_data* character, obj_data* item, int item_slot, gear_change change)
 {
     int was_poisoned = IS_AFFECTED(character, AFF_POISON);
 
@@ -1475,10 +1490,15 @@ bool equip_char(char_data* character, obj_data* item, int item_slot)
 
     /* An item spell (APPLY_SPELL) is cast on the wearer as it goes on, and a harmful one can kill
      * the wearer or set off a script that removes the wearer or the item. A death that leaves the
-     * wearer (a player) strips the item off, and its remaining affects then do not apply. */
+     * wearer (a player) strips the item off, and its remaining affects then do not apply. A spell
+     * a quiet change passes over still gives the item's bitvector, as every affect does. */
     freed_watch wearer_watch(character);
     freed_watch item_watch(item);
     for (int affect_index = 0; affect_index < MAX_OBJ_AFFECT; affect_index++) {
+        if (!changes_wearer_through_affect(item, affect_index, change)) {
+            affect_modify(character, APPLY_NONE, 0, item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
+            continue;
+        }
         affect_modify(character, item->affected[affect_index].location,
             item->affected[affect_index].modifier,
             item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
@@ -1494,7 +1514,7 @@ bool equip_char(char_data* character, obj_data* item, int item_slot)
 
     // Special case for poisoned objects.  The wearer should get poison damage
     // when wearing/removing something poisoned.
-    if (was_poisoned == 0 && IS_AFFECTED(character, AFF_POISON)) {
+    if (change == gear_change::cast && was_poisoned == 0 && IS_AFFECTED(character, AFF_POISON)) {
         extern void raw_kill(struct char_data * character, const char_data * killer, int attacktype);
 
         damage(character, character, 5, SPELL_POISON, 0);
@@ -1515,7 +1535,7 @@ bool equip_char(char_data* character, obj_data* item, int item_slot)
     return true;
 }
 
-struct obj_data* unequip_char(struct char_data* ch, int pos)
+struct obj_data* unequip_char(struct char_data* ch, int pos, gear_change change)
 {
     int j;
     int was_poisoned = 0;
@@ -1565,9 +1585,14 @@ struct obj_data* unequip_char(struct char_data* ch, int pos)
     }
 
     /* Taking off an item that casts a spell (APPLY_SPELL) casts it again, and a harmful one can
-     * kill the wearer or set off a script that removes it. The item is then nobody's. */
+     * kill the wearer or set off a script that removes it. The item is then nobody's. A spell a
+     * quiet change passes over still takes the item's bitvector away, as every affect does. */
     freed_watch wearer_watch(ch);
     for (j = 0; j < MAX_OBJ_AFFECT; j++) {
+        if (!changes_wearer_through_affect(obj, j, change)) {
+            affect_modify(ch, APPLY_NONE, 0, obj->obj_flags.bitvector, AFFECT_MODIFY_REMOVE, 0);
+            continue;
+        }
         affect_modify(ch, obj->affected[j].location,
             obj->affected[j].modifier,
             obj->obj_flags.bitvector, AFFECT_MODIFY_REMOVE, 0);
@@ -1582,8 +1607,8 @@ struct obj_data* unequip_char(struct char_data* ch, int pos)
     // Special case for poisoned objects.  The wearer should get poison damage
     // when wearing/removing something poisoned. A dying wearer being stripped, or one in no room
     // (being removed from the game), is not hurt: that death would be a second one.
-    if (was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON) && GET_POS(ch) > POSITION_DEAD
-        && ch->in_room != NOWHERE) {
+    if (change == gear_change::cast && was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON)
+        && GET_POS(ch) > POSITION_DEAD && ch->in_room != NOWHERE) {
         extern void raw_kill(struct char_data * ch, const char_data * killer, int attacktype);
 
         damage(ch, ch, 5, SPELL_POISON, 0);
@@ -2181,17 +2206,17 @@ void extract_char(struct char_data* ch, int new_room)
         ch->specials2.load_room = world[ch->in_room].number;
         char_from_room(ch);
 
-        /* clear equipment_list */
+        /* clear equipment_list; the gear comes off quietly, as from anyone leaving the game */
         for (l = 0; l < MAX_WEAR; l++)
             if (ch->equipment[l])
-                obj_to_room(unequip_char(ch, l), was_in);
+                obj_to_room(unequip_char(ch, l, gear_change::quiet), was_in);
 
         recount_light_room(was_in);
     } else {
         was_in = NOWHERE;
         for (l = 0; l < MAX_WEAR; l++)
             if (ch->equipment[l])
-                extract_obj(unequip_char(ch, l));
+                extract_obj(unequip_char(ch, l, gear_change::quiet));
     }
     for (l = 0; l < MAX_WEAR; l++)
         ch->equipment[l] = 0;

@@ -25,7 +25,6 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
-#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -111,14 +110,9 @@ ACMD(do_quit)
 
     if (GET_LEVEL(ch) >= LEVEL_IMMORT) {
         Crash_crashsave(ch, RENT_QUIT);
-        /* Taking an item off can hurt the one quitting (unequip_char); one it freed is gone. */
-        freed_watch quitter_watch(ch);
         for (tmp = 0; tmp < MAX_WEAR; tmp++) {
             if (ch->equipment[tmp]) {
-                extract_obj(unequip_char(ch, tmp));
-                if (quitter_watch.freed()) {
-                    return;
-                }
+                extract_obj(unequip_char(ch, tmp, gear_change::quiet));
             }
         }
         while (ch->carrying)
