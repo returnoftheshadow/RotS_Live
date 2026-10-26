@@ -2380,15 +2380,25 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
 {
     int clobbered_color;
     char* used_color;
-    register char *strp, *point;
-    register const char* i;
+    char *strp, *point;
+    const char* i;
+    char* const output = (char*)buf;
+    const char* const normal_color = CC_NORM(to);
+    /* buf holds MAX_STRING_LENGTH bytes, as act_buffer does. The text stops where "\n\r", the
+       terminator and the closing color still fit; a longer message is cut there. */
+    const char* const text_end = output + MAX_STRING_LENGTH - (3 + strlen(normal_color));
+    auto append = [&point, text_end](const char* text) -> void {
+        while (*text != '\0' && point < text_end)
+            *point++ = *text++;
+    };
 
     i = NULL;
     used_color = NULL;
     clobbered_color = FALSE;
 
-    for (strp = (char*)str, point = (char*)buf;;)
+    for (strp = (char*)str, point = output;;)
         if (*strp == '$') {
+            i = ""; /* an unrecognized code adds nothing */
             switch (*(++strp)) {
             case 'C': /* This is a two-letter color code */
                 switch (*(++strp)) {
@@ -2497,35 +2507,42 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
                 break;
             default:
                 log("SYSERR: Illegal $-code to act():");
-                strcpy(buf1, "SYSERR: ");
-                strcat(buf1, str);
+                snprintf(buf1, sizeof(buf1), "SYSERR: %s", str);
                 log(buf1);
                 break;
             }
-            while ((*point = *(i++)))
-                ++point;
-            ++strp;
+            if (i)
+                append(i);
+            /* A '$' or "$C" ending the string leaves strp on its terminator. */
+            if (*strp != '\0')
+                ++strp;
 
             if (clobbered_color && used_color != NULL) {
-                i = used_color;
-                while ((*point = *(i++)))
-                    ++point;
+                append(used_color);
                 clobbered_color = 0;
             }
-        } else if (!(*(point++) = *(strp++)))
+        } else if (*strp == '\0') {
             break;
+        } else {
+            if (point < text_end)
+                *point++ = *strp;
+            ++strp;
+        }
 
-    *(--point) = '\n';
-    *(++point) = '\r';
-    *(++point) = '\0';
+    *point++ = '\n';
+    *point++ = '\r';
+    *point = '\0';
 
     if (used_color)
-        sprintf(point, CC_NORM(to));
+        strcpy(point, normal_color);
 
     /* Find the first character in the string, ignoring ANSI colors */
-    for (strp = (char*)buf; *strp == '\x1B'; ++strp)
-        while (*strp != 'm')
+    for (strp = output; *strp == '\x1B';) {
+        while (*strp != '\0' && *strp != 'm')
             ++strp;
+        if (*strp != '\0')
+            ++strp;
+    }
 
     if (isalpha(*strp))
         CAP(strp);
