@@ -106,6 +106,15 @@ def test_a_sharded_plan_keeps_exactly_the_tests_conftest_keeps(shard: Shard, exc
     assert set(built.kept_test_ids(unticked)) == conftest_kept
 
 
+def test_a_sharded_plan_balances_the_shards_by_the_committed_times_as_conftest_does() -> None:
+    # test_one alone takes as long as the rest, so it has a shard to itself.
+    shard_seconds = {ALL_IDS[0]: 100.0, ALL_IDS[1]: 1.0, ALL_IDS[2]: 1.0, ALL_IDS[3]: 1.0}
+    for number in (1, 2):
+        built = run_plan.build_plan(TESTS, GROUPS, [], DURATIONS, 1, Shard(number, 2), shard_seconds=shard_seconds)
+        assert set(built.kept_test_ids([])) == sharding.in_shard(ALL_IDS, Shard(number, 2), shard_seconds)
+    assert run_plan.build_plan(TESTS, GROUPS, [], DURATIONS, 1, Shard(1, 2), shard_seconds=shard_seconds).kept_test_ids([]) == [ALL_IDS[0]]
+
+
 def test_skip_groups_are_split_on_spaces_and_commas_without_repeats() -> None:
     assert run_plan.parse_skip_groups(" poison, summon  poison,", GROUPS) == ["poison", "summon"]
     assert run_plan.parse_skip_groups("", GROUPS) == []
@@ -662,6 +671,7 @@ def fail_collection(python: str, group: str, environ) -> tuple[Optional[list[Col
 def run_main(arguments: list[str], environ: dict[str, str], runner: FakeRunner, tmp_path: Path, collect=fail_collection, interactive: bool = False) -> int:
     return run_plan.main(
         arguments, environ=environ, run_command=runner, collect=collect, interactive=interactive, durations_path=tmp_path / "durations.json",
+        shard_durations_path=tmp_path / "shard_durations.json",
     )
 
 
@@ -749,6 +759,18 @@ def test_a_sharded_run_collects_without_the_shard_and_plans_this_shards_tests(tm
     assert status == 0
     assert environments == [{"OTHER": "kept"}]
     # Without poison the sorted selection is test_one and test_four; shard 1/3 keeps test_one.
+    assert "Total: 1 test," in capsys.readouterr().out
+
+
+def test_a_sharded_run_plans_the_shard_the_shard_durations_file_balances(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    # test_four alone takes as long as the other three, so shard 1/2 keeps only it.
+    (tmp_path / "shard_durations.json").write_text(f'{{"{ALL_IDS[3]}": 100.0}}', encoding="utf-8")
+
+    def collect_all(python: str, group: str, environ) -> tuple[Optional[list[CollectedTest]], int]:
+        return TESTS, 0
+
+    status = run_main(["--python", "py", "--plan-only"], {"ROTS_IT_SHARD": "1/2"}, FakeRunner(), tmp_path, collect=collect_all)
+    assert status == 0
     assert "Total: 1 test," in capsys.readouterr().out
 
 

@@ -213,11 +213,27 @@ included (locally a header runs every group, as above), so name the groups whose
 touches. A name no group file registers fails the job and lists the registered groups.
 Tokens inside an HTML comment (`<!-- -->`) are ignored. Editing the description reruns the jobs,
 and the "Choose the integration groups" job's summary lists the groups that run and why. A run of
-every group is split across eight parallel jobs, `shard 1/8` to `shard 8/8`, through
-`ROTS_IT_SHARD`; a run of chosen groups is one job. Each job uploads its
+every group is split across `INTEGRATION_SHARDS` parallel jobs, `shard 1/N` to `shard N/N`, through
+`ROTS_IT_SHARD`; a run of chosen groups is one job. Every job runs its scenarios on
+`INTEGRATION_JOBS_PER_SHARD` pytest-xdist workers (`JOBS`). Both values are set once, at the top
+of `.github/workflows/integration.yml`. A GitHub-hosted runner has 4 CPUs, and every job takes one
+runner from the account's shared limit on concurrent jobs. Each job uploads its
 `build/integration/results.xml`, with every test's result and time, as its
 `integration-results-shard-<k>` artifact, pass or fail. When a scenario fails, its kept run
 directories are uploaded as that job's `integration-runs-shard-<k>` artifact.
+
+The shards are balanced by each test's time in `tests/integration/shard_durations.json`, so
+every shard takes about as long; a test the file lacks counts 15 seconds. Each test still runs in
+exactly one shard. Refresh the file when tests are added or their times change, from the results
+of one or more recent full runs (a push, or a pull request with `@integration-test-all`):
+
+```bash
+gh run download <run id> --pattern 'integration-results-shard-*' --dir build/ci-results/<run id>
+make integration-shard-durations PYTHON=.venv/bin/python RESULTS=build/ci-results
+```
+
+Each test's time is its median over every `results.xml` under `RESULTS`, leaving out runs where it
+failed; a test no result file timed is dropped from the file.
 
 Each job loads the development image from the Actions cache, or from the repository's
 `dev-image-jammy-<hash>` pre-release for the `Dockerfile`'s hash, and builds it from the Ubuntu
@@ -250,7 +266,7 @@ Environment variables:
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds to wait for the Docker lock, a finite number |
 | `ROTS_IT_DOCKER_LOCK_DIR` | `/tmp/rots-docker-lock` | the shared Docker lock directory |
 | `ROTS_IT_HOUR_TIMEOUT` | `10.0` | seconds `server.advance_hours` allows per game hour, a positive finite number |
-| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only every N-th selected test in node id order, starting at the k-th; a shard left with no tests passes |
+| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only the k-th of N shares of the selected tests, balanced by `shard_durations.json` (see Continuous integration); a shard left with no tests passes when `JOBS` runs no workers |
 | `ROTS_IT_ALLOW_STALE` | unset | `1` runs a program older than its sources, for example to test an old build on purpose |
 | `ROTS_IT_CONFIRM_MINUTES` | `10` | the estimate, in minutes, from which `make integration` without a terminal needs `CONFIRM=yes`; a positive number (see The run plan) |
 

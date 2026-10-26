@@ -30,7 +30,7 @@ from rots_harness.launcher import (
 from rots_harness.libbuilder import ROTSTOOL_RELATIVE, LibTemplateBuilder, RunLibProvider, discard_session_templates, session_templates_dir
 from rots_harness.retention import RunDirectoryReport, keep_run_directory
 from rots_harness.session import GameSession, end_sessions
-from rots_harness.sharding import Shard, in_shard, parse_shard
+from rots_harness.sharding import SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
 from rots_harness.timecontrol import OUTPUT_LOG_NAME, TimeControl, parse_hour_timeout, schedule_name_from_marker
 
 # tests/integration: this file, pytest.ini, the group files and the test world.
@@ -77,6 +77,8 @@ WORKER_NODES_KEY = pytest.StashKey[list]()
 DOCKER_LOCK_KEY = pytest.StashKey[DockerLock]()
 # Each test's last recorded time, which the run plan estimates a run from.
 DURATIONS_FILE = REPO_ROOT / durations.DURATIONS_RELATIVE
+# Each test's committed time from CI, which ROTS_IT_SHARD balances the shards by.
+SHARD_DURATIONS_FILE = INTEGRATION_ROOT / SHARD_DURATIONS_RELATIVE
 # The name the subgroup marking check is registered under as a plugin.
 SUBGROUP_CHECK_PLUGIN_NAME = "rots_it_subgroup_marking_check"
 
@@ -199,11 +201,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Keeps only this run's share of the selected tests when ROTS_IT_SHARD is set, deselecting the rest.
 
     trylast, so the -m and -k deselection has already run and the shards split only the selection.
+    The shares are balanced by SHARD_DURATIONS_FILE (sharding.in_shard).
     """
     selected_shard = shard()
     if selected_shard is None or not items:
         return
-    kept_ids = in_shard((item.nodeid for item in items), selected_shard)
+    kept_ids = in_shard((item.nodeid for item in items), selected_shard, durations.read_durations(SHARD_DURATIONS_FILE))
     kept = [item for item in items if item.nodeid in kept_ids]
     deselected = [item for item in items if item.nodeid not in kept_ids]
     if deselected:

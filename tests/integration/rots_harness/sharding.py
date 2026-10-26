@@ -1,13 +1,20 @@
-"""Splits a run's collected tests into numbered shards, so parallel jobs each run one share."""
+"""Splits a run's collected tests into numbered shards, so parallel jobs each run one share of about equal time."""
 
 from __future__ import annotations
 
+import heapq
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from pathlib import Path
+from typing import Iterable, Mapping, Optional
+
+from rots_harness.durations import DEFAULT_TEST_SECONDS
 
 # A shard value: the shard's number, a slash and the shard count, digits only.
 SHARD_PATTERN = re.compile(r"([0-9]+)/([0-9]+)")
+# The committed per-test seconds the shards are balanced by, relative to tests/integration;
+# make integration-shard-durations refreshes it from CI's results.
+SHARD_DURATIONS_RELATIVE = Path("shard_durations.json")
 
 
 @dataclass(frozen=True)
@@ -32,11 +39,31 @@ def parse_shard(value: str) -> Shard:
     return Shard(number, count)
 
 
-def in_shard(node_ids: Iterable[str], shard: Shard) -> set[str]:
-    """The node ids the shard keeps: every count-th id in sorted order, starting at the shard's number.
+def in_shard(node_ids: Iterable[str], shard: Shard, recorded_seconds: Optional[Mapping[str, float]] = None) -> set[str]:
+    """The node ids the shard keeps, from shares of about equal recorded seconds.
 
-    Sorting first makes the split independent of collection order, so every shard of the same
-    selection agrees on which shard owns each test.
+    Every id lands in exactly one of the count shards, and the shares depend only on the set of
+    ids and recorded_seconds, never on their order, so every shard and every pytest-xdist worker
+    of the same selection agrees on which shard owns each test. A test with no recorded time
+    counts DEFAULT_TEST_SECONDS. With no recorded times at all, the shards take turns in sorted
+    node id order, starting at shard 1.
     """
-    ordered = sorted(set(node_ids))
-    return {node_id for index, node_id in enumerate(ordered) if index % shard.count == shard.number - 1}
+    seconds = recorded_seconds or {}
+    unique_ids = set(node_ids)
+
+    def test_seconds(node_id: str) -> float:
+        return seconds.get(node_id, DEFAULT_TEST_SECONDS)
+
+    # Longest first, each to the shard with the least time so far (the lowest number on a tie):
+    # the classic greedy split, whose slowest shard is never a third slower than the best
+    # possible, and quick enough for every worker to repeat at collection. The node id breaks
+    # ties between equal times, so the order is total.
+    longest_first = sorted(unique_ids, key=lambda node_id: (-test_seconds(node_id), node_id))
+    shard_loads = [(0.0, index) for index in range(shard.count)]
+    kept = set()
+    for node_id in longest_first:
+        load, index = heapq.heappop(shard_loads)
+        if index == shard.number - 1:
+            kept.add(node_id)
+        heapq.heappush(shard_loads, (load + test_seconds(node_id), index))
+    return kept
