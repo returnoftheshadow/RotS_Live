@@ -15,6 +15,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -562,6 +563,25 @@ double get_casting_level(const char_data* caster, int casting_level, int casting
     final_level += casting_stat / 5.0;
     return final_level;
 }
+
+/* True when spell_number indexes the skills table; otherwise logs the refusal, naming
+ * command_name and caster. Mob programs hand spell numbers over unchecked. */
+bool is_spell_number_in_table(const char_data* caster, int spell_number, const char* command_name)
+{
+    if (spell_number >= 0 && spell_number < MAX_SKILLS) {
+        return true;
+    }
+
+    const char* caster_name = GET_NAME(caster);
+    if (caster_name == nullptr) {
+        caster_name = "(unnamed)";
+    }
+    char refusal[MAX_STRING_LENGTH];
+    snprintf(refusal, sizeof(refusal), "SYSERR: %s: %s gave spell number %d, outside the skills table.",
+        command_name, caster_name, spell_number);
+    log(refusal);
+    return false;
+}
 } // namespace
 
 /* Assumes that *argument does start with first letter of chopped string */
@@ -692,6 +712,10 @@ ACMD(do_cast)
             spell_index = tmp;
         }
 
+        if (!is_spell_number_in_table(ch, spell_index, "do_cast")) {
+            return;
+        }
+
         const skill_data& spell = skills[spell_index];
         /* Checking for the spell validity now */
         switch (spell.type) {
@@ -742,7 +766,7 @@ ACMD(do_cast)
                         return;
                     } else if (ch->extra_specialization_data.is_mage_spec()) {
                         elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
-                        if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
+                        if (spec_data && spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
                             send_to_char(
                                 "You have already exposed your target to the elements!\n\r", ch);
                             return;
@@ -844,7 +868,7 @@ ACMD(do_cast)
     case TAR_DIR_NAME:
     case TAR_DIR_WAY: {
         tar_dig = wtl->targ2.ch_num;
-        if (tar_dig < 0 || tar_dig > NUM_OF_DIRS) {
+        if (tar_dig < 0 || tar_dig >= NUM_OF_DIRS) {
             send_to_char("Error in direction spell, please notify imps.\n\r", ch);
             return;
         }
@@ -1003,9 +1027,14 @@ ACMD(do_cast)
             return;
         }
 
-        /* execute the spell */
+        /* execute the spell; it can remove the caster (a script its blow sets off, a death that
+         * runs one), and with it the delay <wtl> may be part of */
+        freed_watch caster_watch(ch);
         ((*skills[spell_index].spell_pointer)(ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig,
             0));
+        if (caster_watch.freed()) {
+            return;
+        }
 
         /*
          * Casting a prepared spell now causes a short after-spell
@@ -1072,9 +1101,12 @@ ACMD(do_prepare)
                 }
                 spl = tmp;
 
-            } else if (wtl && (wtl->targ1.type == TARGET_OTHER))
+            } else if (wtl && (wtl->targ1.type == TARGET_OTHER)) {
                 spl = wtl->targ1.ch_num;
-            else { /* wtl isn't useful, use the command line */
+                if (!is_spell_number_in_table(ch, spl, "do_prepare")) {
+                    return;
+                }
+            } else { /* wtl isn't useful, use the command line */
                 if (!argument)
                     return;
 

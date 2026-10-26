@@ -156,6 +156,10 @@ void another_hour(int mode);
 void weather_change(void);
 void weather_to_char(const char_data* ch);
 
+/* Returns the weather message for sector_type under its current sky, or NULL (logged) when the
+ * sector type or its sky value has no message. */
+const char* weather_message_for_sector(int sector_type);
+
 extern char* moon_phase[];
 
 // weather_messages[] entries end in "\n\r" for direct display to the
@@ -309,16 +313,46 @@ int sector_age_value(int sector_type)
     }
 }
 
+const char* weather_message_for_sector(int sector_type)
+{
+    constexpr int SECTOR_COUNT = sizeof(weather_info.sky) / sizeof(weather_info.sky[0]);
+    constexpr int MESSAGE_ROWS = sizeof(weather_messages) / sizeof(weather_messages[0]);
+    static_assert(SECTOR_COUNT == sizeof(weather_messages[0]) / sizeof(weather_messages[0][0]),
+        "weather_messages needs one column per sector");
+
+    char complaint[MAX_STRING_LENGTH];
+    if (sector_type < 0 || sector_type >= SECTOR_COUNT) {
+        snprintf(complaint, sizeof(complaint), "SYSERR: weather_message_for_sector: sector type %d is not a sector.",
+            sector_type);
+        log(complaint);
+        return NULL;
+    }
+
+    // Sky values start at SKY_CLOUDLESS (0); the two rows before it are sunrise and sunset.
+    const int message_row = weather_info.sky[sector_type] + 2;
+    if (message_row < 2 || message_row >= MESSAGE_ROWS) {
+        snprintf(complaint, sizeof(complaint), "SYSERR: weather_message_for_sector: sector %d has sky value %d.",
+            sector_type, weather_info.sky[sector_type]);
+        log(complaint);
+        return NULL;
+    }
+    return weather_messages[message_row][sector_type];
+}
+
 void weather_to_char(const char_data* ch)
 {
-    int sector_type, weather_type;
+    const char* const NO_FEELING = "You can have no feeling about the weather here.\n\r";
+    if (!OUTSIDE(ch)) {
+        send_to_char(NO_FEELING, ch);
+        return;
+    }
 
-    sector_type = world[ch->in_room].sector_type;
-    weather_type = weather_info.sky[world[ch->in_room].sector_type];
-    if (OUTSIDE(ch))
-        send_to_char(weather_messages[weather_type + 2][sector_type], ch);
-    else
-        send_to_char("You can have no feeling about the weather here.\n\r", ch);
+    const char* message = weather_message_for_sector(world[ch->in_room].sector_type);
+    if (message == NULL) {
+        send_to_char(NO_FEELING, ch);
+        return;
+    }
+    send_to_char(message, ch);
 }
 
 void age_bleed_tracks()

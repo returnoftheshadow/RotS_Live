@@ -4,6 +4,10 @@
 #include "test_random_utils.h"
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <cstring>
+#include <new>
+
 extern struct room_data world;
 
 namespace {
@@ -233,6 +237,61 @@ TEST(WeaponMasterHandler, ReturnsNoScoreMessageForNonSpecialists) {
 
     EXPECT_EQ(handler.append_score_message(message_buffer), 0)
         << "Expected non-weapon masters to receive no specialization score message.";
+}
+
+namespace {
+
+// Builds a weapon master's handler for <character> wielding <weapon> over storage whose every int
+// reads as slashing, so a weapon type the constructor leaves unset reads as slashing too.
+struct HandlerOverSlashingBytes {
+    // Storage for the handler, filled with slashing before the handler is built in it.
+    alignas(player_spec::weapon_master_handler) unsigned char storage[sizeof(player_spec::weapon_master_handler)];
+    // The handler, built in storage and destroyed with this object.
+    player_spec::weapon_master_handler* handler = nullptr;
+
+    explicit HandlerOverSlashingBytes(char_data* character) {
+        const int slashing = static_cast<int>(game_types::WT_SLASHING);
+        static_assert(sizeof(storage) % sizeof(slashing) == 0, "the storage is filled an int at a time");
+        for (std::size_t offset = 0; offset < sizeof(storage); offset += sizeof(slashing)) {
+            std::memcpy(storage + offset, &slashing, sizeof(slashing));
+        }
+        handler = new (storage) player_spec::weapon_master_handler(character);
+    }
+
+    ~HandlerOverSlashingBytes() { handler->~weapon_master_handler(); }
+};
+
+} // namespace
+
+TEST(WeaponMasterHandler, AnUnarmedWeaponMasterHasNoWeaponBonuses) {
+    WeaponMasterTestContext context(game_types::PS_WeaponMaster, game_types::WT_SLASHING);
+    HandlerOverSlashingBytes unarmed(&context.character);
+    char message_buffer[256] = {};
+
+    EXPECT_EQ(unarmed.handler->get_bonus_OB(), 0);
+    EXPECT_EQ(unarmed.handler->get_bonus_PB(), 0);
+    EXPECT_EQ(unarmed.handler->append_score_message(message_buffer), 0) << message_buffer;
+    EXPECT_FLOAT_EQ(unarmed.handler->get_attack_speed_multiplier(), 1.0f);
+    EXPECT_EQ(unarmed.handler->get_total_damage(100), 100);
+}
+
+TEST(WeaponMasterHandler, AWeaponMasterWieldingANonWeaponHasNoWeaponBonuses) {
+    WeaponMasterTestContext context(game_types::PS_WeaponMaster, game_types::WT_SLASHING);
+    context.weapon.obj_flags.type_flag = ITEM_ARMOR;
+    context.character.equipment[WIELD] = &context.weapon;
+    HandlerOverSlashingBytes holding_armor(&context.character);
+
+    EXPECT_EQ(holding_armor.handler->get_bonus_OB(), 0);
+    EXPECT_EQ(holding_armor.handler->get_bonus_PB(), 0);
+}
+
+TEST(WeaponMasterHandler, AWieldedSlashingWeaponStillGivesItsBonuses) {
+    WeaponMasterTestContext context(game_types::PS_WeaponMaster, game_types::WT_SLASHING);
+    context.character.equipment[WIELD] = &context.weapon;
+    player_spec::weapon_master_handler handler(&context.character);
+
+    EXPECT_EQ(handler.get_bonus_OB(), 5);
+    EXPECT_EQ(handler.get_bonus_PB(), 5);
 }
 
 TEST_F(WeaponMasterProcTest, ImprovesDamageRollWhenCleaveProcSucceedsAndRollsHigherDamage) {
