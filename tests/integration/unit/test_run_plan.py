@@ -451,6 +451,22 @@ def test_one_worker_runs_without_xdist(jobs_text: str) -> None:
     assert "-n" not in run_plan.pytest_run_command("py", "scenario", jobs_text)
 
 
+def test_the_run_command_runs_named_targets_without_an_expression() -> None:
+    targets = ["tests/integration/scenarios/test_boot.py::test_a", "tests/integration/scenarios/test_bank.py"]
+    assert run_plan.pytest_run_command("py", None, "4", targets) == ["py", "-m", "pytest", *targets, "-q", "-n", "4", *run_plan.REPORT_ARGUMENTS]
+
+
+def test_the_collect_command_collects_the_groups_scenarios() -> None:
+    assert run_plan.collect_command("py", "boot") == [
+        "py", "-m", "pytest", "tests/integration/scenarios", "-q", "--collect-only", "-p", "rots_harness.collect_report", "-m", "scenario and (boot)",
+    ]
+
+
+def test_the_collect_command_collects_named_targets_without_an_expression() -> None:
+    targets = ["tests/integration/scenarios/test_boot.py::test_a"]
+    assert run_plan.collect_command("py", "", targets) == ["py", "-m", "pytest", *targets, "-q", "--collect-only", "-p", "rots_harness.collect_report"]
+
+
 def test_the_repeat_line_reproduces_the_choice() -> None:
     line = run_plan.repeat_command(".venv/bin/python", "boot or poison", ["summon", "shaping"], "8")
     assert line == "make integration PYTHON=.venv/bin/python GROUP='boot or poison' JOBS=8 SKIP_GROUPS='summon shaping' CONFIRM=yes"
