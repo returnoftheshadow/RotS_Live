@@ -214,6 +214,9 @@ set(ROTS_TEST_SOURCES
     tests/game_heartbeat_tests.cpp
     tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
+    tests/expose_elements_tests.cpp
+    tests/mystic_tests.cpp
+    tests/ranger_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/kill_experience_tests.cpp
@@ -223,6 +226,7 @@ set(ROTS_TEST_SOURCES
     tests/affect_tick_tests.cpp
     tests/raw_kill_kit_flag_tests.cpp
     tests/room_light_tests.cpp
+    tests/weather_tests.cpp
     tests/mob_options_tests.cpp
     tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp

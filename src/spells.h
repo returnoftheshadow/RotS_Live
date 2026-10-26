@@ -14,6 +14,7 @@
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the MAX_SKILLS macro */
 #include <algorithm>
+#include <cstddef>
 
 /*
  * Spell ranges are:
@@ -464,6 +465,9 @@ ASPELL(spell_resist_magic);
 ASPELL(spell_slow_digestion);
 ASPELL(spell_dispel_regeneration);
 ASPELL(spell_fear);
+/* The most characters a divination report's list of the room's people, or of its objects, holds:
+ * a longer list stops after the entries that fit and ends "and more.". */
+inline constexpr std::size_t DIVINATION_LIST_LIMIT = 999;
 ASPELL(spell_divination);
 ASPELL(spell_sanctuary);
 ASPELL(spell_vitality);

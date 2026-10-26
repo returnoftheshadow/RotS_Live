@@ -1545,11 +1545,9 @@ char* one_argument(char* argument, char* first_arg)
         /* Find length of first word */
         /* Make all letters lower case, AND copy them to first_arg */
         if (*(argument + begin) == '\'') {
-            for (look_at = 0; *(argument + begin + look_at) && (*(argument + begin + look_at) != '\''); look_at++)
-                *(first_arg + look_at) = LOWER(*(argument + begin + look_at));
-
-            if (*(argument + begin + look_at) == '\'')
-                look_at++;
+            /* A word that opens with a quote comes back empty, with only the quote consumed. */
+            *first_arg = '\0';
+            look_at = 1;
         } else {
             for (look_at = 0; *(argument + begin + look_at) > ' '; look_at++)
                 *(first_arg + look_at) = LOWER(*(argument + begin + look_at));

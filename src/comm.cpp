@@ -540,9 +540,14 @@ void clean_expose_elements()
         char_data* mage = *iter;
         if (mage->extra_specialization_data.is_mage_spec()) {
             elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
-            if (spec_data->exposed_target) {
+            if (spec_data == NULL) {
+                log("SYSERR: clean_expose_elements: a mage specialisation has no expose-elements data");
+            } else if (mage->in_room == NOWHERE) {
+                // A mage in no room (a player at the menu) keeps the mark until back in the world.
+            } else if (spec_data->exposed_target || spec_data->exposed_target_freed) {
                 // The mage has cast 'expose elements' on a target.  If that target is no longer
-                // in the room, remove this.
+                // in the room, remove this.  A freed target is in no room: its mark is already
+                // cleared, and the search below cannot find it.
                 int room_number = mage->in_room;
                 const room_data& current_room = world[room_number];
 
@@ -592,6 +597,23 @@ void untrack_specialized_mage(const char_data* mage)
     char_iter found_mage = std::remove(specialized_mages.begin(), specialized_mages.end(), mage);
     if (found_mage != specialized_mages.end()) {
         specialized_mages.erase(found_mage);
+    }
+}
+
+/* Declared in utils.h. */
+void forget_freed_exposed_target(const char_data* target)
+{
+    if (!target) {
+        log("SYSERR: forget_freed_exposed_target: no target");
+        return;
+    }
+
+    for (char_data* mage : specialized_mages) {
+        elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
+        if (spec_data && spec_data->exposed_target == target) {
+            spec_data->reset();
+            spec_data->exposed_target_freed = true;
+        }
     }
 }
 
@@ -770,14 +792,15 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        auto sector_type = world[desc->character->in_room].sector_type;
-        auto weather_type = weather_info.sky[sector_type];
-        extern char* weather_messages[8][13];
+        extern const char* weather_message_for_sector(int sector_type);
         extern std::string strip_trailing_line_break(const char* text);
 
+        const char* weather_message = nullptr;
         if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER,
-                strip_trailing_line_break(weather_messages[weather_type + 2][sector_type]).c_str());
+            weather_message = weather_message_for_sector(world[desc->character->in_room].sector_type);
+        }
+        if (weather_message != nullptr) {
+            MSDPSetString(desc, eMDSP_WEATHER, strip_trailing_line_break(weather_message).c_str());
         } else {
             MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
         }
