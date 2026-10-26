@@ -111,6 +111,7 @@ TEST(ReadMobOptions, ReadsTextThenStopsBeforeNextRecord)
     std::string value;
     EXPECT_TRUE(mob_option_find(text, "store", &value));
     EXPECT_EQ(value, "5");
+    RELEASE(text);
     char next[16];
     ASSERT_EQ(fscanf(f, "%15s", next), 1);
     EXPECT_STREQ(next, "#1235");
@@ -184,6 +185,7 @@ TEST(WriteMobOptions, WritesOnlyNonEmptyAndRoundTrips)
     std::string value;
     EXPECT_TRUE(mob_option_find(text, "hours", &value));
     EXPECT_EQ(value, "6-20");
+    RELEASE(text);
     fclose(f);
 }
 

@@ -2225,6 +2225,9 @@ TEST_F(DbLoader, AnEnchantIsSavedLoadedAndKeptAcrossAVersionBump)
     EXPECT_EQ(loaded->affected[0].location, APPLY_OB);
     EXPECT_EQ(loaded->affected[0].modifier, 6);
     EXPECT_EQ(count_object_enchants(loaded), 1);
+
+    /* Login reports the refreshed objects after Crash_load, which empties the character's entry. */
+    Crash_report_object_refreshes(&character);
 }
 
 void Crash_follower_load(char_data* ch, FILE* fp);
