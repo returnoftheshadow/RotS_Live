@@ -607,6 +607,10 @@ ACMD(do_concentrate)
 
             if (victim_flees) {
                 do_flee(victim, "", NULL, 0, 0);
+                /* The flight can set off a procedure or script that removes the attacker. */
+                if (attacker_watch.freed()) {
+                    return;
+                }
             }
         } else {
             send_to_char("You release your concentration.\n\r", ch);
