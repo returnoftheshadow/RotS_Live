@@ -287,3 +287,151 @@ TEST_F(DeathAndDamagePathsTest, AMobNegativeRegenerationKillsIsLetGo)
     EXPECT_FALSE(is_in_game(drained));
     EXPECT_EQ(1, count_corpses_in_room());
 }
+
+/* ---- spells ---- */
+
+/* The shout's blow at the first mob sets off a script that removes the mob after it: the shout
+ * strikes the first and stops there. */
+TEST_F(DeathAndDamagePathsTest, AShoutOfPainStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(second, first->next_in_room);
+
+    spell_shout_of_pain(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(first));
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+}
+
+/* The shout's blow at the first mob sets off its damage script, which removes the caster: the
+ * shout ends with the caster, and the mob after it is not struck. */
+TEST_F(DeathAndDamagePathsTest, AShoutOfPainEndsWithTheCasterItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", 0);
+
+    spell_shout_of_pain(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(first));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(second));
+}
+
+/* As for the shout: an earthquake stops at the mob its blow removes. */
+TEST_F(DeathAndDamagePathsTest, AnEarthquakeStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(second, first->next_in_room);
+
+    spell_earthquake(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+}
+
+/* A fire mage's fireball removes its target (the target's damage script): the rest of the room
+ * is spared as the target, friendly to the mage, decided before it went. */
+TEST_F(DeathAndDamagePathsTest, AFireMagesFireballGoesOnAfterRemovingItsTarget)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    if (m_player.profs == nullptr) {
+        CREATE1(m_player.profs, char_prof_data);
+    }
+    m_player.profs->specialization = static_cast<int>(game_types::PS_Fire);
+    m_player.tmpabilities.hit = MOB_HIT_POINTS;
+    char_data* target = make_mob("target", SCRIPT_VNUM);
+    char_data* bystander = make_mob("bystander", 0);
+
+    spell_fireball(&m_player, empty_argument(), SPELL_TYPE_SPELL, target, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(target));
+    ASSERT_TRUE(is_in_game(bystander));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(bystander));
+}
+
+/* A blaze burning in the room strikes the first mob, whose script removes the mob after it: the
+ * blaze burns nobody more this time. */
+TEST_F(DeathAndDamagePathsTest, ARoomBlazeStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(first, world[0].people);
+    ASSERT_EQ(second, first->next_in_room);
+    affected_type blaze {};
+    blaze.type = ROOMAFF_SPELL;
+    blaze.duration = 5;
+    blaze.modifier = 10;
+    blaze.location = SPELL_BLAZE;
+    affect_to_room(&world[0], &blaze);
+    push_test_random_value(0.99); /* whether a mist would move: there is none */
+    push_test_random_value(0.0); /* the 1 in 13 chance that the blaze strikes the first */
+
+    affect_update_room(&world[0]);
+
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+    while (world[0].affected) {
+        affect_remove_room(&world[0], world[0].affected);
+    }
+}
+
+/* A mob finishes casting a shout of pain whose blow sets off a script that removes it: the cast
+ * ends there, leaving the delay that went with the caster alone. */
+TEST_F(DeathAndDamagePathsTest, ACastEndsWithTheCasterItsSpellRemoves)
+{
+    assign_command_pointers();
+    take_player_out_of_the_room();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* caster = make_mob("caster", 0);
+    caster->player.level = 50; /* a mob this strong never fumbles the spell */
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    char line[] = "cast 'shout of pain'";
+    command_interpreter(caster, line, nullptr);
+    ASSERT_GT(caster->delay.wait_value, 0) << "the cast did not start";
+
+    complete_delay(caster);
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(victim));
+}
+
+/* ---- orders ---- */
+
+/* Each follower ordered to speak is removed by what it says (a mob that removes whoever speaks):
+ * the order goes on from one removed follower to the next. */
+TEST_F(DeathAndDamagePathsTest, AnOrderGoesOnPastAFollowerItRemoves)
+{
+    assign_command_pointers();
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } }, { SCRIPT_BEGIN, nullptr, {} },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } }, { SCRIPT_END, nullptr, {} } });
+    make_mob("warden", SCRIPT_VNUM);
+    char_data* followers[2] = { make_mob("first", 0), make_mob("second", 0) };
+    for (char_data* follower : followers) {
+        add_follower(follower, &m_player, FOLLOW_MOVE);
+        SET_BIT(follower->specials.affected_by, AFF_CHARM);
+    }
+
+    run_command(do_order, "followers say vanish");
+
+    EXPECT_FALSE(is_in_game(followers[0]));
+    EXPECT_FALSE(is_in_game(followers[1]));
+    EXPECT_EQ(nullptr, m_player.followers);
+}

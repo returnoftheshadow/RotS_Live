@@ -11,6 +11,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "platdef.h"
@@ -1639,9 +1640,14 @@ ASPELL(spell_earthquake)
     if (crack_chance)
         dam_value /= 2;
 
+    /* A blow can remove the one hit, the caster or, through what it sets off (a death, a
+     * script), the one to be hit next: the earthquake ends with the caster, and the tremors with
+     * that one. */
+    freed_watch caster_watch(caster);
     for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N withstands the vibrating earth.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -1649,6 +1655,12 @@ ASPELL(spell_earthquake)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_EARTHQUAKE, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
+            }
+            if (caster_watch.freed()) {
+                return;
+            }
+            if (next_watch.freed()) {
+                break;
             }
         }
         //  return;
@@ -1703,12 +1715,17 @@ ASPELL(spell_earthquake)
                 act("$n falls in.", TRUE, tmpch, 0, 0, TO_ROOM);
                 tmpch->specials.position = POSITION_SITTING;
 
+                freed_watch next_watch(tmpch_next);
                 if (new_saves_spell(caster, tmpch, 0)) {
                     act("$N manages to land on his feet!", FALSE, caster, 0, tmpch, TO_CHAR);
                     act("You manage to land on your feet!", FALSE, caster, 0, tmpch, TO_VICT);
                     apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
                 } else {
                     apply_spell_damage(caster, tmpch, dam_value * 2, SPELL_EARTHQUAKE, 0);
+                }
+                /* As for the tremors. */
+                if (caster_watch.freed() || next_watch.freed()) {
+                    return;
                 }
             }
         }
@@ -1835,7 +1852,15 @@ ASPELL(spell_fireball)
     }
 
     bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
+    /* A fire mage spares the room while the target is friendly (asked of the target, not of
+     * each one splashed). A blow can remove the target (a death, a script); the answer it last
+     * gave then stands. */
+    bool target_friendly = is_fire_spec && is_friendly_taget(caster, victim);
 
+    /* A blow can remove the caster, the target, the one hit or, through what it sets off, the
+     * one to be splashed next: the blast ends with the caster or that one. */
+    freed_watch caster_watch(caster);
+    freed_watch target_watch(victim);
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
     bool saved = new_saves_spell(caster, victim, save_bonus);
     if (saved) {
@@ -1845,6 +1870,9 @@ ASPELL(spell_fireball)
     } else {
         apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
     }
+    if (caster_watch.freed()) {
+        return;
+    }
 
     char_data* next_character = nullptr;
     for (char_data* potential_victim = world[caster->in_room].people; potential_victim; potential_victim = next_character) {
@@ -1853,7 +1881,10 @@ ASPELL(spell_fireball)
             continue;
 
         /* Fire specialization mages won't hit friendly targets. */
-        if (is_fire_spec && is_friendly_taget(caster, victim))
+        if (is_fire_spec && !target_watch.freed()) {
+            target_friendly = is_friendly_taget(caster, victim);
+        }
+        if (target_friendly)
             continue;
 
         double random_roll = number();
@@ -1875,7 +1906,11 @@ ASPELL(spell_fireball)
                 splash_damage = splash_damage >> 1;
             }
 
+            freed_watch next_watch(next_character);
             apply_spell_damage(caster, potential_victim, splash_damage, SPELL_FIREBALL2, 0);
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
+            }
         }
     }
 }
@@ -2061,7 +2096,14 @@ ASPELL(spell_black_arrow)
         affect_join(victim, &af, FALSE, FALSE);
 
         send_to_char("The vile magic poisons you!\n\r", victim);
+        /* The poison's blow can remove the target or the caster (a death, a script): the arrow
+         * then strikes nobody. */
+        freed_watch caster_watch(caster);
+        freed_watch target_watch(victim);
         apply_spell_damage(caster, victim, min_poison_dam, SPELL_POISON, 0);
+        if (caster_watch.freed() || target_watch.freed()) {
+            return;
+        }
     }
 
     apply_spell_damage(caster, victim, dam, SPELL_BLACK_ARROW, 0);
@@ -2099,10 +2141,13 @@ ASPELL(spell_shout_of_pain)
 
     int dam_value = number(1, 50) + get_magic_power(caster) / 2;
 
+    /* As for earthquake. */
+    freed_watch caster_watch(caster);
     char_data* tmpch_next = NULL;
     for (char_data* tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N seems to resist some of the agony.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -2110,6 +2155,9 @@ ASPELL(spell_shout_of_pain)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_SHOUT_OF_PAIN, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_SHOUT_OF_PAIN, 0);
+            }
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
             }
         }
     }
@@ -2177,7 +2225,9 @@ ASPELL(spell_blaze)
         act("$n breathes out a cloud of fire!", TRUE, caster, 0, 0, TO_ROOM);
         send_to_char("You breathe out fire.\n\r", caster);
 
-        /* Damage everyone in the room */
+        /* Damage everyone in the room; as for earthquake, the blaze ends with the caster, and the
+         * burning with the one to be burned next. */
+        freed_watch caster_watch(caster);
         for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
             tmpch_next = tmpch->next_in_room;
 
@@ -2194,7 +2244,14 @@ ASPELL(spell_blaze)
                 dam = dam >> 1;
             }
 
+            freed_watch next_watch(tmpch_next);
             apply_spell_damage(caster ? caster : tmpch, tmpch, dam, SPELL_BLAZE, 0);
+            if (caster_watch.freed()) {
+                return;
+            }
+            if (next_watch.freed()) {
+                break;
+            }
         }
 
         /*
