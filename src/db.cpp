@@ -3720,6 +3720,8 @@ char* fread_line(FILE* fp)
 void free_char(struct char_data* ch)
 {
     note_char_freed(ch);
+    untrack_specialized_mage(ch);
+    forget_freed_exposed_target(ch);
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);
