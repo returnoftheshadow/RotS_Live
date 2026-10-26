@@ -39,6 +39,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "room_lists.h"
@@ -655,6 +656,7 @@ struct affected_type* get_from_affected_type_pool()
 void put_to_affected_type_pool(struct affected_type* oldaf)
 {
 
+    freed_log::note_freed(oldaf);
     free(oldaf);
     //  oldaf->next = affected_type_pool;
     //  affected_type_pool = oldaf;
@@ -966,31 +968,27 @@ affected_type* room_affected_by_spell(const room_data* room, int spell)
 void affect_join(struct char_data* ch, struct affected_type* af,
     char avg_dur, char avg_mod)
 {
-    struct affected_type* hjp;
-    char found = FALSE;
+    /* The first affect of the type, however far down a long list it is. */
+    struct affected_type* existing = ch->affected;
+    while (existing && existing->type != af->type)
+        existing = existing->next;
 
-    for (hjp = ch->affected; !found && hjp; hjp = hjp->next) {
-        if (hjp->type == af->type) {
+    if (existing) {
+        if (af->duration < existing->duration)
+            af->duration += existing->duration;
 
-            if (af->duration < hjp->duration)
-                af->duration += hjp->duration;
+        //	 if (avg_dur)
+        //	    af->duration /= 2;
 
-            //	 if (avg_dur)
-            //	    af->duration /= 2;
+        if ((af->modifier >= 0) && (af->modifier < existing->modifier))
+            af->modifier += existing->modifier;
 
-            if (((af->modifier >= 0) && (af->modifier < hjp->modifier)) || ((af->modifier >= 0) && (af->modifier < hjp->modifier)))
-                af->modifier += hjp->modifier;
+        //	 if (avg_mod)
+        //	    af->modifier /= 2;
 
-            //	 if (avg_mod)
-            //	    af->modifier /= 2;
-
-            affect_remove(ch, hjp);
-            affect_to_char(ch, af);
-            found = TRUE;
-        }
+        affect_remove(ch, existing);
     }
-    if (!found)
-        affect_to_char(ch, af);
+    affect_to_char(ch, af);
 }
 
 //***************** follow_type procedures ********************************

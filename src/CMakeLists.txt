@@ -219,6 +219,8 @@ set(ROTS_TEST_SOURCES
     tests/kill_experience_tests.cpp
     tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
+    tests/affect_join_tests.cpp
+    tests/affect_tick_tests.cpp
     tests/raw_kill_kit_flag_tests.cpp
     tests/room_light_tests.cpp
     tests/mob_options_tests.cpp

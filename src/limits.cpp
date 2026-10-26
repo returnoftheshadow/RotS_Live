@@ -33,6 +33,7 @@
 #include "world_clock.h"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 extern char* pc_race_types[];
 
@@ -1258,6 +1259,9 @@ void do_fame_war_bonuses(struct char_data* ch)
     {
         remove_fame_war_bonuses(ch, pkaff);
         affect_remove(ch, pkaff);
+        /* pkaff is freed, and an unranked player gets no new bonus. */
+        ch->player.ranking = ranking;
+        return;
     }
 
     if ((ranking == ch->player.ranking && pkaff) // ranking hasn't changed
@@ -1340,12 +1344,21 @@ void do_power_of_arda(char_data* ch)
     }
 }
 
+/* The nodes of the list that starts at <first>, in list order. */
+template <typename Node>
+static std::vector<Node*> copy_list_nodes(Node* first)
+{
+    std::vector<Node*> nodes;
+    for (Node* node = first; node; node = node->next)
+        nodes.push_back(node);
+    return nodes;
+}
+
 void affect_update_person(struct char_data* i, int mode)
 {
     affected_type* otheraf;
     // mode != 0 for fast_update
 
-    static struct affected_type *af, *next_af_dude;
     int tmp, freq, val, time_phase;
 
     if (i->desc && i->desc->connected && (i->desc->connected != CON_LINKLS))
@@ -1353,8 +1366,15 @@ void affect_update_person(struct char_data* i, int mode)
 
     time_phase = get_current_time_phase();
 
-    for (af = i->affected; af; af = next_af_dude) {
-        next_af_dude = af->next;
+    /* A tick can free other affects of the character: damage breaking its sanctuary or shield, a
+     * flee, the mob's own turn. The pass walks a copy of the list made before any tick runs and
+     * skips an affect freed before its turn. An affect added during the pass goes to the head of
+     * the list and waits for the next pass. */
+    freed_log freed_this_pass;
+    const std::vector<affected_type*> pass_affects = copy_list_nodes(i->affected);
+    for (affected_type* af : pass_affects) {
+        if (freed_this_pass.contains(af))
+            continue;
         if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase))) {
             if ((af->duration >= 1) || (af->duration < 0)) {
                 if (af->duration >= 1)
@@ -1384,6 +1404,9 @@ void affect_update_person(struct char_data* i, int mode)
                     if (fleeing_watch.freed()) {
                         return;
                     }
+                    if (freed_this_pass.contains(af)) {
+                        break;
+                    }
                     if (saves_spell(i, af->modifier -= 2, 0))
                         af->duration = 0;
                     break;
@@ -1402,7 +1425,12 @@ void affect_update_person(struct char_data* i, int mode)
                         one_mobile_activity(i);
                         if (!char_exists(abs_number))
                             return;
+                        if (freed_this_pass.contains(af))
+                            break;
                     }
+                    /* Falls through: activity also takes the confusion case's concentration
+                     * check. */
+                    [[fallthrough]];
                 case SPELL_CONFUSE:
                     if (IS_AFFECTED(i, AFF_CONCENTRATION) && (af->duration >= 10))
                         af->duration -= 3;
@@ -1492,12 +1520,17 @@ void affect_update_room(struct room_data* room)
                 if (1 /*skills[tmpaf->location].targets  & TAR_CHAR_ROOM*/) {
                     for (tmpch = room->people; tmpch; tmpch = next_tmpch) {
                         next_tmpch = tmpch->next_in_room;
+                        /* A death the spell causes can free the next occupant too (the dying
+                         * mob's script, a death special); then the spell is done here. */
+                        freed_watch next_occupant_watch(next_tmpch);
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
                             (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
                                 tmpch, 0, 0, 0);
                         }
+                        if (next_occupant_watch.freed())
+                            break;
                     }
                 } else {
                     sprintf(buf2, "Attempt to cast spell %d in room %d", tmpaf->location,
@@ -1544,6 +1577,8 @@ void affect_update_room(struct room_data* room)
 
                         affect_to_room(&world[roomnum], &newaf);
                         affect_remove_room(room, tmpaf);
+                        /* Freed: the mist has left this room, so it does not expire here. */
+                        tmpaf = nullptr;
                     }
                 }
             }
@@ -1564,13 +1599,17 @@ extern universal_list* affected_list_pool;
 
 void affect_update()
 {
-    universal_list *tmplist, *tmplist2, *tmplist3;
-    ;
     char mybuf[1000];
 
-    tmplist3 = 0;
-    for (tmplist = affected_list; tmplist; tmplist = tmplist2) {
-        tmplist2 = tmplist->next;
+    /* A tick can free entries besides its own: a room tick that kills an occupant frees the
+     * occupant's entry. The pass walks a copy of the list made before any tick runs and skips an
+     * entry freed before its turn. An entry added during the pass goes to the head of the list
+     * and waits for the next pass. */
+    freed_log freed_this_pass;
+    const std::vector<universal_list*> pass_entries = copy_list_nodes(affected_list);
+    for (universal_list* tmplist : pass_entries) {
+        if (freed_this_pass.contains(tmplist))
+            continue;
 
         if (tmplist->type == TARGET_CHAR) {
 
@@ -1587,7 +1626,6 @@ void affect_update()
         } else if (tmplist->type == TARGET_ROOM) {
             affect_update_room(tmplist->ptr.room);
         }
-        tmplist3 = tmplist; /* prev item */
     }
     walker_remove_finished(); /* walkers whose route ended during this pass */
 }
