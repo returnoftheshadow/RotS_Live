@@ -102,6 +102,8 @@ jobs:
           name: integration-selection
           path: ${{ runner.temp }}/selection.json
           if-no-files-found: error
+          # A re-run of every job uploads the list again under the same name (see the results upload).
+          overwrite: true
 
   scenarios:
     needs: select
@@ -160,6 +162,10 @@ jobs:
           name: integration-results-shard-${{ matrix.shard }}
           path: build/integration/results.xml
           if-no-files-found: ignore
+          # "Re-run failed jobs" runs a failed shard again in the same workflow run, where its first
+          # attempt's artifact still holds this name; overwrite replaces it instead of failing the
+          # upload, so the coverage job, re-run with it, reads only the newest results.
+          overwrite: true
 
       - name: Upload the kept run directories
         if: failure()
@@ -168,6 +174,8 @@ jobs:
           name: integration-runs-shard-${{ matrix.shard }}
           path: build/integration/runs/
           if-no-files-found: ignore
+          # A re-run shard's kept run directories replace its first attempt's (see the results upload).
+          overwrite: true
 
   coverage:
     # Fails the run when a shard's results are missing, or a selected scenario ran in no shard or in
@@ -192,6 +200,7 @@ jobs:
 
       - name: Download every shard's results
         # One folder per artifact, named after it; a shard that uploaded nothing has no folder.
+        # Each name holds only its shard's newest results, since a re-run's upload overwrites it.
         uses: actions/download-artifact@v4
         with:
           pattern: integration-results-shard-*
