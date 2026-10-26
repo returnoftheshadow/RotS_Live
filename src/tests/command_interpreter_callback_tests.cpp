@@ -6,10 +6,15 @@
 
 extern command_info cmd_info[];
 void assign_command_pointers(void);
+SPECIAL(mob_warrior);
 
 using namespace scripted_room;
 
 namespace {
+
+/* The roll that picks the second of the warrior program's turns, its bash, for a level 10 mob:
+ * the roll over 0 to 10, taken modulo the program's nine turns, must come out at 1. */
+constexpr double WARRIOR_BASH_TURN_ROLL = 0.12;
 
 /* The arguments the recording procedure and handler were given, in order. */
 std::vector<std::string> seen_arguments;
@@ -124,4 +129,24 @@ TEST_F(CommandInterpreterCallbackTest, ACompletedCommandThePlayerMayNoLongerUseI
 
     EXPECT_TRUE(seen_arguments.empty());
     EXPECT_TRUE(output_has("Unrecognized command.")) << output();
+}
+
+/* A warrior mob's program, on a bash turn, calls bash for it with no typed text: bash's procedures
+ * and handler are given an empty argument. The program acts only with a player in the room, as
+ * the test's player is. */
+TEST_F(CommandInterpreterCallbackTest, AWarriorProgramsBashTurnGivesBashNoText)
+{
+    char_data* warrior = make_mob("warrior", 0);
+    char_data* foe = make_mob("foe", 0);
+    warrior->specials.fighting = foe;
+    warrior->specials.position = POSITION_FIGHTING;
+    world[0].funct = record_argument;
+    cmd_info[CMD_BASH].command_pointer = record_handler_argument;
+    push_test_random_value(WARRIOR_BASH_TURN_ROLL);
+    char no_argument[] = "";
+
+    mob_warrior(warrior, warrior, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    const std::vector<std::string> expected = { "", "" };
+    EXPECT_EQ(expected, seen_arguments) << "the procedure's and then the handler's";
 }
