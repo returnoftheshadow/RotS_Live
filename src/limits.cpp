@@ -586,10 +586,10 @@ int check_idling(char_data* character)
         sprintf(buf, "%s force-rented and extracted (idle).", GET_NAME(character));
         mudlog(buf, NRM, LEVEL_GOD, TRUE);
 
+        /* The gear comes off quietly, as from anyone leaving the game. */
         for (int j = 0; j < MAX_WEAR; j++) {
             if (character->equipment[j]) {
-                Crash_extract_objs(character->equipment[j]);
-                character->equipment[j] = NULL;
+                Crash_extract_objs(unequip_char(character, j, gear_change::quiet));
             }
         }
         Crash_extract_objs(character->carrying);

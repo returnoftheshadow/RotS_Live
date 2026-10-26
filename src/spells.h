@@ -413,6 +413,12 @@ void recalc_skills(struct char_data*);
  * spell nobody to work on, and only a builder's mistaken item carries such a spell. */
 bool spell_lacks_victim(char_data* caster, const char_data* victim, int spell_number);
 
+/* True for a spell whose item form (APPLY_SPELL) gives the wearer a lasting affect as the item
+ * goes on, takes it as the item comes off, and does nothing else: the one kind of item spell a
+ * quiet gear change (gear_change::quiet) still casts. A spell whose item form starts or stops
+ * working that way is added here or taken out, or a login stops giving it or casts its harm. */
+bool item_spell_is_worn_affect(int spell_number);
+
 /* Mage spell prototypes */
 ASPELL(spell_blink);
 ASPELL(spell_magic_missile);

@@ -1820,6 +1820,29 @@ int clamp_resist_magnitude(int magnitude)
 /* The affect a worn item installs never ticks down; a cast always does. */
 static bool is_item_held(const affected_type* affect) { return affect && affect->duration == -1; }
 
+bool item_spell_is_worn_affect(int spell_number)
+{
+    /* Each of these, cast by an item (is_object), installs an affect that never ticks down and
+       removes it again on SPELL_TYPE_ANTI, without a blow or a saving throw. Pragmatism and
+       confuse also look at is_object but give an affect that ticks down, so they are casts. */
+    switch (spell_number) {
+    case SPELL_DETECT_HIDDEN:
+    case SPELL_ARMOR:
+    case SPELL_INSIGHT:
+    case SPELL_HAZE:
+    case SPELL_DEATH_WARD:
+    case SPELL_RESIST_FIRE:
+    case SPELL_RESIST_COLD:
+    case SPELL_RESIST_LIGHT:
+    case SPELL_RESIST_ILLUSION:
+    case SPELL_RESIST_PHYSICAL:
+    case SPELL_RESIST_DARK:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* The strongest resistance a still-worn item grants through this resist spell, or 0 when none
    does. Decodes APPLY_SPELL exactly as affect_modify() does, and skips a HOLD item that is not
    holdable because equip_char() never applied that item's affects in the first place. */

@@ -19,7 +19,6 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
-#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -769,8 +768,10 @@ FILE* Crash_load(char_data* character)
             if (object.wear_pos < 0)
                 object.wear_pos = MAX_WEAR;
             if (object.wear_pos < MAX_WEAR) {
+                /* Quietly: the character is in no room yet, and in_room holds the load room's
+                   vnum, so a blow or a death here would land in the wrong room. */
                 if (obj != &dummy_sack)
-                    equip_char(character, obj, object.wear_pos);
+                    equip_char(character, obj, object.wear_pos, gear_change::quiet);
                 equip_array[0] = obj;
             } else if ((object.wear_pos == MAX_WEAR) || !equip_array[0]) {
                 if (obj != &dummy_sack)
@@ -1099,10 +1100,6 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
         mob = read_mobile(tmp, REAL);
         char_to_room(mob, ch->in_room);
 
-        /* Putting its gear back on can kill the follower (an item's poison) or set off a script
-         * that removes it: its remaining records are then read past, and nothing more is made
-         * for it. */
-        freed_watch follower_watch(mob);
         while (true) {
             obj_file_extra object_extra;
             if (!read_crashsave_object(fp, &object, &object_extra, "reading follower object data in Crash_follower_load"))
@@ -1118,9 +1115,6 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
             if (object.wear_pos >= MAX_WEAR || object.wear_pos < 0)
                 continue;
-            if (follower_watch.freed()) {
-                continue;
-            }
 
             obj = Crash_obj2char(mob, &object, object_extra, ch);
             if (!obj) {
@@ -1128,10 +1122,8 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
                 log(buf);
                 return;
             }
-            equip_char(mob, obj, object.wear_pos);
-        }
-        if (follower_watch.freed()) {
-            continue;
+            /* Quietly, as its leader's gear goes back on (Crash_load). */
+            equip_char(mob, obj, object.wear_pos, gear_change::quiet);
         }
         switch (fol_elem.flag_config) {
         case FOL_ORC_FRIEND: // We should really have an add_recruit function
@@ -1224,17 +1216,11 @@ void extract_followers(const struct char_data* ch)
         next_fol = k->next;
         if (!IS_NPC(k->follower))
             continue;
-        /* Taking an item off can kill the follower (its poison) or set off a script that removes
-         * it, and its follow record with it: there is then nothing left to extract. */
         char_data* follower = k->follower;
-        freed_watch follower_watch(follower);
-        for (x = 0; x < MAX_WEAR && !follower_watch.freed(); x++) {
+        for (x = 0; x < MAX_WEAR; x++) {
             if (follower->equipment[x]) {
-                extract_obj(unequip_char(follower, x));
+                extract_obj(unequip_char(follower, x, gear_change::quiet));
             }
-        }
-        if (follower_watch.freed()) {
-            continue;
         }
         for (x = 0; (x < 1000) && k->follower->carrying; x++) {
             obj = k->follower->carrying;
@@ -1482,7 +1468,23 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 
-void Crash_idlesave(const struct char_data* ch)
+/* Removes from the game the unrentable items <ch> wears and those inside its gear. A worn one is
+ * taken off quietly (gear_change::quiet): <ch> is leaving the game, and its object file is open. */
+static void Crash_extract_worn_norents(struct char_data* ch)
+{
+    for (int slot = 0; slot < MAX_WEAR; slot++) {
+        obj_data* worn = ch->equipment[slot];
+        if (!worn) {
+            continue;
+        }
+        Crash_extract_norents(worn->contains);
+        if (Crash_is_unrentable(worn)) {
+            extract_obj(unequip_char(ch, slot, gear_change::quiet));
+        }
+    }
+}
+
+void Crash_idlesave(struct char_data* ch)
 {
     char buf[MAX_INPUT_LENGTH];
     struct rent_info rent;
@@ -1499,9 +1501,7 @@ void Crash_idlesave(const struct char_data* ch)
         return;
 
     Crash_extract_norents(ch->carrying);
-    for (j = 0; j < MAX_WEAR; j++)
-        if (ch->equipment[j])
-            Crash_extract_norents(ch->equipment[j]);
+    Crash_extract_worn_norents(ch);
 
     cost = 0;
 
@@ -1550,10 +1550,7 @@ void Crash_rentsave(struct char_data* ch, int cost)
         return;
 
     Crash_extract_norents(ch->carrying);
-
-    for (j = 0; j < MAX_WEAR; j++)
-        if (ch->equipment[j])
-            Crash_extract_norents(ch->equipment[j]);
+    Crash_extract_worn_norents(ch);
 
     rent.net_cost_per_hour = cost;
     rent.rentcode = RENT_RENTED;
@@ -1567,9 +1564,11 @@ void Crash_rentsave(struct char_data* ch, int cost)
         fclose(fp);
         return;
     }
+    /* Quietly: a blow or a death while the rent file is open would leave gear both in it and in
+       a corpse. */
     for (j = 0; j < MAX_WEAR; j++)
         if (ch->equipment[j]) {
-            tmpobj = unequip_char(ch, j);
+            tmpobj = unequip_char(ch, j, gear_change::quiet);
             Crash_save(tmpobj, ch, j, fp);
             Crash_extract_objs(tmpobj);
             ch->equipment[j] = 0;
