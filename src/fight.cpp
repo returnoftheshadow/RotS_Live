@@ -1689,10 +1689,11 @@ int effective_resist_magnitude(const char_data* victim, int resist_type, bool ph
 }
 
 /*
- * Returns 1 if the victim was killed or otherwise removed from the game (a script, a flee into a
- * death room): the caller must not touch the victim again. Returns 0 if not. A script the blow
- * sets off can also remove the attacker; a caller that uses the attacker afterwards watches it
- * with a freed_watch.
+ * Returns 1 when the victim may be gone: the blow was fatal (die() ran, though the victim's ON_DIE
+ * script can still have kept it alive), or a script or a flee into a death room removed it. The
+ * caller must then not touch the victim again unless it watches it with a freed_watch. Returns 0
+ * when the victim is still in the game. A script the blow sets off can also remove the attacker;
+ * a caller that uses the attacker afterwards watches it the same way.
  */
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
 {

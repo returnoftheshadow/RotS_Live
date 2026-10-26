@@ -422,3 +422,57 @@ TEST_F(ObjectTriggerTest, AnObjectIsMadeWithoutItsPrototypesScriptState)
 
     EXPECT_EQ(nullptr, stone->obj_flags.script_info);
 }
+
+/* ---- an object script that removes the mob using the object ---- */
+
+/* A mob examines a stone whose script removes the mob: examine stops touching it. Only a
+ * character with a connection looks, so the mob is one an immortal has switched into. */
+TEST_F(ObjectTriggerTest, ExamineStopsWhenTheScriptRemovesTheExaminer)
+{
+    install_script(ON_EXAMINE_OBJECT, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* examiner = make_mob("examiner", 0);
+    descriptor_data connection {};
+    connection.output = connection.small_outbuf;
+    connection.bufspace = SMALL_BUFSIZE - 1;
+    connection.connected = CON_PLYNG;
+    connection.descriptor = 2;
+    connection.character = examiner;
+    examiner->desc = &connection;
+    obj_to_char(make_scripted(STONE_VNUM), examiner);
+
+    run_command_as(examiner, do_examine, "stone");
+
+    EXPECT_FALSE(is_in_game(examiner));
+    EXPECT_EQ(1, count_contents(world[0].contents)) << "the examiner dropped the stone";
+}
+
+TEST_F(ObjectTriggerTest, TastingStopsWhenTheScriptRemovesTheTaster)
+{
+    install_script(ON_EAT, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* taster = make_mob("taster", 0);
+    obj_data* bread = make_scripted(BREAD_VNUM);
+    obj_to_char(bread, taster);
+
+    run_command_as(taster, do_eat, "bread", SCMD_TASTE);
+
+    EXPECT_FALSE(is_in_game(taster));
+    EXPECT_EQ(bread, world[0].contents);
+    EXPECT_EQ(BREAD_FILLING, bread->obj_flags.value[0]) << "no bite was taken";
+}
+
+TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)
+{
+    install_script(ON_PULL, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* puller = make_mob("puller", 0);
+    obj_data* lever = make_scripted(LEVER_VNUM);
+    obj_to_room(lever, 0);
+    waiting_type target {};
+    target.targ1.type = TARGET_OBJ;
+    target.targ1.ptr.obj = lever;
+    char empty_argument[1] = "";
+
+    do_pull(puller, empty_argument, &target, 0, 0);
+
+    EXPECT_FALSE(is_in_game(puller));
+    EXPECT_FALSE(output_has("seems to be broken"));
+}

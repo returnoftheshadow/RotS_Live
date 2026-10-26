@@ -16,6 +16,9 @@ void die(char_data* dead_man, char_data* killer, int attack_type);
 void raw_kill(char_data* ch, const char_data* killer, int attacktype);
 
 extern struct index_data* mob_index;
+extern struct char_data* mob_proto;
+extern int top_of_mobt;
+struct char_data* read_mobile(int nr, int type);
 
 using namespace scripted_room;
 
@@ -515,4 +518,209 @@ TEST_F(CharacterTriggerTest, APausedMobThatIsKilledDiesWithoutFinishingItsScript
     EXPECT_FALSE(output_has("The mob fades."));
     EXPECT_EQ(nullptr, waiting_list);
     mob_index = saved_mob_index;
+}
+
+/* ---- a mob's script set off again while it runs ---- */
+
+/* The asker's hearing script says "ping"; the answerer's says "pong", which the asker hears
+ * inside its first run. The nested run sees the int2 the outer run set and sets int1, which the
+ * outer run then sees: the two share int1-int3, as one state always has. */
+TEST_F(CharacterTriggerTest, ANestedRunSharesTheOuterRunsInts)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { 9, SCRIPT_PARAM_INT2 } },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT2 } },
+                                  { SCRIPT_SEND_TO_CHAR, "The nested run's int1 came back.", { SCRIPT_PARAM_CH2 } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { 9, SCRIPT_PARAM_INT3 } },
+                                  { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT2, SCRIPT_PARAM_INT3 } },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { 9, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("The nested run's int1 came back.")) << output();
+}
+
+/* The asker's nested run removes the asker; its first run goes on with what it has left. */
+TEST_F(CharacterTriggerTest, AScriptRunsOnAfterANestedRunRemovesItsMob)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_CHAR, "Outer still running.", { SCRIPT_PARAM_CH2 } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    char_data* asker = make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(asker));
+    EXPECT_TRUE(output_has("Outer still running."));
+}
+
+/* A nested run that pauses leaves its resume point where the waiting list finds it. */
+TEST_F(CharacterTriggerTest, ANestedRunThatPausesResumesFromTheWaitingList)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_CHAR, "Outer done.", { SCRIPT_PARAM_CH2 } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_WAIT, nullptr, { 1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Resumed.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_TRUE(output_has("Outer done."));
+    ASSERT_FALSE(output_has("Resumed."));
+
+    process_waiting_list();
+
+    EXPECT_EQ(1, count_in_output("Resumed."));
+}
+
+/* Two mobs that answer whatever they hear would answer each other for ever: past
+ * MAX_SCRIPT_NESTING runs inside one another the next is refused and logged. */
+TEST_F(CharacterTriggerTest, ScriptsNestedTooDeeplyAreRefused)
+{
+    install_script(ON_HEAR_SAY, { { SCRIPT_DO_SAY, "again", { SCRIPT_PARAM_CH1 } } });
+    char_data* speaker = make_mob("speaker", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", SCRIPT_VNUM);
+    world[0].people = m_player.next_in_room; /* nobody to send the endless talk to */
+
+    testing::internal::CaptureStderr();
+    run_command_as(speaker, do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(std::string::npos, logged.find("scripts are already running inside one another"));
+    EXPECT_NE(std::string::npos, logged.find(std::to_string(MAX_SCRIPT_NESTING)));
+    EXPECT_TRUE(is_in_game(first));
+    EXPECT_TRUE(is_in_game(second));
+}
+
+/* ---- the say and the yell blocks of a hearing script ---- */
+
+TEST_F(CharacterTriggerTest, AMobThatRemovesItselfOnHearingRunsNoYellBlock)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } },
+            { ON_HEAR_YELL, { { SCRIPT_SEND_TO_CHAR, "The yell block ran.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(output_has("The yell block ran."));
+}
+
+/* Hearing a say runs a mob's yell block after its say block. */
+TEST_F(CharacterTriggerTest, HearingASayRunsTheYellBlockToo)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_SEND_TO_CHAR, "The say block ran.", { SCRIPT_PARAM_CH2 } } } },
+            { ON_HEAR_YELL, { { SCRIPT_SEND_TO_CHAR, "The yell block ran.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("The say block ran."));
+    EXPECT_TRUE(output_has("The yell block ran."));
+}
+
+/* ---- text variables ---- */
+
+/* A hearing script keeps the text it heard across a pause. */
+TEST_F(CharacterTriggerTest, AHearingScriptStillHasWhatItHeardAfterAPause)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { 1 } },
+            { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+            { SCRIPT_SEND_TO_ROOM, "Still heard.", { SCRIPT_PARAM_CH1_ROOM } } });
+    make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+
+    process_waiting_list();
+
+    EXPECT_TRUE(output_has("Still heard."));
+}
+
+/* A new run of a mob's scripts starts with no text from the last one. */
+TEST_F(CharacterTriggerTest, ANewRunStartsWithoutTheLastRunsText)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_SEND_TO_CHAR, SCRIPT_RAN_MESSAGE, { SCRIPT_PARAM_CH2 } } } },
+            { ON_ENTER,
+                { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_SEND_TO_CHAR, "The old text is still there.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_FALSE(output_has("The old text is still there."));
+}
+
+/* ---- mobs made from a prototype ---- */
+
+/* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
+TEST_F(CharacterTriggerTest, AMobIsMadeWithoutItsPrototypesScriptState)
+{
+    char_data prototype {};
+    clear_char(&prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&prototype), MOB_ISNPC);
+    char prototype_name[] = "copy";
+    prototype.player.name = prototype_name;
+    prototype.player.short_descr = prototype_name;
+    prototype.abilities.hit = MOB_HIT_POINTS;
+    prototype.tmpabilities.hit = MOB_HIT_POINTS;
+    info_script prototype_state {};
+    prototype.specials.script_info = &prototype_state;
+    index_data prototype_index[1] {};
+    char_data* saved_mob_proto = mob_proto;
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_proto = &prototype;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+
+    char_data* copy = read_mobile(0, REAL);
+
+    ASSERT_NE(nullptr, copy);
+    EXPECT_EQ(nullptr, copy->specials.script_info);
+    extract_char(copy);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    RELEASE(prototype.profs);
 }

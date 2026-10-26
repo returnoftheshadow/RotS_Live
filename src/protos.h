@@ -168,7 +168,7 @@ struct shape_zone {
 struct info_script { //  The structure which each char/obj/zon will have if it has a script.
     int index; //  Index number in the script_table of this script
     script_data* next_command; //  Command next to be executed.
-    int str_dynamic[3]; // Set dynamic[x] to 1 if script allocated str[x]
+    int str_dynamic[3]; // 1 while the state owns str[x] (a copy it releases), 0 while str[x] is null
     char* str[3]; //  General text field for holding variable text information, eg a character's name
     char_data* ch[3]; //  Variables
     obj_data* ob[3]; //  Variables

@@ -2062,8 +2062,10 @@ ACMD(do_pull)
     }
 
     /* A script that extracted the lever has freed it; the pull ends there, as for false. */
+    freed_watch puller_watch(ch);
     const object_trigger_result pull_result = call_object_trigger(ON_PULL, obj, ch);
-    if (pull_result != object_trigger_result::proceed) {
+    /* So does a script that removed the one pulling. */
+    if (pull_result != object_trigger_result::proceed || puller_watch.freed()) {
         return;
     }
 

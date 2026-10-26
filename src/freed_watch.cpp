@@ -1,5 +1,7 @@
 #include "freed_watch.h"
 
+#include <cassert>
+
 freed_watch* freed_watch::newest = nullptr;
 
 freed_watch::freed_watch(const obj_data* object)
@@ -21,7 +23,11 @@ freed_watch::freed_watch(const void* watched)
 
 /* Watches are local variables, so they go in the reverse order of their making and this one is
  * the newest when it goes. */
-freed_watch::~freed_watch() { newest = m_older; }
+freed_watch::~freed_watch()
+{
+    assert(newest == this);
+    newest = m_older;
+}
 
 void freed_watch::note_freed(const obj_data* object) { note_freed_address(object); }
 

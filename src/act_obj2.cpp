@@ -286,9 +286,11 @@ ACMD(do_eat)
     }
 
     /* What the script returns does not matter to eating, but a script that extracted the food
-     * has freed it, so it is not used up a second time. */
+     * has freed it, so it is not used up a second time; one that removed the eater has ended
+     * the meal, and the food stays where the eater dropped it. */
+    freed_watch eater_watch(ch);
     const object_trigger_result eat_result = call_object_trigger(ON_EAT, food, ch);
-    if (eat_result == object_trigger_result::object_extracted) {
+    if (eat_result == object_trigger_result::object_extracted || eater_watch.freed()) {
         return;
     }
 
@@ -1043,8 +1045,8 @@ ACMD(do_wield)
             }
         } else {
             REMOVE_BIT(ch->specials.affected_by, AFF_TWOHANDED);
-            const bool weapon_still_exists = perform_wear(ch, obj, WIELD);
-            if (weapon_still_exists && obj->obj_flags.value[2] > 4 && !ch->equipment[WEAR_SHIELD]) {
+            const bool weapon_and_wielder_remain = perform_wear(ch, obj, WIELD);
+            if (weapon_and_wielder_remain && obj->obj_flags.value[2] > 4 && !ch->equipment[WEAR_SHIELD]) {
                 do_twohand(ch, 0, 0, 0, SCMD_TWOHANDED);
             }
         }

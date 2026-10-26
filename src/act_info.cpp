@@ -20,6 +20,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
@@ -335,10 +336,12 @@ void show_obj_to_char(struct obj_data* object, struct char_data* ch, int mode)
         sprintf(buf, "%s", object->short_description);
     else if (mode == 5) { /* The trigger will deal with what is sent to ch */
         /* A script that returned false or extracted the object has shown ch all there is; an
-         * extracted object is freed and must not be read. */
+         * extracted object is freed and must not be read, and nor must an examiner the script
+         * removed. */
+        freed_watch examiner_watch(ch);
         const object_trigger_result examine_result
             = call_object_trigger(ON_EXAMINE_OBJECT, object, ch);
-        if (examine_result != object_trigger_result::proceed) {
+        if (examine_result != object_trigger_result::proceed || examiner_watch.freed()) {
             return;
         }
 
@@ -1558,7 +1561,12 @@ ACMD(do_examine)
 
     one_argument(argument, name);
     if (*name) {
+        /* The object's examine script can remove the examiner. */
+        freed_watch examiner_watch(ch);
         do_look(ch, argument, wtl, 15, 1);
+        if (examiner_watch.freed()) {
+            return;
+        }
         one_argument(argument, name);
     } else {
         if (!PRF_FLAGGED(ch, PRF_SPAM)) {

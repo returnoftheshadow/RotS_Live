@@ -165,6 +165,10 @@ inline constexpr int SCRIPT_PARAM_OB2_VNUM = 502;
 inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
+/* How many scripts can run inside one another (a script setting off a trigger whose script sets
+ * off another...). A trigger set off past that runs no script, as though there were none, and
+ * logs a SYSERR naming the script and its subject. */
+inline constexpr int MAX_SCRIPT_NESTING = 32;
 /* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
  * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
  * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through

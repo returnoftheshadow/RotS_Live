@@ -18,6 +18,7 @@
 
 #include "platdef.h"
 #include <algorithm>
+#include <cassert>
 #include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -351,11 +352,48 @@ int find_script_by_number(const int number)
         return i;
 }
 
-/* Releases <state> and the texts ASSIGN_STR gave it; nothing may be using it. */
+/* Releases <state> and the texts it owns; nothing may be using it. */
 static void release_script_state_now(info_script*& state)
 {
     clear_script_info(state);
     RELEASE(state);
+}
+
+/* Empties <inf>'s character, object and room variables, which name things that may not outlast
+ * the run. */
+static void clear_script_references(info_script* inf)
+{
+    for (int variable = 0; variable < 3; ++variable) {
+        inf->ch[variable] = nullptr;
+        inf->ob[variable] = nullptr;
+        inf->rm[variable] = nullptr;
+    }
+}
+
+/* Releases the texts <inf> owns and empties str1-str3. */
+static void clear_script_texts(info_script* inf)
+{
+    for (int text = 0; text < 3; ++text) {
+        if (inf->str_dynamic[text]) {
+            RELEASE(inf->str[text]);
+        }
+        inf->str[text] = nullptr;
+        inf->str_dynamic[text] = 0;
+    }
+}
+
+/* Makes <info>'s text variable <text> (0 for str1) a copy of <value>, or empty for a null one. */
+static void set_script_text(info_script& info, int text, const char* value)
+{
+    if (info.str_dynamic[text]) {
+        RELEASE(info.str[text]);
+    }
+    info.str[text] = nullptr;
+    info.str_dynamic[text] = 0;
+    if (value) {
+        info.str[text] = str_dup(value);
+        info.str_dynamic[text] = 1;
+    }
 }
 
 namespace {
@@ -370,11 +408,15 @@ public:
         , m_enclosing(innermost)
     {
         innermost = this;
+        ++depth;
     }
 
+    /* Frames are run_script's locals, so they end in the reverse order of their making. */
     ~running_script_frame()
     {
+        assert(innermost == this);
         innermost = m_enclosing;
+        --depth;
         if (m_owns_state) {
             release_script_state_now(m_state);
         }
@@ -382,6 +424,9 @@ public:
 
     running_script_frame(const running_script_frame&) = delete;
     running_script_frame& operator=(const running_script_frame&) = delete;
+
+    /* How many run_script calls are in progress, one inside another. */
+    static int nesting_depth() { return depth; }
 
     /* True if a script is running with <state>. */
     static bool is_running(const info_script* state)
@@ -439,6 +484,8 @@ private:
     // The innermost run_script in progress; each frame points on to the one it runs inside. Null
     // when no script is running, which is nearly always, so a free costs one test.
     static inline running_script_frame* innermost = nullptr;
+    // How many frames there are, innermost included.
+    static inline int depth = 0;
 
     // The state this run_script call reads and writes; it outlives the call unless m_owns_state.
     info_script* m_state;
@@ -448,18 +495,25 @@ private:
     running_script_frame* m_enclosing;
 };
 
-/* The script state one trigger's script runs with: the subject's own state, created on first use
- * and cleared for the run. When a script is already running with that state (the script set off
- * its own subject's trigger again, as DO_WEAR on its own object does, or a mob hears the answer to
- * what its script said), the new run gets a fresh state of its own instead, and the outer script
- * carries on with its variables intact. Refusing the nested trigger would protect the outer
- * script too, but would stop scripts that work today; a fresh state leaves every script that does
- * not set itself off again exactly as it was. Only DO_WAIT's resume point is shared: a nested run
- * that pauses leaves it in the subject's own state, where continue_char_script looks. */
+/* The script state one trigger's script runs with: the subject's own state, created on first use.
+ * A new run empties its character, object, room and text variables; a run resumed after DO_WAIT
+ * empties only the character, object and room ones, so it keeps the texts it had (a hearing
+ * script's str1 among them). int1-int3 are never emptied: they carry over from run to run.
+ *
+ * When a script is already running with that state (the script set off its own subject's trigger
+ * again, as DO_WEAR on its own object does, or a mob hears the answer to what its script said),
+ * the new run gets a fresh state of its own instead, and the outer script carries on with its
+ * other variables intact. Refusing the nested trigger would protect the outer script too, but
+ * would stop scripts that work today; a fresh state leaves every script that does not set itself
+ * off again exactly as it was. What the two runs share is what one state shared before: int1-int3
+ * (the nested run starts with the outer script's, and the outer script carries on with the values
+ * the nested run left, which keeps a re-entry guard kept in an int working) and DO_WAIT's resume
+ * point, kept in the subject's own state where continue_char_script looks for it. The outer
+ * script is paused while the nested run goes, so the two never change the ints at once. */
 class trigger_state {
 public:
     /* <own_state> is the subject's script_info. <index> is the script's place in script_table,
-     * or -1 to keep the one the own state has. */
+     * or -1 to resume the paused run: its place and its texts are kept. */
     trigger_state(info_script*& own_state, int index)
     {
         if (!own_state) {
@@ -473,11 +527,16 @@ public:
                 m_nested.index = m_own->index;
             }
             m_nested.next_command = m_own->next_command;
+            for (int variable = 0; variable < 3; ++variable) {
+                m_nested.ints[variable] = m_own->ints[variable];
+            }
             m_active = &m_nested;
         } else {
-            clear_script_info(m_own);
             if (index != -1) {
+                clear_script_info(m_own);
                 m_own->index = index;
+            } else {
+                clear_script_references(m_own);
             }
             m_active = m_own;
         }
@@ -487,6 +546,9 @@ public:
     {
         if (m_active == &m_nested) {
             m_own->next_command = m_nested.next_command;
+            for (int variable = 0; variable < 3; ++variable) {
+                m_own->ints[variable] = m_nested.ints[variable];
+            }
             clear_script_info(&m_nested);
         }
     }
@@ -536,23 +598,11 @@ void note_char_freed(char_data* character)
     release_script_state(character->specials.script_info);
 }
 
+/* Empties <inf>'s character, object, room and text variables, releasing the texts it owns. */
 void clear_script_info(info_script* inf)
 {
-    inf->ch[0] = 0;
-    inf->ch[1] = 0;
-    inf->ch[2] = 0;
-    inf->rm[0] = 0;
-    inf->rm[1] = 0;
-    inf->rm[2] = 0;
-    inf->ob[0] = 0;
-    inf->ob[1] = 0;
-    inf->ob[2] = 0;
-    if (inf->str[0] != NULL && inf->str_dynamic[0] != 0)
-        RELEASE(inf->str[0]);
-    if (inf->str[1] != NULL && inf->str_dynamic[1] != 1)
-        RELEASE(inf->str[1]);
-    if (inf->str[2] != NULL && inf->str_dynamic[2] != 1)
-        RELEASE(inf->str[2]);
+    clear_script_references(inf);
+    clear_script_texts(inf);
 }
 
 char**
@@ -1447,6 +1497,29 @@ static void restyle_script_object(info_script* info, script_data* curr)
     mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 }
 
+/* A run refused because MAX_SCRIPT_NESTING scripts are already running, one inside another (two
+ * mobs answering each other's says for ever, say). */
+static void report_script_nesting(const info_script* info)
+{
+    char errbuf[256];
+    int script_no = (info->index >= 0 && info->index <= top_of_script_table)
+        ? script_table[info->index].number
+        : -1;
+    const char* character_name = "none";
+    if (info->ch[0] && GET_NAME(info->ch[0])) {
+        character_name = GET_NAME(info->ch[0]);
+    }
+    const char* object_name = "none";
+    if (info->ob[0] && info->ob[0]->short_description) {
+        object_name = info->ob[0]->short_description;
+    }
+    snprintf(errbuf, sizeof(errbuf),
+        "SYSERR: %s: script #%d not run: %d scripts are already running inside one another "
+        "(ch1 %s, ob1 %s)",
+        __func__, script_no, MAX_SCRIPT_NESTING, character_name, object_name);
+    log(errbuf);
+}
+
 int run_script(struct info_script* info, struct script_data* position)
 {
     char output[500];
@@ -1470,6 +1543,11 @@ int run_script(struct info_script* info, struct script_data* position)
     int tobjcnt;
     int tmpint, tmpint2;
     struct follow_type *k, *next_fol;
+
+    if (running_script_frame::nesting_depth() >= MAX_SCRIPT_NESTING) {
+        report_script_nesting(info);
+        return 1;
+    }
 
     running_script_guard script_context;
     running_script_frame frame(info);
@@ -1576,8 +1654,22 @@ int run_script(struct info_script* info, struct script_data* position)
                 /* Only str1-3 and obN.name can be written; anything else
                  * crashed the server. */
                 if (wtxt) {
+                    /* str1-3 own their text: the one they held goes, and the new one is
+                     * released with the state. */
+                    int owned_text = -1;
+                    for (int text = 0; text < 3; ++text) {
+                        if (wtxt == &info->str[text]) {
+                            owned_text = text;
+                        }
+                    }
+                    if (owned_text >= 0 && info->str_dynamic[owned_text]) {
+                        RELEASE(*wtxt);
+                    }
                     CREATE(*wtxt, char, strlen(curr->text) + 1);
                     script_format_text(*wtxt, strlen(curr->text) + 1, curr->text, NULL);
+                    if (owned_text >= 0) {
+                        info->str_dynamic[owned_text] = 1;
+                    }
                 }
             }
             curr = curr->next;
@@ -2372,7 +2464,8 @@ int trigger_room_enter(const room_data* room, const char_data* ch)
 
 void continue_char_script(char_data* ch)
 {
-    /* The variables start empty: what they named before the pause may be gone. */
+    /* The character, object and room variables start empty: what they named before the pause
+     * may be gone. The texts and ints are the run's own and carry on. */
     trigger_state state(ch->specials.script_info, -1);
     info_script& info = state.info();
     info.ch[0] = ch;
@@ -2499,7 +2592,7 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             info_script& info = state.info();
             info.ch[0] = ch;
             info.ch[1] = speaking;
-            info.str[0] = text;
+            set_script_text(info, 0, text);
             return_value = run_script(&info, script_position->next);
         }
     /* The yell script is looked up on the mob and given the speaker: the say script may have
@@ -2513,7 +2606,7 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             info_script& info = state.info();
             info.ch[0] = ch;
             info.ch[1] = speaking;
-            info.str[0] = text;
+            set_script_text(info, 0, text);
             return_value = run_script(&info, script_position->next);
         }
     }
