@@ -322,12 +322,37 @@ ACMD(do_order)
 
             org_room = ch->in_room;
 
-            for (k = ch->followers; k; k = k->next) {
-                if (org_room == k->follower->in_room)
-                    if (IS_AFFECTED(k->follower, AFF_CHARM) && !utils::is_guardian(*k->follower)) {
-                        found = TRUE;
-                        command_interpreter(k->follower, message);
-                    }
+            /* An order can remove the one carrying it out (a death room, a riposte, a script),
+             * or end its following, and its entry goes back to the pool; the orders then go on
+             * from the entry that came after it, if that is still one of ch's followers. An
+             * order that removes ch ends them. */
+            freed_watch leader_watch(ch);
+            k = ch->followers;
+            while (k) {
+                char_data* follower = k->follower;
+                if (org_room != follower->in_room || !IS_AFFECTED(follower, AFF_CHARM)
+                    || utils::is_guardian(*follower)) {
+                    k = k->next;
+                    continue;
+                }
+
+                follow_type* following_entry = k->next;
+                char_data* following_follower = nullptr;
+                if (following_entry) {
+                    following_follower = following_entry->follower;
+                }
+                found = TRUE;
+                command_interpreter(follower, message);
+                if (leader_watch.freed()) {
+                    return;
+                }
+                if (is_follower_entry(ch, k, follower)) {
+                    k = k->next;
+                } else if (is_follower_entry(ch, following_entry, following_follower)) {
+                    k = following_entry;
+                } else {
+                    k = nullptr;
+                }
             }
             if (found)
                 send_to_char("Ok.\n\r", ch);
@@ -375,7 +400,12 @@ ACMD(do_flee)
             if (fleer_watch.freed()) {
                 return;
             }
-            if (!special(ch, cmd + 1, "", SPECIAL_COMMAND, 0) && number(0, 1) && die) {
+            const int taken_by_special = special(ch, cmd + 1, "", SPECIAL_COMMAND, 0);
+            /* A procedure here removed the one fleeing. */
+            if (fleer_watch.freed()) {
+                return;
+            }
+            if (!taken_by_special && number(0, 1) && die) {
                 /* The escape has not succeded */
                 switch (die) {
                 case 1:

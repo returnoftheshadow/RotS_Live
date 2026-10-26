@@ -25,6 +25,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -1769,7 +1770,12 @@ ACMD(do_knock)
 
                         ch->delay.targ1.type = TARGET_OTHER;
                         ch->delay.targ1.ch_num = rev_dir[tmp];
+                        freed_watch knocker_watch(ch);
                         special(ch, CMD_KNOCK, argument, SPECIAL_NONE, 0);
+                        /* A procedure on the far side removed the one knocking. */
+                        if (knocker_watch.freed()) {
+                            return;
+                        }
                         ch->in_room = oldroom;
                     }
 

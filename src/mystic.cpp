@@ -19,6 +19,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -176,6 +177,10 @@ ASPELL(spell_curse)
 
     int actual_count = 0;
     int stat_index = 0;
+    /* damage_stat can kill and so remove a mob, and the victim's procedure there can remove
+     * either of them (Thuringwethil leaves at 500 hit points). */
+    freed_watch caster_watch(caster);
+    freed_watch victim_watch(victim);
 
     while (stat_index < NUM_STATS && !victim_died && caster->points.spirit > 0) {
         int stat_damage = damage_table[stat_index];
@@ -184,10 +189,19 @@ ASPELL(spell_curse)
             caster->points.spirit = std::max(caster->points.spirit, 0);
 
             combat_result_struct curse_result = damage_stat(caster, victim, stat_index, stat_damage);
+            if (caster_watch.freed()) {
+                return;
+            }
             victim_flees |= curse_result.wants_to_flee;
             victim_died |= curse_result.will_die;
 
             actual_count += stat_damage;
+            /* A mob the curse killed, or one its procedure removed, is not cursed further and
+             * does not flee. */
+            if (victim_watch.freed()) {
+                victim_flees = false;
+                break;
+            }
         }
 
         ++stat_index;

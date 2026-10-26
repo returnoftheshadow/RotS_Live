@@ -1186,6 +1186,16 @@ void die_follower(char_data* character)
     }
 }
 
+bool is_follower_entry(const char_data* leader, const follow_type* entry, const char_data* follower)
+{
+    for (const follow_type* listed = leader->followers; listed; listed = listed->next) {
+        if (listed == entry) {
+            return listed->follower == follower;
+        }
+    }
+    return false;
+}
+
 //**************************************************************************
 
 /* move a player out of a room */

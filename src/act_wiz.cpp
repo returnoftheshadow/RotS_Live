@@ -22,6 +22,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -279,7 +280,12 @@ ACMD(do_at)
         char_from_room(ch);
         char_to_room(ch, location);
     }
+    freed_watch actor_watch(ch);
     command_interpreter(ch, command);
+    /* The command can remove the one giving it (quit, a death, a procedure there). */
+    if (actor_watch.freed()) {
+        return;
+    }
 
     /* check if the guy's still there */
     if (ch->in_room == location) {
