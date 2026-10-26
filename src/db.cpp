@@ -40,6 +40,7 @@
 #include "exploits_json.h"
 #include "mob_options.h"
 #include "object_skins.h"
+#include "retired_prototype_text.h"
 #include "mob_walker.h"
 #include "game_boot_options.h"
 #include "mob_progs/banker.h"
@@ -3857,6 +3858,7 @@ void free_obj(struct obj_data* obj)
             }
     } else {
         obj->release_owned_text();
+        release_retired_text_left_by(*obj);
     }
 
     RELEASE(obj);
