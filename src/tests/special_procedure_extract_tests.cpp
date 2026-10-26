@@ -11,6 +11,9 @@
 #include "../spells.h"
 
 #include <algorithm>
+#include <deque>
+#include <string>
+#include <vector>
 
 void do_move(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
@@ -245,6 +248,8 @@ protected:
     {
         /* The mobs still in the game are extracted with their prototype entries in place. */
         ScriptedRoomFixture::TearDown();
+        for (char_prof_data*& profs : m_mob_profs)
+            RELEASE(profs);
         mob_index = m_saved_mob_index;
         top_of_mobt = m_saved_top_of_mobt;
         for (int room = 0; room <= SECOND_ROOM; ++room) {
@@ -255,8 +260,8 @@ protected:
     }
 
     /* Gives <mob> a prototype entry of its own running <procedure> (none for null), as a mob read
-     * from the world files has. The game then no longer frees the mob's strings, so the test
-     * keeps them. */
+     * from the world files has. The game then no longer frees the mob's strings or profession
+     * block, so the test keeps them. */
     void give_prototype(char_data* mob, special_func procedure)
     {
         if (m_used_prototypes >= MOB_PROTOTYPE_SLOTS) {
@@ -274,6 +279,7 @@ protected:
         RELEASE(mob->player.short_descr);
         mob->player.name = m_mob_names.back().data();
         mob->player.short_descr = m_mob_names.back().data();
+        m_mob_profs.push_back(mob->profs);
     }
 
     /* A mob in <room> with a prototype entry running <procedure>, and the moves to walk anywhere. */
@@ -412,6 +418,9 @@ private:
     // The names of the mobs with prototype entries, which the game no longer frees; a deque, so
     // earlier names never move.
     std::deque<std::string> m_mob_names;
+    // The profession blocks clear_char gave the mobs with prototype entries, which free_char then
+    // leaves alone as it leaves a prototype's; released by TearDown.
+    std::vector<char_prof_data*> m_mob_profs;
     // The game's mob prototype entries and their count, put back by TearDown.
     index_data* m_saved_mob_index = nullptr;
     int m_saved_top_of_mobt = 0;

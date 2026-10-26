@@ -11,6 +11,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_cleanup.h"
 #include "test_random_utils.h"
 
 #include <gtest/gtest.h>
@@ -226,11 +227,14 @@ protected:
         while (object_list != nullptr) {
             extract_obj(object_list);
         }
-        /* The player is not freed, so what clear_char and any script gave it is released here. */
+        /* The player is not freed, so what clear_char, a fight and any script gave it is released
+         * here; its affects go back to the game's pools. */
+        while (m_player.affected != nullptr) {
+            affect_remove(&m_player, m_player.affected);
+        }
         RELEASE(m_player.specials.script_info);
-        RELEASE(m_player.profs);
-        RELEASE(m_player.skills);
-        RELEASE(m_player.knowledge);
+        release_cleared_character(&m_player);
+        release_test_descriptor(&m_descriptor);
 
         for (int room = 0; room < 2; ++room) {
             world[room].number = m_saved_rooms[room].number;

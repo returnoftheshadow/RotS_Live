@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "ScopedGameClock.h"
+#include "test_cleanup.h"
 
 #include <cstring>
 #include <fcntl.h>
@@ -33,6 +34,35 @@ void another_hour(int mode);
 int get_percent_absorb(const char_data* character);
 
 namespace {
+
+// Frees what these tests give a character: the name and short description they copy with strdup,
+// and the arrays clear_char allocates.
+void release_msdp_character(char_data* character)
+{
+    free(character->player.name);
+    character->player.name = nullptr;
+    free(character->player.short_descr);
+    character->player.short_descr = nullptr;
+    release_cleared_character(character);
+}
+
+// Releases a test's own character with release_msdp_character when the scope ends.
+class MsdpCharacterRelease {
+public:
+    explicit MsdpCharacterRelease(char_data* character)
+        : m_character(character)
+    {
+    }
+
+    ~MsdpCharacterRelease() { release_msdp_character(m_character); }
+
+    MsdpCharacterRelease(const MsdpCharacterRelease&) = delete;
+    MsdpCharacterRelease& operator=(const MsdpCharacterRelease&) = delete;
+
+private:
+    // The character released on destruction; the test owns it.
+    char_data* m_character;
+};
 
 class ProtocolDescriptor {
 public:
@@ -59,8 +89,8 @@ public:
 
     ~ProtocolDescriptor()
     {
-        if (descriptor.pProtocol != nullptr)
-            ProtocolDestroy(descriptor.pProtocol);
+        release_test_descriptor(&descriptor);
+        release_msdp_character(&character);
         if (m_sockets[0] >= 0)
             close(m_sockets[0]);
         if (m_sockets[1] >= 0)
@@ -1094,6 +1124,7 @@ TEST(MSDPProtocol, MsdpUpdateSkipsInvalidDescriptorsWithoutStoppingList)
     ProtocolDescriptor valid_context;
     descriptor_data missing_protocol {};
     char_data missing_protocol_character {};
+    MsdpCharacterRelease missing_protocol_character_release(&missing_protocol_character);
 
     clear_char(&missing_protocol_character, MOB_VOID);
     missing_protocol_character.player.name = strdup("NoProtocol");
@@ -1500,7 +1531,9 @@ TEST(MSDPProtocol, MsdpUpdateEmitsAllGroupMembersWithPercentages)
     ScopedMSDPTestRoom room_scope;
     ProtocolDescriptor context;
     char_data player_member {};
+    MsdpCharacterRelease player_member_release(&player_member);
     char_data npc_member {};
+    MsdpCharacterRelease npc_member_release(&npc_member);
 
     initialize_msdp_player(&context.character, "Aragorn");
     initialize_msdp_player(&player_member, "Boromir");
@@ -1742,6 +1775,7 @@ TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
     ScopedMSDPTestRoom room_scope;
     ProtocolDescriptor context;
     char_data opponent {};
+    MsdpCharacterRelease opponent_release(&opponent);
 
     initialize_msdp_player(&context.character, "Aragorn");
     clear_char(&opponent, MOB_ISNPC);
@@ -1777,6 +1811,7 @@ TEST(MSDPProtocol, MsdpUpdateUsesDiagnoseAgeBandsForNpcOpponent)
     ScopedMSDPTestRoom room_scope;
     ProtocolDescriptor context;
     char_data opponent {};
+    MsdpCharacterRelease opponent_release(&opponent);
 
     initialize_msdp_player(&context.character, "Aragorn");
     clear_char(&opponent, MOB_ISNPC);
@@ -1814,6 +1849,7 @@ TEST(MSDPProtocol, MsdpUpdateHidesAgeOfOrcFriendPetOpponent)
     ScopedMSDPTestRoom room_scope;
     ProtocolDescriptor context;
     char_data opponent {};
+    MsdpCharacterRelease opponent_release(&opponent);
 
     initialize_msdp_player(&context.character, "Aragorn");
     clear_char(&opponent, MOB_ISNPC);
@@ -1838,6 +1874,7 @@ TEST(MSDPProtocol, MsdpUpdateHandlesOpponentWithInvalidMaxHealth)
     ScopedMSDPTestRoom room_scope;
     ProtocolDescriptor context;
     char_data opponent {};
+    MsdpCharacterRelease opponent_release(&opponent);
 
     initialize_msdp_player(&context.character, "Aragorn");
     clear_char(&opponent, MOB_ISNPC);
@@ -1863,6 +1900,7 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
     ScopedMSDPTestRoom room_scope;
     ProtocolDescriptor context;
     char_data opponent {};
+    MsdpCharacterRelease opponent_release(&opponent);
 
     initialize_msdp_player(&context.character, "Aragorn");
     initialize_msdp_player(&opponent, "Boromir");

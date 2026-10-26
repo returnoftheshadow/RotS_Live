@@ -9,6 +9,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -222,6 +223,9 @@ protected:
         top_of_mobt = m_saved_top_of_mobt;
         descriptor_list = m_saved_descriptor_list;
         zone_table = m_saved_zone_table;
+        for (char_data* ch : { &m_mob, &m_player, &m_friend, &m_mob_proto[0] })
+            release_cleared_character(ch);
+        release_test_descriptor(&m_descriptor);
     }
 
     static void give_stats(char_data* ch)
@@ -697,6 +701,7 @@ TEST_F(MageProgTest, SaveChecksTheNewProgramBeforeImplement)
      * old /29 gave it, until /implement. */
     char_data editing {};
     clear_char(&editing, MOB_ISNPC);
+    ClearedCharacterRelease editing_release(&editing);
     editing.specials2.act = MOB_ISNPC | MOB_SPEC;
     editing.specials.store_prog_number = PROG_MAGE;
     m_mob_proto[0].specials.store_prog_number = 4;

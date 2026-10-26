@@ -15,6 +15,7 @@
 #include "../spells.h" /* SPELL_RESIST_* for the affect-persistence tests */
 #include "../utils.h"
 #include "AccountRecordOnDiskBuilder.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -61,6 +62,7 @@ void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(const struct char_file_u* st, struct char_data* ch);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
+void Crash_report_object_refreshes(const struct char_data* ch);
 int file_to_string_alloc(const char* name, char** buf);
 
 namespace {
@@ -309,33 +311,6 @@ char_file_u make_stored_character(const char* name = "aragorn")
     stored_character.profs.prof_coof[PROF_WARRIOR] = 34;
     return stored_character;
 }
-
-class ScopedPlayerTableReset {
-public:
-    ScopedPlayerTableReset()
-        : m_previous_player_table(player_table)
-        , m_previous_top_of_p_table(top_of_p_table)
-    {
-        player_table = nullptr;
-        top_of_p_table = -1;
-    }
-
-    ~ScopedPlayerTableReset()
-    {
-        if (player_table != nullptr) {
-            for (int index = 0; index <= top_of_p_table; ++index)
-                RELEASE(player_table[index].name);
-            RELEASE(player_table);
-        }
-
-        player_table = m_previous_player_table;
-        top_of_p_table = m_previous_top_of_p_table;
-    }
-
-private:
-    player_index_element* m_previous_player_table;
-    int m_previous_top_of_p_table;
-};
 
 class ScopedObjectPrototypeTable {
 public:
@@ -601,7 +576,15 @@ void expect_object_save_data_equal(const objects_json::ObjectSaveData& expected,
 
 } // namespace
 
-TEST(DbLoader, RejectsMalformedPlayerTextWithoutLongStringTerminator)
+// Every test starts with an empty player index and frees the one its loads and migrations build,
+// so no test leaves entries in the game's index for the next.
+class DbLoader : public testing::Test {
+private:
+    // The empty index the test runs with; the previous one is put back afterwards.
+    ScopedPlayerTableReset m_player_table_reset;
+};
+
+TEST_F(DbLoader, RejectsMalformedPlayerTextWithoutLongStringTerminator)
 {
     ScopedPlayerTableEntry player_table_entry;
     char player_name[] = "aragorn";
@@ -615,7 +598,7 @@ TEST(DbLoader, RejectsMalformedPlayerTextWithoutLongStringTerminator)
     EXPECT_LT(load_char_from_text(player_name, malformed_player_text, &character_data), 0);
 }
 
-TEST(DbLoader, DoesNotLeaveTheAccountIndexAuthoritativeWhenTheAccountsDirectoryCannotBeWalked)
+TEST_F(DbLoader, DoesNotLeaveTheAccountIndexAuthoritativeWhenTheAccountsDirectoryCannotBeWalked)
 {
     // A walk that fails for any reason other than "there are no accounts yet" leaves the index
     // empty. If it stays enabled, every resolver answers "No account exists for that email address."
@@ -642,7 +625,7 @@ TEST(DbLoader, DoesNotLeaveTheAccountIndexAuthoritativeWhenTheAccountsDirectoryC
         << "an empty index must not stay authoritative after the accounts walk failed";
 }
 
-TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
+TEST_F(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -671,7 +654,7 @@ TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
     EXPECT_TRUE(IS_TWOHANDED(&live_character));
 }
 
-TEST(DbLoader, LegacyPlayerTextRoundTripPreservesStructuredColorSettings)
+TEST_F(DbLoader, LegacyPlayerTextRoundTripPreservesStructuredColorSettings)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -707,7 +690,7 @@ TEST(DbLoader, LegacyPlayerTextRoundTripPreservesStructuredColorSettings)
     EXPECT_NE(weather_sequence.find("\x1B[48;2;10;20;35m"), std::string::npos) << weather_sequence;
 }
 
-TEST(DbLoader, LegacyPlayerTextNormalizesOutOfRangeCombatStateValues)
+TEST_F(DbLoader, LegacyPlayerTextNormalizesOutOfRangeCombatStateValues)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -740,7 +723,7 @@ TEST(DbLoader, LegacyPlayerTextNormalizesOutOfRangeCombatStateValues)
     EXPECT_TRUE(IS_TWOHANDED(&live_character));
 }
 
-TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenRuntimeFileIsMissing)
+TEST_F(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenRuntimeFileIsMissing)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -775,7 +758,7 @@ TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenRuntimeFileIsMissing)
     EXPECT_EQ(records[0].iIntParam, expected_record.iIntParam);
 }
 
-TEST(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
+TEST_F(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -935,7 +918,7 @@ std::string read_whole_text_file(const std::filesystem::path& path)
 // history is JSON with full idnums, and the re-read keeps them whole. The account comes from
 // faked cache resolvers because the on-disk account scan does not resolve under QEMU; the
 // exploit history files are real.
-TEST(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
+TEST_F(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
 {
     ScopedStandardTemporaryDirectory temp_directory;
     ASSERT_FALSE(temp_directory.path().empty());
@@ -1010,7 +993,7 @@ std::optional<std::uintmax_t> file_size_if_present(const std::filesystem::path& 
 
 } // namespace
 
-TEST(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
+TEST_F(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
 {
     ScopedStandardTemporaryDirectory temp_directory;
     ASSERT_FALSE(temp_directory.path().empty());
@@ -1036,7 +1019,7 @@ TEST(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
     EXPECT_TRUE(file_size_if_present(legacy_path).has_value()) << "loading keeps a valid legacy file";
 }
 
-TEST(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
+TEST_F(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
 {
     ScopedStandardTemporaryDirectory temp_directory;
     ASSERT_FALSE(temp_directory.path().empty());
@@ -1056,7 +1039,7 @@ TEST(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
     EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE)));
 }
 
-TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
+TEST_F(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
 {
     ScopedStandardTemporaryDirectory temp_directory;
     ASSERT_FALSE(temp_directory.path().empty());
@@ -1083,7 +1066,7 @@ TEST(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
     EXPECT_NE(logged.find(logged_size), std::string::npos) << logged;
 }
 
-TEST(DbLoader, LoadsAnEmptyLegacyFileAsAnEmptyHistoryAndKeepsIt)
+TEST_F(DbLoader, LoadsAnEmptyLegacyFileAsAnEmptyHistoryAndKeepsIt)
 {
     ScopedStandardTemporaryDirectory temp_directory;
     ASSERT_FALSE(temp_directory.path().empty());
@@ -1099,7 +1082,7 @@ TEST(DbLoader, LoadsAnEmptyLegacyFileAsAnEmptyHistoryAndKeepsIt)
     EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(0));
 }
 
-TEST(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
+TEST_F(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1116,7 +1099,7 @@ TEST(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeO
     EXPECT_TRUE(records.empty());
 }
 
-TEST(DbLoader, LoadsObjectAndExploitDataFromRuntimeLegacyFilesWhenAccountNativeJsonIsAbsent)
+TEST_F(DbLoader, LoadsObjectAndExploitDataFromRuntimeLegacyFilesWhenAccountNativeJsonIsAbsent)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1147,7 +1130,7 @@ TEST(DbLoader, LoadsObjectAndExploitDataFromRuntimeLegacyFilesWhenAccountNativeJ
     EXPECT_STREQ(records[0].chtime, runtime_record.chtime);
 }
 
-TEST(DbLoader, PrefersAccountNativeObjectAndExploitJsonOverConflictingRuntimeLegacyFiles)
+TEST_F(DbLoader, PrefersAccountNativeObjectAndExploitJsonOverConflictingRuntimeLegacyFiles)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1189,7 +1172,7 @@ TEST(DbLoader, PrefersAccountNativeObjectAndExploitJsonOverConflictingRuntimeLeg
     EXPECT_STREQ(loaded_records[0].chVictimName, account_records[0].chVictimName);
 }
 
-TEST(DbLoader, FailsClosedWhenAccountNativeExploitJsonIsMalformed)
+TEST_F(DbLoader, FailsClosedWhenAccountNativeExploitJsonIsMalformed)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1216,7 +1199,7 @@ TEST(DbLoader, FailsClosedWhenAccountNativeExploitJsonIsMalformed)
         << "Failing closed on authoritative account-native exploit JSON should not silently consume or retire the stale legacy runtime file.";
 }
 
-TEST(DbLoader, BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters)
+TEST_F(DbLoader, BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -1265,7 +1248,7 @@ TEST(DbLoader, BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters)
     EXPECT_EQ(loaded_character.player_index, 1);
 }
 
-TEST(DbLoader, LoadsAnAccountNativeCharacterIndexedUnderALongEmailAddress)
+TEST_F(DbLoader, LoadsAnAccountNativeCharacterIndexedUnderALongEmailAddress)
 {
     // Nothing caps the length of an email address -- is_valid_email checks shape, not size -- and an
     // account-native path is "./accounts/<bucket>/<email>/<name>.character.json": 31 fixed bytes
@@ -1319,7 +1302,7 @@ TEST(DbLoader, LoadsAnAccountNativeCharacterIndexedUnderALongEmailAddress)
         ::testing::ExitedWithCode(0), "");
 }
 
-TEST(DbLoader, TheLongestPermittedEmailAndCharacterNameStillFitThePlayerIndexField)
+TEST_F(DbLoader, TheLongestPermittedEmailAndCharacterNameStillFitThePlayerIndexField)
 {
     // MAX_EMAIL_LENGTH exists to keep this true, so assert it against the real path composer and
     // the real index rather than re-deriving the arithmetic here. If either the cap or the field
@@ -1366,7 +1349,7 @@ TEST(DbLoader, TheLongestPermittedEmailAndCharacterNameStillFitThePlayerIndexFie
     EXPECT_EQ(loaded_character.specials2.idnum, 333);
 }
 
-TEST(DbLoader, BuildPlayerIndexKeepsTheAccountUsableWhenOneCharacterFileIsUnreadable)
+TEST_F(DbLoader, BuildPlayerIndexKeepsTheAccountUsableWhenOneCharacterFileIsUnreadable)
 {
     // One unreadable <name>.character.json must not lock its owner out of the whole account. The
     // boot walker used to quarantine the ACCOUNT for a per-character asset failure, which erases the
@@ -1443,7 +1426,7 @@ TEST(DbLoader, BuildPlayerIndexKeepsTheAccountUsableWhenOneCharacterFileIsUnread
     account_index::clear();
 }
 
-TEST(DbLoader, BuildPlayerIndexFailsClosedWhenAccountNativePathDoesNotFitPlayerIndex)
+TEST_F(DbLoader, BuildPlayerIndexFailsClosedWhenAccountNativePathDoesNotFitPlayerIndex)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -1481,7 +1464,7 @@ TEST(DbLoader, BuildPlayerIndexFailsClosedWhenAccountNativePathDoesNotFitPlayerI
         << "Boot index failure should leave the parent test process without a truncated live entry.";
 }
 
-TEST(DbLoader, BuildPlayerIndexPrefersVersionedLegacyPlayerSaveOverFlatArtifactBeforeMigration)
+TEST_F(DbLoader, BuildPlayerIndexPrefersVersionedLegacyPlayerSaveOverFlatArtifactBeforeMigration)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -1511,7 +1494,7 @@ TEST(DbLoader, BuildPlayerIndexPrefersVersionedLegacyPlayerSaveOverFlatArtifactB
     EXPECT_NE(std::string(player_table[0].ch_file).find(".1.1.2222." + std::to_string(recent_log_time) + ".0"), std::string::npos);
 }
 
-TEST(DbLoader, BuildPlayerIndexRemainsConsistentAfterVersionedMigrationRetiresStaleFlatFile)
+TEST_F(DbLoader, BuildPlayerIndexRemainsConsistentAfterVersionedMigrationRetiresStaleFlatFile)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -1551,7 +1534,7 @@ TEST(DbLoader, BuildPlayerIndexRemainsConsistentAfterVersionedMigrationRetiresSt
     EXPECT_NE(std::string(player_table[0].ch_file).find("aragorn.character.json"), std::string::npos);
 }
 
-TEST(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenRuntimeFileIsMissing)
+TEST_F(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenRuntimeFileIsMissing)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -1582,7 +1565,7 @@ TEST(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenRuntimeFileIsMissing
     EXPECT_EQ(object_bytes, expected_bytes);
 }
 
-TEST(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenPresent)
+TEST_F(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenPresent)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1609,7 +1592,7 @@ TEST(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenPresent)
     EXPECT_EQ(object_bytes, expected_bytes);
 }
 
-TEST(DbLoader, FailsClosedWhenAccountNativeObjectJsonIsMalformed)
+TEST_F(DbLoader, FailsClosedWhenAccountNativeObjectJsonIsMalformed)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1640,7 +1623,7 @@ TEST(DbLoader, FailsClosedWhenAccountNativeObjectJsonIsMalformed)
         << "Failing closed on authoritative account-native object JSON should not silently consume the stale runtime object file.";
 }
 
-TEST(DbLoader, FailsClosedWhenAccountNativeObjectOrExploitJsonCannotBeRead)
+TEST_F(DbLoader, FailsClosedWhenAccountNativeObjectOrExploitJsonCannotBeRead)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1691,7 +1674,7 @@ TEST(DbLoader, FailsClosedWhenAccountNativeObjectOrExploitJsonCannotBeRead)
     EXPECT_EQ(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
 }
 
-TEST(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
+TEST_F(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1708,7 +1691,7 @@ TEST(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNative
     EXPECT_TRUE(object_bytes.empty());
 }
 
-TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
+TEST_F(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
 {
     ensure_test_world_room(3001);
 
@@ -1750,7 +1733,7 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
 }
 
-TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
+TEST_F(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
 {
     ensure_test_world_room(3001);
 
@@ -1797,7 +1780,7 @@ TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
 
 /* Login clears a character before loading it, so the load fills the profs block the clear made
    instead of replacing it. */
-TEST(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
+TEST_F(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
 {
     char_data* character = nullptr;
     CREATE(character, char_data, 1);
@@ -1830,7 +1813,7 @@ TEST(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
 
    The out-of-range depth case already falls back to the character's inventory; a missing parent
    has to do the same, so that a damaged rent file costs a player nesting, never the item. */
-TEST(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
+TEST_F(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -1886,7 +1869,7 @@ TEST(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
     EXPECT_EQ(character.carrying->obj_flags.weight, 4);
 }
 
-TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)
+TEST_F(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -1941,7 +1924,7 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableI
 
 int Crash_obj2store(const obj_data* obj, const char_data* ch, int pos, FILE* fl);
 
-TEST(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
+TEST_F(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -2016,9 +1999,12 @@ TEST(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
     ASSERT_NE(carried_pack->contains, nullptr);
     EXPECT_EQ(carried_pack->contains->affected[0].modifier, 2);
     EXPECT_EQ(carried_pack->contains->obj_flags.version, 3);
+
+    /* Login reports the refreshed objects after Crash_load, which empties the character's entry. */
+    Crash_report_object_refreshes(&character);
 }
 
-TEST(DbLoader, CrashObj2StoreWritesTheVersionOnlyForVersionedObjects)
+TEST_F(DbLoader, CrashObj2StoreWritesTheVersionOnlyForVersionedObjects)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ScopedCharacter character_owner;
@@ -2067,7 +2053,7 @@ objects_json::ObjectRecord cast_on_before_records(int vnum, int caster_flags)
 
 } // namespace
 
-TEST(DbLoader, RecordsOldEnchantsOnlyOnWeaponsThatWereCastOn)
+TEST_F(DbLoader, RecordsOldEnchantsOnlyOnWeaponsThatWereCastOn)
 {
     ScopedObjectPrototypeTable object_prototypes;
     obj_proto[0].obj_flags.type_flag = ITEM_WEAPON; // 1001, a plain weapon
@@ -2126,7 +2112,7 @@ TEST(DbLoader, RecordsOldEnchantsOnlyOnWeaponsThatWereCastOn)
     EXPECT_EQ(both.objects[0].enchants[0].align, ENCHANT_ALIGN_GOOD);
 }
 
-TEST(DbLoader, LoginRecordsOldEnchantsFromAFileOfTheOlderSchemaAndNeverFromACurrentOne)
+TEST_F(DbLoader, LoginRecordsOldEnchantsFromAFileOfTheOlderSchemaAndNeverFromACurrentOne)
 {
     ScopedObjectPrototypeTable object_prototypes;
     obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
@@ -2180,7 +2166,7 @@ TEST(DbLoader, LoginRecordsOldEnchantsFromAFileOfTheOlderSchemaAndNeverFromACurr
     EXPECT_EQ(reloaded_bytes, loaded_bytes);
 }
 
-TEST(DbLoader, AnEnchantIsSavedLoadedAndKeptAcrossAVersionBump)
+TEST_F(DbLoader, AnEnchantIsSavedLoadedAndKeptAcrossAVersionBump)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -2246,7 +2232,7 @@ extern int generic_scalp;
 void Crash_tell_object_refresh(const char_data* ch, const char* name);
 
 // Short descriptions are builder text of any length; the message is cut to its buffer.
-TEST(DbLoader, TheUpdatedMessageIsCutToItsBufferForAnOverlongName)
+TEST_F(DbLoader, TheUpdatedMessageIsCutToItsBufferForAnOverlongName)
 {
     ScopedCharacter character_owner;
     char_data& character = character_owner.get();
@@ -2259,7 +2245,7 @@ TEST(DbLoader, TheUpdatedMessageIsCutToItsBufferForAnOverlongName)
 }
 
 // A scalp keeps the head it was cut from in its values and flags; a bump never rebuilds one.
-TEST(DbLoader, AScalpIsNeverRefreshed)
+TEST_F(DbLoader, AScalpIsNeverRefreshed)
 {
     ScopedObjectPrototypeTable object_prototypes;
     for (int rnum : { 0, 1 }) {
@@ -2284,7 +2270,7 @@ TEST(DbLoader, AScalpIsNeverRefreshed)
 }
 
 // A file cut off inside an enchanted weapon's record is refused whole: nothing is loaded from it.
-TEST(DbLoader, AFileCutOffInsideAnEnchantedRecordLoadsNothing)
+TEST_F(DbLoader, AFileCutOffInsideAnEnchantedRecordLoadsNothing)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -2311,7 +2297,7 @@ TEST(DbLoader, AFileCutOffInsideAnEnchantedRecordLoadsNothing)
 }
 
 // The idle-out save writes no follower section. The file is still the caller's to close, once.
-TEST(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
+TEST_F(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -2340,7 +2326,7 @@ TEST(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
 
 // A follower's gear saved in a slot one past the last (a damaged save) is read past, as gear in a
 // container is: nothing is put on there, and the follower's next item still loads.
-TEST(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
+TEST_F(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
 {
     constexpr int FOLLOWER_VNUM = 6601;
     constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
@@ -2404,10 +2390,13 @@ TEST(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
     EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
     EXPECT_EQ(character.followers->next, nullptr);
 
-    /* The follower is left unfreed, as its prototype's strings are the test's. */
+    /* The follower is freed as extract_char frees a mob, which leaves its profession block to the
+     * prototype; the prototype's is freed below. Its helm goes with the object table. */
     char_from_room(loaded);
     remove_char_exists(loaded->abs_number);
-    character.followers = nullptr;
+    RELEASE(character.followers);
+    free_char(loaded);
+    release_cleared_character(&follower_prototype);
     mob_proto = saved_mob_proto;
     mob_index = saved_mob_index;
     top_of_mobt = saved_top_of_mobt;
@@ -2416,7 +2405,7 @@ TEST(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
 
 // The file the game itself writes, read back by the game: the enchanted weapon's longer record
 // must not put the load, or the rent listing, out of step for the object after it.
-TEST(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPastIt)
+TEST_F(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPastIt)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -2496,7 +2485,7 @@ TEST(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPas
 void write_object(FILE* f, const struct obj_data* obj, int num);
 void load_objects(FILE* obj_f);
 
-TEST(DbLoader, SkinLevelLineWrittenOnlyForSkins)
+TEST_F(DbLoader, SkinLevelLineWrittenOnlyForSkins)
 {
     char name[] = "sword";
     char empty[] = "";
@@ -2537,7 +2526,7 @@ TEST(DbLoader, SkinLevelLineWrittenOnlyForSkins)
 // another), so this is the one test that may call it.
 /* Also the boot side of a skin's 7-number level line (load_objects is single-use, so it is here):
  * the 6th and 7th numbers become skin_base and skin_own. */
-TEST(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNone)
+TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNone)
 {
     index_data* const previous_obj_index = obj_index;
     obj_data* const previous_obj_proto = obj_proto;
@@ -2612,7 +2601,7 @@ TEST(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNo
 
 void shape_center_obj(struct char_data* ch, char* arg);
 
-TEST(DbLoader, ObjectEditorVersionFieldTakesExactlyBOrO)
+TEST_F(DbLoader, ObjectEditorVersionFieldTakesExactlyBOrO)
 {
     obj_data object {};
     shape_object shape {};
@@ -2730,6 +2719,15 @@ public:
     {
         builder.temp = nullptr;
         builder.desc = nullptr;
+        release_test_descriptor(&m_descriptor);
+        /* load_object replaces the working copy with one of its own. */
+        if (shape.object != nullptr && shape.object != &object) {
+            release_object_text(*shape.object);
+            RELEASE(shape.object);
+        }
+        release_object_text(object);
+        for (int index = 0; index <= top_of_objt; ++index)
+            release_object_text(obj_proto[index]);
         delete[] obj_proto;
         delete[] obj_index;
         obj_proto = m_previous_obj_proto;
@@ -2768,6 +2766,23 @@ public:
     char_data& builder = builder_owner.get();
 
 private:
+    /* Frees an object's text and extra descriptions, which init, the editor and implement
+     * allocate. */
+    static void release_object_text(obj_data& object)
+    {
+        RELEASE(object.name);
+        RELEASE(object.short_description);
+        RELEASE(object.description);
+        RELEASE(object.action_description);
+        while (object.ex_description != nullptr) {
+            extra_descr_data* next = object.ex_description->next;
+            RELEASE(object.ex_description->keyword);
+            RELEASE(object.ex_description->description);
+            RELEASE(object.ex_description);
+            object.ex_description = next;
+        }
+    }
+
     void init(int index, int virt, const char* short_description)
     {
         obj_index[index].virt = virt;
@@ -2800,7 +2815,7 @@ void add_extra_description(obj_data& object, const char* keyword, const char* de
 
 } // namespace
 
-TEST(DbLoader, ObjectEditorSetsSkinBase)
+TEST_F(DbLoader, ObjectEditorSetsSkinBase)
 {
     SkinEditorSession session(4520);
 
@@ -2823,7 +2838,7 @@ TEST(DbLoader, ObjectEditorSetsSkinBase)
     EXPECT_FALSE(has(out, "Material was")) << "material did not differ: " << out;
 }
 
-TEST(DbLoader, ObjectEditorRefusesKeyBase)
+TEST_F(DbLoader, ObjectEditorRefusesKeyBase)
 {
     SkinEditorSession session(4520);
 
@@ -2834,7 +2849,7 @@ TEST(DbLoader, ObjectEditorRefusesKeyBase)
     EXPECT_TRUE(has(out, "Keys can't have skins.\n\r")) << out;
 }
 
-TEST(DbLoader, ObjectEditorRefusesSkinAsBase)
+TEST_F(DbLoader, ObjectEditorRefusesSkinAsBase)
 {
     SkinEditorSession session(4520);
 
@@ -2856,7 +2871,7 @@ TEST(DbLoader, ObjectEditorRefusesSkinAsBase)
     EXPECT_TRUE(has(out, "Obj 4512 has skins (4513, 4514); it can't become a skin.\n\r")) << out;
 }
 
-TEST(DbLoader, ObjectEditorRefusesStatEditOnSkin)
+TEST_F(DbLoader, ObjectEditorRefusesStatEditOnSkin)
 {
     SkinEditorSession session(4521);
     session.answer(23, "4512");
@@ -2888,7 +2903,7 @@ TEST(DbLoader, ObjectEditorRefusesStatEditOnSkin)
 }
 
 /* /49 on a skin: one refusal for the whole chain, then text, cost and the end. */
-TEST(DbLoader, ObjectEditorSkinChainRefusesOnce)
+TEST_F(DbLoader, ObjectEditorSkinChainRefusesOnce)
 {
     SkinEditorSession session(4521);
     session.answer(23, "4512");
@@ -2912,7 +2927,7 @@ TEST(DbLoader, ObjectEditorSkinChainRefusesOnce)
 }
 
 /* A vnum that is not booted yet: the editor's basenum is -1, its number is the vnum. */
-TEST(DbLoader, ObjectEditorSkinMessagesOnNewVnum)
+TEST_F(DbLoader, ObjectEditorSkinMessagesOnNewVnum)
 {
     SkinEditorSession session(-1);
     session.shape.number = 5013;
@@ -2926,7 +2941,7 @@ TEST(DbLoader, ObjectEditorSkinMessagesOnNewVnum)
     EXPECT_EQ(session.object.obj_flags.skin_base, 4512);
 }
 
-TEST(DbLoader, ObjectEditorOwnCostThenBase)
+TEST_F(DbLoader, ObjectEditorOwnCostThenBase)
 {
     SkinEditorSession session(4521);
     session.answer(23, "4512");
@@ -2951,7 +2966,7 @@ TEST(DbLoader, ObjectEditorOwnCostThenBase)
 
 /* A skin whose base is no longer valid (here a key) boots as a plain object: "base" at /14 and /18
  * is refused and copies nothing, its stats can be edited, and the list shows none as the base's. */
-TEST(DbLoader, ObjectEditorSkinOfInvalidBaseIsEditedAsPlain)
+TEST_F(DbLoader, ObjectEditorSkinOfInvalidBaseIsEditedAsPlain)
 {
     SkinEditorSession session(4521);
     session.object.obj_flags.skin_base = 4600;
@@ -2984,7 +2999,7 @@ TEST(DbLoader, ObjectEditorSkinOfInvalidBaseIsEditedAsPlain)
 }
 
 /* On a skin of a valid base the list marks each stat "(from M)", and an own cost "[own]". */
-TEST(DbLoader, ObjectEditorListMarksASkinsStats)
+TEST_F(DbLoader, ObjectEditorListMarksASkinsStats)
 {
     SkinEditorSession session(4521);
     session.answer(23, "4512");
@@ -2996,7 +3011,7 @@ TEST(DbLoader, ObjectEditorListMarksASkinsStats)
     EXPECT_TRUE(has(list, "[own]")) << list;
 }
 
-TEST(DbLoader, ObjectEditorUnskinKeepsStats)
+TEST_F(DbLoader, ObjectEditorUnskinKeepsStats)
 {
     SkinEditorSession session(4521);
     session.answer(23, "4512");
@@ -3016,7 +3031,7 @@ TEST(DbLoader, ObjectEditorUnskinKeepsStats)
     EXPECT_EQ(flags.weight, 75) << "stats can be edited again";
 }
 
-TEST(DbLoader, ObjectEditorRefusesKeyTypeOnBaseWithSkins)
+TEST_F(DbLoader, ObjectEditorRefusesKeyTypeOnBaseWithSkins)
 {
     SkinEditorSession session(4512);
     session.object.obj_flags.type_flag = ITEM_WEAPON;
@@ -3027,7 +3042,7 @@ TEST(DbLoader, ObjectEditorRefusesKeyTypeOnBaseWithSkins)
     EXPECT_TRUE(has(out, "Obj 4512 has skins (4513, 4514); it can't become a key.\n\r")) << out;
 }
 
-TEST(DbLoader, ObjectEditorRefusesNoteTypeOnBaseWithSkins)
+TEST_F(DbLoader, ObjectEditorRefusesNoteTypeOnBaseWithSkins)
 {
     SkinEditorSession session(4512);
     session.object.obj_flags.type_flag = ITEM_WEAPON;
@@ -3038,7 +3053,7 @@ TEST(DbLoader, ObjectEditorRefusesNoteTypeOnBaseWithSkins)
     EXPECT_TRUE(has(out, "Obj 4512 has skins (4513, 4514); it can't become a note.\n\r")) << out;
 }
 
-TEST(DbLoader, ImplementBaseRefreshesSkinProtos)
+TEST_F(DbLoader, ImplementBaseRefreshesSkinProtos)
 {
     SkinEditorSession session(4512);
     session.object.obj_flags = obj_proto[0].obj_flags;
@@ -3069,7 +3084,7 @@ TEST(DbLoader, ImplementBaseRefreshesSkinProtos)
     EXPECT_EQ(obj_proto[1].obj_flags.material, 9);
 }
 
-TEST(DbLoader, ImplementSkinWithKeyBaseStoresPlain)
+TEST_F(DbLoader, ImplementSkinWithKeyBaseStoresPlain)
 {
     /* Saved as a skin of 4600 before 4600 became a key (or loaded so from the file). */
     SkinEditorSession session(4513);
@@ -3094,7 +3109,7 @@ TEST(DbLoader, ImplementSkinWithKeyBaseStoresPlain)
 
 /* /23 refuses a skin base on an object that has skins, but implementing it later must too: 4512
  * (with live skins 4513, 4514) implemented as a skin of 4700 would make skins of a skin. */
-TEST(DbLoader, ImplementSkinThatHasSkinsStoresPlain)
+TEST_F(DbLoader, ImplementSkinThatHasSkinsStoresPlain)
 {
     SkinEditorSession session(4512);
     session.object.obj_flags = obj_proto[0].obj_flags;
@@ -3111,7 +3126,7 @@ TEST(DbLoader, ImplementSkinThatHasSkinsStoresPlain)
 
 /* /9 refuses a key or note type on a base with skins while editing, but the type can also come
  * from the file: implement refuses then and nothing changes in the game. */
-TEST(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
+TEST_F(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
 {
     for (int type : { ITEM_KEY, ITEM_NOTE }) {
         SkinEditorSession session(4512);
@@ -3131,7 +3146,7 @@ TEST(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
 }
 
 /* A copy in the game when its prototype is implemented keeps the text it was made with. */
-TEST(DbLoader, ImplementKeepsTheTextALiveCopyShows)
+TEST_F(DbLoader, ImplementKeepsTheTextALiveCopyShows)
 {
     SkinEditorSession session(4700);
     obj_data& staff = obj_proto[4];
@@ -3155,7 +3170,7 @@ TEST(DbLoader, ImplementKeepsTheTextALiveCopyShows)
 }
 
 /* With no copy in the game, no object holds the prototype's replaced text after implement. */
-TEST(DbLoader, ImplementLeavesNoObjectHoldingTheReplacedText)
+TEST_F(DbLoader, ImplementLeavesNoObjectHoldingTheReplacedText)
 {
     SkinEditorSession session(4700);
     obj_data& staff = obj_proto[4];
@@ -3178,7 +3193,7 @@ void name_to_drinkcon(struct obj_data* obj, int type);
 
 /* Filling a copy made before an implement leaves the old name it shares with other such copies
  * alone: they all still show it. */
-TEST(DbLoader, FillingACopyKeepsTheOldNameOtherCopiesShare)
+TEST_F(DbLoader, FillingACopyKeepsTheOldNameOtherCopiesShare)
 {
     SkinEditorSession session(4700);
     obj_data* const filled = read_object(4, REAL);
@@ -3198,7 +3213,7 @@ TEST(DbLoader, FillingACopyKeepsTheOldNameOtherCopiesShare)
 }
 
 /* A copy starts out owning none of its text, so freeing it never frees its prototype's. */
-TEST(DbLoader, ACopyStartsOwningNoneOfItsText)
+TEST_F(DbLoader, ACopyStartsOwningNoneOfItsText)
 {
     SkinEditorSession session(4700);
     obj_data& staff = obj_proto[4];
@@ -3219,7 +3234,7 @@ TEST(DbLoader, ACopyStartsOwningNoneOfItsText)
 }
 
 /* A note can't be a base: /23 refuses it, like a key. */
-TEST(DbLoader, ObjectEditorRefusesNoteBase)
+TEST_F(DbLoader, ObjectEditorRefusesNoteBase)
 {
     SkinEditorSession session(4521);
     obj_proto[4].obj_flags.type_flag = ITEM_NOTE;
@@ -3259,7 +3274,7 @@ private:
 
 /* A skin's stats in its file are only a fallback: loading it into the editor shows the base's
  * current stats, and saving it writes them, so /50 and the file never show stale numbers. */
-TEST(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
+TEST_F(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
 {
     const std::string file = "#4513\n\ra skin~\n\ra skin~\n\rA skin lies here.~\n\r~\n\r"
                              "5 0 8193\n\r1 1 1 3 0\n\r33 100 -1\n\r1 0 4 0 0 4512 0\n\r#99999\n\r$~\n\r";
@@ -3286,7 +3301,7 @@ void free_object(struct char_data* ch);
 void new_obj(const struct char_data* ch);
 
 /* Leaving the object editor frees the object it was editing, its text and extra descriptions too. */
-TEST(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
+TEST_F(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
 {
     SkinEditorSession session(4530);
     shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
@@ -3315,7 +3330,7 @@ void string_add(struct descriptor_data* d, char* str);
 
 /* Each edit of the look text starts from the text before it and replaces it, and leaving the editor
  * frees the last. */
-TEST(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
+TEST_F(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
 {
     SkinEditorSession session(4530);
     shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
@@ -3355,7 +3370,7 @@ void free_proto(struct char_data* ch);
 
 /* Each edit of a mob's description starts from the text before it and replaces it, and leaving the
  * editor frees the last. */
-TEST(DbLoader, MobEditorDescriptionEditsReplaceEachOther)
+TEST_F(DbLoader, MobEditorDescriptionEditsReplaceEachOther)
 {
     SkinEditorSession session(4530); /* only its builder and output: the mob editor replaces temp */
     shape_proto* editor = nullptr; /* free_proto frees the editor state, so it is allocated */
@@ -3395,7 +3410,7 @@ void free_room(struct char_data* ch);
 
 /* Each edit of a room's description starts from the text before it and replaces it, and leaving the
  * editor frees the last. */
-TEST(DbLoader, RoomEditorDescriptionEditsReplaceEachOther)
+TEST_F(DbLoader, RoomEditorDescriptionEditsReplaceEachOther)
 {
     SkinEditorSession session(4530); /* only its builder and output: the room editor replaces temp */
     shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
@@ -3444,7 +3459,7 @@ room_direction_data* make_room_exit(const char* description, const char* keyword
 
 /* Implementing a room gives the live room copies of the editor's name, description and exit text, and
  * an exit the editor leaves undescribed an empty description. */
-TEST(DbLoader, ImplementingARoomCopiesTheEditorsText)
+TEST_F(DbLoader, ImplementingARoomCopiesTheEditorsText)
 {
     const int ROOM_NUMBER = 4530;
     SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
@@ -3496,7 +3511,7 @@ TEST(DbLoader, ImplementingARoomCopiesTheEditorsText)
 }
 
 /* Leaving the room editor frees a loaded room with its exits and extra descriptions. */
-TEST(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
+TEST_F(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
 {
     const int ROOM_NUMBER = 4530;
     SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
@@ -3520,7 +3535,7 @@ TEST(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
 }
 
 /* Removing an exit in the room editor removes it with its text, and leaves the other exits. */
-TEST(DbLoader, RoomEditorRemovesAnExit)
+TEST_F(DbLoader, RoomEditorRemovesAnExit)
 {
     const int ROOM_NUMBER = 4530;
     SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
@@ -3550,7 +3565,7 @@ TEST(DbLoader, RoomEditorRemovesAnExit)
 
 /* A new exit leads where it is told, with empty text, no door and no key, and is freed like every
  * other exit. */
-TEST(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
+TEST_F(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
 {
     const int ROOM_NUMBER = 4530;
     const room_data saved_room = world[0];
@@ -3578,7 +3593,7 @@ TEST(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
 }
 
 /* Creating a room in a free slot gives it fresh placeholder text in place of the text the slot held. */
-TEST(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
+TEST_F(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
 {
     const int saved_top_of_world = top_of_world;
     const int ROOMS_CREATED = 2;
@@ -3619,7 +3634,7 @@ TEST(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
 void free_zone(struct char_data* ch);
 
 /* Leaving the zone editor frees a loaded zone's name, description and map. */
-TEST(DbLoader, LeavingTheZoneEditorFreesItsText)
+TEST_F(DbLoader, LeavingTheZoneEditorFreesItsText)
 {
     SkinEditorSession session(4530); /* only its builder: the zone editor replaces temp */
     shape_zone* editor = nullptr; /* free_zone frees the editor state, so it is allocated */
@@ -3641,7 +3656,7 @@ extern int top_of_script_table;
 
 /* Boot and implement check a RESTYLE_OBJ target: a typed vnum must exist; a number variable
  * (int1, ob2.vnum) is read when the line runs, so it is skipped. */
-TEST(DbLoader, ScriptVnumCheckCoversRestyleTargets)
+TEST_F(DbLoader, ScriptVnumCheckCoversRestyleTargets)
 {
     SkinEditorSession session(4512);
     script_data rows[3] {};
@@ -3673,7 +3688,7 @@ TEST(DbLoader, ScriptVnumCheckCoversRestyleTargets)
     EXPECT_EQ(out.find("line 3"), std::string::npos) << "ob2.vnum is read when the line runs: " << out;
 }
 
-TEST(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMigration)
+TEST_F(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMigration)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -3730,7 +3745,7 @@ TEST(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMi
     EXPECT_EQ(obj_index[character.carrying->item_number].virt, 1002);
 }
 
-TEST(DbLoader, AccountNativeCrashLoadDoesNotLogMissingLegacyObjectFileWhenFallbackSucceeds)
+TEST_F(DbLoader, AccountNativeCrashLoadDoesNotLogMissingLegacyObjectFileWhenFallbackSucceeds)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -3788,7 +3803,7 @@ TEST(DbLoader, AccountNativeCrashLoadDoesNotLogMissingLegacyObjectFileWhenFallba
     EXPECT_EQ(obj_index[character.equipment[WEAR_HEAD]->item_number].virt, 1001);
 }
 
-TEST(DbLoader, AccountNativeCrashLoadStillLogsNonMissingLegacyObjectOpenFailures)
+TEST_F(DbLoader, AccountNativeCrashLoadStillLogsNonMissingLegacyObjectOpenFailures)
 {
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
@@ -3840,7 +3855,7 @@ TEST(DbLoader, AccountNativeCrashLoadStillLogsNonMissingLegacyObjectOpenFailures
     EXPECT_NE(stderr_output.find("aragorn"), std::string::npos) << stderr_output;
 }
 
-TEST(DbLoader, AccountNativeCharacterLoadDoesNotPropagateGarbageColorStateIntoLiveCharacter)
+TEST_F(DbLoader, AccountNativeCharacterLoadDoesNotPropagateGarbageColorStateIntoLiveCharacter)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -3867,7 +3882,7 @@ TEST(DbLoader, AccountNativeCharacterLoadDoesNotPropagateGarbageColorStateIntoLi
     EXPECT_EQ(get_colornum(&character, COLOR_ROOM), CNRM);
 }
 
-TEST(DbLoader, SavingAccountNativeCharacterDoesNotAttemptLegacySnapshotRefreshAfterMigrationRetirement)
+TEST_F(DbLoader, SavingAccountNativeCharacterDoesNotAttemptLegacySnapshotRefreshAfterMigrationRetirement)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -3912,7 +3927,7 @@ TEST(DbLoader, SavingAccountNativeCharacterDoesNotAttemptLegacySnapshotRefreshAf
     EXPECT_EQ(stderr_output.find("failed to refresh account snapshot"), std::string::npos);
 }
 
-TEST(DbLoader, SavingLinkedCharacterRefreshesStalePlayerIndexToAccountNativePath)
+TEST_F(DbLoader, SavingLinkedCharacterRefreshesStalePlayerIndexToAccountNativePath)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -3958,7 +3973,7 @@ TEST(DbLoader, SavingLinkedCharacterRefreshesStalePlayerIndexToAccountNativePath
  * save_char and Crash_crashsave return nothing; each sets its flag on the
  * character only where its file was really written. Run for real here: the
  * banker tests replace the saver with a stand-in. */
-TEST(DbLoader, SaveResultFlagsAreSetOnlyWhereTheFileWasWritten)
+TEST_F(DbLoader, SaveResultFlagsAreSetOnlyWhereTheFileWasWritten)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -4016,7 +4031,7 @@ TEST(DbLoader, SaveResultFlagsAreSetOnlyWhereTheFileWasWritten)
     EXPECT_TRUE(bank_save_character(&character, false));
 }
 
-TEST(DbLoader, SavingLinkedCharacterRepairsMissingAccountNativeCharacterFileDirectly)
+TEST_F(DbLoader, SavingLinkedCharacterRepairsMissingAccountNativeCharacterFileDirectly)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -4072,7 +4087,7 @@ TEST(DbLoader, SavingLinkedCharacterRepairsMissingAccountNativeCharacterFileDire
     EXPECT_EQ(stderr_output.find("failed to repair missing account-native character file"), std::string::npos);
 }
 
-TEST(DbLoader, SavingAccountNativeCharacterWithUnreadableAccountRecordDoesNotReviveLegacyPlayerFile)
+TEST_F(DbLoader, SavingAccountNativeCharacterWithUnreadableAccountRecordDoesNotReviveLegacyPlayerFile)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -4124,7 +4139,7 @@ TEST(DbLoader, SavingAccountNativeCharacterWithUnreadableAccountRecordDoesNotRev
     EXPECT_NE(stderr_output.find("refusing legacy fallback for account-native character"), std::string::npos);
 }
 
-TEST(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacter)
+TEST_F(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacter)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -4175,7 +4190,7 @@ TEST(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacte
     clear_account_backed_object_bytes_for_character(&staged_character);
 }
 
-TEST(DbLoader, MigratedLegacyObjectPayloadMatchesAccountNativeObjectsJson)
+TEST_F(DbLoader, MigratedLegacyObjectPayloadMatchesAccountNativeObjectsJson)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -4230,7 +4245,7 @@ TEST(DbLoader, MigratedLegacyObjectPayloadMatchesAccountNativeObjectsJson)
     expect_object_save_data_equal(expected_object_data, migrated_object_data);
 }
 
-TEST(DbLoader, ReturnsEmptyObjectSaveBytesWhenNoRuntimeOrSnapshotExists)
+TEST_F(DbLoader, ReturnsEmptyObjectSaveBytesWhenNoRuntimeOrSnapshotExists)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
@@ -4246,7 +4261,7 @@ TEST(DbLoader, ReturnsEmptyObjectSaveBytesWhenNoRuntimeOrSnapshotExists)
     EXPECT_TRUE(object_bytes.empty());
 }
 
-TEST(DbLoader, SeedsLegacyExploitFileFromAccountSnapshotWhenAppendingNewRecord)
+TEST_F(DbLoader, SeedsLegacyExploitFileFromAccountSnapshotWhenAppendingNewRecord)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -4284,7 +4299,7 @@ TEST(DbLoader, SeedsLegacyExploitFileFromAccountSnapshotWhenAppendingNewRecord)
     EXPECT_STREQ(records[1].chtime, existing_record.chtime);
 }
 
-TEST(DbLoader, WritesExploitRecordsIntoAccountNativeJsonForLinkedCharacters)
+TEST_F(DbLoader, WritesExploitRecordsIntoAccountNativeJsonForLinkedCharacters)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -4312,7 +4327,7 @@ TEST(DbLoader, WritesExploitRecordsIntoAccountNativeJsonForLinkedCharacters)
     EXPECT_NE(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
 }
 
-TEST(DbLoader, FallsBackToAccountSnapshotWhenRuntimeExploitFileIsMalformed)
+TEST_F(DbLoader, FallsBackToAccountSnapshotWhenRuntimeExploitFileIsMalformed)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -4345,7 +4360,7 @@ TEST(DbLoader, FallsBackToAccountSnapshotWhenRuntimeExploitFileIsMalformed)
     EXPECT_NE(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
 }
 
-TEST(DbLoader, FailsClosedWhenTemporaryExploitPathAlreadyExists)
+TEST_F(DbLoader, FailsClosedWhenTemporaryExploitPathAlreadyExists)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
@@ -4360,7 +4375,7 @@ TEST(DbLoader, FailsClosedWhenTemporaryExploitPathAlreadyExists)
     EXPECT_NE(error_message.find("temporary exploit file"), std::string::npos);
 }
 
-TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeRead)
+TEST_F(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeRead)
 {
     // Five letter buckets exist (A-E, F-J, K-O, P-T, U-Z) and each unreadable bucket files as ONE
     // quarantined record, so a chmod accident across accounts/ yields exactly 5 -- which does not
@@ -4389,7 +4404,7 @@ TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeRead)
         << "a bucket the server cannot read leaves the index incomplete, so it must not be authoritative";
 }
 
-TEST(DbLoader, BootsPastMoreMisfiledRecordsThanTheQuarantineLimit)
+TEST_F(DbLoader, BootsPastMoreMisfiledRecordsThanTheQuarantineLimit)
 {
     // The limit is a bug detector -- "a serialization change broke every record, we shipped
     // something" -- not a corruption tolerance. A record filed where its own email does not resolve
@@ -4430,7 +4445,7 @@ TEST(DbLoader, BootsPastMoreMisfiledRecordsThanTheQuarantineLimit)
     account_index::clear();
 }
 
-TEST(DbLoader, StillRefusesToBootPastMoreUnreadableRecordsThanTheQuarantineLimit)
+TEST_F(DbLoader, StillRefusesToBootPastMoreUnreadableRecordsThanTheQuarantineLimit)
 {
     // The other half of the same limit: records the server could not read or parse at all are the
     // class it was written for, and six of them still stop the boot.
@@ -4453,7 +4468,7 @@ TEST(DbLoader, StillRefusesToBootPastMoreUnreadableRecordsThanTheQuarantineLimit
     account_index::clear();
 }
 
-TEST(DbLoader, RefusesADirectoryAccountThatIsNotAtThePathItsEmailResolvesTo)
+TEST_F(DbLoader, RefusesADirectoryAccountThatIsNotAtThePathItsEmailResolvesTo)
 {
     // Every path the running server composes for an account comes from
     // normalize_email(account.normalized_email) plus a bucket computed from it, so a record filed
@@ -4490,7 +4505,7 @@ TEST(DbLoader, RefusesADirectoryAccountThatIsNotAtThePathItsEmailResolvesTo)
     EXPECT_TRUE(reserved) << "and its address must stay reserved, or registration writes over the owner";
 }
 
-TEST(DbLoader, ReservesTheAddressADirectoryAccountDeclaresAsWellAsTheOneItIsFiledUnder)
+TEST_F(DbLoader, ReservesTheAddressADirectoryAccountDeclaresAsWellAsTheOneItIsFiledUnder)
 {
     // Filed under alice@..., declares alice2@... . Quarantining only the directory name leaves the
     // DECLARED address -- the one the owner types at the login prompt -- reading free, so
@@ -4520,7 +4535,7 @@ TEST(DbLoader, ReservesTheAddressADirectoryAccountDeclaresAsWellAsTheOneItIsFile
     EXPECT_TRUE(declared_reserved) << "so must the address it declares -- that is the one its owner types";
 }
 
-TEST(DbLoader, RecordsAnAccountRecordQuarantinedAtBootSoAnImmortalCanAskAboutIt)
+TEST_F(DbLoader, RecordsAnAccountRecordQuarantinedAtBootSoAnImmortalCanAskAboutIt)
 {
     // `account errors` is the one place an immortal can ask what went wrong since the last reboot.
     // A quarantined account locks its owner out entirely, so it belongs in that list beside the
@@ -4561,7 +4576,7 @@ TEST(DbLoader, RecordsAnAccountRecordQuarantinedAtBootSoAnImmortalCanAskAboutIt)
     EXPECT_FALSE(recorded[0].reason.empty()) << "carrying why it could not be read";
 }
 
-TEST(DbLoader, RecordsAMisfiledAccountRecordOnceEvenThoughTwoAddressesAreReserved)
+TEST_F(DbLoader, RecordsAMisfiledAccountRecordOnceEvenThoughTwoAddressesAreReserved)
 {
     // A record filed under alice@ that declares alice2@ is quarantined under BOTH addresses. That is
     // one bad record, so it must be one entry -- two would read as two broken accounts.
@@ -4593,7 +4608,7 @@ TEST(DbLoader, RecordsAMisfiledAccountRecordOnceEvenThoughTwoAddressesAreReserve
     EXPECT_NE(recorded[0].reason.find("alice2@example.com"), std::string::npos) << "the reason says which address it declares";
 }
 
-TEST(DbLoader, RecordsAFlatAccountRecordWithNoUsableEmailByItsPath)
+TEST_F(DbLoader, RecordsAFlatAccountRecordWithNoUsableEmailByItsPath)
 {
     // A legacy flat record (accounts/<bucket>/<name>.json) that discloses no email is quarantined
     // under its own path, since it has no address to be keyed by. It is still a locked-out account.
@@ -4647,7 +4662,7 @@ TEST(DbLoader, RecordsAFlatAccountRecordWithNoUsableEmailByItsPath)
     EXPECT_TRUE(recorded[0].character.empty());
 }
 
-TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeStatted)
+TEST_F(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeStatted)
 {
     // The opendir failure below this check synthesizes an unreadable-bucket record precisely so the
     // index refuses to speak for a tree it could not read. The stat above it just skipped the
@@ -4681,7 +4696,7 @@ TEST(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeStatted)
         << "a bucket the server cannot stat hides an unknown number of accounts, so the index must not be authoritative";
 }
 
-TEST(DbLoader, RecordsTheNamechangeExploitForAnAccountNativeCharacter)
+TEST_F(DbLoader, RecordsTheNamechangeExploitForAnAccountNativeCharacter)
 {
     // The namechange achievement is the only record that a character used to be somebody else, and
     // write_exploits refuses to write for a character its account no longer lists. Writing the
@@ -4727,7 +4742,7 @@ TEST(DbLoader, RecordsTheNamechangeExploitForAnAccountNativeCharacter)
         << "recorded as: " << records[0].chVictimName;
 }
 
-TEST(DbLoader, RefusesARenameWhoseAccountNativePathWouldNotFitThePlayerIndex)
+TEST_F(DbLoader, RefusesARenameWhoseAccountNativePathWouldNotFitThePlayerIndex)
 {
     // Every other writer of player_table[].ch_file goes through update_player_index_entry_from_store,
     // which REFUSES an over-length path rather than truncating it. The rename wrote the new path
@@ -4787,7 +4802,7 @@ TEST(DbLoader, RefusesARenameWhoseAccountNativePathWouldNotFitThePlayerIndex)
     EXPECT_TRUE(account::account_has_character(account_data, "aragorn")) << "the account must still claim the character by its old name";
 }
 
-TEST(DbLoader, RefusesARenameToANameThatIsAlreadyTakenAndSaysSo)
+TEST_F(DbLoader, RefusesARenameToANameThatIsAlreadyTakenAndSaysSo)
 {
     // The only caller that can reach rename_char is `wizset <victim> name <newname>`, and it has
     // nothing but the return value to go on. This refusal in particular logged nothing at all, so
@@ -4807,7 +4822,7 @@ TEST(DbLoader, RefusesARenameToANameThatIsAlreadyTakenAndSaysSo)
     EXPECT_NE(rename_error.find("already"), std::string::npos) << "reported as: " << rename_error;
 }
 
-TEST(DbLoader, ANewRoomStartsInitializedRatherThanWithWhateverWasOnTheHeap)
+TEST_F(DbLoader, ANewRoomStartsInitializedRatherThanWithWhateverWasOnTheHeap)
 {
     // room_data::room_data() set six of its members and left every other one indeterminate --
     // including sector_type, room_flags and light, which are the exact three IS_DARK reads
@@ -4834,7 +4849,7 @@ TEST(DbLoader, ANewRoomStartsInitializedRatherThanWithWhateverWasOnTheHeap)
         EXPECT_EQ(room->dir_option[direction], nullptr) << "direction " << direction;
 }
 
-TEST(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
+TEST_F(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
 {
     // The account-native path is 31 bytes of fixed structure plus the email plus the character
     // name. With MAX_NAME_LENGTH at 12 and ch_file at 80, that leaves 36 characters for an email
@@ -5260,7 +5275,7 @@ void write_text_file(const std::string& file_path, std::string_view contents)
 
 } // namespace
 
-TEST(DbLoader, FileToStringAllocLoadsFilesLongerThanMaxStringLength)
+TEST_F(DbLoader, FileToStringAllocLoadsFilesLongerThanMaxStringLength)
 {
     // Content longer than MAX_STRING_LENGTH loads whole, without a SYSERR.
     const ScratchDirectory scratch_directory;
@@ -5294,7 +5309,7 @@ TEST(DbLoader, FileToStringAllocLoadsFilesLongerThanMaxStringLength)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocAppendsACarriageReturnAfterEveryNewline)
+TEST_F(DbLoader, FileToStringAllocAppendsACarriageReturnAfterEveryNewline)
 {
     // Each line keeps its '\n' and gains a '\r'.
     const ScratchDirectory scratch_directory;
@@ -5318,7 +5333,7 @@ TEST(DbLoader, FileToStringAllocAppendsACarriageReturnAfterEveryNewline)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
+TEST_F(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
 {
     const ScratchDirectory scratch_directory;
     const std::string file_path = scratch_directory.file("empty.txt");
@@ -5334,7 +5349,7 @@ TEST(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocNeverSplitsALongLine)
+TEST_F(DbLoader, FileToStringAllocNeverSplitsALongLine)
 {
     // A line of any length comes back whole, with one '\r' after its '\n'.
     const ScratchDirectory scratch_directory;
@@ -5355,7 +5370,7 @@ TEST(DbLoader, FileToStringAllocNeverSplitsALongLine)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocKeepsAnUnterminatedLastLine)
+TEST_F(DbLoader, FileToStringAllocKeepsAnUnterminatedLastLine)
 {
     // A last line without '\n' is kept and still gains a '\r'.
     const ScratchDirectory scratch_directory;
@@ -5372,7 +5387,7 @@ TEST(DbLoader, FileToStringAllocKeepsAnUnterminatedLastLine)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocLeavesTheStringAndLogsNoSyserrForAMissingFile)
+TEST_F(DbLoader, FileToStringAllocLeavesTheStringAndLogsNoSyserrForAMissingFile)
 {
     // Some files are optional, so a missing one is logged without a SYSERR
     // and the caller's existing string is kept.
@@ -5394,7 +5409,7 @@ TEST(DbLoader, FileToStringAllocLeavesTheStringAndLogsNoSyserrForAMissingFile)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocRejectsANullNameWithASyserr)
+TEST_F(DbLoader, FileToStringAllocRejectsANullNameWithASyserr)
 {
     char* loaded = str_dup("previous text");
     char* const previous = loaded;
@@ -5410,7 +5425,7 @@ TEST(DbLoader, FileToStringAllocRejectsANullNameWithASyserr)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocRejectsANullBufferWithASyserr)
+TEST_F(DbLoader, FileToStringAllocRejectsANullBufferWithASyserr)
 {
     const ScratchDirectory scratch_directory;
     const std::string file_path = scratch_directory.file("present.txt");
@@ -5424,7 +5439,7 @@ TEST(DbLoader, FileToStringAllocRejectsANullBufferWithASyserr)
     EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
 }
 
-TEST(DbLoader, FileToStringAllocLoadsAFileExactlyAtTheSizeLimit)
+TEST_F(DbLoader, FileToStringAllocLoadsAFileExactlyAtTheSizeLimit)
 {
     const ScratchDirectory scratch_directory;
     const std::string file_path = scratch_directory.file("at-limit.txt");
@@ -5444,7 +5459,7 @@ TEST(DbLoader, FileToStringAllocLoadsAFileExactlyAtTheSizeLimit)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
+TEST_F(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
 {
     // The caller's existing string is kept, as for any other load failure.
     const ScratchDirectory scratch_directory;
@@ -5466,7 +5481,7 @@ TEST(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
     RELEASE(loaded);
 }
 
-TEST(DbLoader, FileToStringAllocRefusesADirectoryWithASyserr)
+TEST_F(DbLoader, FileToStringAllocRefusesADirectoryWithASyserr)
 {
     // A directory where a text file belongs is refused, not loaded as empty text.
     const ScratchDirectory scratch_directory;
@@ -5572,7 +5587,7 @@ std::string player_text_value(const std::string& player_text, std::string_view k
 
 } // namespace
 
-TEST(DbLoader, FreadStringSkipsLeadingBlankLines)
+TEST_F(DbLoader, FreadStringSkipsLeadingBlankLines)
 {
     // A zone file's name follows the "#<zone>" line, so its first line read is the blank rest of
     // that line. The '~' test must not look in front of the empty buffer for one.
@@ -5580,14 +5595,14 @@ TEST(DbLoader, FreadStringSkipsLeadingBlankLines)
     EXPECT_EQ(read_tilde_terminated_string("\n\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
 }
 
-TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
+TEST_F(DbLoader, FreadStringStopsAtTheTildeTerminator)
 {
     EXPECT_EQ(read_tilde_terminated_string("A dusty hall.\n~\nignored\n"), "A dusty hall.\n\r");
     EXPECT_EQ(read_tilde_terminated_string("A dusty hall.~\n"), "A dusty hall.");
     EXPECT_EQ(read_tilde_terminated_string("~\n"), "");
 }
 
-TEST(DbLoader, FreadStringLoadsTheLargestStringThatFits)
+TEST_F(DbLoader, FreadStringLoadsTheLargestStringThatFits)
 {
     // The last line takes the accumulated text to one byte short of the buffer, leaving room for
     // the terminator.
@@ -5604,7 +5619,7 @@ TEST(DbLoader, FreadStringLoadsTheLargestStringThatFits)
     EXPECT_EQ(read_tilde_terminated_string(contents), expected);
 }
 
-TEST(DbLoader, FreadStringRefusesAStringWithNoRoomForItsTerminator)
+TEST_F(DbLoader, FreadStringRefusesAStringWithNoRoomForItsTerminator)
 {
     // The last line takes the accumulated text to the whole buffer.
     const size_t last_line_letters = MAX_STRING_LENGTH - FULL_LINES_KEPT_LENGTH - 2;
@@ -5613,7 +5628,7 @@ TEST(DbLoader, FreadStringRefusesAStringWithNoRoomForItsTerminator)
     EXPECT_EXIT(read_tilde_terminated_string(contents), ::testing::ExitedWithCode(0), "string too large");
 }
 
-TEST(DbLoader, FreadStringRefusesALineBreakWithNoRoomForItsTerminator)
+TEST_F(DbLoader, FreadStringRefusesALineBreakWithNoRoomForItsTerminator)
 {
     // A line that does not end the string takes the accumulated text to one byte short of the
     // buffer, so the '\r' added after it leaves no room for the terminator.
@@ -5623,7 +5638,7 @@ TEST(DbLoader, FreadStringRefusesALineBreakWithNoRoomForItsTerminator)
     EXPECT_EXIT(read_tilde_terminated_string(contents), ::testing::ExitedWithCode(0), "string too large");
 }
 
-TEST(DbLoader, WritePlayerTextWritesExactlyThePasswordFieldWidth)
+TEST_F(DbLoader, WritePlayerTextWritesExactlyThePasswordFieldWidth)
 {
     descriptor_data descriptor {};
     // A full-width password leaves no terminator inside the encrypted field.
@@ -5636,7 +5651,7 @@ TEST(DbLoader, WritePlayerTextWritesExactlyThePasswordFieldWidth)
         << player_text;
 }
 
-TEST(DbLoader, WritePlayerTextCutsALongHostToTheFieldWidth)
+TEST_F(DbLoader, WritePlayerTextCutsALongHostToTheFieldWidth)
 {
     descriptor_data descriptor {};
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "secret");

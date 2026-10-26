@@ -14,6 +14,7 @@
 #include "../script.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -260,6 +261,7 @@ protected:
         if (m_obj.carried_by)
             obj_from_char(&m_obj);
         char_from_room(&m_ch);
+        release_cleared_character(&m_ch);
     }
     void wear(int slot) { equip_char(&m_ch, &m_obj, slot); }
 
@@ -465,7 +467,11 @@ protected:
         clear_char(&m_ch, MOB_VOID);
         char_to_room(&m_ch, kRoomA);
     }
-    void TearDown() override { char_from_room(&m_ch); }
+    void TearDown() override
+    {
+        char_from_room(&m_ch);
+        release_cleared_character(&m_ch);
+    }
 
     TwoRooms m_rooms;
     char_data m_ch {};
@@ -673,6 +679,7 @@ TEST(ScriptOnPathEnd, RunsItsBlock)
     OneScriptTable table(9900, { ON_DIE, SCRIPT_BEGIN, SCRIPT_END, ON_PATH_END, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
     char_data mob {};
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     mob.specials.script_number = 9900;
 
     EXPECT_EQ(0, call_trigger(ON_PATH_END, &mob, 0, 0)); // the block ran and returned FALSE
@@ -687,6 +694,7 @@ TEST(ScriptOnPathEnd, DoesNotRunForAWaitingMob)
     OneScriptTable table(9900, { ON_PATH_END, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
     char_data mob {};
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     mob.specials.script_number = 9900;
     SET_BIT(mob.specials.affected_by, AFF_WAITING);
     EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // the block would have returned FALSE
@@ -702,6 +710,7 @@ TEST(ScriptOnPathEnd, IsQuietWithoutABlockOrAScript)
     OneScriptTable table(9900, { ON_DIE, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
     char_data mob {};
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     mob.specials.script_number = 9900;
     EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // the script has no ON_PATH_END block
 

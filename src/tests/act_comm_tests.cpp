@@ -3,6 +3,7 @@
 #include "../interpre.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -57,6 +58,7 @@ public:
             m_character.specials.alias = next_alias;
         }
         free(m_character.player.name);
+        release_cleared_character(&m_character);
     }
 
     void alias(const std::string& arguments)
@@ -147,9 +149,8 @@ protected:
         while (object_list != nullptr) {
             extract_obj(object_list);
         }
-        RELEASE(m_writer.profs);
-        RELEASE(m_writer.skills);
-        RELEASE(m_writer.knowledge);
+        release_cleared_character(&m_writer);
+        release_test_descriptor(&m_descriptor);
         obj_proto = m_saved_obj_proto;
         obj_index = m_saved_obj_index;
         top_of_objt = m_saved_top_of_objt;

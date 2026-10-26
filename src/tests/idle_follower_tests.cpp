@@ -11,6 +11,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -209,17 +210,27 @@ protected:
 
     void TearDown() override
     {
+        /* Followers still following give their follow records back before anyone is freed. */
+        for (char_data* mob : { cub, snaga, following_horse, ridden_horse }) {
+            if (mob != nullptr && mob->master != nullptr)
+                stop_follower(mob, FOLLOW_MOVE);
+        }
         for (char_data* mob : { cub, snaga, following_horse, ridden_horse }) {
             if (mob == nullptr)
                 continue;
             if (mob->in_room != NOWHERE)
                 char_from_room(mob);
             remove_char_exists(mob->abs_number);
+            /* free_char leaves a mob's profession block to its prototype, but make_mob gave these
+             * mobs their own. */
+            RELEASE(mob->profs);
+            free_char(mob);
         }
         if (player != nullptr) {
             if (player->in_room != NOWHERE)
                 char_from_room(player);
             remove_char_exists(player->abs_number);
+            free_char(player);
         }
 
         top_of_world = m_saved_top_of_world;
@@ -480,6 +491,39 @@ TEST_F(IdleFollowersTest, AFollowersOutdatedEquipmentIsRefreshedWhenTheOwnerLoad
         char_from_room(returning.mount_data.mount);
         remove_char_exists(returning.mount_data.mount->abs_number);
     }
+
+    // The load is undone before the tables it read from are put back: first every object, while
+    // whoever carries one is still there to drop it, then the followers. read_mobile put each
+    // loaded follower at the head of character_list, ahead of the fixture's player.
+    cub->equipment[WEAR_HEAD] = nullptr;
+    while (object_list != nullptr)
+        extract_obj(object_list);
+    while (returning.followers != nullptr) {
+        follow_type* record = returning.followers;
+        returning.followers = record->next;
+        RELEASE(record);
+    }
+    while (character_list != nullptr && character_list != player) {
+        char_data* loaded = character_list;
+        character_list = loaded->next;
+        while (loaded->followers != nullptr) {
+            follow_type* record = loaded->followers;
+            loaded->followers = record->next;
+            RELEASE(record);
+        }
+        for (obj_data*& worn : loaded->equipment)
+            worn = nullptr;
+        free_char(loaded);
+    }
+    for (char_data& prototype : mob_prototypes)
+        release_cleared_character(&prototype);
+    while (returning.specials.alias != nullptr) {
+        alias_list* next_alias = returning.specials.alias->next;
+        RELEASE(returning.specials.alias->command);
+        RELEASE(returning.specials.alias);
+        returning.specials.alias = next_alias;
+    }
+    release_cleared_character(&returning);
     obj_index = saved_obj_index;
     obj_proto = saved_obj_proto;
     top_of_objt = saved_top_of_objt;

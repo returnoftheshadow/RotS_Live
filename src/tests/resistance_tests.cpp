@@ -7,6 +7,7 @@
 #include "handler.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_cleanup.h"
 #include "utils.h"
 
 extern struct skill_data skills[];
@@ -838,6 +839,7 @@ struct PlayerCasterContext {
     {
         while (caster.affected)
             affect_remove(&caster, caster.affected);
+        release_cleared_character(&caster);
     }
 };
 

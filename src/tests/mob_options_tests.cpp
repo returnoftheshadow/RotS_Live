@@ -2,6 +2,7 @@
 #include "../mob_options.h"
 #include "../protos.h"
 #include "../script.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -79,6 +80,7 @@ TEST(MobOptionsTidy, StoredTextSurvivesASaveAndReloadUnchanged)
     ASSERT_NE(back, nullptr);
     EXPECT_STREQ(back, text);
     fclose(f);
+    RELEASE(back);
 }
 
 TEST(ReadMobOptions, NoOptionsWhenNextRecordFollows)
@@ -149,6 +151,7 @@ void expect_loader_contract(const char* options, const char* eol)
     } else {
         EXPECT_EQ(text, nullptr);
     }
+    RELEASE(text);
     char next[16];
     ASSERT_EQ(fscanf(f, "%15s", next), 1);
     EXPECT_STREQ(next, "#1235"); // the next record's header is the next token
@@ -245,6 +248,10 @@ struct written_mob {
         mob.player.death_cry2 = cry2;
         mob.specials.mob_options = options;
     }
+
+    ~written_mob() { release_cleared_character(&mob); }
+    written_mob(const written_mob&) = delete;
+    written_mob& operator=(const written_mob&) = delete;
 };
 
 } // namespace
@@ -286,6 +293,16 @@ TEST(MobFileRoundTrip, WriteProtoThenLoadMobilesKeepsEachRecordsOptions)
     ASSERT_NE(protos[first + 2].specials.mob_options, nullptr);
     EXPECT_STREQ(protos[first + 2].specials.mob_options, "store=6");
 
+    /* load_mobiles gave each prototype its text and profession block; a prototype is never
+     * freed in the game, so the test frees them. */
+    for (int row = first; row <= first + 2; ++row) {
+        char_data& loaded = protos[row];
+        for (char** text : { &loaded.player.name, &loaded.player.short_descr, &loaded.player.long_descr,
+                 &loaded.player.description, &loaded.player.title, &loaded.player.death_cry,
+                 &loaded.player.death_cry2, &loaded.specials.mob_options })
+            RELEASE(*text);
+        release_cleared_character(&loaded);
+    }
     mob_proto = saved_proto;
     mob_index = saved_index;
     top_of_mobt = saved_top;
