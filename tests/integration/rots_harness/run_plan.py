@@ -470,17 +470,34 @@ def run_expression(group: str, excluded: Sequence[str]) -> str:
     return expression
 
 
-def pytest_run_command(python: str, expression: str, jobs_text: str) -> list[str]:
-    """The pytest command make integration runs, with -n only for more than one worker."""
-    command = [python, "-m", "pytest", SCENARIOS_RELATIVE, "-q", "-m", expression]
+def pytest_run_command(
+    python: str, expression: Optional[str], jobs_text: str, targets: Sequence[str] = (SCENARIOS_RELATIVE,),
+) -> list[str]:
+    """The pytest command make integration runs, with -n only for more than one worker.
+
+    targets are the paths or node ids pytest runs, relative to the repository root; expression,
+    when not None, is the -m expression that narrows them.
+    """
+    command = [python, "-m", "pytest", *targets, "-q"]
+    if expression is not None:
+        command += ["-m", expression]
     if jobs_text.strip() not in SINGLE_WORKER_JOBS:
         command += ["-n", jobs_text.strip()]
     return command + list(REPORT_ARGUMENTS)
 
 
-def collect_command(python: str, group: str) -> list[str]:
-    """The pytest command that collects GROUP's scenarios and reports them through collect_report."""
-    return [python, "-m", "pytest", SCENARIOS_RELATIVE, "-q", "--collect-only", "-p", collect_report.__name__, "-m", run_expression(group, [])]
+def collect_command(python: str, group: str, targets: Optional[Sequence[str]] = None) -> list[str]:
+    """The pytest command that collects GROUP's scenarios and reports them through collect_report.
+
+    targets, when given, are paths or node ids relative to the repository root, collected as
+    named instead of GROUP's selection.
+    """
+    command = [python, "-m", "pytest"]
+    if targets is None:
+        command += [SCENARIOS_RELATIVE, "-q", "--collect-only", "-p", collect_report.__name__, "-m", run_expression(group, [])]
+    else:
+        command += [*targets, "-q", "--collect-only", "-p", collect_report.__name__]
+    return command
 
 
 def repeat_command(python: str, group: str, excluded: Sequence[str], jobs_text: str) -> str:
@@ -747,11 +764,15 @@ def run_in_foreground(command: list[str], keep_stdin: bool) -> int:
     return status
 
 
-def collect_selection(python: str, group: str, environ: Mapping[str, str]) -> tuple[Optional[list[CollectedTest]], int]:
+def collect_selection(
+    python: str, group: str, environ: Mapping[str, str], targets: Optional[Sequence[str]] = None, timeout: Optional[float] = None,
+) -> tuple[Optional[list[CollectedTest]], int]:
     """The tests a run of GROUP selects in the environment environ, and pytest's exit status.
 
-    The tests are None when collection fails; pytest's output is then printed to stderr. Ctrl-C
-    raises KeyboardInterrupt once the collecting pytest has been stopped.
+    targets, when given, are collected as named instead (collect_command). The tests are None
+    when collection fails; pytest's output is then printed to stderr. Ctrl-C raises
+    KeyboardInterrupt once the collecting pytest has been stopped, and a collection outliving
+    timeout seconds raises subprocess.TimeoutExpired once it has been stopped.
     """
     with tempfile.TemporaryDirectory(prefix="rots-run-plan-") as folder:
         report_path = Path(folder) / "collected.json"
@@ -760,7 +781,8 @@ def collect_selection(python: str, group: str, environ: Mapping[str, str]) -> tu
         # The plugin is imported before pytest.ini's pythonpath applies.
         child_environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(INTEGRATION_ROOT), environ.get("PYTHONPATH")]))
         completed = subprocess.run(
-            collect_command(python, group), cwd=REPO_ROOT, env=child_environment, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False,
+            collect_command(python, group, targets), cwd=REPO_ROOT, env=child_environment, stdin=subprocess.DEVNULL, capture_output=True,
+            text=True, check=False, timeout=timeout,
         )
         # 5: nothing collected. The plugin still reports the empty selection.
         if completed.returncode in (0, 5):

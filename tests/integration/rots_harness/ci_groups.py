@@ -55,6 +55,9 @@ HARNESS_PATH_PREFIXES = (
 )
 # The per-zone fixture notes under the world: documentation the harness never copies into a lib.
 WORLD_NOTES_DIRECTORY = "tests/integration/world/notes/"
+# Harness modules only the ASan workflow runs; no scenario or harness module imports them
+# (unit/test_asan_selection.py checks), so a change to one runs no group.
+ASAN_ONLY_HARNESS_FILES = frozenset({"tests/integration/rots_harness/asan_selection.py"})
 HARNESS_FILES = frozenset({
     "tests/integration/conftest.py",
     "tests/integration/pytest.ini",
@@ -107,6 +110,15 @@ def changed_group_file(path: str) -> Optional[str]:
     if len(parts) > 2:
         return None
     return "_".join(parts)
+
+
+def unknown_groups_message(unknown: Sequence[str], groups: Sequence[str], alternatives: Sequence[str] = (ALL_GROUPS_TOKEN,)) -> str:
+    """The message for description tokens naming groups no group file registers: the unknown names,
+    then the registered groups and subgroups, and the other token forms in alternatives."""
+    return (
+        f"the description names unknown integration groups: {', '.join(unknown)}; "
+        f"registered groups: {', '.join(groups)} (or {', '.join(alternatives)})"
+    )
 
 
 def description_tokens(body: str) -> list[str]:
@@ -185,7 +197,7 @@ def scenario_file_paths(repo_root: Path) -> list[str]:
 
 def is_harness_path(path: str) -> bool:
     """Whether a change to this repository path can affect every scenario."""
-    if path.startswith(WORLD_NOTES_DIRECTORY):
+    if path.startswith(WORLD_NOTES_DIRECTORY) or path in ASAN_ONLY_HARNESS_FILES:
         return False
     if path in HARNESS_FILES or path.startswith(HARNESS_PATH_PREFIXES):
         return True
@@ -242,10 +254,7 @@ def select_groups(
     tokens = description_tokens(body)
     unknown = [name for name in tokens if name != ALL_GROUPS_TOKEN and name not in groups]
     if unknown:
-        raise UnknownGroups(
-            f"the description names unknown integration groups: {', '.join(unknown)}; "
-            f"registered groups: {', '.join(groups)} (or {ALL_GROUPS_TOKEN})"
-        )
+        raise UnknownGroups(unknown_groups_message(unknown, groups))
     if ALL_GROUPS_TOKEN in tokens:
         return Selection(None, [f"every group: the description has @integration-test-{ALL_GROUPS_TOKEN}"])
     changed = list(changed_paths)
