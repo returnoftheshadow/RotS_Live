@@ -16,6 +16,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -127,7 +128,12 @@ ACMD(do_hit)
             act("$CD$n attacks YOU!", FALSE, ch, NULL, victim, TO_VICT);
             act("$CHYou attack $N!", FALSE, ch, NULL, victim, TO_CHAR);
 
+            freed_watch attacker_watch(ch);
             hit(ch, victim, TYPE_UNDEFINED);
+            /* The blow can remove the attacker (a riposte that kills it, a script). */
+            if (attacker_watch.freed()) {
+                return;
+            }
 
             WAIT_STATE(ch, 2); /* HVORFOR DET?? */
         } else {
@@ -363,7 +369,12 @@ ACMD(do_flee)
         if (res) {
             act("$n panics, and attempts to flee!", TRUE, ch, 0, 0, TO_ROOM);
 
+            freed_watch fleer_watch(ch);
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
+            /* An ON_BEFORE_ENTER script where it fled to removed the one fleeing. */
+            if (fleer_watch.freed()) {
+                return;
+            }
             if (!special(ch, cmd + 1, "", SPECIAL_COMMAND, 0) && number(0, 1) && die) {
                 /* The escape has not succeded */
                 switch (die) {
@@ -578,8 +589,16 @@ ACMD(do_bash)
                weapon hits already respect (fight.cpp). Skip the clobber here the
                same way, so a resisted roll leaves the cast running uninterrupted. */
             if (!victim_resists_cast_interruption) {
-                WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
-                    CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+                /* Ending the victim's own delay runs the rest of a paused script, which can remove
+                 * the victim or the basher. */
+                freed_watch basher_watch(ch);
+                if (!WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
+                        CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE)) {
+                    return;
+                }
+                if (basher_watch.freed()) {
+                    return;
+                }
             }
             damage(ch, victim, 1, SKILL_BASH, 0);
         }
@@ -918,7 +937,13 @@ ACMD(do_rescue)
     // Defender specialized characters don't have a delay from rescue.
     game_types::player_specs spec = utils::get_specialization(*ch);
     if (spec != game_types::PS_Defender) {
+        /* Ending the rescued one's delay runs the rest of a paused script, which can remove the
+         * rescuer. */
+        freed_watch rescuer_watch(ch);
         WAIT_STATE(victim, PULSE_VIOLENCE / 3);
+        if (rescuer_watch.freed()) {
+            return;
+        }
         WAIT_STATE(ch, PULSE_VIOLENCE / 2);
     }
 }
@@ -1048,14 +1073,21 @@ ACMD(do_kick)
         dam *= wild_fighting.get_wild_swing_damage_multiplier();
     }
 
-    if (prob < 0)
-        damage(ch, victim, 0, attacktype, 0);
-    else {
-        // Heavy fighters kick 20% harder.
-        if (utils::get_specialization(*ch) == (int)game_types::PS_HeavyFighting) {
-            dam += dam / 5;
+    {
+        /* The blow's scripts can remove the kicker; then it has no recovery to wait out. */
+        freed_watch kicker_watch(ch);
+        if (prob < 0)
+            damage(ch, victim, 0, attacktype, 0);
+        else {
+            // Heavy fighters kick 20% harder.
+            if (utils::get_specialization(*ch) == (int)game_types::PS_HeavyFighting) {
+                dam += dam / 5;
+            }
+            damage(ch, victim, dam, attacktype, 0);
         }
-        damage(ch, victim, dam, attacktype, 0);
+        if (kicker_watch.freed()) {
+            return;
+        }
     }
 
 delay:
@@ -1076,7 +1108,14 @@ ACMD(do_disengage)
         return;
     }
 
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE);
+    /* Ending ch's own delay can remove it (the rest of a paused script). */
+    if (!WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+        return;
+    }
+    /* ... or remove the one ch fought, which ends that fight: there is nobody to name. */
+    if (!ch->specials.fighting) {
+        return;
+    }
 
     act("$n stops fighting $N.", TRUE, ch, 0, ch->specials.fighting, TO_NOTVICT);
     act("$n stops fighting you.", TRUE, ch, 0, ch->specials.fighting, TO_VICT);
@@ -1254,6 +1293,8 @@ ACMD(do_rend)
 
     int prob = get_prob_skill(ch, victim, SKILL_REND);
 
+    /* The blow's scripts can remove the attacker; then it has no recovery to wait out. */
+    freed_watch attacker_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_REND, 0);
     } else {
@@ -1266,6 +1307,9 @@ ACMD(do_rend)
             }
         }
         damage(ch, victim, dam, SKILL_REND, 0);
+    }
+    if (attacker_watch.freed()) {
+        return;
     }
 
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
@@ -1341,6 +1385,8 @@ ACMD(do_bite)
 
     int prob = get_prob_skill(ch, victim, SKILL_BITE);
 
+    /* The blow's scripts can remove the attacker; then it has no recovery to wait out. */
+    freed_watch attacker_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_BITE, 0);
     } else {
@@ -1353,6 +1399,9 @@ ACMD(do_bite)
             }
         }
         damage(ch, victim, dam, SKILL_BITE, 0);
+    }
+    if (attacker_watch.freed()) {
+        return;
     }
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
         AFF_WAITING, TARGET_NONE);
@@ -1476,12 +1525,17 @@ ACMD(do_maul)
 
     int prob = get_prob_skill(ch, victim, SKILL_MAUL);
 
+    /* The blow's scripts can remove the mauler; then there is nobody to tire. */
+    freed_watch mauler_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_MAUL, 0);
     } else {
         apply_maul_victim(victim, ch);
         apply_maul_char(ch);
         damage(ch, victim, number(1, 4), SKILL_MAUL, 0);
+    }
+    if (mauler_watch.freed()) {
+        return;
     }
     GET_MOVE(ch) -= maul_cost;
 }

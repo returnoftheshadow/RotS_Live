@@ -7,7 +7,7 @@
 
 namespace olog_hai {
 int get_prob_skill(char_data* attacker, char_data* victim, int skill);
-void apply_victim_delay(char_data* victim, int delay);
+bool apply_victim_delay(char_data* victim, int delay);
 bool is_skill_valid(const char_data* ch, const int& skill_id);
 char_data* is_target_valid(char_data* attacker, const waiting_type* target);
 char_data* is_smash_target_valid(char_data* attacker, const waiting_type* target);

@@ -13,6 +13,7 @@
 #include "game_boot_options.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "pkill.h"
@@ -1375,11 +1376,18 @@ void affect_update_person(struct char_data* i, int mode)
                 case SPELL_RESTLESSNESS:
                     // handled by hit_gain and move_gain now.
                     break;
-                case SPELL_FEAR:
+                case SPELL_FEAR: {
+                    /* Fleeing can remove the character (a script where it arrives, a death
+                     * room), and its affects with it. */
+                    freed_watch fleeing_watch(i);
                     do_flee(i, "", 0, 0, 0);
+                    if (fleeing_watch.freed()) {
+                        return;
+                    }
                     if (saves_spell(i, af->modifier -= 2, 0))
                         af->duration = 0;
                     break;
+                }
                 case SPELL_VITALITY:
                     // handled by move_gain now.
                     break;

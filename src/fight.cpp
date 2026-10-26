@@ -18,6 +18,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -886,7 +887,18 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
+        /* The interrupted command, or the rest of a paused script, can remove the one dying:
+         * then there is nobody left to kill. It can remove the killer too: then the death goes
+         * on with no killer, as when a death script removes it (die). */
+        freed_watch dying_watch(dead_man);
+        freed_watch killer_watch(killer);
         complete_delay(dead_man);
+        if (dying_watch.freed()) {
+            return;
+        }
+        if (killer_watch.freed()) {
+            killer = nullptr;
+        }
     }
     abort_delay(dead_man);
 
@@ -1002,8 +1014,22 @@ int check_death_ward(struct char_data* ch)
 
 void die(char_data* dead_man, char_data* killer, int attack_type)
 {
+    freed_watch dead_man_watch(dead_man);
+    freed_watch killer_watch(killer);
+    const int die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
+    /* A death script that removed the dying mob (EXTRACT_CHAR, RAW_KILL ch1, or anything it set
+     * off) has ended the death itself, whatever it returned: nobody gains from it, no kill is
+     * logged, no corpse is made and the mob is not removed again. */
+    if (dead_man_watch.freed()) {
+        return;
+    }
+    /* Something the script set off removed the killer: the death goes on with no killer. */
+    if (killer_watch.freed()) {
+        killer = nullptr;
+    }
+
     /* Character doesn't die if call_trigger returns FALSE */
-    if (call_trigger(ON_DIE, dead_man, killer, 0) == FALSE) {
+    if (die_trigger_result == FALSE) {
         stop_fighting_him(dead_man);
         stop_fighting(dead_man);
         update_pos(dead_man);
@@ -1669,8 +1695,11 @@ int effective_resist_magnitude(const char_data* victim, int resist_type, bool ph
 }
 
 /*
- * damage now modified to return int - 1 if the victim was
- * killed, 0 if not.
+ * Returns 1 when the victim may be gone: the blow was fatal (die() ran, though the victim's ON_DIE
+ * script can still have kept it alive), or a script or a flee into a death room removed it. The
+ * caller must then not touch the victim again unless it watches it with a freed_watch. Returns 0
+ * when the victim is still in the game. A script the blow sets off can also remove the attacker;
+ * a caller that uses the attacker afterwards watches it the same way.
  */
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
 {
@@ -1731,7 +1760,17 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
+        /* A special procedure can remove either fighter whatever it returns (Thuringwethil's
+         * leaves at 500 hit points). */
+        freed_watch special_victim_watch(victim);
+        freed_watch special_attacker_watch(attacker);
         i = special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl);
+        if (special_victim_watch.freed()) {
+            return 1;
+        }
+        if (special_attacker_watch.freed()) {
+            return 0;
+        }
         if (i) {
             if (attacker->specials.fighting == victim)
                 stop_fighting(attacker);
@@ -1949,7 +1988,20 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         }
     }
 
-    if (!call_trigger(ON_DAMAGE, victim, attacker, 0)) {
+    freed_watch victim_watch(victim);
+    freed_watch attacker_watch(attacker);
+    const int damage_trigger_result = call_trigger(ON_DAMAGE, victim, attacker, 0);
+    /* A victim a script removed is gone as surely as a dead one: say so, so that the caller lets
+     * go of it. */
+    if (victim_watch.freed()) {
+        return 1;
+    }
+    /* Nobody is left to strike the blow, so none is dealt. */
+    if (attacker_watch.freed()) {
+        update_pos(victim);
+        return 0;
+    }
+    if (!damage_trigger_result) {
         update_pos(victim);
         update_pos(attacker);
         return 0;
@@ -2029,6 +2081,10 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                     if (GET_POSITION(victim) > POSITION_SLEEPING)
                         do_flee(victim, "", 0, 0, 0);
             }
+            /* Fleeing can remove the victim (a script where it arrives, a death room). */
+            if (victim_watch.freed()) {
+                return 1;
+            }
         }
 
         if (!IS_NPC(victim) && WIMP_LEVEL(victim) && victim != attacker && GET_HIT(victim) < WIMP_LEVEL(victim))
@@ -2037,10 +2093,16 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                     victim);
                 do_flee(victim, "", 0, 0, 0);
             }
+        if (victim_watch.freed()) {
+            return 1;
+        }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && (victim->specials.fighting) && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (victim_watch.freed()) {
+            return 1;
+        }
         victim->specials.was_in_room = victim->in_room;
     }
 
@@ -2616,10 +2678,22 @@ void hit(char_data* ch, char_data* victim, int type)
 
             if (OB < 0) {
                 do_parry(ch, victim, w_type);
+                freed_watch attacker_watch(ch);
+                freed_watch defender_watch(victim);
+                freed_watch weapon_watch(wielded);
                 if (check_riposte(ch, victim))
                     return;
+                /* The riposte's scripts can remove either fighter, or ch's weapon. */
+                if (attacker_watch.freed() || defender_watch.freed()) {
+                    return;
+                }
 
-                check_grip(ch, wielded);
+                /* A weapon the riposte's scripts destroyed is no longer gripped. */
+                const obj_data* gripped_weapon = wielded;
+                if (weapon_watch.freed()) {
+                    gripped_weapon = nullptr;
+                }
+                check_grip(ch, gripped_weapon);
                 check_grip(victim, victim->equipment[WIELD]);
             } else {
                 /* Generate a hit location based on bodypart structure */
@@ -2676,9 +2750,17 @@ void hit(char_data* ch, char_data* victim, int type)
                 // Weapon masters with clubs and smiters have a chance to proc additional effects based on damage dealt.
                 weapon_master.do_on_damage_dealt(dam, victim);
 
+                freed_watch attacker_watch(ch);
+                freed_watch weapon_watch(wielded);
                 damage(ch, victim, dam, w_type, location);
+                /* The blow's scripts can remove the attacker. */
+                if (attacker_watch.freed()) {
+                    return;
+                }
 
-                if (dam > 0) {
+                /* The weapon's ON_DAMAGE script may have extracted it during damage(), which frees
+                 * it: a destroyed weapon is no longer gripped. */
+                if (dam > 0 && !weapon_watch.freed()) {
                     check_grip(ch, wielded);
                 }
 
@@ -2712,7 +2794,13 @@ void hit(char_data* ch, char_data* victim, int type)
         tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
+        /* A special procedure can remove either fighter whatever it returns, as in damage(). */
+        freed_watch special_victim_watch(victim);
+        freed_watch special_attacker_watch(ch);
         tmp = special(ch, 0, "", SPECIAL_DAMAGE, &tmpwtl);
+        if (special_victim_watch.freed() || special_attacker_watch.freed()) {
+            return;
+        }
         if (tmp) {
             if (ch->specials.fighting == victim)
                 stop_fighting(ch);
@@ -2734,6 +2822,8 @@ void hit(char_data* ch, char_data* victim, int type)
         GET_POS(victim) = POSITION_FIGHTING;
     }
 
+    /* Fleeing can remove the victim (a script where it arrives, a death room), as in damage(). */
+    freed_watch fleeing_watch(victim);
     if (GET_HIT(victim) < GET_MAX_HIT(victim) / 5) {
         act("You wish that your wounds would stop BLEEDING so much!",
             FALSE, victim, 0, 0, TO_CHAR);
@@ -2741,6 +2831,9 @@ void hit(char_data* ch, char_data* victim, int type)
             if (IS_SET(victim->specials2.act, MOB_WIMPY))
                 if (GET_POSITION(victim) > POSITION_SLEEPING)
                     do_flee(victim, "", 0, 0, 0);
+        if (fleeing_watch.freed()) {
+            return;
+        }
     }
 
     if (!IS_NPC(victim) && WIMP_LEVEL(victim) && victim != ch && GET_HIT(victim) < WIMP_LEVEL(victim)) {
@@ -2748,10 +2841,16 @@ void hit(char_data* ch, char_data* victim, int type)
             send_to_char("You wimp out, and attempt to flee!\n\r", victim);
             do_flee(victim, "", 0, 0, 0);
         }
+        if (fleeing_watch.freed()) {
+            return;
+        }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && victim->specials.fighting && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (fleeing_watch.freed()) {
+            return;
+        }
         victim->specials.was_in_room = victim->in_room;
     }
 }
@@ -2861,7 +2960,12 @@ void perform_violence()
                 if (AWAKE(fighter) && fighter->specials.fighting && (fighter->in_room == fighter->specials.fighting->in_room)) {
                     // Note:  Calling hit reduces the character's current energy.
                     sh_int current_energy = fighter->specials.ENERGY;
+                    freed_watch fighter_watch(fighter);
                     hit(fighter, fighter->specials.fighting, TYPE_UNDEFINED);
+                    /* The hit can remove the fighter: a riposte that kills it, a script. */
+                    if (fighter_watch.freed()) {
+                        continue;
+                    }
 
                     if (can_double_hit(fighter) && does_double_hit_proc(fighter)) {
                         light_fighting_data* data = static_cast<light_fighting_data*>(fighter->extra_specialization_data.current_spec_info);

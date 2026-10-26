@@ -6,6 +6,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -858,7 +859,16 @@ SPECIAL(intelligent)
         case 'd':
             tmpvar = FROM_STACK(host);
             (PROG_POINT(host))++;
-            WAIT_STATE_FULL(host, tmpvar, -1, 0, 0, 0, 0, 0, 0, TARGET_NONE);
+            {
+                /* Ending the host's own delay runs the rest of a paused script, which can remove
+                 * it or the one acting: then neither the host nor the command is to go on. */
+                freed_watch host_watch(host);
+                freed_watch actor_watch(ch);
+                WAIT_STATE_FULL(host, tmpvar, -1, 0, 0, 0, 0, 0, 0, TARGET_NONE);
+                if (host_watch.freed() || actor_watch.freed()) {
+                    return TRUE;
+                }
+            }
             return FALSE;
             //     case 'S':                            /* set some parameter */
             //       (PROG_POINT(host))++;
