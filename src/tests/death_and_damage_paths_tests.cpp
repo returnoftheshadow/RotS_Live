@@ -32,6 +32,8 @@ int get_base_skill_damage(char_data& olog_hai, int prob);
 
 extern struct weather_data weather_info;
 extern struct index_data* mob_index;
+extern struct char_data* mob_proto;
+extern int top_of_mobt;
 
 using namespace scripted_room;
 
@@ -45,6 +47,8 @@ constexpr int POISON_DAMAGE = 5;
 constexpr int FEWER_HIT_POINTS_THAN_THE_POISON = 3;
 /* A weapon at least this bulky is wielded in two hands where it can be. */
 constexpr int TWO_HANDED_BULK = 5;
+/* The ghoul the ghoul special raises, which sinks back into the ground when idle. */
+constexpr int RISEN_GHOUL_VNUM = 15300;
 
 class DeathAndDamagePathsTest : public ScriptedRoomFixture {
 protected:
@@ -62,6 +66,12 @@ protected:
          * mob_index[nr]: index -1 is given an entry. */
         m_saved_mob_index = mob_index;
         mob_index = &m_mob_index[1];
+        /* Entry 0 of the mob table is the ghoul the ghoul special raises (make_into_risen_ghoul). */
+        m_mob_index[1].virt = RISEN_GHOUL_VNUM;
+        m_saved_mob_proto = mob_proto;
+        m_saved_top_of_mobt = top_of_mobt;
+        mob_proto = &m_risen_ghoul_prototype;
+        top_of_mobt = 0;
     }
 
     void TearDown() override
@@ -69,6 +79,8 @@ protected:
         world[0].room_flags = m_saved_room_flags;
         ScriptedRoomFixture::TearDown();
         mob_index = m_saved_mob_index;
+        mob_proto = m_saved_mob_proto;
+        top_of_mobt = m_saved_top_of_mobt;
     }
 
     /* Makes the ring and the sword poison whoever wears them. */
@@ -114,6 +126,20 @@ protected:
                         { SCRIPT_BEGIN, nullptr, {} },
                         { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
                         { SCRIPT_END, nullptr, {} } } } } } });
+    }
+
+    /* Makes test mob <mob> a ghoul the ghoul special raised, a copy of mob table entry 0. As
+     * read_mobile's copies do, it shares the entry's keywords and proficiencies, which the game
+     * leaves alone when it removes the mob. */
+    void make_into_risen_ghoul(char_data* mob)
+    {
+        RELEASE(mob->player.name);
+        RELEASE(mob->player.short_descr);
+        RELEASE(mob->profs);
+        mob->player.name = m_risen_ghoul_keywords;
+        mob->player.short_descr = m_risen_ghoul_keywords;
+        mob->profs = &m_risen_ghoul_proficiencies;
+        mob->nr = 0;
     }
 
     /* A mob wearing the poisonous ring, which hurt it as it went on; it then runs
@@ -188,8 +214,17 @@ protected:
 
     // Room 0's flags as SetUp found them; the tests make the room indoors.
     long m_saved_room_flags = 0;
-    // The mob index the tests use: its first entry is index -1, a test mob's.
+    // The mob index the tests use: its first entry is index -1, a test mob's, and its second
+    // entry 0, a risen ghoul's.
     index_data m_mob_index[2] {};
+    // The mob table's one prototype, the risen ghoul's; affect_total reads its resistances.
+    char_data m_risen_ghoul_prototype {};
+    // The keywords and proficiencies a risen ghoul shares with its prototype.
+    char m_risen_ghoul_keywords[8] = "risen";
+    char_prof_data m_risen_ghoul_proficiencies {};
+    // The mob table SetUp found, put back by TearDown.
+    char_data* m_saved_mob_proto = nullptr;
+    int m_saved_top_of_mobt = 0;
     // The mob index SetUp found, put back by TearDown.
     index_data* m_saved_mob_index = nullptr;
     // How many commands install_ring_then_stone_reset gives zone 0.
@@ -369,6 +404,7 @@ TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
     install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
     char_data* summoner = make_mob("ghoul", 0);
     char_data* risen = make_mob_wearing_poisonous_ring("risen", SCRIPT_VNUM);
+    make_into_risen_ghoul(risen);
     obj_data* ring = risen->equipment[WEAR_FINGER_R];
     add_follower(risen, summoner, FOLLOW_MOVE);
     push_test_random_value(0.0); /* the idle follower is dismissed */
@@ -603,6 +639,32 @@ TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
     EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
 }
 
+/* ---- a death ---- */
+
+/* Taking off the dying mob's gear casts the earthquake an item holds, and the killer's damage
+ * script removes the killer when the tremor hurts it: the death goes on with no killer, and the
+ * corpse holds the gear. */
+TEST_F(DeathAndDamagePathsTest, AKillerRemovedAsTheDyingOnesGearComesOffIsNoKiller)
+{
+    take_player_out_of_the_room();
+    char_data* dying = make_mob("dying", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    ring->affected[0].location = APPLY_SPELL;
+    ring->affected[0].modifier = SPELL_EARTHQUAKE;
+    /* Put on while nobody else is in the room, so the earthquake it casts hurts nobody. */
+    equip_char(dying, ring, WEAR_FINGER_R);
+    ASSERT_EQ(ring, dying->equipment[WEAR_FINGER_R]);
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* killer = make_mob("killer", SCRIPT_VNUM);
+
+    raw_kill(dying, killer, 0);
+
+    EXPECT_FALSE(is_in_game(killer)) << "the tremor did not remove the killer";
+    EXPECT_FALSE(is_in_game(dying));
+    ASSERT_EQ(1, count_corpses_in_room());
+    EXPECT_NE(nullptr, ring->in_obj);
+}
+
 /* ---- a ghoul sinking back into the ground ---- */
 
 /* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
@@ -612,6 +674,7 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
     make_ring_and_sword_poisonous();
     char_data* summoner = make_mob("ghoul", 0);
     char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
     add_follower(risen, summoner, FOLLOW_MOVE);
     obj_to_char(make_object(RING_VNUM, 0), risen);
     obj_to_char(make_object(SWORD_VNUM, 0), risen);
@@ -637,6 +700,7 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGr
 {
     char_data* summoner = make_mob("ghoul", 0);
     char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
     add_follower(risen, summoner, FOLLOW_MOVE);
     obj_data* ring = make_object(RING_VNUM, 0);
     obj_to_char(ring, risen);
@@ -650,6 +714,47 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGr
     EXPECT_FALSE(is_in_game(risen));
     EXPECT_FALSE(is_in_object_list(ring));
     EXPECT_EQ(0, count_corpses_in_room());
+}
+
+/* A player following an idle ghoul is not dismissed with its risen ghouls: the player keeps
+ * what they wear and stays, and the risen ghoul behind them sinks into the ground. */
+TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    /* In the game as a player is; followed last, so first among the ghoul's followers. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    add_follower(&m_player, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, &m_player);
+    run_command(do_wear, "ring");
+    ASSERT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    ASSERT_EQ(&m_player, summoner->followers->follower);
+    push_test_random_value(0.0); /* an idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    const bool player_in_game = is_in_game(&m_player);
+    const bool player_in_room = m_player.in_room == 0;
+    obj_data* const worn_ring = m_player.equipment[WEAR_FINGER_R];
+    stop_follower(&m_player, FOLLOW_MOVE);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    remove_char_exists(m_player.abs_number);
+    EXPECT_TRUE(player_in_game);
+    EXPECT_TRUE(player_in_room);
+    EXPECT_EQ(ring, worn_ring);
+    EXPECT_TRUE(is_in_object_list(ring));
+    EXPECT_FALSE(is_in_game(risen));
 }
 
 /* ---- a summons ---- */

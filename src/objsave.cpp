@@ -1116,7 +1116,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             if (object.item_number == SENTINEL_ITEM_ID_VALUE)
                 break;
 
-            if (object.wear_pos > MAX_WEAR || object.wear_pos < 0)
+            if (object.wear_pos >= MAX_WEAR || object.wear_pos < 0)
                 continue;
             if (follower_watch.freed()) {
                 continue;

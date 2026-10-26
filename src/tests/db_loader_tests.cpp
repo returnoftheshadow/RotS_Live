@@ -52,6 +52,10 @@ extern struct obj_data* object_list;
 extern int top_of_p_table;
 extern int top_of_world;
 extern int top_of_objt;
+extern struct char_data* mob_proto;
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+extern struct char_data* character_list;
 void build_player_index(void);
 void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
@@ -2332,6 +2336,82 @@ TEST(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
     Crash_follower_load(&character, fp);
     EXPECT_EQ(std::ftell(fp), (long)object_bytes.size()) << "still open";
     EXPECT_EQ(std::fclose(fp), 0);
+}
+
+// A follower's gear saved in a slot one past the last (a damaged save) is read past, as gear in a
+// container is: nothing is put on there, and the follower's next item still loads.
+TEST(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
+{
+    constexpr int FOLLOWER_VNUM = 6601;
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    world[0].people = nullptr;
+
+    /* The follower's prototype, which real_mobile finds and read_mobile copies. */
+    char_data follower_prototype {};
+    clear_char(&follower_prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&follower_prototype), MOB_ISNPC);
+    follower_prototype.nr = 0;
+    index_data follower_index[1] {};
+    follower_index[0].virt = FOLLOWER_VNUM;
+    char_data* const saved_mob_proto = mob_proto;
+    index_data* const saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    char_data* const saved_character_list = character_list;
+    mob_proto = &follower_prototype;
+    mob_index = follower_index;
+    top_of_mobt = 0;
+
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
+    character.in_room = 0;
+
+    /* One follower (a mount, flag 0) with a helm one past the last slot and a helm on its head. */
+    std::FILE* saved = std::tmpfile();
+    ASSERT_NE(saved, nullptr);
+    const follower_file_elem follower { FOLLOWER_VNUM, 0, 0, 0, 0, 0, 0 };
+    obj_file_elem past_the_last_slot {};
+    past_the_last_slot.item_number_deprecated = DEPRECATED_ID_VALUE;
+    past_the_last_slot.item_number = HELM_VNUM;
+    past_the_last_slot.wear_pos = MAX_WEAR;
+    obj_file_elem on_the_head = past_the_last_slot;
+    on_the_head.wear_pos = WEAR_HEAD;
+    obj_file_elem end_of_gear {};
+    end_of_gear.item_number_deprecated = DEPRECATED_ID_VALUE;
+    end_of_gear.item_number = SENTINEL_ITEM_ID_VALUE;
+    const follower_file_elem end_of_followers { -17, 0, 0, 0, 0, 0, 0 };
+    EXPECT_EQ(std::fwrite(&follower, sizeof(follower), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&past_the_last_slot, sizeof(past_the_last_slot), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_gear, sizeof(end_of_gear), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_followers, sizeof(end_of_followers), 1, saved), 1u);
+    std::rewind(saved);
+
+    Crash_follower_load(&character, saved);
+
+    EXPECT_EQ(std::fclose(saved), 0);
+    ASSERT_NE(character.followers, nullptr);
+    char_data* loaded = character.followers->follower;
+    int worn_items = 0;
+    for (int slot = 0; slot < MAX_WEAR; ++slot) {
+        if (loaded->equipment[slot] != nullptr) {
+            ++worn_items;
+        }
+    }
+    EXPECT_EQ(worn_items, 1);
+    ASSERT_NE(loaded->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character.followers->next, nullptr);
+
+    /* The follower is left unfreed, as its prototype's strings are the test's. */
+    char_from_room(loaded);
+    remove_char_exists(loaded->abs_number);
+    character.followers = nullptr;
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    character_list = saved_character_list;
 }
 
 // The file the game itself writes, read back by the game: the enchanted weapon's longer record
