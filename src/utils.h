@@ -14,6 +14,7 @@
 #include "platdef.h" /* For byte, sh_int, ush_int, etc. */
 #include "structs.h" /* For time_info_data */
 
+#include <initializer_list>
 #include <string>
 
 extern struct weather_data weather_info;
@@ -81,6 +82,9 @@ void set_colornum(const char_data* ch, int col, int value);
  * at the buffer. */
 void string_add_init(struct descriptor_data*, char**);
 void string_add_finish(struct descriptor_data*);
+/* Ends, unsaved, any edit typing into one of <fields>, which are about to be freed with the
+ * object or character holding them; the writer is told. */
+void stop_editing_text(std::initializer_list<char**> fields);
 void string_add(struct descriptor_data*, char*);
 int string_to_new_value(char* arg, int* value, char** stopped = 0);
 int string_to_negative_value(const char* arg, int* value);
