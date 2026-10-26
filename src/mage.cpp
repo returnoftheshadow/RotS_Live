@@ -2317,7 +2317,12 @@ ASPELL(spell_blaze)
 ASPELL(spell_freeze)
 
 {
-    if (IS_SET(EXIT(caster, digit)->exit_info, EX_CLOSED)) {
+    // Any direction word can be cast toward, whether or not an exit lies that way.
+    room_direction_data* exit = NULL;
+    if (digit >= 0 && digit < NUM_OF_DIRS)
+        exit = EXIT(caster, digit);
+
+    if (exit && IS_SET(exit->exit_info, EX_CLOSED)) {
         /* Did they use "east", "west", etc. to target this direction? */
         if (caster->delay.targ2.choice == TAR_DIR_WAY)
             sprintf(buf, "A thick sheet of hardened frost forms %s%s%s.\r\n",
@@ -2325,7 +2330,7 @@ ASPELL(spell_freeze)
                 digit != UP && digit != DOWN ? "" : " you");
         /* Or did they actually know the name of the door? */
         else if (caster->delay.targ2.choice == TAR_DIR_NAME)
-            sprintf(buf, "The %s is frozen shut.\r\n", EXIT(caster, digit)->keyword);
+            sprintf(buf, "The %s is frozen shut.\r\n", exit->keyword);
         send_to_room(buf, caster->in_room);
         return;
     } else
@@ -2493,6 +2498,13 @@ void spell_expose_elements(char_data* caster, char* arg, int type, char_data* vi
 
     // Player is of the appropriate spec - cast the data.
     elemental_spec_data* spec_data = caster->extra_specialization_data.get_mage_spec();
+    if (spec_data == NULL) {
+        log("SYSERR: spell_expose_elements: a mage specialisation has no expose-elements data");
+        return;
+    }
+
+    // A new mark replaces the old one, along with a freed target the sweep has yet to report.
+    spec_data->reset();
     spec_data->exposed_target = victim;
 
     const room_data& current_room = world[caster->in_room];

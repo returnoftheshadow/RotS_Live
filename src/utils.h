@@ -126,6 +126,10 @@ struct time_info_data age(const struct char_data* ch);
 
 void track_specialized_mage(char_data* mage);
 void untrack_specialized_mage(const char_data* mage);
+/* Clears every specialised mage's expose-elements mark on <target>, which is about to be freed; each
+ * such mage is told at the next clean_expose_elements() sweep, as when a target leaves the room.
+ * free_char calls it for every character it frees. A null <target> is logged and changes nothing. */
+void forget_freed_exposed_target(const char_data* target);
 
 int has_alias(const char_data* host, const char* keyword);
 int has_program(const char_data* host, int num);

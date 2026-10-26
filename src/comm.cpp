@@ -540,9 +540,14 @@ void clean_expose_elements()
         char_data* mage = *iter;
         if (mage->extra_specialization_data.is_mage_spec()) {
             elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
-            if (spec_data->exposed_target) {
+            if (spec_data == NULL) {
+                log("SYSERR: clean_expose_elements: a mage specialisation has no expose-elements data");
+            } else if (mage->in_room == NOWHERE) {
+                // A mage in no room (a player at the menu) keeps the mark until back in the world.
+            } else if (spec_data->exposed_target || spec_data->exposed_target_freed) {
                 // The mage has cast 'expose elements' on a target.  If that target is no longer
-                // in the room, remove this.
+                // in the room, remove this.  A freed target is in no room: its mark is already
+                // cleared, and the search below cannot find it.
                 int room_number = mage->in_room;
                 const room_data& current_room = world[room_number];
 
@@ -592,6 +597,23 @@ void untrack_specialized_mage(const char_data* mage)
     char_iter found_mage = std::remove(specialized_mages.begin(), specialized_mages.end(), mage);
     if (found_mage != specialized_mages.end()) {
         specialized_mages.erase(found_mage);
+    }
+}
+
+/* Declared in utils.h. */
+void forget_freed_exposed_target(const char_data* target)
+{
+    if (!target) {
+        log("SYSERR: forget_freed_exposed_target: no target");
+        return;
+    }
+
+    for (char_data* mage : specialized_mages) {
+        elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
+        if (spec_data && spec_data->exposed_target == target) {
+            spec_data->reset();
+            spec_data->exposed_target_freed = true;
+        }
     }
 }
 
@@ -770,14 +792,15 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        auto sector_type = world[desc->character->in_room].sector_type;
-        auto weather_type = weather_info.sky[sector_type];
-        extern char* weather_messages[8][13];
+        extern const char* weather_message_for_sector(int sector_type);
         extern std::string strip_trailing_line_break(const char* text);
 
+        const char* weather_message = nullptr;
         if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER,
-                strip_trailing_line_break(weather_messages[weather_type + 2][sector_type]).c_str());
+            weather_message = weather_message_for_sector(world[desc->character->in_room].sector_type);
+        }
+        if (weather_message != nullptr) {
+            MSDPSetString(desc, eMDSP_WEATHER, strip_trailing_line_break(weather_message).c_str());
         } else {
             MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
         }
@@ -2357,15 +2380,25 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
 {
     int clobbered_color;
     char* used_color;
-    register char *strp, *point;
-    register const char* i;
+    char *strp, *point;
+    const char* i;
+    char* const output = (char*)buf;
+    const char* const normal_color = CC_NORM(to);
+    /* buf holds MAX_STRING_LENGTH bytes, as act_buffer does. The text stops where "\n\r", the
+       terminator and the closing color still fit; a longer message is cut there. */
+    const char* const text_end = output + MAX_STRING_LENGTH - (3 + strlen(normal_color));
+    auto append = [&point, text_end](const char* text) -> void {
+        while (*text != '\0' && point < text_end)
+            *point++ = *text++;
+    };
 
     i = NULL;
     used_color = NULL;
     clobbered_color = FALSE;
 
-    for (strp = (char*)str, point = (char*)buf;;)
+    for (strp = (char*)str, point = output;;)
         if (*strp == '$') {
+            i = ""; /* an unrecognized code adds nothing */
             switch (*(++strp)) {
             case 'C': /* This is a two-letter color code */
                 switch (*(++strp)) {
@@ -2474,35 +2507,42 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
                 break;
             default:
                 log("SYSERR: Illegal $-code to act():");
-                strcpy(buf1, "SYSERR: ");
-                strcat(buf1, str);
+                snprintf(buf1, sizeof(buf1), "SYSERR: %s", str);
                 log(buf1);
                 break;
             }
-            while ((*point = *(i++)))
-                ++point;
-            ++strp;
+            if (i)
+                append(i);
+            /* A '$' or "$C" ending the string leaves strp on its terminator. */
+            if (*strp != '\0')
+                ++strp;
 
             if (clobbered_color && used_color != NULL) {
-                i = used_color;
-                while ((*point = *(i++)))
-                    ++point;
+                append(used_color);
                 clobbered_color = 0;
             }
-        } else if (!(*(point++) = *(strp++)))
+        } else if (*strp == '\0') {
             break;
+        } else {
+            if (point < text_end)
+                *point++ = *strp;
+            ++strp;
+        }
 
-    *(--point) = '\n';
-    *(++point) = '\r';
-    *(++point) = '\0';
+    *point++ = '\n';
+    *point++ = '\r';
+    *point = '\0';
 
     if (used_color)
-        sprintf(point, CC_NORM(to));
+        strcpy(point, normal_color);
 
     /* Find the first character in the string, ignoring ANSI colors */
-    for (strp = (char*)buf; *strp == '\x1B'; ++strp)
-        while (*strp != 'm')
+    for (strp = output; *strp == '\x1B';) {
+        while (*strp != '\0' && *strp != 'm')
             ++strp;
+        if (*strp != '\0')
+            ++strp;
+    }
 
     if (isalpha(*strp))
         CAP(strp);

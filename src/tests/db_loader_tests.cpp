@@ -5567,3 +5567,35 @@ TEST(DbLoader, WritePlayerTextCutsALongHostToTheFieldWidth)
 
     EXPECT_EQ(player_text_value(player_text, "host        "), std::string(HOST_LEN, 'h')) << player_text;
 }
+
+/* ---- checked_sector_type: the world loader and the room editor keep sector types in range. ---- */
+
+TEST(CheckedSectorType, KeepsASectorInRangeWithoutLogging)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(SECT_SWAMP, 3001);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, SECT_SWAMP);
+    EXPECT_EQ(log_text, "");
+}
+
+TEST(CheckedSectorType, ANegativeSectorBecomesInsideAndIsLogged)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(-1, 3001);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, SECT_INSIDE);
+    EXPECT_NE(log_text.find("room 3001 has sector type -1"), std::string::npos) << log_text;
+}
+
+TEST(CheckedSectorType, ASectorPastTheLastBecomesTheLastAndIsLogged)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(SECT_SWAMP + 5, 3001);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, SECT_SWAMP);
+    EXPECT_NE(log_text.find("room 3001 has sector type 17"), std::string::npos) << log_text;
+}

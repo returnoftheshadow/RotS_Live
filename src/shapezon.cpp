@@ -124,6 +124,9 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
     struct reset_com* com;
     char tmpc;
     char label[16];
+    /* Every caller's buffer holds MAX_STRING_LENGTH or more; lead is the part of it the
+     * caller has used. A row's comment is as long as the zone file makes it. */
+    const size_t capacity = MAX_STRING_LENGTH - lead;
 
     com = &(zon->comm);
 
@@ -131,13 +134,13 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'A': /* Additional command, affects last loaded mobile */
 
-        sprintf(str, "%3d A::Type:%d, Arg1:%d, Arg2:%d\n\r      %s\n\r",
+        snprintf(str, capacity, "%3d A::Type:%d, Arg1:%d, Arg2:%d\n\r      %s\n\r",
             zon->number, com->arg1, com->arg2, com->arg3, zon->comment);
 
         break;
     case 'M': /* Load mobile */
 
-        sprintf(str, "%3d M:: Ld_flg(%d) Mob:%d toRom:%d MxExst:%d Prb:%d Diff:%d MxLine:%d Tro:%d\n\r      %s\n\r",
+        snprintf(str, capacity, "%3d M:: Ld_flg(%d) Mob:%d toRom:%d MxExst:%d Prb:%d Diff:%d MxLine:%d Tro:%d\n\r      %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, com->arg7, zon->comment);
 
@@ -145,7 +148,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'N': /* Load mobile, random */
 
-        sprintf(str, "%3d N:: Ld_flg(%d) Type:%d toRom:%d LvlGen:%d Prb:%d Dif:%d MxLine:%d Tro:%d\n\r      %s\n\r",
+        snprintf(str, capacity, "%3d N:: Ld_flg(%d) Type:%d toRom:%d LvlGen:%d Prb:%d Dif:%d MxLine:%d Tro:%d\n\r      %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, com->arg7, zon->comment);
 
@@ -153,7 +156,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'O': /* Load object */
 
-        sprintf(str, "%3d O:: Load_flg(%d) Obj:%d to Room:%d, MxExst:%d Prb:%d MxInRom:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d O:: Load_flg(%d) Obj:%d to Room:%d, MxExst:%d Prb:%d MxInRom:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, zon->comment);
 
@@ -169,7 +172,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'G': /* give object to the last 'M' loaded mob */
 
-        sprintf(str, "%3d G:: Load_flg(%d) ObjN:%d NULL(?):%d, MxExst:%d Prb:%d MxOnMob:%d MxObjMob:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d G:: Load_flg(%d) ObjN:%d NULL(?):%d, MxExst:%d Prb:%d MxOnMob:%d MxObjMob:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, zon->comment);
 
@@ -177,7 +180,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'H': /* give object to the last 'M' loaded mob, random */
 
-        sprintf(str, "%3d H:: Load_flg(%d) Type:%d Prb:%d, MaxOnMob:%d MxObjMob:%d LvlGen:%d Good:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d H:: Load_flg(%d) Type:%d Prb:%d, MaxOnMob:%d MxObjMob:%d LvlGen:%d Good:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, zon->comment);
 
@@ -185,7 +188,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'E': /* Object to equipment list of the last 'M' loaded mob */
 
-        sprintf(str, "%3d E:: Load_flg(%d) ObjN:%d EqPos:%d, MaxExst:%d Prb:%d MaxOnMob:%d MxObjMob:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d E:: Load_flg(%d) ObjN:%d EqPos:%d, MaxExst:%d Prb:%d MaxOnMob:%d MxObjMob:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, zon->comment);
 
@@ -193,7 +196,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'Q': /* Object to equip list of the last 'M' loaded mob, random */
 
-        sprintf(str, "%3d Q:: Load_flg(%d) Type:%d EqPos:%d, Prb:%d MaxOnMob:%d, MxObjMob:%d LvlGen:%d Good:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d Q:: Load_flg(%d) Type:%d EqPos:%d, Prb:%d MaxOnMob:%d, MxObjMob:%d LvlGen:%d Good:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, com->arg7, zon->comment);
 
@@ -201,7 +204,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'P': /* Put object to object */
 
-        sprintf(str, "%3d P:: Load_flg(%d) Room:%d Obj:%d toObj:%d, MaxExst:%d Prb:%d MaxInObj:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d P:: Load_flg(%d) Room:%d Obj:%d toObj:%d, MaxExst:%d Prb:%d MaxInObj:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, zon->comment);
 
@@ -209,7 +212,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     case 'K':
 
-        sprintf(str, "%3d K:: Load_flg(%d) Objects:%d, %d, %d, %d, %d, %d, %d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d K:: Load_flg(%d) Objects:%d, %d, %d, %d, %d, %d, %d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, com->arg7, zon->comment);
 
@@ -238,30 +241,28 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
         default:
             tmpc = 'X';
         }
-        sprintf(str, "%3d D:: Load_flg(%d) Room:%d Exit:%c, State:%d\n\r    %s\n\r",
+        snprintf(str, capacity, "%3d D:: Load_flg(%d) Room:%d Exit:%c, State:%d\n\r    %s\n\r",
             zon->number, com->if_flag, com->arg1, tmpc, com->arg3, zon->comment);
         break;
 
     case 'R': /* remove object from room */
 
-        sprintf(str, "%3d R:: Load_flg(%d) Room:%d, Obj:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d R:: Load_flg(%d) Room:%d, Obj:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, zon->comment);
 
         break;
 
     case '*': /* disabled row or note, does nothing */
-        sprintf(str, "%3d *%s\n\r", zon->number, zon->comment);
+        snprintf(str, capacity, "%3d *%s\n\r", zon->number, zon->comment);
         break;
 
     case '=': /* section: a title and comment for the list, does nothing */
         sprintf(label, "%3d ", zon->number);
-        /* Every caller's buffer holds MAX_STRING_LENGTH or more; lead is the
-         * part of it the caller has used. */
-        shape_section_show(str, MAX_STRING_LENGTH - lead, label, zon->comment, lead, 2);
+        shape_section_show(str, capacity, label, zon->comment, lead, 2);
         break;
 
     case 'L': /* set last_mob or last_obj */
-        sprintf(str, "%3d L:: Load_flg(%d) Mode:%d Room:%d Mob/Obj:%d Num:%d\n\r     %s\n\r",
+        snprintf(str, capacity, "%3d L:: Load_flg(%d) Mode:%d Room:%d Mob/Obj:%d Num:%d\n\r     %s\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, zon->comment);
 
@@ -269,7 +270,7 @@ void show_command(char* str, struct zone_tree* zon, int lead = 0)
 
     default:
 
-        sprintf(str, "%3d Unrecognized Command (if %d) on %d by %d to %d when %d with %d, (%d %d) \n\r    %s.\n\r",
+        snprintf(str, capacity, "%3d Unrecognized Command (if %d) on %d by %d to %d when %d with %d, (%d %d) \n\r    %s.\n\r",
             zon->number, com->if_flag, com->arg1, com->arg2, com->arg3,
             com->arg4, com->arg5, com->arg6, com->arg7, zon->comment);
 
@@ -1045,7 +1046,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
             } else {
 
                 st1[0] = st2[0] = st3[0] = st4[0] = st5[0] = st6[0] = st7[0] = st8[0] = st9[0] = 0;
-                tmp1 = sscanf(arg, "%s %s %s %s %s %s %s %s %s", st1, st2, st3, st4, st5, st6, st7, st8, st9);
+                tmp1 = sscanf(arg, "%49s %49s %49s %49s %49s %49s %49s %49s %49s", st1, st2, st3, st4, st5, st6, st7, st8, st9);
                 ch->specials.prompt_number = 7;
                 shape_standup(ch, SHAPE_ZONE(ch)->position);
                 if (tmp1 == 0) {
@@ -1477,7 +1478,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 return;
             } else {
                 st1[0] = 0;
-                sscanf(arg, "%s", st1);
+                sscanf(arg, "%49s", st1);
                 ch->specials.prompt_number = 7;
                 shape_standup(ch, SHAPE_ZONE(ch)->position);
                 REMOVE_BIT(SHAPE_ZONE(ch)->flags, SHAPE_DIGIT_ACTIVE);
@@ -1838,7 +1839,7 @@ void shape_center_zone(struct char_data* ch, char* arg)
             break;
 
         case 51:
-            sprintf(str, "Zone #%d: %s\n\rReset time: %d; Reset mode: %d\n\r",
+            snprintf(str, sizeof(str), "Zone #%d: %s\n\rReset time: %d; Reset mode: %d\n\r",
                 SHAPE_ZONE(ch)->zone_number, SHAPE_ZONE(ch)->zone_name,
                 SHAPE_ZONE(ch)->lifespan, SHAPE_ZONE(ch)->reset_mode);
             send_to_char(str, ch);
@@ -1847,18 +1848,20 @@ void shape_center_zone(struct char_data* ch, char* arg)
                 SHAPE_ZONE(ch)->y, SHAPE_ZONE(ch)->level);
             send_to_char(str, ch);
 
-            sprintf(str, "Owners: ");
-            tmpowner = SHAPE_ZONE(ch)->root_owner;
-            if (tmpowner->owner == 0)
-                strcat(str, "All");
-            else
-                while (tmpowner->owner != 0) {
-                    sprintf(tmpstr, " %d", tmpowner->owner);
-                    strcat(str, tmpstr);
-                    tmpowner = tmpowner->next;
-                }
-            strcat(str, "\n\r\n\r");
-            send_to_char(str, ch);
+            {
+                /* The owner list is as long as the zone file makes it. */
+                std::string owners_line = "Owners: ";
+                tmpowner = SHAPE_ZONE(ch)->root_owner;
+                if (tmpowner->owner == 0)
+                    owners_line += "All";
+                else
+                    while (tmpowner->owner != 0) {
+                        owners_line += " " + std::to_string(tmpowner->owner);
+                        tmpowner = tmpowner->next;
+                    }
+                owners_line += "\n\r\n\r";
+                send_to_char(owners_line.c_str(), ch);
+            }
             send_to_char(SHAPE_ZONE(ch)->zone_descr, ch);
             send_to_char("\n\r-----------------------------------------------\n\r", ch);
             send_to_char(SHAPE_ZONE(ch)->zone_map, ch);
@@ -2092,7 +2095,7 @@ int load_zone(struct char_data* ch, const char* arg)
     struct owner_list* owner;
     std::string rest;
 
-    if (2 != sscanf(arg, "%s %d\n", str, &number)) {
+    if (2 != sscanf(arg, "%254s %d\n", str, &number)) {
         send_to_char("Choose a zone by 'shape zone <zone_number>'\n\r", ch);
         return -1;
     }
@@ -2133,8 +2136,11 @@ int load_zone(struct char_data* ch, const char* arg)
     }
     get_text(f, &(SHAPE_ZONE(ch)->zone_descr));
     get_text(f, &(SHAPE_ZONE(ch)->zone_map));
-    sprintf(str, " loading zone #%d %s\n\r", tmp, SHAPE_ZONE(ch)->zone_name);
-    send_to_char(str, ch);
+    /* The zone name is as long as the file makes it; str is only 255. */
+    std::string loading_message = " loading zone #" + std::to_string(tmp) + " ";
+    loading_message += SHAPE_ZONE(ch)->zone_name ? SHAPE_ZONE(ch)->zone_name : "(null)";
+    loading_message += "\n\r";
+    send_to_char(loading_message.c_str(), ch);
 
     CREATE1(SHAPE_ZONE(ch)->root_owner, owner_list);
     SHAPE_ZONE(ch)
