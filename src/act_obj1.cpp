@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <memory>
+#include <utility>
 
 #include "platdef.h"
 
@@ -22,6 +23,7 @@
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "object_text.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -830,6 +832,15 @@ ACMD(do_give)
 int weapon_hit_type(int);
 struct obj_data* load_scalp(int);
 
+/* Gives `object` a text of its own with `room_line` as its line in a room; the text it showed,
+ * which its prototype and other copies may share, is left to them. */
+static void set_room_line(obj_data& object, const char* room_line)
+{
+    object_text::fields text = object_text_fields_of(object);
+    text.description = room_line;
+    object.set_text(create_object_text(std::move(text)));
+}
+
 ACMD(do_butcher)
 {
     int trophy_num, chance, no_tool, w_type = 0;
@@ -947,11 +958,10 @@ ACMD(do_butcher)
                 TRUE, ch, tool, obj, TO_CHAR);
             trophy = 0;
             obj->obj_flags.value[4] = 0;
-            /* The corpse's line, its full stop dropped; a corpse with a prototype shares the
-             * line with every other copy, so it is read, never changed. */
+            /* The corpse's line, its full stop dropped. */
             const int kept_length = static_cast<int>(strlen(obj->description)) - 1;
             sprintf(buf2, "%.*s, its head a bloody mess.", kept_length, obj->description);
-            obj->set_owned_text(object_text::description, str_dup(buf2));
+            set_room_line(*obj, buf2);
         } else {
             if (obj->obj_flags.value[4] == 0) {
                 send_to_char("It was beheaded already.\n\r", ch);
@@ -966,7 +976,7 @@ ACMD(do_butcher)
             }
             const int kept_length = static_cast<int>(strlen(obj->description)) - 1;
             sprintf(buf2, "%.*s, its head missing.", kept_length, obj->description);
-            obj->set_owned_text(object_text::description, str_dup(buf2));
+            set_room_line(*obj, buf2);
         }
 
         if (trophy) {
@@ -1031,25 +1041,27 @@ obj_data* load_scalp(int number)
     scalp->obj_flags.timer = -1;
     scalp->obj_flags.value[4] = number;
 
-    /* The scalp prototype's own text is never shown: each scalp owns its text. */
+    /* The scalp prototype's own text is never shown: each scalp has a text of its own. */
+    object_text::fields text;
     if (trophy_num < 0) {
-        scalp->set_owned_text(object_text::description, str_dup("An old, bleached skull is lying here."));
-        scalp->set_owned_text(object_text::short_description, str_dup("An old skull"));
-        scalp->set_owned_text(object_text::name, str_dup("head skull"));
+        text.description = "An old, bleached skull is lying here.";
+        text.short_description = "An old skull";
+        text.name = "head skull";
     } else {
-        scalp->set_owned_text(object_text::name, str_dup("head"));
+        text.name = "head";
         sprintf(buf2, "A severed head of %s is lying here.",
             (w_type) ? player_table[trophy_num].name : mob_proto[trophy_num].player.short_descr);
         if (w_type)
             buf2[18] = toupper(buf2[18]);
-        scalp->set_owned_text(object_text::description, str_dup(buf2));
+        text.description = buf2;
 
         sprintf(buf2, "A severed head of %s",
             (w_type) ? player_table[trophy_num].name : mob_proto[trophy_num].player.short_descr);
         if (w_type)
             buf2[18] = toupper(buf2[18]);
-        scalp->set_owned_text(object_text::short_description, str_dup(buf2));
+        text.short_description = buf2;
     }
+    scalp->set_text(create_object_text(std::move(text)));
     scalp->next = object_list;
     object_list = scalp;
     /* Counted as a copy of its prototype, as read_object counts one; extract_obj uncounts it. */

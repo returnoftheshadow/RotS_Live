@@ -1,10 +1,13 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
+#include "../object_text.h"
 #include "../structs.h"
 #include "../utils.h"
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <utility>
 #include <gtest/gtest.h>
 
 extern struct char_data* mob_proto;
@@ -63,9 +66,6 @@ protected:
     {
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            std::free(object_list->name);
-            std::free(object_list->description);
-            std::free(object_list->short_description);
             delete object_list;
             object_list = next;
         }
@@ -115,17 +115,18 @@ TEST_F(LoadScalpTest, BodylessMobStillYieldsNoScalp)
     EXPECT_EQ(load_scalp(kWargVnum), nullptr);
 }
 
-/* A scalp's name and descriptions are its own: extracting the scalp frees them. */
-TEST_F(LoadScalpTest, AScalpOwnsTheTextItIsMadeWith)
+/* A scalp's name and descriptions are a text of its own, which goes when the scalp is extracted. */
+TEST_F(LoadScalpTest, AScalpHasATextOfItsOwn)
 {
     obj_data* scalp = load_scalp(kWargVnum);
 
     ASSERT_NE(scalp, nullptr);
     ASSERT_GE(scalp->item_number, 0) << "the scalp prototype is in the table";
-    EXPECT_TRUE(scalp->owns_text(object_text::name));
-    EXPECT_TRUE(scalp->owns_text(object_text::short_description));
-    EXPECT_TRUE(scalp->owns_text(object_text::description));
-    EXPECT_FALSE(scalp->owns_text(object_text::action_description));
+    ASSERT_NE(scalp->shared_text(), nullptr);
+    EXPECT_EQ(scalp->shared_text().use_count(), 1) << "no other object shows the scalp's text";
+    EXPECT_STREQ(scalp->name, "head");
+    EXPECT_STREQ(scalp->description, "A severed head of a warg is lying here.");
+    EXPECT_EQ(scalp->action_description, nullptr);
 
     extract_obj(scalp);
     EXPECT_EQ(object_list, nullptr);
@@ -164,8 +165,10 @@ protected:
         /* Nobody else is in the room to be told of the beheading. */
         world[0].people = nullptr;
 
-        m_corpse_name = str_dup("corpse");
-        m_corpse_description = str_dup("The corpse of a warg is lying here.");
+        object_text::fields corpse_text;
+        corpse_text.name = "corpse";
+        corpse_text.description = "The corpse of a warg is lying here.";
+        m_corpse_text = create_object_text(std::move(corpse_text));
         m_untouched = make_corpse();
         m_beheaded = make_corpse(); /* first on the floor, so "corpse" finds it */
 
@@ -188,8 +191,7 @@ protected:
         while (world[0].contents != nullptr) {
             extract_obj(world[0].contents);
         }
-        RELEASE(m_corpse_name);
-        RELEASE(m_corpse_description);
+        m_corpse_text.reset();
         world[0].contents = m_saved_contents;
         world[0].people = m_saved_people;
         top_of_world = m_saved_top_of_world;
@@ -201,8 +203,7 @@ protected:
         obj_data* corpse = new obj_data();
         clear_object(corpse);
         corpse->item_number = CORPSE_RNUM;
-        corpse->name = m_corpse_name;
-        corpse->description = m_corpse_description;
+        corpse->set_text(m_corpse_text);
         corpse->obj_flags.type_flag = ITEM_CONTAINER;
         corpse->obj_flags.value[3] = 1; /* a corpse */
         corpse->obj_flags.value[4] = kWargVnum; /* whose head it still has */
@@ -212,8 +213,7 @@ protected:
         return corpse;
     }
 
-    char* m_corpse_name = nullptr; // the corpse prototype's name, shared by both copies
-    char* m_corpse_description = nullptr; // the prototype's room line, shared by both copies
+    std::shared_ptr<const object_text> m_corpse_text; // the corpse prototype's text, shared by both copies
     obj_data* m_untouched = nullptr; // the copy left alone
     obj_data* m_beheaded = nullptr; // the copy the character beheads
     obj_data m_club {}; // the character's wielded bludgeon
@@ -231,10 +231,10 @@ TEST_F(BeheadCorpseTest, BeheadingACopyLeavesTheSharedRoomLineAlone)
     do_butcher(&m_character, argument, nullptr, 0, SCMD_SCALP);
 
     EXPECT_STREQ(m_beheaded->description, "The corpse of a warg is lying here, its head a bloody mess.");
-    EXPECT_TRUE(m_beheaded->owns_text(object_text::description));
-    EXPECT_EQ(m_untouched->description, m_corpse_description);
+    EXPECT_STREQ(m_beheaded->name, "corpse");
+    EXPECT_NE(m_beheaded->shared_text(), m_corpse_text);
+    EXPECT_EQ(m_untouched->shared_text(), m_corpse_text);
     EXPECT_STREQ(m_untouched->description, "The corpse of a warg is lying here.");
-    EXPECT_FALSE(m_untouched->owns_text(object_text::description));
 }
 
 } // namespace

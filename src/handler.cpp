@@ -42,6 +42,7 @@
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "object_text.h"
 #include "room_lists.h"
 #include "spells.h"
 #include "structs.h"
@@ -56,6 +57,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <utility>
 
 /* external vars */
 extern struct room_data world;
@@ -2433,7 +2435,6 @@ struct obj_data* create_money(int amount)
     char buf[200];
 
     struct obj_data* obj;
-    struct extra_descr_data* new_descr;
 
     if (amount <= 0) {
         log("SYSERR: Try to create negative or 0 money.");
@@ -2441,53 +2442,54 @@ struct obj_data* create_money(int amount)
     }
 
     obj = new obj_data();
-    CREATE(new_descr, struct extra_descr_data, 1);
     clear_object(obj);
+    object_text::fields text;
+    object_text::extra_description look;
     if (amount == 1) {
-        obj->name = str_dup("coin money copper");
-        obj->short_description = str_dup("a coin");
-        obj->description = str_dup("One miserable copper coin is lying here.");
-        new_descr->keyword = str_dup("coin gold");
-        new_descr->description = str_dup("It's just one miserable little copper coin.");
+        text.name = "coin money copper";
+        text.short_description = "a coin";
+        text.description = "One miserable copper coin is lying here.";
+        look.keyword = "coin gold";
+        look.description = "It's just one miserable little copper coin.";
     } else {
-        obj->name = str_dup("coins money gold");
+        text.name = "coins money gold";
         if (amount <= 100) {
-            obj->short_description = str_dup("a small pile of coins");
-            obj->description = str_dup("A small pile of coins is lying here.");
+            text.short_description = "a small pile of coins";
+            text.description = "A small pile of coins is lying here.";
         } else if (amount <= 1000) {
-            obj->short_description = str_dup("a pile of coins");
-            obj->description = str_dup("A pile of coins is lying here.");
+            text.short_description = "a pile of coins";
+            text.description = "A pile of coins is lying here.";
         } else if (amount <= 25000) {
-            obj->short_description = str_dup("a large heap of coins");
-            obj->description = str_dup("A large heap of coins is lying here.");
+            text.short_description = "a large heap of coins";
+            text.description = "A large heap of coins is lying here.";
         } else if (amount <= 500000) {
-            obj->short_description = str_dup("a huge mound of coins");
-            obj->description = str_dup("A huge mound of coins is lying here.");
+            text.short_description = "a huge mound of coins";
+            text.description = "A huge mound of coins is lying here.";
         } else {
-            obj->short_description = str_dup("an enormous mountain of coins");
-            obj->description = str_dup("An enormous mountain of money is lying here.");
+            text.short_description = "an enormous mountain of coins";
+            text.description = "An enormous mountain of money is lying here.";
         }
 
-        new_descr->keyword = str_dup("coins money gold");
+        look.keyword = "coins money gold";
         if (amount < COPP_IN_SILV) {
             sprintf(buf, "There are %d copper coins.", amount);
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else if (amount < COPP_IN_GOLD) {
             sprintf(buf, "There are about %d silver coins.", (amount / COPP_IN_SILV));
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else if (amount < 10 * COPP_IN_GOLD) {
             sprintf(buf, "It looks to be about %d gold coins.", (amount / COPP_IN_GOLD));
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else if (amount < 100 * COPP_IN_GOLD) {
             sprintf(buf, "You guess there are, maybe, %d gold coins.",
                 10 * ((amount / 10 / COPP_IN_GOLD)));
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else
-            new_descr->description = str_dup("There is a lot of gold.");
+            look.description = "There is a lot of gold.";
     }
 
-    new_descr->next = 0;
-    obj->ex_description = new_descr;
+    text.extra_descriptions.push_back(std::move(look));
+    obj->set_text(create_object_text(std::move(text)));
 
     obj->obj_flags.type_flag = ITEM_MONEY;
     obj->obj_flags.wear_flags = ITEM_TAKE;

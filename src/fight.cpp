@@ -22,6 +22,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "object_text.h"
 #include "pkill.h"
 #include "script.h"
 #include "spells.h"
@@ -36,6 +37,8 @@
 #include "mob_progs/ranger_prog.h"
 
 #include <ctime>
+#include <string>
+#include <utility>
 
 #define IS_PHYSICAL(_at) \
     ((_at) >= TYPE_HIT && (_at) <= TYPE_CRUSH ? TRUE : FALSE)
@@ -383,8 +386,9 @@ int check_sanctuary(char_data* ch, char_data* victim)
 /*
  * This function gives to us our corpses "death_type"
  * effectively just returning a string.
+ * Puts the corpse's short description and room line in out_text.
  */
-void get_corpse_desc(struct obj_data* corpse, const struct char_data* ch,
+void get_corpse_desc(object_text::fields& out_text, const struct char_data* ch,
     int attacktype)
 {
 #define BUF_LEN 32
@@ -524,17 +528,17 @@ void get_corpse_desc(struct obj_data* corpse, const struct char_data* ch,
     default:
         strncpy(condition, "silent", BUF_LEN - 1);
     }
+    const char* whose = pc_star_types[GET_RACE(ch)];
+    if (IS_NPC(ch)) {
+        whose = GET_NAME(ch);
+    }
+    const std::string corpse_of = std::string(condition) + " corpse of " + whose;
     if (world[ch->in_room].sector_type == SECT_WATER_NOSWIM || world[ch->in_room].sector_type == SECT_WATER_SWIM || world[ch->in_room].sector_type == SECT_UNDERWATER)
-        asprintf(&(corpse->description), "The %s corpse of %s is floating here.",
-            condition,
-            IS_NPC(ch) ? GET_NAME(ch) : pc_star_types[GET_RACE(ch)]);
+        out_text.description = "The " + corpse_of + " is floating here.";
     else
-        asprintf(&(corpse->description), "The %s corpse of %s is lying here.",
-            condition,
-            IS_NPC(ch) ? GET_NAME(ch) : pc_star_types[GET_RACE(ch)]);
+        out_text.description = "The " + corpse_of + " is lying here.";
 
-    asprintf(&(corpse->short_description), "the %s corpse of %s", condition,
-        IS_NPC(ch) ? GET_NAME(ch) : pc_star_types[GET_RACE(ch)]);
+    out_text.short_description = "the " + corpse_of;
 }
 
 /*
@@ -704,10 +708,12 @@ obj_data* make_physical_corpse(char_data* character, bool gather_wearables, int 
         object_list = corpse;
         corpse->item_number = NOWHERE;
         corpse->in_room = NOWHERE;
-        corpse->name = str_dup("corpse");
+        object_text::fields text;
+        text.name = "corpse";
 
         /* We call this function to retrieve our corpse "type"*/
-        get_corpse_desc(corpse, character, attack_type);
+        get_corpse_desc(text, character, attack_type);
+        corpse->set_text(create_object_text(std::move(text)));
         corpse->obj_flags.type_flag = ITEM_CONTAINER;
         corpse->obj_flags.wear_flags = ITEM_TAKE;
         corpse->obj_flags.value[0] = 0; /* You can't store stuff in a corpse */

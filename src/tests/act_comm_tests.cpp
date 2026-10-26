@@ -4,6 +4,7 @@
 #include "../note_writing.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "object_text_test_support.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
@@ -125,6 +126,8 @@ protected:
         m_prototypes[PEN_RNUM].item_number = PEN_RNUM;
         m_prototypes[PEN_RNUM].name = m_pen_name;
         m_prototypes[PEN_RNUM].obj_flags.type_flag = ITEM_PEN;
+        make_text_shared(m_prototypes[NOTE_RNUM]);
+        make_text_shared(m_prototypes[PEN_RNUM]);
         obj_proto = m_prototypes;
         obj_index = m_index;
         top_of_objt = PEN_RNUM;
@@ -191,9 +194,9 @@ private:
     int m_saved_top_of_world = 0; // restored in TearDown
 };
 
-/* A note's copy owns the text written on it, so extracting the note frees that text and leaves its
- * prototype blank. */
-TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
+/* Writing on a note's copy gives it a text of its own, which goes with it, and leaves its prototype
+ * blank. */
+TEST_F(NoteWritingTest, AWrittenNoteHasATextOfItsOwn)
 {
     start_writing();
     ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
@@ -204,8 +207,10 @@ TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
 
     EXPECT_EQ(m_descriptor.str, nullptr);
     EXPECT_STREQ(m_note->action_description, "Meet me at the ford.\n\r");
-    EXPECT_TRUE(m_note->owns_text(object_text::action_description));
-    EXPECT_FALSE(m_note->owns_text(object_text::name));
+    EXPECT_STREQ(m_note->name, "note paper");
+    ASSERT_NE(m_note->shared_text(), nullptr);
+    EXPECT_NE(m_note->shared_text(), m_prototypes[NOTE_RNUM].shared_text());
+    EXPECT_EQ(m_note->shared_text().use_count(), 1) << "no other object shows the note's text";
 
     extract_obj(m_note);
     EXPECT_EQ(m_prototypes[NOTE_RNUM].action_description, nullptr);
@@ -255,13 +260,12 @@ TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
     EXPECT_EQ(std::string(m_note->action_description), expected_note);
 }
 
-/* A note's copy that nobody has written on owns none of its text. */
-TEST_F(NoteWritingTest, AnUnwrittenNoteOwnsNoText)
+/* A note's copy that nobody has written on shows its prototype's text. */
+TEST_F(NoteWritingTest, AnUnwrittenNoteSharesItsPrototypesText)
 {
-    EXPECT_FALSE(m_note->owns_text(object_text::name));
-    EXPECT_FALSE(m_note->owns_text(object_text::short_description));
-    EXPECT_FALSE(m_note->owns_text(object_text::description));
-    EXPECT_FALSE(m_note->owns_text(object_text::action_description));
+    ASSERT_NE(m_prototypes[NOTE_RNUM].shared_text(), nullptr);
+    EXPECT_EQ(m_note->shared_text(), m_prototypes[NOTE_RNUM].shared_text());
+    EXPECT_EQ(m_note->name, m_prototypes[NOTE_RNUM].name);
 }
 
 /* The part of the editor's refusal that names the limit, by default the note's. */

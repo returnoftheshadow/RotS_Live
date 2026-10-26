@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <utility>
 
 #include "comm.h"
 #include "db.h"
@@ -32,6 +33,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "object_skins.h"
+#include "object_text.h"
 #include "pkill.h"
 #include "protos.h"
 #include "script.h"
@@ -1651,8 +1653,8 @@ static int run_script_or(struct info_script* info, struct script_data* position,
                     char* new_text = nullptr;
                     CREATE(new_text, char, text_size);
                     script_format_text(new_text, text_size, curr->text, NULL);
-                    /* obN.name: the object owns the name it is given, and frees the one it
-                     * replaces only if it owned that one too; a prototype's text stays. */
+                    /* obN.name: the object gets a text of its own with the new name; the text
+                     * it showed stays with its prototype and the other copies sharing it. */
                     obj_data* renamed_object = nullptr;
                     for (obj_data* object : info->ob) {
                         if (object && wtxt == &object->short_description) {
@@ -1668,7 +1670,10 @@ static int run_script_or(struct info_script* info, struct script_data* position,
                         }
                     }
                     if (renamed_object) {
-                        renamed_object->set_owned_text(object_text::short_description, new_text);
+                        object_text::fields text = object_text_fields_of(*renamed_object);
+                        text.short_description = new_text;
+                        renamed_object->set_text(create_object_text(std::move(text)));
+                        RELEASE(new_text);
                     } else {
                         if (owned_text >= 0 && info->str_dynamic[owned_text]) {
                             RELEASE(*wtxt);

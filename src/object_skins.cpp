@@ -2,6 +2,7 @@
 
 #include "db.h"
 #include "handler.h"
+#include "object_text.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -9,6 +10,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
 
 extern struct index_data* obj_index;
 extern struct obj_data* obj_proto;
@@ -181,26 +186,26 @@ int read_object_level_line(FILE* f, int nums[7])
 
 /* The name a drink container takes from target, built the way filling and emptying do
  * (name_to_drinkcon / name_from_drinkcon): a full prototype's name starts with its liquid, so that
- * word is dropped, and the copy's own liquid goes in front if the copy is full. Returns the
- * prototype's name when that is the answer, otherwise a new string the copy owns. */
-static char* drink_name_from(const obj_data& obj, const obj_data& target)
+ * word is dropped, and the copy's own liquid goes in front if the copy is full. target.name must
+ * not be null. */
+static std::string drink_name_from(const obj_data& obj, const obj_data& target)
 {
     extern char* drinknames[];
     const int liquids = 16; /* entries in drinknames[] */
 
-    char* keys = target.name;
+    std::string_view keys(target.name);
     if (target.obj_flags.value[1] != 0) {
-        char* space = std::strchr(keys, ' ');
-        if (space)
-            keys = space + 1;
+        const std::size_t space = keys.find(' ');
+        if (space != std::string_view::npos)
+            keys.remove_prefix(space + 1);
     }
     int liquid = obj.obj_flags.value[2];
     if (obj.obj_flags.value[1] == 0 || liquid < 0 || liquid >= liquids)
-        return keys == target.name ? target.name : str_dup(keys);
+        return std::string(keys);
 
-    char* name;
-    CREATE(name, char, std::strlen(drinknames[liquid]) + std::strlen(keys) + 2);
-    std::sprintf(name, "%s %s", drinknames[liquid], keys);
+    std::string name = drinknames[liquid];
+    name += ' ';
+    name.append(keys);
     return name;
 }
 
@@ -220,21 +225,17 @@ restyle_result restyle_object(obj_data* obj, int target_rnum, obj_data** new_obj
     obj_index[obj->item_number].number--;
     obj_index[target_rnum].number++;
     obj->item_number = target_rnum;
-    /* Text the copy owned is freed as it is replaced. */
+    /* The copy shares the target's text, unless it is a drink container whose name differs. */
+    std::shared_ptr<const object_text> new_text = shared_text_of(target);
     if (obj->obj_flags.type_flag == ITEM_DRINKCON && target.name) {
-        char* const drink_name = drink_name_from(*obj, target);
-        if (drink_name == target.name) {
-            obj->set_borrowed_text(object_text::name, drink_name);
-        } else {
-            obj->set_owned_text(object_text::name, drink_name);
+        std::string drink_name = drink_name_from(*obj, target);
+        if (drink_name != target.name) {
+            object_text::fields text = new_text->values();
+            text.name = std::move(drink_name);
+            new_text = create_object_text(std::move(text));
         }
-    } else {
-        obj->set_borrowed_text(object_text::name, target.name);
     }
-    obj->set_borrowed_text(object_text::short_description, target.short_description);
-    obj->set_borrowed_text(object_text::description, target.description);
-    obj->set_borrowed_text(object_text::action_description, target.action_description);
-    obj->ex_description = target.ex_description;
+    obj->set_text(std::move(new_text));
     obj->obj_flags.cost = target.obj_flags.cost;
     obj->obj_flags.material = target.obj_flags.material;
     obj->obj_flags.skin_base = target.obj_flags.skin_base;

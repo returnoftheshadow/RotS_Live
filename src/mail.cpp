@@ -97,8 +97,11 @@ Send comments, bug reports, etc. to jelson@server.cs.jhu.edu
 #include "handler.h"
 #include "interpre.h"
 #include "mail.h"
+#include "object_text.h"
 #include "structs.h"
 #include "utils.h"
+
+#include <utility>
 
 void postmaster_send_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
 void postmaster_check_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
@@ -635,19 +638,24 @@ void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, cha
         tmp_obj = new obj_data();
         clear_object(tmp_obj);
 
-        tmp_obj->name = str_dup("mail paper letter");
-        tmp_obj->short_description = str_dup("a letter");
-        tmp_obj->description = str_dup("Someone has dropped a letter here.");
+        object_text::fields text;
+        text.name = "mail paper letter";
+        text.short_description = "a letter";
+        text.description = "Someone has dropped a letter here.";
 
         tmp_obj->obj_flags.type_flag = ITEM_NOTE;
         tmp_obj->obj_flags.wear_flags = ITEM_TAKE | ITEM_HOLD;
         tmp_obj->obj_flags.weight = 1;
         tmp_obj->obj_flags.cost = 30;
         tmp_obj->obj_flags.cost_per_day = 10;
-        tmp_obj->action_description = read_delete(recipient, GET_NAME(ch), (GET_ALIGNMENT(ch) > 0));
-
-        if (!tmp_obj->action_description)
-            tmp_obj->action_description = str_dup("Mail system error - please report.  Error #11.\n\r");
+        char* const letter = read_delete(recipient, GET_NAME(ch), (GET_ALIGNMENT(ch) > 0));
+        if (letter) {
+            text.action_description = letter;
+            free(letter);
+        } else {
+            text.action_description = "Mail system error - please report.  Error #11.\n\r";
+        }
+        tmp_obj->set_text(create_object_text(std::move(text)));
 
         tmp_obj->next = object_list;
         object_list = tmp_obj;

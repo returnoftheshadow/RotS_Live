@@ -1,8 +1,11 @@
 #include "note_writing.h"
 
 #include "comm.h"
+#include "object_text.h"
 #include "structs.h"
 #include "utils.h"
+
+#include <utility>
 
 extern struct descriptor_data* descriptor_list;
 
@@ -20,8 +23,14 @@ void save_written_note(descriptor_data& writer)
     if (!writer.written_note) {
         return;
     }
-    writer.written_note->set_owned_text(object_text::action_description,
-        str_dup(writer.written_note_text));
+    obj_data& note = *writer.written_note;
+    object_text::fields text = object_text_fields_of(note);
+    if (writer.written_note_text) {
+        text.action_description = writer.written_note_text;
+    } else {
+        text.action_description.reset();
+    }
+    note.set_text(create_object_text(std::move(text)));
 }
 
 void finish_writing_note(descriptor_data& writer)
