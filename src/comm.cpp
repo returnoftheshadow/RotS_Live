@@ -2645,6 +2645,10 @@ bool start_wait_state_full(char_data* ch, int cycle, int command, int subcommand
     int flag, int target_number, void* argument, long new_flag, int target_type)
 {
     const current_delay_outcome outcome = end_current_delay(ch, priority, false);
+    if (outcome != current_delay_outcome::none_left && target_type == TARGET_TEXT && argument) {
+        /* No delay holds the text: the caller took it from the pool for this one. */
+        put_to_txt_block_pool(static_cast<txt_block*>(argument));
+    }
     if (outcome == current_delay_outcome::character_freed) {
         return false;
     }

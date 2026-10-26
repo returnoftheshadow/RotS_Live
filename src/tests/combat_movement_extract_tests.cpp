@@ -26,12 +26,15 @@ void do_stomp(char_data* ch, char* argument, waiting_type* wtl, int cmd, int sub
 void do_smash(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_bash(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_rescue(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_disengage(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_track(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void affect_update_person(struct char_data* i, int mode);
 SPECIAL(thuringwethil);
 
 extern struct index_data* mob_index;
 extern int top_of_mobt;
 extern struct weather_data weather_info;
+extern struct txt_block* txt_block_pool;
 
 using namespace scripted_room;
 
@@ -387,6 +390,118 @@ TEST_F(CombatMovementTest, AGuardWhoseScriptRunsLetsTheFleerIn)
     EXPECT_EQ(SECOND_ROOM, asker->in_room);
 }
 
+/* Scripts for a chain of runs inside one another as deep as runs may go. Script SCRIPT_VNUM answers
+ * whatever it hears with "pong", and tells the room "Ouch." when it is hurt. Script
+ * OTHER_SCRIPT_VNUM counts its runs in int1 and answers with "ping", but on run
+ * <acting_run> does <action> instead. Script THIRD_SCRIPT_VNUM is a guard that checks whoever
+ * enters its room.
+ *
+ * The pong mob, made first, hears the player first, so the ping mob's run n is at depth 2n: its
+ * run 128 is at MAX_SCRIPT_NESTING, where no further run may start, and its run 127 two below. */
+static std::vector<script_spec> deepest_run_scripts(int acting_run, const body_line& action)
+{
+    return { { SCRIPT_VNUM,
+                 { { ON_HEAR_SAY, { { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } },
+                     { ON_DAMAGE, { { SCRIPT_SEND_TO_ROOM, "Ouch.", { SCRIPT_PARAM_CH1_ROOM } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SET_INT_VALUE, nullptr, { 1, SCRIPT_PARAM_INT2 } },
+                    { SCRIPT_SET_INT_SUM, nullptr,
+                        { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT2 } },
+                    { SCRIPT_SET_INT_VALUE, nullptr, { acting_run, SCRIPT_PARAM_INT3 } },
+                    { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT3 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, action, { SCRIPT_END_ELSE_BEGIN, nullptr, {} },
+                    { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } }, { SCRIPT_END, nullptr, {} } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_BEFORE_ENTER,
+                { { SCRIPT_SEND_TO_ROOM, "The guard checks.", { SCRIPT_PARAM_CH1_ROOM } } } } } } };
+}
+
+/* The run the ping mob makes at the deepest a run may go. */
+constexpr int DEEPEST_PING_RUN = MAX_SCRIPT_NESTING / 2;
+
+/* The ping mob flees at the deepest run: the guard's script cannot run, so the guard keeps it out
+ * (a refused ON_BEFORE_ENTER fails closed). */
+TEST_F(CombatMovementTest, AGuardWhoseScriptIsTooDeepKeepsTheDoorShut)
+{
+    install_scripts(
+        deepest_run_scripts(DEEPEST_PING_RUN, { SCRIPT_DO_FLEE, nullptr, { SCRIPT_PARAM_CH1 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, pinger->in_room) << "refused, the guard keeps the pinger out";
+    EXPECT_NE(std::string::npos, logged.find("script #9952 not run: too many scripts are running"))
+        << logged;
+}
+
+/* Two runs shallower the guard's script runs and lets the pinger in. */
+TEST_F(CombatMovementTest, AGuardWhoseScriptIsJustDeepEnoughLetsTheFleerIn)
+{
+    install_scripts(
+        deepest_run_scripts(DEEPEST_PING_RUN - 1, { SCRIPT_DO_FLEE, nullptr, { SCRIPT_PARAM_CH1 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(SECOND_ROOM, pinger->in_room);
+}
+
+/* The ping mob hits the pong mob at the deepest run: the pong mob's damage script cannot run, so
+ * the blow is not dealt (a refused ON_DAMAGE fails closed). */
+TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsTooDeepIsNotDealt)
+{
+    install_scripts(deepest_run_scripts(
+        DEEPEST_PING_RUN, { SCRIPT_DO_HIT, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_CH2 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    pinger->points.OB = 200; /* sure to land */
+    pinger->specials.ENERGY = ENE_TO_HIT * 2; /* ready to strike */
+    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); /* a blow that hurts */
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, count_in_output("Ouch."));
+    EXPECT_EQ(ponger->abilities.hit, ponger->tmpabilities.hit);
+}
+
+/* Two runs shallower the damage script runs, and the blow is dealt. */
+TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
+{
+    install_scripts(deepest_run_scripts(
+        DEEPEST_PING_RUN - 1, { SCRIPT_DO_HIT, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_CH2 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    pinger->points.OB = 200; /* sure to land */
+    pinger->specials.ENERGY = ENE_TO_HIT * 2; /* ready to strike */
+    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); /* a blow that hurts */
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(1, count_in_output("Ouch."));
+    EXPECT_LT(ponger->tmpabilities.hit, ponger->abilities.hit);
+}
+
 /* ---- skills and special procedures ---- */
 
 /* Makes the player an olog-hai who knows its skills and wields a sword (a mob olog-hai cannot use
@@ -612,4 +727,43 @@ TEST_F(CombatMovementTest, ARescuerTheRescuedMobsPausedScriptRemovesStopsThere)
 
     EXPECT_FALSE(is_in_game(rescuer)) << output();
     EXPECT_TRUE(is_in_game(rescued));
+}
+
+/* Disengaging ends the disengager's pause: the rest of its script makes the one it fights vanish,
+ * which ends the fight, and there is nobody left to stop fighting. */
+TEST_F(CombatMovementTest, ADisengageWhosePausedScriptEndsTheFightStopsThere)
+{
+    install_pause_then_vanish_scripts();
+    char_data* disengager = make_walker("disengager");
+    disengager->specials.script_number = SCRIPT_VNUM;
+    char_data* foe = make_walker("foe");
+    foe->specials.script_number = OTHER_SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, disengager->delay.cmd);
+    set_fighting(disengager, foe); /* the foe does not fight back, so it lets the disengager go */
+
+    do_disengage(disengager, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(foe));
+    ASSERT_TRUE(is_in_game(disengager));
+    EXPECT_EQ(nullptr, disengager->specials.fighting);
+    EXPECT_EQ(0, count_in_output("stops fighting"));
+}
+
+/* Tracking while a delay that outranks it runs is a double delay: tracking does not start, and the
+ * text block it took for the name to track goes back to the pool. */
+TEST_F(CombatMovementTest, ATrackThatCannotStartGivesBackItsTextBlock)
+{
+    m_player.delay.wait_value = 5; /* a delay that outranks tracking */
+    m_player.delay.priority = 80;
+    char trackee[] = "trackee";
+
+    do_track(&m_player, trackee, nullptr, CMD_TRACK, 0);
+
+    EXPECT_TRUE(output_has("Possible bug - double delay.")) << output();
+    ASSERT_NE(nullptr, txt_block_pool);
+    EXPECT_STREQ("trackee", txt_block_pool->text);
+    EXPECT_EQ(80, m_player.delay.priority) << "the delay running is kept";
+    m_player.delay.wait_value = 0;
+    m_player.delay.priority = 0;
 }

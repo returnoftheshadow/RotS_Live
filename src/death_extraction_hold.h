@@ -26,12 +26,16 @@ public:
      * not be extracted now. False, with nothing recorded, otherwise. */
     static bool hold_extraction(const char_data* character);
 
+    /* For free_char (through note_char_freed): <character> has been freed some other way, so no
+     * hold is on it any more, and a character made later at its address is not held back. */
+    static void note_freed(const char_data* character);
+
 private:
     // The newest hold in scope; each points on to the one made before it. Null when no death is
     // running its ON_DIE trigger, which is nearly always.
     static death_extraction_hold* newest;
 
-    // The dying character, compared by address.
+    // The dying character, compared by address; null once it has been freed.
     const char_data* m_dying;
     // Set by hold_extraction when a script asks to extract the dying character.
     bool m_requested = false;

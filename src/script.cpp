@@ -578,6 +578,7 @@ void note_object_freed(obj_data* object)
 void note_char_freed(char_data* character)
 {
     freed_watch::note_freed(character);
+    death_extraction_hold::note_freed(character);
     running_script_frame::forget(character);
     release_script_state(character->specials.script_info);
 }

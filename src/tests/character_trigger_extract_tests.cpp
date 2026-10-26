@@ -6,7 +6,9 @@
  * that lost its victim or attacker is over. A script that keeps everyone changes nothing. */
 #include "scripted_room_fixture.h"
 
+#include "../big_brother.h"
 #include "../comm.h"
+#include "../death_extraction_hold.h"
 #include "../spells.h"
 
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
@@ -18,6 +20,7 @@ void raw_kill(char_data* ch, const char_data* killer, int attacktype);
 extern struct index_data* mob_index;
 extern struct char_data* mob_proto;
 extern int top_of_mobt;
+extern struct weather_data weather_info;
 struct char_data* read_mobile(int nr, int type);
 
 using namespace scripted_room;
@@ -328,6 +331,28 @@ TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesStillGivesExperienceBu
     EXPECT_GT(GET_EXP(&m_player), experience_before);
 }
 
+/* A death script that kills its own mob outright (RAW_KILL ch1) leaves the death nothing to finish:
+ * the mob is gone once, with no second removal. */
+TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightIsGoneOnce)
+{
+    install_script(ON_DIE, { { SCRIPT_RAW_KILL, nullptr, { SCRIPT_PARAM_CH1 } } });
+    game_rules::big_brother::create(weather_info, &world); /* made at boot; a death tells it */
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    /* Its corpse is marked with its prototype's number. */
+    index_data prototype_index[1] {};
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+    victim->nr = 0;
+
+    die(victim, &m_player, 0);
+
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    EXPECT_FALSE(is_in_game(victim));
+}
+
 TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAndRefusesToDieIsNotTouchedAgain)
 {
     install_script(ON_DIE,
@@ -485,9 +510,10 @@ TEST_F(CharacterTriggerTest, ARelayStillReachesTheRoomWhenAnAnswerRestartsTheRel
             { { ON_HEAR_SAY,
                 { { SCRIPT_SEND_TO_ROOM, "Echo [%s].",
                     { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
-    /* Each one made goes to the front of the room: the relayer speaks to the answerer first. */
-    make_mob("echo", THIRD_SCRIPT_VNUM);
+    /* Each one made goes after those already there: the relayer speaks to the answerer, whose answer
+     * restarts the relayer's state, before the echo hears it. */
     make_mob("answerer", OTHER_SCRIPT_VNUM);
+    make_mob("echo", THIRD_SCRIPT_VNUM);
     make_mob("relayer", SCRIPT_VNUM);
 
     run_command(do_say, "go");
@@ -537,6 +563,41 @@ TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
     EXPECT_FALSE(is_in_game(mob));
     EXPECT_EQ(1, count_in_output("The mob fades."));
     EXPECT_EQ(nullptr, waiting_list);
+}
+
+/* A new delay runs the rest of a paused script at once; when that rest pauses again, the new pause
+ * is kept and the delay that forced it is not started: a double delay, told and logged as it
+ * always was. */
+TEST_F(CharacterTriggerTest, ARestThatPausesAgainKeepsItsPauseAsADoubleDelay)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { 1 } },
+            { SCRIPT_SEND_TO_ROOM, "The mob stirs.", { SCRIPT_PARAM_CH1_ROOM } },
+            { SCRIPT_DO_WAIT, nullptr, { 5 } },
+            { SCRIPT_SEND_TO_ROOM, "The mob sleeps.", { SCRIPT_PARAM_CH1_ROOM } } });
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    descriptor_data connection {}; /* so that what the mob is told can be read */
+    connection.output = connection.small_outbuf;
+    connection.bufspace = SMALL_BUFSIZE - 1;
+    connection.connected = CON_PLYNG;
+    connection.descriptor = 2;
+    connection.character = mob;
+    mob->desc = &connection;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    testing::internal::CaptureStderr();
+    const bool mob_remains = WAIT_STATE_FULL(mob, 3, 0, 0, 50, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+    const std::string logged = testing::internal::GetCapturedStderr();
+    mob->desc = nullptr;
+
+    EXPECT_TRUE(mob_remains);
+    EXPECT_EQ(1, count_in_output("The mob stirs."));
+    EXPECT_EQ(0, count_in_output("The mob sleeps."));
+    EXPECT_EQ(CMD_SCRIPT, mob->delay.cmd) << "the second pause is kept";
+    EXPECT_NE(std::string::npos,
+        std::string(connection.output).find("Possible bug - double delay. Please notify Imps."));
+    EXPECT_NE(std::string::npos, logged.find("double delay (reentrant queue during complete_delay)?"));
 }
 
 /* The same for a delay a mob's own program gives it. */
@@ -812,4 +873,28 @@ TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
     const size_t first = logged.find(refusal);
     ASSERT_NE(std::string::npos, first) << logged.substr(0, 400);
     EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
+}
+
+/* ---- the hold on a dying mob's removal ---- */
+
+TEST(DeathExtractionHold, HoldsBackTheDyingCharactersRemoval)
+{
+    char_data dying {};
+    death_extraction_hold hold(&dying);
+
+    EXPECT_TRUE(death_extraction_hold::hold_extraction(&dying));
+    EXPECT_TRUE(hold.extraction_requested());
+}
+
+/* The dying character freed some other way (a RAW_KILL, a flee into a death room): a character
+ * made later at the same address, as a LOAD_MOB may make, is removed as asked. */
+TEST(DeathExtractionHold, HoldsNothingOnceTheDyingCharacterIsFreed)
+{
+    char_data dying {};
+    death_extraction_hold hold(&dying);
+
+    death_extraction_hold::note_freed(&dying);
+
+    EXPECT_FALSE(death_extraction_hold::hold_extraction(&dying));
+    EXPECT_FALSE(hold.extraction_requested());
 }

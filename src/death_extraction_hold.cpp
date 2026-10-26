@@ -18,6 +18,15 @@ death_extraction_hold::~death_extraction_hold()
     newest = m_older;
 }
 
+void death_extraction_hold::note_freed(const char_data* character)
+{
+    for (death_extraction_hold* hold = newest; hold; hold = hold->m_older) {
+        if (hold->m_dying == character) {
+            hold->m_dying = nullptr;
+        }
+    }
+}
+
 bool death_extraction_hold::hold_extraction(const char_data* character)
 {
     for (death_extraction_hold* hold = newest; hold; hold = hold->m_older) {
