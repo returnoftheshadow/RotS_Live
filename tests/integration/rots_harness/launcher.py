@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import errno
 import os
+import random
+import re
 import shlex
 import socket
 import subprocess
@@ -50,6 +52,30 @@ INPUT_CLOSED_POLL_SECONDS = 0.05
 PORT_IN_USE_LOG_TEXT = "bind: Address already in use"
 # How many ports start_on_a_free_port tries before it gives up on a port taken each time.
 PORT_ATTEMPTS = 3
+# What the server logs once it has bound its port and booted the world, before it can send any
+# login prompt (run_the_game in src/comm.cpp). A prompt read while the local server's own log
+# lacks it came from another process listening on the same port.
+GAME_LOOP_LOG_TEXT = "Entering game loop."
+# Seconds the local launcher waits, after reading the login prompt, for its own server's log to
+# hold GAME_LOOP_LOG_TEXT; the server logs it before it sends a prompt, so this only bounds a
+# prompt from another process.
+OWN_SERVER_CONFIRM_SECONDS = 5.0
+# The variable pytest-xdist sets in each worker to its name, gw0, gw1 and so on; unset outside a worker.
+XDIST_WORKER_VARIABLE = "PYTEST_XDIST_WORKER"
+# A pytest-xdist worker name and its number.
+XDIST_WORKER_PATTERN = re.compile(r"gw([0-9]+)")
+# Each pytest-xdist worker of a run takes its local servers' ports from its own band of
+# WORKER_PORT_BAND_SIZE ports from WORKER_PORT_BASE, so no two workers are ever given the same
+# port. The bands end below every common ephemeral range (Linux from 32768, macOS and Windows from
+# 49152), so no outgoing connection is handed one either.
+WORKER_PORT_BASE = 20000
+# How many ports each worker's band holds.
+WORKER_PORT_BAND_SIZE = 400
+# How many bands fit below the ephemeral ranges; worker numbers past it wrap round to the first bands.
+WORKER_PORT_BANDS = 30
+# Picks where in its band a worker starts looking, so a band's lowest ports are not always tried
+# first; its own generator, so the harness never moves a scenario's random state.
+_PORT_CHOOSER = random.Random()
 # Set to 1 to run a program older than its sources, for example to test an old build on purpose.
 ALLOW_STALE_VARIABLE = "ROTS_IT_ALLOW_STALE"
 # The folder, relative to the repository root, holding the sources the programs are built from.
@@ -97,11 +123,68 @@ class ToolResult:
     output: str
 
 
-def allocate_free_port() -> int:
-    """A loopback TCP port that was free when probed; another process may take it afterwards."""
+def worker_port_band(worker_name: Optional[str]) -> Optional[range]:
+    """The ports a pytest-xdist worker named worker_name (gw0, gw1, ...) gives its servers, or None outside a worker or for another name."""
+    if worker_name is None:
+        return None
+    match = XDIST_WORKER_PATTERN.fullmatch(worker_name)
+    if match is None:
+        return None
+    band_start = WORKER_PORT_BASE + (int(match.group(1)) % WORKER_PORT_BANDS) * WORKER_PORT_BAND_SIZE
+    return range(band_start, band_start + WORKER_PORT_BAND_SIZE)
+
+
+def _port_is_free(port: int) -> bool:
+    """Whether a loopback TCP socket can bind port now."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind((LOOPBACK, 0))
-        return probe.getsockname()[1]
+        try:
+            probe.bind((LOOPBACK, port))
+        except OSError:
+            return False
+    return True
+
+
+def allocate_free_port() -> int:
+    """A loopback TCP port that was free when probed; another process may take it afterwards.
+
+    In a pytest-xdist worker the port comes from the worker's own band (worker_port_band), so the
+    run's other workers never get it; elsewhere the system picks one. Raises RuntimeError when no
+    port in the worker's band is free.
+    """
+    band = worker_port_band(os.environ.get(XDIST_WORKER_VARIABLE))
+    if band is None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((LOOPBACK, 0))
+            return probe.getsockname()[1]
+    first_offset = _PORT_CHOOSER.randrange(len(band))
+    for step in range(len(band)):
+        port = band[(first_offset + step) % len(band)]
+        if _port_is_free(port):
+            return port
+    raise RuntimeError(f"no port from {band.start} to {band.stop - 1} is free for this pytest-xdist worker")
+
+
+def confirm_own_server(process: subprocess.Popen, log_path: Path, timeout_seconds: Optional[float] = None) -> None:
+    """Returns once process is running and its log holds GAME_LOOP_LOG_TEXT, proving the login prompt read came from it.
+
+    Raises RuntimeError with the log tail when the process exits first, as a server does when
+    another process holds its port, or when the line does not appear within timeout_seconds
+    (OWN_SERVER_CONFIRM_SECONDS when None).
+    """
+    if timeout_seconds is None:
+        timeout_seconds = OWN_SERVER_CONFIRM_SECONDS
+    line = GAME_LOOP_LOG_TEXT.encode("ascii")
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        _raise_if_exited(process, log_path)
+        if line in _read_from(log_path, 0):
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"a login prompt arrived, but this server never logged {GAME_LOOP_LOG_TEXT!r}, so another process "
+                f"answered on its port; log tail:\n{read_log_tail(log_path)}"
+            )
+        time.sleep(INPUT_CLOSED_POLL_SECONDS)
 
 
 def read_log_tail(log_path: Path, max_bytes: int = LOG_TAIL_BYTES) -> str:
@@ -428,6 +511,9 @@ class LocalProcessLauncher(ServerLauncher):
         try:
             handle = ServerHandle(LOOPBACK, port, log_path, process, has_control_channel=schedule is not None)
             wait_for_login_prompt(LOOPBACK, port, self._startup_timeout, process, log_path)
+            # Another process on the same port, such as another run's server, can send the prompt
+            # before this server has failed to bind it and exited.
+            confirm_own_server(process, log_path)
             return handle
         except RuntimeError as failure:
             # The port was free when allocate_free_port probed it, but every local server shares

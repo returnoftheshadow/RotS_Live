@@ -30,7 +30,7 @@ from rots_harness.launcher import (
 from rots_harness.libbuilder import ROTSTOOL_RELATIVE, LibTemplateBuilder, RunLibProvider, discard_session_templates, session_templates_dir
 from rots_harness.retention import RunDirectoryReport, keep_run_directory
 from rots_harness.session import GameSession, end_sessions
-from rots_harness.sharding import Shard, in_shard, parse_shard
+from rots_harness.sharding import SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
 from rots_harness.timecontrol import OUTPUT_LOG_NAME, TimeControl, parse_hour_timeout, schedule_name_from_marker
 
 # tests/integration: this file, pytest.ini, the group files and the test world.
@@ -63,6 +63,9 @@ RUN_DIRECTORY_REPORT_KEY = pytest.StashKey[RunDirectoryReport]()
 # Set by pytest_collection_modifyitems when ROTS_IT_SHARD left this run's share empty although the
 # selection was not; pytest_sessionfinish then reports success instead of "no tests ran".
 SHARD_LEFT_NOTHING_KEY = pytest.StashKey[bool]()
+# The workeroutput entry carrying SHARD_LEFT_NOTHING_KEY from a pytest-xdist worker to the
+# controller, which collects no tests itself under pytest-xdist.
+SHARD_LEFT_NOTHING_WORKER_OUTPUT = "rots_it_shard_left_nothing"
 # Where pytest_configure keeps the session id naming this session's folder under TEMPLATES_ROOT;
 # the controller makes it and each pytest-xdist worker receives the controller's.
 SESSION_ID_KEY = pytest.StashKey[str]()
@@ -77,6 +80,8 @@ WORKER_NODES_KEY = pytest.StashKey[list]()
 DOCKER_LOCK_KEY = pytest.StashKey[DockerLock]()
 # Each test's last recorded time, which the run plan estimates a run from.
 DURATIONS_FILE = REPO_ROOT / durations.DURATIONS_RELATIVE
+# Each test's committed time from CI, which ROTS_IT_SHARD balances the shards by.
+SHARD_DURATIONS_FILE = INTEGRATION_ROOT / SHARD_DURATIONS_RELATIVE
 # The name the subgroup marking check is registered under as a plugin.
 SUBGROUP_CHECK_PLUGIN_NAME = "rots_it_subgroup_marking_check"
 
@@ -199,11 +204,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Keeps only this run's share of the selected tests when ROTS_IT_SHARD is set, deselecting the rest.
 
     trylast, so the -m and -k deselection has already run and the shards split only the selection.
+    The shares are balanced by SHARD_DURATIONS_FILE (sharding.in_shard).
     """
     selected_shard = shard()
     if selected_shard is None or not items:
         return
-    kept_ids = in_shard((item.nodeid for item in items), selected_shard)
+    kept_ids = in_shard((item.nodeid for item in items), selected_shard, durations.read_durations(SHARD_DURATIONS_FILE))
     kept = [item for item in items if item.nodeid in kept_ids]
     deselected = [item for item in items if item.nodeid not in kept_ids]
     if deselected:
@@ -263,20 +269,20 @@ def take_docker_lock(config: pytest.Config) -> None:
 
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Turns "no tests ran" into success for a shard whose share of a non-empty selection is empty, then ends this process's part of the session.
+    """Turns "no tests ran" into success for a shard whose share of a non-empty selection is empty, with or without pytest-xdist workers, then ends this process's part of the session.
 
-    A pytest-xdist worker hands its kept run directories to the controller. The controller adds
-    every worker's to its own report, releases the Docker lock, and deletes the session's
-    templates unless ROTS_IT_KEEP=1.
+    A pytest-xdist worker hands its kept run directories, and whether the shard left it nothing, to
+    the controller. The controller adds every worker's run directories to its own report, releases
+    the Docker lock, and deletes the session's templates unless ROTS_IT_KEEP=1.
     """
     # trylast: pytest's own pytest_sessionfinish tears down the fixtures an interrupt left set up,
     # stopping their servers, and pytest-xdist's stops the workers; both run first.
     config = session.config
-    if exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED and config.stash.get(SHARD_LEFT_NOTHING_KEY, False):
-        session.exitstatus = pytest.ExitCode.OK
+    shard_left_nothing = config.stash.get(SHARD_LEFT_NOTHING_KEY, False)
     report = config.stash[RUN_DIRECTORY_REPORT_KEY]
     if is_worker(config):
         config.workeroutput[KEPT_RUN_DIRECTORIES_WORKER_OUTPUT] = report.worker_entries()
+        config.workeroutput[SHARD_LEFT_NOTHING_WORKER_OUTPUT] = shard_left_nothing
         return
     for node in config.stash[WORKER_NODES_KEY]:
         # Read from every worker started rather than as each one stops: an interrupt ends the
@@ -284,6 +290,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         # A worker that died without finishing its session has no workeroutput.
         worker_output = getattr(node, "workeroutput", {})
         report.merge_worker_entries(worker_output.get(KEPT_RUN_DIRECTORIES_WORKER_OUTPUT, []))
+        # Every worker collects and shards the same selection, so any one of them speaks for all.
+        shard_left_nothing = shard_left_nothing or bool(worker_output.get(SHARD_LEFT_NOTHING_WORKER_OUTPUT, False))
+    if exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED and shard_left_nothing:
+        session.exitstatus = pytest.ExitCode.OK
     lock = config.stash.get(DOCKER_LOCK_KEY, None)
     if lock is not None:
         lock.release()

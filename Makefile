@@ -22,6 +22,8 @@ GROUP ?=
 SKIP_GROUPS ?=
 # CONFIRM=yes starts make integration without asking, however long its estimate.
 CONFIRM ?=
+# The folder of downloaded CI results make integration-shard-durations reads, e.g. RESULTS=build/ci-results.
+RESULTS ?=
 # make world-catalogue prints only this test-world zone, e.g. ZONE=13; empty prints every zone.
 ZONE ?=
 # make world-catalogue prints only this table: zones, rooms, mobs, objects or scripts.
@@ -37,7 +39,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help configure setup build test run smoke-account integration-unit integration world-catalogue format clean
-.PHONY: integration-build integration-changed integration-plan
+.PHONY: integration-build integration-changed integration-plan integration-shard-durations
 
 help:
 	@printf "Available targets:\n"
@@ -56,11 +58,13 @@ help:
 	@printf "  make integration-build Build the server, harness server and rotstool the scenarios run\n"
 	@printf "  make integration-changed  Run the scenario groups this checkout's changes reach\n"
 	@printf "                         (BASE=<branch>, default origin/release-frodo-next)\n"
+	@printf "  make integration-shard-durations  Refresh the times CI's shards are balanced by\n"
+	@printf "                         from downloaded CI results (RESULTS=<folder>)\n"
 	@printf "  make format            clang-format the WHOLE tree -- see the warning above the target;\n"
 	@printf "                         format only your changed files instead\n"
 	@printf "  make run               Build and start the server in the foreground\n"
 	@printf "  make clean             Clean the configured CMake build tree\n"
-	@printf "\nVariables: BUILD_DIR (%s), JOBS (%s), CMAKE_CONFIGURE_ARGS, CTEST_ARGS, PYTHON, GROUP, SKIP_GROUPS, CONFIRM, ZONE, CATEGORY, BASE\n" "$(BUILD_DIR)" "$(JOBS)"
+	@printf "\nVariables: BUILD_DIR (%s), JOBS (%s), CMAKE_CONFIGURE_ARGS, CTEST_ARGS, PYTHON, GROUP, SKIP_GROUPS, CONFIRM, ZONE, CATEGORY, BASE, RESULTS\n" "$(BUILD_DIR)" "$(JOBS)"
 	@printf "Changing CMAKE_CONFIGURE_ARGS needs a fresh BUILD_DIR; an existing tree keeps its cache.\n"
 
 $(CMAKE_CACHE):
@@ -116,6 +120,14 @@ integration-build: $(CMAKE_CACHE)
 integration-changed: export INTEGRATION_CHANGED_BASE := $(INTEGRATION_CHANGED_BASE)
 integration-changed:
 	PYTHONPATH="tests/integration$${PYTHONPATH:+:$$PYTHONPATH}" $(PYTHON) -m rots_harness.changed_groups --base="$$INTEGRATION_CHANGED_BASE" --python "$(PYTHON)" --make "$(MAKE)"
+
+# Rewrites tests/integration/shard_durations.json from the results.xml files under RESULTS
+# (rots_harness/shard_durations.py). The folder reaches Python through the environment, so the
+# shell never reads it as command text.
+integration-shard-durations: export ROTS_IT_SHARD_RESULTS := $(RESULTS)
+integration-shard-durations:
+	@test -n "$$ROTS_IT_SHARD_RESULTS" || { echo "make integration-shard-durations needs RESULTS=<folder of downloaded CI results>" >&2; exit 2; }
+	PYTHONPATH="tests/integration$${PYTHONPATH:+:$$PYTHONPATH}" $(PYTHON) -m rots_harness.shard_durations -- "$$ROTS_IT_SHARD_RESULTS"
 
 # DO NOT RUN THIS on a change you are about to commit. It is clang-format over the WHOLE
 # tree: ~1200 lines nobody touched get rewritten (db.cpp and act_wiz.cpp worst), and the

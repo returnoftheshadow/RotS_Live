@@ -167,7 +167,7 @@ a usage error naming the variable. `ROTS_IT_KEEP` (only `1` counts) and
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds the Docker launcher waits for the lock |
 | `ROTS_IT_DOCKER_LOCK_DIR` | `/tmp/rots-docker-lock` | the shared lock directory |
 | `ROTS_IT_HOUR_TIMEOUT` | `10.0` | seconds `advance_hours` allows per game hour; the wait is `hours * timeout + 10` |
-| `ROTS_IT_SHARD` | unset | `k/N`: keeps every N-th selected test in sorted node id order from the k-th (`rots_harness/sharding.py`); CI shards only a run of every group, eight ways. An empty share passes |
+| `ROTS_IT_SHARD` | unset | `k/N`: keeps the k-th of N shares of the selected tests, balanced by the times in `tests/integration/shard_durations.json` (`rots_harness/sharding.py`); CI shards only a run of every group, `INTEGRATION_SHARDS` ways. An empty share passes, with or without `JOBS` workers |
 | `ROTS_IT_ALLOW_STALE` | unset | `1` runs a program older than its sources; not checked by `validate_environment()` |
 | `ROTS_IT_CONFIRM_MINUTES` | `10` | the estimate from which `make integration` without a terminal needs `CONFIRM=yes`; checked by `rots_harness/run_plan.py`, not by `validate_environment()` |
 

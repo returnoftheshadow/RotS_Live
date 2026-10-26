@@ -128,6 +128,8 @@ class RunPlan:
     ungrouped_ids: frozenset[str] = frozenset()
     # The group each registered subgroup belongs to.
     parent_of: Mapping[str, str] = field(default_factory=dict)
+    # The committed seconds by node id that the shard is balanced by, as conftest.py balances it.
+    shard_seconds: Mapping[str, float] = field(default_factory=dict)
 
     def kept_test_ids(self, unticked: Iterable[str]) -> list[str]:
         """The node ids of the tests the run keeps with the unticked groups left out, in collection order."""
@@ -160,7 +162,7 @@ class RunPlan:
         kept = [test.node_id for test in self.tests if not test.markers & excluded]
         if self.shard is None:
             return kept
-        shard_ids = sharding.in_shard(kept, self.shard)
+        shard_ids = sharding.in_shard(kept, self.shard, self.shard_seconds)
         return [node_id for node_id in kept if node_id in shard_ids]
 
     def estimated_minutes(self, test_ids: Sequence[str]) -> float:
@@ -325,11 +327,13 @@ def build_plan(
     workers: int,
     shard: Optional[Shard] = None,
     subgroups: Optional[Mapping[str, Sequence[str]]] = None,
+    shard_seconds: Optional[Mapping[str, float]] = None,
 ) -> RunPlan:
     """The plan for the tests GROUP selects, collected without a shard: a test counts toward every registered group it is marked with.
 
     registered lists the groups and subgroups in registration order, each group's subgroups right
-    after it; subgroups gives each group that has subgroups, with them.
+    after it; subgroups gives each group that has subgroups, with them. shard_seconds gives the
+    committed times the shard is balanced by (sharding.in_shard).
     """
     test_list = list(tests)
     skipped_names = frozenset(skipped)
@@ -348,7 +352,9 @@ def build_plan(
             offered.append(name)
     registered_names = set(registered)
     ungrouped_ids = frozenset(test.node_id for test in test_list if not test.markers & registered_names)
-    return RunPlan(test_list, offered, skipped_groups, skipped_names, dict(recorded_seconds), max(workers, 1), shard, ungrouped_ids, parent_of)
+    return RunPlan(
+        test_list, offered, skipped_groups, skipped_names, dict(recorded_seconds), max(workers, 1), shard, ungrouped_ids, parent_of, dict(shard_seconds or {}),
+    )
 
 
 def plan_rows(plan: RunPlan) -> list[PlanRow]:
@@ -816,6 +822,7 @@ def main(
     interactive: Optional[bool] = None,
     reader=None,
     durations_path: Optional[Path] = None,
+    shard_durations_path: Optional[Path] = None,
     prompt_timeout_seconds: float = PROMPT_TIMEOUT_SECONDS,
     countdown_step_seconds: float = COUNTDOWN_STEP_SECONDS,
 ) -> int:
@@ -857,7 +864,12 @@ def main(
     if tests is None:
         return status
     recorded = durations.read_durations(durations_path or REPO_ROOT / durations.DURATIONS_RELATIVE)
-    plan = build_plan(tests, registered, skipped, recorded, parse_jobs(arguments.jobs), shard, group_files.subgroups_by_parent(group_list))
+    shard_seconds: dict[str, float] = {}
+    if shard is not None:
+        shard_seconds = durations.read_durations(shard_durations_path or INTEGRATION_ROOT / sharding.SHARD_DURATIONS_RELATIVE)
+    plan = build_plan(
+        tests, registered, skipped, recorded, parse_jobs(arguments.jobs), shard, group_files.subgroups_by_parent(group_list), shard_seconds,
+    )
     context = RunContext(launcher_name(environment), arguments.jobs, shard_text)
 
     def render(ticked: tuple[bool, ...]) -> list[str]:

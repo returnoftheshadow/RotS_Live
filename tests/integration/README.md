@@ -213,11 +213,43 @@ included (locally a header runs every group, as above), so name the groups whose
 touches. A name no group file registers fails the job and lists the registered groups.
 Tokens inside an HTML comment (`<!-- -->`) are ignored. Editing the description reruns the jobs,
 and the "Choose the integration groups" job's summary lists the groups that run and why. A run of
-every group is split across eight parallel jobs, `shard 1/8` to `shard 8/8`, through
-`ROTS_IT_SHARD`; a run of chosen groups is one job. Each job uploads its
+every group is split across `INTEGRATION_SHARDS` parallel jobs, `shard 1/N` to `shard N/N`, through
+`ROTS_IT_SHARD`; a run of chosen groups is one job. Every job runs its scenarios on
+`INTEGRATION_JOBS_PER_SHARD` pytest-xdist workers (`JOBS`), the one job of a run of chosen groups
+included. Both values are set once, at the top of `.github/workflows/integration.yml`. A GitHub-hosted runner has 4 CPUs, and every job takes one
+runner from the account's shared limit on concurrent jobs. Each job uploads its
 `build/integration/results.xml`, with every test's result and time, as its
 `integration-results-shard-<k>` artifact, pass or fail. When a scenario fails, its kept run
 directories are uploaded as that job's `integration-runs-shard-<k>` artifact.
+
+A sharded run also checks its own coverage. The select job lists the selected scenarios
+(`rots_harness/shard_coverage.py`), uploads the list as the `integration-selection` artifact,
+and says in its summary how many of them have no time in `shard_durations.json`. After the
+shards finish, pass or fail, the "Check every selected scenario ran once" job compares every
+shard's `results.xml` with that list. It fails when a shard uploaded no results, or when a
+selected scenario ran in no shard or in more than one, or a scenario ran that was not selected.
+
+The shards are balanced by each test's time in `tests/integration/shard_durations.json`, so
+every shard takes about as long; a test the file lacks counts 15 seconds. Each test still runs in
+exactly one shard. Refresh the file when tests are added or their times change, from every
+shard's results of one or more recent full runs that ran with the workflow's current
+`INTEGRATION_SHARDS` and `INTEGRATION_JOBS_PER_SHARD`. Take them only from a push to
+`release-frodo` or `release-frodo-next`, or from a pull request whose branch is in this repository
+(not a fork), since the file decides how CI splits every later run:
+
+```bash
+gh run download <run id> --pattern 'integration-results-shard-*' --dir build/ci-results/<run id>
+make integration-shard-durations PYTHON=.venv/bin/python RESULTS=build/ci-results
+```
+
+Each test's time is its median over every `results.xml` under `RESULTS`, leaving out runs where it
+failed, errored or was skipped (an expected failure counts); a test no result file timed is dropped
+from the file. A results file that is not plain UTF-8 (one with a byte-order mark, a NUL byte or
+another declared encoding), holds a DOCTYPE or entity declaration, or is larger than 16 MB stops
+the refresh, and a time that is not a number of seconds is left out with a warning. A refresh that
+would time fewer than 90% of the tests the file holds now, such as one missing a shard, is
+refused; after removing tests on purpose, run
+`PYTHONPATH=tests/integration .venv/bin/python -m rots_harness.shard_durations --force build/ci-results`.
 
 Each job loads the development image from the Actions cache, or from the repository's
 `dev-image-jammy-<hash>` pre-release for the `Dockerfile`'s hash, and builds it from the Ubuntu
@@ -229,7 +261,12 @@ the `Dockerfile`. `.github/workflows/dev-image.yml` publishes that pre-release o
 The harness runs the i386 programs in one of two ways:
 
 - `local` runs them directly. It is the default on Linux, which needs the i386 runtime for it
-  (for example `libc6:i386`); without it, set `ROTS_IT_LAUNCHER=docker`.
+  (for example `libc6:i386`); without it, set `ROTS_IT_LAUNCHER=docker`. Each pytest-xdist
+  worker gives its servers ports from its own band of 400 (worker `gwN` from 20000 + 400 N, below
+  the system's ephemeral ports), so two workers never share a port; a run without workers lets
+  the system choose. A server counts as ready only once its own `game.log` says
+  `Entering game loop.`, so a login prompt from another process on the same port is never
+  mistaken for it.
 - `docker` runs each server and each `rotstool` call through `docker compose run` with this
   checkout's `rots` service. It is the default everywhere else. Every container is named
   `rots-it-...` and publishes the server on a random loopback port, so the service's fixed
@@ -250,7 +287,7 @@ Environment variables:
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds to wait for the Docker lock, a finite number |
 | `ROTS_IT_DOCKER_LOCK_DIR` | `/tmp/rots-docker-lock` | the shared Docker lock directory |
 | `ROTS_IT_HOUR_TIMEOUT` | `10.0` | seconds `server.advance_hours` allows per game hour, a positive finite number |
-| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only every N-th selected test in node id order, starting at the k-th; a shard left with no tests passes |
+| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only the k-th of N shares of the selected tests, balanced by `shard_durations.json` (see Continuous integration); a shard left with no tests passes, with or without `JOBS` workers |
 | `ROTS_IT_ALLOW_STALE` | unset | `1` runs a program older than its sources, for example to test an old build on purpose |
 | `ROTS_IT_CONFIRM_MINUTES` | `10` | the estimate, in minutes, from which `make integration` without a terminal needs `CONFIRM=yes`; a positive number (see The run plan) |
 
