@@ -589,9 +589,14 @@ ACMD(do_bash)
                weapon hits already respect (fight.cpp). Skip the clobber here the
                same way, so a resisted roll leaves the cast running uninterrupted. */
             if (!victim_resists_cast_interruption) {
-                /* Ending the victim's own delay can remove it (the rest of a paused script). */
+                /* Ending the victim's own delay runs the rest of a paused script, which can remove
+                 * the victim or the basher. */
+                freed_watch basher_watch(ch);
                 if (!WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
                         CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE)) {
+                    return;
+                }
+                if (basher_watch.freed()) {
                     return;
                 }
             }
@@ -932,7 +937,13 @@ ACMD(do_rescue)
     // Defender specialized characters don't have a delay from rescue.
     game_types::player_specs spec = utils::get_specialization(*ch);
     if (spec != game_types::PS_Defender) {
+        /* Ending the rescued one's delay runs the rest of a paused script, which can remove the
+         * rescuer. */
+        freed_watch rescuer_watch(ch);
         WAIT_STATE(victim, PULSE_VIOLENCE / 3);
+        if (rescuer_watch.freed()) {
+            return;
+        }
         WAIT_STATE(ch, PULSE_VIOLENCE / 2);
     }
 }
@@ -1099,6 +1110,10 @@ ACMD(do_disengage)
 
     /* Ending ch's own delay can remove it (the rest of a paused script). */
     if (!WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+        return;
+    }
+    /* ... or remove the one ch fought, which ends that fight: there is nobody to name. */
+    if (!ch->specials.fighting) {
         return;
     }
 

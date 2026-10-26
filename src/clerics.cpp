@@ -182,7 +182,13 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
 
     if (!ch->specials.fighting && IS_MENTAL(ch)) {
         set_fighting(ch, victim);
+        /* Ending ch's own delay runs the rest of a paused script, which can remove either. */
+        freed_watch attacker_watch(ch);
+        freed_watch victim_watch(victim);
         WAIT_STATE(ch, 2); /* HVORFOR DET?? */
+        if (attacker_watch.freed() || victim_watch.freed()) {
+            return;
+        }
     }
 
     set_mental_delay(ch, PULSE_MENTAL_FIGHT);

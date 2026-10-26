@@ -1326,10 +1326,14 @@ ACMD(do_trap)
             dmg = ambush_calculate_damage(ch, victim, success);
             dmg = dmg >> 1; // Cut the damage in half?  Easier ways to do this.  dmg = dmg >> 1;
 
-            // Set a bash affection on the victim; ending its own delay can remove it (the rest
-            // of a paused script).
+            // Set a bash affection on the victim; ending its own delay runs the rest of a paused
+            // script, which can remove the victim or the trapper.
+            freed_watch trapper_watch(ch);
             if (!WAIT_STATE_FULL(victim, 5, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
                     TARGET_IGNORE)) {
+                return;
+            }
+            if (trapper_watch.freed()) {
                 return;
             }
 

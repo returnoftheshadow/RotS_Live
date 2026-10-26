@@ -459,6 +459,44 @@ TEST_F(CharacterTriggerTest, AMobsTriggerSetOffInsideItsScriptSharesItsVariables
     EXPECT_TRUE(output_has("Holding [].")) << output();
 }
 
+/* A mob relays a text from its own str2, and a listener's answer sets off the mob's hearing script
+ * again while its relay is still being heard: that run releases the mob's str2 and str1, as every
+ * run of the mob's scripts starts again on its one state. The rest of the room still hears the
+ * relay whole, and the relaying run then sees str2 emptied and str1 holding the answer. */
+TEST_F(CharacterTriggerTest, ARelayStillReachesTheRoomWhenAnAnswerRestartsTheRelayersState)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "GO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_ASSIGN_STR, "relay words", { SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_DO_SAY, "%s", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Still [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Heard [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "RELAY", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "answer", { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_ROOM, "Echo [%s].",
+                    { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    /* Each one made goes to the front of the room: the relayer speaks to the answerer first. */
+    make_mob("echo", THIRD_SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    make_mob("relayer", SCRIPT_VNUM);
+
+    run_command(do_say, "go");
+
+    EXPECT_TRUE(output_has("Echo [relay words].")) << output();
+    EXPECT_TRUE(output_has("Still [].")) << output();
+    EXPECT_TRUE(output_has("Heard [answer].")) << output();
+}
+
 /* ---- scripts paused with DO_WAIT ---- */
 
 /* A script body that pauses for one pulse, then tells the room the mob fades and removes it. */

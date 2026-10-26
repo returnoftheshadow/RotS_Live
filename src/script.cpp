@@ -356,7 +356,12 @@ int find_script_by_number(const int number)
 /* Empties the variables a run starts without, as the state's script always has: ch1-ch3,
  * ob1-ob3 and rm1-rm3, which name things that may be gone, and str2 and str3, which are
  * released. str1 and int1-int3 carry on from run to run; str1 is the text a hearing script last
- * heard, or the last set with ASSIGN_STR. */
+ * heard, or the last set with ASSIGN_STR.
+ *
+ * A nested run on the same state releases texts the outer run set; that is safe because no
+ * command keeps a state's text past the call it makes: DO_SAY, DO_YELL and the SEND_TO commands
+ * copy it into their own run's output buffer first, and the IF tests are done before going on.
+ * A new command that hands a state's text to code able to run a script must copy it too. */
 void clear_script_info(info_script* inf)
 {
     for (int variable = 0; variable < 3; ++variable) {

@@ -921,9 +921,16 @@ SPECIAL(gatekeeper)
             host->delay.targ2.ch_num = doordir;
         }
 
+        /* Ending the gatekeeper's own delay runs the rest of a paused script, which can remove it or
+         * the one at the gate: then neither the gatekeeper nor the command is to go on. */
+        freed_watch gatekeeper_watch(host);
+        freed_watch visitor_watch(ch);
         /* Wait between 1 and 3 ticks. */
         WAIT_STATE_FULL(host, number(2, 4), -1, (cmd == CMD_KNOCK) ? 1 : 2, 30, 0, ch->abs_number,
             ch, 0, TARGET_CHAR);
+        if (gatekeeper_watch.freed() || visitor_watch.freed()) {
+            return TRUE;
+        }
 
         return FALSE;
     }
@@ -1161,8 +1168,15 @@ SPECIAL(gatekeeper2)
          * will result in having no delay, a wait state of 2 will
          * result in a 2 tick delay, and so on.
          */
+        /* Ending the gatekeeper's own delay runs the rest of a paused script, which can remove it or
+         * the one at the gate: then neither the gatekeeper nor the command is to go on. */
+        freed_watch gatekeeper_watch(host);
+        freed_watch visitor_watch(ch);
         WAIT_STATE_FULL(host, number(2, 4), -1, cmd == CMD_KNOCK ? 1 : 2, 30, 0, ch->abs_number, ch,
             0, TARGET_CHAR);
+        if (gatekeeper_watch.freed() || visitor_watch.freed()) {
+            return TRUE;
+        }
         return FALSE;
     }
 

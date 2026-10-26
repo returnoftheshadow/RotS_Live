@@ -39,7 +39,8 @@ int get_prob_skill(char_data* attacker, char_data* victim, int skill)
 }
 
 /* Knocks <victim> down for <delay> pulses, unless it can't be or already is. Returns false only
- * when ending the victim's own delay freed it (the rest of a paused script). */
+ * when ending the victim's own delay freed it (the rest of a paused script); that script can free
+ * others too, which the caller watches for. */
 bool apply_victim_delay(char_data* victim, int delay)
 {
     if (IS_NPC(victim) && MOB_FLAGGED(victim, MOB_NOBASH)) {
@@ -294,7 +295,9 @@ void apply_stomp_affect(char_data* attacker, char_data* victim)
         return;
     }
     int wait_delay = number(8, PULSE_VIOLENCE);
-    if (!apply_victim_delay(victim, wait_delay)) {
+    /* Knocking the victim down can remove the attacker too (the victim's paused script). */
+    freed_watch attacker_watch(attacker);
+    if (!apply_victim_delay(victim, wait_delay) || attacker_watch.freed()) {
         return;
     }
     damage(attacker, victim, calculate_stomp_damage(*attacker, prob), SKILL_STOMP, 0);
@@ -317,7 +320,9 @@ void apply_overrun_damage(char_data* attacker, char_data* victim)
     }
 
     int wait_delay = PULSE_VIOLENCE;
-    if (!apply_victim_delay(victim, wait_delay)) {
+    /* As for stomp. */
+    freed_watch attacker_watch(attacker);
+    if (!apply_victim_delay(victim, wait_delay) || attacker_watch.freed()) {
         return;
     }
     damage(attacker, victim, calculate_overrun_damage(*attacker, prob), SKILL_OVERRUN, 0);

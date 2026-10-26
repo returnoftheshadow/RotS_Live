@@ -24,6 +24,8 @@ void do_maul(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subc
 void do_cleave(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_stomp(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_smash(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_bash(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_rescue(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void affect_update_person(struct char_data* i, int mode);
 SPECIAL(thuringwethil);
 
@@ -58,6 +60,23 @@ protected:
             { OTHER_SCRIPT_VNUM,
                 { { trigger_type,
                     { { SCRIPT_SEND_TO_ROOM, "The watcher looks up.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    }
+
+    /* Makes script SCRIPT_VNUM pause on hearing anything, then say "vanish", and script
+     * OTHER_SCRIPT_VNUM remove its own mob when it hears that word. The rest of a paused script
+     * names nobody but its mob, so it removes someone else through what it sets off, as here. */
+    void install_pause_then_vanish_scripts()
+    {
+        install_scripts({ { SCRIPT_VNUM,
+                              { { ON_HEAR_SAY,
+                                  { { SCRIPT_DO_WAIT, nullptr, { 5 } },
+                                      { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } } } } } },
+            { OTHER_SCRIPT_VNUM,
+                { { ON_HEAR_SAY,
+                    { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                        { SCRIPT_BEGIN, nullptr, {} },
+                        { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                        { SCRIPT_END, nullptr, {} } } } } } });
     }
 
     /* A mob in room 0 with the moves to walk anywhere. */
@@ -543,4 +562,54 @@ TEST_F(CombatMovementTest, ABlowAtThuringwethilLetsGoOfHerWhenSheLeaves)
     EXPECT_TRUE(is_in_game(attacker));
     mob_index = saved_mob_index;
     top_of_mobt = saved_top_of_mobt;
+}
+
+/* ---- delays that run the rest of a paused script ---- */
+
+
+/* A bash knocks its victim down, which ends the victim's pause: the rest of its script makes the
+ * basher vanish, and the basher then does not go on to hurt anyone. */
+TEST_F(CombatMovementTest, ABasherTheBashedMobsPausedScriptRemovesStopsThere)
+{
+    install_pause_then_vanish_scripts();
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    char_data* basher = make_walker("basher");
+    basher->specials.script_number = OTHER_SCRIPT_VNUM;
+    basher->points.OB = 200; /* sure to land; a mob knows every skill at 80 */
+    run_command_as(basher, do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, victim->delay.cmd);
+    waiting_type target {};
+    target.targ1.set_character(victim);
+
+    do_bash(basher, empty_argument(), &target, CMD_BASH, 1);
+
+    EXPECT_FALSE(is_in_game(basher));
+    EXPECT_TRUE(is_in_game(victim));
+    EXPECT_EQ(victim->tmpabilities.hit, victim->abilities.hit) << "nobody was left to hurt it";
+}
+
+/* A rescue holds up the one rescued, which ends its pause: the rest of its script makes the
+ * rescuer vanish, and the rescuer is then not held up in turn. */
+TEST_F(CombatMovementTest, ARescuerTheRescuedMobsPausedScriptRemovesStopsThere)
+{
+    install_pause_then_vanish_scripts();
+    char_data* rescued = make_walker("rescued");
+    rescued->specials.script_number = SCRIPT_VNUM;
+    char_data* attacker = make_walker("attacker");
+    char_data* rescuer = make_walker("rescuer");
+    rescuer->specials.script_number = OTHER_SCRIPT_VNUM;
+    run_command_as(rescuer, do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, rescued->delay.cmd);
+    set_fighting(attacker, rescued);
+    set_fighting(rescued, attacker);
+    waiting_type target {};
+    target.targ1.set_character(rescued);
+    push_test_random_value(0.0); /* the rescue succeeds (a mob knows it at 80) */
+    char rescued_name[] = "rescued";
+
+    do_rescue(rescuer, rescued_name, &target, CMD_RESCUE, 0);
+
+    EXPECT_FALSE(is_in_game(rescuer)) << output();
+    EXPECT_TRUE(is_in_game(rescued));
 }
