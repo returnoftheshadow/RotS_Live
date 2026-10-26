@@ -1,5 +1,6 @@
-/* The value stack and the subprogram call of a mob running a mudlle program: neither reaches
- * outside the memory the mob was given for them. */
+/* The value stack, the target list and the subprogram call of a mob running a mudlle program:
+ * none reaches outside the memory the mob was given for them. */
+#include "../comm.h"
 #include "../mudlle.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -14,14 +15,20 @@ long STACK_VALUE(const char_data* host);
 long FROM_STACK(char_data* host);
 void DOWN_STACK(const char_data* host);
 void UP_STACK(const char_data* host);
+void TO_LIST(const char_data* host, void* entr, int type);
+void REMOVE_LIST(char_data* host);
+void UP_LIST(char_data* host);
 
 extern char** mobile_program;
 extern int num_of_programs;
+extern txt_block* txt_block_pool;
 
 namespace {
 
 /* How many values a test pushes onto a full stack. */
 constexpr int VALUES_PUSHED = SPECIAL_STACKLEN + 10;
+/* How many entries a test adds to a list that fills up. */
+constexpr int ENTRIES_ADDED = SPECIAL_STACKLEN + 10;
 /* Every program number a mob's call list can hold one of. */
 constexpr int ALL_CALLFLAGS = 255;
 
@@ -84,6 +91,24 @@ protected:
         }
         mobile_program = m_programs.data();
         num_of_programs = static_cast<int>(texts.size());
+    }
+
+    /* The slots of <memory>'s target list from its head to its tail, stopping at a slot seen
+     * before (a loop) or after more steps than the list has slots. */
+    static std::vector<int> list_chain(const program_memory& memory)
+    {
+        std::vector<int> chain;
+        std::vector<bool> seen(SPECIAL_STACKLEN, false);
+        int slot = memory.targets.head;
+        while (slot >= 0 && slot < SPECIAL_STACKLEN && !seen[slot]) {
+            seen[slot] = true;
+            chain.push_back(slot);
+            slot = memory.targets.next[slot];
+        }
+        if (slot >= 0) {
+            chain.push_back(slot); /* the slot that closed a loop, or one out of range */
+        }
+        return chain;
     }
 
     // The mob running the program, and what it runs with.
@@ -188,4 +213,69 @@ TEST_F(MudlleStackTest, ACallOfProgramZeroIsRefused)
     intelligent(&m_host, &m_host, 0, no_argument, SPECIAL_DELAY, nullptr);
 
     EXPECT_EQ(0, m_host.specials.tactics);
+}
+
+using MudlleListTest = MudlleStackTest;
+
+/* A full list takes no more entries, and stays one chain ending at its mark. */
+TEST_F(MudlleListTest, AFullListTakesNoMoreEntriesAndKeepsItsMark)
+{
+    for (int entry = 0; entry < ENTRIES_ADDED; ++entry) {
+        TO_LIST(&m_host, nullptr, TARGET_NONE);
+    }
+
+    const std::vector<int> chain = list_chain(m_host_memory);
+    ASSERT_EQ(static_cast<size_t>(SPECIAL_STACKLEN), chain.size());
+    EXPECT_EQ(SPECIAL_MARK, m_host_memory.targets.field[chain.back()].type);
+    EXPECT_EQ(-1, m_host_memory.targets.next[chain.back()]);
+}
+
+/* A text a full list refuses goes back to the pool rather than being lost. */
+TEST_F(MudlleListTest, AFullListGivesARefusedTextBackToThePool)
+{
+    for (int entry = 1; entry < SPECIAL_STACKLEN; ++entry) {
+        TO_LIST(&m_host, nullptr, TARGET_NONE);
+    }
+    txt_block* refused = get_from_txt_block_pool("refused");
+
+    TO_LIST(&m_host, refused, TARGET_TEXT);
+
+    EXPECT_EQ(refused, txt_block_pool);
+    for (const target_data& field : m_host_memory.targets.field) {
+        EXPECT_NE(TARGET_TEXT, field.type);
+    }
+}
+
+/* Emptying a list that filled up leaves its mark, the one entry a removal never takes. */
+TEST_F(MudlleListTest, EmptyingAFullListLeavesItsMark)
+{
+    for (int entry = 0; entry < ENTRIES_ADDED; ++entry) {
+        TO_LIST(&m_host, nullptr, TARGET_NONE);
+    }
+
+    for (int entry = 1; entry < SPECIAL_STACKLEN; ++entry) {
+        REMOVE_LIST(&m_host);
+    }
+
+    const std::vector<int> chain = list_chain(m_host_memory);
+    ASSERT_EQ(1u, chain.size());
+    EXPECT_EQ(SPECIAL_MARK, m_host_memory.targets.field[chain.front()].type);
+}
+
+/* Turning the list up makes the second entry the head and moves the head to the tail. */
+TEST_F(MudlleListTest, TurningTheListUpMovesTheHeadToTheTail)
+{
+    room_data first_room {};
+    room_data second_room {};
+    TO_LIST(&m_host, &first_room, TARGET_ROOM);
+    TO_LIST(&m_host, &second_room, TARGET_ROOM);
+
+    UP_LIST(&m_host);
+
+    const std::vector<int> chain = list_chain(m_host_memory);
+    ASSERT_EQ(3u, chain.size());
+    EXPECT_EQ(&first_room, m_host_memory.targets.field[chain[0]].ptr.room);
+    EXPECT_EQ(SPECIAL_MARK, m_host_memory.targets.field[chain[1]].type);
+    EXPECT_EQ(&second_room, m_host_memory.targets.field[chain[2]].ptr.room);
+    EXPECT_EQ(-1, m_host_memory.targets.next[chain[2]]);
 }
