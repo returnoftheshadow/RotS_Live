@@ -3828,6 +3828,10 @@ void free_obj(struct obj_data* obj)
     /* Someone writing on a note is typing into its text. */
     stop_editing_text({ &obj->name, &obj->description, &obj->short_description,
         &obj->action_description });
+    /* "string obj <name> extra <keyword>" types into an extra description. */
+    for (extra_descr_data* extra = obj->ex_description; extra; extra = extra->next) {
+        stop_editing_text({ &extra->description });
+    }
 
     if ((nr = obj->item_number) == -1) {
         RELEASE(obj->name);
