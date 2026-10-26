@@ -1356,6 +1356,10 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
             cmd = old_search_block(argument, begin, look_at, command, 0);
         }
     } else {
+        /* A delayed or program-called command has no typed text: its specials and handler are
+         * given an empty argument. */
+        argument[0] = '\0';
+
         /* if you're hazed, you have a 10% chance of forgetting targ1 */
         if (IS_AFFECTED(ch, AFF_HAZE))
             if (!number(0, 9)) {
@@ -1378,8 +1382,13 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
         cmd = -1;
 
     if (cmd <= 0) {
-        one_argument(argument + begin, local_buf);
-        subcmd = find_action(local_buf);
+        /* Only a typed word can name a social (find_action takes an empty one for whichever
+         * social it tries first). */
+        subcmd = -1;
+        if (!mode) {
+            one_argument(argument + begin, local_buf);
+            subcmd = find_action(local_buf);
+        }
         if (subcmd >= 0)
             cmd = CMD_SOCIAL;
         else
