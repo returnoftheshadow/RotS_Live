@@ -55,6 +55,58 @@ protected:
         game_timer::skill_timer::create(weather_info, &world);
     }
 
+    void TearDown() override
+    {
+        ScriptedRoomFixture::TearDown();
+        if (m_saved_mob_index != nullptr) {
+            mob_index = m_saved_mob_index;
+        }
+        RELEASE(m_dying_profs);
+    }
+
+    /* Gives <dying> the one prototype entry, which make_corpse reads. With a prototype the game
+     * no longer frees the mob's strings or profession block, so the fixture owns them. */
+    void give_prototype(char_data* dying)
+    {
+        m_saved_mob_index = mob_index;
+        mob_index = m_prototype_index;
+        RELEASE(dying->player.name);
+        RELEASE(dying->player.short_descr);
+        dying->player.name = m_dying_name;
+        dying->player.short_descr = m_dying_name;
+        m_dying_profs = dying->profs;
+        dying->nr = 0;
+    }
+
+    /* Makes script SCRIPT_VNUM say "avenge me" as its mob dies, and script OTHER_SCRIPT_VNUM
+     * remove its own mob when it hears anything. */
+    void install_avenge_me_scripts()
+    {
+        const body_line last_words = { SCRIPT_DO_SAY, "avenge me", { SCRIPT_PARAM_CH1 } };
+        const body_line vanish = { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } };
+        install_scripts({ { SCRIPT_VNUM, { { ON_DIE, { last_words } } } },
+            { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, { vanish } } } } });
+    }
+
+    /* Gives <owner> a bag holding a ring, and returns the ring. */
+    obj_data* give_ring_in_bag(char_data* owner)
+    {
+        obj_data* bag = make_object(BAG_VNUM, 0);
+        obj_data* ring = make_object(RING_VNUM, 0);
+        obj_to_obj(ring, bag);
+        obj_to_char(bag, owner);
+        return ring;
+    }
+
+    // The mob table give_prototype points the game at; its one entry is the dying mob's.
+    index_data m_prototype_index[1] {};
+    // The game's mob table while give_prototype has replaced it; null when it has not.
+    index_data* m_saved_mob_index = nullptr;
+    // The dying mob's name and short description once give_prototype has made them the test's.
+    char m_dying_name[6] = "dying";
+    // The dying mob's profession block; TearDown frees it, as its prototype keeps the game off it.
+    char_prof_data* m_dying_profs = nullptr;
+
     /* Makes script SCRIPT_VNUM a guard that removes whoever triggers <trigger_type> in its room
      * (ch2), and script OTHER_SCRIPT_VNUM a watcher that tells the room it saw someone. */
     void install_guard_and_watcher(int trigger_type)
@@ -349,33 +401,52 @@ TEST_F(CombatMovementTest, AKickerTheVictimsScriptRemovesHasNoRecovery)
  * on without a killer. */
 TEST_F(CombatMovementTest, ADeathGoesOnWithoutAKillerSomethingRemoved)
 {
-    install_scripts({ { SCRIPT_VNUM, { { ON_DIE, { { SCRIPT_DO_SAY, "avenge me", { SCRIPT_PARAM_CH1 } } } } } },
-        { OTHER_SCRIPT_VNUM,
-            { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } } });
+    install_avenge_me_scripts();
     char_data* killer = make_walker("killer");
     killer->specials.script_number = OTHER_SCRIPT_VNUM;
     char_data* dying = make_walker("dying");
     dying->specials.script_number = SCRIPT_VNUM;
-    /* make_corpse reads the dying mob's prototype entry, so it gets one; with a prototype the
-     * game no longer frees its strings, so they are the test's. */
-    index_data prototype_index[1] {};
-    index_data* saved_mob_index = mob_index;
-    mob_index = prototype_index;
-    char dying_name[] = "dying";
-    RELEASE(dying->player.name);
-    RELEASE(dying->player.short_descr);
-    dying->player.name = dying_name;
-    dying->player.short_descr = dying_name;
-    char_prof_data* dying_profs = dying->profs; /* nor its profession block */
-    dying->nr = 0;
+    give_prototype(dying);
 
     die(dying, killer, 0);
 
     EXPECT_FALSE(is_in_game(killer));
     EXPECT_FALSE(is_in_game(dying));
     EXPECT_NE(nullptr, world[0].contents) << "the death went on and left a corpse";
-    mob_index = saved_mob_index;
-    RELEASE(dying_profs);
+}
+
+/* A mob slain by a mob keeps the wearables in its containers where they are, even when its death
+ * script removes the killer before the corpse is made. */
+TEST_F(CombatMovementTest, AMobsCorpseLeavesItsBagsShutWhenItsMobKillerIsRemoved)
+{
+    install_avenge_me_scripts();
+    char_data* killer = make_walker("killer");
+    killer->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* dying = make_walker("dying");
+    dying->specials.script_number = SCRIPT_VNUM;
+    give_prototype(dying);
+    obj_data* ring = give_ring_in_bag(dying);
+    obj_data* bag = ring->in_obj;
+
+    die(dying, killer, 0);
+
+    ASSERT_FALSE(is_in_game(killer));
+    EXPECT_EQ(bag, ring->in_obj) << "the ring stays in its bag";
+}
+
+/* A death with no killer at all takes the wearables out of the dead one's containers into the
+ * corpse. */
+TEST_F(CombatMovementTest, ADeathWithNoKillerGathersWearablesIntoTheCorpse)
+{
+    char_data* dying = make_walker("dying");
+    give_prototype(dying);
+    obj_data* ring = give_ring_in_bag(dying);
+    obj_data* bag = ring->in_obj;
+
+    die(dying, nullptr, 0);
+
+    ASSERT_NE(nullptr, bag->in_obj) << "the bag is in the corpse";
+    EXPECT_EQ(bag->in_obj, ring->in_obj) << "the ring is taken out into the corpse";
 }
 
 /* ---- scripts refused past the limits ---- */
