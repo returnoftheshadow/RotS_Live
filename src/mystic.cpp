@@ -215,6 +215,10 @@ ASPELL(spell_curse)
     // Only flee after the curse has completed attacking all of its stats.
     if (!victim_died && victim_flees) {
         do_flee(victim, "", NULL, 0, 0);
+        /* A self-curse flees the caster, and the flight can remove it. */
+        if (caster_watch.freed()) {
+            return;
+        }
     }
 
     set_mental_delay(caster, actual_count * PULSE_MENTAL_FIGHT);

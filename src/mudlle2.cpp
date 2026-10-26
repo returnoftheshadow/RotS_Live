@@ -91,9 +91,17 @@ void UP_STACK(const struct char_data* host)
     [0] = tmp;
 }
 
+/* Logs that the target list of <host>'s program is full. A full list takes no new entry: its
+ * slots are all linked, and reusing one would leave the list a loop. */
+static void report_full_list(const struct char_data* host, const char* caller)
+{
+    vmudlog(NRM, "SYSERR: %s: the target list of mudlle program %d is full; the new entry is dropped.",
+        caller, PROG_NUMBER(host));
+}
+
 void TO_LIST(const struct char_data* host, void* entr, int type)
 {
-    char tmp, tmp2, overfl;
+    char tmp;
 
     /*
      * if(type == TARGET_TEXT)
@@ -103,16 +111,17 @@ void TO_LIST(const struct char_data* host, void* entr, int type)
     if (!entr)
         type = TARGET_NONE;
 
-    overfl = 0;
     for (tmp = 0; tmp < SPECIAL_STACKLEN; tmp++)
         if (SPECIAL_LIST_AREA(host)->field[(int)tmp].type == SPECIAL_VOID)
             break;
 
     if (tmp == SPECIAL_STACKLEN) {
-        for (tmp2 = 0, tmp = SPECIAL_LIST_HEAD(host);
-             (tmp2 < SPECIAL_STACKLEN) && (SPECIAL_LIST_AREA(host)->next[(int)tmp] >= 0);
-             tmp2++, tmp = SPECIAL_LIST_AREA(host)->next[(int)tmp])
-            ;
+        report_full_list(host, __func__);
+        /* The list would have owned a text; it goes back to the pool instead. */
+        if (type == TARGET_TEXT) {
+            put_to_txt_block_pool(static_cast<txt_block*>(entr));
+        }
+        return;
     }
     SPECIAL_LIST_AREA(host)
         ->next[(int)tmp]
@@ -137,7 +146,7 @@ void TO_LIST(const struct char_data* host, void* entr, int type)
 
 void TO_LIST(const struct char_data* host, const target_data* newtarg)
 {
-    char tmp, tmp2, overfl;
+    char tmp;
 
     /*
      * if(type == TARGET_TEXT)
@@ -149,16 +158,14 @@ void TO_LIST(const struct char_data* host, const target_data* newtarg)
         return;
     }
 
-    overfl = 0;
     for (tmp = 0; tmp < SPECIAL_STACKLEN; tmp++)
         if (SPECIAL_LIST_AREA(host)->field[(int)tmp].type == SPECIAL_VOID)
             break;
 
+    /* The list copies <newtarg>; the caller keeps its own. */
     if (tmp == SPECIAL_STACKLEN) {
-        for (tmp2 = 0, tmp = SPECIAL_LIST_HEAD(host);
-             (tmp2 < SPECIAL_STACKLEN) && (SPECIAL_LIST_AREA(host)->next[(int)tmp] >= 0);
-             tmp2++, tmp = SPECIAL_LIST_AREA(host)->next[(int)tmp])
-            ;
+        report_full_list(host, __func__);
+        return;
     }
     SPECIAL_LIST_AREA(host)
         ->next[(int)tmp]
@@ -194,7 +201,7 @@ void REMOVE_LIST(struct char_data* host)
 
 void UP_LIST(struct char_data* host)
 {
-    char tmp, tmp2;
+    char tmp, tmp2, new_head;
 
     if (SPECIAL_LIST_NEXT(host) < 0) {
         do_say(host, "My list is less than two elements, I can't move in it.",
@@ -206,11 +213,13 @@ void UP_LIST(struct char_data* host)
          (SPECIAL_LIST_AREA(host)->next[(int)tmp] >= 0) && (tmp2 < SPECIAL_STACKLEN - 1);
          tmp = SPECIAL_LIST_AREA(host)->next[(int)tmp], tmp2++)
         ;
+    /* The entry after the head becomes the head; the old head goes to the tail. */
+    new_head = SPECIAL_LIST_NEXT(host);
     SPECIAL_LIST_AREA(host)
         ->next[(int)tmp]
         = SPECIAL_LIST_HEAD(host);
     SPECIAL_LIST_NEXT(host) = -1;
-    SPECIAL_LIST_HEAD(host) = SPECIAL_LIST_NEXT(host);
+    SPECIAL_LIST_HEAD(host) = new_head;
 
     if (SPECIAL_LIST_TYPE(host) == TARGET_CHAR)
         if (!char_exists(SPECIAL_LIST_REFS(host))) {

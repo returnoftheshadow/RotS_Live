@@ -46,6 +46,11 @@ constexpr int PLENTY_OF_MOVES = 100;
 constexpr int FLEE_COMMAND = 84;
 /* Hit points at which Thuringwethil leaves whenever her procedure runs. */
 constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 400;
+/* The lowest stat a mental attack does not count as critical; one point less makes a wimpy mob
+ * flee. */
+constexpr int LOWEST_SAFE_STAT = 3;
+/* A stat no test's mental attack brings near zero. */
+constexpr int SAFE_STAT = 50;
 /* How many mobs one test can give a prototype entry (and with it a procedure). */
 constexpr int MOB_PROTOTYPE_SLOTS = 8;
 
@@ -319,6 +324,23 @@ protected:
         victim->specials2.perception = 100;
         victim->points.willpower = 0;
         victim->player.bodytype = 1;
+    }
+
+    /* Makes <mob> a wimpy one whose strength turns critical, and so makes it flee, at the first
+     * point a mental attack drains, while every other stat stays far from zero. */
+    static void make_critical_on_strength_loss(char_data* mob)
+    {
+        SET_BIT(MOB_FLAGS(mob), MOB_WIMPY);
+        /* A move compares each stat with its base, so the bases are set as well. */
+        mob->abilities.str = SAFE_STAT;
+        mob->abilities.dex = SAFE_STAT;
+        mob->abilities.con = SAFE_STAT;
+        mob->tmpabilities.str = LOWEST_SAFE_STAT;
+        mob->tmpabilities.intel = SAFE_STAT;
+        mob->tmpabilities.wil = SAFE_STAT;
+        mob->tmpabilities.dex = SAFE_STAT;
+        mob->tmpabilities.con = SAFE_STAT;
+        mob->tmpabilities.lea = SAFE_STAT;
     }
 
     /* Thuringwethil, beaten, open to mental attack: any call of her procedure, a mental attack's
@@ -1449,4 +1471,50 @@ TEST_F(SpecialProcedureTest, ACurseHitsAndDrawsTheVictimIntoTheFight)
 
     ASSERT_TRUE(is_in_game(victim));
     EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+/* A wimpy mystic cursing itself into a critical stat flees, and a guard where it arrives removes
+ * it; the curse then leaves the caster alone. */
+TEST_F(SpecialProcedureTest, ASelfCurseStopsAtACasterItsFlightRemoved)
+{
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    open_to_mental_attack(mystic);
+    make_critical_on_strength_loss(mystic);
+    mystic->points.spirit = 100;
+    make_mob_with("guard", remove_marked_arriving, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(0.0); /* the first stat is strength */
+    for (int draw = 0; draw < 20; ++draw) {
+        push_test_random_value(0.15); /* every other stat is intelligence; the flight goes north */
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, mystic, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(mystic));
+}
+
+/* The victim of a released concentration flees, and a guard where it arrives removes the
+ * attacker; the attack then leaves the attacker alone. */
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAnAttackerTheFlightRemoved)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    make_critical_on_strength_loss(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = 0;
+    mystic->specials.mental_delay = -4 * PULSE_MENTAL_FIGHT;
+    make_mob_with("guard", remove_marked_character, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(0.0);
+    push_test_random_value(0.0);
+    push_test_random_value(0.0); /* strength */
+    push_test_random_value(0.0);
+    push_test_random_value(0.2); /* intelligence */
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, -1);
+
+    EXPECT_FALSE(is_in_game(mystic));
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(SECOND_ROOM, victim->in_room);
 }
