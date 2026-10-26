@@ -1779,7 +1779,12 @@ void obj_from_room(struct obj_data* object)
         for (i = world[object->in_room].contents; i && (i->next_content != object); i = i->next_content)
             ;
 
-        i->next_content = object->next_content;
+        if (i) {
+            i->next_content = object->next_content;
+        } else {
+            /* Not in its room's list: there is nothing to unlink it from. */
+            log("SYSERR: obj_from_room: object is not in its room's contents list.");
+        }
     }
 
     if (GET_ITEM_TYPE(object) == ITEM_LIGHT) {
