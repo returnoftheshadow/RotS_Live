@@ -540,9 +540,12 @@ void clean_expose_elements()
         char_data* mage = *iter;
         if (mage->extra_specialization_data.is_mage_spec()) {
             elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
-            if (spec_data->exposed_target) {
+            if (spec_data == NULL) {
+                log("SYSERR: clean_expose_elements: a mage specialisation has no expose-elements data");
+            } else if (spec_data->exposed_target || spec_data->exposed_target_freed) {
                 // The mage has cast 'expose elements' on a target.  If that target is no longer
-                // in the room, remove this.
+                // in the room, remove this.  A freed target is in no room: its mark is already
+                // cleared, and the search below cannot find it.
                 int room_number = mage->in_room;
                 const room_data& current_room = world[room_number];
 
@@ -592,6 +595,23 @@ void untrack_specialized_mage(const char_data* mage)
     char_iter found_mage = std::remove(specialized_mages.begin(), specialized_mages.end(), mage);
     if (found_mage != specialized_mages.end()) {
         specialized_mages.erase(found_mage);
+    }
+}
+
+/* Declared in utils.h. */
+void forget_freed_exposed_target(const char_data* target)
+{
+    if (!target) {
+        log("SYSERR: forget_freed_exposed_target: no target");
+        return;
+    }
+
+    for (char_data* mage : specialized_mages) {
+        elemental_spec_data* spec_data = mage->extra_specialization_data.get_mage_spec();
+        if (spec_data && spec_data->exposed_target == target) {
+            spec_data->reset();
+            spec_data->exposed_target_freed = true;
+        }
     }
 }
 

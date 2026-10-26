@@ -742,7 +742,7 @@ ACMD(do_cast)
                         return;
                     } else if (ch->extra_specialization_data.is_mage_spec()) {
                         elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
-                        if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
+                        if (spec_data && spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
                             send_to_char(
                                 "You have already exposed your target to the elements!\n\r", ch);
                             return;

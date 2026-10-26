@@ -2471,6 +2471,13 @@ void spell_expose_elements(char_data* caster, char* arg, int type, char_data* vi
 
     // Player is of the appropriate spec - cast the data.
     elemental_spec_data* spec_data = caster->extra_specialization_data.get_mage_spec();
+    if (spec_data == NULL) {
+        log("SYSERR: spell_expose_elements: a mage specialisation has no expose-elements data");
+        return;
+    }
+
+    // A new mark replaces the old one, along with a freed target the sweep has yet to report.
+    spec_data->reset();
     spec_data->exposed_target = victim;
 
     const room_data& current_room = world[caster->in_room];
