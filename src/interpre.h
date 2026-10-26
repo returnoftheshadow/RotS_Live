@@ -112,9 +112,9 @@ void virt_assignmob(const struct char_data*);
 void virt_assignobj(const struct obj_data* obj);
 bool grant_account_character_selection_unlock(
     const account::AccountData& account_data, std::string* error_message);
-// Drops every pending selection unlock. The game never calls it; tests call it so an unlock one
-// test grants is not still pending in the next.
-void clear_account_character_selection_unlocks();
+// Production seam for tests: drops every pending selection unlock. The game never calls it;
+// tests call it so an unlock one test grants is not still pending in the next.
+void clear_account_character_selection_unlocks_for_testing();
 bool account_has_restricting_active_linked_session(const account::AccountData& account_data);
 
 /* command_info::mask bits */

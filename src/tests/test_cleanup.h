@@ -116,9 +116,9 @@ private:
 // the test grants and never uses is not still pending in a later test or a repeat of this one.
 class ScopedSelectionUnlockReset {
 public:
-    ScopedSelectionUnlockReset() { clear_account_character_selection_unlocks(); }
+    ScopedSelectionUnlockReset() { clear_account_character_selection_unlocks_for_testing(); }
 
-    ~ScopedSelectionUnlockReset() { clear_account_character_selection_unlocks(); }
+    ~ScopedSelectionUnlockReset() { clear_account_character_selection_unlocks_for_testing(); }
 
     ScopedSelectionUnlockReset(const ScopedSelectionUnlockReset&) = delete;
     ScopedSelectionUnlockReset& operator=(const ScopedSelectionUnlockReset&) = delete;
