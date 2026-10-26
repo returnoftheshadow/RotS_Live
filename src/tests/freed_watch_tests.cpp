@@ -128,3 +128,35 @@ TEST_F(FreedWatchTest, ALoopEndsWhenThePersonAndTheSavedNextAreBothGone)
     EXPECT_EQ(nullptr, next_person_after_trigger(world[0], first, true, second));
 }
 
+TEST_F(FreedWatchTest, ALoopGoesOnFromTheSavedNextObjectAfterOneWasFreed)
+{
+    obj_data* second = make_object(STONE_VNUM, 0);
+    obj_to_room(second, 0);
+    obj_data* first = make_object(STONE_VNUM, 0);
+    obj_to_room(first, 0);
+    extract_obj(first);
+
+    EXPECT_EQ(second, next_content_after_trigger(world[0], first, true, second));
+}
+
+TEST_F(FreedWatchTest, ALoopGoesOnFromTheNextObjectOfOneStillInTheRoom)
+{
+    obj_data* second = make_object(STONE_VNUM, 0);
+    obj_to_room(second, 0);
+    obj_data* first = make_object(STONE_VNUM, 0);
+    obj_to_room(first, 0);
+
+    EXPECT_EQ(second, next_content_after_trigger(world[0], first, false, nullptr));
+}
+
+TEST_F(FreedWatchTest, AContentListHoldsOnlyItsOwnObjects)
+{
+    obj_data* carried = make_object(STONE_VNUM, 0);
+    obj_to_char(carried, &m_player);
+    obj_data* on_floor = make_object(STONE_VNUM, 0);
+    obj_to_room(on_floor, 0);
+
+    EXPECT_TRUE(is_on_content_list(m_player.carrying, carried));
+    EXPECT_FALSE(is_on_content_list(m_player.carrying, on_floor));
+    EXPECT_FALSE(is_on_content_list(m_player.carrying, nullptr));
+}

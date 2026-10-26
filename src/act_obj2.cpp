@@ -707,7 +707,8 @@ void perform_remove(struct char_data* ch, int pos);
  * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
  * is there is taken off first. Returns false only when the item's ON_WEAR script freed the item or
  * the wearer: the caller must touch neither again, and one that must know which watches the
- * wearer with a freed_watch. Returns true otherwise, whether or not the item was worn. */
+ * wearer with a freed_watch. Returns true otherwise, whether or not the item was worn; an item
+ * the script took out of the wearer's hands is not worn. */
 bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
 {
     static int item_slots[] = {
@@ -804,6 +805,10 @@ bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
         return false;
     }
     if (wear_result == object_trigger_result::refused) {
+        return true;
+    }
+    /* The script may have dropped, given or already worn the item. */
+    if (!is_on_content_list(character->carrying, item)) {
         return true;
     }
 
@@ -951,9 +956,13 @@ ACMD(do_wear)
             if (where >= 0) {
                 items_worn++;
                 perform_wear(ch, obj, where, true);
-                /* An item's ON_WEAR script can remove the wearer; that ends the wearing. */
+                /* An item's ON_WEAR script can remove the wearer, or take away the item to be
+                 * looked at next; either ends the wearing. */
                 if (wearer_watch.freed()) {
                     return;
+                }
+                if (!is_on_content_list(ch->carrying, next_obj)) {
+                    break;
                 }
             }
         }
@@ -976,6 +985,9 @@ ACMD(do_wear)
                     /* As for wear all. */
                     if (wearer_watch.freed()) {
                         return;
+                    }
+                    if (!is_on_content_list(ch->carrying, next_obj)) {
+                        next_obj = nullptr;
                     }
                 } else
                     act("You can't wear $p.", FALSE, ch, obj, 0, TO_CHAR);

@@ -351,28 +351,189 @@ int find_script_by_number(const int number)
         return i;
 }
 
-void initialise_script_info_char(char_data* ch, int index)
+/* Releases <state> and the texts ASSIGN_STR gave it; nothing may be using it. */
+static void release_script_state_now(info_script*& state)
 {
-
-    if (!(ch->specials.script_info))
-        CREATE1(ch->specials.script_info, info_script);
-    clear_script_info(ch->specials.script_info);
-
-    /* -1 means ignore the index */
-    if (index != -1)
-        ch->specials.script_info->index = index;
+    clear_script_info(state);
+    RELEASE(state);
 }
 
-void initialise_script_info_obj(obj_data* obj, int index)
+namespace {
+
+/* The script state of each run_script call in progress, innermost first. A character or object
+ * freed in mid-script is dropped from every running script's variables, and a freed subject's
+ * own state, which its script is still using, is released when that script ends instead. */
+class running_script_frame {
+public:
+    explicit running_script_frame(info_script* state)
+        : m_state(state)
+        , m_enclosing(innermost)
+    {
+        innermost = this;
+    }
+
+    ~running_script_frame()
+    {
+        innermost = m_enclosing;
+        if (m_owns_state) {
+            release_script_state_now(m_state);
+        }
+    }
+
+    running_script_frame(const running_script_frame&) = delete;
+    running_script_frame& operator=(const running_script_frame&) = delete;
+
+    /* True if a script is running with <state>. */
+    static bool is_running(const info_script* state)
+    {
+        for (const running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            if (frame->m_state == state) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /* Hands <state> to the outermost script running with it, to be released when that script
+     * ends. False, with nothing changed, if no script is running with it. */
+    static bool adopt(info_script* state)
+    {
+        running_script_frame* outermost_user = nullptr;
+        for (running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            if (frame->m_state == state) {
+                outermost_user = frame;
+            }
+        }
+        if (!outermost_user) {
+            return false;
+        }
+        outermost_user->m_owns_state = true;
+        return true;
+    }
+
+    /* Empties every running script's ob1-ob3 that names <object>. */
+    static void forget(const obj_data* object)
+    {
+        for (running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            for (obj_data*& variable : frame->m_state->ob) {
+                if (variable == object) {
+                    variable = nullptr;
+                }
+            }
+        }
+    }
+
+    /* Empties every running script's ch1-ch3 that names <character>. */
+    static void forget(const char_data* character)
+    {
+        for (running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            for (char_data*& variable : frame->m_state->ch) {
+                if (variable == character) {
+                    variable = nullptr;
+                }
+            }
+        }
+    }
+
+private:
+    // The innermost run_script in progress; each frame points on to the one it runs inside. Null
+    // when no script is running, which is nearly always, so a free costs one test.
+    static inline running_script_frame* innermost = nullptr;
+
+    // The state this run_script call reads and writes; it outlives the call unless m_owns_state.
+    info_script* m_state;
+    // Set by adopt: the state's subject has been freed, so this frame releases the state on exit.
+    bool m_owns_state = false;
+    // The frame of the script this one runs inside, or null; innermost again once this one ends.
+    running_script_frame* m_enclosing;
+};
+
+/* The script state one trigger's script runs with: the subject's own state, created on first use
+ * and cleared for the run. When a script is already running with that state (the script set off
+ * its own subject's trigger again, as DO_WEAR on its own object does, or a mob hears the answer to
+ * what its script said), the new run gets a fresh state of its own instead, and the outer script
+ * carries on with its variables intact. Refusing the nested trigger would protect the outer
+ * script too, but would stop scripts that work today; a fresh state leaves every script that does
+ * not set itself off again exactly as it was. Only DO_WAIT's resume point is shared: a nested run
+ * that pauses leaves it in the subject's own state, where continue_char_script looks. */
+class trigger_state {
+public:
+    /* <own_state> is the subject's script_info. <index> is the script's place in script_table,
+     * or -1 to keep the one the own state has. */
+    trigger_state(info_script*& own_state, int index)
+    {
+        if (!own_state) {
+            CREATE1(own_state, info_script);
+        }
+        m_own = own_state;
+        if (running_script_frame::is_running(m_own)) {
+            if (index != -1) {
+                m_nested.index = index;
+            } else {
+                m_nested.index = m_own->index;
+            }
+            m_nested.next_command = m_own->next_command;
+            m_active = &m_nested;
+        } else {
+            clear_script_info(m_own);
+            if (index != -1) {
+                m_own->index = index;
+            }
+            m_active = m_own;
+        }
+    }
+
+    ~trigger_state()
+    {
+        if (m_active == &m_nested) {
+            m_own->next_command = m_nested.next_command;
+            clear_script_info(&m_nested);
+        }
+    }
+
+    trigger_state(const trigger_state&) = delete;
+    trigger_state& operator=(const trigger_state&) = delete;
+
+    /* The state the trigger's script is to run with. */
+    info_script& info() { return *m_active; }
+
+private:
+    // The subject's own state. After a nested run the outer script still running with it keeps it
+    // alive, even if the subject was freed; after an ordinary run it is not touched again.
+    info_script* m_own = nullptr;
+    // The state of a run nested inside a script already using m_own; unused otherwise.
+    info_script m_nested {};
+    // The state the script runs with: m_own, or m_nested for a nested run.
+    info_script* m_active = nullptr;
+};
+
+} // namespace
+
+/* Releases a subject's script state as the subject is freed: at once, or when the script still
+ * running with it ends. */
+static void release_script_state(info_script*& state)
 {
+    if (!state) {
+        return;
+    }
+    if (!running_script_frame::adopt(state)) {
+        release_script_state_now(state);
+    }
+    state = nullptr;
+}
 
-    if (!(obj->obj_flags.script_info))
-        CREATE1(obj->obj_flags.script_info, info_script);
-    clear_script_info(obj->obj_flags.script_info);
+void note_object_freed(obj_data* object)
+{
+    freed_watch::note_freed(object);
+    running_script_frame::forget(object);
+    release_script_state(object->obj_flags.script_info);
+}
 
-    /* -1 means ignore the index */
-    if (index != -1)
-        obj->obj_flags.script_info->index = index;
+void note_char_freed(char_data* character)
+{
+    freed_watch::note_freed(character);
+    running_script_frame::forget(character);
+    release_script_state(character->specials.script_info);
 }
 
 void clear_script_info(info_script* inf)
@@ -1042,10 +1203,9 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
     return return_value;
 }
 
-/* True if <object> is one of <room>'s contents; false for a null object. */
-static bool is_in_room_contents(const room_data* room, const obj_data* object)
+bool is_on_content_list(const obj_data* first, const obj_data* object)
 {
-    for (const obj_data* content = room->contents; content; content = content->next_content) {
+    for (const obj_data* content = first; content; content = content->next_content) {
         if (content == object) {
             return true;
         }
@@ -1054,7 +1214,7 @@ static bool is_in_room_contents(const room_data* room, const obj_data* object)
 }
 
 /* True if <person> is one of the people on the next_in_room list that starts with <first>;
- * compared by address and never read, as is_in_room_contents. */
+ * compared by address and never read, as is_on_content_list. */
 static bool is_on_people_list(const char_data* first, const char_data* person)
 {
     for (const char_data* listed = first; listed; listed = listed->next_in_room) {
@@ -1080,6 +1240,18 @@ char_data* next_person_after_trigger(const room_data& room, char_data* current,
     /* following may have been freed or moved too, so it is only compared, never read, until it
      * is found among the room's people. */
     if (is_on_people_list(room.people, following)) {
+        return following;
+    }
+    return nullptr;
+}
+
+obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
+    bool current_freed, obj_data* following)
+{
+    if (!current_freed && is_room(room, current->in_room)) {
+        return current->next_content;
+    }
+    if (is_on_content_list(room.contents, following)) {
         return following;
     }
     return nullptr;
@@ -1114,10 +1286,26 @@ static int trigger_room_people(int trigger_type, room_data& room, char_data* ch,
     return 1;
 }
 
+/* Sets off ON_ENTER on each of <room>'s contents, with <ch> entering, until a script returns
+ * false or <entering_watch> (on ch) reports ch freed. Returns 0 if either happened, else 1. */
+static int trigger_room_contents(room_data& room, char_data* ch, const freed_watch& entering_watch)
+{
+    obj_data* object = room.contents;
+    while (object) {
+        obj_data* following = object->next_content;
+        bool object_freed = false;
+        const int script_result = trigger_object_event(ON_ENTER, object, ch, object_freed);
+        if (!script_result || entering_watch.freed()) {
+            return 0;
+        }
+        object = next_content_after_trigger(room, object, object_freed, following);
+    }
+    return 1;
+}
+
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
 {
     int return_value = 1;
-    obj_data* tmpobj;
     /* A script that frees the one entering ends the event: nobody else can meet it, and it
      * enters nowhere. */
     freed_watch entering_watch(ch);
@@ -1134,25 +1322,8 @@ int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
         if (return_value) {
             return_value = trigger_room_people(ON_ENTER, *room, ch, entering_watch);
         }
-        tmpobj = room->contents;
-        while (tmpobj && return_value) {
-            obj_data* following = tmpobj->next_content;
-            bool object_freed = false;
-            return_value = trigger_object_event(ON_ENTER, tmpobj, ch, object_freed);
-            if (entering_watch.freed()) {
-                return_value = 0;
-                break;
-            }
-            if (!object_freed) {
-                tmpobj = tmpobj->next_content;
-            } else if (is_in_room_contents(room, following)) {
-                /* tmpobj and its next_content are gone. The object that followed it is safe to
-                 * carry on from only if it is still in this room: the script may have moved or
-                 * extracted it too. */
-                tmpobj = following;
-            } else {
-                tmpobj = nullptr;
-            }
+        if (return_value) {
+            return_value = trigger_room_contents(*room, ch, entering_watch);
         }
         break;
 
@@ -1301,6 +1472,7 @@ int run_script(struct info_script* info, struct script_data* position)
     struct follow_type *k, *next_fol;
 
     running_script_guard script_context;
+    running_script_frame frame(info);
 
     curr = position;
     if (!position)
@@ -1574,13 +1746,10 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpobj = get_obj_param(curr->param[1], info);
                 /* find_eq_pos reads the object: an unset one crashed the server. */
                 tmpint = (tmpch && tmpobj) ? find_eq_pos(tmpch, tmpobj, 0) : -1;
+                /* An ON_WEAR script that frees the object or the wearer empties every variable
+                 * naming it (note_object_freed, note_char_freed). */
                 if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj)) {
-                    /* The object's own ON_WEAR script may extract it: then the variable is
-                     * emptied, as EXTRACT_OBJ does. */
-                    if (!perform_wear(tmpch, tmpobj, tmpint)) {
-                        tmpobj = 0;
-                        assign_obj_param(curr->param[1], info, tmpobj);
-                    }
+                    perform_wear(tmpch, tmpobj, tmpint);
                 }
             }
             curr = curr->next;
@@ -2203,12 +2372,12 @@ int trigger_room_enter(const room_data* room, const char_data* ch)
 
 void continue_char_script(char_data* ch)
 {
-    int return_value;
-
-    initialise_script_info_char(ch, -1); // Invalidates all pointers, but its safter this way
-    ch->specials.script_info->ch[0] = ch;
+    /* The variables start empty: what they named before the pause may be gone. */
+    trigger_state state(ch->specials.script_info, -1);
+    info_script& info = state.info();
+    info.ch[0] = ch;
     ch->delay.cmd = 0;
-    return_value = run_script(ch->specials.script_info, ch->specials.script_info->next_command);
+    run_script(&info, info.next_command);
 }
 
 //  A character can prevent another entering the room by returning FALSE
@@ -2224,11 +2393,12 @@ int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room)
 
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_BEFORE_ENTER)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = vict;
-            ch->specials.script_info->rm[0] = room;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = vict;
+            info.rm[0] = room;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2243,10 +2413,11 @@ int trigger_char_damage(char_data* vict, char_data* ch)
         return 1;
     if ((script_position = char_has_script(&index, vict->specials.script_number, ON_DAMAGE)))
         if (script_position->next) {
-            initialise_script_info_char(vict, index);
-            vict->specials.script_info->ch[0] = vict;
-            vict->specials.script_info->ch[1] = ch;
-            return_value = run_script(vict->specials.script_info, script_position->next);
+            trigger_state state(vict->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = vict;
+            info.ch[1] = ch;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2262,9 +2433,10 @@ int trigger_char_die(char_data* ch)
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_DIE)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2281,9 +2453,10 @@ int trigger_char_path_end(char_data* ch)
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_PATH_END)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2300,11 +2473,12 @@ int trigger_char_enter(char_data* ch, char_data* vict, room_data* room)
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_ENTER)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = vict;
-            ch->specials.script_info->rm[0] = room;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = vict;
+            info.rm[0] = room;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2321,11 +2495,12 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
     freed_watch speaker_watch(speaking);
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_SAY)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = speaking;
-            ch->specials.script_info->str[0] = text;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = speaking;
+            info.str[0] = text;
+            return_value = run_script(&info, script_position->next);
         }
     /* The yell script is looked up on the mob and given the speaker: the say script may have
      * removed either. */
@@ -2334,11 +2509,12 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
     }
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = speaking;
-            ch->specials.script_info->str[0] = text;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = speaking;
+            info.str[0] = text;
+            return_value = run_script(&info, script_position->next);
         }
     }
     return return_value;
@@ -2354,11 +2530,12 @@ int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1)
         return 1;
     if ((script_position = char_has_script(&index, ch1->specials.script_number, ON_RECEIVE)))
         if (script_position->next) {
-            initialise_script_info_char(ch1, index);
-            ch1->specials.script_info->ch[0] = ch1;
-            ch1->specials.script_info->ch[1] = ch2;
-            ch1->specials.script_info->ob[0] = ob1;
-            return_value = run_script(ch1->specials.script_info, script_position->next);
+            trigger_state state(ch1->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch1;
+            info.ch[1] = ch2;
+            info.ob[0] = ob1;
+            return_value = run_script(&info, script_position->next);
         }
 
     return return_value;
@@ -2376,25 +2553,15 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
 
     if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_DAMAGE)))
         if (script_position->next) {
-            initialise_script_info_obj(obj, index);
-            obj->obj_flags.script_info->ch[0] = vict;
-            obj->obj_flags.script_info->ch[1] = ch;
-            obj->obj_flags.script_info->ob[0] = obj;
-            obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
-            return_value = run_script(obj->obj_flags.script_info, script_position->next);
+            trigger_state state(obj->obj_flags.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = vict;
+            info.ch[1] = ch;
+            info.ob[0] = obj;
+            return_value = run_script(&info, script_position->next);
         }
 
     return return_value;
-}
-
-void note_object_freed(const obj_data* object)
-{
-    freed_watch::note_freed(object);
-}
-
-void note_char_freed(const char_data* character)
-{
-    freed_watch::note_freed(character);
 }
 
 /* Runs <obj>'s own <trigger_type> script with <ch> as ch1 and the object as ob1, and returns what
@@ -2412,15 +2579,13 @@ static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
         return 1;
     }
 
-    initialise_script_info_obj(obj, index);
-    /* free_obj leaves the script's state alone, so info stays valid while the script runs even if
-     * the object does not. */
-    info_script* info = obj->obj_flags.script_info;
-    info->ch[0] = ch;
-    info->ob[0] = obj;
+    trigger_state state(obj->obj_flags.script_info, index);
+    info_script& info = state.info();
+    info.ch[0] = ch;
+    info.ob[0] = obj;
 
     freed_watch watch(obj);
-    const int script_result = run_script(info, script_position->next);
+    const int script_result = run_script(&info, script_position->next);
     out_object_freed = watch.freed();
     return script_result;
 }

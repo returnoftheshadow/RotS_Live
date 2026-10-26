@@ -129,7 +129,57 @@ TEST_F(CharacterTriggerTest, GivingAllToAMobThatKeepsItselfGivesEverything)
     EXPECT_EQ(nullptr, m_player.carrying);
 }
 
+/* The keeper's script takes the bread the player was going to give next and destroys it. */
+TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptExtractsTheNextItem)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { BREAD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    obj_data* bread = give_player(make_object(BREAD_VNUM, 0));
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0)); /* given first */
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(stone, keeper->carrying);
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_FALSE(is_in_object_list(bread));
+}
+
+TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptExtractsTheNextOne)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    give_player(make_object(STONE_VNUM, 0));
+    give_player(make_object(STONE_VNUM, 0));
+
+    run_command(do_give, "all.stone keeper");
+
+    EXPECT_EQ(1, count_contents(keeper->carrying));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
 /* ---- wearing (ON_WEAR) ---- */
+
+/* The ring's script destroys the stone that wear all would look at next. */
+TEST_F(CharacterTriggerTest, WearingAllStopsWhenARingsScriptExtractsTheNextItem)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0));
+    obj_data* ring = give_player(make_scripted(RING_VNUM)); /* looked at first */
+
+    run_command(do_wear, "all");
+
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_FALSE(is_in_object_list(stone));
+}
 
 TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
 {
@@ -142,6 +192,19 @@ TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
 
     EXPECT_FALSE(is_in_game(wearer));
     EXPECT_EQ(2, count_contents(world[0].contents)) << "the wearer dropped both rings";
+}
+
+/* The ring's script drops it: there is nothing left in the player's hands to wear. */
+TEST_F(CharacterTriggerTest, ARingWhoseScriptDropsItIsLeftOnTheFloor)
+{
+    install_script(ON_WEAR, { { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1 } } });
+    obj_data* ring = give_player(make_scripted(RING_VNUM));
+
+    run_command(do_wear, "ring");
+
+    EXPECT_EQ(ring, world[0].contents);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_L]);
 }
 
 TEST_F(CharacterTriggerTest, WearingAllWearsEveryRingWhoseScriptKeepsIt)
@@ -325,3 +388,55 @@ TEST_F(CharacterTriggerTest, AMobsScriptRunsOnAfterItRemovesTheMob)
     EXPECT_TRUE(output_has("Still running."));
 }
 
+/* The ring's own wear script destroys it while the mob's script, which wore it, still holds it in
+ * a second variable: that variable is emptied too. */
+TEST_F(CharacterTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_ASSIGN_INV, nullptr,
+                                    { RING_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_ASSIGN_INV, nullptr,
+                                      { RING_VNUM, SCRIPT_PARAM_OB3, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_DO_WEAR, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } },
+                                  { SCRIPT_SEND_TO_CHAR, "It was [%s].",
+                                      { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB3_NAME } } } } } },
+        { OTHER_SCRIPT_VNUM, { { ON_WEAR, { { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } } } } } });
+    char_data* wearer = make_mob("wearer", SCRIPT_VNUM);
+    obj_data* ring = make_object(RING_VNUM, OTHER_SCRIPT_VNUM);
+    obj_to_char(ring, wearer);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_TRUE(output_has("It was []."));
+}
+
+/* The first mob's script makes it speak, the second mob answers, and the first mob hears the
+ * answer: its own hearing script runs again inside the first, which still has its variables when
+ * it carries on. */
+TEST_F(CharacterTriggerTest, AMobsScriptKeepsItsVariablesWhenItsTriggerRunsAgainInsideIt)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_ASSIGN_INV, nullptr,
+                                      { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_CHAR, "Holding %s.",
+                                      { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2_NAME } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    char_data* asker = make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    obj_to_char(make_object(STONE_VNUM, 0), asker);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("Holding a grey stone.")) << output();
+}

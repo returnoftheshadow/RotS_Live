@@ -200,12 +200,14 @@ enum class object_trigger_result {
 [[nodiscard]] object_trigger_result call_object_trigger(int trigger_type, obj_data* object,
     char_data* ch);
 
-/* Tells every freed_watch on <object> that it is being freed (so a call_object_trigger on it
- * reports object_extracted). free_obj calls it for every object it frees. */
-void note_object_freed(const obj_data* object);
-/* Tells every freed_watch on <character> that it is being freed. free_char calls it for every
- * character it frees. */
-void note_char_freed(const char_data* character);
+/* Tells the game that <object> is about to be freed: every freed_watch on it reports freed (so a
+ * call_object_trigger on it reports object_extracted), every running script's ob1-ob3 naming it
+ * is emptied, and its script state is released, at once or, while a script is running on that
+ * state, when the script ends. free_obj calls it for every object it frees. */
+void note_object_freed(obj_data* object);
+/* The same for <character>, whose running scripts' ch1-ch3 naming it are emptied. free_char calls
+ * it for every character it frees. */
+void note_char_freed(char_data* character);
 
 /* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the
  * trigger on <current> has run. <following> is current's next_in_room from before the trigger,
@@ -215,6 +217,17 @@ void note_char_freed(const char_data* character);
  * removed both has left nothing to go on from. */
 char_data* next_person_after_trigger(const room_data& room, char_data* current,
     bool current_freed, char_data* following);
+/* The same for a loop over <room>'s contents. */
+obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
+    bool current_freed, obj_data* following);
+/* True if <object> is on the next_content list that starts with <first>: a room's contents, an
+ * inventory or a container's contents. <object> is compared by address and never read, so it may
+ * be one that has been freed: the answer is then false, unless an object made since at the same
+ * address is on the list. */
+bool is_on_content_list(const obj_data* first, const obj_data* object);
+
+/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch and the other character, object,
+ * room and text variables empty. */
 void continue_char_script(char_data* ch);
 
 /* Report script lines whose vnums name nothing -- informational only. */

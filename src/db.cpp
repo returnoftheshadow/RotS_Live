@@ -1807,6 +1807,8 @@ struct char_data* read_mobile(int nr, int type)
     CREATE(mob, struct char_data, 1);
 
     *mob = mob_proto[i];
+    /* Script state belongs to one character; freeing this mob releases its own. */
+    mob->specials.script_info = nullptr;
 
     mob->in_room = NOWHERE;
 
@@ -2124,6 +2126,8 @@ struct obj_data* read_object(int nr, int type)
 
     CREATE(obj, struct obj_data, 1);
     *obj = obj_proto[i];
+    /* Script state belongs to one object; freeing this one releases its own. */
+    obj->obj_flags.script_info = nullptr;
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)

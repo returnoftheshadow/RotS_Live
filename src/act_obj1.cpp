@@ -760,9 +760,12 @@ ACMD(do_give)
                 for (obj = ch->carrying; obj; obj = next_obj) {
                     next_obj = obj->next_content;
                     perform_give(ch, vict, obj);
-                    /* The receiver's ON_RECEIVE script can remove either of them; that ends the
-                     * giving. */
+                    /* The receiver's ON_RECEIVE script can remove either of them, or take away
+                     * the item to be given next; any of those ends the giving. */
                     if (giver_watch.freed() || receiver_watch.freed()) {
+                        break;
+                    }
+                    if (!is_on_content_list(ch->carrying, next_obj)) {
                         break;
                     }
                 }
@@ -783,6 +786,9 @@ ACMD(do_give)
                     /* As for give all; the receiver is looked up again below. */
                     if (giver_watch.freed()) {
                         break;
+                    }
+                    if (!is_on_content_list(ch->carrying, next_obj)) {
+                        next_obj = nullptr;
                     }
                     obj = next_obj;
                     /* This because of poor design - losing orignal arguments
