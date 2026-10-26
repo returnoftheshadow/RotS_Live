@@ -176,7 +176,7 @@ bool profile_load(const std::string& root, const std::string& account_name,
     }));
     // L5: char_file_u -> live char (OFFLINE only; store_to_char allocates into the char).
     // Build the scratch char the project's way and reuse one struct across iterations.
-    // NOTE: store_to_char unconditionally CREATE()s title/description/profs/name on every
+    // NOTE: store_to_char unconditionally CREATE()s title/description/name on every
     // call with no prior free, so per-iteration inner allocations leak; delete scratch frees
     // only the struct shell. The leak is bounded and acceptable for a short-lived offline
     // benchmark — matches the existing db_loader_tests idiom.

@@ -50,34 +50,29 @@ void weight_change_object(struct obj_data* obj, int weight)
     }
 }
 
+/* Copies of a prototype share its name, and after an implement older copies share the name it
+ * replaced, so a copy frees only a name it made itself (obj_data::set_owned_text). */
 void name_from_drinkcon(struct obj_data* obj)
 {
     int i;
-    char* new_name;
-    extern struct obj_data* obj_proto;
 
     for (i = 0; (*((obj->name) + i) != ' ') && (*((obj->name) + i) != '\0'); i++)
         ;
 
     if (*((obj->name) + i) == ' ') {
-        new_name = str_dup((obj->name) + i + 1);
-        if (obj->item_number < 0 || obj->name != obj_proto[obj->item_number].name)
-            RELEASE(obj->name);
-        obj->name = new_name;
+        char* const new_name = str_dup((obj->name) + i + 1);
+        obj->set_owned_text(object_text::name, new_name);
     }
 }
 
 void name_to_drinkcon(struct obj_data* obj, int type)
 {
     char* new_name;
-    extern struct obj_data* obj_proto;
     extern char* drinknames[];
 
     CREATE(new_name, char, strlen(obj->name) + strlen(drinknames[type]) + 2);
     sprintf(new_name, "%s %s", drinknames[type], obj->name);
-    if (obj->item_number < 0 || obj->name != obj_proto[obj->item_number].name)
-        RELEASE(obj->name);
-    obj->name = new_name;
+    obj->set_owned_text(object_text::name, new_name);
 }
 
 extern struct obj_data generic_water;
