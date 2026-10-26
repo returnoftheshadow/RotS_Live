@@ -301,6 +301,8 @@ def test_a_harness_change_runs_every_group(path: str) -> None:
         "tests/integration/world/notes/zone-11.md",
         "src/handler.cpp",
         ".github/workflows/ci.yml",
+        # The on-request ASan run builds its own programs and never changes how this workflow runs a scenario.
+        ".github/workflows/asan.yml",
         "lib/misc/game_boot_options.json",
         "lib/plrobjs/a/alice",
         "lib/world/wld/11.wld",
