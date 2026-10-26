@@ -19,6 +19,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -1098,6 +1099,10 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
         mob = read_mobile(tmp, REAL);
         char_to_room(mob, ch->in_room);
 
+        /* Putting its gear back on can kill the follower (an item's poison) or set off a script
+         * that removes it: its remaining records are then read past, and nothing more is made
+         * for it. */
+        freed_watch follower_watch(mob);
         while (true) {
             obj_file_extra object_extra;
             if (!read_crashsave_object(fp, &object, &object_extra, "reading follower object data in Crash_follower_load"))
@@ -1113,6 +1118,9 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
             if (object.wear_pos > MAX_WEAR || object.wear_pos < 0)
                 continue;
+            if (follower_watch.freed()) {
+                continue;
+            }
 
             obj = Crash_obj2char(mob, &object, object_extra, ch);
             if (!obj) {
@@ -1121,6 +1129,9 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
                 return;
             }
             equip_char(mob, obj, object.wear_pos);
+        }
+        if (follower_watch.freed()) {
+            continue;
         }
         switch (fol_elem.flag_config) {
         case FOL_ORC_FRIEND: // We should really have an add_recruit function
@@ -1213,9 +1224,18 @@ void extract_followers(const struct char_data* ch)
         next_fol = k->next;
         if (!IS_NPC(k->follower))
             continue;
-        for (x = 0; x < MAX_WEAR; x++)
-            if (k->follower->equipment[x])
-                extract_obj(unequip_char(k->follower, x));
+        /* Taking an item off can kill the follower (its poison) or set off a script that removes
+         * it, and its follow record with it: there is then nothing left to extract. */
+        char_data* follower = k->follower;
+        freed_watch follower_watch(follower);
+        for (x = 0; x < MAX_WEAR && !follower_watch.freed(); x++) {
+            if (follower->equipment[x]) {
+                extract_obj(unequip_char(follower, x));
+            }
+        }
+        if (follower_watch.freed()) {
+            continue;
+        }
         for (x = 0; (x < 1000) && k->follower->carrying; x++) {
             obj = k->follower->carrying;
             obj_from_char(k->follower->carrying);

@@ -2091,7 +2091,14 @@ ASPELL(spell_black_arrow)
         affect_join(victim, &af, FALSE, FALSE);
 
         send_to_char("The vile magic poisons you!\n\r", victim);
+        /* The poison's blow can remove the target or the caster (a death, a script): the arrow
+         * then strikes nobody. */
+        freed_watch caster_watch(caster);
+        freed_watch target_watch(victim);
         apply_spell_damage(caster, victim, min_poison_dam, SPELL_POISON, 0);
+        if (caster_watch.freed() || target_watch.freed()) {
+            return;
+        }
     }
 
     apply_spell_damage(caster, victim, dam, SPELL_BLACK_ARROW, 0);
@@ -2129,10 +2136,13 @@ ASPELL(spell_shout_of_pain)
 
     int dam_value = number(1, 50) + get_magic_power(caster) / 2;
 
+    /* As for earthquake. */
+    freed_watch caster_watch(caster);
     char_data* tmpch_next = NULL;
     for (char_data* tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N seems to resist some of the agony.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -2140,6 +2150,9 @@ ASPELL(spell_shout_of_pain)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_SHOUT_OF_PAIN, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_SHOUT_OF_PAIN, 0);
+            }
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
             }
         }
     }
@@ -2207,7 +2220,9 @@ ASPELL(spell_blaze)
         act("$n breathes out a cloud of fire!", TRUE, caster, 0, 0, TO_ROOM);
         send_to_char("You breathe out fire.\n\r", caster);
 
-        /* Damage everyone in the room */
+        /* Damage everyone in the room; as for earthquake, the blaze ends with the caster, and the
+         * burning with the one to be burned next. */
+        freed_watch caster_watch(caster);
         for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
             tmpch_next = tmpch->next_in_room;
 
@@ -2224,7 +2239,14 @@ ASPELL(spell_blaze)
                 dam = dam >> 1;
             }
 
+            freed_watch next_watch(tmpch_next);
             apply_spell_damage(caster ? caster : tmpch, tmpch, dam, SPELL_BLAZE, 0);
+            if (caster_watch.freed()) {
+                return;
+            }
+            if (next_watch.freed()) {
+                break;
+            }
         }
 
         /*

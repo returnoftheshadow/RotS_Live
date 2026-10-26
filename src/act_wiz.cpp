@@ -1624,9 +1624,17 @@ ACMD(do_purge)
 
             act("$n disintegrates $N.", FALSE, ch, 0, vict, TO_NOTVICT);
 
-            for (tmp = 0; tmp < MAX_WEAR; tmp++)
-                if (vict->equipment[tmp])
+            /* Taking an item off can kill the victim (its poison) or set off a script that
+             * removes it: nothing is then left to purge. */
+            freed_watch victim_watch(vict);
+            for (tmp = 0; tmp < MAX_WEAR; tmp++) {
+                if (vict->equipment[tmp]) {
                     extract_obj(unequip_char(vict, tmp));
+                    if (victim_watch.freed()) {
+                        return;
+                    }
+                }
+            }
 
             for (tmp = 0; (tmp < 1000) && vict->carrying; tmp++) {
                 obj = vict->carrying;

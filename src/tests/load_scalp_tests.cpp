@@ -158,8 +158,11 @@ protected:
         }
         m_saved_top_of_world = top_of_world;
         m_saved_contents = world[0].contents;
+        m_saved_people = world[0].people;
         top_of_world = 0;
         world[0].contents = nullptr;
+        /* Nobody else is in the room to be told of the beheading. */
+        world[0].people = nullptr;
 
         m_corpse_name = str_dup("corpse");
         m_corpse_description = str_dup("The corpse of a warg is lying here.");
@@ -188,6 +191,7 @@ protected:
         RELEASE(m_corpse_name);
         RELEASE(m_corpse_description);
         world[0].contents = m_saved_contents;
+        world[0].people = m_saved_people;
         top_of_world = m_saved_top_of_world;
         LoadScalpTest::TearDown();
     }
@@ -217,6 +221,7 @@ protected:
     char_data m_character {}; // the one doing the beheading
     int m_saved_top_of_world = 0; // restored in TearDown
     obj_data* m_saved_contents = nullptr; // room 0's floor before the test, restored in TearDown
+    char_data* m_saved_people = nullptr; // room 0's people before the test, restored in TearDown
 };
 
 /* Beheading one corpse gives it a room line of its own and leaves the line the other copy shares,
