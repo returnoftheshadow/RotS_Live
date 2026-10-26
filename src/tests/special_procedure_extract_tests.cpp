@@ -176,14 +176,21 @@ SPECIAL(remove_actor_yelling)
     return 0;
 }
 
-/* On the far side of a door, removes whoever knocks on it. A knock lends the knocker the far
- * room without moving it there; the knocker is first put back where it stands (room 0), as a
- * removal that takes it out of its own room's list needs. */
+/* On the far side of a door, removes whoever knocks on it. */
 SPECIAL(remove_actor_knocking)
 {
     if (cmd == CMD_KNOCK) {
-        ch->in_room = 0;
         extract_char(ch);
+    }
+    return 0;
+}
+
+/* On the far side of a door, takes whoever knocks on it through to that side. */
+SPECIAL(take_knocker_through)
+{
+    if (cmd == CMD_KNOCK) {
+        char_from_room(ch);
+        char_to_room(ch, SECOND_ROOM);
     }
     return 0;
 }
@@ -1058,19 +1065,85 @@ static void make_north_a_door(char* keyword)
     SET_BIT(north->exit_info, EX_ISDOOR);
 }
 
-TEST_F(SpecialProcedureTest, AKnockWhoseFarSideRemovesTheKnockerGoesNoFurther)
+/* Whether <character> is on <room>'s list of people. Compares addresses only, so it may be given
+ * one that has been freed. */
+static bool is_listed_in_room(int room, const char_data* character)
+{
+    for (const char_data* person = world[room].people; person; person = person->next_in_room) {
+        if (person == character) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The knocker is removed while lent the far room: it leaves the room it stands in, and what it
+ * carried falls there. */
+TEST_F(SpecialProcedureTest, AKnockWhoseFarSideRemovesTheKnockerLeavesItsOwnRoomWhole)
 {
     char door[] = "door";
     make_north_a_door(door);
     world[SECOND_ROOM].funct = remove_actor_knocking;
     char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
     char argument[] = "door";
 
     do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
 
     EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
     EXPECT_EQ(&m_player, world[0].people) << "only the player is left here";
     EXPECT_EQ(nullptr, m_player.next_in_room);
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
+}
+
+TEST_F(SpecialProcedureTest, AKnockerTakenThroughTheDoorStandsOnlyOnTheFarSide)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = take_knocker_through;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_EQ(SECOND_ROOM, knocker->in_room);
+    EXPECT_TRUE(is_listed_in_room(SECOND_ROOM, knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+}
+
+/* The gatekeeper on the far side takes the knock, which ends its pause: the rest of its script
+ * yells, and a guard where the knocker stands removes the knocker on hearing it. */
+TEST_F(SpecialProcedureTest, AKnockWhoseGatekeepersYellRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { 5 } },
+            { SCRIPT_DO_YELL, "Who goes there?", { SCRIPT_PARAM_CH1 } } });
+    char_data* keeper = make_mob_with("gatekeeper", nullptr);
+    keeper->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, keeper->delay.cmd);
+    char_from_room(keeper);
+    char_to_room(keeper, SECOND_ROOM);
+    mob_index[keeper->nr].func = gatekeeper;
+    SET_BIT(MOB_FLAGS(keeper), MOB_SPEC);
+    char_data* guard = make_mob_with("guard", remove_marked_character);
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    record.character_to_remove = knocker;
+    char door[] = "door";
+    make_north_a_door(door);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_TRUE(is_listed_in_room(0, guard));
+    EXPECT_TRUE(is_listed_in_room(0, &m_player));
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
 }
 
 TEST_F(SpecialProcedureTest, AKnockIsHeardOnTheFarSideAndTheKnockerStaysPut)
