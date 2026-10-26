@@ -261,6 +261,62 @@ void DOWN_LIST(struct char_data* host)
         }
 }
 
+int CHECK_LIST(const struct char_data* host, char val);
+
+/* Turns <host>'s value stack <turns> times with <turn_once> (UP_STACK or DOWN_STACK). Each turn
+ * moves the stack's values round by one place, so a count past the stack's depth is taken modulo
+ * it: the order comes out as the full count gives, in at most depth - 1 turns. */
+void turn_stack(const struct char_data* host, int turns, void (*turn_once)(const struct char_data*))
+{
+    const int depth = SPECIAL_STACKPOINT(host);
+    /* A stack of one value or none reads the same however it is turned. */
+    if (turns <= 0 || depth < 2) {
+        return;
+    }
+    turns %= depth;
+    for (int turn = 0; turn < turns; ++turn) {
+        turn_once(host);
+    }
+}
+
+/* The number of entries in <host>'s target list, its mark included. */
+static int list_length(const struct char_data* host)
+{
+    int length = 0;
+    for (int slot = SPECIAL_LIST_HEAD(host); slot >= 0 && length < SPECIAL_STACKLEN;
+         slot = SPECIAL_LIST_AREA(host)->next[slot]) {
+        ++length;
+    }
+    return length;
+}
+
+/* Turns <host>'s target list <turns> times with <turn_once> (UP_LIST or DOWN_LIST), as that many
+ * calls of it would, in at most length - 1 turns. */
+void turn_list(struct char_data* host, int turns, void (*turn_once)(struct char_data*))
+{
+    if (turns <= 0) {
+        return;
+    }
+    const int length = list_length(host);
+    /* One turn says the list is too short to turn; saying it once is enough. */
+    if (length < 2) {
+        turn_once(host);
+        return;
+    }
+    if (turns >= length) {
+        /* Every entry would have come to the head, where a turn clears a character no longer in
+         * the game; the turns that are left out clear them here instead. */
+        for (int slot = SPECIAL_LIST_HEAD(host), seen = 0; slot >= 0 && seen < length;
+             slot = SPECIAL_LIST_AREA(host)->next[slot], ++seen) {
+            CHECK_LIST(host, static_cast<char>(slot));
+        }
+        turns %= length;
+    }
+    for (int turn = 0; turn < turns; ++turn) {
+        turn_once(host);
+    }
+}
+
 int CHECK_LIST(const struct char_data* host, char val)
 {
     if (SPECIAL_LIST_AREA(host)->field[(int)val].type == TARGET_CHAR)
