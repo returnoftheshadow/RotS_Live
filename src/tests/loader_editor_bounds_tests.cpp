@@ -1,6 +1,7 @@
 #include "../comm.h"
 #include "../db.h"
 #include "../handler.h"
+#include "../interpre.h"
 #include "../pkill.h"
 #include "../protos.h"
 #include "../structs.h"
@@ -35,6 +36,11 @@ int load_zone(struct char_data* ch, const char* arg);
 void free_zone(struct char_data* ch);
 void symbol_to_map(int x, int y, int symb);
 int pkill_update_file(const char* file, PKILL pkills[], int n);
+void list_zone(const struct char_data* ch);
+ACMD(do_fame);
+ACMD(do_shape);
+extern PKILL* pkill_tab;
+extern int pkill_tab_len;
 
 namespace {
 
@@ -138,6 +144,8 @@ public:
             m_entries[index].idnum = 1001 + static_cast<long>(index);
             m_entries[index].level = 20;
             m_entries[index].race = RACE_HUMAN;
+            m_entries[index].rank = PKILL_UNRANKED;
+            m_entries[index].totalrank = PKILL_UNRANKED;
         }
         player_table = m_entries.data();
         top_of_p_table = static_cast<int>(m_entries.size()) - 1;
@@ -624,6 +632,329 @@ TEST(LegacyPlayerLoader, SkipsAnArraySlotPastItsField)
 
     ASSERT_EQ(result, 1);
     EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
+}
+
+/* ---------------------------------------------------------------- PK list across boots */
+
+// Saved PK state: the table boot_pkills fills and the working folder it reads misc/pklist from.
+// The constructor empties the table and moves into <folder>; the destructor takes the players
+// back out of the rankings, frees the table and puts everything back.
+class ScopedPkillBoot {
+public:
+    explicit ScopedPkillBoot(const std::filesystem::path& folder)
+        : m_previous_table(pkill_tab)
+        , m_previous_length(pkill_tab_len)
+    {
+        pkill_tab = nullptr;
+        pkill_tab_len = 0;
+        std::error_code error;
+        m_previous_folder = std::filesystem::current_path(error);
+        std::filesystem::create_directories(folder / "misc", error);
+        std::filesystem::current_path(folder, error);
+        m_moved = !error;
+        EXPECT_TRUE(m_moved) << error.message();
+    }
+
+    ~ScopedPkillBoot()
+    {
+        forget_boot();
+        pkill_tab = m_previous_table;
+        pkill_tab_len = m_previous_length;
+        if (m_moved) {
+            std::error_code error;
+            std::filesystem::current_path(m_previous_folder, error);
+        }
+    }
+
+    ScopedPkillBoot(const ScopedPkillBoot&) = delete;
+    ScopedPkillBoot& operator=(const ScopedPkillBoot&) = delete;
+
+    // Takes every indexed player out of the rankings and frees the table a boot made.
+    void forget_boot()
+    {
+        for (int index = 0; index <= top_of_p_table; ++index) {
+            pkill_unref_character_by_index(index);
+            player_table[index].warpoints = 0;
+            player_table[index].rank = PKILL_UNRANKED;
+            player_table[index].totalrank = PKILL_UNRANKED;
+        }
+        free(pkill_tab);
+        pkill_tab = nullptr;
+        pkill_tab_len = 0;
+    }
+
+private:
+    // The PK table in place before this object.
+    PKILL* m_previous_table;
+    // Its length.
+    int m_previous_length;
+    // The working folder before this object moved.
+    std::filesystem::path m_previous_folder;
+    // Whether the working folder was moved, so the destructor moves it back.
+    bool m_moved = false;
+};
+
+// A PK record in file form, between <killer_idnum> and <victim_idnum>, made now.
+PKILL make_stored_pkill(int killer_idnum, int victim_idnum, int points)
+{
+    PKILL record = make_pkill(killer_idnum, victim_idnum);
+    record.killer_points = points;
+    record.victim_points = -points;
+    return record;
+}
+
+// Whether two file records hold the same values.
+bool same_record(const PKILL& left, const PKILL& right)
+{
+    return left.kill_time == right.kill_time && left.killer == right.killer && left.victim == right.victim
+        && left.killer_level == right.killer_level && left.victim_level == right.victim_level
+        && left.killer_points == right.killer_points && left.victim_points == right.victim_points;
+}
+
+TEST(PkillBoot, KeepsARecordNamingAMissingPlayerAndItsPointsAcrossBoots)
+{
+    ScopedTemporaryFolder folder;
+    ASSERT_FALSE(folder.path().empty());
+    ScopedPlayerIndex index({ "present", "other" }); /* idnums 1001 and 1002 */
+    ScopedPkillBoot boot(folder.path());
+    const std::vector<PKILL> stored {
+        make_stored_pkill(1001, 1002, 100), /* both indexed */
+        make_stored_pkill(5555, 1002, 70), /* killer missing */
+        make_stored_pkill(1001, 6666, 40), /* victim missing */
+    };
+    {
+        std::ofstream file(folder.path() / "misc/pklist", std::ios::binary);
+        file.write(reinterpret_cast<const char*>(stored.data()), stored.size() * sizeof(PKILL));
+    }
+
+    for (int boot_number = 1; boot_number <= 2; ++boot_number) {
+        testing::internal::CaptureStderr();
+        boot_pkills();
+        testing::internal::GetCapturedStderr();
+
+        EXPECT_EQ(player_table[0].warpoints, 140) << "boot " << boot_number;
+        EXPECT_EQ(player_table[1].warpoints, -170) << "boot " << boot_number;
+        const std::vector<PKILL> written = read_pkill_file(folder.path() / "misc/pklist");
+        ASSERT_EQ(written.size(), stored.size()) << "boot " << boot_number;
+        for (size_t record = 0; record < stored.size(); ++record) {
+            EXPECT_TRUE(same_record(written[record], stored[record])) << "boot " << boot_number << ", record " << record;
+        }
+        boot.forget_boot();
+    }
+}
+
+/* ---------------------------------------------------------------- fame command */
+
+// A player looking up PK records with the fame command, against a PK table the test fills.
+class FameCommandTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        m_previous_table = pkill_tab;
+        m_previous_length = pkill_tab_len;
+        clear_char(&m_player, MOB_VOID);
+        m_player.player.name = m_player_name;
+        m_player.player.level = 10;
+        m_player.in_room = 0;
+        m_player.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_player;
+    }
+
+    void TearDown() override
+    {
+        pkill_tab = m_previous_table;
+        pkill_tab_len = m_previous_length;
+        free(m_descriptor.get()->showstr_head);
+        m_descriptor.get()->showstr_head = nullptr;
+        m_descriptor.get()->showstr_point = nullptr;
+    }
+
+    // Makes the PK table <count> kills of player index 1 by player index 0, all made now.
+    void fill_kills(int count)
+    {
+        m_kills.assign(count, make_pkill(0, 1));
+        pkill_tab = m_kills.data();
+        pkill_tab_len = count;
+    }
+
+    // Runs fame with <argument>.
+    void fame(std::string argument)
+    {
+        do_fame(&m_player, &argument[0], nullptr, 0, 0);
+    }
+
+    // Collects what the player is told.
+    CapturingDescriptor m_descriptor;
+    // Storage for the player's name.
+    char m_player_name[16] = "Looker";
+    // The player typing fame.
+    char_data m_player {};
+    // The PK table while a test runs.
+    std::vector<PKILL> m_kills;
+    // The PK table before the test.
+    PKILL* m_previous_table = nullptr;
+    // Its length.
+    int m_previous_length = 0;
+};
+
+// How many times <needle> occurs in <haystack>.
+int count_of(const std::string& haystack, std::string_view needle)
+{
+    int count = 0;
+    for (size_t position = haystack.find(needle); position != std::string::npos;
+         position = haystack.find(needle, position + needle.size())) {
+        ++count;
+    }
+    return count;
+}
+
+TEST_F(FameCommandTest, ListsEveryRecordOfAPlayerWhoseRecordsOutgrowTheOldBuffer)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    constexpr int KILL_COUNT = 150; /* about 10,000 characters of records */
+    fill_kills(KILL_COUNT);
+
+    fame("aragorn");
+
+    const std::string output = m_descriptor.output();
+    EXPECT_EQ(count_of(output, "Aragorn killed Per%s%s%sent.\r\n"), KILL_COUNT);
+    EXPECT_NE(output.find("There were 150 records found about Aragorn, total fame 0.\r\n"), std::string::npos);
+}
+
+TEST_F(FameCommandTest, ShowsAPercentSignInANameAsWritten)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    fill_kills(1);
+
+    fame("aragorn");
+
+    const std::string output = m_descriptor.output();
+    EXPECT_NE(output.find("Aragorn killed Per%s%s%sent.\r\n"), std::string::npos) << output;
+    EXPECT_NE(output.find("There was 1 record found about Aragorn, total fame 0.\r\n"), std::string::npos) << output;
+}
+
+TEST_F(FameCommandTest, ShowsAPercentSignInTheDaysBattlesAsWritten)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    fill_kills(3);
+
+    fame("all");
+
+    EXPECT_EQ(count_of(m_descriptor.output(), "Aragorn killed Per%s%s%sent.\r\n"), 3) << m_descriptor.output();
+}
+
+/* ---------------------------------------------------------------- shaping editors, more */
+
+TEST_F(ZoneEditorLoadTest, ListsARowWhoseCommentOutgrowsTheListBuffer)
+{
+    const std::string comment(MAX_STRING_LENGTH + 800, 'c');
+    {
+        std::ofstream file(m_folder.path() / "world/zon/45.zon", std::ios::binary);
+        file << "#45 Lake-town I~\n"
+             << "A description.~\n"
+             << "~\n"
+             << "0\n"
+             << "L 3 4 0\n"
+             << "4599\n"
+             << "10\n"
+             << "2\n"
+             << "* " << comment << "\n"
+             << "S\n"
+             << "$~\n";
+    }
+    ASSERT_EQ(load_zone(&m_builder, "zone 45"), 45);
+    shape_zone* zone = static_cast<shape_zone*>(m_builder.temp);
+    zone->mask.command = '*';
+    zone->mask.if_flag = zone->mask.arg1 = zone->mask.arg2 = zone->mask.arg3 = -1;
+    zone->mask.arg4 = zone->mask.arg5 = zone->mask.arg6 = zone->mask.arg7 = -1;
+
+    list_zone(&m_builder);
+
+    EXPECT_NE(m_descriptor.output().find("Filter is: *"), std::string::npos);
+}
+
+TEST(ShapeCommand, RefusesAnUnknownWordLongerThanTheOldBuffer)
+{
+    CapturingDescriptor descriptor;
+    char builder_name[16] = "Builder";
+    char_data builder {};
+    clear_char(&builder, MOB_VOID);
+    builder.player.name = builder_name;
+    builder.player.level = LEVEL_IMMORT;
+    builder.desc = descriptor.get();
+    descriptor.get()->character = &builder;
+    std::string argument(200, 'w');
+
+    do_shape(&builder, &argument[0], nullptr, 0, 0);
+
+    EXPECT_NE(descriptor.output().find("Unrecognized parameter."), std::string::npos) << descriptor.output();
+}
+
+/* ---------------------------------------------------------------- act */
+
+// A player in room 0 reading what act sends them.
+class ActMessageTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        clear_char(&m_player, MOB_VOID);
+        m_player.player.name = m_player_name;
+        m_player.player.level = 10;
+        m_player.in_room = 0;
+        m_player.specials.position = POSITION_STANDING; /* act skips sleepers */
+        m_player.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_player;
+    }
+
+    // What act sends the player for <message> with <text> as $T.
+    std::string act_to_player(const char* message, const char* text = nullptr)
+    {
+        act(message, FALSE, &m_player, nullptr, const_cast<char*>(text), TO_CHAR);
+        return m_descriptor.output();
+    }
+
+    // Collects what the player is told.
+    CapturingDescriptor m_descriptor;
+    // Storage for the player's name.
+    char m_player_name[16] = "Speaker";
+    // The player.
+    char_data m_player {};
+};
+
+TEST_F(ActMessageTest, SendsAnOrdinaryMessageAsBefore)
+{
+    EXPECT_EQ(act_to_player("you say '$T'", "hello"), "You say 'hello'\n\r");
+}
+
+TEST_F(ActMessageTest, CutsAMessageLongerThanItsBufferAndStillEndsTheLine)
+{
+    const std::string text(MAX_STRING_LENGTH + 500, 'X');
+
+    const std::string output = act_to_player("$T", text.c_str());
+
+    ASSERT_EQ(output.size(), static_cast<size_t>(MAX_STRING_LENGTH - 1));
+    EXPECT_EQ(output.substr(output.size() - 2), "\n\r");
+    EXPECT_EQ(output.find_first_not_of('X'), output.size() - 2);
+}
+
+TEST_F(ActMessageTest, DropsADollarSignEndingTheMessage)
+{
+    testing::internal::CaptureStderr();
+    const std::string output = act_to_player("that costs 5$");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(output, "That costs 5\n\r");
+}
+
+TEST_F(ActMessageTest, DropsAnUnknownCodeBeforeAnyOther)
+{
+    testing::internal::CaptureStderr();
+    const std::string output = act_to_player("a$zb");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(output, "Ab\n\r");
 }
 
 } // namespace
