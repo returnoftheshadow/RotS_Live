@@ -844,7 +844,7 @@ ACMD(do_cast)
     case TAR_DIR_NAME:
     case TAR_DIR_WAY: {
         tar_dig = wtl->targ2.ch_num;
-        if (tar_dig < 0 || tar_dig > NUM_OF_DIRS) {
+        if (tar_dig < 0 || tar_dig >= NUM_OF_DIRS) {
             send_to_char("Error in direction spell, please notify imps.\n\r", ch);
             return;
         }
