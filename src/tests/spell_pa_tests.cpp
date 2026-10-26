@@ -40,6 +40,24 @@ void ensure_test_world_room(int room_number)
     world[0].people = nullptr;
 }
 
+/* Puts back room 0's people, as it found them, when a test that seats its own local characters
+ * there ends, so that no later test walks into characters gone out of scope. */
+class ScopedRoomZeroPeople {
+public:
+    ScopedRoomZeroPeople()
+        : m_saved_people(world[0].people)
+    {
+    }
+    ~ScopedRoomZeroPeople() { world[0].people = m_saved_people; }
+
+    ScopedRoomZeroPeople(const ScopedRoomZeroPeople&) = delete;
+    ScopedRoomZeroPeople& operator=(const ScopedRoomZeroPeople&) = delete;
+
+private:
+    // Room 0's people when the scope began.
+    char_data* m_saved_people;
+};
+
 void attach_character_to_room(char_data* character, int room_rnum, char_data* next_in_room)
 {
     character->in_room = room_rnum;
@@ -58,6 +76,7 @@ void initialize_player_character(char_data* character, const char* name)
 TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 {
     ensure_test_world_room(3001);
+    ScopedRoomZeroPeople room_people;
 
     char_data caster {};
     char_data observer {};
@@ -89,6 +108,7 @@ TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 TEST(SpellParser, MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled)
 {
     ensure_test_world_room(3002);
+    ScopedRoomZeroPeople room_people;
 
     char_data caster {};
     char_data observer {};

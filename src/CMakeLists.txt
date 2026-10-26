@@ -222,6 +222,9 @@ set(ROTS_TEST_SOURCES
     tests/kill_experience_tests.cpp
     tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
+    tests/affect_join_tests.cpp
+    tests/affect_tick_tests.cpp
+    tests/raw_kill_kit_flag_tests.cpp
     tests/room_light_tests.cpp
     tests/weather_tests.cpp
     tests/mob_options_tests.cpp
@@ -233,6 +236,7 @@ set(ROTS_TEST_SOURCES
     tests/character_trigger_extract_tests.cpp
     tests/freed_watch_tests.cpp
     tests/combat_movement_extract_tests.cpp
+    tests/death_and_damage_paths_tests.cpp
     tests/spec_pro_tests.cpp
     tests/spell_removal_tests.cpp
     tests/spell_affect_tests.cpp
