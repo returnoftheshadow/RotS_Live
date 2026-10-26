@@ -244,7 +244,8 @@ make integration-shard-durations PYTHON=.venv/bin/python RESULTS=build/ci-result
 
 Each test's time is its median over every `results.xml` under `RESULTS`, leaving out runs where it
 failed, errored or was skipped (an expected failure counts); a test no result file timed is dropped
-from the file. A results file holding a DOCTYPE or entity declaration, or larger than 16 MB, stops
+from the file. A results file that is not plain UTF-8 (one with a byte-order mark, a NUL byte or
+another declared encoding), holds a DOCTYPE or entity declaration, or is larger than 16 MB stops
 the refresh, and a time that is not a number of seconds is left out with a warning. A refresh that
 would time fewer than 90% of the tests the file holds now, such as one missing a shard, is
 refused; after removing tests on purpose, run

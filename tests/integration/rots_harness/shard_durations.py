@@ -17,6 +17,7 @@ import argparse
 import json
 import math
 import os
+import re
 import statistics
 import sys
 import tempfile
@@ -42,7 +43,13 @@ SECONDS_DECIMALS = 1
 # The largest results file read; a shard's file is about 100 KB.
 MAX_RESULTS_BYTES = 16 * 1024 * 1024
 # Markup a results file never holds that could make the parser expand entities.
-REFUSED_MARKUP = (b"<!DOCTYPE", b"<!ENTITY")
+REFUSED_MARKUP = ("<!DOCTYPE", "<!ENTITY")
+# The byte-order marks of UTF-8, UTF-16 and UTF-32 (UTF-32's little-endian mark starts like
+# UTF-16's). pytest writes its results as UTF-8 without one, and a file in another encoding could
+# hide REFUSED_MARKUP from a search of its bytes while the parser still reads it.
+BYTE_ORDER_MARKS = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff", b"\x00\x00\xfe\xff")
+# The encoding an XML declaration names, if it names one.
+DECLARED_ENCODING = re.compile(r"""<\?xml[^>]*\bencoding\s*=\s*["']([^"']*)["']""")
 # The share of the current file's tests a refresh must cover unless --force is given.
 MINIMUM_COVERED_SHARE = 0.9
 # The written file's permissions; mkstemp's own let only the owner read it.
@@ -52,7 +59,7 @@ EXIT_USAGE = 2
 
 
 class UnusableResults(ValueError):
-    """A results file the tool refuses to read: too large, or holding a DOCTYPE or entity declaration."""
+    """A results file the tool refuses to read: too large, not plain UTF-8, or holding a DOCTYPE or entity declaration."""
 
 
 def node_id(class_name: str, test_name: str, integration_root: Path) -> Optional[str]:
@@ -77,13 +84,29 @@ def node_id(class_name: str, test_name: str, integration_root: Path) -> Optional
 
 
 def read_results(results_path: Path) -> ElementTree.Element:
-    """The parsed results file; raises OSError, ElementTree.ParseError, or UnusableResults for a file too large or holding a DOCTYPE or entity declaration."""
+    """The parsed results file; raises OSError, ElementTree.ParseError, or UnusableResults.
+
+    UnusableResults is raised for a file too large, one that is not UTF-8 without a byte-order mark
+    (with no NUL byte, and naming no other encoding), or one holding a DOCTYPE or entity declaration.
+    """
     if results_path.stat().st_size > MAX_RESULTS_BYTES:
         raise UnusableResults(f"{results_path} is larger than {MAX_RESULTS_BYTES} bytes")
     content = results_path.read_bytes()
+    # The markup search below reads the text as UTF-8, so the parser must read the same text: no
+    # byte-order mark or NUL byte (both point the parser at UTF-16 or UTF-32), valid UTF-8, and no
+    # other encoding declared.
+    if content.startswith(BYTE_ORDER_MARKS) or b"\x00" in content:
+        raise UnusableResults(f"{results_path} is not UTF-8 without a byte-order mark, as pytest writes it")
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise UnusableResults(f"{results_path} is not valid UTF-8, as pytest writes it") from None
+    declaration = DECLARED_ENCODING.match(text)
+    if declaration is not None and declaration.group(1).lower().replace("_", "-") not in ("utf-8", "utf8"):
+        raise UnusableResults(f"{results_path} declares encoding {declaration.group(1)!r}, not the UTF-8 pytest writes")
     for markup in REFUSED_MARKUP:
-        if markup in content:
-            raise UnusableResults(f"{results_path} holds {markup.decode()}, which no pytest results file has")
+        if markup in text:
+            raise UnusableResults(f"{results_path} holds {markup}, which no pytest results file has")
     return ElementTree.fromstring(content)
 
 

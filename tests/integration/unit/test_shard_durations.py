@@ -187,3 +187,48 @@ def test_writing_leaves_no_temporary_file_behind(integration_root: Path, tmp_pat
     status, output = refresh(integration_root, tmp_path, FIRST_RESULTS)
     assert status == 0
     assert sorted(path.name for path in tmp_path.iterdir()) == ["integration", "results", output.name]
+
+
+# A results file whose DOCTYPE declares an entity that the testcase's time uses.
+DOCTYPE_RESULTS = """<?xml version="1.0" encoding="{encoding}"?>
+<!DOCTYPE testsuites [<!ENTITY seconds "1.0">]>
+<testsuites><testsuite name="pytest"><testcase classname="scenarios.test_bank" name="test_a_deposit" time="&seconds;" /></testsuite></testsuites>
+"""
+
+
+def write_results_bytes(tmp_path: Path, content: bytes) -> Path:
+    """Writes one shard's results.xml as raw bytes and returns the results folder."""
+    shard_folder = tmp_path / "results" / "integration-results-shard-1"
+    shard_folder.mkdir(parents=True)
+    (shard_folder / shard_durations.RESULTS_FILE_NAME).write_bytes(content)
+    return tmp_path / "results"
+
+
+@pytest.mark.parametrize(
+    ("encoding", "content_encoding"),
+    [("UTF-16", "utf-16"), ("UTF-16", "utf-16-le"), ("UTF-16", "utf-16-be"), ("UTF-32", "utf-32"), ("UTF-8", "utf-8-sig")],
+    ids=["utf-16 with mark", "utf-16-le without mark", "utf-16-be without mark", "utf-32", "utf-8 with mark"],
+)
+def test_a_doctype_in_a_file_not_plain_utf8_is_refused(
+    integration_root: Path, tmp_path: Path, encoding: str, content_encoding: str, capsys: pytest.CaptureFixture,
+) -> None:
+    results = write_results_bytes(tmp_path, DOCTYPE_RESULTS.format(encoding=encoding).encode(content_encoding))
+    output = tmp_path / "shard_durations.json"
+    assert shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert not output.exists()
+    assert "UTF-8" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("content", [b"<testsuites>\xff</testsuites>", b'<?xml version="1.0" encoding="latin-1"?><testsuites/>'], ids=["invalid utf-8", "other encoding declared"])
+def test_a_file_that_is_not_utf8_is_refused(integration_root: Path, tmp_path: Path, content: bytes) -> None:
+    results = write_results_bytes(tmp_path, content)
+    output = tmp_path / "shard_durations.json"
+    assert shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert not output.exists()
+
+
+def test_a_declared_utf8_file_is_read(integration_root: Path, tmp_path: Path) -> None:
+    results = write_results_bytes(tmp_path, FIRST_RESULTS.replace('encoding="utf-8"', 'encoding="UTF-8"').encode("utf-8"))
+    output = tmp_path / "shard_durations.json"
+    assert shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root) == 0
+    assert len(durations.read_durations(output)) == 3
