@@ -666,3 +666,79 @@ TEST_F(MageProcTest, LocateLifeSkipsBlockedDuplicateAndExcludedRooms) {
     EXPECT_EQ(west_room->e, -1);
     EXPECT_EQ(west_room->u, 0);
 }
+
+namespace {
+
+constexpr int FREEZE_ROOM = 7;
+constexpr char FREEZE_NEEDS_A_CLOSED_EXIT[] = "You must first have a closed exit to cast upon.\r\n";
+
+// A mage standing alone in FREEZE_ROOM with a connection whose output the test reads; the room's
+// exits and people are put back afterwards.
+struct FreezeTestContext {
+    // The room's exits, flags and people from before the test, put back on destruction.
+    RoomExitGuard room_guard{FREEZE_ROOM};
+    // The caster and its target data.
+    MageTestContext mage;
+    // The caster's connection; its output buffer holds what the caster and the room were sent.
+    descriptor_data descriptor{};
+    // The exit a test opens toward the north, owned here.
+    room_direction_data north_exit{};
+    // The door keyword the north exit carries.
+    char door_keyword[8] = "door";
+
+    FreezeTestContext() {
+        descriptor.output = descriptor.small_outbuf;
+        descriptor.bufspace = SMALL_BUFSIZE - 1;
+        descriptor.connected = CON_PLYNG;
+        mage.caster.desc = &descriptor;
+        mage.caster.in_room = FREEZE_ROOM;
+        mage.caster.next_in_room = nullptr;
+        world[FREEZE_ROOM].people = &mage.caster;
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            world[FREEZE_ROOM].dir_option[direction] = nullptr;
+        }
+        north_exit.keyword = door_keyword;
+        north_exit.to_room = FREEZE_ROOM;
+    }
+
+    void open_north_exit(long exit_info) {
+        north_exit.exit_info = exit_info;
+        world[FREEZE_ROOM].dir_option[NORTH] = &north_exit;
+    }
+
+    std::string cast_north(int choice) {
+        mage.caster.delay.targ2.choice = choice;
+        spell_freeze(&mage.caster, nullptr, 0, nullptr, nullptr, NORTH, 0);
+        return descriptor.output;
+    }
+};
+
+} // namespace
+
+TEST_F(MageProcTest, FreezeTowardADirectionWithNoExitAsksForAClosedExit) {
+    FreezeTestContext context;
+
+    EXPECT_EQ(context.cast_north(TAR_DIR_WAY), FREEZE_NEEDS_A_CLOSED_EXIT);
+}
+
+TEST_F(MageProcTest, FreezeOnAnOpenExitAsksForAClosedExit) {
+    FreezeTestContext context;
+    context.open_north_exit(EX_ISDOOR);
+
+    EXPECT_EQ(context.cast_north(TAR_DIR_WAY), FREEZE_NEEDS_A_CLOSED_EXIT);
+}
+
+TEST_F(MageProcTest, FreezeTowardAClosedDoorFrostsTheWayForTheRoom) {
+    FreezeTestContext context;
+    context.open_north_exit(EX_ISDOOR | EX_CLOSED);
+
+    EXPECT_EQ(context.cast_north(TAR_DIR_WAY),
+              "A thick sheet of hardened frost forms to the north.\r\n");
+}
+
+TEST_F(MageProcTest, FreezeOnANamedClosedDoorFreezesItShut) {
+    FreezeTestContext context;
+    context.open_north_exit(EX_ISDOOR | EX_CLOSED);
+
+    EXPECT_EQ(context.cast_north(TAR_DIR_NAME), "The door is frozen shut.\r\n");
+}

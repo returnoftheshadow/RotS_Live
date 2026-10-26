@@ -1,10 +1,12 @@
 #include "../color.h"
+#include "../interpre.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -38,6 +40,24 @@ void ensure_test_world_room(int room_number)
     world[0].people = nullptr;
 }
 
+/* Puts back room 0's people, as it found them, when a test that seats its own local characters
+ * there ends, so that no later test walks into characters gone out of scope. */
+class ScopedRoomZeroPeople {
+public:
+    ScopedRoomZeroPeople()
+        : m_saved_people(world[0].people)
+    {
+    }
+    ~ScopedRoomZeroPeople() { world[0].people = m_saved_people; }
+
+    ScopedRoomZeroPeople(const ScopedRoomZeroPeople&) = delete;
+    ScopedRoomZeroPeople& operator=(const ScopedRoomZeroPeople&) = delete;
+
+private:
+    // Room 0's people when the scope began.
+    char_data* m_saved_people;
+};
+
 void attach_character_to_room(char_data* character, int room_rnum, char_data* next_in_room)
 {
     character->in_room = room_rnum;
@@ -56,6 +76,7 @@ void initialize_player_character(char_data* character, const char* name)
 TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 {
     ensure_test_world_room(3001);
+    ScopedRoomZeroPeople room_people;
 
     char_data caster {};
     char_data observer {};
@@ -87,6 +108,7 @@ TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 TEST(SpellParser, MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled)
 {
     ensure_test_world_room(3002);
+    ScopedRoomZeroPeople room_people;
 
     char_data caster {};
     char_data observer {};
@@ -150,4 +172,39 @@ TEST(SpellParser, OrcFollowerCanStillCastOrdinaryClericSpells)
     initialize_orc_follower(&pet, &master);
 
     EXPECT_TRUE(can_cast_spell(pet, SPELL_REGENERATION, skills[SPELL_REGENERATION]));
+}
+
+ACMD(do_cast);
+
+TEST(SpellParser, ACastTowardADirectionPastTheLastIsRefused)
+{
+    constexpr int CAST_ROOM = 975;
+    room_data saved_room = world[CAST_ROOM];
+    world[CAST_ROOM].room_flags = 0;
+    world[CAST_ROOM].people = nullptr;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_PLYNG;
+    char_data caster {};
+    initialize_player_character(&caster, "caster");
+    caster.desc = &descriptor;
+    caster.in_room = CAST_ROOM;
+    GET_MANA(&caster) = 100;
+
+    // A cast whose wait has ended, toward the direction index one past the last direction.
+    waiting_type finished_cast {};
+    finished_cast.subcmd = SPELL_FREEZE;
+    finished_cast.targ2.type = TARGET_DIR;
+    finished_cast.targ2.choice = TAR_DIR_WAY;
+    finished_cast.targ2.ch_num = NUM_OF_DIRS;
+    char no_argument[] = "";
+    do_cast(&caster, no_argument, &finished_cast, CMD_CAST, 1);
+
+    EXPECT_EQ(std::string(descriptor.output), "Error in direction spell, please notify imps.\n\r");
+    EXPECT_EQ(GET_MANA(&caster), 100);
+
+    free(caster.profs);
+    free(caster.skills);
+    free(caster.knowledge);
+    world[CAST_ROOM] = saved_room;
 }

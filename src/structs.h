@@ -1415,11 +1415,15 @@ struct elemental_spec_data : public specialization_info {
     {
         exposed_target = NULL;
         spell_id = 0;
+        exposed_target_freed = false;
     }
 
     /* Target (if any) that the character has 'exposed' to their element. */
     char_data* exposed_target;
     int spell_id;
+    /* True once the exposed target has been freed: the mark is then already cleared, and the next
+     * clean_expose_elements() sweep tells the mage, as it does when a target leaves the room. */
+    bool exposed_target_freed = false;
 
     virtual std::string to_string(char_data& character) const;
 
@@ -1541,7 +1545,8 @@ private:
     unsigned int blocked_damage;
 };
 
-struct battle_mage_spec_data : public specialization_info {
+/* Battle mages expose a target as the elemental specialisations do, with dark bolt or firebolt. */
+struct battle_mage_spec_data : public elemental_spec_data {
     virtual std::string to_string(char_data& character) const;
 };
 
@@ -1628,10 +1633,11 @@ struct specialization_data {
         return current_spec == game_types::PS_Darkness || current_spec == game_types::PS_Arcane || current_spec == game_types::PS_Fire || current_spec == game_types::PS_Cold || current_spec == game_types::PS_Lightning || current_spec == game_types::PS_BattleMage;
     }
 
+    /* The expose-elements data of a mage specialisation, or NULL for any other specialisation. */
     elemental_spec_data* get_mage_spec() const
     {
         if (is_mage_spec()) {
-            return static_cast<elemental_spec_data*>(current_spec_info);
+            return dynamic_cast<elemental_spec_data*>(current_spec_info);
         }
 
         return NULL;

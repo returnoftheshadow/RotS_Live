@@ -518,9 +518,8 @@ void diag_char_to_char(char_data* looked_at, char_data* viewer)
     if (IS_AFFECTED(viewer, AFF_DETECT_MAGIC)) {
         bool is_exposed_to_elements = false;
         if (viewer->extra_specialization_data.is_mage_spec()) {
-            elemental_spec_data* spec_data = static_cast<elemental_spec_data*>(
-                viewer->extra_specialization_data.current_spec_info);
-            is_exposed_to_elements = looked_at == spec_data->exposed_target;
+            elemental_spec_data* spec_data = viewer->extra_specialization_data.get_mage_spec();
+            is_exposed_to_elements = spec_data && looked_at == spec_data->exposed_target;
         }
 
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();

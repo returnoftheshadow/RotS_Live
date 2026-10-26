@@ -743,7 +743,7 @@ ACMD(do_cast)
                         return;
                     } else if (ch->extra_specialization_data.is_mage_spec()) {
                         elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
-                        if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
+                        if (spec_data && spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
                             send_to_char(
                                 "You have already exposed your target to the elements!\n\r", ch);
                             return;
@@ -845,7 +845,7 @@ ACMD(do_cast)
     case TAR_DIR_NAME:
     case TAR_DIR_WAY: {
         tar_dig = wtl->targ2.ch_num;
-        if (tar_dig < 0 || tar_dig > NUM_OF_DIRS) {
+        if (tar_dig < 0 || tar_dig >= NUM_OF_DIRS) {
             send_to_char("Error in direction spell, please notify imps.\n\r", ch);
             return;
         }
