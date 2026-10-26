@@ -481,9 +481,9 @@ TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)
 
 /* ---- renaming an object (ASSIGN_STR obN.name) ---- */
 
-/* The name a script gives its object is the object's own, freed with it; the prototype keeps its
- * name. */
-TEST_F(ObjectTriggerTest, AnObjectOwnsTheNameItsScriptGivesIt)
+/* The name a script gives its object goes in a text of the object's own, freed with it; the
+ * prototype and its other copies keep their name. */
+TEST_F(ObjectTriggerTest, ARenamedObjectHasATextOfItsOwn)
 {
     install_script(ON_EXAMINE_OBJECT,
         { { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
@@ -493,11 +493,11 @@ TEST_F(ObjectTriggerTest, AnObjectOwnsTheNameItsScriptGivesIt)
     run_command(do_examine, "stone");
 
     EXPECT_STREQ("a glowing stone", stone->short_description);
-    EXPECT_TRUE(stone->owns_text(object_text::short_description));
+    EXPECT_EQ(stone->shared_text().use_count(), 1) << "no other object shows the new name";
     EXPECT_STREQ("a grey stone", prototype_for(STONE_VNUM).short_description);
 }
 
-/* Renamed again, the object frees the name the script gave it first and keeps the new one. */
+/* Renamed again, the object lets go of the name the script gave it first and keeps the new one. */
 TEST_F(ObjectTriggerTest, AnObjectRenamedTwiceKeepsTheLatestName)
 {
     install_script(ON_EXAMINE_OBJECT,
@@ -509,36 +509,6 @@ TEST_F(ObjectTriggerTest, AnObjectRenamedTwiceKeepsTheLatestName)
     run_command(do_examine, "stone");
 
     EXPECT_STREQ("a glowing stone", stone->short_description);
-    EXPECT_TRUE(stone->owns_text(object_text::short_description));
+    EXPECT_EQ(stone->shared_text().use_count(), 1) << "no other object shows the new name";
     EXPECT_STREQ("a grey stone", prototype_for(STONE_VNUM).short_description);
-}
-
-/* ---- text being edited ---- */
-
-/* An object freed while an edit points into one of its extra descriptions (as "string obj
- * <name> extra <keyword>" leaves one) ends the edit, so no line typed later goes into the freed
- * description. The object has no prototype, so its extra descriptions are its own and go with
- * it. */
-TEST_F(ObjectTriggerTest, FreeingAnObjectEndsAnEditOfItsExtraDescription)
-{
-    obj_data* plaque = nullptr;
-    CREATE1(plaque, obj_data);
-    clear_object(plaque);
-    plaque->name = str_dup("plaque");
-    plaque->short_description = str_dup("a plaque");
-    extra_descr_data* inscription = nullptr;
-    CREATE1(inscription, extra_descr_data);
-    inscription->keyword = str_dup("inscription");
-    inscription->description = str_dup("Here lies");
-    plaque->ex_description = inscription;
-    plaque->next = object_list;
-    object_list = plaque;
-    obj_to_room(plaque, 0);
-    descriptor_list = &m_descriptor;
-    m_descriptor.str = &inscription->description;
-
-    extract_obj(plaque);
-
-    EXPECT_EQ(nullptr, m_descriptor.str);
-    EXPECT_TRUE(output_has("What you were writing is gone.")) << output();
 }

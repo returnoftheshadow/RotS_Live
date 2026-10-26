@@ -23,6 +23,7 @@ void do_order(char_data* ch, char* argument, waiting_type* wtl, int cmd, int sub
 void assign_command_pointers(void);
 void complete_delay(struct char_data* ch);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
+obj_data* make_physical_corpse(char_data* character, bool gather_wearables, int attack_type);
 void fast_update();
 SPECIAL(ghoul);
 void affect_update_room(struct room_data* room);
@@ -367,6 +368,23 @@ TEST_F(DeathAndDamagePathsTest, AMobSlainWearingAPoisonousItemLeavesOneCorpse)
     ASSERT_EQ(1, count_corpses_in_room());
     EXPECT_TRUE(is_in_object_list(ring));
     EXPECT_FALSE(is_on_the_floor(ring));
+}
+
+/* A mob's corpse is named for the mob, in a text of its own that goes with the corpse. With no
+ * attack type the corpse is a silent one. */
+TEST_F(DeathAndDamagePathsTest, AMobsCorpseHasATextOfItsOwnNamingTheMob)
+{
+    char_data* goblin = make_mob("goblin", 0);
+
+    obj_data* corpse = make_physical_corpse(goblin, false, 0);
+
+    ASSERT_NE(corpse, nullptr);
+    EXPECT_STREQ(corpse->name, "corpse");
+    EXPECT_STREQ(corpse->short_description, "the silent corpse of goblin");
+    EXPECT_STREQ(corpse->description, "The silent corpse of goblin is lying here.");
+    EXPECT_EQ(corpse->action_description, nullptr);
+    EXPECT_EQ(corpse->shared_text().use_count(), 1) << "no other object shows the corpse's text";
+    extract_obj(corpse);
 }
 
 /* A mob removed from the game while it wears a poisonous item is not hurt on its way out, so the

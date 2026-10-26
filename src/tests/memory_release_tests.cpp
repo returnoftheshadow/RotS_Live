@@ -1,14 +1,24 @@
 /* Game functions that must give back the memory of what they let go: freeing a mob with no
- * prototype, and a zone reset that gives a mob another script.
+ * prototype, a zone reset that gives a mob another script, and the text objects stop showing.
  *
  * Not portable standard C++, by owner ruling of 2026-10-26: a free cannot be observed without
  * changing the game, so these tests count the allocator's bytes in use (allocated_bytes.h) and
  * are skipped where it cannot tell. Each does its operation many times, so a leak far outgrows
  * what the allocator keeps cached. */
+#include "../note_writing.h"
+#include "../object_text.h"
 #include "allocated_bytes.h"
 #include "scripted_room_fixture.h"
 
+#include <string>
+#include <utility>
+
+void do_examine(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+struct obj_data* create_money(int amount);
+void name_from_drinkcon(struct obj_data* obj);
+void name_to_drinkcon(struct obj_data* obj, int type);
+void string_add(struct descriptor_data* d, char* str);
 
 using namespace scripted_room;
 
@@ -110,6 +120,95 @@ TEST_F(MemoryReleaseTest, AZoneResetGivingAMobAnotherScriptGivesBackItsOldScript
     const std::size_t growth = growth_over_rounds([this]() -> void {
         reset_zone(0);
         run_command(do_say, "hello");
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+/* A prototype given a new text, as implement_object gives it one, frees the text it showed once
+ * the copies made before still showing it are gone. */
+TEST_F(MemoryReleaseTest, APrototypesReplacedTextGoesWithItsLastCopy)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    obj_data& stone = prototype_for(STONE_VNUM);
+
+    const std::size_t growth = growth_over_rounds([this, &stone]() -> void {
+        obj_data* first = make_object(STONE_VNUM, 0);
+        obj_data* second = make_object(STONE_VNUM, 0);
+        stone.set_text(create_object_text(object_text_fields_of(stone)));
+        extract_obj(first);
+        extract_obj(second);
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, FillingAndEmptyingADrinkContainerGivesBackEachName)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* flask = make_object(FLASK_VNUM, 0);
+        name_from_drinkcon(flask);
+        name_to_drinkcon(flask, 0);
+        extract_obj(flask);
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, RenamingAnObjectByScriptGivesBackEachName)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* stone = make_scripted(STONE_VNUM);
+        obj_to_char(stone, &m_player);
+        run_command(do_examine, "stone");
+        extract_obj(stone);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, CoinsGiveBackTheirText)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([]() -> void {
+        extract_obj(create_money(5000));
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, WritingANoteGivesBackTheEditorsBufferAndTheNotesText)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* note = make_object(STONE_VNUM, 0);
+        start_writing_note(m_descriptor, *note);
+        /* Long enough that a buffer kept each round outgrows ALLOWED_GROWTH. */
+        std::string line(SMALLEST_LEAK_PER_ROUND, 'x');
+        string_add(&m_descriptor, &line[0]);
+        char finish[] = "%e";
+        string_add(&m_descriptor, finish);
+        extract_obj(note);
         clear_output();
     });
 

@@ -1,8 +1,10 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
+#include "../note_writing.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "object_text_test_support.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
@@ -124,6 +126,8 @@ protected:
         m_prototypes[PEN_RNUM].item_number = PEN_RNUM;
         m_prototypes[PEN_RNUM].name = m_pen_name;
         m_prototypes[PEN_RNUM].obj_flags.type_flag = ITEM_PEN;
+        make_text_shared(m_prototypes[NOTE_RNUM]);
+        make_text_shared(m_prototypes[PEN_RNUM]);
         obj_proto = m_prototypes;
         obj_index = m_index;
         top_of_objt = PEN_RNUM;
@@ -145,6 +149,7 @@ protected:
 
     void TearDown() override
     {
+        finish_writing_note(m_descriptor);
         m_descriptor.str = nullptr;
         while (object_list != nullptr) {
             extract_obj(object_list);
@@ -189,12 +194,12 @@ private:
     int m_saved_top_of_world = 0; // restored in TearDown
 };
 
-/* A note's copy owns the text written on it, so extracting the note frees that text and leaves its
- * prototype blank. */
-TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
+/* Writing on a note's copy gives it a text of its own, which goes with it, and leaves its prototype
+ * blank. */
+TEST_F(NoteWritingTest, AWrittenNoteHasATextOfItsOwn)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the ford.");
     /* Finished directly: %e regrows the text with a copy that reads past the old buffer. */
@@ -202,8 +207,10 @@ TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
 
     EXPECT_EQ(m_descriptor.str, nullptr);
     EXPECT_STREQ(m_note->action_description, "Meet me at the ford.\n\r");
-    EXPECT_TRUE(m_note->owns_text(object_text::action_description));
-    EXPECT_FALSE(m_note->owns_text(object_text::name));
+    EXPECT_STREQ(m_note->name, "note paper");
+    ASSERT_NE(m_note->shared_text(), nullptr);
+    EXPECT_NE(m_note->shared_text(), m_prototypes[NOTE_RNUM].shared_text());
+    EXPECT_EQ(m_note->shared_text().use_count(), 1) << "no other object shows the note's text";
 
     extract_obj(m_note);
     EXPECT_EQ(m_prototypes[NOTE_RNUM].action_description, nullptr);
@@ -214,7 +221,7 @@ TEST_F(NoteWritingTest, AWrittenNoteOwnsItsText)
 TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the");
     type("%q");
@@ -227,7 +234,7 @@ TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
 TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the ford.");
     type("%e");
@@ -240,7 +247,7 @@ TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
 TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
     const std::string long_line(BLOCK_STR_LEN, 'x');
 
     type("Meet me at the ford.");
@@ -253,13 +260,12 @@ TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
     EXPECT_EQ(std::string(m_note->action_description), expected_note);
 }
 
-/* A note's copy that nobody has written on owns none of its text. */
-TEST_F(NoteWritingTest, AnUnwrittenNoteOwnsNoText)
+/* A note's copy that nobody has written on shows its prototype's text. */
+TEST_F(NoteWritingTest, AnUnwrittenNoteSharesItsPrototypesText)
 {
-    EXPECT_FALSE(m_note->owns_text(object_text::name));
-    EXPECT_FALSE(m_note->owns_text(object_text::short_description));
-    EXPECT_FALSE(m_note->owns_text(object_text::description));
-    EXPECT_FALSE(m_note->owns_text(object_text::action_description));
+    ASSERT_NE(m_prototypes[NOTE_RNUM].shared_text(), nullptr);
+    EXPECT_EQ(m_note->shared_text(), m_prototypes[NOTE_RNUM].shared_text());
+    EXPECT_EQ(m_note->name, m_prototypes[NOTE_RNUM].name);
 }
 
 /* The part of the editor's refusal that names the limit, by default the note's. */
@@ -404,7 +410,7 @@ TEST_F(NoteWritingTest, AReplacementOnAnEmptyNoteReplacesNothing)
 
     type("%sford~river");
 
-    EXPECT_EQ(m_descriptor.str, &m_note->action_description);
+    EXPECT_EQ(m_descriptor.written_note, m_note);
     EXPECT_STREQ(m_note->action_description, "\n\r"); /* a command starts an empty text with a line break */
     EXPECT_NE(std::string(m_descriptor.output).find("Replaced 0 occurence"), std::string::npos);
 }
@@ -542,6 +548,38 @@ TEST_F(NoteWritingTest, ANoteFreedWhileBeingWrittenOnEndsTheWriting)
     EXPECT_NE(std::string(m_descriptor.output).find("What you were writing is gone."),
         std::string::npos)
         << m_descriptor.output;
+    EXPECT_EQ(m_descriptor.written_note, nullptr);
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
+}
+
+/* Each line typed shows on the note at once, in a copy of its own: the editor keeps its buffer. */
+TEST_F(NoteWritingTest, EachLineTypedShowsOnTheNote)
+{
+    start_writing();
+
+    type("Meet me at the");
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\r");
+    type("ford.");
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\rford.\n\r");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_NE(static_cast<const void*>(m_note->action_description),
+        static_cast<const void*>(*m_descriptor.str));
+}
+
+/* A writer whose connection goes keeps on the note what it wrote so far and lets go of the
+ * editor's buffer. */
+TEST_F(NoteWritingTest, FinishingAWriterKeepsWhatItWrote)
+{
+    start_writing();
+    type("Meet me at the");
+
+    finish_writing_note(m_descriptor);
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_EQ(m_descriptor.written_note, nullptr);
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\r");
 }
 
 } // namespace

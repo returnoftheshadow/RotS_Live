@@ -6,15 +6,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "comm.h"
 #include "db.h"
 #include "interpre.h"
 #include "object_skins.h"
+#include "object_text.h"
 #include "protos.h"
-#include "retired_prototype_text.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -44,7 +46,7 @@ void new_obj(const struct char_data* ch)
 {
     int i;
     //    SHAPE_OBJECT(ch)->object=(struct obj_data *)calloc(1,sizeof(struct obj_data));
-    CREATE1(SHAPE_OBJECT(ch)->object, obj_data);
+    SHAPE_OBJECT(ch)->object = new obj_data();
     //    bzero((char *)(SHAPE_OBJECT(ch)->object),sizeof(struct obj_data));
     SHAPE_OBJECT(ch)
         ->object->item_number
@@ -193,12 +195,6 @@ void write_object(FILE* f, const struct obj_data* obj, int num)
     }
 }
 
-// #define SUBST(x)   real->x=(char *)calloc(strlen(curr->x)+1,1);  strcpy(real->x,curr->x);
-
-#define SUBST(x)                                \
-    CREATE(real->x, char, strlen(curr->x) + 1); \
-    strcpy(real->x, curr->x);
-
 static void send_has_skins(const struct char_data* ch, int vnum, int rnum, const char* what);
 
 void implement_object(const struct char_data* ch)
@@ -206,7 +202,6 @@ void implement_object(const struct char_data* ch)
     struct obj_data *real, *curr;
     int rnum, i;
     // int tmp;
-    struct extra_descr_data *tmpdescr, *tmp2descr;
     if (!SHAPE_OBJECT(ch)->object) {
         send_to_char("You have nothing to implement\n\r", ch);
         return;
@@ -234,15 +229,12 @@ void implement_object(const struct char_data* ch)
         send_to_char("Not implemented.\n\r", ch);
         return;
     }
-    char* const old_name = real->name;
-    char* const old_short_description = real->short_description;
-    char* const old_description = real->description;
-    char* const old_action_description = real->action_description;
-    extra_descr_data* const old_extra_descriptions = real->ex_description;
-    SUBST(name);
-    SUBST(short_description);
-    SUBST(description);
-    SUBST(action_description);
+    /* Copies already in the game keep showing the text they were made with. Removed or renamed
+     * extra descriptions go away for copies loaded from now on; the working copy keeps them in
+     * file order, and the prototype's list shows them last first, as boot builds it. */
+    object_text::fields text = object_text_fields_of(*curr);
+    std::reverse(text.extra_descriptions.begin(), text.extra_descriptions.end());
+    real->set_text(create_object_text(std::move(text)));
     real->obj_flags.type_flag = curr->obj_flags.type_flag;
     real->obj_flags.extra_flags = curr->obj_flags.extra_flags;
     real->obj_flags.wear_flags = curr->obj_flags.wear_flags;
@@ -258,38 +250,6 @@ void implement_object(const struct char_data* ch)
     real->obj_flags.version = curr->obj_flags.version;
     real->obj_flags.skin_base = curr->obj_flags.skin_base;
     real->obj_flags.skin_own = curr->obj_flags.skin_own;
-    /* Start a new list instead of stacking onto the old one, so removed or
-     * renamed extra descriptions go away for copies loaded from now on.
-     * Prepending gives the same order boot builds. */
-    real->ex_description = 0;
-    for (tmpdescr = curr->ex_description; tmpdescr; tmpdescr = tmpdescr->next) {
-        tmp2descr = real->ex_description;
-
-        CREATE1(real->ex_description, extra_descr_data);
-
-        real->ex_description->next = tmp2descr;
-
-        if (tmpdescr->keyword) {
-            CREATE(real->ex_description->keyword, char, strlen(tmpdescr->keyword) + 1);
-            strcpy(real->ex_description->keyword, tmpdescr->keyword);
-        } else {
-            CREATE(real->ex_description->keyword, char, 1);
-        }
-        if (tmpdescr->description) {
-            //      real->ex_description->description=(char *)calloc(strlen(tmpdescr->description)+1,1);
-            CREATE(real->ex_description->description, char, strlen(tmpdescr->description) + 1);
-            strcpy(real->ex_description->description, tmpdescr->description);
-        } else {
-            //      real->ex_description->description=(char *)calloc(1,1);
-            CREATE(real->ex_description->description, char, 1);
-        }
-    }
-    /* Copies already in the game keep the text they were made with. */
-    retire_prototype_text(old_name);
-    retire_prototype_text(old_short_description);
-    retire_prototype_text(old_description);
-    retire_prototype_text(old_action_description);
-    retire_prototype_extra_descriptions(old_extra_descriptions);
     for (i = 0; i < MAX_OBJ_AFFECT; i++) {
         real->affected[i].location = curr->affected[i].location;
         real->affected[i].modifier = curr->affected[i].modifier;
@@ -1658,7 +1618,7 @@ int load_object(struct char_data* ch, const char* arg)
         room_number = ch->in_room;
 
         //  SHAPE_OBJECT(ch)->object=(struct obj_data *)calloc(1,sizeof(struct obj_data));
-        CREATE1(SHAPE_OBJECT(ch)->object, obj_data);
+        SHAPE_OBJECT(ch)->object = new obj_data();
         //  bzero((char *)(SHAPE_OBJECT(ch)->object),sizeof(struct obj_data));
 
         SHAPE_OBJECT(ch)
@@ -2300,7 +2260,7 @@ void free_object(struct char_data* ch)
         RELEASE(session_object->short_description);
         RELEASE(session_object->description);
         RELEASE(session_object->action_description);
-        RELEASE(SHAPE_OBJECT(ch)->object);
+        delete SHAPE_OBJECT(ch)->object;
         SHAPE_OBJECT(ch)
             ->object
             = NULL;

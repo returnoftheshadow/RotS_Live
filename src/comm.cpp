@@ -33,6 +33,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "mob_progs/banker.h"
+#include "note_writing.h"
 #include "protocol.h"
 #include "script.h"
 #include "signal_requests.h"
@@ -2213,6 +2214,7 @@ void close_socket(descriptor_data* conn_descriptor, int drop_all)
             }
         }
         RELEASE(conn_descriptor->showstr_head);
+        finish_writing_note(*conn_descriptor);
         RELEASE(conn_descriptor);
     }
 }

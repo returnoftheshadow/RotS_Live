@@ -2,13 +2,17 @@
 #include "../handler.h"
 #include "../obj2html.h"
 #include "../object_skins.h"
+#include "../object_text.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "object_text_test_support.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 void clear_object(struct obj_data* obj);
@@ -61,6 +65,7 @@ protected:
         obj_index = m_index;
         obj_proto = m_proto;
         top_of_objt = 4;
+        share_prototype_texts();
         clear_char(&m_ch, MOB_VOID);
     }
     void TearDown() override
@@ -78,6 +83,13 @@ protected:
         release_cleared_character(&m_ch);
     }
     int rn(int vnum) { return real_object(vnum); }
+    /* Gives each prototype a shared text holding what its fields show now; for a test that changed
+     * them. */
+    void share_prototype_texts()
+    {
+        for (obj_data& prototype : m_proto)
+            make_text_shared(prototype);
+    }
     /* A live copy, the way the game loads one. */
     obj_data* load(int vnum) { return read_object(rn(vnum), REAL); }
 
@@ -401,19 +413,20 @@ TEST_F(ObjectSkins, RestyleKeepsTheSameObject)
     EXPECT_EQ(obj_index[rn(kSkin)].number, 1);
 }
 
-/* Every text field points at the target prototype's text afterwards. */
+/* The copy shares the target prototype's whole text afterwards. */
 TEST_F(ObjectSkins, RestyleTakesAllTextOfTarget)
 {
-    static char name[2][16] = { "sword long", "blade" }, desc[2][16] = { "lies", "rests" },
-                act[2][16] = { "act a", "act b" };
-    /* Static like the texts: the sword still holds one when TearDown frees it. */
-    static extra_descr_data ex[2] {};
+    const char* const names[2] = { "sword long", "blade" };
+    const char* const descriptions[2] = { "lies", "rests" };
+    const char* const actions[2] = { "act a", "act b" };
     for (int i = 0; i < 2; i++) {
         obj_data& p = m_proto[i == 0 ? 0 : 2];
-        p.name = name[i];
-        p.description = desc[i];
-        p.action_description = act[i];
-        p.ex_description = &ex[i];
+        object_text::fields text = object_text_fields_of(p);
+        text.name = names[i];
+        text.description = descriptions[i];
+        text.action_description = actions[i];
+        text.extra_descriptions.push_back({ names[i], descriptions[i] });
+        p.set_text(create_object_text(std::move(text)));
     }
     apply_object_skins();
     obj_data* sword = load(kBase);
@@ -426,6 +439,7 @@ TEST_F(ObjectSkins, RestyleTakesAllTextOfTarget)
     EXPECT_EQ(sword->description, m_proto[2].description);
     EXPECT_EQ(sword->action_description, m_proto[2].action_description);
     EXPECT_EQ(sword->ex_description, m_proto[2].ex_description);
+    EXPECT_EQ(sword->shared_text(), m_proto[2].shared_text());
 }
 
 /* A filled drink container's name starts with its liquid ("water flask"): the new name keeps the
@@ -437,6 +451,7 @@ TEST_F(ObjectSkins, RestyleFilledDrinkKeepsLiquidWord)
     m_proto[0].obj_flags.value[0] = 10;
     m_proto[0].name = flask;
     m_proto[2].name = jug;
+    share_prototype_texts();
     apply_object_skins();
     obj_data* drink = load(kBase);
     obj_to_char(drink, &m_ch);
@@ -447,8 +462,8 @@ TEST_F(ObjectSkins, RestyleFilledDrinkKeepsLiquidWord)
     obj_data* n = nullptr;
     ASSERT_EQ(restyle_object(drink, rn(kSkin), &n), restyle_result::ok);
     EXPECT_STREQ(drink->name, "water jug clay");
-    EXPECT_NE(drink->name, m_proto[2].name) << "the copy owns its liquid name";
-    EXPECT_TRUE(drink->owns_text(object_text::name));
+    EXPECT_NE(drink->shared_text(), m_proto[2].shared_text()) << "the liquid name is the copy's own";
+    EXPECT_STREQ(drink->short_description, m_proto[2].short_description);
 
     name_from_drinkcon(drink);
     EXPECT_STREQ(drink->name, "jug clay");
@@ -462,6 +477,7 @@ TEST_F(ObjectSkins, RestyleEmptiedDrinkTakesTargetName)
     m_proto[0].obj_flags.type_flag = ITEM_DRINKCON;
     m_proto[0].name = flask;
     m_proto[2].name = jug;
+    share_prototype_texts();
     apply_object_skins();
     obj_data* drink = load(kBase);
     obj_to_char(drink, &m_ch);
@@ -472,7 +488,7 @@ TEST_F(ObjectSkins, RestyleEmptiedDrinkTakesTargetName)
     obj_data* n = nullptr;
     ASSERT_EQ(restyle_object(drink, rn(kSkin), &n), restyle_result::ok);
     EXPECT_EQ(drink->name, m_proto[2].name);
-    EXPECT_FALSE(drink->owns_text(object_text::name)) << "the target's name is borrowed";
+    EXPECT_EQ(drink->shared_text(), m_proto[2].shared_text()) << "the target's text is shared";
 }
 
 /* Prototypes that start full have the liquid as their first name word ("water flask leather").
@@ -486,6 +502,7 @@ TEST_F(ObjectSkins, RestyleDrinkFromFullPrototypes)
     m_proto[0].obj_flags.value[1] = 10;
     m_proto[0].name = flask;
     m_proto[2].name = jug;
+    share_prototype_texts();
     apply_object_skins();
     obj_data* n = nullptr;
 
@@ -514,46 +531,50 @@ TEST_F(ObjectSkins, RestyleDrinkFromFullPrototypes)
     EXPECT_STREQ(wine->name, "jug clay");
 }
 
-/* Filling and emptying a copy over and over frees each name it made, never its prototype's (a
- * static buffer here, so a free of it would abort). */
-TEST_F(ObjectSkins, DrinkNameCyclesFreeOnlyNamesTheCopyMade)
+/* Filling and emptying a copy over and over gives it a text of its own each time and leaves the
+ * text its prototype shows alone. */
+TEST_F(ObjectSkins, DrinkNameCyclesLeaveThePrototypesTextAlone)
 {
     static char flask[] = "flask";
     m_proto[0].obj_flags.type_flag = ITEM_DRINKCON;
     m_proto[0].name = flask;
+    share_prototype_texts();
+    const std::shared_ptr<const object_text> prototype_text = m_proto[0].shared_text();
     obj_data* drink = load(kBase);
     obj_to_char(drink, &m_ch);
-    EXPECT_FALSE(drink->owns_text(object_text::name));
+    EXPECT_EQ(drink->shared_text(), prototype_text);
 
     for (int cycle = 0; cycle < 3; ++cycle) {
         name_to_drinkcon(drink, 0);
         EXPECT_STREQ(drink->name, "water flask");
-        EXPECT_TRUE(drink->owns_text(object_text::name));
+        EXPECT_NE(drink->shared_text(), prototype_text);
         name_from_drinkcon(drink);
         EXPECT_STREQ(drink->name, "flask");
-        EXPECT_NE(drink->name, m_proto[0].name);
+        EXPECT_EQ(drink->shared_text().use_count(), 1) << "no other object shows the copy's text";
     }
+    EXPECT_EQ(m_proto[0].shared_text(), prototype_text);
     EXPECT_STREQ(m_proto[0].name, "flask");
 }
 
-/* After an implement a copy can still point at the prototype's old text, which other copies share
- * and which the copy does not own: the restyle must not free it (a static buffer here, so a free
- * would abort). */
-TEST_F(ObjectSkins, RestyleLeavesSharedOldTextAlone)
+/* Copies made before an implement share the prototype's old text: restyling one leaves the other
+ * showing it. */
+TEST_F(ObjectSkins, RestyleLeavesTheOldTextToOtherCopies)
 {
-    static char old_name[] = "old sword", old_short[] = "an old sword", sword_name[] = "sword";
-    m_proto[0].name = sword_name;
     apply_object_skins();
     obj_data* sword = load(kBase);
+    obj_data* other = load(kBase);
     obj_to_char(sword, &m_ch);
-    sword->name = old_name;
-    sword->short_description = old_short;
+    obj_to_char(other, &m_ch);
+    const std::shared_ptr<const object_text> old_text = m_proto[0].shared_text();
+    object_text::fields implemented = object_text_fields_of(m_proto[0]);
+    implemented.short_description = "a new sword";
+    m_proto[0].set_text(create_object_text(std::move(implemented)));
 
     obj_data* n = nullptr;
     ASSERT_EQ(restyle_object(sword, rn(kSkin), &n), restyle_result::ok);
-    EXPECT_EQ(sword->name, m_proto[2].name);
-    EXPECT_EQ(sword->short_description, m_proto[2].short_description);
-    EXPECT_STREQ(old_name, "old sword");
+    EXPECT_EQ(sword->shared_text(), m_proto[2].shared_text());
+    EXPECT_EQ(other->shared_text(), old_text);
+    EXPECT_STREQ(other->short_description, "text 4512");
 }
 
 TEST_F(ObjectSkins, LevelLineReaderLeavesNonNumericLine)

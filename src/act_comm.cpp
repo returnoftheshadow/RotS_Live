@@ -20,6 +20,7 @@
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "note_writing.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -400,10 +401,7 @@ ACMD(do_write)
         /* we can write - hooray! */
         send_to_char("Ok.. go ahead and write.. end the note with %e.\n\r", ch);
         act("$n begins to jot down a note.", TRUE, ch, 0, 0, TO_ROOM);
-        /* The editor allocates the note's text, so the note owns it. */
-        paper->set_owned_text(object_text::action_description, nullptr);
-        ch->desc->str = &paper->action_description;
-        ch->desc->str_limit = MAX_NOTE_LENGTH;
+        start_writing_note(*ch->desc, *paper);
     }
 }
 

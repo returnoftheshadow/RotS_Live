@@ -73,6 +73,7 @@ SOURCES := \
     main.cpp \
     mail.cpp \
     mystic.cpp \
+    note_writing.cpp \
     number_text.cpp \
     mage.cpp \
     mobact.cpp \
@@ -89,6 +90,7 @@ SOURCES := \
     game_boot_options.cpp \
     obj2html.cpp \
     object_skins.cpp \
+    object_text.cpp \
     object_utils.cpp \
     objsave.cpp \
     olog_hai.cpp \
@@ -98,7 +100,6 @@ SOURCES := \
     protocol.cpp \
     ranger.cpp \
     real_time_tick_schedule.cpp \
-    retired_prototype_text.cpp \
     save_benchmark.cpp \
     savebench.cpp \
     script.cpp \
