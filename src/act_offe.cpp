@@ -589,8 +589,11 @@ ACMD(do_bash)
                weapon hits already respect (fight.cpp). Skip the clobber here the
                same way, so a resisted roll leaves the cast running uninterrupted. */
             if (!victim_resists_cast_interruption) {
-                WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
-                    CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+                /* Ending the victim's own delay can remove it (the rest of a paused script). */
+                if (!WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
+                        CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE)) {
+                    return;
+                }
             }
             damage(ch, victim, 1, SKILL_BASH, 0);
         }
@@ -1094,7 +1097,10 @@ ACMD(do_disengage)
         return;
     }
 
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE);
+    /* Ending ch's own delay can remove it (the rest of a paused script). */
+    if (!WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+        return;
+    }
 
     act("$n stops fighting $N.", TRUE, ch, 0, ch->specials.fighting, TO_NOTVICT);
     act("$n stops fighting you.", TRUE, ch, 0, ch->specials.fighting, TO_VICT);

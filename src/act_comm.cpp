@@ -113,6 +113,7 @@ ACMD(do_say)
 
         room_data& room = world[ch->in_room];
         freed_watch speaker_watch(ch);
+        char_data* speaker = ch;
         s = room.people;
         while (s) {
             char_data* following = s->next_in_room;
@@ -122,10 +123,11 @@ ACMD(do_say)
             }
 
             freed_watch listener_watch(s);
-            call_trigger(ON_HEAR_SAY, s, ch, talk_line);
-            /* A listener's script removed the speaker: nobody else hears one who is gone. */
+            call_trigger(ON_HEAR_SAY, s, speaker, talk_line);
+            /* A listener's script can remove the speaker: the rest still hear the words, from
+             * nobody. */
             if (speaker_watch.freed()) {
-                return;
+                speaker = nullptr;
             }
             s = next_person_after_trigger(room, s, listener_watch.freed(), following);
         }

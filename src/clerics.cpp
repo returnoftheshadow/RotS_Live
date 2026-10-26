@@ -568,8 +568,11 @@ ACMD(do_concentrate)
         set_mental_delay(ch, -1 - GET_MENTAL_DELAY(ch));
         ch->delay.targ1.type = TARGET_NONE;
         ch->delay.targ2.type = TARGET_NONE;
-        WAIT_STATE_BRIEF(ch, -1, CMD_CONCENTRATE, -1, 50,
-            AFF_CONCENTRATION | AFF_WAITING | AFF_WAITWHEEL);
+        /* Ending ch's own delay can remove it (the rest of a paused script). */
+        if (!WAIT_STATE_BRIEF(ch, -1, CMD_CONCENTRATE, -1, 50,
+                AFF_CONCENTRATION | AFF_WAITING | AFF_WAITWHEEL)) {
+            return;
+        }
         send_to_char("You start focusing your mind.\n\r", ch);
         act("$n starts concentrating.", FALSE, ch, 0, 0, TO_ROOM);
     }

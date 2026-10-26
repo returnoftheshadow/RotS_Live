@@ -10,11 +10,13 @@
 #include "../script.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "../zone.h"
 #include "test_random_utils.h"
 
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <new>
 #include <deque>
 #include <string>
 #include <vector>
@@ -128,11 +130,15 @@ protected:
         m_saved_descriptor_list = descriptor_list;
         m_saved_script_table = script_table;
         m_saved_top_of_script_table = top_of_script_table;
+        m_saved_zone_table = zone_table;
+        /* Experience for a kill reads the killer's zone. */
+        zone_table = m_zones;
         if (room_data::BASE_WORLD == nullptr) {
             world.create_bulk(1);
         }
         for (int room = 0; room < 2; ++room) {
             m_saved_rooms[room].number = world[room].number;
+            m_saved_rooms[room].zone = world[room].zone;
             m_saved_rooms[room].light = world[room].light;
             m_saved_rooms[room].contents = world[room].contents;
             m_saved_rooms[room].people = world[room].people;
@@ -149,6 +155,7 @@ protected:
         waiting_list = nullptr;
         top_of_world = 0;
         world[0].number = ROOM_VNUM;
+        world[0].zone = 0;
         world[0].light = 1;
         world[0].contents = nullptr;
 
@@ -180,6 +187,9 @@ protected:
         top_of_objt = PROTOTYPE_COUNT - 1;
 
         clear_char(&m_player, 0);
+        /* clear_char zeroes the whole character, the map inside its damage record included; a
+         * player gets a working one, as logging in gives it. */
+        new (&m_player.damage_details) player_damage_details();
         m_player.player.name = m_player_name;
         m_player.player.race = RACE_HUMAN;
         m_player.player.level = 10;
@@ -224,6 +234,7 @@ protected:
 
         for (int room = 0; room < 2; ++room) {
             world[room].number = m_saved_rooms[room].number;
+            world[room].zone = m_saved_rooms[room].zone;
             world[room].light = m_saved_rooms[room].light;
             world[room].contents = m_saved_rooms[room].contents;
             world[room].people = m_saved_rooms[room].people;
@@ -242,6 +253,7 @@ protected:
         descriptor_list = m_saved_descriptor_list;
         script_table = m_saved_script_table;
         top_of_script_table = m_saved_top_of_script_table;
+        zone_table = m_saved_zone_table;
     }
 
     /* Makes the script table these scripts, replacing any installed before. */
@@ -345,6 +357,7 @@ protected:
         top_of_world = SECOND_ROOM;
         world[SECOND_ROOM].number = SECOND_ROOM_VNUM;
         world[SECOND_ROOM].light = 1;
+        world[SECOND_ROOM].zone = 0;
         world[SECOND_ROOM].contents = nullptr;
         world[SECOND_ROOM].people = nullptr;
         for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
@@ -496,6 +509,8 @@ private:
     // Writable copies of the commands' texts; a deque, so earlier texts never move.
     std::deque<std::string> m_script_texts;
 
+    // The one zone rooms 0 and 1 belong to.
+    zone_data m_zones[1] {};
     // The exits link_second_room makes: one from room 0 in each direction, and the way back.
     room_direction_data m_exits[NUM_OF_DIRS] {};
     room_direction_data m_way_back {};
@@ -506,6 +521,7 @@ private:
     struct saved_room {
         // The fields the tests change.
         int number = 0;
+        int zone = 0;
         byte light = 0;
         obj_data* contents = nullptr;
         char_data* people = nullptr;
@@ -523,6 +539,7 @@ private:
     int m_saved_top_of_world = 0;
     descriptor_data* m_saved_descriptor_list = nullptr;
     script_head* m_saved_script_table = nullptr;
+    zone_data* m_saved_zone_table = nullptr;
     int m_saved_top_of_script_table = 0;
     saved_room m_saved_rooms[2] {};
 };

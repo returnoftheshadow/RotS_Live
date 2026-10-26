@@ -20,7 +20,6 @@
 #include "handler.h"
 #include "interpre.h"
 #include "mob_walker.h"
-#include "script.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -369,9 +368,9 @@ void one_mobile_activity(char_data* ch)
                                 best_obj = obj;
                                 max = obj->obj_flags.cost;
                             } else if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER) {
-                                /* An item's ON_WEAR script can remove the mob, or move or
-                                 * remove the container or the item to be looked at next;
-                                 * any of those ends the scavenging. */
+                                /* An item's ON_WEAR script can remove the mob, or destroy
+                                 * the container, the item to be looked at next or the best
+                                 * one seen so far; the first three end the scavenging. */
                                 freed_watch container_watch(obj);
                                 bool scavenging_disturbed = false;
                                 for (inside = obj->contains; inside; inside = next_obj) {
@@ -382,13 +381,16 @@ void one_mobile_activity(char_data* ch)
                                             obj_to_char(inside, ch);
                                             act("$n gets $p from $P.",
                                                 TRUE, ch, inside, obj, TO_ROOM);
+                                            freed_watch next_item_watch(next_obj);
+                                            freed_watch best_item_watch(best_obj);
                                             do_wear(ch, "all", 0, 0, 0);
                                             if (mob_watch.freed()) {
                                                 return;
                                             }
-                                            if (container_watch.freed()
-                                                || !is_on_content_list(scavenged_room.contents, obj)
-                                                || !is_on_content_list(obj->contains, next_obj)) {
+                                            if (best_item_watch.freed()) {
+                                                best_obj = 0;
+                                            }
+                                            if (container_watch.freed() || next_item_watch.freed()) {
                                                 scavenging_disturbed = true;
                                                 break;
                                             }
@@ -401,10 +403,6 @@ void one_mobile_activity(char_data* ch)
                         }
                     } /* for */
 
-                    /* best_obj is only compared until it is found still on the floor. */
-                    if (best_obj && !is_on_content_list(scavenged_room.contents, best_obj)) {
-                        best_obj = 0;
-                    }
                     if (best_obj) {
                         obj_from_room(best_obj);
                         obj_to_char(best_obj, ch);

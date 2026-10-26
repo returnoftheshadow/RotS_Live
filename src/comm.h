@@ -51,13 +51,13 @@ void break_spell(struct char_data* ch);
 void abort_delay(char_data* wait_ch);
 /* Ends <ch>'s delay and carries out what it was waiting for: the delayed command, or the rest of
  * the script DO_WAIT paused. A forced completion (delay.subcmd set to -1 first, as WAIT_STATE and
- * raw_kill do when they replace or end a delay) runs the command's interrupted branch; the rest
- * of a paused script is not run then but deferred (defer_char_script). */
+ * raw_kill do when they replace or end a delay) runs the command's interrupted branch, or the
+ * rest of the paused script. Either can free ch; a caller that uses ch afterwards watches it with
+ * a freed_watch. */
 void complete_delay(struct char_data* ch);
-/* Runs one pulse of the waiting list: each waiting character's delay goes down by one, once, and
- * each that runs out is completed (a paused script resumes, a delayed command runs), after which
- * a script deferred by a forced completion resumes. A character freed meanwhile is not touched
- * again, and one that starts waiting again is counted down from the next pulse. */
+/* Runs one pulse of the waiting list: every waiting character's delay goes down by one, and each
+ * that runs out is completed (a paused script resumes, a delayed command runs). A character
+ * freed while its delay completes is not touched again. */
 void process_waiting_list();
 std::string mob_age_message(const struct char_data* victim);
 struct txt_block* get_from_txt_block_pool(const char* line = 0);

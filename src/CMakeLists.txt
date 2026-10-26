@@ -107,6 +107,7 @@ set(ROTS_SERVER_SOURCES
     crashsave_schedule.cpp
     damage_meters.cpp
     db.cpp
+    death_extraction_hold.cpp
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp

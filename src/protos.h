@@ -174,9 +174,6 @@ struct info_script { //  The structure which each char/obj/zon will have if it h
     obj_data* ob[3]; //  Variables
     int ints[3]; //  Variables
     room_data* rm[3]; //  Variables
-    // Set when a forced completion (another delay replacing the DO_WAIT pause) deferred the paused
-    // run: process_waiting_list resumes it once that delay ends; raw_kill drops it.
-    bool resume_pending;
 };
 
 struct script_head { //  The header structure for a linked list of scripts - forms the index for scripts.

@@ -27,6 +27,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "death_extraction_hold.h"
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
@@ -352,41 +353,18 @@ int find_script_by_number(const int number)
         return i;
 }
 
-/* Tells the builders that the run of <state>'s script that another delay deferred will not
- * resume, naming <subject> and <reason>. */
-static void report_dropped_script(const info_script& state, const char* subject, const char* reason)
-{
-    char errbuf[256];
-    int script_no = (state.index >= 0 && state.index <= top_of_script_table)
-        ? script_table[state.index].number
-        : -1;
-    snprintf(errbuf, sizeof(errbuf), "SCRIPT: script #%d paused for %s will not resume: %s",
-        script_no, subject, reason);
-    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
-}
-
-/* Releases <state> and the texts it owns; nothing may be using it. */
-static void release_script_state_now(info_script*& state)
-{
-    clear_script_info(state);
-    RELEASE(state);
-}
-
-/* Empties <inf>'s character, object and room variables, which name things that may not outlast
- * the run. */
-static void clear_script_references(info_script* inf)
+/* Empties the variables a run starts without, as the state's script always has: ch1-ch3,
+ * ob1-ob3 and rm1-rm3, which name things that may be gone, and str2 and str3, which are
+ * released. str1 and int1-int3 carry on from run to run; str1 is the text a hearing script last
+ * heard, or the last set with ASSIGN_STR. */
+void clear_script_info(info_script* inf)
 {
     for (int variable = 0; variable < 3; ++variable) {
         inf->ch[variable] = nullptr;
         inf->ob[variable] = nullptr;
         inf->rm[variable] = nullptr;
     }
-}
-
-/* Releases the texts <inf> owns and empties str1-str3. */
-static void clear_script_texts(info_script* inf)
-{
-    for (int text = 0; text < 3; ++text) {
+    for (int text = 1; text < 3; ++text) {
         if (inf->str_dynamic[text]) {
             RELEASE(inf->str[text]);
         }
@@ -395,18 +373,29 @@ static void clear_script_texts(info_script* inf)
     }
 }
 
+/* Releases <state>, str1 and every other text it owns included; nothing may be using it. */
+static void release_script_state_now(info_script*& state)
+{
+    clear_script_info(state);
+    if (state->str_dynamic[0]) {
+        RELEASE(state->str[0]);
+    }
+    RELEASE(state);
+}
+
 /* Makes <info>'s text variable <text> (0 for str1) a copy of <value>, or empty for a null one. */
 static void set_script_text(info_script& info, int text, const char* value)
 {
+    /* Copied before the old text goes, in case value is that text. */
+    char* copy = nullptr;
+    if (value) {
+        copy = str_dup(value);
+    }
     if (info.str_dynamic[text]) {
         RELEASE(info.str[text]);
     }
-    info.str[text] = nullptr;
-    info.str_dynamic[text] = 0;
-    if (value) {
-        info.str[text] = str_dup(value);
-        info.str_dynamic[text] = 1;
-    }
+    info.str[text] = copy;
+    info.str_dynamic[text] = copy ? 1 : 0;
 }
 
 namespace {
@@ -422,6 +411,7 @@ public:
     {
         innermost = this;
         ++depth;
+        ++runs_in_event;
     }
 
     /* Frames are run_script's locals, so they end in the reverse order of their making. */
@@ -430,6 +420,12 @@ public:
         assert(innermost == this);
         innermost = m_enclosing;
         --depth;
+        /* The outermost run is over, and with it the event. */
+        if (depth == 0) {
+            runs_in_event = 0;
+            nesting_refusal_reported = false;
+            runs_refusal_reported = false;
+        }
         if (m_owns_state) {
             release_script_state_now(m_state);
         }
@@ -438,18 +434,24 @@ public:
     running_script_frame(const running_script_frame&) = delete;
     running_script_frame& operator=(const running_script_frame&) = delete;
 
-    /* How many run_script calls are in progress, one inside another. */
-    static int nesting_depth() { return depth; }
-
-    /* True if a script is running with <state>. */
-    static bool is_running(const info_script* state)
+    /* Why another run may not start now, or null if it may: MAX_SCRIPT_NESTING runs are going on
+     * inside one another, or MAX_SCRIPT_RUNS_PER_EVENT have run since the outermost began. Sets
+     * <out_first_of_its_kind> when this is the event's first refusal for that limit, so that one
+     * SYSERR per event and limit reports them. */
+    static const char* refusal_reason(bool& out_first_of_its_kind)
     {
-        for (const running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
-            if (frame->m_state == state) {
-                return true;
-            }
+        out_first_of_its_kind = false;
+        if (depth >= MAX_SCRIPT_NESTING) {
+            out_first_of_its_kind = !nesting_refusal_reported;
+            nesting_refusal_reported = true;
+            return "too many scripts are running inside one another";
         }
-        return false;
+        if (runs_in_event >= MAX_SCRIPT_RUNS_PER_EVENT) {
+            out_first_of_its_kind = !runs_refusal_reported;
+            runs_refusal_reported = true;
+            return "too many scripts have run for one event";
+        }
+        return nullptr;
     }
 
     /* Hands <state> to the outermost script running with it, to be released when that script
@@ -499,6 +501,11 @@ private:
     static inline running_script_frame* innermost = nullptr;
     // How many frames there are, innermost included.
     static inline int depth = 0;
+    // How many runs have started since the outermost one, which counts; back to 0 when it ends.
+    static inline int runs_in_event = 0;
+    // Set once a run of this event has been refused, and reported, for each limit.
+    static inline bool nesting_refusal_reported = false;
+    static inline bool runs_refusal_reported = false;
 
     // The state this run_script call reads and writes; it outlives the call unless m_owns_state.
     info_script* m_state;
@@ -508,68 +515,25 @@ private:
     running_script_frame* m_enclosing;
 };
 
-/* The script state one trigger's script runs with: the subject's own state, created on first use.
- * A new run empties its character, object, room and text variables; a run resumed after DO_WAIT
- * empties only the character, object and room ones, so it keeps the texts it had (a hearing
- * script's str1 among them). int1-int3 are never emptied: they carry over from run to run.
- *
- * When a script is already running with that state (the script set off its own subject's trigger
- * again, as DO_WEAR on its own object does, or a mob hears the answer to what its script said),
- * the new run gets a fresh state of its own instead, and the outer script carries on with its
- * other variables intact. Refusing the nested trigger would protect the outer script too, but
- * would stop scripts that work today; a fresh state leaves every script that does not set itself
- * off again exactly as it was. What the two runs share is what one state shared before: int1-int3
- * (the nested run starts with the outer script's, and the outer script carries on with the values
- * the nested run left, which keeps a re-entry guard kept in an int working) and DO_WAIT's resume
- * point, kept in the subject's own state where continue_char_script looks for it. The outer
- * script is paused while the nested run goes, so the two never change the ints at once. */
+/* The subject's script state, ready for a run of one of its triggers: created on first use, and
+ * emptied of what a run starts without (clear_script_info). A subject has one state, so a trigger
+ * of the subject set off while one of its scripts runs (DO_WEAR on the script's own object, or a
+ * mob hearing the answer to what its script said) starts again on that state: the outer script
+ * then carries on with the variables the nested run left, as it always has. The state is never
+ * freed while a run is using it (running_script_frame::adopt). */
 class trigger_state {
 public:
     /* <own_state> is the subject's script_info. <index> is the script's place in script_table,
-     * or -1 to resume the paused run: its place and its texts are kept. */
+     * or -1, to resume the paused run, to keep the one the state has. */
     trigger_state(info_script*& own_state, int index)
     {
         if (!own_state) {
             CREATE1(own_state, info_script);
         }
-        m_own = own_state;
-        if (running_script_frame::is_running(m_own)) {
-            if (index != -1) {
-                m_nested.index = index;
-            } else {
-                m_nested.index = m_own->index;
-            }
-            m_nested.next_command = m_own->next_command;
-            for (int variable = 0; variable < 3; ++variable) {
-                m_nested.ints[variable] = m_own->ints[variable];
-            }
-            m_active = &m_nested;
-        } else {
-            if (index != -1) {
-                /* A new run takes the state over: a deferred run of the subject's script would
-                 * resume from wherever this one pauses, so it is dropped. */
-                if (m_own->resume_pending) {
-                    report_dropped_script(*m_own, "a subject that started a new run",
-                        "the new run replaced it");
-                    m_own->resume_pending = false;
-                }
-                clear_script_info(m_own);
-                m_own->index = index;
-            } else {
-                clear_script_references(m_own);
-            }
-            m_active = m_own;
-        }
-    }
-
-    ~trigger_state()
-    {
-        if (m_active == &m_nested) {
-            m_own->next_command = m_nested.next_command;
-            for (int variable = 0; variable < 3; ++variable) {
-                m_own->ints[variable] = m_nested.ints[variable];
-            }
-            clear_script_info(&m_nested);
+        m_state = own_state;
+        clear_script_info(m_state);
+        if (index != -1) {
+            m_state->index = index;
         }
     }
 
@@ -577,16 +541,11 @@ public:
     trigger_state& operator=(const trigger_state&) = delete;
 
     /* The state the trigger's script is to run with. */
-    info_script& info() { return *m_active; }
+    info_script& info() { return *m_state; }
 
 private:
-    // The subject's own state. After a nested run the outer script still running with it keeps it
-    // alive, even if the subject was freed; after an ordinary run it is not touched again.
-    info_script* m_own = nullptr;
-    // The state of a run nested inside a script already using m_own; unused otherwise.
-    info_script m_nested {};
-    // The state the script runs with: m_own, or m_nested for a nested run.
-    info_script* m_active = nullptr;
+    // The subject's state; it outlives the run even if the subject is freed meanwhile.
+    info_script* m_state = nullptr;
 };
 
 } // namespace
@@ -618,12 +577,6 @@ void note_char_freed(char_data* character)
     release_script_state(character->specials.script_info);
 }
 
-/* Empties <inf>'s character, object, room and text variables, releasing the texts it owns. */
-void clear_script_info(info_script* inf)
-{
-    clear_script_references(inf);
-    clear_script_texts(inf);
-}
 
 char**
 get_text_param_writable(int param, struct info_script* info)
@@ -1295,16 +1248,10 @@ static bool is_on_people_list(const char_data* first, const char_data* person)
     return false;
 }
 
-/* True if the room <in_room> names is <room>. */
-static bool is_room(const room_data& room, int in_room)
-{
-    return in_room != NOWHERE && &world[in_room] == &room;
-}
-
 char_data* next_person_after_trigger(const room_data& room, char_data* current,
     bool current_freed, char_data* following)
 {
-    if (!current_freed && is_room(room, current->in_room)) {
+    if (!current_freed) {
         return current->next_in_room;
     }
     /* following may have been freed or moved too, so it is only compared, never read, until it
@@ -1318,7 +1265,7 @@ char_data* next_person_after_trigger(const room_data& room, char_data* current,
 obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
     bool current_freed, obj_data* following)
 {
-    if (!current_freed && is_room(room, current->in_room)) {
+    if (!current_freed) {
         return current->next_content;
     }
     if (is_on_content_list(room.contents, following)) {
@@ -1328,8 +1275,8 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
 }
 
 /* Sets off <trigger_type> (ON_BEFORE_ENTER or ON_ENTER) on each of <room>'s people but <ch>, the
- * one entering, until a script returns false or <entering_watch> (on ch) reports ch freed.
- * Returns 0 if either happened, else 1. */
+ * one entering, until a script returns false, and returns 0 if one did, else 1. Once
+ * <entering_watch> (on ch) reports ch freed, the rest are told nobody is entering. */
 static int trigger_room_people(int trigger_type, room_data& room, char_data* ch,
     const freed_watch& entering_watch)
 {
@@ -1348,8 +1295,11 @@ static int trigger_room_people(int trigger_type, room_data& room, char_data* ch,
         } else {
             script_result = trigger_char_enter(person, ch, &room);
         }
-        if (!script_result || entering_watch.freed()) {
+        if (!script_result) {
             return 0;
+        }
+        if (entering_watch.freed()) {
+            ch = nullptr;
         }
         person = next_person_after_trigger(room, person, person_watch.freed(), following);
     }
@@ -1357,16 +1307,23 @@ static int trigger_room_people(int trigger_type, room_data& room, char_data* ch,
 }
 
 /* Sets off ON_ENTER on each of <room>'s contents, with <ch> entering, until a script returns
- * false or <entering_watch> (on ch) reports ch freed. Returns 0 if either happened, else 1. */
+ * false, and returns 0 if one did, else 1. Once <entering_watch> (on ch) reports ch freed, the
+ * rest are told nobody is entering. */
 static int trigger_room_contents(room_data& room, char_data* ch, const freed_watch& entering_watch)
 {
+    if (entering_watch.freed()) {
+        ch = nullptr;
+    }
     obj_data* object = room.contents;
     while (object) {
         obj_data* following = object->next_content;
         bool object_freed = false;
         const int script_result = trigger_object_event(ON_ENTER, object, ch, object_freed);
-        if (!script_result || entering_watch.freed()) {
+        if (!script_result) {
             return 0;
+        }
+        if (entering_watch.freed()) {
+            ch = nullptr;
         }
         object = next_content_after_trigger(room, object, object_freed, following);
     }
@@ -1376,8 +1333,8 @@ static int trigger_room_contents(room_data& room, char_data* ch, const freed_wat
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
 {
     int return_value = 1;
-    /* A script that frees the one entering ends the event: nobody else can meet it, and it
-     * enters nowhere. */
+    /* A script can free the one entering; the room's later people and objects are then told
+     * nobody is entering. */
     freed_watch entering_watch(ch);
 
     switch (trigger_type) {
@@ -1517,9 +1474,8 @@ static void restyle_script_object(info_script* info, script_data* curr)
     mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 }
 
-/* A run refused because MAX_SCRIPT_NESTING scripts are already running, one inside another (two
- * mobs answering each other's says for ever, say). */
-static void report_script_nesting(const info_script* info)
+/* Logs a run refused for <reason> (running_script_frame::refusal_reason). */
+static void report_refused_run(const info_script* info, const char* reason)
 {
     char errbuf[256];
     int script_no = (info->index >= 0 && info->index <= top_of_script_table)
@@ -1534,13 +1490,17 @@ static void report_script_nesting(const info_script* info)
         object_name = info->ob[0]->short_description;
     }
     snprintf(errbuf, sizeof(errbuf),
-        "SYSERR: %s: script #%d not run: %d scripts are already running inside one another "
-        "(ch1 %s, ob1 %s)",
-        __func__, script_no, MAX_SCRIPT_NESTING, character_name, object_name);
+        "SYSERR: %s: script #%d not run: %s (limits %d deep, %d runs; ch1 %s, ob1 %s)", __func__,
+        script_no, reason, MAX_SCRIPT_NESTING, MAX_SCRIPT_RUNS_PER_EVENT, character_name,
+        object_name);
     log(errbuf);
 }
 
-int run_script(struct info_script* info, struct script_data* position)
+/* Runs the script from <position> with <info>, and returns 1 to let the event go ahead or 0 if
+ * the script ended with RETURN_FALSE. A run past the limits (MAX_SCRIPT_RUNS_PER_EVENT) is
+ * refused and returns <refused_result>: 0 for the triggers that fail closed, 1 for the rest. */
+static int run_script_or(struct info_script* info, struct script_data* position,
+    int refused_result)
 {
     char output[500];
     int return_value = 1;
@@ -1564,9 +1524,13 @@ int run_script(struct info_script* info, struct script_data* position)
     int tmpint, tmpint2;
     struct follow_type *k, *next_fol;
 
-    if (running_script_frame::nesting_depth() >= MAX_SCRIPT_NESTING) {
-        report_script_nesting(info);
-        return 1;
+    bool first_refusal_of_its_kind = false;
+    const char* refusal = running_script_frame::refusal_reason(first_refusal_of_its_kind);
+    if (refusal) {
+        if (first_refusal_of_its_kind) {
+            report_refused_run(info, refusal);
+        }
+        return refused_result;
     }
 
     running_script_guard script_context;
@@ -1916,7 +1880,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0]) {
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch) {
-                    if (IS_NPC(tmpch))
+                    /* A mob dying in die() goes once its death is done (death_extraction_hold). */
+                    if (IS_NPC(tmpch) && !death_extraction_hold::hold_extraction(tmpch))
                         extract_char(tmpch);
                     tmpch = 0;
                     assign_char_param(curr->param[0], info, tmpch);
@@ -2465,6 +2430,12 @@ int run_script(struct info_script* info, struct script_data* position)
     return return_value;
 }
 
+/* As run_script_or, for the triggers that go ahead when their script is refused. */
+int run_script(struct info_script* info, struct script_data* position)
+{
+    return run_script_or(info, position, 1);
+}
+
 // *******************************************************************************
 // ***************************** Triggers for rooms ******************************
 // *******************************************************************************
@@ -2484,47 +2455,12 @@ int trigger_room_enter(const room_data* room, const char_data* ch)
 
 void continue_char_script(char_data* ch)
 {
-    /* The character, object and room variables start empty: what they named before the pause
-     * may be gone. The texts and ints are the run's own and carry on. */
+    /* As at the start of any run: what the variables named before the pause may be gone. */
     trigger_state state(ch->specials.script_info, -1);
-    /* This is the resume a forced completion deferred, if there was one. */
-    ch->specials.script_info->resume_pending = false;
     info_script& info = state.info();
     info.ch[0] = ch;
     ch->delay.cmd = 0;
     run_script(&info, info.next_command);
-}
-
-void defer_char_script(char_data* ch)
-{
-    if (ch->specials.script_info) {
-        ch->specials.script_info->resume_pending = true;
-    }
-}
-
-bool resume_deferred_char_script(char_data* ch)
-{
-    const info_script* state = ch->specials.script_info;
-    if (!state || !state->resume_pending) {
-        return false;
-    }
-    continue_char_script(ch);
-    return true;
-}
-
-void drop_deferred_char_script(char_data* ch, const char* reason)
-{
-    info_script* state = ch->specials.script_info;
-    if (!state || !state->resume_pending) {
-        return;
-    }
-    const char* subject = "someone";
-    if (GET_NAME(ch)) {
-        subject = GET_NAME(ch);
-    }
-    report_dropped_script(*state, subject, reason);
-    state->resume_pending = false;
-    state->next_command = nullptr;
 }
 
 //  A character can prevent another entering the room by returning FALSE
@@ -2545,7 +2481,8 @@ int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room)
             info.ch[0] = ch;
             info.ch[1] = vict;
             info.rm[0] = room;
-            return_value = run_script(&info, script_position->next);
+            /* A guard whose script was refused keeps the door shut. */
+            return_value = run_script_or(&info, script_position->next, 0);
         }
     return return_value;
 }
@@ -2564,7 +2501,8 @@ int trigger_char_damage(char_data* vict, char_data* ch)
             info_script& info = state.info();
             info.ch[0] = vict;
             info.ch[1] = ch;
-            return_value = run_script(&info, script_position->next);
+            /* A blow whose damage script was refused deals no damage. */
+            return_value = run_script_or(&info, script_position->next, 0);
         }
     return return_value;
 }
@@ -2649,10 +2587,13 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             set_script_text(info, 0, text);
             return_value = run_script(&info, script_position->next);
         }
-    /* The yell script is looked up on the mob and given the speaker: the say script may have
-     * removed either. */
-    if (hearer_watch.freed() || speaker_watch.freed()) {
+    /* The yell script is looked up on the mob, which the say script may have removed; a speaker
+     * it removed is nobody to the yell script. */
+    if (hearer_watch.freed()) {
         return return_value;
+    }
+    if (speaker_watch.freed()) {
+        speaking = nullptr;
     }
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
@@ -2705,7 +2646,8 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
             info.ch[0] = vict;
             info.ch[1] = ch;
             info.ob[0] = obj;
-            return_value = run_script(&info, script_position->next);
+            /* A blow whose damage script was refused deals no damage. */
+            return_value = run_script_or(&info, script_position->next, 0);
         }
 
     return return_value;

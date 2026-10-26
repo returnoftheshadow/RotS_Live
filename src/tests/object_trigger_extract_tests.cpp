@@ -367,16 +367,17 @@ TEST_F(ObjectTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
     EXPECT_TRUE(output_has("It was []."));
 }
 
-/* Examining the ring wears it, which runs the ring's own wear script inside the examine script;
- * the examine script still has its variables when it carries on. */
-TEST_F(ObjectTriggerTest, AScriptKeepsItsVariablesWhenItSetsOffItsObjectsTriggerAgain)
+/* Examining the ring wears it, which runs the ring's own wear script inside the examine script.
+ * The ring has one script state, so the wear script starts it afresh: the examine script carries
+ * on without the stone it had found. */
+TEST_F(ObjectTriggerTest, AnObjectsTriggerSetOffInsideItsScriptSharesItsVariables)
 {
     install_scripts({ { SCRIPT_VNUM,
         { { ON_EXAMINE_OBJECT,
               { { SCRIPT_ASSIGN_INV, nullptr,
                     { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
                   { SCRIPT_DO_WEAR, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1 } },
-                  { SCRIPT_SEND_TO_CHAR, "Holding %s.", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2_NAME } } } },
+                  { SCRIPT_SEND_TO_CHAR, "Holding [%s].", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2_NAME } } } },
             { ON_WEAR, { { SCRIPT_SEND_TO_CHAR, "The ring glows.", { SCRIPT_PARAM_CH1 } } } } } } });
     obj_to_char(make_object(STONE_VNUM, 0), &m_player);
     obj_data* ring = make_scripted(RING_VNUM);
@@ -387,12 +388,12 @@ TEST_F(ObjectTriggerTest, AScriptKeepsItsVariablesWhenItSetsOffItsObjectsTrigger
 
     EXPECT_TRUE(output_has("The ring glows."));
     EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
-    EXPECT_TRUE(output_has("Holding a grey stone.")) << output();
+    EXPECT_TRUE(output_has("Holding [].")) << output();
 }
 
-/* The stone's enter script moves it from the room into the player's hands: the enter trigger
- * goes on with the room's next object, not with what the player carries. */
-TEST_F(ObjectTriggerTest, EnterGoesOnInTheRoomAfterAnObjectMovesItselfOut)
+/* The stone's enter script moves it from the room into the player's hands: the enter trigger goes
+ * on from the stone, as it always has, along the list the stone is now in, the player's. */
+TEST_F(ObjectTriggerTest, EnterFollowsAnObjectThatMovesItselfOut)
 {
     install_scripts({ { SCRIPT_VNUM,
                           { { ON_ENTER,
@@ -408,8 +409,8 @@ TEST_F(ObjectTriggerTest, EnterGoesOnInTheRoomAfterAnObjectMovesItselfOut)
     call_trigger(ON_ENTER, &world[0], &m_player, 0);
 
     EXPECT_EQ(&m_player, stone->carried_by);
-    EXPECT_TRUE(output_has("[a cloth bag] stirs.")) << output();
-    EXPECT_FALSE(output_has("[a loaf of bread] stirs.")) << output();
+    EXPECT_TRUE(output_has("[a loaf of bread] stirs.")) << output();
+    EXPECT_FALSE(output_has("[a cloth bag] stirs.")) << output();
 }
 
 /* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
@@ -446,7 +447,8 @@ TEST_F(ObjectTriggerTest, ExamineStopsWhenTheScriptRemovesTheExaminer)
     EXPECT_EQ(1, count_contents(world[0].contents)) << "the examiner dropped the stone";
 }
 
-TEST_F(ObjectTriggerTest, TastingStopsWhenTheScriptRemovesTheTaster)
+/* The taster is gone, but the bite it took is taken all the same. */
+TEST_F(ObjectTriggerTest, TastingStillTakesABiteWhenTheScriptRemovesTheTaster)
 {
     install_script(ON_EAT, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
     char_data* taster = make_mob("taster", 0);
@@ -457,7 +459,7 @@ TEST_F(ObjectTriggerTest, TastingStopsWhenTheScriptRemovesTheTaster)
 
     EXPECT_FALSE(is_in_game(taster));
     EXPECT_EQ(bread, world[0].contents);
-    EXPECT_EQ(BREAD_FILLING, bread->obj_flags.value[0]) << "no bite was taken";
+    EXPECT_EQ(BREAD_FILLING - 1, bread->obj_flags.value[0]);
 }
 
 TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)

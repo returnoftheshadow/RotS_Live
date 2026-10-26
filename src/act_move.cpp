@@ -191,8 +191,16 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
     if (!room_to)
         return 1;
 
-    if (!skip_before_enter && call_trigger(ON_BEFORE_ENTER, room_to, ch, 0) == FALSE) {
-        return 1; //  Trigger doesn't allow them to enter the new room
+    if (!skip_before_enter) {
+        freed_watch mover_watch(ch);
+        const int before_enter_result = call_trigger(ON_BEFORE_ENTER, room_to, ch, 0);
+        /* A script that removed ch leaves nobody to move. */
+        if (mover_watch.freed()) {
+            return 1;
+        }
+        if (before_enter_result == FALSE) {
+            return 1; //  Trigger doesn't allow them to enter the new room
+        }
     }
     if (IS_SET(EXIT(ch, cmd)->exit_info, EX_NOWALK))
         return 8;

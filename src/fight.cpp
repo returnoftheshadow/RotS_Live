@@ -18,6 +18,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "death_extraction_hold.h"
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
@@ -887,16 +888,14 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
-        /* A paused script is deferred, not run (complete_delay); should the interrupted command
-         * remove the one dying anyway, there is nobody left to kill. */
+        /* The interrupted command, or the rest of a paused script, can remove the one dying:
+         * then there is nobody left to kill. */
         freed_watch dying_watch(dead_man);
         complete_delay(dead_man);
         if (dying_watch.freed()) {
             return;
         }
     }
-    /* The dead do not finish what they were doing. */
-    drop_deferred_char_script(dead_man, "it died");
     abort_delay(dead_man);
 
     if (dead_man->specials.fighting) {
@@ -1013,9 +1012,18 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 {
     freed_watch dead_man_watch(dead_man);
     freed_watch killer_watch(killer);
-    const int die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
-    /* A mob whose ON_DIE script removed it has had its end: no corpse is made and nobody gains
-     * from it. */
+    int die_trigger_result;
+    /* An ON_DIE script that removes the dying mob (EXTRACT_CHAR) has it removed only once the
+     * death is done: the killer still gains from it and the kill is logged as for any death,
+     * and the mob then goes the way the script asked, its inventory left in the room and no
+     * corpse made. */
+    bool removed_by_its_script;
+    {
+        death_extraction_hold extraction_hold(dead_man);
+        die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
+        removed_by_its_script = extraction_hold.extraction_requested();
+    }
+    /* Freed some other way (a RAW_KILL, say): there is nothing left to finish. */
     if (dead_man_watch.freed()) {
         return;
     }
@@ -1025,6 +1033,10 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     }
 
     /* Character doesn't die if call_trigger returns FALSE */
+    if (die_trigger_result == FALSE && removed_by_its_script) {
+        extract_char(dead_man);
+        return;
+    }
     if (die_trigger_result == FALSE) {
         stop_fighting_him(dead_man);
         stop_fighting(dead_man);
@@ -1063,6 +1075,10 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 
     /* A mob died.  Who cares. */
     if (IS_NPC(dead_man)) {
+        if (removed_by_its_script) {
+            extract_char(dead_man);
+            return;
+        }
         raw_kill(dead_man, killer, attack_type);
         return;
     }
@@ -1756,7 +1772,17 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
+        /* A special procedure can remove either fighter whatever it returns (Thuringwethil's
+         * leaves at 500 hit points). */
+        freed_watch special_victim_watch(victim);
+        freed_watch special_attacker_watch(attacker);
         i = special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl);
+        if (special_victim_watch.freed()) {
+            return 1;
+        }
+        if (special_attacker_watch.freed()) {
+            return 0;
+        }
         if (i) {
             if (attacker->specials.fighting == victim)
                 stop_fighting(attacker);
@@ -2666,6 +2692,7 @@ void hit(char_data* ch, char_data* victim, int type)
                 do_parry(ch, victim, w_type);
                 freed_watch attacker_watch(ch);
                 freed_watch defender_watch(victim);
+                freed_watch weapon_watch(wielded);
                 if (check_riposte(ch, victim))
                     return;
                 /* The riposte's scripts can remove either fighter, or ch's weapon. */
@@ -2673,11 +2700,12 @@ void hit(char_data* ch, char_data* victim, int type)
                     return;
                 }
 
-                obj_data* weapon_after_riposte = ch->equipment[WIELD];
-                if (weapon_after_riposte && weapon_after_riposte->obj_flags.type_flag != ITEM_WEAPON) {
-                    weapon_after_riposte = nullptr;
+                /* A weapon the riposte's scripts destroyed is no longer gripped. */
+                const obj_data* gripped_weapon = wielded;
+                if (weapon_watch.freed()) {
+                    gripped_weapon = nullptr;
                 }
-                check_grip(ch, weapon_after_riposte);
+                check_grip(ch, gripped_weapon);
                 check_grip(victim, victim->equipment[WIELD]);
             } else {
                 /* Generate a hit location based on bodypart structure */
@@ -2735,20 +2763,17 @@ void hit(char_data* ch, char_data* victim, int type)
                 weapon_master.do_on_damage_dealt(dam, victim);
 
                 freed_watch attacker_watch(ch);
+                freed_watch weapon_watch(wielded);
                 damage(ch, victim, dam, w_type, location);
                 /* The blow's scripts can remove the attacker. */
                 if (attacker_watch.freed()) {
                     return;
                 }
 
-                if (dam > 0) {
-                    /* The weapon's ON_DAMAGE script may have extracted it during damage(), which
-                     * frees it, so wielded may dangle: look the weapon up again, as above. */
-                    obj_data* weapon_after_damage = ch->equipment[WIELD];
-                    if (weapon_after_damage
-                        && weapon_after_damage->obj_flags.type_flag == ITEM_WEAPON) {
-                        check_grip(ch, weapon_after_damage);
-                    }
+                /* The weapon's ON_DAMAGE script may have extracted it during damage(), which frees
+                 * it: a destroyed weapon is no longer gripped. */
+                if (dam > 0 && !weapon_watch.freed()) {
+                    check_grip(ch, wielded);
                 }
 
                 /* so we won't check engagement for hit people */
@@ -2781,7 +2806,13 @@ void hit(char_data* ch, char_data* victim, int type)
         tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
+        /* A special procedure can remove either fighter whatever it returns, as in damage(). */
+        freed_watch special_victim_watch(victim);
+        freed_watch special_attacker_watch(ch);
         tmp = special(ch, 0, "", SPECIAL_DAMAGE, &tmpwtl);
+        if (special_victim_watch.freed() || special_attacker_watch.freed()) {
+            return;
+        }
         if (tmp) {
             if (ch->specials.fighting == victim)
                 stop_fighting(ch);

@@ -286,11 +286,11 @@ ACMD(do_eat)
     }
 
     /* What the script returns does not matter to eating, but a script that extracted the food
-     * has freed it, so it is not used up a second time; one that removed the eater has ended
-     * the meal, and the food stays where the eater dropped it. */
+     * has freed it, so it is not used up a second time. One that removed the eater leaves the
+     * food to be used up all the same, with no one to tell. */
     freed_watch eater_watch(ch);
     const object_trigger_result eat_result = call_object_trigger(ON_EAT, food, ch);
-    if (eat_result == object_trigger_result::object_extracted || eater_watch.freed()) {
+    if (eat_result == object_trigger_result::object_extracted) {
         return;
     }
 
@@ -298,7 +298,9 @@ ACMD(do_eat)
         extract_obj(food);
     else {
         if (!(--food->obj_flags.value[0])) {
-            send_to_char("There's nothing left now.\n\r", ch);
+            if (!eater_watch.freed()) {
+                send_to_char("There's nothing left now.\n\r", ch);
+            }
             extract_obj(food);
         }
     }
@@ -809,8 +811,9 @@ bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     if (wear_result == object_trigger_result::refused) {
         return true;
     }
-    /* The script may have dropped, given or already worn the item. */
-    if (!is_on_content_list(character->carrying, item)) {
+    /* The script may have dropped the item or put it into something: then nobody carries it, and
+     * taking it from nobody would crash. */
+    if (!item->carried_by) {
         return true;
     }
 
@@ -957,13 +960,14 @@ ACMD(do_wear)
 
             if (where >= 0) {
                 items_worn++;
+                freed_watch next_item_watch(next_obj);
                 perform_wear(ch, obj, where, true);
-                /* An item's ON_WEAR script can remove the wearer, or take away the item to be
+                /* An item's ON_WEAR script can remove the wearer, or destroy the item to be
                  * looked at next; either ends the wearing. */
                 if (wearer_watch.freed()) {
                     return;
                 }
-                if (!is_on_content_list(ch->carrying, next_obj)) {
+                if (next_item_watch.freed()) {
                     break;
                 }
             }
@@ -983,12 +987,13 @@ ACMD(do_wear)
             while (obj) {
                 next_obj = get_obj_in_list_vis(ch, arg1, obj->next_content, 9999);
                 if ((where = find_eq_pos(ch, obj, 0)) >= 0) {
+                    freed_watch next_item_watch(next_obj);
                     perform_wear(ch, obj, where, false);
                     /* As for wear all. */
                     if (wearer_watch.freed()) {
                         return;
                     }
-                    if (!is_on_content_list(ch->carrying, next_obj)) {
+                    if (next_item_watch.freed()) {
                         next_obj = nullptr;
                     }
                 } else

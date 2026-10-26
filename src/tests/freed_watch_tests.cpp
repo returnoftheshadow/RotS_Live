@@ -108,14 +108,15 @@ TEST_F(FreedWatchTest, ALoopGoesOnFromTheSavedNextPersonAfterOneWasFreed)
     EXPECT_EQ(second, next_person_after_trigger(world[0], first, true, second));
 }
 
-TEST_F(FreedWatchTest, ALoopGoesOnFromTheSavedNextPersonAfterOneLeft)
+/* One that left the room is followed as it always has been, along its own next_in_room. */
+TEST_F(FreedWatchTest, ALoopFollowsAPersonThatLeftTheRoom)
 {
     char_data* first = make_mob("first", 0);
     char_data* second = make_mob("second", 0);
     char_from_room(first);
+    char_to_room(first, 0); /* back in, now after the second */
 
-    EXPECT_EQ(second, next_person_after_trigger(world[0], first, false, second));
-    char_to_room(first, 0); /* so that TearDown finds it in the room */
+    EXPECT_EQ(nullptr, next_person_after_trigger(world[0], first, false, second));
 }
 
 TEST_F(FreedWatchTest, ALoopEndsWhenThePersonAndTheSavedNextAreBothGone)

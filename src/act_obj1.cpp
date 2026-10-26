@@ -759,13 +759,14 @@ ACMD(do_give)
                 freed_watch receiver_watch(vict);
                 for (obj = ch->carrying; obj; obj = next_obj) {
                     next_obj = obj->next_content;
+                    freed_watch next_item_watch(next_obj);
                     perform_give(ch, vict, obj);
-                    /* The receiver's ON_RECEIVE script can remove either of them, or take away
+                    /* The receiver's ON_RECEIVE script can remove either of them, or destroy
                      * the item to be given next; any of those ends the giving. */
                     if (giver_watch.freed() || receiver_watch.freed()) {
                         break;
                     }
-                    if (!is_on_content_list(ch->carrying, next_obj)) {
+                    if (next_item_watch.freed()) {
                         break;
                     }
                 }
@@ -782,12 +783,13 @@ ACMD(do_give)
                 freed_watch giver_watch(ch);
                 while (obj && vict) {
                     next_obj = get_obj_in_list_vis(ch, argument, obj->next_content, 9999);
+                    freed_watch next_item_watch(next_obj);
                     perform_give(ch, vict, obj);
                     /* As for give all; the receiver is looked up again below. */
                     if (giver_watch.freed()) {
                         break;
                     }
-                    if (!is_on_content_list(ch->carrying, next_obj)) {
+                    if (next_item_watch.freed()) {
                         next_obj = nullptr;
                     }
                     obj = next_obj;

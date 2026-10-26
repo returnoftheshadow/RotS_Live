@@ -772,7 +772,12 @@ ACMD(do_cast)
                 }
             }
 
-            WAIT_STATE_BRIEF(ch, casting_time, cmd, spell_index, 30, AFF_WAITING | AFF_WAITWHEEL);
+            /* Ending ch's own delay can remove it (the rest of a paused script). */
+            if (!WAIT_STATE_BRIEF(ch, casting_time, cmd, spell_index, 30, AFF_WAITING | AFF_WAITWHEEL)) {
+                tmpwtl.targ1.cleanup();
+                tmpwtl.targ2.cleanup();
+                return;
+            }
             ch->delay.targ1 = tmpwtl.targ1;
             ch->delay.targ2 = tmpwtl.targ2;
             tmpwtl.targ1.cleanup();
@@ -1139,8 +1144,10 @@ ACMD(do_prepare)
                 return;
             }
 
-            WAIT_STATE_BRIEF(ch, CASTING_TIME(ch, spl) * 2, cmd, 1, 30,
-                AFF_WAITING | AFF_WAITWHEEL);
+            if (!WAIT_STATE_BRIEF(ch, CASTING_TIME(ch, spl) * 2, cmd, 1, 30,
+                    AFF_WAITING | AFF_WAITWHEEL)) {
+                return;
+            }
 
             ch->delay.targ1.type = TARGET_OTHER;
             ch->delay.targ1.ch_num = spl;
@@ -1165,7 +1172,9 @@ ACMD(do_prepare)
         }
 
         spl = ch->delay.targ1.ch_num;
-        WAIT_STATE_BRIEF(ch, -1, CMD_PREPARE, spl, 20, 0);
+        if (!WAIT_STATE_BRIEF(ch, -1, CMD_PREPARE, spl, 20, 0)) {
+            return;
+        }
         send_to_char("You completed your preparations.\n\r", ch);
         return;
     }

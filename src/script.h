@@ -166,9 +166,15 @@ inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
 /* How many scripts can run inside one another (a script setting off a trigger whose script sets
- * off another...). A trigger set off past that runs no script, as though there were none, and
- * logs a SYSERR naming the script and its subject. */
-inline constexpr int MAX_SCRIPT_NESTING = 32;
+ * off another...), and how many one event can run in all, the first included. Both are far
+ * beyond what any script does, so only runaway scripts reach them: two mobs answering each
+ * other's says for ever, which would otherwise exhaust the stack, or answering with several says
+ * each, which would otherwise run without end. A trigger set off past either limit runs no
+ * script, and one SYSERR per event and limit says so. It then goes ahead as though there were no
+ * script, except ON_BEFORE_ENTER and ON_DAMAGE, which refuse: no one gets in, and no damage is
+ * dealt, by running scripts into the limits. */
+inline constexpr int MAX_SCRIPT_NESTING = 256;
+inline constexpr int MAX_SCRIPT_RUNS_PER_EVENT = 10000;
 /* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
  * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
  * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
@@ -179,11 +185,11 @@ inline constexpr int MAX_SCRIPT_NESTING = 32;
  * including the subjects it was given, so a caller that uses one afterwards keeps a freed_watch
  * (freed_watch.h) on it across the call. call_trigger itself touches nothing freed:
  *   - ON_BEFORE_ENTER, ON_ENTER: once the one entering (subject2) is freed, the room's remaining
- *     mobs and objects do not react, and 0 is returned.
+ *     mobs and objects still react, told nobody is entering.
  *   - ON_DAMAGE: once the victim (subject) or the attacker (subject2) is freed, the weapon's
  *     script does not run, and 0 is returned: no damage is to be dealt.
- *   - ON_HEAR_SAY, ON_HEAR_YELL: once the mob or the speaker is freed, the mob's yell script does
- *     not run. */
+ *   - ON_HEAR_SAY, ON_HEAR_YELL: once the mob is freed its yell script does not run; once the
+ *     speaker is, the yell script is told nobody spoke. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 
 /* How an object's own trigger script ended, for the command that fired it. */
@@ -216,9 +222,9 @@ void note_char_freed(char_data* character);
 /* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the
  * trigger on <current> has run. <following> is current's next_in_room from before the trigger,
  * and <current_freed> says whether current was freed meanwhile (a freed_watch tells). While
- * current is still in the room, the loop goes on from it as usual. Otherwise it goes on from
- * <following> if that is still in the room, and else it ends (null): a script that moved or
- * removed both has left nothing to go on from. */
+ * current exists, the loop goes on from it as it always has, to its next_in_room (wherever a
+ * script has moved it). Once it is freed, the loop goes on from <following> if that is still in
+ * the room, and else ends (null). */
 char_data* next_person_after_trigger(const room_data& room, char_data* current,
     bool current_freed, char_data* following);
 /* The same for a loop over <room>'s contents. */
@@ -230,20 +236,10 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
  * address is on the list. */
 bool is_on_content_list(const obj_data* first, const obj_data* object);
 
-/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch and the other character, object
- * and room variables empty; its texts and ints carry on. */
+/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch, the other character, object and
+ * room variables and str2-str3 empty, and str1 and int1-int3 as they were. The script can free
+ * ch. */
 void continue_char_script(char_data* ch);
-/* For complete_delay's forced completion of <ch>'s DO_WAIT pause (another delay replacing it): the
- * paused script is not run there, inside whoever forced it, but kept to resume once the replacing
- * delay ends (resume_deferred_char_script). Nothing happens if ch has no paused script. */
-void defer_char_script(char_data* ch);
-/* Resumes <ch>'s deferred script, if it has one; the script can free ch. For process_waiting_list,
- * once the delay that replaced the pause has ended and ch waits for nothing. Returns whether a
- * script was resumed. */
-bool resume_deferred_char_script(char_data* ch);
-/* Discards <ch>'s deferred script, if it has one, and tells the builders so, giving <reason>
- * (raw_kill: the character died). */
-void drop_deferred_char_script(char_data* ch, const char* reason);
 
 /* Report script lines whose vnums name nothing -- informational only. */
 void check_script_vnums(int script_index, struct char_data* to);
