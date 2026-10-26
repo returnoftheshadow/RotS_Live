@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "signal_requests.h"
+#include "signals.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -78,40 +80,80 @@ void checkpointing(int fake)
         tics = 0;
 }
 
+// A signal can interrupt the game loop anywhere, even halfway through closing a connection, so
+// these handlers only record the request; the game loop performs it through game_signal_steps().
+
 void reread_wizlists(int fake)
 {
-    void reboot_wizlists(void);
-
     signal(SIGUSR1, reread_wizlists);
-    mudlog("Rereading wizlists.", CMP, LEVEL_IMMORT, FALSE);
-    reboot_wizlists();
+    record_wizlist_reread_request();
 }
 
 void unrestrict_game(int fake)
 {
-    extern int restrict;
-    extern int num_invalid;
-
     signal(SIGUSR2, unrestrict_game);
-    mudlog("Received SIGUSR2 - unrestricting game (emergent)",
-        BRF, LEVEL_IMMORT, TRUE);
-    int ban_list = 0;
-    restrict = 0;
-    num_invalid = 0;
+    record_unrestrict_request();
+}
+
+void hupsig(int signal_number)
+{
+    record_stop_request(signal_number);
+}
+
+void logsig(int fake)
+{
+    record_ignored_signal();
 }
 
 /* kick out players etc */
 
 void close_sockets(SocketType s);
+void reboot_wizlists(void);
+extern int restrict;
+extern int num_invalid;
 
-void hupsig(int fake)
+namespace {
+
+// The work the recorded signals ask for, run by the game loop between passes.
+class GameSignalSteps : public SignalRequestSteps {
+public:
+    void stop(int signal_number) override
+    {
+        log("Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...");
+        Emergency_save();
+        bank_vaults_write_behind(); /* a service stop skips game_loop's shutdown saving */
+        close_sockets(mother_desc);
+        exit(0);
+    }
+
+    void reread_wizlists() override
+    {
+        mudlog("Rereading wizlists.", CMP, LEVEL_IMMORT, FALSE);
+        reboot_wizlists();
+    }
+
+    void unrestrict_game() override
+    {
+        mudlog("Received SIGUSR2 - unrestricting game (emergent)",
+            BRF, LEVEL_IMMORT, TRUE);
+        restrict = 0;
+        num_invalid = 0;
+    }
+
+    void log_ignored_signal() override
+    {
+        log("Signal received.  Ignoring.");
+    }
+};
+
+// The one set of steps the game loop uses.
+GameSignalSteps game_steps;
+
+} // namespace
+
+SignalRequestSteps& game_signal_steps()
 {
-    extern SocketType mother_desc;
-    log("Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...");
-    Emergency_save();
-    bank_vaults_write_behind(); /* a service stop ends here, not in game_loop */
-    close_sockets(mother_desc);
-    exit(0); /* something more elegant should perhaps be substituted */
+    return game_steps;
 }
 
 void badcrash(int fake)
@@ -131,10 +173,6 @@ void badcrash(int fake)
     abort();
 }
 
-void logsig(int fake)
-{
-    log("Signal received.  Ignoring.");
-}
 void diesig(int fake)
 {
     // Try to save everyone.

@@ -28,7 +28,7 @@ public:
     StandardStreamChannel(std::istream& input, std::ostream& output);
 
     // Destroys the reader, which joins its thread if input has ended and detaches it otherwise.
-    // A normal SIGTERM stop ends in exit(0) inside hupsig without destroying the channel, so
+    // A normal SIGTERM stop ends in exit(0) inside the game loop without destroying the channel, so
     // this matters for tests and for any path that returns from run_the_game.
     ~StandardStreamChannel() override = default;
 
