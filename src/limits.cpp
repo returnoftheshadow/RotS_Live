@@ -1013,7 +1013,7 @@ void finalize_new_character_start_state(struct char_data* ch)
 
 void check_breathing(char_data* ch)
 {
-    affected_type newaf;
+    affected_type newaf{};
     affected_type* tmpaf;
 
     tmpaf = affected_by_spell(ch, SPELL_ASPHYXIATION);
@@ -1281,7 +1281,7 @@ void do_fame_war_bonuses(struct char_data* ch)
     }
 
     if (!pkaff) {
-        affected_type newpkaf;
+        affected_type newpkaf{};
         assign_pk_bonuses(ch, coeff, tier, true);
         newpkaf.type = SPELL_FAME_WAR;
         newpkaf.duration = 100;
@@ -1299,7 +1299,7 @@ void do_fame_war_bonuses(struct char_data* ch)
 void do_power_of_arda(char_data* ch)
 {
     affected_type* tmpaf;
-    affected_type newaf;
+    affected_type newaf{};
     int level, maxlevel;
 
     if (GET_RACE(ch) == RACE_HARADRIM) {
@@ -1498,7 +1498,7 @@ ASPELL(spell_poison);
 void affect_update_room(struct room_data* room)
 {
     struct affected_type *tmpaf, *next_tmpaf, *checkaf;
-    struct affected_type newaf;
+    struct affected_type newaf{};
     struct char_data *tmpch, *next_tmpch;
     int time_phase, tmp, direction, mod, roomnum, movechance;
     extern char* dirs[];

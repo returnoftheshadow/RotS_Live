@@ -195,7 +195,7 @@ void weapon_master_handler::do_on_damage_dealt(int damage, char_data* victim)
 
             auto haze = affected_by_spell(victim, SPELL_HAZE);
             if (haze == nullptr) {
-                affected_type af;
+                affected_type af{};
                 af.type = SPELL_HAZE;
                 af.duration = 1; // the spell's default duration
                 af.modifier = 1;

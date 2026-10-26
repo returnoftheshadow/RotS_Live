@@ -1794,7 +1794,7 @@ struct char_data* read_mobile(int nr, int type)
     byte tmp;
     struct char_data* mob;
     void* tmpptr;
-    affected_type tmp_aff;
+    affected_type tmp_aff{};
 
     if (type == VIRT) {
         if ((i = real_mobile(nr)) < 0) {

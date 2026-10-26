@@ -1225,8 +1225,7 @@ TEST(ActWiz, StatFileReportsAMissingPlayer)
 
     EXPECT_EQ(std::string(descriptor.output), "There is no such player.\n\r");
 
-    free(implementor->player.name);
-    delete implementor;
+    free_char(implementor);
 }
 
 /* `wizset file` for a name with no player file says so, and frees its scratch character. */
@@ -1243,8 +1242,7 @@ TEST(ActWiz, WizsetFileReportsAMissingPlayer)
 
     EXPECT_EQ(std::string(descriptor.output), "There is no such player.\n\r");
 
-    free(implementor->player.name);
-    delete implementor;
+    free_char(implementor);
 }
 
 namespace {
