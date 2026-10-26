@@ -3730,7 +3730,8 @@ void free_char(struct char_data* ch)
 
     if (!IS_NPC(ch) || (IS_NPC(ch) && ch->nr == -1)) {
 
-        RELEASE(GET_NAME(ch));
+        /* Not GET_NAME, which is a mob's short description. */
+        RELEASE(ch->player.name);
         RELEASE(ch->player.title);
         RELEASE(ch->player.short_descr);
         RELEASE(ch->player.long_descr);
