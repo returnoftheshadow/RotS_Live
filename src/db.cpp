@@ -3699,6 +3699,7 @@ char* fread_line(FILE* fp)
 /* release memory allocated for a char struct */
 void free_char(struct char_data* ch)
 {
+    note_char_freed(ch);
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);

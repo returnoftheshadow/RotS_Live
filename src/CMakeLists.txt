@@ -110,6 +110,7 @@ set(ROTS_SERVER_SOURCES
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp
+    freed_watch.cpp
     game_heartbeat.cpp
     game_time_text.cpp
     graph.cpp
@@ -225,6 +226,8 @@ set(ROTS_TEST_SOURCES
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
     tests/object_trigger_extract_tests.cpp
+    tests/character_trigger_extract_tests.cpp
+    tests/freed_watch_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp

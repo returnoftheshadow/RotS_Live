@@ -16,6 +16,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -704,9 +705,9 @@ void perform_remove(struct char_data* ch, int pos);
 
 /* Puts <item>, which <character> carries, on in <item_slot> with the checks and messages of the
  * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
- * is there is taken off first. Returns false only when the item's ON_WEAR script extracted it:
- * the item is freed, so the caller must not touch it again. Returns true otherwise, whether or
- * not the item was worn. */
+ * is there is taken off first. Returns false only when the item's ON_WEAR script freed the item or
+ * the wearer: the caller must touch neither again, and one that must know which watches the
+ * wearer with a freed_watch. Returns true otherwise, whether or not the item was worn. */
 bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
 {
     static int item_slots[] = {
@@ -797,8 +798,9 @@ bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
         return true;
     }
 
+    freed_watch wearer_watch(character);
     const object_trigger_result wear_result = call_object_trigger(ON_WEAR, item, character);
-    if (wear_result == object_trigger_result::object_extracted) {
+    if (wear_result == object_trigger_result::object_extracted || wearer_watch.freed()) {
         return false;
     }
     if (wear_result == object_trigger_result::refused) {
@@ -938,6 +940,7 @@ ACMD(do_wear)
     }
 
     if (dotmode == FIND_ALL) {
+        freed_watch wearer_watch(ch);
         for (obj = ch->carrying; obj; obj = next_obj) {
             next_obj = obj->next_content;
 
@@ -948,6 +951,10 @@ ACMD(do_wear)
             if (where >= 0) {
                 items_worn++;
                 perform_wear(ch, obj, where, true);
+                /* An item's ON_WEAR script can remove the wearer; that ends the wearing. */
+                if (wearer_watch.freed()) {
+                    return;
+                }
             }
         }
         if (!items_worn)
@@ -960,15 +967,21 @@ ACMD(do_wear)
         if (!(obj = get_obj_in_list(arg1, ch->carrying))) {
             sprintf(buf, "You don't seem to have any %ss.\n\r", arg1);
             send_to_char(buf, ch);
-        } else
+        } else {
+            freed_watch wearer_watch(ch);
             while (obj) {
                 next_obj = get_obj_in_list_vis(ch, arg1, obj->next_content, 9999);
-                if ((where = find_eq_pos(ch, obj, 0)) >= 0)
+                if ((where = find_eq_pos(ch, obj, 0)) >= 0) {
                     perform_wear(ch, obj, where, false);
-                else
+                    /* As for wear all. */
+                    if (wearer_watch.freed()) {
+                        return;
+                    }
+                } else
                     act("You can't wear $p.", FALSE, ch, obj, 0, TO_CHAR);
                 obj = next_obj;
             }
+        }
     } else {
         if (!(obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999))) {
             sprintf(buf, "You don't seem to have %s %s.\n\r", AN(arg1), arg1);

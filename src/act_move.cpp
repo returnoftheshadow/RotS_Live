@@ -14,6 +14,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "protocol.h"
@@ -145,7 +146,8 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
      Returns :
 
      0 : success
-     1 : intercepted by specials, or something like that
+     1 : intercepted by specials, or something like that; also when an
+         ON_BEFORE_ENTER script removed ch, which the caller must then not touch
      2 : need a boat
      3 : not enough move points
      4 : mount exhausted // obsolete
@@ -353,7 +355,14 @@ int perform_move_mount(struct char_data* ch, int dir)
         if (tmpch->in_room != ch->in_room)
             stop_riding(tmpch);
 
-        if ((tmp = check_simple_move(tmpch, dir, &move_cost, SCMD_CARRIED))) {
+        freed_watch rider_watch(tmpch);
+        tmp = check_simple_move(tmpch, dir, &move_cost, SCMD_CARRIED);
+        if (rider_watch.freed()) {
+            /* An ON_BEFORE_ENTER script removed the rider: the move is off, as below. */
+            stop_riding_all(ch);
+            return 0;
+        }
+        if (tmp) {
             if (tmp == 3)
                 send_to_char("You are too exhausted!\n\r", ch);
             stop_riding(tmpch);
@@ -456,12 +465,25 @@ int perform_move_mount(struct char_data* ch, int dir)
             show_mount_to_char(ch, tmpvict, buff, buff2, FALSE);
     }
 
+    /* Arriving can remove the mount or a rider (a special, a script). The move has happened, so
+     * the function still returns 1, but nobody removed is used again. */
+    freed_watch mount_watch(ch);
     for (tmpch = ch->mount_data.rider; tmpch; tmpch = tmpch2) {
         tmpch2 = tmpch->mount_data.next_rider;
+        freed_watch rider_watch(tmpch);
+        freed_watch next_rider_watch(tmpch2);
 
         special(tmpch, rev_dir[dir] + 1, "", SPECIAL_ENTER, 0);
 
-        call_trigger(ON_ENTER, (void*)&world[tmpch->in_room], (void*)tmpch, 0);
+        if (!rider_watch.freed()) {
+            call_trigger(ON_ENTER, (void*)&world[tmpch->in_room], (void*)tmpch, 0);
+        }
+        if (mount_watch.freed()) {
+            return 1;
+        }
+        if (next_rider_watch.freed()) {
+            break;
+        }
     }
     if (special(ch, rev_dir[dir] + 1, "", SPECIAL_ENTER, 0))
         return 0;
@@ -699,6 +721,8 @@ ACMD(do_move)
     int mounts;
     bool mover_gone = false;
     int mover_number = ch->abs_number;
+    /* An ON_BEFORE_ENTER script can remove the mover before it moves: then nothing moves. */
+    freed_watch mover_watch(ch);
 
     /* Consume the caller's skip-trigger request (if any) once, unconditionally,
        before anything else -- including the AFF_HAZE re-roll below -- so it can
@@ -801,6 +825,9 @@ ACMD(do_move)
                 g_skip_next_before_enter_for = ch;
             }
             res_flag = check_simple_move(ch, cmd, &need_move, subcmd);
+            if (mover_watch.freed()) {
+                return;
+            }
 
             /* The one followed may be gone by now (removed where it arrived);
              * the follower still moves, there is just nobody to name. */
@@ -950,6 +977,9 @@ ACMD(do_move)
                 g_skip_next_before_enter_for = ch;
             }
             res_flag = check_simple_move(ch, cmd, &need_move, subcmd);
+            if (mover_watch.freed()) {
+                return;
+            }
 
             if (subcmd == SCMD_FOLLOW && ch->master) {
                 if (res_flag != 0) {
@@ -987,6 +1017,9 @@ ACMD(do_move)
             }
             // GET_MOVE(ch) -= need_move;       // This belongs below.
             res_flag = check_simple_move(ch->mount_data.mount, cmd, &tmp_move, SCMD_MOUNT);
+            if (mover_watch.freed()) {
+                return;
+            }
 
             if (subcmd == SCMD_FOLLOW && ch->master) {
                 if (res_flag != 0) {
@@ -1045,6 +1078,8 @@ ACMD(do_move)
             act(buf2, FALSE, ch->mount_data.mount, 0, ch, TO_CHAR);
 
             res_flag = perform_move_mount(ch->mount_data.mount, cmd);
+            /* Arriving can remove the rider as it can a walker, above. */
+            mover_gone = mover_watch.freed();
         }
 
         if (!mover_gone)

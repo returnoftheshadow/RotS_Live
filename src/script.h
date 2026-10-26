@@ -169,7 +169,17 @@ int find_script_by_number(int number);
  * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
  * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
  * call_object_trigger instead: given one of those, call_trigger runs nothing, logs an error and
- * returns 1. */
+ * returns 1.
+ *
+ * A script can free characters and objects (EXTRACT_CHAR, EXTRACT_OBJ, a death it causes),
+ * including the subjects it was given, so a caller that uses one afterwards keeps a freed_watch
+ * (freed_watch.h) on it across the call. call_trigger itself touches nothing freed:
+ *   - ON_BEFORE_ENTER, ON_ENTER: once the one entering (subject2) is freed, the room's remaining
+ *     mobs and objects do not react, and 0 is returned.
+ *   - ON_DAMAGE: once the victim (subject) or the attacker (subject2) is freed, the weapon's
+ *     script does not run, and 0 is returned: no damage is to be dealt.
+ *   - ON_HEAR_SAY, ON_HEAR_YELL: once the mob or the speaker is freed, the mob's yell script does
+ *     not run. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 
 /* How an object's own trigger script ended, for the command that fired it. */
@@ -190,9 +200,21 @@ enum class object_trigger_result {
 [[nodiscard]] object_trigger_result call_object_trigger(int trigger_type, obj_data* object,
     char_data* ch);
 
-/* Tells the object trigger scripts that are running that <object> is being freed, so that each
- * whose object it is reports object_extracted. free_obj calls it for every object it frees. */
+/* Tells every freed_watch on <object> that it is being freed (so a call_object_trigger on it
+ * reports object_extracted). free_obj calls it for every object it frees. */
 void note_object_freed(const obj_data* object);
+/* Tells every freed_watch on <character> that it is being freed. free_char calls it for every
+ * character it frees. */
+void note_char_freed(const char_data* character);
+
+/* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the
+ * trigger on <current> has run. <following> is current's next_in_room from before the trigger,
+ * and <current_freed> says whether current was freed meanwhile (a freed_watch tells). While
+ * current is still in the room, the loop goes on from it as usual. Otherwise it goes on from
+ * <following> if that is still in the room, and else it ends (null): a script that moved or
+ * removed both has left nothing to go on from. */
+char_data* next_person_after_trigger(const room_data& room, char_data* current,
+    bool current_freed, char_data* following);
 void continue_char_script(char_data* ch);
 
 /* Report script lines whose vnums name nothing -- informational only. */

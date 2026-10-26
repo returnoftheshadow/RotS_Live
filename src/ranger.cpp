@@ -16,6 +16,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -3646,7 +3647,12 @@ void on_windblast_hit(char_data* ch)
         }
 
         if (res) {
+            freed_watch pushed_watch(ch);
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
+            /* An ON_BEFORE_ENTER script where it was pushed to removed it. */
+            if (pushed_watch.freed()) {
+                return;
+            }
 
             if (!die) {
                 if (ch->specials.fighting) {
