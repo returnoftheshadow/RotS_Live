@@ -2295,7 +2295,12 @@ ASPELL(spell_blaze)
 ASPELL(spell_freeze)
 
 {
-    if (IS_SET(EXIT(caster, digit)->exit_info, EX_CLOSED)) {
+    // Any direction word can be cast toward, whether or not an exit lies that way.
+    room_direction_data* exit = NULL;
+    if (digit >= 0 && digit < NUM_OF_DIRS)
+        exit = EXIT(caster, digit);
+
+    if (exit && IS_SET(exit->exit_info, EX_CLOSED)) {
         /* Did they use "east", "west", etc. to target this direction? */
         if (caster->delay.targ2.choice == TAR_DIR_WAY)
             sprintf(buf, "A thick sheet of hardened frost forms %s%s%s.\r\n",
@@ -2303,7 +2308,7 @@ ASPELL(spell_freeze)
                 digit != UP && digit != DOWN ? "" : " you");
         /* Or did they actually know the name of the door? */
         else if (caster->delay.targ2.choice == TAR_DIR_NAME)
-            sprintf(buf, "The %s is frozen shut.\r\n", EXIT(caster, digit)->keyword);
+            sprintf(buf, "The %s is frozen shut.\r\n", exit->keyword);
         send_to_room(buf, caster->in_room);
         return;
     } else
