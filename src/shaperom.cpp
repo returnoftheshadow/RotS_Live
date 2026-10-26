@@ -243,10 +243,7 @@ void implement_room(const struct char_data* ch)
     SUBST(name);
     SUBST(description);
 
-    real->sector_type = curr->sector_type;
-
-    if (real->sector_type >= num_of_sector_types)
-        real->sector_type = num_of_sector_types - 1;
+    real->sector_type = checked_sector_type(curr->sector_type, real->number);
 
     tmpdescr = real->ex_description;
     while (tmpdescr) {
