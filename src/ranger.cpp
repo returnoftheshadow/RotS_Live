@@ -365,7 +365,7 @@ int check_gather_conditions(const struct char_data* ch, int percent, int gather_
 ACMD(do_gather_food)
 {
     struct obj_data* obj;
-    struct affected_type af;
+    struct affected_type af{};
     sh_int percent, move_use, GatherType;
     int affects_last, ranger_bonus;
 
@@ -1353,7 +1353,7 @@ ACMD(do_calm)
     int calm_skill;
     struct char_data* victim;
     struct waiting_type tmpwtl;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (IS_SHADOW(ch)) {
         send_to_char("You are too airy for that.\r\n", ch);
@@ -1490,7 +1490,7 @@ ACMD(do_tame)
     double tmp_skl;
     struct char_data* victim = NULL;
     struct waiting_type tmpwtl;
-    struct affected_type af;
+    struct affected_type af{};
     affected_type* existing_affect;
 
     if (IS_SHADOW(ch)) {
@@ -1748,7 +1748,7 @@ ACMD(do_whistle)
                      */
                     GET_POS(tmpch) = POSITION_STANDING;
                     update_pos(tmpch);
-                    affected_type newaf;
+                    affected_type newaf{};
                     newaf.type = SPELL_ACTIVITY;
                     newaf.duration = 5;
                     newaf.modifier = 1;
@@ -3013,7 +3013,7 @@ int mark_calculate_damage(const char_data* marker, const char_data* victim)
 ==================================================================================*/
 void on_mark_hit(char_data* marker, char_data* victim)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int damage_dealt = mark_calculate_damage(marker, victim);
     if (!utils::is_affected_by_spell(*victim, SKILL_MARK)) {
         af.type = SKILL_MARK;
@@ -3391,7 +3391,7 @@ void on_dust_miss(char_data* ch, char_data* victim, int mana_cost)
 void on_dust_hit(char_data* ch, char_data* victim, int mana_cost)
 {
     int ranger_bonus = 15; // Setting this as a default for now.
-    struct affected_type af;
+    struct affected_type af{};
     int affects_last = 22 - ranger_bonus;
 
     af.type = SKILL_BLINDING;
@@ -3581,7 +3581,7 @@ void on_bend_success(char_data* ch, int mana_cost, int move_cost)
     GET_MANA(ch) -= mana_cost;
     GET_MOVE(ch) -= move_cost;
 
-    struct affected_type af;
+    struct affected_type af{};
 
     af.type = SKILL_BEND_TIME;
     af.duration = 15;

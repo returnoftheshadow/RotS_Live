@@ -142,7 +142,7 @@ ACMD(do_not_here) { send_to_char("Sorry, but you can't do that here!\n\r", ch); 
 ACMD(do_recruit)
 {
     struct char_data* victim;
-    struct affected_type af;
+    struct affected_type af{};
     struct follow_type *j, *k;
     int level_total = 0, num_followers = 0;
 
