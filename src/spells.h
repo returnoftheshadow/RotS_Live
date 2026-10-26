@@ -14,6 +14,7 @@
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the MAX_SKILLS macro */
 #include <algorithm>
+#include <cstddef>
 
 /*
  * Spell ranges are:
@@ -407,6 +408,11 @@ void recalc_skills(struct char_data*);
         char_data* victim, obj_data* obj, int digit, \
         int is_object)
 
+/* For a spell that works on a character: true, after logging it and telling <caster> that nothing
+ * seems to happen, when <victim> is null. Only a staff, or a wand pointed at an object, gives a
+ * spell nobody to work on, and only a builder's mistaken item carries such a spell. */
+bool spell_lacks_victim(char_data* caster, const char_data* victim, int spell_number);
+
 /* Mage spell prototypes */
 ASPELL(spell_blink);
 ASPELL(spell_magic_missile);
@@ -459,6 +465,9 @@ ASPELL(spell_resist_magic);
 ASPELL(spell_slow_digestion);
 ASPELL(spell_dispel_regeneration);
 ASPELL(spell_fear);
+/* The most characters a divination report's list of the room's people, or of its objects, holds:
+ * a longer list stops after the entries that fit and ends "and more.". */
+inline constexpr std::size_t DIVINATION_LIST_LIMIT = 999;
 ASPELL(spell_divination);
 ASPELL(spell_sanctuary);
 ASPELL(spell_vitality);

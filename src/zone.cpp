@@ -10,6 +10,7 @@
 #include "freed_watch.h"
 #include "handler.h" /* For FOLLOW_MOVE */
 #include "pkill.h" /* For pkill_get_XXX_fame() */
+#include "script.h" /* For release_char_script_state */
 #include "structs.h" /* For struct owner_list */
 #include "utils.h" /* For CREATE */
 #include "zone.h"
@@ -928,7 +929,8 @@ void reset_zone(int zone)
                     break;
                 case 12: /* Assign script to mob */
                     mob->specials.script_number = ZCMD.arg2;
-                    mob->specials.script_info = 0; /* Probably unnecessary */
+                    /* A mob found with 'L' may have run its old script already. */
+                    release_char_script_state(mob);
                     break;
                 default:
                     vmudlog(CMP, "Unrecognized 'A' command: %d %d %d in zone #%d.",
@@ -1064,12 +1066,17 @@ void reset_zone(int zone)
                 }
                 {
                     /* Putting gear on can kill the mob (an item's poison) or set off a script
-                     * that removes it: the commands after this one then have no mob. */
+                     * that removes it or the last item loaded: the commands after this one then
+                     * have no mob, or no last object to put things in. */
                     freed_watch mob_watch(mob);
+                    freed_watch obj_watch(obj);
                     do_wear(mob, "all", 0, 0, 0);
                     if (mob_watch.freed()) {
                         mob = 0;
                         last_mob = 0;
+                    }
+                    if (obj_watch.freed()) {
+                        obj = 0;
                     }
                 }
                 last_cmd = 1;
@@ -1087,10 +1094,14 @@ void reset_zone(int zone)
                         obj = read_object(ZCMD.arg1, REAL);
                         /* As for 'K'. */
                         freed_watch mob_watch(mob);
+                        freed_watch obj_watch(obj);
                         equip_char(mob, obj, ZCMD.arg2);
                         if (mob_watch.freed()) {
                             mob = 0;
                             last_mob = 0;
+                        }
+                        if (obj_watch.freed()) {
+                            obj = 0;
                         }
                         last_cmd = 1;
                     }

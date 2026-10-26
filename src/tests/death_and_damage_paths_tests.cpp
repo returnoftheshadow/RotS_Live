@@ -22,7 +22,9 @@ void assign_command_pointers(void);
 void complete_delay(struct char_data* ch);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 void fast_update();
+SPECIAL(ghoul);
 void affect_update_room(struct room_data* room);
+bool prohibit_item_stay_zone_move(char_data* ch, int room);
 
 namespace olog_hai {
 int get_base_skill_damage(char_data& olog_hai, int prob);
@@ -30,6 +32,8 @@ int get_base_skill_damage(char_data& olog_hai, int prob);
 
 extern struct weather_data weather_info;
 extern struct index_data* mob_index;
+extern struct char_data* mob_proto;
+extern int top_of_mobt;
 
 using namespace scripted_room;
 
@@ -43,6 +47,8 @@ constexpr int POISON_DAMAGE = 5;
 constexpr int FEWER_HIT_POINTS_THAN_THE_POISON = 3;
 /* A weapon at least this bulky is wielded in two hands where it can be. */
 constexpr int TWO_HANDED_BULK = 5;
+/* The ghoul the ghoul special raises, which sinks back into the ground when idle. */
+constexpr int RISEN_GHOUL_VNUM = 15300;
 
 class DeathAndDamagePathsTest : public ScriptedRoomFixture {
 protected:
@@ -60,6 +66,12 @@ protected:
          * mob_index[nr]: index -1 is given an entry. */
         m_saved_mob_index = mob_index;
         mob_index = &m_mob_index[1];
+        /* Entry 0 of the mob table is the ghoul the ghoul special raises (make_into_risen_ghoul). */
+        m_mob_index[1].virt = RISEN_GHOUL_VNUM;
+        m_saved_mob_proto = mob_proto;
+        m_saved_top_of_mobt = top_of_mobt;
+        mob_proto = &m_risen_ghoul_prototype;
+        top_of_mobt = 0;
     }
 
     void TearDown() override
@@ -67,6 +79,8 @@ protected:
         world[0].room_flags = m_saved_room_flags;
         ScriptedRoomFixture::TearDown();
         mob_index = m_saved_mob_index;
+        mob_proto = m_saved_mob_proto;
+        top_of_mobt = m_saved_top_of_mobt;
     }
 
     /* Makes the ring and the sword poison whoever wears them. */
@@ -114,6 +128,82 @@ protected:
                         { SCRIPT_END, nullptr, {} } } } } } });
     }
 
+    /* Makes test mob <mob> a ghoul the ghoul special raised, a copy of mob table entry 0. As
+     * read_mobile's copies do, it shares the entry's keywords and proficiencies, which the game
+     * leaves alone when it removes the mob. */
+    void make_into_risen_ghoul(char_data* mob)
+    {
+        RELEASE(mob->player.name);
+        RELEASE(mob->player.short_descr);
+        RELEASE(mob->profs);
+        mob->player.name = m_risen_ghoul_keywords;
+        mob->player.short_descr = m_risen_ghoul_keywords;
+        mob->profs = &m_risen_ghoul_proficiencies;
+        mob->nr = 0;
+    }
+
+    /* A mob wearing the poisonous ring, which hurt it as it went on; it then runs
+     * <script_vnum> (none for 0). */
+    char_data* make_mob_wearing_poisonous_ring(const char* keywords, int script_vnum)
+    {
+        char_data* wearer = make_mob(keywords, 0);
+        obj_data* ring = make_object(RING_VNUM, 0);
+        obj_to_char(ring, wearer);
+        run_command_as(wearer, do_wear, "ring");
+        EXPECT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+        wearer->specials.script_number = script_vnum;
+        return wearer;
+    }
+
+    /* The real number of the test prototype with this vnum, as zone commands name objects. */
+    static int real_number_of(int vnum)
+    {
+        for (int index = 0; index < PROTOTYPE_COUNT; ++index) {
+            if (PROTOTYPE_SPECS[index].vnum == vnum) {
+                return index;
+            }
+        }
+        ADD_FAILURE() << "no test prototype has vnum " << vnum;
+        return 0;
+    }
+
+    /* How many objects in the game were made from the prototype with this vnum. */
+    static int count_objects_of(int vnum)
+    {
+        int count = 0;
+        for (const obj_data* listed = object_list; listed; listed = listed->next) {
+            if (listed->item_number == real_number_of(vnum)) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    /* Makes zone 0 three commands: take the first test mob in room 0, put a ring on it, and put
+     * a stone in the last object loaded. */
+    void install_ring_then_stone_reset()
+    {
+        m_reset_commands[0] = reset_com {};
+        m_reset_commands[0].command = 'L';
+        m_reset_commands[0].arg1 = 0; /* sets the last mob */
+        m_reset_commands[0].arg2 = 0; /* room 0 */
+        m_reset_commands[0].arg3 = -1; /* a test mob's prototype number */
+        m_reset_commands[0].arg4 = 1; /* the first one */
+        m_reset_commands[1] = reset_com {};
+        m_reset_commands[1].command = 'E';
+        m_reset_commands[1].arg1 = real_number_of(RING_VNUM);
+        m_reset_commands[1].arg2 = WEAR_FINGER_R;
+        m_reset_commands[1].arg4 = 100; /* always */
+        m_reset_commands[2] = reset_com {};
+        m_reset_commands[2].command = 'P';
+        m_reset_commands[2].arg1 = NOWHERE; /* into the last object loaded */
+        m_reset_commands[2].arg2 = real_number_of(STONE_VNUM);
+        m_reset_commands[2].arg3 = -1;
+        m_reset_commands[2].arg5 = 100; /* always */
+        zone_table[0].cmd = m_reset_commands;
+        zone_table[0].cmdno = RESET_COMMAND_COUNT;
+    }
+
     /* A writable empty argument for the commands. */
     static char* empty_argument()
     {
@@ -124,10 +214,23 @@ protected:
 
     // Room 0's flags as SetUp found them; the tests make the room indoors.
     long m_saved_room_flags = 0;
-    // The mob index the tests use: its first entry is index -1, a test mob's.
+    // The mob index the tests use: its first entry is index -1, a test mob's, and its second
+    // entry 0, a risen ghoul's.
     index_data m_mob_index[2] {};
+    // The mob table's one prototype, the risen ghoul's; affect_total reads its resistances.
+    char_data m_risen_ghoul_prototype {};
+    // The keywords and proficiencies a risen ghoul shares with its prototype.
+    char m_risen_ghoul_keywords[8] = "risen";
+    char_prof_data m_risen_ghoul_proficiencies {};
+    // The mob table SetUp found, put back by TearDown.
+    char_data* m_saved_mob_proto = nullptr;
+    int m_saved_top_of_mobt = 0;
     // The mob index SetUp found, put back by TearDown.
     index_data* m_saved_mob_index = nullptr;
+    // How many commands install_ring_then_stone_reset gives zone 0.
+    static constexpr int RESET_COMMAND_COUNT = 3;
+    // Zone 0's commands, written by install_ring_then_stone_reset.
+    reset_com m_reset_commands[RESET_COMMAND_COUNT] {};
 };
 
 } // namespace
@@ -257,6 +360,96 @@ TEST_F(DeathAndDamagePathsTest, AMobRemovedWearingAPoisonousItemIsRemovedOnce)
     EXPECT_FALSE(is_in_game(wearer));
     EXPECT_EQ(0, count_corpses_in_room());
     EXPECT_TRUE(is_on_the_floor(ring));
+}
+
+/* ---- callers that take gear off or put it on ---- */
+
+/* A mover its damage script removes as its stay-zone ring comes off leaves the ring behind, and
+ * the rest of its gear is not looked at. */
+TEST_F(DeathAndDamagePathsTest, AMoverRemovedAsItsStayZoneGearComesOffLeavesItBehind)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(RING_VNUM).obj_flags.extra_flags |= ITEM_STAY_ZONE;
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* mover = make_mob_wearing_poisonous_ring("mover", SCRIPT_VNUM);
+    obj_data* ring = mover->equipment[WEAR_FINGER_R];
+
+    EXPECT_FALSE(prohibit_item_stay_zone_move(mover, 0));
+
+    EXPECT_FALSE(is_in_game(mover));
+    EXPECT_TRUE(is_on_the_floor(ring));
+}
+
+/* A mover the stay-zone ring only hurts as it comes off leaves it behind and goes on. */
+TEST_F(DeathAndDamagePathsTest, AMoverHurtAsItsStayZoneGearComesOffLeavesItBehind)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(RING_VNUM).obj_flags.extra_flags |= ITEM_STAY_ZONE;
+    char_data* mover = make_mob_wearing_poisonous_ring("mover", 0);
+    obj_data* ring = mover->equipment[WEAR_FINGER_R];
+
+    EXPECT_TRUE(prohibit_item_stay_zone_move(mover, 0));
+
+    ASSERT_TRUE(is_in_game(mover));
+    EXPECT_TRUE(is_on_the_floor(ring));
+    EXPECT_EQ(nullptr, mover->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(mover));
+}
+
+/* A ghoul fading away is removed by its damage script as its ring comes off: the fading stops
+ * there. The ring goes as the rest of its gear does. */
+TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob_wearing_poisonous_ring("risen", SCRIPT_VNUM);
+    make_into_risen_ghoul(risen);
+    obj_data* ring = risen->equipment[WEAR_FINGER_R];
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_TRUE(is_in_game(summoner));
+    EXPECT_FALSE(is_in_object_list(ring));
+}
+
+/* A zone reset puts a ring on a mob whose damage script, set off by the ring's poison, destroys
+ * the ring: the stone meant for the last object loaded has nothing to go in, and is not made. */
+TEST_F(DeathAndDamagePathsTest, AResetPutsNothingInAnItemItsWearerDestroyed)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE,
+        { { SCRIPT_ASSIGN_EQ, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1, WEAR_FINGER_R, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    ASSERT_TRUE(is_in_game(keeper));
+    EXPECT_EQ(nullptr, keeper->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
+    EXPECT_EQ(0, count_objects_of(STONE_VNUM));
+}
+
+/* The same reset on a mob the poison only hurts: the stone goes in the ring it wears. */
+TEST_F(DeathAndDamagePathsTest, AResetPutsTheStoneInTheRingItsMobWears)
+{
+    make_ring_and_sword_poisonous();
+    char_data* keeper = make_mob("keeper", 0);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    obj_data* ring = keeper->equipment[WEAR_FINGER_R];
+    ASSERT_NE(nullptr, ring);
+    EXPECT_EQ(MOB_HIT_POINTS - POISON_DAMAGE, GET_HIT(keeper));
+    ASSERT_NE(nullptr, ring->contains);
+    EXPECT_EQ(real_number_of(STONE_VNUM), ring->contains->item_number);
 }
 
 /* Nobody in no room is hurt: a blow at someone being taken out of the game lands nowhere. */
@@ -444,4 +637,175 @@ TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
     do_cleave(olog, empty_argument(), nullptr, 0, 0);
 
     EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
+}
+
+/* ---- a death ---- */
+
+/* Taking off the dying mob's gear casts the earthquake an item holds, and the killer's damage
+ * script removes the killer when the tremor hurts it: the death goes on with no killer, and the
+ * corpse holds the gear. */
+TEST_F(DeathAndDamagePathsTest, AKillerRemovedAsTheDyingOnesGearComesOffIsNoKiller)
+{
+    take_player_out_of_the_room();
+    char_data* dying = make_mob("dying", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    ring->affected[0].location = APPLY_SPELL;
+    ring->affected[0].modifier = SPELL_EARTHQUAKE;
+    /* Put on while nobody else is in the room, so the earthquake it casts hurts nobody. */
+    equip_char(dying, ring, WEAR_FINGER_R);
+    ASSERT_EQ(ring, dying->equipment[WEAR_FINGER_R]);
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* killer = make_mob("killer", SCRIPT_VNUM);
+
+    raw_kill(dying, killer, 0);
+
+    EXPECT_FALSE(is_in_game(killer)) << "the tremor did not remove the killer";
+    EXPECT_FALSE(is_in_game(dying));
+    ASSERT_EQ(1, count_corpses_in_room());
+    EXPECT_NE(nullptr, ring->in_obj);
+}
+
+/* ---- a ghoul sinking back into the ground ---- */
+
+/* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
+ * second time, and its body is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_to_char(make_object(RING_VNUM, 0), risen);
+    obj_to_char(make_object(SWORD_VNUM, 0), risen);
+    run_command_as(risen, do_wear, "ring");
+    run_command_as(risen, do_wield, "sword");
+    ASSERT_NE(nullptr, risen->equipment[WEAR_FINGER_R]);
+    ASSERT_NE(nullptr, risen->equipment[WIELD]);
+    risen->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_TRUE(is_in_game(summoner));
+    EXPECT_EQ(nullptr, summoner->followers);
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+/* A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is
+ * destroyed and nothing is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGround)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, risen);
+    run_command_as(risen, do_wear, "ring");
+    ASSERT_EQ(ring, risen->equipment[WEAR_FINGER_R]);
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(0, count_corpses_in_room());
+}
+
+/* A player following an idle ghoul is not dismissed with its risen ghouls: the player keeps
+ * what they wear and stays, and the risen ghoul behind them sinks into the ground. */
+TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    /* In the game as a player is; followed last, so first among the ghoul's followers. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    add_follower(&m_player, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, &m_player);
+    run_command(do_wear, "ring");
+    ASSERT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    ASSERT_EQ(&m_player, summoner->followers->follower);
+    push_test_random_value(0.0); /* an idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    const bool player_in_game = is_in_game(&m_player);
+    const bool player_in_room = m_player.in_room == 0;
+    obj_data* const worn_ring = m_player.equipment[WEAR_FINGER_R];
+    stop_follower(&m_player, FOLLOW_MOVE);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    remove_char_exists(m_player.abs_number);
+    EXPECT_TRUE(player_in_game);
+    EXPECT_TRUE(player_in_room);
+    EXPECT_EQ(ring, worn_ring);
+    EXPECT_TRUE(is_in_object_list(ring));
+    EXPECT_FALSE(is_in_game(risen));
+}
+
+/* ---- a summons ---- */
+
+/* The one being summoned leaves the world while the summons is cast (a player who dies or rents
+ * waits at the menu, still a character but in no room): the summons finds nobody and brings
+ * nobody into the room. */
+TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
+{
+    assign_command_pointers();
+    link_second_room();
+    char_from_room(&m_player);
+    char_to_room(&m_player, SECOND_ROOM);
+    /* In the game as a player is, so that the summons can find them. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    char_data* caster = make_mob("caster", 0);
+    caster->player.level = 50; /* a mob this strong never fumbles the spell */
+    char line[] = "cast 'summon' tester";
+    command_interpreter(caster, line, nullptr);
+    const bool cast_started = caster->delay.wait_value > 0;
+    /* As extract_char leaves a player sent to the menu. */
+    char_from_room(&m_player);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    for (int roll = 0; roll < 20; ++roll) {
+        push_test_random_value(0.0); /* the lowest rolls: the summoned one fails to resist */
+    }
+    /* One summoned looks at the room they arrive in. */
+    char room_text[] = "A test room";
+    char* const saved_room_name = world[0].name;
+    char* const saved_room_description = world[0].description;
+    world[0].name = room_text;
+    world[0].description = room_text;
+
+    if (cast_started) {
+        complete_delay(caster);
+    }
+
+    world[0].name = saved_room_name;
+    world[0].description = saved_room_description;
+    remove_char_exists(m_player.abs_number);
+    ASSERT_TRUE(cast_started) << "the cast did not start";
+    EXPECT_EQ(NOWHERE, m_player.in_room);
+    for (const char_data* person = world[0].people; person; person = person->next_in_room) {
+        EXPECT_NE(&m_player, person) << "the player was summoned from the menu";
+    }
+    EXPECT_TRUE(is_in_game(caster));
 }

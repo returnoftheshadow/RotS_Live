@@ -842,6 +842,22 @@ static bool speak_and_stay(char_data* host, const char* words, bool yell)
     return !speaker_watch.freed();
 }
 
+/* Destroys everything <wearer> has equipped. Taking an item off can kill or remove the wearer
+ * (gear poison, an item spell): true if it is still there. */
+static bool destroy_equipment_and_stay(char_data* wearer)
+{
+    freed_watch wearer_watch(wearer);
+    for (int position = 0; position < MAX_WEAR; ++position) {
+        if (wearer->equipment[position]) {
+            extract_obj(unequip_char(wearer, position));
+            if (wearer_watch.freed()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /*
  * This function is not highly commented, except for its
  * differences from gatekeeper2.  If you'd like commentary,
@@ -3343,6 +3359,22 @@ SPECIAL(ar_tarthalon)
     return 0;
 }
 
+/* The ghoul the ghoul special raises from the ground. */
+constexpr int RISEN_GHOUL_VNUM = 15300;
+
+/* The first of <host>'s followers that is a ghoul it raised; null if none is. Anyone else
+ * following it, a player above all, is passed over. */
+static char_data* first_risen_ghoul(const char_data* host)
+{
+    for (const follow_type* following = host->followers; following; following = following->next) {
+        char_data* follower = following->follower;
+        if (IS_NPC(follower) && follower->nr >= 0 && mob_index[follower->nr].virt == RISEN_GHOUL_VNUM) {
+            return follower;
+        }
+    }
+    return nullptr;
+}
+
 /*
  * In true horror tradition, more and more ghouls appear
  * until the character is forced to flee
@@ -3352,19 +3384,18 @@ SPECIAL(ar_tarthalon)
 SPECIAL(ghoul)
 {
     struct char_data* mob;
-    int tmpno, num_followers = 0;
+    int num_followers = 0;
     struct follow_type *j, *k;
 
     if (GET_POS(host) != POSITION_FIGHTING) {
         if (host->followers && !number(0, 10)) {
-            mob = host->followers->follower;
-            if (!mob->followers) {
+            mob = first_risen_ghoul(host);
+            if (mob && !mob->followers) {
                 act("$n seems to fade away into the ground.", TRUE, host, 0, 0, TO_ROOM);
-                for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
-                    if (mob->equipment[tmpno])
-                        extract_obj(unequip_char(mob, tmpno));
                 /* What it carries falls to the ground (extract_char). */
-                extract_char(mob);
+                if (destroy_equipment_and_stay(mob)) {
+                    extract_char(mob);
+                }
             }
         }
         return 0;
@@ -3378,7 +3409,7 @@ SPECIAL(ghoul)
     if (num_followers < 3) {
         act("Decaying hands claw their way out of the ground as $n emerges.", TRUE, host, 0, 0,
             TO_ROOM);
-        mob = read_mobile(real_mobile(15300), REAL);
+        mob = read_mobile(real_mobile(RISEN_GHOUL_VNUM), REAL);
         char_to_room(mob, host->in_room);
         add_follower(mob, host, FOLLOW_MOVE);
     }
@@ -3641,9 +3672,9 @@ SPECIAL(vampire_huntress)
         act("$n flaps her great wings, and flies away.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
-            if (host->equipment[tmpno])
-                extract_obj(unequip_char(host, tmpno));
+        if (!destroy_equipment_and_stay(host)) {
+            return 1;
+        }
         for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
             obj = host->carrying;
             obj_from_char(host->carrying);
@@ -3720,9 +3751,9 @@ SPECIAL(thuringwethil)
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        for (tmpno = 0; tmpno < MAX_WEAR; tmpno++)
-            if (host->equipment[tmpno])
-                extract_obj(unequip_char(host, tmpno));
+        if (!destroy_equipment_and_stay(host)) {
+            return 1;
+        }
         for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
             obj = host->carrying;
             obj_from_char(host->carrying);

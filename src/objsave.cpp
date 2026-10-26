@@ -1116,7 +1116,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             if (object.item_number == SENTINEL_ITEM_ID_VALUE)
                 break;
 
-            if (object.wear_pos > MAX_WEAR || object.wear_pos < 0)
+            if (object.wear_pos >= MAX_WEAR || object.wear_pos < 0)
                 continue;
             if (follower_watch.freed()) {
                 continue;
@@ -1590,14 +1590,17 @@ void Crash_rentsave(struct char_data* ch, int cost)
 int Crash_report_unrentables(struct char_data* ch, struct char_data* recep,
     const struct obj_data* obj)
 {
-    char buf[128];
     int has_norents = 0;
 
     if (obj) {
         if (Crash_is_unrentable(obj)) {
             has_norents = 1;
-            sprintf(buf, "$n tells you, 'You cannot store %s.'", OBJS(obj, ch));
-            act(buf, FALSE, recep, 0, ch, TO_VICT);
+            /* Built on the heap: a short description has no length limit, and this recurses
+               once per object carried. */
+            std::string refusal = "$n tells you, 'You cannot store ";
+            refusal += OBJS(obj, ch);
+            refusal += ".'";
+            act(refusal.c_str(), FALSE, recep, 0, ch, TO_VICT);
         }
         has_norents += Crash_report_unrentables(ch, recep, obj->contains);
         has_norents += Crash_report_unrentables(ch, recep, obj->next_content);

@@ -478,3 +478,37 @@ TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)
     EXPECT_FALSE(is_in_game(puller));
     EXPECT_FALSE(output_has("seems to be broken"));
 }
+
+/* ---- renaming an object (ASSIGN_STR obN.name) ---- */
+
+/* The name a script gives its object is the object's own, freed with it; the prototype keeps its
+ * name. */
+TEST_F(ObjectTriggerTest, AnObjectOwnsTheNameItsScriptGivesIt)
+{
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_STREQ("a glowing stone", stone->short_description);
+    EXPECT_TRUE(stone->owns_text(object_text::short_description));
+    EXPECT_STREQ("a grey stone", prototype_for(STONE_VNUM).short_description);
+}
+
+/* Renamed again, the object frees the name the script gave it first and keeps the new one. */
+TEST_F(ObjectTriggerTest, AnObjectRenamedTwiceKeepsTheLatestName)
+{
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a dull stone", { SCRIPT_PARAM_OB1_NAME } },
+            { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_STREQ("a glowing stone", stone->short_description);
+    EXPECT_TRUE(stone->owns_text(object_text::short_description));
+    EXPECT_STREQ("a grey stone", prototype_for(STONE_VNUM).short_description);
+}

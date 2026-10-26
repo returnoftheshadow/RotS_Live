@@ -8,6 +8,7 @@
 
 #include "../big_brother.h"
 #include "../skill_timer.h"
+#include "../spells.h"
 
 #include <algorithm>
 #include <deque>
@@ -16,6 +17,15 @@
 
 void do_move(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_flee(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_knock(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_gen_com(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_at(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_order(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_mental(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_concentrate(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+combat_result_struct damage_stat(char_data* killer, char_data* victim, int stat_num, int amount);
+ASPELL(spell_curse);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 void one_mobile_activity(char_data* ch);
 void mobile_activity(void);
@@ -35,6 +45,15 @@ namespace {
 
 /* Enough movement points for any step. */
 constexpr int PLENTY_OF_MOVES = 100;
+/* The interpreter's number for flee; do_flee offers this plus one to the procedures. */
+constexpr int FLEE_COMMAND = 84;
+/* Hit points at which Thuringwethil leaves whenever her procedure runs. */
+constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 400;
+/* The lowest stat a mental attack does not count as critical; one point less makes a wimpy mob
+ * flee. */
+constexpr int LOWEST_SAFE_STAT = 3;
+/* A stat no test's mental attack brings near zero. */
+constexpr int SAFE_STAT = 50;
 /* How many mobs one test can give a prototype entry (and with it a procedure). */
 constexpr int MOB_PROTOTYPE_SLOTS = 8;
 
@@ -147,6 +166,52 @@ SPECIAL(remove_marked_object)
     return 0;
 }
 
+/* Removes whoever flees past it, and lets the flight go on. */
+SPECIAL(remove_actor_fleeing)
+{
+    if (callflag == SPECIAL_COMMAND && cmd == FLEE_COMMAND + 1) {
+        extract_char(ch);
+    }
+    return 0;
+}
+
+/* Removes whoever yells within earshot, and lets the yell go on. */
+SPECIAL(remove_actor_yelling)
+{
+    if (callflag == SPECIAL_COMMAND && cmd == CMD_YELL) {
+        extract_char(ch);
+    }
+    return 0;
+}
+
+/* On the far side of a door, removes whoever knocks on it. */
+SPECIAL(remove_actor_knocking)
+{
+    if (cmd == CMD_KNOCK) {
+        extract_char(ch);
+    }
+    return 0;
+}
+
+/* On the far side of a door, takes whoever knocks on it through to that side. */
+SPECIAL(take_knocker_through)
+{
+    if (cmd == CMD_KNOCK) {
+        char_from_room(ch);
+        char_to_room(ch, SECOND_ROOM);
+    }
+    return 0;
+}
+
+/* Removes whoever damages its mob, and lets the damage go on. */
+SPECIAL(remove_attacker)
+{
+    if (callflag == SPECIAL_DAMAGE) {
+        extract_char(ch);
+    }
+    return 0;
+}
+
 /* On its own mob's turn, removes record.character_to_remove and then the mob itself. */
 SPECIAL(remove_marked_then_self)
 {
@@ -233,6 +298,65 @@ protected:
         obj_data* object = make_object(vnum, 0);
         obj_index[object->item_number].func = procedure;
         return object;
+    }
+
+    /* A player character in <room> with no connection, made on the heap so that the game can
+     * free it; TearDown extracts it with the mobs if it is still in the game. */
+    char_data* make_player_character(const char* name, int room = 0)
+    {
+        char_data* player = nullptr;
+        CREATE1(player, char_data);
+        clear_char(player, 0);
+        new (&player->damage_details) player_damage_details();
+        player->player.name = str_dup(name);
+        player->player.race = RACE_HUMAN;
+        player->player.level = 10;
+        player->tmpabilities.str = 18;
+        player->tmpabilities.dex = 18;
+        player->tmpabilities.intel = 18;
+        player->tmpabilities.move = PLENTY_OF_MOVES;
+        player->specials.position = POSITION_STANDING;
+        player->next = character_list;
+        character_list = player;
+        register_pc_char(player);
+        char_to_room(player, room);
+        return player;
+    }
+
+    /* Makes <victim> one that mental attacks reach and that never resists one: full perception,
+     * no willpower and a mind that can be fathomed. */
+    static void open_to_mental_attack(char_data* victim)
+    {
+        victim->specials2.perception = 100;
+        victim->points.willpower = 0;
+        victim->player.bodytype = 1;
+    }
+
+    /* Makes <mob> a wimpy one whose strength turns critical, and so makes it flee, at the first
+     * point a mental attack drains, while every other stat stays far from zero. */
+    static void make_critical_on_strength_loss(char_data* mob)
+    {
+        SET_BIT(MOB_FLAGS(mob), MOB_WIMPY);
+        /* A move compares each stat with its base, so the bases are set as well. */
+        mob->abilities.str = SAFE_STAT;
+        mob->abilities.dex = SAFE_STAT;
+        mob->abilities.con = SAFE_STAT;
+        mob->tmpabilities.str = LOWEST_SAFE_STAT;
+        mob->tmpabilities.intel = SAFE_STAT;
+        mob->tmpabilities.wil = SAFE_STAT;
+        mob->tmpabilities.dex = SAFE_STAT;
+        mob->tmpabilities.con = SAFE_STAT;
+        mob->tmpabilities.lea = SAFE_STAT;
+    }
+
+    /* Thuringwethil, beaten, open to mental attack: any call of her procedure, a mental attack's
+     * included, removes her. */
+    char_data* make_beaten_thuringwethil()
+    {
+        char_data* vampire = make_mob_with("vampire", thuringwethil);
+        vampire->tmpabilities.hit = THURINGWETHIL_BEATEN_HIT_POINTS;
+        open_to_mental_attack(vampire);
+        return vampire;
     }
 
     /* Seats <rider> on <mount>, behind any rider already there, as do_ride leaves them. */
@@ -930,4 +1054,476 @@ TEST_F(SpecialProcedureTest, ThuringwethilBeatenSaysHerLastWordsAndLeaves)
     EXPECT_FALSE(is_in_game(vampire));
     EXPECT_TRUE(output_has("Curse you all")) << output();
     EXPECT_TRUE(output_has("her clothing falls to the ground")) << output();
+}
+
+/* ---- commands that go on after offering themselves ---- */
+
+TEST_F(SpecialProcedureTest, AFleeWhoseProcedureRemovesTheFleerGoesNoFurther)
+{
+    char_data* fleer = make_mob_with("fleer", nullptr);
+    char_data* foe = make_mob_with("foe", nullptr);
+    make_mob_with("guard", remove_actor_fleeing);
+    start_fight(fleer, foe);
+
+    do_flee(fleer, empty_argument(), nullptr, FLEE_COMMAND, 0);
+
+    EXPECT_FALSE(is_in_game(fleer));
+    ASSERT_TRUE(is_in_game(foe));
+    EXPECT_EQ(nullptr, foe->specials.fighting);
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+}
+
+TEST_F(SpecialProcedureTest, AFleeNoProcedureTakesGetsAway)
+{
+    char_data* fleer = make_mob_with("fleer", nullptr);
+    char_data* foe = make_mob_with("foe", nullptr);
+    make_mob_with("bystander", record_offer);
+    start_fight(fleer, foe);
+
+    do_flee(fleer, empty_argument(), nullptr, FLEE_COMMAND, 0);
+
+    ASSERT_TRUE(is_in_game(fleer));
+    EXPECT_EQ(SECOND_ROOM, fleer->in_room);
+    EXPECT_EQ(nullptr, fleer->specials.fighting);
+    EXPECT_EQ(nullptr, foe->specials.fighting);
+}
+
+/* Makes room 0's way north a door called "door". */
+static void make_north_a_door(char* keyword)
+{
+    room_direction_data* north = world[0].dir_option[NORTH];
+    north->keyword = keyword;
+    SET_BIT(north->exit_info, EX_ISDOOR);
+}
+
+/* Whether <character> is on <room>'s list of people. Compares addresses only, so it may be given
+ * one that has been freed. */
+static bool is_listed_in_room(int room, const char_data* character)
+{
+    for (const char_data* person = world[room].people; person; person = person->next_in_room) {
+        if (person == character) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The knocker is removed while lent the far room: it leaves the room it stands in, and what it
+ * carried falls there. */
+TEST_F(SpecialProcedureTest, AKnockWhoseFarSideRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = remove_actor_knocking;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_EQ(&m_player, world[0].people) << "only the player is left here";
+    EXPECT_EQ(nullptr, m_player.next_in_room);
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
+}
+
+TEST_F(SpecialProcedureTest, AKnockerTakenThroughTheDoorStandsOnlyOnTheFarSide)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = take_knocker_through;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_EQ(SECOND_ROOM, knocker->in_room);
+    EXPECT_TRUE(is_listed_in_room(SECOND_ROOM, knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+}
+
+/* The gatekeeper on the far side takes the knock, which ends its pause: the rest of its script
+ * yells, and a guard where the knocker stands removes the knocker on hearing it. */
+TEST_F(SpecialProcedureTest, AKnockWhoseGatekeepersYellRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { 5 } },
+            { SCRIPT_DO_YELL, "Who goes there?", { SCRIPT_PARAM_CH1 } } });
+    char_data* keeper = make_mob_with("gatekeeper", nullptr);
+    keeper->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, keeper->delay.cmd);
+    char_from_room(keeper);
+    char_to_room(keeper, SECOND_ROOM);
+    mob_index[keeper->nr].func = gatekeeper;
+    SET_BIT(MOB_FLAGS(keeper), MOB_SPEC);
+    char_data* guard = make_mob_with("guard", remove_marked_character);
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    record.character_to_remove = knocker;
+    char door[] = "door";
+    make_north_a_door(door);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_TRUE(is_listed_in_room(0, guard));
+    EXPECT_TRUE(is_listed_in_room(0, &m_player));
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
+}
+
+TEST_F(SpecialProcedureTest, AKnockIsHeardOnTheFarSideAndTheKnockerStaysPut)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    char_data* listener = make_mob_with("listener", record_offer, SECOND_ROOM);
+    char argument[] = "door";
+
+    run_command(do_knock, argument);
+
+    EXPECT_TRUE(was_offered(listener));
+    EXPECT_EQ(0, m_player.in_room);
+    EXPECT_TRUE(output_has("You knocked on the door.")) << output();
+}
+
+TEST_F(SpecialProcedureTest, AYellWhoseProcedureRemovesTheYellerReachesNoFurther)
+{
+    world[0].funct = remove_actor_yelling;
+    char_data* yeller = make_mob_with("yeller", nullptr);
+    char_data* listener = make_mob_with("listener", record_offer, SECOND_ROOM);
+    char words[] = "help";
+
+    do_gen_com(yeller, words, nullptr, CMD_YELL, SCMD_YELL);
+
+    EXPECT_FALSE(is_in_game(yeller));
+    EXPECT_FALSE(was_offered(listener));
+}
+
+TEST_F(SpecialProcedureTest, AYellIsOfferedToEveryRoomOfTheZone)
+{
+    char_data* yeller = make_mob_with("yeller", nullptr);
+    char_data* near_listener = make_mob_with("near", record_offer);
+    char_data* far_listener = make_mob_with("far", record_offer, SECOND_ROOM);
+    char words[] = "help";
+
+    do_gen_com(yeller, words, nullptr, CMD_YELL, SCMD_YELL);
+
+    EXPECT_TRUE(was_offered(near_listener));
+    EXPECT_TRUE(was_offered(far_listener));
+}
+
+TEST_F(SpecialProcedureTest, ACommandAtARoomThatRemovesTheOneGivingItEndsThere)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_actor_going_north, SECOND_ROOM);
+    char_data* immortal = make_player_character("immortal");
+    char argument[] = "5101 north";
+
+    do_at(immortal, argument, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(immortal));
+    EXPECT_EQ(&m_player, world[0].people) << "nobody came back";
+    EXPECT_EQ(nullptr, m_player.next_in_room);
+}
+
+TEST_F(SpecialProcedureTest, ACommandAtARoomBringsTheOneGivingItBack)
+{
+    assign_command_pointers();
+    char_data* bystander = make_mob_with("bystander", record_offer, SECOND_ROOM);
+    char_data* immortal = make_player_character("immortal");
+    char argument[] = "5101 north";
+
+    do_at(immortal, argument, nullptr, 0, 0);
+
+    EXPECT_TRUE(was_offered(bystander)) << "the command was given there";
+    ASSERT_TRUE(is_in_game(immortal));
+    EXPECT_EQ(0, immortal->in_room);
+}
+
+/* Makes <follower> a charmed follower of <leader>, as taming leaves it. */
+static void charm_into_following(char_data* follower, char_data* leader)
+{
+    add_follower(follower, leader, FOLLOW_MOVE);
+    SET_BIT(follower->specials.affected_by, AFF_CHARM);
+}
+
+/* The first follower ordered is removed as it starts to speak; the next is still ordered. */
+TEST_F(SpecialProcedureTest, OrderedFollowersGoOnPastOneTheOrderRemoves)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_marked_character);
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, &m_player);
+    charm_into_following(first, &m_player);
+    ASSERT_EQ(first, m_player.followers->follower) << "the first is ordered first";
+    record.character_to_remove = first;
+
+    run_command(do_order, "followers say hello");
+
+    EXPECT_FALSE(is_in_game(first));
+    EXPECT_EQ(1, count_in_output("says 'hello'")) << "the second spoke: " << output();
+    EXPECT_TRUE(output_has("Ok.")) << output();
+}
+
+TEST_F(SpecialProcedureTest, OrderedFollowersAllCarryOutTheOrder)
+{
+    assign_command_pointers();
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, &m_player);
+    charm_into_following(first, &m_player);
+
+    run_command(do_order, "followers say hello");
+
+    EXPECT_EQ(2, count_in_output("says 'hello'")) << output();
+    EXPECT_TRUE(output_has("Ok.")) << output();
+}
+
+/* As the first follower speaks, the leader is removed: the orders end there. */
+TEST_F(SpecialProcedureTest, AnOrderThatRemovesTheLeaderEndsTheOrders)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_marked_character);
+    char_data* leader = make_player_character("leader");
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, leader);
+    charm_into_following(first, leader);
+    record.character_to_remove = leader;
+    char argument[] = "followers say hello";
+
+    do_order(leader, argument, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(leader));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(nullptr, second->master);
+    EXPECT_EQ(1, count_in_output("says 'hello'")) << "only the first spoke: " << output();
+}
+
+/* ---- mental attacks ---- */
+
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* vampire = make_beaten_thuringwethil();
+
+    const combat_result_struct result = damage_stat(attacker, vampire, 0, 1);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_FALSE(result.will_die);
+    EXPECT_FALSE(result.wants_to_flee);
+    ASSERT_TRUE(is_in_game(attacker));
+    EXPECT_EQ(nullptr, attacker->specials.fighting);
+}
+
+/* A procedure that removes its own mob and lets the damage go on. */
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAVictimThatRemovedItselfAndLetItGoOn)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* victim = make_mob_with("victim", remove_own_mob);
+
+    const combat_result_struct result = damage_stat(attacker, victim, 0, 1);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_FALSE(result.will_die);
+    ASSERT_TRUE(is_in_game(attacker));
+    EXPECT_EQ(nullptr, attacker->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAnAttackerTheVictimsProcedureRemoved)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* victim = make_mob_with("victim", remove_attacker);
+    const int strength_before = victim->tmpabilities.str;
+
+    damage_stat(attacker, victim, 0, 1);
+
+    EXPECT_FALSE(is_in_game(attacker));
+    EXPECT_EQ(strength_before, victim->tmpabilities.str) << "no stat damaged";
+}
+
+/* Readies the player to press its Will on <victim>: already fighting it, and with no willpower
+ * of its own the victim never saves. Queues the perception roll and a hit on strength. */
+static void ready_mental_hit_on_strength(char_data* attacker, char_data* victim)
+{
+    set_fighting(attacker, victim);
+    attacker->specials2.perception = 100;
+    attacker->points.willpower = 0;
+    push_test_random_value(0.0); /* the perception roll is reached */
+    push_test_random_value(0.0); /* the hit lands on strength */
+}
+
+/* Thuringwethil leaves as the hit asks her procedure; the experience for the hit is still what
+ * her level gives. */
+TEST_F(SpecialProcedureTest, AMentalHitOnAVictimItsProcedureRemovesStillGivesItsExperience)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    vampire->player.level = 20;
+    m_player.specials2.mini_level = 1000; /* no mini level is gained */
+    m_player.points.exp = 0;
+    ready_mental_hit_on_strength(&m_player, vampire);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    /* Two hits of Will land (no save), so damage 2: (1 + 20) * min(20 + 2 * 10, 2 * 5) / (1 + 10). */
+    EXPECT_EQ((1 + 20) * 10 / 11, m_player.points.exp);
+}
+
+TEST_F(SpecialProcedureTest, AMentalHitThatKillsAMobLeavesItAlone)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    victim->tmpabilities.str = 1;
+    ready_mental_hit_on_strength(&m_player, victim);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(nullptr, m_player.specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, AMentalHitThatLandsGivesItsExperienceAndAFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    m_player.specials2.mini_level = 1000; /* no mini level is gained */
+    m_player.points.exp = 0;
+    ready_mental_hit_on_strength(&m_player, victim);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(&m_player, victim->specials.fighting);
+    /* (1 + 10) * min(20 + 2 * 10, 2 * 5) / (1 + 10) */
+    EXPECT_EQ(10, m_player.points.exp);
+    EXPECT_TRUE(output_has("You force your Will against")) << output();
+}
+
+/* A released concentration hits strength and then intelligence; Thuringwethil leaves at the
+ * first. */
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, vampire);
+    mystic->points.willpower = 0;
+    mystic->specials.mental_delay = -4 * PULSE_MENTAL_FIGHT; /* four points of extra power */
+    push_test_random_value(0.0); /* no more power from the release roll */
+    push_test_random_value(0.0); /* no save */
+    push_test_random_value(0.0); /* strength */
+    push_test_random_value(0.0); /* no save */
+    push_test_random_value(0.2); /* intelligence */
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, -1);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    ASSERT_TRUE(is_in_game(mystic));
+    EXPECT_EQ(nullptr, mystic->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, ReleasedConcentrationHitsAndDrawsTheVictimIntoTheFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = 0;
+    mystic->specials.mental_delay = -4 * PULSE_MENTAL_FIGHT;
+    push_test_random_value(0.0);
+    push_test_random_value(0.0);
+    push_test_random_value(0.0); /* strength */
+    push_test_random_value(0.0);
+    push_test_random_value(0.2); /* intelligence */
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, -1);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+/* The curse hits strength first and then intelligence; Thuringwethil leaves at the first. */
+TEST_F(SpecialProcedureTest, ACurseStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    mystic->points.spirit = 100;
+    push_test_random_value(0.0); /* the first stat is strength */
+    for (int draw = 0; draw < 20; ++draw) {
+        push_test_random_value(0.15); /* every other stat is intelligence; little spirit spent */
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, vampire, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    ASSERT_TRUE(is_in_game(mystic));
+}
+
+TEST_F(SpecialProcedureTest, ACurseHitsAndDrawsTheVictimIntoTheFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    mystic->points.spirit = 100;
+    push_test_random_value(0.0);
+    for (int draw = 0; draw < 20; ++draw) {
+        push_test_random_value(0.15);
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, victim, nullptr, 0, 0);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+/* A wimpy mystic cursing itself into a critical stat flees, and a guard where it arrives removes
+ * it; the curse then leaves the caster alone. */
+TEST_F(SpecialProcedureTest, ASelfCurseStopsAtACasterItsFlightRemoved)
+{
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    open_to_mental_attack(mystic);
+    make_critical_on_strength_loss(mystic);
+    mystic->points.spirit = 100;
+    make_mob_with("guard", remove_marked_arriving, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(0.0); /* the first stat is strength */
+    for (int draw = 0; draw < 20; ++draw) {
+        push_test_random_value(0.15); /* every other stat is intelligence; the flight goes north */
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, mystic, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(mystic));
+}
+
+/* The victim of a released concentration flees, and a guard where it arrives removes the
+ * attacker; the attack then leaves the attacker alone. */
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAnAttackerTheFlightRemoved)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    make_critical_on_strength_loss(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = 0;
+    mystic->specials.mental_delay = -4 * PULSE_MENTAL_FIGHT;
+    make_mob_with("guard", remove_marked_character, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(0.0);
+    push_test_random_value(0.0);
+    push_test_random_value(0.0); /* strength */
+    push_test_random_value(0.0);
+    push_test_random_value(0.2); /* intelligence */
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, -1);
+
+    EXPECT_FALSE(is_in_game(mystic));
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(SECOND_ROOM, victim->in_room);
 }

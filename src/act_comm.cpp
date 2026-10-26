@@ -661,10 +661,17 @@ ACMD(do_gen_com)
     if (subcmd == SCMD_YELL) {
         // triggering specials in other rooms now...
         myzone = world[ch->in_room].zone;
+        /* A procedure that removes the one yelling ends the yell: nobody is left to hear, and
+         * the words can be its own delay's text. */
+        freed_watch yeller_watch(ch);
         for (tmp = 0; tmp <= top_of_world; tmp++) {
             tmproom = &world[tmp];
-            if (tmproom->zone == myzone)
+            if (tmproom->zone == myzone) {
                 special(ch, CMD_YELL, argument, SPECIAL_COMMAND, wtl, tmp);
+                if (yeller_watch.freed()) {
+                    return;
+                }
+            }
         }
     }
 }

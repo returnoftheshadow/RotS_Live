@@ -46,6 +46,9 @@ constexpr int UPPER_CELL_VNUM = 15399;
 constexpr int SUMMONER_VNUM = 3948;
 constexpr int HELPER_VNUM = SUMMONER_VNUM + 1;
 
+/* The ghoul the ghoul special raises, which sinks back into the ground when idle. */
+constexpr int RISEN_GHOUL_VNUM = 15300;
+
 /* Enough movement points for any step. */
 constexpr int PLENTY_OF_MOVES = 100;
 
@@ -129,6 +132,23 @@ protected:
 
     /* Makes <mob> a test mob with no table entry again, so extracting it frees its strings. */
     static void release_from_table(char_data* mob) { mob->nr = -1; }
+
+    /* A ghoul the ghoul special raised, as read_mobile makes one: a copy of the only mob table
+     * entry, the risen ghoul's, sharing the entry's keywords and proficiencies, which the game
+     * leaves alone when it removes the mob. */
+    char_data* make_risen_ghoul()
+    {
+        install_mob_table({ RISEN_GHOUL_VNUM });
+        char_data* risen = make_table_mob("risen", 0);
+        const char_data& prototype = m_mob_prototypes[0];
+        RELEASE(risen->player.name);
+        RELEASE(risen->player.short_descr);
+        RELEASE(risen->profs);
+        risen->player.name = prototype.player.name;
+        risen->player.short_descr = prototype.player.short_descr;
+        risen->profs = prototype.profs;
+        return risen;
+    }
 
     /* A mob in <room> with the moves to walk anywhere. */
     char_data* make_walker(const char* keywords, int room = 0)
@@ -290,7 +310,7 @@ TEST_F(SpecialProcTest, ADismissedGhoulLeavesTheSummonersBelongingsAlone)
     char_data* summoner = make_mob("ghoul", 0);
     obj_data* stone = make_object(STONE_VNUM, 0);
     obj_to_char(stone, summoner);
-    char_data* risen = make_mob("risen", 0);
+    char_data* risen = make_risen_ghoul();
     add_follower(risen, summoner, FOLLOW_MOVE);
     push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
 
@@ -303,7 +323,7 @@ TEST_F(SpecialProcTest, ADismissedGhoulLeavesTheSummonersBelongingsAlone)
 TEST_F(SpecialProcTest, WhatADismissedGhoulCarriedFallsToTheGround)
 {
     char_data* summoner = make_mob("ghoul", 0);
-    char_data* risen = make_mob("risen", 0);
+    char_data* risen = make_risen_ghoul();
     add_follower(risen, summoner, FOLLOW_MOVE);
     obj_data* bread = make_object(BREAD_VNUM, 0);
     obj_to_char(bread, risen);

@@ -563,6 +563,25 @@ double get_casting_level(const char_data* caster, int casting_level, int casting
     final_level += casting_stat / 5.0;
     return final_level;
 }
+
+/* True when spell_number indexes the skills table; otherwise logs the refusal, naming
+ * command_name and caster. Mob programs hand spell numbers over unchecked. */
+bool is_spell_number_in_table(const char_data* caster, int spell_number, const char* command_name)
+{
+    if (spell_number >= 0 && spell_number < MAX_SKILLS) {
+        return true;
+    }
+
+    const char* caster_name = GET_NAME(caster);
+    if (caster_name == nullptr) {
+        caster_name = "(unnamed)";
+    }
+    char refusal[MAX_STRING_LENGTH];
+    snprintf(refusal, sizeof(refusal), "SYSERR: %s: %s gave spell number %d, outside the skills table.",
+        command_name, caster_name, spell_number);
+    log(refusal);
+    return false;
+}
 } // namespace
 
 /* Assumes that *argument does start with first letter of chopped string */
@@ -625,7 +644,7 @@ ACMD(do_cast)
     if (!wtl || (wtl && !wtl->subcmd)) {
         /* is mob allowed to cast this spell on self? */
         for (int i = 0; i < nss_len; i++) {
-            if (npc_self_spells[i] == wtl->targ1.ch_num) {
+            if (wtl && npc_self_spells[i] == wtl->targ1.ch_num) {
                 npc_can_cast_self = 1;
                 break;
             }
@@ -693,6 +712,10 @@ ACMD(do_cast)
             spell_index = tmp;
         }
 
+        if (!is_spell_number_in_table(ch, spell_index, "do_cast")) {
+            return;
+        }
+
         const skill_data& spell = skills[spell_index];
         /* Checking for the spell validity now */
         switch (spell.type) {
@@ -743,7 +766,7 @@ ACMD(do_cast)
                         return;
                     } else if (ch->extra_specialization_data.is_mage_spec()) {
                         elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
-                        if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
+                        if (spec_data && spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
                             send_to_char(
                                 "You have already exposed your target to the elements!\n\r", ch);
                             return;
@@ -845,7 +868,7 @@ ACMD(do_cast)
     case TAR_DIR_NAME:
     case TAR_DIR_WAY: {
         tar_dig = wtl->targ2.ch_num;
-        if (tar_dig < 0 || tar_dig > NUM_OF_DIRS) {
+        if (tar_dig < 0 || tar_dig >= NUM_OF_DIRS) {
             send_to_char("Error in direction spell, please notify imps.\n\r", ch);
             return;
         }
@@ -856,8 +879,13 @@ ACMD(do_cast)
             return;
         }
     } break;
-    case TAR_CHAR_WORLD: // supposedly he's still somewhere around :-)
-        break;
+    case TAR_CHAR_WORLD: {
+        /* One who died or rented while the spell was cast waits at the menu, in no room. */
+        if (tar_char->in_room == NOWHERE) {
+            send_to_char("Your victim has left the world.\n\r", ch);
+            return;
+        }
+    } break;
     case TAR_OBJ_INV: {
         // Find the object that we're targeting.
         for (tmpobj = ch->carrying; tmpobj; tmpobj = tmpobj->next_content) {
@@ -1078,9 +1106,12 @@ ACMD(do_prepare)
                 }
                 spl = tmp;
 
-            } else if (wtl && (wtl->targ1.type == TARGET_OTHER))
+            } else if (wtl && (wtl->targ1.type == TARGET_OTHER)) {
                 spl = wtl->targ1.ch_num;
-            else { /* wtl isn't useful, use the command line */
+                if (!is_spell_number_in_table(ch, spl, "do_prepare")) {
+                    return;
+                }
+            } else { /* wtl isn't useful, use the command line */
                 if (!argument)
                     return;
 
@@ -1186,4 +1217,18 @@ ACMD(do_prepare)
     }
     if (subcmd == 2)
         send_to_char("You release your prepared spell.\n\r", ch);
+}
+
+bool spell_lacks_victim(char_data* caster, const char_data* victim, int spell_number)
+{
+    if (victim) {
+        return false;
+    }
+    vmudlog(NRM, "SYSERR: %s: spell %d (%s) has nobody to work on: a staff, or a wand pointed at "
+                 "an object.",
+        __func__, spell_number, skills[spell_number].name);
+    if (caster) {
+        send_to_char("Nothing seems to happen.\n\r", caster);
+    }
+    return true;
 }

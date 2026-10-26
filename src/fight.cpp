@@ -745,6 +745,11 @@ obj_data* make_physical_corpse(char_data* character, const char_data* killer, in
      */
     corpse_decay_time(character, corpse, 0);
 
+    // If the character died to another player or poison, all of their wearable gear is moved
+    // into their corpse and out of any containers they own. Decided before the gear comes off:
+    // taking it off can cast an item's spell that removes the killer.
+    const bool gather_wearables = attack_type == SPELL_POISON || !IS_NPC(killer);
+
     /* removing our victims eq */
     for (int gear_index = 0; gear_index < MAX_WEAR; gear_index++) {
         if (character->equipment[gear_index]) {
@@ -753,9 +758,7 @@ obj_data* make_physical_corpse(char_data* character, const char_data* killer, in
         }
     }
 
-    // If the character died to another player or poison, move all of their
-    // wearable gear into their corpse and out of any containers they own.
-    if (attack_type == SPELL_POISON || !IS_NPC(killer)) {
+    if (gather_wearables) {
         move_wearables_to_corpse(corpse);
     }
 
@@ -884,14 +887,16 @@ void death_cry(struct char_data* ch)
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
 {
     waiting_type tmpwtl;
+    /* What the death sets off on the way can remove the killer: the interrupted command, the
+     * dying one's death procedure, or an item spell cast as its gear comes off. The death then
+     * goes on with no killer, as when a death script removes it (die). */
+    freed_watch killer_watch(killer);
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
         /* The interrupted command, or the rest of a paused script, can remove the one dying:
-         * then there is nobody left to kill. It can remove the killer too: then the death goes
-         * on with no killer, as when a death script removes it (die). */
+         * then there is nobody left to kill. */
         freed_watch dying_watch(dead_man);
-        freed_watch killer_watch(killer);
         complete_delay(dead_man);
         if (dying_watch.freed()) {
             return;
@@ -926,7 +931,16 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
      * item's spell or poison them (unequip_char), and a blow or death then would land on someone
      * half stripped and kill them a second time. */
     GET_POS(dead_man) = POSITION_DEAD;
+    if (killer_watch.freed()) {
+        killer = nullptr;
+    }
+    /* Read while the killer is surely there: a player who dies to a player recovers as one even
+     * when the killer goes while the gear comes off. */
+    const bool killed_by_player = killer != nullptr && !IS_NPC(killer);
     obj_data* corpse = make_corpse(dead_man, killer, attack_type);
+    if (killer_watch.freed()) {
+        killer = nullptr;
+    }
 
     // Let big brother know that the player died.
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
@@ -941,7 +955,7 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
         // Restore them.
         // TODO(drelidan):  When we can track the origin of status effects, include that
         // here so we can determine if the 'poisoned' kill type was actually from a player.
-        bool died_to_player = attack_type == SPELL_POISON || killer != NULL && !IS_NPC(killer);
+        bool died_to_player = attack_type == SPELL_POISON || killed_by_player;
         char_ability_data& cur_abils = dead_man->tmpabilities;
         char_ability_data& max_abils = dead_man->abilities;
         cur_abils = max_abils;

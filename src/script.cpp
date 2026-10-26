@@ -56,7 +56,7 @@ extern struct char_data* waiting_list;
 extern void raw_kill(char_data* ch, const char_data* killer, int attacktype);
 void perform_give(struct char_data* ch, struct char_data* vict, struct obj_data* obj);
 int perform_drop(struct char_data* ch, struct obj_data* obj, sh_int RDR);
-void perform_remove(struct char_data* ch, int pos);
+bool perform_remove(struct char_data* ch, int pos);
 int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg);
 bool perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
 int find_action(const char* arg);
@@ -578,6 +578,11 @@ void note_char_freed(char_data* character)
 {
     freed_watch::note_freed(character);
     running_script_frame::forget(character);
+    release_script_state(character->specials.script_info);
+}
+
+void release_char_script_state(char_data* character)
+{
     release_script_state(character->specials.script_info);
 }
 
@@ -1642,6 +1647,18 @@ static int run_script_or(struct info_script* info, struct script_data* position,
                 /* Only str1-3 and obN.name can be written; anything else
                  * crashed the server. */
                 if (wtxt) {
+                    const size_t text_size = strlen(curr->text) + 1;
+                    char* new_text = nullptr;
+                    CREATE(new_text, char, text_size);
+                    script_format_text(new_text, text_size, curr->text, NULL);
+                    /* obN.name: the object owns the name it is given, and frees the one it
+                     * replaces only if it owned that one too; a prototype's text stays. */
+                    obj_data* renamed_object = nullptr;
+                    for (obj_data* object : info->ob) {
+                        if (object && wtxt == &object->short_description) {
+                            renamed_object = object;
+                        }
+                    }
                     /* str1-3 own their text: the one they held goes, and the new one is
                      * released with the state. */
                     int owned_text = -1;
@@ -1650,13 +1667,16 @@ static int run_script_or(struct info_script* info, struct script_data* position,
                             owned_text = text;
                         }
                     }
-                    if (owned_text >= 0 && info->str_dynamic[owned_text]) {
-                        RELEASE(*wtxt);
-                    }
-                    CREATE(*wtxt, char, strlen(curr->text) + 1);
-                    script_format_text(*wtxt, strlen(curr->text) + 1, curr->text, NULL);
-                    if (owned_text >= 0) {
-                        info->str_dynamic[owned_text] = 1;
+                    if (renamed_object) {
+                        renamed_object->set_owned_text(object_text::short_description, new_text);
+                    } else {
+                        if (owned_text >= 0 && info->str_dynamic[owned_text]) {
+                            RELEASE(*wtxt);
+                        }
+                        *wtxt = new_text;
+                        if (owned_text >= 0) {
+                            info->str_dynamic[owned_text] = 1;
+                        }
                     }
                 }
             }

@@ -768,7 +768,7 @@ ACMD(do_sneak)
  */
 struct char_data* ambush_get_valid_victim(struct char_data* ch, const struct waiting_type* target)
 {
-    struct char_data* victim;
+    struct char_data* victim = nullptr;
 
     if (target->targ1.type == TARGET_TEXT)
         victim = get_char_room_vis(ch, target->targ1.ptr.text->text);
@@ -1049,7 +1049,7 @@ ACMD(do_ambush)
 struct char_data* trap_get_valid_victim(struct char_data* ch, const struct waiting_type* target)
 {
     char* keyword;
-    struct char_data* victim;
+    struct char_data* victim = nullptr;
 
     if (target->targ1.type == TARGET_NONE)
         victim = target->targ2.ptr.ch;
@@ -1421,14 +1421,19 @@ ACMD(do_calm)
             send_to_char("Learn how to calm properly first!\n\r", ch);
             return;
         }
-        /* #define is here for readability only. */
+        {
+            // Confusion can drive calm_skill far enough below zero to cancel the ranger level.
+            // A zero divisor counts as 1, the longest wait the formula gives otherwise; a
+            // negative one gives a negative wait, which never completes.
+            int calm_divisor = GET_PROF_LEVEL(PROF_RANGER, ch) + calm_skill / 15;
+            if (calm_divisor == 0)
+                calm_divisor = 1;
 
-#define CALM_WAIT_BEATS \
-    skills[SKILL_CALM].beats * 2 * GET_LEVEL(victim) / (GET_PROF_LEVEL(PROF_RANGER, ch) + calm_skill / 15)
-
-        WAIT_STATE_FULL(ch, CALM_WAIT_BEATS, CMD_CALM, 1, 50, 0, GET_ABS_NUM(victim), victim,
-            AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
-#undef CALM_WAIT_BEATS
+            const int calm_wait_beats
+                = skills[SKILL_CALM].beats * 2 * GET_LEVEL(victim) / calm_divisor;
+            WAIT_STATE_FULL(ch, calm_wait_beats, CMD_CALM, 1, 50, 0, GET_ABS_NUM(victim), victim,
+                AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
+        }
 
         break;
     case 1:
@@ -2266,6 +2271,36 @@ bool does_arrow_break(const char_data* archer, const char_data* victim, obj_data
     return false;
 }
 
+/* The arrow <archer> shoots next: the first in the quiver it wears, or, for an NPC wearing none
+ * (a follower), the first missile in its own inventory. Null if it has none. */
+static obj_data* find_archer_arrow(const char_data* archer)
+{
+    const obj_data* quiver = archer->equipment[WEAR_BACK];
+    if (quiver && quiver->is_quiver()) {
+        return quiver->contains;
+    }
+    if (utils::is_pc(*archer)) {
+        return nullptr;
+    }
+    for (obj_data* item = archer->carrying; item; item = item->next_content) {
+        if (item->obj_flags.type_flag == ITEM_MISSILE) {
+            return item;
+        }
+    }
+    return nullptr;
+}
+
+/* Puts <arrow>, from <archer>'s quiver or inventory (find_archer_arrow), in its inventory: one in
+ * the quiver is taken out of it, and one already in the inventory is left where it is, never put
+ * on that list a second time. */
+static void take_arrow_into_inventory(char_data* archer, obj_data* arrow)
+{
+    if (arrow->in_obj) {
+        obj_from_obj(arrow);
+        obj_to_char(arrow, archer);
+    }
+}
+
 /*
  * move_arrow_to_victim will take the arrow out of the shooters quiver and
  * tag the arrow with their character_id. After that it will move the arrow
@@ -2282,11 +2317,7 @@ bool does_arrow_break(const char_data* archer, const char_data* victim, obj_data
  */
 bool move_arrow_to_victim(char_data* archer, char_data* victim, obj_data* arrow)
 {
-    // Remove object from the character.
-    if (arrow->in_obj) {
-        obj_from_obj(arrow);
-    }
-    obj_to_char(arrow, archer); // Move it into his inventory.
+    take_arrow_into_inventory(archer, arrow);
     // tag arrow in value slot 2 of the shooter
     if (!IS_NPC(archer)) {
         arrow->obj_flags.value[2] = (int)archer->specials2.idnum;
@@ -2318,12 +2349,7 @@ bool move_arrow_to_victim(char_data* archer, char_data* victim, obj_data* arrow)
  */
 void move_arrow_to_room(char_data* archer, obj_data* arrow, int room_num)
 {
-    // Remove object from the character.
-    if (arrow->in_obj) {
-        obj_from_obj(arrow);
-    }
-
-    obj_to_char(arrow, archer); // Move it into his inventory.
+    take_arrow_into_inventory(archer, arrow);
 
     // tag arrow in value slot 2 of the shooter
     arrow->obj_flags.value[2] = utils::is_pc(*archer) ? (int)archer->specials2.idnum : (int)archer->abs_number;
@@ -2376,29 +2402,16 @@ bool can_ch_shoot(char_data* archer)
     }
 
     const obj_data* quiver = archer->equipment[WEAR_BACK];
-    if (!quiver || !quiver->is_quiver()) {
-        if (is_pc(*archer)) {
-            send_to_char("You must be wearing a quiver on your back.\r\n", archer);
-            return false;
-        } else {
-            // Ensure that the NPC has an arrow.
-            obj_data* arrow = NULL;
+    if (is_pc(*archer) && (!quiver || !quiver->is_quiver())) {
+        send_to_char("You must be wearing a quiver on your back.\r\n", archer);
+        return false;
+    }
 
-            // Must be a follower and shooting from their inventory.  Find the first missile they
-            // have.
-            for (obj_data* item = archer->carrying; item; item = item->next) {
-                if (item->obj_flags.type_flag == ITEM_MISSILE) {
-                    arrow = item;
-                    break;
-                }
-            }
-
-            if (arrow == NULL) {
-                char_data* receiver = archer->master ? archer->master : archer;
-                send_to_char("Your follower is out of arrows.", receiver);
-                return false;
-            }
-        }
+    // An NPC shoots from its quiver, or from its inventory if it wears none.
+    if (is_npc(*archer) && find_archer_arrow(archer) == nullptr) {
+        char_data* receiver = archer->master ? archer->master : archer;
+        send_to_char("Your follower is out of arrows.", receiver);
+        return false;
     }
 
     if (is_pc(*archer) && !quiver->contains) {
@@ -2689,21 +2702,8 @@ ACMD(do_shoot)
             return;
         }
 
-        // Get the arrow.
-        obj_data* arrow = NULL;
-        obj_data* quiver = ch->equipment[WEAR_BACK];
-        if (quiver) {
-            arrow = quiver->contains;
-        } else {
-            // Must be a follower and shooting from their inventory.  Find the first missile they
-            // have.
-            for (obj_data* item = ch->carrying; item; item = item->next) {
-                if (item->obj_flags.type_flag == ITEM_MISSILE) {
-                    arrow = item;
-                    break;
-                }
-            }
-        }
+        // can_ch_shoot found it.
+        obj_data* arrow = find_archer_arrow(ch);
         send_to_char("You release your arrow and it goes flying!\r\n", ch);
 
         byte sex = ch->player.sex;

@@ -48,6 +48,8 @@ void REMOVE_LIST(struct char_data* host);
 void UP_LIST(struct char_data* host);
 void DOWN_LIST(struct char_data* host);
 int CHECK_LIST(const char_data* host, char val);
+void turn_stack(const char_data* host, int turns, void (*turn_once)(const char_data*));
+void turn_list(char_data* host, int turns, void (*turn_once)(char_data*));
 
 void TEXT_LIST(char_data* host, char* targ);
 int compare_list(const char_data* host, const target_data* it1, const target_data* it2);
@@ -80,15 +82,11 @@ void service_commands(struct char_data* host, const char* arg, int cmd,
         break;
 
     case 'f':
-        tmp = FROM_STACK(host) - 1;
-        for (tmp2 = 0; tmp2 < tmp; tmp2++)
-            UP_STACK(host);
+        turn_stack(host, FROM_STACK(host) - 1, UP_STACK);
         break;
 
     case 'b':
-        tmp = FROM_STACK(host) - 1;
-        for (tmp2 = 0; tmp2 < tmp; tmp2++)
-            DOWN_STACK(host);
+        turn_stack(host, FROM_STACK(host) - 1, DOWN_STACK);
         break;
 
     case 'r':
@@ -109,15 +107,11 @@ void service_commands(struct char_data* host, const char* arg, int cmd,
         break;
 
     case 'F': /* move up in list */
-        tmp = FROM_STACK(host) - 1;
-        for (tmp2 = 0; tmp2 < tmp; tmp2++)
-            UP_LIST(host);
+        turn_list(host, FROM_STACK(host) - 1, UP_LIST);
         break;
 
     case 'B': /* move down the list */
-        tmp = FROM_STACK(host) - 1;
-        for (tmp2 = 0; tmp2 < tmp; tmp2++)
-            DOWN_LIST(host);
+        turn_list(host, FROM_STACK(host) - 1, DOWN_LIST);
         break;
 
     case 'X':
@@ -1136,13 +1130,14 @@ SPECIAL(intelligent)
 
         case 'K':
             tmpvar = FROM_STACK(host);
-            if (tmpvar >= num_of_programs)
+            /* Programs are numbered from 1. */
+            if (tmpvar < 1 || tmpvar >= num_of_programs)
                 break;
             if (host->specials.tactics >= SPECIAL_CALLLIST - 1)
                 break;
             //  prog_point is automatic.,.
             host->specials.tactics++;
-            PROG_NUMBER(ch) = tmpvar;
+            PROG_NUMBER(host) = tmpvar;
             PROG_POINT(host) = -1;
             cmd_line = SPECIAL_PROGRAM(host);
             cmd_leng = strlen(cmd_line);

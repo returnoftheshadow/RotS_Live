@@ -518,9 +518,8 @@ void diag_char_to_char(char_data* looked_at, char_data* viewer)
     if (IS_AFFECTED(viewer, AFF_DETECT_MAGIC)) {
         bool is_exposed_to_elements = false;
         if (viewer->extra_specialization_data.is_mage_spec()) {
-            elemental_spec_data* spec_data = static_cast<elemental_spec_data*>(
-                viewer->extra_specialization_data.current_spec_info);
-            is_exposed_to_elements = looked_at == spec_data->exposed_target;
+            elemental_spec_data* spec_data = viewer->extra_specialization_data.get_mage_spec();
+            is_exposed_to_elements = spec_data && looked_at == spec_data->exposed_target;
         }
 
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
@@ -3768,14 +3767,15 @@ ACMD(do_fame)
             return;
         }
 
-        bufpt = 0;
+        /* A string, not buf: a day's battles have no fixed count. */
+        std::string battles;
         for (i = 0; i < n; ++i) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            battles += string;
             free(string);
         }
 
-        page_string(ch->desc, buf, 1);
+        page_string(ch->desc, &battles[0], 1);
         return;
     }
 
@@ -3805,13 +3805,14 @@ ACMD(do_fame)
      */
     pkills = pkill_get_all(&n);
     records = 0;
-    bufpt = 0;
+    /* A string, not buf: a player's records have no fixed count. */
+    std::string report;
 
     /* Get the records where the character idx is the killer */
     for (i = 0; i < n; ++i) {
         if (pkills[i].killer == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            report += string;
             free(string);
             ++records;
         }
@@ -3821,7 +3822,7 @@ ACMD(do_fame)
     for (i = 0; i < n; ++i) {
         if (pkills[i].victim == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_SLAIN);
-            bufpt += sprintf(buf + bufpt, string);
+            report += string;
             free(string);
             ++records;
         }
@@ -3830,14 +3831,15 @@ ACMD(do_fame)
     /* Display the total fame */
     asprintf(&string, "%s", player_table[idx].name);
     CAP(string);
-    sprintf(buf + bufpt,
+    snprintf(buf, sizeof(buf),
         "There %s %d record%s found about %s, "
         "total fame %d.\r\n",
         records == 1 ? "was" : "were", records, records == 1 ? "" : "s", string,
         player_table[idx].warpoints / 100);
     free(string);
+    report += buf;
 
-    send_to_char(buf, ch);
+    send_to_char(report.c_str(), ch);
 }
 
 ACMD(do_rank)

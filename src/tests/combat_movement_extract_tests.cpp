@@ -29,6 +29,7 @@ void do_rescue(char_data* ch, char* argument, waiting_type* wtl, int cmd, int su
 void do_disengage(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_track(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void affect_update_person(struct char_data* i, int mode);
+void assign_command_pointers(void);
 SPECIAL(thuringwethil);
 
 extern struct index_data* mob_index;
@@ -192,6 +193,49 @@ TEST_F(CombatMovementTest, AMountWhosePassengerIsRemovedBeforeEnteringStays)
     EXPECT_FALSE(is_in_game(passenger));
     EXPECT_EQ(0, mount->in_room);
     EXPECT_EQ(0, rider->in_room);
+}
+
+/* The mounted leader's move is called off when the passenger is removed before entering: the
+ * leader's follower does not go either, as for a walker whose move fails. */
+TEST_F(CombatMovementTest, AFollowerStaysWhenItsMountedLeadersMoveIsCalledOff)
+{
+    assign_command_pointers();
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_BEFORE_ENTER,
+            { { SCRIPT_IF_STR_EQUAL, "passenger", { SCRIPT_PARAM_CH2_NAME } },
+                { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* mount = make_walker("horse");
+    char_data* rider = make_walker("rider");
+    char_data* passenger = make_walker("passenger");
+    char_data* follower = make_walker("follower");
+    seat(rider, mount);
+    seat(passenger, mount);
+    add_follower(follower, rider, FOLLOW_MOVE);
+
+    walk_north(rider);
+
+    EXPECT_FALSE(is_in_game(passenger));
+    EXPECT_EQ(0, rider->in_room);
+    ASSERT_TRUE(is_in_game(follower));
+    EXPECT_EQ(0, follower->in_room);
+}
+
+/* A mounted leader that rides on is followed. */
+TEST_F(CombatMovementTest, AFollowerFollowsItsMountedLeader)
+{
+    assign_command_pointers();
+    char_data* mount = make_walker("horse");
+    char_data* rider = make_walker("rider");
+    char_data* follower = make_walker("follower");
+    seat(rider, mount);
+    add_follower(follower, rider, FOLLOW_MOVE);
+
+    walk_north(rider);
+
+    EXPECT_EQ(SECOND_ROOM, mount->in_room);
+    EXPECT_EQ(SECOND_ROOM, rider->in_room);
+    EXPECT_EQ(SECOND_ROOM, follower->in_room);
 }
 
 /* Every rider and the mount are removed as they arrive. */

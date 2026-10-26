@@ -1403,7 +1403,6 @@ void index_boot(int mode)
 /* load the rooms */
 void load_rooms(FILE* fl)
 {
-    extern char num_of_sector_types;
     static int room_nr = 0, zone = 0, virt_nr, flag, tmp, tmp2, tmp3, tmp4;
     int aff_set;
     char *temp, *temp2, chk[50];
@@ -1449,9 +1448,7 @@ void load_rooms(FILE* fl)
             //	 fscanf(fl, " %d ", &tmp);
             world[room_nr].room_flags = tmp2;
             //	 fscanf(fl, " %d ", &tmp);
-            world[room_nr].sector_type = tmp3;
-            if (world[room_nr].sector_type >= num_of_sector_types)
-                world[room_nr].sector_type = num_of_sector_types - 1;
+            world[room_nr].sector_type = checked_sector_type(tmp3, virt_nr);
             world[room_nr].level = tmp4;
 
             world[room_nr].funct = 0;
@@ -1605,6 +1602,12 @@ void symbol_to_map(int x, int y, int symb)
 {
     if (x > WORLD_SIZE_X / 2)
         x = WORLD_SIZE_X / 2;
+    /* A zone's coordinates come from its file and the zone editor, unchecked. */
+    if (x < 0 || y < 0 || y >= WORLD_SIZE_Y) {
+        vmudlog(NRM, "SYSERR: symbol_to_map: (%d, %d) is off the world map; '%c' not drawn.", x, y,
+            symb);
+        return;
+    }
     world_map[(y + 1) * (WORLD_SIZE_X + 4) + x * 2 + 1] = symb;
 }
 
@@ -2373,13 +2376,10 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
         break;                      \
     }
 
-#define KEY_STR(the_field, element, length)                   \
-    if (!strcmp(line, the_field)) {                           \
-        memcpy(element, value, length);                       \
-        for (ctmp = element; ctmp < element + length; ctmp++) \
-            if (*ctmp == '\n')                                \
-                *ctmp = '\0';                                 \
-        break;                                                \
+#define KEY_STR(the_field, element, length)                       \
+    if (!strcmp(line, the_field)) {                               \
+        copy_key_string(element, sizeof(element), value, length); \
+        break;                                                    \
     }
 
 #define KEY_LONG_STR(the_field, element, length)                                                            \
@@ -2405,6 +2405,14 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
     if (!strcmp(line, the_field)) {                                           \
         sscanf(value, "%d %d %d %d %d %d", &tmp1, &tmp2, &tmp3, &tmp4, &tmp5, \
             &tmp6);                                                           \
+        if (tmp1 < 0 || tmp1 >= MAX_AFFECT) {                                 \
+            log_slot_out_of_range(name, line, tmp1, MAX_AFFECT);              \
+            break;                                                            \
+        }                                                                     \
+        if (tmp2 < 0 || tmp2 >= MAX_SKILLS) {                                 \
+            log_affect_type_out_of_range(name, tmp1, tmp2);                   \
+            break;                                                            \
+        }                                                                     \
         char_element->affected[tmp1].type = tmp2;                             \
         char_element->affected[tmp1].duration = tmp3;                         \
         char_element->affected[tmp1].modifier = tmp4;                         \
@@ -2436,11 +2444,16 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
         break;                                                    \
     }
 
-#define KEY_ARRAY(the_field, element)         \
-    if (!strcmp(line, the_field)) {           \
-        sscanf(value, "%d %d", &tmp1, &tmp2); \
-        element[tmp1] = tmp2;                 \
-        break;                                \
+#define KEY_ARRAY(the_field, element)                                                \
+    if (!strcmp(line, the_field)) {                                                  \
+        const int slot_count = static_cast<int>(sizeof(element) / sizeof(element[0])); \
+        sscanf(value, "%d %d", &tmp1, &tmp2);                                        \
+        if (tmp1 < 0 || tmp1 >= slot_count) {                                        \
+            log_slot_out_of_range(name, line, tmp1, slot_count);                     \
+            break;                                                                   \
+        }                                                                            \
+        element[tmp1] = tmp2;                                                        \
+        break;                                                                       \
     }
 
 namespace {
@@ -2471,13 +2484,46 @@ void sanitize_persisted_combat_state(struct char_special2_data* specials2)
     specials2->two_handed = specials2->two_handed ? 1 : 0;
 }
 
+/* Copies a player file string value into the fixed field <destination> of <destination_size>
+ * bytes: at most <length> characters, the width the file gives the field, and always leaving
+ * room for the terminator. The rest of the field is zeroed. */
+void copy_key_string(char* destination, size_t destination_size, const char* value, size_t length)
+{
+    const size_t limit = std::min(length, destination_size - 1);
+    size_t copied = 0;
+    while (copied < limit && value[copied] != '\0' && value[copied] != '\n') {
+        destination[copied] = value[copied];
+        ++copied;
+    }
+    memset(destination + copied, 0, destination_size - copied);
+}
+
+/* Logs a player file line whose <slot> index is outside the <slot_count> slots of its field. */
+void log_slot_out_of_range(const char* player_name, const char* key, int slot, int slot_count)
+{
+    snprintf(buf, sizeof(buf),
+        "SYSERR: load_player_from_text: %s's '%s' line names slot %d, outside 0-%d; line skipped.",
+        player_name, key, slot, slot_count - 1);
+    log(buf);
+}
+
+/* Logs a player file affect whose <type> is outside the skill table every affect reader
+ * indexes; the affect is not loaded. */
+void log_affect_type_out_of_range(const char* player_name, int slot, int type)
+{
+    snprintf(buf, sizeof(buf),
+        "SYSERR: load_player_from_text: %s's affect in slot %d has type %d, outside 0-%d; skipped.",
+        player_name, slot, type, MAX_SKILLS - 1);
+    log(buf);
+}
+
 } // namespace
 
 int load_player_from_text(char* name, const char* player_text, struct char_file_u* char_element)
 {
     int tmp, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, end, return_value;
     char line[100];
-    char *tmpchar, *value, *ctmp, *position;
+    char *tmpchar, *value, *position;
     const char* input_end = nullptr;
 
     memset((char*)char_element, 0, sizeof(struct char_file_u));
@@ -2527,7 +2573,7 @@ int load_player_from_text(char* name, const char* player_text, struct char_file_
         }
 
         /* clear line, then read off a line */
-        memset(line, 0, 99);
+        memset(line, 0, sizeof(line));
         for (tmpchar = position, tmp1 = 0; tmpchar < input_end && (*tmpchar != '\n') && (*tmpchar != '\r') && (*tmpchar != '\0');
             tmpchar++, tmp1++) {
             if (tmp1 >= static_cast<int>(sizeof(line) - 1)) {
@@ -2653,7 +2699,7 @@ int load_player_from_text(char* name, const char* player_text, struct char_file_
             break;
 
         case 'K':
-            printf(value);
+            printf("%s", value);
             break;
 
         case 'L':
@@ -3720,6 +3766,11 @@ char* fread_line(FILE* fp)
 void free_char(struct char_data* ch)
 {
     note_char_freed(ch);
+    untrack_specialized_mage(ch);
+    forget_freed_exposed_target(ch);
+    /* Its own describe command or an immortal's string command may be typing into one. */
+    stop_editing_text({ &ch->player.name, &ch->player.title, &ch->player.short_descr,
+        &ch->player.long_descr, &ch->player.description });
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);
@@ -3730,7 +3781,8 @@ void free_char(struct char_data* ch)
 
     if (!IS_NPC(ch) || (IS_NPC(ch) && ch->nr == -1)) {
 
-        RELEASE(GET_NAME(ch));
+        /* Not GET_NAME, which is a mob's short description. */
+        RELEASE(ch->player.name);
         RELEASE(ch->player.title);
         RELEASE(ch->player.short_descr);
         RELEASE(ch->player.long_descr);
@@ -3773,6 +3825,9 @@ void free_obj(struct obj_data* obj)
     struct extra_descr_data *thith, *next_one;
 
     note_object_freed(obj);
+    /* Someone writing on a note is typing into its text. */
+    stop_editing_text({ &obj->name, &obj->description, &obj->short_description,
+        &obj->action_description });
 
     if ((nr = obj->item_number) == -1) {
         RELEASE(obj->name);
@@ -4138,6 +4193,25 @@ void init_char(struct char_data* ch)
 
     /* The default preference flags */
     PRF_FLAGS(ch) |= PRF_SPAM | PRF_NARRATE | PRF_CHAT | PRF_WIZ | PRF_SING | PRF_PROMPT | PRF_ECHO | PRF_SPINNER;
+}
+
+int checked_sector_type(int sector_type, int room_number)
+{
+    extern char num_of_sector_types;
+    if (sector_type >= 0 && sector_type < num_of_sector_types) {
+        return sector_type;
+    }
+
+    int checked = SECT_INSIDE;
+    if (sector_type >= num_of_sector_types) {
+        checked = num_of_sector_types - 1;
+    }
+
+    char complaint[MAX_STRING_LENGTH];
+    snprintf(complaint, sizeof(complaint), "SYSERR: checked_sector_type: room %d has sector type %d; using %d.",
+        room_number, sector_type, checked);
+    log(complaint);
+    return checked;
 }
 
 /* returns the real number of the room with given virt number */
