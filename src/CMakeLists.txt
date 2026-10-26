@@ -239,6 +239,7 @@ set(ROTS_TEST_SOURCES
     tests/freed_watch_tests.cpp
     tests/combat_movement_extract_tests.cpp
     tests/death_and_damage_paths_tests.cpp
+    tests/stay_zone_death_tests.cpp
     tests/spec_pro_tests.cpp
     tests/loader_editor_bounds_tests.cpp
     tests/spell_removal_tests.cpp
