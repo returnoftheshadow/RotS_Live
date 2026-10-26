@@ -76,6 +76,9 @@ int CHAR_WEARS_OBJ(struct char_data* ch, struct obj_data* obj);
 char get_colornum(const char_data* ch, int col);
 void set_colornum(const char_data* ch, int col, int value);
 
+/* Opens the text editor on *str for the descriptor's character.  A non-null *str must be heap
+ * text the caller owns: the editor copies it into its own buffer, frees it, and points *str
+ * at the buffer. */
 void string_add_init(struct descriptor_data*, char**);
 void string_add_finish(struct descriptor_data*);
 void string_add(struct descriptor_data*, char*);
@@ -97,10 +100,6 @@ int get_confuse_modifier(const char_data* ch);
 int resist_type_for_attack(int attack_type);
 int resist_magnitude_for(const char_data* victim, int resist_type);
 int effective_resist_magnitude(const char_data* victim, int resist_type, bool physical_attack);
-int compare_obj_to_proto(const obj_data* obj);
-struct obj_data* obj_to_proto(obj_data* obj);
-void check_inventory_proto(char_data* ch);
-void check_equipment_proto(char_data* ch);
 // "none", "3 (on)" or "3 (off)" for an obj_flag_data::version value.
 std::string object_version_text(int version);
 // Brings a saved copy up to its prototype's version when the prototype's version is on (> 0) and

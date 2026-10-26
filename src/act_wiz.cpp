@@ -36,6 +36,8 @@
 #include "warrior_spec_handlers.h"
 #include "zone.h"
 
+#include <memory>
+
 const int IMM_SEE_INVIS_OBJ_MIN_LVL = 92;
 
 /*   external vars  */
@@ -1205,7 +1207,7 @@ ACMD(do_wizstat)
                 free_char(victim);
             } else {
                 send_to_char("There is no such player.\n\r", ch);
-                RELEASE(victim);
+                free_char(victim);
             }
         }
     } else if (is_abbrev(buf1, "object")) {
@@ -2824,7 +2826,7 @@ struct set_struct {
     { "", LEVEL_GOD, PC, BINARY },
     { "level", LEVEL_GOD, BOTH, NUMBER },
     { "roomflag", LEVEL_GRGOD, PC, BINARY }, /* 35 */
-    { "room", LEVEL_IMPL, BOTH, NUMBER },
+    { "", LEVEL_IMPL, BOTH, NUMBER },
     { "siteok", LEVEL_GRGOD, PC, BINARY },
     { "xxdeleted", LEVEL_IMPL, PC, BINARY }, // use delete command
     { "prof", LEVEL_GRGOD, BOTH, MISC },
@@ -2867,6 +2869,8 @@ ACMD(do_wizset)
     int on = 0, off = 0, value = 0;
     char is_file = 0, is_mob = 0, is_player = 0;
     int player_i;
+    // Owns cbuf, the character `file` mode loads, so every return frees it.
+    std::unique_ptr<char_data, void (*)(char_data*)> file_character_owner(nullptr, free_char);
 
     int advance_perm(const struct char_data*, const struct char_data*, int);
 
@@ -2916,10 +2920,10 @@ ACMD(do_wizset)
     } else if (is_file) {
         CREATE(cbuf, struct char_data, 1);
         clear_char(cbuf, MOB_VOID);
+        file_character_owner.reset(cbuf);
         if ((player_i = load_char(name, &tmp_store)) > -1) {
             store_to_char(&tmp_store, cbuf);
             if (GET_LEVEL(cbuf) >= GET_LEVEL(ch)) {
-                free_char(cbuf);
                 send_to_char("Sorry, you can't do that.\n\r", ch);
                 return;
             }
@@ -2930,7 +2934,6 @@ ACMD(do_wizset)
             cbuf->desc = &descr;
             vict = cbuf;
         } else {
-            RELEASE(cbuf);
             send_to_char("There is no such player.\n\r", ch);
             return;
         }
@@ -3135,16 +3138,6 @@ ACMD(do_wizset)
     case 35:
         SET_OR_REMOVE(PRF_FLAGS(vict), PRF_ROOMFLAGS);
         break;
-    case 36:
-        if ((i = real_room(value)) < 0) {
-            send_to_char("No room exists with that number.\n\r", ch);
-            return;
-        }
-        if (IS_RIDING(vict))
-            stop_riding(vict);
-        char_from_room(vict);
-        char_to_room(vict, i);
-        break;
     case 37:
         SET_OR_REMOVE(PLR_FLAGS(vict), PLR_SITEOK);
         break;
@@ -3319,7 +3312,6 @@ ACMD(do_wizset)
     if (is_file) {
         char_to_store(vict, &tmp_store);
         save_char(vict, vict->in_room, 0);
-        free_char(cbuf);
         send_to_char("Saved in file.\n\r", ch);
     }
 }

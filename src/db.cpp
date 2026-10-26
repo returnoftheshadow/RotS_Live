@@ -2123,6 +2123,7 @@ struct obj_data* read_object(int nr, int type)
 
     CREATE(obj, struct obj_data, 1);
     *obj = obj_proto[i];
+    obj->owned_text = 0; /* every copy starts borrowing its prototype's text */
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)
@@ -2871,7 +2872,10 @@ void store_to_char(const struct char_file_u* st, struct char_data* ch)
     for (i = 0; i < MAX_TOUNGE; i++)
         ch->player.talks[i] = st->talks[i];
 
-    CREATE1(ch->profs, char_prof_data);
+    /* Reuse the block clear_char made: the copy overwrites all of it. */
+    if (!ch->profs) {
+        CREATE1(ch->profs, char_prof_data);
+    }
     memcpy(ch->profs, &(st->profs), sizeof(struct char_prof_data));
     ch->specials.alias = 0;
 
@@ -3774,23 +3778,9 @@ void free_obj(struct obj_data* obj)
                 RELEASE(thith->description);
                 RELEASE(thith);
             }
-    } /* else {
-     if (obj->name && obj->name != obj_proto[nr].name)
-       RELEASE(obj->name);
-     if (obj->description && obj->description != obj_proto[nr].description)
-       RELEASE(obj->description);
-     if (obj->short_description && obj->short_description !=
-   obj_proto[nr].short_description) RELEASE(obj->short_description); if
-   (obj->action_description && obj->action_description !=
-   obj_proto[nr].action_description) RELEASE(obj->action_description); if
-   (obj->ex_description && obj->ex_description != obj_proto[nr].ex_description)
-       for (thith = obj->ex_description; thith; thith = next_one) {
-         next_one = thith->next;
-         RELEASE(thith->keyword);
-         RELEASE(thith->description);
-         RELEASE(thith);
-       }
-   } */
+    } else {
+        obj->release_owned_text();
+    }
 
     RELEASE(obj);
 }
@@ -4522,7 +4512,8 @@ void room_data::create_exit(int dir, int room, char connect)
         //    RELEASE(dir_option[dir]->general_description);
         //    RELEASE(dir_option[dir]->keyword);
     } else {
-        dir_option[dir] = new room_direction_data;
+        /* CREATE, not new: exits are freed with RELEASE. */
+        CREATE1(dir_option[dir], room_direction_data);
         dir_option[dir]->general_description = str_dup("");
         dir_option[dir]->keyword = str_dup("");
         dir_option[dir]->exit_width = 0;
@@ -4583,6 +4574,10 @@ int room_data::create_room(int zone)
     } else
         new_room = &world[place];
 
+    /* A free slot holds either nothing (a booted world's spare slot) or the placeholder text
+     * dummy_room_data gave it, which it replaces. */
+    RELEASE(new_room->name);
+    RELEASE(new_room->description);
     dummy_room_data(new_room);
     if (place == 0)
         new_room->number = 0;

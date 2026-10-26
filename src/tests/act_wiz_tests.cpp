@@ -1,5 +1,6 @@
 #include "../account_errors.h"
 #include "../account_management.h"
+#include "../character_json.h"
 #include "../db.h"
 #include "../exploits_json.h"
 #include "../handler.h"
@@ -13,9 +14,12 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits.h>
 #include <string>
 #include <sys/stat.h>
@@ -26,6 +30,7 @@ ACMD(do_shutdown);
 ACMD(do_whoacct);
 ACMD(do_obj2html);
 ACMD(do_wizset);
+ACMD(do_wizstat);
 extern struct player_index_element* player_table;
 extern struct descriptor_data* descriptor_list;
 extern struct char_data* character_list;
@@ -1202,6 +1207,162 @@ TEST(ActWiz, WizsetNameSaysOnlyThatTheRenameSucceeded)
 
     EXPECT_EQ(std::string(descriptor.output), "You changed their name successfully.\n\r");
     EXPECT_STREQ(implementor->player.name, "Bartholomew");
+
+    free_char(implementor);
+}
+
+/* `stat file` for a name with no player file says so, and frees its scratch character. */
+TEST(ActWiz, StatFileReportsAMissingPlayer)
+{
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    descriptor_data descriptor = make_descriptor();
+    char_data* implementor = attach_active_character(&descriptor, "gandalf", LEVEL_IMPL, 1234);
+
+    char command[] = "file nobody";
+    do_wizstat(implementor, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "There is no such player.\n\r");
+
+    free(implementor->player.name);
+    delete implementor;
+}
+
+/* `wizset file` for a name with no player file says so, and frees its scratch character. */
+TEST(ActWiz, WizsetFileReportsAMissingPlayer)
+{
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    descriptor_data descriptor = make_descriptor();
+    char_data* implementor = attach_active_character(&descriptor, "gandalf", LEVEL_IMPL, 1234);
+
+    char command[] = "file nobody level 5";
+    do_wizset(implementor, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "There is no such player.\n\r");
+
+    free(implementor->player.name);
+    delete implementor;
+}
+
+namespace {
+
+/* The one player in player_table, with an account-native character file in a fresh folder under
+ * the system temporary folder, so load_char finds it. Puts back player_table and removes the
+ * folder when it goes. */
+class ScopedPlayerWithFile {
+public:
+    explicit ScopedPlayerWithFile(const char_file_u& stored_character)
+        : m_previous_player_table(player_table)
+        , m_previous_top_of_p_table(top_of_p_table)
+    {
+        m_entry.name = str_dup(stored_character.name);
+        m_entry.level = stored_character.level;
+        m_entry.race = stored_character.race;
+        m_entry.idnum = stored_character.specials2.idnum;
+        player_table = &m_entry;
+        top_of_p_table = 0;
+
+        std::error_code error;
+        const std::filesystem::path temporary_root = std::filesystem::temp_directory_path(error);
+        if (error) {
+            ADD_FAILURE() << "no temporary folder: " << error.message();
+            return;
+        }
+        const auto unique_number = std::chrono::steady_clock::now().time_since_epoch().count();
+        m_folder = temporary_root / ("rots-act-wiz-" + std::to_string(unique_number));
+        if (!std::filesystem::create_directories(m_folder, error)) {
+            ADD_FAILURE() << "could not make " << m_folder << ": " << error.message();
+            m_folder.clear();
+            return;
+        }
+
+        const std::filesystem::path file_path = m_folder / (std::string(m_entry.name) + ".character.json");
+        const std::string file_text = file_path.string();
+        if (file_text.size() >= sizeof(m_entry.ch_file)) {
+            ADD_FAILURE() << file_text << " does not fit player_index_element::ch_file";
+            return;
+        }
+        std::snprintf(m_entry.ch_file, sizeof(m_entry.ch_file), "%s", file_text.c_str());
+
+        const character_json::CharacterData character_data = character_json::character_data_from_store(stored_character);
+        std::ofstream file(file_path, std::ios::binary);
+        file << character_json::serialize_character_to_json(character_data);
+        file.close();
+        if (!file) {
+            ADD_FAILURE() << "could not write " << file_path;
+        }
+    }
+
+    ~ScopedPlayerWithFile()
+    {
+        if (!m_folder.empty()) {
+            std::error_code ignored;
+            std::filesystem::remove_all(m_folder, ignored);
+        }
+        RELEASE(m_entry.name);
+        player_table = m_previous_player_table;
+        top_of_p_table = m_previous_top_of_p_table;
+    }
+
+    ScopedPlayerWithFile(const ScopedPlayerWithFile&) = delete;
+    ScopedPlayerWithFile& operator=(const ScopedPlayerWithFile&) = delete;
+
+private:
+    player_index_element* m_previous_player_table; // put back when this goes
+    int m_previous_top_of_p_table; // put back when this goes
+    player_index_element m_entry {}; // the whole player_table while this lives
+    std::filesystem::path m_folder; // holds the character file; empty if it could not be made
+};
+
+/* A character named gandalf at `level`, playing through `descriptor`; free it with free_char. */
+char_data* make_playing_immortal(descriptor_data& descriptor, int level)
+{
+    char_data* immortal = nullptr;
+    CREATE(immortal, char_data, 1);
+    clear_char(immortal, MOB_VOID);
+    immortal->player.name = str_dup("gandalf");
+    immortal->player.level = level;
+    immortal->player.race = RACE_HUMAN;
+    immortal->desc = &descriptor;
+    descriptor.character = immortal;
+    return immortal;
+}
+
+} // namespace
+
+/* `wizset file` refuses a god below greater god, and frees the character it loaded. */
+TEST(ActWiz, WizsetFileRefusesAGodBelowGreaterGod)
+{
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    const ScopedPlayerWithFile player(make_stored_character("aragorn", 12));
+    descriptor_data descriptor = make_descriptor();
+    char_data* const god = make_playing_immortal(descriptor, LEVEL_GOD);
+
+    char command[] = "file aragorn level 5";
+    do_wizset(god, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "You may not do that.\n\r");
+
+    free_char(god);
+}
+
+/* `wizset file` refuses a value the field does not take, and frees the character it loaded. */
+TEST(ActWiz, WizsetFileRefusesAnUnknownSex)
+{
+    ScopedDescriptorList descriptor_list_guard;
+    ScopedCharacterList character_list_guard;
+    const ScopedPlayerWithFile player(make_stored_character("aragorn", 12));
+    descriptor_data descriptor = make_descriptor();
+    char_data* const implementor = make_playing_immortal(descriptor, LEVEL_IMPL);
+
+    char command[] = "file aragorn sex robot";
+    do_wizset(implementor, command, nullptr, 0, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "Must be 'male', 'female', or 'neutral'.\n\r");
 
     free_char(implementor);
 }

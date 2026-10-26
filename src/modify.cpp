@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <algorithm>
+#include <limits>
+#include <string_view>
 
 #include "comm.h"
 #include "db.h"
@@ -127,52 +130,105 @@ char* format_string(const char* str)
     return str_dup(buf);
 }
 
+/*
+ * True when an edit that leaves the text new_length characters long fits its limit: d->str_limit
+ * when set, and never more than MAX_EDITED_TEXT_LENGTH.  An edit that does not lengthen the text
+ * always fits, so a text already past the limit can still be cut.  Otherwise tells the writer the
+ * edit was refused and returns false.
+ */
+static bool edit_fits_limit(descriptor_data* d, size_t current_length, size_t new_length)
+{
+    size_t limit = MAX_EDITED_TEXT_LENGTH;
+    if (d->str_limit != 0 && d->str_limit < limit) {
+        limit = d->str_limit;
+    }
+    if (new_length <= current_length || new_length <= limit) {
+        return true;
+    }
+
+    char message[128];
+    snprintf(message, sizeof(message),
+        "That would take the text past its limit of %u characters, so it was not changed.\n\r",
+        static_cast<unsigned int>(limit));
+    SEND_TO_Q(message, d);
+    return false;
+}
+
+/* Replaces every pattern in the text with new_pattern and returns how many were replaced, or -1,
+ * leaving the text unchanged, when the result would not fit its limit (edit_fits_limit).  The
+ * cursor keeps its place in the text: it moves by the size change of each replacement wholly before
+ * it, and to the end of the replacement of a match it falls inside. */
 int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
 {
-    unsigned int len, pat_len, new_len, count, tmp, bufscan;
-
-    if (!pattern || !*pattern || !new_pattern)
+    if (!pattern || !*pattern || !new_pattern || !*d->str)
         return 0;
 
-    bzero(buf, MAX_STRING_LENGTH);
+    const std::string_view text(*d->str);
+    const std::string_view old_text(pattern);
+    const std::string_view new_text(new_pattern);
 
-    bufscan = 0;
-    len = strlen(*d->str);
-    pat_len = strlen(pattern);
-    new_len = strlen(new_pattern);
-    count = 0;
-
-    for (tmp = 0; tmp < len; tmp++) {
-        if (!strncmp(*d->str + tmp, pattern, pat_len)) {
-            tmp += pat_len - 1;
-            strncpy(buf + bufscan, new_pattern, new_len);
-            bufscan += new_len;
-            if (tmp < d->cur_str)
-                d->cur_str = d->cur_str + new_len - pat_len;
-
-            count++;
-        } else {
-            buf[bufscan] = *(*d->str + tmp);
-            bufscan++;
-        }
+    /* Count first, so the limit is checked before anything changes and the result is sized once. */
+    size_t count = 0;
+    for (size_t match = text.find(old_text); match != std::string_view::npos;
+         match = text.find(old_text, match + old_text.size())) {
+        count++;
     }
-    buf[bufscan] = 0;
-
     if (!count)
         return 0;
 
-    d->len_str = bufscan;
-
-    if (bufscan < d->max_str) {
-        strcpy(*d->str, buf);
-        *(*d->str + bufscan) = 0;
+    /* Growth is checked against the cap before it is multiplied out, so the sum cannot wrap; any
+     * length past the cap is refused alike. */
+    size_t new_length = text.size();
+    if (new_text.size() >= old_text.size()) {
+        const size_t growth = new_text.size() - old_text.size();
+        size_t room = 0;
+        if (text.size() < static_cast<size_t>(MAX_EDITED_TEXT_LENGTH)) {
+            room = MAX_EDITED_TEXT_LENGTH - text.size();
+        }
+        if (growth != 0 && count > room / growth) {
+            new_length = std::max(text.size(), static_cast<size_t>(MAX_EDITED_TEXT_LENGTH)) + 1;
+        } else {
+            new_length = text.size() + count * growth;
+        }
     } else {
-        RELEASE(*d->str);
-        CREATE(*d->str, char, bufscan + BLOCK_STR_LEN);
-        strcpy(*d->str, buf);
-        *(*d->str + bufscan) = 0;
+        new_length = text.size() - count * (old_text.size() - new_text.size());
     }
-    return count;
+    if (!edit_fits_limit(d, text.size(), new_length))
+        return -1;
+    const size_t allocation = (new_length / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
+    if (allocation > std::numeric_limits<unsigned int>::max()) {
+        log("SYSERR: replace_pattern: the replaced text is too long to edit");
+        return -1;
+    }
+
+    char* replaced = nullptr;
+    CREATE(replaced, char, allocation);
+    size_t written = 0;
+    size_t copied_to = 0;
+    size_t cursor = d->cur_str;
+    for (size_t match = text.find(old_text); match != std::string_view::npos;
+         match = text.find(old_text, match + old_text.size())) {
+        memcpy(replaced + written, text.data() + copied_to, match - copied_to);
+        written += match - copied_to;
+        memcpy(replaced + written, new_text.data(), new_text.size());
+        written += new_text.size();
+        copied_to = match + old_text.size();
+        if (copied_to <= d->cur_str)
+            cursor = written + (d->cur_str - copied_to);
+        else if (match < d->cur_str)
+            cursor = written;
+    }
+    memcpy(replaced + written, text.data() + copied_to, text.size() - copied_to);
+    written += text.size() - copied_to;
+    replaced[written] = 0;
+
+    RELEASE(*d->str);
+    *d->str = replaced;
+    d->max_str = static_cast<unsigned int>(allocation);
+    d->len_str = static_cast<unsigned int>(new_length);
+    /* string_add moves the text after the cursor, so the cursor must never pass the end. */
+    d->cur_str = static_cast<unsigned int>(std::min(cursor, new_length));
+    return static_cast<int>(count);
 }
 
 int shape_text_field(const struct char_data* ch, char** str, const char** chapter, char* key, int* no_format);
@@ -224,6 +280,7 @@ void string_add_init(struct descriptor_data* d, char** str)
         }
 
     d->str = str;
+    d->str_limit = 0;
     if (!d->str) {
         printf("creating d->str\n");
         CREATE1(d->str, char*);
@@ -234,6 +291,7 @@ void string_add_init(struct descriptor_data* d, char** str)
             tmp = strlen(*d->str);
             CREATE(tmpstr, char, BLOCK_STR_LEN*(1 + tmp / BLOCK_STR_LEN));
             strncpy(tmpstr, *d->str, tmp);
+            RELEASE(*d->str);
             *d->str = tmpstr;
             tmpstr = 0;
             d->max_str = BLOCK_STR_LEN * (1 + tmp / BLOCK_STR_LEN);
@@ -263,10 +321,11 @@ void string_add_finish(struct descriptor_data* d)
      * passes MAX_STRING_LENGTH.  The 256-byte headroom keeps anything saved
      * here loadable, and also stops fread_string writing one byte past its
      * buffer at the very top of the range. */
-    else if (strlen(*d->str) >= MAX_STRING_LENGTH - 256)
-        *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
+    else if (strlen(*d->str) > MAX_EDITED_TEXT_LENGTH)
+        *(*d->str + MAX_EDITED_TEXT_LENGTH) = 0;
 
     d->str = 0;
+    d->str_limit = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
         REMOVE_BIT(PLR_FLAGS(d->character), PLR_WRITING);
         act("$n finished writing.", TRUE, d->character, 0, 0, TO_ROOM);
@@ -395,13 +454,16 @@ void string_add(struct descriptor_data* d, char* str)
             else {
                 *tmpstr2 = 0;
                 tmp = replace_pattern(d, tmpstr, tmpstr2 + 1);
-                sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", tmp,
-                    !tmp ? "" : "s");
-                send_to_char(buf, d->character);
-                send_to_char(*d->str, d->character);
+                if (tmp >= 0) {
+                    sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", tmp,
+                        !tmp ? "" : "s");
+                    send_to_char(buf, d->character);
+                    send_to_char(*d->str, d->character);
+                }
                 tmpmark = d->cur_str;
             }
             *str = 0;
+            crmark = 0;
             break;
         case 'f': {
             const char* chapter;
@@ -481,7 +543,15 @@ void string_add(struct descriptor_data* d, char* str)
     }
 
     if (terminator >= 0) {
-        if (!(*d->str)) {
+        size_t current_length = 0;
+        size_t new_length = strlen(str) + 2;
+        if (*d->str) {
+            current_length = d->len_str;
+            new_length = d->len_str - (d->cur_str - tmpmark) + strlen(str) + 2 * crmark;
+        }
+        if (!edit_fits_limit(d, current_length, new_length)) {
+            /* The line is dropped; the text and cursor stay as they were. */
+        } else if (!(*d->str)) {
             CREATE(*d->str, char, strlen(str) + 3);
             d->max_str = strlen(str) + 3;
             strcpy(*d->str, str);
@@ -494,7 +564,8 @@ void string_add(struct descriptor_data* d, char* str)
                 tmp = (int)(tmp / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
                 CREATE(tmpstr, char, tmp);
                 d->max_str = tmp;
-                memcpy(tmpstr, *d->str, tmp - 2);
+                /* The old buffer can be smaller than the new size: copy only its text and terminator. */
+                memcpy(tmpstr, *d->str, d->len_str + 1);
                 RELEASE(*d->str);
                 *d->str = tmpstr;
                 tmpstr = 0;

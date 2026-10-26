@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 //============================================================================
 // Utility functions that take in an obj_data object.
@@ -332,4 +333,86 @@ bool obj_data::is_ranged_weapon() const
     }
 
     return false;
+}
+
+//============================================================================
+/* Where `field` is held in `object`; null, logged, for a value that names no field. */
+static char** object_text_slot(obj_data& object, object_text field)
+{
+    switch (field) {
+    case object_text::name:
+        return &object.name;
+    case object_text::short_description:
+        return &object.short_description;
+    case object_text::description:
+        return &object.description;
+    case object_text::action_description:
+        return &object.action_description;
+    }
+    const std::string message = std::string("SYSERR: ") + __func__ + ": no object text field "
+        + std::to_string(static_cast<int>(field));
+    log(message.c_str());
+    return nullptr;
+}
+
+//============================================================================
+/* Puts `text` in `field`, freeing the replaced text if `object` owned it. False when `field`
+ * names no field. */
+static bool replace_object_text(obj_data& object, object_text field, char* text)
+{
+    char** const slot = object_text_slot(object, field);
+    if (slot == nullptr) {
+        return false;
+    }
+    if (*slot != text && object.owns_text(field)) {
+        RELEASE(*slot);
+    }
+    *slot = text;
+    return true;
+}
+
+//============================================================================
+bool obj_data::owns_text(object_text field) const
+{
+    return item_number < 0 || (owned_text & static_cast<int>(field)) != 0;
+}
+
+//============================================================================
+void obj_data::set_owned_text(object_text field, char* text)
+{
+    if (replace_object_text(*this, field, text)) {
+        owned_text |= static_cast<int>(field);
+    }
+}
+
+//============================================================================
+void obj_data::set_borrowed_text(object_text field, char* text)
+{
+    if (item_number < 0) {
+        const std::string message = std::string("SYSERR: ") + __func__
+            + ": an object with no prototype frees all its text, so it can't borrow any";
+        log(message.c_str());
+        return;
+    }
+    if (replace_object_text(*this, field, text)) {
+        owned_text &= ~static_cast<int>(field);
+    }
+}
+
+//============================================================================
+void obj_data::release_owned_text()
+{
+    static constexpr object_text text_fields[] = {
+        object_text::name,
+        object_text::short_description,
+        object_text::description,
+        object_text::action_description,
+    };
+    for (const object_text field : text_fields) {
+        if ((owned_text & static_cast<int>(field)) != 0) {
+            char** const slot = object_text_slot(*this, field);
+            RELEASE(*slot);
+        }
+    }
+    owned_text = 0;
 }

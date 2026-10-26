@@ -1791,6 +1791,30 @@ TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
     EXPECT_STREQ(GET_ALIAS(&character)->command, "kill orc");
 }
 
+/* Login clears a character before loading it, so the load fills the profs block the clear made
+   instead of replacing it. */
+TEST(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
+{
+    char_data* character = nullptr;
+    CREATE(character, char_data, 1);
+    clear_char(character, MOB_VOID);
+    const char_prof_data* const cleared_profs = character->profs;
+    ASSERT_NE(cleared_profs, nullptr);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    stored_character.race = RACE_HUMAN;
+    stored_character.level = 10;
+    stored_character.weight = 210;
+    stored_character.profs.prof_level[PROF_RANGER] = 7;
+    store_to_char(&stored_character, character);
+
+    EXPECT_EQ(character->profs, cleared_profs);
+    EXPECT_EQ(character->profs->prof_level[PROF_RANGER], 7);
+
+    free_char(character);
+}
+
 /* A rent row whose container parent never loaded must not vanish.
 
    wear_pos above MAX_WEAR encodes container nesting depth, and Crash_load places each object
@@ -2683,6 +2707,17 @@ private:
 
 bool has(const std::string& text, const char* line) { return text.find(line) != std::string::npos; }
 
+/* Puts an extra description at the front of `object`'s list, allocated as boot allocates one. */
+void add_extra_description(obj_data& object, const char* keyword, const char* description)
+{
+    extra_descr_data* node = nullptr;
+    CREATE(node, extra_descr_data, 1);
+    node->keyword = strdup(keyword);
+    node->description = strdup(description);
+    node->next = object.ex_description;
+    object.ex_description = node;
+}
+
 } // namespace
 
 TEST(DbLoader, ObjectEditorSetsSkinBase)
@@ -3015,6 +3050,94 @@ TEST(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
     }
 }
 
+/* A copy in the game when its prototype is implemented keeps the text it was made with. */
+TEST(DbLoader, ImplementKeepsTheTextALiveCopyShows)
+{
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    add_extra_description(staff, "runes", "Runes run along the staff.");
+    obj_data* const copy = read_object(4, REAL);
+    ASSERT_NE(copy, nullptr);
+
+    implement_object(&session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    EXPECT_STREQ(copy->name, "thing");
+    EXPECT_STREQ(copy->short_description, "a wooden staff");
+    EXPECT_STREQ(copy->description, "a wooden staff");
+    EXPECT_STREQ(copy->action_description, "");
+    ASSERT_NE(copy->ex_description, nullptr);
+    EXPECT_STREQ(copy->ex_description->keyword, "runes");
+    EXPECT_STREQ(copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(copy);
+}
+
+/* With no copy in the game, no object holds the prototype's replaced text after implement. */
+TEST(DbLoader, ImplementLeavesNoObjectHoldingTheReplacedText)
+{
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    add_extra_description(staff, "runes", "Runes run along the staff.");
+    const char* const old_short_description = staff.short_description;
+    const extra_descr_data* const old_extra_descriptions = staff.ex_description;
+
+    implement_object(&session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    for (const obj_data* object = object_list; object; object = object->next) {
+        /* Compared as addresses: a failure message must not read the freed text. */
+        EXPECT_NE(static_cast<const void*>(object->short_description), static_cast<const void*>(old_short_description));
+        EXPECT_NE(static_cast<const void*>(object->ex_description), static_cast<const void*>(old_extra_descriptions));
+    }
+}
+
+void name_to_drinkcon(struct obj_data* obj, int type);
+
+/* Filling a copy made before an implement leaves the old name it shares with other such copies
+ * alone: they all still show it. */
+TEST(DbLoader, FillingACopyKeepsTheOldNameOtherCopiesShare)
+{
+    SkinEditorSession session(4700);
+    obj_data* const filled = read_object(4, REAL);
+    obj_data* const untouched = read_object(4, REAL);
+    ASSERT_NE(filled, nullptr);
+    ASSERT_NE(untouched, nullptr);
+    implement_object(&session.builder);
+    ASSERT_STREQ(obj_proto[4].name, "cloak");
+
+    name_to_drinkcon(filled, 0);
+
+    EXPECT_STREQ(filled->name, "water thing");
+    EXPECT_STREQ(untouched->name, "thing");
+
+    extract_obj(filled);
+    extract_obj(untouched);
+}
+
+/* A copy starts out owning none of its text, so freeing it never frees its prototype's. */
+TEST(DbLoader, ACopyStartsOwningNoneOfItsText)
+{
+    SkinEditorSession session(4700);
+    obj_data& staff = obj_proto[4];
+    staff.owned_text = static_cast<int>(object_text::name); /* a stray mark on the prototype */
+
+    obj_data* const copy = read_object(4, REAL);
+    staff.owned_text = 0;
+
+    ASSERT_NE(copy, nullptr);
+    EXPECT_EQ(copy->name, staff.name);
+    EXPECT_FALSE(copy->owns_text(object_text::name));
+    EXPECT_FALSE(copy->owns_text(object_text::short_description));
+    EXPECT_FALSE(copy->owns_text(object_text::description));
+    EXPECT_FALSE(copy->owns_text(object_text::action_description));
+
+    extract_obj(copy);
+    EXPECT_STREQ(staff.name, "thing");
+}
+
 /* A note can't be a base: /23 refuses it, like a key. */
 TEST(DbLoader, ObjectEditorRefusesNoteBase)
 {
@@ -3077,6 +3200,360 @@ TEST(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
     const std::string saved = files.read45();
     EXPECT_NE(saved.find("50 100 7\n\r"), std::string::npos) << "saved with the base's stats:\n" << saved;
     EXPECT_NE(saved.find("12 0 4 0 2 4512 0\n\r"), std::string::npos) << saved;
+}
+
+void free_object(struct char_data* ch);
+void new_obj(const struct char_data* ch);
+
+/* Leaving the object editor frees the object it was editing, its text and extra descriptions too. */
+TEST(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
+{
+    SkinEditorSession session(4530);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    new_obj(&session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+    add_extra_description(*editor->object, "dent", "A deep dent.");
+
+    /* /1: the first call shows the prompt, the second takes the new aliases. */
+    char prompt[] = "";
+    char aliases[] = "lantern brass";
+    editor->editflag = 1;
+    shape_center_obj(&session.builder, prompt);
+    shape_center_obj(&session.builder, aliases);
+    ASSERT_STREQ(editor->object->name, "lantern brass");
+    ASSERT_STREQ(editor->object->short_description, "gizmo");
+
+    free_object(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+void string_add(struct descriptor_data* d, char* str);
+
+/* Each edit of the look text starts from the text before it and replaces it, and leaving the editor
+ * frees the last. */
+TEST(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
+{
+    SkinEditorSession session(4530);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    new_obj(&session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+
+    /* /4: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_look_text_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = 4;
+        shape_center_obj(&session.builder, prompt);
+        ASSERT_EQ(session.builder.desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder.desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder.desc, finish);
+        shape_center_obj(&session.builder, prompt);
+    };
+
+    add_look_text_line("A plain brass lantern.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\r");
+    add_look_text_line("It is dented.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\rIt is dented.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_object(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+void shape_center_proto(struct char_data* ch, char* arg);
+void new_mob(const struct char_data* ch);
+void free_proto(struct char_data* ch);
+
+/* Each edit of a mob's description starts from the text before it and replaces it, and leaving the
+ * editor frees the last. */
+TEST(DbLoader, MobEditorDescriptionEditsReplaceEachOther)
+{
+    SkinEditorSession session(4530); /* only its builder and output: the mob editor replaces temp */
+    shape_proto* editor = nullptr; /* free_proto frees the editor state, so it is allocated */
+    CREATE(editor, shape_proto, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    new_mob(&session.builder);
+    SET_BIT(editor->flags, SHAPE_PROTO_LOADED);
+
+    /* /4: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_description_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = 4;
+        shape_center_proto(&session.builder, prompt);
+        ASSERT_EQ(session.builder.desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder.desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder.desc, finish);
+        shape_center_proto(&session.builder, prompt);
+    };
+
+    add_description_line("A clay golem.");
+    EXPECT_STREQ(editor->proto->player.description, "golem\n\rA clay golem.\n\r");
+    add_description_line("It is cracked.");
+    EXPECT_STREQ(editor->proto->player.description, "golem\n\rA clay golem.\n\rIt is cracked.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_proto(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+void shape_center_room(struct char_data* ch, char* arg);
+int new_room(const struct char_data* ch, int number);
+void free_room(struct char_data* ch);
+
+/* Each edit of a room's description starts from the text before it and replaces it, and leaving the
+ * editor frees the last. */
+TEST(DbLoader, RoomEditorDescriptionEditsReplaceEachOther)
+{
+    SkinEditorSession session(4530); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, 4530), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+
+    /* /2: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_description_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = 2;
+        shape_center_room(&session.builder, prompt);
+        ASSERT_EQ(session.builder.desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder.desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder.desc, finish);
+        shape_center_room(&session.builder, prompt);
+    };
+
+    add_description_line("A bare cave.");
+    EXPECT_STREQ(editor->room->description, "A bare cave.\n\r");
+    add_description_line("Water drips.");
+    EXPECT_STREQ(editor->room->description, "A bare cave.\n\rWater drips.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_room(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+void implement_room(const struct char_data* ch);
+
+/* An exit made the way boot makes one: its own copy of each text. */
+room_direction_data* make_room_exit(const char* description, const char* keyword, int to_room)
+{
+    room_direction_data* room_exit = nullptr;
+    CREATE1(room_exit, room_direction_data);
+    room_exit->general_description = str_dup(description);
+    room_exit->keyword = str_dup(keyword);
+    room_exit->to_room = to_room;
+    return room_exit;
+}
+
+/* Implementing a room gives the live room copies of the editor's name, description and exit text, and
+ * an exit the editor leaves undescribed an empty description. */
+TEST(DbLoader, ImplementingARoomCopiesTheEditorsText)
+{
+    const int ROOM_NUMBER = 4530;
+    SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    editor->permission = 1;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, ROOM_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    room_data* const edited = editor->room;
+    RELEASE(edited->name);
+    edited->name = str_dup("A lit cave");
+    RELEASE(edited->description);
+    edited->description = str_dup("Torches burn.\n\r");
+    edited->dir_option[NORTH] = make_room_exit("", "gate", ROOM_NUMBER);
+
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    room_data& live = world[0];
+    live.number = ROOM_NUMBER;
+    live.name = str_dup("A dark cave");
+    live.description = str_dup("It is dark.\n\r");
+    live.ex_description = nullptr;
+    live.affected = nullptr;
+    for (int direction = 0; direction < NUM_OF_DIRS; direction++) {
+        live.dir_option[direction] = nullptr;
+    }
+    live.dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", 0);
+
+    implement_room(&session.builder);
+
+    EXPECT_STREQ(live.name, "A lit cave");
+    EXPECT_STREQ(live.description, "Torches burn.\n\r");
+    ASSERT_NE(live.dir_option[NORTH], nullptr);
+    EXPECT_STREQ(live.dir_option[NORTH]->general_description, "");
+    EXPECT_STREQ(live.dir_option[NORTH]->keyword, "gate");
+    EXPECT_NE(live.name, edited->name);
+
+    RELEASE(live.name);
+    RELEASE(live.description);
+    RELEASE(live.dir_option[NORTH]->general_description);
+    RELEASE(live.dir_option[NORTH]->keyword);
+    RELEASE(live.dir_option[NORTH]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+    free_room(&session.builder);
+}
+
+/* Leaving the room editor frees a loaded room with its exits and extra descriptions. */
+TEST(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
+{
+    const int ROOM_NUMBER = 4530;
+    SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, ROOM_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    editor->room->dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", ROOM_NUMBER);
+    editor->room->dir_option[SOUTH] = make_room_exit("", "", ROOM_NUMBER);
+    extra_descr_data* extra = nullptr;
+    CREATE1(extra, extra_descr_data);
+    extra->keyword = str_dup("torch");
+    extra->description = str_dup("It burns low.\n\r");
+    editor->room->ex_description = extra;
+
+    free_room(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
+}
+
+/* Removing an exit in the room editor removes it with its text, and leaves the other exits. */
+TEST(DbLoader, RoomEditorRemovesAnExit)
+{
+    const int ROOM_NUMBER = 4530;
+    SkinEditorSession session(ROOM_NUMBER); /* only its builder and output: the room editor replaces temp */
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder.temp = editor;
+    ASSERT_GE(new_room(&session.builder, ROOM_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    editor->room->dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", ROOM_NUMBER);
+    editor->room->dir_option[SOUTH] = make_room_exit("A narrow path.\n\r", "path", ROOM_NUMBER);
+
+    /* /7: the first call asks which exit, the second takes the answer. */
+    char prompt[] = "";
+    editor->editflag = 7;
+    shape_center_room(&session.builder, prompt);
+    char north[] = "n";
+    shape_center_room(&session.builder, north);
+
+    EXPECT_EQ(editor->room->dir_option[NORTH], nullptr);
+    ASSERT_NE(editor->room->dir_option[SOUTH], nullptr);
+    EXPECT_STREQ(editor->room->dir_option[SOUTH]->keyword, "path");
+    EXPECT_NE(session.take().find("removed"), std::string::npos);
+
+    free_room(&session.builder);
+}
+
+/* A new exit leads where it is told, with empty text, no door and no key, and is freed like every
+ * other exit. */
+TEST(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
+{
+    const int ROOM_NUMBER = 4530;
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    world[0].number = ROOM_NUMBER;
+    world[0].dir_option[DOWN] = nullptr;
+
+    world[0].create_exit(DOWN, 0, FALSE);
+
+    room_direction_data* const room_exit = world[0].dir_option[DOWN];
+    ASSERT_NE(room_exit, nullptr);
+    EXPECT_STREQ(room_exit->general_description, "");
+    EXPECT_STREQ(room_exit->keyword, "");
+    EXPECT_EQ(room_exit->exit_width, 0);
+    EXPECT_EQ(room_exit->exit_info, 0);
+    EXPECT_EQ(room_exit->key, -1);
+    EXPECT_EQ(room_exit->to_room, 0);
+
+    RELEASE(room_exit->general_description);
+    RELEASE(room_exit->keyword);
+    RELEASE(world[0].dir_option[DOWN]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+}
+
+/* Creating a room in a free slot gives it fresh placeholder text in place of the text the slot held. */
+TEST(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
+{
+    const int saved_top_of_world = top_of_world;
+    const int ROOMS_CREATED = 2;
+    for (int created = 0; created < ROOMS_CREATED; created++) {
+        int free_slot = 0;
+        while (world[free_slot].number >= 0) {
+            free_slot++;
+        }
+        const room_data saved_slot = world[free_slot];
+        const bool slot_had_text = saved_slot.name != nullptr;
+        if (!slot_had_text) {
+            world[free_slot].name = str_dup("New room");
+            world[free_slot].description = str_dup("\n\r");
+        }
+
+        const int room = world.create_room(0);
+
+        ASSERT_EQ(room, free_slot);
+        EXPECT_STREQ(world[room].name, "New room");
+        EXPECT_STREQ(world[room].description, "\n\r");
+        EXPECT_GE(world[room].number, 0);
+
+        /* Put the slot back as it was; a slot that held text keeps the text it holds now. */
+        char* const created_name = world[room].name;
+        char* const created_description = world[room].description;
+        world[room] = saved_slot;
+        if (slot_had_text) {
+            world[room].name = created_name;
+            world[room].description = created_description;
+        } else {
+            free(created_name);
+            free(created_description);
+        }
+    }
+    top_of_world = saved_top_of_world;
+}
+
+void free_zone(struct char_data* ch);
+
+/* Leaving the zone editor frees a loaded zone's name, description and map. */
+TEST(DbLoader, LeavingTheZoneEditorFreesItsText)
+{
+    SkinEditorSession session(4530); /* only its builder: the zone editor replaces temp */
+    shape_zone* editor = nullptr; /* free_zone frees the editor state, so it is allocated */
+    CREATE(editor, shape_zone, 1);
+    editor->procedure = SHAPE_EDIT;
+    SET_BIT(editor->flags, SHAPE_ZONE_LOADED);
+    editor->zone_name = str_dup("The Old Forest");
+    editor->zone_descr = str_dup("Trees crowd the path.\n\r");
+    editor->zone_map = str_dup("[ ]-[ ]\n\r");
+    session.builder.temp = editor;
+
+    free_zone(&session.builder);
+
+    EXPECT_EQ(session.builder.temp, nullptr);
 }
 
 extern struct script_head* script_table;

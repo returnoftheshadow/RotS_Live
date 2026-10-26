@@ -1613,6 +1613,7 @@ SocketType pnew_descriptor(SocketType s)
     pnewd->bare_prompt_pending = false;
     *pnewd->buf = '\0';
     pnewd->str = 0;
+    pnewd->str_limit = 0;
     pnewd->showstr_head = 0;
     pnewd->showstr_point = 0;
     *pnewd->last_input = '\0';
