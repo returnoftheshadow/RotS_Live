@@ -322,6 +322,7 @@ TEST_F(CombatMovementTest, ADeathGoesOnWithoutAKillerSomethingRemoved)
     RELEASE(dying->player.short_descr);
     dying->player.name = dying_name;
     dying->player.short_descr = dying_name;
+    char_prof_data* dying_profs = dying->profs; /* nor its profession block */
     dying->nr = 0;
 
     die(dying, killer, 0);
@@ -330,6 +331,7 @@ TEST_F(CombatMovementTest, ADeathGoesOnWithoutAKillerSomethingRemoved)
     EXPECT_FALSE(is_in_game(dying));
     EXPECT_NE(nullptr, world[0].contents) << "the death went on and left a corpse";
     mob_index = saved_mob_index;
+    RELEASE(dying_profs);
 }
 
 /* ---- scripts refused past the limits ---- */
@@ -668,6 +670,7 @@ TEST_F(CombatMovementTest, ABlowAtThuringwethilLetsGoOfHerWhenSheLeaves)
     RELEASE(vampire->player.short_descr);
     vampire->player.name = vampire_name;
     vampire->player.short_descr = vampire_name;
+    char_prof_data* vampire_profs = vampire->profs; /* free_char leaves it to the prototype */
     SET_BIT(MOB_FLAGS(vampire), MOB_SPEC);
     vampire->tmpabilities.hit = 400;
 
@@ -677,6 +680,7 @@ TEST_F(CombatMovementTest, ABlowAtThuringwethilLetsGoOfHerWhenSheLeaves)
     EXPECT_TRUE(is_in_game(attacker));
     mob_index = saved_mob_index;
     top_of_mobt = saved_top_of_mobt;
+    RELEASE(vampire_profs);
 }
 
 /* ---- delays that run the rest of a paused script ---- */

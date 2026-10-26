@@ -4,6 +4,7 @@
 #include "scripted_room_fixture.h"
 
 #include "../spells.h"
+#include "test_cleanup.h"
 
 #include <memory>
 
@@ -76,14 +77,19 @@ protected:
         mob_index = m_saved_mob_index;
         top_of_mobt = m_saved_top_of_mobt;
         m_player.player.title = nullptr;
+        for (int position = 0; position < m_mob_prototype_count; ++position)
+            release_cleared_character(&m_mob_prototypes[position]);
     }
 
     /* Makes the mob table these vnums, in ascending order, each a plain NPC prototype on the
      * heap, so a read before the first one is outside any object. */
     void install_mob_table(std::initializer_list<int> vnums)
     {
+        for (int position = 0; position < m_mob_prototype_count; ++position)
+            release_cleared_character(&m_mob_prototypes[position]);
         const int count = static_cast<int>(vnums.size());
         m_mob_prototypes = std::make_unique<char_data[]>(count);
+        m_mob_prototype_count = count;
         m_mob_index = std::make_unique<index_data[]>(count);
         int position = 0;
         for (const int vnum : vnums) {
@@ -191,6 +197,8 @@ protected:
     // The mob table install_mob_table makes: prototypes on the heap and their vnums.
     std::unique_ptr<char_data[]> m_mob_prototypes;
     std::unique_ptr<index_data[]> m_mob_index;
+    // How many prototypes m_mob_prototypes holds, for TearDown to release.
+    int m_mob_prototype_count = 0;
     // The prototypes' keywords and short description.
     char m_helper_name[16] = "wolf";
     // The extra description give_room_an_extra_description puts in a room.

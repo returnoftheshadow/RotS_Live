@@ -2,6 +2,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -81,7 +82,9 @@ TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
     descriptor_data observer_descriptor = make_descriptor();
 
     initialize_player_character(&caster, "caster");
+    ClearedCharacterRelease caster_release(&caster);
     initialize_player_character(&observer, "observer");
+    ClearedCharacterRelease observer_release(&observer);
     observer.desc = &observer_descriptor;
     SET_BIT(PRF_FLAGS(&observer), PRF_COLOR);
     set_colornum(&observer, COLOR_MAGIC, CBBLU);
@@ -113,7 +116,9 @@ TEST(SpellParser, MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled
     descriptor_data observer_descriptor = make_descriptor();
 
     initialize_player_character(&caster, "caster");
+    ClearedCharacterRelease caster_release(&caster);
     initialize_player_character(&observer, "observer");
+    ClearedCharacterRelease observer_release(&observer);
     observer.desc = &observer_descriptor;
     REMOVE_BIT(PRF_FLAGS(&observer), PRF_COLOR);
     set_colornum(&observer, COLOR_MAGIC, CBBLU);
@@ -156,7 +161,9 @@ TEST(SpellParser, NpcCannotCastTheItemOnlyResistSpells)
     char_data master {};
     char_data pet {};
     initialize_player_character(&master, "master");
+    ClearedCharacterRelease master_release(&master);
     initialize_orc_follower(&pet, &master);
+    ClearedCharacterRelease pet_release(&pet);
 
     for (int spell = SPELL_RESIST_FIRE; spell <= SPELL_RESIST_DARK; ++spell)
         EXPECT_FALSE(can_cast_spell(pet, spell, skills[spell])) << skills[spell].name;
@@ -167,7 +174,9 @@ TEST(SpellParser, OrcFollowerCanStillCastOrdinaryClericSpells)
     char_data master {};
     char_data pet {};
     initialize_player_character(&master, "master");
+    ClearedCharacterRelease master_release(&master);
     initialize_orc_follower(&pet, &master);
+    ClearedCharacterRelease pet_release(&pet);
 
     EXPECT_TRUE(can_cast_spell(pet, SPELL_REGENERATION, skills[SPELL_REGENERATION]));
 }

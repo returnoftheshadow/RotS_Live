@@ -430,6 +430,11 @@ TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightGivesNothingAndHasOn
     const int saved_top_of_mobt = top_of_mobt;
     mob_index = prototype_index;
     top_of_mobt = 0;
+    /* With a prototype number free_char leaves the mob's strings and profession block to the
+     * prototype, so the test frees them. */
+    char* victim_name = victim->player.name;
+    char* victim_short_description = victim->player.short_descr;
+    char_prof_data* victim_profs = victim->profs;
     victim->nr = 0;
     const int experience_before = GET_EXP(&m_player);
 
@@ -439,6 +444,9 @@ TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightGivesNothingAndHasOn
     top_of_mobt = saved_top_of_mobt;
     EXPECT_FALSE(is_in_game(victim));
     EXPECT_EQ(experience_before, GET_EXP(&m_player));
+    RELEASE(victim_name);
+    RELEASE(victim_short_description);
+    RELEASE(victim_profs);
     ASSERT_NE(nullptr, world[0].contents);
     EXPECT_EQ(nullptr, world[0].contents->next_content) << "one corpse";
 }

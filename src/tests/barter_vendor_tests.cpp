@@ -6,6 +6,7 @@
 #include "../interpre.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -409,6 +410,9 @@ protected:
         object_list = m_saved_object_list;
         top_of_world = m_saved_top_of_world;
         descriptor_list = m_saved_descriptor_list;
+        release_cleared_character(&m_vendor);
+        release_cleared_character(&m_buyer);
+        release_test_descriptor(&m_descriptor);
     }
 
     /* Replaces the store stock, e.g. after a test changes the belt's weight
@@ -611,6 +615,7 @@ TEST_F(BarterVendorTest, BuyWhileRidingMovesTheMountsWeight)
     constexpr int kMountAbsNumber = 4321;
     char_data mount {};
     clear_char(&mount, MOB_ISNPC);
+    ClearedCharacterRelease mount_release(&mount);
     mount.abs_number = kMountAbsNumber;
     set_char_exists(kMountAbsNumber);
     m_buyer.mount_data.mount = &mount;
@@ -803,6 +808,7 @@ TEST_F(BarterVendorTest, SaveChecksTheNewProgramBeforeImplement)
      * old /29 gave it, until /implement. */
     char_data editing {};
     clear_char(&editing, MOB_ISNPC);
+    ClearedCharacterRelease editing_release(&editing);
     editing.specials2.act = MOB_ISNPC | MOB_SPEC;
     editing.specials.store_prog_number = PROG_BARTER_VENDOR;
     m_mob_proto[0].specials.store_prog_number = 4;
@@ -1132,6 +1138,7 @@ TEST_F(BarterVendorTest, GiveByNumberedNameFindsTheRightTrader)
 {
     char_data other {};
     clear_char(&other, MOB_ISNPC);
+    ClearedCharacterRelease other_release(&other);
     other.specials2.act = MOB_ISNPC;
     other.player.name = m_vendor_name; /* another "trader" ahead of the vendor */
     other.player.short_descr = m_vendor_short;
@@ -1344,6 +1351,7 @@ TEST_F(BarterVendorTest, RepliesAreTellsAndRefusalsAreSays)
     descriptor_data watcher_descriptor {};
     char watcher_name[] = "Watcher";
     clear_char(&watcher, 0);
+    ClearedCharacterRelease watcher_release(&watcher);
     watcher.player.name = watcher_name;
     watcher.player.race = RACE_HUMAN;
     watcher.in_room = 0;

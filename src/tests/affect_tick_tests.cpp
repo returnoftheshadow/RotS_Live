@@ -11,6 +11,8 @@
 #include "../skill_timer.h"
 #include "../spells.h"
 
+#include <vector>
+
 void affect_update_person(struct char_data* i, int mode);
 void affect_update();
 void affect_update_room(struct room_data* room);
@@ -69,6 +71,8 @@ protected:
             affect_remove(&m_player, m_player.affected);
         }
         ScriptedRoomFixture::TearDown();
+        for (char_prof_data*& profs : m_dying_mob_profs)
+            RELEASE(profs);
         /* Every affect is gone, and with it every entry of affected_list. */
         EXPECT_EQ(nullptr, affected_list);
         affected_list = m_saved_affected_list;
@@ -114,6 +118,7 @@ protected:
         RELEASE(mob->player.short_descr);
         mob->player.name = keywords;
         mob->player.short_descr = keywords;
+        m_dying_mob_profs.push_back(mob->profs); /* nor its profession block: TearDown frees it */
         mob->nr = 0;
         m_dying_mob_index[0].number++;
         return mob;
@@ -138,6 +143,9 @@ private:
     int m_saved_top_of_mobt = 0;
     // The one prototype index entry make_dying_mob's mobs are made from.
     index_data m_dying_mob_index[1] {};
+    // The profession blocks of the mobs make_dying_mob gave a prototype number, which free_char
+    // then leaves to the prototype; released by TearDown.
+    std::vector<char_prof_data*> m_dying_mob_profs;
 };
 
 } // namespace

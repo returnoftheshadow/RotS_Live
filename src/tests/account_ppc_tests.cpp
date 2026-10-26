@@ -8,6 +8,7 @@
 #include "../protocol.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -432,9 +433,15 @@ struct PpcTestCharacter {
         : character(new char_data {})
     {
         clear_char(character, MOB_VOID);
+        RELEASE(character->profs); /* prof_storage stands in for it */
         character->profs = &prof_storage;
     }
-    ~PpcTestCharacter() { delete character; }
+    ~PpcTestCharacter()
+    {
+        character->profs = nullptr; /* prof_storage is not the heap's */
+        release_cleared_character(character);
+        delete character;
+    }
 
     char_prof_data prof_storage {};
     char_data* character;
