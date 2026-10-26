@@ -563,6 +563,25 @@ double get_casting_level(const char_data* caster, int casting_level, int casting
     final_level += casting_stat / 5.0;
     return final_level;
 }
+
+/* True when spell_number indexes the skills table; otherwise logs the refusal, naming
+ * command_name and caster. Mob programs hand spell numbers over unchecked. */
+bool is_spell_number_in_table(const char_data* caster, int spell_number, const char* command_name)
+{
+    if (spell_number >= 0 && spell_number < MAX_SKILLS) {
+        return true;
+    }
+
+    const char* caster_name = GET_NAME(caster);
+    if (caster_name == nullptr) {
+        caster_name = "(unnamed)";
+    }
+    char refusal[MAX_STRING_LENGTH];
+    snprintf(refusal, sizeof(refusal), "SYSERR: %s: %s gave spell number %d, outside the skills table.",
+        command_name, caster_name, spell_number);
+    log(refusal);
+    return false;
+}
 } // namespace
 
 /* Assumes that *argument does start with first letter of chopped string */
@@ -691,6 +710,10 @@ ACMD(do_cast)
                 return;
             }
             spell_index = tmp;
+        }
+
+        if (!is_spell_number_in_table(ch, spell_index, "do_cast")) {
+            return;
         }
 
         const skill_data& spell = skills[spell_index];
@@ -1078,9 +1101,12 @@ ACMD(do_prepare)
                 }
                 spl = tmp;
 
-            } else if (wtl && (wtl->targ1.type == TARGET_OTHER))
+            } else if (wtl && (wtl->targ1.type == TARGET_OTHER)) {
                 spl = wtl->targ1.ch_num;
-            else { /* wtl isn't useful, use the command line */
+                if (!is_spell_number_in_table(ch, spl, "do_prepare")) {
+                    return;
+                }
+            } else { /* wtl isn't useful, use the command line */
                 if (!argument)
                     return;
 

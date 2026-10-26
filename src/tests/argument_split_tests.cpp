@@ -1,6 +1,9 @@
 #include "../handler.h"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <iterator>
+
 // Declared only where it is called (act_offe.cpp); handler.h has no prototype.
 int get_number(char** name);
 
@@ -71,4 +74,41 @@ TEST(FindAllDots, LeavesAPlainKeywordUnchanged)
 
     EXPECT_EQ(FIND_INDIV, result);
     EXPECT_STREQ("sword", arg);
+}
+
+/* ---- one_argument: copies the first word, lower-cased, and returns the rest. ---- */
+
+char* one_argument(char* argument, char* first_arg);
+
+TEST(OneArgument, CopiesTheFirstWordLowerCasedAndReturnsTheRest)
+{
+    char input[] = "  Sword shield";
+    char word[32];
+
+    const char* rest = one_argument(input, word);
+
+    EXPECT_STREQ("sword", word);
+    EXPECT_STREQ(" shield", rest);
+}
+
+TEST(OneArgument, SkipsFillWords)
+{
+    char input[] = "in the bag";
+    char word[32];
+
+    one_argument(input, word);
+
+    EXPECT_STREQ("bag", word);
+}
+
+TEST(OneArgument, AWordOpeningWithAQuoteComesBackEmptyNotAStaleLetter)
+{
+    char input[] = "'bob' rest";
+    char word[32];
+    std::fill(std::begin(word), std::end(word), 'z');
+
+    const char* rest = one_argument(input, word);
+
+    EXPECT_STREQ("", word) << "The first byte is written, not left from an earlier call.";
+    EXPECT_STREQ("bob' rest", rest) << "Only the opening quote is consumed.";
 }

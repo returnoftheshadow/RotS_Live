@@ -226,6 +226,7 @@ set(ROTS_TEST_SOURCES
     tests/affect_tick_tests.cpp
     tests/raw_kill_kit_flag_tests.cpp
     tests/room_light_tests.cpp
+    tests/weather_tests.cpp
     tests/mob_options_tests.cpp
     tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp
