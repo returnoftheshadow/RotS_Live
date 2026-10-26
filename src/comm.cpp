@@ -2555,9 +2555,11 @@ void complete_delay(struct char_data* ch)
     if (ch->delay.cmd == CMD_SCRIPT) {
         /* subcmd -1 is a forced completion: another action is replacing the pause (a bash, a
          * stun, anything WAIT_STATE gives a higher priority) or the character is dying
-         * (raw_kill). The rest of the paused script is dropped rather than run here, in the
-         * middle of whoever forced it: it could remove the character under them. */
+         * (raw_kill). The rest of the paused script is not run here, in the middle of whoever
+         * forced it, where it could remove the character under them: it resumes once the
+         * replacing delay is over (process_waiting_list), and a death drops it (raw_kill). */
         if (ch->delay.subcmd == -1) {
+            defer_char_script(ch);
             ch->delay.cmd = 0;
             return;
         }
@@ -2615,10 +2617,22 @@ void abort_delay(char_data* wait_ch)
     }
 }
 
+/* Numbers the waiting-list pulses, so that each delay is counted down at most once in one. */
+static unsigned int waiting_list_pulse = 0;
+
 void process_waiting_list()
 {
-    char_data* wait_tmp;
-    for (char_data* wait_ch = waiting_list; wait_ch; wait_ch = wait_tmp) {
+    ++waiting_list_pulse;
+    char_data* wait_ch = waiting_list;
+    while (wait_ch) {
+        char_data* following = wait_ch->delay.next;
+        /* Already counted down this pulse: completing its delay put it back in the list. */
+        if (wait_ch->delay.ticked_pulse == waiting_list_pulse) {
+            wait_ch = following;
+            continue;
+        }
+        wait_ch->delay.ticked_pulse = waiting_list_pulse;
+
         if (wait_ch->delay.wait_value > 0) {
             (wait_ch->delay.wait_value)--;
         }
@@ -2630,33 +2644,31 @@ void process_waiting_list()
                         wait_wheel[wait_ch->delay.wait_value % 8]);
                 }
             }
-
-            wait_tmp = wait_ch->delay.next;
+            wait_ch = following;
         } else if (wait_ch->delay.wait_value == 0) {
-            /* Completing the delay can free wait_ch (a resumed script that removes its mob), and
-             * with it any other waiter, so the waiter after it is saved and only compared until
-             * it is found still waiting. */
-            char_data* following = wait_ch->delay.next;
+            /* Completing the delay can free wait_ch (a resumed script that removes its mob) and
+             * any other waiter, and can put wait_ch back at the end of the list (a script that
+             * pauses again), so the waiter after it is saved and only compared until it is
+             * found still waiting. */
             freed_watch waiter_watch(wait_ch);
             /* here is the block calling actual procedures */
             complete_delay(wait_ch);
-            if (waiter_watch.freed()) {
-                /* extract_char took wait_ch off the list. If the one after it went too, the
-                 * rest of the list waits for the next pulse. */
-                if (in_waiting_list(following)) {
-                    wait_tmp = following;
-                } else {
-                    wait_tmp = nullptr;
-                }
-                continue;
-            }
-            wait_tmp = wait_ch->delay.next;
-
-            if (wait_ch->delay.wait_value == 0)
+            if (!waiter_watch.freed() && wait_ch->delay.wait_value == 0) {
                 /* look out for the similar code in raw_kill() */
                 abort_delay(wait_ch);
+                /* A paused script that another delay replaced resumes now that that delay is
+                 * over; it can free wait_ch, which is not touched again. */
+                resume_deferred_char_script(wait_ch);
+            }
+            /* If the next waiter went too, the list is walked again from the start: those
+             * already counted down this pulse are passed over. */
+            if (in_waiting_list(following)) {
+                wait_ch = following;
+            } else {
+                wait_ch = waiting_list;
+            }
         } else {
-            wait_tmp = wait_ch->delay.next;
+            wait_ch = following;
         }
     }
 }

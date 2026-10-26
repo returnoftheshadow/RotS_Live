@@ -352,6 +352,19 @@ int find_script_by_number(const int number)
         return i;
 }
 
+/* Tells the builders that the run of <state>'s script that another delay deferred will not
+ * resume, naming <subject> and <reason>. */
+static void report_dropped_script(const info_script& state, const char* subject, const char* reason)
+{
+    char errbuf[256];
+    int script_no = (state.index >= 0 && state.index <= top_of_script_table)
+        ? script_table[state.index].number
+        : -1;
+    snprintf(errbuf, sizeof(errbuf), "SCRIPT: script #%d paused for %s will not resume: %s",
+        script_no, subject, reason);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
 /* Releases <state> and the texts it owns; nothing may be using it. */
 static void release_script_state_now(info_script*& state)
 {
@@ -533,6 +546,13 @@ public:
             m_active = &m_nested;
         } else {
             if (index != -1) {
+                /* A new run takes the state over: a deferred run of the subject's script would
+                 * resume from wherever this one pauses, so it is dropped. */
+                if (m_own->resume_pending) {
+                    report_dropped_script(*m_own, "a subject that started a new run",
+                        "the new run replaced it");
+                    m_own->resume_pending = false;
+                }
                 clear_script_info(m_own);
                 m_own->index = index;
             } else {
@@ -2467,10 +2487,44 @@ void continue_char_script(char_data* ch)
     /* The character, object and room variables start empty: what they named before the pause
      * may be gone. The texts and ints are the run's own and carry on. */
     trigger_state state(ch->specials.script_info, -1);
+    /* This is the resume a forced completion deferred, if there was one. */
+    ch->specials.script_info->resume_pending = false;
     info_script& info = state.info();
     info.ch[0] = ch;
     ch->delay.cmd = 0;
     run_script(&info, info.next_command);
+}
+
+void defer_char_script(char_data* ch)
+{
+    if (ch->specials.script_info) {
+        ch->specials.script_info->resume_pending = true;
+    }
+}
+
+bool resume_deferred_char_script(char_data* ch)
+{
+    const info_script* state = ch->specials.script_info;
+    if (!state || !state->resume_pending) {
+        return false;
+    }
+    continue_char_script(ch);
+    return true;
+}
+
+void drop_deferred_char_script(char_data* ch, const char* reason)
+{
+    info_script* state = ch->specials.script_info;
+    if (!state || !state->resume_pending) {
+        return;
+    }
+    const char* subject = "someone";
+    if (GET_NAME(ch)) {
+        subject = GET_NAME(ch);
+    }
+    report_dropped_script(*state, subject, reason);
+    state->resume_pending = false;
+    state->next_command = nullptr;
 }
 
 //  A character can prevent another entering the room by returning FALSE

@@ -473,9 +473,9 @@ TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemove
     EXPECT_EQ(nullptr, waiting_list);
 }
 
-/* A higher-priority delay given to a paused mob (as bash gives its victim) drops the rest of the
- * paused script instead of running it in the middle of the bash. */
-TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobDropsTheRestOfItsScript)
+/* A higher-priority delay given to a paused mob (as bash gives its victim) does not run the rest
+ * of its script inside the bash: the rest runs once the stun is over. */
+TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobDefersTheRestOfItsScript)
 {
     install_script(ON_HEAR_SAY, pause_then_remove_body());
     char_data* mob = make_mob("mob", SCRIPT_VNUM);
@@ -484,13 +484,43 @@ TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobDropsTheRestOfItsScript)
 
     WAIT_STATE_FULL(mob, 3, 0, 0, 50, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
 
-    EXPECT_TRUE(is_in_game(mob));
+    EXPECT_TRUE(is_in_game(mob)) << "the rest did not run inside the stun";
     EXPECT_EQ(3, mob->delay.wait_value);
-    for (int pulse = 0; pulse < 3; ++pulse) {
-        process_waiting_list();
-    }
-    EXPECT_TRUE(is_in_game(mob)) << "the dropped script never resumes";
-    EXPECT_FALSE(output_has("The mob fades."));
+    process_waiting_list();
+    process_waiting_list();
+    EXPECT_TRUE(is_in_game(mob)) << "the stun is not over yet";
+    process_waiting_list();
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_FALSE(is_in_game(mob));
+}
+
+/* The same for a delay a mob's own program gives it (cmd -1 calls its special procedure when the
+ * delay ends): the paused script resumes after that. */
+TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobDefersTheRestOfItsScript)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+    /* A program delay looks the mob's prototype up, so the mob gets one (with no program). */
+    index_data prototype_index[1] {};
+    index_data* saved_mob_index = mob_index;
+    mob_index = prototype_index;
+    mob->nr = 0;
+    char mob_name[] = "mob";
+    RELEASE(mob->player.name);
+    RELEASE(mob->player.short_descr);
+    mob->player.name = mob_name;
+    mob->player.short_descr = mob_name;
+
+    WAIT_STATE_BRIEF(mob, 2, -1, 0, 50, AFF_WAITING);
+    EXPECT_TRUE(is_in_game(mob));
+    process_waiting_list();
+    process_waiting_list();
+
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_FALSE(is_in_game(mob));
+    mob_index = saved_mob_index;
 }
 
 /* A paused mob that is killed dies without finishing its script. */
@@ -512,12 +542,38 @@ TEST_F(CharacterTriggerTest, APausedMobThatIsKilledDiesWithoutFinishingItsScript
     mob->player.short_descr = mob_name;
     mob->nr = 0;
 
+    testing::internal::CaptureStderr();
     raw_kill(mob, nullptr, 0);
+    const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_FALSE(is_in_game(mob));
     EXPECT_FALSE(output_has("The mob fades."));
     EXPECT_EQ(nullptr, waiting_list);
+    EXPECT_NE(std::string::npos, logged.find("will not resume: it died")) << logged;
     mob_index = saved_mob_index;
+}
+
+/* A mob whose resumed script pauses again goes back to the end of the waiting list: the others
+ * are still counted down in that pulse, and it is not counted down a second time. */
+TEST_F(CharacterTriggerTest, AWaiterThatPausesAgainDoesNotHoldUpTheOthers)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { 1 } },
+            { SCRIPT_SEND_TO_ROOM, "First step.", { SCRIPT_PARAM_CH1_ROOM } },
+            { SCRIPT_DO_WAIT, nullptr, { 1 } },
+            { SCRIPT_SEND_TO_ROOM, "Second step.", { SCRIPT_PARAM_CH1_ROOM } } });
+    char_data* pauser = make_mob("pauser", SCRIPT_VNUM);
+    char_data* stunned = make_mob("stunned", 0);
+    run_command(do_say, "hello");
+    WAIT_STATE_FULL(stunned, 2, 0, 0, 50, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+    ASSERT_EQ(pauser, waiting_list) << "the pauser waits first";
+
+    process_waiting_list();
+
+    EXPECT_TRUE(output_has("First step."));
+    EXPECT_FALSE(output_has("Second step.")) << "the pause begun this pulse was counted down again";
+    EXPECT_EQ(1, pauser->delay.wait_value);
+    EXPECT_EQ(1, stunned->delay.wait_value) << "the waiter after the pauser was skipped";
 }
 
 /* ---- a mob's script set off again while it runs ---- */

@@ -230,9 +230,20 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
  * address is on the list. */
 bool is_on_content_list(const obj_data* first, const obj_data* object);
 
-/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch and the other character, object,
- * room and text variables empty. */
+/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch and the other character, object
+ * and room variables empty; its texts and ints carry on. */
 void continue_char_script(char_data* ch);
+/* For complete_delay's forced completion of <ch>'s DO_WAIT pause (another delay replacing it): the
+ * paused script is not run there, inside whoever forced it, but kept to resume once the replacing
+ * delay ends (resume_deferred_char_script). Nothing happens if ch has no paused script. */
+void defer_char_script(char_data* ch);
+/* Resumes <ch>'s deferred script, if it has one; the script can free ch. For process_waiting_list,
+ * once the delay that replaced the pause has ended and ch waits for nothing. Returns whether a
+ * script was resumed. */
+bool resume_deferred_char_script(char_data* ch);
+/* Discards <ch>'s deferred script, if it has one, and tells the builders so, giving <reason>
+ * (raw_kill: the character died). */
+void drop_deferred_char_script(char_data* ch, const char* reason);
 
 /* Report script lines whose vnums name nothing -- informational only. */
 void check_script_vnums(int script_index, struct char_data* to);

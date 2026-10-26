@@ -392,6 +392,9 @@ struct waiting_type {
     struct target_data targ1;
     struct target_data targ2;
     struct char_data* next;
+    /* The waiting-list pulse that last counted this delay down (process_waiting_list), so that a
+       character re-queued during a pulse is not counted twice in it. */
+    unsigned int ticked_pulse;
 };
 
 inline constexpr int WEAPON_POISON_DUR = 60;
