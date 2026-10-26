@@ -676,6 +676,28 @@ TEST(DamageReports, ReturnsFriendlyEmptyReports) {
     EXPECT_NE(group_report.get_damage_report().find("have not recorded any damage dealt"), std::string::npos);
 }
 
+TEST(DamageReports, AnUnnamedAttackTypeGetsANumberedLabel)
+{
+    player_damage_details player_report;
+    CharUtilsTestContext context;
+    player_report.add_damage(TYPE_SUFFERING, 3);
+
+    const std::string report = player_report.get_damage_report(&context.character);
+
+    EXPECT_NE(report.find(std::string("attack type 200") + std::string(9, ' ') + "<Count: 1"), std::string::npos) << report;
+}
+
+TEST(DamageReports, ASpellIsListedByItsName)
+{
+    player_damage_details player_report;
+    CharUtilsTestContext context;
+    player_report.add_damage(SPELL_MAGIC_MISSILE, 7);
+
+    const std::string report = player_report.get_damage_report(&context.character);
+
+    EXPECT_NE(report.find(std::string("magic missile") + std::string(11, ' ') + "<Count: 1"), std::string::npos) << report;
+}
+
 namespace {
 // An arbitrary fixed instant for the mob-age tests, so each sets the time explicitly.
 const WorldClock::time_point MOB_AGE_TEST_NOW = WorldClock::time_point {} + std::chrono::hours(10);

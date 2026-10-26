@@ -1012,3 +1012,59 @@ TEST_F(CharacterTriggerTest, AScavengerLeavesAnItemAScriptMovedOutOfTheRoom)
     EXPECT_EQ(nullptr, bag->next_content);
     EXPECT_FALSE(output_has("gets a grey stone")) << output();
 }
+
+/* ---- a zone reset that gives a mob another script (A 12) ---- */
+
+TEST_F(CharacterTriggerTest, AMobGivenAnotherScriptByAZoneResetRunsTheNewOneAfresh)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_SEND_TO_ROOM, "Old script heard [%s].",
+                                  { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_ROOM, "New script heard [%s].",
+                    { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    char_data* mob = make_mob("listener", SCRIPT_VNUM);
+    run_command(do_say, "first");
+    ASSERT_TRUE(output_has("Old script heard [first].")) << output();
+    ASSERT_NE(nullptr, mob->specials.script_info) << "its script kept its state";
+    /* L 0: the first mob with no prototype in room 0; A 12: give it OTHER_SCRIPT_VNUM. */
+    reset_com commands[2] {};
+    commands[0].command = 'L';
+    commands[0].arg1 = 0;
+    commands[0].arg2 = 0;
+    commands[0].arg3 = -1;
+    commands[0].arg4 = 1;
+    commands[1].command = 'A';
+    commands[1].arg1 = 12;
+    commands[1].arg2 = OTHER_SCRIPT_VNUM;
+    zone_data zone {};
+    zone.cmd = commands;
+    zone.cmdno = 2;
+    zone_table = &zone;
+
+    reset_zone(0);
+
+    EXPECT_EQ(OTHER_SCRIPT_VNUM, mob->specials.script_number);
+    EXPECT_EQ(nullptr, mob->specials.script_info) << "the old script's state was let go";
+    run_command(do_say, "second");
+    EXPECT_TRUE(output_has("New script heard [second].")) << output();
+    EXPECT_FALSE(output_has("Old script heard [second].")) << output();
+}
+
+/* ---- text being edited ---- */
+
+/* A character freed while an edit points into its description (as "string char" leaves one) ends
+ * the edit, so no line typed later goes into the freed character. */
+TEST_F(CharacterTriggerTest, FreeingACharacterEndsAnEditOfItsText)
+{
+    char_data* mob = make_mob("statue", 0);
+    descriptor_list = &m_descriptor;
+    m_descriptor.str = &mob->player.description;
+
+    extract_char(mob);
+
+    EXPECT_EQ(nullptr, m_descriptor.str);
+    EXPECT_TRUE(output_has("What you were writing is gone.")) << output();
+}

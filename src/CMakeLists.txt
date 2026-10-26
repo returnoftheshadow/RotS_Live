@@ -238,6 +238,7 @@ set(ROTS_TEST_SOURCES
     tests/combat_movement_extract_tests.cpp
     tests/death_and_damage_paths_tests.cpp
     tests/spec_pro_tests.cpp
+    tests/loader_editor_bounds_tests.cpp
     tests/spell_removal_tests.cpp
     tests/spell_affect_tests.cpp
     tests/special_procedure_extract_tests.cpp

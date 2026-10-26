@@ -332,6 +332,27 @@ void string_add_finish(struct descriptor_data* d)
     }
 }
 
+void stop_editing_text(std::initializer_list<char**> fields)
+{
+    extern struct descriptor_data* descriptor_list;
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        if (!descriptor->str
+            || std::find(fields.begin(), fields.end(), descriptor->str) == fields.end()) {
+            continue;
+        }
+        descriptor->str = nullptr;
+        descriptor->str_limit = 0;
+        char_data* writer = descriptor->character;
+        if (writer) {
+            if (!descriptor->connected && !IS_NPC(writer)) {
+                REMOVE_BIT(PLR_FLAGS(writer), PLR_WRITING);
+            }
+            send_to_char("What you were writing is gone.\n\r", writer);
+        }
+    }
+}
+
 void string_add(struct descriptor_data* d, char* str)
 /*** Add some user input to the current string: d->str ***/
 {
@@ -936,26 +957,33 @@ void show_string(struct descriptor_data* d, char* input)
         return;
     }
 
-    /* show a chunk */
-    for (scan = buffer;; scan++, d->showstr_point++)
-        if ((*scan = *d->showstr_point) == '\n')
+    /* show a chunk: 22 lines, or as much of them as buffer holds (the rest shows next) */
+    for (scan = buffer;; scan++, d->showstr_point++) {
+        if (scan >= buffer + sizeof(buffer) - 2) {
+            *scan = '\0';
+        } else if ((*scan = *d->showstr_point) == '\n') {
             lines++;
-        else if (!*scan || (lines >= 22)) {
+            continue;
+        } else if (!*scan || (lines >= 22)) {
             if (*scan == '\r')
                 scan++;
 
             *scan = '\0';
-            SEND_TO_Q(buffer, d);
-
-            /* see if this is the end (or near the end) of the string */
-            for (chk = d->showstr_point; isspace(*chk); chk++)
-                ;
-
-            if (!*chk) {
-                RELEASE(d->showstr_head);
-                d->showstr_point = 0;
-            }
-
-            return;
+        } else {
+            continue;
         }
+
+        SEND_TO_Q(buffer, d);
+
+        /* see if this is the end (or near the end) of the string */
+        for (chk = d->showstr_point; isspace(*chk); chk++)
+            ;
+
+        if (!*chk) {
+            RELEASE(d->showstr_head);
+            d->showstr_point = 0;
+        }
+
+        return;
+    }
 }

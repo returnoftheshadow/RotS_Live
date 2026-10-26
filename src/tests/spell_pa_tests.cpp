@@ -289,3 +289,28 @@ TEST(SpellParser, AProgramPrepareOfASpellNumberOutsideTheSkillsTableIsRefusedAnd
     free(caster.skills);
     free(caster.knowledge);
 }
+
+TEST(SpellParser, ACastWithNoParsedTargetsReadsTheArgumentLine)
+{
+    constexpr int CAST_ROOM = 975;
+    room_data saved_room = world[CAST_ROOM];
+    world[CAST_ROOM].room_flags = 0;
+    world[CAST_ROOM].people = nullptr;
+
+    descriptor_data descriptor = make_descriptor();
+    descriptor.connected = CON_PLYNG;
+    char_data caster {};
+    initialize_player_character(&caster, "caster");
+    caster.desc = &descriptor;
+    caster.in_room = CAST_ROOM;
+
+    char no_argument[] = "";
+    do_cast(&caster, no_argument, nullptr, CMD_CAST, 0);
+
+    EXPECT_EQ(std::string(descriptor.output), "Cast which what where?\n\r");
+
+    free(caster.profs);
+    free(caster.skills);
+    free(caster.knowledge);
+    world[CAST_ROOM] = saved_room;
+}
