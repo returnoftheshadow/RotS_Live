@@ -16,6 +16,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -412,8 +413,11 @@ ACMD(do_gather_food)
             return;
 
         /*And we've passed our conditions so we're going on now to try and gather */
-        WAIT_STATE_FULL(ch, MIN(25, 40 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5), CMD_GATHER_FOOD,
-            GatherType, 30, 0, 0, 0, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
+        /* Ending ch's own delay can remove it (the rest of a paused script). */
+        if (!WAIT_STATE_FULL(ch, MIN(25, 40 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5), CMD_GATHER_FOOD,
+                GatherType, 30, 0, 0, 0, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE)) {
+            return;
+        }
         GET_MOVE(ch) -= move_use;
         break;
     default:
@@ -689,21 +693,26 @@ ACMD(do_hide)
          * into the room, hiding times will be slightly faster
          */
         else {
+            /* Ending ch's own delay can remove it (the rest of a paused script). */
+            bool hider_remains = true;
             if (IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN))
                 if (IS_SET(ch->specials2.hide_flags, HIDING_WELL))
                     /* Hiding well after sneaking in -> 7 beats*/
-                    WAIT_STATE_BRIEF(ch,
+                    hider_remains = WAIT_STATE_BRIEF(ch,
                         skills[SKILL_HIDE].beats * (IS_SET(ch->specials2.hide_flags, HIDING_WELL) * 2) - 1,
                         CMD_HIDE, 1, 30, AFF_WAITING | AFF_WAITWHEEL);
                 else
                     /* Hiding after sneaking in -> 3 beats*/
-                    WAIT_STATE_BRIEF(ch, skills[SKILL_HIDE].beats - 1, CMD_HIDE, 1, 30,
+                    hider_remains = WAIT_STATE_BRIEF(ch, skills[SKILL_HIDE].beats - 1, CMD_HIDE, 1, 30,
                         AFF_WAITING | AFF_WAITWHEEL);
             else
                 /*Hiding well with no sneak -> 9 beats, with four being default for normal hide*/
-                WAIT_STATE_BRIEF(ch,
+                hider_remains = WAIT_STATE_BRIEF(ch,
                     skills[SKILL_HIDE].beats * (IS_SET(ch->specials2.hide_flags, HIDING_WELL) * 2 + 1),
                     CMD_HIDE, 1, 30, AFF_WAITING | AFF_WAITWHEEL);
+            if (!hider_remains) {
+                return;
+            }
 
             if (IS_SET(ch->specials2.hide_flags, HIDING_WELL))
                 send_to_char("You carefully choose a place to hide.\n\r", ch);
@@ -1230,12 +1239,17 @@ ACMD(do_trap)
     case 1:
         send_to_char("You begin to wait patiently for your victim.\r\n", ch);
 
-        /* Use the wait state to store the target data */
+        /* Use the wait state to store the target data; ending ch's own delay can remove it
+         * (the rest of a paused script). */
         if (wtl->targ1.type == TARGET_TEXT) {
-            WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0,
-                get_from_txt_block_pool(wtl->targ1.ptr.text->text), 0, TARGET_TEXT);
+            if (!WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0,
+                    get_from_txt_block_pool(wtl->targ1.ptr.text->text), 0, TARGET_TEXT)) {
+                return;
+            }
         } else {
-            WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0, NULL, 0, TARGET_NONE);
+            if (!WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0, NULL, 0, TARGET_NONE)) {
+                return;
+            }
         }
 
         /* We use spec_prog 16 for people with trap */
@@ -1264,11 +1278,15 @@ ACMD(do_trap)
          */
         ignore_recursion = 1;
         if (wtl->targ1.type == TARGET_TEXT) {
-            WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0,
-                get_from_txt_block_pool(wtl->targ1.ptr.text->text), AFF_WAITING,
-                TARGET_TEXT);
+            if (!WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0,
+                    get_from_txt_block_pool(wtl->targ1.ptr.text->text), AFF_WAITING,
+                    TARGET_TEXT)) {
+                return;
+            }
         } else {
-            WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0, NULL, AFF_WAITING, TARGET_NONE);
+            if (!WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0, NULL, AFF_WAITING, TARGET_NONE)) {
+                return;
+            }
         }
 
         /* WAIT_STATE_FULL clobbers targ2 unconditionally, so we refill it */
@@ -1308,9 +1326,16 @@ ACMD(do_trap)
             dmg = ambush_calculate_damage(ch, victim, success);
             dmg = dmg >> 1; // Cut the damage in half?  Easier ways to do this.  dmg = dmg >> 1;
 
-            // Set a bash affection on the victim
-            WAIT_STATE_FULL(victim, 5, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
-                TARGET_IGNORE);
+            // Set a bash affection on the victim; ending its own delay runs the rest of a paused
+            // script, which can remove the victim or the trapper.
+            freed_watch trapper_watch(ch);
+            if (!WAIT_STATE_FULL(victim, 5, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
+                    TARGET_IGNORE)) {
+                return;
+            }
+            if (trapper_watch.freed()) {
+                return;
+            }
 
             damage(ch, victim, dmg, SKILL_TRAP, 0);
         }
@@ -1707,8 +1732,13 @@ ACMD(do_whistle)
                 if (MOB_FLAGGED(tmpch, MOB_PET) && (tmpch->master == ch)) {
                     if (GET_POS(tmpch) == POSITION_FIGHTING) {
                         /* in combat: just try to disengage this whistle; the
-                         * normal recall runs next time it's whistled while not fighting */
+                         * normal recall runs next time it's whistled while not fighting.
+                         * The flee can set off scripts that destroy the one saved next. */
+                        freed_watch next_pet_watch(next_tmpch);
                         do_flee(tmpch, "", 0, 0, 0);
+                        if (next_pet_watch.freed()) {
+                            break;
+                        }
                         continue;
                     }
 
@@ -1773,8 +1803,11 @@ ACMD(do_stalk)
         return;
     }
 
-    WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, dir + 1, SCMD_STALK, 30,
-        AFF_WAITING | AFF_WAITWHEEL);
+    /* Ending ch's own delay can remove it (the rest of a paused script). */
+    if (!WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, dir + 1, SCMD_STALK, 30,
+            AFF_WAITING | AFF_WAITWHEEL)) {
+        return;
+    }
     ch->delay.targ1.type = TARGET_DIR;
     ch->delay.targ1.ch_num = dir;
 
@@ -1804,8 +1837,11 @@ ACMD(do_cover)
         if (GET_KNOWLEDGE(ch, SKILL_STALK) <= 0) {
             send_to_char("You fumble around, trying to tidy up the place.\r\n", ch);
         } else {
-            WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, CMD_COVER, 1, 30,
-                AFF_WAITING | AFF_WAITWHEEL);
+            /* Ending ch's own delay can remove it (the rest of a paused script). */
+            if (!WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, CMD_COVER, 1, 30,
+                    AFF_WAITING | AFF_WAITWHEEL)) {
+                return;
+            }
             send_to_char("You start covering up the tracks.\r\n", ch);
         }
         act("$n moves around, making small adjustments.", TRUE, ch, 0, 0, TO_ROOM);
@@ -3646,7 +3682,12 @@ void on_windblast_hit(char_data* ch)
         }
 
         if (res) {
+            freed_watch pushed_watch(ch);
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
+            /* An ON_BEFORE_ENTER script where it was pushed to removed it. */
+            if (pushed_watch.freed()) {
+                return;
+            }
 
             if (!die) {
                 if (ch->specials.fighting) {
@@ -3700,7 +3741,10 @@ void on_windblast_success(char_data* ch, int mana_cost, int move_cost)
 
     send_to_char("Vile black wind eminates from you, slamming into all!\r\n", ch);
 
-    for (tmpch = world[ch->in_room].people; tmpch; tmpch = tmpch_next) {
+    /* A push or a blow can remove the one hit (a script where it lands or that it sets off, a
+     * death room) or, through a script, the caster. */
+    freed_watch caster_watch(ch);
+    for (tmpch = cur_room->people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != ch) {
             if (!bb_instance.is_target_valid(ch, tmpch)) {
@@ -3709,13 +3753,24 @@ void on_windblast_success(char_data* ch, int mana_cost, int move_cost)
                 continue;
             }
 
+            freed_watch target_watch(tmpch);
+            freed_watch next_target_watch(tmpch_next);
             int saved = harad_skill_calculate_save(ch, tmpch, 0);
             if (saved < 0) {
                 dam_value >> 1;
                 damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
             } else {
                 on_windblast_hit(tmpch);
-                damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
+                if (!target_watch.freed()) {
+                    damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
+                }
+            }
+            if (caster_watch.freed()) {
+                return;
+            }
+            /* The blast goes on to the one saved before, unless the blow destroyed it too. */
+            if (next_target_watch.freed()) {
+                return;
             }
         }
     }

@@ -7,6 +7,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -181,7 +182,13 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
 
     if (!ch->specials.fighting && IS_MENTAL(ch)) {
         set_fighting(ch, victim);
+        /* Ending ch's own delay runs the rest of a paused script, which can remove either. */
+        freed_watch attacker_watch(ch);
+        freed_watch victim_watch(victim);
         WAIT_STATE(ch, 2); /* HVORFOR DET?? */
+        if (attacker_watch.freed() || victim_watch.freed()) {
+            return;
+        }
     }
 
     set_mental_delay(ch, PULSE_MENTAL_FIGHT);
@@ -268,7 +275,12 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
             }
 
             if (damage_result.wants_to_flee) {
+                freed_watch fleeing_watch(victim);
                 do_flee(victim, "", NULL, 0, 0);
+                /* Fleeing can remove the victim (a script where it arrives, a death room). */
+                if (fleeing_watch.freed()) {
+                    return;
+                }
             }
 
             if (victim->delay.cmd == CMD_PREPARE && (victim->delay.targ1.type == TARGET_IGNORE)) {
@@ -293,7 +305,11 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
             if (!damage_result.will_die) {
                 check_break_prep(ch);
                 if (damage_result.wants_to_flee) {
+                    freed_watch fleeing_watch(ch);
                     do_flee(ch, "", NULL, 0, 0);
+                    if (fleeing_watch.freed()) {
+                        return;
+                    }
                 }
             }
 
@@ -558,8 +574,11 @@ ACMD(do_concentrate)
         set_mental_delay(ch, -1 - GET_MENTAL_DELAY(ch));
         ch->delay.targ1.type = TARGET_NONE;
         ch->delay.targ2.type = TARGET_NONE;
-        WAIT_STATE_BRIEF(ch, -1, CMD_CONCENTRATE, -1, 50,
-            AFF_CONCENTRATION | AFF_WAITING | AFF_WAITWHEEL);
+        /* Ending ch's own delay can remove it (the rest of a paused script). */
+        if (!WAIT_STATE_BRIEF(ch, -1, CMD_CONCENTRATE, -1, 50,
+                AFF_CONCENTRATION | AFF_WAITING | AFF_WAITWHEEL)) {
+            return;
+        }
         send_to_char("You start focusing your mind.\n\r", ch);
         act("$n starts concentrating.", FALSE, ch, 0, 0, TO_ROOM);
     }

@@ -21,6 +21,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -920,9 +921,16 @@ SPECIAL(gatekeeper)
             host->delay.targ2.ch_num = doordir;
         }
 
+        /* Ending the gatekeeper's own delay runs the rest of a paused script, which can remove it or
+         * the one at the gate: then neither the gatekeeper nor the command is to go on. */
+        freed_watch gatekeeper_watch(host);
+        freed_watch visitor_watch(ch);
         /* Wait between 1 and 3 ticks. */
         WAIT_STATE_FULL(host, number(2, 4), -1, (cmd == CMD_KNOCK) ? 1 : 2, 30, 0, ch->abs_number,
             ch, 0, TARGET_CHAR);
+        if (gatekeeper_watch.freed() || visitor_watch.freed()) {
+            return TRUE;
+        }
 
         return FALSE;
     }
@@ -1160,8 +1168,15 @@ SPECIAL(gatekeeper2)
          * will result in having no delay, a wait state of 2 will
          * result in a 2 tick delay, and so on.
          */
+        /* Ending the gatekeeper's own delay runs the rest of a paused script, which can remove it or
+         * the one at the gate: then neither the gatekeeper nor the command is to go on. */
+        freed_watch gatekeeper_watch(host);
+        freed_watch visitor_watch(ch);
         WAIT_STATE_FULL(host, number(2, 4), -1, cmd == CMD_KNOCK ? 1 : 2, 30, 0, ch->abs_number, ch,
             0, TARGET_CHAR);
+        if (gatekeeper_watch.freed() || visitor_watch.freed()) {
+            return TRUE;
+        }
         return FALSE;
     }
 
@@ -2379,8 +2394,12 @@ bool ranger_rehide(char_data* host, const ranger_config& opts)
             return false;
         /* do_hide's wind-up; the cover comes when it ends, so until then the
          * mob keeps the cover it snuck in with, and a broken one gives none. */
-        WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
-            AFF_WAITING | AFF_WAITWHEEL);
+        /* Ending the host's own delay can remove it (the rest of a paused script): then it is
+         * handled, and nothing is to use the host. */
+        if (!WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
+                AFF_WAITING | AFF_WAITWHEEL)) {
+            return true;
+        }
         return host->delay.wait_value > 0;
     }
     if (GET_HIDING(host))
@@ -3540,9 +3559,17 @@ SPECIAL(vampire_huntress)
                     SET_BIT(room->dir_option[2]->exit_info, EX_LOCKED);
                     send_to_room("The iron door slams shut.\n\r\n", real_room(room->number));
                     do_look(victim, "", wtl, 0, 0);
-                    WAIT_STATE_FULL(host, 200, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
-                } else if (tmpno == 2 && GET_LEVEL(victim) < LEVEL_GOD)
+                    /* Ending the bat's own delay, or its blow, can remove it (a script). */
+                    if (!WAIT_STATE_FULL(host, 200, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+                        return 1;
+                    }
+                } else if (tmpno == 2 && GET_LEVEL(victim) < LEVEL_GOD) {
+                    freed_watch bat_watch(host);
                     hit(host, victim, TYPE_UNDEFINED);
+                    if (bat_watch.freed()) {
+                        return 1;
+                    }
+                }
             }
         }
     }

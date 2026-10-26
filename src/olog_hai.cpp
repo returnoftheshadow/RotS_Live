@@ -6,6 +6,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "skill_timer.h"
 #include "spells.h"
@@ -37,15 +38,18 @@ int get_prob_skill(char_data* attacker, char_data* victim, int skill)
     return prob;
 }
 
-void apply_victim_delay(char_data* victim, int delay)
+/* Knocks <victim> down for <delay> pulses, unless it can't be or already is. Returns false only
+ * when ending the victim's own delay freed it (the rest of a paused script); that script can free
+ * others too, which the caller watches for. */
+bool apply_victim_delay(char_data* victim, int delay)
 {
     if (IS_NPC(victim) && MOB_FLAGGED(victim, MOB_NOBASH)) {
-        return;
+        return true;
     }
     if (IS_SET(victim->specials.affected_by, AFF_BASH)) {
-        return;
+        return true;
     }
-    WAIT_STATE_FULL(victim, delay, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+    return WAIT_STATE_FULL(victim, delay, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
 }
 
 bool is_skill_valid(const char_data* ch, const int& skill_id)
@@ -239,10 +243,18 @@ void apply_smash_damage(char_data* attacker, char_data* victim, int prob)
     if (IS_RIDING(victim) && number() >= 0.80) {
         dam *= 1.25;
         char_data* mount = victim->mount_data.mount;
+        freed_watch attacker_watch(attacker);
+        freed_watch victim_watch(victim);
+        freed_watch mount_watch(mount);
         damage(attacker, victim, dam, SKILL_SMASH, 0);
+        /* The blow can remove the victim (a script, a death that frees it) or, through a
+         * script, the attacker or the mount. */
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return;
+        }
         generate_smash_dismount_messages(attacker, victim);
         do_dismount(victim, "", 0, 0, 0);
-        if (number() >= 0.50) {
+        if (number() >= 0.50 && !mount_watch.freed()) {
             damage(attacker, mount, dam / 2, SKILL_SMASH, 0);
         }
         return;
@@ -283,7 +295,11 @@ void apply_stomp_affect(char_data* attacker, char_data* victim)
         return;
     }
     int wait_delay = number(8, PULSE_VIOLENCE);
-    apply_victim_delay(victim, wait_delay);
+    /* Knocking the victim down can remove the attacker too (the victim's paused script). */
+    freed_watch attacker_watch(attacker);
+    if (!apply_victim_delay(victim, wait_delay) || attacker_watch.freed()) {
+        return;
+    }
     damage(attacker, victim, calculate_stomp_damage(*attacker, prob), SKILL_STOMP, 0);
 }
 
@@ -304,7 +320,11 @@ void apply_overrun_damage(char_data* attacker, char_data* victim)
     }
 
     int wait_delay = PULSE_VIOLENCE;
-    apply_victim_delay(victim, wait_delay);
+    /* As for stomp. */
+    freed_watch attacker_watch(attacker);
+    if (!apply_victim_delay(victim, wait_delay) || attacker_watch.freed()) {
+        return;
+    }
     damage(attacker, victim, calculate_overrun_damage(*attacker, prob), SKILL_OVERRUN, 0);
 }
 
@@ -354,17 +374,31 @@ void apply_frenzy_affect(char_data* character)
     SET_TACTICS(character, TACTICS_BERSERK);
 }
 
-void room_target(char_data* ch, void (*skill_damage)(char_data* character, char_data* victim))
+/* Applies <skill_damage> from <ch> to everyone else in its room but its mount. Returns false if
+ * a blow's scripts removed ch, which must then not be touched; the room's later people are
+ * spared, as they are when a blow's scripts destroy the next one. */
+[[nodiscard]] bool room_target(char_data* ch, void (*skill_damage)(char_data* character, char_data* victim))
 {
     char_data* victim = nullptr;
     char_data* nxt_victim = nullptr;
     auto mount = ch->mount_data.mount;
-    for (victim = world[ch->in_room].people; victim; victim = nxt_victim) {
+    room_data& room = world[ch->in_room];
+    freed_watch attacker_watch(ch);
+    for (victim = room.people; victim; victim = nxt_victim) {
         nxt_victim = victim->next_in_room;
         if (victim != ch && mount != victim) {
+            freed_watch next_victim_watch(nxt_victim);
             skill_damage(ch, victim);
+            if (attacker_watch.freed()) {
+                return false;
+            }
+            /* The blow can set off scripts that destroy the one saved next: the skill ends. */
+            if (next_victim_watch.freed()) {
+                return true;
+            }
         }
     }
+    return true;
 }
 } // namespace olog_hai
 
@@ -385,7 +419,9 @@ ACMD(do_cleave)
 
     olog_hai::do_sanctuary_check(ch);
     send_to_char("You arch back and swing your weapon with great velocity!\n\r", ch);
-    olog_hai::room_target(ch, &olog_hai::apply_cleave_damage);
+    if (!olog_hai::room_target(ch, &olog_hai::apply_cleave_damage)) {
+        return;
+    }
     timer.add_skill_timer(*ch, SKILL_CLEAVE, CLEAVE_TIMER);
     // Stun the Olog-hai after using the skill
     int wait_delay = number(8, PULSE_VIOLENCE);
@@ -520,8 +556,12 @@ ACMD(do_overrun)
         REMOVE_BIT(ch->specials.affected_by, AFF_HUNT);
     }
 
+    /* Each blow, and each step (a script where it lands, a death room), can remove the olog-hai. */
+    freed_watch overrunner_watch(ch);
     for (dis = 0; dis <= total_moves; dis++) {
-        olog_hai::room_target(ch, &olog_hai::apply_overrun_damage);
+        if (!olog_hai::room_target(ch, &olog_hai::apply_overrun_damage)) {
+            return;
+        }
 
         if (!CAN_GO(ch, cmd)) {
             break;
@@ -534,15 +574,24 @@ ACMD(do_overrun)
 
         stop_fighting(ch);
         do_move(ch, "", 0, cmd + 1, 0);
+        if (overrunner_watch.freed()) {
+            return;
+        }
     }
 
     if (dis < total_moves) {
         damage(ch, ch, 50, SKILL_OVERRUN, 0);
+        if (overrunner_watch.freed()) {
+            return;
+        }
         olog_delay *= 1.5;
-    } else {
-        olog_hai::room_target(ch, &olog_hai::apply_overrun_damage);
+    } else if (!olog_hai::room_target(ch, &olog_hai::apply_overrun_damage)) {
+        return;
     }
-    WAIT_STATE_FULL(ch, olog_delay, 0, 0, 1, 0, 0, 0, AFF_WAITING, TARGET_NONE);
+    /* Ending ch's own delay can remove it (the rest of a paused script). */
+    if (!WAIT_STATE_FULL(ch, olog_delay, 0, 0, 1, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+        return;
+    }
     timer.add_skill_timer(*ch, SKILL_OVERRUN, OVERRUN_TIMER);
 }
 
@@ -585,7 +634,9 @@ ACMD(do_stomp)
 
     olog_hai::do_sanctuary_check(ch);
     send_to_char("You jump into the air and slam down feet first onto the ground!\n\r", ch);
-    olog_hai::room_target(ch, &olog_hai::apply_stomp_affect);
+    if (!olog_hai::room_target(ch, &olog_hai::apply_stomp_affect)) {
+        return;
+    }
     timer.add_skill_timer(*ch, SKILL_STOMP, STOMP_TIMER);
 
     // Stun the Olog-hai after using the skill
