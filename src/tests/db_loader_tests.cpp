@@ -244,6 +244,9 @@ public:
         release_aliases();
         // A descriptor set by the test is the test's own.
         m_character->desc = nullptr;
+        // Login reports the objects Crash_load refreshed, which empties the character's entry; a
+        // test stops short of login, so the entry is emptied here.
+        Crash_report_object_refreshes(m_character);
         free_char(m_character);
     }
 
@@ -2001,9 +2004,6 @@ TEST_F(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
     ASSERT_NE(carried_pack->contains, nullptr);
     EXPECT_EQ(carried_pack->contains->affected[0].modifier, 2);
     EXPECT_EQ(carried_pack->contains->obj_flags.version, 3);
-
-    /* Login reports the refreshed objects after Crash_load, which empties the character's entry. */
-    Crash_report_object_refreshes(&character);
 }
 
 TEST_F(DbLoader, CrashObj2StoreWritesTheVersionOnlyForVersionedObjects)
@@ -2225,9 +2225,6 @@ TEST_F(DbLoader, AnEnchantIsSavedLoadedAndKeptAcrossAVersionBump)
     EXPECT_EQ(loaded->affected[0].location, APPLY_OB);
     EXPECT_EQ(loaded->affected[0].modifier, 6);
     EXPECT_EQ(count_object_enchants(loaded), 1);
-
-    /* Login reports the refreshed objects after Crash_load, which empties the character's entry. */
-    Crash_report_object_refreshes(&character);
 }
 
 void Crash_follower_load(char_data* ch, FILE* fp);
