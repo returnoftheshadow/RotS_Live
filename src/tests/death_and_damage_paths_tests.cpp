@@ -495,3 +495,56 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGr
     EXPECT_FALSE(is_in_object_list(ring));
     EXPECT_EQ(0, count_corpses_in_room());
 }
+
+/* ---- a summons ---- */
+
+/* The one being summoned leaves the world while the summons is cast (a player who dies or rents
+ * waits at the menu, still a character but in no room): the summons finds nobody and brings
+ * nobody into the room. */
+TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
+{
+    assign_command_pointers();
+    link_second_room();
+    char_from_room(&m_player);
+    char_to_room(&m_player, SECOND_ROOM);
+    /* In the game as a player is, so that the summons can find them. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    char_data* caster = make_mob("caster", 0);
+    caster->player.level = 50; /* a mob this strong never fumbles the spell */
+    char line[] = "cast 'summon' tester";
+    command_interpreter(caster, line, nullptr);
+    const bool cast_started = caster->delay.wait_value > 0;
+    /* As extract_char leaves a player sent to the menu. */
+    char_from_room(&m_player);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    for (int roll = 0; roll < 20; ++roll) {
+        push_test_random_value(0.0); /* the lowest rolls: the summoned one fails to resist */
+    }
+    /* One summoned looks at the room they arrive in. */
+    char room_text[] = "A test room";
+    char* const saved_room_name = world[0].name;
+    char* const saved_room_description = world[0].description;
+    world[0].name = room_text;
+    world[0].description = room_text;
+
+    if (cast_started) {
+        complete_delay(caster);
+    }
+
+    world[0].name = saved_room_name;
+    world[0].description = saved_room_description;
+    remove_char_exists(m_player.abs_number);
+    ASSERT_TRUE(cast_started) << "the cast did not start";
+    EXPECT_EQ(NOWHERE, m_player.in_room);
+    for (const char_data* person = world[0].people; person; person = person->next_in_room) {
+        EXPECT_NE(&m_player, person) << "the player was summoned from the menu";
+    }
+    EXPECT_TRUE(is_in_game(caster));
+}
