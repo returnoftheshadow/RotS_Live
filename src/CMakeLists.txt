@@ -223,6 +223,7 @@ set(ROTS_TEST_SOURCES
     tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
     tests/room_light_tests.cpp
+    tests/weather_tests.cpp
     tests/mob_options_tests.cpp
     tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp
