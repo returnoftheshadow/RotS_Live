@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <memory>
 
 #include "platdef.h"
 
@@ -753,7 +754,9 @@ ACMD(do_give)
             return;
         }
     } else {
-        original_argument = strdup(argument);
+        /* Owns the copy, so every way out of give frees it. */
+        std::unique_ptr<char, void (*)(void*)> original_argument_owner(strdup(argument), free);
+        original_argument = original_argument_owner.get();
         if (!(vict = give_find_vict(ch, argument)))
             return;
         dotmode = find_all_dots(argument);
