@@ -649,7 +649,7 @@ ASPELL(spell_shield)
         level += 5;
     }
 
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_SHIELD;
     af.duration = level + 5;
     af.modifier = level * 5; /* % of HP */
@@ -673,7 +673,7 @@ ASPELL(spell_flash)
 {
     char_data* tmpch;
     affected_type* tmpaf;
-    affected_type newaf;
+    affected_type newaf{};
     int afflevel, maxlevel;
 
     if (caster->in_room < 0)
@@ -842,7 +842,7 @@ ASPELL(spell_summon)
 
 ASPELL(spell_identify)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!obj) {
         send_to_char("You should cast this on objects only.\n\r", caster);
@@ -996,7 +996,7 @@ ASPELL(spell_relocate)
     int zon_start, zon_target, zon_try, dist, was_in;
     int x, y, del_x, del_y, tmp, tmp2, num, tmpnum;
     struct room_data* room;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (caster->in_room == NOWHERE)
         return;
@@ -1186,7 +1186,7 @@ ASPELL(spell_relocate)
 ASPELL(spell_beacon)
 {
 
-    affected_type newaf;
+    affected_type newaf{};
     int mode;
     waiting_type* wtl = &caster->delay;
     mode = 0;
@@ -1640,10 +1640,9 @@ ASPELL(spell_earthquake)
     if (crack_chance)
         dam_value /= 2;
 
-    /* A blow can remove the one hit, the caster or, through what it sets off (a death, a
-     * script), the one to be hit next: the earthquake ends with the caster, and the tremors with
-     * that one. */
+    /* Any hit or fall can remove the caster: a death, a damage script. */
     freed_watch caster_watch(caster);
+
     for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
@@ -1656,12 +1655,11 @@ ASPELL(spell_earthquake)
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
             }
-            if (caster_watch.freed()) {
+            if (caster_watch.freed())
                 return;
-            }
-            if (next_watch.freed()) {
+            /* The tremor stops where the hit removed the next one in the room. */
+            if (next_watch.freed())
                 break;
-            }
         }
         //  return;
     }
@@ -1723,10 +1721,10 @@ ASPELL(spell_earthquake)
                 } else {
                     apply_spell_damage(caster, tmpch, dam_value * 2, SPELL_EARTHQUAKE, 0);
                 }
-                /* As for the tremors. */
-                if (caster_watch.freed() || next_watch.freed()) {
+                /* Nobody else falls once the fall removed the caster (its own fall can kill
+                 * it) or the next one in the room. */
+                if (caster_watch.freed() || next_watch.freed())
                     return;
-                }
             }
         }
     }
@@ -1852,15 +1850,13 @@ ASPELL(spell_fireball)
     }
 
     bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
-    /* A fire mage spares the room while the target is friendly (asked of the target, not of
-     * each one splashed). A blow can remove the target (a death, a script); the answer it last
-     * gave then stands. */
-    bool target_friendly = is_fire_spec && is_friendly_taget(caster, victim);
 
-    /* A blow can remove the caster, the target, the one hit or, through what it sets off, the
-     * one to be splashed next: the blast ends with the caster or that one. */
+    /* Any hit can remove the caster or the victim: a death, a damage script. */
     freed_watch caster_watch(caster);
-    freed_watch target_watch(victim);
+    freed_watch victim_watch(victim);
+    /* Asked before the hit, for the splash to use if the hit removes the victim. */
+    const bool victim_was_friendly = is_fire_spec && is_friendly_taget(caster, victim);
+
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
     bool saved = new_saves_spell(caster, victim, save_bonus);
     if (saved) {
@@ -1870,9 +1866,10 @@ ASPELL(spell_fireball)
     } else {
         apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
     }
-    if (caster_watch.freed()) {
+
+    /* A removed caster has no room left to splash. */
+    if (caster_watch.freed())
         return;
-    }
 
     char_data* next_character = nullptr;
     for (char_data* potential_victim = world[caster->in_room].people; potential_victim; potential_victim = next_character) {
@@ -1881,10 +1878,8 @@ ASPELL(spell_fireball)
             continue;
 
         /* Fire specialization mages won't hit friendly targets. */
-        if (is_fire_spec && !target_watch.freed()) {
-            target_friendly = is_friendly_taget(caster, victim);
-        }
-        if (target_friendly)
+        const bool victim_is_friendly = victim_watch.freed() ? victim_was_friendly : is_fire_spec && is_friendly_taget(caster, victim);
+        if (victim_is_friendly)
             continue;
 
         double random_roll = number();
@@ -1908,9 +1903,9 @@ ASPELL(spell_fireball)
 
             freed_watch next_watch(next_character);
             apply_spell_damage(caster, potential_victim, splash_damage, SPELL_FIREBALL2, 0);
-            if (caster_watch.freed() || next_watch.freed()) {
+            /* The splash stops where the hit removed the caster or the next one in the room. */
+            if (caster_watch.freed() || next_watch.freed())
                 return;
-            }
         }
     }
 }
@@ -2087,7 +2082,7 @@ ASPELL(spell_black_arrow)
         dam >>= 1;
     } else if (number(1, 50) < level && GET_HIT(victim) > min_poison_dam) {
         // TODO(drelidan):  Should this conditional poison apply after damage is applied?
-        affected_type af;
+        affected_type af{};
         af.type = SPELL_POISON;
         af.duration = level + 1;
         af.modifier = -2;
@@ -2209,7 +2204,7 @@ ASPELL(spell_spear_of_darkness)
 
 ASPELL(spell_blaze)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     struct char_data* tmpch;
     struct char_data* tmpch_next;
@@ -2356,7 +2351,7 @@ ASPELL(spell_freeze)
  */
 ASPELL(spell_mist_of_baazunga)
 {
-    struct affected_type af, af2;
+    struct affected_type af{}, af2{};
     struct affected_type* oldaf;
     struct room_data* room;
     int modifier, direction, mod, roomnum;

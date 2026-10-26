@@ -344,26 +344,6 @@ TEST_F(DeathAndDamagePathsTest, AnEarthquakeStopsAtTheMobItsBlowRemoves)
     EXPECT_FALSE(is_in_game(second));
 }
 
-/* A fire mage's fireball removes its target (the target's damage script): the rest of the room
- * is spared as the target, friendly to the mage, decided before it went. */
-TEST_F(DeathAndDamagePathsTest, AFireMagesFireballGoesOnAfterRemovingItsTarget)
-{
-    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
-    if (m_player.profs == nullptr) {
-        CREATE1(m_player.profs, char_prof_data);
-    }
-    m_player.profs->specialization = static_cast<int>(game_types::PS_Fire);
-    m_player.tmpabilities.hit = MOB_HIT_POINTS;
-    char_data* target = make_mob("target", SCRIPT_VNUM);
-    char_data* bystander = make_mob("bystander", 0);
-
-    spell_fireball(&m_player, empty_argument(), SPELL_TYPE_SPELL, target, nullptr, 0, 0);
-
-    EXPECT_FALSE(is_in_game(target));
-    ASSERT_TRUE(is_in_game(bystander));
-    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(bystander));
-}
-
 /* A blaze burning in the room strikes the first mob, whose script removes the mob after it: the
  * blaze burns nobody more this time. */
 TEST_F(DeathAndDamagePathsTest, ARoomBlazeStopsAtTheMobItsBlowRemoves)

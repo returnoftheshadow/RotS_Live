@@ -1083,7 +1083,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 {
     struct follower_file_elem fol_elem;
     struct char_data *mob, *mount;
-    struct affected_type af;
+    struct affected_type af{};
     struct obj_file_elem object;
     struct obj_data* obj;
     int tmp;
@@ -1157,7 +1157,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             // If the mob tame is flagged as aggressive and the mob is tamed,
             // assume that the mob has been calmed and add that spell effect to it.
             if (MOB_FLAGGED(mob, MOB_AGGRESSIVE)) {
-                affected_type calm_affect;
+                affected_type calm_affect{};
                 calm_affect.type = SKILL_CALM;
                 calm_affect.duration = -1;
                 calm_affect.modifier = 0;
@@ -1190,7 +1190,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             // If the prototype mount is flagged as aggressive but the mob is a mount,
             // assume that the mob has been calmed and add that spell effect to it.
             if (MOB_FLAGGED(mob, MOB_AGGRESSIVE)) {
-                affected_type calm_affect;
+                affected_type calm_affect{};
                 calm_affect.type = SKILL_CALM;
                 calm_affect.duration = -1;
                 calm_affect.modifier = 0;

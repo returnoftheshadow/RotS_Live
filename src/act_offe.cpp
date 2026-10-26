@@ -1193,7 +1193,7 @@ ACMD(do_defend)
     }
 
     // create affect
-    affected_type af;
+    affected_type af{};
     af.type = SKILL_DEFEND;
     af.duration = 2; // 2 fast update ticks -- ~6s
     af.modifier = defend_knowledge;
@@ -1483,7 +1483,7 @@ int maul_calculate_duration(const char_data* mauler)
 
 void apply_maul_victim(char_data* victim, const char_data* ch)
 {
-    affected_type af;
+    affected_type af{};
     af.type = SKILL_MAUL;
     af.duration = maul_calculate_duration(ch) / 5;
     af.location = APPLY_DODGE;
@@ -1496,7 +1496,7 @@ void apply_maul_victim(char_data* victim, const char_data* ch)
 void apply_maul_char(char_data* ch)
 {
     affected_type* current_maul = affected_by_spell(ch, SKILL_MAUL);
-    affected_type af;
+    affected_type af{};
     af.type = SKILL_MAUL;
     af.duration = maul_calculate_duration(ch) / 10;
     af.location = APPLY_MAUL;

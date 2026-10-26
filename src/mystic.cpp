@@ -297,7 +297,7 @@ ASPELL(spell_revive)
 
 ASPELL(spell_mind_block)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (victim != caster) {
         send_to_char("You can only protect your own mind.\n\r", caster);
@@ -319,7 +319,7 @@ ASPELL(spell_mind_block)
 
 ASPELL(spell_insight)
 {
-    affected_type af;
+    affected_type af{};
     affected_type* afptr;
     int my_duration;
 
@@ -372,7 +372,7 @@ ASPELL(spell_insight)
 
 ASPELL(spell_pragmatism)
 {
-    affected_type af;
+    affected_type af{};
     affected_type* afptr;
     int my_duration;
 
@@ -431,7 +431,7 @@ ASPELL(spell_pragmatism)
 
 ASPELL(spell_detect_hidden)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration;
 
     if (!victim)
@@ -468,7 +468,7 @@ ASPELL(spell_detect_hidden)
 
 ASPELL(spell_detect_magic)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!victim)
         victim = caster;
@@ -494,7 +494,7 @@ ASPELL(spell_detect_magic)
 
 ASPELL(spell_evasion)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration;
 
     if (!victim)
@@ -544,7 +544,7 @@ ASPELL(spell_resist_magic)
         modifier += 1;
     }
 
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_RESIST_MAGIC;
     af.duration = level;
     af.modifier = modifier;
@@ -578,7 +578,7 @@ ASPELL(spell_resist_magic)
 
 ASPELL(spell_slow_digestion)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level;
 
     if (!victim)
@@ -700,7 +700,7 @@ ASPELL(spell_infravision)
     }
 
     int level = get_mystic_caster_level(caster);
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_INFRAVISION;
     af.duration = level;
     af.modifier = 0;
@@ -725,7 +725,7 @@ ASPELL(spell_infravision)
 ASPELL(spell_resist_poison)
 {
     affected_type* af;
-    affected_type newaf;
+    affected_type newaf{};
 
     if (!victim)
         victim = caster;
@@ -770,7 +770,7 @@ ASPELL(spell_curing)
     }
 
     if (!affected_by_spell(victim, SPELL_CURING)) {
-        affected_type effect;
+        affected_type effect{};
         effect.type = SPELL_CURING;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
         effect.modifier = healing_level;
@@ -804,7 +804,7 @@ ASPELL(spell_restlessness)
     }
 
     if (!affected_by_spell(victim, SPELL_RESTLESSNESS)) {
-        affected_type effect;
+        affected_type effect{};
         effect.type = SPELL_RESTLESSNESS;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
         effect.modifier = healing_level;
@@ -858,7 +858,7 @@ ASPELL(spell_vitality)
     healing_level = healing_level / 3 * (SECS_PER_MUD_HOUR * 4) / PULSE_FAST_UPDATE;
     affected_type* current_vitality_effect = affected_by_spell(victim, SPELL_VITALITY);
     if (!current_vitality_effect) {
-        affected_type vitality_effect;
+        affected_type vitality_effect{};
         vitality_effect.type = SPELL_VITALITY;
         vitality_effect.duration = healing_level;
         vitality_effect.modifier = 1;
@@ -955,7 +955,7 @@ ASPELL(spell_regeneration)
 
     affected_type* current_regen_effect = affected_by_spell(victim, SPELL_REGENERATION);
     if (!current_regen_effect) {
-        affected_type regen_effect;
+        affected_type regen_effect{};
         regen_effect.type = SPELL_REGENERATION;
         regen_effect.duration = regen_level;
         regen_effect.modifier = 1;
@@ -1033,7 +1033,7 @@ ASPELL(spell_mass_insight)
 
 ASPELL(spell_hallucinate)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration;
     int modifier;
 
@@ -1077,7 +1077,7 @@ ASPELL(spell_hallucinate)
 
 ASPELL(spell_haze)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     int loc_level, my_duration, tmp;
     affected_type* tmpaf;
@@ -1158,7 +1158,7 @@ ASPELL(spell_haze)
 
 ASPELL(spell_fear)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!victim) {
         send_to_char("Whom do you want to scare?\n\r", caster);
@@ -1215,7 +1215,7 @@ ASPELL(spell_fear)
 
 ASPELL(spell_poison)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     int magus_save = 0;
 
@@ -1279,7 +1279,7 @@ ASPELL(spell_poison)
 ASPELL(spell_terror)
 {
     struct char_data* tmpch;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!caster || (caster->in_room == NOWHERE))
         return;
@@ -1340,7 +1340,7 @@ ASPELL(spell_attune)
 
 ASPELL(spell_sanctuary)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level;
 
     if (!victim)
@@ -1416,7 +1416,7 @@ ASPELL(spell_enchant_weapon)
 
 ASPELL(spell_death_ward)
 {
-    affected_type af;
+    affected_type af{};
 
     if ((type == SPELL_TYPE_ANTI) || is_object) {
 
@@ -1445,7 +1445,7 @@ ASPELL(spell_death_ward)
 
 ASPELL(spell_confuse)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration, tmp;
     affected_type* tmpaf;
     int modifier;
@@ -1779,7 +1779,7 @@ static int strongest_worn_resist(const char_data* victim, int resist_type)
 static void install_resist_affect(char_data* victim, int resist_type, int modifier, int duration,
     int magnitude)
 {
-    affected_type newaf;
+    affected_type newaf{};
 
     newaf.type = resist_type;
     newaf.duration = duration;
@@ -1896,7 +1896,7 @@ ASPELL(spell_protection)
     char_data* loc_victim;
     int res;
     char first_word[255], second_word[255];
-    affected_type newaf;
+    affected_type newaf{};
 
     if (strlen(arg) >= 255)
         arg[254] = 0;
