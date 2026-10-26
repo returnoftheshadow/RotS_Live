@@ -14,6 +14,7 @@
 #include "interpre.h"
 #include "object_skins.h"
 #include "protos.h"
+#include "retired_prototype_text.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -200,60 +201,6 @@ void write_object(FILE* f, const struct obj_data* obj, int num)
 
 static void send_has_skins(const struct char_data* ch, int vnum, int rnum, const char* what);
 
-/* Copies of a prototype share its text and extra-description list, and every copy is on
- * object_list: read_object links each new copy there, restyle_object points a copy already on it
- * at its new prototype's text, and extract_obj unlinks a copy before freeing it. Shape sessions
- * read their own text from the object files. Replaced text a copy holds is never freed, since
- * free_obj leaves a copy's text alone. Implement is a rare builder command, so each check below
- * scans the whole list. */
-
-/* True when an object on object_list holds `text` as its name or any of its descriptions. */
-static bool live_object_holds_text(const char* text)
-{
-    for (const obj_data* object = object_list; object; object = object->next) {
-        if (object->name == text || object->short_description == text
-            || object->description == text || object->action_description == text) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/* Frees text a prototype has replaced, unless a live copy still holds it. */
-static void release_replaced_text(char* text)
-{
-    if (text && !live_object_holds_text(text)) {
-        RELEASE(text);
-    }
-}
-
-/* Frees an extra-description list a prototype has replaced, unless a live copy's list reaches
- * it. A list that shares any node of it also reaches its last node, so only that one is sought. */
-static void release_replaced_extra_descriptions(extra_descr_data* list)
-{
-    if (!list) {
-        return;
-    }
-    const extra_descr_data* last_node = list;
-    while (last_node->next) {
-        last_node = last_node->next;
-    }
-    for (const obj_data* object = object_list; object; object = object->next) {
-        for (const extra_descr_data* node = object->ex_description; node; node = node->next) {
-            if (node == last_node) {
-                return;
-            }
-        }
-    }
-    while (list) {
-        extra_descr_data* next_node = list->next;
-        RELEASE(list->keyword);
-        RELEASE(list->description);
-        RELEASE(list);
-        list = next_node;
-    }
-}
-
 void implement_object(const struct char_data* ch)
 {
     struct obj_data *real, *curr;
@@ -338,11 +285,11 @@ void implement_object(const struct char_data* ch)
         }
     }
     /* Copies already in the game keep the text they were made with. */
-    release_replaced_text(old_name);
-    release_replaced_text(old_short_description);
-    release_replaced_text(old_description);
-    release_replaced_text(old_action_description);
-    release_replaced_extra_descriptions(old_extra_descriptions);
+    retire_prototype_text(old_name);
+    retire_prototype_text(old_short_description);
+    retire_prototype_text(old_description);
+    retire_prototype_text(old_action_description);
+    retire_prototype_extra_descriptions(old_extra_descriptions);
     for (i = 0; i < MAX_OBJ_AFFECT; i++) {
         real->affected[i].location = curr->affected[i].location;
         real->affected[i].modifier = curr->affected[i].modifier;
