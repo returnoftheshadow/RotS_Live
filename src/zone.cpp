@@ -688,6 +688,7 @@ void reset_zone(int zone)
     extern struct room_data world;
     extern struct index_data* mob_index;
     extern struct index_data* obj_index;
+    extern struct obj_data* obj_proto;
     extern struct char_data* character_list;
     int set_exit_state(const struct room_data*, int, int);
     void add_follower(struct char_data*, struct char_data*, int mode);
@@ -1090,6 +1091,18 @@ void reset_zone(int zone)
                 if ((!ZCMD.arg3 || obj_index[ZCMD.arg1].number < ZCMD.arg3) && (ZCMD.arg4 == 100 || ZCMD.arg4 > number(0, 99))) {
                     if (ZCMD.arg2 < 0 || ZCMD.arg2 >= MAX_WEAR) {
                         last_cmd = 0;
+                    } else if (mob->equipment[ZCMD.arg2]) {
+                        /* equip_char refuses a filled slot without placing the item, which would
+                         * leave it held by nobody and never freed, so it is not made. The log
+                         * line is the one equip_char wrote. last_cmd stays 1 so the commands
+                         * after this one run as they do when it loads; a 'P' into the last
+                         * object loaded has none to go in. */
+                        char refusal[MAX_STRING_LENGTH];
+                        snprintf(refusal, sizeof(refusal), "SYSERR: Char is already equipped: %s, %s",
+                            GET_NAME(mob), obj_proto[ZCMD.arg1].short_description);
+                        log(refusal);
+                        obj = 0;
+                        last_cmd = 1;
                     } else {
                         obj = read_object(ZCMD.arg1, REAL);
                         /* As for 'K'. */

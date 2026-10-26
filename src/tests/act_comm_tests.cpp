@@ -217,6 +217,29 @@ TEST_F(NoteWritingTest, AWrittenNoteHasATextOfItsOwn)
     EXPECT_STREQ(m_prototypes[NOTE_RNUM].name, "note paper");
 }
 
+/* Showing, listing or formatting a note before its first line touches no text, even after an
+ * earlier edit on the same connection left its lengths behind. */
+class UnstartedNoteCommandTest : public NoteWritingTest, public testing::WithParamInterface<const char*> {
+};
+
+TEST_P(UnstartedNoteCommandTest, ReadsNoTextAfterAnEarlierEdit)
+{
+    start_writing();
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
+    m_descriptor.len_str = 40;
+    m_descriptor.cur_str = 20;
+    m_descriptor.max_str = 64;
+
+    type(GetParam());
+
+    /* The command line itself is added as an empty line, so the text is just its line end. */
+    ASSERT_NE(m_descriptor.written_note_text, nullptr);
+    EXPECT_EQ(std::strlen(m_descriptor.written_note_text), m_descriptor.len_str);
+    EXPECT_LE(m_descriptor.cur_str, m_descriptor.len_str);
+}
+
+INSTANTIATE_TEST_SUITE_P(EditorCommands, UnstartedNoteCommandTest, testing::Values("%r", "%l", "%f"));
+
 /* A note abandoned with %q is left blank. */
 TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
 {
