@@ -887,7 +887,13 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
+        /* A paused script is dropped, not run (complete_delay); should the interrupted command
+         * remove the one dying anyway, there is nobody left to kill. */
+        freed_watch dying_watch(dead_man);
         complete_delay(dead_man);
+        if (dying_watch.freed()) {
+            return;
+        }
     }
     abort_delay(dead_man);
 

@@ -6,12 +6,16 @@
  * that lost its victim or attacker is over. A script that keeps everyone changes nothing. */
 #include "scripted_room_fixture.h"
 
+#include "../comm.h"
 #include "../spells.h"
 
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_give(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void die(char_data* dead_man, char_data* killer, int attack_type);
+void raw_kill(char_data* ch, const char_data* killer, int attacktype);
+
+extern struct index_data* mob_index;
 
 using namespace scripted_room;
 
@@ -439,4 +443,76 @@ TEST_F(CharacterTriggerTest, AMobsScriptKeepsItsVariablesWhenItsTriggerRunsAgain
     run_command(do_say, "hello");
 
     EXPECT_TRUE(output_has("Holding a grey stone.")) << output();
+}
+
+/* ---- scripts paused with DO_WAIT ---- */
+
+/* A script body that pauses for one pulse, then tells the room the mob fades and removes it. */
+static std::vector<body_line> pause_then_remove_body()
+{
+    return { { SCRIPT_DO_WAIT, nullptr, { 1 } },
+        { SCRIPT_SEND_TO_ROOM, "The mob fades.", { SCRIPT_PARAM_CH1_ROOM } },
+        { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } };
+}
+
+TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemoved)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_NE(nullptr, waiting_list) << "both mobs paused";
+
+    process_waiting_list();
+
+    EXPECT_EQ(2, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, character_list);
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
+/* A higher-priority delay given to a paused mob (as bash gives its victim) drops the rest of the
+ * paused script instead of running it in the middle of the bash. */
+TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobDropsTheRestOfItsScript)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    WAIT_STATE_FULL(mob, 3, 0, 0, 50, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+
+    EXPECT_TRUE(is_in_game(mob));
+    EXPECT_EQ(3, mob->delay.wait_value);
+    for (int pulse = 0; pulse < 3; ++pulse) {
+        process_waiting_list();
+    }
+    EXPECT_TRUE(is_in_game(mob)) << "the dropped script never resumes";
+    EXPECT_FALSE(output_has("The mob fades."));
+}
+
+/* A paused mob that is killed dies without finishing its script. */
+TEST_F(CharacterTriggerTest, APausedMobThatIsKilledDiesWithoutFinishingItsScript)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+    /* make_corpse reads the mob's prototype entry, so the mob gets one; with a prototype the
+     * game no longer frees its strings, so they are the test's. */
+    index_data prototype_index[1] {};
+    index_data* saved_mob_index = mob_index;
+    mob_index = prototype_index;
+    char mob_name[] = "mob";
+    RELEASE(mob->player.name);
+    RELEASE(mob->player.short_descr);
+    mob->player.name = mob_name;
+    mob->player.short_descr = mob_name;
+    mob->nr = 0;
+
+    raw_kill(mob, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_FALSE(output_has("The mob fades."));
+    EXPECT_EQ(nullptr, waiting_list);
+    mob_index = saved_mob_index;
 }
