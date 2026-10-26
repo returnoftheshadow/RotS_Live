@@ -4,8 +4,9 @@
  * without the removal.
  *
  * Poison here comes from an item that gives its wearer the poison flag (APPLY_BITVECTOR), which
- * hurts the wearer as the item goes on and comes off. A test that needs a roll to go one way
- * queues it with push_test_random_value. */
+ * hurts the wearer as the item goes on and comes off, except when the game strips someone
+ * leaving it (gear_change::quiet). A test that needs a roll to go one way queues it with
+ * push_test_random_value. */
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
@@ -421,9 +422,9 @@ TEST_F(DeathAndDamagePathsTest, AMoverHurtAsItsStayZoneGearComesOffLeavesItBehin
     EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(mover));
 }
 
-/* A ghoul fading away is removed by its damage script as its ring comes off: the fading stops
- * there. The ring goes as the rest of its gear does. */
-TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
+/* A ghoul fading away takes its poisonous ring off quietly: the poison does not set off its
+ * damage script, and the ghoul and the ring go as they do without one. */
+TEST_F(DeathAndDamagePathsTest, AFadingGhoulsGearComesOffWithoutSettingOffItsDamageScript)
 {
     make_ring_and_sword_poisonous();
     install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
@@ -742,21 +743,23 @@ TEST_F(DeathAndDamagePathsTest, AKillerRemovedAsTheDyingOnesGearComesOffIsNoKill
 
 /* ---- a ghoul sinking back into the ground ---- */
 
-/* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
- * second time, and its body is left. */
-TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
+/* A dismissed ghoul too hurt to survive the poison of its gear takes the gear off quietly: it
+ * sinks into the ground without dying, and leaves no body. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulInPoisonousGearSinksWithoutDying)
 {
     make_ring_and_sword_poisonous();
     char_data* summoner = make_mob("ghoul", 0);
     char_data* risen = make_mob("risen", 0);
     make_into_risen_ghoul(risen);
     add_follower(risen, summoner, FOLLOW_MOVE);
-    obj_to_char(make_object(RING_VNUM, 0), risen);
-    obj_to_char(make_object(SWORD_VNUM, 0), risen);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_data* sword = make_object(SWORD_VNUM, 0);
+    obj_to_char(ring, risen);
+    obj_to_char(sword, risen);
     run_command_as(risen, do_wear, "ring");
     run_command_as(risen, do_wield, "sword");
-    ASSERT_NE(nullptr, risen->equipment[WEAR_FINGER_R]);
-    ASSERT_NE(nullptr, risen->equipment[WIELD]);
+    ASSERT_EQ(ring, risen->equipment[WEAR_FINGER_R]);
+    ASSERT_EQ(sword, risen->equipment[WIELD]);
     risen->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
     push_test_random_value(0.0); /* the idle follower is dismissed */
     char no_argument[1] = "";
@@ -766,7 +769,9 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
     EXPECT_FALSE(is_in_game(risen));
     EXPECT_TRUE(is_in_game(summoner));
     EXPECT_EQ(nullptr, summoner->followers);
-    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(0, count_corpses_in_room());
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_FALSE(is_in_object_list(sword));
 }
 
 /* A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is

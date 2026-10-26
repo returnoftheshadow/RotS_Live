@@ -2,7 +2,6 @@
 
 #include "comm.h"
 #include "db.h"
-#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "mob_options.h"
@@ -374,19 +373,15 @@ void walker_remove_finished()
         if (char_exists(gone.abs_number) && gone.ch->in_room != NOWHERE) {
             /* What it wears and carries goes with it: extract_char would
              * leave it all in the room, free to pick up, at every zone reset. */
-            /* Taking an item off can kill it (its poison) or set off a script that removes
-             * it: there is then nothing left to remove. */
-            freed_watch walker_watch(gone.ch);
-            for (int slot = 0; slot < MAX_WEAR && !walker_watch.freed(); ++slot) {
+            for (int slot = 0; slot < MAX_WEAR; ++slot) {
                 if (gone.ch->equipment[slot]) {
-                    extract_obj(unequip_char(gone.ch, slot));
+                    extract_obj(unequip_char(gone.ch, slot, gear_change::quiet));
                 }
             }
-            if (!walker_watch.freed()) {
-                while (gone.ch->carrying)
-                    extract_obj(gone.ch->carrying);
-                extract_char(gone.ch);
+            while (gone.ch->carrying) {
+                extract_obj(gone.ch->carrying);
             }
+            extract_char(gone.ch);
         }
         send_route_message(gone.message, gone.room);
     }
