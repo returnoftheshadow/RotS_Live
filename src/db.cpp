@@ -3848,11 +3848,38 @@ void free_char(struct char_data* ch)
     RELEASE(ch);
 }
 
+/* Logs a SYSERR when 'obj' has text fields but no shared text: text set by hand belongs to whoever
+   set it, and deleting the object frees none of it. */
+static void log_hand_set_object_text(const obj_data& obj)
+{
+    if (obj.shared_text()) {
+        return;
+    }
+    const bool has_text = obj.name || obj.description || obj.short_description
+        || obj.action_description || obj.ex_description;
+    if (!has_text) {
+        return;
+    }
+
+    int virtual_number = -1;
+    if (obj.item_number >= 0 && obj.item_number <= top_of_objt) {
+        virtual_number = obj_index[obj.item_number].virt;
+    }
+    const char* shown_name = "(none)";
+    if (obj.short_description) {
+        shown_name = obj.short_description;
+    }
+    const std::string message = "SYSERR: free_obj: object " + std::to_string(virtual_number)
+        + " (" + shown_name + ") has text set by hand, which nothing frees";
+    log(message.c_str());
+}
+
 /* release memory allocated for an obj struct */
 void free_obj(struct obj_data* obj)
 {
     note_object_freed(obj);
     stop_writing_on_note(*obj);
+    log_hand_set_object_text(*obj);
 
     /* "setfree off" keeps freed memory for debugging, as RELEASE does. Deleting the object lets go
      * of its text, which goes with the last object showing it. */
