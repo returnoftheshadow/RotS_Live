@@ -1012,7 +1012,7 @@ obj_data* load_scalp(int number)
         w_type = 1;
     }
 
-    CREATE(scalp, struct obj_data, 1);
+    scalp = new obj_data();
     // printf("making corpse from %p\n",ch);
     // printf("corpse created, =%p\n",corpse);
     clear_object(scalp);

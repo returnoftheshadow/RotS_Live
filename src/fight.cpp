@@ -698,7 +698,7 @@ obj_data* make_physical_corpse(char_data* character, bool gather_wearables, int 
     }
 
     if (!corpse) {
-        CREATE(corpse, struct obj_data, 1);
+        corpse = new obj_data();
         clear_object(corpse);
         corpse->next = object_list;
         object_list = corpse;

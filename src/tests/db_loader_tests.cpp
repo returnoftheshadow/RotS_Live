@@ -2724,7 +2724,7 @@ public:
         /* load_object replaces the working copy with one of its own. */
         if (shape.object != nullptr && shape.object != &object) {
             release_object_text(*shape.object);
-            RELEASE(shape.object);
+            delete shape.object;
         }
         release_object_text(object);
         for (int index = 0; index <= top_of_objt; ++index)

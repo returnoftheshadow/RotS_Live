@@ -66,7 +66,7 @@ protected:
             std::free(object_list->name);
             std::free(object_list->description);
             std::free(object_list->short_description);
-            std::free(object_list);
+            delete object_list;
             object_list = next;
         }
         mob_proto = m_saved_mob_proto;
@@ -198,8 +198,7 @@ protected:
 
     obj_data* make_corpse()
     {
-        obj_data* corpse = nullptr;
-        CREATE(corpse, obj_data, 1);
+        obj_data* corpse = new obj_data();
         clear_object(corpse);
         corpse->item_number = CORPSE_RNUM;
         corpse->name = m_corpse_name;

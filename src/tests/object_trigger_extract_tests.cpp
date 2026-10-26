@@ -521,8 +521,7 @@ TEST_F(ObjectTriggerTest, AnObjectRenamedTwiceKeepsTheLatestName)
  * it. */
 TEST_F(ObjectTriggerTest, FreeingAnObjectEndsAnEditOfItsExtraDescription)
 {
-    obj_data* plaque = nullptr;
-    CREATE1(plaque, obj_data);
+    obj_data* plaque = new obj_data();
     clear_object(plaque);
     plaque->name = str_dup("plaque");
     plaque->short_description = str_dup("a plaque");
