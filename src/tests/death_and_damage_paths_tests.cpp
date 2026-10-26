@@ -17,6 +17,7 @@ void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subc
 void do_wield(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_remove(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_cleave(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_knock(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_order(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void assign_command_pointers(void);
 void complete_delay(struct char_data* ch);
@@ -49,6 +50,30 @@ constexpr int FEWER_HIT_POINTS_THAN_THE_POISON = 3;
 constexpr int TWO_HANDED_BULK = 5;
 /* The ghoul the ghoul special raises, which sinks back into the ground when idle. */
 constexpr int RISEN_GHOUL_VNUM = 15300;
+
+/* The killer remove_the_killer_on_death removes; null once it has. */
+char_data* killer_to_remove = nullptr;
+
+/* A death procedure that removes killer_to_remove and lets the death go on. */
+SPECIAL(remove_the_killer_on_death)
+{
+    if (callflag == SPECIAL_DEATH && killer_to_remove != nullptr) {
+        char_data* const killer = killer_to_remove;
+        killer_to_remove = nullptr;
+        extract_char(killer);
+    }
+    return FALSE;
+}
+
+/* A doorkeeper's procedure that kills whoever knocks on its door. */
+SPECIAL(kill_whoever_knocks)
+{
+    if (cmd == CMD_KNOCK && ch != host) {
+        raw_kill(ch, host, TYPE_HIT);
+        return TRUE;
+    }
+    return FALSE;
+}
 
 class DeathAndDamagePathsTest : public ScriptedRoomFixture {
 protected:
@@ -463,6 +488,56 @@ TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
 
     EXPECT_TRUE(is_in_game(victim));
     EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(victim));
+}
+
+/* ---- what a death leaves behind ---- */
+
+/* A mob slain by a mob its death procedure removes is still a mob's kill: the wearable gear in
+ * its bags stays there, as when the killer stays. */
+TEST_F(DeathAndDamagePathsTest, AMobKillerRemovedDuringTheDeathLeavesTheBagsAlone)
+{
+    char_data* killer = make_mob("killer", 0);
+    char_data* dying = make_mob("dying", 0);
+    make_into_risen_ghoul(dying);
+    SET_BIT(MOB_FLAGS(dying), MOB_SPEC);
+    m_mob_index[1].func = remove_the_killer_on_death;
+    obj_data* bag = make_object(BAG_VNUM, 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_obj(ring, bag);
+    obj_to_char(bag, dying);
+    killer_to_remove = killer;
+
+    raw_kill(dying, killer, TYPE_HIT);
+
+    killer_to_remove = nullptr;
+    EXPECT_FALSE(is_in_game(killer));
+    EXPECT_FALSE(is_in_game(dying));
+    ASSERT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(bag, ring->in_obj);
+}
+
+/* A mob killed from beyond the door it knocks on leaves its corpse, and what it carried, on its
+ * own side. */
+TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide)
+{
+    link_second_room();
+    char door_keyword[] = "door";
+    room_direction_data* door = world[0].dir_option[NORTH];
+    door->exit_info = EX_ISDOOR;
+    door->keyword = door_keyword;
+    char_data* doorkeeper = make_mob("doorkeeper", 0, SECOND_ROOM);
+    make_into_risen_ghoul(doorkeeper);
+    SET_BIT(MOB_FLAGS(doorkeeper), MOB_SPEC);
+    m_mob_index[1].func = kill_whoever_knocks;
+    char_data* knocker = make_mob("knocker", 0);
+    obj_to_char(make_object(STONE_VNUM, 0), knocker);
+
+    run_command_as(knocker, do_knock, "door");
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_TRUE(is_in_game(doorkeeper));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
 }
 
 /* ---- dying of negative regeneration ---- */

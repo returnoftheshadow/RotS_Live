@@ -689,7 +689,7 @@ void move_wearables_to_corpse(obj_data* corpse)
 //============================================================================
 // Makes a corpse from the character passed in.  Returns a pointer to the corpse.
 //============================================================================
-obj_data* make_physical_corpse(char_data* character, const char_data* killer, int attack_type)
+obj_data* make_physical_corpse(char_data* character, bool gather_wearables, int attack_type)
 {
     obj_data* corpse = NULL;
 
@@ -745,11 +745,6 @@ obj_data* make_physical_corpse(char_data* character, const char_data* killer, in
      */
     corpse_decay_time(character, corpse, 0);
 
-    // If the character died to another player or poison, all of their wearable gear is moved
-    // into their corpse and out of any containers they own. Decided before the gear comes off:
-    // taking it off can cast an item's spell that removes the killer.
-    const bool gather_wearables = attack_type == SPELL_POISON || !IS_NPC(killer);
-
     /* removing our victims eq */
     for (int gear_index = 0; gear_index < MAX_WEAR; gear_index++) {
         if (character->equipment[gear_index]) {
@@ -787,10 +782,15 @@ void spirit_death(char_data* character)
     move_gold(character, NULL, 1);
 }
 
-obj_data* make_corpse(char_data* character, const char_data* killer, int attack_type)
+/* Leaves <character>'s corpse, or a shadow's belongings, in the room it stands in. With
+ * <gather_wearables>, the wearable gear in its containers is taken out into the corpse too. */
+obj_data* make_corpse(char_data* character, bool gather_wearables, int attack_type)
 {
+    /* A knocker a procedure on the far side of a door kills is lent that room: it falls where it
+     * stands. */
+    room_lend::end_for(character);
     if (!IS_SHADOW(character)) {
-        return make_physical_corpse(character, killer, attack_type);
+        return make_physical_corpse(character, gather_wearables, attack_type);
     } else {
         spirit_death(character);
         return NULL;
@@ -891,6 +891,12 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
      * dying one's death procedure, or an item spell cast as its gear comes off. The death then
      * goes on with no killer, as when a death script removes it (die). */
     freed_watch killer_watch(killer);
+    /* Read while the killer is surely there. Someone who dies to poison, a player or no killer at
+     * all has the wearable gear in their containers gathered into the corpse; a player who dies
+     * to a player recovers as one. */
+    const bool killer_is_npc = IS_NPC(killer);
+    const bool gather_wearables = attack_type == SPELL_POISON || !killer_is_npc;
+    const bool killed_by_player = killer != nullptr && !killer_is_npc;
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
@@ -934,10 +940,7 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
     if (killer_watch.freed()) {
         killer = nullptr;
     }
-    /* Read while the killer is surely there: a player who dies to a player recovers as one even
-     * when the killer goes while the gear comes off. */
-    const bool killed_by_player = killer != nullptr && !IS_NPC(killer);
-    obj_data* corpse = make_corpse(dead_man, killer, attack_type);
+    obj_data* corpse = make_corpse(dead_man, gather_wearables, attack_type);
     if (killer_watch.freed()) {
         killer = nullptr;
     }
