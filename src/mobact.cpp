@@ -155,6 +155,17 @@ void mobile_activity(void)
     walker_remove_finished();
 }
 
+/* True if <item> is on the content list that starts at <first_listed>. */
+static bool is_on_content_list(const obj_data* first_listed, const obj_data* item)
+{
+    for (const obj_data* listed = first_listed; listed; listed = listed->next_content) {
+        if (listed == item) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void one_mobile_activity(char_data* ch)
 {
     int door, found, max, tmp, is_passive;
@@ -368,9 +379,11 @@ void one_mobile_activity(char_data* ch)
                                 best_obj = obj;
                                 max = obj->obj_flags.cost;
                             } else if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER) {
-                                /* An item's ON_WEAR script can remove the mob, or destroy
-                                 * the container, the item to be looked at next or the best
-                                 * one seen so far; the first three end the scavenging. */
+                                /* An item's ON_WEAR script can remove the mob, destroy the
+                                 * container, the item to be looked at next or the best one
+                                 * seen so far, or move the container out of the room or the
+                                 * next item out of the container; all but the loss of the best
+                                 * one end the scavenging. */
                                 freed_watch container_watch(obj);
                                 bool scavenging_disturbed = false;
                                 for (inside = obj->contains; inside; inside = next_obj) {
@@ -394,6 +407,11 @@ void one_mobile_activity(char_data* ch)
                                                 scavenging_disturbed = true;
                                                 break;
                                             }
+                                            if (!is_on_content_list(scavenged_room.contents, obj)
+                                                || (next_obj && next_obj->in_obj != obj)) {
+                                                scavenging_disturbed = true;
+                                                break;
+                                            }
                                         }
                                 }
                                 if (scavenging_disturbed) {
@@ -403,6 +421,10 @@ void one_mobile_activity(char_data* ch)
                         }
                     } /* for */
 
+                    /* A script set off above can have taken the best item out of the room. */
+                    if (best_obj && !is_on_content_list(scavenged_room.contents, best_obj)) {
+                        best_obj = 0;
+                    }
                     if (best_obj) {
                         obj_from_room(best_obj);
                         obj_to_char(best_obj, ch);

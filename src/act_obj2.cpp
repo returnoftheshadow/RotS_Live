@@ -811,9 +811,10 @@ bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     if (wear_result == object_trigger_result::refused) {
         return true;
     }
-    /* The script may have dropped the item or put it into something: then nobody carries it, and
-     * taking it from nobody would crash. */
-    if (!item->carried_by) {
+    /* The script may have dropped the item, put it into something or handed it to someone else:
+     * then the wearer no longer carries it and has nothing to put on (taking it from nobody would
+     * crash, and from someone else would strip them of it). */
+    if (item->carried_by != character) {
         return true;
     }
 
@@ -963,11 +964,15 @@ ACMD(do_wear)
                 freed_watch next_item_watch(next_obj);
                 perform_wear(ch, obj, where, true);
                 /* An item's ON_WEAR script can remove the wearer, or destroy the item to be
-                 * looked at next; either ends the wearing. */
+                 * looked at next or move it away from the wearer; any of those ends the
+                 * wearing. */
                 if (wearer_watch.freed()) {
                     return;
                 }
                 if (next_item_watch.freed()) {
+                    break;
+                }
+                if (next_obj && next_obj->carried_by != ch) {
                     break;
                 }
             }
@@ -993,7 +998,7 @@ ACMD(do_wear)
                     if (wearer_watch.freed()) {
                         return;
                     }
-                    if (next_item_watch.freed()) {
+                    if (next_item_watch.freed() || (next_obj && next_obj->carried_by != ch)) {
                         next_obj = nullptr;
                     }
                 } else

@@ -624,6 +624,12 @@ ACMD(do_drop)
 void perform_give(struct char_data* ch, struct char_data* vict,
     struct obj_data* obj)
 {
+    /* A script set off while giving everything can move the next item away (to the floor, or to
+     * someone else): ch has nothing of it to give. */
+    if (obj->carried_by != ch) {
+        return;
+    }
+
     if (IS_SET(obj->obj_flags.extra_flags, ITEM_NODROP)) {
         act("You can't let go of $p!!  Yeech!", FALSE, ch, obj, 0, TO_CHAR);
         return;
@@ -762,11 +768,15 @@ ACMD(do_give)
                     freed_watch next_item_watch(next_obj);
                     perform_give(ch, vict, obj);
                     /* The receiver's ON_RECEIVE script can remove either of them, or destroy
-                     * the item to be given next; any of those ends the giving. */
+                     * the item to be given next or move it away from the giver; any of those
+                     * ends the giving. */
                     if (giver_watch.freed() || receiver_watch.freed()) {
                         break;
                     }
                     if (next_item_watch.freed()) {
+                        break;
+                    }
+                    if (next_obj && next_obj->carried_by != ch) {
                         break;
                     }
                 }
@@ -789,7 +799,7 @@ ACMD(do_give)
                     if (giver_watch.freed()) {
                         break;
                     }
-                    if (next_item_watch.freed()) {
+                    if (next_item_watch.freed() || (next_obj && next_obj->carried_by != ch)) {
                         next_obj = nullptr;
                     }
                     obj = next_obj;

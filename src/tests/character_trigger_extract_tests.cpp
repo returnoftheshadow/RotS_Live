@@ -13,6 +13,7 @@
 void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_give(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void one_mobile_activity(char_data* ch);
 void die(char_data* dead_man, char_data* killer, int attack_type);
 void raw_kill(char_data* ch, const char_data* killer, int attacktype);
 
@@ -173,6 +174,63 @@ TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptExtracts
     EXPECT_EQ(nullptr, m_player.carrying);
 }
 
+/* The keeper's script makes the player drop the bread it was going to give next: the giving stops,
+ * and the bread stays on the floor. */
+TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptDropsTheNextItem)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { BREAD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    obj_data* bread = give_player(make_object(BREAD_VNUM, 0));
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0)); /* given first */
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(stone, keeper->carrying);
+    EXPECT_EQ(nullptr, stone->next_content);
+    EXPECT_EQ(bread, world[0].contents);
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+/* The same for giving all of a kind: the script drops the second stone. */
+TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptDropsTheNextOne)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    give_player(make_object(STONE_VNUM, 0));
+    give_player(make_object(STONE_VNUM, 0));
+
+    run_command(do_give, "all.stone keeper");
+
+    EXPECT_EQ(1, count_contents(keeper->carrying));
+    EXPECT_EQ(1, count_contents(world[0].contents));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+/* The keeper's script has the player hand over the bread itself: the bread is the keeper's, and
+ * the giving does not take it from the keeper to give it again. */
+TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptTakesTheNextItem)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { BREAD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_GIVE, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    give_player(make_object(BREAD_VNUM, 0));
+    give_player(make_object(STONE_VNUM, 0)); /* given first */
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(2, count_contents(keeper->carrying));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(2, count_in_output("You give")) << "the stone by the command, the bread by the script";
+}
+
 /* ---- wearing (ON_WEAR) ---- */
 
 /* The ring's script destroys the stone that wear all would look at next. */
@@ -189,6 +247,27 @@ TEST_F(CharacterTriggerTest, WearingAllStopsWhenARingsScriptExtractsTheNextItem)
 
     EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
     EXPECT_FALSE(is_in_object_list(stone));
+}
+
+/* The ring's script drops the sword wear all would wield next: the wearing stops there, and the
+ * ring lying on the floor after the sword is not put on. */
+TEST_F(CharacterTriggerTest, WearingAllStopsWhenARingsScriptDropsTheNextItem)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { SWORD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } } });
+    obj_to_room(make_object(RING_VNUM, 0), 0);
+    obj_data* sword = give_player(make_object(SWORD_VNUM, 0));
+    obj_data* ring = give_player(make_scripted(RING_VNUM)); /* looked at first */
+
+    run_command(do_wear, "all");
+
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.equipment[WIELD]);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_L]);
+    EXPECT_EQ(sword, world[0].contents);
+    EXPECT_EQ(nullptr, m_player.carrying);
 }
 
 TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
@@ -889,4 +968,47 @@ TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
     const size_t first = logged.find(refusal);
     ASSERT_NE(std::string::npos, first) << logged.substr(0, 400);
     EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
+}
+
+/* ---- scavenging (ON_WEAR of what a scavenger takes) ---- */
+
+/* A scavenger takes a ring from a bag and puts it on; the ring's script moves the most valuable
+ * item in the room, which the scavenger had picked out, into the scavenger's hands. The scavenger
+ * does not then pick it up from the floor it has left. */
+TEST_F(CharacterTriggerTest, AScavengerLeavesAnItemAScriptMovedOutOfTheRoom)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_ROOM, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_OBJ_FROM_ROOM, nullptr, { SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1_ROOM } },
+            { SCRIPT_OBJ_TO_CHAR, nullptr, { SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1 } } });
+    char_data* scavenger = make_mob("scavenger", 0);
+    SET_BIT(MOB_FLAGS(scavenger), MOB_SCAVENGER | MOB_SENTINEL);
+    obj_data* bag = make_object(BAG_VNUM, 0);
+    obj_to_room(bag, 0);
+    obj_to_obj(make_scripted(RING_VNUM), bag);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    stone->obj_flags.cost = 50; /* the most valuable thing here */
+    obj_to_room(stone, 0);
+    ASSERT_EQ(stone, world[0].contents) << "looked at before the bag";
+    /* Mob activity is for mobs made from a prototype. */
+    index_data prototype_index[1] {};
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+    scavenger->nr = 0;
+    push_test_random_value(0.0); /* it scavenges this turn */
+
+    one_mobile_activity(scavenger);
+
+    scavenger->nr = -1; /* as make_mob left it, so that its strings are freed with it */
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+
+    EXPECT_NE(nullptr, scavenger->equipment[WEAR_FINGER_R]) << "it took the ring and wore it";
+    EXPECT_EQ(scavenger, stone->carried_by);
+    EXPECT_EQ(bag, world[0].contents);
+    EXPECT_EQ(nullptr, bag->next_content);
+    EXPECT_FALSE(output_has("gets a grey stone")) << output();
 }
