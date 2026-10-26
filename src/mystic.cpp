@@ -1823,8 +1823,10 @@ static bool is_item_held(const affected_type* affect) { return affect && affect-
 bool item_spell_is_worn_affect(int spell_number)
 {
     /* Each of these, cast by an item (is_object), installs an affect that never ticks down and
-       removes it again on SPELL_TYPE_ANTI, without a blow or a saving throw. Pragmatism and
-       confuse also look at is_object but give an affect that ticks down, so they are casts. */
+       removes it again on SPELL_TYPE_ANTI, without a blow or a saving throw. Death ward is the
+       exception: its SPELL_TYPE_ANTI removes insight and leaves death ward, and its item cast
+       removes insight too. Pragmatism and confuse also look at is_object but give an affect
+       that ticks down, so they are casts. */
     switch (spell_number) {
     case SPELL_DETECT_HIDDEN:
     case SPELL_ARMOR:
