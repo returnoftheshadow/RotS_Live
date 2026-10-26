@@ -332,6 +332,27 @@ void string_add_finish(struct descriptor_data* d)
     }
 }
 
+void stop_editing_text(std::initializer_list<char**> fields)
+{
+    extern struct descriptor_data* descriptor_list;
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        if (!descriptor->str
+            || std::find(fields.begin(), fields.end(), descriptor->str) == fields.end()) {
+            continue;
+        }
+        descriptor->str = nullptr;
+        descriptor->str_limit = 0;
+        char_data* writer = descriptor->character;
+        if (writer) {
+            if (!descriptor->connected && !IS_NPC(writer)) {
+                REMOVE_BIT(PLR_FLAGS(writer), PLR_WRITING);
+            }
+            send_to_char("What you were writing is gone.\n\r", writer);
+        }
+    }
+}
+
 void string_add(struct descriptor_data* d, char* str)
 /*** Add some user input to the current string: d->str ***/
 {

@@ -3768,6 +3768,9 @@ void free_char(struct char_data* ch)
     note_char_freed(ch);
     untrack_specialized_mage(ch);
     forget_freed_exposed_target(ch);
+    /* Its own describe command or an immortal's string command may be typing into one. */
+    stop_editing_text({ &ch->player.name, &ch->player.title, &ch->player.short_descr,
+        &ch->player.long_descr, &ch->player.description });
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);
@@ -3778,7 +3781,8 @@ void free_char(struct char_data* ch)
 
     if (!IS_NPC(ch) || (IS_NPC(ch) && ch->nr == -1)) {
 
-        RELEASE(GET_NAME(ch));
+        /* Not GET_NAME, which is a mob's short description. */
+        RELEASE(ch->player.name);
         RELEASE(ch->player.title);
         RELEASE(ch->player.short_descr);
         RELEASE(ch->player.long_descr);
@@ -3821,6 +3825,9 @@ void free_obj(struct obj_data* obj)
     struct extra_descr_data *thith, *next_one;
 
     note_object_freed(obj);
+    /* Someone writing on a note is typing into its text. */
+    stop_editing_text({ &obj->name, &obj->description, &obj->short_description,
+        &obj->action_description });
 
     if ((nr = obj->item_number) == -1) {
         RELEASE(obj->name);

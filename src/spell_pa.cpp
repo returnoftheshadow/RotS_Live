@@ -879,8 +879,13 @@ ACMD(do_cast)
             return;
         }
     } break;
-    case TAR_CHAR_WORLD: // supposedly he's still somewhere around :-)
-        break;
+    case TAR_CHAR_WORLD: {
+        /* One who died or rented while the spell was cast waits at the menu, in no room. */
+        if (tar_char->in_room == NOWHERE) {
+            send_to_char("Your victim has left the world.\n\r", ch);
+            return;
+        }
+    } break;
     case TAR_OBJ_INV: {
         // Find the object that we're targeting.
         for (tmpobj = ch->carrying; tmpobj; tmpobj = tmpobj->next_content) {

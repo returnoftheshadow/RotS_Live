@@ -22,6 +22,7 @@ void assign_command_pointers(void);
 void complete_delay(struct char_data* ch);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 void fast_update();
+SPECIAL(ghoul);
 void affect_update_room(struct room_data* room);
 
 namespace olog_hai {
@@ -444,4 +445,106 @@ TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
     do_cleave(olog, empty_argument(), nullptr, 0, 0);
 
     EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
+}
+
+/* ---- a ghoul sinking back into the ground ---- */
+
+/* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
+ * second time, and its body is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_to_char(make_object(RING_VNUM, 0), risen);
+    obj_to_char(make_object(SWORD_VNUM, 0), risen);
+    run_command_as(risen, do_wear, "ring");
+    run_command_as(risen, do_wield, "sword");
+    ASSERT_NE(nullptr, risen->equipment[WEAR_FINGER_R]);
+    ASSERT_NE(nullptr, risen->equipment[WIELD]);
+    risen->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_TRUE(is_in_game(summoner));
+    EXPECT_EQ(nullptr, summoner->followers);
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+/* A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is
+ * destroyed and nothing is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGround)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, risen);
+    run_command_as(risen, do_wear, "ring");
+    ASSERT_EQ(ring, risen->equipment[WEAR_FINGER_R]);
+    push_test_random_value(0.0); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(0, count_corpses_in_room());
+}
+
+/* ---- a summons ---- */
+
+/* The one being summoned leaves the world while the summons is cast (a player who dies or rents
+ * waits at the menu, still a character but in no room): the summons finds nobody and brings
+ * nobody into the room. */
+TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
+{
+    assign_command_pointers();
+    link_second_room();
+    char_from_room(&m_player);
+    char_to_room(&m_player, SECOND_ROOM);
+    /* In the game as a player is, so that the summons can find them. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    char_data* caster = make_mob("caster", 0);
+    caster->player.level = 50; /* a mob this strong never fumbles the spell */
+    char line[] = "cast 'summon' tester";
+    command_interpreter(caster, line, nullptr);
+    const bool cast_started = caster->delay.wait_value > 0;
+    /* As extract_char leaves a player sent to the menu. */
+    char_from_room(&m_player);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    for (int roll = 0; roll < 20; ++roll) {
+        push_test_random_value(0.0); /* the lowest rolls: the summoned one fails to resist */
+    }
+    /* One summoned looks at the room they arrive in. */
+    char room_text[] = "A test room";
+    char* const saved_room_name = world[0].name;
+    char* const saved_room_description = world[0].description;
+    world[0].name = room_text;
+    world[0].description = room_text;
+
+    if (cast_started) {
+        complete_delay(caster);
+    }
+
+    world[0].name = saved_room_name;
+    world[0].description = saved_room_description;
+    remove_char_exists(m_player.abs_number);
+    ASSERT_TRUE(cast_started) << "the cast did not start";
+    EXPECT_EQ(NOWHERE, m_player.in_room);
+    for (const char_data* person = world[0].people; person; person = person->next_in_room) {
+        EXPECT_NE(&m_player, person) << "the player was summoned from the menu";
+    }
+    EXPECT_TRUE(is_in_game(caster));
 }
