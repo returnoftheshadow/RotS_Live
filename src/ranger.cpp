@@ -2717,10 +2717,16 @@ ACMD(do_shoot)
 
         int roll = number(0, 99);
         int target_number = shoot_calculate_success(*ch);
+        /* The arrow's blow can remove the archer (a script it sets off, a death that runs one),
+         * and with it the delay <wtl> is part of. */
+        freed_watch archer_watch(ch);
         if (roll < target_number) {
             on_arrow_hit(ch, victim, arrow);
         } else {
             on_arrow_miss(ch, victim, arrow);
+        }
+        if (archer_watch.freed()) {
+            return;
         }
 
         ch->specials.ENERGY = std::min(ch->specials.ENERGY, 0); // reset swing timer after loosing an arrow.
@@ -3246,10 +3252,15 @@ ACMD(do_mark)
         // Did we land our touch attack???
         int target_number = mark_calculate_success(ch, victim);
         say_spell(ch, SKILL_MARK);
+        /* As for an arrow (do_shoot). */
+        freed_watch marker_watch(ch);
         if (target_number > 0) {
             on_mark_hit(ch, victim);
         } else {
             on_mark_miss(ch, victim);
+        }
+        if (marker_watch.freed()) {
+            return;
         }
 
         wtl->targ1.cleanup();
@@ -3501,10 +3512,15 @@ ACMD(do_blinding)
 
         int percent_hit = harad_skill_calculate_save(ch, victim, SKILL_BLINDING);
         say_spell(ch, SKILL_BLINDING);
+        /* As for an arrow (do_shoot); a freed blinder's dust stays where its death left it. */
+        freed_watch blinder_watch(ch);
         if (percent_hit < 0) {
             on_dust_miss(ch, victim, mana_cost);
         } else {
             on_dust_hit(ch, victim, mana_cost);
+        }
+        if (blinder_watch.freed()) {
+            return;
         }
 
         extract_obj(dust);

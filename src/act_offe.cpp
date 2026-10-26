@@ -269,6 +269,18 @@ ACMD(do_slay)
     }
 }
 
+/* True if <record> is on <leader>'s list of followers. <record> is compared by address and never
+ * read, so it may be one that has been freed. */
+static bool is_follow_record_of(const char_data* leader, const follow_type* record)
+{
+    for (const follow_type* listed = leader->followers; listed; listed = listed->next) {
+        if (listed == record) {
+            return true;
+        }
+    }
+    return false;
+}
+
 ACMD(do_order)
 {
     char name[100], message[256];
@@ -322,11 +334,26 @@ ACMD(do_order)
 
             org_room = ch->in_room;
 
-            for (k = ch->followers; k; k = k->next) {
+            /* Carrying out the order can remove the follower (a script its deed sets off, a
+             * death), and its follow record with it: the order then goes on to the follower
+             * after it, if that one still follows, and else ends. It can remove the leader too. */
+            freed_watch leader_watch(ch);
+            struct follow_type* next_k = nullptr;
+            for (k = ch->followers; k; k = next_k) {
+                next_k = k->next;
                 if (org_room == k->follower->in_room)
                     if (IS_AFFECTED(k->follower, AFF_CHARM) && !utils::is_guardian(*k->follower)) {
                         found = TRUE;
+                        freed_watch follower_watch(k->follower);
                         command_interpreter(k->follower, message);
+                        if (leader_watch.freed()) {
+                            return;
+                        }
+                        if (!follower_watch.freed() && is_follow_record_of(ch, k)) {
+                            next_k = k->next;
+                        } else if (!is_follow_record_of(ch, next_k)) {
+                            break;
+                        }
                     }
             }
             if (found)

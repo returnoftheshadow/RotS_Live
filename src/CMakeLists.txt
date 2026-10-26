@@ -229,6 +229,7 @@ set(ROTS_TEST_SOURCES
     tests/character_trigger_extract_tests.cpp
     tests/freed_watch_tests.cpp
     tests/combat_movement_extract_tests.cpp
+    tests/death_and_damage_paths_tests.cpp
     tests/spec_pro_tests.cpp
     tests/spell_removal_tests.cpp
     tests/spell_affect_tests.cpp

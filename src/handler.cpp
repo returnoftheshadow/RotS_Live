@@ -49,6 +49,7 @@
 
 #include "base_utils.h"
 #include "char_utils.h"
+#include "freed_watch.h"
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
@@ -1327,8 +1328,9 @@ void obj_from_char(struct obj_data* object)
         }
     }
 
-    /* set flag for crash-save system */
-    if (!IS_NPC(object->carried_by))
+    /* set flag for crash-save system; taking a worn item off can free the wearer (unequip_char),
+     * leaving the item nobody's */
+    if (object->carried_by && !IS_NPC(object->carried_by))
         SET_BIT(PLR_FLAGS(object->carried_by), PLR_CRASH);
 
     /* Only obj_to_char adds weight, and only for the inventory list.  A worn
@@ -1351,7 +1353,7 @@ void obj_from_char(struct obj_data* object)
         object->obj_flags.prog_number = 0;
 }
 
-void equip_char(char_data* character, obj_data* item, int item_slot)
+bool equip_char(char_data* character, obj_data* item, int item_slot)
 {
     int was_poisoned = IS_AFFECTED(character, AFF_POISON);
 
@@ -1361,12 +1363,12 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
         sprintf(buf, "SYSERR: Char is already equipped: %s, %s", GET_NAME(character),
             item->short_description);
         log(buf);
-        return;
+        return true;
     }
 
     if (item->in_room != NOWHERE) {
         log("SYSERR: EQUIP: Obj is in_room when equip.");
-        return;
+        return true;
     }
 
     if ((IS_OBJ_STAT(item, ITEM_ANTI_EVIL) && IS_EVIL(character)) || (IS_OBJ_STAT(item, ITEM_ANTI_GOOD) && IS_GOOD(character)) || (IS_OBJ_STAT(item, ITEM_ANTI_NEUTRAL) && IS_NEUTRAL(character))) {
@@ -1375,7 +1377,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
             act("You are zapped by $p and instantly drop it.", FALSE, character, item, 0, TO_CHAR);
             act("$n is zapped by $p and instantly drops it.", FALSE, character, item, 0, TO_ROOM);
             obj_to_char(item, character); /* changed to drop in inventory instead of ground */
-            return;
+            return true;
         } else
             log("SYSERR: ch->in_room = NOWHERE when equipping char.");
     }
@@ -1386,7 +1388,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
             act("You are zapped by $p and instantly drop it.", FALSE, character, item, 0, TO_CHAR);
             act("$n is zapped by $p and instantly drops it.", FALSE, character, item, 0, TO_ROOM);
             obj_to_char(item, character); /* changed to drop in inventory instead of ground */
-            return;
+            return true;
         } else
             log("SYSERR: ch->in_room = NOWHERE when equipping char.");
     }
@@ -1404,7 +1406,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
     IS_CARRYING_W(character) += GET_OBJ_WEIGHT(item);
 
     if ((item_slot == HOLD) && !CAN_WEAR(item, ITEM_HOLD))
-        return;
+        return true;
 
     if (GET_ITEM_TYPE(item) == ITEM_ARMOR)
         SET_DODGE(character) += item->obj_flags.value[3];
@@ -1429,10 +1431,22 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
         }
     }
 
-    for (int j = 0; j < MAX_OBJ_AFFECT; j++)
-        affect_modify(character, item->affected[j].location,
-            item->affected[j].modifier,
+    /* An item spell (APPLY_SPELL) is cast on the wearer as it goes on, and a harmful one can kill
+     * the wearer or set off a script that removes the wearer or the item. A death that leaves the
+     * wearer (a player) strips the item off, and its remaining affects then do not apply. */
+    freed_watch wearer_watch(character);
+    freed_watch item_watch(item);
+    for (int affect_index = 0; affect_index < MAX_OBJ_AFFECT; affect_index++) {
+        affect_modify(character, item->affected[affect_index].location,
+            item->affected[affect_index].modifier,
             item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
+        if (wearer_watch.freed() || item_watch.freed()) {
+            return false;
+        }
+        if (character->equipment[item_slot] != item) {
+            return true;
+        }
+    }
 
     affect_total(character);
 
@@ -1442,14 +1456,21 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
         extern void raw_kill(struct char_data * character, const char_data * killer, int attacktype);
 
         damage(character, character, 5, SPELL_POISON, 0);
+        if (wearer_watch.freed() || item_watch.freed()) {
+            return false;
+        }
 
         if (GET_HIT(character) <= 0) {
             act("$n suddenly collapses on the ground.",
                 TRUE, character, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", character);
             raw_kill(character, NULL, 0);
+            if (wearer_watch.freed() || item_watch.freed()) {
+                return false;
+            }
         }
     }
+    return true;
 }
 
 struct obj_data* unequip_char(struct char_data* ch, int pos)
@@ -1501,25 +1522,42 @@ struct obj_data* unequip_char(struct char_data* ch, int pos)
         }
     }
 
-    for (j = 0; j < MAX_OBJ_AFFECT; j++)
+    /* Taking off an item that casts a spell (APPLY_SPELL) casts it again, and a harmful one can
+     * kill the wearer or set off a script that removes it. The item is then nobody's. */
+    freed_watch wearer_watch(ch);
+    for (j = 0; j < MAX_OBJ_AFFECT; j++) {
         affect_modify(ch, obj->affected[j].location,
             obj->affected[j].modifier,
             obj->obj_flags.bitvector, AFFECT_MODIFY_REMOVE, 0);
+        if (wearer_watch.freed()) {
+            obj->carried_by = nullptr;
+            return obj;
+        }
+    }
 
     affect_total(ch);
 
     // Special case for poisoned objects.  The wearer should get poison damage
-    // when wearing/removing something poisoned.
-    if (was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON)) {
+    // when wearing/removing something poisoned. A dying wearer being stripped, or one in no room
+    // (being removed from the game), is not hurt: that death would be a second one.
+    if (was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON) && GET_POS(ch) > POSITION_DEAD
+        && ch->in_room != NOWHERE) {
         extern void raw_kill(struct char_data * ch, const char_data * killer, int attacktype);
 
         damage(ch, ch, 5, SPELL_POISON, 0);
+        if (wearer_watch.freed()) {
+            obj->carried_by = nullptr;
+            return obj;
+        }
 
         if (GET_HIT(ch) <= 0) {
             act("$n suddenly collapses on the ground.",
                 TRUE, ch, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", ch);
             raw_kill(ch, NULL, 0);
+            if (wearer_watch.freed()) {
+                obj->carried_by = nullptr;
+            }
         }
     }
 

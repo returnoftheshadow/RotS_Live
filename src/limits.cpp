@@ -772,14 +772,26 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
-            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON))
+            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
+                /* The blow, or a death it causes, can set off a script that removes the next
+                 * character: the update cannot go on past it, and the rest wait a tick. */
+                freed_watch next_watch(next_dude);
                 damage(i, i, 5, SPELL_POISON, 0);
+                if (next_watch.freed()) {
+                    break;
+                }
+            }
             //        if (GET_POS(i) == POSITION_STUNNED)
             //  	update_pos(i);
 
-        } else if (GET_POS(i) == POSITION_INCAP)
+        } else if (GET_POS(i) == POSITION_INCAP) {
+            /* As for poison. */
+            freed_watch next_watch(next_dude);
             damage(i, i, 3, TYPE_SUFFERING, 0);
-        else if (GET_POS(i) == POSITION_DEAD) {
+            if (next_watch.freed()) {
+                break;
+            }
+        } else if (GET_POS(i) == POSITION_DEAD) {
             /* A character can land directly at POSITION_DEAD via a
              * script write to hit (see set_int_value()/int_fromstack())
              * without ever going through damage()'s own die() call.
@@ -807,7 +819,12 @@ void point_update(void)
              * position. */
             update_pos(i);
             if (GET_POS(i) == POSITION_DEAD) {
+                /* As for poison. */
+                freed_watch next_watch(next_dude);
                 die(i, NULL, TYPE_UNDEFINED);
+                if (next_watch.freed()) {
+                    break;
+                }
                 continue;
             }
         }
@@ -1495,8 +1512,14 @@ void affect_update_room(struct room_data* room)
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
+                            /* Its blow can remove, through what it sets off (a death, a script),
+                             * the one to be struck next: the spell then strikes no one else. */
+                            freed_watch next_watch(next_tmpch);
                             (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
                                 tmpch, 0, 0, 0);
+                            if (next_watch.freed()) {
+                                break;
+                            }
                         }
                     }
                 } else {
@@ -1623,8 +1646,9 @@ void fast_update()
         if (GET_HIT(character) < 0 && hitregen < 0) {
             act("$n suddenly collapses on the ground.", TRUE, character, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, TYPE_UNDEFINED);
+            /* Recorded before the death, which frees a mob or a linkless player. */
             add_exploit_record(EXPLOIT_REGEN_DEATH, character, 0, NULL);
+            raw_kill(character, NULL, TYPE_UNDEFINED);
             return;
         }
 

@@ -15,6 +15,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -1003,9 +1004,14 @@ ACMD(do_cast)
             return;
         }
 
-        /* execute the spell */
+        /* execute the spell; it can remove the caster (a script its blow sets off, a death that
+         * runs one), and with it the delay <wtl> may be part of */
+        freed_watch caster_watch(ch);
         ((*skills[spell_index].spell_pointer)(ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig,
             0));
+        if (caster_watch.freed()) {
+            return;
+        }
 
         /*
          * Casting a prepared spell now causes a short after-spell
