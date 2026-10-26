@@ -1459,3 +1459,167 @@ def test_the_servers_main_file_counts_only_for_the_server(tmp_path: Path, progra
             program_launcher.require_program(program)
     else:
         program_launcher.require_program(program)
+
+
+@pytest.mark.parametrize("worker_name", [None, "", "master", "gw", "gwx", "gw-1", " gw1"])
+def test_outside_a_numbered_xdist_worker_there_is_no_port_band(worker_name: Optional[str]) -> None:
+    assert launcher.worker_port_band(worker_name) is None
+
+
+def test_each_worker_has_its_own_band_below_the_ephemeral_ports() -> None:
+    bands = [launcher.worker_port_band(f"gw{number}") for number in range(launcher.WORKER_PORT_BANDS)]
+    assert bands[0] == range(launcher.WORKER_PORT_BASE, launcher.WORKER_PORT_BASE + launcher.WORKER_PORT_BAND_SIZE)
+    ports = [port for band in bands for port in band]
+    assert len(ports) == len(set(ports))
+    # Linux's ephemeral range starts at 32768; macOS's and Windows's higher still.
+    assert max(ports) < 32768
+
+
+def test_worker_numbers_past_the_last_band_wrap_round() -> None:
+    assert launcher.worker_port_band(f"gw{launcher.WORKER_PORT_BANDS + 1}") == launcher.worker_port_band("gw1")
+
+
+def test_a_worker_is_given_a_free_port_from_its_own_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(launcher.XDIST_WORKER_VARIABLE, "gw3")
+    assert launcher.allocate_free_port() in launcher.worker_port_band("gw3")
+
+
+def held_port_band(monkeypatch: pytest.MonkeyPatch, size: int) -> list:
+    """Points worker gw0's band at size system-chosen consecutive ports and returns listening sockets holding all but the last; skips when they are not free."""
+    with launcher.socket.socket(launcher.socket.AF_INET, launcher.socket.SOCK_STREAM) as probe:
+        probe.bind((launcher.LOOPBACK, 0))
+        base = probe.getsockname()[1]
+    if base + size > 65535 or not all(launcher._port_is_free(port) for port in range(base, base + size)):
+        pytest.skip("no run of free consecutive ports next to the one the system chose")
+    monkeypatch.setattr(launcher, "WORKER_PORT_BASE", base)
+    monkeypatch.setattr(launcher, "WORKER_PORT_BAND_SIZE", size)
+    monkeypatch.setenv(launcher.XDIST_WORKER_VARIABLE, "gw0")
+    held = []
+    for port in range(base, base + size - 1):
+        holder = launcher.socket.socket(launcher.socket.AF_INET, launcher.socket.SOCK_STREAM)
+        holder.bind((launcher.LOOPBACK, port))
+        holder.listen(1)
+        held.append(holder)
+    return held
+
+
+def test_a_worker_skips_the_ports_of_its_band_already_in_use(monkeypatch: pytest.MonkeyPatch) -> None:
+    held = held_port_band(monkeypatch, 3)
+    try:
+        assert launcher.allocate_free_port() == launcher.WORKER_PORT_BASE + 2
+    finally:
+        for holder in held:
+            holder.close()
+
+
+def test_a_worker_whose_whole_band_is_in_use_gets_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    held = held_port_band(monkeypatch, 2)
+    extra = launcher.socket.socket(launcher.socket.AF_INET, launcher.socket.SOCK_STREAM)
+    try:
+        extra.bind((launcher.LOOPBACK, launcher.WORKER_PORT_BASE + 1))
+        extra.listen(1)
+        with pytest.raises(RuntimeError, match="no port from"):
+            launcher.allocate_free_port()
+    finally:
+        extra.close()
+        for holder in held:
+            holder.close()
+
+
+# Listens on the port given and sends the login prompt to every connection, as another run's server would.
+OTHER_SERVER = """
+import socket
+import sys
+listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+listener.bind(("127.0.0.1", int(sys.argv[1])))
+listener.listen(5)
+print("listening", flush=True)
+held = []
+while True:
+    connection, _address = listener.accept()
+    connection.sendall(b"Account email: ")
+    held.append(connection)
+"""
+
+# Never binds its port: stays running a while without logging that its game loop started, then
+# fails the way the server does when its port is taken.
+SLOW_PORT_TAKEN_SERVER = """
+import sys
+import time
+time.sleep(1.0)
+print("bind: Address already in use", file=sys.stderr, flush=True)
+sys.exit(1)
+"""
+
+# Never binds its port and never exits.
+SILENT_UNBOUND_SERVER = """
+import time
+time.sleep(30)
+"""
+
+# Logs that its game loop started, then listens and sends the prompt, as the real server does.
+OWN_PROMPT_SERVER = """
+import socket
+import sys
+print("Entering game loop.", file=sys.stderr, flush=True)
+listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+listener.bind(("127.0.0.1", int(sys.argv[1])))
+listener.listen(5)
+held = []
+while True:
+    connection, _address = listener.accept()
+    connection.sendall(b"Account email: ")
+    held.append(connection)
+"""
+
+
+def start_script_server_on(tmp_path: Path, source: str, port: int) -> launcher.ServerHandle:
+    """Starts source as the server on port through ScriptServerLauncher in a fresh run directory."""
+    (tmp_path / "bin").mkdir(exist_ok=True)
+    (tmp_path / "bin" / "ageland").write_text("", encoding="utf-8")
+    script = tmp_path / "server.py"
+    script.write_text(source, encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    return ScriptServerLauncher(tmp_path, script).start(run_dir, run_dir / "lib", port, seed=1)
+
+
+def start_other_server(tmp_path: Path) -> tuple[subprocess.Popen, int]:
+    """Runs OTHER_SERVER on a free port and returns it once it listens."""
+    port = launcher.allocate_free_port()
+    script = tmp_path / "other_server.py"
+    script.write_text(OTHER_SERVER, encoding="utf-8")
+    process = subprocess.Popen([sys.executable, str(script), str(port)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    assert process.stdout is not None and process.stdout.readline().strip() == b"listening"
+    return process, port
+
+
+def test_a_prompt_from_another_process_on_the_port_is_not_taken_for_a_server_that_then_fails_to_bind(tmp_path: Path) -> None:
+    other, port = start_other_server(tmp_path)
+    try:
+        with pytest.raises(launcher.PortInUse):
+            start_script_server_on(tmp_path, SLOW_PORT_TAKEN_SERVER, port)
+    finally:
+        launcher.terminate_process(other)
+
+
+def test_a_prompt_from_another_process_is_refused_while_the_server_never_logs_its_game_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(launcher, "OWN_SERVER_CONFIRM_SECONDS", 0.5)
+    other, port = start_other_server(tmp_path)
+    try:
+        with pytest.raises(RuntimeError, match="another process answered on its port") as raised:
+            start_script_server_on(tmp_path, SILENT_UNBOUND_SERVER, port)
+        assert not isinstance(raised.value, launcher.PortInUse)
+    finally:
+        launcher.terminate_process(other)
+
+
+def test_a_server_that_logs_its_game_loop_and_sends_the_prompt_is_ready(tmp_path: Path) -> None:
+    handle = start_script_server_on(tmp_path, OWN_PROMPT_SERVER, launcher.allocate_free_port())
+    try:
+        assert handle.is_alive()
+    finally:
+        launcher.terminate_process(handle.process)

@@ -260,7 +260,12 @@ the `Dockerfile`. `.github/workflows/dev-image.yml` publishes that pre-release o
 The harness runs the i386 programs in one of two ways:
 
 - `local` runs them directly. It is the default on Linux, which needs the i386 runtime for it
-  (for example `libc6:i386`); without it, set `ROTS_IT_LAUNCHER=docker`.
+  (for example `libc6:i386`); without it, set `ROTS_IT_LAUNCHER=docker`. Each pytest-xdist
+  worker gives its servers ports from its own band of 400 (worker `gwN` from 20000 + 400 N, below
+  the system's ephemeral ports), so two workers never share a port; a run without workers lets
+  the system choose. A server counts as ready only once its own `game.log` says
+  `Entering game loop.`, so a login prompt from another process on the same port is never
+  mistaken for it.
 - `docker` runs each server and each `rotstool` call through `docker compose run` with this
   checkout's `rots` service. It is the default everywhere else. Every container is named
   `rots-it-...` and publishes the server on a random loopback port, so the service's fixed
