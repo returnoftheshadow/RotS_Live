@@ -626,6 +626,22 @@ void forget_freed_exposed_target(const char_data* target)
 
 void add_prompt(char* prompt, const struct char_data* ch, long flag);
 
+char* trim_prompt_blanks(char* prompt)
+{
+    if (prompt == nullptr) {
+        log("SYSERR: trim_prompt_blanks: no prompt");
+        return nullptr;
+    }
+    char* start = prompt;
+    if (prompt[0] == ' ')
+        start++;
+    // An empty prompt has no last character to look at.
+    const size_t prompt_length = strlen(prompt);
+    if (prompt_length > 0 && prompt[prompt_length - 1] == ' ')
+        prompt[prompt_length - 1] = '\0';
+    return start;
+}
+
 static int get_stat_percent(int current, int maximum)
 {
     if (maximum <= 0)
@@ -799,17 +815,7 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        extern std::string strip_trailing_line_break(const char* text);
-
-        const char* weather_message = nullptr;
-        if (OUTSIDE(desc->character)) {
-            weather_message = weather_message_for_sector(world[desc->character->in_room].sector_type);
-        }
-        if (weather_message != nullptr) {
-            MSDPSetString(desc, eMDSP_WEATHER, strip_trailing_line_break(weather_message).c_str());
-        } else {
-            MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
-        }
+        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character).c_str());
         MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
@@ -1216,13 +1222,7 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
                             }
                         }
 
-                        // Check for a blank space in the first position or the last; an
-                        // empty prompt has neither.
-                        if (prompt[0] == ' ')
-                            pptr++;
-                        const size_t prompt_length = strlen(prompt);
-                        if (prompt_length > 0 && prompt[prompt_length - 1] == ' ')
-                            prompt[prompt_length - 1] = '\0';
+                        pptr = trim_prompt_blanks(prompt);
 
                         disp = TRUE;
                         if (point->character->specials.position == POSITION_SHAPING)

@@ -3,9 +3,11 @@
 
 #include "../structs.h"
 #include "../utils.h"
+#include "../weather.h"
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <string>
 
 extern struct room_data world;
@@ -16,6 +18,12 @@ namespace {
 
 constexpr int WEATHER_ROOM = 972;
 constexpr char NO_FEELING_MESSAGE[] = "You can have no feeling about the weather here.\n\r";
+// The MSDP WEATHER value where there is no weather to feel: the message without its line break.
+constexpr char MSDP_NO_FEELING[] = "You can have no feeling about the weather here.";
+// The first sector type whose sky lies past the end of weather_info, not just past its sky table:
+// reading it reads outside the weather altogether.
+constexpr int SECTOR_PAST_THE_WEATHER =
+    static_cast<int>((sizeof(weather_data) - offsetof(weather_data, sky)) / sizeof(int));
 
 // A player standing outdoors in WEATHER_ROOM whose output is readable; the room and the sky
 // table are restored afterwards.
@@ -105,5 +113,53 @@ TEST_F(WeatherToCharTest, ASkyValuePastTheTableGivesNoFeelingAndIsLogged)
     const std::string log_text = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(output(), NO_FEELING_MESSAGE);
+    EXPECT_NE(log_text.find("has sky value"), std::string::npos) << log_text;
+}
+
+TEST_F(WeatherToCharTest, MsdpGivesAFieldsMessageWithoutItsLineBreak)
+{
+    world[WEATHER_ROOM].sector_type = SECT_FIELD;
+    weather_info.sky[SECT_FIELD] = SKY_CLOUDLESS;
+
+    EXPECT_EQ(msdp_weather_value(&m_player),
+        "Above the fields, not a cloud can be seen in the sky.");
+}
+
+// Indoors no weather is looked up, so a room whose sector has no sky is not even read.
+TEST_F(WeatherToCharTest, MsdpIndoorsGivesNoFeelingAndLooksUpNoWeather)
+{
+    world[WEATHER_ROOM].sector_type = SECTOR_PAST_THE_WEATHER;
+    world[WEATHER_ROOM].room_flags = INDOORS;
+
+    testing::internal::CaptureStderr();
+    const std::string value = msdp_weather_value(&m_player);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(value, MSDP_NO_FEELING);
+    EXPECT_EQ(log_text.find("is not a sector"), std::string::npos) << log_text;
+}
+
+TEST_F(WeatherToCharTest, MsdpGivesNoFeelingForASectorPastTheTable)
+{
+    world[WEATHER_ROOM].sector_type = SECTOR_PAST_THE_WEATHER;
+
+    testing::internal::CaptureStderr();
+    const std::string value = msdp_weather_value(&m_player);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(value, MSDP_NO_FEELING);
+    EXPECT_NE(log_text.find("is not a sector"), std::string::npos) << log_text;
+}
+
+TEST_F(WeatherToCharTest, MsdpGivesNoFeelingForASkyValuePastTheTable)
+{
+    world[WEATHER_ROOM].sector_type = SECT_INSIDE;
+    weather_info.sky[SECT_INSIDE] = SKY_BLIZZARD + 1;
+
+    testing::internal::CaptureStderr();
+    const std::string value = msdp_weather_value(&m_player);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(value, MSDP_NO_FEELING);
     EXPECT_NE(log_text.find("has sky value"), std::string::npos) << log_text;
 }

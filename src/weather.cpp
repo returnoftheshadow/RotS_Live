@@ -352,6 +352,24 @@ void weather_to_char(const char_data* ch)
     send_to_char(message, ch);
 }
 
+std::string msdp_weather_value(const char_data* ch)
+{
+    const char* const no_feeling = "You can have no feeling about the weather here.";
+    if (ch == NULL) {
+        log("SYSERR: msdp_weather_value: no character");
+        return no_feeling;
+    }
+    if (!OUTSIDE(ch)) {
+        return no_feeling;
+    }
+
+    const char* message = weather_message_for_sector(world[ch->in_room].sector_type);
+    if (message == NULL) {
+        return no_feeling;
+    }
+    return strip_trailing_line_break(message);
+}
+
 void age_bleed_tracks()
 {
     room_data* tmproom;

@@ -7,6 +7,7 @@
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
+#include "../limits.h"
 #include "../pkill.h"
 #include "../skill_timer.h"
 #include "../spells.h"
@@ -35,6 +36,8 @@ constexpr int AFFECT_HOURS = 5;
 constexpr int HELD_FAME_WAR_TIER = 3;
 /* The warrior level that makes the player's fame-war bonus a warrior's. */
 constexpr int WARRIOR_LEVEL = 20;
+/* How hard a mob after the update's end was attacked; a tick that reaches the mob lowers it. */
+constexpr int LATER_ATTACKED_LEVEL = 10;
 
 class AffectTickTest : public ScriptedRoomFixture {
 protected:
@@ -268,6 +271,53 @@ TEST_F(AffectTickTest, ARoomTickStopsWhenADeathFreesTheNextOccupant)
 
     EXPECT_FALSE(is_in_game(victim));
     EXPECT_FALSE(is_in_game(listener));
+}
+
+/* ---- the hourly update of every character ---- */
+
+/* A poisoned mob's death sets off a script that removes the character after it on the list: the
+ * update ends there with a log line, and the one after that waits, untouched, for the next
+ * update. */
+TEST_F(AffectTickTest, AnUpdateEndsWhenAPoisonDeathFreesTheNextCharacter)
+{
+    install_scripts(
+        { { SCRIPT_VNUM, { { ON_DIE, { { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } } } } } },
+            { OTHER_SCRIPT_VNUM,
+                { { ON_HEAR_SAY,
+                    { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                        { SCRIPT_BEGIN, nullptr, {} },
+                        { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                        { SCRIPT_END, nullptr, {} } } } } } });
+    world[0].people = nullptr;
+    /* make_mob puts each mob at the head of the list: the last made is updated first. Out of
+     * earshot, the later mob does not hear the dying one. */
+    char_data* later = make_mob("later", 0, SECOND_ROOM);
+    later->specials.attacked_level = LATER_ATTACKED_LEVEL;
+    char_data* listener = make_mob("listener", OTHER_SCRIPT_VNUM, 0);
+    char victim_keywords[] = "victim";
+    char_data* victim = make_dying_mob(victim_keywords, SCRIPT_VNUM, 0);
+    ASSERT_EQ(victim, character_list);
+    ASSERT_EQ(listener, victim->next);
+    ASSERT_EQ(later, listener->next);
+    /* Poisoned by the flag alone, as gear poisons, and so hurt that the poison's blow kills. */
+    SET_BIT(victim->specials.affected_by, AFF_POISON);
+    victim->tmpabilities.hit = -9;
+    /* The update brings intelligence back to its base first: at the base of 0 the mob is too stupid
+     * to say a word as it dies. */
+    victim->abilities.intel = victim->tmpabilities.intel;
+
+    testing::internal::CaptureStderr();
+    point_update();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_FALSE(is_in_game(listener));
+    ASSERT_TRUE(is_in_game(later));
+    EXPECT_EQ(LATER_ATTACKED_LEVEL, later->specials.attacked_level);
+    EXPECT_NE(std::string::npos,
+        logged.find("SYSERR: point_update: the next character was freed; the rest wait for the "
+                    "next tick."))
+        << logged;
 }
 
 TEST_F(AffectTickTest, AMistThatDriftsLeavesItsRoomAndArrivesNextDoor)

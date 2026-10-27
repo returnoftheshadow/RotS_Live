@@ -876,8 +876,8 @@ TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
 /* ---- a summons ---- */
 
 /* The one being summoned leaves the world while the summons is cast (a player who dies or rents
- * waits at the menu, still a character but in no room): the summons finds nobody and brings
- * nobody into the room. */
+ * waits at the menu, still a character but in no room): the summons finds nobody, brings nobody
+ * into the room, and tells the caster their victim has left the world. */
 TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
 {
     assign_command_pointers();
@@ -890,6 +890,14 @@ TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
     character_list = &m_player;
     char_data* caster = make_mob("caster", 0);
     caster->player.level = 50; /* a mob this strong never fumbles the spell */
+    /* A connection for the caster, so that what it is told can be read. */
+    descriptor_data caster_descriptor {};
+    TestDescriptorRelease caster_descriptor_release(&caster_descriptor);
+    caster_descriptor.output = caster_descriptor.small_outbuf;
+    caster_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    caster_descriptor.connected = CON_PLYNG;
+    caster_descriptor.character = caster;
+    caster->desc = &caster_descriptor;
     char line[] = "cast 'summon' tester";
     command_interpreter(caster, line, nullptr);
     const bool cast_started = caster->delay.wait_value > 0;
@@ -914,6 +922,9 @@ TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
     if (cast_started) {
         complete_delay(caster);
     }
+    /* The caster leaves its connection behind before anything can fail and end the test. */
+    caster->desc = nullptr;
+    const std::string caster_output = caster_descriptor.output;
 
     world[0].name = saved_room_name;
     world[0].description = saved_room_description;
@@ -924,4 +935,6 @@ TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
         EXPECT_NE(&m_player, person) << "the player was summoned from the menu";
     }
     EXPECT_TRUE(is_in_game(caster));
+    EXPECT_NE(caster_output.find("Your victim has left the world.\n\r"), std::string::npos)
+        << caster_output;
 }
