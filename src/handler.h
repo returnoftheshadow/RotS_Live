@@ -144,8 +144,8 @@ void extract_char(struct char_data* ch, int new_room = -1);
 /* Lends a character a room it does not stand in, for code that asks where it is (the procedures
  * on the far side of a door it knocks on), while it stays on its own room's list of people.
  * char_from_room and extract_char first end any lend of the character they are given, putting it
- * back where it stands, so that it leaves the right room; otherwise the lend puts it back when it
- * goes out of scope. A lend must be a local variable: lends nest, and each ends in the reverse
+ * back where it stands, so that it leaves the right room, and free_char ends any lend of the
+ * character it frees; otherwise the lend puts it back when it goes out of scope. A lend must be a local variable: lends nest, and each ends in the reverse
  * order of its making. */
 class room_lend {
 public:

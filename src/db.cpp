@@ -3796,6 +3796,8 @@ char* fread_line(FILE* fp)
 void free_char(struct char_data* ch)
 {
     note_char_freed(ch);
+    /* A lend still in scope would otherwise give the room back to freed memory. */
+    room_lend::end_for(ch);
     untrack_specialized_mage(ch);
     forget_freed_exposed_target(ch);
     if (game_rules::big_brother::is_created())

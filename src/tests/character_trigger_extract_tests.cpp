@@ -1113,3 +1113,30 @@ TEST_F(CharacterTriggerTest, FreeingACharacterEndsAnEditOfItsText)
     EXPECT_EQ(nullptr, m_descriptor.str);
     EXPECT_TRUE(output_has("What you were writing is gone.")) << output();
 }
+
+/* ---- rooms lent while knocking ---- */
+
+/* A character freed by free_char alone while lent a room ends the lend, so going out of scope
+ * the lend gives no room back to freed memory, and an older lend of someone else still ends as
+ * usual. */
+TEST_F(CharacterTriggerTest, FreeingACharacterEndsItsRoomLend)
+{
+    char_data* visitor = nullptr;
+    CREATE1(visitor, char_data);
+    clear_char(visitor, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(visitor), MOB_ISNPC);
+    visitor->nr = -1; /* no prototype: free_char releases its strings */
+    visitor->player.name = str_dup("visitor");
+    register_npc_char(visitor);
+    /* In room 0 as far as it knows, but on no list, so nothing else ends the lend. */
+    visitor->in_room = 0;
+    {
+        room_lend player_lend(&m_player, SECOND_ROOM);
+        {
+            room_lend visitor_lend(visitor, SECOND_ROOM);
+            free_char(visitor);
+        }
+        EXPECT_EQ(SECOND_ROOM, m_player.in_room) << "the player's lend outlives the visitor's";
+    }
+    EXPECT_EQ(0, m_player.in_room);
+}
