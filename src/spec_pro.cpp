@@ -2189,8 +2189,15 @@ SPECIAL(mob_ranger)
         return 1;
     }
 
-    if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && ch->delay.wait_value == 0)
+    if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && ch->delay.wait_value == 0) {
+        /* Hiding ends the ranger's own delay, which runs the rest of a paused script: that can
+         * remove the ranger. */
+        freed_watch ranger_watch(host);
         do_hide(host, "", 0, 0, 0);
+        if (ranger_watch.freed()) {
+            return 0;
+        }
+    }
 
     tmproom = &world[host->in_room];
     mintime = 999;
@@ -3271,40 +3278,47 @@ SPECIAL(ar_tarthalon)
         return FALSE;
     if (number(0, 1))
         return FALSE;
-    if (number(0, 1)) {
+    const bool calls_sorcerer = number(0, 1) != 0;
+    if (calls_sorcerer) {
         victim = get_char("balkazor");
-        if (victim)
-            if (world[victim->in_room].number != 8483)
-                do_say(host, "Balkazor my sorcerer, I command you to aid me!", 0, 0, 0);
-            else
-                switch (number(0, 6)) {
-                case 4:
-                    do_say(host, "Turn these intruders to dust, my faithful wizard!", 0, 0, 0);
-                    break;
-                case 5:
-                    do_say(host, "Balkazor, burn these infidels into eternity!", 0, 0, 0);
-                    break;
-                }
     } else {
         victim = get_char("karahaz");
-        if (victim)
-            if (world[victim->in_room].number != 8483)
-                do_say(host, "Karahaz!  Master swordsman, Come!  Rid my tomb of these intruders!",
-                    0, 0, 0);
-            else
-                switch (number(0, 6)) {
-                case 4:
-                    do_say(host, "Karahaz, may these mere mortals feel the power of your blade!", 0,
-                        0, 0);
-                    break;
-                case 5:
-                    do_say(host, "I require your service once again Karahaz - do not fail me.", 0,
-                        0, 0);
-                    break;
-                }
     }
     if (!victim)
         return 0;
+    /* A script of anyone who hears the call can remove the one called. */
+    freed_watch summoned_watch(victim);
+    if (calls_sorcerer) {
+        if (world[victim->in_room].number != 8483)
+            do_say(host, "Balkazor my sorcerer, I command you to aid me!", 0, 0, 0);
+        else
+            switch (number(0, 6)) {
+            case 4:
+                do_say(host, "Turn these intruders to dust, my faithful wizard!", 0, 0, 0);
+                break;
+            case 5:
+                do_say(host, "Balkazor, burn these infidels into eternity!", 0, 0, 0);
+                break;
+            }
+    } else {
+        if (world[victim->in_room].number != 8483)
+            do_say(host, "Karahaz!  Master swordsman, Come!  Rid my tomb of these intruders!",
+                0, 0, 0);
+        else
+            switch (number(0, 6)) {
+            case 4:
+                do_say(host, "Karahaz, may these mere mortals feel the power of your blade!", 0,
+                    0, 0);
+                break;
+            case 5:
+                do_say(host, "I require your service once again Karahaz - do not fail me.", 0,
+                    0, 0);
+                break;
+            }
+    }
+    if (summoned_watch.freed()) {
+        return 0;
+    }
     if (GET_POS(victim) == POSITION_STANDING) {
         switch (world[victim->in_room].number) {
         case 8484:
