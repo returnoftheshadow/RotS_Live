@@ -5,6 +5,7 @@
 
 freed_watch* freed_watch::newest = nullptr;
 freed_log* freed_log::newest = nullptr;
+death_watch* death_watch::newest = nullptr;
 
 freed_watch::freed_watch(const obj_data* object)
     : freed_watch(static_cast<const void*>(object))
@@ -81,5 +82,32 @@ void freed_log::note_freed_address(const void* address)
     }
     for (freed_log* recording = newest; recording; recording = recording->m_older) {
         recording->m_freed.push_back(address);
+    }
+}
+
+death_watch::death_watch(const char_data* character)
+    : m_watched(character)
+    , m_older(newest)
+{
+    newest = this;
+}
+
+/* Watches are local variables, so they go in the reverse order of their making, as freed_watch's
+ * do. */
+death_watch::~death_watch()
+{
+    assert(newest == this);
+    newest = m_older;
+}
+
+void death_watch::note_died(const char_data* character)
+{
+    if (!character) {
+        return;
+    }
+    for (death_watch* watch = newest; watch; watch = watch->m_older) {
+        if (watch->m_watched == character) {
+            watch->m_died = true;
+        }
     }
 }

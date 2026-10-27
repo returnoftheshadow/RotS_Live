@@ -1412,6 +1412,35 @@ static bool changes_wearer_through_affect(const obj_data* item, int affect_index
     return item_spell_is_worn_affect(spell_number);
 }
 
+/* Deals <wearer> the blow of the poison its gear has just given it: 5 damage, then death at 0 hit
+ * points or fewer. <wearer_watch> watches the wearer, and <item_watch>, when not null, the item
+ * going on. Returns false as soon as either is freed. */
+static bool deal_gear_poison_blow(char_data* wearer, const freed_watch& wearer_watch,
+    const freed_watch* item_watch)
+{
+    extern void raw_kill(struct char_data * character, const char_data * killer, int attacktype);
+
+    auto anything_freed = [&wearer_watch, item_watch]() -> bool {
+        return wearer_watch.freed() || (item_watch != nullptr && item_watch->freed());
+    };
+
+    damage(wearer, wearer, 5, SPELL_POISON, 0);
+    if (anything_freed()) {
+        return false;
+    }
+
+    if (GET_HIT(wearer) <= 0) {
+        act("$n suddenly collapses on the ground.",
+            TRUE, wearer, 0, 0, TO_ROOM);
+        send_to_char("Your body failed to the magic.\n\r", wearer);
+        raw_kill(wearer, NULL, 0);
+        if (anything_freed()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool equip_char(char_data* character, obj_data* item, int item_slot, gear_change change)
 {
     int was_poisoned = IS_AFFECTED(character, AFF_POISON);
@@ -1517,22 +1546,56 @@ bool equip_char(char_data* character, obj_data* item, int item_slot, gear_change
     // Special case for poisoned objects.  The wearer should get poison damage
     // when wearing/removing something poisoned.
     if (change == gear_change::cast && was_poisoned == 0 && IS_AFFECTED(character, AFF_POISON)) {
-        extern void raw_kill(struct char_data * character, const char_data * killer, int attacktype);
+        return deal_gear_poison_blow(character, wearer_watch, &item_watch);
+    }
+    return true;
+}
 
-        damage(character, character, 5, SPELL_POISON, 0);
-        if (wearer_watch.freed() || item_watch.freed()) {
-            return false;
+bool cast_quietly_worn_gear(char_data* wearer, bool poisoned_before_gear,
+    const death_watch* stop_at_death)
+{
+    if (wearer == nullptr) {
+        log("SYSERR: cast_quietly_worn_gear called for no wearer.");
+        return true;
+    }
+
+    auto death_stops_casting = [stop_at_death]() -> bool {
+        return stop_at_death != nullptr && stop_at_death->died();
+    };
+
+    /* Each cast is the one equip_char makes for the same affect. A death strips the gear off, so
+     * the slots after it are empty. */
+    freed_watch wearer_watch(wearer);
+    for (int item_slot = 0; item_slot < MAX_WEAR && !death_stops_casting(); item_slot++) {
+        obj_data* item = wearer->equipment[item_slot];
+        /* equip_char gives an item in the hold slot that cannot be held none of its affects. */
+        if (item == nullptr || (item_slot == HOLD && !CAN_WEAR(item, ITEM_HOLD))) {
+            continue;
         }
 
-        if (GET_HIT(character) <= 0) {
-            act("$n suddenly collapses on the ground.",
-                TRUE, character, 0, 0, TO_ROOM);
-            send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, 0);
-            if (wearer_watch.freed() || item_watch.freed()) {
+        freed_watch item_watch(item);
+        for (int affect_index = 0; affect_index < MAX_OBJ_AFFECT; affect_index++) {
+            if (changes_wearer_through_affect(item, affect_index, gear_change::quiet)) {
+                continue;
+            }
+            affect_modify(wearer, item->affected[affect_index].location,
+                item->affected[affect_index].modifier,
+                item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
+            if (wearer_watch.freed()) {
                 return false;
             }
+            if (item_watch.freed() || wearer->equipment[item_slot] != item || death_stops_casting()) {
+                break;
+            }
         }
+    }
+
+    affect_total(wearer);
+
+    /* Every item's poison flag is already on, so the blow comes once, after every spell: the one
+     * equip_char deals for the first item that poisons its wearer. */
+    if (!poisoned_before_gear && IS_AFFECTED(wearer, AFF_POISON) && !death_stops_casting()) {
+        return deal_gear_poison_blow(wearer, wearer_watch, nullptr);
     }
     return true;
 }

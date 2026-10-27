@@ -93,7 +93,6 @@ void introduce_char(struct descriptor_data*);
 void one_mobile_activity(struct char_data*);
 int update_memory_list(struct char_data*);
 int load_char(char*, struct char_file_u*);
-void load_character(struct char_data* ch);
 void Crash_report_object_refreshes(const struct char_data* ch);
 void msdp_room_update(const char_data* ch);
 void stop_hiding(struct char_data*, char);
@@ -3184,7 +3183,6 @@ void nanny(struct descriptor_data* d, char* arg)
 
     extern long secs_to_unretire(const struct char_data*);
     int load_char(char* name, struct char_file_u* char_element);
-    void load_character(struct char_data * ch); // new function in objsave
 
     switch (STATE(d)) {
     case CON_NME: /* wait for input of name */
@@ -4510,7 +4508,13 @@ void nanny(struct descriptor_data* d, char* arg)
 
             // endnew
             reset_char(d->character);
-            load_character(d->character); // new function in objsave
+            /* The spells of the gear the character and its followers wear can remove it from the
+             * game; the connection then has nobody to play. */
+            if (!load_character(d->character)) {
+                d->character = nullptr;
+                STATE(d) = CON_CLOSE;
+                return;
+            }
             // Apply before saving, never after: save_char writes the character's PPC back to
             // the account, so saving first would push this character's stale, just-loaded copy
             // over whatever a sibling character last changed. ppc_store_character_to_account
