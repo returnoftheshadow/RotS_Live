@@ -33,6 +33,7 @@ void do_purge(char_data* ch, char* argument, waiting_type* wtl, int cmd, int sub
 extern struct weather_data weather_info;
 extern int top_of_p_table;
 extern int r_mortal_start_room[];
+extern int r_mortal_idle_room[];
 extern struct index_data* mob_index;
 extern struct char_data* mob_proto;
 extern int top_of_mobt;
@@ -60,6 +61,11 @@ constexpr int FOLLOWER_CONSTITUTION = 1;
 /* A vnum for room 0 that is also another room's index (SECOND_ROOM's): the room a login that took
  * the vnum for a room would strike. */
 constexpr int LOGIN_ROOM_VNUM = SECOND_ROOM;
+/* The idle timer, in minutes, from which the next idle check pulls a player into the void and
+ * removes them from the game at once. */
+constexpr int IDLE_MINUTES_BEFORE_REMOVAL = 28;
+/* What the room sees when an item's poison blow kills its wearer. */
+constexpr const char* POISON_COLLAPSE_MESSAGE = "suddenly collapses on the ground.";
 /* The damage an item's poison deals its wearer as the item goes on (equip_char). */
 constexpr int POISON_BLOW_DAMAGE = 5;
 /* Enough long aliases, saved between a player's objects and their followers, that the followers
@@ -146,6 +152,9 @@ protected:
         /* A player who comes back to life, or logs in, starts in room 0 and looks at it. */
         m_saved_mortal_start_room = r_mortal_start_room[RACE_HUMAN];
         r_mortal_start_room[RACE_HUMAN] = 0;
+        /* A player idling out is pulled into the void, the second room. */
+        m_saved_mortal_idle_room = r_mortal_idle_room[RACE_HUMAN];
+        r_mortal_idle_room[RACE_HUMAN] = SECOND_ROOM;
         m_saved_room_name = world[0].name;
         m_saved_room_description = world[0].description;
         m_saved_room_flags = world[0].room_flags;
@@ -198,6 +207,7 @@ protected:
             release_cleared_character(&prototype);
         }
         r_mortal_start_room[RACE_HUMAN] = m_saved_mortal_start_room;
+        r_mortal_idle_room[RACE_HUMAN] = m_saved_mortal_idle_room;
     }
 
     /* Releases the aliases a login gave the player, as do_alias removes one: the fixture never
@@ -246,6 +256,40 @@ protected:
         ring->affected[0].location = APPLY_BITVECTOR;
         ring->affected[0].modifier = POISON_BIT_POSITION;
         return ring;
+    }
+
+    /* A player with no connection standing in room 0 beside the fixture's player, idle long enough
+     * that the next idle check removes them from the game and frees them. The void is the second
+     * room, and room 0 has no exit. */
+    char_data* make_idle_player()
+    {
+        link_second_room();
+        /* No exit: an earthquake opens no way down, and nobody leaves. */
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            world[0].dir_option[direction] = nullptr;
+        }
+        char_data* idler = nullptr;
+        CREATE1(idler, char_data);
+        clear_char(idler, 0);
+        new (&idler->damage_details) player_damage_details();
+        idler->player.name = str_dup("Idler");
+        idler->player.race = RACE_HUMAN;
+        idler->player.level = 10;
+        idler->abilities.str = 18;
+        idler->abilities.dex = 18;
+        idler->tmpabilities.str = 18;
+        idler->tmpabilities.dex = 18;
+        idler->abilities.hit = PLAYER_HIT_POINTS;
+        idler->tmpabilities.hit = PLAYER_HIT_POINTS;
+        idler->specials.position = POSITION_STANDING;
+        idler->in_room = NOWHERE;
+        register_pc_char(idler);
+        /* extract_char takes a player off the character list, and aborts if they are not on it. */
+        idler->next = character_list;
+        character_list = idler;
+        char_to_room(idler, 0);
+        idler->specials.timer = IDLE_MINUTES_BEFORE_REMOVAL;
+        return idler;
     }
 
     /* Puts on <wearer> a ring that casts <spell_number> as it comes off. It takes its spell only
@@ -481,6 +525,8 @@ protected:
     int m_saved_top_of_p_table = 0;
     // A human's start room before the test, put back by TearDown.
     int m_saved_mortal_start_room = 0;
+    // A human's idle room before the test, put back by TearDown.
+    int m_saved_mortal_idle_room = 0;
     // Room 0's name, description and flags before the test, put back by TearDown.
     char* m_saved_room_name = nullptr;
     char* m_saved_room_description = nullptr;
@@ -1078,7 +1124,60 @@ TEST_F(QuietGearChangeTest, APurgedMobLeavesWithoutItsGearsPoisonHurtingIt)
     EXPECT_FALSE(is_in_object_list(ring));
 }
 
+/* A player removed for idling takes their earthquake ring off without casting it: the mob beside
+ * them, in the room they idled in, is not shaken. */
+TEST_F(QuietGearChangeTest, AnIdlePlayerRemovedDoesNotCastTheirGearsSpell)
+{
+    char_data* bystander = make_mob("bystander", 0);
+    char_data* idler = make_idle_player();
+    put_on_ring_casting(idler, SPELL_EARTHQUAKE);
+
+    ASSERT_EQ(1, check_idling(idler));
+
+    EXPECT_FALSE(is_in_game(idler));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(bystander));
+    EXPECT_EQ(PLAYER_HIT_POINTS, GET_HIT(&m_player));
+}
+
+/* A player removed for idling while too hurt to survive their poisonous ring takes it off without
+ * its poison hurting them: nobody beside them sees them collapse, and no corpse is left. */
+TEST_F(QuietGearChangeTest, AnIdlePlayerRemovedTakesNoPoisonBlowFromTheirGear)
+{
+    char_data* idler = make_idle_player();
+    obj_data* ring = make_poisonous_ring();
+    obj_to_char(ring, idler);
+    run_command_as(idler, do_wear, "ring");
+    ASSERT_EQ(ring, idler->equipment[WEAR_FINGER_R]);
+    idler->tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_EQ(1, check_idling(idler));
+
+    EXPECT_FALSE(is_in_game(idler));
+    EXPECT_EQ(0, count_in_output(POISON_COLLAPSE_MESSAGE));
+    EXPECT_EQ(0, count_corpses_in_room());
+}
+
 /* ---- dying ---- */
+
+/* A player slain while wearing a poisonous ring is already dead when the corpse takes the ring:
+ * its poison deals them no blow, though they have the hit points to take one and live. A blow
+ * the player deals themselves is recorded as damage they dealt. */
+TEST_F(QuietGearChangeTest, ASlainPlayersPoisonousGearDealsNoBlowAsTheCorpseTakesIt)
+{
+    obj_data* ring = make_poisonous_ring();
+    obj_to_char(ring, &m_player);
+    run_command(do_wear, "ring");
+    ASSERT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    /* Putting the ring on dealt its blow; only a blow from here on counts. */
+    m_player.damage_details.reset();
+
+    raw_kill(&m_player, nullptr, 0);
+
+    const std::string no_damage_report
+        = std::string(GET_NAME(&m_player)) + " has not recorded any damage dealt.\n";
+    EXPECT_EQ(no_damage_report, m_player.damage_details.get_damage_report(&m_player));
+    ASSERT_NE(nullptr, ring->in_obj);
+}
 
 /* A connected player slain while wearing a poisonous ring dies once: taking the ring off the
  * dying player does not kill them again, so there is one corpse and the ring is in it. */
