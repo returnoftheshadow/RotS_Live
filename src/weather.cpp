@@ -160,6 +160,11 @@ void weather_to_char(const char_data* ch);
  * sector type or its sky value has no message. */
 const char* weather_message_for_sector(int sector_type);
 
+/* The MSDP WEATHER value for ch: the weather message ch feels without its line break, or the
+ * no-feeling text indoors, where ch's room has a sector or sky with no message, or for a null ch
+ * (logged). Indoors no sector or sky is looked up. */
+std::string msdp_weather_value(const char_data* ch);
+
 extern char* moon_phase[];
 
 // weather_messages[] entries end in "\n\r" for direct display to the
@@ -353,6 +358,24 @@ void weather_to_char(const char_data* ch)
         return;
     }
     send_to_char(message, ch);
+}
+
+std::string msdp_weather_value(const char_data* ch)
+{
+    const char* const NO_FEELING = "You can have no feeling about the weather here.";
+    if (ch == NULL) {
+        log("SYSERR: msdp_weather_value: no character");
+        return NO_FEELING;
+    }
+    if (!OUTSIDE(ch)) {
+        return NO_FEELING;
+    }
+
+    const char* message = weather_message_for_sector(world[ch->in_room].sector_type);
+    if (message == NULL) {
+        return NO_FEELING;
+    }
+    return strip_trailing_line_break(message);
 }
 
 void age_bleed_tracks()

@@ -20,4 +20,8 @@ void logsig(int signal_number);
 // and any vault file left behind, closes every connection and exits with status 0.
 SignalRequestSteps& game_signal_steps();
 
+// The saving a stop does before it closes every connection and exits: every playing character and
+// their gear, then every vault file a failed write left behind.
+void save_everything_for_stop();
+
 #endif /* SIGNALS_H */

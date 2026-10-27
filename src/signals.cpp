@@ -112,6 +112,14 @@ void reboot_wizlists(void);
 extern int restrict;
 extern int num_invalid;
 
+void save_everything_for_stop()
+{
+    // The autosave's snapshot: every playing character and their gear at one moment, so a file
+    // written by save, rent or a level since the last autosave is not left out of step.
+    Crash_save_all();
+    bank_vaults_write_behind(); /* a service stop skips game_loop's shutdown saving */
+}
+
 namespace {
 
 // The work the recorded signals ask for, run by the game loop between passes.
@@ -120,12 +128,9 @@ public:
     void stop(int signal_number) override
     {
         log("Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...");
-        // The autosave's snapshot: every playing character and their gear at one moment, so a
-        // file written by save, rent or a level since the last autosave is not left out of step.
         // Connections are not closed one by one: closing a playing connection saves the character
         // again without their gear; exit closes the connections without saving.
-        Crash_save_all();
-        bank_vaults_write_behind(); /* a service stop skips game_loop's shutdown saving */
+        save_everything_for_stop();
         close(mother_desc);
         exit(0);
     }
