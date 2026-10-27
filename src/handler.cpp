@@ -1551,17 +1551,22 @@ bool equip_char(char_data* character, obj_data* item, int item_slot, gear_change
     return true;
 }
 
-bool cast_quietly_worn_gear(char_data* wearer, bool poisoned_before_gear)
+bool cast_quietly_worn_gear(char_data* wearer, bool poisoned_before_gear,
+    const death_watch* stop_at_death)
 {
     if (wearer == nullptr) {
         log("SYSERR: cast_quietly_worn_gear called for no wearer.");
         return true;
     }
 
+    auto death_stops_casting = [stop_at_death]() -> bool {
+        return stop_at_death != nullptr && stop_at_death->died();
+    };
+
     /* Each cast is the one equip_char makes for the same affect. A death strips the gear off, so
      * the slots after it are empty. */
     freed_watch wearer_watch(wearer);
-    for (int item_slot = 0; item_slot < MAX_WEAR; item_slot++) {
+    for (int item_slot = 0; item_slot < MAX_WEAR && !death_stops_casting(); item_slot++) {
         obj_data* item = wearer->equipment[item_slot];
         /* equip_char gives an item in the hold slot that cannot be held none of its affects. */
         if (item == nullptr || (item_slot == HOLD && !CAN_WEAR(item, ITEM_HOLD))) {
@@ -1579,7 +1584,7 @@ bool cast_quietly_worn_gear(char_data* wearer, bool poisoned_before_gear)
             if (wearer_watch.freed()) {
                 return false;
             }
-            if (item_watch.freed() || wearer->equipment[item_slot] != item) {
+            if (item_watch.freed() || wearer->equipment[item_slot] != item || death_stops_casting()) {
                 break;
             }
         }
@@ -1589,7 +1594,7 @@ bool cast_quietly_worn_gear(char_data* wearer, bool poisoned_before_gear)
 
     /* Every item's poison flag is already on, so the blow comes once, after every spell: the one
      * equip_char deals for the first item that poisons its wearer. */
-    if (!poisoned_before_gear && IS_AFFECTED(wearer, AFF_POISON)) {
+    if (!poisoned_before_gear && IS_AFFECTED(wearer, AFF_POISON) && !death_stops_casting()) {
         return deal_gear_poison_blow(wearer, wearer_watch, nullptr);
     }
     return true;

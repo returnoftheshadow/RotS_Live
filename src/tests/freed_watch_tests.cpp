@@ -1,6 +1,7 @@
 /* freed_watch, which tells code that set off a script whether an object or character it holds was
  * freed meanwhile, the helpers a loop over a room uses to carry on after a trigger, and freed_log,
- * which records everything freed while it is in scope. */
+ * which records everything freed while it is in scope, and death_watch, which tells whether a
+ * character died, though it lives on. */
 #include "../freed_watch.h"
 
 #include "scripted_room_fixture.h"
@@ -246,4 +247,39 @@ TEST_F(FreedWatchTest, OnlyLogsInScopeAtTheFreeHoldIt)
 
     EXPECT_TRUE(outer_log.contains(mob));
     EXPECT_FALSE(inner_log.contains(mob));
+}
+
+/* ---- death_watch ---- */
+
+/* raw_kill reports each death (note_died); the login tests see a connected player die and live
+ * on through one. */
+TEST_F(FreedWatchTest, ADeathWatchSeesItsCharactersDeath)
+{
+    char_data* dying = make_mob("dying", 0);
+    death_watch dying_watch(dying);
+
+    death_watch::note_died(dying);
+
+    EXPECT_TRUE(dying_watch.died());
+}
+
+TEST_F(FreedWatchTest, ADeathWatchSeesNobodyElsesDeath)
+{
+    char_data* bystander = make_mob("bystander", 0);
+    death_watch player_death(&m_player);
+
+    death_watch::note_died(bystander);
+
+    EXPECT_FALSE(player_death.died());
+}
+
+TEST_F(FreedWatchTest, EveryDeathWatchOnACharacterIsMarked)
+{
+    death_watch outer_watch(&m_player);
+    death_watch inner_watch(&m_player);
+
+    death_watch::note_died(&m_player);
+
+    EXPECT_TRUE(outer_watch.died());
+    EXPECT_TRUE(inner_watch.died());
 }

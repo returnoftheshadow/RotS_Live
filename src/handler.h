@@ -45,6 +45,8 @@ void affect_from_char(struct char_data* ch, byte skill);
 
 #include <stddef.h>
 
+class death_watch;
+
 affected_type* affected_by_spell(const char_data* character, byte skill, affected_type* firstaf = 0);
 affected_type* removeable_spell_affection(const char_data* character, const affected_type* aff, affected_type* start_affect);
 affected_type* room_affected_by_spell(const room_data* room, int spell);
@@ -97,12 +99,14 @@ struct obj_data* unequip_char(struct char_data* ch, int pos,
  * each item on with gear_change::cast does: every item spell (APPLY_SPELL) that is not a worn
  * affect, in wear-slot order, and then the poison's blow (equip_char) once, if <wearer> was not
  * poisoned before its gear went on (<poisoned_before_gear>) and is poisoned now. The worn affects
- * are not cast again. Call it once, after gear put on quietly in no real room (a login), when
- * <wearer> stands in its room. A cast can kill the wearer or anyone else in the room, or set off a
- * script that removes someone: an item that is freed or stripped off casts nothing more, and the
- * other items still cast. Returns false when <wearer> was freed: the caller must not touch it
+ * are not cast again. Call it once, after gear put on quietly (a login), when <wearer> stands in
+ * its room. A cast can kill the wearer or anyone else in the room, or set off a script that
+ * removes someone: an item that is freed or stripped off casts nothing more, and the other items
+ * still cast. Nothing more is cast, the poison's blow included, once <stop_at_death> (null for
+ * none) reports a death. Returns false when <wearer> was freed: the caller must not touch it
  * again. A null <wearer> is logged and nothing is cast. */
-bool cast_quietly_worn_gear(struct char_data* wearer, bool poisoned_before_gear);
+bool cast_quietly_worn_gear(struct char_data* wearer, bool poisoned_before_gear,
+    const death_watch* stop_at_death = nullptr);
 /* Encumbrance weight an item of this weight adds when worn in this slot. */
 int worn_encumb_weight(int weight, int slot);
 
@@ -253,11 +257,17 @@ void Crash_idlesave(struct char_data* ch);
 void Crash_save_all(void);
 FILE* Crash_get_file_by_name(const char* name, const char* mode);
 FILE* Crash_load(struct char_data* ch);
-/* Brings <ch>, just read from its player file, into the game: its gear, put on quietly, the room it
- * loads into, its aliases and its followers, and then, with everyone in the room, the spells of
- * the gear they wear (cast_quietly_worn_gear). Returns false when a cast freed <ch>: the caller
- * must not touch it again. */
+/* Brings <ch>, just read from its player file, into the game with its gear, its aliases and its
+ * followers. Everything is read first. Then <ch> enters its room and its gear's spells are cast
+ * (cast_quietly_worn_gear), and then each follower in turn enters the room <ch> stands in, its
+ * gear's spells are cast, and it follows <ch>. A death of <ch> stops all casting, so a login kills
+ * it at most once. Returns false when a cast freed <ch>: the caller must not touch it again. */
 bool load_character(struct char_data* ch);
+/* What a follower record's flag_config says the follower was when it was saved. */
+#define FOL_MOUNT 0
+#define FOL_ORC_FRIEND 1
+#define FOL_TAMED 2
+#define FOL_GUARDIAN 3
 void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length);
 void clear_account_backed_object_bytes_for_character(const struct char_data* ch);
 

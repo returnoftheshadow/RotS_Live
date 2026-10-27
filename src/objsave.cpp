@@ -41,12 +41,6 @@
 #define RENT_HALFTIME 300
 #define FORCERENT_FACTOR 10
 
-// defines for follower saving
-#define FOL_MOUNT 0
-#define FOL_ORC_FRIEND 1
-#define FOL_TAMED 2
-#define FOL_GUARDIAN 3
-
 #define MIN_RANK 1
 #define MAX_RANK 10
 
@@ -73,18 +67,38 @@ void Crash_follower_load(struct char_data* ch, FILE* fp);
 
 namespace {
 
-/* A follower a login made, whose gear went on quietly and whose gear's spells the login casts once
- * everyone has loaded (cast_login_gear). */
-struct loaded_follower {
-    // The follower, which the cast pass touches only while it has not been freed.
+/* One item of a follower's gear, read from the object file and held, worn by nobody, until the
+ * follower stands in a room to put it on. */
+struct held_item {
+    // The item, made from its record: in no room and carried by nobody.
+    obj_data* item;
+    // The wear slot its record names.
+    int slot;
+};
+
+/* A follower read from an object file and held, in no room and following nobody, until it is
+ * brought in beside its leader (bring_in_follower). */
+struct held_follower {
+    // The follower, made from its prototype: on the character list, in no room.
     char_data* follower;
-    // Whether it was poisoned before its gear went on, for cast_quietly_worn_gear.
+    // Its gear, in the order the file lists it.
+    std::vector<held_item> gear;
+    // Its record, whose flag_config and mount_vnum finish_follower reads.
+    follower_file_elem record;
+    // Whether the record was read whole. One whose gear failed to load comes in following nobody,
+    // with no charm and no mount.
+    bool record_complete;
+    // Whether it was poisoned before its gear went on, for cast_quietly_worn_gear; set by
+    // bring_in_follower.
     bool poisoned_before_gear;
 };
 
 } // namespace
 
-static void load_followers(char_data* ch, FILE* fp, std::vector<loaded_follower>& out_followers);
+static void read_followers(char_data* ch, FILE* fp, std::vector<held_follower>& out_followers);
+static char_data* bring_in_follower(char_data* leader, held_follower& held);
+static void finish_follower(char_data* leader, const held_follower& held);
+static void extract_held_followers(std::vector<held_follower>& followers, size_t first);
 int calc_load_room(struct char_data* ch, int load_result);
 int Crash_get_filename(const char* orig_name, char* filename);
 
@@ -888,23 +902,49 @@ void Crash_report_object_refreshes(const struct char_data* ch)
     g_refreshed_object_names.erase(it);
 }
 
-/* Casts what a login's quiet dressing passed over (cast_quietly_worn_gear): on <leader> first,
- * then on each of <followers> in the order they loaded. A cast can free the leader or a follower;
- * the one freed casts nothing more. Returns false when <leader> was freed. */
-static bool cast_login_gear(char_data* leader, bool leader_poisoned_before_gear,
-    const std::vector<loaded_follower>& followers)
+/* Casts what the quiet dressing of a login passed over (cast_quietly_worn_gear) and brings in
+ * <leader>'s held <followers>, in the order putting the gear on in play gave: the leader's gear
+ * casts before any follower is in the room; then each follower in load order comes into the room
+ * the leader stands in, its gear casts, and it follows the leader. Once the leader dies nothing
+ * more is cast, so a login costs it at most one death: the followers still come in, beside it
+ * where it came back to life, and follow it. Returns false when <leader> was freed: the followers
+ * still held then leave the game, and the caller must not touch the leader again. */
+static bool cast_gear_and_bring_in_followers(char_data* leader, bool leader_poisoned_before_gear,
+    std::vector<held_follower>& followers)
 {
-    /* Everyone the pass casts for exists as the log is made, so the log tells who was freed: a
-     * leader's earthquake can kill a follower, and a follower's spell its leader. */
-    freed_log freed_during_pass;
-    cast_quietly_worn_gear(leader, leader_poisoned_before_gear);
-    for (const loaded_follower& loaded : followers) {
-        if (freed_during_pass.contains(loaded.follower)) {
+    /* Everyone this login made exists as the log is made, so it tells who a cast frees. */
+    freed_log freed_during_login;
+    death_watch leader_death(leader);
+    cast_quietly_worn_gear(leader, leader_poisoned_before_gear, &leader_death);
+
+    for (size_t index = 0; index < followers.size(); index++) {
+        if (freed_during_login.contains(leader)) {
+            extract_held_followers(followers, index);
+            return false;
+        }
+        if (leader->in_room == NOWHERE) {
+            sprintf(buf, "SYSERR: %s is in no room to bring their followers into; they are removed.",
+                GET_NAME(leader));
+            log(buf);
+            extract_held_followers(followers, index);
+            return true;
+        }
+
+        held_follower& held = followers[index];
+        char_data* follower = bring_in_follower(leader, held);
+        if (!leader_death.died()) {
+            const freed_watch follower_watch(follower);
+            cast_quietly_worn_gear(follower, held.poisoned_before_gear, &leader_death);
+            if (follower_watch.freed()) {
+                continue;
+            }
+        }
+        if (freed_during_login.contains(leader)) {
             continue;
         }
-        cast_quietly_worn_gear(loaded.follower, loaded.poisoned_before_gear);
+        finish_follower(leader, held);
     }
-    return !freed_during_pass.contains(leader);
+    return !freed_during_login.contains(leader);
 }
 
 bool load_character(struct char_data* ch)
@@ -924,21 +964,21 @@ bool load_character(struct char_data* ch)
     ch->next = character_list;
     character_list = ch;
 
-    char_to_room(ch, ch->specials2.load_room);
-    act("$n has entered the game.", TRUE, ch, 0, 0, TO_ROOM);
-
-    std::vector<loaded_follower> followers;
+    /* The whole file is read, and closed, before anything is cast: a death's crash save rewrites
+     * it in place. */
+    std::vector<held_follower> followers;
     if (fp) {
         if (!(feof(fp))) {
             Crash_alias_load(ch, fp);
-            load_followers(ch, fp, followers);
+            read_followers(ch, fp, followers);
         }
         fclose(fp);
     }
 
-    /* Nothing is cast until everyone has loaded and the object file is closed: a death cannot cut
-     * the reading short, and the crash save it makes writes a whole file. */
-    return cast_login_gear(ch, poisoned_before_gear, followers);
+    char_to_room(ch, ch->specials2.load_room);
+    act("$n has entered the game.", TRUE, ch, 0, 0, TO_ROOM);
+
+    return cast_gear_and_bring_in_followers(ch, poisoned_before_gear, followers);
 }
 
 int calc_load_room(struct char_data* ch, int load_result)
@@ -1145,21 +1185,24 @@ void Crash_follower_save(const struct char_data* ch, FILE* fp)
     }
 }
 
-/* Loads the followers saved in <fp> for <ch> (load_followers), casting none of their gear's
- * spells. */
+/* Loads the followers saved in <fp> for <ch> into its room, following it, with their gear put on
+ * quietly: none of the gear's spells is cast. */
 void Crash_follower_load(struct char_data* ch, FILE* fp)
 {
-    std::vector<loaded_follower> ignored_followers;
-    load_followers(ch, fp, ignored_followers);
+    std::vector<held_follower> followers;
+    read_followers(ch, fp, followers);
+    for (held_follower& held : followers) {
+        bring_in_follower(ch, held);
+        finish_follower(ch, held);
+    }
 }
 
-/* Loads the followers saved in <fp> for <ch>, their leader, into its room, with their gear put on
- * quietly, and adds each mob it makes to <out_followers> in load order. */
-static void load_followers(char_data* ch, FILE* fp, std::vector<loaded_follower>& out_followers)
+/* Reads the followers saved in <fp> for <ch>, their leader, into <out_followers> in load order,
+ * holding each with its gear (held_follower). Stops at the end of the follower records, or where
+ * one cannot be read. */
+static void read_followers(char_data* ch, FILE* fp, std::vector<held_follower>& out_followers)
 {
     struct follower_file_elem fol_elem;
-    struct char_data *mob, *mount;
-    struct affected_type af{};
     struct obj_file_elem object;
     struct obj_data* obj;
     int tmp;
@@ -1172,10 +1215,9 @@ static void load_followers(char_data* ch, FILE* fp, std::vector<loaded_follower>
             break;
         if ((tmp = real_mobile(fol_elem.fol_vnum)) < 0)
             break;
-        mob = read_mobile(tmp, REAL);
-        char_to_room(mob, ch->in_room);
-        const loaded_follower loaded { mob, IS_AFFECTED(mob, AFF_POISON) != 0 };
-        out_followers.push_back(loaded);
+        char_data* follower = read_mobile(tmp, REAL);
+        out_followers.push_back(held_follower { follower, {}, fol_elem, false, false });
+        held_follower& held = out_followers.back();
 
         while (true) {
             obj_file_extra object_extra;
@@ -1193,94 +1235,138 @@ static void load_followers(char_data* ch, FILE* fp, std::vector<loaded_follower>
             if (object.wear_pos >= MAX_WEAR || object.wear_pos < 0)
                 continue;
 
-            obj = Crash_obj2char(mob, &object, object_extra, ch);
+            obj = Crash_obj2char(held.follower, &object, object_extra, ch);
             if (!obj) {
                 sprintf(buf, "LOAD ERROR, equipment lost for follower of %s.", GET_NAME(ch));
                 log(buf);
                 return;
             }
-            /* Quietly, as its leader's gear goes back on (Crash_load). */
-            equip_loaded_item(mob, obj, object.wear_pos, ch);
+            held.gear.push_back(held_item { obj, object.wear_pos });
         }
-        switch (fol_elem.flag_config) {
-        case FOL_ORC_FRIEND: // We should really have an add_recruit function
-            af.type = SKILL_RECRUIT;
-            af.duration = -1;
-            af.modifier = 0;
-            af.location = APPLY_NONE;
-            af.bitvector = AFF_CHARM;
-            affect_to_char(mob, &af);
-            SET_BIT(MOB_FLAGS(mob), MOB_PET);
-            break;
-
-        case FOL_TAMED: // need same for tame
-        {
-            af.type = SKILL_TAME;
-            af.duration = -1;
-            af.modifier = 0;
-            af.location = APPLY_NONE;
-            af.bitvector = AFF_CHARM;
-            affect_to_char(mob, &af);
-            SET_BIT(MOB_FLAGS(mob), MOB_PET);
-
-            // If the mob tame is flagged as aggressive and the mob is tamed,
-            // assume that the mob has been calmed and add that spell effect to it.
-            if (MOB_FLAGGED(mob, MOB_AGGRESSIVE)) {
-                affected_type calm_affect{};
-                calm_affect.type = SKILL_CALM;
-                calm_affect.duration = -1;
-                calm_affect.modifier = 0;
-                calm_affect.location = APPLY_NONE;
-                calm_affect.bitvector = 0;
-                affect_to_char(mob, &calm_affect);
-            }
-
-            if (GET_SPEC(ch) == PLRSPEC_PETS) {
-                mob->abilities.str += 2;
-                mob->tmpabilities.str += 2;
-                mob->constabilities.str += 2;
-                mob->points.ENE_regen += 40;
-                mob->points.damage += 2;
-            }
-
-        } break;
-
-        case FOL_GUARDIAN: // and guardian
-        {
-            extern int scale_guardian(int, const char_data*, char_data*, bool);
-            SET_BIT(mob->specials.affected_by, AFF_CHARM);
-            SET_BIT(MOB_FLAGS(mob), MOB_PET);
-            int guardian_type = get_guardian_type(ch->player.race, mob);
-            scale_guardian(guardian_type, ch, mob, true);
-            mob->damage_details.reset();
-        } break;
-
-        case FOL_MOUNT: {
-            // If the prototype mount is flagged as aggressive but the mob is a mount,
-            // assume that the mob has been calmed and add that spell effect to it.
-            if (MOB_FLAGGED(mob, MOB_AGGRESSIVE)) {
-                affected_type calm_affect{};
-                calm_affect.type = SKILL_CALM;
-                calm_affect.duration = -1;
-                calm_affect.modifier = 0;
-                calm_affect.location = APPLY_NONE;
-                calm_affect.bitvector = 0;
-                affect_to_char(mob, &calm_affect);
-            }
-        } break;
-        }
-        REMOVE_BIT(MOB_FLAGS(mob), MOB_SPEC);
-        mob->specials.store_prog_number = 0;
-        REMOVE_BIT(MOB_FLAGS(mob), MOB_AGGRESSIVE);
-        REMOVE_BIT(MOB_FLAGS(mob), MOB_STAY_ZONE);
-        mob->specials2.pref = 0;
-        add_follower(mob, ch, FOLLOW_MOVE);
-        if ((tmp = real_mobile(fol_elem.mount_vnum)) > 0) {
-            mount = read_mobile(tmp, REAL);
-            char_to_room(mount, ch->in_room);
-            add_follower(mount, mob, FOLLOW_MOVE);
-        }
+        held.record_complete = true;
     } while (1);
+}
+
+/* Puts <held>'s follower into the room <leader> stands in, which must be a real one, and dresses
+ * it quietly in its held gear, as its leader's gear went on (Crash_load). Returns the follower. */
+static char_data* bring_in_follower(char_data* leader, held_follower& held)
+{
+    char_data* follower = held.follower;
+    char_to_room(follower, leader->in_room);
+    held.poisoned_before_gear = IS_AFFECTED(follower, AFF_POISON) != 0;
+    for (const held_item& worn : held.gear) {
+        equip_loaded_item(follower, worn.item, worn.slot, leader);
+    }
+    held.gear.clear();
+    return follower;
+}
+
+/* Makes <held>'s follower, now in <leader>'s room, the follower its record says: charmed, tamed,
+ * recruited or a guardian, made to follow <leader>, and given the mount it rode in on. One whose
+ * record was not read whole is left following nobody. */
+static void finish_follower(char_data* leader, const held_follower& held)
+{
+    if (!held.record_complete) {
+        return;
+    }
+
+    char_data* follower = held.follower;
+    struct affected_type af{};
+
+    switch (held.record.flag_config) {
+    case FOL_ORC_FRIEND: // We should really have an add_recruit function
+        af.type = SKILL_RECRUIT;
+        af.duration = -1;
+        af.modifier = 0;
+        af.location = APPLY_NONE;
+        af.bitvector = AFF_CHARM;
+        affect_to_char(follower, &af);
+        SET_BIT(MOB_FLAGS(follower), MOB_PET);
+        break;
+
+    case FOL_TAMED: // need same for tame
+    {
+        af.type = SKILL_TAME;
+        af.duration = -1;
+        af.modifier = 0;
+        af.location = APPLY_NONE;
+        af.bitvector = AFF_CHARM;
+        affect_to_char(follower, &af);
+        SET_BIT(MOB_FLAGS(follower), MOB_PET);
+
+        // If the mob tame is flagged as aggressive and the mob is tamed,
+        // assume that the mob has been calmed and add that spell effect to it.
+        if (MOB_FLAGGED(follower, MOB_AGGRESSIVE)) {
+            affected_type calm_affect{};
+            calm_affect.type = SKILL_CALM;
+            calm_affect.duration = -1;
+            calm_affect.modifier = 0;
+            calm_affect.location = APPLY_NONE;
+            calm_affect.bitvector = 0;
+            affect_to_char(follower, &calm_affect);
+        }
+
+        if (GET_SPEC(leader) == PLRSPEC_PETS) {
+            follower->abilities.str += 2;
+            follower->tmpabilities.str += 2;
+            follower->constabilities.str += 2;
+            follower->points.ENE_regen += 40;
+            follower->points.damage += 2;
+        }
+
+    } break;
+
+    case FOL_GUARDIAN: // and guardian
+    {
+        extern int scale_guardian(int, const char_data*, char_data*, bool);
+        SET_BIT(follower->specials.affected_by, AFF_CHARM);
+        SET_BIT(MOB_FLAGS(follower), MOB_PET);
+        int guardian_type = get_guardian_type(leader->player.race, follower);
+        scale_guardian(guardian_type, leader, follower, true);
+        follower->damage_details.reset();
+    } break;
+
+    case FOL_MOUNT: {
+        // If the prototype mount is flagged as aggressive but the mob is a mount,
+        // assume that the mob has been calmed and add that spell effect to it.
+        if (MOB_FLAGGED(follower, MOB_AGGRESSIVE)) {
+            affected_type calm_affect{};
+            calm_affect.type = SKILL_CALM;
+            calm_affect.duration = -1;
+            calm_affect.modifier = 0;
+            calm_affect.location = APPLY_NONE;
+            calm_affect.bitvector = 0;
+            affect_to_char(follower, &calm_affect);
+        }
+    } break;
+    }
+    REMOVE_BIT(MOB_FLAGS(follower), MOB_SPEC);
+    follower->specials.store_prog_number = 0;
+    REMOVE_BIT(MOB_FLAGS(follower), MOB_AGGRESSIVE);
+    REMOVE_BIT(MOB_FLAGS(follower), MOB_STAY_ZONE);
+    follower->specials2.pref = 0;
+    add_follower(follower, leader, FOLLOW_MOVE);
+    const int mount_number = real_mobile(held.record.mount_vnum);
+    if (mount_number > 0) {
+        char_data* mount = read_mobile(mount_number, REAL);
+        char_to_room(mount, leader->in_room);
+        add_follower(mount, follower, FOLLOW_MOVE);
+    }
+}
+
+/* Removes from the game the followers in <followers> from <first> on, which are still held, and
+ * their held gear. Each is in no room, so its gear is destroyed with it, as extract_char destroys
+ * the belongings of anyone in no room. */
+static void extract_held_followers(std::vector<held_follower>& followers, size_t first)
+{
+    for (size_t index = first; index < followers.size(); index++) {
+        held_follower& held = followers[index];
+        for (const held_item& unworn : held.gear) {
+            extract_obj(unworn.item);
+        }
+        held.gear.clear();
+        extract_char(held.follower);
+    }
 }
 
 void extract_followers(const struct char_data* ch)

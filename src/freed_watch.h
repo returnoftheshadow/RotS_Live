@@ -55,6 +55,41 @@ private:
     freed_watch* m_older;
 };
 
+/* Watches one character while code that can kill it runs (an item's spell, a poison's blow), so
+ * that the caller can tell afterwards whether it died. A death does not always free: a connected
+ * player who dies comes back to life in the start room, still the same character. raw_kill reports
+ * each death once nothing can stop it, and every watch on the dying one is marked.
+ *
+ * A watch must be a local variable: watches nest, and each one stops watching when it goes out of
+ * scope. The character is compared by address and never read. */
+class death_watch {
+public:
+    /* Watches <character>. A null one never dies. */
+    explicit death_watch(const char_data* character);
+    ~death_watch();
+
+    death_watch(const death_watch&) = delete;
+    death_watch& operator=(const death_watch&) = delete;
+
+    /* True once the watched character has died, whether or not it lives on. */
+    bool died() const { return m_died; }
+
+    /* Marks every watch on <character> as died; for raw_kill. */
+    static void note_died(const char_data* character);
+
+private:
+    // The newest watch still in scope; each points on to the one made before it. Null when no
+    // death is watched, which is nearly always, so a death costs one test.
+    static death_watch* newest;
+
+    // The watched character, compared by address and never read.
+    const char_data* m_watched;
+    // Set by note_died when the watched character dies.
+    bool m_died = false;
+    // The watch made before this one, which is the newest again once this one goes.
+    death_watch* m_older;
+};
+
 /* Records everything freed while it is in scope: the objects and characters free_obj and free_char
  * report, the affects put_to_affected_type_pool frees and the list entries from_list_to_pool
  * frees. For a walk over a copy of a list whose steps can free entries the copy still names: the

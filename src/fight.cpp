@@ -952,6 +952,7 @@ static void raw_kill_by(char_data* dead_man, const char_data* killer, bool kille
      * item's spell or poison them (unequip_char), and a blow or death then would land on someone
      * half stripped and kill them a second time. */
     GET_POS(dead_man) = POSITION_DEAD;
+    death_watch::note_died(dead_man);
     if (killer_watch.freed()) {
         killer = nullptr;
     }
