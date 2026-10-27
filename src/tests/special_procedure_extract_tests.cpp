@@ -34,6 +34,9 @@ SPECIAL(dragon);
 SPECIAL(gatekeeper);
 SPECIAL(gatekeeper2);
 SPECIAL(thuringwethil);
+SPECIAL(guild);
+SPECIAL(ar_tarthalon);
+SPECIAL(mob_ranger);
 
 extern struct index_data* mob_index;
 extern int top_of_mobt;
@@ -1054,6 +1057,131 @@ TEST_F(SpecialProcedureTest, ThuringwethilBeatenSaysHerLastWordsAndLeaves)
     EXPECT_FALSE(is_in_game(vampire));
     EXPECT_TRUE(output_has("Curse you all")) << output();
     EXPECT_TRUE(output_has("her clothing falls to the ground")) << output();
+}
+
+/* A guildmaster's refusal is heard by a mob whose script removes the guildmaster: the practice
+ * command ends there, taken. */
+TEST_F(SpecialProcedureTest, AGuildmasterTheHearersRemoveAsItRefusesEndsThePractice)
+{
+    install_script(ON_HEAR_SAY, remove_the_speaker_body());
+    char_data* teacher = make_mob_with("guildmaster", guild);
+    char_data* hearer = make_mob_with("hearer", nullptr);
+    hearer->specials.script_number = SCRIPT_VNUM;
+
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+
+    EXPECT_FALSE(is_in_game(teacher));
+    EXPECT_TRUE(output_has("Go away, I won't teach you anything!")) << output();
+}
+
+TEST_F(SpecialProcedureTest, AGuildmasterSaysWhyItWillNotTeach)
+{
+    char_data* teacher = make_mob_with("guildmaster", guild);
+
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+    teacher->specials2.will_teach = 1 << RACE_HUMAN;
+    SET_BIT(PLR_FLAGS(&m_player), PLR_ISSHADOW);
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+    REMOVE_BIT(PLR_FLAGS(&m_player), PLR_ISSHADOW);
+    teacher->specials2.rp_flag = 1 << RACE_DWARF;
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+
+    EXPECT_TRUE(is_in_game(teacher));
+    EXPECT_TRUE(output_has("Go away, I won't teach you anything!")) << output();
+    EXPECT_TRUE(output_has("Ugh!  I'm not teaching YOU!")) << output();
+    EXPECT_TRUE(output_has("Sorry, I can't teach you.")) << output();
+}
+
+/* Ar-Tarthalon, fighting, calls the one he summons, who hears it in the same room; random values
+ * pushed first make him call this turn and choose whom. */
+static void ready_to_summon(bool calls_sorcerer, char_data* king)
+{
+    king->specials.position = POSITION_FIGHTING;
+    push_test_random_value(0.0); /* he calls this turn */
+    if (calls_sorcerer) {
+        push_test_random_value(0.9); /* Balkazor */
+    } else {
+        push_test_random_value(0.0); /* Karahaz */
+    }
+}
+
+/* The one called hears the call, and his own script removes him: Ar-Tarthalon does not then
+ * bring him. */
+TEST_F(SpecialProcedureTest, ArTarthalonLetsGoOfTheOneHisCallRemoves)
+{
+    install_script(ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    for (const bool calls_sorcerer : { true, false }) {
+        char_data* king = make_mob_with("king", nullptr);
+        char_data* summoned = nullptr;
+        if (calls_sorcerer) {
+            summoned = make_mob_with("balkazor", nullptr);
+        } else {
+            summoned = make_mob_with("karahaz", nullptr);
+        }
+        summoned->specials.script_number = SCRIPT_VNUM;
+        ready_to_summon(calls_sorcerer, king);
+
+        EXPECT_EQ(0, ar_tarthalon(king, king, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+        EXPECT_FALSE(is_in_game(summoned));
+        extract_char(king);
+    }
+}
+
+/* Called from room 8480 of his route, the one Ar-Tarthalon summons steps east (to room
+ * SECOND_ROOM here). */
+TEST_F(SpecialProcedureTest, ArTarthalonCallsTheOneHeSummonsWhoComes)
+{
+    world[0].number = 8480;
+    for (const bool calls_sorcerer : { true, false }) {
+        char_data* king = make_mob_with("king", nullptr);
+        char_data* summoned = nullptr;
+        if (calls_sorcerer) {
+            summoned = make_mob_with("balkazor", nullptr);
+        } else {
+            summoned = make_mob_with("karahaz", nullptr);
+        }
+        ready_to_summon(calls_sorcerer, king);
+
+        EXPECT_EQ(0, ar_tarthalon(king, king, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+        ASSERT_TRUE(is_in_game(summoned));
+        EXPECT_EQ(SECOND_ROOM, summoned->in_room);
+        extract_char(king);
+        extract_char(summoned);
+    }
+    EXPECT_TRUE(output_has("Balkazor my sorcerer, I command you to aid me!")) << output();
+    EXPECT_TRUE(output_has("Karahaz!  Master swordsman, Come!")) << output();
+}
+
+/* ---- the ranger mob's hiding ---- */
+
+/* Someone comes into a ranger's room as it waits out a script's pause; the hide it starts ends
+ * the pause, and the rest of the script removes it: it does not then go on to track or wander. */
+TEST_F(SpecialProcedureTest, ARangerWhoseHidingRemovesItIsLetGo)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { 5 } }, { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* ranger = make_mob_with("ranger", nullptr);
+    ranger->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, ranger->delay.cmd);
+
+    EXPECT_EQ(0, mob_ranger(ranger, &m_player, 0, empty_argument(), SPECIAL_ENTER, nullptr));
+
+    EXPECT_FALSE(is_in_game(ranger));
+}
+
+/* Someone comes into a standing ranger's room: it starts to hide, and then wanders off. */
+TEST_F(SpecialProcedureTest, ARangerSomeoneComesUponHidesAndWanders)
+{
+    char_data* ranger = make_mob_with("ranger", nullptr);
+    push_test_random_value(0.0); /* it wanders north */
+
+    EXPECT_EQ(0, mob_ranger(ranger, &m_player, 0, empty_argument(), SPECIAL_ENTER, nullptr));
+
+    EXPECT_EQ(CMD_HIDE, ranger->delay.cmd);
+    EXPECT_EQ(SECOND_ROOM, ranger->in_room);
 }
 
 /* ---- commands that go on after offering themselves ---- */
