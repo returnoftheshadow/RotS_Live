@@ -71,7 +71,8 @@ enum class gear_change {
     /* The game dresses or strips someone coming into or leaving the game (login, rent, quit,
      * removal): only a spell that gives a lasting affect for as long as the item is worn
      * (item_spell_is_worn_affect) gives or takes it. No other spell is cast and the poison hurts
-     * nobody, so the wearer and the item are never freed. */
+     * nobody, so the wearer and the item are never freed. A login casts the rest once the
+     * character stands in its room (cast_quietly_worn_gear). */
     quiet,
 };
 
@@ -92,6 +93,16 @@ bool equip_char(struct char_data* ch, struct obj_data* obj, int pos,
  * took off is held by nobody. */
 struct obj_data* unequip_char(struct char_data* ch, int pos,
     gear_change change = gear_change::cast);
+/* Casts on <wearer> what putting its gear on quietly (gear_change::quiet) passed over, as putting
+ * each item on with gear_change::cast does: every item spell (APPLY_SPELL) that is not a worn
+ * affect, in wear-slot order, and then the poison's blow (equip_char) once, if <wearer> was not
+ * poisoned before its gear went on (<poisoned_before_gear>) and is poisoned now. The worn affects
+ * are not cast again. Call it once, after gear put on quietly in no real room (a login), when
+ * <wearer> stands in its room. A cast can kill the wearer or anyone else in the room, or set off a
+ * script that removes someone: an item that is freed or stripped off casts nothing more, and the
+ * other items still cast. Returns false when <wearer> was freed: the caller must not touch it
+ * again. A null <wearer> is logged and nothing is cast. */
+bool cast_quietly_worn_gear(struct char_data* wearer, bool poisoned_before_gear);
 /* Encumbrance weight an item of this weight adds when worn in this slot. */
 int worn_encumb_weight(int weight, int slot);
 
@@ -242,6 +253,11 @@ void Crash_idlesave(struct char_data* ch);
 void Crash_save_all(void);
 FILE* Crash_get_file_by_name(const char* name, const char* mode);
 FILE* Crash_load(struct char_data* ch);
+/* Brings <ch>, just read from its player file, into the game: its gear, put on quietly, the room it
+ * loads into, its aliases and its followers, and then, with everyone in the room, the spells of
+ * the gear they wear (cast_quietly_worn_gear). Returns false when a cast freed <ch>: the caller
+ * must not touch it again. */
+bool load_character(struct char_data* ch);
 void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length);
 void clear_account_backed_object_bytes_for_character(const struct char_data* ch);
 

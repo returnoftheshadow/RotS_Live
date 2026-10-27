@@ -19,6 +19,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -32,6 +33,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 /* these factors should be unique integers */
 #define RENT_FACTOR 1
@@ -68,6 +70,21 @@ SPECIAL(cryogenicist);
 
 int Crash_alias_load(struct char_data* ch, FILE* fp);
 void Crash_follower_load(struct char_data* ch, FILE* fp);
+
+namespace {
+
+/* A follower a login made, whose gear went on quietly and whose gear's spells the login casts once
+ * everyone has loaded (cast_login_gear). */
+struct loaded_follower {
+    // The follower, which the cast pass touches only while it has not been freed.
+    char_data* follower;
+    // Whether it was poisoned before its gear went on, for cast_quietly_worn_gear.
+    bool poisoned_before_gear;
+};
+
+} // namespace
+
+static void load_followers(char_data* ch, FILE* fp, std::vector<loaded_follower>& out_followers);
 int calc_load_room(struct char_data* ch, int load_result);
 int Crash_get_filename(const char* orig_name, char* filename);
 
@@ -787,8 +804,11 @@ FILE* Crash_load(char_data* character)
             if (object.wear_pos < 0)
                 object.wear_pos = MAX_WEAR;
             if (object.wear_pos < MAX_WEAR) {
-                /* Quietly: the character is in no room yet, and in_room holds the load room's
-                   vnum, so a blow or a death here would land in the wrong room. */
+                /* Quietly, casting no spell that could strike the room or kill: in_room holds the
+                   load room's vnum, not a real room. load_character casts the rest once the
+                   character stands in its room. equip_char still takes in_room for a room: a lit
+                   light adds to world[vnum]'s light, and an item refused for its alignment or
+                   race is announced there. */
                 if (obj != &dummy_sack)
                     equip_loaded_item(character, obj, object.wear_pos, character);
                 equip_array[0] = obj;
@@ -868,7 +888,26 @@ void Crash_report_object_refreshes(const struct char_data* ch)
     g_refreshed_object_names.erase(it);
 }
 
-void load_character(struct char_data* ch)
+/* Casts what a login's quiet dressing passed over (cast_quietly_worn_gear): on <leader> first,
+ * then on each of <followers> in the order they loaded. A cast can free the leader or a follower;
+ * the one freed casts nothing more. Returns false when <leader> was freed. */
+static bool cast_login_gear(char_data* leader, bool leader_poisoned_before_gear,
+    const std::vector<loaded_follower>& followers)
+{
+    /* Everyone the pass casts for exists as the log is made, so the log tells who was freed: a
+     * leader's earthquake can kill a follower, and a follower's spell its leader. */
+    freed_log freed_during_pass;
+    cast_quietly_worn_gear(leader, leader_poisoned_before_gear);
+    for (const loaded_follower& loaded : followers) {
+        if (freed_during_pass.contains(loaded.follower)) {
+            continue;
+        }
+        cast_quietly_worn_gear(loaded.follower, loaded.poisoned_before_gear);
+    }
+    return !freed_during_pass.contains(leader);
+}
+
+bool load_character(struct char_data* ch)
 {
     extern struct char_data* character_list;
     FILE* fp;
@@ -878,6 +917,8 @@ void load_character(struct char_data* ch)
     if (ch->in_room == NOWHERE)
         ch->in_room = ch->specials2.load_room;
 
+    /* For the blow of a poison its gear gives it (cast_quietly_worn_gear). */
+    const bool poisoned_before_gear = IS_AFFECTED(ch, AFF_POISON);
     fp = Crash_load(ch);
 
     ch->next = character_list;
@@ -886,13 +927,18 @@ void load_character(struct char_data* ch)
     char_to_room(ch, ch->specials2.load_room);
     act("$n has entered the game.", TRUE, ch, 0, 0, TO_ROOM);
 
+    std::vector<loaded_follower> followers;
     if (fp) {
         if (!(feof(fp))) {
             Crash_alias_load(ch, fp);
-            Crash_follower_load(ch, fp);
+            load_followers(ch, fp, followers);
         }
         fclose(fp);
     }
+
+    /* Nothing is cast until everyone has loaded and the object file is closed: a death cannot cut
+     * the reading short, and the crash save it makes writes a whole file. */
+    return cast_login_gear(ch, poisoned_before_gear, followers);
 }
 
 int calc_load_room(struct char_data* ch, int load_result)
@@ -1099,7 +1145,17 @@ void Crash_follower_save(const struct char_data* ch, FILE* fp)
     }
 }
 
+/* Loads the followers saved in <fp> for <ch> (load_followers), casting none of their gear's
+ * spells. */
 void Crash_follower_load(struct char_data* ch, FILE* fp)
+{
+    std::vector<loaded_follower> ignored_followers;
+    load_followers(ch, fp, ignored_followers);
+}
+
+/* Loads the followers saved in <fp> for <ch>, their leader, into its room, with their gear put on
+ * quietly, and adds each mob it makes to <out_followers> in load order. */
+static void load_followers(char_data* ch, FILE* fp, std::vector<loaded_follower>& out_followers)
 {
     struct follower_file_elem fol_elem;
     struct char_data *mob, *mount;
@@ -1118,6 +1174,8 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             break;
         mob = read_mobile(tmp, REAL);
         char_to_room(mob, ch->in_room);
+        const loaded_follower loaded { mob, IS_AFFECTED(mob, AFF_POISON) != 0 };
+        out_followers.push_back(loaded);
 
         while (true) {
             obj_file_extra object_extra;
