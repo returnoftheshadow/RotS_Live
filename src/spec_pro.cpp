@@ -3286,6 +3286,9 @@ SPECIAL(ar_tarthalon)
     }
     if (!victim)
         return 0;
+    /* One in no room is on its way into or out of the game, and has nowhere to come from. */
+    if (victim->in_room == NOWHERE)
+        return 0;
     /* A script of anyone who hears the call can remove the one called. */
     freed_watch summoned_watch(victim);
     if (calls_sorcerer) {
@@ -3316,7 +3319,7 @@ SPECIAL(ar_tarthalon)
                 break;
             }
     }
-    if (summoned_watch.freed()) {
+    if (summoned_watch.freed() || victim->in_room == NOWHERE) {
         return 0;
     }
     if (GET_POS(victim) == POSITION_STANDING) {

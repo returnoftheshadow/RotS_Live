@@ -1433,7 +1433,7 @@ static bool deal_gear_poison_blow(char_data* wearer, const freed_watch& wearer_w
         act("$n suddenly collapses on the ground.",
             TRUE, wearer, 0, 0, TO_ROOM);
         send_to_char("Your body failed to the magic.\n\r", wearer);
-        raw_kill(wearer, NULL, 0);
+        raw_kill(wearer, nullptr, 0);
         if (anything_freed()) {
             return false;
         }

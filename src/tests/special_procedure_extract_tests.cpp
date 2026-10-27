@@ -1128,6 +1128,31 @@ TEST_F(SpecialProcedureTest, ArTarthalonLetsGoOfTheOneHisCallRemoves)
     }
 }
 
+/* One Ar-Tarthalon would summon who stands in no room, on its way into or out of the game, is not
+ * called. */
+TEST_F(SpecialProcedureTest, ArTarthalonDoesNotCallOneInNoRoom)
+{
+    for (const bool calls_sorcerer : { true, false }) {
+        char_data* king = make_mob_with("king", nullptr);
+        char_data* summoned = nullptr;
+        if (calls_sorcerer) {
+            summoned = make_mob_with("balkazor", nullptr);
+        } else {
+            summoned = make_mob_with("karahaz", nullptr);
+        }
+        char_from_room(summoned);
+        ready_to_summon(calls_sorcerer, king);
+
+        EXPECT_EQ(0, ar_tarthalon(king, king, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+        EXPECT_EQ(NOWHERE, summoned->in_room);
+        extract_char(king);
+        extract_char(summoned);
+    }
+    EXPECT_FALSE(output_has("Balkazor")) << output();
+    EXPECT_FALSE(output_has("Karahaz")) << output();
+}
+
 /* Called from room 8480 of his route, the one Ar-Tarthalon summons steps east (to room
  * SECOND_ROOM here). */
 TEST_F(SpecialProcedureTest, ArTarthalonCallsTheOneHeSummonsWhoComes)

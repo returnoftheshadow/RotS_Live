@@ -60,8 +60,11 @@ private:
  * player who dies comes back to life in the start room, still the same character. raw_kill reports
  * each death once nothing can stop it, and every watch on the dying one is marked.
  *
- * A watch must be a local variable: watches nest, and each one stops watching when it goes out of
- * scope. The character is compared by address and never read. */
+ * Watch only a character that exists when the watch is made. A watch must be a local variable:
+ * watches nest, and each one stops watching when it goes out of scope. The character is compared
+ * by address and never read, so a character freed without dying leaves its address to whoever is
+ * made next, whose death would mark the watch: where the watched one may be freed, check a
+ * freed_watch on it before trusting died(). */
 class death_watch {
 public:
     /* Watches <character>. A null one never dies. */

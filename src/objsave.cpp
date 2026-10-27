@@ -29,6 +29,7 @@
 #include "utils.h"
 #include "account_management.h"
 
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -98,7 +99,10 @@ struct held_follower {
 static void read_followers(char_data* ch, FILE* fp, std::vector<held_follower>& out_followers);
 static char_data* bring_in_follower(char_data* leader, held_follower& held);
 static void finish_follower(char_data* leader, const held_follower& held);
-static void extract_held_followers(std::vector<held_follower>& followers, size_t first);
+static void forget_freed_gear(held_follower& held, const freed_log& freed);
+static void extract_held_gear(held_follower& held);
+static void extract_held_followers(std::vector<held_follower>& followers, size_t first,
+    const freed_log& freed);
 int calc_load_room(struct char_data* ch, int load_result);
 int Crash_get_filename(const char* orig_name, char* filename);
 
@@ -903,34 +907,45 @@ void Crash_report_object_refreshes(const struct char_data* ch)
 }
 
 /* Casts what the quiet dressing of a login passed over (cast_quietly_worn_gear) and brings in
- * <leader>'s held <followers>, in the order putting the gear on in play gave: the leader's gear
- * casts before any follower is in the room; then each follower in load order comes into the room
- * the leader stands in, its gear casts, and it follows the leader. Once the leader dies nothing
- * more is cast, so a login costs it at most one death: the followers still come in, beside it
- * where it came back to life, and follow it. Returns false when <leader> was freed: the followers
- * still held then leave the game, and the caller must not touch the leader again. */
+ * <leader>'s held <followers>. The leader's gear casts first, while no follower is in the room.
+ * Then, for each follower in file order: it enters the room the leader stands in and puts its gear
+ * on, its gear casts, and it is charmed and follows the leader. Once the leader dies nothing more
+ * is cast, so a login kills it at most once. The followers not yet in the room still come in,
+ * beside it where it came back to life, and follow it; those already following are released by
+ * the death, as by any death. A leader that died is crash-saved once every follower has joined it,
+ * so that its object file lists them. Returns false when <leader> was freed: the followers still
+ * held then leave the game, and the caller must not touch the leader again. */
 static bool cast_gear_and_bring_in_followers(char_data* leader, bool leader_poisoned_before_gear,
     std::vector<held_follower>& followers)
 {
-    /* Everyone this login made exists as the log is made, so it tells who a cast frees. */
-    freed_log freed_during_login;
+    /* A death_watch can be marked through the address of someone freed without dying, so the
+     * leader's free is always checked before its death is trusted. */
+    freed_watch leader_watch(leader);
     death_watch leader_death(leader);
+    /* The held followers and their gear are in no room but are on the game's lists: the log tells
+     * whether anything a cast set off freed one. */
+    freed_log freed_during_login;
     cast_quietly_worn_gear(leader, leader_poisoned_before_gear, &leader_death);
 
     for (size_t index = 0; index < followers.size(); index++) {
-        if (freed_during_login.contains(leader)) {
-            extract_held_followers(followers, index);
+        if (leader_watch.freed()) {
+            extract_held_followers(followers, index, freed_during_login);
             return false;
         }
         if (leader->in_room == NOWHERE) {
             sprintf(buf, "SYSERR: %s is in no room to bring their followers into; they are removed.",
                 GET_NAME(leader));
             log(buf);
-            extract_held_followers(followers, index);
+            extract_held_followers(followers, index, freed_during_login);
             return true;
         }
 
         held_follower& held = followers[index];
+        forget_freed_gear(held, freed_during_login);
+        if (freed_during_login.contains(held.follower)) {
+            extract_held_gear(held);
+            continue;
+        }
         char_data* follower = bring_in_follower(leader, held);
         if (!leader_death.died()) {
             const freed_watch follower_watch(follower);
@@ -939,12 +954,20 @@ static bool cast_gear_and_bring_in_followers(char_data* leader, bool leader_pois
                 continue;
             }
         }
-        if (freed_during_login.contains(leader)) {
+        if (leader_watch.freed()) {
             continue;
         }
         finish_follower(leader, held);
     }
-    return !freed_during_login.contains(leader);
+
+    if (leader_watch.freed()) {
+        return false;
+    }
+    /* The death's own crash save was made before any follower joined, and listed none. */
+    if (leader_death.died()) {
+        Crash_crashsave(leader);
+    }
+    return true;
 }
 
 bool load_character(struct char_data* ch)
@@ -1271,27 +1294,27 @@ static void finish_follower(char_data* leader, const held_follower& held)
     }
 
     char_data* follower = held.follower;
-    struct affected_type af{};
+    struct affected_type charm_affect{};
 
     switch (held.record.flag_config) {
     case FOL_ORC_FRIEND: // We should really have an add_recruit function
-        af.type = SKILL_RECRUIT;
-        af.duration = -1;
-        af.modifier = 0;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_CHARM;
-        affect_to_char(follower, &af);
+        charm_affect.type = SKILL_RECRUIT;
+        charm_affect.duration = -1;
+        charm_affect.modifier = 0;
+        charm_affect.location = APPLY_NONE;
+        charm_affect.bitvector = AFF_CHARM;
+        affect_to_char(follower, &charm_affect);
         SET_BIT(MOB_FLAGS(follower), MOB_PET);
         break;
 
     case FOL_TAMED: // need same for tame
     {
-        af.type = SKILL_TAME;
-        af.duration = -1;
-        af.modifier = 0;
-        af.location = APPLY_NONE;
-        af.bitvector = AFF_CHARM;
-        affect_to_char(follower, &af);
+        charm_affect.type = SKILL_TAME;
+        charm_affect.duration = -1;
+        charm_affect.modifier = 0;
+        charm_affect.location = APPLY_NONE;
+        charm_affect.bitvector = AFF_CHARM;
+        affect_to_char(follower, &charm_affect);
         SET_BIT(MOB_FLAGS(follower), MOB_PET);
 
         // If the mob tame is flagged as aggressive and the mob is tamed,
@@ -1354,18 +1377,37 @@ static void finish_follower(char_data* leader, const held_follower& held)
     }
 }
 
+/* Drops from <held>'s gear every item <freed> says was freed while it was held. */
+static void forget_freed_gear(held_follower& held, const freed_log& freed)
+{
+    auto was_freed = [&freed](const held_item& unworn) -> bool {
+        return freed.contains(unworn.item);
+    };
+    held.gear.erase(std::remove_if(held.gear.begin(), held.gear.end(), was_freed), held.gear.end());
+}
+
+/* Removes from the game the gear still held for <held>'s follower. */
+static void extract_held_gear(held_follower& held)
+{
+    for (const held_item& unworn : held.gear) {
+        extract_obj(unworn.item);
+    }
+    held.gear.clear();
+}
+
 /* Removes from the game the followers in <followers> from <first> on, which are still held, and
- * their held gear. Each is in no room, so its gear is destroyed with it, as extract_char destroys
- * the belongings of anyone in no room. */
-static void extract_held_followers(std::vector<held_follower>& followers, size_t first)
+ * their held gear, passing over whatever <freed> says is gone already. Each is in no room, so its
+ * gear is destroyed with it, as extract_char destroys the belongings of anyone in no room. */
+static void extract_held_followers(std::vector<held_follower>& followers, size_t first,
+    const freed_log& freed)
 {
     for (size_t index = first; index < followers.size(); index++) {
         held_follower& held = followers[index];
-        for (const held_item& unworn : held.gear) {
-            extract_obj(unworn.item);
+        forget_freed_gear(held, freed);
+        extract_held_gear(held);
+        if (!freed.contains(held.follower)) {
+            extract_char(held.follower);
         }
-        held.gear.clear();
-        extract_char(held.follower);
     }
 }
 

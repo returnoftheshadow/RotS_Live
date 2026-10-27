@@ -283,3 +283,17 @@ TEST_F(FreedWatchTest, EveryDeathWatchOnACharacterIsMarked)
     EXPECT_TRUE(outer_watch.died());
     EXPECT_TRUE(inner_watch.died());
 }
+
+/* A watch that has gone out of scope is no longer reached: a death after it marks only the watches
+ * still in scope. */
+TEST_F(FreedWatchTest, ADeathWatchLeavingScopeLeavesTheOthersWatching)
+{
+    death_watch outer_watch(&m_player);
+    {
+        death_watch inner_watch(&m_player);
+    }
+
+    death_watch::note_died(&m_player);
+
+    EXPECT_TRUE(outer_watch.died());
+}

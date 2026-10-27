@@ -264,10 +264,10 @@ FILE* Crash_load(struct char_data* ch);
  * it at most once. Returns false when a cast freed <ch>: the caller must not touch it again. */
 bool load_character(struct char_data* ch);
 /* What a follower record's flag_config says the follower was when it was saved. */
-#define FOL_MOUNT 0
-#define FOL_ORC_FRIEND 1
-#define FOL_TAMED 2
-#define FOL_GUARDIAN 3
+inline constexpr int FOL_MOUNT = 0;
+inline constexpr int FOL_ORC_FRIEND = 1;
+inline constexpr int FOL_TAMED = 2;
+inline constexpr int FOL_GUARDIAN = 3;
 void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length);
 void clear_account_backed_object_bytes_for_character(const struct char_data* ch);
 

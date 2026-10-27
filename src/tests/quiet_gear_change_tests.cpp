@@ -595,7 +595,7 @@ TEST_F(QuietGearChangeTest, APlayerLoggingInIsGivenTheirGearsSpell)
 }
 
 /* A ring's evasion, a lasting affect the quiet login gives as the ring goes on, is not cast a
- * second time once the player stands in their room. */
+ * second time once the player stands in their room: it is given, and announced, once. */
 TEST_F(QuietGearChangeTest, APlayerLoggingInIsGivenTheirGearsWornAffectOnce)
 {
     objects_json::ObjectSaveData rented;
@@ -612,6 +612,7 @@ TEST_F(QuietGearChangeTest, APlayerLoggingInIsGivenTheirGearsWornAffectOnce)
         }
     }
     EXPECT_EQ(1, evasion_affects);
+    EXPECT_EQ(1, count_in_output("You feel someone protecting you."));
 }
 
 /* A player logging in to the room whose vnum is another room's index shakes the room they stand
@@ -688,7 +689,8 @@ TEST_F(QuietGearChangeTest, ALeadersEarthquakeAtLoginDoesNotReachTheirFollower)
  * life in the start room. Their two tamed followers, in earthquake rings, come in beside them
  * there with their gear and the one's mount, follow them still charmed, and cast nothing: the
  * mob in the start room is unhurt. The death's crash save rewrites the object file in place, and
- * nothing that lay past what had been read of it, their aliases or followers, is lost. */
+ * nothing that lay past what had been read of it, their aliases or followers, is lost; once the
+ * followers have joined, the file is saved again and lists them. */
 TEST_F(QuietGearChangeTest, ALeaderKilledAtLoginComesBackWithAllTheirFollowersAndTheirGear)
 {
     link_second_room();
@@ -736,9 +738,11 @@ TEST_F(QuietGearChangeTest, ALeaderKilledAtLoginComesBackWithAllTheirFollowersAn
         ++aliases;
     }
     EXPECT_EQ(ALIASES_PAST_THE_READ_BUFFER, aliases);
+    /* Saved again once the followers joined, so that the file lists them. */
     objects_json::ObjectSaveData saved;
     ASSERT_TRUE(read_player_object_file(saved));
     EXPECT_EQ(RENT_CRASH, saved.rent.rentcode);
+    EXPECT_EQ(2u, saved.followers.size());
 }
 
 /* A follower's earthquake at login shakes their leader, who stands in the room it comes into. */
@@ -792,6 +796,97 @@ TEST_F(QuietGearChangeTest, AFollowersSpellThatKillsTheLeaderEndsTheCasting)
         EXPECT_TRUE(IS_AFFECTED(follower, AFF_CHARM));
         EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(follower));
     }
+}
+
+/* A later follower's earthquake at login that kills the leader releases the follower already
+ * following it, as any death does: that one is no longer charmed and follows nobody, while the
+ * one that killed the leader joins it after. */
+TEST_F(QuietGearChangeTest, ALeaderKilledByALaterFollowerReleasesTheOneAlreadyFollowing)
+{
+    /* The leader comes back to life out of the quake's reach. No exit: the quake opens no way
+     * down, and nobody leaves. */
+    link_second_room();
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        world[0].dir_option[direction] = nullptr;
+    }
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    rented.followers.push_back(make_follower_record({}));
+    rented.followers.push_back(make_follower_record({ make_ring_record_casting(SPELL_EARTHQUAKE) }));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(1, count_in_output("You are dead!"));
+    const std::vector<char_data*> followers = followers_in_room(0);
+    ASSERT_EQ(2u, followers.size());
+    EXPECT_EQ(nullptr, followers[0]->master);
+    EXPECT_FALSE(IS_AFFECTED(followers[0], AFF_CHARM));
+    EXPECT_EQ(&m_player, followers[1]->master);
+    EXPECT_TRUE(IS_AFFECTED(followers[1], AFF_CHARM));
+}
+
+/* A follower whose earthquake at login kills the leader takes no blow from its poisonous ring:
+ * nothing more is cast once the leader has died. */
+TEST_F(QuietGearChangeTest, AFollowersPoisonBlowIsNotDealtOnceTheLeaderHasDied)
+{
+    link_second_room();
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        world[0].dir_option[direction] = nullptr;
+    }
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord poisonous_ring = make_record(RING_VNUM, WEAR_FINGER_L);
+    poisonous_ring.affects[0].location = APPLY_BITVECTOR;
+    poisonous_ring.affects[0].modifier = POISON_BIT_POSITION;
+    rented.followers.push_back(
+        make_follower_record({ make_ring_record_casting(SPELL_EARTHQUAKE), poisonous_ring }));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(1, count_in_output("You are dead!"));
+    const std::vector<char_data*> followers = followers_in_room(0);
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_TRUE(IS_AFFECTED(followers[0], AFF_POISON));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(followers[0]));
+}
+
+/* A follower whose record the object file cuts off part way through its gear comes in at login
+ * with the gear read before the cut, but follows nobody and is not charmed. */
+TEST_F(QuietGearChangeTest, AFollowerWhoseRecordIsCutOffComesInFollowingNobody)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    std::string bytes_without_followers;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(rented, &bytes_without_followers));
+    rented.followers.push_back(make_follower_record({ make_ring_record_casting(SPELL_SANCTUARY) }));
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(rented, &bytes));
+    /* The follower records start where the end-of-followers record stands in a file with none;
+     * the cut falls inside the first record of the follower's gear. */
+    const std::size_t followers_start = bytes_without_followers.size() - sizeof(follower_file_elem);
+    constexpr std::size_t bytes_into_the_gear = 10;
+    bytes.resize(followers_start + sizeof(follower_file_elem) + bytes_into_the_gear);
+    std::ofstream object_file(player_object_file(), std::ios::binary);
+    object_file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    object_file.close();
+    ASSERT_TRUE(object_file);
+    char_from_room(&m_player);
+    m_player.specials2.load_room = ROOM_VNUM;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_EQ(nullptr, followers[0]->master);
+    EXPECT_FALSE(IS_AFFECTED(followers[0], AFF_CHARM));
+    EXPECT_EQ(nullptr, followers[0]->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.followers);
 }
 
 /* With nobody dying, every follower's gear casts at login: each follower's ring gives it

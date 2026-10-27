@@ -4509,10 +4509,20 @@ void nanny(struct descriptor_data* d, char* arg)
             // endnew
             reset_char(d->character);
             /* The spells of the gear the character and its followers wear can remove it from the
-             * game; the connection then has nobody to play. */
+             * game; the connection then has nobody to play. Only a character with no connection is
+             * ever freed that way (extract_char), so with a live socket this is never reached:
+             * only tests reach it. It relies on <d> surviving the login. */
             if (!load_character(d->character)) {
                 d->character = nullptr;
                 STATE(d) = CON_CLOSE;
+                return;
+            }
+            /* A character taken out of the game without being freed (extract_char with no room to
+             * go to) is in no room, off the character list, and already back at the character
+             * menu: it stays there instead of playing. */
+            if (d->character->in_room == NOWHERE) {
+                vmudlog(NRM, "SYSERR: %s left the game while logging in; back to the menu.",
+                    GET_NAME(d->character));
                 return;
             }
             // Apply before saving, never after: save_char writes the character's PPC back to
