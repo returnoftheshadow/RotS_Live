@@ -258,7 +258,7 @@ ACMD(do_track)
         }
         send_to_char("You start searching the ground for tracks.\n\r", ch);
         act("$n searches the ground for tracks.", TRUE, ch, 0, 0, TO_ROOM);
-        WAIT_STATE_FULL(ch, skills[SKILL_TRACK].beats, CMD_TRACK, 1, 30, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_TRACK].beats, CMD_TRACK, 1, 30, 0, 0,
             get_from_txt_block_pool(argument), AFF_WAITING | AFF_WAITWHEEL,
             TARGET_TEXT);
         return;
@@ -986,10 +986,10 @@ ACMD(do_ambush)
 
         /* TARGET_CHAR stores the victim, TARGET_TEXT stores the keyword */
         if (wtl->targ1.type == TARGET_CHAR)
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0,
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0,
                 GET_ABS_NUM(victim), victim, AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
         else
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0, 0,
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0, 0,
                 get_from_txt_block_pool(wtl->targ1.ptr.text->text),
                 AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
 
@@ -1227,11 +1227,11 @@ ACMD(do_trap)
 
         /* If there's a target keyword, then store it */
         if (wtl->targ1.type == TARGET_TEXT) {
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0,
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0,
                 get_from_txt_block_pool(wtl->targ1.ptr.text->text),
                 AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
         } else {
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0, NULL,
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0, NULL,
                 AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
         }
         break;
@@ -1431,7 +1431,7 @@ ACMD(do_calm)
 
             const int calm_wait_beats
                 = skills[SKILL_CALM].beats * 2 * GET_LEVEL(victim) / calm_divisor;
-            WAIT_STATE_FULL(ch, calm_wait_beats, CMD_CALM, 1, 50, 0, GET_ABS_NUM(victim), victim,
+            (void)WAIT_STATE_FULL(ch, calm_wait_beats, CMD_CALM, 1, 50, 0, GET_ABS_NUM(victim), victim,
                 AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
         }
 
@@ -1593,7 +1593,7 @@ ACMD(do_tame)
             return;
         }
 
-        WAIT_STATE_FULL(ch,
+        (void)WAIT_STATE_FULL(ch,
             skills[SKILL_TAME].beats * GET_LEVEL(victim) * 2 / (GET_PROF_LEVEL(PROF_RANGER, ch) + 1),
             CMD_TAME, 1, 50, 0, GET_ABS_NUM(victim), victim,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
@@ -1705,7 +1705,7 @@ ACMD(do_whistle)
 
     if (!subcmd) { /* setting a delay */
         send_to_char("You gather your breath.\r\n", ch);
-        WAIT_STATE_FULL(ch, skills[SKILL_WHISTLE].beats, CMD_WHISTLE, 1, 50, 0, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_WHISTLE].beats, CMD_WHISTLE, 1, 50, 0, 0, 0,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
         return;
     } else if (subcmd == 1) {
@@ -1971,7 +1971,7 @@ void snuck_in(struct char_data* ch)
         wait = wait * 0.5;
     }
 
-    WAIT_STATE(ch, wait);
+    (void)WAIT_STATE(ch, wait);
 }
 
 /*
@@ -2684,7 +2684,7 @@ ACMD(do_shoot)
 
         int wait_delay = shoot_calculate_wait(ch);
         SET_CURRENT_PARRY(ch) = 0;
-        WAIT_STATE_FULL(ch, wait_delay, CMD_SHOOT, 1, 30, 0, victim->abs_number, victim,
+        (void)WAIT_STATE_FULL(ch, wait_delay, CMD_SHOOT, 1, 30, 0, victim->abs_number, victim,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
     } break;
     case 1: {
@@ -3228,7 +3228,7 @@ ACMD(do_mark)
         wtl->targ2.cleanup();
 
         int wait_delay = mark_calculate_wait(ch);
-        WAIT_STATE_FULL(ch, wait_delay, CMD_MARK, 1, 30, 0, victim->abs_number, victim,
+        (void)WAIT_STATE_FULL(ch, wait_delay, CMD_MARK, 1, 30, 0, victim->abs_number, victim,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
     } break;
     case 1: {
@@ -3478,7 +3478,7 @@ ACMD(do_blinding)
         wtl->targ1.cleanup();
         wtl->targ2.cleanup();
 
-        WAIT_STATE_FULL(ch, skills[SKILL_BLINDING].beats, CMD_BLINDING, 1, 30, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_BLINDING].beats, CMD_BLINDING, 1, 30, 0,
             victim->abs_number, victim, AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
     } break;
 
@@ -3650,7 +3650,7 @@ ACMD(do_bendtime)
         act("$n begins quietly muttering some strange, foreign powerful words.\n\r", FALSE, ch, 0,
             0, TO_ROOM);
 
-        WAIT_STATE_FULL(ch, skills[SKILL_BEND_TIME].beats, CMD_BENDTIME, 1, 30, 0, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_BEND_TIME].beats, CMD_BENDTIME, 1, 30, 0, 0, 0,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
     } break;
     case 1: {
@@ -3828,7 +3828,7 @@ ACMD(do_windblast)
         send_to_char("You start to draw powers from the land and gods of old.\r\n", ch);
         act("$n begins quietly muttering some strange, foreign powerful words.\r\n", FALSE, ch, 0,
             0, TO_ROOM);
-        WAIT_STATE_FULL(ch, skills[SKILL_WINDBLAST].beats, CMD_WINDBLAST, 1, 30, 0, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_WINDBLAST].beats, CMD_WINDBLAST, 1, 30, 0, 0, 0,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
     } break;
     case 1: {

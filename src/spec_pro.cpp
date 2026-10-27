@@ -953,7 +953,7 @@ SPECIAL(gatekeeper)
         freed_watch gatekeeper_watch(host);
         freed_watch visitor_watch(ch);
         /* Wait between 1 and 3 ticks. */
-        WAIT_STATE_FULL(host, number(2, 4), -1, (cmd == CMD_KNOCK) ? 1 : 2, 30, 0, ch->abs_number,
+        (void)WAIT_STATE_FULL(host, number(2, 4), -1, (cmd == CMD_KNOCK) ? 1 : 2, 30, 0, ch->abs_number,
             ch, 0, TARGET_CHAR);
         if (gatekeeper_watch.freed() || visitor_watch.freed()) {
             return TRUE;
@@ -1027,7 +1027,7 @@ SPECIAL(gatekeeper)
     if (host->delay.subcmd == 1 || host->delay.subcmd == 2) {
         do_unlock(host, EXIT(host, doordir)->keyword, 0, 0, 0);
         do_open(host, EXIT(host, doordir)->keyword, 0, 0, 0);
-        WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
+        (void)WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
         return FALSE;
     }
 
@@ -1205,7 +1205,7 @@ SPECIAL(gatekeeper2)
          * the one at the gate: then neither the gatekeeper nor the command is to go on. */
         freed_watch gatekeeper_watch(host);
         freed_watch visitor_watch(ch);
-        WAIT_STATE_FULL(host, number(2, 4), -1, cmd == CMD_KNOCK ? 1 : 2, 30, 0, ch->abs_number, ch,
+        (void)WAIT_STATE_FULL(host, number(2, 4), -1, cmd == CMD_KNOCK ? 1 : 2, 30, 0, ch->abs_number, ch,
             0, TARGET_CHAR);
         if (gatekeeper_watch.freed() || visitor_watch.freed()) {
             return TRUE;
@@ -1278,7 +1278,7 @@ SPECIAL(gatekeeper2)
     if (host->delay.subcmd == 1 || host->delay.subcmd == 2) {
         do_unlock(host, EXIT(host, doordir)->keyword, 0, 0, 0);
         do_open(host, EXIT(host, doordir)->keyword, 0, 0, 0);
-        WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
+        (void)WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
         return FALSE;
     }
 

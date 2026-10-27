@@ -1993,7 +1993,7 @@ ACMD(do_fish)
 
         send_to_char("You cast your line into the water and begin to wait.\n\r", ch);
 
-        WAIT_STATE_FULL(ch, MIN(20, 44 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5), CMD_FISH, 1, 30, 0,
+        (void)WAIT_STATE_FULL(ch, MIN(20, 44 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5), CMD_FISH, 1, 30, 0,
             0, 0, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
         break;
 

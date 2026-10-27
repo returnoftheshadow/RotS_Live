@@ -192,7 +192,7 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
         /* Ending ch's own delay runs the rest of a paused script, which can remove either. */
         freed_watch attacker_watch(ch);
         freed_watch victim_watch(victim);
-        WAIT_STATE(ch, 2); /* HVORFOR DET?? */
+        (void)WAIT_STATE(ch, 2); /* HVORFOR DET?? */
         if (attacker_watch.freed() || victim_watch.freed()) {
             return;
         }

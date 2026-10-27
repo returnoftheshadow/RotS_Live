@@ -1840,7 +1840,7 @@ static int run_script_or(struct info_script* info, struct script_data* position,
             if ((curr->param[0]) && (info->ch[0]) && !(IS_SET(info->ch[0]->specials.affected_by, AFF_WAITING))) {
                 if (curr->next)
                     info->next_command = curr->next;
-                WAIT_STATE_BRIEF(info->ch[0], curr->param[0], CMD_SCRIPT, 0, 0, AFF_WAITING);
+                (void)WAIT_STATE_BRIEF(info->ch[0], curr->param[0], CMD_SCRIPT, 0, 0, AFF_WAITING);
             }
             exit = TRUE;
             break;

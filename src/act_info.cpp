@@ -1522,7 +1522,7 @@ ACMD(do_look)
          */
         else if (!IS_NPC(ch) && !SUN_PENALTY(ch) && IS_AFFECTED(ch, AFF_HUNT) && !IS_AFFECTED(ch, AFF_CONFUSE)) {
             show_tracks(ch, 0, 2);
-            WAIT_STATE(ch, 4);
+            (void)WAIT_STATE(ch, 4);
         }
         break;
 
@@ -3422,7 +3422,7 @@ ACMD(do_search)
         if (!*argument) {
             send_to_char("You start searching the area.\n\r", ch);
             act("$n searches the area carefully.", TRUE, ch, 0, 0, TO_ROOM);
-            WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 2, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
+            (void)WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 2, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
                 TARGET_OTHER);
             return;
         }
@@ -3438,7 +3438,7 @@ ACMD(do_search)
             return;
         }
 
-        WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 1, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
+        (void)WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 1, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
             TARGET_OTHER);
         break;
 

@@ -135,7 +135,7 @@ ACMD(do_hit)
                 return;
             }
 
-            WAIT_STATE(ch, 2); /* HVORFOR DET?? */
+            (void)WAIT_STATE(ch, 2); /* HVORFOR DET?? */
         } else {
             if (victim == ch->specials.fighting)
                 send_to_char("You do the best you can!\n\r", ch);
@@ -548,7 +548,7 @@ ACMD(do_bash)
             return;
         }
 
-        WAIT_STATE_FULL(ch, skills[SKILL_BASH].beats, CMD_BASH, next_mode, 50, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_BASH].beats, CMD_BASH, next_mode, 50, 0,
             (next_mode == 1) ? GET_ABS_NUM(victim) : door, victim,
             AFF_WAITING | AFF_WAITWHEEL, (next_mode == 1) ? TARGET_CHAR : TARGET_OTHER);
         return;
@@ -728,7 +728,7 @@ ACMD(do_bash)
             act("$n falls in.", TRUE, ch, 0, 0, TO_ROOM);
         }
         GET_POS(ch) = POSITION_SITTING;
-        WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 3, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
+        (void)WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 3, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
             TARGET_NONE);
 
         break;
@@ -970,11 +970,11 @@ ACMD(do_rescue)
         /* Ending the rescued one's delay runs the rest of a paused script, which can remove the
          * rescuer. */
         freed_watch rescuer_watch(ch);
-        WAIT_STATE(victim, PULSE_VIOLENCE / 3);
+        (void)WAIT_STATE(victim, PULSE_VIOLENCE / 3);
         if (rescuer_watch.freed()) {
             return;
         }
-        WAIT_STATE(ch, PULSE_VIOLENCE / 2);
+        (void)WAIT_STATE(ch, PULSE_VIOLENCE / 2);
     }
 }
 
@@ -1121,7 +1121,7 @@ ACMD(do_kick)
     }
 
 delay:
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
+    (void)WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
         AFF_WAITING, TARGET_NONE);
 }
 
@@ -1342,7 +1342,7 @@ ACMD(do_rend)
         return;
     }
 
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
+    (void)WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
         AFF_WAITING, TARGET_NONE);
 }
 
@@ -1433,7 +1433,7 @@ ACMD(do_bite)
     if (attacker_watch.freed()) {
         return;
     }
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
+    (void)WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
         AFF_WAITING, TARGET_NONE);
 }
 

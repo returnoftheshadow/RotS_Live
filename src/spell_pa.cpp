@@ -1049,7 +1049,11 @@ ACMD(do_cast)
          * *never* greater than zero.
          */
         if (prepared_spell == spell_index) {
-            WAIT_STATE_BRIEF(ch, number(1, skills[spell_index].beats / 4), -1, 0, 50, AFF_WAITING);
+            /* A pause the spell set off in ch's own script ends here, and the rest of the script
+             * can remove ch, and with it the delay <wtl> is. */
+            if (!WAIT_STATE_BRIEF(ch, number(1, skills[spell_index].beats / 4), -1, 0, 50, AFF_WAITING)) {
+                return;
+            }
         }
 
         wtl->targ1.cleanup();

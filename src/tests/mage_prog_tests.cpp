@@ -436,7 +436,7 @@ TEST_F(MageProgTest, AWaitingMobWaitsInsteadOfCastingAtOnce)
     set_health_pct(50);
     const int mana = GET_MANA(&m_mob);
     char_data* mob = &m_mob;
-    WAIT_STATE(mob, 1); /* the last beat of a wait with no command */
+    (void)WAIT_STATE(mob, 1); /* the last beat of a wait with no command */
     EXPECT_FALSE(turn());
     EXPECT_EQ(GET_MANA(&m_mob), mana) << "no spell went off with no casting time";
     EXPECT_NE(m_mob.delay.cmd, CMD_CAST);

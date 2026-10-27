@@ -430,7 +430,7 @@ ACMD(do_cleave)
     timer.add_skill_timer(*ch, SKILL_CLEAVE, CLEAVE_TIMER);
     // Stun the Olog-hai after using the skill
     int wait_delay = number(8, PULSE_VIOLENCE);
-    WAIT_STATE_FULL(ch, wait_delay, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
+    (void)WAIT_STATE_FULL(ch, wait_delay, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
 }
 
 ACMD(do_smash)
@@ -646,5 +646,5 @@ ACMD(do_stomp)
 
     // Stun the Olog-hai after using the skill
     int wait_delay = number(8, PULSE_VIOLENCE);
-    WAIT_STATE_FULL(ch, wait_delay, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
+    (void)WAIT_STATE_FULL(ch, wait_delay, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
 }
