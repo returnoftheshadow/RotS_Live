@@ -20,6 +20,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "mob_walker.h"
+#include "script.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -155,21 +156,12 @@ void mobile_activity(void)
         if (char_exists(abs_number)) {
             next_ch = ch->next;
         } else if (next_watch.freed()) {
+            vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for the next pass.",
+                __func__);
             break;
         }
     }
     walker_remove_finished();
-}
-
-/* True if <item> is on the content list that starts at <first_listed>. */
-static bool is_on_content_list(const obj_data* first_listed, const obj_data* item)
-{
-    for (const obj_data* listed = first_listed; listed; listed = listed->next_content) {
-        if (listed == item) {
-            return true;
-        }
-    }
-    return false;
 }
 
 void one_mobile_activity(char_data* ch)

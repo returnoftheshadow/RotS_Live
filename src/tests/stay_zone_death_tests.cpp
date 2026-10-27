@@ -5,6 +5,7 @@
  * hurts the wearer; a wearer with fewer hit points than the poison deals dies of it. */
 #include "scripted_room_fixture.h"
 
+#include "../act_move.h"
 #include "../big_brother.h"
 #include "../skill_timer.h"
 #include "../spells.h"
@@ -15,7 +16,6 @@
 
 void do_move(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-bool prohibit_item_stay_zone_move(char_data* ch, int room);
 
 extern struct weather_data weather_info;
 extern int top_of_p_table;

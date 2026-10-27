@@ -17,6 +17,7 @@
 #include "protocol.h"
 #include "structs.h"
 #include "utils.h"
+#include "weather.h"
 
 #define WEATHER_MESSAGE_RISE 0
 #define WEATHER_MESSAGE_SET 1
@@ -155,10 +156,6 @@ void weather_and_time(int mode);
 void another_hour(int mode);
 void weather_change(void);
 void weather_to_char(const char_data* ch);
-
-/* Returns the weather message for sector_type under its current sky, or NULL (logged) when the
- * sector type or its sky value has no message. */
-const char* weather_message_for_sector(int sector_type);
 
 extern char* moon_phase[];
 

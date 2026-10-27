@@ -3,6 +3,7 @@
  * and a test that needs a roll to go one way queues it with push_test_random_value. */
 #include "scripted_room_fixture.h"
 
+#include "../spec_pro.h"
 #include "../spells.h"
 #include "test_cleanup.h"
 
@@ -14,7 +15,6 @@ SPECIAL(vampire_killer);
 SPECIAL(wolf_summoner);
 SPECIAL(reciter);
 SPECIAL(herald);
-int mage_spell_for_roll(int level_roll, int spell_type);
 
 extern struct char_data* mob_proto;
 extern struct index_data* mob_index;

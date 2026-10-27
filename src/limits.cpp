@@ -779,6 +779,8 @@ void point_update(void)
                 freed_watch next_watch(next_dude);
                 damage(i, i, 5, SPELL_POISON, 0);
                 if (next_watch.freed()) {
+                    vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for the next tick.",
+                        __func__);
                     break;
                 }
             }
@@ -790,6 +792,8 @@ void point_update(void)
             freed_watch next_watch(next_dude);
             damage(i, i, 3, TYPE_SUFFERING, 0);
             if (next_watch.freed()) {
+                vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for the next tick.",
+                    __func__);
                 break;
             }
         } else if (GET_POS(i) == POSITION_DEAD) {
@@ -824,6 +828,8 @@ void point_update(void)
                 freed_watch next_watch(next_dude);
                 die(i, NULL, TYPE_UNDEFINED);
                 if (next_watch.freed()) {
+                    vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for the next tick.",
+                        __func__);
                     break;
                 }
                 continue;

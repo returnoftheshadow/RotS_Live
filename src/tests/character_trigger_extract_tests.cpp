@@ -652,6 +652,42 @@ TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemove
     EXPECT_EQ(nullptr, waiting_list);
 }
 
+/* The first waiter's resumed script makes the waiter after it vanish and then removes its own
+ * mob: the waiting list's pass ends there, and says so in the log. */
+TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNextWaiterToo)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_DO_WAIT, nullptr, { 1 } },
+                                  { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} },
+                    { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(first, waiting_list) << "the first mob paused";
+    /* A wait with no command that leaves the second mob hearing, after the first in the list. */
+    ASSERT_TRUE(WAIT_STATE_BRIEF(second, 5, 0, 0, 0, 0));
+    ASSERT_EQ(second, first->delay.next);
+
+    testing::internal::CaptureStderr();
+    process_waiting_list();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(first));
+    EXPECT_FALSE(is_in_game(second));
+    EXPECT_EQ(nullptr, waiting_list);
+    EXPECT_NE(std::string::npos,
+        logged.find("SYSERR: process_waiting_list: the next waiter was freed; the rest wait for "
+                    "the next pulse."))
+        << logged;
+}
+
 /* A higher-priority delay given to a paused mob (as bash gives its victim) runs the rest of its
  * script at once, as it always has; the rest removes the mob, and starting the delay says so. */
 TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)

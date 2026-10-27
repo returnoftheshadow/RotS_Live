@@ -804,7 +804,8 @@ TEST_F(SpecialProcedureTest, EveryMobTakesItsTurnWhenNoneIsRemoved)
     EXPECT_TRUE(was_offered(second));
 }
 
-/* The first mob in the list removes the one after it and then itself: the pass ends there. */
+/* The first mob in the list removes the one after it and then itself: the pass ends there, and
+ * says so in the log. */
 TEST_F(SpecialProcedureTest, AMobActivityPassEndsWhenATurnRemovesTheNextMobToo)
 {
     char_data* next = make_mob_with("next", record_offer);
@@ -814,10 +815,16 @@ TEST_F(SpecialProcedureTest, AMobActivityPassEndsWhenATurnRemovesTheNextMobToo)
     record.character_to_remove = next;
     push_test_random_value(0.0); /* the remover takes its turn */
 
+    testing::internal::CaptureStderr();
     mobile_activity();
+    const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_FALSE(is_in_game(remover));
     EXPECT_FALSE(is_in_game(next));
+    EXPECT_NE(std::string::npos,
+        logged.find("SYSERR: mobile_activity: the next character was freed; the rest wait for the "
+                    "next pass."))
+        << logged;
 }
 
 /* Makes script SCRIPT_VNUM pause on hearing anything and then say <word>, and script

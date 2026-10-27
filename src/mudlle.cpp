@@ -48,8 +48,6 @@ void REMOVE_LIST(struct char_data* host);
 void UP_LIST(struct char_data* host);
 void DOWN_LIST(struct char_data* host);
 int CHECK_LIST(const char_data* host, char val);
-void turn_stack(const char_data* host, int turns, void (*turn_once)(const char_data*));
-void turn_list(char_data* host, int turns, void (*turn_once)(char_data*));
 
 void TEXT_LIST(char_data* host, char* targ);
 int compare_list(const char_data* host, const target_data* it1, const target_data* it2);

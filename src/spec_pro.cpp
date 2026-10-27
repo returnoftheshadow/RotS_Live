@@ -35,6 +35,7 @@
 #include "mob_progs/mage_prog.h"
 #include "mob_progs/ranger_prog.h"
 #include "mob_walker.h"
+#include "spec_pro.h"
 
 /*   external vars  */
 extern int get_number(char** name);
@@ -1558,11 +1559,6 @@ int spell_list[][4] = {
 
 };
 
-/*
- * The spell a program-4 mage casts for <level_roll>, a number from 0 to its mage level, from
- * column <spell_type> of spell_list (0 to 3). A roll picks a later row every five levels, or
- * every eight above 50; a roll past the last row casts from the last row.
- */
 int mage_spell_for_roll(int level_roll, int spell_type)
 {
     constexpr int last_row = static_cast<int>(sizeof(spell_list) / sizeof(spell_list[0])) - 1;

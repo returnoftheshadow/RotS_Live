@@ -8,6 +8,7 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include "act_move.h"
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
@@ -127,7 +128,6 @@ bool different_zone(int was_in, int to_room)
 extern struct obj_data* obj_proto;
 extern struct obj_data* object_list;
 extern struct char_data* character_list;
-extern bool prohibit_item_stay_zone_move(char_data* ch, int was_in);
 extern int rev_dir[];
 extern int top_of_world;
 extern char* dirs[];

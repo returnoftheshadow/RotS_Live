@@ -1422,12 +1422,13 @@ ACMD(do_calm)
             return;
         }
         {
-            // Confusion can drive calm_skill far enough below zero to cancel the ranger level.
-            // A zero divisor counts as 1, the longest wait the formula gives otherwise; a
-            // negative one gives a negative wait, which never completes.
+            // Confusion can drive calm_skill far enough below zero to cancel the ranger level,
+            // or outweigh it. A divisor below 1 counts as 1, the longest wait the formula gives
+            // otherwise: a negative one would give a negative wait, which never completes.
             int calm_divisor = GET_PROF_LEVEL(PROF_RANGER, ch) + calm_skill / 15;
-            if (calm_divisor == 0)
+            if (calm_divisor < 1) {
                 calm_divisor = 1;
+            }
 
             const int calm_wait_beats
                 = skills[SKILL_CALM].beats * 2 * GET_LEVEL(victim) / calm_divisor;

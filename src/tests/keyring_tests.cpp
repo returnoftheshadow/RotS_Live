@@ -1,3 +1,4 @@
+#include "../act_move.h"
 #include "../big_brother.h"
 #include "../comm.h"
 #include "../db.h"
@@ -41,7 +42,6 @@ void check_break_key(obj_data* obj, char_data* ch);
 void clear_char(struct char_data* ch, int mode);
 void clear_object(struct obj_data* obj);
 void move_wearables_to_corpse(obj_data* corpse);
-bool prohibit_item_stay_zone_move(char_data* ch, int room);
 void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void do_remove(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void recalc_worn_weight(char_data* character);

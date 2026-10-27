@@ -42,6 +42,7 @@
 #include "structs.h"
 #include "utils.h"
 #include "warrior_spec_handlers.h"
+#include "weather.h"
 #include "zone.h"
 
 #include <charconv>
@@ -798,7 +799,6 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        extern const char* weather_message_for_sector(int sector_type);
         extern std::string strip_trailing_line_break(const char* text);
 
         const char* weather_message = nullptr;
@@ -2813,6 +2813,9 @@ void process_waiting_list()
                 if (in_waiting_list(following)) {
                     wait_tmp = following;
                 } else {
+                    vmudlog(NRM,
+                        "SYSERR: %s: the next waiter was freed; the rest wait for the next pulse.",
+                        __func__);
                     wait_tmp = nullptr;
                 }
                 continue;

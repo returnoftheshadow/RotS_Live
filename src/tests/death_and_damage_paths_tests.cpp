@@ -9,6 +9,7 @@
  * push_test_random_value. */
 #include "scripted_room_fixture.h"
 
+#include "../act_move.h"
 #include "../big_brother.h"
 #include "../char_utils.h"
 #include "../skill_timer.h"
@@ -27,7 +28,6 @@ obj_data* make_physical_corpse(char_data* character, bool gather_wearables, int 
 void fast_update();
 SPECIAL(ghoul);
 void affect_update_room(struct room_data* room);
-bool prohibit_item_stay_zone_move(char_data* ch, int room);
 
 namespace olog_hai {
 int get_base_skill_damage(char_data& olog_hai, int prob);

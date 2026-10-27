@@ -263,9 +263,6 @@ void DOWN_LIST(struct char_data* host)
 
 int CHECK_LIST(const struct char_data* host, char val);
 
-/* Turns <host>'s value stack <turns> times with <turn_once> (UP_STACK or DOWN_STACK). Each turn
- * moves the stack's values round by one place, so a count past the stack's depth is taken modulo
- * it: the order comes out as the full count gives, in at most depth - 1 turns. */
 void turn_stack(const struct char_data* host, int turns, void (*turn_once)(const struct char_data*))
 {
     const int depth = SPECIAL_STACKPOINT(host);
@@ -290,8 +287,6 @@ static int list_length(const struct char_data* host)
     return length;
 }
 
-/* Turns <host>'s target list <turns> times with <turn_once> (UP_LIST or DOWN_LIST), as that many
- * calls of it would, in at most length - 1 turns. */
 void turn_list(struct char_data* host, int turns, void (*turn_once)(struct char_data*))
 {
     if (turns <= 0) {

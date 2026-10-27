@@ -208,14 +208,15 @@ TEST_F(RangerSkillTest, ConfusionCancellingTheRangerLevelGivesTheLongestCalmWait
     EXPECT_EQ(m_ranger.delay.cmd, CMD_CALM);
 }
 
-TEST_F(RangerSkillTest, ConfusionOutweighingTheRangerLevelGivesANegativeCalmWait)
+TEST_F(RangerSkillTest, ConfusionOutweighingTheRangerLevelGivesTheLongestCalmWait)
 {
-    // -30 / 15 outweighs 1 ranger level: the wait is negative, so the calm never completes.
+    // -30 / 15 outweighs 1 ranger level: the wait is the longest, as when it cancels it.
     confuse_ranger(50);
 
     const int wait = calm_wait(1, 20);
 
-    EXPECT_EQ(wait, -(skills[SKILL_CALM].beats * 2 * ANIMAL_LEVEL));
+    EXPECT_EQ(wait, skills[SKILL_CALM].beats * 2 * ANIMAL_LEVEL);
+    EXPECT_EQ(m_ranger.delay.cmd, CMD_CALM);
 }
 
 } // namespace

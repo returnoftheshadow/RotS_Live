@@ -19,8 +19,6 @@ void TO_LIST(const char_data* host, void* entr, int type);
 void REMOVE_LIST(char_data* host);
 void UP_LIST(char_data* host);
 void DOWN_LIST(char_data* host);
-void turn_stack(const char_data* host, int turns, void (*turn_once)(const char_data*));
-void turn_list(char_data* host, int turns, void (*turn_once)(char_data*));
 
 extern char** mobile_program;
 extern int num_of_programs;
