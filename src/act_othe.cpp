@@ -1940,8 +1940,7 @@ ACMD(do_specialize)
 
 ACMD(do_fish)
 {
-    int fish = 7230;
-    struct obj_data* tmpobj;
+    const int fish_vnum = 7230;
     struct room_data* cur_room;
 
     if (IS_SHADOW(ch)) {
@@ -1954,9 +1953,6 @@ ACMD(do_fish)
     move_use = 25 - percent / 5;
 
     cur_room = &world[ch->in_room];
-
-    fish = real_object(fish);
-    tmpobj = read_object(fish, REAL);
 
     switch (subcmd) {
     case -1:
@@ -1998,9 +1994,13 @@ ACMD(do_fish)
             send_to_char("You give up, having failed to catch anything.\n\r", ch);
 
         else if (number(0, 125) <= percent) {
-            obj_to_char(tmpobj, ch);
-            act("$n catches $p.", TRUE, ch, tmpobj, 0, TO_ROOM);
-            act("You catch $p.", TRUE, ch, tmpobj, 0, TO_CHAR);
+            /* The fish is made only once it is caught. */
+            obj_data* fish = read_object(real_object(fish_vnum), REAL);
+            if (fish) {
+                obj_to_char(fish, ch);
+                act("$n catches $p.", TRUE, ch, fish, 0, TO_ROOM);
+                act("You catch $p.", TRUE, ch, fish, 0, TO_CHAR);
+            }
         }
 
         abort_delay(ch);

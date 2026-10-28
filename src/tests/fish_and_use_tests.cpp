@@ -102,3 +102,57 @@ private:
 };
 
 } // namespace
+
+TEST_F(FishAndUseTest, CastingALineMakesNoFish)
+{
+    ready_to_fish();
+    const int objects_before = count_objects();
+
+    run_command(do_fish, "", FISH_CAST);
+
+    EXPECT_TRUE(output_has("You cast your line into the water")) << output();
+    EXPECT_EQ(objects_before, count_objects());
+    EXPECT_EQ(0, fish_in_the_world());
+}
+
+TEST_F(FishAndUseTest, CancellingMakesNoFish)
+{
+    ready_to_fish();
+    const int objects_before = count_objects();
+
+    run_command(do_fish, "", FISH_CANCEL);
+
+    EXPECT_EQ(objects_before, count_objects());
+    EXPECT_EQ(0, fish_in_the_world());
+}
+
+TEST_F(FishAndUseTest, CatchingNothingMakesNoFish)
+{
+    ready_to_fish();
+    const int objects_before = count_objects();
+    constexpr double EMPTY_LINE_ROLL = 0.5; /* the line comes back empty */
+    push_test_random_value(EMPTY_LINE_ROLL);
+
+    run_command(do_fish, "", FISH_PULL_IN);
+
+    EXPECT_TRUE(output_has("You give up, having failed to catch anything.")) << output();
+    EXPECT_EQ(objects_before, count_objects());
+    EXPECT_EQ(0, fish_in_the_world());
+}
+
+TEST_F(FishAndUseTest, ACatchHandsOverOneFish)
+{
+    ready_to_fish();
+    const int objects_before = count_objects();
+    constexpr double LOWEST_ROLL = 0.0;
+    push_test_random_value(LOWEST_ROLL); /* the line is not empty */
+    push_test_random_value(LOWEST_ROLL); /* and something bites */
+
+    run_command(do_fish, "", FISH_PULL_IN);
+
+    EXPECT_TRUE(output_has("You catch")) << output();
+    ASSERT_NE(nullptr, m_player.carrying);
+    EXPECT_EQ(FISH_PROTOTYPE, m_player.carrying->item_number);
+    EXPECT_EQ(objects_before + 1, count_objects());
+    EXPECT_EQ(1, fish_in_the_world());
+}
