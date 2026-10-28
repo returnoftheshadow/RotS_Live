@@ -357,6 +357,99 @@ TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
     EXPECT_TRUE(output_has("The watcher looks up."));
 }
 
+/* ---- dying (ON_DIE) ---- */
+
+/* Experience a victim is worth gaining from. */
+constexpr int EXPERIENCE_WORTH_GAINING = 5000;
+
+/* A mob that its own death script removes has had its end there: its killer gains nothing, no
+ * kill is logged and no corpse is made. The mob's things are left in the room, as EXTRACT_CHAR
+ * leaves them, and the rest of the script finds ch1 empty. */
+TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesGivesNothingAndLeavesNoCorpse)
+{
+    install_script(ON_DIE,
+        { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+            { SCRIPT_SEND_TO_ROOM, "The dying one lingers.", { SCRIPT_PARAM_CH1_ROOM } } });
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    victim->points.exp = EXPERIENCE_WORTH_GAINING;
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, victim);
+    const int experience_before = GET_EXP(&m_player);
+
+    testing::internal::CaptureStderr();
+    die(victim, &m_player, 0);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(experience_before, GET_EXP(&m_player));
+    EXPECT_EQ(stone, world[0].contents) << "its things are left in the room, and no corpse";
+    EXPECT_EQ(nullptr, stone->next_content);
+    EXPECT_EQ(std::string::npos, logged.find("killed by")) << logged;
+    EXPECT_FALSE(output_has("The dying one lingers.")) << "ch1 is empty: nobody's room to tell";
+}
+
+/* The same for a death script that kills its own mob outright (RAW_KILL ch1): that kill makes the
+ * mob's corpse, and the death makes no second one. */
+TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightGivesNothingAndHasOneCorpse)
+{
+    install_script(ON_DIE, { { SCRIPT_RAW_KILL, nullptr, { SCRIPT_PARAM_CH1 } } });
+    game_rules::big_brother::create(weather_info, &world); /* made at boot; a death tells it */
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    victim->points.exp = EXPERIENCE_WORTH_GAINING;
+    /* Its corpse is marked with its prototype's number. */
+    index_data prototype_index[1] {};
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+    /* With a prototype number free_char leaves the mob's strings and profession block to the
+     * prototype, so the test frees them. */
+    char* victim_name = victim->player.name;
+    char* victim_short_description = victim->player.short_descr;
+    char_prof_data* victim_professions = victim->profs;
+    victim->nr = 0;
+    const int experience_before = GET_EXP(&m_player);
+
+    die(victim, &m_player, 0);
+
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(experience_before, GET_EXP(&m_player));
+    RELEASE(victim_name);
+    RELEASE(victim_short_description);
+    RELEASE(victim_professions);
+    ASSERT_NE(nullptr, world[0].contents);
+    EXPECT_EQ(nullptr, world[0].contents->next_content) << "one corpse";
+}
+
+/* The same when the death script also refuses the death: the mob is gone, and nothing more. */
+TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAndRefusesToDieGivesNothing)
+{
+    install_script(ON_DIE,
+        { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } }, { SCRIPT_RETURN_FALSE, nullptr, {} } });
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    victim->points.exp = EXPERIENCE_WORTH_GAINING;
+    const int experience_before = GET_EXP(&m_player);
+
+    die(victim, &m_player, 0);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(experience_before, GET_EXP(&m_player));
+    EXPECT_EQ(nullptr, world[0].contents);
+}
+
+TEST_F(CharacterTriggerTest, AMobWhoseDieScriptRefusesStaysInTheRoom)
+{
+    install_script(ON_DIE, { { SCRIPT_RETURN_FALSE, nullptr, {} } });
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+
+    die(victim, nullptr, 0);
+
+    EXPECT_TRUE(is_in_game(victim));
+    EXPECT_EQ(0, victim->in_room);
+}
+
 /* ---- damage (ON_DAMAGE on the victim) ---- */
 
 /* damage() reports a victim its own script removed the way it reports a death. */

@@ -1015,8 +1015,22 @@ int check_death_ward(struct char_data* ch)
 
 void die(char_data* dead_man, char_data* killer, int attack_type)
 {
+    freed_watch dead_man_watch(dead_man);
+    freed_watch killer_watch(killer);
+    const int die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
+    /* A death script that removed the dying mob (EXTRACT_CHAR, RAW_KILL ch1, or anything it set
+     * off) has ended the death itself, whatever it returned: nobody gains from it, no kill is
+     * logged, no corpse is made and the mob is not removed again. */
+    if (dead_man_watch.freed()) {
+        return;
+    }
+    /* Something the script set off removed the killer: the death goes on with no killer. */
+    if (killer_watch.freed()) {
+        killer = nullptr;
+    }
+
     /* Character doesn't die if call_trigger returns FALSE */
-    if (call_trigger(ON_DIE, dead_man, killer, 0) == FALSE) {
+    if (die_trigger_result == FALSE) {
         stop_fighting_him(dead_man);
         stop_fighting(dead_man);
         update_pos(dead_man);
