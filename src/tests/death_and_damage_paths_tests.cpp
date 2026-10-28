@@ -24,6 +24,8 @@ void assign_command_pointers(void);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 void fast_update();
 SPECIAL(ghoul);
+SPECIAL(vampire_huntress);
+SPECIAL(thuringwethil);
 void affect_update_room(struct room_data* room);
 bool is_corpse(const obj_data* container);
 
@@ -49,6 +51,13 @@ constexpr int FEWER_HIT_POINTS_THAN_THE_POISON = 3;
 constexpr int TWO_HANDED_BULK = 5;
 /* The ghoul the ghoul special raises, which sinks back into the ground when idle. */
 constexpr int RISEN_GHOUL_VNUM = 15300;
+/* The tower room both of Thuringwethil's forms fly back to when they leave. */
+constexpr int VAMPIRE_TOWER_VNUM = 15379;
+/* Thuringwethil at this many hit points or fewer is beaten and leaves the game. */
+constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
+/* A roll that number(from, to) turns into its lowest result: an idle ghoul then dismisses a
+ * follower. */
+constexpr double LOWEST_ROLL = 0.0;
 
 /* The killer remove_the_killer_on_death removes; null once it has. */
 char_data* killer_to_remove = nullptr;
@@ -337,5 +346,168 @@ TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide
     EXPECT_FALSE(is_in_game(knocker));
     EXPECT_TRUE(is_in_game(doorkeeper));
     EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
+}
+
+/* ---- a ghoul sinking back into the ground ---- */
+
+/* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
+ * second time, and its body is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_to_char(make_object(RING_VNUM, 0), risen);
+    obj_to_char(make_object(SWORD_VNUM, 0), risen);
+    run_command_as(risen, do_wear, "ring");
+    run_command_as(risen, do_wield, "sword");
+    ASSERT_NE(nullptr, risen->equipment[WEAR_FINGER_R]);
+    ASSERT_NE(nullptr, risen->equipment[WIELD]);
+    risen->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_TRUE(is_in_game(summoner));
+    EXPECT_EQ(nullptr, summoner->followers);
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+/* A ghoul fading away is removed by its damage script as its ring comes off: the fading stops
+ * there. The ring goes as the rest of its gear does. */
+TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob_wearing_poisonous_ring("risen", SCRIPT_VNUM);
+    make_into_risen_ghoul(risen);
+    obj_data* ring = risen->equipment[WEAR_FINGER_R];
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_TRUE(is_in_game(summoner));
+    EXPECT_FALSE(is_in_object_list(ring));
+}
+
+/* A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is
+ * destroyed and nothing is left. */
+TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGround)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, risen);
+    run_command_as(risen, do_wear, "ring");
+    ASSERT_EQ(ring, risen->equipment[WEAR_FINGER_R]);
+    push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(0, count_corpses_in_room());
+}
+
+/* A player following an idle ghoul is not dismissed with its risen ghouls: the player keeps
+ * what they wear and stays, and the risen ghoul behind them sinks into the ground. */
+TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    char_data* risen = make_mob("risen", 0);
+    make_into_risen_ghoul(risen);
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    /* In the game as a player is; followed last, so first among the ghoul's followers. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    add_follower(&m_player, summoner, FOLLOW_MOVE);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, &m_player);
+    run_command(do_wear, "ring");
+    ASSERT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    ASSERT_EQ(&m_player, summoner->followers->follower);
+    push_test_random_value(LOWEST_ROLL); /* an idle follower is dismissed */
+    char no_argument[1] = "";
+
+    ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    const bool player_in_game = is_in_game(&m_player);
+    const bool player_in_room = m_player.in_room == 0;
+    obj_data* const worn_ring = m_player.equipment[WEAR_FINGER_R];
+    stop_follower(&m_player, FOLLOW_MOVE);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    remove_char_exists(m_player.abs_number);
+    EXPECT_TRUE(player_in_game);
+    EXPECT_TRUE(player_in_room);
+    EXPECT_EQ(ring, worn_ring);
+    EXPECT_TRUE(is_in_object_list(ring));
+    EXPECT_FALSE(is_in_game(risen));
+}
+
+/* ---- Thuringwethil flying back to her tower ---- */
+
+/* The Vampire Huntress, badly hurt in a fight, flies to her tower and destroys her gear there: the
+ * poison of her ring kills her as it comes off, and she is let go, leaving her body in the tower
+ * and no human form behind. */
+TEST_F(DeathAndDamagePathsTest, AFleeingVampireHuntressThePoisonOfHerGearKillsIsLetGo)
+{
+    link_second_room();
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    make_ring_and_sword_poisonous();
+    char_data* huntress = make_mob_wearing_poisonous_ring("huntress", 0);
+    obj_data* ring = huntress->equipment[WEAR_FINGER_R];
+    huntress->specials.position = POSITION_FIGHTING;
+    huntress->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(huntress));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+    const obj_data* body = world[SECOND_ROOM].contents;
+    ASSERT_NE(nullptr, body);
+    EXPECT_EQ(ITEM_CONTAINER, GET_ITEM_TYPE(body));
+    EXPECT_EQ(nullptr, body->next_content);
+}
+
+/* Thuringwethil, fully healed, melts away to her tower and destroys her gear there: the poison
+ * of her ring sets off her damage script, which removes her, and she is let go with no bat form
+ * behind. Being at full health, she always outlives the poison itself. */
+TEST_F(DeathAndDamagePathsTest, AHealedThuringwethilHerGearRemovesIsLetGo)
+{
+    link_second_room();
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* vampire = make_mob_wearing_poisonous_ring("thuringwethil", SCRIPT_VNUM);
+    obj_data* ring = vampire->equipment[WEAR_FINGER_R];
+    vampire->abilities.hit = 2 * THURINGWETHIL_BEATEN_HIT_POINTS;
+    vampire->tmpabilities.hit = 2 * THURINGWETHIL_BEATEN_HIT_POINTS;
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, thuringwethil(vampire, vampire, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
     EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
 }
