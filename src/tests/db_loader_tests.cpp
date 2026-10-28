@@ -5145,3 +5145,53 @@ TEST_F(DbLoader, WritePlayerTextCutsALongHostToTheFieldWidth)
 
     EXPECT_EQ(player_text_value(player_text, "host        "), std::string(HOST_LEN, 'h')) << player_text;
 }
+
+/* ---- checked_sector_type: the world loader and the room editor keep sector types in range. ---- */
+
+namespace {
+
+// The room checked_sector_type logs a sector type against.
+constexpr int CHECKED_ROOM_NUMBER = 3001;
+// The last sector type: SECT_SWAMP, one below num_of_sector_types.
+constexpr int LAST_SECTOR_TYPE = SECT_SWAMP;
+// A sector type past the last.
+constexpr int SECTOR_PAST_THE_LAST = LAST_SECTOR_TYPE + 5;
+
+// The start of the line checked_sector_type logs for <sector_type> in CHECKED_ROOM_NUMBER.
+std::string sector_log_line(int sector_type)
+{
+    return "room " + std::to_string(CHECKED_ROOM_NUMBER) + " has sector type "
+        + std::to_string(sector_type);
+}
+
+} // namespace
+
+TEST(CheckedSectorType, KeepsASectorInRangeWithoutLogging)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(LAST_SECTOR_TYPE, CHECKED_ROOM_NUMBER);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, LAST_SECTOR_TYPE);
+    EXPECT_EQ(log_text, "");
+}
+
+TEST(CheckedSectorType, ANegativeSectorBecomesInsideAndIsLogged)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(-1, CHECKED_ROOM_NUMBER);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, SECT_INSIDE);
+    EXPECT_NE(log_text.find(sector_log_line(-1)), std::string::npos) << log_text;
+}
+
+TEST(CheckedSectorType, ASectorPastTheLastBecomesTheLastAndIsLogged)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(SECTOR_PAST_THE_LAST, CHECKED_ROOM_NUMBER);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, LAST_SECTOR_TYPE);
+    EXPECT_NE(log_text.find(sector_log_line(SECTOR_PAST_THE_LAST)), std::string::npos) << log_text;
+}

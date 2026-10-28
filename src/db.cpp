@@ -1416,7 +1416,6 @@ void index_boot(int mode)
 /* load the rooms */
 void load_rooms(FILE* fl)
 {
-    extern char num_of_sector_types;
     static int room_nr = 0, zone = 0, virt_nr, flag, tmp, tmp2, tmp3, tmp4;
     int aff_set;
     char *temp, *temp2, chk[50];
@@ -1462,9 +1461,7 @@ void load_rooms(FILE* fl)
             //	 fscanf(fl, " %d ", &tmp);
             world[room_nr].room_flags = tmp2;
             //	 fscanf(fl, " %d ", &tmp);
-            world[room_nr].sector_type = tmp3;
-            if (world[room_nr].sector_type >= num_of_sector_types)
-                world[room_nr].sector_type = num_of_sector_types - 1;
+            world[room_nr].sector_type = checked_sector_type(tmp3, virt_nr);
             world[room_nr].level = tmp4;
 
             world[room_nr].funct = 0;
@@ -4193,6 +4190,25 @@ void init_char(struct char_data* ch)
 
     /* The default preference flags */
     PRF_FLAGS(ch) |= PRF_SPAM | PRF_NARRATE | PRF_CHAT | PRF_WIZ | PRF_SING | PRF_PROMPT | PRF_ECHO | PRF_SPINNER;
+}
+
+int checked_sector_type(int sector_type, int room_number)
+{
+    extern char num_of_sector_types;
+    if (sector_type >= 0 && sector_type < num_of_sector_types) {
+        return sector_type;
+    }
+
+    int checked = SECT_INSIDE;
+    if (sector_type >= num_of_sector_types) {
+        checked = num_of_sector_types - 1;
+    }
+
+    char complaint[MAX_STRING_LENGTH];
+    snprintf(complaint, sizeof(complaint), "SYSERR: checked_sector_type: room %d has sector type %d; using %d.",
+        room_number, sector_type, checked);
+    log(complaint);
+    return checked;
 }
 
 /* returns the real number of the room with given virt number */
