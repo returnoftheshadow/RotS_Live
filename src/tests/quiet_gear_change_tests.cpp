@@ -384,3 +384,24 @@ TEST_F(QuietGearChangeTest, AConnectedPlayerSlainInPoisonousGearDiesOnce)
     ASSERT_NE(nullptr, ring->in_obj);
     EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
 }
+
+/* ---- removal from the game ---- */
+
+/* A mob purged while too hurt to survive its poisonous ring dies of the ring's poison as it comes
+ * off: the purge stops there, leaving one corpse, and the ring goes. */
+TEST_F(QuietGearChangeTest, APurgedMobItsPoisonousRingKillsIsLetGo)
+{
+    m_player.player.level = LEVEL_IMPL;
+    char_data* purged = make_mob("purged", 0);
+    obj_data* ring = make_poisonous_ring();
+    obj_to_char(ring, purged);
+    run_command_as(purged, do_wear, "ring");
+    ASSERT_EQ(ring, purged->equipment[WEAR_FINGER_R]);
+    purged->tmpabilities.hit = LOW_HIT_POINTS;
+
+    run_command(do_purge, "purged");
+
+    EXPECT_FALSE(is_in_game(purged));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_FALSE(is_in_object_list(ring));
+}

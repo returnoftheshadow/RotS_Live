@@ -921,3 +921,31 @@ TEST_F(SpecialProcedureTest, AYellIsOfferedToEveryRoomOfTheZone)
     EXPECT_TRUE(was_offered(near_listener));
     EXPECT_TRUE(was_offered(far_listener));
 }
+
+TEST_F(SpecialProcedureTest, ACommandAtARoomThatRemovesTheOneGivingItEndsThere)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_actor_going_north, SECOND_ROOM);
+    char_data* immortal = make_player_character("immortal");
+    std::string argument = std::to_string(SECOND_ROOM_VNUM) + " north";
+
+    do_at(immortal, argument.data(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(immortal));
+    EXPECT_EQ(&m_player, world[0].people) << "nobody came back";
+    EXPECT_EQ(nullptr, m_player.next_in_room);
+}
+
+TEST_F(SpecialProcedureTest, ACommandAtARoomBringsTheOneGivingItBack)
+{
+    assign_command_pointers();
+    char_data* bystander = make_mob_with("bystander", record_offer, SECOND_ROOM);
+    char_data* immortal = make_player_character("immortal");
+    std::string argument = std::to_string(SECOND_ROOM_VNUM) + " north";
+
+    do_at(immortal, argument.data(), nullptr, 0, 0);
+
+    EXPECT_TRUE(was_offered(bystander)) << "the command was given there";
+    ASSERT_TRUE(is_in_game(immortal));
+    EXPECT_EQ(0, immortal->in_room);
+}
