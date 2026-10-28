@@ -1271,6 +1271,7 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorListReset descriptor_list_reset;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ScopedPlayerTableReset player_table_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
@@ -1372,6 +1373,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotApplyToLaterUnrelatedRestriction)
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorListReset descriptor_list_reset;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ScopedPlayerTableReset player_table_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
@@ -1955,6 +1957,7 @@ TEST(InterpreAccountMenu, DuplicateOwnedActiveLowLevelLinkedCharacterStillRestri
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorListReset descriptor_list_reset;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ScopedPlayerTableReset player_table_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
@@ -2542,6 +2545,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowNewCharacterCreationFromAccoun
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorListReset descriptor_list_reset;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
@@ -2632,6 +2636,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowStaleAccountCreationWizardBirt
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorListReset descriptor_list_reset;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ScopedPlayerTableReset player_table_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);

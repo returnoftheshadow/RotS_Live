@@ -571,6 +571,7 @@ TEST(ActWiz, AccountUnlockSelectGrantsForRestrictingActiveLinkedSessionByEmail)
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorList descriptor_list_scope;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
@@ -611,6 +612,7 @@ TEST(ActWiz, AccountUnlockSelectGrantsForRestrictingLinklessSessionByAccountName
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorList descriptor_list_scope;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
@@ -648,6 +650,7 @@ TEST(ActWiz, AccountUnlockSelectRejectsWhenNoRestrictingActiveSessionExists)
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorList descriptor_list_scope;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
@@ -730,6 +733,7 @@ TEST(ActWiz, AccountUnlockSelectReplacesStalePendingUnlockForLaterRestriction)
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
     ScopedDescriptorList descriptor_list_scope;
+    ScopedSelectionUnlockReset selection_unlock_reset;
     ASSERT_EQ(mkdir("accounts", 0700), 0);
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 

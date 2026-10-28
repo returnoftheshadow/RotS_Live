@@ -3022,6 +3022,11 @@ bool grant_account_character_selection_unlock(
     return true;
 }
 
+void clear_account_character_selection_unlocks_for_testing()
+{
+    g_account_character_selection_unlocks.clear();
+}
+
 void show_character_menu(struct descriptor_data* d)
 {
     show_character_menu_impl(d);
