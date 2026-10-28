@@ -738,6 +738,19 @@ ACMD(do_split)
     send_to_char(buf, ch);
 }
 
+/* The spell a wand's or staff's value[3] names, or null for none. A number outside the skills
+ * table, which only a builder's mistake can give, names none and is logged. */
+static decltype(skill_data::spell_pointer) find_stick_spell(const obj_data* stick)
+{
+    const int spell_number = stick->obj_flags.value[3];
+    if (spell_number < 0 || spell_number >= MAX_SKILLS) {
+        vmudlog(NRM, "SYSERR: %s: '%s' names spell %d, outside the skills table.", __func__,
+            stick->short_description, spell_number);
+        return nullptr;
+    }
+    return skills[spell_number].spell_pointer;
+}
+
 ACMD(do_use)
 {
     int bits;
@@ -759,9 +772,9 @@ ACMD(do_use)
 
         if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
             stick->obj_flags.value[2]--;
-            if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                ((*skills[stick->obj_flags.value[3]].spell_pointer)(ch, "", SPELL_TYPE_STAFF, 0, 0,
-                    0, 0));
+            const auto spell = find_stick_spell(stick);
+            if (spell)
+                spell(ch, "", SPELL_TYPE_STAFF, 0, 0, 0, 0);
 
         } else
             send_to_char("The staff seems powerless.\n\r", ch);
@@ -779,9 +792,9 @@ ACMD(do_use)
 
             if (stick->obj_flags.value[2] > 0) { /* Is there any charges left? */
                 stick->obj_flags.value[2]--;
-                if (*skills[stick->obj_flags.value[3]].spell_pointer)
-                    ((*skills[stick->obj_flags.value[3]].spell_pointer)(
-                        ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0));
+                const auto spell = find_stick_spell(stick);
+                if (spell)
+                    spell(ch, "", SPELL_TYPE_WAND, tmp_char, tmp_object, 0, 0);
             } else
                 send_to_char("The wand seems powerless.\n\r", ch);
         } else

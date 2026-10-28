@@ -1837,6 +1837,10 @@ static void install_resist_affect(char_data* victim, int resist_type, int modifi
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str)
 {
+    if (spell_lacks_victim(caster, victim, resist_type)) {
+        return;
+    }
+
     affected_type* current_effect = affected_by_spell(victim, resist_type);
 
     if (type == SPELL_TYPE_ANTI) {
