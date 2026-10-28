@@ -184,6 +184,113 @@ PKILL make_pkill(int killer_index, int victim_index)
     return record;
 }
 
+/* ---------------------------------------------------------------- fame command */
+
+// A player looking up PK records with the fame command, against a PK table the test fills.
+class FameCommandTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        m_previous_table = pkill_tab;
+        m_previous_length = pkill_tab_len;
+        clear_char(&m_player, MOB_VOID);
+        m_player.player.name = m_player_name;
+        m_player.player.level = 10;
+        m_player.in_room = 0;
+        m_player.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_player;
+    }
+
+    void TearDown() override
+    {
+        pkill_tab = m_previous_table;
+        pkill_tab_len = m_previous_length;
+        free(m_descriptor.get()->showstr_head);
+        m_descriptor.get()->showstr_head = nullptr;
+        m_descriptor.get()->showstr_point = nullptr;
+    }
+
+    // Makes the PK table <count> kills of player index 1 by player index 0, all made now.
+    void fill_kills(int count)
+    {
+        m_kills.assign(count, make_pkill(0, 1));
+        pkill_tab = m_kills.data();
+        pkill_tab_len = count;
+    }
+
+    // Runs fame with <argument>.
+    void fame(std::string argument)
+    {
+        do_fame(&m_player, &argument[0], nullptr, 0, 0);
+    }
+
+    // Collects what the player is told.
+    CapturingDescriptor m_descriptor;
+    // Storage for the player's name.
+    char m_player_name[16] = "Looker";
+    // The player typing fame.
+    char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
+    // The PK table while a test runs.
+    std::vector<PKILL> m_kills;
+    // The PK table before the test.
+    PKILL* m_previous_table = nullptr;
+    // Its length.
+    int m_previous_length = 0;
+};
+
+// How many times <needle> occurs in <haystack>.
+int count_of(const std::string& haystack, std::string_view needle)
+{
+    int count = 0;
+    for (size_t position = haystack.find(needle); position != std::string::npos;
+         position = haystack.find(needle, position + needle.size())) {
+        ++count;
+    }
+    return count;
+}
+
+TEST_F(FameCommandTest, ListsEveryRecordOfAPlayerWhoseRecordsOutgrowTheOldBuffer)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    constexpr int KILL_COUNT = 150; /* about 10,000 characters of records */
+    fill_kills(KILL_COUNT);
+
+    fame("aragorn");
+
+    const std::string output = m_descriptor.output();
+    EXPECT_EQ(count_of(output, "Aragorn killed Per%s%s%sent.\r\n"), KILL_COUNT);
+    const std::string summary = "There were " + std::to_string(KILL_COUNT)
+        + " records found about Aragorn, total fame 0.\r\n";
+    EXPECT_NE(output.find(summary), std::string::npos);
+}
+
+TEST_F(FameCommandTest, ShowsAPercentSignInANameAsWritten)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    fill_kills(1);
+
+    fame("aragorn");
+
+    const std::string output = m_descriptor.output();
+    EXPECT_NE(output.find("Aragorn killed Per%s%s%sent.\r\n"), std::string::npos) << output;
+    EXPECT_NE(output.find("There was 1 record found about Aragorn, total fame 0.\r\n"), std::string::npos) << output;
+}
+
+TEST_F(FameCommandTest, ShowsAPercentSignInTheDaysBattlesAsWritten)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    constexpr int KILL_COUNT = 3;
+    fill_kills(KILL_COUNT);
+
+    fame("all");
+
+    EXPECT_EQ(count_of(m_descriptor.output(), "Aragorn killed Per%s%s%sent.\r\n"), KILL_COUNT)
+        << m_descriptor.output();
+}
+
 /* ---------------------------------------------------------------- act */
 
 // A player in room 0 reading what act sends them.
