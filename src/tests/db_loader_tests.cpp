@@ -3114,6 +3114,175 @@ TEST_F(DbLoader, MobEditorDescriptionEditsReplaceEachOther)
     EXPECT_EQ(session.builder->temp, nullptr);
 }
 
+int new_room(const struct char_data* character, int number);
+void free_room(struct char_data* character);
+
+/* shape_center_room's field 2: the room's description. */
+constexpr int ROOM_DESCRIPTION_FIELD = 2;
+/* shape_center_room's field 7: removing an exit. */
+constexpr int ROOM_REMOVE_EXIT_FIELD = 7;
+/* Any permission but 0 lets implement_room write over the live room. */
+constexpr int ROOM_EDIT_PERMITTED = 1;
+
+/* Each edit of a room's description starts from the text before it and replaces it, and leaving the
+ * editor frees the last. */
+TEST_F(DbLoader, RoomEditorDescriptionEditsReplaceEachOther)
+{
+    /* Only its builder and output: the room editor replaces temp. */
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    ASSERT_GE(new_room(session.builder, EDITOR_TEST_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+
+    /* The first call opens the text editor, the call after %e takes the text. */
+    const auto add_description_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = ROOM_DESCRIPTION_FIELD;
+        shape_center_room(session.builder, prompt);
+        ASSERT_EQ(session.builder->desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder->desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder->desc, finish);
+        shape_center_room(session.builder, prompt);
+    };
+
+    add_description_line("A bare cave.");
+    EXPECT_STREQ(editor->room->description, "A bare cave.\n\r");
+    add_description_line("Water drips.");
+    EXPECT_STREQ(editor->room->description, "A bare cave.\n\rWater drips.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_room(session.builder);
+
+    EXPECT_EQ(session.builder->temp, nullptr);
+}
+
+void implement_room(const struct char_data* character);
+
+/* An exit made the way boot makes one: its own copy of each text. */
+room_direction_data* make_room_exit(const char* description, const char* keyword, int to_room)
+{
+    room_direction_data* room_exit = nullptr;
+    CREATE1(room_exit, room_direction_data);
+    room_exit->general_description = str_dup(description);
+    room_exit->keyword = str_dup(keyword);
+    room_exit->to_room = to_room;
+    return room_exit;
+}
+
+/* Implementing a room gives the live room copies of the editor's name, description and exit text, and
+ * an exit the editor leaves undescribed an empty description. */
+TEST_F(DbLoader, ImplementingARoomCopiesTheEditorsText)
+{
+    /* Only its builder and output: the room editor replaces temp. */
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    editor->permission = ROOM_EDIT_PERMITTED;
+    session.builder->temp = editor;
+    ASSERT_GE(new_room(session.builder, EDITOR_TEST_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    room_data* const edited = editor->room;
+    RELEASE(edited->name);
+    edited->name = str_dup("A lit cave");
+    RELEASE(edited->description);
+    edited->description = str_dup("Torches burn.\n\r");
+    edited->dir_option[NORTH] = make_room_exit("", "gate", EDITOR_TEST_NUMBER);
+
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    room_data& live = world[0];
+    live.number = EDITOR_TEST_NUMBER;
+    live.name = str_dup("A dark cave");
+    live.description = str_dup("It is dark.\n\r");
+    live.ex_description = nullptr;
+    live.affected = nullptr;
+    for (int direction = 0; direction < NUM_OF_DIRS; direction++) {
+        live.dir_option[direction] = nullptr;
+    }
+    live.dir_option[NORTH] = make_room_exit("A heavy door.\n\r", "door", 0);
+
+    implement_room(session.builder);
+
+    EXPECT_STREQ(live.name, "A lit cave");
+    EXPECT_STREQ(live.description, "Torches burn.\n\r");
+    ASSERT_NE(live.dir_option[NORTH], nullptr);
+    EXPECT_STREQ(live.dir_option[NORTH]->general_description, "");
+    EXPECT_STREQ(live.dir_option[NORTH]->keyword, "gate");
+    EXPECT_NE(live.name, edited->name);
+
+    RELEASE(live.name);
+    RELEASE(live.description);
+    RELEASE(live.dir_option[NORTH]->general_description);
+    RELEASE(live.dir_option[NORTH]->keyword);
+    RELEASE(live.dir_option[NORTH]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+    free_room(session.builder);
+}
+
+/* Leaving the room editor frees a loaded room with its exits and extra descriptions. */
+TEST_F(DbLoader, LeavingTheRoomEditorFreesExitsAndExtraDescriptions)
+{
+    /* Only its builder and output: the room editor replaces temp. */
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    ASSERT_GE(new_room(session.builder, EDITOR_TEST_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    editor->room->dir_option[NORTH]
+        = make_room_exit("A heavy door.\n\r", "door", EDITOR_TEST_NUMBER);
+    editor->room->dir_option[SOUTH] = make_room_exit("", "", EDITOR_TEST_NUMBER);
+    extra_descr_data* extra = nullptr;
+    CREATE1(extra, extra_descr_data);
+    extra->keyword = str_dup("torch");
+    extra->description = str_dup("It burns low.\n\r");
+    editor->room->ex_description = extra;
+
+    free_room(session.builder);
+
+    EXPECT_EQ(session.builder->temp, nullptr);
+}
+
+/* Removing an exit in the room editor removes it with its text, and leaves the other exits. */
+TEST_F(DbLoader, RoomEditorRemovesAnExit)
+{
+    /* Only its builder and output: the room editor replaces temp. */
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_room* editor = nullptr; /* free_room frees the editor state, so it is allocated */
+    CREATE(editor, shape_room, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    ASSERT_GE(new_room(session.builder, EDITOR_TEST_NUMBER), 0);
+    SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+    editor->room->dir_option[NORTH]
+        = make_room_exit("A heavy door.\n\r", "door", EDITOR_TEST_NUMBER);
+    editor->room->dir_option[SOUTH]
+        = make_room_exit("A narrow path.\n\r", "path", EDITOR_TEST_NUMBER);
+
+    /* The first call asks which exit, the second takes the answer. */
+    char prompt[] = "";
+    editor->editflag = ROOM_REMOVE_EXIT_FIELD;
+    shape_center_room(session.builder, prompt);
+    char north[] = "n";
+    shape_center_room(session.builder, north);
+
+    EXPECT_EQ(editor->room->dir_option[NORTH], nullptr);
+    ASSERT_NE(editor->room->dir_option[SOUTH], nullptr);
+    EXPECT_STREQ(editor->room->dir_option[SOUTH]->keyword, "path");
+    EXPECT_NE(session.take().find("removed"), std::string::npos);
+
+    free_room(session.builder);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 
