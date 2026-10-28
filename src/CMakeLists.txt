@@ -233,6 +233,7 @@ set(ROTS_TEST_SOURCES
     tests/death_and_damage_paths_tests.cpp
     tests/loader_editor_bounds_tests.cpp
     tests/special_procedure_extract_tests.cpp
+    tests/command_interpreter_callback_tests.cpp
     tests/fish_and_use_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
