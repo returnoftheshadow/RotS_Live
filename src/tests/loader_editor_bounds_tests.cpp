@@ -382,4 +382,66 @@ TEST(LegacyPlayerLoader, SkipsAnArraySlotPastItsField)
     ASSERT_EQ(result, 1);
     EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
 }
+
+/* ---------------------------------------------------------------- affect types at load */
+
+// An affect type below the skill table every affect reader indexes.
+constexpr int NEGATIVE_AFFECT_TYPE = -4;
+// An affect type past the end of that table.
+constexpr int AFFECT_TYPE_PAST_THE_TABLE = MAX_SKILLS + 10;
+
+TEST(LegacyPlayerLoader, SkipsAndLogsAnAffectTypeOutsideTheSkillTable)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto expected = std::make_unique<char_file_u>();
+    auto loaded = std::make_unique<char_file_u>();
+    ASSERT_EQ(load_text(player_text_with(""), expected.get()), 1);
+
+    testing::internal::CaptureStderr();
+    const std::string affect_lines = "affect      2 " + std::to_string(MAX_SKILLS) + " 10 1 2 0\n"
+        + "affect      3 " + std::to_string(NEGATIVE_AFFECT_TYPE) + " 10 1 2 0\n";
+    const int result = load_text(player_text_with(affect_lines), loaded.get());
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 1);
+    EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
+    EXPECT_NE(log_text.find("has type " + std::to_string(MAX_SKILLS)), std::string::npos) << log_text;
+    EXPECT_NE(log_text.find("has type " + std::to_string(NEGATIVE_AFFECT_TYPE)), std::string::npos)
+        << log_text;
+}
+
+TEST(CharacterJsonLoader, SkipsAndLogsAnAffectTypeOutsideTheSkillTable)
+{
+    auto source = std::make_unique<char_file_u>();
+    std::snprintf(source->name, sizeof(source->name), "%s", "aragorn");
+    constexpr int KEPT_AFFECT_TYPE = 5;
+    constexpr int AFFECT_DURATION = 10;
+    source->affected[0].type = KEPT_AFFECT_TYPE;
+    source->affected[0].duration = AFFECT_DURATION;
+    source->affected[1].type = AFFECT_TYPE_PAST_THE_TABLE;
+    source->affected[1].duration = AFFECT_DURATION;
+    source->affected[1].bitvector = AFF_POISON;
+    source->affected[2].type = NEGATIVE_AFFECT_TYPE;
+    source->affected[2].duration = AFFECT_DURATION;
+    const character_json::CharacterData character = character_json::character_data_from_store(*source);
+    auto stored = std::make_unique<char_file_u>();
+    std::string error_message;
+
+    testing::internal::CaptureStderr();
+    const bool applied = character_json::apply_character_data_to_store(character, stored.get(), &error_message);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    ASSERT_TRUE(applied) << error_message;
+    EXPECT_EQ(stored->affected[0].type, KEPT_AFFECT_TYPE);
+    EXPECT_EQ(stored->affected[0].duration, AFFECT_DURATION);
+    EXPECT_EQ(stored->affected[1].type, 0);
+    EXPECT_EQ(stored->affected[1].bitvector, 0);
+    EXPECT_EQ(stored->affected[2].type, 0);
+    EXPECT_NE(log_text.find("has type " + std::to_string(AFFECT_TYPE_PAST_THE_TABLE)),
+        std::string::npos)
+        << log_text;
+    EXPECT_NE(log_text.find("has type " + std::to_string(NEGATIVE_AFFECT_TYPE)), std::string::npos)
+        << log_text;
+}
+
 } // namespace
