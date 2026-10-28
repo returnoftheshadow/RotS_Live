@@ -528,12 +528,17 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
  * <subcommand>, at <priority>, with <new_flag> set in its affects. A delay it is already waiting
  * out is completed first if this one's priority is at least as high (its command's interrupted
  * branch, or the rest of a paused script, runs now); otherwise, or if completing it starts
- * another, the new delay is not started and the character is told of a double delay.
- * The full form also sets the target the delayed command will act on. */
-void start_wait_state_full(struct char_data* character, int cycle, int command, int subcommand,
-    int priority, int flag, int target_number, void* argument, long new_flag, int target_type);
-void start_wait_state_brief(struct char_data* character, int cycle, int command, int subcommand,
-    int priority, long new_flag);
+ * another, the new delay is not started and the character is told of a double delay. Returns
+ * false only when completing the old delay freed the character, which must then not be touched;
+ * true otherwise, whether or not the delay started. A caller that touches the character, or
+ * anything it owns, after the call checks the result first.
+ * The full form also sets the target the delayed command will act on; a TARGET_TEXT <argument> is a
+ * block from the text block pool, which goes back to the pool when the delay is not started. */
+[[nodiscard]] bool start_wait_state_full(struct char_data* character, int cycle, int command,
+    int subcommand, int priority, int flag, int target_number, void* argument, long new_flag,
+    int target_type);
+[[nodiscard]] bool start_wait_state_brief(struct char_data* character, int cycle, int command,
+    int subcommand, int priority, long new_flag);
 
 #define WAIT_STATE_BRIEF(ch, cycle, commd, subcommd, prir, new_flag) \
     start_wait_state_brief((ch), (cycle), (commd), (subcommd), (prir), (new_flag))

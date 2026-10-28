@@ -26,6 +26,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_heartbeat.h"
 #include "game_time_text.h"
 #include "handler.h"
@@ -872,7 +873,6 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
     char prompt[MAX_INPUT_LENGTH];
     char* pptr;
     struct descriptor_data *point, *next_point;
-    struct char_data *wait_ch, *wait_tmp;
     int mask;
     int tmp;
     char disp, tmpflag;
@@ -978,32 +978,7 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
         }
 
         /* process_commands */
-        for (wait_ch = waiting_list; wait_ch; wait_ch = wait_tmp) {
-            if (wait_ch->delay.wait_value > 0) {
-                (wait_ch->delay.wait_value)--;
-            }
-
-            if (wait_ch->delay.wait_value > 0) {
-                if (!IS_NPC(wait_ch) && IS_AFFECTED(wait_ch, AFF_WAITWHEEL)) {
-                    if (PRF_FLAGGED(wait_ch, PRF_SPINNER)) {
-                        write_to_descriptor(wait_ch->desc->descriptor,
-                            wait_wheel[wait_ch->delay.wait_value % 8]);
-                    }
-                }
-
-                wait_tmp = wait_ch->delay.next;
-            } else if (wait_ch->delay.wait_value == 0) {
-                /* here is the block calling actual procedures */
-                complete_delay(wait_ch);
-                wait_tmp = wait_ch->delay.next;
-
-                if (wait_ch->delay.wait_value == 0)
-                    /* look out for the similar code in raw_kill() */
-                    abort_delay(wait_ch);
-            } else {
-                wait_tmp = wait_ch->delay.next;
-            }
-        }
+        process_waiting_list();
 
         for (point = descriptor_list; point; point = next_to_process) {
             next_to_process = point->next;
@@ -2578,6 +2553,9 @@ void complete_delay(struct char_data* ch)
     REMOVE_BIT(ch->specials.affected_by, AFF_WAITING);
 
     if (ch->delay.cmd == CMD_SCRIPT) {
+        /* A forced completion (subcmd -1: another action replacing the pause, or a death) runs
+         * the rest of the script here and now, as an ordinary one does; it can free ch, which
+         * the forcer then must not touch (WAIT_STATE's and raw_kill's watches). */
         continue_char_script(ch);
         return;
     }
@@ -2601,6 +2579,7 @@ namespace {
 enum class current_delay_outcome {
     none_left, /* there was none, or it was completed and the character waits for nothing */
     kept, /* it outranks the new one, or completing it started another: a double delay */
+    character_freed, /* completing it freed the character */
 };
 
 /* Completes the delay <character> is waiting out if <priority> is at least its priority, telling
@@ -2622,7 +2601,11 @@ current_delay_outcome end_current_delay(char_data* character, int priority, bool
     }
 
     character->delay.subcmd = -1;
+    freed_watch waiter_watch(character);
     complete_delay(character);
+    if (waiter_watch.freed()) {
+        return current_delay_outcome::character_freed;
+    }
     if (character->delay.wait_value != 0) {
         /* complete_delay() reentrantly queued a new delay (e.g. a follow-up recovery action)
            while running the just-finished command -- don't silently clobber it with this
@@ -2658,12 +2641,19 @@ void append_to_waiting_list(char_data* character)
 
 } // namespace
 
-void start_wait_state_full(char_data* character, int cycle, int command, int subcommand,
+bool start_wait_state_full(char_data* character, int cycle, int command, int subcommand,
     int priority, int flag, int target_number, void* argument, long new_flag, int target_type)
 {
     const current_delay_outcome outcome = end_current_delay(character, priority, false);
+    if (outcome != current_delay_outcome::none_left && target_type == TARGET_TEXT && argument) {
+        /* No delay holds the text: the caller took it from the pool for this one. */
+        put_to_txt_block_pool(static_cast<txt_block*>(argument));
+    }
+    if (outcome == current_delay_outcome::character_freed) {
+        return false;
+    }
     if (outcome == current_delay_outcome::kept) {
-        return;
+        return true;
     }
     character->delay.wait_value = cycle;
     character->delay.cmd = command;
@@ -2676,14 +2666,18 @@ void start_wait_state_full(char_data* character, int cycle, int command, int sub
     character->delay.targ2.type = TARGET_IGNORE;
     SET_BIT(character->specials.affected_by, new_flag);
     append_to_waiting_list(character);
+    return true;
 }
 
-void start_wait_state_brief(char_data* character, int cycle, int command, int subcommand,
+bool start_wait_state_brief(char_data* character, int cycle, int command, int subcommand,
     int priority, long new_flag)
 {
     const current_delay_outcome outcome = end_current_delay(character, priority, true);
+    if (outcome == current_delay_outcome::character_freed) {
+        return false;
+    }
     if (outcome == current_delay_outcome::kept) {
-        return;
+        return true;
     }
     character->delay.wait_value = cycle;
     character->delay.cmd = command;
@@ -2692,6 +2686,7 @@ void start_wait_state_brief(char_data* character, int cycle, int command, int su
     character->delay.priority = priority;
     SET_BIT(character->specials.affected_by, new_flag);
     append_to_waiting_list(character);
+    return true;
 }
 
 int in_waiting_list(const char_data* ch)
@@ -2728,6 +2723,55 @@ void abort_delay(char_data* wait_ch)
     if (in_waiting_list(wait_ch)) {
         log("SYSERR: abort_delay, character remaining in waiting_list");
         abort_delay(wait_ch);
+    }
+}
+
+void process_waiting_list()
+{
+    char_data* next_waiter;
+    for (char_data* waiter = waiting_list; waiter; waiter = next_waiter) {
+        if (waiter->delay.wait_value > 0) {
+            (waiter->delay.wait_value)--;
+        }
+
+        if (waiter->delay.wait_value > 0) {
+            if (!IS_NPC(waiter) && IS_AFFECTED(waiter, AFF_WAITWHEEL)) {
+                if (PRF_FLAGGED(waiter, PRF_SPINNER)) {
+                    write_to_descriptor(waiter->desc->descriptor,
+                        wait_wheel[waiter->delay.wait_value % 8]);
+                }
+            }
+
+            next_waiter = waiter->delay.next;
+        } else if (waiter->delay.wait_value == 0) {
+            /* Completing the delay can free the waiter (a resumed script that removes its mob), and
+             * with it any other waiter, so the waiter after it is saved and only compared until
+             * it is found still waiting. */
+            char_data* following = waiter->delay.next;
+            freed_watch waiter_watch(waiter);
+            /* here is the block calling actual procedures */
+            complete_delay(waiter);
+            if (waiter_watch.freed()) {
+                /* extract_char took the waiter off the list. If the one after it went too, the
+                 * rest of the list waits for the next pulse. */
+                if (in_waiting_list(following)) {
+                    next_waiter = following;
+                } else {
+                    vmudlog(NRM,
+                        "SYSERR: %s: the next waiter was freed; the rest wait for the next pulse.",
+                        __func__);
+                    next_waiter = nullptr;
+                }
+                continue;
+            }
+            next_waiter = waiter->delay.next;
+
+            if (waiter->delay.wait_value == 0)
+                /* look out for the similar code in raw_kill() */
+                abort_delay(waiter);
+        } else {
+            next_waiter = waiter->delay.next;
+        }
     }
 }
 

@@ -57,3 +57,32 @@ protected:
 };
 
 } // namespace
+
+/* ---- scripts paused with DO_WAIT ---- */
+
+/* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list
+ * resumes it. */
+constexpr int PAUSE_PULSES = 1;
+
+/* A script body that pauses for one pulse, then tells the room the mob fades and removes it. */
+static std::vector<body_line> pause_then_remove_body()
+{
+    return { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+        { SCRIPT_SEND_TO_ROOM, "The mob fades.", { SCRIPT_PARAM_CH1_ROOM } },
+        { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } };
+}
+
+TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemoved)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_NE(nullptr, waiting_list) << "both mobs paused";
+
+    process_waiting_list();
+
+    EXPECT_EQ(2, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, character_list);
+    EXPECT_EQ(nullptr, waiting_list);
+}
