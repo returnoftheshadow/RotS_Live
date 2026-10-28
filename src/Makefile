@@ -89,6 +89,7 @@ SOURCES := \
     game_boot_options.cpp \
     obj2html.cpp \
     object_skins.cpp \
+    object_text.cpp \
     object_utils.cpp \
     objsave.cpp \
     olog_hai.cpp \
