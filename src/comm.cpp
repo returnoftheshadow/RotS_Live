@@ -2595,6 +2595,105 @@ void complete_delay(struct char_data* ch)
         command_interpreter(ch, "", &(ch->delay));
 }
 
+namespace {
+
+/* How starting a delay found the one <character> was already waiting out. */
+enum class current_delay_outcome {
+    none_left, /* there was none, or it was completed and the character waits for nothing */
+    kept, /* it outranks the new one, or completing it started another: a double delay */
+};
+
+/* Completes the delay <character> is waiting out if <priority> is at least its priority, telling
+ * it of a double delay otherwise. <log_double_delay> picks how the unforced double delay is noted,
+ * as the two WAIT_STATE macros always did. */
+current_delay_outcome end_current_delay(char_data* character, int priority, bool log_double_delay)
+{
+    if (character->delay.wait_value == 0) {
+        return current_delay_outcome::none_left;
+    }
+    if (priority < character->delay.priority) {
+        send_to_char("Possible bug - double delay. Please notify Imps.\n", character);
+        if (log_double_delay) {
+            log("double delay?\n");
+        } else {
+            printf("double delay?\n");
+        }
+        return current_delay_outcome::kept;
+    }
+
+    character->delay.subcmd = -1;
+    complete_delay(character);
+    if (character->delay.wait_value != 0) {
+        /* complete_delay() reentrantly queued a new delay (e.g. a follow-up recovery action)
+           while running the just-finished command -- don't silently clobber it with this
+           action. */
+        send_to_char("Possible bug - double delay. Please notify Imps.\n", character);
+        log("double delay (reentrant queue during complete_delay)?\n");
+        return current_delay_outcome::kept;
+    }
+    abort_delay(character);
+    return current_delay_outcome::none_left;
+}
+
+/* Puts <character> at the end of the waiting list, taking it out of wherever it was in it. */
+void append_to_waiting_list(char_data* character)
+{
+    char_data* listed = waiting_list;
+    if (listed == character)
+        listed = waiting_list = character->delay.next;
+    if (!listed)
+        waiting_list = character;
+    else {
+        while (listed->delay.next) {
+            if (listed->delay.next == character)
+                listed->delay.next = character->delay.next;
+            else
+                listed = listed->delay.next;
+        }
+        if (listed != character)
+            listed->delay.next = character;
+    }
+    character->delay.next = 0;
+}
+
+} // namespace
+
+void start_wait_state_full(char_data* character, int cycle, int command, int subcommand,
+    int priority, int flag, int target_number, void* argument, long new_flag, int target_type)
+{
+    const current_delay_outcome outcome = end_current_delay(character, priority, false);
+    if (outcome == current_delay_outcome::kept) {
+        return;
+    }
+    character->delay.wait_value = cycle;
+    character->delay.cmd = command;
+    character->delay.subcmd = subcommand;
+    character->delay.targ1.ptr.other = argument;
+    character->delay.priority = priority;
+    character->delay.flg = flag;
+    character->delay.targ1.ch_num = target_number;
+    character->delay.targ1.type = target_type;
+    character->delay.targ2.type = TARGET_IGNORE;
+    SET_BIT(character->specials.affected_by, new_flag);
+    append_to_waiting_list(character);
+}
+
+void start_wait_state_brief(char_data* character, int cycle, int command, int subcommand,
+    int priority, long new_flag)
+{
+    const current_delay_outcome outcome = end_current_delay(character, priority, true);
+    if (outcome == current_delay_outcome::kept) {
+        return;
+    }
+    character->delay.wait_value = cycle;
+    character->delay.cmd = command;
+    character->delay.targ1.type = character->delay.targ2.type = TARGET_IGNORE;
+    character->delay.subcmd = subcommand;
+    character->delay.priority = priority;
+    SET_BIT(character->specials.affected_by, new_flag);
+    append_to_waiting_list(character);
+}
+
 int in_waiting_list(const char_data* ch)
 {
     if (waiting_list == NULL || ch == NULL)
