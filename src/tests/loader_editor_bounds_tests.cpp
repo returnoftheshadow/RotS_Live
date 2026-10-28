@@ -836,6 +836,102 @@ TEST(ShapeCommand, RefusesAnUnknownWordLongerThanTheOldBuffer)
     EXPECT_NE(descriptor.output().find("Unrecognized parameter."), std::string::npos) << descriptor.output();
 }
 
+/* ---------------------------------------------------------------- editor file names */
+
+// A builder in the room or object editor, whose editor state is a member.
+class EditorFileNameTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        clear_char(&m_builder, MOB_VOID);
+        m_builder.player.name = m_builder_name;
+        m_builder.player.level = LEVEL_IMMORT;
+        m_builder.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_builder;
+    }
+
+    void TearDown() override { m_builder.temp = nullptr; }
+
+    // A command naming a file far too long for the editors' file fields: the name alone fills
+    // f_from, before its folder and extension are added.
+    static std::string long_name_command(std::string_view command)
+    {
+        std::string text(command);
+        text += " 12";
+        text.append(sizeof(shape_room::f_from), 'x');
+        return text;
+    }
+
+    // Collects what the builder is shown.
+    CapturingDescriptor m_descriptor;
+    // Storage for the builder's name.
+    char m_builder_name[16] = "Builder";
+    // The builder.
+    char_data m_builder {};
+    // Frees what clear_char gave m_builder when the test ends.
+    ClearedCharacterRelease m_builder_release { &m_builder };
+    // Room editor state, when a test uses the room editor.
+    shape_room m_room_editor {};
+    // Object editor state, when a test uses the object editor.
+    shape_object m_object_editor {};
+};
+
+TEST_F(EditorFileNameTest, RoomCreateRefusesAFileNameTooLongToStore)
+{
+    m_builder.temp = &m_room_editor;
+    const std::string command = long_name_command("create");
+
+    EXPECT_EQ(create_room(&m_builder, command.c_str()), -1);
+
+    EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
+}
+
+TEST_F(EditorFileNameTest, RoomAddReadsTheFileNameTyped)
+{
+    m_builder.temp = &m_room_editor;
+
+    EXPECT_EQ(append_room(&m_builder, "add 45"), -1); /* no permission in the test */
+
+    EXPECT_STREQ(m_room_editor.f_from, "world/wld/45.wld");
+    EXPECT_STREQ(m_room_editor.f_old, "world/wld/oldroms/45.wld");
+}
+
+TEST_F(EditorFileNameTest, RoomAddRefusesAFileNameTooLongToStore)
+{
+    m_builder.temp = &m_room_editor;
+    const std::string command = long_name_command("add");
+
+    EXPECT_EQ(append_room(&m_builder, command.c_str()), -1);
+
+    EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
+    EXPECT_STREQ(m_room_editor.f_from, "");
+}
+
+TEST_F(EditorFileNameTest, ObjectAddStoresAFileNameThatFitsAsBefore)
+{
+    m_builder.temp = &m_object_editor;
+    m_object_editor.permission = 1;
+    m_object_editor.number = -1;
+    char command[] = "add 45";
+
+    EXPECT_EQ(append_object(&m_builder, command), -1); /* no object loaded in the test */
+
+    EXPECT_STREQ(m_object_editor.f_from, "world/mob/45.mob");
+}
+
+TEST_F(EditorFileNameTest, ObjectAddRefusesAFileNameTooLongToStore)
+{
+    m_builder.temp = &m_object_editor;
+    m_object_editor.permission = 1;
+    m_object_editor.number = -1;
+    std::string command = long_name_command("add");
+
+    EXPECT_EQ(append_object(&m_builder, &command[0]), -1);
+
+    EXPECT_NE(m_descriptor.output().find("That file name is too long."), std::string::npos) << m_descriptor.output();
+    EXPECT_STREQ(m_object_editor.f_from, "");
+}
+
 /* ---------------------------------------------------------------- affect types at load */
 
 // An affect type below the skill table every affect reader indexes.
