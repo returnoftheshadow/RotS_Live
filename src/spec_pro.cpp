@@ -3373,7 +3373,7 @@ SPECIAL(vampire_huntress)
     struct char_data *victim, *mob; // quite quickly.  If she comes across a PC she will either
     waiting_type tmpwtl; // continue on her way, attack, or abduct the victim taking
     int to_room, tmpno; // them back to the dungeons of her tower.
-    struct affected_type af;
+    struct affected_type af{};
     obj_data* obj;
     room_data* room;
     // If she is too badly hurt in a fight, she will flee back to
