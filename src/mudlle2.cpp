@@ -27,15 +27,14 @@ void TO_STACK(struct char_data* host, long x)
 {
     int tmp;
 
-    SPECIAL_STACK(host)
-    [SPECIAL_STACKPOINT(host)] = x;
-
-    if (SPECIAL_STACKPOINT(host) == SPECIAL_STACKLEN) {
+    /* A full stack drops its oldest value to make room at the top. */
+    if (SPECIAL_STACKPOINT(host) >= SPECIAL_STACKLEN) {
         for (tmp = 0; tmp < SPECIAL_STACKLEN - 1; tmp++)
             SPECIAL_STACK(host)
         [tmp] = SPECIAL_STACK(host)[tmp + 1];
         SPECIAL_STACK(host)
-        [SPECIAL_STACKPOINT(host)] = x;
+        [SPECIAL_STACKLEN - 1] = x;
+        SPECIAL_STACKPOINT(host) = SPECIAL_STACKLEN;
     } else {
         SPECIAL_STACK(host)
         [SPECIAL_STACKPOINT(host)] = x;
@@ -47,7 +46,7 @@ void TO_STACK(struct char_data* host, long x)
 long STACK_VALUE(const struct char_data* host)
 {
     int tmp;
-    if (SPECIAL_STACKPOINT(host) < 0)
+    if (SPECIAL_STACKPOINT(host) <= 0)
         tmp = 0;
     else
         tmp = SPECIAL_STACK(host)[SPECIAL_STACKPOINT(host) - 1];
@@ -71,8 +70,12 @@ void DOWN_STACK(const struct char_data* host)
 {
     int tmp;
 
+    /* An empty stack has nothing to turn. */
+    if (SPECIAL_STACKPOINT(host) <= 0)
+        return;
+
     tmp = SPECIAL_STACK(host)[0];
-    memmove(SPECIAL_STACK(host), SPECIAL_STACK(host) + sizeof(long),
+    memmove(SPECIAL_STACK(host), SPECIAL_STACK(host) + 1,
         sizeof(long) * (SPECIAL_STACKLEN - 1));
     SPECIAL_STACK(host)
     [SPECIAL_STACKPOINT(host) - 1] = tmp;
@@ -82,15 +85,23 @@ void UP_STACK(const struct char_data* host)
 {
     int tmp;
     tmp = STACK_VALUE(host);
-    memmove(SPECIAL_STACK(host) + sizeof(long), SPECIAL_STACK(host),
+    memmove(SPECIAL_STACK(host) + 1, SPECIAL_STACK(host),
         sizeof(long) * (SPECIAL_STACKLEN - 1));
     SPECIAL_STACK(host)
     [0] = tmp;
 }
 
+/* Logs that the target list of <host>'s program is full. A full list takes no new entry: its
+ * slots are all linked, and reusing one would leave the list a loop. */
+static void report_full_list(const struct char_data* host, const char* caller)
+{
+    vmudlog(NRM, "SYSERR: %s: the target list of mudlle program %d is full; the new entry is dropped.",
+        caller, PROG_NUMBER(host));
+}
+
 void TO_LIST(const struct char_data* host, void* entr, int type)
 {
-    char tmp, tmp2, overfl;
+    char tmp;
 
     /*
      * if(type == TARGET_TEXT)
@@ -100,16 +111,17 @@ void TO_LIST(const struct char_data* host, void* entr, int type)
     if (!entr)
         type = TARGET_NONE;
 
-    overfl = 0;
     for (tmp = 0; tmp < SPECIAL_STACKLEN; tmp++)
         if (SPECIAL_LIST_AREA(host)->field[(int)tmp].type == SPECIAL_VOID)
             break;
 
     if (tmp == SPECIAL_STACKLEN) {
-        for (tmp2 = 0, tmp = SPECIAL_LIST_HEAD(host);
-             (tmp2 < SPECIAL_STACKLEN) && (SPECIAL_LIST_AREA(host)->next[(int)tmp] >= 0);
-             tmp2++, tmp = SPECIAL_LIST_AREA(host)->next[(int)tmp])
-            ;
+        report_full_list(host, __func__);
+        /* The list would have owned a text; it goes back to the pool instead. */
+        if (type == TARGET_TEXT) {
+            put_to_txt_block_pool(static_cast<txt_block*>(entr));
+        }
+        return;
     }
     SPECIAL_LIST_AREA(host)
         ->next[(int)tmp]
@@ -134,7 +146,7 @@ void TO_LIST(const struct char_data* host, void* entr, int type)
 
 void TO_LIST(const struct char_data* host, const target_data* newtarg)
 {
-    char tmp, tmp2, overfl;
+    char tmp;
 
     /*
      * if(type == TARGET_TEXT)
@@ -146,16 +158,14 @@ void TO_LIST(const struct char_data* host, const target_data* newtarg)
         return;
     }
 
-    overfl = 0;
     for (tmp = 0; tmp < SPECIAL_STACKLEN; tmp++)
         if (SPECIAL_LIST_AREA(host)->field[(int)tmp].type == SPECIAL_VOID)
             break;
 
+    /* The list copies <newtarg>; the caller keeps its own. */
     if (tmp == SPECIAL_STACKLEN) {
-        for (tmp2 = 0, tmp = SPECIAL_LIST_HEAD(host);
-             (tmp2 < SPECIAL_STACKLEN) && (SPECIAL_LIST_AREA(host)->next[(int)tmp] >= 0);
-             tmp2++, tmp = SPECIAL_LIST_AREA(host)->next[(int)tmp])
-            ;
+        report_full_list(host, __func__);
+        return;
     }
     SPECIAL_LIST_AREA(host)
         ->next[(int)tmp]
@@ -191,7 +201,7 @@ void REMOVE_LIST(struct char_data* host)
 
 void UP_LIST(struct char_data* host)
 {
-    char tmp, tmp2;
+    char tmp, tmp2, new_head;
 
     if (SPECIAL_LIST_NEXT(host) < 0) {
         do_say(host, "My list is less than two elements, I can't move in it.",
@@ -203,11 +213,13 @@ void UP_LIST(struct char_data* host)
          (SPECIAL_LIST_AREA(host)->next[(int)tmp] >= 0) && (tmp2 < SPECIAL_STACKLEN - 1);
          tmp = SPECIAL_LIST_AREA(host)->next[(int)tmp], tmp2++)
         ;
+    /* The entry after the head becomes the head; the old head goes to the tail. */
+    new_head = SPECIAL_LIST_NEXT(host);
     SPECIAL_LIST_AREA(host)
         ->next[(int)tmp]
         = SPECIAL_LIST_HEAD(host);
     SPECIAL_LIST_NEXT(host) = -1;
-    SPECIAL_LIST_HEAD(host) = SPECIAL_LIST_NEXT(host);
+    SPECIAL_LIST_HEAD(host) = new_head;
 
     if (SPECIAL_LIST_TYPE(host) == TARGET_CHAR)
         if (!char_exists(SPECIAL_LIST_REFS(host))) {
@@ -247,6 +259,57 @@ void DOWN_LIST(struct char_data* host)
                 .ptr.other
                 = 0;
         }
+}
+
+int CHECK_LIST(const struct char_data* host, char val);
+
+void turn_stack(const struct char_data* host, int turns, void (*turn_once)(const struct char_data*))
+{
+    const int depth = SPECIAL_STACKPOINT(host);
+    /* A stack of one value or none reads the same however it is turned. */
+    if (turns <= 0 || depth < 2) {
+        return;
+    }
+    turns %= depth;
+    for (int turn = 0; turn < turns; ++turn) {
+        turn_once(host);
+    }
+}
+
+/* The number of entries in <host>'s target list, its mark included. */
+static int list_length(const struct char_data* host)
+{
+    int length = 0;
+    for (int slot = SPECIAL_LIST_HEAD(host); slot >= 0 && length < SPECIAL_STACKLEN;
+         slot = SPECIAL_LIST_AREA(host)->next[slot]) {
+        ++length;
+    }
+    return length;
+}
+
+void turn_list(struct char_data* host, int turns, void (*turn_once)(struct char_data*))
+{
+    if (turns <= 0) {
+        return;
+    }
+    const int length = list_length(host);
+    /* One turn says the list is too short to turn; saying it once is enough. */
+    if (length < 2) {
+        turn_once(host);
+        return;
+    }
+    if (turns >= length) {
+        /* Every entry would have come to the head, where a turn clears a character no longer in
+         * the game; the turns that are left out clear them here instead. */
+        for (int slot = SPECIAL_LIST_HEAD(host), seen = 0; slot >= 0 && seen < length;
+             slot = SPECIAL_LIST_AREA(host)->next[slot], ++seen) {
+            CHECK_LIST(host, static_cast<char>(slot));
+        }
+        turns %= length;
+    }
+    for (int turn = 0; turn < turns; ++turn) {
+        turn_once(host);
+    }
 }
 
 int CHECK_LIST(const struct char_data* host, char val)

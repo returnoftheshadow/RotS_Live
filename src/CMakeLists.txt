@@ -236,6 +236,7 @@ set(ROTS_TEST_SOURCES
     tests/special_procedure_extract_tests.cpp
     tests/command_interpreter_callback_tests.cpp
     tests/fish_and_use_tests.cpp
+    tests/mudlle_stack_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
