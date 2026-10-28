@@ -385,6 +385,32 @@ TEST_F(QuietGearChangeTest, AConnectedPlayerSlainInPoisonousGearDiesOnce)
     EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
 }
 
+/* ---- renting ---- */
+
+/* A renter's follower too hurt to survive its poisonous ring dies of the ring's poison as it
+ * comes off: it leaves its corpse and is not removed again, the ring goes, and the rent is
+ * saved. */
+TEST_F(QuietGearChangeTest, ARentersFollowerItsPoisonousRingKillsIsLetGo)
+{
+    char_data* follower = make_mob("follower", 0);
+    obj_data* ring = make_poisonous_ring();
+    obj_to_char(ring, follower);
+    run_command_as(follower, do_wear, "ring");
+    ASSERT_EQ(ring, follower->equipment[WEAR_FINGER_R]);
+    follower->tmpabilities.hit = LOW_HIT_POINTS;
+    add_follower(follower, &m_player, FOLLOW_MOVE);
+
+    Crash_rentsave(&m_player, 0);
+
+    EXPECT_FALSE(is_in_game(follower));
+    EXPECT_EQ(nullptr, m_player.followers);
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_FALSE(is_in_object_list(ring));
+    objects_json::ObjectSaveData saved;
+    ASSERT_TRUE(read_player_object_file(saved));
+    EXPECT_EQ(RENT_RENTED, saved.rent.rentcode);
+}
+
 /* ---- removal from the game ---- */
 
 /* A mob purged while too hurt to survive its poisonous ring dies of the ring's poison as it comes
