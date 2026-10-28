@@ -169,7 +169,17 @@ int find_script_by_number(int number);
  * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
  * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
  * call_object_trigger instead: given one of those, call_trigger runs nothing, logs an error and
- * returns 1. */
+ * returns 1.
+ *
+ * A script can free characters and objects (EXTRACT_CHAR, EXTRACT_OBJ, a death it causes),
+ * including the subjects it was given, so a caller that uses one afterwards keeps a freed_watch
+ * (freed_watch.h) on it across the call. call_trigger itself touches nothing freed:
+ *   - ON_BEFORE_ENTER, ON_ENTER: once the one entering (subject2) is freed, the room's remaining
+ *     mobs and objects still react, told nobody is entering.
+ *   - ON_DAMAGE: once the victim (subject) or the attacker (subject2) is freed, the weapon's
+ *     script does not run, and 0 is returned: no damage is to be dealt.
+ *   - ON_HEAR_SAY, ON_HEAR_YELL: once the mob is freed its yell script does not run; once the
+ *     speaker is, the yell script is told nobody spoke. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 
 /* How an object's own trigger script ended, for the command that fired it. */

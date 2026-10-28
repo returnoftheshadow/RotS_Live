@@ -58,6 +58,85 @@ protected:
 
 } // namespace
 
+/* ---- entering a room (ON_ENTER and ON_BEFORE_ENTER on the room's mobs) ---- */
+
+TEST_F(CharacterTriggerTest, EveryMobThatRemovesItselfOnSomeoneEnteringReacts)
+{
+    install_self_removing_mob_script(ON_ENTER);
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+    make_mob("third mob", SCRIPT_VNUM);
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_EQ(3, count_in_output(VANISH_MESSAGE));
+    EXPECT_EQ(nullptr, character_list);
+}
+
+TEST_F(CharacterTriggerTest, EveryMobThatRemovesItselfBeforeSomeoneEntersReactsAndLetsThemIn)
+{
+    install_self_removing_mob_script(ON_BEFORE_ENTER);
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+    make_mob("third mob", SCRIPT_VNUM);
+
+    EXPECT_EQ(1, call_trigger(ON_BEFORE_ENTER, &world[0], &m_player, 0));
+
+    EXPECT_EQ(3, count_in_output(VANISH_MESSAGE));
+}
+
+TEST_F(CharacterTriggerTest, EveryMobThatKeepsItselfReactsToSomeoneEntering)
+{
+    install_harmless_mob_script(ON_ENTER);
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_EQ(2, count_in_output(SCRIPT_RAN_MESSAGE));
+}
+
+/* A guard removes the mob that walked in: the watcher and the stone after it still react, told
+ * nobody is entering. */
+TEST_F(CharacterTriggerTest, LaterMobsStillReactWhenAMobEnteringIsRemoved)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_ENTER, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_ENTER,
+                { { SCRIPT_SEND_TO_CHAR, "You are watched.", { SCRIPT_PARAM_CH2 } },
+                    { SCRIPT_SEND_TO_ROOM, "The watcher looks up.", { SCRIPT_PARAM_CH1_ROOM } } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_ENTER, { { SCRIPT_SEND_TO_CHAR, "The stone glints.", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("guard", SCRIPT_VNUM);
+    make_mob("watcher", OTHER_SCRIPT_VNUM);
+    obj_to_room(make_object(STONE_VNUM, THIRD_SCRIPT_VNUM), 0);
+    char_data* wanderer = make_mob("wanderer", 0);
+
+    EXPECT_EQ(1, call_trigger(ON_ENTER, &world[0], wanderer, 0));
+
+    EXPECT_FALSE(is_in_game(wanderer));
+    EXPECT_TRUE(output_has("The watcher looks up."));
+}
+
+TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_BEFORE_ENTER, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_BEFORE_ENTER,
+                { { SCRIPT_SEND_TO_CHAR, "You are watched.", { SCRIPT_PARAM_CH2 } },
+                    { SCRIPT_SEND_TO_ROOM, "The watcher looks up.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    make_mob("guard", SCRIPT_VNUM);
+    make_mob("watcher", OTHER_SCRIPT_VNUM);
+    char_data* wanderer = make_mob("wanderer", 0);
+
+    EXPECT_EQ(1, call_trigger(ON_BEFORE_ENTER, &world[0], wanderer, 0));
+
+    EXPECT_FALSE(is_in_game(wanderer));
+    EXPECT_TRUE(output_has("The watcher looks up."));
+}
+
 /* ---- scripts paused with DO_WAIT ---- */
 
 /* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list

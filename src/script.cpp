@@ -987,12 +987,27 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return_value = trigger_room_event(ON_BEFORE_ENTER, (room_data*)subject, (char_data*)subject2);
         break;
 
-    case ON_DAMAGE:
-        return_value = trigger_char_damage((char_data*)subject, (char_data*)subject2);
-        if (return_value)
-            if ((tmpobj = ((char_data*)subject2)->equipment[WIELD]))
-                return_value = trigger_object_damage(tmpobj, (char_data*)subject, (char_data*)subject2);
+    case ON_DAMAGE: {
+        char_data* victim = (char_data*)subject;
+        char_data* attacker = (char_data*)subject2;
+        freed_watch victim_watch(victim);
+        freed_watch attacker_watch(attacker);
+        return_value = trigger_char_damage(victim, attacker);
+        /* A script that removed either fighter has ended the blow: nobody is left to strike or
+         * be struck, and the attacker's weapon is not looked at. */
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return 0;
+        }
+        if (return_value) {
+            if ((tmpobj = attacker->equipment[WIELD])) {
+                return_value = trigger_object_damage(tmpobj, victim, attacker);
+            }
+        }
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return 0;
+        }
         break;
+    }
 
     case ON_DIE:
         return_value = trigger_char_die((char_data*)subject); // we don't do anything with killer yet
@@ -1086,30 +1101,60 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
     return nullptr;
 }
 
+/* Sets off <trigger_type> (ON_BEFORE_ENTER or ON_ENTER) on each of <room>'s people but
+ * <entering>, the one entering, until a script returns false, and returns 0 if one did, else 1.
+ * Once <entering_watch> (on entering) reports it freed, the rest are told nobody is entering. */
+static int trigger_room_people(int trigger_type, room_data& room, char_data* entering,
+    const freed_watch& entering_watch)
+{
+    char_data* person = room.people;
+    while (person) {
+        char_data* following = person->next_in_room;
+        if (person == entering) {
+            person = following;
+            continue;
+        }
+
+        freed_watch person_watch(person);
+        int script_result;
+        if (trigger_type == ON_BEFORE_ENTER) {
+            script_result = trigger_before_char_enter(person, entering, &room);
+        } else {
+            script_result = trigger_char_enter(person, entering, &room);
+        }
+        if (!script_result) {
+            return 0;
+        }
+        if (entering_watch.freed()) {
+            entering = nullptr;
+        }
+        person = next_person_after_trigger(room, person, person_watch.freed(), following);
+    }
+    return 1;
+}
+
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
 {
     int return_value = 1;
-    char_data* tmpch;
-    obj_data* tmpobj;
+    /* A script can free the one entering; the room's later people and objects are then told
+     * nobody is entering. */
+    freed_watch entering_watch(ch);
 
     switch (trigger_type) {
 
     case ON_BEFORE_ENTER:
-
-        for (tmpch = room->people; tmpch && return_value; tmpch = tmpch->next_in_room)
-            if (tmpch != ch)
-                return_value = trigger_before_char_enter(tmpch, ch, room);
-
+        return_value = trigger_room_people(ON_BEFORE_ENTER, *room, ch, entering_watch);
         break;
 
     case ON_ENTER:
         if (!(return_value = trigger_room_enter(room, ch)))
             return_value = 0;
-        for (tmpch = room->people; tmpch && return_value; tmpch = tmpch->next_in_room)
-            if (tmpch != ch)
-                return_value = trigger_char_enter(tmpch, ch, room);
-        for (tmpobj = room->contents; tmpobj && return_value; tmpobj = tmpobj->next_content)
-            return_value = trigger_object_event(ON_ENTER, tmpobj, ch);
+        if (return_value) {
+            return_value = trigger_room_people(ON_ENTER, *room, ch, entering_watch);
+        }
+        for (obj_data* object = room->contents; object && return_value; object = object->next_content) {
+            return_value = trigger_object_event(ON_ENTER, object, entering_watch.freed() ? nullptr : ch);
+        }
         break;
 
     default:
@@ -2268,6 +2313,8 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
 
     if (IS_AFFECTED(ch, AFF_WAITING))
         return 1;
+    freed_watch hearer_watch(ch);
+    freed_watch speaker_watch(speaking);
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_SAY)))
         if (script_position->next) {
             initialise_script_info_char(ch, index);
@@ -2276,6 +2323,14 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             ch->specials.script_info->str[0] = text;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    /* The yell script is looked up on the mob, which the say script may have removed; a speaker
+     * it removed is nobody to the yell script. */
+    if (hearer_watch.freed()) {
+        return return_value;
+    }
+    if (speaker_watch.freed()) {
+        speaking = nullptr;
+    }
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
             initialise_script_info_char(ch, index);
