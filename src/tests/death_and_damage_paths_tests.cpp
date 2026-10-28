@@ -302,3 +302,72 @@ TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
 
     EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
 }
+
+/* ---- a summons ---- */
+
+/* The one being summoned leaves the world while the summons is cast (a player who dies or rents
+ * waits at the menu, still a character but in no room): the summons finds nobody, brings nobody
+ * into the room, and tells the caster their victim has left the world. */
+TEST_F(DeathAndDamagePathsTest, ASummonsOfSomeoneWhoLeftTheWorldBringsNobody)
+{
+    assign_command_pointers();
+    link_second_room();
+    char_from_room(&m_player);
+    char_to_room(&m_player, SECOND_ROOM);
+    /* In the game as a player is, so that the summons can find them. */
+    register_pc_char(&m_player);
+    m_player.next = character_list;
+    character_list = &m_player;
+    char_data* caster = make_mob("caster", 0);
+    constexpr int CASTER_LEVEL = 50; /* a mob this strong never fumbles the spell */
+    caster->player.level = CASTER_LEVEL;
+    /* A connection for the caster, so that what it is told can be read. */
+    descriptor_data caster_descriptor {};
+    TestDescriptorRelease caster_descriptor_release(&caster_descriptor);
+    caster_descriptor.output = caster_descriptor.small_outbuf;
+    caster_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    caster_descriptor.connected = CON_PLYNG;
+    caster_descriptor.character = caster;
+    caster->desc = &caster_descriptor;
+    char line[] = "cast 'summon' tester";
+    command_interpreter(caster, line, nullptr);
+    const bool cast_started = caster->delay.wait_value > 0;
+    /* As extract_char leaves a player sent to the menu. */
+    char_from_room(&m_player);
+    for (char_data** link = &character_list; *link; link = &(*link)->next) {
+        if (*link == &m_player) {
+            *link = m_player.next;
+            break;
+        }
+    }
+    constexpr int ROLLS_QUEUED = 20; /* more than the summons draws */
+    constexpr double LOWEST_ROLL = 0.0; /* the summoned one fails to resist */
+    for (int roll = 0; roll < ROLLS_QUEUED; ++roll) {
+        push_test_random_value(LOWEST_ROLL);
+    }
+    /* One summoned looks at the room they arrive in. */
+    char room_text[] = "A test room";
+    char* const saved_room_name = world[0].name;
+    char* const saved_room_description = world[0].description;
+    world[0].name = room_text;
+    world[0].description = room_text;
+
+    if (cast_started) {
+        complete_delay(caster);
+    }
+    /* The caster leaves its connection behind before anything can fail and end the test. */
+    caster->desc = nullptr;
+    const std::string caster_output = caster_descriptor.output;
+
+    world[0].name = saved_room_name;
+    world[0].description = saved_room_description;
+    remove_char_exists(m_player.abs_number);
+    ASSERT_TRUE(cast_started) << "the cast did not start";
+    EXPECT_EQ(NOWHERE, m_player.in_room);
+    for (const char_data* person = world[0].people; person; person = person->next_in_room) {
+        EXPECT_NE(&m_player, person) << "the player was summoned from the menu";
+    }
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_NE(caster_output.find("Your victim has left the world.\n\r"), std::string::npos)
+        << caster_output;
+}
