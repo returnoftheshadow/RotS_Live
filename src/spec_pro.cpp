@@ -828,6 +828,21 @@ SPECIAL(snake)
     return FALSE;
 }
 
+/* Has <host> say <words>, or yell them when <yell> is set. The hearers' scripts (a yell sets off
+ * the procedures of its zone) can remove the one speaking: true if it is still there. */
+static bool speak_and_stay(char_data* host, const char* words, bool yell)
+{
+    freed_watch speaker_watch(host);
+    /* Both commands only read the words. */
+    char* spoken = const_cast<char*>(words);
+    if (yell) {
+        do_gen_com(host, spoken, 0, 0, SCMD_YELL);
+    } else {
+        do_say(host, spoken, 0, 0, 0);
+    }
+    return !speaker_watch.freed();
+}
+
 /* Destroys everything <wearer> has equipped. Taking an item off can kill or remove the wearer
  * (gear poison, an item spell): true if it is still there. */
 static bool destroy_equipment_and_stay(char_data* wearer)
@@ -939,28 +954,38 @@ SPECIAL(gatekeeper)
             host->delay.targ2.ch_num = doordir;
         }
 
+        /* Ending the gatekeeper's own delay runs the rest of a paused script, which can remove it or
+         * the one at the gate: then neither the gatekeeper nor the command is to go on. */
+        freed_watch gatekeeper_watch(host);
+        freed_watch visitor_watch(ch);
         /* Wait between 1 and 3 ticks. */
-        WAIT_STATE_FULL(host, number(2, 4), -1, (cmd == CMD_KNOCK) ? 1 : 2, 30, 0, ch->abs_number,
+        (void)WAIT_STATE_FULL(host, number(2, 4), -1, (cmd == CMD_KNOCK) ? 1 : 2, 30, 0, ch->abs_number,
             ch, 0, TARGET_CHAR);
+        if (gatekeeper_watch.freed() || visitor_watch.freed()) {
+            return TRUE;
+        }
 
         return FALSE;
     }
 
     if (!host->delay.cmd || !host->delay.subcmd) {
-        do_say(host, "Ugh, I forgot what I'm doing.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ugh, I forgot what I'm doing.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -1) {
-        do_say(host, "There is nothing like that here.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "There is nothing like that here.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -2) {
-        do_say(host, "Ah, there is no door for me to open.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ah, there is no door for me to open.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -971,9 +996,11 @@ SPECIAL(gatekeeper)
 
     if (ch != NULL && IS_AGGR_TO(host, ch)) {
         asprintf(&msg, "To arms! The enemy is at %s!", world[ch->in_room].name);
-        do_gen_com(host, msg, 0, 0, SCMD_YELL);
+        const bool still_here = speak_and_stay(host, msg, true);
         free(msg);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (still_here) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -996,8 +1023,9 @@ SPECIAL(gatekeeper)
 
     if (host->delay.subcmd == 2) {
         if (CAN_GO(host, doordir)) {
-            do_say(host, "Ah, the door is open. You are free to go.", 0, 0, 0);
-            host->delay.cmd = host->delay.subcmd = 0;
+            if (speak_and_stay(host, "Ah, the door is open. You are free to go.", false)) {
+                host->delay.cmd = host->delay.subcmd = 0;
+            }
             return FALSE;
         }
     }
@@ -1005,7 +1033,7 @@ SPECIAL(gatekeeper)
     if (host->delay.subcmd == 1 || host->delay.subcmd == 2) {
         do_unlock(host, EXIT(host, doordir)->keyword, 0, 0, 0);
         do_open(host, EXIT(host, doordir)->keyword, 0, 0, 0);
-        WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
+        (void)WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
         return FALSE;
     }
 
@@ -1179,8 +1207,15 @@ SPECIAL(gatekeeper2)
          * will result in having no delay, a wait state of 2 will
          * result in a 2 tick delay, and so on.
          */
-        WAIT_STATE_FULL(host, number(2, 4), -1, cmd == CMD_KNOCK ? 1 : 2, 30, 0, ch->abs_number, ch,
+        /* Ending the gatekeeper's own delay runs the rest of a paused script, which can remove it or
+         * the one at the gate: then neither the gatekeeper nor the command is to go on. */
+        freed_watch gatekeeper_watch(host);
+        freed_watch visitor_watch(ch);
+        (void)WAIT_STATE_FULL(host, number(2, 4), -1, cmd == CMD_KNOCK ? 1 : 2, 30, 0, ch->abs_number, ch,
             0, TARGET_CHAR);
+        if (gatekeeper_watch.freed() || visitor_watch.freed()) {
+            return TRUE;
+        }
         return FALSE;
     }
 
@@ -1192,20 +1227,23 @@ SPECIAL(gatekeeper2)
      * bash (or anything else, for that matter)
      */
     if (!host->delay.cmd || !host->delay.subcmd) {
-        do_say(host, "Ugh, I forgot what I'm doing.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ugh, I forgot what I'm doing.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -1) {
-        do_say(host, "There is nothing like that here.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "There is nothing like that here.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
     if (host->delay.targ2.ch_num == -2) {
-        do_say(host, "Ah, there is no door for me to open.", 0, 0, 0);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (speak_and_stay(host, "Ah, there is no door for me to open.", false)) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -1216,9 +1254,11 @@ SPECIAL(gatekeeper2)
 
     if (ch && IS_AGGR_TO(host, ch)) {
         asprintf(&msg, "To arms! The enemy is at %s!", world[ch->in_room].name);
-        do_gen_com(host, msg, 0, 0, SCMD_YELL);
+        const bool still_here = speak_and_stay(host, msg, true);
         free(msg);
-        host->delay.cmd = host->delay.subcmd = 0;
+        if (still_here) {
+            host->delay.cmd = host->delay.subcmd = 0;
+        }
         return FALSE;
     }
 
@@ -1234,8 +1274,9 @@ SPECIAL(gatekeeper2)
 
     if (host->delay.subcmd == 2) {
         if (CAN_GO(host, doordir)) {
-            do_say(host, "Ah, the door is open. You are free to go.", 0, 0, 0);
-            host->delay.cmd = host->delay.subcmd = 0;
+            if (speak_and_stay(host, "Ah, the door is open. You are free to go.", false)) {
+                host->delay.cmd = host->delay.subcmd = 0;
+            }
             return FALSE;
         }
     }
@@ -1243,7 +1284,7 @@ SPECIAL(gatekeeper2)
     if (host->delay.subcmd == 1 || host->delay.subcmd == 2) {
         do_unlock(host, EXIT(host, doordir)->keyword, 0, 0, 0);
         do_open(host, EXIT(host, doordir)->keyword, 0, 0, 0);
-        WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
+        (void)WAIT_STATE_FULL(host, 15, -1, 3, 30, 0, ch->abs_number, ch, 0, TARGET_CHAR);
         return FALSE;
     }
 
@@ -2149,8 +2190,15 @@ SPECIAL(mob_ranger)
         return 1;
     }
 
-    if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && ch->delay.wait_value == 0)
+    if (((GET_POS(host) == POSITION_STANDING) && !GET_HIDING(host) || IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) && ch->delay.wait_value == 0) {
+        /* Hiding ends the ranger's own delay, which runs the rest of a paused script: that can
+         * remove the ranger. */
+        freed_watch ranger_watch(host);
         do_hide(host, "", 0, 0, 0);
+        if (ranger_watch.freed()) {
+            return 0;
+        }
+    }
 
     tmproom = &world[host->in_room];
     mintime = 999;
@@ -2395,8 +2443,12 @@ bool ranger_rehide(char_data* host, const ranger_config& opts)
             return false;
         /* do_hide's wind-up; the cover comes when it ends, so until then the
          * mob keeps the cover it snuck in with, and a broken one gives none. */
-        WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
-            AFF_WAITING | AFF_WAITWHEEL);
+        /* Ending the host's own delay can remove it (the rest of a paused script): then it is
+         * handled, and nothing is to use the host. */
+        if (!WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
+                AFF_WAITING | AFF_WAITWHEEL)) {
+            return true;
+        }
         return host->delay.wait_value > 0;
     }
     if (GET_HIDING(host))
@@ -3227,40 +3279,50 @@ SPECIAL(ar_tarthalon)
         return FALSE;
     if (number(0, 1))
         return FALSE;
-    if (number(0, 1)) {
+    const bool calls_sorcerer = number(0, 1) != 0;
+    if (calls_sorcerer) {
         victim = get_char("balkazor");
-        if (victim)
-            if (world[victim->in_room].number != 8483)
-                do_say(host, "Balkazor my sorcerer, I command you to aid me!", 0, 0, 0);
-            else
-                switch (number(0, 6)) {
-                case 4:
-                    do_say(host, "Turn these intruders to dust, my faithful wizard!", 0, 0, 0);
-                    break;
-                case 5:
-                    do_say(host, "Balkazor, burn these infidels into eternity!", 0, 0, 0);
-                    break;
-                }
     } else {
         victim = get_char("karahaz");
-        if (victim)
-            if (world[victim->in_room].number != 8483)
-                do_say(host, "Karahaz!  Master swordsman, Come!  Rid my tomb of these intruders!",
-                    0, 0, 0);
-            else
-                switch (number(0, 6)) {
-                case 4:
-                    do_say(host, "Karahaz, may these mere mortals feel the power of your blade!", 0,
-                        0, 0);
-                    break;
-                case 5:
-                    do_say(host, "I require your service once again Karahaz - do not fail me.", 0,
-                        0, 0);
-                    break;
-                }
     }
     if (!victim)
         return 0;
+    /* One in no room is on its way into or out of the game, and has nowhere to come from. */
+    if (victim->in_room == NOWHERE)
+        return 0;
+    /* A script of anyone who hears the call can remove the one called. */
+    freed_watch summoned_watch(victim);
+    if (calls_sorcerer) {
+        if (world[victim->in_room].number != 8483)
+            do_say(host, "Balkazor my sorcerer, I command you to aid me!", 0, 0, 0);
+        else
+            switch (number(0, 6)) {
+            case 4:
+                do_say(host, "Turn these intruders to dust, my faithful wizard!", 0, 0, 0);
+                break;
+            case 5:
+                do_say(host, "Balkazor, burn these infidels into eternity!", 0, 0, 0);
+                break;
+            }
+    } else {
+        if (world[victim->in_room].number != 8483)
+            do_say(host, "Karahaz!  Master swordsman, Come!  Rid my tomb of these intruders!",
+                0, 0, 0);
+        else
+            switch (number(0, 6)) {
+            case 4:
+                do_say(host, "Karahaz, may these mere mortals feel the power of your blade!", 0,
+                    0, 0);
+                break;
+            case 5:
+                do_say(host, "I require your service once again Karahaz - do not fail me.", 0,
+                    0, 0);
+                break;
+            }
+    }
+    if (summoned_watch.freed() || victim->in_room == NOWHERE) {
+        return 0;
+    }
     if (GET_POS(victim) == POSITION_STANDING) {
         switch (world[victim->in_room].number) {
         case 8484:
@@ -3369,9 +3431,34 @@ SPECIAL(ghoul)
 
 SPECIAL(swarm) { return 0; }
 
+/* Whoever a breath over <room> goes on to after <victim>, given <following>, who stood after the
+ * victim before the breath struck it: nobody if nobody did; <following> if still in the room;
+ * otherwise whoever now stands after the victim, if it is still in the room (<victim_freed>
+ * false); otherwise nobody. <victim> and <following> are compared by address until found in the
+ * room, so either may have been freed. */
+static char_data* next_breath_victim(const room_data& room, char_data* victim, bool victim_freed,
+    char_data* following)
+{
+    if (!following) {
+        return nullptr;
+    }
+    bool victim_here = false;
+    for (char_data* person = room.people; person; person = person->next_in_room) {
+        if (person == following) {
+            return following;
+        }
+        if (person == victim) {
+            victim_here = true;
+        }
+    }
+    if (victim_here && !victim_freed) {
+        return victim->next_in_room;
+    }
+    return nullptr;
+}
+
 SPECIAL(dragon)
 {
-    struct char_data *tmpch, *tmpch_next;
     int dam_value, mob_level;
 
     if (GET_POS(host) != POSITION_FIGHTING) {
@@ -3386,11 +3473,23 @@ SPECIAL(dragon)
 
     dam_value = dice(mob_level, 6);
 
-    for (tmpch = world[host->in_room].people; tmpch; tmpch = tmpch_next) {
-        tmpch_next = tmpch->next_in_room;
-        if (tmpch != host) {
-            damage(host, tmpch, dam_value, SPELL_DRAGONSBREATH, 0);
+    /* Each blow can remove the dragon, the victim or anyone else here (a death, a damage
+     * script); the breath ends with the dragon. */
+    const room_data& room = world[host->in_room];
+    freed_watch dragon_watch(host);
+    char_data* victim = room.people;
+    while (victim) {
+        char_data* following = victim->next_in_room;
+        if (victim == host) {
+            victim = following;
+            continue;
         }
+        freed_watch victim_watch(victim);
+        damage(host, victim, dam_value, SPELL_DRAGONSBREATH, 0);
+        if (dragon_watch.freed()) {
+            return 0;
+        }
+        victim = next_breath_victim(room, victim, victim_watch.freed(), following);
     }
     return 0;
 }
@@ -3567,9 +3666,17 @@ SPECIAL(vampire_huntress)
                     SET_BIT(room->dir_option[2]->exit_info, EX_LOCKED);
                     send_to_room("The iron door slams shut.\n\r\n", real_room(room->number));
                     do_look(victim, "", wtl, 0, 0);
-                    WAIT_STATE_FULL(host, 200, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
-                } else if (tmpno == 2 && GET_LEVEL(victim) < LEVEL_GOD)
+                    /* Ending the bat's own delay, or its blow, can remove it (a script). */
+                    if (!WAIT_STATE_FULL(host, 200, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+                        return 1;
+                    }
+                } else if (tmpno == 2 && GET_LEVEL(victim) < LEVEL_GOD) {
+                    freed_watch bat_watch(host);
                     hit(host, victim, TYPE_UNDEFINED);
+                    if (bat_watch.freed()) {
+                        return 1;
+                    }
+                }
             }
         }
     }
@@ -3627,7 +3734,10 @@ SPECIAL(thuringwethil)
             break;
 
     if (GET_HIT(host) <= 500) {
-        do_say(host, "Curse you all, I will remember this outrage!\n\r", 0, 0, 0);
+        /* Her last words can set off scripts that remove her first. */
+        if (!speak_and_stay(host, "Curse you all, I will remember this outrage!\n\r", false)) {
+            return 1;
+        }
         if (obj)
             act("$n hides her face from the glowing plate!", FALSE, host, 0, 0, TO_ROOM);
         for (tmpch = combat_list; tmpch; tmpch = tmpch->next_fighting)
