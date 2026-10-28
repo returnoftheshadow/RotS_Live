@@ -3799,6 +3799,9 @@ void free_char(struct char_data* ch)
     note_char_freed(ch);
     /* A lend still in scope would otherwise give the room back to freed memory. */
     room_lend::end_for(ch);
+    /* Its own describe command or an immortal's string command may be typing into one. */
+    stop_editing_text({ &ch->player.name, &ch->player.title, &ch->player.short_descr,
+        &ch->player.long_descr, &ch->player.description });
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);

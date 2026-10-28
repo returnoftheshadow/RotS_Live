@@ -825,3 +825,19 @@ TEST_F(CharacterTriggerTest, FreeingACharacterEndsItsRoomLend)
     }
     EXPECT_EQ(0, m_player.in_room);
 }
+
+/* ---- text being edited ---- */
+
+/* A character freed while an edit points into its description (as "string char" leaves one) ends
+ * the edit, so no line typed later goes into the freed character. */
+TEST_F(CharacterTriggerTest, FreeingACharacterEndsAnEditOfItsText)
+{
+    char_data* mob = make_mob("statue", 0);
+    descriptor_list = &m_descriptor;
+    m_descriptor.str = &mob->player.description;
+
+    extract_char(mob);
+
+    EXPECT_EQ(nullptr, m_descriptor.str);
+    EXPECT_TRUE(output_has("What you were writing is gone.")) << output();
+}

@@ -23,6 +23,7 @@ extern struct obj_data* obj_proto;
 extern struct index_data* obj_index;
 extern int top_of_objt;
 extern struct obj_data* object_list;
+extern struct descriptor_data* descriptor_list;
 extern struct room_data world;
 extern int top_of_world;
 extern struct descriptor_data* descriptor_list;
@@ -578,6 +579,28 @@ TEST_F(NoteWritingTest, ALinePastTheEditorsCapIsRefused)
     EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message(MAX_EDITED_TEXT_LENGTH)), std::string::npos);
     m_descriptor.str = nullptr;
     RELEASE(text);
+}
+
+/* A note freed while it is being written on ends the writing, so the next line typed does not go
+ * into the freed note. */
+TEST_F(NoteWritingTest, ANoteFreedWhileBeingWrittenOnEndsTheWriting)
+{
+    descriptor_data* const saved_descriptor_list = descriptor_list;
+    descriptor_list = &m_descriptor;
+    start_writing();
+    type("Meet me at the");
+
+    extract_obj(m_note);
+    m_note = nullptr;
+
+    char** const still_writing_into = m_descriptor.str;
+    descriptor_list = saved_descriptor_list;
+    EXPECT_EQ(nullptr, still_writing_into);
+    EXPECT_NE(std::string(m_descriptor.output).find("What you were writing is gone."),
+        std::string::npos)
+        << m_descriptor.output;
+    EXPECT_EQ(m_descriptor.written_note, nullptr);
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
 }
 
 /* Each line typed shows on the note at once, in a copy of its own: the editor keeps its buffer. */
