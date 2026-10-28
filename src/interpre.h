@@ -15,6 +15,7 @@
 #include "structs.h" /* For the NOWHERE macro */
 
 #include <string>
+#include <string_view>
 
 namespace account {
 struct AccountData;
@@ -92,6 +93,15 @@ void half_chop(const char* string, char* arg1, char* arg2);
 void nanny(struct descriptor_data* d, char* arg);
 int is_abbrev(const char* arg1, const char* arg2);
 int is_number(const char* str);
+
+// The most letters parse_name accepts in a name.
+inline constexpr int MAX_PARSED_NAME_LENGTH = 16;
+
+// Reads a character name from 'argument': leading whitespace, then 1 to MAX_PARSED_NAME_LENGTH
+// letters and nothing else. On success copies the letters to 'name' with a terminator and returns
+// true; otherwise sets 'name' to "" and returns false. 'name' holds at least
+// MAX_PARSED_NAME_LENGTH + 1 bytes.
+bool parse_name(std::string_view argument, char* name);
 
 void virt_assignmob(const struct char_data*);
 void virt_assignobj(const struct obj_data* obj);

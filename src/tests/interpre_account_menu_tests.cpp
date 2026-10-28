@@ -42,6 +42,7 @@ extern int top_of_world;
 extern char* motd;
 sh_int get_naked_perception(const struct char_data* ch);
 int register_pc_char(struct char_data* ch);
+int _parse_name(const char* argument, char* name);
 void introduce_char(struct descriptor_data* d);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
 int create_entry(const char* name);
@@ -5878,3 +5879,79 @@ TEST(InterpreAccountMenu, ForgotPasswordCompletionLeavesAnActivePlayingSessionCo
 }
 
 } // namespace
+
+// The size of the buffer the game reads a new character's name into (tmp_name in interpre.cpp).
+constexpr size_t NAME_BUFFER_SIZE = 20;
+
+TEST(ParseName, LeavesTheBytesAfterTheNameAlone)
+{
+    // A name buffer with a guard area after it, as new characters' names are read into.
+    constexpr char UNTOUCHED = 'x';
+    struct NameBufferWithGuard {
+        char name[NAME_BUFFER_SIZE];
+        char guard[NAME_BUFFER_SIZE];
+    } buffers;
+    std::memset(&buffers, UNTOUCHED, sizeof(buffers));
+    const std::string typed_name = "Galadrielle";
+
+    ASSERT_EQ(_parse_name(("  " + typed_name).c_str(), buffers.name), 0);
+
+    EXPECT_EQ(std::string(buffers.name), typed_name);
+    const size_t written = typed_name.size() + 1; /* the letters and the terminator */
+    const size_t left_over = sizeof(buffers.name) - written;
+    EXPECT_EQ(std::string(buffers.name + written, left_over), std::string(left_over, UNTOUCHED));
+    EXPECT_EQ(std::string(buffers.guard, sizeof(buffers.guard)),
+        std::string(sizeof(buffers.guard), UNTOUCHED));
+}
+
+TEST(ParseName, RefusesEmptyAndNonLetterNames)
+{
+    char name[NAME_BUFFER_SIZE];
+    EXPECT_EQ(_parse_name("", name), 1);
+    EXPECT_EQ(_parse_name("   ", name), 1);
+    EXPECT_EQ(_parse_name("Frodo2", name), 1);
+    EXPECT_EQ(_parse_name("Seventeenletterss", name), 1);
+    EXPECT_EQ(_parse_name("Sixteenletterssx", name), 0);
+}
+
+TEST(ParseName, AcceptsOneToSixteenLettersAfterLeadingWhitespace)
+{
+    char name[MAX_PARSED_NAME_LENGTH + 1];
+
+    EXPECT_TRUE(parse_name("Frodo", name));
+    EXPECT_STREQ(name, "Frodo");
+    EXPECT_TRUE(parse_name(" \t\n\v\f\rSam", name));
+    EXPECT_STREQ(name, "Sam");
+    EXPECT_TRUE(parse_name("x", name));
+    EXPECT_STREQ(name, "x");
+    EXPECT_TRUE(parse_name("Sixteenletterssx", name));
+    EXPECT_STREQ(name, "Sixteenletterssx");
+}
+
+TEST(ParseName, RefusesAnythingButOneToSixteenLetters)
+{
+    char name[MAX_PARSED_NAME_LENGTH + 1];
+
+    EXPECT_FALSE(parse_name("Seventeenletterss", name));
+    EXPECT_FALSE(parse_name("Frodo2", name));
+    EXPECT_FALSE(parse_name("Frodo ", name));
+    EXPECT_FALSE(parse_name("Fro do", name));
+    EXPECT_FALSE(parse_name("", name));
+    EXPECT_FALSE(parse_name(" \t ", name));
+}
+
+TEST(ParseName, ARefusedNameLeavesAnEmptyName)
+{
+    // Callers such as mail look the name up even when it is refused. The buffer starts as a
+    // terminated run of 'x's, so a partial copy left behind still reads as a string.
+    char name[MAX_PARSED_NAME_LENGTH + 1];
+    std::memset(name, 'x', sizeof(name) - 1);
+    name[MAX_PARSED_NAME_LENGTH] = '\0';
+
+    EXPECT_EQ(_parse_name("frodo2", name), 1);
+    EXPECT_STREQ(name, "");
+
+    std::memset(name, 'x', sizeof(name) - 1);
+    EXPECT_FALSE(parse_name("Seventeenletterss", name));
+    EXPECT_STREQ(name, "");
+}
