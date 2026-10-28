@@ -241,6 +241,8 @@ TEST_F(WorldMapSymbolTest, RefusesAZoneAboveOrLeftOfTheMap)
     EXPECT_TRUE(map_unchanged());
 }
 
+/* ---------------------------------------------------------------- PK list */
+
 // A PK record from <killer_index> to <victim_index>, made now so it has not expired.
 PKILL make_pkill(int killer_index, int victim_index)
 {
@@ -253,6 +255,71 @@ PKILL make_pkill(int killer_index, int victim_index)
     record.killer_points = 100;
     record.victim_points = -100;
     return record;
+}
+
+// The records in the PK file at <path>.
+std::vector<PKILL> read_pkill_file(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::vector<PKILL> records(bytes.size() / sizeof(PKILL));
+    if (!records.empty()) {
+        std::memcpy(records.data(), bytes.data(), records.size() * sizeof(PKILL));
+    }
+    return records;
+}
+
+// The idnum ScopedPlayerIndex gives its first player.
+constexpr int FIRST_PLAYER_IDNUM = 1001;
+// The idnum ScopedPlayerIndex gives its second player.
+constexpr int SECOND_PLAYER_IDNUM = 1002;
+// The points make_pkill gives a record's killer; its victim loses as many.
+constexpr int MADE_RECORD_POINTS = 100;
+// The player index a record names when its player is not in the index.
+constexpr int MISSING_PLAYER_INDEX = -1;
+
+TEST(PkillFile, WritesARecordBetweenIndexedPlayersWithTheirIdnums)
+{
+    ScopedTemporaryFolder folder;
+    ASSERT_FALSE(folder.path().empty());
+    ScopedPlayerIndex index({ "killer", "victim" });
+    std::vector<PKILL> records { make_pkill(0, 1) };
+    const std::filesystem::path file = folder.path() / "pklist";
+
+    testing::internal::CaptureStderr();
+    const int record_count = static_cast<int>(records.size());
+    EXPECT_EQ(pkill_update_file(file.string().c_str(), records.data(), record_count), 1);
+    testing::internal::GetCapturedStderr();
+
+    const std::vector<PKILL> written = read_pkill_file(file);
+    ASSERT_EQ(written.size(), 1u);
+    EXPECT_EQ(written[0].killer, FIRST_PLAYER_IDNUM);
+    EXPECT_EQ(written[0].victim, SECOND_PLAYER_IDNUM);
+    EXPECT_EQ(written[0].killer_points, MADE_RECORD_POINTS);
+    EXPECT_EQ(written[0].victim_points, -MADE_RECORD_POINTS);
+}
+
+TEST(PkillFile, DropsAndLogsARecordNamingAPlayerMissingFromTheIndex)
+{
+    ScopedTemporaryFolder folder;
+    ASSERT_FALSE(folder.path().empty());
+    ScopedPlayerIndex index({ "killer", "victim" });
+    std::vector<PKILL> records { make_pkill(MISSING_PLAYER_INDEX, 1), make_pkill(0, 1),
+        make_pkill(0, MISSING_PLAYER_INDEX) };
+    const std::filesystem::path file = folder.path() / "pklist";
+
+    testing::internal::CaptureStderr();
+    const int record_count = static_cast<int>(records.size());
+    const int written_count
+        = pkill_update_file(file.string().c_str(), records.data(), record_count);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(written_count, 1);
+    const std::vector<PKILL> written = read_pkill_file(file);
+    ASSERT_EQ(written.size(), 1u);
+    EXPECT_EQ(written[0].killer, FIRST_PLAYER_IDNUM);
+    EXPECT_EQ(written[0].victim, SECOND_PLAYER_IDNUM);
+    EXPECT_NE(log_text.find("SYSERR: pkill_update_file"), std::string::npos) << log_text;
 }
 
 /* ---------------------------------------------------------------- legacy player loader */
@@ -381,6 +448,122 @@ TEST(LegacyPlayerLoader, SkipsAnArraySlotPastItsField)
 
     ASSERT_EQ(result, 1);
     EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
+}
+
+/* ---------------------------------------------------------------- PK list across boots */
+
+// Saved PK state: the table boot_pkills fills and the working folder it reads misc/pklist from.
+// The constructor empties the table and moves into <folder>; the destructor takes the players
+// back out of the rankings, frees the table and puts everything back.
+class ScopedPkillBoot {
+public:
+    explicit ScopedPkillBoot(const std::filesystem::path& folder)
+        : m_previous_table(pkill_tab)
+        , m_previous_length(pkill_tab_len)
+    {
+        pkill_tab = nullptr;
+        pkill_tab_len = 0;
+        std::error_code error;
+        m_previous_folder = std::filesystem::current_path(error);
+        std::filesystem::create_directories(folder / "misc", error);
+        std::filesystem::current_path(folder, error);
+        m_moved = !error;
+        EXPECT_TRUE(m_moved) << error.message();
+    }
+
+    ~ScopedPkillBoot()
+    {
+        forget_boot();
+        pkill_tab = m_previous_table;
+        pkill_tab_len = m_previous_length;
+        if (m_moved) {
+            std::error_code error;
+            std::filesystem::current_path(m_previous_folder, error);
+        }
+    }
+
+    ScopedPkillBoot(const ScopedPkillBoot&) = delete;
+    ScopedPkillBoot& operator=(const ScopedPkillBoot&) = delete;
+
+    // Takes every indexed player out of the rankings and frees the table a boot made.
+    void forget_boot()
+    {
+        for (int index = 0; index <= top_of_p_table; ++index) {
+            pkill_unref_character_by_index(index);
+            player_table[index].warpoints = 0;
+            player_table[index].rank = PKILL_UNRANKED;
+            player_table[index].totalrank = PKILL_UNRANKED;
+        }
+        free(pkill_tab);
+        pkill_tab = nullptr;
+        pkill_tab_len = 0;
+    }
+
+private:
+    // The PK table in place before this object.
+    PKILL* m_previous_table;
+    // Its length.
+    int m_previous_length;
+    // The working folder before this object moved.
+    std::filesystem::path m_previous_folder;
+    // Whether the working folder was moved, so the destructor moves it back.
+    bool m_moved = false;
+};
+
+// A PK record in file form, between <killer_idnum> and <victim_idnum>, made now.
+PKILL make_stored_pkill(int killer_idnum, int victim_idnum, int points)
+{
+    PKILL record = make_pkill(killer_idnum, victim_idnum);
+    record.killer_points = points;
+    record.victim_points = -points;
+    return record;
+}
+
+// Whether two file records hold the same values.
+bool same_record(const PKILL& left, const PKILL& right)
+{
+    return left.kill_time == right.kill_time && left.killer == right.killer && left.victim == right.victim
+        && left.killer_level == right.killer_level && left.victim_level == right.victim_level
+        && left.killer_points == right.killer_points && left.victim_points == right.victim_points;
+}
+
+TEST(PkillBoot, KeepsARecordNamingAMissingPlayerAndItsPointsAcrossBoots)
+{
+    ScopedTemporaryFolder folder;
+    ASSERT_FALSE(folder.path().empty());
+    constexpr int MISSING_KILLER_IDNUM = 5555;
+    constexpr int MISSING_VICTIM_IDNUM = 6666;
+    constexpr int POINTS_BOTH_INDEXED = 100;
+    constexpr int POINTS_KILLER_MISSING = 70;
+    constexpr int POINTS_VICTIM_MISSING = 40;
+    ScopedPlayerIndex index({ "present", "other" });
+    ScopedPkillBoot boot(folder.path());
+    const std::vector<PKILL> stored {
+        make_stored_pkill(FIRST_PLAYER_IDNUM, SECOND_PLAYER_IDNUM, POINTS_BOTH_INDEXED),
+        make_stored_pkill(MISSING_KILLER_IDNUM, SECOND_PLAYER_IDNUM, POINTS_KILLER_MISSING),
+        make_stored_pkill(FIRST_PLAYER_IDNUM, MISSING_VICTIM_IDNUM, POINTS_VICTIM_MISSING),
+    };
+    {
+        std::ofstream file(folder.path() / "misc/pklist", std::ios::binary);
+        file.write(reinterpret_cast<const char*>(stored.data()), stored.size() * sizeof(PKILL));
+    }
+
+    for (int boot_number = 1; boot_number <= 2; ++boot_number) {
+        testing::internal::CaptureStderr();
+        boot_pkills();
+        testing::internal::GetCapturedStderr();
+
+        EXPECT_EQ(player_table[0].warpoints, POINTS_BOTH_INDEXED + POINTS_VICTIM_MISSING)
+            << "boot " << boot_number;
+        EXPECT_EQ(player_table[1].warpoints, -(POINTS_BOTH_INDEXED + POINTS_KILLER_MISSING))
+            << "boot " << boot_number;
+        const std::vector<PKILL> written = read_pkill_file(folder.path() / "misc/pklist");
+        ASSERT_EQ(written.size(), stored.size()) << "boot " << boot_number;
+        for (size_t record = 0; record < stored.size(); ++record) {
+            EXPECT_TRUE(same_record(written[record], stored[record])) << "boot " << boot_number << ", record " << record;
+        }
+        boot.forget_boot();
+    }
 }
 
 /* ---------------------------------------------------------------- affect types at load */
