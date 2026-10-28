@@ -41,6 +41,7 @@
 #include "exploits_json.h"
 #include "mob_options.h"
 #include "object_skins.h"
+#include "object_text.h"
 #include "mob_walker.h"
 #include "game_boot_options.h"
 #include "mob_progs/banker.h"
@@ -62,6 +63,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 /**************************************************************************
@@ -2142,7 +2144,7 @@ struct obj_data* read_object(int nr, int type)
     } else
         i = nr;
 
-    obj = new obj_data(obj_proto[i]);
+    obj = new obj_data(obj_proto[i]); /* sharing the prototype's text */
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)
@@ -2166,13 +2168,23 @@ struct obj_data* read_object(int nr, int type)
     return obj;
 }
 
+/* `text`, which fread_string allocated, as a value; frees it. */
+static std::string take_read_string(char* text)
+{
+    std::string value;
+    if (text) {
+        value = text;
+    }
+    RELEASE(text);
+    return value;
+}
+
 /* read all objects from obj file; generate index and prototypes */
 void load_objects(FILE* obj_f)
 {
     static int i = 0;
     int tmp, tmp2, tmp3, tmp4, tmp5, j, nr;
     char chk[50], *tmpptr;
-    struct extra_descr_data* new_descr;
 
     if (!fscanf(obj_f, "%s\n", chk)) {
         perror("load_objects");
@@ -2195,20 +2207,24 @@ void load_objects(FILE* obj_f)
 
             /* *** string data *** */
 
-            tmpptr = obj_proto[i].name = fread_string(obj_f, buf2);
+            object_text::fields text;
+            tmpptr = fread_string(obj_f, buf2);
             if (!tmpptr) {
                 fprintf(stderr, "format error at or near %s\n", buf2);
                 exit(1);
             }
+            text.name = take_read_string(tmpptr);
 
-            tmpptr = obj_proto[i].short_description = fread_string(obj_f, buf2);
+            tmpptr = fread_string(obj_f, buf2);
             if (*tmpptr)
                 if (!str_cmp(fname(tmpptr), "a") || !str_cmp(fname(tmpptr), "an") || !str_cmp(fname(tmpptr), "the"))
                     *tmpptr = tolower(*tmpptr);
-            tmpptr = obj_proto[i].description = fread_string(obj_f, buf2);
+            text.short_description = take_read_string(tmpptr);
+            tmpptr = fread_string(obj_f, buf2);
             if (tmpptr && *tmpptr)
                 *tmpptr = toupper(*tmpptr);
-            obj_proto[i].action_description = fread_string(obj_f, buf2);
+            text.description = take_read_string(tmpptr);
+            text.action_description = take_read_string(fread_string(obj_f, buf2));
 
             /* *** numeric data *** */
 
@@ -2252,17 +2268,18 @@ void load_objects(FILE* obj_f)
 
             /* *** extra descriptions *** */
 
-            obj_proto[i].ex_description = 0;
-
             sprintf(buf2, "%s - extra desc. section", buf2);
 
             while (fscanf(obj_f, " %s \n", chk), *chk == 'E') {
-                CREATE(new_descr, struct extra_descr_data, 1);
-                new_descr->keyword = fread_string(obj_f, buf2);
-                new_descr->description = fread_string(obj_f, buf2);
-                new_descr->next = obj_proto[i].ex_description;
-                obj_proto[i].ex_description = new_descr;
+                object_text::extra_description extra;
+                extra.keyword = take_read_string(fread_string(obj_f, buf2));
+                extra.description = take_read_string(fread_string(obj_f, buf2));
+                text.extra_descriptions.push_back(std::move(extra));
             }
+            /* A prototype's list shows its extra descriptions last first; implement_object builds
+             * it the same way. */
+            std::reverse(text.extra_descriptions.begin(), text.extra_descriptions.end());
+            obj_proto[i].set_text(create_object_text(std::move(text)));
 
             for (j = 0; (j < MAX_OBJ_AFFECT) && (*chk == 'A'); j++) {
                 fscanf(obj_f, " %d %d ", &tmp, &tmp2);
@@ -3828,45 +3845,42 @@ void free_char(struct char_data* ch)
     RELEASE(ch);
 }
 
+/* Logs a SYSERR when 'object' has text fields but no shared text: text set by hand belongs to
+   whoever set it, and deleting the object frees none of it. */
+static void log_hand_set_object_text(const obj_data& object)
+{
+    if (object.shared_text()) {
+        return;
+    }
+    const bool has_text = object.name || object.description || object.short_description
+        || object.action_description || object.ex_description;
+    if (!has_text) {
+        return;
+    }
+
+    int virtual_number = -1;
+    if (object.item_number >= 0 && object.item_number <= top_of_objt) {
+        virtual_number = obj_index[object.item_number].virt;
+    }
+    const char* shown_name = "(none)";
+    if (object.short_description) {
+        shown_name = object.short_description;
+    }
+    const std::string message = "SYSERR: free_obj: object " + std::to_string(virtual_number)
+        + " (" + shown_name + ") has text set by hand, which nothing frees";
+    log(message.c_str());
+}
+
 /* release memory allocated for an obj struct */
 void free_obj(struct obj_data* obj)
 {
-    int nr;
-    struct extra_descr_data *thith, *next_one;
-
-    if ((nr = obj->item_number) == -1) {
-        RELEASE(obj->name);
-        RELEASE(obj->description);
-        RELEASE(obj->short_description);
-        RELEASE(obj->action_description);
-        if (obj->ex_description)
-            for (thith = obj->ex_description; thith; thith = next_one) {
-                next_one = thith->next;
-                RELEASE(thith->keyword);
-                RELEASE(thith->description);
-                RELEASE(thith);
-            }
-    } /* else {
-     if (obj->name && obj->name != obj_proto[nr].name)
-       RELEASE(obj->name);
-     if (obj->description && obj->description != obj_proto[nr].description)
-       RELEASE(obj->description);
-     if (obj->short_description && obj->short_description !=
-   obj_proto[nr].short_description) RELEASE(obj->short_description); if
-   (obj->action_description && obj->action_description !=
-   obj_proto[nr].action_description) RELEASE(obj->action_description); if
-   (obj->ex_description && obj->ex_description != obj_proto[nr].ex_description)
-       for (thith = obj->ex_description; thith; thith = next_one) {
-         next_one = thith->next;
-         RELEASE(thith->keyword);
-         RELEASE(thith->description);
-         RELEASE(thith);
-       }
-   } */
     if (game_rules::big_brother::is_created())
         game_rules::big_brother::instance().on_object_freed(obj);
     note_object_freed(obj);
+    log_hand_set_object_text(*obj);
 
+    /* "setfree off" keeps freed memory for debugging, as RELEASE does. Deleting the object lets go
+     * of its text, which goes with the last object showing it. */
     if (global_release_flag) {
         delete obj;
     }

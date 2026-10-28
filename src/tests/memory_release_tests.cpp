@@ -1,9 +1,11 @@
-/* Game functions that must give back the memory of what they let go.
+/* Game functions that must give back the memory of what they let go: freeing a mob with no
+ * prototype, a zone reset that gives a mob another script, and the text objects stop showing.
  *
  * Not portable standard C++, by owner ruling of 2026-10-26: a free cannot be observed without
  * changing the game, so these tests count the allocator's bytes in use (allocated_bytes.h) and
  * are skipped where it cannot tell. Each does its operation many times, so a leak far outgrows
  * what the allocator keeps cached. */
+#include "../object_text.h"
 #include "allocated_bytes.h"
 #include "scripted_room_fixture.h"
 
@@ -32,6 +34,8 @@ constexpr int WARM_UP_ROUNDS = 32;
 constexpr std::size_t SMALLEST_LEAK_PER_ROUND = 256;
 /* Growth the allocator may show over all the rounds without a leak: a quarter of the smallest. */
 constexpr std::size_t ALLOWED_GROWTH = ROUNDS * SMALLEST_LEAK_PER_ROUND / 4;
+/* An amount create_money shows as a large heap of coins, with an extra description of its own. */
+constexpr int COINS_IN_A_LARGE_HEAP = 5000;
 
 class MemoryReleaseTest : public ScriptedRoomFixture {
 protected:
@@ -275,5 +279,54 @@ TEST_F(ShapeEditorMemoryTest, SavingAScriptDescriptionFreesTheOneItReplaces)
 
     EXPECT_STREQ(editor->description, "He waits at the ford.\n\r");
     free_script(m_builder);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+/* A prototype given a new text, as implement_object gives it one, frees the text it showed once
+ * the copies made before still showing it are gone. */
+TEST_F(MemoryReleaseTest, APrototypesReplacedTextGoesWithItsLastCopy)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    obj_data& stone = prototype_for(STONE_VNUM);
+
+    const std::size_t growth = growth_over_rounds([this, &stone]() -> void {
+        obj_data* first = make_object(STONE_VNUM, 0);
+        obj_data* second = make_object(STONE_VNUM, 0);
+        stone.set_text(create_object_text(object_text_fields_of(stone)));
+        extract_obj(first);
+        extract_obj(second);
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, FillingAndEmptyingADrinkContainerGivesBackEachName)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* flask = make_object(FLASK_VNUM, 0);
+        name_from_drinkcon(flask);
+        name_to_drinkcon(flask, LIQ_WATER);
+        extract_obj(flask);
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, CoinsGiveBackTheirText)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([]() -> void {
+        extract_obj(create_money(COINS_IN_A_LARGE_HEAP));
+    });
+
     EXPECT_LT(growth, ALLOWED_GROWTH);
 }

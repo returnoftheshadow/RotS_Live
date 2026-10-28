@@ -286,6 +286,8 @@ enum weapon_type {
 const char* get_weapon_name(weapon_type type);
 } // namespace game_types
 
+/* 0 ("setfree off") makes RELEASE and free_obj keep what they would free. Object text an object
+ * lets go of through set_text is freed anyway, as is the shape editor's working object. */
 #ifdef CONSTANTSMARK
 int global_release_flag = 1;
 #else

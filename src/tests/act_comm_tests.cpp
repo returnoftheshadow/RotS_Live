@@ -5,6 +5,7 @@
 #include "../owned_character.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "object_text_test_support.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
@@ -127,6 +128,8 @@ protected:
         m_prototypes[PEN_RNUM].item_number = PEN_RNUM;
         m_prototypes[PEN_RNUM].name = m_pen_name;
         m_prototypes[PEN_RNUM].obj_flags.type_flag = ITEM_PEN;
+        make_text_shared(m_prototypes[NOTE_RNUM]);
+        make_text_shared(m_prototypes[PEN_RNUM]);
         obj_proto = m_prototypes;
         obj_index = m_index;
         top_of_objt = PEN_RNUM;
@@ -251,6 +254,14 @@ TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
     EXPECT_EQ(m_descriptor.str, nullptr);
     ASSERT_NE(m_note->action_description, nullptr);
     EXPECT_EQ(std::string(m_note->action_description), expected_note);
+}
+
+/* A note's copy that nobody has written on shows its prototype's text. */
+TEST_F(NoteWritingTest, AnUnwrittenNoteSharesItsPrototypesText)
+{
+    ASSERT_NE(m_prototypes[NOTE_RNUM].shared_text(), nullptr);
+    EXPECT_EQ(m_note->shared_text(), m_prototypes[NOTE_RNUM].shared_text());
+    EXPECT_EQ(m_note->name, m_prototypes[NOTE_RNUM].name);
 }
 
 /* The part of the editor's refusal that names the limit, by default the note's. */

@@ -1,3 +1,4 @@
+#include "../db.h"
 #include "../object_text.h"
 #include "../structs.h"
 
@@ -154,4 +155,37 @@ TEST(ObjectText, SharedTextOfAnObjectIsItsOwnOrACopyOfItsFields)
     ASSERT_NE(built, nullptr);
     EXPECT_STREQ(built->name(), "torch");
     EXPECT_NE(built->name(), name);
+}
+
+/* An object whose text was set by hand reaching free_obj is logged: nothing frees that text. */
+TEST(ObjectText, FreeingAnObjectWithTextSetByHandLogsIt)
+{
+    char name[] = "torch";
+    char short_description[] = "a torch";
+    obj_data* const by_hand = new obj_data();
+    clear_object(by_hand);
+    by_hand->name = name;
+    by_hand->short_description = short_description;
+
+    testing::internal::CaptureStderr();
+    free_obj(by_hand);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(logged.find("SYSERR: free_obj: object -1 (a torch) has text set by hand"),
+        std::string::npos)
+        << logged;
+}
+
+/* An object showing a shared text, as every object the game makes does, is freed quietly. */
+TEST(ObjectText, FreeingAnObjectWithASharedTextLogsNothing)
+{
+    obj_data* const held = new obj_data();
+    clear_object(held);
+    held->set_text(create_object_text(make_lantern_fields()));
+
+    testing::internal::CaptureStderr();
+    free_obj(held);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(logged.find("SYSERR"), std::string::npos) << logged;
 }
