@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <memory>
 
 #include "platdef.h"
 
@@ -746,7 +747,9 @@ ACMD(do_give)
             return;
         }
     } else {
-        original_argument = strdup(argument);
+        /* Owns the copy, so every way out of give frees it. */
+        std::unique_ptr<char, void (*)(void*)> original_argument_owner(strdup(argument), free);
+        original_argument = original_argument_owner.get();
         if (!(vict = give_find_vict(ch, argument)))
             return;
         dotmode = find_all_dots(argument);
@@ -1015,6 +1018,10 @@ obj_data* load_scalp(int number)
     }
     scalp->next = object_list;
     object_list = scalp;
+    /* Counted as a copy of its prototype, as read_object counts one; extract_obj uncounts it. */
+    if (scalp->item_number >= 0) {
+        obj_index[scalp->item_number].number++;
+    }
 
     return scalp;
 }

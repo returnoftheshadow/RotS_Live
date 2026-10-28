@@ -1,4 +1,5 @@
 #include "../db.h"
+#include "../handler.h"
 #include "../structs.h"
 #include "../utils.h"
 #include <cstdlib>
@@ -18,6 +19,8 @@ namespace {
 
 const int kWargVnum = 5000;
 const int kRemovedMobVnum = 30243; // Keeler's scalp in live data names this mob; it is gone.
+// The scalp prototype's real number: the only entry in the test's object table.
+constexpr int SCALP_PROTOTYPE = 0;
 
 // One mob prototype (a warg) and the scalp object prototype. mob_proto points ONE element into a
 // two-element buffer, and the element before the table is a bodyless mob: that is what
@@ -102,6 +105,22 @@ TEST_F(LoadScalpTest, BodylessMobStillYieldsNoScalp)
     m_mob_storage[1].player.bodytype = 0;
 
     EXPECT_EQ(load_scalp(kWargVnum), nullptr);
+}
+
+/* A scalp counts as a copy of the scalp prototype while it is in the game, as any copy does. */
+TEST_F(LoadScalpTest, AScalpCountsAsACopyOfItsPrototypeUntilExtracted)
+{
+    const int count_before = m_obj_index[SCALP_PROTOTYPE].number;
+
+    obj_data* scalp = load_scalp(kWargVnum);
+
+    ASSERT_NE(scalp, nullptr);
+    ASSERT_EQ(scalp->item_number, SCALP_PROTOTYPE)
+        << "the scalp prototype is the first in the table";
+    EXPECT_EQ(m_obj_index[SCALP_PROTOTYPE].number, count_before + 1);
+
+    extract_obj(scalp);
+    EXPECT_EQ(m_obj_index[SCALP_PROTOTYPE].number, count_before);
 }
 
 } // namespace
