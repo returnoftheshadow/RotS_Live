@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <utility>
 
 #include "comm.h"
 #include "db.h"
@@ -31,6 +32,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "object_skins.h"
+#include "object_text.h"
 #include "pkill.h"
 #include "protos.h"
 #include "script.h"
@@ -1429,8 +1431,26 @@ int run_script(struct info_script* info, struct script_data* position)
                 /* Only str1-3 and obN.name can be written; anything else
                  * crashed the server. */
                 if (wtxt) {
-                    CREATE(*wtxt, char, strlen(curr->text) + 1);
-                    script_format_text(*wtxt, strlen(curr->text) + 1, curr->text, NULL);
+                    const size_t text_size = strlen(curr->text) + 1;
+                    char* new_text = nullptr;
+                    CREATE(new_text, char, text_size);
+                    script_format_text(new_text, text_size, curr->text, NULL);
+                    /* obN.name: the object gets a text of its own with the new name; the text
+                     * it showed stays with its prototype and the other copies sharing it. */
+                    obj_data* renamed_object = nullptr;
+                    for (obj_data* object : info->ob) {
+                        if (object && wtxt == &object->short_description) {
+                            renamed_object = object;
+                        }
+                    }
+                    if (renamed_object) {
+                        object_text::fields text = object_text_fields_of(*renamed_object);
+                        text.short_description = new_text;
+                        renamed_object->set_text(create_object_text(std::move(text)));
+                        RELEASE(new_text);
+                    } else {
+                        *wtxt = new_text;
+                    }
                 }
             }
             curr = curr->next;
