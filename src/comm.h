@@ -111,6 +111,11 @@ extern int no_specials;
 // The command log, last_cmds in the data directory; opened by main() before the game runs.
 extern FILE* fpCommand;
 
+// Trims one blank from each end of a prompt built in <prompt>: returns where the prompt to send
+// starts, one past a leading blank, and cuts off a trailing blank. An empty prompt is returned as
+// it is; no byte before <prompt> is read or written. A null <prompt> is logged and gives null.
+char* trim_prompt_blanks(char* prompt);
+
 /* #define SEND_TO_Q(messg, desc)  write_to_q((messg), &(desc)->output) */
 #define SEND_TO_Q(messg, desc) write_to_output((messg), desc)
 
