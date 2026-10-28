@@ -5,6 +5,7 @@
  * changing the game, so these tests count the allocator's bytes in use (allocated_bytes.h) and
  * are skipped where it cannot tell. Each does its operation many times, so a leak far outgrows
  * what the allocator keeps cached. */
+#include "../note_writing.h"
 #include "../object_text.h"
 #include "allocated_bytes.h"
 #include "scripted_room_fixture.h"
@@ -326,6 +327,27 @@ TEST_F(MemoryReleaseTest, CoinsGiveBackTheirText)
 
     const std::size_t growth = growth_over_rounds([]() -> void {
         extract_obj(create_money(COINS_IN_A_LARGE_HEAP));
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, WritingANoteGivesBackTheEditorsBufferAndTheNotesText)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* note = make_object(STONE_VNUM, 0);
+        start_writing_note(m_descriptor, *note);
+        /* Long enough that a buffer kept each round outgrows ALLOWED_GROWTH. */
+        std::string line(SMALLEST_LEAK_PER_ROUND, 'x');
+        string_add(&m_descriptor, &line[0]);
+        char finish[] = "%e";
+        string_add(&m_descriptor, finish);
+        extract_obj(note);
+        clear_output();
     });
 
     EXPECT_LT(growth, ALLOWED_GROWTH);

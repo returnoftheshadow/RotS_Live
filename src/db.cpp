@@ -21,6 +21,7 @@
 #include "limits.h"
 #include "mail.h"
 #include "mudlle.h"
+#include "note_writing.h"
 #include "pkill.h"
 #include "protos.h"
 #include "script.h"
@@ -3874,6 +3875,7 @@ static void log_hand_set_object_text(const obj_data& object)
 /* release memory allocated for an obj struct */
 void free_obj(struct obj_data* obj)
 {
+    stop_writing_on_note(*obj);
     if (game_rules::big_brother::is_created())
         game_rules::big_brother::instance().on_object_freed(obj);
     note_object_freed(obj);

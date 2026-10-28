@@ -2,6 +2,7 @@
 #include "../handler.h"
 #include "../interpre.h"
 #include "../mail.h"
+#include "../note_writing.h"
 #include "../owned_character.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -151,10 +152,7 @@ protected:
 
     void TearDown() override
     {
-        /* A copy of the note does not free its text, so what was written on it is freed here. */
-        if (m_note->action_description != m_prototypes[NOTE_RNUM].action_description) {
-            RELEASE(m_note->action_description);
-        }
+        finish_writing_note(m_descriptor);
         m_descriptor.str = nullptr;
         while (object_list != nullptr) {
             extract_obj(object_list);
@@ -199,6 +197,29 @@ private:
     int m_saved_top_of_world = 0; // restored in TearDown
 };
 
+/* Writing on a note's copy gives it a text of its own, which goes with it, and leaves its prototype
+ * blank. */
+TEST_F(NoteWritingTest, AWrittenNoteHasATextOfItsOwn)
+{
+    start_writing();
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
+
+    type("Meet me at the ford.");
+    /* Finished directly: %e regrows the text with a copy that reads past the old buffer. */
+    string_add_finish(&m_descriptor);
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_STREQ(m_note->action_description, "Meet me at the ford.\n\r");
+    EXPECT_STREQ(m_note->name, "note paper");
+    ASSERT_NE(m_note->shared_text(), nullptr);
+    EXPECT_NE(m_note->shared_text(), m_prototypes[NOTE_RNUM].shared_text());
+    EXPECT_EQ(m_note->shared_text().use_count(), 1) << "no other object shows the note's text";
+
+    extract_obj(m_note);
+    EXPECT_EQ(m_prototypes[NOTE_RNUM].action_description, nullptr);
+    EXPECT_STREQ(m_prototypes[NOTE_RNUM].name, "note paper");
+}
+
 /* Showing, listing or formatting a note before its first line touches no text, even after an
  * earlier edit on the same connection left its lengths behind. */
 class UnstartedNoteCommandTest : public NoteWritingTest, public testing::WithParamInterface<const char*> {
@@ -213,7 +234,7 @@ constexpr unsigned int LEFTOVER_BUFFER_SIZE = 64;
 TEST_P(UnstartedNoteCommandTest, ReadsNoTextAfterAnEarlierEdit)
 {
     start_writing();
-    ASSERT_EQ(m_descriptor.str, &m_note->action_description) << m_descriptor.output;
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
     m_descriptor.len_str = LEFTOVER_TEXT_LENGTH;
     m_descriptor.cur_str = LEFTOVER_CURSOR;
     m_descriptor.max_str = LEFTOVER_BUFFER_SIZE;
@@ -221,17 +242,31 @@ TEST_P(UnstartedNoteCommandTest, ReadsNoTextAfterAnEarlierEdit)
     type(GetParam());
 
     /* The command line itself is added as an empty line, so the text is just its line end. */
-    ASSERT_NE(m_note->action_description, nullptr);
-    EXPECT_EQ(std::strlen(m_note->action_description), m_descriptor.len_str);
+    ASSERT_NE(m_descriptor.written_note_text, nullptr);
+    EXPECT_EQ(std::strlen(m_descriptor.written_note_text), m_descriptor.len_str);
     EXPECT_LE(m_descriptor.cur_str, m_descriptor.len_str);
 }
 
 INSTANTIATE_TEST_SUITE_P(EditorCommands, UnstartedNoteCommandTest, testing::Values("%r", "%l", "%f"));
 
+/* A note abandoned with %q is left blank. */
+TEST_F(NoteWritingTest, AnAbandonedNoteIsLeftBlank)
+{
+    start_writing();
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
+
+    type("Meet me at the");
+    type("%q");
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_EQ(m_note->action_description, nullptr);
+}
+
 /* %e keeps every line typed, though finishing makes the editor regrow the note's first small buffer. */
 TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
 {
     start_writing();
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the ford.");
     type("%e");
@@ -244,6 +279,7 @@ TEST_F(NoteWritingTest, FinishingWithPercentEKeepsTheNote)
 TEST_F(NoteWritingTest, ALineCrossingABlockKeepsTheWholeNote)
 {
     start_writing();
+    ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
     const std::string long_line(BLOCK_STR_LEN, 'x');
 
     type("Meet me at the ford.");
@@ -411,6 +447,7 @@ TEST_F(NoteWritingTest, AReplacementOnAnEmptyNoteReplacesNothing)
 
     type("%sford~river");
 
+    EXPECT_EQ(m_descriptor.written_note, m_note);
     EXPECT_STREQ(m_note->action_description, "\n\r"); /* a command starts an empty text with a line break */
     EXPECT_NE(std::string(m_descriptor.output).find("Replaced 0 occurence"), std::string::npos);
 }
@@ -541,6 +578,36 @@ TEST_F(NoteWritingTest, ALinePastTheEditorsCapIsRefused)
     EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message(MAX_EDITED_TEXT_LENGTH)), std::string::npos);
     m_descriptor.str = nullptr;
     RELEASE(text);
+}
+
+/* Each line typed shows on the note at once, in a copy of its own: the editor keeps its buffer. */
+TEST_F(NoteWritingTest, EachLineTypedShowsOnTheNote)
+{
+    start_writing();
+
+    type("Meet me at the");
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\r");
+    type("ford.");
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\rford.\n\r");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_NE(static_cast<const void*>(m_note->action_description),
+        static_cast<const void*>(*m_descriptor.str));
+}
+
+/* A writer whose connection goes keeps on the note what it wrote so far and lets go of the
+ * editor's buffer. */
+TEST_F(NoteWritingTest, FinishingAWriterKeepsWhatItWrote)
+{
+    start_writing();
+    type("Meet me at the");
+
+    finish_writing_note(m_descriptor);
+
+    EXPECT_EQ(m_descriptor.str, nullptr);
+    EXPECT_EQ(m_descriptor.written_note, nullptr);
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
+    EXPECT_STREQ(m_note->action_description, "Meet me at the\n\r");
 }
 
 /* Writing with a paper the writer carries and a pen it does not names the missing pen. */

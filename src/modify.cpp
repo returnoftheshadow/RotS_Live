@@ -24,6 +24,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "mail.h"
+#include "note_writing.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
@@ -326,6 +327,7 @@ void string_add_finish(struct descriptor_data* d)
     else if (strlen(*d->str) > MAX_EDITED_TEXT_LENGTH)
         *(*d->str + MAX_EDITED_TEXT_LENGTH) = 0;
 
+    finish_writing_note(*d);
     d->str = 0;
     d->str_limit = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
@@ -640,6 +642,8 @@ void string_add(struct descriptor_data* d, char* str)
             *(*d->str + d->len_str) = 0;
         }
     }
+
+    save_written_note(*d);
 
     if (terminator) {
         if (!d->connected && (PLR_FLAGGED(d->character, PLR_MAILING))) {
