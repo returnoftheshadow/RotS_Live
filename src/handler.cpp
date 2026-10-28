@@ -49,6 +49,7 @@
 
 #include "base_utils.h"
 #include "char_utils.h"
+#include "damage_meters.h"
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
@@ -273,12 +274,12 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
     if (add == AFFECT_MODIFY_SET) {
         SET_BIT(ch->specials.affected_by, bitv);
         if (utils::is_set(bitv, long(AFF_CHARM))) {
-            ch->damage_details.reset();
+            reset_damage_meter(*ch);
         }
     } else if (add == AFFECT_MODIFY_REMOVE) {
         REMOVE_BIT(ch->specials.affected_by, bitv);
         if (utils::is_set(bitv, long(AFF_CHARM))) {
-            ch->damage_details.reset();
+            reset_damage_meter(*ch);
         }
 
         mod = -mod;
@@ -1082,7 +1083,7 @@ void stop_follower(struct char_data* ch, int mode)
                 affect_from_char(ch, SKILL_RECRUIT);
             }
             REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);
-            ch->damage_details.reset();
+            reset_damage_meter(*ch);
         } else {
             act("You stop following $N.", FALSE, ch, 0, ch->master, TO_CHAR);
             if (ch->in_room == ch->master->in_room) {

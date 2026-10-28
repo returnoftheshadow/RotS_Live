@@ -36,6 +36,7 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "character_json.h"
+#include "damage_meters.h"
 #include "exploits_json.h"
 #include "mob_options.h"
 #include "object_skins.h"
@@ -1806,6 +1807,8 @@ struct char_data* read_mobile(int nr, int type)
     CREATE(mob, struct char_data, 1);
 
     *mob = mob_proto[i];
+    // The copy starts without a damage meter of its own rather than sharing the prototype's.
+    mob->damage_details = nullptr;
 
     mob->in_room = NOWHERE;
 
@@ -2918,7 +2921,7 @@ void store_to_char(const struct char_file_u* st, struct char_data* ch)
     CREATE(ch->player.name, char, strlen(st->name) + 1);
     strcpy(ch->player.name, st->name);
 
-    ch->damage_details.reset();
+    reset_damage_meter(*ch);
 
     /* Add all spell effects.
 
@@ -3745,7 +3748,7 @@ void free_char(struct char_data* ch)
     // printf("skills freed, and others\n");
 
     ch->extra_specialization_data.reset();
-    ch->damage_details.reset();
+    free_damage_meter(*ch);
     remove_char_exists(ch->abs_number);
     RELEASE(ch);
 }
@@ -4130,7 +4133,7 @@ void init_char(struct char_data* ch)
     for (i = 0; i < 3; i++)
         GET_COND(ch, i) = (GET_LEVEL(ch) == LEVEL_IMPL ? -1 : 24);
 
-    ch->damage_details.reset();
+    reset_damage_meter(*ch);
 
     /* The default preference flags */
     PRF_FLAGS(ch) |= PRF_SPAM | PRF_NARRATE | PRF_CHAT | PRF_WIZ | PRF_SING | PRF_PROMPT | PRF_ECHO | PRF_SPINNER;

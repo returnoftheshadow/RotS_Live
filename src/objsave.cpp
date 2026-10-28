@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "char_utils.h"
+#include "damage_meters.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
@@ -1172,7 +1173,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             SET_BIT(MOB_FLAGS(mob), MOB_PET);
             int guardian_type = get_guardian_type(ch->player.race, mob);
             scale_guardian(guardian_type, ch, mob, true);
-            mob->damage_details.reset();
+            reset_damage_meter(*mob);
         } break;
 
         case FOL_MOUNT: {

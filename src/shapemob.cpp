@@ -2611,6 +2611,8 @@ void implement_proto(const struct char_data* ch, bool report_vendor = true, bool
     if (slot_freed_by_implement(number))
         mob_index[number].func = 0;
     memcpy(proto, SHAPE_PROTO(ch)->proto, sizeof(struct char_data));
+    // A prototype never fights; it keeps no damage meter rather than sharing the editor copy's.
+    proto->damage_details = nullptr;
     /*    if(proto->player.name) RELEASE(proto->player.name);
   if(proto->player.short_descr) RELEASE(proto->player.short_descr);
   if(proto->player.long_descr) RELEASE(proto->player.long_descr);
