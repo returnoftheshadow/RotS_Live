@@ -242,6 +242,154 @@ TEST_F(InnkeeperRefusalTest, NamesAnItemWithALongShortDescriptionInFull)
     EXPECT_NE(output.find("tells you, 'You cannot store " + long_name + ".'"), std::string::npos) << output;
 }
 
+/* ---------------------------------------------------------------- shaping editors */
+
+// A builder looking at a mob prototype in the mob editor.
+class MobEditorListingTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        clear_char(&m_builder, MOB_VOID);
+        m_builder.player.name = m_builder_name;
+        m_builder.player.level = LEVEL_IMMORT;
+        m_builder.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_builder;
+
+        clear_char(&m_mob, MOB_VOID);
+        m_mob.player.long_descr = m_empty_text;
+        m_mob.player.description = m_empty_text;
+    }
+
+    // Collects what the builder is shown.
+    CapturingDescriptor m_descriptor;
+    // Storage for the builder's name.
+    char m_builder_name[16] = "Builder";
+    // An empty string for the descriptions the listing prints whole.
+    char m_empty_text[1] = "";
+    // The builder.
+    char_data m_builder {};
+    // Frees what clear_char gave m_builder when the test ends.
+    ClearedCharacterRelease m_builder_release { &m_builder };
+    // The prototype being listed.
+    char_data m_mob {};
+    // Frees what clear_char gave m_mob when the test ends.
+    ClearedCharacterRelease m_mob_release { &m_mob };
+};
+
+TEST_F(MobEditorListingTest, SimpleListingShowsATypedLineAliasAndShortDescription)
+{
+    std::string alias(TYPED_LINE_LENGTH, 'a');
+    std::string short_description(TYPED_LINE_LENGTH, 's');
+    m_mob.player.name = &alias[0];
+    m_mob.player.short_descr = &short_description[0];
+
+    list_simple_proto(&m_builder, &m_mob);
+
+    const std::string output = m_descriptor.output();
+    EXPECT_NE(output.find("(1) alias(es)         :" + alias + "\n\r"), std::string::npos);
+    EXPECT_NE(output.find("(2) reference description  :" + short_description + "\n\r"), std::string::npos);
+}
+
+TEST_F(MobEditorListingTest, FullListingShowsATypedLineAliasAndShortDescription)
+{
+    std::string alias(TYPED_LINE_LENGTH, 'a');
+    std::string short_description(TYPED_LINE_LENGTH, 's');
+    m_mob.player.name = &alias[0];
+    m_mob.player.short_descr = &short_description[0];
+
+    list_proto(&m_builder, &m_mob);
+
+    const std::string output = m_descriptor.output();
+    EXPECT_NE(output.find("(1) alias(es)         :" + alias + "\n\r"), std::string::npos);
+    EXPECT_NE(output.find("(2) reference description  :" + short_description + "\n\r"), std::string::npos);
+}
+
+// A builder loading zone 45 into the zone editor from a scratch world/zon folder.
+class ZoneEditorLoadTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ASSERT_FALSE(m_folder.path().empty());
+        std::error_code error;
+        std::filesystem::create_directories(m_folder.path() / "world/zon", error);
+        ASSERT_FALSE(error) << error.message();
+        m_previous_folder = std::filesystem::current_path(error);
+        ASSERT_FALSE(error) << error.message();
+        std::filesystem::current_path(m_folder.path(), error);
+        ASSERT_FALSE(error) << error.message();
+        m_moved = true;
+
+        clear_char(&m_builder, MOB_VOID);
+        m_builder.player.name = m_builder_name;
+        m_builder.player.level = LEVEL_IMMORT;
+        m_builder.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_builder;
+        m_builder.temp = calloc(1, sizeof(shape_zone));
+    }
+
+    void TearDown() override
+    {
+        if (m_builder.temp != nullptr) {
+            free_zone(&m_builder);
+        }
+        if (m_moved) {
+            std::error_code error;
+            std::filesystem::current_path(m_previous_folder, error);
+        }
+    }
+
+    // Writes zone 45 with <zone_name> to world/zon/45.zon.
+    void write_zone_named(std::string_view zone_name)
+    {
+        std::ofstream file(m_folder.path() / "world/zon/45.zon", std::ios::binary);
+        file << "#45 " << zone_name << "~\n"
+             << "A description.~\n"
+             << "~\n"
+             << "0\n"
+             << "L 3 4 0\n"
+             << "4599\n"
+             << "10\n"
+             << "2\n"
+             << "S\n"
+             << "$~\n";
+    }
+
+    // The scratch folder holding world/zon.
+    ScopedTemporaryFolder m_folder;
+    // The working folder before SetUp moved into the scratch folder.
+    std::filesystem::path m_previous_folder;
+    // Whether SetUp moved the working folder, so TearDown moves it back.
+    bool m_moved = false;
+    // Collects what the builder is shown.
+    CapturingDescriptor m_descriptor;
+    // Storage for the builder's name.
+    char m_builder_name[16] = "Builder";
+    // The builder, whose temp holds the zone editor's state.
+    char_data m_builder {};
+    // Frees what clear_char gave m_builder when the test ends.
+    ClearedCharacterRelease m_builder_release { &m_builder };
+};
+
+TEST_F(ZoneEditorLoadTest, ReportsAnOrdinaryZoneNameAsBefore)
+{
+    write_zone_named("Lake-town I");
+
+    ASSERT_EQ(load_zone(&m_builder, "zone 45"), 45);
+
+    EXPECT_NE(m_descriptor.output().find(" loading zone #45 Lake-town I\n\r"), std::string::npos)
+        << m_descriptor.output();
+}
+
+TEST_F(ZoneEditorLoadTest, ReportsAZoneNameLongerThanATypedLineInFull)
+{
+    const std::string zone_name(TYPED_LINE_LENGTH + 45, 'z');
+    write_zone_named(zone_name);
+
+    ASSERT_EQ(load_zone(&m_builder, "zone 45"), 45);
+
+    EXPECT_NE(m_descriptor.output().find(" loading zone #45 " + zone_name + "\n\r"), std::string::npos);
+}
+
 /* ---------------------------------------------------------------- world map */
 
 // Draws on the world map and puts the map back as it was afterwards.
@@ -636,6 +784,56 @@ TEST(PkillBoot, KeepsARecordNamingAMissingPlayerAndItsPointsAcrossBoots)
         }
         boot.forget_boot();
     }
+}
+
+/* ---------------------------------------------------------------- shaping editors, more */
+
+TEST_F(ZoneEditorLoadTest, ListsARowWhoseCommentOutgrowsTheListBuffer)
+{
+    const std::string comment(MAX_STRING_LENGTH + 800, 'c');
+    {
+        std::ofstream file(m_folder.path() / "world/zon/45.zon", std::ios::binary);
+        file << "#45 Lake-town I~\n"
+             << "A description.~\n"
+             << "~\n"
+             << "0\n"
+             << "L 3 4 0\n"
+             << "4599\n"
+             << "10\n"
+             << "2\n"
+             << "* " << comment << "\n"
+             << "S\n"
+             << "$~\n";
+    }
+    ASSERT_EQ(load_zone(&m_builder, "zone 45"), 45);
+    shape_zone* zone = static_cast<shape_zone*>(m_builder.temp);
+    constexpr int ANY_VALUE = -1; /* the filter value list_zone matches every row's value with */
+    zone->mask.command = '*';
+    zone->mask.if_flag = zone->mask.arg1 = zone->mask.arg2 = zone->mask.arg3 = ANY_VALUE;
+    zone->mask.arg4 = zone->mask.arg5 = zone->mask.arg6 = zone->mask.arg7 = ANY_VALUE;
+
+    list_zone(&m_builder);
+
+    EXPECT_NE(m_descriptor.output().find("Filter is: *"), std::string::npos);
+}
+
+TEST(ShapeCommand, RefusesAnUnknownWordLongerThanTheOldBuffer)
+{
+    CapturingDescriptor descriptor;
+    char builder_name[16] = "Builder";
+    char_data builder {};
+    clear_char(&builder, MOB_VOID);
+    ClearedCharacterRelease builder_release(&builder);
+    builder.player.name = builder_name;
+    builder.player.level = LEVEL_IMMORT;
+    builder.desc = descriptor.get();
+    descriptor.get()->character = &builder;
+    constexpr size_t LONG_WORD_LENGTH = 200; /* past the 50-byte buffer do_shape read words into */
+    std::string argument(LONG_WORD_LENGTH, 'w');
+
+    do_shape(&builder, &argument[0], nullptr, 0, 0);
+
+    EXPECT_NE(descriptor.output().find("Unrecognized parameter."), std::string::npos) << descriptor.output();
 }
 
 /* ---------------------------------------------------------------- affect types at load */
