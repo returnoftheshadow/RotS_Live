@@ -77,6 +77,9 @@ int CHAR_WEARS_OBJ(struct char_data* ch, struct obj_data* obj);
 char get_colornum(const char_data* ch, int col);
 void set_colornum(const char_data* ch, int col, int value);
 
+/* Opens the text editor on *str for the descriptor's character.  A non-null *str must be heap
+ * text the caller owns: the editor copies it into its own buffer, frees it, and points *str
+ * at the buffer. */
 void string_add_init(struct descriptor_data*, char**);
 void string_add_finish(struct descriptor_data*);
 /* Ends, unsaved, any edit typing into one of <fields>, which are about to be freed with the

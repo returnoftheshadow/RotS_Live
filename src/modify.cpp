@@ -291,6 +291,7 @@ void string_add_init(struct descriptor_data* d, char** str)
             tmp = strlen(*d->str);
             CREATE(tmpstr, char, BLOCK_STR_LEN*(1 + tmp / BLOCK_STR_LEN));
             strncpy(tmpstr, *d->str, tmp);
+            RELEASE(*d->str);
             *d->str = tmpstr;
             tmpstr = 0;
             d->max_str = BLOCK_STR_LEN * (1 + tmp / BLOCK_STR_LEN);
