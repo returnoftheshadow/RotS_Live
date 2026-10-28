@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -4880,4 +4881,127 @@ TEST(DbLoader, FileToStringAllocRefusesADirectoryWithASyserr)
     EXPECT_NE(stderr_output.find("not a regular file"), std::string::npos) << stderr_output;
 
     RELEASE(loaded);
+}
+
+namespace {
+
+// The text fread_string reads from 'contents', which must hold a '~'-terminated string.
+std::string read_tilde_terminated_string(std::string_view contents)
+{
+    FILE* stream = std::tmpfile();
+    if (stream == nullptr) {
+        ADD_FAILURE() << "no temporary file";
+        return std::string();
+    }
+    std::fwrite(contents.data(), sizeof(char), contents.size(), stream);
+    std::rewind(stream);
+
+    char* text = fread_string(stream, "db_loader_tests");
+    std::fclose(stream);
+    std::string copy(text);
+    RELEASE(text);
+    return copy;
+}
+
+// Letters on each of fread_string_full_lines's lines.
+constexpr size_t FULL_LINE_LETTERS = 999;
+// Lines fread_string_full_lines writes.
+constexpr size_t FULL_LINE_COUNT = 8;
+// Bytes fread_string keeps for those lines: each line's letters, its newline and an added '\r'.
+constexpr size_t FULL_LINES_KEPT_LENGTH = FULL_LINE_COUNT * (FULL_LINE_LETTERS + 2);
+
+// The opening lines of a long string for fread_string, none of them ending it.
+std::string fread_string_full_lines()
+{
+    std::string contents;
+    for (size_t line_number = 0; line_number < FULL_LINE_COUNT; ++line_number) {
+        contents.append(FULL_LINE_LETTERS, 'a');
+        contents += '\n';
+    }
+    return contents;
+}
+
+// The player file write_player_text writes for a level 10 character whose connection carries
+// 'descriptor''s password and host.
+std::string written_player_text(descriptor_data* descriptor)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string player_path = scratch_directory.file("aragorn.txt");
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.race = RACE_HUMAN;
+    stored_character.level = 10;
+    char_data* character = nullptr;
+    CREATE(character, struct char_data, 1);
+    clear_char(character, MOB_VOID);
+    store_to_char(&stored_character, character);
+    character->desc = descriptor;
+
+    const bool written = write_player_text(character, 3001, player_path.c_str());
+    character->desc = nullptr;
+    free_char(character);
+    if (!written) {
+        ADD_FAILURE() << "write_player_text failed for " << player_path;
+        return std::string();
+    }
+    return read_whole_text_file(player_path);
+}
+
+// The value written on the player file line that starts with 'key', without the line's end.
+std::string player_text_value(const std::string& player_text, std::string_view key)
+{
+    const std::string line_start = "\n" + std::string(key);
+    const size_t key_position = player_text.find(line_start);
+    if (key_position == std::string::npos) {
+        ADD_FAILURE() << "no " << key << " line in:\n" << player_text;
+        return std::string();
+    }
+    const size_t value_start = key_position + line_start.size();
+    const size_t line_end = player_text.find('\n', value_start);
+    return player_text.substr(value_start, line_end - value_start);
+}
+
+} // namespace
+
+TEST(DbLoader, FreadStringSkipsLeadingBlankLines)
+{
+    // A zone file's name follows the "#<zone>" line, so its first line read is the blank rest of
+    // that line. The '~' test must not look in front of the empty buffer for one.
+    EXPECT_EQ(read_tilde_terminated_string("\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
+    EXPECT_EQ(read_tilde_terminated_string("\n\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
+}
+
+TEST(DbLoader, FreadStringStopsAtTheTildeTerminator)
+{
+    EXPECT_EQ(read_tilde_terminated_string("A dusty hall.\n~\nignored\n"), "A dusty hall.\n\r");
+    EXPECT_EQ(read_tilde_terminated_string("A dusty hall.~\n"), "A dusty hall.");
+    EXPECT_EQ(read_tilde_terminated_string("~\n"), "");
+}
+
+TEST(DbLoader, WritePlayerTextWritesExactlyThePasswordFieldWidth)
+{
+    descriptor_data descriptor {};
+    // A full-width password leaves no terminator inside the encrypted field.
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "ABCDEFGHIJ");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "localhost");
+
+    const std::string player_text = written_player_text(&descriptor);
+
+    EXPECT_EQ(player_text_value(player_text, "password    ").size(), static_cast<size_t>(MAX_PWD_LENGTH))
+        << player_text;
+}
+
+TEST(DbLoader, WritePlayerTextCutsALongHostToTheFieldWidth)
+{
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "secret");
+    const std::string long_host(sizeof(descriptor.host) - 1, 'h');
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", long_host.c_str());
+
+    const std::string player_text = written_player_text(&descriptor);
+
+    EXPECT_EQ(player_text_value(player_text, "host        "), std::string(HOST_LEN, 'h')) << player_text;
 }
