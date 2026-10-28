@@ -7,6 +7,7 @@
 #include "../handler.h"
 #include "../limits.h"
 #include "../objects_json.h"
+#include "../owned_character.h"
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -170,9 +171,8 @@ protected:
         m_mob_index[3].virt = kRiddenHorseVnum;
         mob_index = m_mob_index;
 
-        // extract_char releases the characters with free_char, so they are allocated with CREATE1.
-        CREATE1(player, char_data);
-        clear_char(player, MOB_VOID);
+        // On the game's lists from here: the disconnect's extract_char or TearDown frees it.
+        player = owned_character().release();
         player->player.name = strdup("Idleranger"); // free_char releases it when the disconnect extracts the player
         player->player.race = RACE_HUMAN;
         player->player.level = 40;
@@ -246,9 +246,8 @@ protected:
 
     char_data* make_mob(int index, const char* keywords, const char* short_description)
     {
-        char_data* mob = nullptr;
-        CREATE1(mob, char_data);
-        clear_char(mob, MOB_ISNPC);
+        // In a room and on a follower list: TearDown takes it off them and frees it.
+        char_data* mob = owned_character(MOB_ISNPC).release();
         SET_BIT(MOB_FLAGS(mob), MOB_ISNPC);
         mob->nr = index;
         mob->player.name = const_cast<char*>(keywords);

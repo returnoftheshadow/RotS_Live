@@ -6,6 +6,7 @@
 #include "../interpre.h"
 #include "../obj2html.h"
 #include "../objects_json.h"
+#include "../owned_character.h"
 #include "../structs.h"
 #include "../utils.h"
 
@@ -175,17 +176,15 @@ descriptor_data make_descriptor()
 char_data* attach_active_character(
     descriptor_data* descriptor, const char* name, int level, long idnum, int race = RACE_HUMAN)
 {
-    // free_char releases the character with free, so it is allocated the way the game does.
-    char_data* character = nullptr;
-    CREATE1(character, char_data);
-    clear_char(character, MOB_VOID);
+    owned_character character;
     character->player.name = strdup(name);
     character->player.level = level;
     character->player.race = race;
     character->specials2.idnum = idnum;
     character->desc = descriptor;
-    descriptor->character = character;
-    return character;
+    // The descriptor holds the character from here, and the test frees it through the descriptor.
+    descriptor->character = character.release();
+    return descriptor->character;
 }
 
 std::string read_file_contents(const std::string& path)
@@ -234,10 +233,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    // free_char releases what store_to_char gives the character, so it is allocated as the game does.
-    char_data* character = nullptr;
-    CREATE1(character, char_data);
-    clear_char(character, MOB_VOID);
+    owned_character character;
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);
@@ -255,7 +251,6 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     if (generated_path != final_path)
         std::remove(generated_path.c_str());
 
-    free_char(character);
     free(player_table[0].name);
     delete[] player_table;
     player_table = previous_player_table;

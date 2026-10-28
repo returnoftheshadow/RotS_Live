@@ -3,6 +3,7 @@
 #include "../account_management.h"
 #include "../exploits_json.h"
 #include "../objects_json.h"
+#include "../owned_character.h"
 #include "../roster_cache.h"
 #include "../utils.h"
 #include "test_cleanup.h"
@@ -324,10 +325,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    // free_char releases what store_to_char gives the character, so it is allocated as the game does.
-    char_data* character = nullptr;
-    CREATE1(character, char_data);
-    clear_char(character, MOB_VOID);
+    owned_character character;
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);
@@ -345,7 +343,6 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     if (generated_path != final_path)
         std::remove(generated_path.c_str());
 
-    free_char(character);
     free(player_table[0].name);
     delete[] player_table;
     if (previous_player_table != nullptr && previous_top_of_p_table >= 0) {

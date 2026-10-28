@@ -3,6 +3,7 @@
 #include "account_management.h"
 #include "creation_points.h"
 #include "db.h"
+#include "owned_character.h"
 #include "spells.h"
 #include "structs.h"
 #include "test_random_utils.h"
@@ -16,7 +17,6 @@
 #include <fstream>
 #include <iterator>
 #include <map>
-#include <memory>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -89,22 +89,11 @@ private:
     int saved_value;
 };
 
-// Frees a character allocated with CREATE and cleared with clear_char.
-struct LoadedCharacterReleaser {
-    void operator()(char_data* character) const
-    {
-        free_char(character);
-    }
-};
-
 // Returns the character stored, read back the way login reads a player file.
-std::unique_ptr<char_data, LoadedCharacterReleaser> load_stored_character(const char_file_u& stored)
+owned_character load_stored_character(const char_file_u& stored)
 {
-    char_data* allocated_character = nullptr;
-    CREATE(allocated_character, struct char_data, 1);
-    std::unique_ptr<char_data, LoadedCharacterReleaser> character(allocated_character);
-    clear_char(character.get(), MOB_VOID);
-    store_to_char(&stored, character.get());
+    owned_character character;
+    store_to_char(&stored, character);
     return character;
 }
 
@@ -403,7 +392,7 @@ TEST_F(RotstoolFixtureMaker, LoginReadsStoredAbilitiesAsBaseMaximumAndCurrentVal
     ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
         << error_message;
 
-    const std::unique_ptr<char_data, LoadedCharacterReleaser> character = load_stored_character(stored);
+    const owned_character character = load_stored_character(stored);
     EXPECT_EQ(character->constabilities.intel, 22);
     EXPECT_EQ(character->abilities.intel, 22);
     EXPECT_EQ(character->tmpabilities.intel, 22);
@@ -422,7 +411,7 @@ TEST_F(RotstoolFixtureMaker, LoginReadsStoredMaximumStaminaAndSpecialization)
     ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
         << error_message;
 
-    const std::unique_ptr<char_data, LoadedCharacterReleaser> character = load_stored_character(stored);
+    const owned_character character = load_stored_character(stored);
     EXPECT_EQ(character->constabilities.mana, 300);
     EXPECT_GE(GET_MAX_MANA(character.get()), 300);
     EXPECT_EQ(GET_SPEC(character.get()), PLRSPEC_FIRE);
@@ -453,7 +442,7 @@ TEST_F(RotstoolFixtureMaker, LoginKeepsSetCurrentValuesBecauseTheLastLogonIsNow)
     ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
         << error_message;
 
-    const std::unique_ptr<char_data, LoadedCharacterReleaser> character = load_stored_character(stored);
+    const owned_character character = load_stored_character(stored);
     EXPECT_EQ(GET_HIT(character.get()), 50);
     EXPECT_EQ(GET_MOVE(character.get()), 30);
 }

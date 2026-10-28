@@ -6,6 +6,7 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
+#include "../owned_character.h"
 #include "../protos.h"
 #include "../script.h"
 #include "../structs.h"
@@ -327,9 +328,7 @@ protected:
      * game frees it when it is extracted; TearDown extracts any still in the game. */
     char_data* make_mob(const char* keywords, int script_vnum, int room = 0)
     {
-        char_data* mob = nullptr;
-        CREATE1(mob, char_data);
-        clear_char(mob, MOB_ISNPC);
+        char_data* mob = owned_character(MOB_ISNPC).release();
         SET_BIT(MOB_FLAGS(mob), MOB_ISNPC);
         mob->nr = -1; /* no prototype: free_char releases its strings */
         mob->player.name = str_dup(keywords);
