@@ -3,7 +3,9 @@
  * characters involved: nothing touches the removed one, and what stays behaves as it does
  * without the removal.
  *
- * Poison here comes from an item that gives its wearer the poison flag (APPLY_BITVECTOR). */
+ * Poison here comes from an item that gives its wearer the poison flag (APPLY_BITVECTOR), which
+ * hurts the wearer as the item goes on and comes off. A test that needs a roll to go one way
+ * queues it with push_test_random_value. */
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
@@ -259,3 +261,57 @@ protected:
 };
 
 } // namespace
+
+/* ---- putting gear on and taking it off ---- */
+
+/* A mob slain while it wears a poisonous item is stripped into one corpse: taking the item off
+ * the dying mob does not kill it again. */
+TEST_F(DeathAndDamagePathsTest, AMobSlainWearingAPoisonousItemLeavesOneCorpse)
+{
+    make_ring_and_sword_poisonous();
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+    run_command_as(wearer, do_wear, "ring");
+    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+    wearer->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+
+    raw_kill(wearer, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(wearer));
+    ASSERT_EQ(1, count_corpses_in_room());
+    EXPECT_TRUE(is_in_object_list(ring));
+    EXPECT_FALSE(is_on_the_floor(ring));
+}
+
+/* A mob removed from the game while it wears a poisonous item is not hurt on its way out, so the
+ * poison cannot kill it there; the item is left on the floor. */
+TEST_F(DeathAndDamagePathsTest, AMobRemovedWearingAPoisonousItemIsRemovedOnce)
+{
+    make_ring_and_sword_poisonous();
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+    run_command_as(wearer, do_wear, "ring");
+    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+    wearer->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+
+    extract_char(wearer);
+
+    EXPECT_FALSE(is_in_game(wearer));
+    EXPECT_EQ(0, count_corpses_in_room());
+    EXPECT_TRUE(is_on_the_floor(ring));
+}
+
+/* Nobody in no room is hurt: a blow at someone being taken out of the game lands nowhere. */
+TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
+{
+    char_data* attacker = make_mob("attacker", 0);
+    char_data* victim = make_mob("victim", 0);
+    char_from_room(victim);
+
+    EXPECT_EQ(0, damage(attacker, victim, MOB_HIT_POINTS * 2, TYPE_HIT, 0));
+
+    EXPECT_TRUE(is_in_game(victim));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(victim));
+}

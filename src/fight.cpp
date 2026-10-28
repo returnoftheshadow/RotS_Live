@@ -910,6 +910,10 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
         affect_remove(dead_man, dead_man->affected);
     }
     death_cry(dead_man);
+    /* The dying are dead from here on, as die() leaves them: taking their gear off can cast an
+     * item's spell or poison them (unequip_char), and a blow or death then would land on someone
+     * half stripped and kill them a second time. */
+    GET_POS(dead_man) = POSITION_DEAD;
     obj_data* corpse = make_corpse(dead_man, killer, attack_type);
 
     // Let big brother know that the player died.
@@ -1690,6 +1694,13 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
 
     if (!victim)
         return 0;
+
+    /* Someone in no room is being taken out of the game (extract_char takes the gear off after
+     * the room, and an item's spell can strike as it comes off): no blow lands, as a death there
+     * would have no room for its corpse. */
+    if (victim->in_room == NOWHERE) {
+        return 0;
+    }
 
     if (!attacker)
         attacker = victim; /* emergency fix */

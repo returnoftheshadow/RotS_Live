@@ -62,8 +62,36 @@ char* fname(const char* namelist);
 void obj_to_char(struct obj_data* object, struct char_data* ch);
 void obj_from_char(struct obj_data* object);
 
-void equip_char(struct char_data* ch, struct obj_data* obj, int pos);
-struct obj_data* unequip_char(struct char_data* ch, int pos);
+/* How equip_char and unequip_char treat an item's spells (APPLY_SPELL) and its poison. Its stat
+ * affects are given or taken either way. */
+enum class gear_change {
+    /* Someone puts the item on or takes it off: its spells are cast on the wearer, and its
+     * poison hurts the wearer. */
+    cast,
+    /* The game dresses or strips someone coming into or leaving the game (login, rent, quit,
+     * removal): only a spell that gives a lasting affect for as long as the item is worn
+     * (item_spell_is_worn_affect) gives or takes it. No other spell is cast and the poison hurts
+     * nobody, so the wearer and the item are never freed. */
+    quiet,
+};
+
+/* Puts <obj>, held by nobody, on <ch> in <pos>. With gear_change::cast, putting it on can hurt
+ * the wearer: a spell the item casts on its wearer, or the poison it gives (5 damage, and death
+ * at 0 hit points or fewer). The blow can kill the wearer or set off a script that removes the
+ * wearer or the item. Returns false when the wearer or the item was freed: the caller must touch
+ * neither again, and one that must know which watches it with a freed_watch. Returns true
+ * otherwise, whether or not the item is worn: an item refused for its alignment or race goes into
+ * the inventory, and one a death stripped off lies in the corpse. */
+bool equip_char(struct char_data* ch, struct obj_data* obj, int pos,
+    gear_change change = gear_change::cast);
+/* Takes the item in <pos> off <ch> and returns it; logs and returns null when nothing is worn
+ * there. The item is left for the caller to put somewhere. With gear_change::cast, taking it off
+ * can hurt the wearer as putting it on can (equip_char), unless the wearer is dead or in no
+ * room, so it can free the wearer: a caller that uses the wearer afterwards watches it with a
+ * freed_watch, and puts the item where the wearer was if it is gone. The item a freed wearer
+ * took off is held by nobody. */
+struct obj_data* unequip_char(struct char_data* ch, int pos,
+    gear_change change = gear_change::cast);
 /* Encumbrance weight an item of this weight adds when worn in this slot. */
 int worn_encumb_weight(int weight, int slot);
 
