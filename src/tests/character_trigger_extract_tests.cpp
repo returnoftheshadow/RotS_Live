@@ -58,6 +58,54 @@ protected:
 
 } // namespace
 
+/* ---- hearing (ON_HEAR_SAY) ---- */
+
+TEST_F(CharacterTriggerTest, EveryMobThatRemovesItselfOnHearingHearsTheSpeaker)
+{
+    install_self_removing_mob_script(ON_HEAR_SAY);
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+    make_mob("third mob", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_EQ(3, count_in_output(VANISH_MESSAGE));
+    EXPECT_EQ(nullptr, character_list) << "every mob removed itself";
+    EXPECT_EQ(&m_player, world[0].people);
+    EXPECT_EQ(nullptr, m_player.next_in_room);
+}
+
+TEST_F(CharacterTriggerTest, EveryMobThatKeepsItselfHearsTheSpeakerOnce)
+{
+    install_harmless_mob_script(ON_HEAR_SAY);
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_EQ(2, count_in_output(SCRIPT_RAN_MESSAGE));
+}
+
+/* A listener's script removes the mob that spoke: the listeners after it still hear the words,
+ * from nobody. */
+TEST_F(CharacterTriggerTest, LaterListenersStillHearASpeakerAListenerRemoved)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_CHAR, "You are heard.", { SCRIPT_PARAM_CH2 } },
+                    { SCRIPT_SEND_TO_ROOM, "The witness nods.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    char_data* speaker = make_mob("speaker", 0);
+    make_mob("remover", SCRIPT_VNUM);
+    make_mob("witness", OTHER_SCRIPT_VNUM);
+
+    run_command_as(speaker, do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(speaker));
+    EXPECT_TRUE(output_has("The witness nods."));
+}
+
 /* ---- entering a room (ON_ENTER and ON_BEFORE_ENTER on the room's mobs) ---- */
 
 TEST_F(CharacterTriggerTest, EveryMobThatRemovesItselfOnSomeoneEnteringReacts)
@@ -137,6 +185,21 @@ TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
     EXPECT_TRUE(output_has("The watcher looks up."));
 }
 
+/* ---- the variables of a running script ---- */
+
+/* The mob's script runs on after it removed its own mob, with its variables intact. */
+TEST_F(CharacterTriggerTest, AMobsScriptRunsOnAfterItRemovesTheMob)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+            { SCRIPT_SEND_TO_CHAR, "Still running.", { SCRIPT_PARAM_CH2 } } });
+    make_mob("speaker", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("Still running."));
+}
+
 /* ---- scripts paused with DO_WAIT ---- */
 
 /* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list
@@ -164,6 +227,46 @@ TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemove
     EXPECT_EQ(2, count_in_output("The mob fades."));
     EXPECT_EQ(nullptr, character_list);
     EXPECT_EQ(nullptr, waiting_list);
+}
+
+/* How long the second waiter waits: longer than the first one's pause, so it still waits when the
+ * first resumes. */
+constexpr int LONGER_WAIT_PULSES = 5;
+
+/* The first waiter's resumed script makes the waiter after it vanish and then removes its own
+ * mob: the waiting list's pass ends there, and says so in the log. */
+TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNextWaiterToo)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+                                  { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} },
+                    { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(first, waiting_list) << "the first mob paused";
+    /* A wait with no command that leaves the second mob hearing, after the first in the list. */
+    ASSERT_TRUE(WAIT_STATE_BRIEF(second, LONGER_WAIT_PULSES, 0, 0, 0, 0));
+    ASSERT_EQ(second, first->delay.next);
+
+    testing::internal::CaptureStderr();
+    process_waiting_list();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(first));
+    EXPECT_FALSE(is_in_game(second));
+    EXPECT_EQ(nullptr, waiting_list);
+    EXPECT_NE(std::string::npos,
+        logged.find("SYSERR: process_waiting_list: the next waiter was freed; the rest wait for "
+                    "the next pulse."))
+        << logged;
 }
 
 /* ---- rooms lent while knocking ---- */
