@@ -4,6 +4,7 @@
 #include "../object_skins.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -74,6 +75,7 @@ protected:
         obj_index = m_saved_index;
         obj_proto = m_saved_proto;
         top_of_objt = m_saved_top;
+        release_cleared_character(&m_ch);
     }
     int rn(int vnum) { return real_object(vnum); }
     /* A live copy, the way the game loads one. */

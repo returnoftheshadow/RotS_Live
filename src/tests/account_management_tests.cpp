@@ -3,8 +3,10 @@
 #include "../account_management.h"
 #include "../exploits_json.h"
 #include "../objects_json.h"
+#include "../owned_character.h"
 #include "../roster_cache.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -323,8 +325,7 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    owned_character character;
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);
@@ -363,12 +364,20 @@ void make_file_executable(const std::string& path)
 
 } // namespace
 
-TEST(AccountManagement, NormalizesEmailByTrimmingAndLowercasing)
+// Every test starts with an empty player index and frees the one its migrations build, so no test
+// leaves entries in the game's index for the next.
+class AccountManagement : public testing::Test {
+private:
+    // The empty index the test runs with; the previous one is put back afterwards.
+    ScopedPlayerTableReset m_player_table_reset;
+};
+
+TEST_F(AccountManagement, NormalizesEmailByTrimmingAndLowercasing)
 {
     EXPECT_EQ(account::normalize_email("  Player@Example.COM "), "player@example.com");
 }
 
-TEST(AccountManagement, AcceptsReasonableEmailAddresses)
+TEST_F(AccountManagement, AcceptsReasonableEmailAddresses)
 {
     std::string error_message;
 
@@ -376,7 +385,7 @@ TEST(AccountManagement, AcceptsReasonableEmailAddresses)
     EXPECT_TRUE(account::is_valid_email("player.one+alts@example-domain.com", &error_message)) << error_message;
 }
 
-TEST(AccountManagement, RejectsMalformedEmailAddresses)
+TEST_F(AccountManagement, RejectsMalformedEmailAddresses)
 {
     std::string error_message;
 
@@ -390,7 +399,7 @@ TEST(AccountManagement, RejectsMalformedEmailAddresses)
     EXPECT_NE(error_message.find("recipient"), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsEmailAddressesLongerThanTheStorageLayerCanCarry)
+TEST_F(AccountManagement, RejectsEmailAddressesLongerThanTheStorageLayerCanCarry)
 {
     std::string error_message;
 
@@ -403,7 +412,7 @@ TEST(AccountManagement, RejectsEmailAddressesLongerThanTheStorageLayerCanCarry)
     EXPECT_NE(error_message.find(std::to_string(account::MAX_EMAIL_LENGTH)), std::string::npos) << error_message;
 }
 
-TEST(AccountManagement, AcceptsConservativeAccountNames)
+TEST_F(AccountManagement, AcceptsConservativeAccountNames)
 {
     std::string error_message;
 
@@ -411,7 +420,7 @@ TEST(AccountManagement, AcceptsConservativeAccountNames)
     EXPECT_TRUE(error_message.empty());
 }
 
-TEST(AccountManagement, RejectsAccountNamesWithUnsupportedCharacters)
+TEST_F(AccountManagement, RejectsAccountNamesWithUnsupportedCharacters)
 {
     std::string error_message;
 
@@ -423,7 +432,7 @@ TEST(AccountManagement, RejectsAccountNamesWithUnsupportedCharacters)
 // Live data holds legacy characters older than the 3-character creation minimum (Ao, El, Fy, Ia,
 // Li, Pi, Ru). New names still go through valid_name (ban.cpp); the account layer must only refuse
 // what cannot be a safe path component, never an existing character for being short.
-TEST(AccountManagement, AcceptsShortExistingCharacterNames)
+TEST_F(AccountManagement, AcceptsShortExistingCharacterNames)
 {
     std::string error_message;
 
@@ -432,7 +441,7 @@ TEST(AccountManagement, AcceptsShortExistingCharacterNames)
     EXPECT_FALSE(account::is_valid_account_name("pi", &error_message));
 }
 
-TEST(AccountManagement, RejectsCharacterNamesThatAreNotSafePathComponents)
+TEST_F(AccountManagement, RejectsCharacterNamesThatAreNotSafePathComponents)
 {
     std::string error_message;
 
@@ -443,7 +452,7 @@ TEST(AccountManagement, RejectsCharacterNamesThatAreNotSafePathComponents)
     EXPECT_FALSE(account::is_valid_character_name(std::string(account::MAX_ACCOUNT_NAME_LENGTH + 1, 'a'), &error_message));
 }
 
-TEST(AccountManagement, RejectsPasswordsMissingRequiredComplexity)
+TEST_F(AccountManagement, RejectsPasswordsMissingRequiredComplexity)
 {
     std::string error_message;
 
@@ -457,7 +466,7 @@ TEST(AccountManagement, RejectsPasswordsMissingRequiredComplexity)
     EXPECT_NE(error_message.find("number"), std::string::npos);
 }
 
-TEST(AccountManagement, AcceptsPasswordsMeetingConfiguredPolicy)
+TEST_F(AccountManagement, AcceptsPasswordsMeetingConfiguredPolicy)
 {
     std::string error_message;
 
@@ -465,7 +474,7 @@ TEST(AccountManagement, AcceptsPasswordsMeetingConfiguredPolicy)
     EXPECT_TRUE(error_message.empty());
 }
 
-TEST(AccountManagement, GeneratesOneWayPasswordCredentialsThatVerifySuccessfully)
+TEST_F(AccountManagement, GeneratesOneWayPasswordCredentialsThatVerifySuccessfully)
 {
     std::string password_hash;
     std::string password_salt;
@@ -481,7 +490,7 @@ TEST(AccountManagement, GeneratesOneWayPasswordCredentialsThatVerifySuccessfully
     EXPECT_FALSE(account::verify_password("WrongPass1", password_hash));
 }
 
-TEST(AccountManagement, InitializesNewAccountsWithNormalizedIdentityAndPasswordHash)
+TEST_F(AccountManagement, InitializesNewAccountsWithNormalizedIdentityAndPasswordHash)
 {
     account::AccountData new_account;
     std::string error_message;
@@ -499,7 +508,7 @@ TEST(AccountManagement, InitializesNewAccountsWithNormalizedIdentityAndPasswordH
     EXPECT_TRUE(account::verify_password("ValidPass1", new_account.password_hash));
 }
 
-TEST(AccountManagement, VerifiesAndUnverifiesAccountsWithAuditMetadata)
+TEST_F(AccountManagement, VerifiesAndUnverifiesAccountsWithAuditMetadata)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -517,7 +526,7 @@ TEST(AccountManagement, VerifiesAndUnverifiesAccountsWithAuditMetadata)
     EXPECT_EQ(account_data.email_verified_at, 0);
 }
 
-TEST(AccountManagement, PreparesEmailVerificationCodesWithFifteenMinuteExpiry)
+TEST_F(AccountManagement, PreparesEmailVerificationCodesWithFifteenMinuteExpiry)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -532,7 +541,7 @@ TEST(AccountManagement, PreparesEmailVerificationCodesWithFifteenMinuteExpiry)
     EXPECT_EQ(account_data.verification_code_expires_at, 1700002000 + account::EMAIL_VERIFICATION_WINDOW_SECONDS);
 }
 
-TEST(AccountManagement, ConfirmsMatchingEmailVerificationCodesAndClearsPendingState)
+TEST_F(AccountManagement, ConfirmsMatchingEmailVerificationCodesAndClearsPendingState)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -550,7 +559,7 @@ TEST(AccountManagement, ConfirmsMatchingEmailVerificationCodesAndClearsPendingSt
     EXPECT_EQ(account_data.verification_code_expires_at, 0);
 }
 
-TEST(AccountManagement, RejectsInvalidEmailVerificationCodes)
+TEST_F(AccountManagement, RejectsInvalidEmailVerificationCodes)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -565,7 +574,7 @@ TEST(AccountManagement, RejectsInvalidEmailVerificationCodes)
     EXPECT_EQ(account_data.verification_last_attempt_at, 1700002100);
 }
 
-TEST(AccountManagement, RejectsExpiredEmailVerificationCodes)
+TEST_F(AccountManagement, RejectsExpiredEmailVerificationCodes)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -578,7 +587,7 @@ TEST(AccountManagement, RejectsExpiredEmailVerificationCodes)
     EXPECT_NE(error_message.find("expired"), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsStaleEmailVerificationCodeAfterResend)
+TEST_F(AccountManagement, RejectsStaleEmailVerificationCodeAfterResend)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -599,7 +608,7 @@ TEST(AccountManagement, RejectsStaleEmailVerificationCodeAfterResend)
     EXPECT_TRUE(account_data.email_verified);
 }
 
-TEST(AccountManagement, InvalidatesVerificationCodeAfterTooManyInvalidAttempts)
+TEST_F(AccountManagement, InvalidatesVerificationCodeAfterTooManyInvalidAttempts)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -619,7 +628,7 @@ TEST(AccountManagement, InvalidatesVerificationCodeAfterTooManyInvalidAttempts)
     EXPECT_EQ(account_data.verification_attempt_count, account::MAX_EMAIL_VERIFICATION_ATTEMPTS);
 }
 
-TEST(AccountManagement, ThrottlesVerificationCodeResendsForRecentlyIssuedCodes)
+TEST_F(AccountManagement, ThrottlesVerificationCodeResendsForRecentlyIssuedCodes)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -635,7 +644,7 @@ TEST(AccountManagement, ThrottlesVerificationCodeResendsForRecentlyIssuedCodes)
     EXPECT_NE(error_message.find("Please wait"), std::string::npos);
 }
 
-TEST(AccountManagement, UsesConfiguredSendmailCommandForVerificationEmailDelivery)
+TEST_F(AccountManagement, UsesConfiguredSendmailCommandForVerificationEmailDelivery)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -667,7 +676,7 @@ TEST(AccountManagement, UsesConfiguredSendmailCommandForVerificationEmailDeliver
         << "Expected the verification email body to include the generated code.";
 }
 
-TEST(AccountManagement, StartingEmailVerificationLeavesVerifiedAccountsVerified)
+TEST_F(AccountManagement, StartingEmailVerificationLeavesVerifiedAccountsVerified)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -689,7 +698,7 @@ TEST(AccountManagement, StartingEmailVerificationLeavesVerifiedAccountsVerified)
     EXPECT_EQ(verified_account.verification_code_expires_at, 0);
 }
 
-TEST(AccountManagement, AddsNormalizedCharactersAndRejectsDuplicateLinks)
+TEST_F(AccountManagement, AddsNormalizedCharactersAndRejectsDuplicateLinks)
 {
     account::AccountData account_data = make_account();
     account_data.characters.clear();
@@ -703,7 +712,7 @@ TEST(AccountManagement, AddsNormalizedCharactersAndRejectsDuplicateLinks)
     EXPECT_NE(error_message.find("already linked"), std::string::npos);
 }
 
-TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
+TEST_F(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
 {
     account::AccountData account_data = make_account();
     std::string selected_character;
@@ -718,7 +727,7 @@ TEST(AccountManagement, SelectsOnlyCharactersLinkedToTheAccount)
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
-TEST(AccountManagement, SelectsLinkedCharactersByFullName)
+TEST_F(AccountManagement, SelectsLinkedCharactersByFullName)
 {
     account::AccountData account_data = make_account();
     std::string selected_character;
@@ -731,7 +740,7 @@ TEST(AccountManagement, SelectsLinkedCharactersByFullName)
     EXPECT_EQ(selected_character, "legolas");
 }
 
-TEST(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingSpaces)
+TEST_F(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingSpaces)
 {
     account::AccountData account_data = make_account();
     std::string selected_character;
@@ -744,7 +753,7 @@ TEST(AccountManagement, SelectsLinkedCharactersByNameIgnoringCaseAndSurroundingS
     EXPECT_EQ(selected_character, "legolas");
 }
 
-TEST(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
+TEST_F(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
 {
     account::AccountData account_data = make_account();
     std::string selected_character;
@@ -760,7 +769,7 @@ TEST(AccountManagement, RejectsCharacterNamesThatAreNotLinkedToTheAccount)
     EXPECT_NE(error_message.find("Select a linked character by number or name"), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
+TEST_F(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
 {
     account::AccountData account_data = make_account();
     account_data.characters.clear();
@@ -789,7 +798,7 @@ TEST(AccountManagement, RejectsSelectionsBeyondTheDisplayedRosterRange)
 // screen and never gets a prompt back. Nothing else in the codebase bounds the roster against that
 // limit, so raising kMaxDisplayedAccountCharacters past the point where a full roster stops fitting
 // must fail here rather than on a player.
-TEST(AccountManagement, RendersAFullRosterWithinTheOutputBuffer)
+TEST_F(AccountManagement, RendersAFullRosterWithinTheOutputBuffer)
 {
     account::AccountData account_data = make_account();
     account_data.characters.clear();
@@ -822,7 +831,7 @@ TEST(AccountManagement, RendersAFullRosterWithinTheOutputBuffer)
            "silently discarded. Lower kMaxDisplayedAccountCharacters or shorten the row/header format.";
 }
 
-TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
+TEST_F(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
 {
     account::AccountData account_data = make_account();
     account_data.blocked = false;
@@ -847,7 +856,7 @@ TEST(AccountManagement, BlocksAndUnblocksAccountsWithAuditMetadata)
     EXPECT_EQ(account_data.blocked_at, 0);
 }
 
-TEST(AccountManagement, ResetsPasswordsAndTracksResetMetadata)
+TEST_F(AccountManagement, ResetsPasswordsAndTracksResetMetadata)
 {
     account::AccountData account_data;
     std::string error_message;
@@ -866,7 +875,7 @@ TEST(AccountManagement, ResetsPasswordsAndTracksResetMetadata)
     EXPECT_FALSE(account::verify_password("ValidPass1", account_data.password_hash));
 }
 
-TEST(AccountManagement, ResolvesBucketedAccountPathsLikePlayerFiles)
+TEST_F(AccountManagement, ResolvesBucketedAccountPathsLikePlayerFiles)
 {
     EXPECT_EQ(account::account_bucket_for_name("alpha"), "A-E");
     EXPECT_EQ(account::account_bucket_for_name("jester"), "F-J");
@@ -876,13 +885,13 @@ TEST(AccountManagement, ResolvesBucketedAccountPathsLikePlayerFiles)
     EXPECT_EQ(account::account_bucket_for_name("1account"), "ZZZ");
 }
 
-TEST(AccountManagement, BuildsBucketedJsonFilePathsUsingNormalizedName)
+TEST_F(AccountManagement, BuildsBucketedJsonFilePathsUsingNormalizedName)
 {
     EXPECT_EQ(account::account_file_path("/game/lib", " Player@Example.com "),
         "/game/lib/accounts/P-T/player@example.com/account.json");
 }
 
-TEST(AccountManagement, BuildsLegacyCharacterPathsFromCharacterName)
+TEST_F(AccountManagement, BuildsLegacyCharacterPathsFromCharacterName)
 {
     EXPECT_EQ(account::legacy_player_file_path("/game/lib", " Aragorn "),
         "/game/lib/players/A-E/aragorn");
@@ -892,7 +901,7 @@ TEST(AccountManagement, BuildsLegacyCharacterPathsFromCharacterName)
         "/game/lib/exploits/A-E/aragorn.exploits");
 }
 
-TEST(AccountManagement, SerializesAndDeserializesAccountJsonRoundTrip)
+TEST_F(AccountManagement, SerializesAndDeserializesAccountJsonRoundTrip)
 {
     const account::AccountData original_account = make_account();
     const std::string json = account::serialize_account_to_json(original_account);
@@ -925,7 +934,7 @@ TEST(AccountManagement, SerializesAndDeserializesAccountJsonRoundTrip)
     EXPECT_EQ(parsed_account.password_reset_by, original_account.password_reset_by);
 }
 
-TEST(AccountManagement, PopulatesDefaultCharacterLinkFileNamesDuringAccountJsonRoundTrip)
+TEST_F(AccountManagement, PopulatesDefaultCharacterLinkFileNamesDuringAccountJsonRoundTrip)
 {
     account::AccountData original_account = make_account();
     original_account.characters = { "aragorn" };
@@ -943,7 +952,7 @@ TEST(AccountManagement, PopulatesDefaultCharacterLinkFileNamesDuringAccountJsonR
     EXPECT_EQ(parsed_account.character_links[0].exploits_path, "aragorn.exploits.json");
 }
 
-TEST(AccountManagement, FormatsAccountSummariesIncludingLinkedCharacters)
+TEST_F(AccountManagement, FormatsAccountSummariesIncludingLinkedCharacters)
 {
     account::AccountData account_data = make_account();
 
@@ -974,7 +983,7 @@ TEST(AccountManagement, FormatsAccountSummariesIncludingLinkedCharacters)
     EXPECT_EQ(summary.find("1700000002"), std::string::npos);
 }
 
-TEST(AccountManagement, FormatsOutOfRangeSummaryTimestampsAsInvalid)
+TEST_F(AccountManagement, FormatsOutOfRangeSummaryTimestampsAsInvalid)
 {
     account::AccountData account_data = make_account();
     account_data.created_at = std::numeric_limits<long>::max();
@@ -995,7 +1004,7 @@ TEST(AccountManagement, FormatsOutOfRangeSummaryTimestampsAsInvalid)
     }
 }
 
-TEST(AccountManagement, FormatsPendingVerificationWindowWithHumanReadableDates)
+TEST_F(AccountManagement, FormatsPendingVerificationWindowWithHumanReadableDates)
 {
     account::AccountData account_data = make_account();
     account_data.email_verified = false;
@@ -1024,7 +1033,7 @@ TEST(AccountManagement, FormatsPendingVerificationWindowWithHumanReadableDates)
     EXPECT_EQ(summary.find("Password reset at:"), std::string::npos);
 }
 
-TEST(AccountManagement, OmitsUnsetBlockAndPasswordResetMetadataFromSummary)
+TEST_F(AccountManagement, OmitsUnsetBlockAndPasswordResetMetadataFromSummary)
 {
     account::AccountData account_data = make_account();
     account_data.blocked = false;
@@ -1044,7 +1053,7 @@ TEST(AccountManagement, OmitsUnsetBlockAndPasswordResetMetadataFromSummary)
     EXPECT_EQ(summary.find("Password reset at:"), std::string::npos);
 }
 
-TEST(AccountManagement, ReadsAccountFileByIdentifierUsingEmailOrInternalName)
+TEST_F(AccountManagement, ReadsAccountFileByIdentifierUsingEmailOrInternalName)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1080,14 +1089,14 @@ TEST(AccountManagement, ReadsAccountFileByIdentifierUsingEmailOrInternalName)
     EXPECT_EQ(loaded_by_name.normalized_email, "player@example.com");
 }
 
-TEST(AccountManagement, FormatsCharacterNamesForDisplayByOnlyUppercasingTheFirstByte)
+TEST_F(AccountManagement, FormatsCharacterNamesForDisplayByOnlyUppercasingTheFirstByte)
 {
     EXPECT_EQ(account::format_character_name_for_display(""), "");
     EXPECT_EQ(account::format_character_name_for_display("aragorn"), "Aragorn");
     EXPECT_EQ(account::format_character_name_for_display("mCduck"), "MCduck");
 }
 
-TEST(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList)
+TEST_F(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList)
 {
     TemporaryDirectory temp_directory;
     ScopedWorkingDirectory working_directory(temp_directory.path());
@@ -1118,7 +1127,7 @@ TEST(AccountManagement, FormatsCharacterPromptWithLinkedCharacterList)
         "\n\rCharacter number or name: ");
 }
 
-TEST(AccountManagement, RejectsMalformedJsonInput)
+TEST_F(AccountManagement, RejectsMalformedJsonInput)
 {
     account::AccountData parsed_account;
     std::string error_message;
@@ -1127,7 +1136,7 @@ TEST(AccountManagement, RejectsMalformedJsonInput)
     EXPECT_FALSE(error_message.empty()) << "Expected malformed JSON to report a parsing failure.";
 }
 
-TEST(AccountManagement, RejectsUnsafeCharacterNamesInStoredAccountJson)
+TEST_F(AccountManagement, RejectsUnsafeCharacterNamesInStoredAccountJson)
 {
     const std::string json = "{\n"
                              "  \"version\": 1,\n"
@@ -1161,7 +1170,7 @@ TEST(AccountManagement, RejectsUnsafeCharacterNamesInStoredAccountJson)
     EXPECT_NE(error_message.find("Character name"), std::string::npos);
 }
 
-TEST(AccountManagement, PersistsAccountsToBucketedJsonFilesAndReadsThemBack)
+TEST_F(AccountManagement, PersistsAccountsToBucketedJsonFilesAndReadsThemBack)
 {
     TemporaryDirectory temp_directory;
     const account::AccountData original_account = make_account();
@@ -1184,7 +1193,7 @@ TEST(AccountManagement, PersistsAccountsToBucketedJsonFilesAndReadsThemBack)
         << "Expected temporary files to be cleaned up after a successful atomic write.";
 }
 
-TEST(AccountManagement, RewritesLegacyFlatAccountFilesIntoEmailRootedLayout)
+TEST_F(AccountManagement, RewritesLegacyFlatAccountFilesIntoEmailRootedLayout)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -1209,7 +1218,7 @@ TEST(AccountManagement, RewritesLegacyFlatAccountFilesIntoEmailRootedLayout)
     EXPECT_EQ(looked_up_account.block_reason, "updated reason");
 }
 
-TEST(AccountManagement, ReportsMissingAccountFilesClearly)
+TEST_F(AccountManagement, ReportsMissingAccountFilesClearly)
 {
     TemporaryDirectory temp_directory;
     account::AccountData loaded_account;
@@ -1219,7 +1228,7 @@ TEST(AccountManagement, ReportsMissingAccountFilesClearly)
     EXPECT_NE(error_message.find("Failed to open account file"), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsUnsafeAccountNamesBeforeFilesystemAccess)
+TEST_F(AccountManagement, RejectsUnsafeAccountNamesBeforeFilesystemAccess)
 {
     TemporaryDirectory temp_directory;
     account::AccountData loaded_account;
@@ -1229,7 +1238,7 @@ TEST(AccountManagement, RejectsUnsafeAccountNamesBeforeFilesystemAccess)
     EXPECT_NE(error_message.find("Account name"), std::string::npos);
 }
 
-TEST(AccountManagement, CreatesAccountsOnDiskAndRejectsDuplicates)
+TEST_F(AccountManagement, CreatesAccountsOnDiskAndRejectsDuplicates)
 {
     TemporaryDirectory temp_directory;
     account::AccountData created_account;
@@ -1243,7 +1252,7 @@ TEST(AccountManagement, CreatesAccountsOnDiskAndRejectsDuplicates)
     EXPECT_NE(error_message.find("already exists"), std::string::npos);
 }
 
-TEST(AccountManagement, CreatesAndFindsAccountsByEmailAddress)
+TEST_F(AccountManagement, CreatesAndFindsAccountsByEmailAddress)
 {
     TemporaryDirectory temp_directory;
     account::AccountData created_account;
@@ -1259,7 +1268,7 @@ TEST(AccountManagement, CreatesAndFindsAccountsByEmailAddress)
     EXPECT_EQ(looked_up_account.normalized_email, "player@example.com");
 }
 
-TEST(AccountManagement, AuthenticatesAccountsFromDiskAndRejectsBlockedAccounts)
+TEST_F(AccountManagement, AuthenticatesAccountsFromDiskAndRejectsBlockedAccounts)
 {
     TemporaryDirectory temp_directory;
     account::AccountData created_account;
@@ -1279,7 +1288,7 @@ TEST(AccountManagement, AuthenticatesAccountsFromDiskAndRejectsBlockedAccounts)
     EXPECT_EQ(error_message, "Account authentication failed.");
 }
 
-TEST(AccountManagement, AuthenticatesAccountsByEmailAddress)
+TEST_F(AccountManagement, AuthenticatesAccountsByEmailAddress)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1304,7 +1313,7 @@ TEST(AccountManagement, AuthenticatesAccountsByEmailAddress)
     EXPECT_EQ(error_message, "Account authentication failed.");
 }
 
-TEST(AccountManagement, SupportsAccountPasswordsLongerThanLegacyCharacterLimit)
+TEST_F(AccountManagement, SupportsAccountPasswordsLongerThanLegacyCharacterLimit)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1320,7 +1329,7 @@ TEST(AccountManagement, SupportsAccountPasswordsLongerThanLegacyCharacterLimit)
     EXPECT_EQ(authenticated_account.account_name, created_account.account_name);
 }
 
-TEST(AccountManagement, RejectsAmbiguousDuplicateEmailRecords)
+TEST_F(AccountManagement, RejectsAmbiguousDuplicateEmailRecords)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1340,7 +1349,7 @@ TEST(AccountManagement, RejectsAmbiguousDuplicateEmailRecords)
     EXPECT_NE(error_message.find("Multiple account records"), std::string::npos);
 }
 
-TEST(AccountManagement, ReadAccountFileByEmailRejectsConflictingLegacyAndRootedDuplicateRecords)
+TEST_F(AccountManagement, ReadAccountFileByEmailRejectsConflictingLegacyAndRootedDuplicateRecords)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1357,7 +1366,7 @@ TEST(AccountManagement, ReadAccountFileByEmailRejectsConflictingLegacyAndRootedD
     EXPECT_NE(error_message.find("Multiple account records"), std::string::npos);
 }
 
-TEST(AccountManagement, CreatesAccountForEmailFailsWhenLegacyFlatRecordAlreadyExistsForSameNormalizedEmail)
+TEST_F(AccountManagement, CreatesAccountForEmailFailsWhenLegacyFlatRecordAlreadyExistsForSameNormalizedEmail)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1372,7 +1381,7 @@ TEST(AccountManagement, CreatesAccountForEmailFailsWhenLegacyFlatRecordAlreadyEx
     EXPECT_NE(error_message.find("already exists"), std::string::npos);
 }
 
-TEST(AccountManagement, RefusesToOverwriteDifferentAccountAtTargetEmailPath)
+TEST_F(AccountManagement, RefusesToOverwriteDifferentAccountAtTargetEmailPath)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1387,7 +1396,7 @@ TEST(AccountManagement, RefusesToOverwriteDifferentAccountAtTargetEmailPath)
     EXPECT_NE(error_message.find("occupied by a different account"), std::string::npos);
 }
 
-TEST(AccountManagement, FindsEmailBackedAccountEvenIfUnrelatedAccountFileIsCorrupt)
+TEST_F(AccountManagement, FindsEmailBackedAccountEvenIfUnrelatedAccountFileIsCorrupt)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1401,7 +1410,7 @@ TEST(AccountManagement, FindsEmailBackedAccountEvenIfUnrelatedAccountFileIsCorru
     EXPECT_EQ(looked_up_account.normalized_email, "player@example.com");
 }
 
-TEST(AccountManagement, ReportsMissingEmailEvenIfUnrelatedAccountFileIsCorrupt)
+TEST_F(AccountManagement, ReportsMissingEmailEvenIfUnrelatedAccountFileIsCorrupt)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1415,7 +1424,7 @@ TEST(AccountManagement, ReportsMissingEmailEvenIfUnrelatedAccountFileIsCorrupt)
     EXPECT_EQ(error_message, "No account exists for that email address.");
 }
 
-TEST(AccountManagement, FailsClosedWhenCreatingAccountIfAnyStoredRecordIsUnreadable)
+TEST_F(AccountManagement, FailsClosedWhenCreatingAccountIfAnyStoredRecordIsUnreadable)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1429,7 +1438,7 @@ TEST(AccountManagement, FailsClosedWhenCreatingAccountIfAnyStoredRecordIsUnreada
     EXPECT_EQ(error_message, "Existing account records could not be read safely.");
 }
 
-TEST(AccountManagement, SupportsAdminLinkBlockUnblockAndPasswordResetOnDisk)
+TEST_F(AccountManagement, SupportsAdminLinkBlockUnblockAndPasswordResetOnDisk)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1463,7 +1472,7 @@ TEST(AccountManagement, SupportsAdminLinkBlockUnblockAndPasswordResetOnDisk)
     EXPECT_TRUE(account::verify_password("ChangedPass2", updated_account.password_hash));
 }
 
-TEST(AccountManagement, PreventsLinkingOneCharacterToMultipleAccounts)
+TEST_F(AccountManagement, PreventsLinkingOneCharacterToMultipleAccounts)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1476,7 +1485,7 @@ TEST(AccountManagement, PreventsLinkingOneCharacterToMultipleAccounts)
     EXPECT_NE(error_message.find("already linked to account"), std::string::npos);
 }
 
-TEST(AccountManagement, FindsLinkedCharacterOwnerAccount)
+TEST_F(AccountManagement, FindsLinkedCharacterOwnerAccount)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1489,7 +1498,7 @@ TEST(AccountManagement, FindsLinkedCharacterOwnerAccount)
     EXPECT_EQ(owner_account_name, "alpha-admin");
 }
 
-TEST(AccountManagement, RejectsAmbiguousLinkedCharacterOwnership)
+TEST_F(AccountManagement, RejectsAmbiguousLinkedCharacterOwnership)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1508,7 +1517,7 @@ TEST(AccountManagement, RejectsAmbiguousLinkedCharacterOwnership)
     EXPECT_NE(error_message.find("Multiple account records claim"), std::string::npos);
 }
 
-TEST(AccountManagement, LinksAndMigratesCharacter)
+TEST_F(AccountManagement, LinksAndMigratesCharacter)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -1528,7 +1537,7 @@ TEST(AccountManagement, LinksAndMigratesCharacter)
     EXPECT_TRUE(migration.player_file.present);
 }
 
-TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
+TEST_F(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -1562,7 +1571,7 @@ TEST(AccountManagement, LinksAndMigratesTwoLetterLegacyCharacter)
     EXPECT_FALSE(account::account_has_character(reread_account, "pi"));
 }
 
-TEST(AccountManagement, AdminLinksAndMigratesTwoLetterLegacyCharacter)
+TEST_F(AccountManagement, AdminLinksAndMigratesTwoLetterLegacyCharacter)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -1579,7 +1588,7 @@ TEST(AccountManagement, AdminLinksAndMigratesTwoLetterLegacyCharacter)
     EXPECT_TRUE(migration.player_file.present);
 }
 
-TEST(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)
+TEST_F(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1594,7 +1603,7 @@ TEST(AccountManagement, DoesNotLeaveCharacterLinkedWhenMigrationFails)
     EXPECT_FALSE(account::account_has_character(account_data, "aragorn"));
 }
 
-TEST(AccountManagement, BuildsAccountLinkedCharacterSnapshotPaths)
+TEST_F(AccountManagement, BuildsAccountLinkedCharacterSnapshotPaths)
 {
     EXPECT_EQ(account::account_character_directory("/game/lib", "player@example.com", "aragorn"),
         "/game/lib/accounts/P-T/player@example.com");
@@ -1608,7 +1617,7 @@ TEST(AccountManagement, BuildsAccountLinkedCharacterSnapshotPaths)
         "/game/lib/accounts/P-T/player@example.com/aragorn.exploits.json");
 }
 
-TEST(AccountManagement, RefusesToWriteACharacterFileItCannotReadBack)
+TEST_F(AccountManagement, RefusesToWriteACharacterFileItCannotReadBack)
 {
     // The write validates struct -> CharacterData -> struct and never parses the TEXT it produces.
     // Skills are keyed by name and the skill table carries two entries with the same name, so a
@@ -1652,7 +1661,7 @@ TEST(AccountManagement, RefusesToWriteACharacterFileItCannotReadBack)
         << "and it must still be the character that was written, not the one that was refused";
 }
 
-TEST(AccountManagement, StillSavesACharacterHoldingOnlyOneHalfOfACollidingPair)
+TEST_F(AccountManagement, StillSavesACharacterHoldingOnlyOneHalfOfACollidingPair)
 {
     // The guard must refuse the character that would produce a duplicate key and nobody else. One
     // side of the pair writes the key once, which reads back fine -- refusing it would stop a real
@@ -1673,7 +1682,7 @@ TEST(AccountManagement, StillSavesACharacterHoldingOnlyOneHalfOfACollidingPair)
     EXPECT_EQ(loaded.skills[125], 40) << "and the value survives the round trip";
 }
 
-TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFile)
+TEST_F(AccountManagement, WritesAndReadsAccountNativeCharacterFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1719,7 +1728,7 @@ TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFile)
     EXPECT_EQ(loaded.profs.prof_coof[PROF_WARRIOR], original.profs.prof_coof[PROF_WARRIOR]);
 }
 
-TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFilePreservesCustomColorSettings)
+TEST_F(AccountManagement, WritesAndReadsAccountNativeCharacterFilePreservesCustomColorSettings)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1758,7 +1767,7 @@ TEST(AccountManagement, WritesAndReadsAccountNativeCharacterFilePreservesCustomC
     EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.blue, original.profs.color_settings[COLOR_WEATHER].background.blue);
 }
 
-TEST(AccountManagement, RejectsAccountNativeCharacterFileWithOutOfRangeColorValue)
+TEST_F(AccountManagement, RejectsAccountNativeCharacterFileWithOutOfRangeColorValue)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1781,7 +1790,7 @@ TEST(AccountManagement, RejectsAccountNativeCharacterFileWithOutOfRangeColorValu
     EXPECT_NE(error_message.find("colors[1]"), std::string::npos);
 }
 
-TEST(AccountManagement, WritesAndReadsAccountNativeObjectFile)
+TEST_F(AccountManagement, WritesAndReadsAccountNativeObjectFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1812,7 +1821,7 @@ TEST(AccountManagement, WritesAndReadsAccountNativeObjectFile)
     EXPECT_EQ(loaded.aliases[0].keyword, "assist");
 }
 
-TEST(AccountManagement, AccountNativeObjectWriteRejectsLegacyObjectFileWithoutFollowerSection)
+TEST_F(AccountManagement, AccountNativeObjectWriteRejectsLegacyObjectFileWithoutFollowerSection)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1837,7 +1846,7 @@ TEST(AccountManagement, AccountNativeObjectWriteRejectsLegacyObjectFileWithoutFo
     EXPECT_FALSE(account::account_object_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 }
 
-TEST(AccountManagement, LinkedCharacterObjectRefreshAcceptsAnIdleSaveWithoutFollowerSection)
+TEST_F(AccountManagement, LinkedCharacterObjectRefreshAcceptsAnIdleSaveWithoutFollowerSection)
 {
     // Every game save is copied into the account through write_linked_character_object_file. The
     // idle-out save (Crash_idlesave) writes no follower section -- historic behaviour -- and it is
@@ -1886,7 +1895,7 @@ TEST(AccountManagement, LinkedCharacterObjectRefreshAcceptsAnIdleSaveWithoutFoll
     EXPECT_TRUE(loaded.followers.empty());
 }
 
-TEST(AccountManagement, LinkedCharacterObjectRefreshStillRejectsAPartialFollowerRecord)
+TEST_F(AccountManagement, LinkedCharacterObjectRefreshStillRejectsAPartialFollowerRecord)
 {
     // Only a follower section missing entirely is forgiven. A save cut off part-way through a
     // follower record is damaged, and must not replace the good copy.
@@ -1926,7 +1935,7 @@ TEST(AccountManagement, LinkedCharacterObjectRefreshStillRejectsAPartialFollower
     EXPECT_EQ(loaded.objects[0].item_number, 1234) << "the good copy must be left in place";
 }
 
-TEST(AccountManagement, WritesDefaultAccountNativeObjectFile)
+TEST_F(AccountManagement, WritesDefaultAccountNativeObjectFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1947,7 +1956,7 @@ TEST(AccountManagement, WritesDefaultAccountNativeObjectFile)
     EXPECT_EQ(loaded.rent.rentcode, RENT_CRASH);
 }
 
-TEST(AccountManagement, WritesAndReadsAccountNativeExploitFile)
+TEST_F(AccountManagement, WritesAndReadsAccountNativeExploitFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1969,7 +1978,7 @@ TEST(AccountManagement, WritesAndReadsAccountNativeExploitFile)
     EXPECT_STREQ(loaded_records[1].chVictimName, "Won a battle");
 }
 
-TEST(AccountManagement, WritesDefaultAccountNativeExploitFile)
+TEST_F(AccountManagement, WritesDefaultAccountNativeExploitFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -1984,7 +1993,7 @@ TEST(AccountManagement, WritesDefaultAccountNativeExploitFile)
     EXPECT_TRUE(loaded_records.empty());
 }
 
-TEST(AccountManagement, RejectsStoredObjectPathThatDoesNotMatchExpectedCharacterFileName)
+TEST_F(AccountManagement, RejectsStoredObjectPathThatDoesNotMatchExpectedCharacterFileName)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2005,7 +2014,7 @@ TEST(AccountManagement, RejectsStoredObjectPathThatDoesNotMatchExpectedCharacter
     EXPECT_NE(error_message.find("expected account-owned object filename"), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsStoredObjectPathWithAbsolutePath)
+TEST_F(AccountManagement, RejectsStoredObjectPathWithAbsolutePath)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2026,7 +2035,7 @@ TEST(AccountManagement, RejectsStoredObjectPathWithAbsolutePath)
     EXPECT_NE(error_message.find("expected account-owned object filename"), std::string::npos);
 }
 
-TEST(AccountManagement, WritesCanonicalObjectPathWhenSafeLegacyRelativePathIsStored)
+TEST_F(AccountManagement, WritesCanonicalObjectPathWhenSafeLegacyRelativePathIsStored)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2058,7 +2067,7 @@ TEST(AccountManagement, WritesCanonicalObjectPathWhenSafeLegacyRelativePathIsSto
     EXPECT_EQ(updated_account_json.find(legacy_fragment), std::string::npos);
 }
 
-TEST(AccountManagement, LeavesStoredObjectPathUnchangedWhenCanonicalObjectWriteFails)
+TEST_F(AccountManagement, LeavesStoredObjectPathUnchangedWhenCanonicalObjectWriteFails)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2094,7 +2103,7 @@ TEST(AccountManagement, LeavesStoredObjectPathUnchangedWhenCanonicalObjectWriteF
     EXPECT_EQ(updated_account_json.find(original_fragment), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsStoredCharacterPathThatDoesNotMatchExpectedCharacterFileName)
+TEST_F(AccountManagement, RejectsStoredCharacterPathThatDoesNotMatchExpectedCharacterFileName)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2115,7 +2124,7 @@ TEST(AccountManagement, RejectsStoredCharacterPathThatDoesNotMatchExpectedCharac
     EXPECT_NE(error_message.find("expected account-owned character filename"), std::string::npos);
 }
 
-TEST(AccountManagement, RejectsOutOfRangeStoredCharacterSpecializationWithoutReplacingAccountNativeFile)
+TEST_F(AccountManagement, RejectsOutOfRangeStoredCharacterSpecializationWithoutReplacingAccountNativeFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2139,7 +2148,7 @@ TEST(AccountManagement, RejectsOutOfRangeStoredCharacterSpecializationWithoutRep
         << "Expected invalid stored specialization writes to leave the existing account-native character JSON unchanged.";
 }
 
-TEST(AccountManagement, RejectsStoredExploitsPathThatDoesNotMatchExpectedCharacterFileName)
+TEST_F(AccountManagement, RejectsStoredExploitsPathThatDoesNotMatchExpectedCharacterFileName)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2161,7 +2170,7 @@ TEST(AccountManagement, RejectsStoredExploitsPathThatDoesNotMatchExpectedCharact
     EXPECT_NE(error_message.find("expected account-owned exploits filename"), std::string::npos);
 }
 
-TEST(AccountManagement, RemovesAccountNativeCharacterFile)
+TEST_F(AccountManagement, RemovesAccountNativeCharacterFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2175,7 +2184,7 @@ TEST(AccountManagement, RemovesAccountNativeCharacterFile)
     EXPECT_FALSE(account::account_character_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message));
 }
 
-TEST(AccountManagement, MigratesLegacyCharacterFilesIntoAccountNativeAssetsWithoutPersistingSnapshotFile)
+TEST_F(AccountManagement, MigratesLegacyCharacterFilesIntoAccountNativeAssetsWithoutPersistingSnapshotFile)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2209,7 +2218,7 @@ TEST(AccountManagement, MigratesLegacyCharacterFilesIntoAccountNativeAssetsWitho
         << "Expected successful migration to rely on account-native assets without persisting a transitional snapshot file.";
 }
 
-TEST(AccountManagement, KeepsTheIndexCurrentWhenRetiringALegacyAccountFileFails)
+TEST_F(AccountManagement, KeepsTheIndexCurrentWhenRetiringALegacyAccountFileFails)
 {
     // The upsert sits after the two post-rename retirement steps, so a retirement that fails leaves
     // account.json in place on disk with the index still holding the pre-write keys. A character
@@ -2253,7 +2262,7 @@ TEST(AccountManagement, KeepsTheIndexCurrentWhenRetiringALegacyAccountFileFails)
         << "account.json is on disk after the rename, so the index must reflect it even though retirement failed";
 }
 
-TEST(AccountManagement, RefusesToWriteWhenALegacyRecordItWouldRetireCannotBeRead)
+TEST_F(AccountManagement, RefusesToWriteWhenALegacyRecordItWouldRetireCannotBeRead)
 {
     // legacy_flat_path is composed from the ACCOUNT NAME, and a fresh registration derives that name
     // from the email -- so "bob@example.com" derives "bob" and lands exactly on an existing
@@ -2285,7 +2294,7 @@ TEST(AccountManagement, RefusesToWriteWhenALegacyRecordItWouldRetireCannotBeRead
         << "the unreadable record is the only copy, and must survive untouched";
 }
 
-TEST(AccountManagement, RefusesRegistrationWhoseEmailLivesInsideAnUnreadableAccountBucket)
+TEST_F(AccountManagement, RefusesRegistrationWhoseEmailLivesInsideAnUnreadableAccountBucket)
 {
     // A bucket directory that will not opendir() is filed by the boot walk as ONE quarantined record
     // keyed by the bucket's own path -- the accounts inside it are never seen, so none of their
@@ -2311,7 +2320,7 @@ TEST(AccountManagement, RefusesRegistrationWhoseEmailLivesInsideAnUnreadableAcco
         << "registering into a bucket the server cannot read writes a new account over a real player's record";
 }
 
-TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedActCarriesTheCrashFlag)
+TEST_F(AccountManagement, MigratesLegacyCharacterWhosePersistedActCarriesTheCrashFlag)
 {
     // PLR_CRASH is set on any inventory change (handler.cpp) and persisted by the legacy saver, but
     // the JSON loader masks it off by design. Conversion must still be allowed: on live data 3260 of
@@ -2338,7 +2347,7 @@ TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedActCarriesTheCrashF
         << "Expected a character carrying the transient PLR_CRASH bit to convert. Error: " << error_message;
 }
 
-TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedBadPasswordCountIsNonZero)
+TEST_F(AccountManagement, MigratesLegacyCharacterWhosePersistedBadPasswordCountIsNonZero)
 {
     // specials2.bad_pws is persisted by the legacy saver (db.cpp) but never serialized to JSON. A
     // failed login increments it and saves, so this is the ordinary on-disk state of exactly the
@@ -2365,7 +2374,7 @@ TEST(AccountManagement, MigratesLegacyCharacterWhosePersistedBadPasswordCountIsN
         << "Expected a character with a non-zero bad-password count to convert. Error: " << error_message;
 }
 
-TEST(AccountManagement, MigratesLegacyCharacterWithJunkInGeneralProfessionSlot)
+TEST_F(AccountManagement, MigratesLegacyCharacterWithJunkInGeneralProfessionSlot)
 {
     // profs arrays are [MAX_PROFS + 1]; slot 0 is PROF_GENERAL, which no accessor reads. The legacy
     // saver still writes it, and 53 live characters carry junk there (Li: prof_coef 0 = 1; others
@@ -2412,7 +2421,7 @@ void write_legacy_character_with_support_files(const std::string& root, const ch
 
 } // namespace
 
-TEST(AccountManagement, MigratesLegacyCharacterCarryingFlagBitsCharacterJsonCannotName)
+TEST_F(AccountManagement, MigratesLegacyCharacterCarryingFlagBitsCharacterJsonCannotName)
 {
     // Character JSON stores act/pref as NAMED flags. PRF_NOTHING2 (pref bit 6) has no name and no
     // reader; 58 live characters carry it (Alanis, Alkar, Turgon, ...), and one (Dandelo) carries
@@ -2431,7 +2440,7 @@ TEST(AccountManagement, MigratesLegacyCharacterCarryingFlagBitsCharacterJsonCann
         << "Expected flag bits with no name in character JSON not to block conversion. Error: " << error_message;
 }
 
-TEST(AccountManagement, MigratesLegacyCharacterWithGapsBetweenAffectSlots)
+TEST_F(AccountManagement, MigratesLegacyCharacterWithGapsBetweenAffectSlots)
 {
     // Character JSON keeps only non-empty affects and reloads them packed from slot 0, so a legacy
     // file with an empty slot before a used one comes back in different positions. The game loads
@@ -2466,7 +2475,7 @@ TEST(AccountManagement, MigratesLegacyCharacterWithGapsBetweenAffectSlots)
         << "Expected gaps between affect slots not to block conversion. Error: " << error_message;
 }
 
-TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHostData)
+TEST_F(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHostData)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2489,7 +2498,7 @@ TEST(AccountManagement, PersistedMigrationSnapshotOmitsLegacyPlayerPasswordAndHo
         << "Routine migration should no longer persist a transitional snapshot file at all.";
 }
 
-TEST(AccountManagement, ReadingLegacyMigrationSnapshotScrubsPersistedPlayerPayloadFromDisk)
+TEST_F(AccountManagement, ReadingLegacyMigrationSnapshotScrubsPersistedPlayerPayloadFromDisk)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2533,7 +2542,7 @@ TEST(AccountManagement, ReadingLegacyMigrationSnapshotScrubsPersistedPlayerPaylo
     EXPECT_EQ(scrubbed_snapshot_json.find("legacy.example.org"), std::string::npos);
 }
 
-TEST(AccountManagement, ReportsMissingRequiredPlayerFileDuringMigration)
+TEST_F(AccountManagement, ReportsMissingRequiredPlayerFileDuringMigration)
 {
     TemporaryDirectory temp_directory;
     account::CharacterMigrationData migration;
@@ -2544,7 +2553,7 @@ TEST(AccountManagement, ReportsMissingRequiredPlayerFileDuringMigration)
     EXPECT_FALSE(error_message.empty());
 }
 
-TEST(AccountManagement, MigratesLegacyCharacterByDefaultFileLayout)
+TEST_F(AccountManagement, MigratesLegacyCharacterByDefaultFileLayout)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2572,7 +2581,7 @@ TEST(AccountManagement, MigratesLegacyCharacterByDefaultFileLayout)
     EXPECT_EQ(migrated_character.profs.specialization, legacy_character.profs.specialization);
 }
 
-TEST(AccountManagement, MigratesVersionedLegacyPlayerFilesForFreshCharacters)
+TEST_F(AccountManagement, MigratesVersionedLegacyPlayerFilesForFreshCharacters)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2594,7 +2603,7 @@ TEST(AccountManagement, MigratesVersionedLegacyPlayerFilesForFreshCharacters)
     EXPECT_EQ(decoded_player_text, expected_player_text);
 }
 
-TEST(AccountManagement, PrefersVersionedLegacyPlayerFilesOverStaleFlatFilesDuringMigration)
+TEST_F(AccountManagement, PrefersVersionedLegacyPlayerFilesOverStaleFlatFilesDuringMigration)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2632,7 +2641,7 @@ TEST(AccountManagement, PrefersVersionedLegacyPlayerFilesOverStaleFlatFilesDurin
         << "Expected migration to retire the stale flat legacy player file once the versioned save won precedence.";
 }
 
-TEST(AccountManagement, MigratesVersionedLegacyPlayerFileEvenWhenStaleFlatFileIsUnreadable)
+TEST_F(AccountManagement, MigratesVersionedLegacyPlayerFileEvenWhenStaleFlatFileIsUnreadable)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2663,7 +2672,7 @@ TEST(AccountManagement, MigratesVersionedLegacyPlayerFileEvenWhenStaleFlatFileIs
     EXPECT_NE(stat(account::legacy_player_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, RejectsAmbiguousVersionedLegacyPlayerFilesDuringMigration)
+TEST_F(AccountManagement, RejectsAmbiguousVersionedLegacyPlayerFilesDuringMigration)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2684,7 +2693,7 @@ TEST(AccountManagement, RejectsAmbiguousVersionedLegacyPlayerFilesDuringMigratio
     EXPECT_NE(error_message.find("Multiple versioned legacy player files matched"), std::string::npos);
 }
 
-TEST(AccountManagement, IgnoresStrayNonVersionedPlayerArtifactsWhenResolvingFreshCharacterSaves)
+TEST_F(AccountManagement, IgnoresStrayNonVersionedPlayerArtifactsWhenResolvingFreshCharacterSaves)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2703,7 +2712,7 @@ TEST(AccountManagement, IgnoresStrayNonVersionedPlayerArtifactsWhenResolvingFres
     EXPECT_EQ(migration.player_file.source_path, versioned_player_path);
 }
 
-TEST(AccountManagement, TreatsMissingOptionalLegacyFilesAsAbsentSnapshots)
+TEST_F(AccountManagement, TreatsMissingOptionalLegacyFilesAsAbsentSnapshots)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2721,7 +2730,7 @@ TEST(AccountManagement, TreatsMissingOptionalLegacyFilesAsAbsentSnapshots)
     EXPECT_FALSE(migration.exploits_file.present);
 }
 
-TEST(AccountManagement, EnsuresCharacterMigrationByCreatingMissingSnapshotFromLegacyFiles)
+TEST_F(AccountManagement, EnsuresCharacterMigrationByCreatingMissingSnapshotFromLegacyFiles)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2746,7 +2755,7 @@ TEST(AccountManagement, EnsuresCharacterMigrationByCreatingMissingSnapshotFromLe
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, IgnoresCorruptSnapshotArtifactWhenRebuildingFromLegacyFiles)
+TEST_F(AccountManagement, IgnoresCorruptSnapshotArtifactWhenRebuildingFromLegacyFiles)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2771,7 +2780,7 @@ TEST(AccountManagement, IgnoresCorruptSnapshotArtifactWhenRebuildingFromLegacyFi
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, EnsureCharacterMigrationFailsClosedWhenOnlyCorruptSnapshotRemains)
+TEST_F(AccountManagement, EnsureCharacterMigrationFailsClosedWhenOnlyCorruptSnapshotRemains)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2793,7 +2802,7 @@ TEST(AccountManagement, EnsureCharacterMigrationFailsClosedWhenOnlyCorruptSnapsh
     EXPECT_FALSE(account::account_character_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 }
 
-TEST(AccountManagement, EnsureCharacterMigrationSucceedsWhenAuthoritativeCharacterFileExistsAndSnapshotIsCorrupt)
+TEST_F(AccountManagement, EnsureCharacterMigrationSucceedsWhenAuthoritativeCharacterFileExistsAndSnapshotIsCorrupt)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -2813,7 +2822,7 @@ TEST(AccountManagement, EnsureCharacterMigrationSucceedsWhenAuthoritativeCharact
     EXPECT_TRUE(account::account_character_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message)) << error_message;
 }
 
-TEST(AccountManagement, DecodesSnapshotContentBackIntoOriginalBytes)
+TEST_F(AccountManagement, DecodesSnapshotContentBackIntoOriginalBytes)
 {
     account::CharacterMigrationData migration;
     std::string error_message;
@@ -2826,7 +2835,7 @@ TEST(AccountManagement, DecodesSnapshotContentBackIntoOriginalBytes)
     EXPECT_EQ(contents, "legacy-player-data");
 }
 
-TEST(AccountManagement, RestoresLegacyFilesFromCharacterMigrationSnapshot)
+TEST_F(AccountManagement, RestoresLegacyFilesFromCharacterMigrationSnapshot)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -2859,7 +2868,7 @@ TEST(AccountManagement, RestoresLegacyFilesFromCharacterMigrationSnapshot)
     EXPECT_NE(stat(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, RejectsMismatchedRestoreRequestWithoutTouchingLegacyFiles)
+TEST_F(AccountManagement, RejectsMismatchedRestoreRequestWithoutTouchingLegacyFiles)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -2889,7 +2898,7 @@ TEST(AccountManagement, RejectsMismatchedRestoreRequestWithoutTouchingLegacyFile
     EXPECT_EQ(read_file_contents(account::legacy_exploits_file_path(temp_directory.path(), "aragorn")), "stale-exploit-data");
 }
 
-TEST(AccountManagement, ClearsRuntimeSupportFilesForAccountBackedPlayWithoutRewritingPlayerFile)
+TEST_F(AccountManagement, ClearsRuntimeSupportFilesForAccountBackedPlayWithoutRewritingPlayerFile)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -2916,7 +2925,7 @@ TEST(AccountManagement, ClearsRuntimeSupportFilesForAccountBackedPlayWithoutRewr
     EXPECT_NE(stat(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, RejectsClearingSupportFilesWhenSnapshotIdentityDoesNotMatchSelection)
+TEST_F(AccountManagement, RejectsClearingSupportFilesWhenSnapshotIdentityDoesNotMatchSelection)
 {
     TemporaryDirectory temp_directory;
     account::CharacterMigrationData migration;
@@ -2928,7 +2937,7 @@ TEST(AccountManagement, RejectsClearingSupportFilesWhenSnapshotIdentityDoesNotMa
     EXPECT_NE(error_message.find("did not match"), std::string::npos);
 }
 
-TEST(AccountManagement, RefreshesSnapshotForLinkedCharactersUsingCurrentLegacyFiles)
+TEST_F(AccountManagement, RefreshesSnapshotForLinkedCharactersUsingCurrentLegacyFiles)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -2948,7 +2957,7 @@ TEST(AccountManagement, RefreshesSnapshotForLinkedCharactersUsingCurrentLegacyFi
     EXPECT_TRUE(migration.player_file.present);
 }
 
-TEST(AccountManagement, MigrationWritesAccountNativeObjectFileWhenLegacyObjectDataIsValid)
+TEST_F(AccountManagement, MigrationWritesAccountNativeObjectFileWhenLegacyObjectDataIsValid)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -2994,7 +3003,7 @@ TEST(AccountManagement, MigrationWritesAccountNativeObjectFileWhenLegacyObjectDa
     EXPECT_EQ(schema_version, objects_json::OBJECTS_SCHEMA_VERSION);
 }
 
-TEST(AccountManagement, MigrationAcceptsLegacyObjectFileWithoutFollowerSection)
+TEST_F(AccountManagement, MigrationAcceptsLegacyObjectFileWithoutFollowerSection)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3037,7 +3046,7 @@ TEST(AccountManagement, MigrationAcceptsLegacyObjectFileWithoutFollowerSection)
     EXPECT_TRUE(loaded.followers.empty());
 }
 
-TEST(AccountManagement, MigrationRejectsPartialFollowerSectionAndCleansUpAccountNativeOutputs)
+TEST_F(AccountManagement, MigrationRejectsPartialFollowerSectionAndCleansUpAccountNativeOutputs)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3134,7 +3143,7 @@ void expect_legacy_sources_untouched(const LegacySourceFiles& sources)
 
 } // namespace
 
-TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheObjectFileCannotBeWritten)
+TEST_F(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheObjectFileCannotBeWritten)
 {
     // The rule, at the failure point nothing covered: not a malformed source this time but a write
     // that will not land. By then the character file has already been written, so "stop and leave
@@ -3162,7 +3171,7 @@ TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheObjectFileCa
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 }
 
-TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheCharacterFileCannotBeWritten)
+TEST_F(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheCharacterFileCannotBeWritten)
 {
     // The first output written, and the one whose failure path deliberately does no cleanup --
     // safe only while its write is the last thing that step does. Pinned here so a later edit that
@@ -3189,7 +3198,7 @@ TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheCharacterFil
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", nullptr));
 }
 
-TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheExploitFileCannotBeWritten)
+TEST_F(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheExploitFileCannotBeWritten)
 {
     // The last output written, so by this point both of the others are on disk and both have to go
     // back. Same rule, one step later.
@@ -3217,7 +3226,7 @@ TEST(AccountManagement, MigrationLeavesTheLegacySourcesIntactWhenTheExploitFileC
         << "nor the object file";
 }
 
-TEST(AccountManagement, MigrationWritesDefaultAccountNativeObjectFileWhenLegacyObjectDataIsMissing)
+TEST_F(AccountManagement, MigrationWritesDefaultAccountNativeObjectFileWhenLegacyObjectDataIsMissing)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3242,7 +3251,7 @@ TEST(AccountManagement, MigrationWritesDefaultAccountNativeObjectFileWhenLegacyO
     EXPECT_TRUE(loaded.followers.empty());
 }
 
-TEST(AccountManagement, MigrationWritesAccountNativeExploitFileWhenLegacyExploitDataIsValid)
+TEST_F(AccountManagement, MigrationWritesAccountNativeExploitFileWhenLegacyExploitDataIsValid)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3271,7 +3280,7 @@ TEST(AccountManagement, MigrationWritesAccountNativeExploitFileWhenLegacyExploit
     EXPECT_EQ(loaded_records[0].iIntParam, 20);
 }
 
-TEST(AccountManagement, MigrationRetiresLegacyFilesAfterSuccessfulAccountNativeWrite)
+TEST_F(AccountManagement, MigrationRetiresLegacyFilesAfterSuccessfulAccountNativeWrite)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3304,7 +3313,7 @@ TEST(AccountManagement, MigrationRetiresLegacyFilesAfterSuccessfulAccountNativeW
     EXPECT_FALSE(expected_player_text.empty());
 }
 
-TEST(AccountManagement, MigrationFailsClosedWhenLegacyFileRetirementFails)
+TEST_F(AccountManagement, MigrationFailsClosedWhenLegacyFileRetirementFails)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3339,7 +3348,7 @@ TEST(AccountManagement, MigrationFailsClosedWhenLegacyFileRetirementFails)
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message));
 }
 
-TEST(AccountManagement, MigrationCleansUpAccountNativeOutputsWhenStaleFlatRetirementFails)
+TEST_F(AccountManagement, MigrationCleansUpAccountNativeOutputsWhenStaleFlatRetirementFails)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -3380,7 +3389,7 @@ TEST(AccountManagement, MigrationCleansUpAccountNativeOutputsWhenStaleFlatRetire
     EXPECT_EQ(stat(stale_flat_path.c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, MigrationRestoresRetiredFilesWhenExploitRetirementFails)
+TEST_F(AccountManagement, MigrationRestoresRetiredFilesWhenExploitRetirementFails)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3420,7 +3429,7 @@ TEST(AccountManagement, MigrationRestoresRetiredFilesWhenExploitRetirementFails)
     EXPECT_FALSE(account::account_exploit_file_exists(temp_directory.path(), "alpha-admin", "aragorn", &error_message));
 }
 
-TEST(AccountManagement, MigrationKeepsItsOutputsWhenItCannotPutTheLegacyOriginalsBack)
+TEST_F(AccountManagement, MigrationKeepsItsOutputsWhenItCannotPutTheLegacyOriginalsBack)
 {
     // The other way a conversion could end with no copy of the character. When retirement fails
     // part-way it restores the legacy files it had already deleted -- but restore_retired_legacy_files
@@ -3465,7 +3474,7 @@ TEST(AccountManagement, MigrationKeepsItsOutputsWhenItCannotPutTheLegacyOriginal
         << "neither " << player_path << " nor the account-native character file is left";
 }
 
-TEST(AccountManagement, MigrationWritesDefaultAccountNativeExploitFileWhenLegacyExploitDataIsMissing)
+TEST_F(AccountManagement, MigrationWritesDefaultAccountNativeExploitFileWhenLegacyExploitDataIsMissing)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3485,7 +3494,7 @@ TEST(AccountManagement, MigrationWritesDefaultAccountNativeExploitFileWhenLegacy
     EXPECT_TRUE(loaded_records.empty());
 }
 
-TEST(AccountManagement, MigrationFailsWhenLegacyExploitDataIsMalformed)
+TEST_F(AccountManagement, MigrationFailsWhenLegacyExploitDataIsMalformed)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3504,7 +3513,7 @@ TEST(AccountManagement, MigrationFailsWhenLegacyExploitDataIsMalformed)
     EXPECT_NE(error_message.find("Exploit history bytes are malformed"), std::string::npos);
 }
 
-TEST(AccountManagement, MigrationFailsWhenLegacyObjectDataIsMalformed)
+TEST_F(AccountManagement, MigrationFailsWhenLegacyObjectDataIsMalformed)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3523,7 +3532,7 @@ TEST(AccountManagement, MigrationFailsWhenLegacyObjectDataIsMalformed)
     EXPECT_NE(error_message.find("Truncated objects data"), std::string::npos);
 }
 
-TEST(AccountManagement, RestoredSnapshotReflectsRefreshedLinkedCharacterState)
+TEST_F(AccountManagement, RestoredSnapshotReflectsRefreshedLinkedCharacterState)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3544,7 +3553,7 @@ TEST(AccountManagement, RestoredSnapshotReflectsRefreshedLinkedCharacterState)
     EXPECT_EQ(read_file_contents(account::legacy_player_file_path(temp_directory.path(), "aragorn")), expected_player_text);
 }
 
-TEST(AccountManagement, RefreshingSnapshotPreservesExistingExploitHistoryWhenRuntimeExploitFileIsAbsent)
+TEST_F(AccountManagement, RefreshingSnapshotPreservesExistingExploitHistoryWhenRuntimeExploitFileIsAbsent)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3580,7 +3589,7 @@ TEST(AccountManagement, RefreshingSnapshotPreservesExistingExploitHistoryWhenRun
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, RefreshingSnapshotForUnlinkedCharacterSucceedsWithoutWritingMigration)
+TEST_F(AccountManagement, RefreshingSnapshotForUnlinkedCharacterSucceedsWithoutWritingMigration)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
@@ -3597,7 +3606,7 @@ TEST(AccountManagement, RefreshingSnapshotForUnlinkedCharacterSucceedsWithoutWri
     EXPECT_NE(stat(account::account_character_snapshot_path(temp_directory.path(), "alpha-admin", "aragorn").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, RefusesToOverwriteCorruptExistingAccountFiles)
+TEST_F(AccountManagement, RefusesToOverwriteCorruptExistingAccountFiles)
 {
     TemporaryDirectory temp_directory;
     ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
@@ -3610,7 +3619,7 @@ TEST(AccountManagement, RefusesToOverwriteCorruptExistingAccountFiles)
     EXPECT_NE(error_message.find("could not be read safely"), std::string::npos);
 }
 
-TEST(AccountManagement, RoundTripsFailedLoginMetadataThroughAccountJson)
+TEST_F(AccountManagement, RoundTripsFailedLoginMetadataThroughAccountJson)
 {
     account::AccountData original_account = make_account();
     original_account.failed_login_count = 3;
@@ -3628,7 +3637,7 @@ TEST(AccountManagement, RoundTripsFailedLoginMetadataThroughAccountJson)
     EXPECT_EQ(parsed_account.failed_login_last_host, "host.example.com");
 }
 
-TEST(AccountManagement, DefaultsFailedLoginMetadataWhenAccountJsonOmitsIt)
+TEST_F(AccountManagement, DefaultsFailedLoginMetadataWhenAccountJsonOmitsIt)
 {
     const std::string legacy_json = "{\n"
                                     "  \"version\": 1,\n"
@@ -3645,7 +3654,7 @@ TEST(AccountManagement, DefaultsFailedLoginMetadataWhenAccountJsonOmitsIt)
     EXPECT_TRUE(parsed_account.failed_login_last_host.empty());
 }
 
-TEST(AccountManagement, RecordsFailedLoginAttemptsAgainstTheStoredAccount)
+TEST_F(AccountManagement, RecordsFailedLoginAttemptsAgainstTheStoredAccount)
 {
     TemporaryDirectory temp_directory;
     account::AccountData created_account;
@@ -3662,7 +3671,7 @@ TEST(AccountManagement, RecordsFailedLoginAttemptsAgainstTheStoredAccount)
     EXPECT_EQ(stored_account.failed_login_last_host, "second.example.com");
 }
 
-TEST(AccountManagement, StripsUnprintableAndOverlongHostsWhenRecordingFailedLogins)
+TEST_F(AccountManagement, StripsUnprintableAndOverlongHostsWhenRecordingFailedLogins)
 {
     TemporaryDirectory temp_directory;
     account::AccountData created_account;
@@ -3682,7 +3691,7 @@ TEST(AccountManagement, StripsUnprintableAndOverlongHostsWhenRecordingFailedLogi
     EXPECT_EQ(stored_account.failed_login_last_host.substr(0, 11), "evil[2Jhost");
 }
 
-TEST(AccountManagement, IgnoresFailedLoginAttemptsForAddressesWithoutAnAccount)
+TEST_F(AccountManagement, IgnoresFailedLoginAttemptsForAddressesWithoutAnAccount)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -3693,7 +3702,7 @@ TEST(AccountManagement, IgnoresFailedLoginAttemptsForAddressesWithoutAnAccount)
     EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, ClearsFailedLoginMetadataAfterASuccessfulLogin)
+TEST_F(AccountManagement, ClearsFailedLoginMetadataAfterASuccessfulLogin)
 {
     TemporaryDirectory temp_directory;
     account::AccountData created_account;
@@ -3710,7 +3719,7 @@ TEST(AccountManagement, ClearsFailedLoginMetadataAfterASuccessfulLogin)
     EXPECT_TRUE(stored_account.failed_login_last_host.empty());
 }
 
-TEST(AccountManagement, FormatsFailedLoginNoticeWithCountAndMostRecentAttempt)
+TEST_F(AccountManagement, FormatsFailedLoginNoticeWithCountAndMostRecentAttempt)
 {
     account::AccountData account_data;
     account_data.failed_login_count = 3;
@@ -3722,7 +3731,7 @@ TEST(AccountManagement, FormatsFailedLoginNoticeWithCountAndMostRecentAttempt)
     EXPECT_NE(notice.find("Most recent: 2023-11-14 22:55:00 UTC from host.example.com"), std::string::npos);
 }
 
-TEST(AccountManagement, FormatsSingularFailedLoginNotice)
+TEST_F(AccountManagement, FormatsSingularFailedLoginNotice)
 {
     account::AccountData account_data;
     account_data.failed_login_count = 1;
@@ -3734,7 +3743,7 @@ TEST(AccountManagement, FormatsSingularFailedLoginNotice)
     EXPECT_EQ(notice.find("ATTEMPTS"), std::string::npos);
 }
 
-TEST(AccountManagement, OmitsTheFailedLoginNoticeWhenThereAreNoFailures)
+TEST_F(AccountManagement, OmitsTheFailedLoginNoticeWhenThereAreNoFailures)
 {
     account::AccountData account_data;
     account_data.failed_login_count = 0;
@@ -3744,7 +3753,7 @@ TEST(AccountManagement, OmitsTheFailedLoginNoticeWhenThereAreNoFailures)
     EXPECT_TRUE(account::format_account_login_failure_notice(account_data).empty());
 }
 
-TEST(AccountManagement, OmitsTheHostFromTheFailedLoginNoticeWhenItIsUnknown)
+TEST_F(AccountManagement, OmitsTheHostFromTheFailedLoginNoticeWhenItIsUnknown)
 {
     account::AccountData account_data;
     account_data.failed_login_count = 2;
@@ -3755,7 +3764,7 @@ TEST(AccountManagement, OmitsTheHostFromTheFailedLoginNoticeWhenItIsUnknown)
     EXPECT_EQ(notice.find(" from "), std::string::npos);
 }
 
-TEST(AccountManagement, RoundTripsPasswordResetCodeMetadataThroughAccountJson)
+TEST_F(AccountManagement, RoundTripsPasswordResetCodeMetadataThroughAccountJson)
 {
     account::AccountData original_account = make_account();
     original_account.password_reset_code_hash = "reset-code-hash";
@@ -3775,7 +3784,7 @@ TEST(AccountManagement, RoundTripsPasswordResetCodeMetadataThroughAccountJson)
     EXPECT_EQ(parsed_account.password_reset_attempt_count, 2);
 }
 
-TEST(AccountManagement, DefaultsPasswordResetCodeMetadataWhenAccountJsonOmitsIt)
+TEST_F(AccountManagement, DefaultsPasswordResetCodeMetadataWhenAccountJsonOmitsIt)
 {
     const std::string legacy_json = "{\n"
                                     "  \"version\": 1,\n"
@@ -3793,14 +3802,14 @@ TEST(AccountManagement, DefaultsPasswordResetCodeMetadataWhenAccountJsonOmitsIt)
     EXPECT_EQ(parsed_account.password_reset_attempt_count, 0);
 }
 
-TEST(AccountManagement, KeepsResetAndVerificationAttemptCapsUniform)
+TEST_F(AccountManagement, KeepsResetAndVerificationAttemptCapsUniform)
 {
     EXPECT_EQ(account::MAX_PASSWORD_RESET_ATTEMPTS, account::MAX_EMAIL_VERIFICATION_ATTEMPTS);
     EXPECT_EQ(account::PASSWORD_RESET_WINDOW_SECONDS, account::EMAIL_VERIFICATION_WINDOW_SECONDS);
     EXPECT_EQ(account::PASSWORD_RESET_RESEND_COOLDOWN_SECONDS, account::EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS);
 }
 
-TEST(AccountManagement, StartPasswordResetIgnoresAddressesWithoutAnAccount)
+TEST_F(AccountManagement, StartPasswordResetIgnoresAddressesWithoutAnAccount)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
@@ -3813,7 +3822,7 @@ TEST(AccountManagement, StartPasswordResetIgnoresAddressesWithoutAnAccount)
     EXPECT_NE(stat(account::account_file_path(temp_directory.path(), "nobody@example.com").c_str(), &file_info), 0);
 }
 
-TEST(AccountManagement, StartPasswordResetStoresAHashedCodeAndMailsIt)
+TEST_F(AccountManagement, StartPasswordResetStoresAHashedCodeAndMailsIt)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -3850,7 +3859,7 @@ TEST(AccountManagement, StartPasswordResetStoresAHashedCodeAndMailsIt)
     EXPECT_EQ(captured_mail.find(stored_account.password_reset_code_hash), std::string::npos);
 }
 
-TEST(AccountManagement, StartPasswordResetSuppressesASecondCodeInsideTheCooldown)
+TEST_F(AccountManagement, StartPasswordResetSuppressesASecondCodeInsideTheCooldown)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -3887,7 +3896,7 @@ TEST(AccountManagement, StartPasswordResetSuppressesASecondCodeInsideTheCooldown
 // real pending expiry inside the cooldown made that deadline depend on when an earlier code was
 // issued, so an attacker could tell an address with an account from one without by watching the
 // clock. Every branch must report the same clock-derived value.
-TEST(AccountManagement, StartPasswordResetReportsASyntheticExpiryInsideTheCooldown)
+TEST_F(AccountManagement, StartPasswordResetReportsASyntheticExpiryInsideTheCooldown)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -3919,7 +3928,7 @@ TEST(AccountManagement, StartPasswordResetReportsASyntheticExpiryInsideTheCooldo
     EXPECT_EQ(unknown_expiry, cooldown_expiry);
 }
 
-TEST(AccountManagement, StartPasswordResetIssuesAFreshCodeOnceTheCooldownLapses)
+TEST_F(AccountManagement, StartPasswordResetIssuesAFreshCodeOnceTheCooldownLapses)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -3946,7 +3955,7 @@ TEST(AccountManagement, StartPasswordResetIssuesAFreshCodeOnceTheCooldownLapses)
     EXPECT_EQ(after_second.password_reset_code_sent_at, past_cooldown);
 }
 
-TEST(AccountManagement, StartPasswordResetLeavesAPendingEmailVerificationCodeAlone)
+TEST_F(AccountManagement, StartPasswordResetLeavesAPendingEmailVerificationCodeAlone)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -3993,7 +4002,7 @@ std::string issue_reset_code(const std::string& root, const std::string& capture
 
 } // namespace
 
-TEST(AccountManagement, CompletePasswordResetChangesThePasswordAndClearsResetState)
+TEST_F(AccountManagement, CompletePasswordResetChangesThePasswordAndClearsResetState)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4032,7 +4041,7 @@ TEST(AccountManagement, CompletePasswordResetChangesThePasswordAndClearsResetSta
     EXPECT_TRUE(stored_account.failed_login_last_host.empty());
 }
 
-TEST(AccountManagement, CompletePasswordResetCountsWrongCodesAndInvalidatesAtTheCap)
+TEST_F(AccountManagement, CompletePasswordResetCountsWrongCodesAndInvalidatesAtTheCap)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4070,7 +4079,7 @@ TEST(AccountManagement, CompletePasswordResetCountsWrongCodesAndInvalidatesAtThe
 // Clearing password_reset_code_sent_at at the cap switched the resend cooldown off, so five wrong
 // guesses bought an immediate fresh code -- unlimited mail to a known address, and a victim who
 // could never finish a reset because each code they received was killed by the next five guesses.
-TEST(AccountManagement, StartPasswordResetStillHonoursTheCooldownAfterTheAttemptCap)
+TEST_F(AccountManagement, StartPasswordResetStillHonoursTheCooldownAfterTheAttemptCap)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4117,7 +4126,7 @@ TEST(AccountManagement, StartPasswordResetStillHonoursTheCooldownAfterTheAttempt
     EXPECT_EQ(after_cooldown.password_reset_attempt_count, 0);
 }
 
-TEST(AccountManagement, CompletePasswordResetRejectsAnExpiredCode)
+TEST_F(AccountManagement, CompletePasswordResetRejectsAnExpiredCode)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4141,14 +4150,14 @@ TEST(AccountManagement, CompletePasswordResetRejectsAnExpiredCode)
     EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
 }
 
-TEST(AccountManagement, CompletePasswordResetRejectsAddressesWithoutAnAccount)
+TEST_F(AccountManagement, CompletePasswordResetRejectsAddressesWithoutAnAccount)
 {
     TemporaryDirectory temp_directory;
     std::string error_message;
     EXPECT_FALSE(account::complete_password_reset(temp_directory.path(), "nobody@example.com", "000000", "BrandNew1", 1700002000, nullptr, &error_message));
 }
 
-TEST(AccountManagement, CompletePasswordResetRejectsAnEmailVerificationCode)
+TEST_F(AccountManagement, CompletePasswordResetRejectsAnEmailVerificationCode)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4168,7 +4177,7 @@ TEST(AccountManagement, CompletePasswordResetRejectsAnEmailVerificationCode)
     EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
 }
 
-TEST(AccountManagement, CompletePasswordResetRejectsAPasswordFailingPolicy)
+TEST_F(AccountManagement, CompletePasswordResetRejectsAPasswordFailingPolicy)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4193,7 +4202,7 @@ TEST(AccountManagement, CompletePasswordResetRejectsAPasswordFailingPolicy)
     EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
 }
 
-TEST(AccountManagement, CompletePasswordResetChecksTheCodeBeforeThePasswordPolicy)
+TEST_F(AccountManagement, CompletePasswordResetChecksTheCodeBeforeThePasswordPolicy)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4221,7 +4230,7 @@ TEST(AccountManagement, CompletePasswordResetChecksTheCodeBeforeThePasswordPolic
     EXPECT_TRUE(account::verify_password("ValidPass1", stored_account.password_hash));
 }
 
-TEST(AccountManagement, VerifyPasswordResetCodeAcceptsWithoutConsumingTheCode)
+TEST_F(AccountManagement, VerifyPasswordResetCodeAcceptsWithoutConsumingTheCode)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -4248,7 +4257,7 @@ TEST(AccountManagement, VerifyPasswordResetCodeAcceptsWithoutConsumingTheCode)
     EXPECT_TRUE(account::complete_password_reset(root, "player@example.com", reset_code, "BrandNew1", 1700002100, nullptr, &error_message)) << error_message;
 }
 
-TEST(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompletingCall)
+TEST_F(AccountManagement, VerifyPasswordResetCodeCountsWrongCodesLikeTheCompletingCall)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -5040,7 +5049,7 @@ TEST(RosterSortStringConversion, NullOutputPointerIsRejected)
     EXPECT_FALSE(account::roster_sort_from_string("name", nullptr));
 }
 
-TEST(AccountManagement, RosterSortRoundTripsThroughAccountJson)
+TEST_F(AccountManagement, RosterSortRoundTripsThroughAccountJson)
 {
     account::AccountData account_data = make_account();
     account_data.roster_sort = "level";
@@ -5056,7 +5065,7 @@ TEST(AccountManagement, RosterSortRoundTripsThroughAccountJson)
 
 // Existing account files predate this field. They must load and fall back to insertion order,
 // which is why no schema-version bump or migration is needed.
-TEST(AccountManagement, AccountJsonWithoutRosterSortLoadsWithInsertionOrder)
+TEST_F(AccountManagement, AccountJsonWithoutRosterSortLoadsWithInsertionOrder)
 {
     account::AccountData account_data = make_account();
     std::string json = account::serialize_account_to_json(account_data);
@@ -5076,7 +5085,7 @@ TEST(AccountManagement, AccountJsonWithoutRosterSortLoadsWithInsertionOrder)
     EXPECT_EQ(sort, account::RosterSort::Account);
 }
 
-TEST(AccountManagement, WriteAccountFileIndexesTheRecord)
+TEST_F(AccountManagement, WriteAccountFileIndexesTheRecord)
 {
     account_index::clear();
 
@@ -5098,7 +5107,7 @@ TEST(AccountManagement, WriteAccountFileIndexesTheRecord)
     account_index::clear();
 }
 
-TEST(AccountManagement, WriteAccountFileIndexesNewlyLinkedCharacters)
+TEST_F(AccountManagement, WriteAccountFileIndexesNewlyLinkedCharacters)
 {
     account_index::clear();
 
@@ -5117,7 +5126,7 @@ TEST(AccountManagement, WriteAccountFileIndexesNewlyLinkedCharacters)
     account_index::clear();
 }
 
-TEST(AccountManagement, AWriteRejectedBeforeAnyFileWorkLeavesTheIndexAlone)
+TEST_F(AccountManagement, AWriteRejectedBeforeAnyFileWorkLeavesTheIndexAlone)
 {
     account_index::clear();
 
@@ -5137,7 +5146,7 @@ TEST(AccountManagement, AWriteRejectedBeforeAnyFileWorkLeavesTheIndexAlone)
     account_index::clear();
 }
 
-TEST(AccountManagement, AWriteThatFailsAfterReachingDiskLeavesTheIndexAlone)
+TEST_F(AccountManagement, AWriteThatFailsAfterReachingDiskLeavesTheIndexAlone)
 {
     // The companion to the test above, and the one that exercises the ordering that matters: this
     // write creates the account/bucket directories and opens its temp file before failing on the
@@ -5191,7 +5200,7 @@ std::string blank_out_stored_email(const std::string& account_path)
     return account_json;
 }
 
-TEST(AccountManagement, RefusesToWriteACharacterFileIntoTheInvalidAccountSentinel)
+TEST_F(AccountManagement, RefusesToWriteACharacterFileIntoTheInvalidAccountSentinel)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -5219,7 +5228,7 @@ TEST(AccountManagement, RefusesToWriteACharacterFileIntoTheInvalidAccountSentine
         << "the invalid-account sentinel directory must never be created";
 }
 
-TEST(AccountManagement, RefusesToWriteObjectAndExploitFilesIntoTheInvalidAccountSentinel)
+TEST_F(AccountManagement, RefusesToWriteObjectAndExploitFilesIntoTheInvalidAccountSentinel)
 {
     // The other write paths that compose a destination from the same unresolvable key. Checked
     // because "check whether the sentinel can be reached from any other write path" is the half of
@@ -5243,7 +5252,7 @@ TEST(AccountManagement, RefusesToWriteObjectAndExploitFilesIntoTheInvalidAccount
     EXPECT_NE(stat((root + "/accounts/__invalid_account__").c_str(), &sentinel_info), 0);
 }
 
-TEST(AccountManagement, IdentifiesTheInvalidAccountSentinelWhereverItAppears)
+TEST_F(AccountManagement, IdentifiesTheInvalidAccountSentinelWhereverItAppears)
 {
     EXPECT_TRUE(account::is_invalid_account_storage_directory("./accounts/__invalid_account__"));
     EXPECT_TRUE(account::is_invalid_account_storage_directory("/srv/rots/lib/accounts/__invalid_account__"));
@@ -5275,7 +5284,7 @@ std::size_t count_open_descriptors()
     return open_count;
 }
 
-TEST(AccountManagement, ARefusedAccountWriteLeaksNoDescriptorAndLeavesNoTempFile)
+TEST_F(AccountManagement, ARefusedAccountWriteLeaksNoDescriptorAndLeavesNoTempFile)
 {
     TemporaryDirectory temp_directory;
     const std::string root = temp_directory.path();
@@ -5306,7 +5315,7 @@ TEST(AccountManagement, ARefusedAccountWriteLeaksNoDescriptorAndLeavesNoTempFile
         << "write_account_file leaked a descriptor per refused write";
 }
 
-TEST(AccountManagement, ARefusedWriteOverAnotherAccountsPathLeaksNoDescriptorEither)
+TEST_F(AccountManagement, ARefusedWriteOverAnotherAccountsPathLeaksNoDescriptorEither)
 {
     // The second early return: the destination parses fine but belongs to a different account.
     TemporaryDirectory temp_directory;
@@ -5346,7 +5355,7 @@ bool path_exists_for_test(const std::string& path)
 // If the conversion loses something, the original is already gone. These pin the guard that reads
 // the written file back and refuses before anything is retired.
 
-TEST(AccountManagement, RefusesAConversionWhoseWrittenFileCannotBeReadBack)
+TEST_F(AccountManagement, RefusesAConversionWhoseWrittenFileCannotBeReadBack)
 {
     // Not a contrived fault: skills are keyed by NAME in the character JSON and the skill table has
     // duplicate names -- indices 125 and 126 are both "trash" (consts.cpp:587-588). A character with
@@ -5388,7 +5397,7 @@ TEST(AccountManagement, RefusesAConversionWhoseWrittenFileCannotBeReadBack)
     EXPECT_FALSE(account::account_has_character(account_data, "aragorn"));
 }
 
-TEST(AccountManagement, StillConvertsACharacterThatSurvivesTheRoundTrip)
+TEST_F(AccountManagement, StillConvertsACharacterThatSurvivesTheRoundTrip)
 {
     // The guard must not refuse ordinary characters -- if it did, it would close the only route onto
     // the account system.
@@ -5410,7 +5419,7 @@ TEST(AccountManagement, StillConvertsACharacterThatSurvivesTheRoundTrip)
     EXPECT_TRUE(account::account_has_character(linked_account, "aragorn"));
 }
 
-TEST(AccountManagement, AFailedConversionNeverLeavesACharacterWithNoCopyAtAll)
+TEST_F(AccountManagement, AFailedConversionNeverLeavesACharacterWithNoCopyAtAll)
 {
     // The conversion deletes the legacy originals and then retires its own transitional
     // <name>.migration.json. If that last step fails, the failure path used to delete the
@@ -5463,7 +5472,7 @@ TEST(AccountManagement, AFailedConversionNeverLeavesACharacterWithNoCopyAtAll)
         << "a converted character must be linked to the account, not left orphaned beside it";
 }
 
-TEST(AccountManagement, RefusesRegistrationForAnAddressWhoseIndexedRecordWillNotRead)
+TEST_F(AccountManagement, RefusesRegistrationForAnAddressWhoseIndexedRecordWillNotRead)
 {
     // The write-time occupancy check reads final_path, which is always the DIRECTORY layout. A legacy
     // flat record that parsed at boot and became unreadable afterwards is therefore never consulted:
@@ -5557,7 +5566,7 @@ std::string read_whole(const std::string& path)
 
 } // namespace
 
-TEST(AccountManagement, RenamingALinkedCharacterMovesItsFilesAndRewritesTheAccount)
+TEST_F(AccountManagement, RenamingALinkedCharacterMovesItsFilesAndRewritesTheAccount)
 {
     TemporaryDirectory temp_directory;
     account::AccountData account_data;
@@ -5613,7 +5622,7 @@ std::string plant_unretirable_legacy_record(const std::string& root, const std::
 
 } // namespace
 
-TEST(AccountManagement, RenamingALinkedCharacterStandsWhenRetiringALegacyRecordFails)
+TEST_F(AccountManagement, RenamingALinkedCharacterStandsWhenRetiringALegacyRecordFails)
 {
     // The account write commits -- account.json is renamed into place, the cache is flushed and the
     // index re-derived -- and only then can a retirement std::remove fail. Reported as a failed
@@ -5649,7 +5658,7 @@ TEST(AccountManagement, RenamingALinkedCharacterStandsWhenRetiringALegacyRecordF
     EXPECT_TRUE(account::account_has_character(reread, "newname"));
 }
 
-TEST(AccountManagement, DeletingALinkedCharacterStandsWhenRetiringALegacyRecordFails)
+TEST_F(AccountManagement, DeletingALinkedCharacterStandsWhenRetiringALegacyRecordFails)
 {
     // Same post-commit bailout on the deletion path, where the undo is worse: the character files
     // were restored while account.json no longer listed the character, and db.cpp -- reading the
@@ -5681,7 +5690,7 @@ TEST(AccountManagement, DeletingALinkedCharacterStandsWhenRetiringALegacyRecordF
     EXPECT_FALSE(account::account_has_character(reread, "oldname"));
 }
 
-TEST(AccountManagement, DeletingALinkedCharacterStandsWhenAStagedFileCannotBeRemoved)
+TEST_F(AccountManagement, DeletingALinkedCharacterStandsWhenAStagedFileCannotBeRemoved)
 {
     // The staged copies are removed last, after the account write has committed. A staged path that
     // will not unlink -- here a stray directory left where the object file belongs -- was reported
@@ -5712,7 +5721,7 @@ TEST(AccountManagement, DeletingALinkedCharacterStandsWhenAStagedFileCannotBeRem
     EXPECT_FALSE(account::account_has_character(reread, "oldname"));
 }
 
-TEST(AccountManagement, RenamingALinkedCharacterOntoAnExistingNameChangesNothing)
+TEST_F(AccountManagement, RenamingALinkedCharacterOntoAnExistingNameChangesNothing)
 {
     TemporaryDirectory temp_directory;
     account::AccountData account_data;
@@ -5739,7 +5748,7 @@ TEST(AccountManagement, RenamingALinkedCharacterOntoAnExistingNameChangesNothing
     EXPECT_TRUE(account::account_has_character(reread, "taken"));
 }
 
-TEST(AccountManagement, RenamingACharacterTheAccountDoesNotOwnIsRefused)
+TEST_F(AccountManagement, RenamingACharacterTheAccountDoesNotOwnIsRefused)
 {
     TemporaryDirectory temp_directory;
     account::AccountData account_data;
@@ -5753,7 +5762,7 @@ TEST(AccountManagement, RenamingACharacterTheAccountDoesNotOwnIsRefused)
     EXPECT_NE(error_message.find("not linked"), std::string::npos) << error_message;
 }
 
-TEST(AccountManagement, RefusesToRenameALinkedCharacterWhoseCharacterFileIsMissing)
+TEST_F(AccountManagement, RefusesToRenameALinkedCharacterWhoseCharacterFileIsMissing)
 {
     // The staged-move loop skipped any source that stat()'d ENOENT, uniformly -- including the
     // character file. That is the one condition meaning the rename cannot be carried out: all three

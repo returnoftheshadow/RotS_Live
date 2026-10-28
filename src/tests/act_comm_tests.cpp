@@ -1,6 +1,7 @@
 #include "../interpre.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -44,6 +45,7 @@ public:
             m_character.specials.alias = next_alias;
         }
         free(m_character.player.name);
+        release_cleared_character(&m_character);
     }
 
     void alias(const std::string& arguments)

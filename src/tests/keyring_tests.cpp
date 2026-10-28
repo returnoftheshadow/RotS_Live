@@ -8,6 +8,7 @@
 #include "../script.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -175,6 +176,8 @@ protected:
         object_list = m_saved_object_list;
         top_of_world = m_saved_top_of_world;
         descriptor_list = m_saved_descriptor_list;
+        release_cleared_character(&m_player);
+        release_test_descriptor(&m_descriptor);
     }
 
     /* A fresh object from the prototype with this vnum, not yet placed. */
@@ -979,6 +982,7 @@ static void add_keyring_guard(char_data& player, const char* name = "guard keyri
     static char mob_short[] = "a keyring guard";
     static char mob_long[] = "A keyring guard stands here.\n\r";
     static char mob_desc[] = "He is the guard.\n\r";
+    release_cleared_character(&mob); /* what the previous call's clear_char gave it */
     clear_char(&mob, MOB_VOID);
     mob.player.name = mob_name;
     mob.player.short_descr = mob_short;
@@ -1284,6 +1288,7 @@ TEST_F(KeyringTest, FollowerSaveKeepsHeldKeyringWeight)
 {
     char_data mob {};
     clear_char(&mob, 0);
+    ClearedCharacterRelease mob_release(&mob);
     char mob_name[] = "orc";
     mob.player.name = mob_name;
     SET_BIT(mob.specials2.act, MOB_ISNPC);
@@ -2295,6 +2300,7 @@ TEST_F(KeyringTest, OnlookerSeesKeyPutOnKeyring)
 {
     char_data watcher {};
     clear_char(&watcher, 0);
+    ClearedCharacterRelease watcher_release(&watcher);
     char watcher_name[] = "Watcher";
     watcher.player.name = watcher_name;
     watcher.player.race = RACE_HUMAN;

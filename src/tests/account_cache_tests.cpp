@@ -81,7 +81,8 @@ bool counting_owner_resolver(const std::string& root_directory, const std::strin
 }
 
 // AccountCache fixture: clears the memo maps, resets the fake-resolver state, and installs the counting
-// fakes before every case; restores the real resolvers afterward so other suites are unaffected.
+// fakes before every case; restores the real resolvers and empties the maps afterward so other suites
+// are unaffected.
 class AccountCache : public ::testing::Test {
 protected:
     void SetUp() override
@@ -101,6 +102,7 @@ protected:
     {
         account_cache::set_enabled(false); // never leak enabled state to other suites' base reads
         account_cache::set_backing_resolvers_for_testing(nullptr, nullptr);
+        account_cache::clear();
     }
 };
 
