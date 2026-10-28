@@ -3068,6 +3068,52 @@ TEST_F(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
     EXPECT_NE(saved.find("12 0 4 0 2 4512 0\n\r"), std::string::npos) << saved;
 }
 
+void new_mob(const struct char_data* character);
+void free_proto(struct char_data* character);
+
+/* The number the mob, room and zone editor tests edit. No object in SkinEditorSession's table has
+ * it, so a session gives these tests only its builder and output. */
+constexpr int EDITOR_TEST_NUMBER = 4530;
+/* shape_center_proto's field 4: the mob's detailed description. */
+constexpr int MOB_DESCRIPTION_FIELD = 4;
+
+/* Each edit of a mob's description starts from the text before it and replaces it, and leaving the
+ * editor frees the last. */
+TEST_F(DbLoader, MobEditorDescriptionEditsReplaceEachOther)
+{
+    /* Only its builder and output: the mob editor replaces temp. */
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_proto* editor = nullptr; /* free_proto frees the editor state, so it is allocated */
+    CREATE(editor, shape_proto, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    new_mob(session.builder);
+    SET_BIT(editor->flags, SHAPE_PROTO_LOADED);
+
+    /* The first call opens the text editor, the call after %e takes the text. */
+    const auto add_description_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = MOB_DESCRIPTION_FIELD;
+        shape_center_proto(session.builder, prompt);
+        ASSERT_EQ(session.builder->desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder->desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder->desc, finish);
+        shape_center_proto(session.builder, prompt);
+    };
+
+    add_description_line("A clay golem.");
+    EXPECT_STREQ(editor->proto->player.description, "golem\n\rA clay golem.\n\r");
+    add_description_line("It is cracked.");
+    EXPECT_STREQ(editor->proto->player.description, "golem\n\rA clay golem.\n\rIt is cracked.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_proto(session.builder);
+
+    EXPECT_EQ(session.builder->temp, nullptr);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 
