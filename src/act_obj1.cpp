@@ -18,6 +18,7 @@
 #include "big_brother.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "script.h"
@@ -623,6 +624,12 @@ ACMD(do_drop)
 void perform_give(struct char_data* ch, struct char_data* vict,
     struct obj_data* obj)
 {
+    /* A script set off while giving everything can move the next item away (to the floor, or to
+     * someone else): ch has nothing of it to give. */
+    if (obj->carried_by != ch) {
+        return;
+    }
+
     if (IS_SET(obj->obj_flags.extra_flags, ITEM_NODROP)) {
         act("You can't let go of $p!!  Yeech!", FALSE, ch, obj, 0, TO_CHAR);
         return;
@@ -753,11 +760,27 @@ ACMD(do_give)
         if (dotmode == FIND_ALL) {
             if (!ch->carrying)
                 send_to_char("You don't seem to be holding anything.\n\r", ch);
-            else
+            else {
+                freed_watch giver_watch(ch);
+                freed_watch receiver_watch(vict);
                 for (obj = ch->carrying; obj; obj = next_obj) {
                     next_obj = obj->next_content;
+                    freed_watch next_item_watch(next_obj);
                     perform_give(ch, vict, obj);
+                    /* The receiver's ON_RECEIVE script can remove either of them, or destroy
+                     * the item to be given next or move it away from the giver; any of those
+                     * ends the giving. */
+                    if (giver_watch.freed() || receiver_watch.freed()) {
+                        break;
+                    }
+                    if (next_item_watch.freed()) {
+                        break;
+                    }
+                    if (next_obj && next_obj->carried_by != ch) {
+                        break;
+                    }
                 }
+            }
         } else if (dotmode == FIND_ALLDOT) {
             if (!*argument) {
                 send_to_char("All of what?\n\r", ch);
@@ -766,10 +789,19 @@ ACMD(do_give)
             if (!(obj = get_obj_in_list_vis(ch, argument, ch->carrying, 9999))) {
                 sprintf(buf, "You don't seem to have any %ss.\n\r", argument);
                 send_to_char(buf, ch);
-            } else
+            } else {
+                freed_watch giver_watch(ch);
                 while (obj && vict) {
                     next_obj = get_obj_in_list_vis(ch, argument, obj->next_content, 9999);
+                    freed_watch next_item_watch(next_obj);
                     perform_give(ch, vict, obj);
+                    /* As for give all; the receiver is looked up again below. */
+                    if (giver_watch.freed()) {
+                        break;
+                    }
+                    if (next_item_watch.freed() || (next_obj && next_obj->carried_by != ch)) {
+                        next_obj = nullptr;
+                    }
                     obj = next_obj;
                     /* This because of poor design - losing orignal arguments
                   in give_find_vict etc.  Needs to be rewritten.
@@ -779,6 +811,7 @@ ACMD(do_give)
                     temp_arg = str_dup(original_argument);
                     vict = give_find_vict(ch, temp_arg); // What if the vict is destroyed by the 1st object?? This line added to check for this...
                 }
+            }
         } else {
             if (!(obj = get_obj_in_list_vis(ch, argument, ch->carrying, 9999))) {
                 sprintf(buf, "You don't seem to have %s %s.\n\r", AN(argument), argument);

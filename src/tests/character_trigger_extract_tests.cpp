@@ -106,6 +106,134 @@ TEST_F(CharacterTriggerTest, LaterListenersStillHearASpeakerAListenerRemoved)
     EXPECT_TRUE(output_has("The witness nods."));
 }
 
+/* ---- giving (ON_RECEIVE) ---- */
+
+/* How many stones the player gives in the give-all tests. */
+constexpr int STONES_TO_GIVE = 3;
+
+TEST_F(CharacterTriggerTest, GivingAllToAMobThatRemovesItselfStopsAfterTheFirstItem)
+{
+    install_self_removing_mob_script(ON_RECEIVE);
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    for (int stone = 0; stone < STONES_TO_GIVE; ++stone) {
+        give_player(make_object(STONE_VNUM, 0));
+    }
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(1, count_in_output(VANISH_MESSAGE));
+    EXPECT_FALSE(is_in_game(keeper));
+    EXPECT_EQ(STONES_TO_GIVE - 1, count_contents(m_player.carrying))
+        << "the rest stay with the player";
+    EXPECT_EQ(1, count_contents(world[0].contents)) << "the keeper dropped what it was given";
+}
+
+TEST_F(CharacterTriggerTest, GivingAllToAMobThatKeepsItselfGivesEverything)
+{
+    install_harmless_mob_script(ON_RECEIVE);
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    for (int stone = 0; stone < STONES_TO_GIVE; ++stone) {
+        give_player(make_object(STONE_VNUM, 0));
+    }
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(STONES_TO_GIVE, count_in_output(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(STONES_TO_GIVE, count_contents(keeper->carrying));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+/* The keeper's script takes the bread the player was going to give next and destroys it. */
+TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptExtractsTheNextItem)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { BREAD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    obj_data* bread = give_player(make_object(BREAD_VNUM, 0));
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0)); /* given first */
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(stone, keeper->carrying);
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_FALSE(is_in_object_list(bread));
+}
+
+TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptExtractsTheNextOne)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    give_player(make_object(STONE_VNUM, 0));
+    give_player(make_object(STONE_VNUM, 0));
+
+    run_command(do_give, "all.stone keeper");
+
+    EXPECT_EQ(1, count_contents(keeper->carrying));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+/* The keeper's script makes the player drop the bread it was going to give next: the giving stops,
+ * and the bread stays on the floor. */
+TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptDropsTheNextItem)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { BREAD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    obj_data* bread = give_player(make_object(BREAD_VNUM, 0));
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0)); /* given first */
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(stone, keeper->carrying);
+    EXPECT_EQ(nullptr, stone->next_content);
+    EXPECT_EQ(bread, world[0].contents);
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+/* The same for giving all of a kind: the script drops the second stone. */
+TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptDropsTheNextOne)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    give_player(make_object(STONE_VNUM, 0));
+    give_player(make_object(STONE_VNUM, 0));
+
+    run_command(do_give, "all.stone keeper");
+
+    EXPECT_EQ(1, count_contents(keeper->carrying));
+    EXPECT_EQ(1, count_contents(world[0].contents));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+/* The keeper's script has the player hand over the bread itself: the bread is the keeper's, and
+ * the giving does not take it from the keeper to give it again. */
+TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptTakesTheNextItem)
+{
+    install_script(ON_RECEIVE,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { BREAD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH2, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_GIVE, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    give_player(make_object(BREAD_VNUM, 0));
+    give_player(make_object(STONE_VNUM, 0)); /* given first */
+
+    run_command(do_give, "all keeper");
+
+    EXPECT_EQ(2, count_contents(keeper->carrying));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(2, count_in_output("You give")) << "the stone by the command, the bread by the script";
+}
+
 /* ---- entering a room (ON_ENTER and ON_BEFORE_ENTER on the room's mobs) ---- */
 
 TEST_F(CharacterTriggerTest, EveryMobThatRemovesItselfOnSomeoneEnteringReacts)
