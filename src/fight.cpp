@@ -1682,8 +1682,11 @@ int effective_resist_magnitude(const char_data* victim, int resist_type, bool ph
 }
 
 /*
- * damage now modified to return int - 1 if the victim was
- * killed, 0 if not.
+ * Returns 1 when the victim may be gone: the blow was fatal (die() ran, though the victim's ON_DIE
+ * script can still have kept it alive), or a script or a flee into a death room removed it. The
+ * caller must then not touch the victim again unless it watches it with a freed_watch. Returns 0
+ * when the victim is still in the game. A script the blow sets off can also remove the attacker;
+ * a caller that uses the attacker afterwards watches it the same way.
  */
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location)
 {
@@ -1968,7 +1971,20 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         }
     }
 
-    if (!call_trigger(ON_DAMAGE, victim, attacker, 0)) {
+    freed_watch victim_watch(victim);
+    freed_watch attacker_watch(attacker);
+    const int damage_trigger_result = call_trigger(ON_DAMAGE, victim, attacker, 0);
+    /* A victim a script removed is gone as surely as a dead one: say so, so that the caller lets
+     * go of it. */
+    if (victim_watch.freed()) {
+        return 1;
+    }
+    /* Nobody is left to strike the blow, so none is dealt. */
+    if (attacker_watch.freed()) {
+        update_pos(victim);
+        return 0;
+    }
+    if (!damage_trigger_result) {
         update_pos(victim);
         update_pos(attacker);
         return 0;
@@ -2048,6 +2064,10 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                     if (GET_POSITION(victim) > POSITION_SLEEPING)
                         do_flee(victim, "", 0, 0, 0);
             }
+            /* Fleeing can remove the victim (a script where it arrives, a death room). */
+            if (victim_watch.freed()) {
+                return 1;
+            }
         }
 
         if (!IS_NPC(victim) && WIMP_LEVEL(victim) && victim != attacker && GET_HIT(victim) < WIMP_LEVEL(victim))
@@ -2056,10 +2076,16 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
                     victim);
                 do_flee(victim, "", 0, 0, 0);
             }
+        if (victim_watch.freed()) {
+            return 1;
+        }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && (victim->specials.fighting) && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (victim_watch.freed()) {
+            return 1;
+        }
         victim->specials.was_in_room = victim->in_room;
     }
 
@@ -2635,8 +2661,14 @@ void hit(char_data* ch, char_data* victim, int type)
 
             if (OB < 0) {
                 do_parry(ch, victim, w_type);
+                freed_watch attacker_watch(ch);
+                freed_watch defender_watch(victim);
                 if (check_riposte(ch, victim))
                     return;
+                /* The riposte's scripts can remove either fighter, or ch's weapon. */
+                if (attacker_watch.freed() || defender_watch.freed()) {
+                    return;
+                }
 
                 check_grip(ch, wielded);
                 check_grip(victim, victim->equipment[WIELD]);
@@ -2695,7 +2727,12 @@ void hit(char_data* ch, char_data* victim, int type)
                 // Weapon masters with clubs and smiters have a chance to proc additional effects based on damage dealt.
                 weapon_master.do_on_damage_dealt(dam, victim);
 
+                freed_watch attacker_watch(ch);
                 damage(ch, victim, dam, w_type, location);
+                /* The blow's scripts can remove the attacker. */
+                if (attacker_watch.freed()) {
+                    return;
+                }
 
                 if (dam > 0) {
                     check_grip(ch, wielded);
@@ -2880,7 +2917,12 @@ void perform_violence()
                 if (AWAKE(fighter) && fighter->specials.fighting && (fighter->in_room == fighter->specials.fighting->in_room)) {
                     // Note:  Calling hit reduces the character's current energy.
                     sh_int current_energy = fighter->specials.ENERGY;
+                    freed_watch fighter_watch(fighter);
                     hit(fighter, fighter->specials.fighting, TYPE_UNDEFINED);
+                    /* The hit can remove the fighter: a riposte that kills it, a script. */
+                    if (fighter_watch.freed()) {
+                        continue;
+                    }
 
                     if (can_double_hit(fighter) && does_double_hit_proc(fighter)) {
                         light_fighting_data* data = static_cast<light_fighting_data*>(fighter->extra_specialization_data.current_spec_info);

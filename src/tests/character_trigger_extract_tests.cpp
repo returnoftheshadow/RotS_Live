@@ -357,6 +357,44 @@ TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
     EXPECT_TRUE(output_has("The watcher looks up."));
 }
 
+/* ---- damage (ON_DAMAGE on the victim) ---- */
+
+/* damage() reports a victim its own script removed the way it reports a death. */
+TEST_F(CharacterTriggerTest, ABlowEndsWhenTheVictimsScriptRemovesIt)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* attacker = make_mob("attacker", 0);
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+
+    EXPECT_EQ(1, damage(attacker, victim, BLOW_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_TRUE(is_in_game(attacker));
+}
+
+TEST_F(CharacterTriggerTest, ABlowEndsWhenTheVictimsScriptRemovesTheAttacker)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* attacker = make_mob("attacker", 0);
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+
+    EXPECT_EQ(0, damage(attacker, victim, BLOW_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_FALSE(is_in_game(attacker));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(victim)) << "no damage was dealt";
+}
+
+TEST_F(CharacterTriggerTest, ABlowLandsWhenTheVictimsScriptKeepsBoth)
+{
+    install_harmless_mob_script(ON_DAMAGE);
+    char_data* attacker = make_mob("attacker", 0);
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+
+    EXPECT_EQ(0, damage(attacker, victim, BLOW_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_EQ(MOB_HIT_POINTS - BLOW_DAMAGE, GET_HIT(victim));
+}
+
 /* ---- the variables of a running script ---- */
 
 /* The mob's script runs on after it removed its own mob, with its variables intact. */

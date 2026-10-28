@@ -185,6 +185,27 @@ protected:
 
 } // namespace
 
+/* A roll that makes the to-hit roll a sure hit. */
+constexpr double SURE_HIT_ROLL = 0.999;
+
+/* The victim's damage script removes its attacker: the combat round goes on without it. */
+TEST_F(CombatMovementTest, TheCombatRoundLetsGoOfAFighterItsOwnBlowRemoved)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* fighter = make_walker("fighter");
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    fighter->specials.position = POSITION_FIGHTING;
+    set_fighting(fighter, victim);
+    fighter->specials.ENERGY = ENE_TO_HIT * 2;
+    push_test_random_value(SURE_HIT_ROLL);
+
+    perform_violence();
+
+    EXPECT_FALSE(is_in_game(fighter));
+    EXPECT_TRUE(is_in_game(victim));
+}
+
 /* The delay a bash leaves its victim (as olog_hai's bash and the trap give it): its priority
  * outranks tracking's, 30, and any pulses left keep it running. */
 constexpr int BASHED_DELAY_PRIORITY = 80;
