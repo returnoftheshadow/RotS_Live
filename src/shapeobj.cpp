@@ -42,7 +42,7 @@ void new_obj(const struct char_data* ch)
 {
     int i;
     //    SHAPE_OBJECT(ch)->object=(struct obj_data *)calloc(1,sizeof(struct obj_data));
-    CREATE1(SHAPE_OBJECT(ch)->object, obj_data);
+    SHAPE_OBJECT(ch)->object = new obj_data();
     //    bzero((char *)(SHAPE_OBJECT(ch)->object),sizeof(struct obj_data));
     SHAPE_OBJECT(ch)
         ->object->item_number
@@ -1653,7 +1653,7 @@ int load_object(struct char_data* ch, const char* arg)
         room_number = ch->in_room;
 
         //  SHAPE_OBJECT(ch)->object=(struct obj_data *)calloc(1,sizeof(struct obj_data));
-        CREATE1(SHAPE_OBJECT(ch)->object, obj_data);
+        SHAPE_OBJECT(ch)->object = new obj_data();
         //  bzero((char *)(SHAPE_OBJECT(ch)->object),sizeof(struct obj_data));
 
         SHAPE_OBJECT(ch)
@@ -2282,7 +2282,7 @@ void free_object(struct char_data* ch)
             RELEASE(tmp);
             tmp = tmp2;
         }
-        RELEASE(SHAPE_OBJECT(ch)->object);
+        delete SHAPE_OBJECT(ch)->object;
         SHAPE_OBJECT(ch)
             ->object
             = NULL;

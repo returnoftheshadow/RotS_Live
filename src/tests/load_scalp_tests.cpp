@@ -58,7 +58,7 @@ protected:
             std::free(object_list->name);
             std::free(object_list->description);
             std::free(object_list->short_description);
-            std::free(object_list);
+            delete object_list;
             object_list = next;
         }
         mob_proto = m_saved_mob_proto;
