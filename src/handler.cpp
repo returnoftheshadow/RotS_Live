@@ -39,6 +39,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "room_lists.h"
@@ -655,6 +656,7 @@ struct affected_type* get_from_affected_type_pool()
 void put_to_affected_type_pool(struct affected_type* oldaf)
 {
 
+    freed_log::note_freed(oldaf);
     free(oldaf);
     //  oldaf->next = affected_type_pool;
     //  affected_type_pool = oldaf;

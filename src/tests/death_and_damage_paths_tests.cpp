@@ -136,13 +136,7 @@ protected:
      * is never read. */
     static bool is_on_the_floor(const obj_data* object)
     {
-        for (const obj_data* content = world[0].contents; content != nullptr;
-             content = content->next_content) {
-            if (content == object) {
-                return true;
-            }
-        }
-        return false;
+        return is_on_content_list(world[0].contents, object);
     }
 
     /* Makes script SCRIPT_VNUM say "vanish" when its mob is hurt, and script OTHER_SCRIPT_VNUM
