@@ -170,6 +170,77 @@ private:
     int m_previous_top_of_p_table;
 };
 
+/* ---------------------------------------------------------------- world map */
+
+// Draws on the world map and puts the map back as it was afterwards.
+class WorldMapSymbolTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        m_saved_map.assign(world_map, world_map + WORLD_AREA + 1);
+    }
+
+    void TearDown() override
+    {
+        std::copy(m_saved_map.begin(), m_saved_map.end(), world_map);
+    }
+
+    // The map cell symbol_to_map draws (<column>, <row>) into, laid out as draw_map lays the map
+    // out: rows start below the top border, and columns after the left border.
+    static int cell_of(int column, int row)
+    {
+        return (row + MAP_BORDER_WIDTH) * MAP_ROW_LENGTH + column * MAP_CELL_WIDTH
+            + MAP_BORDER_WIDTH;
+    }
+
+    // One map row: the left border, WORLD_SIZE_X characters, the right border and "\n\r".
+    static constexpr int MAP_ROW_LENGTH = WORLD_SIZE_X + 4;
+    // The border rows above and below the map, and the border columns left and right of it.
+    static constexpr int MAP_BORDER_WIDTH = 1;
+    // The characters each map column takes; a zone's symbol is the first.
+    static constexpr int MAP_CELL_WIDTH = 2;
+
+    // Whether the map is byte for byte as SetUp found it.
+    bool map_unchanged() const { return std::equal(m_saved_map.begin(), m_saved_map.end(), world_map); }
+
+    // The map as SetUp found it.
+    std::vector<char> m_saved_map;
+};
+
+TEST_F(WorldMapSymbolTest, DrawsAZoneOnTheMapAsBefore)
+{
+    symbol_to_map(3, 4, 'Q');
+
+    EXPECT_EQ(world_map[cell_of(3, 4)], 'Q');
+}
+
+TEST_F(WorldMapSymbolTest, StillDrawsAZonePastTheRightEdgeInTheLastColumn)
+{
+    symbol_to_map(WORLD_SIZE_X, 2, 'Q');
+
+    EXPECT_EQ(world_map[cell_of(WORLD_SIZE_X / 2, 2)], 'Q');
+}
+
+TEST_F(WorldMapSymbolTest, RefusesAndLogsAZoneBelowTheMap)
+{
+    testing::internal::CaptureStderr();
+    symbol_to_map(3, WORLD_SIZE_Y + 3, 'Q');
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_TRUE(map_unchanged());
+    EXPECT_NE(log_text.find("off the world map"), std::string::npos) << log_text;
+}
+
+TEST_F(WorldMapSymbolTest, RefusesAZoneAboveOrLeftOfTheMap)
+{
+    testing::internal::CaptureStderr();
+    symbol_to_map(3, -5, 'Q');
+    symbol_to_map(-30, 2, 'Q');
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_TRUE(map_unchanged());
+}
+
 // A PK record from <killer_index> to <victim_index>, made now so it has not expired.
 PKILL make_pkill(int killer_index, int victim_index)
 {
@@ -184,4 +255,131 @@ PKILL make_pkill(int killer_index, int victim_index)
     return record;
 }
 
+/* ---------------------------------------------------------------- legacy player loader */
+
+// The player the loader tests load; the index holds only this name.
+constexpr char LOADED_PLAYER_NAME[] = "aragorn";
+
+// Lines every loader test's player text starts with.
+constexpr char PLAYER_TEXT_START[] = "#player\n"
+                                     "name        aragorn\n"
+                                     "title       the Ranger\n"
+                                     "host        example.org\n"
+                                     "alignment   350\n"
+                                     "skills      3 70\n"
+                                     "affect      0 5 10 1 2 0\n";
+
+// Loads <player_text> for LOADED_PLAYER_NAME into <record>, returning the loader's result.
+int load_text(const std::string& player_text, char_file_u* record)
+{
+    char name[sizeof(LOADED_PLAYER_NAME)];
+    std::memcpy(name, LOADED_PLAYER_NAME, sizeof(name));
+    return load_player_from_text(name, player_text.c_str(), record);
+}
+
+// A player text: PLAYER_TEXT_START, then <extra_lines>, then the end line.
+std::string player_text_with(std::string_view extra_lines)
+{
+    std::string player_text = PLAYER_TEXT_START;
+    player_text.append(extra_lines);
+    player_text += "end\n";
+    return player_text;
+}
+
+TEST(LegacyPlayerLoader, LoadsOrdinaryStringsAndSlotsAsBefore)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto record = std::make_unique<char_file_u>();
+
+    ASSERT_EQ(load_text(player_text_with(""), record.get()), 1);
+
+    EXPECT_STREQ(record->name, "aragorn");
+    EXPECT_STREQ(record->title, "the Ranger");
+    EXPECT_STREQ(record->host, "example.org");
+    EXPECT_EQ(record->specials2.alignment, 350);
+    EXPECT_EQ(record->skills[3], 70);
+    EXPECT_EQ(record->affected[0].type, 5);
+    EXPECT_EQ(record->affected[0].duration, 10);
+}
+
+TEST(LegacyPlayerLoader, TerminatesATitleThatFillsItsField)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto record = std::make_unique<char_file_u>();
+    const std::string long_title(sizeof(record->title) + 5, 'T'); /* five letters too many */
+
+    ASSERT_EQ(load_text(player_text_with("title       " + long_title + "\n"), record.get()), 1);
+
+    ASSERT_LT(strnlen(record->title, sizeof(record->title)), sizeof(record->title));
+    EXPECT_EQ(std::string(record->title), long_title.substr(0, sizeof(record->title) - 1));
+}
+
+TEST(LegacyPlayerLoader, TerminatesANameLongerThanItsFieldWithoutTouchingThePassword)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto record = std::make_unique<char_file_u>();
+    const std::string long_name = "abcdefghijklmnopqrst";
+
+    ASSERT_EQ(load_text(player_text_with("password    0123456789\nname        " + long_name + "\n"),
+                  record.get()),
+        1);
+
+    ASSERT_LT(strnlen(record->name, sizeof(record->name)), sizeof(record->name));
+    EXPECT_EQ(std::string(record->name), long_name.substr(0, sizeof(record->name) - 1));
+
+    auto password_only = std::make_unique<char_file_u>();
+    ASSERT_EQ(load_text(player_text_with("password    0123456789\n"), password_only.get()), 1);
+    EXPECT_EQ(std::memcmp(record->pwd, password_only->pwd, sizeof(record->pwd)), 0);
+}
+
+TEST(LegacyPlayerLoader, SkipsAndLogsAnAffectSlotPastTheTable)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto expected = std::make_unique<char_file_u>();
+    auto loaded = std::make_unique<char_file_u>();
+    ASSERT_EQ(load_text(player_text_with(""), expected.get()), 1);
+
+    testing::internal::CaptureStderr();
+    const int result = load_text(player_text_with("affect      " + std::to_string(MAX_AFFECT) + " 7 7 7 7 7\n"),
+        loaded.get());
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 1);
+    EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
+    EXPECT_NE(log_text.find("SYSERR: load_player_from_text"), std::string::npos) << log_text;
+}
+
+TEST(LegacyPlayerLoader, SkipsAnAffectSlotOutsideTheRecord)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto loaded = std::make_unique<char_file_u>();
+    // The first slot starting at or past the end of the record.
+    const size_t bytes_after_table = sizeof(char_file_u) - offsetof(char_file_u, affected);
+    const size_t slot_past_record = (bytes_after_table + sizeof(affected_type) - 1) / sizeof(affected_type);
+
+    testing::internal::CaptureStderr();
+    const int result = load_text(player_text_with("affect      " + std::to_string(slot_past_record) + " 7 7 7 7 7\n"
+                                     + "affect      -1 7 7 7 7 7\n"),
+        loaded.get());
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, 1);
+}
+
+TEST(LegacyPlayerLoader, SkipsAnArraySlotPastItsField)
+{
+    ScopedPlayerIndex index({ LOADED_PLAYER_NAME });
+    auto expected = std::make_unique<char_file_u>();
+    auto loaded = std::make_unique<char_file_u>();
+    ASSERT_EQ(load_text(player_text_with(""), expected.get()), 1);
+
+    testing::internal::CaptureStderr();
+    const int result = load_text(player_text_with("skills      " + std::to_string(MAX_SKILLS) + " 99\n"
+                                     + "talks       -1 99\n"),
+        loaded.get());
+    testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 1);
+    EXPECT_EQ(std::memcmp(expected.get(), loaded.get(), sizeof(char_file_u)), 0);
+}
 } // namespace
