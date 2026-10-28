@@ -266,6 +266,25 @@ protected:
 
 } // namespace
 
+/* A reset that puts a ring on its mob, then a stone in the last object loaded, run on a mob already
+ * wearing a ring there: no second ring is made, and the stone has nothing to go in, and is not
+ * made either. */
+TEST_F(DeathAndDamagePathsTest, AResetMakesNoItemForAWearSlotItsMobHasFilled)
+{
+    char_data* keeper = make_mob("keeper", 0);
+    obj_data* worn_ring = make_object(RING_VNUM, 0);
+    ASSERT_NE(nullptr, worn_ring);
+    equip_char(keeper, worn_ring, WEAR_FINGER_R);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    EXPECT_EQ(worn_ring, keeper->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, worn_ring->contains);
+    EXPECT_EQ(1, count_objects_of(RING_VNUM));
+    EXPECT_EQ(0, count_objects_of(STONE_VNUM));
+}
+
 /* ---- an NPC olog-hai's skills ---- */
 
 /* An NPC has no tactics; its olog-hai skills strike as on normal tactics. */
