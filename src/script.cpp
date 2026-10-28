@@ -57,7 +57,7 @@ void perform_give(struct char_data* ch, struct char_data* vict, struct obj_data*
 int perform_drop(struct char_data* ch, struct obj_data* obj, sh_int RDR);
 void perform_remove(struct char_data* ch, int pos);
 int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg);
-void perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
+bool perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
 int find_action(const char* arg);
 extern struct index_data* obj_index;
 extern char* get_param_text(int); /* shapescript.cpp */

@@ -70,6 +70,150 @@ TEST_F(ObjectTriggerTest, ExamineShowsNoDescriptionWhenTheScriptReturnsFalse)
     EXPECT_FALSE(output_has("You see nothing special"));
 }
 
+/* ---- eat and taste (ON_EAT) ---- */
+
+TEST_F(ObjectTriggerTest, EatingFoodWhoseScriptExtractsItFeedsThePlayerOnce)
+{
+    install_self_extracting_script(ON_EAT);
+    obj_to_char(make_scripted(BREAD_VNUM), &m_player);
+
+    run_command(do_eat, "bread", SCMD_EAT);
+
+    EXPECT_TRUE(output_has("You eat a loaf of bread."));
+    EXPECT_TRUE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_EQ(BREAD_FILLING, GET_COND(&m_player, FULL));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(nullptr, object_list) << "the bread was extracted once and nothing else";
+}
+
+TEST_F(ObjectTriggerTest, TastingFoodWhoseScriptExtractsItStopsThere)
+{
+    install_self_extracting_script(ON_EAT);
+    obj_to_char(make_scripted(BREAD_VNUM), &m_player);
+
+    run_command(do_eat, "bread", SCMD_TASTE);
+
+    EXPECT_TRUE(output_has("You nibble a little bit of a loaf of bread."));
+    EXPECT_FALSE(output_has("There's nothing left now."));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+TEST_F(ObjectTriggerTest, EatingFoodWithAScriptThatKeepsItStillUsesItUp)
+{
+    install_harmless_script(ON_EAT);
+    obj_to_char(make_scripted(BREAD_VNUM), &m_player);
+
+    run_command(do_eat, "bread", SCMD_EAT);
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(BREAD_FILLING, GET_COND(&m_player, FULL));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(nullptr, object_list);
+}
+
+/* Eat ignores what the script returns: food whose script returns false is eaten all the same. */
+TEST_F(ObjectTriggerTest, EatingFoodWhoseScriptReturnsFalseStillUsesItUp)
+{
+    install_refusing_script(ON_EAT);
+    obj_to_char(make_scripted(BREAD_VNUM), &m_player);
+
+    run_command(do_eat, "bread", SCMD_EAT);
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(nullptr, object_list);
+}
+
+TEST_F(ObjectTriggerTest, TastingFoodWithAScriptThatKeepsItTakesOneBite)
+{
+    install_harmless_script(ON_EAT);
+    obj_data* bread = make_scripted(BREAD_VNUM);
+    obj_to_char(bread, &m_player);
+
+    run_command(do_eat, "bread", SCMD_TASTE);
+
+    EXPECT_EQ(BREAD_FILLING - 1, bread->obj_flags.value[0]);
+    EXPECT_EQ(bread, m_player.carrying);
+}
+
+/* ---- drink (ON_DRINK) ---- */
+
+TEST_F(ObjectTriggerTest, DrinkingFromAFlaskWhoseScriptExtractsItStopsThere)
+{
+    install_self_extracting_script(ON_DRINK);
+    obj_to_char(make_scripted(FLASK_VNUM), &m_player);
+
+    run_command(do_drink, "flask", SCMD_DRINK);
+
+    EXPECT_TRUE(output_has("You drink the water."));
+    EXPECT_TRUE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+TEST_F(ObjectTriggerTest, DrinkingFromAFlaskWithAScriptThatKeepsItEmptiesItAsUsual)
+{
+    install_harmless_script(ON_DRINK);
+    obj_data* flask = make_scripted(FLASK_VNUM);
+    obj_to_char(flask, &m_player);
+
+    run_command(do_drink, "flask", SCMD_SIP);
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(FLASK_DRINKS - 1, flask->obj_flags.value[1]) << "a sip takes one drink";
+}
+
+/* ---- wear and wield (ON_WEAR) ---- */
+
+TEST_F(ObjectTriggerTest, WearingARingWhoseScriptExtractsItStopsThere)
+{
+    install_self_extracting_script(ON_WEAR);
+    obj_to_char(make_scripted(RING_VNUM), &m_player);
+
+    run_command(do_wear, "ring");
+
+    EXPECT_TRUE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_L]);
+}
+
+TEST_F(ObjectTriggerTest, WieldingASwordWhoseScriptExtractsItStopsThere)
+{
+    install_self_extracting_script(ON_WEAR);
+    obj_to_char(make_scripted(SWORD_VNUM), &m_player);
+
+    run_command(do_wield, "sword");
+
+    EXPECT_TRUE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_EQ(nullptr, m_player.carrying);
+    EXPECT_EQ(nullptr, m_player.equipment[WIELD]);
+}
+
+TEST_F(ObjectTriggerTest, WearingARingWithAScriptThatKeepsItWearsIt)
+{
+    install_harmless_script(ON_WEAR);
+    obj_data* ring = make_scripted(RING_VNUM);
+    obj_to_char(ring, &m_player);
+
+    run_command(do_wear, "ring");
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+}
+
+TEST_F(ObjectTriggerTest, WearingARingWhoseScriptReturnsFalseLeavesItCarried)
+{
+    install_refusing_script(ON_WEAR);
+    obj_data* ring = make_scripted(RING_VNUM);
+    obj_to_char(ring, &m_player);
+
+    run_command(do_wear, "ring");
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(ring, m_player.carrying);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
+}
+
 /* ---- pull (ON_PULL) ---- */
 
 TEST_F(ObjectTriggerTest, PullingALeverWhoseScriptExtractsItStopsThere)
@@ -173,6 +317,21 @@ TEST_F(ObjectTriggerTest, ExamineStopsWhenTheScriptRemovesTheExaminer)
 
     EXPECT_FALSE(is_in_game(examiner));
     EXPECT_EQ(1, count_contents(world[0].contents)) << "the examiner dropped the stone";
+}
+
+/* The taster is gone, but the bite it took is taken all the same. */
+TEST_F(ObjectTriggerTest, TastingStillTakesABiteWhenTheScriptRemovesTheTaster)
+{
+    install_script(ON_EAT, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* taster = make_mob("taster", 0);
+    obj_data* bread = make_scripted(BREAD_VNUM);
+    obj_to_char(bread, taster);
+
+    run_command_as(taster, do_eat, "bread", SCMD_TASTE);
+
+    EXPECT_FALSE(is_in_game(taster));
+    EXPECT_EQ(bread, world[0].contents);
+    EXPECT_EQ(BREAD_FILLING - 1, bread->obj_flags.value[0]);
 }
 
 TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)
