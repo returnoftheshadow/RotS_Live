@@ -1772,6 +1772,27 @@ TEST_F(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
     EXPECT_STREQ(GET_ALIAS(character)->command, "kill orc");
 }
 
+/* Login clears a character before loading it, so the load fills the profs block the clear made
+   instead of replacing it. */
+TEST_F(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
+{
+    constexpr int RANGER_LEVEL = 7;
+    owned_character character;
+    const char_prof_data* const cleared_profs = character->profs;
+    ASSERT_NE(cleared_profs, nullptr);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    stored_character.race = RACE_HUMAN;
+    stored_character.level = 10;
+    stored_character.weight = 210;
+    stored_character.profs.prof_level[PROF_RANGER] = RANGER_LEVEL;
+    store_to_char(&stored_character, character);
+
+    EXPECT_EQ(character->profs, cleared_profs);
+    EXPECT_EQ(character->profs->prof_level[PROF_RANGER], RANGER_LEVEL);
+}
+
 /* A rent row whose container parent never loaded must not vanish.
 
    wear_pos above MAX_WEAR encodes container nesting depth, and Crash_load places each object
@@ -3066,6 +3087,75 @@ TEST_F(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
     const std::string saved = files.read45();
     EXPECT_NE(saved.find("50 100 7\n\r"), std::string::npos) << "saved with the base's stats:\n" << saved;
     EXPECT_NE(saved.find("12 0 4 0 2 4512 0\n\r"), std::string::npos) << saved;
+}
+
+/* A new exit leads where it is told, with empty text, no door and no key, and is freed like every
+ * other exit. */
+TEST_F(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
+{
+    const int ROOM_NUMBER = 4530;
+    constexpr int NO_KEY = -1; /* the key create_exit gives an exit no key opens */
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    world[0].number = ROOM_NUMBER;
+    world[0].dir_option[DOWN] = nullptr;
+
+    world[0].create_exit(DOWN, 0, FALSE);
+
+    room_direction_data* const room_exit = world[0].dir_option[DOWN];
+    ASSERT_NE(room_exit, nullptr);
+    EXPECT_STREQ(room_exit->general_description, "");
+    EXPECT_STREQ(room_exit->keyword, "");
+    EXPECT_EQ(room_exit->exit_width, 0);
+    EXPECT_EQ(room_exit->exit_info, 0);
+    EXPECT_EQ(room_exit->key, NO_KEY);
+    EXPECT_EQ(room_exit->to_room, 0);
+
+    RELEASE(room_exit->general_description);
+    RELEASE(room_exit->keyword);
+    RELEASE(world[0].dir_option[DOWN]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+}
+
+/* Creating a room in a free slot gives it fresh placeholder text in place of the text the slot held. */
+TEST_F(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
+{
+    const int saved_top_of_world = top_of_world;
+    const int ROOMS_CREATED = 2;
+    for (int created = 0; created < ROOMS_CREATED; created++) {
+        int free_slot = 0;
+        while (world[free_slot].number >= 0) {
+            free_slot++;
+        }
+        const room_data saved_slot = world[free_slot];
+        const bool slot_had_text = saved_slot.name != nullptr;
+        if (!slot_had_text) {
+            world[free_slot].name = str_dup("New room");
+            world[free_slot].description = str_dup("\n\r");
+        }
+
+        const int room = world.create_room(0);
+
+        ASSERT_EQ(room, free_slot);
+        EXPECT_STREQ(world[room].name, "New room");
+        EXPECT_STREQ(world[room].description, "\n\r");
+        EXPECT_GE(world[room].number, 0);
+
+        /* Put the slot back as it was; a slot that held text keeps the text it holds now. */
+        char* const created_name = world[room].name;
+        char* const created_description = world[room].description;
+        world[room] = saved_slot;
+        if (slot_had_text) {
+            world[room].name = created_name;
+            world[room].description = created_description;
+        } else {
+            free(created_name);
+            free(created_description);
+        }
+    }
+    top_of_world = saved_top_of_world;
 }
 
 extern struct script_head* script_table;

@@ -1207,11 +1207,25 @@ bool delete_player_character_by_index(int index)
     return true;
 }
 
+/* Frees the player index and the name create_entry gave each entry, leaving it empty. */
+static void release_player_table()
+{
+    if (player_table) {
+        for (int index = 0; index <= top_of_p_table; ++index) {
+            RELEASE(player_table[index].name);
+        }
+        RELEASE(player_table);
+    }
+    top_of_p_table = -1;
+}
+
 void build_player_index(void)
 {
     int nr, tt;
 
-    top_of_p_file = top_of_p_table = -1;
+    /* The walks below index every player file from scratch, so the current index is freed. */
+    release_player_table();
+    top_of_p_file = -1;
     top_idnum = 1;
 
     build_directory("players/A-E/");
@@ -2906,7 +2920,10 @@ void store_to_char(const struct char_file_u* st, struct char_data* ch)
     for (i = 0; i < MAX_TOUNGE; i++)
         ch->player.talks[i] = st->talks[i];
 
-    CREATE1(ch->profs, char_prof_data);
+    /* Reuse the block clear_char made: the copy overwrites all of it. */
+    if (!ch->profs) {
+        CREATE1(ch->profs, char_prof_data);
+    }
     memcpy(ch->profs, &(st->profs), sizeof(struct char_prof_data));
     ch->specials.alias = 0;
 
@@ -3755,7 +3772,8 @@ void free_char(struct char_data* ch)
 
     if (!IS_NPC(ch) || (IS_NPC(ch) && ch->nr == -1)) {
 
-        RELEASE(GET_NAME(ch));
+        /* Not GET_NAME, which is a mob's short description. */
+        RELEASE(ch->player.name);
         RELEASE(ch->player.title);
         RELEASE(ch->player.short_descr);
         RELEASE(ch->player.long_descr);
@@ -4557,7 +4575,8 @@ void room_data::create_exit(int dir, int room, char connect)
         //    RELEASE(dir_option[dir]->general_description);
         //    RELEASE(dir_option[dir]->keyword);
     } else {
-        dir_option[dir] = new room_direction_data;
+        /* CREATE, not new: exits are freed with RELEASE. */
+        CREATE1(dir_option[dir], room_direction_data);
         dir_option[dir]->general_description = str_dup("");
         dir_option[dir]->keyword = str_dup("");
         dir_option[dir]->exit_width = 0;
@@ -4618,6 +4637,10 @@ int room_data::create_room(int zone)
     } else
         new_room = &world[place];
 
+    /* A free slot holds either nothing (a booted world's spare slot) or the placeholder text
+     * dummy_room_data gave it, which it replaces. */
+    RELEASE(new_room->name);
+    RELEASE(new_room->description);
     dummy_room_data(new_room);
     if (place == 0)
         new_room->number = 0;
