@@ -38,6 +38,7 @@
 #include "structs.h"
 #include "utils.h"
 #include "warrior_spec_handlers.h"
+#include "weather.h"
 #include "zone.h"
 
 #include <charconv>
@@ -785,17 +786,7 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        auto sector_type = world[desc->character->in_room].sector_type;
-        auto weather_type = weather_info.sky[sector_type];
-        extern char* weather_messages[8][13];
-        extern std::string strip_trailing_line_break(const char* text);
-
-        if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER,
-                strip_trailing_line_break(weather_messages[weather_type + 2][sector_type]).c_str());
-        } else {
-            MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
-        }
+        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character).c_str());
         MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
