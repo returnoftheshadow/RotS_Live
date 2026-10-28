@@ -8,6 +8,7 @@
 #include "../objects_json.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -649,6 +650,9 @@ protected:
         for (int i = 0; i < BOOT_OPTION_COUNT; ++i) /* tests change the running values */
             boot_options_set_running_for_tests(i, BOOT_OPTION_DEFS[i].def);
         restore_world();
+        release_cleared_character(&m_banker);
+        release_cleared_character(&m_player);
+        release_test_descriptor(&m_descriptor);
         BankStoreTest::TearDown();
     }
 
@@ -885,6 +889,7 @@ TEST_F(BankerTest, SaveChecksTheNewProgramBeforeImplement)
      * old /29 gave it, until /implement. */
     char_data editing {};
     clear_char(&editing, MOB_ISNPC);
+    ClearedCharacterRelease editing_release(&editing);
     editing.specials2.act = MOB_ISNPC | MOB_SPEC;
     editing.specials.store_prog_number = PROG_BANKER;
     m_mob_proto[0].specials.store_prog_number = 4;
@@ -1875,6 +1880,8 @@ protected:
     void TearDown() override
     {
         bank_set_account_lookups(nullptr, nullptr, nullptr);
+        release_cleared_character(&m_imm);
+        release_test_descriptor(&m_imm_descriptor);
         BankerTest::TearDown();
     }
     std::string run(const char* text)
@@ -2165,7 +2172,12 @@ struct Bystander {
         ch.next_in_room = nullptr;
         m_after = after;
     }
-    ~Bystander() { m_after->next_in_room = nullptr; }
+    ~Bystander()
+    {
+        m_after->next_in_room = nullptr;
+        release_cleared_character(&ch);
+        release_test_descriptor(&descriptor);
+    }
     std::string heard() const { return std::string(descriptor.output); }
     char name[16] = "Watcher";
     char_data ch {};

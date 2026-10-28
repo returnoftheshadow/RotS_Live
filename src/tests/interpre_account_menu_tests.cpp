@@ -13,6 +13,7 @@
 #include "../utils.h"
 
 #include "AccountRecordOnDiskBuilder.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -164,27 +165,6 @@ private:
     std::string m_path;
     int m_original_stderr_fd = -1;
     int m_redirect_fd = -1;
-};
-
-class ScopedPlayerTableReset {
-public:
-    ScopedPlayerTableReset()
-        : m_previous_player_table(player_table)
-        , m_previous_top_of_p_table(top_of_p_table)
-    {
-        player_table = nullptr;
-        top_of_p_table = -1;
-    }
-
-    ~ScopedPlayerTableReset()
-    {
-        player_table = m_previous_player_table;
-        top_of_p_table = m_previous_top_of_p_table;
-    }
-
-private:
-    player_index_element* m_previous_player_table;
-    int m_previous_top_of_p_table;
 };
 
 class ScopedDescriptorListReset {
@@ -411,8 +391,11 @@ void ensure_test_world_room(int room_number)
 
     top_of_world = 0;
     world[0].number = room_number;
-    world[0].name = strdup("The Testing Meadow");
-    world[0].description = strdup("A quiet room used for account-menu tests.\n\r");
+    /* Static, so a test that sets the room up again allocates nothing. */
+    static char room_name[] = "The Testing Meadow";
+    static char room_description[] = "A quiet room used for account-menu tests.\n\r";
+    world[0].name = room_name;
+    world[0].description = room_description;
 }
 
 void initialize_descriptor(descriptor_data* descriptor)
@@ -491,10 +474,12 @@ SnoopProbeResult snoop_output_for_input_state(int connection_state, const char* 
         return {};
 
     descriptor_data victim_descriptor = make_descriptor();
+    TestDescriptorRelease victim_descriptor_release(&victim_descriptor);
     victim_descriptor.connected = connection_state;
     victim_descriptor.descriptor = sockets[0];
 
     descriptor_data snooper_descriptor = make_descriptor();
+    TestDescriptorRelease snooper_descriptor_release(&snooper_descriptor);
     char_data snooper {};
     snooper.desc = &snooper_descriptor;
     victim_descriptor.snoop.snoop_by = &snooper;
@@ -522,11 +507,13 @@ SnoopReplayResult snoop_replay_after_secret_input_state(int secret_connection_st
         return {};
 
     descriptor_data victim_descriptor = make_descriptor();
+    TestDescriptorRelease victim_descriptor_release(&victim_descriptor);
     victim_descriptor.connected = secret_connection_state;
     victim_descriptor.descriptor = sockets[0];
     std::snprintf(victim_descriptor.last_input, sizeof(victim_descriptor.last_input), "%s", "look");
 
     descriptor_data snooper_descriptor = make_descriptor();
+    TestDescriptorRelease snooper_descriptor_release(&snooper_descriptor);
     char_data snooper {};
     snooper.desc = &snooper_descriptor;
     victim_descriptor.snoop.snoop_by = &snooper;
@@ -672,6 +659,7 @@ TEST(InterpreAccountMenu, AccountMenuChoiceOneWritesCapitalizedCharacterListToDe
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char choice[] = "1";
 
     nanny(&descriptor, choice);
@@ -716,6 +704,7 @@ TEST(InterpreAccountMenu, AccountMenuChoiceOneHonoursThePersistedRosterSort)
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char choice[] = "1";
 
     nanny(&descriptor, choice);
@@ -744,6 +733,7 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceWritesWhoStyleCharacterPromptToDe
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("legolas", 45, RACE_HUMAN), &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char choice[] = "2";
 
     nanny(&descriptor, choice);
@@ -772,12 +762,14 @@ TEST(InterpreAccountMenu, ActiveAccountSessionShowsPlayingLinkedCharacterInAccou
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char invalid_choice[] = "x";
     nanny(&descriptor, invalid_choice);
 
@@ -803,12 +795,14 @@ TEST(InterpreAccountMenu, ActiveAccountSessionShowsLinklessLinkedCharacterInAcco
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_LINKLS;
     active_descriptor.descriptor = 0;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char invalid_choice[] = "x";
     nanny(&descriptor, invalid_choice);
 
@@ -834,30 +828,37 @@ TEST(InterpreAccountMenu, ActiveAccountSessionIgnoresOtherAccountUnauthenticated
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data other_account_descriptor = make_descriptor();
+    TestDescriptorRelease other_account_descriptor_release(&other_account_descriptor);
     std::snprintf(other_account_descriptor.account_name, sizeof(other_account_descriptor.account_name), "%s", "other");
     other_account_descriptor.connected = CON_PLYNG;
     attach_active_character(&other_account_descriptor, "aragorn", 50, 4242);
 
     descriptor_data unauthenticated_descriptor = make_descriptor();
+    TestDescriptorRelease unauthenticated_descriptor_release(&unauthenticated_descriptor);
     unauthenticated_descriptor.connected = CON_ACCTPWD;
     attach_active_character(&unauthenticated_descriptor, "aragorn", 50, 4242);
 
     descriptor_data unlinked_descriptor = make_descriptor();
+    TestDescriptorRelease unlinked_descriptor_release(&unlinked_descriptor);
     unlinked_descriptor.connected = CON_PLYNG;
     attach_active_character(&unlinked_descriptor, "boromir", 50, 5252);
 
     descriptor_data mismatched_owner_descriptor = make_descriptor();
+    TestDescriptorRelease mismatched_owner_descriptor_release(&mismatched_owner_descriptor);
     mismatched_owner_descriptor.connected = CON_PLYNG;
     attach_active_character(&mismatched_owner_descriptor, "aragorn", 50, 4242);
     descriptor_data actual_owner_descriptor = make_descriptor();
+    TestDescriptorRelease actual_owner_descriptor_release(&actual_owner_descriptor);
     mismatched_owner_descriptor.character->desc = &actual_owner_descriptor;
 
     descriptor_data npc_descriptor = make_descriptor();
+    TestDescriptorRelease npc_descriptor_release(&npc_descriptor);
     npc_descriptor.connected = CON_PLYNG;
     attach_active_character(&npc_descriptor, "aragorn", 50, 4242);
     npc_descriptor.character->specials2.act = MOB_ISNPC;
 
     descriptor_data null_character_descriptor = make_descriptor();
+    TestDescriptorRelease null_character_descriptor_release(&null_character_descriptor);
     null_character_descriptor.connected = CON_PLYNG;
 
     other_account_descriptor.next = &unauthenticated_descriptor;
@@ -868,6 +869,7 @@ TEST(InterpreAccountMenu, ActiveAccountSessionIgnoresOtherAccountUnauthenticated
     descriptor_list = &other_account_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char invalid_choice[] = "x";
     nanny(&descriptor, invalid_choice);
 
@@ -903,6 +905,7 @@ TEST(InterpreAccountMenu, AccountMenuPlayChoiceZeroReturnsToAccountMenu)
     ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
 
     char choice[] = "0";
@@ -941,6 +944,7 @@ TEST(InterpreAccountMenu, RosterSortKeypressDoesNotWriteAccountFile)
     ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
 
     char sort_choice[] = "l";
@@ -971,6 +975,7 @@ TEST(InterpreAccountMenu, RosterSortLeavingViaZeroAfterChangeWritesAccountFile)
     ASSERT_TRUE(stored_account.roster_sort.empty());
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
 
     char sort_choice[] = "l";
@@ -1007,6 +1012,7 @@ TEST(InterpreAccountMenu, RosterSortRedundantKeypressDoesNotMarkDirtyOrWriteOnLe
     ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.roster_sort = static_cast<int>(account::RosterSort::Level);
     descriptor.roster_sort_dirty = false;
@@ -1048,6 +1054,7 @@ TEST(InterpreAccountMenu, RosterSortReturningToTheStoredValueDoesNotWriteOnLeavi
     ASSERT_TRUE(account::read_text_file(account_path, &before_write, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.roster_sort = static_cast<int>(account::RosterSort::Level);
     descriptor.roster_filter = static_cast<int>(account::RosterFilter::None);
@@ -1093,6 +1100,7 @@ TEST(InterpreAccountMenu, RosterSortStoredValueLoadsWhenReenteringRoster)
     ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTMENU;
     // Stale session state from a hypothetical earlier visit -- entering the roster must both
     // load the stored sort and reset these, not just leave whatever was there.
@@ -1144,6 +1152,7 @@ TEST(InterpreAccountMenu, RosterSortAndFilterKeysMapToTheClaimedEnumerators)
 
     for (const KeyExpectation& expectation : expectations) {
         descriptor_data descriptor = make_descriptor();
+        TestDescriptorRelease descriptor_release(&descriptor);
         descriptor.connected = CON_ACCTSLCT;
 
         char choice[2] = { expectation.key, '\0' };
@@ -1182,6 +1191,7 @@ TEST(InterpreAccountMenu, RosterSortPersistsOnSuccessfulCharacterSelection)
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
 
@@ -1233,12 +1243,14 @@ TEST(InterpreAccountMenu, ActiveLevelNinetyOneBlocksDifferentLinkedCharacterBefo
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 91, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     char selection[] = "2";
     nanny(&descriptor, selection);
@@ -1295,6 +1307,7 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     ASSERT_TRUE(account::admin_link_character(".", "acct", "boromir", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
@@ -1303,6 +1316,7 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     ASSERT_TRUE(grant_account_character_selection_unlock(stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
     char selection[] = "2";
@@ -1339,6 +1353,7 @@ TEST(InterpreAccountMenu, UnlockSelectAllowsOneDifferentLinkedCharacterSelection
     EXPECT_NE(std::string(descriptor.output).find("Reconnecting."), std::string::npos) << descriptor.output;
 
     descriptor_data second_descriptor = make_descriptor();
+    TestDescriptorRelease second_descriptor_release(&second_descriptor);
     second_descriptor.connected = CON_ACCTSLCT;
     char second_selection[] = "3";
     nanny(&second_descriptor, second_selection);
@@ -1382,6 +1397,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotApplyToLaterUnrelatedRestriction)
     ASSERT_TRUE(account::admin_link_character(".", "unlock-stale", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data original_active_descriptor = make_descriptor();
+    TestDescriptorRelease original_active_descriptor_release(&original_active_descriptor);
     std::snprintf(original_active_descriptor.account_name, sizeof(original_active_descriptor.account_name), "%s", "unlock-stale");
     original_active_descriptor.connected = CON_PLYNG;
     original_active_descriptor.descriptor = 7;
@@ -1395,6 +1411,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotApplyToLaterUnrelatedRestriction)
     original_active_descriptor.character = nullptr;
 
     descriptor_data later_active_descriptor = make_descriptor();
+    TestDescriptorRelease later_active_descriptor_release(&later_active_descriptor);
     std::snprintf(later_active_descriptor.account_name, sizeof(later_active_descriptor.account_name), "%s", "unlock-stale");
     later_active_descriptor.connected = CON_PLYNG;
     later_active_descriptor.descriptor = 8;
@@ -1402,6 +1419,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotApplyToLaterUnrelatedRestriction)
     descriptor_list = &later_active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "unlock-stale");
     descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
@@ -1430,12 +1448,14 @@ TEST(InterpreAccountMenu, ActiveOverLevelNinetyOneStillShowsActiveCharacterWitho
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 92, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char invalid_choice[] = "x";
     nanny(&descriptor, invalid_choice);
 
@@ -1476,12 +1496,14 @@ TEST(InterpreAccountMenu, ActiveOverLevelNinetyOneAllowsDifferentLinkedCharacter
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 92, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
     char selection[] = "2";
@@ -1525,11 +1547,13 @@ TEST(InterpreAccountMenu, MultipleActiveSessionsAllowSelectionWhenAnyActiveChara
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data high_level_descriptor = make_descriptor();
+    TestDescriptorRelease high_level_descriptor_release(&high_level_descriptor);
     high_level_descriptor.connected = CON_PLYNG;
     high_level_descriptor.descriptor = 7;
     attach_active_character(&high_level_descriptor, "aragorn", 92, 4242);
 
     descriptor_data low_level_descriptor = make_descriptor();
+    TestDescriptorRelease low_level_descriptor_release(&low_level_descriptor);
     low_level_descriptor.connected = CON_PLYNG;
     low_level_descriptor.descriptor = 8;
     attach_active_character(&low_level_descriptor, "boromir", 50, 5252);
@@ -1537,6 +1561,7 @@ TEST(InterpreAccountMenu, MultipleActiveSessionsAllowSelectionWhenAnyActiveChara
     descriptor_list = &high_level_descriptor;
 
     descriptor_data menu_descriptor = make_descriptor();
+    TestDescriptorRelease menu_descriptor_release(&menu_descriptor);
     char invalid_choice[] = "x";
     nanny(&menu_descriptor, invalid_choice);
 
@@ -1547,6 +1572,7 @@ TEST(InterpreAccountMenu, MultipleActiveSessionsAllowSelectionWhenAnyActiveChara
     EXPECT_EQ(menu_output.find("Different character selection is locked"), std::string::npos) << menu_output;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     std::snprintf(select_descriptor.host, sizeof(select_descriptor.host), "%s", "127.0.0.1");
     char selection[] = "3";
@@ -1585,11 +1611,13 @@ TEST(InterpreAccountMenu, MultipleLowActiveSessionsStillRestrictDifferentLinkedC
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data level_ninety_one_descriptor = make_descriptor();
+    TestDescriptorRelease level_ninety_one_descriptor_release(&level_ninety_one_descriptor);
     level_ninety_one_descriptor.connected = CON_PLYNG;
     level_ninety_one_descriptor.descriptor = 7;
     attach_active_character(&level_ninety_one_descriptor, "aragorn", 91, 4242);
 
     descriptor_data low_level_descriptor = make_descriptor();
+    TestDescriptorRelease low_level_descriptor_release(&low_level_descriptor);
     low_level_descriptor.connected = CON_PLYNG;
     low_level_descriptor.descriptor = 8;
     attach_active_character(&low_level_descriptor, "boromir", 50, 5252);
@@ -1597,6 +1625,7 @@ TEST(InterpreAccountMenu, MultipleLowActiveSessionsStillRestrictDifferentLinkedC
     descriptor_list = &level_ninety_one_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1641,12 +1670,14 @@ TEST(InterpreAccountMenu, LinkedRosterLevelOneHundredAllowsDifferentSelectionWhe
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     std::snprintf(select_descriptor.host, sizeof(select_descriptor.host), "%s", "127.0.0.1");
     char selection[] = "3";
@@ -1685,12 +1716,14 @@ TEST(InterpreAccountMenu, LinkedRosterLevelNinetyOneDoesNotUnlockDifferentSelect
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1722,12 +1755,14 @@ TEST(InterpreAccountMenu, MissingHighLevelLinkedRosterCharacterDoesNotUnlockDiff
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1761,12 +1796,14 @@ TEST(InterpreAccountMenu, CorruptHighLevelLinkedRosterCharacterDoesNotUnlockDiff
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1800,12 +1837,14 @@ TEST(InterpreAccountMenu, DeletedHighLevelLinkedRosterCharacterDoesNotUnlockDiff
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1844,12 +1883,14 @@ TEST(InterpreAccountMenu, DuplicateOwnedHighLevelLinkedRosterCharacterDoesNotUnl
     ASSERT_TRUE(account::write_account_file(".", other_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1886,11 +1927,13 @@ TEST(InterpreAccountMenu, DuplicateOwnedActiveHighLevelLinkedCharacterDoesNotUnl
     ASSERT_TRUE(account::write_account_file(".", other_account, &error_message)) << error_message;
 
     descriptor_data duplicate_high_descriptor = make_descriptor();
+    TestDescriptorRelease duplicate_high_descriptor_release(&duplicate_high_descriptor);
     duplicate_high_descriptor.connected = CON_PLYNG;
     duplicate_high_descriptor.descriptor = 7;
     attach_active_character(&duplicate_high_descriptor, "aragorn", 100, 4242);
 
     descriptor_data low_level_descriptor = make_descriptor();
+    TestDescriptorRelease low_level_descriptor_release(&low_level_descriptor);
     low_level_descriptor.connected = CON_PLYNG;
     low_level_descriptor.descriptor = 8;
     attach_active_character(&low_level_descriptor, "boromir", 50, 5252);
@@ -1898,6 +1941,7 @@ TEST(InterpreAccountMenu, DuplicateOwnedActiveHighLevelLinkedCharacterDoesNotUnl
     descriptor_list = &duplicate_high_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "3";
     nanny(&select_descriptor, selection);
@@ -1939,6 +1983,7 @@ TEST(InterpreAccountMenu, DuplicateOwnedActiveLowLevelLinkedCharacterStillRestri
     ASSERT_TRUE(account::write_account_file(".", other_account, &error_message)) << error_message;
 
     descriptor_data duplicate_low_descriptor = make_descriptor();
+    TestDescriptorRelease duplicate_low_descriptor_release(&duplicate_low_descriptor);
     duplicate_low_descriptor.connected = CON_PLYNG;
     duplicate_low_descriptor.descriptor = 7;
     attach_active_character(&duplicate_low_descriptor, "aragorn", 50, 4242);
@@ -1948,6 +1993,7 @@ TEST(InterpreAccountMenu, DuplicateOwnedActiveLowLevelLinkedCharacterStillRestri
     EXPECT_NE(error_message.find("ambiguous account ownership"), std::string::npos) << error_message;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "2";
     nanny(&select_descriptor, selection);
@@ -1985,6 +2031,7 @@ TEST(InterpreAccountMenu, ActiveHighLevelLinkedCharacterWithoutDescriptorAccount
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     active_descriptor.account_name[0] = '\0';
@@ -1992,6 +2039,7 @@ TEST(InterpreAccountMenu, ActiveHighLevelLinkedCharacterWithoutDescriptorAccount
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     std::snprintf(select_descriptor.host, sizeof(select_descriptor.host), "%s", "127.0.0.1");
     char selection[] = "2";
@@ -2026,6 +2074,7 @@ TEST(InterpreAccountMenu, ActiveLowLevelLinkedCharacterWithoutDescriptorAccountN
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     active_descriptor.account_name[0] = '\0';
@@ -2033,6 +2082,7 @@ TEST(InterpreAccountMenu, ActiveLowLevelLinkedCharacterWithoutDescriptorAccountN
     descriptor_list = &active_descriptor;
 
     descriptor_data select_descriptor = make_descriptor();
+    TestDescriptorRelease select_descriptor_release(&select_descriptor);
     select_descriptor.connected = CON_ACCTSLCT;
     char selection[] = "2";
     nanny(&select_descriptor, selection);
@@ -2070,12 +2120,14 @@ TEST(InterpreAccountMenu, LinklessActiveCharacterOverLevelNinetyOneAllowsDiffere
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_LINKLS;
     active_descriptor.descriptor = 0;
     attach_active_character(&active_descriptor, "aragorn", 92, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
     char selection[] = "2";
@@ -2133,6 +2185,7 @@ TEST(InterpreAccountMenu, SelectingSameLinklessActiveCharacterReconnectsExisting
     active_character->next_in_room = nullptr;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
     char selection[] = "1";
@@ -2176,6 +2229,7 @@ TEST(InterpreAccountMenu, SelectingSameActivePlayingCharacterUsurpsExistingDescr
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     char_data* active_character = attach_active_character(&active_descriptor, "aragorn", 95, 4242);
@@ -2192,6 +2246,7 @@ TEST(InterpreAccountMenu, SelectingSameActivePlayingCharacterUsurpsExistingDescr
     active_character->next_in_room = nullptr;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
     char selection[] = "1";
@@ -2230,12 +2285,14 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuBlocksDifferentActiveLo
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -2280,11 +2337,13 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenAnyA
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data high_level_descriptor = make_descriptor();
+    TestDescriptorRelease high_level_descriptor_release(&high_level_descriptor);
     high_level_descriptor.connected = CON_PLYNG;
     high_level_descriptor.descriptor = 7;
     attach_active_character(&high_level_descriptor, "aragorn", 92, 4242);
 
     descriptor_data low_level_descriptor = make_descriptor();
+    TestDescriptorRelease low_level_descriptor_release(&low_level_descriptor);
     low_level_descriptor.connected = CON_PLYNG;
     low_level_descriptor.descriptor = 8;
     attach_active_character(&low_level_descriptor, "boromir", 50, 5252);
@@ -2301,6 +2360,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenAnyA
     character_list = selected_character_body;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -2354,6 +2414,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenLink
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
@@ -2369,6 +2430,7 @@ TEST(InterpreAccountMenu, StaleAccountBackedCharacterMenuAllowsSelectionWhenLink
     character_list = selected_character_body;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -2412,12 +2474,14 @@ TEST(InterpreAccountMenu, RestrictedActiveCharacterBlocksNewCharacterCreation)
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char new_character_choice[] = "4";
     nanny(&descriptor, new_character_choice);
 
@@ -2448,12 +2512,14 @@ TEST(InterpreAccountMenu, LinkedRosterLevelOneHundredAllowsNewCharacterCreation)
     ASSERT_TRUE(account::admin_link_character(".", "acct", "gandalf", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     char new_character_choice[] = "4";
     nanny(&descriptor, new_character_choice);
 
@@ -2498,6 +2564,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowNewCharacterCreationFromAccoun
     ASSERT_TRUE(account::admin_link_character(".", "unlock-newchar", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     std::snprintf(active_descriptor.account_name, sizeof(active_descriptor.account_name), "%s", "unlock-newchar");
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
@@ -2507,6 +2574,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowNewCharacterCreationFromAccoun
     ASSERT_TRUE(grant_account_character_selection_unlock(stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "unlock-newchar");
     char new_character_choice[] = "4";
     nanny(&descriptor, new_character_choice);
@@ -2536,12 +2604,14 @@ TEST(InterpreAccountMenu, StaleAccountCreationWizardBlocksBirthWhenLowLevelChara
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_CREATE;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -2586,6 +2656,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowStaleAccountCreationWizardBirt
     ASSERT_TRUE(account::admin_link_character(".", "unlock-birth", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     std::snprintf(active_descriptor.account_name, sizeof(active_descriptor.account_name), "%s", "unlock-birth");
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
@@ -2595,6 +2666,7 @@ TEST(InterpreAccountMenu, UnlockSelectDoesNotAllowStaleAccountCreationWizardBirt
     ASSERT_TRUE(grant_account_character_selection_unlock(stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "unlock-birth");
     descriptor.connected = CON_CREATE;
     descriptor.character = allocate_character();
@@ -2644,12 +2716,14 @@ TEST(InterpreAccountMenu, StaleAccountCreationWizardCannotOverwriteSameNameActiv
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_CREATE;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -2696,12 +2770,14 @@ TEST(InterpreAccountMenu, RestrictedActiveCharacterStillAllowsListResetAndLogout
     ASSERT_TRUE(account::write_account_character_file(".", "acct", make_stored_character("aragorn", 50, RACE_HUMAN), &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data list_descriptor = make_descriptor();
+    TestDescriptorRelease list_descriptor_release(&list_descriptor);
     char list_choice[] = "1";
     nanny(&list_descriptor, list_choice);
     EXPECT_EQ(list_descriptor.connected, CON_ACCTMENU);
@@ -2711,18 +2787,21 @@ TEST(InterpreAccountMenu, RestrictedActiveCharacterStillAllowsListResetAndLogout
     EXPECT_NE(output.find("Active character: Aragorn (level 50, playing)\n\r"), std::string::npos) << output;
 
     descriptor_data reset_descriptor = make_descriptor();
+    TestDescriptorRelease reset_descriptor_release(&reset_descriptor);
     char reset_choice[] = "5";
     nanny(&reset_descriptor, reset_choice);
     EXPECT_EQ(reset_descriptor.connected, CON_ACCTRESETOLD);
     EXPECT_NE(std::string(reset_descriptor.output).find("Current account password: "), std::string::npos);
 
     descriptor_data link_descriptor = make_descriptor();
+    TestDescriptorRelease link_descriptor_release(&link_descriptor);
     char link_choice[] = "3";
     nanny(&link_descriptor, link_choice);
     EXPECT_EQ(link_descriptor.connected, CON_ACCTLINKNAME);
     EXPECT_NE(std::string(link_descriptor.output).find("Legacy character name: "), std::string::npos);
 
     descriptor_data logout_descriptor = make_descriptor();
+    TestDescriptorRelease logout_descriptor_release(&logout_descriptor);
     char logout_choice[] = "0";
     nanny(&logout_descriptor, logout_choice);
     EXPECT_EQ(logout_descriptor.connected, CON_CLOSE);
@@ -2772,6 +2851,7 @@ TEST(InterpreAccountMenu, AccountMenuLinkChoiceUsesPlayerFacingSuccessMessage)
     player_table[legacy_player_index].flags = legacy_character.specials2.act;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
 
     char menu_choice[] = "3";
     nanny(&descriptor, menu_choice);
@@ -2843,6 +2923,7 @@ TEST(InterpreAccountMenu, AccountMenuLinkFailureIsLoggedAndLeavesTheLegacyFilesI
     player_table[legacy_player_index].flags = legacy_character.specials2.act;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
 
     char menu_choice[] = "3";
     nanny(&descriptor, menu_choice);
@@ -2908,6 +2989,7 @@ TEST(InterpreAccountMenu, AccountMenuNewCharacterConfirmationSkipsLegacyPassword
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
@@ -2941,6 +3023,7 @@ TEST(InterpreAccountMenu, AccountMenuNewCharacterConfirmationSkipsLegacyPassword
 TEST(InterpreAccountMenu, CharacterMenuPasswordOptionRoutesAccountBackedCharactersToAccountResetFlow)
 {
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "*ACCOUNT*");
@@ -2967,6 +3050,7 @@ TEST(InterpreAccountMenu, PendingVerificationLoginResetsBadPasswordCounterAndPro
         << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTPWD;
     descriptor.bad_pws = 4;
     std::snprintf(
@@ -2991,6 +3075,7 @@ TEST(InterpreAccountMenu, PendingVerificationLoginResetsBadPasswordCounterAndPro
 TEST(InterpreAccountMenu, VerificationCancelClearsTransientLoginStateAndReturnsToEmailPrompt)
 {
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTVERIFY;
     descriptor.bad_pws = 3;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
@@ -3032,6 +3117,7 @@ TEST(InterpreAccountMenu, VerificationBadCodeThresholdKeepsPromptUntilFifthDescr
     ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
 
     descriptor_data retry_descriptor = make_descriptor();
+    TestDescriptorRelease retry_descriptor_release(&retry_descriptor);
     retry_descriptor.connected = CON_ACCTVERIFY;
     retry_descriptor.bad_pws = 3;
     std::snprintf(
@@ -3051,6 +3137,7 @@ TEST(InterpreAccountMenu, VerificationBadCodeThresholdKeepsPromptUntilFifthDescr
     EXPECT_EQ(std::string(retry_descriptor.output).find("Account:"), std::string::npos);
 
     descriptor_data closing_descriptor = make_descriptor();
+    TestDescriptorRelease closing_descriptor_release(&closing_descriptor);
     closing_descriptor.connected = CON_ACCTVERIFY;
     closing_descriptor.bad_pws = 4;
     std::snprintf(
@@ -3078,6 +3165,7 @@ TEST(InterpreAccountMenu, AccountCreationPasswordMismatchClearsStagedPasswordAnd
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTNEWPWDCNF;
     std::snprintf(
         descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
@@ -3106,6 +3194,7 @@ TEST(InterpreAccountMenu, AccountCreationBlankPasswordClearsStaleStagedPassword)
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTNEWPWD;
     std::snprintf(
         descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
@@ -3134,6 +3223,7 @@ TEST(InterpreAccountMenu, AccountCreationWeakPasswordClearsStaleStagedPassword)
     ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTNEWPWD;
     std::snprintf(
         descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
@@ -3161,6 +3251,7 @@ TEST(InterpreAccountMenu, AccountCreationSuccessClearsStagedPasswordAndPromptsFo
     ScopedEnvironmentVariable sendmail_override("ROTS_SENDMAIL_COMMAND", "/bin/true");
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTNEWPWDCNF;
     std::snprintf(
         descriptor.account_email, sizeof(descriptor.account_email), "%s", "Player@Example.COM");
@@ -3200,6 +3291,7 @@ TEST(InterpreAccountMenu, AccountResetBlankCurrentPasswordCancelsWithoutChanging
     const std::string original_hash = stored_account.password_hash;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTRESETOLD;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(
@@ -3237,6 +3329,7 @@ TEST(InterpreAccountMenu, AccountResetBlankNewPasswordClearsStaleStagedPassword)
     const std::string original_hash = stored_account.password_hash;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTRESETNEW;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(
@@ -3274,6 +3367,7 @@ TEST(InterpreAccountMenu, AccountResetWeakNewPasswordClearsStaleStagedPassword)
     const std::string original_hash = stored_account.password_hash;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTRESETNEW;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(
@@ -3310,6 +3404,7 @@ TEST(InterpreAccountMenu, LegacyLinkBlankPasswordCancelsWithoutCreatingLink)
         << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTLEGPWD;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(
@@ -3363,6 +3458,7 @@ TEST(InterpreAccountMenu, LegacyLinkWrongPasswordClearsPendingCharacterWithoutCr
     player_table[legacy_player_index].flags = legacy_character.specials2.act;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTLEGPWD;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(
@@ -3420,6 +3516,7 @@ TEST(InterpreAccountMenu, LegacyLinkMalformedObjectMigrationFailureClearsPending
     player_table[legacy_player_index].flags = legacy_character.specials2.act;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTLEGPWD;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(
@@ -3503,6 +3600,7 @@ TEST(InterpreAccountMenu, SuccessfulAccountLoginLogsEmailAndHost)
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTPWD;
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
@@ -3524,6 +3622,7 @@ TEST(InterpreAccountMenu, SuccessfulAccountLoginLogsEmailAndHost)
 TEST(InterpreAccountMenu, AccountLogoutLogsEmailAndHostExactlyOnce)
 {
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTMENU;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
@@ -3566,6 +3665,7 @@ TEST(InterpreAccountMenu, InvalidAccountPasswordAttemptLogsEmailAndHost)
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTPWD;
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
@@ -3597,6 +3697,7 @@ TEST(InterpreAccountMenu, PendingVerificationAccountDoesNotLogBadPasswordAttempt
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTPWD;
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
     std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "127.0.0.1");
@@ -3618,6 +3719,7 @@ TEST(InterpreAccountMenu, PendingVerificationAccountDoesNotLogBadPasswordAttempt
 TEST(InterpreAccountMenu, CharacterMenuDeleteOptionRoutesAccountBackedCharactersToAccountPasswordVerification)
 {
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "*ACCOUNT*");
@@ -3649,6 +3751,7 @@ TEST(InterpreAccountMenu, AccountPasswordResetRejectsIncorrectCurrentPasswordAnd
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTRESETOLD;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
@@ -3683,6 +3786,7 @@ TEST(InterpreAccountMenu, AccountPasswordResetLogsEmailAndHost)
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTRESETCNF;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", "player@example.com");
@@ -3721,6 +3825,7 @@ TEST(InterpreAccountMenu, AccountBackedDeleteVerificationRejectsIncorrectAccount
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTDELCNF1;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     descriptor.character = allocate_character();
@@ -3752,6 +3857,7 @@ TEST(InterpreAccountMenu, AccountBackedDeleteVerificationAcceptsCorrectAccountPa
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTDELCNF1;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
@@ -3793,6 +3899,7 @@ TEST(InterpreAccountMenu, ConfirmedAccountBackedDeleteReturnsToUsableAccountMenu
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
@@ -3900,6 +4007,7 @@ TEST(InterpreAccountMenu, SelectingAnotherLinkedCharacterAfterDeleteRecreatesDes
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
@@ -3996,6 +4104,7 @@ TEST(InterpreAccountMenu, FailedSelectionAfterDeleteDoesNotLeaveReplacementDescr
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010203, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
@@ -4073,6 +4182,7 @@ TEST(InterpreAccountMenu, CreatingNewCharacterAfterDeleteRecreatesDescriptorChar
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "WrongPwd");
@@ -4144,6 +4254,7 @@ TEST(InterpreAccountMenu, AccountBackedCharacterMenuChoiceZeroReturnsToAccountMe
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     char choice[] = "0";
 
@@ -4167,6 +4278,7 @@ TEST(InterpreAccountMenu, AccountBackedCharacterMenuChoiceZeroReturnsToAccountMe
 TEST(InterpreAccountMenu, AccountBackedCharacterMenuUsesBackToAccountMenuLabel)
 {
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
 
@@ -4187,6 +4299,7 @@ TEST(InterpreAccountMenu, ExtractCharReturnsAccountBackedCharactersToAccountAwar
     ASSERT_EQ(mkdir("players/A-E", 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_PLYNG;
     descriptor.descriptor = 1;
 
@@ -4237,6 +4350,7 @@ TEST(InterpreAccountMenu, AccountSelectionKeepsAccountSessionForCharacterMenuOpt
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -4293,6 +4407,7 @@ TEST(InterpreAccountMenu, AccountSelectionLoadsTheSecondNumberedLinkedCharacter)
     ASSERT_TRUE(account::admin_link_character(".", "acct", "legolas", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -4340,6 +4455,7 @@ TEST(InterpreAccountMenu, AccountSelectionReplacesRentedCharacterShellSoStoredAf
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -4400,6 +4516,7 @@ TEST(InterpreAccountMenu, ReturningToAccountAndReselectingSameCharacterDoesNotDu
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -4465,6 +4582,7 @@ TEST(InterpreAccountMenu, AccountSelectionKeepsBackToAccountMenuLabelWhenMenuRer
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
@@ -4494,6 +4612,7 @@ TEST(InterpreAccountMenu, AccountSelectionKeepsBackToAccountMenuLabelWhenMenuRer
 TEST(InterpreAccountMenu, LegacyCharacterMenuStillUsesExitFromMudLabel)
 {
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_SLCT;
     descriptor.account_name[0] = '\0';
 
@@ -4520,6 +4639,7 @@ TEST(InterpreAccountMenu, AccountBackedNewCharactersAreBornWithStartRoomAndNaked
     character->specials2.rawPerception = 0;
     character->specials2.perception = 0;
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_QSEX;
     character->desc = &descriptor;
 
@@ -4552,6 +4672,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharactersAvoidsLegacyFil
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, nullptr, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
@@ -4634,6 +4755,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharactersAvoidsLegacyFil
     clear_char(loaded_character, MOB_VOID);
     store_to_char(&stored_character, loaded_character);
     descriptor_data loaded_descriptor = make_descriptor();
+    TestDescriptorRelease loaded_descriptor_release(&loaded_descriptor);
     std::snprintf(loaded_descriptor.account_name, sizeof(loaded_descriptor.account_name), "%s", "acct");
     loaded_character->desc = &loaded_descriptor;
 
@@ -4702,6 +4824,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
     }
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
@@ -4733,6 +4856,7 @@ TEST(InterpreAccountMenu, IntroduceCharForAccountBackedCharacterDoesNotInheritLe
     clear_char(loaded_character, MOB_VOID);
     store_to_char(&stored_character, loaded_character);
     descriptor_data loaded_descriptor = make_descriptor();
+    TestDescriptorRelease loaded_descriptor_release(&loaded_descriptor);
     std::snprintf(loaded_descriptor.account_name, sizeof(loaded_descriptor.account_name), "%s", "acct");
     loaded_character->desc = &loaded_descriptor;
     stage_account_backed_object_bytes_for_character(loaded_character, object_bytes.data(), object_bytes.size());
@@ -4775,6 +4899,7 @@ TEST(InterpreAccountMenu, IntroduceCharRejectsTooLongAccountNativeIndexPathWitho
         << "Test setup must exceed the legacy player index path buffer.";
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
@@ -4845,6 +4970,7 @@ TEST(InterpreAccountMenu, AccountSelectionRejectsTooLongAccountNativeIndexPathWi
         << "Test setup must exceed the legacy player index path buffer.";
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_ACCTSLCT;
     std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", account_name);
     std::snprintf(descriptor.account_email, sizeof(descriptor.account_email), "%s", long_email.c_str());
@@ -4914,6 +5040,7 @@ TEST(InterpreAccountMenu, IntroduceCharRollbackDoesNotLeaveLegacyOrAccountNative
     ASSERT_EQ(mkdir(blocking_exploit_path.c_str(), 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
@@ -4986,6 +5113,7 @@ TEST(InterpreAccountMenu, IntroduceCharRejectsNameLinkedToAnotherAccountBeforeWr
     ASSERT_TRUE(account::admin_link_character(".", "other", "aragorn", 1700010202, &owner_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.character = allocate_character();
     clear_char(descriptor.character, MOB_VOID);
     register_pc_char(descriptor.character);
@@ -5058,6 +5186,7 @@ TEST(InterpreAccountMenu, AdvanceLevelStillPersistsWhenAccountOwnershipLookupFai
     ASSERT_EQ(mkdir("players/ZZZ", 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.output = descriptor.small_outbuf;
     descriptor.bufspace = SMALL_BUFSIZE - 1;
     descriptor.character = allocate_character();
@@ -5097,6 +5226,7 @@ TEST(InterpreAccountMenu, WrongAccountPasswordRecordsAFailedLoginAttemptOnTheAcc
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWD;
@@ -5136,6 +5266,7 @@ TEST(InterpreAccountMenu, SuccessfulAccountLoginReportsAndClearsRecordedLoginFai
     ASSERT_TRUE(account::write_account_file(".", stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWD;
@@ -5174,6 +5305,8 @@ TEST(InterpreAccountMenu, StateDeadlineClosesTheConnectionOnceItPasses)
     EXPECT_EQ(descriptor->connected, CON_CLOSE);
     EXPECT_EQ(descriptor->state_deadline, 0);
     EXPECT_NE(std::string(descriptor->output).find("Timed out."), std::string::npos);
+    release_test_descriptor(descriptor);
+    RELEASE(descriptor);
 }
 
 TEST(InterpreAccountMenu, StateDeadlineLeavesConnectionsAloneBeforeItPasses)
@@ -5191,6 +5324,8 @@ TEST(InterpreAccountMenu, StateDeadlineLeavesConnectionsAloneBeforeItPasses)
     EXPECT_EQ(descriptor->connected, CON_ACCTPWD);
     EXPECT_EQ(descriptor->state_deadline, 1700002000);
     EXPECT_EQ(std::string(descriptor->output), "");
+    release_test_descriptor(descriptor);
+    RELEASE(descriptor);
 }
 
 TEST(InterpreAccountMenu, StateDeadlineIgnoresDescriptorsWithoutOne)
@@ -5207,6 +5342,8 @@ TEST(InterpreAccountMenu, StateDeadlineIgnoresDescriptorsWithoutOne)
 
     EXPECT_EQ(descriptor->connected, CON_ACCTMENU);
     EXPECT_EQ(std::string(descriptor->output), "");
+    release_test_descriptor(descriptor);
+    RELEASE(descriptor);
 }
 
 TEST(InterpreAccountMenu, StateDeadlineNamesTheExpiredCodeInTheForgotPasswordStates)
@@ -5223,6 +5360,8 @@ TEST(InterpreAccountMenu, StateDeadlineNamesTheExpiredCodeInTheForgotPasswordSta
 
     EXPECT_EQ(descriptor->connected, CON_CLOSE);
     EXPECT_NE(std::string(descriptor->output).find("That reset code has expired."), std::string::npos);
+    release_test_descriptor(descriptor);
+    RELEASE(descriptor);
 }
 
 // account_character_name holds the plaintext reset code through the forgot-password states and
@@ -5245,6 +5384,8 @@ TEST(InterpreAccountMenu, StateDeadlineScrubsTheResetCodeAndPasswordFromTheDescr
     EXPECT_EQ(descriptor->connected, CON_CLOSE);
     EXPECT_TRUE(std::string(descriptor->account_character_name).empty());
     EXPECT_TRUE(std::string(descriptor->account_password).empty());
+    release_test_descriptor(descriptor);
+    RELEASE(descriptor);
 }
 
 TEST(InterpreAccountMenu, FifthWrongAccountPasswordOffersTheResetMenuInsteadOfDisconnecting)
@@ -5261,6 +5402,7 @@ TEST(InterpreAccountMenu, FifthWrongAccountPasswordOffersTheResetMenuInsteadOfDi
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWD;
@@ -5287,6 +5429,7 @@ TEST(InterpreAccountMenu, ResetMenuChoiceZeroDisconnects)
     ScopedDescriptorListReset descriptor_list_reset;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWDFAIL;
@@ -5306,6 +5449,7 @@ TEST(InterpreAccountMenu, ResetMenuRedrawsOnInvalidInputWithoutExtendingTheDeadl
     ScopedDescriptorListReset descriptor_list_reset;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWDFAIL;
@@ -5329,6 +5473,7 @@ TEST(InterpreAccountMenu, ResetMenuChoiceOneAdvancesToTheCodePromptForAnUnknownA
     ASSERT_EQ(mkdir("accounts", 0700), 0);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWDFAIL;
@@ -5374,6 +5519,7 @@ TEST(InterpreAccountMenu, CorrectResetCodeAdvancesToTheNewPasswordPrompt)
     std::string mailed_code = captured_mail.substr(code_offset + marker.size(), 6);
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTCODE;
@@ -5410,6 +5556,7 @@ TEST(InterpreAccountMenu, WrongResetCodeIsReportedImmediatelyAndRePrompts)
     ASSERT_TRUE(account::start_password_reset(".", "player@example.com", time(0), &expiry, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTCODE;
@@ -5443,6 +5590,7 @@ TEST(InterpreAccountMenu, FifthWrongResetCodeDisconnects)
     ASSERT_TRUE(account::start_password_reset(".", "player@example.com", time(0), &expiry, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTCODE;
@@ -5484,6 +5632,7 @@ TEST(InterpreAccountMenu, ResetCodePromptTreatsAnUnknownAddressIdenticallyToARea
     char wrong_code[] = "000000";
 
     descriptor_data known_descriptor = make_descriptor();
+    TestDescriptorRelease known_descriptor_release(&known_descriptor);
     known_descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(known_descriptor.descriptor, 0);
     known_descriptor.connected = CON_ACCTFORGOTCODE;
@@ -5491,6 +5640,7 @@ TEST(InterpreAccountMenu, ResetCodePromptTreatsAnUnknownAddressIdenticallyToARea
     std::snprintf(known_descriptor.account_email, sizeof(known_descriptor.account_email), "%s", "player@example.com");
 
     descriptor_data unknown_descriptor = make_descriptor();
+    TestDescriptorRelease unknown_descriptor_release(&unknown_descriptor);
     unknown_descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(unknown_descriptor.descriptor, 0);
     unknown_descriptor.connected = CON_ACCTFORGOTCODE;
@@ -5519,6 +5669,7 @@ TEST(InterpreAccountMenu, ResetCodePromptDisconnectsOnEmptyInput)
     ScopedDescriptorListReset descriptor_list_reset;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTCODE;
@@ -5537,6 +5688,7 @@ TEST(InterpreAccountMenu, BlankEmailLineLeavesTheConnectionClosingWithNoFurtherO
     ScopedDescriptorListReset descriptor_list_reset;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.connected = CON_NME;
     char blank_line[] = "";
 
@@ -5570,6 +5722,7 @@ TEST(InterpreAccountMenu, ForgotPasswordHappyPathResetsThePasswordAndDisconnects
     ASSERT_TRUE(account::admin_verify_email(".", "acct", "test", 1700010201, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWDFAIL;
@@ -5614,6 +5767,7 @@ TEST(InterpreAccountMenu, ForgotPasswordRejectsAPasswordFailingPolicyWithoutAdva
     ScopedDescriptorListReset descriptor_list_reset;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTNEW;
@@ -5632,6 +5786,7 @@ TEST(InterpreAccountMenu, ForgotPasswordMismatchedConfirmationReturnsToTheNewPas
     ScopedDescriptorListReset descriptor_list_reset;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTNEW;
@@ -5664,6 +5819,7 @@ TEST(InterpreAccountMenu, ForgotPasswordCompletionReVerifiesTheCodeRatherThanTru
     ASSERT_TRUE(account::create_account(".", "acct", "player@example.com", "ValidPass1", 1700010200, &stored_account, &error_message)) << error_message;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTFORGOTNEW;
@@ -5710,12 +5866,14 @@ TEST(InterpreAccountMenu, ForgotPasswordCompletionLeavesAnActivePlayingSessionCo
     ASSERT_TRUE(account::admin_link_character(".", "acct", "aragorn", 1700010202, &stored_account, &error_message)) << error_message;
 
     descriptor_data active_descriptor = make_descriptor();
+    TestDescriptorRelease active_descriptor_release(&active_descriptor);
     active_descriptor.connected = CON_PLYNG;
     active_descriptor.descriptor = 7;
     attach_active_character(&active_descriptor, "aragorn", 50, 4242);
     descriptor_list = &active_descriptor;
 
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     descriptor.descriptor = open("/dev/null", O_WRONLY);
     ASSERT_GE(descriptor.descriptor, 0);
     descriptor.connected = CON_ACCTPWDFAIL;

@@ -4,6 +4,7 @@
 #include "../handler.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -184,11 +185,9 @@ public:
 
     ~FloorViewer()
     {
-        if (m_descriptor.large_outbuf) {
-            free(m_descriptor.large_outbuf->text);
-            free(m_descriptor.large_outbuf);
-        }
+        release_test_descriptor(&m_descriptor);
         free(m_viewer.player.name);
+        release_cleared_character(&m_viewer);
         world[0].light = m_saved_light;
     }
 

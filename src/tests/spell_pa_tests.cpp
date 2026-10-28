@@ -2,6 +2,7 @@
 #include "../spells.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -38,6 +39,24 @@ void ensure_test_world_room(int room_number)
     world[0].people = nullptr;
 }
 
+/* Puts back room 0's people, as it found them, when a test that seats its own local characters
+ * there ends, so that no later test walks into characters gone out of scope. */
+class ScopedRoomZeroPeople {
+public:
+    ScopedRoomZeroPeople()
+        : m_saved_people(world[0].people)
+    {
+    }
+    ~ScopedRoomZeroPeople() { world[0].people = m_saved_people; }
+
+    ScopedRoomZeroPeople(const ScopedRoomZeroPeople&) = delete;
+    ScopedRoomZeroPeople& operator=(const ScopedRoomZeroPeople&) = delete;
+
+private:
+    // Room 0's people when the scope began.
+    char_data* m_saved_people;
+};
+
 void attach_character_to_room(char_data* character, int room_rnum, char_data* next_in_room)
 {
     character->in_room = room_rnum;
@@ -56,13 +75,16 @@ void initialize_player_character(char_data* character, const char* name)
 TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 {
     ensure_test_world_room(3001);
+    ScopedRoomZeroPeople room_people;
 
     char_data caster {};
     char_data observer {};
     descriptor_data observer_descriptor = make_descriptor();
 
     initialize_player_character(&caster, "caster");
+    ClearedCharacterRelease caster_release(&caster);
     initialize_player_character(&observer, "observer");
+    ClearedCharacterRelease observer_release(&observer);
     observer.desc = &observer_descriptor;
     SET_BIT(PRF_FLAGS(&observer), PRF_COLOR);
     set_colornum(&observer, COLOR_MAGIC, CBBLU);
@@ -87,13 +109,16 @@ TEST(SpellParser, SaySpellUsesMagicColorForColorEnabledObservers)
 TEST(SpellParser, MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled)
 {
     ensure_test_world_room(3002);
+    ScopedRoomZeroPeople room_people;
 
     char_data caster {};
     char_data observer {};
     descriptor_data observer_descriptor = make_descriptor();
 
     initialize_player_character(&caster, "caster");
+    ClearedCharacterRelease caster_release(&caster);
     initialize_player_character(&observer, "observer");
+    ClearedCharacterRelease observer_release(&observer);
     observer.desc = &observer_descriptor;
     REMOVE_BIT(PRF_FLAGS(&observer), PRF_COLOR);
     set_colornum(&observer, COLOR_MAGIC, CBBLU);
@@ -136,7 +161,9 @@ TEST(SpellParser, NpcCannotCastTheItemOnlyResistSpells)
     char_data master {};
     char_data pet {};
     initialize_player_character(&master, "master");
+    ClearedCharacterRelease master_release(&master);
     initialize_orc_follower(&pet, &master);
+    ClearedCharacterRelease pet_release(&pet);
 
     for (int spell = SPELL_RESIST_FIRE; spell <= SPELL_RESIST_DARK; ++spell)
         EXPECT_FALSE(can_cast_spell(pet, spell, skills[spell])) << skills[spell].name;
@@ -147,7 +174,9 @@ TEST(SpellParser, OrcFollowerCanStillCastOrdinaryClericSpells)
     char_data master {};
     char_data pet {};
     initialize_player_character(&master, "master");
+    ClearedCharacterRelease master_release(&master);
     initialize_orc_follower(&pet, &master);
+    ClearedCharacterRelease pet_release(&pet);
 
     EXPECT_TRUE(can_cast_spell(pet, SPELL_REGENERATION, skills[SPELL_REGENERATION]));
 }

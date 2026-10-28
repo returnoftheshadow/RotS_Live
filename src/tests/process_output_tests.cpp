@@ -5,6 +5,7 @@
 #include "../comm.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -34,6 +35,12 @@ public:
         SET_BIT(PRF_FLAGS(&m_character), PRF_WRAP);
         m_character.desc = &m_descriptor;
         m_descriptor.character = &m_character;
+    }
+
+    ~WrappingPlayer()
+    {
+        release_test_descriptor(&m_descriptor);
+        release_cleared_character(&m_character);
     }
 
     descriptor_data& descriptor() { return m_descriptor; }
