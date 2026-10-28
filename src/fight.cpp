@@ -18,6 +18,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -955,6 +956,8 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
             GET_MOVE(dead_man) = 0;
         }
 
+        /* A player with no link is saved and freed by extract_char. */
+        freed_watch dying_player_watch(dead_man);
         if (GET_LEVEL(dead_man) < LEVEL_IMMORT) {
             // Note, these are two different int arrays.
             dead_man->specials2.load_room = mortal_start_room[race];
@@ -964,7 +967,9 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
             extract_char(dead_man, r_immort_start_room);
         }
 
-        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+        if (!dying_player_watch.freed()) {
+            REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+        }
     } else {
         extract_char(dead_man);
     }
