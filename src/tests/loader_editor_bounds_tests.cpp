@@ -184,4 +184,38 @@ PKILL make_pkill(int killer_index, int victim_index)
     return record;
 }
 
+/* ---------------------------------------------------------------- pager */
+
+/* How far past the pager's buffer the long page's line runs. */
+constexpr size_t PAGE_OVERRUN = 2000;
+/* The most of a page show_string sends at once: its MAX_STRING_LENGTH buffer, less room for a line
+ * end's '\r' and the terminator. */
+constexpr size_t PAGE_PART_LENGTH = MAX_STRING_LENGTH - 2;
+
+TEST(Pager, ShowsAPageLongerThanItsBufferInParts)
+{
+    CapturingDescriptor descriptor;
+    const size_t line_length = MAX_STRING_LENGTH + PAGE_OVERRUN;
+    std::string text(line_length, 'p');
+    text += "\n\r";
+
+    page_string(descriptor.get(), &text[0], TRUE);
+
+    EXPECT_EQ(descriptor.output(), std::string(PAGE_PART_LENGTH, 'p'));
+    ASSERT_NE(descriptor.get()->showstr_point, nullptr) << "the rest waits for the next page";
+    EXPECT_EQ(std::string(descriptor.get()->showstr_point),
+        std::string(line_length - PAGE_PART_LENGTH, 'p') + "\n\r");
+    free(descriptor.get()->showstr_head);
+}
+
+TEST(Pager, ShowsAShortPageAsBefore)
+{
+    CapturingDescriptor descriptor;
+    char text[] = "first line\n\rsecond line\n\r";
+
+    page_string(descriptor.get(), text, TRUE);
+
+    EXPECT_EQ(descriptor.output(), "first line\n\rsecond line\n\r");
+    EXPECT_EQ(descriptor.get()->showstr_point, nullptr);
+}
 } // namespace
