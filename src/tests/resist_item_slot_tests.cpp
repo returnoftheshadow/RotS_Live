@@ -127,7 +127,7 @@ struct ItemResistBench {
 
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list);
             object_list = next;
         }
 

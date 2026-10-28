@@ -169,7 +169,8 @@ protected:
         m_mob_index[3].virt = kRiddenHorseVnum;
         mob_index = m_mob_index;
 
-        player = new char_data {};
+        // extract_char releases the characters with free_char, so they are allocated with CREATE1.
+        CREATE1(player, char_data);
         clear_char(player, MOB_VOID);
         player->player.name = strdup("Idleranger"); // free_char releases it when the disconnect extracts the player
         player->player.race = RACE_HUMAN;
@@ -234,7 +235,8 @@ protected:
 
     char_data* make_mob(int index, const char* keywords, const char* short_description)
     {
-        char_data* mob = new char_data {};
+        char_data* mob = nullptr;
+        CREATE1(mob, char_data);
         clear_char(mob, MOB_ISNPC);
         SET_BIT(MOB_FLAGS(mob), MOB_ISNPC);
         mob->nr = index;
