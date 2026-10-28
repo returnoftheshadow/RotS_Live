@@ -172,4 +172,18 @@ private:
     int m_previous_top_of_p_table;
 };
 
+// A PK record from <killer_index> to <victim_index>, made now so it has not expired.
+PKILL make_pkill(int killer_index, int victim_index)
+{
+    PKILL record {};
+    record.kill_time = static_cast<int>(std::time(nullptr));
+    record.killer = killer_index;
+    record.victim = victim_index;
+    record.killer_level = 20;
+    record.victim_level = 20;
+    record.killer_points = 100;
+    record.victim_points = -100;
+    return record;
+}
+
 } // namespace
