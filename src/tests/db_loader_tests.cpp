@@ -54,6 +54,10 @@ extern struct obj_data* object_list;
 extern int top_of_p_table;
 extern int top_of_world;
 extern int top_of_objt;
+extern struct char_data* mob_proto;
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+extern struct char_data* character_list;
 void build_player_index(void);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(const struct char_file_u* st, struct char_data* ch);
@@ -2302,6 +2306,221 @@ TEST_F(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
     Crash_follower_load(character, fp);
     EXPECT_EQ(std::ftell(fp), (long)object_bytes.size()) << "still open";
     EXPECT_EQ(std::fclose(fp), 0);
+}
+
+namespace {
+
+// The follower number Crash_follower_load reads as the end of a save's followers.
+constexpr int END_OF_FOLLOWERS = -17;
+
+// How many objects on object_list are in no room, carried or worn by nobody and in no container:
+// objects no player can see and nothing will ever free.
+int count_objects_held_by_nobody()
+{
+    int held_by_nobody = 0;
+    for (const obj_data* object = object_list; object != nullptr; object = object->next) {
+        if (object->in_room == NOWHERE && object->carried_by == nullptr && object->in_obj == nullptr) {
+            ++held_by_nobody;
+        }
+    }
+    return held_by_nobody;
+}
+
+} // namespace
+
+// A follower's gear saved in a slot one past the last (a damaged save) is read past, as gear in a
+// container is: nothing is put on there, and the follower's next item still loads.
+TEST_F(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
+{
+    constexpr int FOLLOWER_VNUM = 6601;
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    world[0].people = nullptr;
+
+    /* The follower's prototype, which real_mobile finds and read_mobile copies. */
+    char_data follower_prototype {};
+    clear_char(&follower_prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&follower_prototype), MOB_ISNPC);
+    follower_prototype.nr = 0;
+    index_data follower_index[1] {};
+    follower_index[0].virt = FOLLOWER_VNUM;
+    char_data* const saved_mob_proto = mob_proto;
+    index_data* const saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    char_data* const saved_character_list = character_list;
+    mob_proto = &follower_prototype;
+    mob_index = follower_index;
+    top_of_mobt = 0;
+
+    LoadedCharacter character;
+    character->in_room = 0;
+
+    /* One follower (a mount, flag 0) with a helm one past the last slot and a helm on its head. */
+    std::FILE* saved = std::tmpfile();
+    ASSERT_NE(saved, nullptr);
+    const follower_file_elem follower { FOLLOWER_VNUM, 0, 0, 0, 0, 0, 0 };
+    obj_file_elem past_the_last_slot {};
+    past_the_last_slot.item_number_deprecated = DEPRECATED_ID_VALUE;
+    past_the_last_slot.item_number = HELM_VNUM;
+    past_the_last_slot.wear_pos = MAX_WEAR;
+    obj_file_elem on_the_head = past_the_last_slot;
+    on_the_head.wear_pos = WEAR_HEAD;
+    obj_file_elem end_of_gear {};
+    end_of_gear.item_number_deprecated = DEPRECATED_ID_VALUE;
+    end_of_gear.item_number = SENTINEL_ITEM_ID_VALUE;
+    const follower_file_elem end_of_followers { END_OF_FOLLOWERS, 0, 0, 0, 0, 0, 0 };
+    EXPECT_EQ(std::fwrite(&follower, sizeof(follower), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&past_the_last_slot, sizeof(past_the_last_slot), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_gear, sizeof(end_of_gear), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_followers, sizeof(end_of_followers), 1, saved), 1u);
+    std::rewind(saved);
+
+    Crash_follower_load(character, saved);
+
+    EXPECT_EQ(std::fclose(saved), 0);
+    ASSERT_NE(character->followers, nullptr);
+    char_data* loaded = character->followers->follower;
+    int worn_items = 0;
+    for (int slot = 0; slot < MAX_WEAR; ++slot) {
+        if (loaded->equipment[slot] != nullptr) {
+            ++worn_items;
+        }
+    }
+    EXPECT_EQ(worn_items, 1);
+    ASSERT_NE(loaded->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character->followers->next, nullptr);
+
+    /* The follower is freed as extract_char frees a mob, which leaves its profession block to the
+     * prototype; the prototype's is freed below. Its helm goes with the object table. */
+    char_from_room(loaded);
+    remove_char_exists(loaded->abs_number);
+    RELEASE(character->followers);
+    free_char(loaded);
+    release_cleared_character(&follower_prototype);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    character_list = saved_character_list;
+}
+
+// A save naming one wear slot twice (damaged or hand-edited) puts the first item on and the second
+// in the player's inventory, so the player keeps both and nothing is left held by nobody.
+TEST_F(DbLoader, CrashLoadPutsASecondItemForAFilledSlotInTheInventory)
+{
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+    const char_file_u stored_character = make_stored_character("aragorn");
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    for (int helm_weight : { 7, 9 }) {
+        objects_json::ObjectRecord helm {};
+        helm.item_number = HELM_VNUM;
+        helm.wear_pos = WEAR_HEAD;
+        helm.weight = helm_weight;
+        object_data.objects.push_back(helm);
+    }
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[character->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    ASSERT_NE(character->carrying, nullptr) << "the second helm was not given to the player";
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character->carrying->next_content, nullptr);
+    EXPECT_NE(character->carrying, character->equipment[WEAR_HEAD]);
+    EXPECT_EQ(count_objects_held_by_nobody(), 0);
+}
+
+// A follower's gear saved twice for one slot: the follower wears the first item, and the second
+// goes into its leader's inventory, since only worn gear is saved with a follower.
+TEST_F(DbLoader, AFollowersSecondItemForAFilledSlotGoesToItsLeadersInventory)
+{
+    constexpr int FOLLOWER_VNUM = 6601;
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    world[0].people = nullptr;
+
+    /* The follower's prototype, which real_mobile finds and read_mobile copies. */
+    char_data follower_prototype {};
+    clear_char(&follower_prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&follower_prototype), MOB_ISNPC);
+    follower_prototype.nr = 0;
+    char follower_short_description[] = "a wolf cub"; /* the follower's name in the log line */
+    follower_prototype.player.short_descr = follower_short_description;
+    index_data follower_index[1] {};
+    follower_index[0].virt = FOLLOWER_VNUM;
+    char_data* const saved_mob_proto = mob_proto;
+    index_data* const saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    char_data* const saved_character_list = character_list;
+    mob_proto = &follower_prototype;
+    mob_index = follower_index;
+    top_of_mobt = 0;
+
+    LoadedCharacter character;
+    const char_file_u stored_character = make_stored_character("aragorn");
+    store_to_char(&stored_character, character); /* the leader's name is in the log line */
+    character->in_room = 0;
+
+    /* One follower (a mount, flag 0) with two helms saved on its head. */
+    std::FILE* saved = std::tmpfile();
+    ASSERT_NE(saved, nullptr);
+    const follower_file_elem follower { FOLLOWER_VNUM, 0, 0, 0, 0, 0, 0 };
+    obj_file_elem on_the_head {};
+    on_the_head.item_number_deprecated = DEPRECATED_ID_VALUE;
+    on_the_head.item_number = HELM_VNUM;
+    on_the_head.wear_pos = WEAR_HEAD;
+    obj_file_elem end_of_gear {};
+    end_of_gear.item_number_deprecated = DEPRECATED_ID_VALUE;
+    end_of_gear.item_number = SENTINEL_ITEM_ID_VALUE;
+    const follower_file_elem end_of_followers { END_OF_FOLLOWERS, 0, 0, 0, 0, 0, 0 };
+    EXPECT_EQ(std::fwrite(&follower, sizeof(follower), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_gear, sizeof(end_of_gear), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_followers, sizeof(end_of_followers), 1, saved), 1u);
+    std::rewind(saved);
+
+    Crash_follower_load(character, saved);
+
+    EXPECT_EQ(std::fclose(saved), 0);
+    ASSERT_NE(character->followers, nullptr);
+    char_data* loaded = character->followers->follower;
+    ASSERT_NE(loaded->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(loaded->carrying, nullptr);
+    ASSERT_NE(character->carrying, nullptr) << "the second helm was not given to the leader";
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character->carrying->next_content, nullptr);
+    EXPECT_EQ(count_objects_held_by_nobody(), 0);
+
+    /* The follower is freed as extract_char frees a mob, which leaves its profession block to the
+     * prototype; the prototype's is freed below. The helms go with the object table. */
+    char_from_room(loaded);
+    remove_char_exists(loaded->abs_number);
+    RELEASE(character->followers);
+    free_char(loaded);
+    release_cleared_character(&follower_prototype);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    character_list = saved_character_list;
 }
 
 // The file the game itself writes, read back by the game: the enchanted weapon's longer record

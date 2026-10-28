@@ -170,6 +170,78 @@ private:
     int m_previous_top_of_p_table;
 };
 
+/* ---------------------------------------------------------------- innkeeper refusal */
+
+// A player offering an unrentable item to an innkeeper, both standing in room 0.
+class InnkeeperRefusalTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        clear_char(&m_player, MOB_VOID);
+        m_player.player.name = m_player_name;
+        m_player.player.level = 10;
+        m_player.in_room = 0;
+        m_player.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_player;
+
+        clear_char(&m_innkeeper, MOB_VOID);
+        m_innkeeper.player.name = m_innkeeper_name;
+        m_innkeeper.player.short_descr = m_innkeeper_short;
+        m_innkeeper.in_room = 0;
+
+        constexpr int NO_PROTOTYPE = -1; /* the item number of an object with no prototype */
+        clear_object(&m_item);
+        m_item.item_number = NO_PROTOTYPE; /* never rentable */
+        m_item.in_room = NOWHERE;
+    }
+
+    // The refusal the player is sent for an item called <short_description>.
+    std::string refusal_for(std::string short_description)
+    {
+        m_item.short_description = &short_description[0];
+        EXPECT_EQ(Crash_report_unrentables(&m_player, &m_innkeeper, &m_item), 1);
+        m_item.short_description = nullptr;
+        return m_descriptor.output();
+    }
+
+    // Collects what the player is told.
+    CapturingDescriptor m_descriptor;
+    // Storage for the player's name.
+    char m_player_name[16] = "Offerer";
+    // Storage for the innkeeper's name.
+    char m_innkeeper_name[16] = "innkeeper";
+    // Storage for the innkeeper's short description.
+    char m_innkeeper_short[16] = "the innkeeper";
+    // The player offering.
+    char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
+    // The innkeeper refusing.
+    char_data m_innkeeper {};
+    // Frees what clear_char gave m_innkeeper when the test ends.
+    ClearedCharacterRelease m_innkeeper_release { &m_innkeeper };
+    // The unrentable item offered.
+    obj_data m_item {};
+};
+
+TEST_F(InnkeeperRefusalTest, NamesAnOrdinaryItemAsBefore)
+{
+    const std::string output = refusal_for("a wooden key");
+
+    EXPECT_NE(output.find("tells you, 'You cannot store a wooden key.'"), std::string::npos) << output;
+}
+
+TEST_F(InnkeeperRefusalTest, NamesAnItemWithALongShortDescriptionInFull)
+{
+    constexpr size_t LONG_NAME_LENGTH = 200; /* past the 128-byte buffer the refusal was built in */
+    const std::string long_name(LONG_NAME_LENGTH, 'k');
+
+    const std::string output = refusal_for(long_name);
+
+    EXPECT_NE(output.find("tells you, 'You cannot store " + long_name + ".'"), std::string::npos) << output;
+}
+
 /* ---------------------------------------------------------------- world map */
 
 // Draws on the world map and puts the map back as it was afterwards.
