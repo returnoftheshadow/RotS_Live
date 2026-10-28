@@ -427,6 +427,41 @@ TEST_F(DeathAndDamagePathsTest, AMoverHurtAsItsStayZoneGearComesOffLeavesItBehin
     EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(mover));
 }
 
+/* A zone reset puts a ring on a mob whose damage script, set off by the ring's poison, destroys
+ * the ring: the stone meant for the last object loaded has nothing to go in, and is not made. */
+TEST_F(DeathAndDamagePathsTest, AResetPutsNothingInAnItemItsWearerDestroyed)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE,
+        { { SCRIPT_ASSIGN_EQ, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1, WEAR_FINGER_R, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    ASSERT_TRUE(is_in_game(keeper));
+    EXPECT_EQ(nullptr, keeper->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
+    EXPECT_EQ(0, count_objects_of(STONE_VNUM));
+}
+
+/* The same reset on a mob the poison only hurts: the stone goes in the ring it wears. */
+TEST_F(DeathAndDamagePathsTest, AResetPutsTheStoneInTheRingItsMobWears)
+{
+    make_ring_and_sword_poisonous();
+    char_data* keeper = make_mob("keeper", 0);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    obj_data* ring = keeper->equipment[WEAR_FINGER_R];
+    ASSERT_NE(nullptr, ring);
+    EXPECT_EQ(MOB_HIT_POINTS - POISON_DAMAGE, GET_HIT(keeper));
+    ASSERT_NE(nullptr, ring->contains);
+    EXPECT_EQ(real_number_of(STONE_VNUM), ring->contains->item_number);
+}
+
 /* Nobody in no room is hurt: a blow at someone being taken out of the game lands nowhere. */
 TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
 {
