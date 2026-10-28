@@ -138,6 +138,7 @@ set(ROTS_SERVER_SOURCES
     object_utils.cpp
     objsave.cpp
     olog_hai.cpp
+    owned_character.cpp
     pkill.cpp
     player_file_finalize.cpp
     profs.cpp
