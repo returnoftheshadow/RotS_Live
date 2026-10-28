@@ -14,6 +14,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "protocol.h"
@@ -2009,8 +2010,13 @@ ACMD(do_pull)
         return;
     }
 
-    if (!call_trigger(ON_PULL, obj, ch, 0))
+    /* A script that extracted the lever has freed it; the pull ends there, as for false. */
+    freed_watch puller_watch(ch);
+    const object_trigger_result pull_result = call_object_trigger(ON_PULL, obj, ch);
+    /* So does a script that removed the one pulling. */
+    if (pull_result != object_trigger_result::proceed || puller_watch.freed()) {
         return;
+    }
 
     if (obj->obj_flags.type_flag != ITEM_LEVER) {
         if (CAN_WEAR(obj, ITEM_TAKE)) {

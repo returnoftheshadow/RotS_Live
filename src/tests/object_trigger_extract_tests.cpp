@@ -70,6 +70,35 @@ TEST_F(ObjectTriggerTest, ExamineShowsNoDescriptionWhenTheScriptReturnsFalse)
     EXPECT_FALSE(output_has("You see nothing special"));
 }
 
+/* ---- pull (ON_PULL) ---- */
+
+TEST_F(ObjectTriggerTest, PullingALeverWhoseScriptExtractsItStopsThere)
+{
+    install_self_extracting_script(ON_PULL);
+    obj_data* lever = make_scripted(LEVER_VNUM);
+    obj_to_room(lever, 0);
+
+    pull(lever);
+
+    EXPECT_TRUE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_FALSE(output_has("seems to be broken"));
+    EXPECT_EQ(nullptr, world[0].contents);
+}
+
+/* The lever's exit is not set, so a pull that goes ahead finds it broken. */
+TEST_F(ObjectTriggerTest, PullingALeverWithAScriptThatKeepsItGoesAhead)
+{
+    install_harmless_script(ON_PULL);
+    obj_data* lever = make_scripted(LEVER_VNUM);
+    obj_to_room(lever, 0);
+
+    pull(lever);
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_TRUE(output_has("iron lever seems to be broken."));
+    EXPECT_EQ(lever, world[0].contents);
+}
+
 /* ---- call_object_trigger and call_trigger ---- */
 
 TEST_F(ObjectTriggerTest, ScriptThatKeepsItsObjectProceeds)
@@ -144,4 +173,21 @@ TEST_F(ObjectTriggerTest, ExamineStopsWhenTheScriptRemovesTheExaminer)
 
     EXPECT_FALSE(is_in_game(examiner));
     EXPECT_EQ(1, count_contents(world[0].contents)) << "the examiner dropped the stone";
+}
+
+TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)
+{
+    install_script(ON_PULL, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* puller = make_mob("puller", 0);
+    obj_data* lever = make_scripted(LEVER_VNUM);
+    obj_to_room(lever, 0);
+    waiting_type target {};
+    target.targ1.type = TARGET_OBJ;
+    target.targ1.ptr.obj = lever;
+    char empty_argument[1] = "";
+
+    do_pull(puller, empty_argument, &target, 0, 0);
+
+    EXPECT_FALSE(is_in_game(puller));
+    EXPECT_FALSE(output_has("seems to be broken"));
 }
