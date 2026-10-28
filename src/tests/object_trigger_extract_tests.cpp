@@ -32,6 +32,44 @@ protected:
 
 } // namespace
 
+/* ---- examine (ON_EXAMINE_OBJECT) ---- */
+
+TEST_F(ObjectTriggerTest, ExamineStopsWhenTheScriptExtractsTheObject)
+{
+    install_self_extracting_script(ON_EXAMINE_OBJECT);
+    obj_to_char(make_scripted(STONE_VNUM), &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_TRUE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_FALSE(output_has("You see nothing special")) << "the description step read the stone";
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+TEST_F(ObjectTriggerTest, ExamineShowsTheDescriptionAfterAScriptThatKeepsTheObject)
+{
+    install_harmless_script(ON_EXAMINE_OBJECT);
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_TRUE(output_has("You see nothing special"));
+    EXPECT_EQ(stone, m_player.carrying);
+}
+
+TEST_F(ObjectTriggerTest, ExamineShowsNoDescriptionWhenTheScriptReturnsFalse)
+{
+    install_refusing_script(ON_EXAMINE_OBJECT);
+    obj_to_char(make_scripted(STONE_VNUM), &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+    EXPECT_FALSE(output_has("You see nothing special"));
+}
+
 /* ---- call_object_trigger and call_trigger ---- */
 
 TEST_F(ObjectTriggerTest, ScriptThatKeepsItsObjectProceeds)
@@ -80,4 +118,30 @@ TEST_F(ObjectTriggerTest, ObjectWithoutTheTriggersScriptProceeds)
     EXPECT_EQ(object_trigger_result::proceed,
         call_object_trigger(ON_EXAMINE_OBJECT, stone, &m_player));
     EXPECT_EQ(stone, object_list);
+}
+
+/* ---- an object script that removes the mob using the object ---- */
+
+/* The socket of the examiner's connection: any but the player's (1). */
+constexpr int EXAMINER_SOCKET = 2;
+
+/* A mob examines a stone whose script removes the mob: examine stops touching it. Only a
+ * character with a connection looks, so the mob is one an immortal has switched into. */
+TEST_F(ObjectTriggerTest, ExamineStopsWhenTheScriptRemovesTheExaminer)
+{
+    install_script(ON_EXAMINE_OBJECT, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* examiner = make_mob("examiner", 0);
+    descriptor_data connection {};
+    connection.output = connection.small_outbuf;
+    connection.bufspace = SMALL_BUFSIZE - 1;
+    connection.connected = CON_PLYNG;
+    connection.descriptor = EXAMINER_SOCKET;
+    connection.character = examiner;
+    examiner->desc = &connection;
+    obj_to_char(make_scripted(STONE_VNUM), examiner);
+
+    run_command_as(examiner, do_examine, "stone");
+
+    EXPECT_FALSE(is_in_game(examiner));
+    EXPECT_EQ(1, count_contents(world[0].contents)) << "the examiner dropped the stone";
 }
