@@ -3703,6 +3703,8 @@ char* fread_line(FILE* fp)
 /* release memory allocated for a char struct */
 void free_char(struct char_data* ch)
 {
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_character_freed(ch);
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);
@@ -3784,6 +3786,8 @@ void free_obj(struct obj_data* obj)
          RELEASE(thith);
        }
    } */
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_object_freed(obj);
 
     if (global_release_flag) {
         delete obj;

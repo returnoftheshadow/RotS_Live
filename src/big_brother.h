@@ -71,6 +71,16 @@ public:
     // Alert the Big Brother system that a character has returned to their keyboard.
     void on_character_returned(const char_data* character);
 
+    // Called as a character's memory is freed. Forgets the AFK protection and PK time held under
+    // its address, so a character later allocated there starts without them. Looting protection
+    // is held by player id and stays.
+    void on_character_freed(const char_data* character);
+
+    // Called as an object's memory is freed. Forgets the corpse protection held under its
+    // address, so an object later allocated there is not taken for that corpse. The dead
+    // player's looting protection stays.
+    void on_object_freed(const obj_data* object);
+
 private:
     friend class world_singleton<big_brother>;
 
