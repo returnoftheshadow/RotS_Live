@@ -9,32 +9,29 @@
 #include "../skill_timer.h"
 #include "../spells.h"
 
-void do_move(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_flee(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_kick(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void hit(char_data* ch, char_data* victim, int type);
+ACMD(do_move);
+ACMD(do_flee);
+ACMD(do_kick);
+ACMD(do_say);
+ACMD(do_rend);
+ACMD(do_bite);
+ACMD(do_maul);
+ACMD(do_cleave);
+ACMD(do_stomp);
+ACMD(do_smash);
+ACMD(do_bash);
+ACMD(do_rescue);
+ACMD(do_disengage);
+ACMD(do_track);
 void perform_violence();
-void set_fighting(char_data* ch, char_data* victim);
-void on_windblast_success(char_data* ch, int mana_cost, int move_cost);
+void on_windblast_success(char_data* character, int mana_cost, int move_cost);
 void die(char_data* dead_man, char_data* killer, int attack_type);
-void do_rend(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_bite(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_maul(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_cleave(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_stomp(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_smash(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_bash(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_rescue(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_disengage(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_track(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void affect_update_person(struct char_data* i, int mode);
+void affect_update_person(struct char_data* character, int mode);
 void assign_command_pointers(void);
 SPECIAL(thuringwethil);
 
 extern struct index_data* mob_index;
 extern int top_of_mobt;
-extern struct weather_data weather_info;
 extern struct txt_block* txt_block_pool;
 
 using namespace scripted_room;

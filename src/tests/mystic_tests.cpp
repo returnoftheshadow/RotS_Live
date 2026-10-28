@@ -18,7 +18,6 @@ extern struct room_data world;
 extern char* dirs[];
 extern char* room_bits[];
 extern char* sector_types[];
-void clear_object(struct obj_data* obj);
 
 namespace {
 

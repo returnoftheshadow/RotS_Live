@@ -2,12 +2,12 @@
  * command that fired the trigger must not touch the freed object again. */
 #include "scripted_room_fixture.h"
 
-void do_eat(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_drink(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_examine(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_pull(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_wield(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+ACMD(do_eat);
+ACMD(do_drink);
+ACMD(do_examine);
+ACMD(do_pull);
+ACMD(do_wear);
+ACMD(do_wield);
 
 using namespace scripted_room;
 

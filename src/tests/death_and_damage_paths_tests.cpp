@@ -8,27 +8,27 @@
 
 #include "../big_brother.h"
 #include "../char_utils.h"
+#include "../comm.h" /* complete_delay */
 #include "../skill_timer.h"
 #include "../spells.h"
 
-void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_wield(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_remove(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_cleave(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_knock(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_order(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+ACMD(do_wear);
+ACMD(do_wield);
+ACMD(do_remove);
+ACMD(do_cleave);
+ACMD(do_knock);
+ACMD(do_order);
 void assign_command_pointers(void);
-void complete_delay(struct char_data* ch);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 void fast_update();
 SPECIAL(ghoul);
 void affect_update_room(struct room_data* room);
+bool is_corpse(const obj_data* container);
 
 namespace olog_hai {
-int get_base_skill_damage(char_data& olog_hai, int prob);
+int get_base_skill_damage(char_data& olog_hai, int probability);
 }
 
-extern struct weather_data weather_info;
 extern struct index_data* mob_index;
 extern struct char_data* mob_proto;
 extern int top_of_mobt;
@@ -51,8 +51,9 @@ constexpr int RISEN_GHOUL_VNUM = 15300;
 /* The killer remove_the_killer_on_death removes; null once it has. */
 char_data* killer_to_remove = nullptr;
 
-/* A death procedure that removes killer_to_remove and lets the death go on. */
-SPECIAL(remove_the_killer_on_death)
+/* A death procedure that removes killer_to_remove and lets the death go on. Written out rather
+ * than through SPECIAL, as is kill_whoever_knocks, so it names only the parameters it reads. */
+int remove_the_killer_on_death(char_data*, char_data*, int, char*, int callflag, waiting_type*)
 {
     if (callflag == SPECIAL_DEATH && killer_to_remove != nullptr) {
         char_data* const killer = killer_to_remove;
@@ -63,10 +64,11 @@ SPECIAL(remove_the_killer_on_death)
 }
 
 /* A doorkeeper's procedure that kills whoever knocks on its door. */
-SPECIAL(kill_whoever_knocks)
+int kill_whoever_knocks(
+    char_data* host, char_data* actor, int command_number, char*, int, waiting_type*)
 {
-    if (cmd == CMD_KNOCK && ch != host) {
-        raw_kill(ch, host, TYPE_HIT);
+    if (command_number == CMD_KNOCK && actor != host) {
+        raw_kill(actor, host, TYPE_HIT);
         return TRUE;
     }
     return FALSE;
@@ -108,8 +110,8 @@ protected:
     /* Makes the ring and the sword poison whoever wears them. */
     void make_ring_and_sword_poisonous()
     {
-        for (int vnum : { RING_VNUM, SWORD_VNUM }) {
-            obj_affected_type& affect = prototype_for(vnum).affected[0];
+        for (int virtual_number : { RING_VNUM, SWORD_VNUM }) {
+            obj_affected_type& affect = prototype_for(virtual_number).affected[0];
             affect.location = APPLY_BITVECTOR;
             affect.modifier = POISON_BIT_POSITION;
         }
@@ -123,16 +125,24 @@ protected:
     {
         int corpses = 0;
         for (const obj_data* content = world[0].contents; content; content = content->next_content) {
-            if (GET_ITEM_TYPE(content) == ITEM_CONTAINER && content->obj_flags.value[3] == 1) {
+            if (is_corpse(content)) {
                 ++corpses;
             }
         }
         return corpses;
     }
 
-    /* Whether <object> lies on the floor of room 0. */
+    /* Whether <object> lies on the floor of room 0. Compares addresses only, so a freed object
+     * is never read. */
     static bool is_on_the_floor(const obj_data* object)
     {
+        for (const obj_data* content = world[0].contents; content != nullptr;
+             content = content->next_content) {
+            if (content == object) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /* Makes script SCRIPT_VNUM say "vanish" when its mob is hurt, and script OTHER_SCRIPT_VNUM
@@ -164,36 +174,36 @@ protected:
     }
 
     /* A mob wearing the poisonous ring, which hurt it as it went on; it then runs
-     * <script_vnum> (none for 0). */
-    char_data* make_mob_wearing_poisonous_ring(const char* keywords, int script_vnum)
+     * <script_virtual_number> (none for 0). */
+    char_data* make_mob_wearing_poisonous_ring(const char* keywords, int script_virtual_number)
     {
         char_data* wearer = make_mob(keywords, 0);
         obj_data* ring = make_object(RING_VNUM, 0);
         obj_to_char(ring, wearer);
         run_command_as(wearer, do_wear, "ring");
         EXPECT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
-        wearer->specials.script_number = script_vnum;
+        wearer->specials.script_number = script_virtual_number;
         return wearer;
     }
 
     /* The real number of the test prototype with this vnum, as zone commands name objects. */
-    static int real_number_of(int vnum)
+    static int real_number_of(int virtual_number)
     {
         for (int index = 0; index < PROTOTYPE_COUNT; ++index) {
-            if (PROTOTYPE_SPECS[index].vnum == vnum) {
+            if (PROTOTYPE_SPECS[index].virtual_number == virtual_number) {
                 return index;
             }
         }
-        ADD_FAILURE() << "no test prototype has vnum " << vnum;
+        ADD_FAILURE() << "no test prototype has vnum " << virtual_number;
         return 0;
     }
 
     /* How many objects in the game were made from the prototype with this vnum. */
-    static int count_objects_of(int vnum)
+    static int count_objects_of(int virtual_number)
     {
         int count = 0;
         for (const obj_data* listed = object_list; listed; listed = listed->next) {
-            if (listed->item_number == real_number_of(vnum)) {
+            if (listed->item_number == real_number_of(virtual_number)) {
                 ++count;
             }
         }

@@ -15,19 +15,18 @@
 #include <string>
 #include <vector>
 
-void do_move(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_flee(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_knock(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_gen_com(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_at(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_order(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_mental(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_concentrate(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-combat_result_struct damage_stat(char_data* killer, char_data* victim, int stat_num, int amount);
-ASPELL(spell_curse);
+ACMD(do_move);
+ACMD(do_say);
+ACMD(do_flee);
+ACMD(do_knock);
+ACMD(do_gen_com);
+ACMD(do_at);
+ACMD(do_order);
+ACMD(do_mental);
+ACMD(do_concentrate);
+combat_result_struct damage_stat(char_data* killer, char_data* victim, int stat_number, int amount);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
-void one_mobile_activity(char_data* ch);
+void one_mobile_activity(char_data* mob);
 void mobile_activity(void);
 void assign_command_pointers(void);
 SPECIAL(dragon);
@@ -40,7 +39,6 @@ SPECIAL(mob_ranger);
 
 extern struct index_data* mob_index;
 extern int top_of_mobt;
-extern struct weather_data weather_info;
 
 using namespace scripted_room;
 
@@ -72,11 +70,14 @@ struct procedure_record {
 
 procedure_record record;
 
+/* The test procedures below have the special_func signature written out rather than through
+ * SPECIAL, so each names only the parameters it reads, in full. */
+
 /* Notes that <host> was offered the command. It reads the one acting, as most procedures do, so
  * a freed one handed to it is a use after free that AddressSanitizer reports. */
-SPECIAL(record_offer)
+int record_offer(char_data* host, char_data* actor, int, char*, int, waiting_type*)
 {
-    if (ch && ch->in_room == NOWHERE) {
+    if (actor && actor->in_room == NOWHERE) {
         ADD_FAILURE() << "the one acting is nowhere";
     }
     record.offered_hosts.push_back(host);
@@ -84,82 +85,90 @@ SPECIAL(record_offer)
 }
 
 /* Takes the command for itself: no procedure after it is offered it. */
-SPECIAL(intercept_command)
+int intercept_command(char_data* host, char_data*, int, char*, int, waiting_type*)
 {
     record.offered_hosts.push_back(host);
     return 1;
 }
 
 /* Removes its own mob, and lets the command go on. */
-SPECIAL(remove_own_mob)
+int remove_own_mob(char_data* host, char_data*, int, char*, int, waiting_type*)
 {
     extract_char(host);
     return 0;
 }
 
 /* Removes its own object, and lets the command go on. */
-SPECIAL(remove_own_object)
+int remove_own_object(char_data* host, char_data*, int, char*, int, waiting_type*)
 {
     extract_obj(reinterpret_cast<obj_data*>(host));
     return 0;
 }
 
 /* Removes the one acting, and lets the command go on. */
-SPECIAL(remove_actor)
+int remove_actor(char_data*, char_data* actor, int, char*, int, waiting_type*)
 {
-    extract_char(ch);
+    extract_char(actor);
     return 0;
 }
 
 /* A guard: removes whoever sets off north past it, and lets the command go on. */
-SPECIAL(remove_actor_going_north)
+int remove_actor_going_north(
+    char_data*, char_data* actor, int command_number, char*, int callflag, waiting_type*)
 {
-    if (callflag == SPECIAL_COMMAND && cmd == NORTH + 1) {
-        extract_char(ch);
+    if (callflag == SPECIAL_COMMAND && command_number == NORTH + 1) {
+        extract_char(actor);
     }
     return 0;
 }
 
-/* Removes record.character_to_remove when anyone acts, and lets the command go on. */
-SPECIAL(remove_marked_character)
+/* Removes record.character_to_remove, if a character is still marked. */
+void remove_the_marked_character()
 {
     if (record.character_to_remove) {
         char_data* marked = record.character_to_remove;
         record.character_to_remove = nullptr;
         extract_char(marked);
     }
+}
+
+/* Removes record.character_to_remove when anyone acts, and lets the command go on. */
+int remove_marked_character(char_data*, char_data*, int, char*, int, waiting_type*)
+{
+    remove_the_marked_character();
     return 0;
 }
 
 /* As remove_marked_character, but only when someone sets off north. */
-SPECIAL(remove_marked_going_north)
+int remove_marked_going_north(
+    char_data*, char_data*, int command_number, char*, int callflag, waiting_type*)
 {
-    if (callflag == SPECIAL_COMMAND && cmd == NORTH + 1) {
-        return remove_marked_character(host, ch, cmd, arg, callflag, wtl);
+    if (callflag == SPECIAL_COMMAND && command_number == NORTH + 1) {
+        remove_the_marked_character();
     }
     return 0;
 }
 
 /* As remove_marked_character, but only for the one arriving being record.character_to_remove. */
-SPECIAL(remove_marked_arriving)
+int remove_marked_arriving(char_data*, char_data* actor, int, char*, int callflag, waiting_type*)
 {
-    if (callflag == SPECIAL_ENTER && ch == record.character_to_remove) {
-        return remove_marked_character(host, ch, cmd, arg, callflag, wtl);
+    if (callflag == SPECIAL_ENTER && actor == record.character_to_remove) {
+        remove_the_marked_character();
     }
     return 0;
 }
 
 /* As remove_marked_character, but only when its own mob dies. */
-SPECIAL(remove_marked_on_death)
+int remove_marked_on_death(char_data*, char_data*, int, char*, int callflag, waiting_type*)
 {
     if (callflag == SPECIAL_DEATH) {
-        return remove_marked_character(host, ch, cmd, arg, callflag, wtl);
+        remove_the_marked_character();
     }
     return 0;
 }
 
 /* Removes record.object_to_remove, and lets the command go on. */
-SPECIAL(remove_marked_object)
+int remove_marked_object(char_data*, char_data*, int, char*, int, waiting_type*)
 {
     if (record.object_to_remove) {
         obj_data* marked = record.object_to_remove;
@@ -170,56 +179,60 @@ SPECIAL(remove_marked_object)
 }
 
 /* Removes whoever flees past it, and lets the flight go on. */
-SPECIAL(remove_actor_fleeing)
+int remove_actor_fleeing(
+    char_data*, char_data* actor, int command_number, char*, int callflag, waiting_type*)
 {
-    if (callflag == SPECIAL_COMMAND && cmd == FLEE_COMMAND + 1) {
-        extract_char(ch);
+    if (callflag == SPECIAL_COMMAND && command_number == FLEE_COMMAND + 1) {
+        extract_char(actor);
     }
     return 0;
 }
 
 /* Removes whoever yells within earshot, and lets the yell go on. */
-SPECIAL(remove_actor_yelling)
+int remove_actor_yelling(
+    char_data*, char_data* actor, int command_number, char*, int callflag, waiting_type*)
 {
-    if (callflag == SPECIAL_COMMAND && cmd == CMD_YELL) {
-        extract_char(ch);
+    if (callflag == SPECIAL_COMMAND && command_number == CMD_YELL) {
+        extract_char(actor);
     }
     return 0;
 }
 
 /* On the far side of a door, removes whoever knocks on it. */
-SPECIAL(remove_actor_knocking)
+int remove_actor_knocking(
+    char_data*, char_data* actor, int command_number, char*, int, waiting_type*)
 {
-    if (cmd == CMD_KNOCK) {
-        extract_char(ch);
+    if (command_number == CMD_KNOCK) {
+        extract_char(actor);
     }
     return 0;
 }
 
 /* On the far side of a door, takes whoever knocks on it through to that side. */
-SPECIAL(take_knocker_through)
+int take_knocker_through(
+    char_data*, char_data* actor, int command_number, char*, int, waiting_type*)
 {
-    if (cmd == CMD_KNOCK) {
-        char_from_room(ch);
-        char_to_room(ch, SECOND_ROOM);
+    if (command_number == CMD_KNOCK) {
+        char_from_room(actor);
+        char_to_room(actor, SECOND_ROOM);
     }
     return 0;
 }
 
 /* Removes whoever damages its mob, and lets the damage go on. */
-SPECIAL(remove_attacker)
+int remove_attacker(char_data*, char_data* actor, int, char*, int callflag, waiting_type*)
 {
     if (callflag == SPECIAL_DAMAGE) {
-        extract_char(ch);
+        extract_char(actor);
     }
     return 0;
 }
 
 /* On its own mob's turn, removes record.character_to_remove and then the mob itself. */
-SPECIAL(remove_marked_then_self)
+int remove_marked_then_self(char_data* host, char_data*, int, char*, int callflag, waiting_type*)
 {
     if (callflag == SPECIAL_SELF) {
-        remove_marked_character(host, ch, cmd, arg, callflag, wtl);
+        remove_the_marked_character();
         extract_char(host);
     }
     return 0;
@@ -251,8 +264,8 @@ protected:
     {
         /* The mobs still in the game are extracted with their prototype entries in place. */
         ScriptedRoomFixture::TearDown();
-        for (char_prof_data*& profs : m_mob_profs)
-            RELEASE(profs);
+        for (char_prof_data*& professions : m_mob_professions)
+            RELEASE(professions);
         mob_index = m_saved_mob_index;
         top_of_mobt = m_saved_top_of_mobt;
         for (int room = 0; room <= SECOND_ROOM; ++room) {
@@ -282,7 +295,7 @@ protected:
         RELEASE(mob->player.short_descr);
         mob->player.name = m_mob_names.back().data();
         mob->player.short_descr = m_mob_names.back().data();
-        m_mob_profs.push_back(mob->profs);
+        m_mob_professions.push_back(mob->profs);
     }
 
     /* A mob in <room> with a prototype entry running <procedure>, and the moves to walk anywhere. */
@@ -296,9 +309,9 @@ protected:
     }
 
     /* An object of the prototype with <vnum>, whose prototype runs <procedure>; not placed. */
-    obj_data* make_object_with(int vnum, special_func procedure)
+    obj_data* make_object_with(int virtual_number, special_func procedure)
     {
-        obj_data* object = make_object(vnum, 0);
+        obj_data* object = make_object(virtual_number, 0);
         obj_index[object->item_number].func = procedure;
         return object;
     }
@@ -383,10 +396,11 @@ protected:
     /* Moves <walker> north, as the interpreter does for the north command. */
     static void walk_north(char_data* walker) { do_move(walker, empty_argument(), nullptr, NORTH + 1, 0); }
 
-    /* Offers <ch>'s command <cmd> to the procedures here, as the interpreter does. */
-    static int offer_command(char_data* ch, int cmd = NORTH + 1)
+    /* Offers <actor>'s command <command_number> to the procedures here, as the interpreter
+     * does. */
+    static int offer_command(char_data* actor, int command_number = NORTH + 1)
     {
-        return special(ch, cmd, empty_argument(), SPECIAL_COMMAND, nullptr);
+        return special(actor, command_number, empty_argument(), SPECIAL_COMMAND, nullptr);
     }
 
     /* A writable empty argument for the commands. */
@@ -421,7 +435,7 @@ private:
     std::deque<std::string> m_mob_names;
     // The profession blocks clear_char gave the mobs with prototype entries, which free_char then
     // leaves alone as it leaves a prototype's; released by TearDown.
-    std::vector<char_prof_data*> m_mob_profs;
+    std::vector<char_prof_data*> m_mob_professions;
     // The game's mob prototype entries and their count, put back by TearDown.
     index_data* m_saved_mob_index = nullptr;
     int m_saved_top_of_mobt = 0;

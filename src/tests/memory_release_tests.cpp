@@ -10,12 +10,10 @@
 #include <string>
 #include <utility>
 
-void do_examine(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-struct obj_data* create_money(int amount);
-void name_from_drinkcon(struct obj_data* obj);
-void name_to_drinkcon(struct obj_data* obj, int type);
-void string_add(struct descriptor_data* d, char* str);
+ACMD(do_examine);
+ACMD(do_say);
+void name_from_drinkcon(struct obj_data* object);
+void name_to_drinkcon(struct obj_data* object, int liquid_type);
 
 using namespace scripted_room;
 

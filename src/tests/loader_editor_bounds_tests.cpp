@@ -27,24 +27,22 @@
 #include <vector>
 
 extern struct room_data world;
-extern struct player_index_element* player_table;
-extern int top_of_p_table;
 extern char world_map[];
 
-int Crash_report_unrentables(struct char_data* ch, struct char_data* recep, const struct obj_data* obj);
-void list_simple_proto(const struct char_data* ch, const struct char_data* mob);
-void list_proto(const struct char_data* ch, const struct char_data* mob);
-int load_zone(struct char_data* ch, const char* arg);
-void free_zone(struct char_data* ch);
-void symbol_to_map(int x, int y, int symb);
-int pkill_update_file(const char* file, PKILL pkills[], int n);
-void list_zone(const struct char_data* ch);
+int Crash_report_unrentables(struct char_data* character, struct char_data* receptionist,
+    const struct obj_data* object);
+void list_simple_proto(const struct char_data* character, const struct char_data* mob);
+void list_proto(const struct char_data* character, const struct char_data* mob);
+int load_zone(struct char_data* character, const char* argument);
+void free_zone(struct char_data* character);
+void symbol_to_map(int column, int row, int symbol);
+int pkill_update_file(const char* file_name, PKILL pkills[], int pkill_count);
+void list_zone(const struct char_data* character);
 ACMD(do_fame);
-ACMD(do_shape);
 ACMD(do_say);
-int create_room(struct char_data* ch, const char* arg);
-int append_room(struct char_data* ch, const char* arg);
-int append_object(struct char_data* ch, char* arg);
+int create_room(struct char_data* character, const char* argument);
+int append_room(struct char_data* character, const char* argument);
+int append_object(struct char_data* character, char* argument);
 ACMD(do_emote);
 extern PKILL* pkill_tab;
 extern int pkill_tab_len;

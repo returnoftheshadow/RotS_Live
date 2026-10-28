@@ -36,9 +36,6 @@ extern struct descriptor_data* descriptor_list;
 extern struct script_head* script_table;
 extern int top_of_script_table;
 
-void clear_char(struct char_data* ch, int mode);
-void clear_object(struct obj_data* obj);
-
 namespace scripted_room {
 
 constexpr int ROOM_VNUM = 5100;
@@ -65,7 +62,7 @@ constexpr int MOB_HIT_POINTS = 500;
 /* What a test object's prototype is made of. */
 struct prototype_spec {
     // The vnum tests make the object by.
-    int vnum;
+    int virtual_number;
     // The object's keywords, which commands match the argument against.
     const char* keywords;
     // The object's short description, which act() prints for $p.
@@ -98,7 +95,7 @@ struct body_line {
     // The command's text (SEND_TO_CHAR's message, DO_SAY's words); null for other commands.
     const char* text;
     // The command's parameters; those not given are 0.
-    int params[6];
+    int parameters[6];
 };
 
 /* One trigger block of a test script: <trigger_type> BEGIN <body> END. */
@@ -112,7 +109,7 @@ struct trigger_block {
 /* One script of the test script table. */
 struct script_spec {
     // The script's number, which a mob's or object's script_number names.
-    int vnum;
+    int virtual_number;
     // The script's trigger blocks, in order.
     std::vector<trigger_block> blocks;
 };
@@ -162,19 +159,19 @@ protected:
         world[0].contents = nullptr;
 
         for (int index = 0; index < PROTOTYPE_COUNT; ++index) {
-            const prototype_spec& spec = PROTOTYPE_SPECS[index];
+            const prototype_spec& specification = PROTOTYPE_SPECS[index];
             obj_data& prototype = m_prototypes[index];
             clear_object(&prototype);
             prototype.item_number = index;
-            std::strncpy(m_keywords[index], spec.keywords, sizeof(m_keywords[index]) - 1);
-            std::strncpy(m_short_descriptions[index], spec.short_description,
+            std::strncpy(m_keywords[index], specification.keywords, sizeof(m_keywords[index]) - 1);
+            std::strncpy(m_short_descriptions[index], specification.short_description,
                 sizeof(m_short_descriptions[index]) - 1);
             prototype.name = m_keywords[index];
             prototype.short_description = m_short_descriptions[index];
-            prototype.obj_flags.type_flag = spec.item_type;
-            prototype.obj_flags.wear_flags = spec.wear_flags;
+            prototype.obj_flags.type_flag = specification.item_type;
+            prototype.obj_flags.wear_flags = specification.wear_flags;
             prototype.obj_flags.weight = 1;
-            m_index[index].virt = spec.vnum;
+            m_index[index].virt = specification.virtual_number;
         }
         prototype_for(BREAD_VNUM).obj_flags.value[0] = BREAD_FILLING;
         prototype_for(SWORD_VNUM).obj_flags.value[2] = SWORD_BULK;
@@ -270,7 +267,7 @@ protected:
         m_script_heads.assign(scripts.size(), script_head {});
         for (size_t script = 0; script < scripts.size(); ++script) {
             fill_script_lines(scripts[script], m_script_lines[script]);
-            m_script_heads[script].number = scripts[script].vnum;
+            m_script_heads[script].number = scripts[script].virtual_number;
             m_script_heads[script].script = &m_script_lines[script][0];
         }
         script_table = m_script_heads.data();
@@ -306,27 +303,27 @@ protected:
                 { SCRIPT_RETURN_FALSE, nullptr, {} } });
     }
 
-    /* A fresh object from the prototype with this vnum, running <script_vnum> (none for 0), not
-     * placed. */
-    obj_data* make_object(int vnum, int script_vnum)
+    /* A fresh object from the prototype with this vnum, running <script_virtual_number> (none for
+     * 0), not placed. */
+    obj_data* make_object(int virtual_number, int script_virtual_number)
     {
         for (int index = 0; index < PROTOTYPE_COUNT; ++index) {
-            if (m_index[index].virt == vnum) {
+            if (m_index[index].virt == virtual_number) {
                 obj_data* object = read_object(index, REAL);
-                object->obj_flags.script_number = script_vnum;
+                object->obj_flags.script_number = script_virtual_number;
                 return object;
             }
         }
-        ADD_FAILURE() << "no test prototype has vnum " << vnum;
+        ADD_FAILURE() << "no test prototype has vnum " << virtual_number;
         return nullptr;
     }
 
     /* A fresh object from the prototype with this vnum, running script SCRIPT_VNUM, not placed. */
-    obj_data* make_scripted(int vnum) { return make_object(vnum, SCRIPT_VNUM); }
+    obj_data* make_scripted(int virtual_number) { return make_object(virtual_number, SCRIPT_VNUM); }
 
-    /* A mob in <room>, after everyone already there, running <script_vnum> (none for 0). The
-     * game frees it when it is extracted; TearDown extracts any still in the game. */
-    char_data* make_mob(const char* keywords, int script_vnum, int room = 0)
+    /* A mob in <room>, after everyone already there, running <script_virtual_number> (none for
+     * 0). The game frees it when it is extracted; TearDown extracts any still in the game. */
+    char_data* make_mob(const char* keywords, int script_virtual_number, int room = 0)
     {
         char_data* mob = owned_character(MOB_ISNPC).release();
         SET_BIT(MOB_FLAGS(mob), MOB_ISNPC);
@@ -344,7 +341,7 @@ protected:
         mob->abilities.mana = 100;
         mob->tmpabilities.mana = 100;
         mob->specials.position = POSITION_STANDING;
-        mob->specials.script_number = script_vnum;
+        mob->specials.script_number = script_virtual_number;
         mob->next = character_list;
         character_list = mob;
         /* Registered as read_mobile does, so riding and the other char_exists checks see it. */
@@ -413,19 +410,19 @@ protected:
     /* Runs a command as <actor> typed it. */
     static void run_command_as(char_data* actor,
         void (*command)(char_data*, char*, waiting_type*, int, int), const char* argument,
-        int subcmd = 0)
+        int subcommand = 0)
     {
         char line[MAX_INPUT_LENGTH];
         std::strncpy(line, argument, sizeof(line) - 1);
         line[sizeof(line) - 1] = '\0';
-        command(actor, line, nullptr, 0, subcmd);
+        command(actor, line, nullptr, 0, subcommand);
     }
 
     /* Runs a command as the player typed it. */
     void run_command(void (*command)(char_data*, char*, waiting_type*, int, int),
-        const char* argument, int subcmd = 0)
+        const char* argument, int subcommand = 0)
     {
-        run_command_as(&m_player, command, argument, subcmd);
+        run_command_as(&m_player, command, argument, subcommand);
     }
 
     std::string output() const { return std::string(m_descriptor.output); }
@@ -443,14 +440,14 @@ protected:
         return count;
     }
 
-    obj_data& prototype_for(int vnum)
+    obj_data& prototype_for(int virtual_number)
     {
         for (int index = 0; index < PROTOTYPE_COUNT; ++index) {
-            if (m_index[index].virt == vnum) {
+            if (m_index[index].virt == virtual_number) {
                 return m_prototypes[index];
             }
         }
-        ADD_FAILURE() << "no test prototype has vnum " << vnum;
+        ADD_FAILURE() << "no test prototype has vnum " << virtual_number;
         return m_prototypes[0];
     }
 
@@ -473,8 +470,8 @@ private:
             for (const body_line& line : block.body) {
                 script_data command {};
                 command.command_type = line.command_type;
-                for (int param = 0; param < 6; ++param) {
-                    command.param[param] = line.params[param];
+                for (int parameter_index = 0; parameter_index < 6; ++parameter_index) {
+                    command.param[parameter_index] = line.parameters[parameter_index];
                 }
                 if (line.text != nullptr) {
                     m_script_texts.emplace_back(line.text);

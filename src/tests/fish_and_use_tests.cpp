@@ -4,8 +4,8 @@
 
 #include "../spells.h"
 
-void do_fish(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_use(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+ACMD(do_fish);
+ACMD(do_use);
 
 using namespace scripted_room;
 

@@ -58,7 +58,7 @@ void build_player_index(void);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(const struct char_file_u* st, struct char_data* ch);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
-void Crash_report_object_refreshes(const struct char_data* ch);
+void Crash_report_object_refreshes(const struct char_data* character);
 int file_to_string_alloc(const char* name, char** buf);
 
 namespace {

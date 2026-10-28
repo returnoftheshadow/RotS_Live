@@ -10,19 +10,17 @@
 #include "../comm.h"
 #include "../spells.h"
 
-void do_say(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_give(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void do_wear(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
-void one_mobile_activity(char_data* ch);
+ACMD(do_say);
+ACMD(do_give);
+ACMD(do_wear);
+ACMD(do_cast);
+void one_mobile_activity(char_data* mob);
 void die(char_data* dead_man, char_data* killer, int attack_type);
-void raw_kill(char_data* ch, const char_data* killer, int attacktype);
-void do_cast(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 
 extern struct index_data* mob_index;
 extern struct char_data* mob_proto;
 extern int top_of_mobt;
-extern struct weather_data weather_info;
-struct char_data* read_mobile(int nr, int type);
 
 using namespace scripted_room;
 
