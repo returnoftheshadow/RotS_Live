@@ -109,6 +109,7 @@ SOURCES := \
     shapezon.cpp \
     shapescript.cpp \
     shop.cpp \
+    signal_requests.cpp \
     signals.cpp \
     skill_timer.cpp \
     spec_ass.cpp \
