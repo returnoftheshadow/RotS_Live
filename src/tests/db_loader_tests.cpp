@@ -3283,6 +3283,27 @@ TEST_F(DbLoader, RoomEditorRemovesAnExit)
     free_room(session.builder);
 }
 
+void free_zone(struct char_data* character);
+
+/* Leaving the zone editor frees a loaded zone's name, description and map. */
+TEST_F(DbLoader, LeavingTheZoneEditorFreesItsText)
+{
+    /* Only its builder: the zone editor replaces temp. */
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_zone* editor = nullptr; /* free_zone frees the editor state, so it is allocated */
+    CREATE(editor, shape_zone, 1);
+    editor->procedure = SHAPE_EDIT;
+    SET_BIT(editor->flags, SHAPE_ZONE_LOADED);
+    editor->zone_name = str_dup("The Old Forest");
+    editor->zone_descr = str_dup("Trees crowd the path.\n\r");
+    editor->zone_map = str_dup("[ ]-[ ]\n\r");
+    session.builder->temp = editor;
+
+    free_zone(session.builder);
+
+    EXPECT_EQ(session.builder->temp, nullptr);
+}
+
 extern struct script_head* script_table;
 extern int top_of_script_table;
 
