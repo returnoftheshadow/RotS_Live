@@ -3293,6 +3293,99 @@ TEST_F(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
     }
 }
 
+/* A copy in the game when its prototype is implemented keeps the text it was made with. */
+TEST_F(DbLoader, ImplementKeepsTheTextALiveCopyShows)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    add_prototype_extra_description(staff, "runes", "Runes run along the staff.");
+    obj_data* const copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(copy, nullptr);
+
+    implement_object(session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    EXPECT_STREQ(copy->name, "thing");
+    EXPECT_STREQ(copy->short_description, "a wooden staff");
+    EXPECT_STREQ(copy->description, "a wooden staff");
+    EXPECT_STREQ(copy->action_description, "");
+    ASSERT_NE(copy->ex_description, nullptr);
+    EXPECT_STREQ(copy->ex_description->keyword, "runes");
+    EXPECT_STREQ(copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(copy);
+}
+
+/* With no copy in the game, the text a prototype showed goes when implement replaces it. */
+TEST_F(DbLoader, ImplementFreesTheReplacedTextWhenNoCopyShowsIt)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    add_prototype_extra_description(staff, "runes", "Runes run along the staff.");
+    const std::weak_ptr<const object_text> old_text = staff.shared_text();
+
+    implement_object(session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    EXPECT_TRUE(old_text.expired());
+}
+
+/* Text a prototype replaced while copies showed it is kept while any copy shows it: one copy
+ * still reads it after the other is extracted, and it goes with the last. */
+TEST_F(DbLoader, ImplementKeepsTheReplacedTextUntilTheLastCopyShowingItGoes)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    add_prototype_extra_description(staff, "runes", "Runes run along the staff.");
+    const std::weak_ptr<const object_text> old_text = staff.shared_text();
+    obj_data* const first_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    obj_data* const second_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(first_copy, nullptr);
+    ASSERT_NE(second_copy, nullptr);
+
+    implement_object(session.builder);
+    EXPECT_FALSE(old_text.expired());
+
+    extract_obj(first_copy);
+    EXPECT_FALSE(old_text.expired());
+    EXPECT_STREQ(second_copy->name, "thing");
+    EXPECT_STREQ(second_copy->short_description, "a wooden staff");
+    ASSERT_NE(second_copy->ex_description, nullptr);
+    EXPECT_STREQ(second_copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(second_copy);
+    EXPECT_TRUE(old_text.expired());
+}
+
+/* A copy made between two implements shows the first one's text, kept apart from the boot text an
+ * older copy shows; each goes with the copy showing it. */
+TEST_F(DbLoader, EachImplementsReplacedTextGoesWithTheCopiesShowingIt)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    const std::weak_ptr<const object_text> boot_text = obj_proto[STAFF_REAL_NUMBER].shared_text();
+    obj_data* const boot_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(boot_copy, nullptr);
+    implement_object(session.builder);
+    const std::weak_ptr<const object_text> implemented_text
+        = obj_proto[STAFF_REAL_NUMBER].shared_text();
+    obj_data* const implemented_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(implemented_copy, nullptr);
+
+    implement_object(session.builder);
+    EXPECT_NE(implemented_copy->shared_text(), obj_proto[STAFF_REAL_NUMBER].shared_text());
+
+    extract_obj(boot_copy);
+    EXPECT_TRUE(boot_text.expired());
+    EXPECT_FALSE(implemented_text.expired());
+    EXPECT_STREQ(implemented_copy->short_description, "a grey cloak");
+
+    extract_obj(implemented_copy);
+    EXPECT_TRUE(implemented_text.expired());
+    EXPECT_STREQ(obj_proto[STAFF_REAL_NUMBER].short_description, "a grey cloak");
+}
+
 /* implement keeps the extra descriptions in the order the prototype showed them at boot: last in
  * the file first. */
 TEST_F(DbLoader, ImplementListsExtraDescriptionsLastFirst)
@@ -3487,12 +3580,84 @@ TEST_F(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
     top_of_world = saved_top_of_world;
 }
 
+/* The number the object, mob, room and zone editor tests edit. No object in SkinEditorSession's
+ * table has it, so a session gives these tests only its builder and output. */
+constexpr int EDITOR_TEST_NUMBER = 4530;
+
+void free_object(struct char_data* character);
+void new_obj(const struct char_data* character);
+
+/* shape_center_obj's field 1: the object's aliases, the keywords that find it. */
+constexpr int OBJECT_ALIASES_FIELD = 1;
+/* shape_center_obj's field 4: the look text, shown by look and examine. */
+constexpr int OBJECT_LOOK_TEXT_FIELD = 4;
+
+/* Leaving the object editor frees the object it was editing, its text and extra descriptions
+ * too. */
+TEST_F(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
+{
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    new_obj(session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+    add_extra_description(*editor->object, "dent", "A deep dent.");
+
+    /* /1: the first call shows the prompt, the second takes the new aliases. */
+    char prompt[] = "";
+    char aliases[] = "lantern brass";
+    editor->editflag = OBJECT_ALIASES_FIELD;
+    shape_center_obj(session.builder, prompt);
+    shape_center_obj(session.builder, aliases);
+    ASSERT_STREQ(editor->object->name, "lantern brass");
+    ASSERT_STREQ(editor->object->short_description, "gizmo");
+
+    free_object(session.builder);
+
+    EXPECT_EQ(session.builder->temp, nullptr);
+}
+
+/* Each edit of the look text starts from the text before it and replaces it, and leaving the editor
+ * frees the last. */
+TEST_F(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
+{
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    new_obj(session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+
+    /* /4: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_look_text_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = OBJECT_LOOK_TEXT_FIELD;
+        shape_center_obj(session.builder, prompt);
+        ASSERT_EQ(session.builder->desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder->desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder->desc, finish);
+        shape_center_obj(session.builder, prompt);
+    };
+
+    add_look_text_line("A plain brass lantern.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\r");
+    add_look_text_line("It is dented.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\rIt is dented.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_object(session.builder);
+
+    EXPECT_EQ(session.builder->temp, nullptr);
+}
+
 void new_mob(const struct char_data* character);
 void free_proto(struct char_data* character);
 
-/* The number the mob, room and zone editor tests edit. No object in SkinEditorSession's table has
- * it, so a session gives these tests only its builder and output. */
-constexpr int EDITOR_TEST_NUMBER = 4530;
 /* shape_center_proto's field 4: the mob's detailed description. */
 constexpr int MOB_DESCRIPTION_FIELD = 4;
 

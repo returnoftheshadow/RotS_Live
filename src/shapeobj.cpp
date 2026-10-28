@@ -21,6 +21,7 @@
 #include "utils.h"
 
 extern struct obj_data* obj_proto;
+extern struct obj_data* object_list;
 extern struct index_data* obj_index;
 extern int object_master_idnum;
 extern int object_master2_idnum;
@@ -291,13 +292,13 @@ void implement_object(const struct char_data* ch)
             ch->specials.prompt_number = 1;                           \
             SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_SIMPLE_ACTIVE);    \
             str[0] = 0;                                               \
-            SHAPE_OBJECT(ch)                                          \
-                ->tmpstr                                              \
-                = str_dup(addr);                                      \
+            SHAPE_OBJECT(ch)->tmpstr = str_dup(addr);                 \
             string_add_init(ch->desc, &(SHAPE_OBJECT(ch)->tmpstr));   \
             return;                                                   \
         } else {                                                      \
             if (SHAPE_OBJECT(ch)->tmpstr) {                           \
+                /* The session object owns the text replaced. */      \
+                RELEASE(addr);                                        \
                 addr = SHAPE_OBJECT(ch)->tmpstr;                      \
                 clean_record_text(addr);                              \
             }                                                         \
@@ -2252,6 +2253,13 @@ void free_object(struct char_data* ch)
             RELEASE(tmp);
             tmp = tmp2;
         }
+        /* The session's object holds its own copy of every text field: load_object reads each
+         * from the file, new_obj duplicates them, and an edit replaces one with a new copy. */
+        obj_data* const session_object = SHAPE_OBJECT(ch)->object;
+        RELEASE(session_object->name);
+        RELEASE(session_object->short_description);
+        RELEASE(session_object->description);
+        RELEASE(session_object->action_description);
         delete SHAPE_OBJECT(ch)->object;
         SHAPE_OBJECT(ch)
             ->object
