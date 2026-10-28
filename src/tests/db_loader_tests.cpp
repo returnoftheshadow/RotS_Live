@@ -57,6 +57,7 @@ void clear_char(struct char_data* ch, int mode);
 void save_player(struct char_data* ch, int load_room, int index_pos);
 void store_to_char(const struct char_file_u* st, struct char_data* ch);
 int Crash_alias_load(struct char_data* ch, FILE* fp);
+void Crash_report_object_refreshes(const struct char_data* ch);
 int file_to_string_alloc(const char* name, char** buf);
 
 namespace {
@@ -220,6 +221,51 @@ private:
     int m_redirect_fd = -1;
 };
 
+// A player character allocated as the game allocates one and freed with free_char when the
+// scope ends, so what store_to_char, Crash_load and Crash_alias_load give it is released even
+// when an assertion returns early. The character must not be left on any global list.
+class ScopedCharacter {
+public:
+    ScopedCharacter()
+    {
+        CREATE(m_character, struct char_data, 1);
+        clear_char(m_character, MOB_VOID);
+    }
+
+    ~ScopedCharacter()
+    {
+        release_aliases();
+        // A descriptor set by the test is the test's own.
+        m_character->desc = nullptr;
+        // Login reports the objects Crash_load refreshed, which empties the character's entry; a
+        // test stops short of login, so the entry is emptied here.
+        Crash_report_object_refreshes(m_character);
+        free_char(m_character);
+    }
+
+    ScopedCharacter(const ScopedCharacter&) = delete;
+    ScopedCharacter& operator=(const ScopedCharacter&) = delete;
+
+    char_data& get() { return *m_character; }
+
+private:
+    // free_char leaves the alias list, so each alias is released the way do_alias removes one.
+    void release_aliases()
+    {
+        alias_list* alias = GET_ALIAS(m_character);
+        while (alias != nullptr) {
+            alias_list* next_alias = alias->next;
+            RELEASE(alias->command);
+            RELEASE(alias);
+            alias = next_alias;
+        }
+        GET_ALIAS(m_character) = nullptr;
+    }
+
+    // The character under test, owned from construction until free_char releases it.
+    char_data* m_character = nullptr;
+};
+
 char_file_u make_stored_character(const char* name = "aragorn")
 {
     char_file_u stored_character {};
@@ -312,10 +358,15 @@ public:
     {
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list);
             object_list = next;
         }
 
+        for (int index = 0; index <= top_of_objt; ++index) {
+            free(obj_proto[index].name);
+            free(obj_proto[index].short_description);
+            free(obj_proto[index].description);
+        }
         delete[] obj_proto;
         delete[] obj_index;
         obj_proto = m_previous_obj_proto;
@@ -401,8 +452,8 @@ std::string write_valid_legacy_player_file(const std::string& root_directory, co
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data* character = new char_data {};
-    clear_char(character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data* character = &character_owner.get();
 
     char_file_u mutable_store = stored_character;
     store_to_char(&mutable_store, character);
@@ -609,8 +660,8 @@ TEST(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
     EXPECT_EQ(loaded.specials2.casting, original.specials2.casting);
     EXPECT_EQ(loaded.specials2.two_handed, original.specials2.two_handed);
 
-    char_data live_character {};
-    clear_char(&live_character, MOB_VOID);
+    ScopedCharacter live_character_owner;
+    char_data& live_character = live_character_owner.get();
     store_to_char(&loaded, &live_character);
 
     EXPECT_EQ(utils::get_tactics(live_character), original.specials2.tactics);
@@ -645,8 +696,8 @@ TEST(DbLoader, LegacyPlayerTextRoundTripPreservesStructuredColorSettings)
     EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.green, original.profs.color_settings[COLOR_WEATHER].background.green);
     EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.blue, original.profs.color_settings[COLOR_WEATHER].background.blue);
 
-    char_data live_character {};
-    clear_char(&live_character, MOB_VOID);
+    ScopedCharacter live_character_owner;
+    char_data& live_character = live_character_owner.get();
     store_to_char(&loaded, &live_character);
 
     const std::string magic_sequence = get_color_sequence(&live_character, COLOR_MAGIC);
@@ -678,8 +729,8 @@ TEST(DbLoader, LegacyPlayerTextNormalizesOutOfRangeCombatStateValues)
     EXPECT_EQ(loaded.specials2.casting, CASTING_NORMAL);
     EXPECT_EQ(loaded.specials2.two_handed, 1);
 
-    char_data live_character {};
-    clear_char(&live_character, MOB_VOID);
+    ScopedCharacter live_character_owner;
+    char_data& live_character = live_character_owner.get();
     store_to_char(&loaded, &live_character);
 
     EXPECT_EQ(utils::get_tactics(live_character), TACTICS_NORMAL);
@@ -1660,8 +1711,8 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
 {
     ensure_test_world_room(3001);
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
 
     char_file_u stored_character {};
     std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
@@ -1702,8 +1753,8 @@ TEST(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
 {
     ensure_test_world_room(3001);
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
 
     char_file_u stored_character {};
     std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
@@ -1759,8 +1810,8 @@ TEST(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
 
     char_file_u stored_character {};
     std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
@@ -1815,8 +1866,8 @@ TEST(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableI
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
 
     char_file_u stored_character {};
     std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
@@ -1875,8 +1926,8 @@ TEST(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
     obj_proto[0].affected[0].location = APPLY_OB;
     obj_proto[0].affected[0].modifier = 2;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     char_file_u stored_character {};
     std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
     std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
@@ -1945,8 +1996,8 @@ TEST(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
 TEST(DbLoader, CrashObj2StoreWritesTheVersionOnlyForVersionedObjects)
 {
     ScopedObjectPrototypeTable object_prototypes;
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
 
     for (int version : { 0, 4 }) {
         obj_data* obj = read_object(0, REAL);
@@ -2110,8 +2161,8 @@ TEST(DbLoader, AnEnchantIsSavedLoadedAndKeptAcrossAVersionBump)
     ensure_test_world_room(3001);
     obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     char_file_u stored_character = make_stored_character("aragorn");
     stored_character.specials2.load_room = 3001;
     store_to_char(&stored_character, &character);
@@ -2172,8 +2223,8 @@ void Crash_tell_object_refresh(const char_data* ch, const char* name);
 // Short descriptions are builder text of any length; the message is cut to its buffer.
 TEST(DbLoader, TheUpdatedMessageIsCutToItsBufferForAnOverlongName)
 {
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     const std::string name(MAX_STRING_LENGTH * 2, 'x');
     buf2[0] = '!';
 
@@ -2214,8 +2265,8 @@ TEST(DbLoader, AFileCutOffInsideAnEnchantedRecordLoadsNothing)
     ensure_test_world_room(3001);
     obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     char_file_u stored_character = make_stored_character("aragorn");
     stored_character.specials2.load_room = 3001;
     store_to_char(&stored_character, &character);
@@ -2240,8 +2291,8 @@ TEST(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
     ScopedObjectPrototypeTable object_prototypes;
     ensure_test_world_room(3001);
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     char_file_u stored_character = make_stored_character("aragorn");
     stored_character.specials2.load_room = 3001;
     store_to_char(&stored_character, &character);
@@ -2284,8 +2335,8 @@ TEST(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPas
     stored_character.specials2.load_room = 3001;
     ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     // Carried newest first, so the sword is written before the pack.
@@ -2299,8 +2350,8 @@ TEST(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPas
     Crash_crashsave(&character);
     ASSERT_TRUE(character.specials.saved_object_file);
 
-    char_data imm {};
-    clear_char(&imm, MOB_VOID);
+    ScopedCharacter imm_owner;
+    char_data& imm = imm_owner.get();
     descriptor_data imm_descriptor {};
     imm_descriptor.output = imm_descriptor.small_outbuf;
     imm_descriptor.bufspace = SMALL_BUFSIZE - 1;
@@ -2312,8 +2363,8 @@ TEST(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPas
 
     std::string object_bytes;
     ASSERT_TRUE(load_object_save_bytes_for_character(".", "aragorn", &object_bytes, &error_message)) << error_message;
-    char_data returning {};
-    clear_char(&returning, MOB_VOID);
+    ScopedCharacter returning_owner;
+    char_data& returning = returning_owner.get();
     store_to_char(&stored_character, &returning);
     stage_account_backed_object_bytes_for_character(&returning, object_bytes.data(), object_bytes.size());
     FILE* fp = Crash_load(&returning);
@@ -2387,11 +2438,18 @@ TEST(DbLoader, SkinLevelLineWrittenOnlyForSkins)
  * the 6th and 7th numbers become skin_base and skin_own. */
 TEST(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNone)
 {
+    // A second run in one process (--gtest_repeat) would start past the end of the table below.
+    static bool load_objects_has_run = false;
+    if (load_objects_has_run)
+        GTEST_SKIP() << "load_objects fills the prototype table once per process";
+    load_objects_has_run = true;
+
     index_data* const previous_obj_index = obj_index;
     obj_data* const previous_obj_proto = obj_proto;
     const int previous_top_of_objt = top_of_objt;
-    obj_index = new index_data[4] {};
-    obj_proto = new obj_data[4] {};
+    const int prototype_slots = 4;
+    obj_index = new index_data[prototype_slots] {};
+    obj_proto = new obj_data[prototype_slots] {};
 
     char name[] = "sword";
     char short_description[] = "a sword";
@@ -2460,8 +2518,8 @@ TEST(DbLoader, ObjectEditorVersionFieldTakesExactlyBOrO)
     shape.procedure = SHAPE_EDIT;
     shape.flags = SHAPE_OBJECT_LOADED;
 
-    char_data builder {};
-    clear_char(&builder, MOB_VOID);
+    ScopedCharacter builder_owner;
+    char_data& builder = builder_owner.get();
     builder.temp = &shape;
 
     // Field 22: the first call shows the prompt, the second takes the answer.
@@ -2561,7 +2619,6 @@ public:
         shape.number = basenum;
         shape.permission = 1;
 
-        clear_char(&builder, MOB_VOID);
         builder.temp = &shape;
         builder.desc = &m_descriptor;
         m_descriptor.character = &builder;
@@ -2603,7 +2660,10 @@ public:
 
     obj_data object {};
     shape_object shape {};
-    char_data builder {};
+    // Owns the builder and frees it after the destructor has detached the shape and descriptor.
+    ScopedCharacter builder_owner;
+    // The builder at the editor, as the editor functions take it.
+    char_data& builder = builder_owner.get();
 
 private:
     void init(int index, int virt, const char* short_description)
@@ -3100,8 +3160,8 @@ TEST(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMi
     ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &loaded_object_bytes, &error_message)) << error_message;
     EXPECT_EQ(loaded_object_bytes, expected_object_bytes);
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&loaded_store, &character);
 
     stage_account_backed_object_bytes_for_character(&character, loaded_object_bytes.data(), loaded_object_bytes.size());
@@ -3150,8 +3210,8 @@ TEST(DbLoader, AccountNativeCrashLoadDoesNotLogMissingLegacyObjectFileWhenFallba
     char_file_u loaded_store {};
     ASSERT_TRUE(account::read_account_character_file(".", "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&loaded_store, &character);
 
     stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
@@ -3204,8 +3264,8 @@ TEST(DbLoader, AccountNativeCrashLoadStillLogsNonMissingLegacyObjectOpenFailures
     char_file_u loaded_store {};
     ASSERT_TRUE(account::read_account_character_file(".", "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&loaded_store, &character);
 
     stage_account_backed_object_bytes_for_character(&character, object_bytes.data(), object_bytes.size());
@@ -3245,8 +3305,8 @@ TEST(DbLoader, AccountNativeCharacterLoadDoesNotPropagateGarbageColorStateIntoLi
         loaded_store.profs.colors[index] = 0x5a;
     ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&loaded_store, &character);
 
     EXPECT_EQ(get_colornum(&character, COLOR_ROOM), CNRM);
@@ -3278,8 +3338,8 @@ TEST(DbLoader, SavingAccountNativeCharacterDoesNotAttemptLegacySnapshotRefreshAf
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     descriptor_data descriptor {};
@@ -3320,8 +3380,8 @@ TEST(DbLoader, SavingLinkedCharacterRefreshesStalePlayerIndexToAccountNativePath
     std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
         account::legacy_player_file_path(".", "aragorn").c_str());
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     descriptor_data descriptor {};
@@ -3361,8 +3421,8 @@ TEST(DbLoader, SaveResultFlagsAreSetOnlyWhereTheFileWasWritten)
     stored_character.specials2.load_room = 3001;
     ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
     descriptor_data descriptor {};
     std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
@@ -3428,8 +3488,8 @@ TEST(DbLoader, SavingLinkedCharacterRepairsMissingAccountNativeCharacterFileDire
     player_table[0].log_time = stored_character.last_logon;
     player_table[0].flags = stored_character.specials2.act;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     descriptor_data descriptor {};
@@ -3487,8 +3547,8 @@ TEST(DbLoader, SavingAccountNativeCharacterWithUnreadableAccountRecordDoesNotRev
 
     write_file(rooted_account_json_path(".", "player@example.com"), "{bad-json");
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     descriptor_data descriptor {};
@@ -3517,8 +3577,8 @@ TEST(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacte
     ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
     ensure_test_world_room(3001);
 
-    char_data staged_character {};
-    clear_char(&staged_character, MOB_VOID);
+    ScopedCharacter staged_character_owner;
+    char_data& staged_character = staged_character_owner.get();
     char_file_u staged_store {};
     std::snprintf(staged_store.name, sizeof(staged_store.name), "%s", "aragorn");
     std::snprintf(staged_store.title, sizeof(staged_store.title), "%s", "the Ranger");
@@ -3542,8 +3602,8 @@ TEST(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacte
     ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
     stage_account_backed_object_bytes_for_character(&staged_character, object_bytes.data(), object_bytes.size());
 
-    char_data later_character {};
-    clear_char(&later_character, MOB_VOID);
+    ScopedCharacter later_character_owner;
+    char_data& later_character = later_character_owner.get();
     char_file_u later_store {};
     std::snprintf(later_store.name, sizeof(later_store.name), "%s", "boromir");
     std::snprintf(later_store.title, sizeof(later_store.title), "%s", "of Gondor");
@@ -4091,8 +4151,8 @@ TEST(DbLoader, RecordsTheNamechangeExploitForAnAccountNativeCharacter)
     std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
         account::account_character_player_path(".", "alpha-admin", "aragorn").c_str());
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     descriptor_data descriptor {};
@@ -4149,8 +4209,8 @@ TEST(DbLoader, RefusesARenameWhoseAccountNativePathWouldNotFitThePlayerIndex)
     ASSERT_GE(would_be_path.size(), sizeof(player_table[0].ch_file))
         << "this fixture only means anything if the new path really does not fit: " << would_be_path;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     descriptor_data descriptor {};
@@ -4182,8 +4242,8 @@ TEST(DbLoader, RefusesARenameToANameThatIsAlreadyTakenAndSaysSo)
     ScopedPlayerTableEntry player_table_entry("aragorn");
 
     char_file_u stored_character = make_stored_character("aragorn");
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     char taken_name[] = "Aragorn";
@@ -4258,20 +4318,22 @@ namespace {
 
 /* A character char_to_store/store_to_char will accept: name, profs and skills allocated. */
 struct AffectPersistenceCharacter {
-    char_data character {};
+    // Owns the character and frees it, affects included, after the destructor runs.
+    ScopedCharacter character_owner;
+    // The character under test, as char_to_store and affect_to_char take it.
+    char_data& character = character_owner.get();
     char name[MAX_NAME_LENGTH + 1] = "aragorn";
 
     AffectPersistenceCharacter()
     {
-        clear_char(&character, MOB_VOID);
         character.player.name = name;
         character.player.race = RACE_HUMAN;
     }
 
     ~AffectPersistenceCharacter()
     {
-        while (character.affected)
-            affect_remove(&character, character.affected);
+        // The name is this object's array, so free_char must not release it.
+        character.player.name = nullptr;
     }
 
     void add_affect(int type, int duration, int location, int modifier, int effect_modifier)
@@ -4337,7 +4399,7 @@ public:
     {
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
-            delete object_list;
+            free_obj(object_list);
             object_list = next;
         }
 
@@ -4421,16 +4483,13 @@ TEST(AffectPersistence, StoreToCharDropsAPermanentAffectAlreadyOnDisk)
     stored_character.affected[0].modifier = RESIST_COLD;
     stored_character.affected[0].effect_modifier = 30;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     EXPECT_EQ(affected_by_spell(&character, SPELL_RESIST_COLD), nullptr)
         << "no item has been equipped yet -- Crash_load has not even run";
     EXPECT_EQ(character.specials.resistance & (1 << RESIST_COLD), 0);
-
-    while (character.affected)
-        affect_remove(&character, character.affected);
 }
 
 TEST(AffectPersistence, StoreToCharStillRestoresATimedAffect)
@@ -4445,8 +4504,8 @@ TEST(AffectPersistence, StoreToCharStillRestoresATimedAffect)
     stored_character.affected[0].modifier = RESIST_COLD;
     stored_character.affected[0].effect_modifier = 30;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
 
     affected_type* restored = affected_by_spell(&character, SPELL_RESIST_COLD);
@@ -4454,9 +4513,6 @@ TEST(AffectPersistence, StoreToCharStillRestoresATimedAffect)
     EXPECT_EQ(restored->duration, 40);
     EXPECT_EQ(restored->effect_modifier, 30);
     EXPECT_NE(character.specials.resistance & (1 << RESIST_COLD), 0);
-
-    while (character.affected)
-        affect_remove(&character, character.affected);
 }
 
 TEST(AffectPersistence, ARoundTripCannotCarryAPermanentAffectBackOntoTheCharacter)
@@ -4472,16 +4528,13 @@ TEST(AffectPersistence, ARoundTripCannotCarryAPermanentAffectBackOntoTheCharacte
     char_to_store(&owner.character, &stored_character);
     stored_character.specials2.load_room = 3001;
 
-    char_data reloaded {};
-    clear_char(&reloaded, MOB_VOID);
+    ScopedCharacter reloaded_owner;
+    char_data& reloaded = reloaded_owner.get();
     store_to_char(&stored_character, &reloaded);
 
     EXPECT_EQ(affected_by_spell(&reloaded, SPELL_RESIST_LIGHT), nullptr);
     EXPECT_EQ(reloaded.specials.resistance & (1 << RESIST_LGHT), 0)
         << "buy one charm, log out, give it away, keep the resistance forever";
-
-    while (reloaded.affected)
-        affect_remove(&reloaded, reloaded.affected);
 }
 
 TEST(AffectPersistence, TheBoundaryBetweenKeptAndDroppedDurationsIsZero)
@@ -4538,8 +4591,8 @@ TEST(AffectPersistence, AStillEquippedItemReGrantsItsAffectOnLogin)
     stored_character.affected[0].modifier = RESIST_COLD;
     stored_character.affected[0].effect_modifier = 30;
 
-    char_data character {};
-    clear_char(&character, MOB_VOID);
+    ScopedCharacter character_owner;
+    char_data& character = character_owner.get();
     store_to_char(&stored_character, &character);
     ASSERT_EQ(affected_by_spell(&character, SPELL_RESIST_COLD), nullptr)
         << "the saved record is dropped -- at this point only the item can put it back";
@@ -4587,9 +4640,6 @@ TEST(AffectPersistence, AStillEquippedItemReGrantsItsAffectOnLogin)
             ++resist_cold_affects;
     EXPECT_EQ(resist_cold_affects, 1)
         << "exactly one -- the restored record must not stack with the item's own";
-
-    while (character.affected)
-        affect_remove(&character, character.affected);
 }
 
 namespace {
