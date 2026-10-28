@@ -1003,19 +1003,20 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         break;
 
     case ON_DRINK:
-        return_value = trigger_object_event(ON_DRINK, (obj_data*)subject, (char_data*)subject2);
-        break;
-
     case ON_EAT:
-        return_value = trigger_object_event(ON_EAT, (obj_data*)subject, (char_data*)subject2);
-        break;
+    case ON_EXAMINE_OBJECT:
+    case ON_PULL:
+    case ON_WEAR: {
+        char error_message[128];
+        snprintf(error_message, sizeof(error_message),
+            "SYSERR: %s: trigger %d is an object's own trigger; use call_object_trigger", __func__,
+            trigger_type);
+        log(error_message);
+        return 1;
+    }
 
     case ON_ENTER:
         return_value = trigger_room_event(ON_ENTER, (room_data*)subject, (char_data*)subject2); // This will trigger room, characters, objects
-        break;
-
-    case ON_EXAMINE_OBJECT:
-        return_value = trigger_object_event(ON_EXAMINE_OBJECT, (obj_data*)subject, (char_data*)subject2);
         break;
 
     case ON_HEAR_SAY:
@@ -1026,16 +1027,8 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return_value = trigger_char_hear((char_data*)subject, (char_data*)subject2, (char*)subject3);
         break;
 
-    case ON_PULL:
-        return_value = trigger_object_event(ON_PULL, (obj_data*)subject, (char_data*)subject2);
-        break;
-
     case ON_RECEIVE:
         return_value = trigger_char_receive((char_data*)subject, (char_data*)subject2, (obj_data*)subject3);
-        break;
-
-    case ON_WEAR:
-        return_value = trigger_object_event(ON_WEAR, (obj_data*)subject, (char_data*)subject2);
         break;
 
     default:

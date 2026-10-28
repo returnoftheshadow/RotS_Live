@@ -293,6 +293,17 @@ TEST_F(ObjectTriggerTest, ObjectWithoutTheTriggersScriptProceeds)
     EXPECT_EQ(stone, object_list);
 }
 
+/* An object's own triggers run only through call_object_trigger. */
+TEST_F(ObjectTriggerTest, CallTriggerRunsNoObjectTrigger)
+{
+    install_self_extracting_script(ON_WEAR);
+    obj_data* ring = make_scripted(RING_VNUM);
+
+    EXPECT_EQ(1, call_trigger(ON_WEAR, ring, &m_player, 0));
+    EXPECT_FALSE(output_has(CRUMBLE_MESSAGE));
+    EXPECT_EQ(ring, object_list);
+}
+
 /* ---- an object script that removes the mob using the object ---- */
 
 /* The socket of the examiner's connection: any but the player's (1). */

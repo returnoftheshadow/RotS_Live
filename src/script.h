@@ -166,7 +166,10 @@ inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
 /* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
- * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above). */
+ * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
+ * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
+ * call_object_trigger instead: given one of those, call_trigger runs nothing, logs an error and
+ * returns 1. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 
 /* How an object's own trigger script ended, for the command that fired it. */
