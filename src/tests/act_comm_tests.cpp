@@ -1,6 +1,7 @@
 #include "../db.h"
 #include "../handler.h"
 #include "../interpre.h"
+#include "../mail.h"
 #include "../structs.h"
 #include "../utils.h"
 #include "test_cleanup.h"
@@ -20,6 +21,8 @@ extern int top_of_objt;
 extern struct obj_data* object_list;
 extern struct room_data world;
 extern int top_of_world;
+void postmaster_send_mail(
+    struct char_data* character, int command_number, const char* argument, char_data* host);
 
 namespace {
 
@@ -549,4 +552,143 @@ TEST_F(NoteWritingTest, StartingANoteSaysToEndItWithPercentE)
     EXPECT_NE(std::string(m_descriptor.output).find(prompt), std::string::npos)
         << m_descriptor.output;
 }
+
+/* A writer of MIN_MAIL_LEVEL with the price of a stamp, in room 0 with a postmaster, and a player
+ * table holding the one the letter is to. */
+class MailWritingTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        m_saved_top_of_world = top_of_world;
+        m_saved_player_table = player_table;
+        m_saved_top_of_p_table = top_of_p_table;
+        if (room_data::BASE_WORLD == nullptr) {
+            world.create_bulk(1);
+        }
+        top_of_world = 0;
+        m_saved_room_people = world[0].people;
+
+        m_recipient_entry.name = m_recipient_name;
+        player_table = &m_recipient_entry;
+        top_of_p_table = 0;
+
+        m_descriptor.output = m_descriptor.small_outbuf;
+        m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+        m_descriptor.connected = CON_PLYNG;
+        clear_char(&m_writer, MOB_VOID);
+        m_writer.player.name = m_writer_name;
+        m_writer.player.level = MIN_MAIL_LEVEL;
+        GET_GOLD(&m_writer) = STAMP_PRICE;
+        m_writer.in_room = 0;
+        GET_POS(&m_writer) = POSITION_STANDING;
+        /* Sees the postmaster in the unlit test room. */
+        SET_BIT(PRF_FLAGS(&m_writer), PRF_HOLYLIGHT);
+        m_writer.desc = &m_descriptor;
+        m_descriptor.character = &m_writer;
+
+        clear_char(&m_postmaster, MOB_ISNPC);
+        SET_BIT(MOB_FLAGS(&m_postmaster), MOB_ISNPC);
+        m_postmaster.player.name = m_postmaster_name;
+        m_postmaster.player.short_descr = m_postmaster_name;
+        m_postmaster.in_room = 0;
+        GET_POS(&m_postmaster) = POSITION_STANDING;
+
+        world[0].people = &m_writer;
+        m_writer.next_in_room = &m_postmaster;
+        m_postmaster.next_in_room = nullptr;
+    }
+
+    void TearDown() override
+    {
+        /* Nothing is sent: the letter and the editor's buffers are given back as they are. */
+        if (m_descriptor.str != nullptr) {
+            RELEASE(*m_descriptor.str);
+            RELEASE(m_descriptor.str);
+        }
+        RELEASE(m_descriptor.name);
+        m_descriptor.str_limit = 0;
+        world[0].people = m_saved_room_people;
+        release_cleared_character(&m_postmaster);
+        release_cleared_character(&m_writer);
+        release_test_descriptor(&m_descriptor);
+        player_table = m_saved_player_table;
+        top_of_p_table = m_saved_top_of_p_table;
+        top_of_world = m_saved_top_of_world;
+    }
+
+    /* Asks the postmaster to send a letter to the recipient. */
+    void start_letter() { postmaster_send_mail(&m_writer, 0, m_recipient_name, &m_postmaster); }
+
+    /* Types <line> into the writer's text editor. */
+    void type(const char* line)
+    {
+        std::string mutable_line = line;
+        mutable_line.push_back('\0');
+        string_add(&m_descriptor, &mutable_line[0]);
+    }
+
+    std::string output() const { return std::string(m_descriptor.output); }
+
+    char m_recipient_name[16] = "frodo"; // the one the letter is to, the player table's one entry
+    char m_writer_name[16] = "Sam"; // the writer's name
+    char m_postmaster_name[16] = "postmaster"; // the postmaster's keywords and short description
+    player_index_element m_recipient_entry {}; // the player table during the test
+    descriptor_data m_descriptor {}; // the writer's connection, holding the text editor
+    char_data m_writer {}; // the one writing the letter
+    char_data m_postmaster {}; // the postmaster taking the letter
+
+private:
+    int m_saved_top_of_world = 0; // restored in TearDown
+    player_index_element* m_saved_player_table = nullptr; // restored in TearDown
+    int m_saved_top_of_p_table = 0; // restored in TearDown
+    char_data* m_saved_room_people = nullptr; // restored in TearDown
+};
+
+/* A first line of MAX_MAIL_SIZE - 10 characters leaves the letter 8 characters short of its
+ * limit. */
+const size_t NEAR_MAIL_LIMIT_LINE_LENGTH = MAX_MAIL_SIZE - 10;
+
+/* Writing a letter limits it to MAX_MAIL_SIZE characters. */
+TEST_F(MailWritingTest, WritingLimitsTheLetterToMaxMailSize)
+{
+    start_letter();
+
+    ASSERT_NE(m_descriptor.str, nullptr) << output();
+    EXPECT_EQ(m_descriptor.str_limit, static_cast<unsigned int>(MAX_MAIL_SIZE));
+}
+
+/* A line that would take the letter past its limit is refused with a message, and the letter keeps
+ * its text. */
+TEST_F(MailWritingTest, ALinePastTheLimitIsRefusedAndTheTextKept)
+{
+    start_letter();
+    ASSERT_NE(m_descriptor.str, nullptr) << output();
+    const std::string first_line(NEAR_MAIL_LIMIT_LINE_LENGTH, 'x');
+
+    type(first_line.c_str());
+    type("the river");
+
+    ASSERT_NE(*m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\r");
+    const std::string refusal = "That would take the text past its limit of "
+        + std::to_string(MAX_MAIL_SIZE) + " characters, so it was not changed.";
+    EXPECT_NE(output().find(refusal), std::string::npos) << output();
+}
+
+/* A line that brings the letter to exactly its limit is added. */
+TEST_F(MailWritingTest, ALineReachingExactlyTheLimitIsAdded)
+{
+    start_letter();
+    ASSERT_NE(m_descriptor.str, nullptr) << output();
+    const std::string first_line(NEAR_MAIL_LIMIT_LINE_LENGTH, 'x');
+
+    type(first_line.c_str());
+    type("ford!!");
+
+    ASSERT_NE(*m_descriptor.str, nullptr);
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\rford!!\n\r");
+    EXPECT_EQ(std::strlen(*m_descriptor.str), static_cast<size_t>(MAX_MAIL_SIZE));
+    EXPECT_EQ(output().find(past_limit_message(MAX_MAIL_SIZE)), std::string::npos) << output();
+}
+
 } // namespace
