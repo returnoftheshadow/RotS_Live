@@ -265,3 +265,40 @@ protected:
 };
 
 } // namespace
+
+/* ---- an NPC olog-hai's skills ---- */
+
+/* An NPC has no tactics; its olog-hai skills strike as on normal tactics. */
+TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiStrikesAsOnNormalTactics)
+{
+    char_data* olog = make_mob("olog", 0);
+    olog->player.race = RACE_OLOGHAI;
+    constexpr int PROBABILITY = 50;
+    /* get_base_skill_damage's formula: (BASE_DAMAGE + warrior level) * (PERCENT + probability),
+     * divided by TACTICS_SCALE / tactics. */
+    constexpr int BASE_DAMAGE = 2;
+    constexpr int PERCENT = 100;
+    constexpr int TACTICS_SCALE = 1000;
+    const int expected = (BASE_DAMAGE + utils::get_prof_level(PROF_WARRIOR, *olog))
+        * (PERCENT + PROBABILITY) / (TACTICS_SCALE / TACTICS_NORMAL);
+
+    EXPECT_EQ(expected, olog_hai::get_base_skill_damage(*olog, PROBABILITY));
+}
+
+/* An NPC olog-hai's cleave hurts the mob next to it. */
+TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
+{
+    take_player_out_of_the_room();
+    char_data* olog = make_mob("olog", 0);
+    olog->player.race = RACE_OLOGHAI;
+    constexpr int SURE_HIT_OB = 200; /* sure to land; a mob knows every skill at 80 */
+    constexpr double LANDING_ROLL = 0.99; /* the cleave's to-hit roll: it lands */
+    olog->points.OB = SURE_HIT_OB;
+    equip_char(olog, make_object(SWORD_VNUM, 0), WIELD);
+    char_data* victim = make_mob("victim", 0);
+    push_test_random_value(LANDING_ROLL);
+
+    do_cleave(olog, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
+}

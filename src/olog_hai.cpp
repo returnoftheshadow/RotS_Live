@@ -189,7 +189,12 @@ int get_base_skill_damage(char_data& olog_hai, int prob)
 {
     int base_damage = (2 + utils::get_prof_level(PROF_WARRIOR, olog_hai));
     base_damage *= (100 + prob);
-    base_damage /= (1000 / utils::get_tactics(olog_hai));
+    /* An NPC has no tactics (0, which would divide by zero): it strikes as on normal tactics. */
+    int tactics = utils::get_tactics(olog_hai);
+    if (tactics <= 0) {
+        tactics = TACTICS_NORMAL;
+    }
+    base_damage /= (1000 / tactics);
     // Two-handed style was meant to add 1.5x here, but `*= 3 / 2` never applied it.
     // Balance showed Olog-hai did not need the bonus, so the dead code was removed.
 
