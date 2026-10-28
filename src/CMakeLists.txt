@@ -213,6 +213,7 @@ set(ROTS_TEST_SOURCES
     tests/game_heartbeat_tests.cpp
     tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
+    tests/mystic_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/kill_experience_tests.cpp
@@ -224,6 +225,14 @@ set(ROTS_TEST_SOURCES
     tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
+    tests/object_trigger_extract_tests.cpp
+    tests/character_trigger_extract_tests.cpp
+    tests/memory_release_tests.cpp
+    tests/combat_movement_extract_tests.cpp
+    tests/death_and_damage_paths_tests.cpp
+    tests/loader_editor_bounds_tests.cpp
+    tests/special_procedure_extract_tests.cpp
+    tests/fish_and_use_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
