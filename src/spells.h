@@ -407,6 +407,11 @@ void recalc_skills(struct char_data*);
         char_data* victim, obj_data* obj, int digit, \
         int is_object)
 
+/* For a spell that works on a character: true, after logging it and telling <caster> that nothing
+ * seems to happen, when <victim> is null. Only a staff, or a wand pointed at an object, gives a
+ * spell nobody to work on, and only a builder's mistaken item carries such a spell. */
+bool spell_lacks_victim(char_data* caster, const char_data* victim, int spell_number);
+
 /* True for a spell whose item form (APPLY_SPELL) gives the wearer a lasting affect as the item
  * goes on, takes it as the item comes off, and does nothing else: the one kind of item spell a
  * quiet gear change (gear_change::quiet) still casts. Death ward is the exception: taking its
