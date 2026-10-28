@@ -215,6 +215,8 @@ set(ROTS_TEST_SOURCES
     tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
     tests/mystic_tests.cpp
+    tests/ranger_tests.cpp
+    tests/ranger_shoot_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/kill_experience_tests.cpp
