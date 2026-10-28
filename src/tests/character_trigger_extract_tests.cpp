@@ -234,6 +234,50 @@ TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptTakesTheNextIte
     EXPECT_EQ(2, count_in_output("You give")) << "the stone by the command, the bread by the script";
 }
 
+/* ---- wearing (ON_WEAR) ---- */
+
+/* The ring's script destroys the stone that wear all would look at next. */
+TEST_F(CharacterTriggerTest, WearingAllStopsWhenARingsScriptExtractsTheNextItem)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0));
+    obj_data* ring = give_player(make_scripted(RING_VNUM)); /* looked at first */
+
+    run_command(do_wear, "all");
+
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_FALSE(is_in_object_list(stone));
+}
+
+TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
+{
+    install_script(ON_WEAR, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* wearer = make_mob("wearer", 0);
+    obj_to_char(make_object(RING_VNUM, 0), wearer);
+    obj_to_char(make_scripted(RING_VNUM), wearer); /* looked at first */
+
+    run_command_as(wearer, do_wear, "all");
+
+    EXPECT_FALSE(is_in_game(wearer));
+    EXPECT_EQ(2, count_contents(world[0].contents)) << "the wearer dropped both rings";
+}
+
+TEST_F(CharacterTriggerTest, WearingAllWearsEveryRingWhoseScriptKeepsIt)
+{
+    install_harmless_script(ON_WEAR);
+    obj_data* first = give_player(make_scripted(RING_VNUM));
+    obj_data* second = give_player(make_scripted(RING_VNUM));
+
+    run_command(do_wear, "all");
+
+    EXPECT_EQ(2, count_in_output(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(second, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(first, m_player.equipment[WEAR_FINGER_L]);
+}
+
 /* ---- entering a room (ON_ENTER and ON_BEFORE_ENTER on the room's mobs) ---- */
 
 TEST_F(CharacterTriggerTest, EveryMobThatRemovesItselfOnSomeoneEnteringReacts)

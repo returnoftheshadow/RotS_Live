@@ -705,13 +705,13 @@ bool beorning_item_restriction(const char_data* character, const obj_data* item)
 
     return true;
 }
-void perform_remove(struct char_data* ch, int pos);
+bool perform_remove(struct char_data* ch, int pos);
 
 /* Puts <item>, which <character> carries, on in <item_slot> with the checks and messages of the
  * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
- * is there is taken off first. Returns false when the item's ON_WEAR script extracted it: the
- * caller must then not touch the item again. Returns true otherwise, whether or not the item was
- * worn. */
+ * is there is taken off first. Returns false when the item's ON_WEAR script freed the item or the
+ * wearer: the caller must then touch neither again. Returns true otherwise, whether or not the
+ * item was worn. */
 bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
 {
     static int item_slots[] = {
@@ -802,8 +802,9 @@ bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
         return true;
     }
 
+    freed_watch wearer_watch(character);
     const object_trigger_result wear_result = call_object_trigger(ON_WEAR, item, character);
-    if (wear_result == object_trigger_result::object_extracted) {
+    if (wear_result == object_trigger_result::object_extracted || wearer_watch.freed()) {
         return false;
     }
     if (wear_result == object_trigger_result::refused) {
@@ -943,6 +944,7 @@ ACMD(do_wear)
     }
 
     if (dotmode == FIND_ALL) {
+        freed_watch wearer_watch(ch);
         for (obj = ch->carrying; obj; obj = next_obj) {
             next_obj = obj->next_content;
 
@@ -952,7 +954,16 @@ ACMD(do_wear)
 
             if (where >= 0) {
                 items_worn++;
+                freed_watch next_item_watch(next_obj);
                 perform_wear(ch, obj, where, true);
+                /* An item's ON_WEAR script can remove the wearer, or destroy the item to be
+                 * looked at next; either ends the wearing. */
+                if (wearer_watch.freed()) {
+                    return;
+                }
+                if (next_item_watch.freed()) {
+                    break;
+                }
             }
         }
         if (!items_worn)
@@ -965,15 +976,25 @@ ACMD(do_wear)
         if (!(obj = get_obj_in_list(arg1, ch->carrying))) {
             sprintf(buf, "You don't seem to have any %ss.\n\r", arg1);
             send_to_char(buf, ch);
-        } else
+        } else {
+            freed_watch wearer_watch(ch);
             while (obj) {
                 next_obj = get_obj_in_list_vis(ch, arg1, obj->next_content, 9999);
-                if ((where = find_eq_pos(ch, obj, 0)) >= 0)
+                if ((where = find_eq_pos(ch, obj, 0)) >= 0) {
+                    freed_watch next_item_watch(next_obj);
                     perform_wear(ch, obj, where, false);
-                else
+                    /* As for wear all. */
+                    if (wearer_watch.freed()) {
+                        return;
+                    }
+                    if (next_item_watch.freed()) {
+                        next_obj = nullptr;
+                    }
+                } else
                     act("You can't wear $p.", FALSE, ch, obj, 0, TO_CHAR);
                 obj = next_obj;
             }
+        }
     } else {
         if (!(obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999))) {
             sprintf(buf, "You don't seem to have %s %s.\n\r", AN(arg1), arg1);
@@ -1057,13 +1078,15 @@ ACMD(do_grab)
     }
 }
 
-void perform_remove(struct char_data* ch, int pos)
+/* Takes off what <ch> wears in <pos> for the remove command; a belt takes what hangs on it with it.
+ * Returns false when taking something off freed ch, which must then not be touched again. */
+bool perform_remove(struct char_data* ch, int pos)
 {
     struct obj_data* obj;
 
     if (!(obj = ch->equipment[pos])) {
         log("Error in perform_remove: bad pos passed.");
-        return;
+        return true;
     }
 
     if (IS_CARRYING_N(ch) >= CAN_CARRY_N(ch))
@@ -1133,6 +1156,7 @@ void perform_remove(struct char_data* ch, int pos)
         //	 if (obj->obj_flags.value[2] && obj->obj_flags.value[3])
         //	    world[ch->in_room].light--;
     }
+    return true;
 }
 
 ACMD(do_remove)
