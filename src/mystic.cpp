@@ -32,8 +32,10 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 /*---------------------------------------------------------------------------------------------*/
 
@@ -602,6 +604,33 @@ ASPELL(spell_slow_digestion)
     }
 }
 
+namespace {
+
+/* Ends a divination list cut short at DIVINATION_LIST_LIMIT. */
+constexpr char DIVINATION_LIST_CUT[] = "and more.\n\r";
+constexpr std::size_t DIVINATION_LIST_CUT_LENGTH = sizeof(DIVINATION_LIST_CUT) - 1;
+
+/* Called after each entry appended to <list>: moves <out_kept_length> up to the list's length while
+ * the list could still end there with DIVINATION_LIST_CUT within DIVINATION_LIST_LIMIT. */
+void note_divination_entry(const std::string& list, std::size_t& out_kept_length)
+{
+    if (list.size() + DIVINATION_LIST_CUT_LENGTH <= DIVINATION_LIST_LIMIT)
+        out_kept_length = list.size();
+}
+
+/* Leaves <out_list> whole if it is within DIVINATION_LIST_LIMIT; otherwise keeps its first
+ * <kept_length> characters, the header and the entries that fit, and ends it DIVINATION_LIST_CUT. */
+void limit_divination_list(std::string& out_list, std::size_t kept_length)
+{
+    if (out_list.size() <= DIVINATION_LIST_LIMIT)
+        return;
+
+    out_list.resize(kept_length);
+    out_list += DIVINATION_LIST_CUT;
+}
+
+} // namespace
+
 ASPELL(spell_divination)
 {
     // Ensure that we have a valid caster and location.
@@ -612,9 +641,10 @@ ASPELL(spell_divination)
 
     const room_data& cur_room = world[caster->in_room];
 
-    sprintf(buff, "You feel confident about your location.\n\r");
     sprintbit(cur_room.room_flags, room_bits, buf, 0);
-    sprintf(buff, "%s (#%d) [ %s, %s], Exits are:\n\r", buff, cur_room.number, sector_types[cur_room.sector_type], buf);
+    snprintf(buff, sizeof(buff),
+        "You feel confident about your location.\n\r (#%d) [ %s, %s], Exits are:\n\r",
+        cur_room.number, sector_types[cur_room.sector_type], buf);
     send_to_char(buff, caster);
 
     bool found = false;
@@ -624,7 +654,7 @@ ASPELL(spell_divination)
             const room_data& exit_room = world[exit->to_room];
 
             found = true;
-            sprintf(buff, "%5s: to %s (#%d)\n\r", dirs[dir], exit_room.name, exit_room.number);
+            snprintf(buff, sizeof(buff), "%5s: to %s (#%d)\n\r", dirs[dir], exit_room.name, exit_room.number);
             if (exit->exit_info != 0) {
                 const char* keyword = exit->keyword ? exit->keyword : "";
                 const char* key_name = "None";
@@ -642,7 +672,9 @@ ASPELL(spell_divination)
                     }
                 }
 
-                sprintf(buff, "%s     door '%s', key '%s'.\n\r", buff, keyword, key_name);
+                const std::size_t exit_length = strlen(buff);
+                snprintf(buff + exit_length, sizeof(buff) - exit_length,
+                    "     door '%s', key '%s'.\n\r", keyword, key_name);
             }
             send_to_char(buff, caster);
         }
@@ -651,36 +683,42 @@ ASPELL(spell_divination)
         send_to_char("None.\n\r", caster);
     }
 
-    sprintf(buff, "Living beings in the room:\n\r");
     if (cur_room.people) {
+        std::string people_list = "Living beings in the room:\n\r";
+        std::size_t kept_length = people_list.size();
         for (char_data* character = cur_room.people; character; character = character->next_in_room) {
             if (caster->player.level >= GET_INVIS_LEV(character)) {
-                strcat(buff, GET_NAME(character));
+                people_list += GET_NAME(character);
                 if (character->next_in_room) {
-                    strcat(buff, ", ");
+                    people_list += ", ";
                 } else {
-                    strcat(buff, ".\n\r");
+                    people_list += ".\n\r";
                 }
+                note_divination_entry(people_list, kept_length);
             }
         }
-        send_to_char(buff, caster);
+        limit_divination_list(people_list, kept_length);
+        send_to_char(people_list.c_str(), caster);
     } else {
         send_to_char("Living beings in the room:\n\r None.\n\r", caster);
     }
 
     if (cur_room.contents) {
-        sprintf(buff, "Objects in the room:\n\r");
+        std::string object_list = "Objects in the room:\n\r";
+        std::size_t kept_length = object_list.size();
         for (obj_data* item = cur_room.contents; item; item = item->next_content) {
             if (CAN_SEE_OBJ(caster, item)) {
-                strcat(buff, item->short_description);
+                object_list += item->short_description;
                 if (item->next_content) {
-                    strcat(buff, ", ");
+                    object_list += ", ";
                 } else {
-                    strcat(buff, ".\n\r");
+                    object_list += ".\n\r";
                 }
+                note_divination_entry(object_list, kept_length);
             }
         }
-        send_to_char(buff, caster);
+        limit_divination_list(object_list, kept_length);
+        send_to_char(object_list.c_str(), caster);
     } else {
         send_to_char("Objects in the room:\n\r None.\n\r", caster);
     }
