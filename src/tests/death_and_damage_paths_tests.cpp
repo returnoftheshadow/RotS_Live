@@ -12,8 +12,11 @@
 #include "../big_brother.h"
 #include "../char_utils.h"
 #include "../comm.h" /* complete_delay */
+#include "../mob_walker.h"
 #include "../skill_timer.h"
 #include "../spells.h"
+
+#include <string>
 
 ACMD(do_wear);
 ACMD(do_wield);
@@ -459,4 +462,60 @@ TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide
     EXPECT_TRUE(is_in_game(doorkeeper));
     EXPECT_EQ(1, count_corpses_in_room());
     EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
+}
+
+/* ---- a walker removed at the end of its route ---- */
+
+namespace {
+
+/* Takes <walker> to the end of a path route that is room 0 alone and removes the walker there
+ * (path_complete_extract): its last wander roll queues it for walker_remove_finished. Mob table
+ * entry 0 carries the route only for that roll, and the walker is that entry's mob only then. */
+void finish_walker_route(char_data* walker)
+{
+    std::string options = "walker_type=path\n\rwalker_rooms=" + std::to_string(ROOM_VNUM)
+        + "\n\rpath_complete_extract=yes\n\r";
+    mob_proto[0].specials.mob_options = options.data();
+    walker_config_rebuild(0);
+    const int walker_number = walker->nr;
+    walker->nr = 0;
+    const walker_result result = walker_wander(walker, NORTH, true);
+    walker->nr = walker_number;
+    mob_proto[0].specials.mob_options = nullptr;
+    walker_config_rebuild(0);
+    EXPECT_EQ(WALKER_HANDLED, result);
+}
+
+} // namespace
+
+/* A walker removed at the end of its route takes its gear with it, and nothing is left behind. */
+TEST_F(DeathAndDamagePathsTest, AWalkerAtTheEndOfItsRouteLeavesWithItsGear)
+{
+    link_second_room();
+    make_ring_and_sword_poisonous();
+    char_data* walker = make_mob_wearing_poisonous_ring("walker", 0);
+    finish_walker_route(walker);
+
+    walker_remove_finished();
+
+    EXPECT_FALSE(is_in_game(walker));
+    EXPECT_EQ(0, count_corpses_in_room());
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
+}
+
+/* The poison of the ring coming off a walker removed at the end of its route kills it: it dies
+ * there, leaving its corpse, and is not removed a second time. */
+TEST_F(DeathAndDamagePathsTest, AWalkerItsGearKillsAsItLeavesAtTheEndOfItsRouteIsLetGo)
+{
+    link_second_room();
+    make_ring_and_sword_poisonous();
+    char_data* walker = make_mob_wearing_poisonous_ring("walker", 0);
+    walker->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    finish_walker_route(walker);
+
+    walker_remove_finished();
+
+    EXPECT_FALSE(is_in_game(walker));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
 }
