@@ -8,6 +8,7 @@
  * queues it with push_test_random_value. */
 #include "scripted_room_fixture.h"
 
+#include "../act_move.h"
 #include "../big_brother.h"
 #include "../char_utils.h"
 #include "../comm.h" /* complete_delay */
@@ -301,6 +302,40 @@ TEST_F(DeathAndDamagePathsTest, AMobRemovedWearingAPoisonousItemIsRemovedOnce)
     EXPECT_FALSE(is_in_game(wearer));
     EXPECT_EQ(0, count_corpses_in_room());
     EXPECT_TRUE(is_on_the_floor(ring));
+}
+
+/* ---- callers that take gear off or put it on ---- */
+
+/* A mover its damage script removes as its stay-zone ring comes off leaves the ring behind, and
+ * the rest of its gear is not looked at. */
+TEST_F(DeathAndDamagePathsTest, AMoverRemovedAsItsStayZoneGearComesOffLeavesItBehind)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(RING_VNUM).obj_flags.extra_flags |= ITEM_STAY_ZONE;
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* mover = make_mob_wearing_poisonous_ring("mover", SCRIPT_VNUM);
+    obj_data* ring = mover->equipment[WEAR_FINGER_R];
+
+    EXPECT_FALSE(prohibit_item_stay_zone_move(mover, 0));
+
+    EXPECT_FALSE(is_in_game(mover));
+    EXPECT_TRUE(is_on_the_floor(ring));
+}
+
+/* A mover the stay-zone ring only hurts as it comes off leaves it behind and goes on. */
+TEST_F(DeathAndDamagePathsTest, AMoverHurtAsItsStayZoneGearComesOffLeavesItBehind)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(RING_VNUM).obj_flags.extra_flags |= ITEM_STAY_ZONE;
+    char_data* mover = make_mob_wearing_poisonous_ring("mover", 0);
+    obj_data* ring = mover->equipment[WEAR_FINGER_R];
+
+    EXPECT_TRUE(prohibit_item_stay_zone_move(mover, 0));
+
+    ASSERT_TRUE(is_in_game(mover));
+    EXPECT_TRUE(is_on_the_floor(ring));
+    EXPECT_EQ(nullptr, mover->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(mover));
 }
 
 /* Nobody in no room is hurt: a blow at someone being taken out of the game lands nowhere. */

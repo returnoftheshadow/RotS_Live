@@ -656,6 +656,139 @@ TEST_F(SpecialProcedureTest, ACommandNoProcedureTakesIsCarriedOut)
     EXPECT_EQ(SECOND_ROOM, walker->in_room);
 }
 
+/* ---- moving ---- */
+
+/* A rider's own step is not offered to the procedures here, its mount's is: the guard removes
+ * the mount, and the rider stays behind. */
+TEST_F(SpecialProcedureTest, ARiderWhoseMountAGuardRemovesAsItSetsOffStaysBehind)
+{
+    make_mob_with("guard", remove_actor_going_north);
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", nullptr);
+    seat(rider, mount);
+
+    walk_north(rider);
+
+    EXPECT_FALSE(is_in_game(mount));
+    ASSERT_TRUE(is_in_game(rider));
+    EXPECT_EQ(0, rider->in_room);
+    EXPECT_FALSE(IS_RIDING(rider));
+}
+
+/* A follower's step is offered to the procedures here: the guard removes it, and nothing else
+ * of the step happens. */
+TEST_F(SpecialProcedureTest, AFollowerAGuardRemovesAsItSetsOffGoesNowhere)
+{
+    make_mob_with("guard", remove_actor_going_north);
+    char_data* follower = make_mob_with("follower", nullptr);
+
+    do_move(follower, empty_argument(), nullptr, NORTH + 1, SCMD_FOLLOW);
+
+    EXPECT_FALSE(is_in_game(follower));
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+}
+
+/* The mount sets off on its own; the guard removes its only rider, and nobody is left to carry. */
+TEST_F(SpecialProcedureTest, AMountWhoseRiderAGuardRemovesAsItSetsOffStays)
+{
+    make_mob_with("guard", remove_actor_going_north);
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", nullptr);
+    seat(rider, mount);
+
+    walk_north(mount);
+
+    EXPECT_FALSE(is_in_game(rider));
+    ASSERT_TRUE(is_in_game(mount));
+    EXPECT_EQ(0, mount->in_room);
+}
+
+TEST_F(SpecialProcedureTest, AMountAGuardRemovesAsItsRiderSetsOffIsNotUsedAgain)
+{
+    make_mob_with("guard", remove_marked_going_north);
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", nullptr);
+    seat(rider, mount);
+    record.character_to_remove = mount;
+
+    walk_north(mount);
+
+    EXPECT_FALSE(is_in_game(mount));
+    ASSERT_TRUE(is_in_game(rider));
+    EXPECT_EQ(0, rider->in_room);
+}
+
+/* The guard where they arrive removes the mount: its riders arrive all the same. */
+TEST_F(SpecialProcedureTest, AMountAGuardRemovesAsItArrivesIsLetGo)
+{
+    make_mob_with("guard", remove_marked_arriving, SECOND_ROOM);
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", nullptr);
+    seat(rider, mount);
+    record.character_to_remove = mount;
+
+    walk_north(rider);
+
+    EXPECT_FALSE(is_in_game(mount));
+    ASSERT_TRUE(is_in_game(rider));
+    EXPECT_EQ(SECOND_ROOM, rider->in_room);
+}
+
+TEST_F(SpecialProcedureTest, ARideIntoADeathRoomKillsEveryRiderAndTheMount)
+{
+    world[SECOND_ROOM].room_flags = DEATH;
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", nullptr);
+    char_data* passenger = make_mob_with("passenger", nullptr);
+    seat(rider, mount);
+    seat(passenger, mount);
+
+    walk_north(rider);
+
+    EXPECT_FALSE(is_in_game(rider));
+    EXPECT_FALSE(is_in_game(passenger));
+    EXPECT_FALSE(is_in_game(mount));
+    EXPECT_EQ(3, count_contents(world[SECOND_ROOM].contents)) << "three corpses";
+}
+
+/* The first rider's death removes the passenger behind it: the mount still goes on into the
+ * death room. */
+TEST_F(SpecialProcedureTest, ARiderWhoseDeathRemovesTheNextRiderLeavesTheMountToItsDeath)
+{
+    world[SECOND_ROOM].room_flags = DEATH;
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", remove_marked_on_death);
+    char_data* passenger = make_mob_with("passenger", nullptr);
+    seat(rider, mount);
+    seat(passenger, mount);
+    record.character_to_remove = passenger;
+
+    walk_north(rider);
+
+    EXPECT_FALSE(is_in_game(rider));
+    EXPECT_FALSE(is_in_game(passenger));
+    EXPECT_FALSE(is_in_game(mount));
+}
+
+/* The first rider's death removes the mount: the passenger, unseated with it, stays behind. */
+TEST_F(SpecialProcedureTest, ARiderWhoseDeathRemovesTheMountLeavesThePassengerBehind)
+{
+    world[SECOND_ROOM].room_flags = DEATH;
+    char_data* mount = make_mob_with("horse", nullptr);
+    char_data* rider = make_mob_with("rider", remove_marked_on_death);
+    char_data* passenger = make_mob_with("passenger", nullptr);
+    seat(rider, mount);
+    seat(passenger, mount);
+    record.character_to_remove = mount;
+
+    walk_north(rider);
+
+    EXPECT_FALSE(is_in_game(rider));
+    EXPECT_FALSE(is_in_game(mount));
+    ASSERT_TRUE(is_in_game(passenger));
+    EXPECT_EQ(0, passenger->in_room);
+}
+
 /* Makes room 0's way north a door called "door". */
 static void make_north_a_door(char* keyword)
 {
