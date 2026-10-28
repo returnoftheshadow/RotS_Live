@@ -895,3 +895,29 @@ TEST_F(SpecialProcedureTest, AKnockIsHeardOnTheFarSideAndTheKnockerStaysPut)
     EXPECT_EQ(0, m_player.in_room);
     EXPECT_TRUE(output_has("You knocked on the door.")) << output();
 }
+
+TEST_F(SpecialProcedureTest, AYellWhoseProcedureRemovesTheYellerReachesNoFurther)
+{
+    world[0].funct = remove_actor_yelling;
+    char_data* yeller = make_mob_with("yeller", nullptr);
+    char_data* listener = make_mob_with("listener", record_offer, SECOND_ROOM);
+    char words[] = "help";
+
+    do_gen_com(yeller, words, nullptr, CMD_YELL, SCMD_YELL);
+
+    EXPECT_FALSE(is_in_game(yeller));
+    EXPECT_FALSE(was_offered(listener));
+}
+
+TEST_F(SpecialProcedureTest, AYellIsOfferedToEveryRoomOfTheZone)
+{
+    char_data* yeller = make_mob_with("yeller", nullptr);
+    char_data* near_listener = make_mob_with("near", record_offer);
+    char_data* far_listener = make_mob_with("far", record_offer, SECOND_ROOM);
+    char words[] = "help";
+
+    do_gen_com(yeller, words, nullptr, CMD_YELL, SCMD_YELL);
+
+    EXPECT_TRUE(was_offered(near_listener));
+    EXPECT_TRUE(was_offered(far_listener));
+}
