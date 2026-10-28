@@ -265,6 +265,92 @@ protected:
 
 /* ---- putting gear on and taking it off ---- */
 
+/* A poisonous item hurts a healthy mob as it goes on, and stays worn. */
+TEST_F(DeathAndDamagePathsTest, APoisonousItemHurtsItsNewWearerAndStaysOn)
+{
+    make_ring_and_sword_poisonous();
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+
+    run_command_as(wearer, do_wear, "ring");
+
+    ASSERT_TRUE(is_in_game(wearer));
+    EXPECT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(MOB_HIT_POINTS - POISON_DAMAGE, GET_HIT(wearer));
+    EXPECT_TRUE(IS_AFFECTED(wearer, AFF_POISON));
+}
+
+/* The poison's blow sets off the wearer's damage script, which removes the wearer: the wearing
+ * stops there. */
+TEST_F(DeathAndDamagePathsTest, AWearerItsDamageScriptRemovesAsPoisonTakesHoldIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* wearer = make_mob("wearer", SCRIPT_VNUM);
+    obj_to_char(make_object(RING_VNUM, 0), wearer);
+
+    run_command_as(wearer, do_wear, "ring");
+
+    EXPECT_FALSE(is_in_game(wearer));
+}
+
+/* A mob too hurt to survive the poison dies wielding a two-handed weapon: the wield does not go
+ * on to take it in two hands. */
+TEST_F(DeathAndDamagePathsTest, AMobThePoisonKillsAsItWieldsIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(SWORD_VNUM).obj_flags.value[2] = TWO_HANDED_BULK;
+    char_data* wielder = make_mob("wielder", 0);
+    wielder->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    obj_data* sword = make_object(SWORD_VNUM, 0);
+    obj_to_char(sword, wielder);
+
+    run_command_as(wielder, do_wield, "sword");
+
+    EXPECT_FALSE(is_in_game(wielder));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_TRUE(is_in_object_list(sword));
+}
+
+/* Taking a poisonous item off hurts a healthy wearer, who keeps it. */
+TEST_F(DeathAndDamagePathsTest, TakingAPoisonousItemOffHurtsTheWearerWhoKeepsIt)
+{
+    make_ring_and_sword_poisonous();
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+    run_command_as(wearer, do_wear, "ring");
+    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+
+    run_command_as(wearer, do_remove, "ring");
+
+    ASSERT_TRUE(is_in_game(wearer));
+    EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(wearer));
+    EXPECT_EQ(ring, wearer->carrying);
+    EXPECT_EQ(nullptr, wearer->equipment[WEAR_FINGER_R]);
+}
+
+/* Taking the item off sets off the wearer's damage script, which removes the wearer: the item
+ * lies on the floor where the wearer was. */
+TEST_F(DeathAndDamagePathsTest, AWearerItsDamageScriptRemovesAsPoisonLeavesDropsTheItem)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+    run_command_as(wearer, do_wear, "ring");
+    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+    wearer->specials.script_number = SCRIPT_VNUM;
+
+    run_command_as(wearer, do_remove, "all");
+
+    EXPECT_FALSE(is_in_game(wearer));
+    EXPECT_TRUE(is_on_the_floor(ring));
+    EXPECT_EQ(nullptr, ring->carried_by);
+}
+
 /* A mob slain while it wears a poisonous item is stripped into one corpse: taking the item off
  * the dying mob does not kill it again. */
 TEST_F(DeathAndDamagePathsTest, AMobSlainWearingAPoisonousItemLeavesOneCorpse)
