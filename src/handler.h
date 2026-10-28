@@ -193,6 +193,10 @@ void add_follower(struct char_data* ch, struct char_data* leader, int mode);
 void stop_follower(struct char_data* ch, int mode);
 char circle_follow(const struct char_data* ch, struct char_data* victim, int mode);
 void die_follower(struct char_data* ch);
+/* True if <entry> is on <leader>'s follower list and still stands for <follower>. <entry> and
+ * <follower> are compared by address until <entry> is found there, so either may have gone (a
+ * null one is never found). */
+bool is_follower_entry(const char_data* leader, const follow_type* entry, const char_data* follower);
 
 inline constexpr int FOLLOW_MOVE = 1;
 inline constexpr int FOLLOW_GROUP = 2;
