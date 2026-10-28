@@ -446,6 +446,217 @@ private:
 
 } // namespace
 
+/* ---- special(): what a command is offered to ---- */
+
+TEST_F(SpecialProcedureTest, EveryProcedureHereIsOfferedACommandNobodyTakes)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    world[0].funct = record_offer;
+    obj_data* worn = make_object_with(RING_VNUM, record_offer);
+    equip_char(actor, worn, WEAR_FINGER_R);
+    obj_data* carried = make_object_with(STONE_VNUM, record_offer);
+    obj_to_char(carried, actor);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+    obj_data* lying = make_object_with(BREAD_VNUM, record_offer);
+    obj_to_room(lying, 0);
+
+    EXPECT_EQ(0, offer_command(actor));
+
+    const std::vector<const void*> expected
+        = { actor, worn, carried, bystander, lying };
+    EXPECT_EQ(expected, record.offered_hosts);
+}
+
+TEST_F(SpecialProcedureTest, AProcedureThatTakesTheCommandIsTheLastOfferedIt)
+{
+    char_data* taker = make_mob_with("taker", intercept_command);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(1, offer_command(&m_player));
+
+    EXPECT_TRUE(was_offered(taker));
+    EXPECT_FALSE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, TheMobAfterOneThatRemovesItselfIsStillOfferedTheCommand)
+{
+    char_data* vanishing = make_mob_with("vanishing", remove_own_mob);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(0, offer_command(&m_player));
+
+    EXPECT_FALSE(is_in_game(vanishing));
+    EXPECT_TRUE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, TheItemAfterOneThatRemovesItselfIsStillOfferedTheCommand)
+{
+    obj_data* recording = make_object_with(RING_VNUM, record_offer);
+    obj_to_char(recording, &m_player);
+    obj_data* crumbling = make_object_with(STONE_VNUM, remove_own_object);
+    obj_to_char(crumbling, &m_player);
+    ASSERT_EQ(crumbling, m_player.carrying) << "the crumbling one is offered first";
+
+    EXPECT_EQ(0, offer_command(&m_player));
+
+    EXPECT_FALSE(is_in_object_list(crumbling));
+    EXPECT_TRUE(was_offered(recording));
+}
+
+TEST_F(SpecialProcedureTest, TheObjectAfterOneThatRemovesItselfIsStillOfferedTheCommand)
+{
+    obj_data* recording = make_object_with(RING_VNUM, record_offer);
+    obj_to_room(recording, 0);
+    obj_data* crumbling = make_object_with(STONE_VNUM, remove_own_object);
+    obj_to_room(crumbling, 0);
+    ASSERT_EQ(crumbling, world[0].contents) << "the crumbling one is offered first";
+
+    EXPECT_EQ(0, offer_command(&m_player));
+
+    EXPECT_FALSE(is_in_object_list(crumbling));
+    EXPECT_TRUE(was_offered(recording));
+}
+
+TEST_F(SpecialProcedureTest, ARoomThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    world[0].funct = remove_actor;
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(1, offer_command(actor));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_FALSE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, AWornItemThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    equip_char(actor, make_object_with(RING_VNUM, remove_actor), WEAR_FINGER_R);
+    equip_char(actor, make_object_with(SWORD_VNUM, record_offer), WIELD);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(1, offer_command(actor));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_TRUE(record.offered_hosts.empty());
+    EXPECT_FALSE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, AMobThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    make_mob_with("guard", remove_actor);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+    obj_data* lying = make_object_with(BREAD_VNUM, record_offer);
+    obj_to_room(lying, 0);
+
+    EXPECT_EQ(1, offer_command(actor));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_TRUE(record.offered_hosts.empty());
+}
+
+TEST_F(SpecialProcedureTest, ATargetThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    char_data* first_target = make_mob_with("first", remove_actor);
+    char_data* second_target = make_mob_with("second", record_offer);
+    waiting_type targets {};
+    targets.targ1.set_character(first_target);
+    targets.targ2.set_character(second_target);
+
+    EXPECT_EQ(1, special(actor, NORTH + 1, empty_argument(), SPECIAL_TARGET, &targets));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_FALSE(was_offered(second_target));
+}
+
+TEST_F(SpecialProcedureTest, ATargetObjectTheFirstTargetRemovedIsNotOfferedTheCommand)
+{
+    char_data* first_target = make_mob_with("first", remove_marked_object);
+    obj_data* second_target = make_object_with(RING_VNUM, record_offer);
+    obj_to_room(second_target, 0);
+    record.object_to_remove = second_target;
+    waiting_type targets {};
+    targets.targ1.set_character(first_target);
+    targets.targ2.type = TARGET_OBJ;
+    targets.targ2.ptr.obj = second_target;
+
+    EXPECT_EQ(0, special(&m_player, NORTH + 1, empty_argument(), SPECIAL_TARGET, &targets));
+
+    EXPECT_FALSE(is_in_object_list(second_target));
+    EXPECT_TRUE(record.offered_hosts.empty());
+}
+
+TEST_F(SpecialProcedureTest, BothTargetsAreOfferedACommandNeitherTakes)
+{
+    char_data* first_target = make_mob_with("first", record_offer);
+    obj_data* second_target = make_object_with(RING_VNUM, record_offer);
+    obj_to_room(second_target, 0);
+    waiting_type targets {};
+    targets.targ1.set_character(first_target);
+    targets.targ2.type = TARGET_OBJ;
+    targets.targ2.ptr.obj = second_target;
+
+    EXPECT_EQ(0, special(&m_player, NORTH + 1, empty_argument(), SPECIAL_TARGET, &targets));
+
+    const std::vector<const void*> expected = { first_target, second_target };
+    EXPECT_EQ(expected, record.offered_hosts);
+}
+
+/* A death procedure that removes its own mob ends the death there: there is no one left to die,
+ * and no corpse. */
+TEST_F(SpecialProcedureTest, ADeathProcedureThatRemovesTheDyingEndsTheDeath)
+{
+    char_data* dying = make_mob_with("dying", remove_own_mob);
+
+    raw_kill(dying, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(dying));
+    EXPECT_EQ(nullptr, world[0].contents) << "no corpse";
+}
+
+TEST_F(SpecialProcedureTest, ADeathWithAProcedureThatLetsItGoOnLeavesACorpse)
+{
+    char_data* dying = make_mob_with("dying", record_offer);
+
+    raw_kill(dying, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(dying));
+    EXPECT_NE(nullptr, world[0].contents) << "a corpse";
+}
+
+/* ---- the interpreter ---- */
+
+/* The guard removes the one typing north; the north command and its targets' procedures are
+ * then left alone. */
+TEST_F(SpecialProcedureTest, ACommandWhoseProcedureRemovesTheOneTypingItGoesNoFurther)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_actor_going_north);
+    char_data* walker = make_mob_with("walker", nullptr);
+    char north[] = "north";
+
+    command_interpreter(walker, north);
+
+    EXPECT_FALSE(is_in_game(walker));
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+}
+
+TEST_F(SpecialProcedureTest, ACommandNoProcedureTakesIsCarriedOut)
+{
+    assign_command_pointers();
+    make_mob_with("bystander", record_offer);
+    char_data* walker = make_mob_with("walker", nullptr);
+    char north[] = "north";
+
+    command_interpreter(walker, north);
+
+    ASSERT_TRUE(is_in_game(walker));
+    EXPECT_EQ(SECOND_ROOM, walker->in_room);
+}
+
 /* Makes room 0's way north a door called "door". */
 static void make_north_a_door(char* keyword)
 {
@@ -464,6 +675,27 @@ static bool is_listed_in_room(int room, const char_data* character)
         }
     }
     return false;
+}
+
+/* The knocker is removed while lent the far room: it leaves the room it stands in, and what it
+ * carried falls there. */
+TEST_F(SpecialProcedureTest, AKnockWhoseFarSideRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = remove_actor_knocking;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_EQ(&m_player, world[0].people) << "only the player is left here";
+    EXPECT_EQ(nullptr, m_player.next_in_room);
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
 }
 
 TEST_F(SpecialProcedureTest, AKnockerTakenThroughTheDoorStandsOnlyOnTheFarSide)
