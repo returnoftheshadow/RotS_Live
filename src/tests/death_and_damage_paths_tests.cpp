@@ -315,3 +315,27 @@ TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
     EXPECT_TRUE(is_in_game(victim));
     EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(victim));
 }
+
+/* A mob killed from beyond the door it knocks on leaves its corpse, and what it carried, on its
+ * own side. */
+TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide)
+{
+    link_second_room();
+    char door_keyword[] = "door";
+    room_direction_data* door = world[0].dir_option[NORTH];
+    door->exit_info = EX_ISDOOR;
+    door->keyword = door_keyword;
+    char_data* doorkeeper = make_mob("doorkeeper", 0, SECOND_ROOM);
+    make_into_risen_ghoul(doorkeeper);
+    SET_BIT(MOB_FLAGS(doorkeeper), MOB_SPEC);
+    mob_index[doorkeeper->nr].func = kill_whoever_knocks;
+    char_data* knocker = make_mob("knocker", 0);
+    obj_to_char(make_object(STONE_VNUM, 0), knocker);
+
+    run_command_as(knocker, do_knock, "door");
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_TRUE(is_in_game(doorkeeper));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
+}

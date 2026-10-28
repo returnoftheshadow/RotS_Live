@@ -445,3 +445,89 @@ private:
 };
 
 } // namespace
+
+/* Makes room 0's way north a door called "door". */
+static void make_north_a_door(char* keyword)
+{
+    room_direction_data* north = world[0].dir_option[NORTH];
+    north->keyword = keyword;
+    SET_BIT(north->exit_info, EX_ISDOOR);
+}
+
+/* Whether <character> is on <room>'s list of people. Compares addresses only, so it may be given
+ * one that has been freed. */
+static bool is_listed_in_room(int room, const char_data* character)
+{
+    for (const char_data* person = world[room].people; person; person = person->next_in_room) {
+        if (person == character) {
+            return true;
+        }
+    }
+    return false;
+}
+
+TEST_F(SpecialProcedureTest, AKnockerTakenThroughTheDoorStandsOnlyOnTheFarSide)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = take_knocker_through;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_EQ(SECOND_ROOM, knocker->in_room);
+    EXPECT_TRUE(is_listed_in_room(SECOND_ROOM, knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+}
+
+/* How long the gatekeeper's script pauses: long enough that the knock, not the waiting list, ends
+ * the pause. */
+constexpr int GATEKEEPER_PAUSE_PULSES = 5;
+
+/* The gatekeeper on the far side takes the knock, which ends its pause: the rest of its script
+ * yells, and a guard where the knocker stands removes the knocker on hearing it. */
+TEST_F(SpecialProcedureTest, AKnockWhoseGatekeepersYellRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { GATEKEEPER_PAUSE_PULSES } },
+            { SCRIPT_DO_YELL, "Who goes there?", { SCRIPT_PARAM_CH1 } } });
+    char_data* keeper = make_mob_with("gatekeeper", nullptr);
+    keeper->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, keeper->delay.cmd);
+    char_from_room(keeper);
+    char_to_room(keeper, SECOND_ROOM);
+    mob_index[keeper->nr].func = gatekeeper;
+    SET_BIT(MOB_FLAGS(keeper), MOB_SPEC);
+    char_data* guard = make_mob_with("guard", remove_marked_character);
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    record.character_to_remove = knocker;
+    char door[] = "door";
+    make_north_a_door(door);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_TRUE(is_listed_in_room(0, guard));
+    EXPECT_TRUE(is_listed_in_room(0, &m_player));
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
+}
+
+TEST_F(SpecialProcedureTest, AKnockIsHeardOnTheFarSideAndTheKnockerStaysPut)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    char_data* listener = make_mob_with("listener", record_offer, SECOND_ROOM);
+    char argument[] = "door";
+
+    run_command(do_knock, argument);
+
+    EXPECT_TRUE(was_offered(listener));
+    EXPECT_EQ(0, m_player.in_room);
+    EXPECT_TRUE(output_has("You knocked on the door.")) << output();
+}

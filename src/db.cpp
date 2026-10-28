@@ -3706,6 +3706,8 @@ char* fread_line(FILE* fp)
 void free_char(struct char_data* ch)
 {
     note_char_freed(ch);
+    /* A lend still in scope would otherwise give the room back to freed memory. */
+    room_lend::end_for(ch);
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);

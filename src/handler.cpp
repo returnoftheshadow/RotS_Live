@@ -1190,11 +1190,46 @@ void die_follower(char_data* character)
 
 //**************************************************************************
 
+room_lend* room_lend::newest = nullptr;
+
+room_lend::room_lend(char_data* character, int lent_room)
+    : m_character(character)
+    , m_own_room(character->in_room)
+    , m_older(newest)
+{
+    newest = this;
+    character->in_room = lent_room;
+}
+
+/* Lends are local variables, so they go in the reverse order of their making and this one is the
+ * newest when it goes. */
+room_lend::~room_lend()
+{
+    if (m_character) {
+        m_character->in_room = m_own_room;
+    }
+    newest = m_older;
+}
+
+void room_lend::end_for(char_data* character)
+{
+    /* The oldest lend of the character holds the room it stands in. */
+    for (room_lend* lend = newest; lend; lend = lend->m_older) {
+        if (lend->m_character == character) {
+            character->in_room = lend->m_own_room;
+            lend->m_character = nullptr;
+        }
+    }
+}
+
 /* move a player out of a room */
 void char_from_room(struct char_data* ch)
 {
     struct char_data* i;
     int tmp;
+
+    /* A character lent another room leaves the one it stands in. */
+    room_lend::end_for(ch);
     if (ch->in_room == NOWHERE) {
         //      log("SYSERR: NOWHERE extracting char from room (handler.c, char_from_room)");
         //      exit(1);
@@ -2089,6 +2124,9 @@ void extract_char(struct char_data* ch, int new_room)
 
     extern struct char_data* combat_list;
     extern struct char_data* waiting_list;
+
+    /* A character lent another room leaves the one it stands in, and its belongings fall there. */
+    room_lend::end_for(ch);
 
     if (!IS_NPC(ch) && !ch->desc) {
         for (t_desc = descriptor_list; t_desc; t_desc = t_desc->next)

@@ -785,6 +785,9 @@ void spirit_death(char_data* character)
 
 obj_data* make_corpse(char_data* character, const char_data* killer, int attack_type)
 {
+    /* A knocker a procedure on the far side of a door kills is lent that room: it falls where it
+     * stands. */
+    room_lend::end_for(character);
     if (!IS_SHADOW(character)) {
         return make_physical_corpse(character, killer, attack_type);
     } else {

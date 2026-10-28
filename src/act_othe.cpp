@@ -1723,7 +1723,7 @@ ACMD(do_next)
 
 ACMD(do_knock)
 {
-    int tmp, room, oldroom;
+    int tmp, room;
     char str[200];
 
     if (IS_SHADOW(ch)) {
@@ -1751,8 +1751,10 @@ ACMD(do_knock)
 
                     room = EXIT(ch, tmp)->to_room;
                     if (room != NOWHERE) {
-                        oldroom = ch->in_room;
-                        ch->in_room = room;
+                        /* The knock is heard on the far side and its procedures are asked as if
+                         * the knocker stood there. A procedure that removes or moves it ends the
+                         * lend first, so it leaves the room it stands in. */
+                        room_lend far_side(ch, room);
                         if (EXIT(ch, rev_dir[tmp])) {
                             if (IS_SET(EXIT(ch, rev_dir[tmp])->exit_info, EX_ISDOOR) && EXIT(ch, rev_dir[tmp])->keyword) {
                                 sprintf(str, "You hear a knock on the %s.\n",
@@ -1770,7 +1772,6 @@ ACMD(do_knock)
                         ch->delay.targ1.type = TARGET_OTHER;
                         ch->delay.targ1.ch_num = rev_dir[tmp];
                         special(ch, CMD_KNOCK, argument, SPECIAL_NONE, 0);
-                        ch->in_room = oldroom;
                     }
 
                     return;
