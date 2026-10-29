@@ -236,6 +236,9 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
  * address is on the list. */
 bool is_on_content_list(const obj_data* first, const obj_data* object);
 
+/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch, the other character, object and
+ * room variables and str2-str3 empty, and str1 and int1-int3 as they were. The script can free
+ * ch. */
 void continue_char_script(char_data* ch);
 
 /* Report script lines whose vnums name nothing -- informational only. */

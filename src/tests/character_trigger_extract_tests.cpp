@@ -876,6 +876,107 @@ TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNex
         << logged;
 }
 
+/* A delay that outranks a script's pause, whose priority is 0 (as bash gives its victim): how
+ * long it lasts and its priority. */
+constexpr int OUTRANKING_DELAY_PULSES = 3;
+constexpr int OUTRANKING_DELAY_PRIORITY = 50;
+
+/* A higher-priority delay given to a paused mob (as bash gives its victim) runs the rest of its
+ * script at once, as it always has; the rest removes the mob, and starting the delay says so. */
+TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    const bool mob_remains = WAIT_STATE_FULL(mob, OUTRANKING_DELAY_PULSES, 0, 0,
+        OUTRANKING_DELAY_PRIORITY, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+
+    EXPECT_FALSE(mob_remains);
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
+/* How long the rest of the script pauses the second time. */
+constexpr int SECOND_PAUSE_PULSES = 5;
+/* The socket of the mob's connection: any but the player's (1). */
+constexpr int MOB_SOCKET = 2;
+
+/* A new delay runs the rest of a paused script at once; when that rest pauses again, the new pause
+ * is kept and the delay that forced it is not started: a double delay, told and logged as it
+ * always was. */
+TEST_F(CharacterTriggerTest, ARestThatPausesAgainKeepsItsPauseAsADoubleDelay)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_SEND_TO_ROOM, "The mob stirs.", { SCRIPT_PARAM_CH1_ROOM } },
+            { SCRIPT_DO_WAIT, nullptr, { SECOND_PAUSE_PULSES } },
+            { SCRIPT_SEND_TO_ROOM, "The mob sleeps.", { SCRIPT_PARAM_CH1_ROOM } } });
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    descriptor_data connection {}; /* so that what the mob is told can be read */
+    connection.output = connection.small_outbuf;
+    connection.bufspace = SMALL_BUFSIZE - 1;
+    connection.connected = CON_PLYNG;
+    connection.descriptor = MOB_SOCKET;
+    connection.character = mob;
+    mob->desc = &connection;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    testing::internal::CaptureStderr();
+    const bool mob_remains = WAIT_STATE_FULL(mob, OUTRANKING_DELAY_PULSES, 0, 0,
+        OUTRANKING_DELAY_PRIORITY, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+    const std::string logged = testing::internal::GetCapturedStderr();
+    mob->desc = nullptr;
+
+    EXPECT_TRUE(mob_remains);
+    EXPECT_EQ(1, count_in_output("The mob stirs."));
+    EXPECT_EQ(0, count_in_output("The mob sleeps."));
+    EXPECT_EQ(CMD_SCRIPT, mob->delay.cmd) << "the second pause is kept";
+    EXPECT_NE(std::string::npos,
+        std::string(connection.output).find("Possible bug - double delay. Please notify Imps."));
+    EXPECT_NE(std::string::npos, logged.find("double delay (reentrant queue during complete_delay)?"));
+}
+
+/* The command a mob program's delay names, as mudlle's gives it, and how long it lasts. */
+constexpr int PROGRAM_DELAY_COMMAND = -1;
+constexpr int PROGRAM_DELAY_PULSES = 2;
+
+/* The same for a delay a mob's own program gives it. */
+TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    const bool mob_remains = WAIT_STATE_BRIEF(mob, PROGRAM_DELAY_PULSES, PROGRAM_DELAY_COMMAND, 0,
+        OUTRANKING_DELAY_PRIORITY, AFF_WAITING);
+
+    EXPECT_FALSE(mob_remains);
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+}
+
+/* A paused mob that is killed runs the rest of its script first, as it always has; the rest
+ * removes it, so there is nobody left to make a corpse of. */
+TEST_F(CharacterTriggerTest, APausedMobThatIsKilledFinishesItsScriptFirst)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    raw_kill(mob, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, world[0].contents) << "no corpse";
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
 /* ---- text variables ---- */
 
 /* A hearing script keeps the text it heard across a pause. */
