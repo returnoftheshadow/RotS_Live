@@ -200,7 +200,13 @@ enum class object_trigger_result {
 [[nodiscard]] object_trigger_result call_object_trigger(int trigger_type, obj_data* object,
     char_data* character);
 
+/* Tells the game that <object> is about to be freed: every freed_watch on it reports freed (so a
+ * call_object_trigger on it reports object_extracted), every running script's ob1-ob3 naming it
+ * is emptied, and its script state is released, at once or, while a script is running on that
+ * state, when the script ends. free_obj calls it for every object it frees. */
 void note_object_freed(obj_data* object);
+/* The same for <character>, whose running scripts' ch1-ch3 naming it are emptied. free_char calls
+ * it for every character it frees. */
 void note_char_freed(char_data* character);
 
 /* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the

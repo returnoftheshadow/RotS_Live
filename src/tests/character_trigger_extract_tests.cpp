@@ -731,6 +731,62 @@ TEST_F(CharacterTriggerTest, AMobsScriptRunsOnAfterItRemovesTheMob)
     EXPECT_TRUE(output_has("Still running."));
 }
 
+/* The ring's own wear script destroys it while the mob's script, which wore it, still holds it in
+ * a second variable: that variable is emptied too. */
+TEST_F(CharacterTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_ASSIGN_INV, nullptr,
+                                    { RING_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_ASSIGN_INV, nullptr,
+                                      { RING_VNUM, SCRIPT_PARAM_OB3, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_DO_WEAR, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } },
+                                  { SCRIPT_SEND_TO_CHAR, "It was [%s].",
+                                      { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB3_NAME } } } } } },
+        { OTHER_SCRIPT_VNUM, { { ON_WEAR, { { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } } } } } });
+    char_data* wearer = make_mob("wearer", SCRIPT_VNUM);
+    obj_data* ring = make_object(RING_VNUM, OTHER_SCRIPT_VNUM);
+    obj_to_char(ring, wearer);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_TRUE(output_has("It was []."));
+}
+
+/* The first mob's script makes it speak, the second mob answers, and the first mob hears the
+ * answer: its hearing script starts again on the mob's one script state, so the first run carries
+ * on with the second run's variables (ch2 is now the answerer, and ob2 is empty). */
+TEST_F(CharacterTriggerTest, AMobsTriggerSetOffInsideItsScriptSharesItsVariables)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_ASSIGN_INV, nullptr,
+                                      { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_CHAR, "Holding %s.",
+                                      { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2_NAME } },
+                                  { SCRIPT_SEND_TO_ROOM, "Holding [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_OB2_NAME } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    char_data* asker = make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    obj_to_char(make_object(STONE_VNUM, 0), asker);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(output_has("Holding a grey stone.")) << "ch2 is the answerer by then";
+    EXPECT_TRUE(output_has("Holding [].")) << output();
+}
+
 /* ---- scripts paused with DO_WAIT ---- */
 
 /* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list
@@ -798,6 +854,40 @@ TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNex
         logged.find("SYSERR: process_waiting_list: the next waiter was freed; the rest wait for "
                     "the next pulse."))
         << logged;
+}
+
+/* ---- mobs made from a prototype ---- */
+
+/* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
+TEST_F(CharacterTriggerTest, AMobIsMadeWithoutItsPrototypesScriptState)
+{
+    char_data prototype {};
+    clear_char(&prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&prototype), MOB_ISNPC);
+    char prototype_name[] = "copy";
+    prototype.player.name = prototype_name;
+    prototype.player.short_descr = prototype_name;
+    prototype.abilities.hit = MOB_HIT_POINTS;
+    prototype.tmpabilities.hit = MOB_HIT_POINTS;
+    info_script prototype_state {};
+    prototype.specials.script_info = &prototype_state;
+    index_data prototype_index[1] {};
+    char_data* saved_mob_proto = mob_proto;
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_proto = &prototype;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+
+    char_data* copy = read_mobile(0, REAL);
+
+    ASSERT_NE(nullptr, copy);
+    EXPECT_EQ(nullptr, copy->specials.script_info);
+    extract_char(copy);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    RELEASE(prototype.profs);
 }
 
 /* ---- rooms lent while knocking ---- */

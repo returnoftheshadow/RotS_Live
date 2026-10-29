@@ -396,6 +396,25 @@ TEST_F(MemoryReleaseTest, FillingAndEmptyingADrinkContainerGivesBackEachName)
     EXPECT_LT(growth, ALLOWED_GROWTH);
 }
 
+TEST_F(MemoryReleaseTest, RenamingAnObjectByScriptGivesBackEachName)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* stone = make_scripted(STONE_VNUM);
+        obj_to_char(stone, &m_player);
+        run_command(do_examine, "stone");
+        extract_obj(stone);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
 TEST_F(MemoryReleaseTest, CoinsGiveBackTheirText)
 {
     if (!allocated_bytes()) {

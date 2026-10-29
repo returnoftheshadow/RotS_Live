@@ -379,6 +379,17 @@ TEST_F(ObjectTriggerTest, EnterFollowsAnObjectThatMovesItselfOut)
     EXPECT_FALSE(output_has("[a cloth bag] stirs.")) << output();
 }
 
+/* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
+TEST_F(ObjectTriggerTest, AnObjectIsMadeWithoutItsPrototypesScriptState)
+{
+    info_script prototype_state {};
+    prototype_for(STONE_VNUM).obj_flags.script_info = &prototype_state;
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    prototype_for(STONE_VNUM).obj_flags.script_info = nullptr;
+
+    EXPECT_EQ(nullptr, stone->obj_flags.script_info);
+}
+
 /* ---- call_object_trigger and call_trigger ---- */
 
 TEST_F(ObjectTriggerTest, ScriptThatKeepsItsObjectProceeds)
@@ -489,6 +500,65 @@ TEST_F(ObjectTriggerTest, CallTriggerRunsNoObjectTrigger)
     EXPECT_EQ(1, call_trigger(ON_WEAR, ring, &m_player, 0));
     EXPECT_FALSE(output_has(CRUMBLE_MESSAGE));
     EXPECT_EQ(ring, object_list);
+}
+
+/* ---- what a running object script keeps ---- */
+
+/* The stone's script runs on after it extracted the stone, with its variables intact. */
+TEST_F(ObjectTriggerTest, AScriptRunsOnAfterItExtractsItsObject)
+{
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } },
+            { SCRIPT_SEND_TO_CHAR, "Still running.", { SCRIPT_PARAM_CH1 } } });
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    EXPECT_EQ(object_trigger_result::object_extracted,
+        call_object_trigger(ON_EXAMINE_OBJECT, stone, &m_player));
+    EXPECT_TRUE(output_has("Still running."));
+}
+
+/* Examining the ring wears it, and the ring's wear script extracts it while the examine script
+ * still holds it in a second variable: that variable is emptied too. */
+TEST_F(ObjectTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_EXAMINE_OBJECT,
+              { { SCRIPT_ASSIGN_INV, nullptr,
+                    { RING_VNUM, SCRIPT_PARAM_OB3, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                  { SCRIPT_DO_WEAR, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1 } },
+                  { SCRIPT_SEND_TO_CHAR, "It was [%s].", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB3_NAME } } } },
+            { ON_WEAR, { { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } } } } } });
+    obj_data* ring = make_scripted(RING_VNUM);
+    obj_to_char(ring, &m_player);
+
+    EXPECT_EQ(object_trigger_result::object_extracted,
+        call_object_trigger(ON_EXAMINE_OBJECT, ring, &m_player));
+    EXPECT_TRUE(output_has("It was []."));
+}
+
+/* Examining the ring wears it, which runs the ring's own wear script inside the examine script.
+ * The ring has one script state, so the wear script starts it afresh: the examine script carries
+ * on without the stone it had found. */
+TEST_F(ObjectTriggerTest, AnObjectsTriggerSetOffInsideItsScriptSharesItsVariables)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_EXAMINE_OBJECT,
+              { { SCRIPT_ASSIGN_INV, nullptr,
+                    { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                  { SCRIPT_DO_WEAR, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1 } },
+                  { SCRIPT_SEND_TO_CHAR, "Holding [%s].", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2_NAME } } } },
+            { ON_WEAR, { { SCRIPT_SEND_TO_CHAR, "The ring glows.", { SCRIPT_PARAM_CH1 } } } } } } });
+    obj_to_char(make_object(STONE_VNUM, 0), &m_player);
+    obj_data* ring = make_scripted(RING_VNUM);
+    obj_to_char(ring, &m_player);
+
+    EXPECT_EQ(object_trigger_result::proceed,
+        call_object_trigger(ON_EXAMINE_OBJECT, ring, &m_player));
+
+    EXPECT_TRUE(output_has("The ring glows."));
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_TRUE(output_has("Holding [].")) << output();
 }
 
 /* Each of the object's own triggers is reported: a call_trigger that names one is a mistake. */
