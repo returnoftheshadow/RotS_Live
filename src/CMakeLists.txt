@@ -425,9 +425,12 @@ if(BUILD_TESTING)
     if(ROTS_SUPPRESS_TEST_WARNINGS)
         target_compile_options(ageland_tests PRIVATE -w)
     else()
+        # A discarded [[nodiscard]] result, such as whether a wait freed its character, fails the
+        # build. GCC's -w silences this error too, so only this configuration enforces it.
         target_compile_options(ageland_tests PRIVATE
             -Wall
             -Wextra
+            -Werror=unused-result
         )
     endif()
     target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt Threads::Threads)
