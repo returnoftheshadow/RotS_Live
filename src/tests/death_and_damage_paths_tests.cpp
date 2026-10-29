@@ -330,6 +330,32 @@ TEST_F(DeathAndDamagePathsTest, AnNpcOlogHaiCleaveHurtsItsVictim)
     EXPECT_LT(GET_HIT(victim), MOB_HIT_POINTS);
 }
 
+// ---- a death ----
+
+// Taking off the dying mob's gear casts the earthquake an item holds, and the killer's damage
+// script removes the killer when the tremor hurts it: the death goes on with no killer, and the
+// corpse holds the gear.
+TEST_F(DeathAndDamagePathsTest, AKillerRemovedAsTheDyingOnesGearComesOffIsNoKiller)
+{
+    take_player_out_of_the_room();
+    char_data* dying = make_mob("dying", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    ring->affected[0].location = APPLY_SPELL;
+    ring->affected[0].modifier = SPELL_EARTHQUAKE;
+    // Put on while nobody else is in the room, so the earthquake it casts hurts nobody.
+    equip_char(dying, ring, WEAR_FINGER_R);
+    ASSERT_EQ(ring, dying->equipment[WEAR_FINGER_R]);
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* killer = make_mob("killer", SCRIPT_VNUM);
+
+    raw_kill(dying, killer, 0);
+
+    EXPECT_FALSE(is_in_game(killer)) << "the tremor did not remove the killer";
+    EXPECT_FALSE(is_in_game(dying));
+    ASSERT_EQ(1, count_corpses_in_room());
+    EXPECT_NE(nullptr, ring->in_obj);
+}
+
 /* ---- a summons ---- */
 
 /* The one being summoned leaves the world while the summons is cast (a player who dies or rents
@@ -606,6 +632,32 @@ TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
 
     EXPECT_TRUE(is_in_game(victim));
     EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(victim));
+}
+
+// ---- what a death leaves behind ----
+
+// A mob slain by a mob its death procedure removes is still a mob's kill: the wearable gear in
+// its bags stays there, as when the killer stays.
+TEST_F(DeathAndDamagePathsTest, AMobKillerRemovedDuringTheDeathLeavesTheBagsAlone)
+{
+    char_data* killer = make_mob("killer", 0);
+    char_data* dying = make_mob("dying", 0);
+    make_into_risen_ghoul(dying);
+    SET_BIT(MOB_FLAGS(dying), MOB_SPEC);
+    mob_index[dying->nr].func = remove_the_killer_on_death;
+    obj_data* bag = make_object(BAG_VNUM, 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_obj(ring, bag);
+    obj_to_char(bag, dying);
+    killer_to_remove = killer;
+
+    raw_kill(dying, killer, TYPE_HIT);
+
+    killer_to_remove = nullptr;
+    EXPECT_FALSE(is_in_game(killer));
+    EXPECT_FALSE(is_in_game(dying));
+    ASSERT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(bag, ring->in_obj);
 }
 
 /* A mob killed from beyond the door it knocks on leaves its corpse, and what it carried, on its

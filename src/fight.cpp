@@ -699,7 +699,7 @@ void move_wearables_to_corpse(obj_data* corpse)
 //============================================================================
 // Makes a corpse from the character passed in.  Returns a pointer to the corpse.
 //============================================================================
-obj_data* make_physical_corpse(char_data* character, const char_data* killer, int attack_type)
+obj_data* make_physical_corpse(char_data* character, CorpseGear corpse_gear, int attack_type)
 {
     obj_data* corpse = NULL;
 
@@ -765,9 +765,7 @@ obj_data* make_physical_corpse(char_data* character, const char_data* killer, in
         }
     }
 
-    // If the character died to another player or poison, move all of their
-    // wearable gear into their corpse and out of any containers they own.
-    if (attack_type == SPELL_POISON || !IS_NPC(killer)) {
+    if (corpse_gear == CorpseGear::GATHERED) {
         move_wearables_to_corpse(corpse);
     }
 
@@ -796,14 +794,16 @@ void spirit_death(char_data* character)
     move_gold(character, NULL, 1);
 }
 
-obj_data* make_corpse(char_data* character, const char_data* killer, int attack_type)
+// Leaves <character>'s corpse, or a shadow's belongings, in the room it stands in; returns the
+// corpse, or null for a shadow.
+obj_data* make_corpse(char_data* character, CorpseGear corpse_gear, int attack_type)
 {
     /* Knocking on a door briefly treats the knocker as standing on the far side, so the room
      * there can answer the knock. If something there kills the knocker, move them back to the
      * room they are really in first, so their corpse is left on their side of the door. */
     room_lend::end_for(character);
     if (!IS_SHADOW(character)) {
-        return make_physical_corpse(character, killer, attack_type);
+        return make_physical_corpse(character, corpse_gear, attack_type);
     } else {
         spirit_death(character);
         return NULL;
@@ -897,9 +897,28 @@ void death_cry(struct char_data* ch)
     }
 }
 
-void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
+// Someone who dies to poison, to a player or to no killer at all has the wearable gear in their
+// containers gathered into the corpse; a mob's kill leaves it where it is.
+static CorpseGear corpse_gear_for(const char_data* killer, int attack_type)
+{
+    if (attack_type == SPELL_POISON || !IS_NPC(killer)) {
+        return CorpseGear::GATHERED;
+    }
+
+    return CorpseGear::LEFT_IN_CONTAINERS;
+}
+
+// raw_kill() for a death whose killer may already be gone: <corpse_gear> was decided by the
+// killer as it struck. Everything else reads <killer>, null when nobody is left.
+static void raw_kill_by(char_data* dead_man, const char_data* killer, CorpseGear corpse_gear,
+    int attack_type)
 {
     waiting_type tmpwtl;
+    // What the death sets off can remove the killer; the death then goes on without one.
+    freed_watch killer_watch(killer);
+    // A player who dies to a player recovers as one; that is read while the killer is surely
+    // there.
+    const bool killed_by_player = killer != nullptr && !IS_NPC(killer);
 
     if ((dead_man->delay.wait_value > 0) && (dead_man->delay.cmd > 0)) {
         dead_man->delay.subcmd = -1;
@@ -908,6 +927,10 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
         complete_delay(dead_man);
         if (dying_watch.freed()) {
             return;
+        }
+
+        if (killer_watch.freed()) {
+            killer = nullptr;
         }
     }
     abort_delay(dead_man);
@@ -935,7 +958,14 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
     /* Mark them dead before the corpse takes their gear. Taking off an item can poison its
      * wearer or cast its spell, and nothing may hurt or kill someone who is already dying. */
     GET_POS(dead_man) = POSITION_DEAD;
-    obj_data* corpse = make_corpse(dead_man, killer, attack_type);
+    if (killer_watch.freed()) {
+        killer = nullptr;
+    }
+
+    obj_data* corpse = make_corpse(dead_man, corpse_gear, attack_type);
+    if (killer_watch.freed()) {
+        killer = nullptr;
+    }
 
     // Let big brother know that the player died.
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
@@ -950,7 +980,7 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
         // Restore them.
         // TODO(drelidan):  When we can track the origin of status effects, include that
         // here so we can determine if the 'poisoned' kill type was actually from a player.
-        bool died_to_player = attack_type == SPELL_POISON || killer != NULL && !IS_NPC(killer);
+        const bool died_to_player = attack_type == SPELL_POISON || killed_by_player;
         char_ability_data& cur_abils = dead_man->tmpabilities;
         char_ability_data& max_abils = dead_man->abilities;
         cur_abils = max_abils;
@@ -992,10 +1022,18 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
     }
 }
 
+void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
+{
+    const CorpseGear corpse_gear = corpse_gear_for(killer, attack_type);
+    raw_kill_by(dead_man, killer, corpse_gear, attack_type);
+}
+
 void die(char_data* dead_man, char_data* killer, int attack_type)
 {
     freed_watch dead_man_watch(dead_man);
     freed_watch killer_watch(killer);
+    // The corpse is made as the killer struck, even if the death script removes it.
+    const CorpseGear corpse_gear = corpse_gear_for(killer, attack_type);
     const int die_trigger_result = call_trigger(ON_DIE, dead_man, killer, 0);
     /* A death script that removed the dying mob (EXTRACT_CHAR, RAW_KILL ch1, or anything it set
      * off) has ended the death itself, whatever it returned: nobody gains from it, no kill is
@@ -1047,7 +1085,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
 
     /* A mob died.  Who cares. */
     if (IS_NPC(dead_man)) {
-        raw_kill(dead_man, killer, attack_type);
+        raw_kill_by(dead_man, killer, corpse_gear, attack_type);
         return;
     }
 
@@ -1072,7 +1110,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
             // TODO(drelidan):  Only early-out if the dead man isn't in combat.  Otherwise continue
             // so that proper exploits are given out.
             if (dead_man->specials.fighting == NULL) {
-                raw_kill(dead_man, killer, attack_type);
+                raw_kill_by(dead_man, killer, corpse_gear, attack_type);
                 return;
             }
         }
@@ -1101,7 +1139,7 @@ void die(char_data* dead_man, char_data* killer, int attack_type)
     GET_COND(dead_man, THIRST) = 24;
     GET_COND(dead_man, DRUNK) = 0;
 
-    raw_kill(dead_man, killer, attack_type);
+    raw_kill_by(dead_man, killer, corpse_gear, attack_type);
 }
 
 int exp_with_modifiers(const char_data* character, const char_data* dead_man, int base_exp)

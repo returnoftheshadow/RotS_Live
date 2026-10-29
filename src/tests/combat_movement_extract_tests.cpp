@@ -818,6 +818,40 @@ TEST_F(CombatMovementTest, ADeathGoesOnWithoutAKillerSomethingRemoved)
     EXPECT_NE(nullptr, world[0].contents) << "the death went on and left a corpse";
 }
 
+// A mob slain by a mob keeps the wearables in its containers where they are, even when its death
+// script removes the killer before the corpse is made.
+TEST_F(CombatMovementTest, AMobsCorpseLeavesItsBagsShutWhenItsMobKillerIsRemoved)
+{
+    install_avenge_me_scripts();
+    char_data* killer = make_walker("killer");
+    killer->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* dying = make_walker("dying");
+    dying->specials.script_number = SCRIPT_VNUM;
+    give_prototype(dying);
+    obj_data* ring = give_ring_in_bag(dying);
+    obj_data* bag = ring->in_obj;
+
+    die(dying, killer, 0);
+
+    ASSERT_FALSE(is_in_game(killer));
+    EXPECT_EQ(bag, ring->in_obj) << "the ring stays in its bag";
+}
+
+// A death with no killer at all takes the wearables out of the dead one's containers into the
+// corpse.
+TEST_F(CombatMovementTest, ADeathWithNoKillerGathersWearablesIntoTheCorpse)
+{
+    char_data* dying = make_walker("dying");
+    give_prototype(dying);
+    obj_data* ring = give_ring_in_bag(dying);
+    obj_data* bag = ring->in_obj;
+
+    die(dying, nullptr, 0);
+
+    ASSERT_NE(nullptr, bag->in_obj) << "the bag is in the corpse";
+    EXPECT_EQ(bag->in_obj, ring->in_obj) << "the ring is taken out into the corpse";
+}
+
 /* The delay a bash leaves its victim (as olog_hai's bash and the trap give it): its priority
  * outranks tracking's, 30, and any pulses left keep it running. */
 constexpr int BASHED_DELAY_PRIORITY = 80;
