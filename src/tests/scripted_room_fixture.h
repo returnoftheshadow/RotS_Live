@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
-#include <new>
 #include <deque>
 #include <string>
 #include <vector>
@@ -186,9 +185,6 @@ protected:
         top_of_objt = PROTOTYPE_COUNT - 1;
 
         clear_char(&m_player, 0);
-        /* clear_char zeroes the whole character, the map inside its damage record included; a
-         * player gets a working one, as logging in gives it. */
-        new (&m_player.damage_details) player_damage_details();
         m_player.player.name = m_player_name;
         m_player.player.race = RACE_HUMAN;
         m_player.player.level = 10;
