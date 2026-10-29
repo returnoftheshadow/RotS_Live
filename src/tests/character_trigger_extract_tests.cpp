@@ -176,25 +176,6 @@ TEST_F(CharacterTriggerTest, HearingASayRunsTheYellBlockToo)
     EXPECT_TRUE(output_has("The yell block ran."));
 }
 
-/* The say block removes the one who spoke: the yell block after it is told nobody spoke, so it
- * has no speaker's room to tell. */
-TEST_F(CharacterTriggerTest, AYellBlockIsToldNobodySpokeOnceTheSayBlockRemovesTheSpeaker)
-{
-    install_scripts({ { SCRIPT_VNUM,
-        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } },
-            { ON_HEAR_YELL,
-                { { SCRIPT_SEND_TO_ROOM, "The speaker is answered.", { SCRIPT_PARAM_CH2_ROOM } },
-                    { SCRIPT_SEND_TO_ROOM, "The yell block ran.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
-    char_data* speaker = make_mob("speaker", 0);
-    make_mob("listener", SCRIPT_VNUM);
-
-    run_command_as(speaker, do_say, "hello");
-
-    EXPECT_FALSE(is_in_game(speaker));
-    EXPECT_TRUE(output_has("The yell block ran."));
-    EXPECT_FALSE(output_has("The speaker is answered."));
-}
-
 /* ---- giving (ON_RECEIVE) ---- */
 
 /* How many stones the player gives in the give-all tests. */
@@ -787,6 +768,45 @@ TEST_F(CharacterTriggerTest, AMobsTriggerSetOffInsideItsScriptSharesItsVariables
     EXPECT_TRUE(output_has("Holding [].")) << output();
 }
 
+/* A mob relays a text from its own str2, and a listener's answer sets off the mob's hearing script
+ * again while its relay is still being heard: that run releases the mob's str2 and str1, as every
+ * run of the mob's scripts starts again on its one state. The rest of the room still hears the
+ * relay whole, and the relaying run then sees str2 emptied and str1 holding the answer. */
+TEST_F(CharacterTriggerTest, ARelayStillReachesTheRoomWhenAnAnswerRestartsTheRelayersState)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "GO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_ASSIGN_STR, "relay words", { SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_DO_SAY, "%s", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Still [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Heard [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "RELAY", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "answer", { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_ROOM, "Echo [%s].",
+                    { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    /* Each one made goes after those already there: the relayer speaks to the answerer, whose answer
+     * restarts the relayer's state, before the echo hears it. */
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    make_mob("echo", THIRD_SCRIPT_VNUM);
+    make_mob("relayer", SCRIPT_VNUM);
+
+    run_command(do_say, "go");
+
+    EXPECT_TRUE(output_has("Echo [relay words].")) << output();
+    EXPECT_TRUE(output_has("Still [].")) << output();
+    EXPECT_TRUE(output_has("Heard [answer].")) << output();
+}
+
 /* ---- scripts paused with DO_WAIT ---- */
 
 /* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list
@@ -856,6 +876,174 @@ TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNex
         << logged;
 }
 
+/* ---- text variables ---- */
+
+/* A hearing script keeps the text it heard across a pause. */
+TEST_F(CharacterTriggerTest, AHearingScriptStillHasWhatItHeardAfterAPause)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+            { SCRIPT_SEND_TO_ROOM, "Still heard.", { SCRIPT_PARAM_CH1_ROOM } } });
+    make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+
+    process_waiting_list();
+
+    EXPECT_TRUE(output_has("Still heard."));
+}
+
+/* str1 carries on from run to run, as it always has: a later run still has what the mob heard. */
+TEST_F(CharacterTriggerTest, ALaterRunStillHasTheLastHeardText)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_SEND_TO_CHAR, SCRIPT_RAN_MESSAGE, { SCRIPT_PARAM_CH2 } } } },
+            { ON_ENTER,
+                { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_SEND_TO_CHAR, "The old text is still there.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_TRUE(output_has("The old text is still there."));
+}
+
+/* The say block removes the one who spoke: the yell block after it is told nobody spoke, so it
+ * has no speaker's room to tell. */
+TEST_F(CharacterTriggerTest, AYellBlockIsToldNobodySpokeOnceTheSayBlockRemovesTheSpeaker)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } },
+            { ON_HEAR_YELL,
+                { { SCRIPT_SEND_TO_ROOM, "The speaker is answered.", { SCRIPT_PARAM_CH2_ROOM } },
+                    { SCRIPT_SEND_TO_ROOM, "The yell block ran.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    char_data* speaker = make_mob("speaker", 0);
+    make_mob("listener", SCRIPT_VNUM);
+
+    run_command_as(speaker, do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(speaker));
+    EXPECT_TRUE(output_has("The yell block ran."));
+    EXPECT_FALSE(output_has("The speaker is answered."));
+}
+
+/* ---- a mob's script set off again while it runs ---- */
+
+/* What the asker's runs set and compare in its int variables. */
+constexpr int SHARED_INT_VALUE = 9;
+
+/* The asker's hearing script says "ping"; the answerer's says "pong", which the asker hears
+ * inside its first run. The nested run sees the int2 the outer run set and sets int1, which the
+ * outer run then sees: the two share int1-int3, as one state always has. */
+TEST_F(CharacterTriggerTest, ANestedRunSharesTheOuterRunsInts)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { SHARED_INT_VALUE, SCRIPT_PARAM_INT2 } },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "The nested run's int1 came back.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { SHARED_INT_VALUE, SCRIPT_PARAM_INT3 } },
+                                  { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT2, SCRIPT_PARAM_INT3 } },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { SHARED_INT_VALUE, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("The nested run's int1 came back.")) << output();
+}
+
+/* The asker's nested run removes the asker; its first run goes on with what it has left (ch2,
+ * the answerer the nested run heard). */
+TEST_F(CharacterTriggerTest, AScriptRunsOnAfterANestedRunRemovesItsMob)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Outer still running.", { SCRIPT_PARAM_CH2_ROOM } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    char_data* asker = make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(asker));
+    EXPECT_TRUE(output_has("Outer still running."));
+}
+
+/* A nested run that pauses leaves its resume point where the waiting list finds it, and resumes
+ * with the text it heard ("pong"), which the mob's one state still holds. */
+TEST_F(CharacterTriggerTest, ANestedRunThatPausesResumesFromTheWaitingList)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Outer done.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Resumed.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_TRUE(output_has("Outer done."));
+    ASSERT_FALSE(output_has("Resumed."));
+
+    process_waiting_list();
+
+    EXPECT_EQ(1, count_in_output("Resumed."));
+}
+
+/* Two mobs that answer whatever they hear would answer each other for ever: past
+ * MAX_SCRIPT_NESTING runs inside one another the next is refused and logged. */
+TEST_F(CharacterTriggerTest, ScriptsNestedTooDeeplyAreRefused)
+{
+    install_script(ON_HEAR_SAY, { { SCRIPT_DO_SAY, "again", { SCRIPT_PARAM_CH1 } } });
+    char_data* speaker = make_mob("speaker", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", SCRIPT_VNUM);
+    world[0].people = m_player.next_in_room; /* nobody to send the endless talk to */
+
+    testing::internal::CaptureStderr();
+    run_command_as(speaker, do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(std::string::npos, logged.find("too many scripts are running inside one another"));
+    EXPECT_NE(std::string::npos, logged.find(std::to_string(MAX_SCRIPT_NESTING)));
+    EXPECT_TRUE(is_in_game(first));
+    EXPECT_TRUE(is_in_game(second));
+}
+
 /* ---- mobs made from a prototype ---- */
 
 /* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
@@ -888,6 +1076,44 @@ TEST_F(CharacterTriggerTest, AMobIsMadeWithoutItsPrototypesScriptState)
     mob_index = saved_mob_index;
     top_of_mobt = saved_top_of_mobt;
     RELEASE(prototype.profs);
+}
+
+/* Scripts for two mobs that answer every "x" with two of their own, without end: SCRIPT_VNUM's
+ * mob also starts on hearing "go", OTHER_SCRIPT_VNUM's only answers. */
+static std::vector<script_spec> answering_scripts()
+{
+    const std::vector<body_line> answer = { { SCRIPT_IF_STR_CONTAINS, "X", { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "x1", { SCRIPT_PARAM_CH1 } },
+        { SCRIPT_DO_SAY, "x2", { SCRIPT_PARAM_CH1 } }, { SCRIPT_END, nullptr, {} } };
+    std::vector<body_line> start_or_answer = { { SCRIPT_IF_STR_CONTAINS, "GO", { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_DO_SAY, "x1", { SCRIPT_PARAM_CH1 } } };
+    start_or_answer.insert(start_or_answer.end(), answer.begin(), answer.end());
+    return { { SCRIPT_VNUM, { { ON_HEAR_SAY, start_or_answer } } },
+        { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, answer } } } };
+}
+
+/* How much of the log a failed check shows: the refusal comes early, and the log is long. */
+constexpr std::size_t LOGGED_TEXT_SHOWN = 400;
+
+/* Two mobs that answer every "x" with two of their own would run without end: past
+ * MAX_SCRIPT_RUNS_PER_EVENT runs in the one event the first mob's "go" starts, the rest are
+ * refused, with one SYSERR. */
+TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
+{
+    install_scripts(answering_scripts());
+    char_data* speaker = make_mob("speaker", 0);
+    make_mob("first", SCRIPT_VNUM);
+    make_mob("second", OTHER_SCRIPT_VNUM);
+    world[0].people = m_player.next_in_room; /* nobody to send the talk to */
+
+    testing::internal::CaptureStderr();
+    run_command_as(speaker, do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    const std::string refusal = "too many scripts have run for one event";
+    const size_t first = logged.find(refusal);
+    ASSERT_NE(std::string::npos, first) << logged.substr(0, LOGGED_TEXT_SHOWN);
+    EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
 }
 
 /* ---- rooms lent while knocking ---- */

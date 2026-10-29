@@ -165,6 +165,16 @@ inline constexpr int SCRIPT_PARAM_OB2_VNUM = 502;
 inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
+/* How many scripts can run inside one another (a script setting off a trigger whose script sets
+ * off another...), and how many one event can run in all, the first included. Both are far
+ * beyond what any script does, so only runaway scripts reach them: two mobs answering each
+ * other's says for ever, which would otherwise exhaust the stack, or answering with several says
+ * each, which would otherwise run without end. A trigger set off past either limit runs no
+ * script, and one SYSERR per event and limit says so. It then goes ahead as though there were no
+ * script, except ON_BEFORE_ENTER and ON_DAMAGE, which refuse: no one gets in, and no damage is
+ * dealt, by running scripts into the limits. */
+inline constexpr int MAX_SCRIPT_NESTING = 256;
+inline constexpr int MAX_SCRIPT_RUNS_PER_EVENT = 10000;
 /* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
  * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
  * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
