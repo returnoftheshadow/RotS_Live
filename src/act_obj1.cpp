@@ -36,13 +36,15 @@ extern struct index_data* obj_index;
 void perform_put(struct char_data* ch, struct obj_data* obj,
     struct obj_data* container)
 {
+    /* Keys go on a keyring, everything else in. */
+    const bool on = container->is_keyring();
     if (GET_OBJ_WEIGHT(container) + GET_OBJ_WEIGHT(obj) > container->obj_flags.value[0])
-        act("$p won't fit in $P.", FALSE, ch, obj, container, TO_CHAR);
+        act(on ? "$p won't fit on $P." : "$p won't fit in $P.", FALSE, ch, obj, container, TO_CHAR);
     else {
         obj_from_char(obj);
         obj_to_obj(obj, container);
-        act("You put $p in $P.", FALSE, ch, obj, container, TO_CHAR);
-        act("$n puts $p in $P.", TRUE, ch, obj, container, TO_ROOM);
+        act(on ? "You put $p on $P." : "You put $p in $P.", FALSE, ch, obj, container, TO_CHAR);
+        act(on ? "$n puts $p on $P." : "$n puts $p in $P.", TRUE, ch, obj, container, TO_ROOM);
 
         if ((GET_ITEM_TYPE(obj) != ITEM_FOOD) && (GET_ITEM_TYPE(obj) != ITEM_DRINKCON)) {
             snprintf(buf, MAX_STRING_LENGTH, "OBJ: %s puts %s (%d) in %s (%d)", GET_NAME(ch),
@@ -55,13 +57,40 @@ void perform_put(struct char_data* ch, struct obj_data* obj,
     }
 }
 
+/* What a container takes from "put". A bag takes anything. A quiver takes
+ * arrows, and "put all" stops at the first thing that is not one. A keyring
+ * takes keys, and "put all" passes over everything else. */
+struct put_rule {
+    int only_type; /* the item type that may go in, or -1 for anything */
+    const char* refusal; /* "put <thing>" names nothing that may go in */
+    const char* nothing; /* nothing to put in it */
+    bool passes_over; /* "put" looks only at what may go in, and "put all"
+                       * skips the rest instead of stopping */
+};
+
+static put_rule put_rule_for(obj_data* container)
+{
+    if (container->is_keyring())
+        return { ITEM_KEY, "Only keys can go on a keyring.\n\r",
+            "You don't seem to have any keys to put on it.\n\r", true };
+    if (container->is_quiver())
+        return { ITEM_MISSILE, "Only arrows can go into a quiver.\n\r",
+            "You don't seem to have anything to put in it.\n\r", false };
+    return { -1, nullptr, "You don't seem to have anything to put in it.\n\r", false };
+}
+
+static bool may_go_in(const put_rule& rule, obj_data* obj)
+{
+    return rule.only_type < 0 || GET_ITEM_TYPE(obj) == rule.only_type;
+}
+
 /* The following put modes are supported by the code below:
 
         1) put <object> <container>
         2) put all.<object> <container>
         3) put all <container>
 
-        <container> must be in inventory or on ground.
+        <container> must be in inventory, on ground, or a keyring on a belt.
         all objects to be put into container must be in inventory.
 */
 
@@ -88,57 +117,73 @@ ACMD(do_put)
             ((obj_dotmode != FIND_INDIV) ? "them" : "it"));
         send_to_char(buf, ch);
     } else {
-        generic_find(arg2, FIND_OBJ_INV | FIND_OBJ_ROOM, ch, &tmp_char, &container);
+        find_container(ch, arg2, FIND_OBJ_INV | FIND_OBJ_ROOM, &tmp_char, &container);
         if (!container) {
             sprintf(buf, "You don't see a %s here.\n\r", arg2);
             send_to_char(buf, ch);
-        } else if (GET_ITEM_TYPE(container) != ITEM_CONTAINER) {
+        } else if (!container->holds_items()) {
             act("$p is not a container.", FALSE, ch, container, 0, TO_CHAR);
-        } else if (IS_SET(container->obj_flags.value[1], CONT_CLOSED)) {
+        } else if (GET_ITEM_TYPE(container) == ITEM_CONTAINER
+            && IS_SET(container->obj_flags.value[1], CONT_CLOSED)) {
             send_to_char("You'd better open it first!\n\r", ch);
         } else {
-            bool is_quiver = isname("quiver", container->name) != 0;
+            const put_rule rule = put_rule_for(container);
+            /* "put all" and "put all.x" walk only what may go in when the
+             * container passes over the rest. */
+            const int walk_type = rule.passes_over ? rule.only_type : -1;
+            int put_count = 0;
             if (obj_dotmode == FIND_ALL) { /* "put all <container>" case */
                 /* check and make sure the guy has something first */
                 if (container == ch->carrying && !ch->carrying->next_content) {
-                    send_to_char("You don't seem to have anything to put in it.\n\r", ch);
-                } else
+                    send_to_char(rule.nothing, ch);
+                } else {
                     for (obj = ch->carrying; obj; obj = next_obj) {
                         next_obj = obj->next_content;
-                        if (GET_ITEM_TYPE(obj) != ITEM_MISSILE && is_quiver) {
-                            send_to_char("Only arrows can go into a quiver.\n\r", ch);
+                        if (walk_type >= 0 && GET_ITEM_TYPE(obj) != walk_type) {
+                            continue;
+                        } else if (!may_go_in(rule, obj)) {
+                            send_to_char(rule.refusal, ch);
                             break;
-                        } else if (GET_ITEM_TYPE(obj) == ITEM_MISSILE && is_quiver) {
-                            perform_put(ch, obj, container);
                         } else if (obj != container) {
+                            put_count++;
                             perform_put(ch, obj, container);
                         }
                     }
+                    if (!put_count && rule.passes_over)
+                        send_to_char(rule.nothing, ch);
+                }
             } else if (obj_dotmode == FIND_ALLDOT) { /* "put all.x <cont>" case */
-                if (!(obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999))) {
-                    sprintf(buf, "You don't seem to have any %ss.\n\r", arg1);
-                    send_to_char(buf, ch);
+                if (!(obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999, walk_type))) {
+                    if (rule.passes_over) {
+                        send_to_char(rule.nothing, ch);
+                    } else {
+                        sprintf(buf, "You don't seem to have any %ss.\n\r", arg1);
+                        send_to_char(buf, ch);
+                    }
                 } else
                     while (obj) {
-                        next_obj = get_obj_in_list_vis(ch, arg1, obj->next_content, 9999);
-                        if (GET_ITEM_TYPE(obj) != ITEM_MISSILE && is_quiver) {
-                            send_to_char("Only arrows can go into a quiver.\n\r", ch);
+                        next_obj = get_obj_in_list_vis(ch, arg1, obj->next_content, 9999, walk_type);
+                        if (!may_go_in(rule, obj)) {
+                            send_to_char(rule.refusal, ch);
                             break;
-                        } else if (GET_ITEM_TYPE(obj) == ITEM_MISSILE && is_quiver) {
-                            perform_put(ch, obj, container);
                         } else if (obj != container) {
                             perform_put(ch, obj, container);
                         }
                         obj = next_obj;
                     }
             } else { /* "put <thing> <container>" case */
-                if (!(obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999))) {
+                /* A keyring looks among keys first; name something else and
+                 * it refuses it. Bags and quivers take the newest match. */
+                obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999, walk_type);
+                if (!obj && walk_type >= 0)
+                    obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999);
+                if (!obj) {
                     sprintf(buf, "You aren't carrying %s %s.\n\r", AN(arg1), arg1);
                     send_to_char(buf, ch);
                 } else if (obj == container) {
                     send_to_char("You attempt to fold it into itself, but fail.\n\r", ch);
-                } else if (GET_ITEM_TYPE(obj) != ITEM_MISSILE && is_quiver) {
-                    send_to_char("Only arrows can go into a quiver.\n\r", ch);
+                } else if (!may_go_in(rule, obj)) {
+                    send_to_char(rule.refusal, ch);
                 } else {
                     perform_put(ch, obj, container);
                 }
@@ -147,7 +192,7 @@ ACMD(do_put)
     }
 }
 
-int can_take_obj(char_data* character, obj_data* item)
+int can_take_obj(const char_data* character, const obj_data* item)
 {
     if (IS_CARRYING_N(character) >= CAN_CARRY_N(character)) {
         sprintf(buf, "%s: You can't carry that many items.\n\r", OBJS(item, character));
@@ -180,12 +225,14 @@ void get_check_money(struct char_data* ch, struct obj_data* obj)
     }
 }
 
-bool is_corpse(obj_data* container)
+bool is_corpse(const obj_data* container)
 {
     return container && container->obj_flags.type_flag == ITEM_CONTAINER && container->obj_flags.value[3] == 1;
 }
 
-void perform_get_from_container(char_data* character, obj_data* item, obj_data* container, int mode)
+/* Returns false when the character's hands are full, so a caller taking
+ * several items stops after the one message. */
+bool perform_get_from_container(char_data* character, obj_data* item, obj_data* container, int mode)
 {
     if (mode == FIND_OBJ_INV || can_take_obj(character, item)) {
         // Enforce Big Brother loot protection if the container is a corpse.
@@ -193,12 +240,14 @@ void perform_get_from_container(char_data* character, obj_data* item, obj_data* 
             game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
             if (!bb_instance.on_loot_item(character, container, item)) {
                 send_to_char("That corpse has been looted enough.\r\n", character);
-                return;
+                return true;
             }
         }
 
         if (IS_CARRYING_N(character) >= CAN_CARRY_N(character)) {
             sprintf(buf, "%s: You can't hold any more items.\n\r", OBJS(item, character));
+            send_to_char(buf, character);
+            return false;
         } else {
             obj_from_obj(item);
             obj_to_char(item, character);
@@ -221,19 +270,20 @@ void perform_get_from_container(char_data* character, obj_data* item, obj_data* 
             get_check_money(character, item);
         }
     }
+    return true;
 }
 
-void get_from_container(struct char_data* ch, struct obj_data* cont, char* arg, int mode)
+void get_from_container(struct char_data* ch, struct obj_data* cont, const char* arg, int mode)
 {
     struct obj_data *obj, *next_obj;
     int obj_dotmode, found = 0;
 
     // find_all_dots is destructive on arg, so make a copy of arg and use that.
-    char arg_copy[128];
+    char arg_copy[MAX_INPUT_LENGTH];
     strcpy(arg_copy, arg);
     obj_dotmode = find_all_dots(arg_copy);
 
-    if (IS_SET(cont->obj_flags.value[1], CONT_CLOSED)) {
+    if (cont->obj_flags.type_flag == ITEM_CONTAINER && IS_SET(cont->obj_flags.value[1], CONT_CLOSED)) {
         act("The $p is closed.", FALSE, ch, cont, 0, TO_CHAR);
     }
 
@@ -247,7 +297,8 @@ void get_from_container(struct char_data* ch, struct obj_data* cont, char* arg, 
         for (obj = cont->contains; obj; obj = next_obj) {
             next_obj = obj->next_content;
             found = 1;
-            perform_get_from_container(ch, obj, cont, mode);
+            if (!perform_get_from_container(ch, obj, cont, mode))
+                break;
         }
         if (!found) {
             act("$p seems to be empty.", FALSE, ch, cont, 0, TO_CHAR);
@@ -263,7 +314,8 @@ void get_from_container(struct char_data* ch, struct obj_data* cont, char* arg, 
             next_obj = get_obj_in_list_vis(ch, arg_copy, obj->next_content, 9999);
             if (CAN_SEE_OBJ(ch, obj)) {
                 found = 1;
-                perform_get_from_container(ch, obj, cont, mode);
+                if (!perform_get_from_container(ch, obj, cont, mode))
+                    break;
             }
             obj = next_obj;
         }
@@ -280,6 +332,23 @@ void get_from_container(struct char_data* ch, struct obj_data* cont, char* arg, 
             perform_get_from_container(ch, obj, cont, mode);
         }
     }
+}
+
+/* "get <x> all.<name>": the belt keyrings named name, after do_get has
+ * searched the inventory and the room. Their weight is already carried.
+ * Plain "get <x> all" leaves worn things alone, as it always has. Returns
+ * whether any belt keyring was searched. */
+static int get_from_belt_keyrings(char_data* ch, char* arg, const char* name)
+{
+    int found = 0;
+    for (int slot = WEAR_BELT_1; slot <= WEAR_BELT_3; slot++) {
+        obj_data* ring = belt_keyring(ch, slot, name);
+        if (ring) {
+            found = 1;
+            get_from_container(ch, ring, arg, FIND_OBJ_INV);
+        }
+    }
+    return found;
 }
 
 int perform_get_from_room(char_data* character, obj_data* item)
@@ -379,12 +448,12 @@ ACMD(do_get)
                 cont_dotmode = find_all_dots(arg2);
                 if (cont_dotmode == FIND_ALL) { /* use all in inv. and on ground */
                     for (cont = ch->carrying; cont; cont = cont->next_content)
-                        if (GET_ITEM_TYPE(cont) == ITEM_CONTAINER) {
+                        if (cont->holds_items()) {
                             found = 1;
                             get_from_container(ch, cont, arg1, FIND_OBJ_INV);
                         }
                     for (cont = world[ch->in_room].contents; cont; cont = cont->next_content)
-                        if (CAN_SEE_OBJ(ch, cont) && GET_ITEM_TYPE(cont) == ITEM_CONTAINER) {
+                        if (CAN_SEE_OBJ(ch, cont) && cont->holds_items()) {
                             found = 1;
                             get_from_container(ch, cont, arg1, FIND_OBJ_ROOM);
                         }
@@ -400,7 +469,7 @@ ACMD(do_get)
                     while (cont) {
                         found = 1;
                         next_cont = get_obj_in_list_vis(ch, arg2, cont->next_content, 9999);
-                        if (GET_ITEM_TYPE(cont) != ITEM_CONTAINER)
+                        if (!cont->holds_items())
                             act("$p is not a container.", FALSE, ch, cont, 0, TO_CHAR);
                         else
                             get_from_container(ch, cont, arg1, FIND_OBJ_INV);
@@ -410,22 +479,27 @@ ACMD(do_get)
                     while (cont) {
                         found = 1;
                         next_cont = get_obj_in_list_vis(ch, arg2, cont->next_content, 9999);
-                        if (GET_ITEM_TYPE(cont) != ITEM_CONTAINER)
+                        if (!cont->holds_items())
                             act("$p is not a container.", FALSE, ch, cont, 0, TO_CHAR);
                         else
                             get_from_container(ch, cont, arg1, FIND_OBJ_ROOM);
                         cont = next_cont;
                     }
+                    if (get_from_belt_keyrings(ch, arg1, arg2))
+                        found = 1;
                     if (!found) {
                         sprintf(buf, "You can't seem to find any %ss here.\n\r", arg2);
                         send_to_char(buf, ch);
                     }
                 } else { /* get <items> <container> (no all or all.x) */
-                    mode = generic_find(arg2, FIND_OBJ_INV | FIND_OBJ_ROOM, ch, &tmp_char, &cont);
+                    /* A belt keyring's weight is already carried. */
+                    mode = find_container(ch, arg2, FIND_OBJ_INV | FIND_OBJ_ROOM, &tmp_char, &cont);
+                    if (mode == FIND_OBJ_BELT_KEYRING)
+                        mode = FIND_OBJ_INV;
                     if (!cont) {
                         sprintf(buf, "You don't have %s %s.\n\r", AN(arg2), arg2);
                         send_to_char(buf, ch);
-                    } else if (GET_ITEM_TYPE(cont) != ITEM_CONTAINER)
+                    } else if (!cont->holds_items())
                         act("$p is not a container.", FALSE, ch, cont, 0, TO_CHAR);
                     else
                         get_from_container(ch, cont, arg1, mode);
@@ -884,7 +958,10 @@ obj_data* load_scalp(int number)
     if (number > 0) {
         trophy_num = real_mobile(number);
         w_type = 0;
-        if (mob_proto[trophy_num].player.bodytype == 0)
+        // real_mobile is -1 when the mob has since been removed from the world; indexing with it
+        // read mob_proto[-1]. Such a scalp falls through to the "old skull" below, as a deleted
+        // player's head already does, instead of being lost at login.
+        if (trophy_num >= 0 && mob_proto[trophy_num].player.bodytype == 0)
             return 0;
     }
     if (number < 0) {

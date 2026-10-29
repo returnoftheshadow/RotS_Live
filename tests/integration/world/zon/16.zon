@@ -1,0 +1,12 @@
+#16
+Harness object workshop~
+Zone for the object fixtures, whose number lets the object editor load and implement them, and for the inn.
+~
+~
+0
+? 6 2 5
+1699
+999
+2
+M 0 1105 1601 0 100 100 1 1 innkeeper waits in the inn
+S

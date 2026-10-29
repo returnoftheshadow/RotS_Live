@@ -234,7 +234,7 @@ on top, §1). `L` = mystic caster level (§1). Grouped by role.
 | **Pragmatism** (51) | 6 | 5 | **−50 Perception** (−100 vs. wood-elf) debuff; the anti-Insight |
 | **Evasion / "armor"** (42) | 2 | 0 | `AFF_EVASION` + armor mod `loc_level`; self `(L+5)/2`, ally `(cleric_v+L+5)/4` |
 | **Resist Magic** (47) | 8 | 0 | **+`L/6` mage saving-throw** (`APPLY_SAVING_SPELL`, feeds magic-system §4); **+1 Protection-spec** |
-| **Protection** (89) | 0* | 5 | elemental/physical **resistance** (`APPLY_RESIST` fire/cold/lightning/physical), dur `2L`; *Protection spec-gated* |
+| **Protection** (89) | 0* | 5 | elemental/physical **resistance** (`APPLY_RESIST` fire/cold/lightning/physical/illusion/dark), dur `2L`; *Protection spec-gated* |
 | **Death Ward** (83) | 20 | 0 | ward, dur `2L`, modifier `L/2` |
 | **Sanctuary** (56) | 16 | 2 | `AFF_SANCTUARY`; blocked by Anger; dur = target cleric level |
 | **Detect Hidden** (41) / **Detect Magic** (69) / **Infravision** (66) | 1-17 | 0-2 | detection buffs, dur scales with `L` (×3 / ×5 / ×1) |

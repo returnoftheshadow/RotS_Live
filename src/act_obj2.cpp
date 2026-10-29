@@ -473,7 +473,7 @@ ACMD(do_pour)
     return;
 }
 
-void wear_message(struct char_data* ch, struct obj_data* obj, int where)
+void wear_message(struct char_data* ch, const struct obj_data* obj, int where)
 {
     char* wear_messages[][2] = {
         { "$n lights $p and holds it.",
@@ -623,7 +623,7 @@ void wear_message(struct char_data* ch, struct obj_data* obj, int where)
     }
 }
 
-bool ologhai_item_restriction(char_data* character, obj_data* item)
+bool ologhai_item_restriction(const char_data* character, const obj_data* item)
 {
     // Only Olog-Hais here
     if (GET_RACE(character) != RACE_OLOGHAI) {
@@ -639,7 +639,7 @@ bool ologhai_item_restriction(char_data* character, obj_data* item)
     return false;
 }
 
-bool beorning_item_restriction(char_data* character, obj_data* item)
+bool beorning_item_restriction(const char_data* character, const obj_data* item)
 {
     if (CAN_WEAR(item, ITEM_WEAR_SHIELD)) {
         send_to_char("You cannot wear a shield.\n\r", character);
@@ -820,7 +820,7 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     equip_char(character, item, item_slot);
 }
 
-int find_eq_pos(struct char_data* ch, struct obj_data* obj, char* arg)
+int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg)
 {
     int where = -1;
 

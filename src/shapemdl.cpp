@@ -22,9 +22,9 @@ extern char** mobile_program;
 extern int* mobile_program_zone;
 extern int num_of_programs;
 
-char* mudlle_converter(char* source);
+char* mudlle_converter(const char* source);
 
-int load_mudlle(char_data* ch, char* arg)
+int load_mudlle(char_data* ch, const char* arg)
 {
     FILE* fp;
     int number, num, isnew;
@@ -124,7 +124,7 @@ int load_mudlle(char_data* ch, char* arg)
     return num;
 }
 
-int save_mudlle(struct char_data* ch)
+int save_mudlle(const struct char_data* ch)
 {
     FILE *fp, *ofp;
     int tmp, num, saved;
@@ -145,16 +145,17 @@ int save_mudlle(struct char_data* ch)
     str[0] = 0;
     sprintf(str, "%s %s %s", COPY_COMMAND,
         SHAPE_MUDLLE(ch)->f_from, SHAPE_MUDLLE(ch)->f_old);
-    fprintf(stderr, str);
+    fputs(str, stderr);
     system(str);
     fp = fopen(SHAPE_MUDLLE(ch)->f_from, "wb+");
     ofp = fopen(SHAPE_MUDLLE(ch)->f_old, "rb");
 
     num = -1;
     saved = 0;
-    while (!feof(ofp)) {
-        fgets(str, MAX_STRING_LENGTH, ofp);
-        fprintf(stderr, str);
+    /* fgets as the loop test: a feof() test ran one extra pass at the end
+     * and wrote the last line again on every save. */
+    while (fgets(str, MAX_STRING_LENGTH, ofp)) {
+        fputs(str, stderr);
         for (tmp = 0; (tmp < MAX_STRING_LENGTH) && (str[tmp] <= ' '); tmp++)
             ;
 
@@ -181,7 +182,7 @@ int save_mudlle(struct char_data* ch)
     return SHAPE_MUDLLE(ch)->prog_num;
 }
 
-void implement_mudlle(struct char_data* ch)
+void implement_mudlle(const struct char_data* ch)
 {
     if (!SHAPE_MUDLLE(ch)) {
         send_to_char("You are not shaping anything.\n\r", ch);
@@ -205,7 +206,7 @@ void implement_mudlle(struct char_data* ch)
     send_to_char("Program implemented.\n\r", ch);
 }
 
-void show_mudlle(struct char_data* ch)
+void show_mudlle(const struct char_data* ch)
 {
     char str[500];
 
@@ -235,7 +236,7 @@ void free_mudlle(struct char_data* ch)
     return;
 }
 
-void edit_mudlle(struct char_data* ch)
+void edit_mudlle(const struct char_data* ch)
 {
     if (!ch->desc)
         return;
@@ -243,7 +244,7 @@ void edit_mudlle(struct char_data* ch)
     return;
 }
 
-void shape_center_mudlle(struct char_data* ch, char* argument)
+void shape_center_mudlle(struct char_data* ch, const char* argument)
 {
     char str[255], str2[255];
     int len;

@@ -23,6 +23,7 @@
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+#include "world_clock.h"
 
 extern struct room_data world;
 extern struct descriptor_data* descriptor_list;
@@ -35,7 +36,7 @@ ACMD(do_petitio)
 
 void say_to_char(struct char_data* speaker, struct char_data* aud,
     const char* color, const char* action,
-    const char* end, char* text, int force_visible)
+    const char* end, const char* text, int force_visible)
 {
     char speech[600];
     int freq, l;
@@ -115,9 +116,8 @@ ACMD(do_say)
     }
 }
 
-
 void convert_string(const char* str, int hide_invisible, struct char_data* ch,
-    struct obj_data* obj, void* vict_obj,
+    const struct obj_data* obj, void* vict_obj,
     struct char_data* to, const char* buf);
 extern char act_buffer[MAX_STRING_LENGTH];
 
@@ -682,6 +682,12 @@ ACMD(do_alias)
         //  send_to_char(buf,ch);
         return;
     }
+    if (strlen(arg) > MAX_ALIAS_KEYWORD_LENGTH) {
+        sprintf(buf, "An alias keyword may be at most %d characters long.\n\r", MAX_ALIAS_KEYWORD_LENGTH);
+        send_to_char(buf, ch);
+        return;
+    }
+
     count = 0;
     for (list = ch->specials.alias, list2 = 0; list; list2 = list, list = list->next) {
         //    printf("list->keyword=%s\n",list->keyword);
@@ -731,8 +737,8 @@ ACMD(do_alias)
         //    printf("replacing alias\n");
         list2 = list;
     }
-    strncpy(list2->keyword, arg, 20);
-    list2->keyword[strlen(arg)] = 0;
+    strncpy(list2->keyword, arg, MAX_ALIAS_KEYWORD_LENGTH);
+    list2->keyword[MAX_ALIAS_KEYWORD_LENGTH] = 0;
 
     RELEASE(list2->command);
     //  list2->command=(char *)calloc(strlen(arg2)+1,1);
@@ -766,7 +772,8 @@ ACMD(do_afk)
 
     if (!affected_by_spell(ch, SPELL_ANGER)) {
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
-        bb_instance.on_character_afked(ch);
+        const WorldClock::time_point now = WorldClock::now();
+        bb_instance.on_character_afked(ch, now);
     } else {
         send_to_char("You are too angry to be granted the protection of the Gods... wait a few minutes.\n\r", ch);
     }

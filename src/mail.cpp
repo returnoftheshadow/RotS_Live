@@ -100,16 +100,16 @@ Send comments, bug reports, etc. to jelson@server.cs.jhu.edu
 #include "structs.h"
 #include "utils.h"
 
-void postmaster_send_mail(struct char_data* ch, int cmd, char* arg, char_data* host);
-void postmaster_check_mail(struct char_data* ch, int cmd, char* arg, char_data* host);
-void postmaster_receive_mail(struct char_data* ch, int cmd, char* arg, char_data* host);
+void postmaster_send_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
+void postmaster_check_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
+void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
 
 extern struct room_data* world;
 extern struct index_data* mob_index;
 extern struct obj_data* object_list;
 extern int no_mail;
-int find_name(char* name);
-int _parse_name(char* arg, char* name);
+int find_name(const char* name);
+int _parse_name(const char* arg, char* name);
 
 mail_index_type* mail_index = 0; /* list of recs in the mail file  */
 position_list_type* free_list = 0; /* list of free positions in file */
@@ -140,7 +140,7 @@ long pop_free_list(void)
 }
 
 mail_index_type*
-find_char_in_index(char* searchee)
+find_char_in_index(const char* searchee)
 {
     mail_index_type* temp_rec;
 
@@ -157,7 +157,7 @@ find_char_in_index(char* searchee)
     return temp_rec;
 }
 
-void write_to_file(void* buf, int size, long filepos)
+void write_to_file(const void* buf, int size, long filepos)
 {
     FILE* mail_file;
 
@@ -276,7 +276,7 @@ int scan_file(void)
 
 /* HAS_MAIL */
 /* a simple little function which tells you if the guy has mail or not */
-int has_mail(char* recipient)
+int has_mail(const char* recipient)
 {
     if (find_char_in_index(recipient))
         return 1;
@@ -288,7 +288,7 @@ int has_mail(char* recipient)
    who the mail is to (name), who it's from (name), and a pointer to the
    actual message text.			*/
 
-void store_mail(char* to, char* from, char* message_pointer)
+void store_mail(char* to, const char* from, char* message_pointer)
 {
     header_block_type header;
     data_block_type data;
@@ -384,7 +384,7 @@ void store_mail(char* to, char* from, char* message_pointer)
 you're retrieving.  It returns to you a char pointer to the message text.
 The mail is then discarded from the file and the mail index. */
 
-char* read_delete(char* recipient, char* recipient_formatted, int is_good)
+char* read_delete(const char* recipient, const char* recipient_formatted, int is_good)
 /* recipient is the name as it appears in the index.
      recipient_formatted is the name as it should appear on the mail
      header (i.e. the text handed to the player) */
@@ -524,7 +524,7 @@ SPECIAL(postmaster)
     }
 }
 
-int mail_ok(struct char_data* ch)
+int mail_ok(const struct char_data* ch)
 {
     if (no_mail) {
         send_to_char("Sorry, the mail system is having technical difficulties.\n\r", ch);
@@ -536,7 +536,7 @@ int mail_ok(struct char_data* ch)
 
 /* Find mailman removed - crashed the mud and isn't needed anyway... */
 
-void postmaster_send_mail(struct char_data* ch, int cmd, char* arg, char_data* host)
+void postmaster_send_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
 {
     struct char_data* mailman;
     char buf[200], recipient[100], *tmp;
@@ -593,7 +593,7 @@ void postmaster_send_mail(struct char_data* ch, int cmd, char* arg, char_data* h
     ch->desc->max_str = MAX_MAIL_SIZE;
 }
 
-void postmaster_check_mail(struct char_data* ch, int cmd, char* arg, char_data* host)
+void postmaster_check_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
 {
     struct char_data* mailman;
     char buf[200], recipient[100], *tmp;
@@ -612,7 +612,7 @@ void postmaster_check_mail(struct char_data* ch, int cmd, char* arg, char_data* 
     act(buf, FALSE, mailman, 0, ch, TO_VICT);
 }
 
-void postmaster_receive_mail(struct char_data* ch, int cmd, char* arg, char_data* host)
+void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
 {
     struct char_data* mailman;
     char buf[200], recipient[100], *tmp;

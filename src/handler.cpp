@@ -41,6 +41,7 @@
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "room_lists.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -48,7 +49,10 @@
 
 #include "base_utils.h"
 #include "char_utils.h"
+#include <algorithm>
+#include <cstddef>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -58,6 +62,7 @@ extern struct obj_data* object_list;
 extern struct char_data* character_list;
 extern struct index_data* mob_index;
 extern struct index_data* obj_index;
+extern struct char_data* mob_proto;
 extern struct descriptor_data* descriptor_list;
 extern struct char_data* fast_update_list;
 extern char* MENU;
@@ -73,6 +78,7 @@ void free_char(struct char_data*);
 void stop_fighting(struct char_data*);
 void remove_follower(struct char_data*);
 void clear_memory(struct char_data*);
+void show_character_menu(struct descriptor_data* d);
 
 ACMD(do_save);
 ACMD(do_return);
@@ -81,6 +87,11 @@ ACMD(do_return);
 
 char char_control_array[MAX_CHARACTERS / 8 + 1];
 long last_control_set = -1;
+
+/* The only channel an item has for telling a spell how strong it is. An object's affect
+   carries level*256+spellnum and the spell is invoked with obj = 0, so it cannot read
+   anything off the item itself. Set immediately before the call, cleared on every exit. */
+int eff_mod = 0;
 
 int dummy_affected_var = 17;
 universal_list* affected_list = 0;
@@ -99,7 +110,7 @@ struct follow_type* get_from_follow_type_pool();
 void put_to_follow_type_pool(struct follow_type*);
 
 char fname_nameholder[100];
-char* fname(char* namelist)
+char* fname(const char* namelist)
 {
     //   char	holder[30];
     register char* point;
@@ -169,26 +180,31 @@ int other_side_num(int ch_race, int i_race)
 
 void recount_light_room(int room)
 {
-    struct char_data* tmpch;
-    struct obj_data* tmpobj;
-    int count, tmp;
-
-    if ((room < 0) || (room >= top_of_world))
+    if ((room < 0) || (room >= top_of_world)) {
         return;
+    }
 
-    count = 0;
-    for (tmpch = world[room].people; tmpch; tmpch = tmpch->next_in_room)
-        for (tmp = 0; tmp < MAX_WEAR; tmp++)
-            if (tmpch->equipment[tmp])
-                if (tmpch->equipment[tmp]->obj_flags.type_flag == ITEM_LIGHT)
-                    if ((tmpch->equipment[tmp]->obj_flags.value[2] != 0) && (tmpch->equipment[tmp]->obj_flags.value[3] != 0))
-                        count++;
+    auto is_lit = [](const obj_data& item) -> bool {
+        return item.obj_flags.value[LIGHT_HOURS_REMAINING_FUEL_INDEX] != 0
+            && item.obj_flags.value[LIGHT_IS_LIT_INDEX] != 0;
+    };
+    auto is_lit_light = [&is_lit](const obj_data* worn) -> bool {
+        return worn != nullptr && worn->obj_flags.type_flag == ITEM_LIGHT && is_lit(*worn);
+    };
 
-    for (tmpobj = world[room].contents; tmpobj; tmpobj = tmpobj->next_content)
-        if ((tmpobj->obj_flags.value[2] != 0) && (tmpobj->obj_flags.value[3] != 0))
-            count++;
+    std::ptrdiff_t light_sources = 0;
+    const room_people_range people = people_in(world[room]);
+    for (const char_data& person : people) {
+        light_sources += std::count_if(std::begin(person.equipment), std::end(person.equipment),
+            is_lit_light);
+    }
 
-    world[room].light = count;
+    // A floor object counts on its light values alone, whatever its type.
+    const room_contents_range contents = contents_of(world[room]);
+    light_sources += std::count_if(std::begin(contents), std::end(contents), is_lit);
+
+    // light is a byte, so a count past its range wraps.
+    world[room].light = static_cast<byte>(light_sources);
 }
 
 int isname(const char* str, const char* namelist, char full)
@@ -444,16 +460,23 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         tmp2 = mod / 256; // spell level
         if (!tmp2)
             tmp2 = GET_LEVEL(ch);
-        if (tmp >= 128)
-            break;
 
-        if (!skills[tmp].spell_pointer)
-            break;
+        eff_mod = tmp2;
 
-        if (add)
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_SPELL, ch, 0, 0, 1);
-        else
-            skills[tmp].spell_pointer(ch, "", SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        /* affect_total() replays every gear and affect apply on the character, so this runs
+           a lot; buf is the shared scratch buffer and is only worth writing when asked for. */
+        if (has_debug_flag(ch)) {
+            sprintf(buf, "--APPLY_SPELL: spell %d level %d\n\r", tmp, tmp2);
+            debug_flag_msg(buf, ch);
+        }
+
+        if (tmp >= MAX_SKILLS || !skills[tmp].spell_pointer) {
+            eff_mod = 0;
+            break;
+        }
+
+        skills[tmp].spell_pointer(ch, "", add ? SPELL_TYPE_SPELL : SPELL_TYPE_ANTI, ch, 0, 0, 1);
+        eff_mod = 0;
         break;
 
     case APPLY_BITVECTOR:
@@ -474,17 +497,19 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
         break;
 
     case APPLY_RESIST:
+        /* mod was already negated above on the REMOVE pass, so the bit to clear is -mod:
+           shifting by the negative value is undefined and in practice clears nothing. */
         if (mod >= 0)
             GET_RESISTANCES(ch) |= (1 << mod);
         else
-            GET_RESISTANCES(ch) &= ~(1 << mod);
+            GET_RESISTANCES(ch) &= ~(1 << -mod);
         break;
 
     case APPLY_VULN:
         if (mod >= 0)
             GET_VULNERABILITIES(ch) |= (1 << mod);
         else
-            GET_VULNERABILITIES(ch) &= ~(1 << mod);
+            GET_VULNERABILITIES(ch) &= ~(1 << -mod);
         break;
 
     default:
@@ -496,7 +521,7 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
 /* This updates a character by subtracting everything he is affected by */
 /* restoring original abilities, and then affecting all again     ?????      */
 
-void affect_total_room(struct room_data* room, int mode)
+void affect_total_room(const struct room_data* room, int mode)
 {
 }
 
@@ -511,9 +536,26 @@ void affect_naked(char_data* ch)
     GET_WILLPOWER(ch) = get_naked_willpower(ch);
     ch->specials.affected_by |= race_affect[GET_RACE(ch)];
 
+    /* affect_total() calls this between stripping every affect and re-applying them, so both
+       masks have to be reset to what the character owns intrinsically. A player owns nothing:
+       every bit they carry comes from gear or an affect, so zero is right. A mob's bits come
+       from its .mob record, so they have to be read back from the prototype - leaving them
+       alone was harmless while APPLY_RESIST removal never actually cleared a bit, but now that
+       it does, a mob given (say) resist fire would lose its own RESIST_FIRE for good when the
+       affect wore off.
+
+       The nr > -1 test never actually fires: mob_proto[i].nr = i (db.cpp) is the only assignment
+       to nr in the tree and clear_char memsets it to 0, so no NPC ever carries -1. It is kept to
+       match the existing defensive convention around nr (db.cpp free_char, fight.cpp), and
+       because an NPC that was never read from a record would read mob_proto[0] here rather than
+       keep its own bits. The mob_proto null test does real work: it guards calls before boot and
+       in the test binary. */
     if (!IS_NPC(ch)) {
         GET_RESISTANCES(ch) = 0;
         GET_VULNERABILITIES(ch) = 0;
+    } else if (mob_proto && ch->nr > -1) {
+        GET_RESISTANCES(ch) = mob_proto[ch->nr].specials.resistance;
+        GET_VULNERABILITIES(ch) = mob_proto[ch->nr].specials.vulnerability;
     }
 }
 
@@ -627,7 +669,7 @@ void put_to_affected_type_pool(struct affected_type* oldaf)
    4.  Adds it to the ch->affected list
    5.  Calls affect_modify and affect_total to update the characters stats/abilities  */
 
-void affect_to_char(struct char_data* ch, struct affected_type* af)
+void affect_to_char(struct char_data* ch, const struct affected_type* af)
 {
     struct affected_type* affected_alloc;
     universal_list* tmplist;
@@ -668,7 +710,7 @@ void affect_to_char(struct char_data* ch, struct affected_type* af)
    the list of affected rooms if necessary, and its values are updated.  Similar to
    affect_to_char */
 
-void affect_to_room(struct room_data* room, struct affected_type* af)
+void affect_to_room(struct room_data* room, const struct affected_type* af)
 {
     struct affected_type* affected_alloc;
     struct affected_type* tmpaf;
@@ -749,12 +791,23 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
     affect_total(ch);
 }
 
-void affect_remove_notify(struct char_data* ch, struct affected_type* af)
+const char* spell_wear_off_message(int spell_number)
 {
     extern char* spell_wear_off_msg[];
+    extern const int spell_wear_off_msg_count;
 
-    if (*spell_wear_off_msg[af->type] && !PLR_FLAGGED(ch, PLR_WRITING))
-        vsend_to_char(ch, "%s\n", spell_wear_off_msg[af->type]);
+    if (spell_number < 0 || spell_number >= spell_wear_off_msg_count)
+        return NULL;
+
+    return spell_wear_off_msg[spell_number];
+}
+
+void affect_remove_notify(struct char_data* ch, struct affected_type* af)
+{
+    const char* wear_off = spell_wear_off_message(af->type);
+
+    if (wear_off && *wear_off && !PLR_FLAGGED(ch, PLR_WRITING))
+        vsend_to_char(ch, "%s\n", wear_off);
 
     affect_remove(ch, af);
 }
@@ -812,7 +865,7 @@ void affect_remove_room(struct room_data* room, struct affected_type* af)
 
 /* Returns 1 if a character is found in the affected_list.  0 if not */
 
-int in_affected_list(struct char_data* ch)
+int in_affected_list(const struct char_data* ch)
 {
     universal_list* tmplist;
     int found;
@@ -831,10 +884,10 @@ int in_affected_list(struct char_data* ch)
  */
 void affect_from_char_notify(struct char_data* ch, byte skill)
 {
-    extern char* spell_wear_off_msg[];
+    const char* wear_off = spell_wear_off_message(skill);
 
-    if (*spell_wear_off_msg[skill] && !PLR_FLAGGED(ch, PLR_WRITING))
-        vsend_to_char(ch, "%s\n", spell_wear_off_msg[skill]);
+    if (wear_off && *wear_off && !PLR_FLAGGED(ch, PLR_WRITING))
+        vsend_to_char(ch, "%s\n", wear_off);
 
     affect_from_char(ch, skill);
 }
@@ -870,6 +923,26 @@ affected_type* affected_by_spell(const char_data* ch, byte skill, affected_type*
     }
 
     return NULL;
+}
+
+/* Returns aff's counterpart on ch only when it is the sole affect of that type, i.e. when
+   removing it cannot strip a slot something else still depends on. Unused: slot ownership
+   is settled in do_resist_spell (strongest worn item holds it). Kept for reference. */
+affected_type* removeable_spell_affection(const char_data* ch, const affected_type* aff, affected_type* start_affect)
+{
+    int match_count = 0;
+    int count = 0;
+    affected_type* found = NULL;
+
+    for (affected_type* status_affect = start_affect; status_affect && (count < MAX_AFFECT);
+         status_affect = status_affect->next, count++) {
+        if (status_affect->type == aff->type) {
+            found = status_affect;
+            match_count++;
+        }
+    }
+
+    return (match_count == 1) ? found : NULL;
 }
 
 /* Return a pointer to an affection if the room is affected by the spell.
@@ -1072,7 +1145,7 @@ void stop_follower(struct char_data* ch, int mode)
 
 /* Check if making CH follow VICTIM will create an illegal */
 /* Follow "Loop/circle"                                    */
-char circle_follow(struct char_data* ch, struct char_data* victim, int mode)
+char circle_follow(const struct char_data* ch, struct char_data* victim, int mode)
 {
     for (char_data* character = victim; character; character = character->master) {
         if (character == ch) {
@@ -1229,6 +1302,7 @@ void obj_from_char(struct obj_data* object)
 {
     struct obj_data* tmp;
     int i;
+    bool in_inventory = true;
 
     if (object->carried_by->carrying == object) { /* head of list */
         object->carried_by->carrying = object->next_content;
@@ -1244,6 +1318,7 @@ void obj_from_char(struct obj_data* object)
             IS_CARRYING_N(object->carried_by)
             --;
         } else {
+            in_inventory = false;
             for (i = 0; i < MAX_WEAR; i++)
                 if (object->carried_by->equipment[i] == object)
                     break;
@@ -1256,10 +1331,16 @@ void obj_from_char(struct obj_data* object)
     if (!IS_NPC(object->carried_by))
         SET_BIT(PLR_FLAGS(object->carried_by), PLR_CRASH);
 
-    if (IS_RIDING(object->carried_by))
-        IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
+    /* Only obj_to_char adds weight, and only for the inventory list.  A worn
+     * object's weight is taken off by unequip_char, here or by the caller
+     * (extract_obj(unequip_char(...)) leaves carried_by set), and worn
+     * weight is never added to a mount. */
+    if (in_inventory) {
+        if (IS_RIDING(object->carried_by))
+            IS_CARRYING_W(object->carried_by->mount_data.mount) -= GET_OBJ_WEIGHT(object);
 
-    IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+        IS_CARRYING_W(object->carried_by) -= GET_OBJ_WEIGHT(object);
+    }
     object->carried_by = 0;
     object->next_content = 0;
     object->in_room = NOWHERE;
@@ -1317,10 +1398,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
     // Encumb and weight update:
     character->points.encumb += item->obj_flags.value[2] * encumb_table[item_slot];
     character->specials2.leg_encumb += item->obj_flags.value[2] * leg_encumb_table[item_slot];
-    if (encumb_table[item_slot])
-        GET_ENCUMB_WEIGHT(character) += GET_OBJ_WEIGHT(item) * encumb_table[item_slot];
-    else
-        GET_ENCUMB_WEIGHT(character) += GET_OBJ_WEIGHT(item) / 2;
+    GET_ENCUMB_WEIGHT(character) += worn_encumb_weight(GET_OBJ_WEIGHT(item), item_slot);
     GET_WORN_WEIGHT(character) += GET_OBJ_WEIGHT(item);
 
     IS_CARRYING_W(character) += GET_OBJ_WEIGHT(item);
@@ -1361,7 +1439,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
     // Special case for poisoned objects.  The wearer should get poison damage
     // when wearing/removing something poisoned.
     if (was_poisoned == 0 && IS_AFFECTED(character, AFF_POISON)) {
-        extern void raw_kill(struct char_data * character, char_data * killer, int attacktype);
+        extern void raw_kill(struct char_data * character, const char_data * killer, int attacktype);
 
         damage(character, character, 5, SPELL_POISON, 0);
 
@@ -1396,10 +1474,7 @@ struct obj_data* unequip_char(struct char_data* ch, int pos)
 
     ch->points.encumb -= obj->obj_flags.value[2] * encumb_table[pos];
     ch->specials2.leg_encumb -= obj->obj_flags.value[2] * leg_encumb_table[pos];
-    if (encumb_table[pos])
-        GET_ENCUMB_WEIGHT(ch) -= GET_OBJ_WEIGHT(obj) * encumb_table[pos];
-    else
-        GET_ENCUMB_WEIGHT(ch) -= GET_OBJ_WEIGHT(obj) / 2;
+    GET_ENCUMB_WEIGHT(ch) -= worn_encumb_weight(GET_OBJ_WEIGHT(obj), pos);
     GET_WORN_WEIGHT(ch) -= GET_OBJ_WEIGHT(obj);
 
     IS_CARRYING_W(ch) -= GET_OBJ_WEIGHT(obj);
@@ -1436,7 +1511,7 @@ struct obj_data* unequip_char(struct char_data* ch, int pos)
     // Special case for poisoned objects.  The wearer should get poison damage
     // when wearing/removing something poisoned.
     if (was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON)) {
-        extern void raw_kill(struct char_data * ch, char_data * killer, int attacktype);
+        extern void raw_kill(struct char_data * ch, const char_data * killer, int attacktype);
 
         damage(ch, ch, 5, SPELL_POISON, 0);
 
@@ -1461,7 +1536,8 @@ int get_number(char** name)
     if ((ppos = strchr(*name, '.'))) {
         *ppos++ = '\0';
         strcpy(number, *name);
-        strcpy(*name, ppos);
+        // ppos points into *name, so the copy must allow overlap.
+        memmove(*name, ppos, strlen(ppos) + 1);
 
         for (i = 0; *(number + i); i++)
             if (!isdigit(*(number + i)))
@@ -1474,7 +1550,7 @@ int get_number(char** name)
 }
 
 /* Search a given list for an object, and return a pointer to that object */
-struct obj_data* get_obj_in_list(char* name, struct obj_data* list)
+struct obj_data* get_obj_in_list(const char* name, struct obj_data* list)
 {
     struct obj_data* i;
     int j, number;
@@ -1553,7 +1629,7 @@ int count_obj_in_list(int num, struct obj_data* list)
 }
 
 /*search the entire world for an object, and return a pointer  */
-struct obj_data* get_obj(char* name)
+struct obj_data* get_obj(const char* name)
 {
     struct obj_data* i;
     int j, number;
@@ -1588,7 +1664,7 @@ struct obj_data* get_obj_num(int nr)
 }
 
 /* search a room for a char, and return a pointer if found..  */
-struct char_data* get_char_room(char* name, int room)
+struct char_data* get_char_room(const char* name, int room)
 {
     struct char_data* i;
     int j, number;
@@ -1611,7 +1687,7 @@ struct char_data* get_char_room(char* name, int room)
 }
 
 /* search all over the world for a char, and return a pointer if found */
-struct char_data* get_char(char* name)
+struct char_data* get_char(const char* name)
 {
     struct char_data* i;
     int j, number;
@@ -1668,14 +1744,18 @@ void obj_to_room(struct obj_data* object, int room)
             world[room].light++;
         }
     }
-    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp < 1000);
+    for (tmp = 0, tmpobj = world[room].contents; tmpobj && (tmp <= 1000);
          tmpobj = tmpobj->next_content, tmp++)
         ;
-    if (tmp >= 1000) {
-        mudlog("obj_to_room: infinite loop in room contents.",
-            NRM, LEVEL_GOD, TRUE);
-        world[room].contents = object;
-        object->next_content = 0;
+    if (tmp == 1000) {
+        // Report once, as the floor reaches 1000 objects; a busier floor stays silent. A floor this
+        // large is legitimate -- a mass quit drops every quitter's gear in one room, much of it through
+        // here, so reporting every drop flooded the log and every online god. This used to "recover"
+        // by resetting the room's contents to this object, which left every other object claiming the
+        // room but off its list, and obj_from_room crashed when one decayed. A real cycle would already
+        // have hung the duplicate scan above.
+        sprintf(buf, "obj_to_room: the floor of room %d has reached 1000 objects.", world[room].number);
+        mudlog(buf, NRM, LEVEL_GOD, TRUE);
     }
     object->in_room = room;
     object->carried_by = 0;
@@ -1713,6 +1793,39 @@ void obj_from_room(struct obj_data* object)
     object->next_content = 0;
 }
 
+/* The encumbrance weight an item of this weight adds when worn in this
+ * slot. equip_char, unequip_char and recalc_worn_weight all use it, but
+ * recalc_worn_weight passes get_weight() (at least 1), so a 0-weight worn
+ * item counts 1 after a login (older behavior, every item type). */
+int worn_encumb_weight(int weight, int slot)
+{
+    if (encumb_table[slot])
+        return weight * encumb_table[slot];
+    return weight / 2;
+}
+
+/* A worn keyring's weight just went from old_weight to its weight now (a
+ * key went on or came off). Keep its wearer's worn and encumbrance weight
+ * equal to what equip_char would add for the ring as it is now, so wearing
+ * and removing it cannot drift them. Keyrings only: worn quivers and other
+ * containers keep the old behavior. */
+static void update_worn_keyring_weight(obj_data* ring, int old_weight)
+{
+    char_data* wearer = ring->carried_by;
+    if (!wearer || !ring->is_keyring())
+        return;
+
+    for (int slot = 0; slot < MAX_WEAR; slot++) {
+        if (wearer->equipment[slot] == ring) {
+            int new_weight = GET_OBJ_WEIGHT(ring);
+            GET_WORN_WEIGHT(wearer) += new_weight - old_weight;
+            GET_ENCUMB_WEIGHT(wearer) += worn_encumb_weight(new_weight, slot)
+                - worn_encumb_weight(old_weight, slot);
+            return;
+        }
+    }
+}
+
 /* put an object in an object (quaint)  */
 void obj_to_obj(obj_data* item, obj_data* container, char change_weight)
 {
@@ -1730,10 +1843,12 @@ void obj_to_obj(obj_data* item, obj_data* container, char change_weight)
         }
 
         /* top level object.  Subtract weight from inventory if necessary. */
+        int old_weight = GET_OBJ_WEIGHT(tmp_obj);
         GET_OBJ_WEIGHT(tmp_obj) += GET_OBJ_WEIGHT(item);
         if (tmp_obj->carried_by) {
             IS_CARRYING_W(tmp_obj->carried_by) += GET_OBJ_WEIGHT(item);
         }
+        update_worn_keyring_weight(tmp_obj, old_weight);
     }
 }
 
@@ -1767,10 +1882,12 @@ void obj_from_obj(obj_data* item)
         }
 
         /* Subtract weight from char that carries the object */
+        int old_weight = GET_OBJ_WEIGHT(tmp);
         GET_OBJ_WEIGHT(tmp) -= GET_OBJ_WEIGHT(item);
         if (tmp->carried_by) {
             IS_CARRYING_W(tmp->carried_by) -= GET_OBJ_WEIGHT(item);
         }
+        update_worn_keyring_weight(tmp, old_weight);
 
         item->in_obj = 0;
         item->next_content = 0;
@@ -1848,7 +1965,7 @@ void update_object(struct obj_data* obj, int use)
         update_object(obj->next_content, use);
 }
 
-void update_char_objects(struct char_data* ch)
+void update_char_objects(const struct char_data* ch)
 {
 
     int i;
@@ -1878,7 +1995,7 @@ void update_char_objects(struct char_data* ch)
 /* Extract a ch completely from the world, and leave his stuff behind */
 
 ACMD(do_look);
-void stop_fighting_him(struct char_data* ch);
+void stop_fighting_him(const struct char_data* ch);
 
 void extract_char(struct char_data* ch)
 {
@@ -2046,7 +2163,7 @@ void extract_char(struct char_data* ch, int new_room)
             do_look(ch, "", 0, 0, 0);
         } else {
             ch->desc->connected = CON_SLCT;
-            SEND_TO_Q(MENU, ch->desc);
+            show_character_menu(ch->desc);
         }
     } else {
         while (ch->affected)
@@ -2061,7 +2178,7 @@ void extract_char(struct char_data* ch, int new_room)
    which incorporate the actual player-data.
    *********************************************************************** */
 
-int keyword_matches_char(struct char_data* ch, struct char_data* vict, char* keyword)
+int keyword_matches_char(const struct char_data* ch, const struct char_data* vict, const char* keyword)
 {
     int check;
 
@@ -2073,7 +2190,7 @@ int keyword_matches_char(struct char_data* ch, struct char_data* vict, char* key
     return check;
 }
 
-struct char_data* get_char_room_vis(struct char_data* ch, char* name, int dark_ok)
+struct char_data* get_char_room_vis(struct char_data* ch, const char* name, int dark_ok)
 {
     struct char_data* i;
     int j, number, check;
@@ -2099,7 +2216,7 @@ struct char_data* get_char_room_vis(struct char_data* ch, char* name, int dark_o
     return (0);
 }
 
-struct char_data* get_player_vis(struct char_data* ch, char* name)
+struct char_data* get_player_vis(struct char_data* ch, const char* name)
 {
     struct char_data* i;
 
@@ -2110,7 +2227,7 @@ struct char_data* get_player_vis(struct char_data* ch, char* name)
     return 0;
 }
 
-struct char_data* get_char_vis(struct char_data* ch, char* name, int dark_ok)
+struct char_data* get_char_vis(struct char_data* ch, const char* name, int dark_ok)
 {
     struct char_data* i;
     int j, number, check;
@@ -2143,8 +2260,8 @@ struct char_data* get_char_vis(struct char_data* ch, char* name, int dark_ok)
     return (0);
 }
 
-struct obj_data* get_obj_in_list_vis(struct char_data* ch, char* name,
-    struct obj_data* list, int num)
+struct obj_data* get_obj_in_list_vis(const struct char_data* ch, const char* name,
+    struct obj_data* list, int num, int only_type)
 {
     struct obj_data* i;
     int j, number;
@@ -2152,6 +2269,12 @@ struct obj_data* get_obj_in_list_vis(struct char_data* ch, char* name,
     char* tmp;
 
     if (num < 9999) {
+        if (only_type >= 0) { /* the num-th item of this type */
+            for (i = list, j = 1; i; i = i->next_content)
+                if (GET_ITEM_TYPE(i) == only_type && j++ >= num)
+                    return (i);
+            return (0);
+        }
         for (i = list, j = 1; i && (j < num); i = i->next_content, j++)
             ;
         return (i);
@@ -2163,7 +2286,7 @@ struct obj_data* get_obj_in_list_vis(struct char_data* ch, char* name,
         return (0);
 
     for (i = list, j = 1; i && (j <= number); i = i->next_content)
-        if (isname(tmp, i->name, 0))
+        if ((only_type < 0 || GET_ITEM_TYPE(i) == only_type) && isname(tmp, i->name, 0))
             if (CAN_SEE_OBJ(ch, i)) {
                 if (j == number)
                     return (i);
@@ -2173,7 +2296,7 @@ struct obj_data* get_obj_in_list_vis(struct char_data* ch, char* name,
 }
 
 /*search the entire world for an object, and return a pointer  */
-struct obj_data* get_obj_vis(struct char_data* ch, char* name)
+struct obj_data* get_obj_vis(const struct char_data* ch, const char* name)
 {
     struct obj_data* i;
     int j, number;
@@ -2204,8 +2327,8 @@ struct obj_data* get_obj_vis(struct char_data* ch, char* name)
     return (0);
 }
 
-struct obj_data* get_object_in_equip_vis(struct char_data* ch,
-    char* arg, struct obj_data* equipment[], int* j)
+struct obj_data* get_object_in_equip_vis(const struct char_data* ch,
+    const char* arg, struct obj_data* equipment[], int* j)
 {
 
     for ((*j) = 0; (*j) < MAX_WEAR; (*j)++)
@@ -2304,7 +2427,7 @@ struct obj_data* create_money(int amount)
 /* The routine returns a pointer to the next word in *arg (just like the  */
 /* one_argument routine).                                                 */
 
-int generic_find(char* arg, int bitvector, struct char_data* ch,
+int generic_find(const char* arg, int bitvector, struct char_data* ch,
     struct char_data** tar_ch, struct obj_data** tar_obj)
 {
     char* ignore[] = {
@@ -2356,6 +2479,8 @@ int generic_find(char* arg, int bitvector, struct char_data* ch,
 
     if (IS_SET(bitvector, FIND_OBJ_EQUIP)) {
         for (found = FALSE, i = 0; i < MAX_WEAR && !found; i++) {
+            if (IS_SET(bitvector, FIND_OBJ_BELT_KEYRING) && belt_keyring(ch, i, nullptr))
+                continue; /* searched last, below */
             if (namelen > 2)
                 tmpfound = (ch->equipment[i] && strn_cmp(name, ch->equipment[i]->name, namelen) == 0);
             else
@@ -2383,6 +2508,35 @@ int generic_find(char* arg, int bitvector, struct char_data* ch,
         }
     }
 
+    if (IS_SET(bitvector, FIND_OBJ_BELT_KEYRING)) {
+        /* The inventory step takes the Nth match (no sight needed), else the
+         * room step the Nth it can see; the belt numbers on after the longer
+         * list, so every belt keyring has a number. */
+        char numbered[256];
+        char* word = numbered;
+        strcpy(numbered, name);
+        int number = get_number(&word);
+        if (number > 0 && *word) {
+            int carried = 0, here = 0;
+            if (IS_SET(bitvector, FIND_OBJ_INV))
+                for (obj_data* o = ch->carrying; o; o = o->next_content)
+                    if (isname(word, o->name, 0))
+                        carried++;
+            if (IS_SET(bitvector, FIND_OBJ_ROOM))
+                for (obj_data* o = world[ch->in_room].contents; o; o = o->next_content)
+                    if (isname(word, o->name, 0) && CAN_SEE_OBJ(ch, o))
+                        here++;
+            number -= carried > here ? carried : here;
+            for (int slot = WEAR_BELT_1; slot <= WEAR_BELT_3 && number > 0; slot++) {
+                obj_data* ring = belt_keyring(ch, slot, word);
+                if (ring && --number == 0) {
+                    *tar_obj = ring;
+                    return (FIND_OBJ_BELT_KEYRING);
+                }
+            }
+        }
+    }
+
     if (IS_SET(bitvector, FIND_OBJ_WORLD)) {
         if ((*tar_obj = get_obj_vis(ch, name))) {
             return (FIND_OBJ_WORLD);
@@ -2392,13 +2546,40 @@ int generic_find(char* arg, int bitvector, struct char_data* ch,
     return (0);
 }
 
+obj_data* belt_keyring(char_data* ch, int slot, const char* name)
+{
+    if (slot < WEAR_BELT_1 || slot > WEAR_BELT_3)
+        return nullptr;
+    obj_data* item = ch->equipment[slot];
+    if (item && item->is_keyring() && (!name || isname(name, item->name, 0)))
+        return item;
+    return nullptr;
+}
+
+int find_container(char_data* ch, const char* arg, int bits, char_data** tar_ch,
+    obj_data** tar_obj)
+{
+    return generic_find(arg, bits | FIND_OBJ_BELT_KEYRING, ch, tar_ch, tar_obj);
+}
+
+bool refuse_keyring(char_data* ch, const obj_data* obj, keyring_action action)
+{
+    if (!obj->is_keyring())
+        return false;
+    send_to_char(action == keyring_action::open_close ? "A keyring is always open.\n\r"
+                                                      : "A keyring has no lock.\n\r",
+        ch);
+    return true;
+}
+
 /* a function to scan for "all" or "all.x" */
 int find_all_dots(char* arg)
 {
     if (!strcmp(arg, "all"))
         return FIND_ALL;
     else if (!strncmp(arg, "all.", 4)) {
-        strcpy(arg, arg + 4);
+        // The keyword follows "all." in the same buffer, so the copy must allow overlap.
+        memmove(arg, arg + 4, strlen(arg + 4) + 1);
         return FIND_ALLDOT;
     } else
         return FIND_INDIV;
@@ -2441,16 +2622,28 @@ char* money_message(int sum, int mode)
     return moneystr;
 }
 
+/* A number outside the table is no slot: -1 is a character that was never
+ * registered (clear_char), and it neither exists nor frees anyone's slot. */
+static bool is_char_slot(int num)
+{
+    return num >= 0 && num < MAX_CHARACTERS;
+}
 int char_exists(int num)
 {
+    if (!is_char_slot(num))
+        return 0;
     return (char_control_array[num / 8] & (1 << (num % 8)));
 }
 void set_char_exists(int num)
 {
+    if (!is_char_slot(num))
+        return;
     char_control_array[num / 8] |= (1 << (num % 8));
 }
 void remove_char_exists(int num)
 {
+    if (!is_char_slot(num))
+        return;
     char_control_array[num / 8] &= ~(1 << (num % 8));
 }
 int register_npc_char(struct char_data* mob)
@@ -2488,7 +2681,7 @@ int register_pc_char(struct char_data* ch)
     return register_npc_char(ch);
 }
 
-int can_swim(struct char_data* ch)
+int can_swim(const struct char_data* ch)
 {
 
     struct obj_data* tmpobj;
@@ -2563,7 +2756,7 @@ void stop_riding(struct char_data* ch)
     return;
 }
 
-void stop_riding_all(char_data* mount)
+void stop_riding_all(const char_data* mount)
 {
     char_data* tmpch;
 
@@ -2601,7 +2794,7 @@ void recalc_zone_power()
  * over this zone; returns -1 for dominating evil, 1 for domi-
  * nating good, 0 for neither.
  */
-int report_zone_power(struct char_data* ch)
+int report_zone_power(const struct char_data* ch)
 {
     struct zone_data* z;
 

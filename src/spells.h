@@ -34,155 +34,161 @@
  */
 
 /* Warrior Skills */
-#define SKILL_BAREHANDED 0
-#define SKILL_SLASH 1
-#define SKILL_CONCUSSION 2
-#define SKILL_WHIP 3
-#define SKILL_PIERCE 4
-#define SKILL_SPEARS 5
-#define SKILL_AXE 6
-#define SKILL_NATURAL_ATTACK 7
-#define SKILL_SWIM 8
-#define SKILL_TWOHANDED 9
-#define SKILL_WEAPONS 10
-#define SKILL_PARRY 11
-#define SKILL_KICK 12
-#define SKILL_BASH 13
-#define SKILL_RESCUE 14
-#define SKILL_BERSERK 15
-#define SKILL_EXTRA_DAMAGE 16
-#define SKILL_BLOCK 17
-#define SKILL_SWING 18
-#define SKILL_DEFEND 131
+inline constexpr int SKILL_BAREHANDED = 0;
+inline constexpr int SKILL_SLASH = 1;
+inline constexpr int SKILL_CONCUSSION = 2;
+inline constexpr int SKILL_WHIP = 3;
+inline constexpr int SKILL_PIERCE = 4;
+inline constexpr int SKILL_SPEARS = 5;
+inline constexpr int SKILL_AXE = 6;
+inline constexpr int SKILL_NATURAL_ATTACK = 7;
+inline constexpr int SKILL_SWIM = 8;
+inline constexpr int SKILL_TWOHANDED = 9;
+inline constexpr int SKILL_WEAPONS = 10;
+inline constexpr int SKILL_PARRY = 11;
+inline constexpr int SKILL_KICK = 12;
+inline constexpr int SKILL_BASH = 13;
+inline constexpr int SKILL_RESCUE = 14;
+inline constexpr int SKILL_BERSERK = 15;
+inline constexpr int SKILL_EXTRA_DAMAGE = 16;
+inline constexpr int SKILL_BLOCK = 17;
+inline constexpr int SKILL_SWING = 18;
+inline constexpr int SKILL_DEFEND = 131;
 
 /* Ranger skills */
-#define SKILL_DODGE 21
-#define SKILL_ATTACK 22
-#define SKILL_SNEAK 23
-#define SKILL_HIDE 24
-#define SKILL_AMBUSH 25
-#define SKILL_TRACK 26
-#define SKILL_PICK_LOCK 27
-#define SKILL_SEARCH 28
-#define SKILL_ANIMALS 29
-#define SKILL_GATHER_FOOD 30
-#define SKILL_STEALTH 31
-#define SKILL_AWARENESS 32
-#define SKILL_RIDE 33
-#define SKILL_ACCURACY 34
-#define SKILL_TAME 35
-#define SKILL_CALM 36
-#define SKILL_WHISTLE 37
-#define SKILL_STALK 38
-#define SKILL_TRAVELLING 39
-#define SKILL_RIPOSTE 20
-#define SKILL_ARCHERY 61
+inline constexpr int SKILL_DODGE = 21;
+inline constexpr int SKILL_ATTACK = 22;
+inline constexpr int SKILL_SNEAK = 23;
+inline constexpr int SKILL_HIDE = 24;
+inline constexpr int SKILL_AMBUSH = 25;
+inline constexpr int SKILL_TRACK = 26;
+inline constexpr int SKILL_PICK_LOCK = 27;
+inline constexpr int SKILL_SEARCH = 28;
+inline constexpr int SKILL_ANIMALS = 29;
+inline constexpr int SKILL_GATHER_FOOD = 30;
+inline constexpr int SKILL_STEALTH = 31;
+inline constexpr int SKILL_AWARENESS = 32;
+inline constexpr int SKILL_RIDE = 33;
+inline constexpr int SKILL_ACCURACY = 34;
+inline constexpr int SKILL_TAME = 35;
+inline constexpr int SKILL_CALM = 36;
+inline constexpr int SKILL_WHISTLE = 37;
+inline constexpr int SKILL_STALK = 38;
+inline constexpr int SKILL_TRAVELLING = 39;
+inline constexpr int SKILL_RIPOSTE = 20;
+inline constexpr int SKILL_ARCHERY = 61;
 
 /* Common orc recruit skill */
-#define SKILL_RECRUIT 40
-#define SKILL_LEADERSHIP 19
+inline constexpr int SKILL_RECRUIT = 40;
+inline constexpr int SKILL_LEADERSHIP = 19;
 
 /* Mystic Spells */
-#define SPELL_DETECT_HIDDEN 41
-#define SPELL_ARMOR 42
-#define SPELL_POISON 43
-#define SPELL_RESIST_POISON 44
-#define SPELL_CURING 45
-#define SPELL_RESTLESSNESS 46
-#define SPELL_RESIST_MAGIC 47
-#define SPELL_SLOW_DIGESTION 48
-#define SPELL_DISPEL_REGENERATION 49
-#define SPELL_INSIGHT 50
-#define SPELL_PRAGMATISM 51
-#define SPELL_HAZE 52
-#define SPELL_FEAR 53
-#define SPELL_DIVINATION 54
-#define SPELL_SANCTUARY 56
-#define SPELL_VITALITY 57
-#define SPELL_TERROR 58
-#define SPELL_ENCHANT_WEAPON 60
-#define SPELL_HALLUCINATE 63
-#define SPELL_REGENERATION 64
-#define SPELL_GUARDIAN 65
-#define SPELL_INFRAVISION 66
-#define SPELL_CURSE 67
-#define SPELL_REVIVE 68
-#define SPELL_DETECT_MAGIC 69
-#define SPELL_SHIFT 70 // Needs to be removed.
-#define SPELL_DEATH_WARD 83
-#define SPELL_MIND_BLOCK 86
-#define SPELL_REMOVE_POISON 87
-#define SPELL_PROTECTION 89
-#define SPELL_CONFUSE 111
+inline constexpr int SPELL_DETECT_HIDDEN = 41;
+inline constexpr int SPELL_ARMOR = 42;
+inline constexpr int SPELL_POISON = 43;
+inline constexpr int SPELL_RESIST_POISON = 44;
+inline constexpr int SPELL_CURING = 45;
+inline constexpr int SPELL_RESTLESSNESS = 46;
+inline constexpr int SPELL_RESIST_MAGIC = 47;
+inline constexpr int SPELL_SLOW_DIGESTION = 48;
+inline constexpr int SPELL_DISPEL_REGENERATION = 49;
+inline constexpr int SPELL_INSIGHT = 50;
+inline constexpr int SPELL_PRAGMATISM = 51;
+inline constexpr int SPELL_HAZE = 52;
+inline constexpr int SPELL_FEAR = 53;
+inline constexpr int SPELL_DIVINATION = 54;
+inline constexpr int SPELL_SANCTUARY = 56;
+inline constexpr int SPELL_VITALITY = 57;
+inline constexpr int SPELL_TERROR = 58;
+inline constexpr int SPELL_ENCHANT_WEAPON = 60;
+inline constexpr int SPELL_HALLUCINATE = 63;
+inline constexpr int SPELL_REGENERATION = 64;
+inline constexpr int SPELL_GUARDIAN = 65;
+inline constexpr int SPELL_INFRAVISION = 66;
+inline constexpr int SPELL_CURSE = 67;
+inline constexpr int SPELL_REVIVE = 68;
+inline constexpr int SPELL_DETECT_MAGIC = 69;
+inline constexpr int SPELL_SHIFT = 70; // Needs to be removed.
+inline constexpr int SPELL_DEATH_WARD = 83;
+inline constexpr int SPELL_MIND_BLOCK = 86;
+inline constexpr int SPELL_REMOVE_POISON = 87;
+inline constexpr int SPELL_PROTECTION = 89;
+inline constexpr int SPELL_CONFUSE = 111;
+inline constexpr int SPELL_RESIST_FIRE = 161;
+inline constexpr int SPELL_RESIST_COLD = 162;
+inline constexpr int SPELL_RESIST_LIGHT = 163;
+inline constexpr int SPELL_RESIST_ILLUSION = 164;
+inline constexpr int SPELL_RESIST_PHYSICAL = 165;
+inline constexpr int SPELL_RESIST_DARK = 166;
 
 /* Mage Spells */
-#define SPELL_SUMMON 62
-#define SPELL_MAGIC_MISSILE 71
-#define SPELL_REVEAL_LIFE 72
-#define SPELL_LOCATE_LIVING 73
-#define SPELL_CURE_SELF 74
-#define SPELL_CHILL_RAY 75
-#define SPELL_BLINK 76
-#define SPELL_FREEZE 77 // Needs to be removed.
-#define SPELL_LIGHTNING_BOLT 78
-#define SPELL_VITALIZE_SELF 79
-#define SPELL_FLASH 80
-#define SPELL_EARTHQUAKE 81
-#define SPELL_CREATE_LIGHT 82
-#define SPELL_DARK_BOLT 84
-#define SPELL_MIST_OF_BAAZUNGA 85 // Needs to be removed.
-#define SPELL_BEACON 88
-#define SPELL_BLAZE 90 // Needs to be removed
-#define SPELL_FIREBOLT 91
-#define SPELL_RELOCATE 92
-#define SPELL_CONE_OF_COLD 93
-#define SPELL_IDENTIFY 94
-#define SPELL_FIREBALL 96
-#define SPELL_SEARING_DARKNESS 98
-#define SPELL_LIGHTNING_STRIKE 99
-#define SPELL_SHIELD 108
-#define SPELL_DETECT_EVIL 109
-#define SPELL_EXPOSE_ELEMENTS 112
+inline constexpr int SPELL_SUMMON = 62;
+inline constexpr int SPELL_MAGIC_MISSILE = 71;
+inline constexpr int SPELL_REVEAL_LIFE = 72;
+inline constexpr int SPELL_LOCATE_LIVING = 73;
+inline constexpr int SPELL_CURE_SELF = 74;
+inline constexpr int SPELL_CHILL_RAY = 75;
+inline constexpr int SPELL_BLINK = 76;
+inline constexpr int SPELL_FREEZE = 77; // Needs to be removed.
+inline constexpr int SPELL_LIGHTNING_BOLT = 78;
+inline constexpr int SPELL_VITALIZE_SELF = 79;
+inline constexpr int SPELL_FLASH = 80;
+inline constexpr int SPELL_EARTHQUAKE = 81;
+inline constexpr int SPELL_CREATE_LIGHT = 82;
+inline constexpr int SPELL_DARK_BOLT = 84;
+inline constexpr int SPELL_MIST_OF_BAAZUNGA = 85; // Needs to be removed.
+inline constexpr int SPELL_BEACON = 88;
+inline constexpr int SPELL_BLAZE = 90; // Needs to be removed
+inline constexpr int SPELL_FIREBOLT = 91;
+inline constexpr int SPELL_RELOCATE = 92;
+inline constexpr int SPELL_CONE_OF_COLD = 93;
+inline constexpr int SPELL_IDENTIFY = 94;
+inline constexpr int SPELL_FIREBALL = 96;
+inline constexpr int SPELL_SEARING_DARKNESS = 98;
+inline constexpr int SPELL_LIGHTNING_STRIKE = 99;
+inline constexpr int SPELL_SHIELD = 108;
+inline constexpr int SPELL_DETECT_EVIL = 109;
+inline constexpr int SPELL_EXPOSE_ELEMENTS = 112;
 
 /* Uruk-Lhuth Race Specific Spells */
-#define SPELL_WORD_OF_PAIN 100
-#define SPELL_WORD_OF_SIGHT 101
-#define SPELL_WORD_OF_AGONY 102
-#define SPELL_SHOUT_OF_PAIN 103
-#define SPELL_WORD_OF_SHOCK 104
-#define SPELL_SPEAR_OF_DARKNESS 105
-#define SPELL_LEACH 106
-#define SPELL_BLACK_ARROW 107
+inline constexpr int SPELL_WORD_OF_PAIN = 100;
+inline constexpr int SPELL_WORD_OF_SIGHT = 101;
+inline constexpr int SPELL_WORD_OF_AGONY = 102;
+inline constexpr int SPELL_SHOUT_OF_PAIN = 103;
+inline constexpr int SPELL_WORD_OF_SHOCK = 104;
+inline constexpr int SPELL_SPEAR_OF_DARKNESS = 105;
+inline constexpr int SPELL_LEACH = 106;
+inline constexpr int SPELL_BLACK_ARROW = 107;
 
 /* Beornings Race Specific Skills */
-#define SKILL_REND 55
-#define SKILL_BITE 113
-#define SKILL_SWIPE 114
-#define SKILL_MAUL 115
+inline constexpr int SKILL_REND = 55;
+inline constexpr int SKILL_BITE = 113;
+inline constexpr int SKILL_SWIPE = 114;
+inline constexpr int SKILL_MAUL = 115;
 
 /* Haradrim Race Specific Skills */
-#define SKILL_MARK 124
-#define SKILL_BLINDING 110
-#define SKILL_BEND_TIME 95
-#define SKILL_WINDBLAST 128
-#define SPELL_FAME_WAR 129
+inline constexpr int SKILL_MARK = 124;
+inline constexpr int SKILL_BLINDING = 110;
+inline constexpr int SKILL_BEND_TIME = 95;
+inline constexpr int SKILL_WINDBLAST = 128;
+inline constexpr int SPELL_FAME_WAR = 129;
 
 /* Olog-Hai Race Specific Skills */
-#define SKILL_SMASH 152
-#define SKILL_FRENZY 153
-#define SKILL_STOMP 154
-#define SKILL_BLOODTHIRST 155
-#define SKILL_CLEAVE 156
-#define SKILL_OVERRUN 157
-#define SPELL_MASS_REGENERATION 158
-#define SPELL_MASS_VITALITY 159
-#define SPELL_MASS_INSIGHT 160
+inline constexpr int SKILL_SMASH = 152;
+inline constexpr int SKILL_FRENZY = 153;
+inline constexpr int SKILL_STOMP = 154;
+inline constexpr int SKILL_BLOODTHIRST = 155;
+inline constexpr int SKILL_CLEAVE = 156;
+inline constexpr int SKILL_OVERRUN = 157;
+inline constexpr int SPELL_MASS_REGENERATION = 158;
+inline constexpr int SPELL_MASS_VITALITY = 159;
+inline constexpr int SPELL_MASS_INSIGHT = 160;
 
-#define SPELL_ASPHYXIATION 116
-#define SPELL_ARDA 117
-#define SPELL_ACTIVITY 118
-#define SPELL_RAGE 119
-#define SPELL_ANGER 120
+inline constexpr int SPELL_ASPHYXIATION = 116;
+inline constexpr int SPELL_ARDA = 117;
+inline constexpr int SPELL_ACTIVITY = 118;
+inline constexpr int SPELL_RAGE = 119;
+inline constexpr int SPELL_ANGER = 120;
 /* These are reserved for languages do not used them...
         #define LANG_ANIMAL      121
         #define LANG_HUMAN       122
@@ -191,23 +197,23 @@
 
 /* Any skills and/or spells free should be listed here */
 
-#define SKILL_UNUSED2 97
-#define SKILL_UNUSED3 59
-#define SKILL_UNUSED5 126
+inline constexpr int SKILL_UNUSED2 = 97;
+inline constexpr int SKILL_UNUSED3 = 59;
+inline constexpr int SKILL_UNUSED5 = 126;
 
 /* Don't remove this because it's use to remove spells */
-#define SPELL_NONE 127
+inline constexpr int SPELL_NONE = 127;
 /* MAX_SKILL is defined at 128 and we can't exceed this without changing the playerfiles */
 
 /* 130-150 are reserved for weapon types.  200 is suffering */
-#define SKILL_TRAP 151
+inline constexpr int SKILL_TRAP = 151;
 
-#define SPELL_FIREBALL2 201
-#define SPELL_DRAGONSBREATH 202
-#define SPELL_BURN 203
+inline constexpr int SPELL_FIREBALL2 = 201;
+inline constexpr int SPELL_DRAGONSBREATH = 202;
+inline constexpr int SPELL_BURN = 203;
 
-#define TYPE_UNDEFINED -1
-#define SPELL_RESERVED_DBC 0 /* SKILL NUMBER ZERO */
+inline constexpr int TYPE_UNDEFINED = -1;
+inline constexpr int SPELL_RESERVED_DBC = 0; /* SKILL NUMBER ZERO */
 
 /* END OF SKILL RESERVED "NO TOUCH" NUMBERS */
 
@@ -218,22 +224,22 @@
  * used throughout the code, so changing it will not be suffi-
  * cient to ensure that the rest of the code works properly.
  */
-#define TYPE_HIT 130
-#define TYPE_BLUDGEON 131
-#define TYPE_PIERCE 132
-#define TYPE_SLASH 133
-#define TYPE_STAB 134
-#define TYPE_WHIP 135 /* EXAMPLE */
-#define TYPE_SPEARS 136
-#define TYPE_CLAW 137 /* NO MESSAGES WRITTEN YET! */
-#define TYPE_BITE 138 /* NO MESSAGES WRITTEN YET! */
-#define TYPE_STING 139 /* NO MESSAGES WRITTEN YET! */
-#define TYPE_CLEAVE 140
-#define TYPE_FLAIL 141
-#define TYPE_SMITE 142
-#define TYPE_CRUSH 143
+inline constexpr int TYPE_HIT = 130;
+inline constexpr int TYPE_BLUDGEON = 131;
+inline constexpr int TYPE_PIERCE = 132;
+inline constexpr int TYPE_SLASH = 133;
+inline constexpr int TYPE_STAB = 134;
+inline constexpr int TYPE_WHIP = 135; /* EXAMPLE */
+inline constexpr int TYPE_SPEARS = 136;
+inline constexpr int TYPE_CLAW = 137; /* NO MESSAGES WRITTEN YET! */
+inline constexpr int TYPE_BITE = 138; /* NO MESSAGES WRITTEN YET! */
+inline constexpr int TYPE_STING = 139; /* NO MESSAGES WRITTEN YET! */
+inline constexpr int TYPE_CLEAVE = 140;
+inline constexpr int TYPE_FLAIL = 141;
+inline constexpr int TYPE_SMITE = 142;
+inline constexpr int TYPE_CRUSH = 143;
 
-#define TYPE_SUFFERING 200
+inline constexpr int TYPE_SUFFERING = 200;
 
 /* More anything but spells and weapontypes can be insterted here! */
 inline int weapon_skill_num(int type)
@@ -308,20 +314,20 @@ inline int weapon_skill_num(game_types::weapon_type weapon_type)
     }
 }
 
-#define MAX_TYPES 100
+inline constexpr int MAX_TYPES = 100;
 
-#define MAX_SPL_LIST 127
+inline constexpr int MAX_SPL_LIST = 127;
 
 /*
  * For bitvector defines for learn_type.
  *
  * NOTE: It looks like LEARN_LEVEL and DYNAMIC_TIME are deprecated.
  */
-#define LEARN_COOF 0x01 /* Learning speed proportional to class_coof */
-#define LEARN_LEVEL 0x02 /* Learning speed depends on spell lvl and coof */
-#define DYNAMIC_TIME 0x10 /* Duration is decreased with level */
-#define REDUCED_MANA 0x20 /* Mana when casting is reduced by 5 */
-#define LEARN_SPEC 0x40 /* May learn only if specialized in it */
+inline constexpr int LEARN_COOF = 0x01; /* Learning speed proportional to class_coof */
+inline constexpr int LEARN_LEVEL = 0x02; /* Learning speed depends on spell lvl and coof */
+inline constexpr int DYNAMIC_TIME = 0x10; /* Duration is decreased with level */
+inline constexpr int REDUCED_MANA = 0x20; /* Mana when casting is reduced by 5 */
+inline constexpr int LEARN_SPEC = 0x40; /* May learn only if specialized in it */
 
 #define SPELL_LEVEL(ch, sn) (skills[(sn)].level)
 
@@ -367,6 +373,7 @@ struct skill_data {
     char learn_type; /* If the skill is spec only set to 65 otherwise 1  */
     byte is_fast; /* non-zero if fast-updating skill */
     char skill_spec; /* spell/skill group, specialization */
+    char resist; /* RESIST_* this skill's damage is resisted as */
 };
 
 struct skill_teach_data {
@@ -379,12 +386,12 @@ struct skill_teach_data {
     byte knowledge[MAX_SKILLS];
 };
 
-#define SPELL_TYPE_SPELL 0
-#define SPELL_TYPE_POTION 1
-#define SPELL_TYPE_WAND 2
-#define SPELL_TYPE_STAFF 3
-#define SPELL_TYPE_SCROLL 4
-#define SPELL_TYPE_ANTI 5 /* The spell is asked to self-destruct */
+inline constexpr int SPELL_TYPE_SPELL = 0;
+inline constexpr int SPELL_TYPE_POTION = 1;
+inline constexpr int SPELL_TYPE_WAND = 2;
+inline constexpr int SPELL_TYPE_STAFF = 3;
+inline constexpr int SPELL_TYPE_SCROLL = 4;
+inline constexpr int SPELL_TYPE_ANTI = 5; /* The spell is asked to self-destruct */
 
 /* Attack types with grammar */
 struct attack_hit_type {
@@ -482,7 +489,14 @@ ASPELL(spell_mass_regeneration);
 ASPELL(spell_mass_vitality);
 ASPELL(spell_mass_insight);
 
-bool is_strong_enough_to_tame(struct char_data* tamer, struct char_data* animal, bool include_current_followers);
+ASPELL(spell_resist_fire);
+ASPELL(spell_resist_cold);
+ASPELL(spell_resist_light);
+ASPELL(spell_resist_illusion);
+ASPELL(spell_resist_physical);
+ASPELL(spell_resist_dark);
+
+bool is_strong_enough_to_tame(const struct char_data* tamer, const struct char_data* animal, bool include_current_followers);
 
 int get_mage_caster_level(const char_data* caster);
 int get_mystic_caster_level(const char_data* caster);

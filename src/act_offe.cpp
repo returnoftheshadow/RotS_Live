@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "act_offe.h"
 #include "color.h"
 #include "comm.h"
 #include "db.h"
@@ -29,9 +30,9 @@
 
 /* extern variables */
 extern struct room_data world;
-extern struct descriptor_data *descriptor_list;
-extern struct char_data *waiting_list;
-extern char *dirs[];
+extern struct descriptor_data* descriptor_list;
+extern struct char_data* waiting_list;
+extern char* dirs[];
 extern int rev_dir[];
 extern struct skill_data skills[MAX_SKILLS];
 
@@ -41,24 +42,26 @@ ACMD(do_move);
 ACMD(do_mental);
 
 /* extern functions */
-extern void raw_kill(char_data *ch, char_data *killer, int attacktype);
-int check_simple_move(struct char_data *ch, int cmd, int *move_cost, int mode);
-int get_real_stealth(struct char_data *ch);
-int find_door(struct char_data *ch, char *type, char *dir);
-void group_gain(struct char_data *ch, struct char_data *victim);
-int get_number(char **name);
-int check_hallucinate(struct char_data *ch, struct char_data *victim);
-void appear(struct char_data *ch);
-bool is_frenzy_active(char_data &attacker);
+extern void raw_kill(char_data* ch, const char_data* killer, int attacktype);
+int check_simple_move(struct char_data* ch, int cmd, int* move_cost, int mode);
+extern char_data* g_skip_next_before_enter_for;
+int get_real_stealth(const struct char_data* ch);
+int find_door(const struct char_data* ch, const char* type, char* dir);
+void group_gain(struct char_data* ch, const struct char_data* victim);
+int get_number(char** name);
+int check_hallucinate(struct char_data* ch, struct char_data* victim);
+void appear(struct char_data* ch);
+bool is_frenzy_active(char_data& attacker);
 
-ACMD(do_hit) {
-    struct char_data *victim;
+ACMD(do_hit)
+{
+    struct char_data* victim;
 
     // is this a peace room?  - Seether
     if (IS_SET(world[ch->in_room].room_flags, PEACEROOM)) {
         send_to_char("A peaceful feeling overwhelms you, and you cannot bring "
                      "yourself to attack.\n\r",
-                     ch);
+            ch);
         return;
     }
 
@@ -85,38 +88,34 @@ ACMD(do_hit) {
             act("$n hits $mself, and says OUCH!", FALSE, ch, 0, victim, TO_ROOM);
             return;
         }
-        if ((IS_AFFECTED(ch, AFF_CHARM) && ch->master == victim) ||
-            (IS_AFFECTED(victim, AFF_CHARM) && victim->master == ch)) {
+        if ((IS_AFFECTED(ch, AFF_CHARM) && ch->master == victim) || (IS_AFFECTED(victim, AFF_CHARM) && victim->master == ch)) {
             act("$N is just such a good friend, you simply can't hit $M.", FALSE, ch, 0, victim,
                 TO_CHAR);
             return;
         }
-        if (!IS_NPC(ch) && IS_NPC(victim) && (subcmd == SCMD_HIT) && (GET_LEVEL(ch) < 4) &&
-            (GET_LEVEL(victim) > GET_LEVEL(ch) * 3 + 2)) {
+        if (!IS_NPC(ch) && IS_NPC(victim) && (subcmd == SCMD_HIT) && (GET_LEVEL(ch) < 4) && (GET_LEVEL(victim) > GET_LEVEL(ch) * 3 + 2)) {
             act("Your arm refuses to attack such a powerful opponent.\n\r"
                 "Try to consider your enemy first.\n\r",
                 FALSE, ch, 0, victim, TO_CHAR);
             return;
         }
-        if (!IS_NPC(ch) && GET_LEVEL(ch) < 10 && !IS_NPC(victim) && RACE_GOOD(ch) &&
-            RACE_GOOD(victim)) {
+        if (!IS_NPC(ch) && GET_LEVEL(ch) < 10 && !IS_NPC(victim) && RACE_GOOD(ch) && RACE_GOOD(victim)) {
             act("The will of the Valar holds your attack in check.\n\r", FALSE, ch, 0, victim,
                 TO_CHAR);
             return;
         }
-        if (!IS_NPC(ch) && !IS_NPC(victim) && ((GET_LEVEL(ch) + GET_LEVEL(victim)) < 8) &&
-            !other_side(ch, victim)) {
+        if (!IS_NPC(ch) && !IS_NPC(victim) && ((GET_LEVEL(ch) + GET_LEVEL(victim)) < 8) && !other_side(ch, victim)) {
             act("You can't do it now. Group with this person and get some levels "
                 "instead.\n\r",
                 FALSE, ch, 0, victim, TO_CHAR);
             return;
         }
 
-        game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+        game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
         if (!bb_instance.is_target_valid(ch, victim)) {
             send_to_char("You feel the Gods looking down upon you, and protecting your target.  "
                          "Your hand is stayed.\r\n",
-                         ch);
+                ch);
             return;
         }
 
@@ -151,7 +150,8 @@ ACMD(do_hit) {
     }
 }
 
-bool should_assist_master(char_data *ch) {
+bool should_assist_master(const char_data* ch)
+{
     auto master = ch->master;
 
     if (!master) {
@@ -168,7 +168,8 @@ bool should_assist_master(char_data *ch) {
     return master_in_room == ch_in_room;
 }
 
-ACMD(do_assist) {
+ACMD(do_assist)
+{
     struct char_data *helpee, *opponent;
     struct waiting_type tmpwtl;
 
@@ -214,11 +215,11 @@ ACMD(do_assist) {
         return;
     }
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(ch, opponent)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your target.  Your "
                      "hand is stayed.\r\n",
-                     ch);
+            ch);
         return;
     }
 
@@ -233,8 +234,9 @@ ACMD(do_assist) {
     do_hit(ch, argument, &tmpwtl, CMD_HIT, SCMD_MURDER);
 }
 
-ACMD(do_slay) {
-    struct char_data *victim;
+ACMD(do_slay)
+{
+    struct char_data* victim;
 
     if ((GET_LEVEL(ch) < LEVEL_GOD) || IS_NPC(ch)) {
         do_hit(ch, argument, wtl, cmd, subcmd);
@@ -261,13 +263,14 @@ ACMD(do_slay) {
     }
 }
 
-ACMD(do_order) {
+ACMD(do_order)
+{
     char name[100], message[256];
     char buf[256];
     char found = FALSE;
     int org_room;
-    struct char_data *victim;
-    struct follow_type *k;
+    struct char_data* victim;
+    struct follow_type* k;
 
     if (IS_SHADOW(ch)) {
         send_to_char("Who'd listen to a shadow?.\n\r", ch);
@@ -329,10 +332,11 @@ ACMD(do_order) {
 }
 
 /* XXX: Fix double message on flee */
-ACMD(do_flee) {
+ACMD(do_flee)
+{
     int i, attempt, loose, die, res, move_cost;
-    struct char_data *tmpch;
-    void gain_exp(struct char_data *, int);
+    struct char_data* tmpch;
+    void gain_exp(struct char_data*, int);
 
     if (GET_TACTICS(ch) == TACTICS_BERSERK) {
         send_to_char("You are too enraged to flee!\n\r", ch);
@@ -347,18 +351,12 @@ ACMD(do_flee) {
 
     for (i = 0; i < 6; i++) {
         attempt = number(0, NUM_OF_DIRS - 1);
-        res = CAN_GO(ch, attempt) && !IS_SET(EXIT(ch, attempt)->exit_info, EX_NOFLEE) &&
-              !IS_SET(EXIT(ch, attempt)->exit_info, EX_NOWALK);
+        res = CAN_GO(ch, attempt) && !IS_SET(EXIT(ch, attempt)->exit_info, EX_NOFLEE) && !IS_SET(EXIT(ch, attempt)->exit_info, EX_NOWALK);
 
         if (res) {
             res = !IS_SET(world[EXIT(ch, attempt)->to_room].room_flags, DEATH);
             if (IS_NPC(ch)) {
-                res =
-                    res && ((!IS_SET(ch->specials2.act, MOB_STAY_ZONE) ||
-                             (world[EXIT(ch, attempt)->to_room].zone == world[ch->in_room].zone)) &&
-                            (!IS_SET(ch->specials2.act, MOB_STAY_TYPE) ||
-                             (world[EXIT(ch, attempt)->to_room].sector_type ==
-                              world[ch->in_room].sector_type)));
+                res = res && ((!IS_SET(ch->specials2.act, MOB_STAY_ZONE) || (world[EXIT(ch, attempt)->to_room].zone == world[ch->in_room].zone)) && (!IS_SET(ch->specials2.act, MOB_STAY_TYPE) || (world[EXIT(ch, attempt)->to_room].sector_type == world[ch->in_room].sector_type)));
             }
         }
 
@@ -405,6 +403,7 @@ ACMD(do_flee) {
 
                 send_to_char("You flee head over heels.\n\r", ch);
                 act("$n flees head over heels!", FALSE, ch, 0, 0, TO_ROOM);
+                g_skip_next_before_enter_for = ch;
                 do_move(ch, dirs[attempt], 0, attempt + 1, SCMD_FLEE);
                 return;
             }
@@ -419,10 +418,11 @@ ACMD(do_flee) {
     return;
 }
 
-ACMD(do_bash) {
-    struct char_data *victim;
+ACMD(do_bash)
+{
+    struct char_data* victim;
     int prob, door, next_mode, other_room, tmp;
-    struct room_direction_data *back;
+    struct room_direction_data* back;
     char type[MAX_INPUT_LENGTH], dir[MAX_INPUT_LENGTH];
 
     if (IS_SHADOW(ch)) {
@@ -430,7 +430,7 @@ ACMD(do_bash) {
         subcmd = -1;
     }
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     one_argument(argument, arg);
 
     switch (subcmd) {
@@ -454,7 +454,7 @@ ACMD(do_bash) {
             if (IS_SET(world[ch->in_room].room_flags, PEACEROOM)) {
                 send_to_char("A peaceful feeling overwhelms you, and you "
                              "cannot bring yourself to attack.\n\r",
-                             ch);
+                    ch);
                 return;
             }
             if (victim == ch) {
@@ -465,7 +465,7 @@ ACMD(do_bash) {
             if (!bb_instance.is_target_valid(ch, victim, SKILL_BASH)) {
                 send_to_char("You feel the Gods looking down upon you, and protecting your target. "
                              " You freeze momentarily, and reconsider your action.\r\n",
-                             ch);
+                    ch);
                 return;
             }
 
@@ -508,8 +508,8 @@ ACMD(do_bash) {
         }
 
         WAIT_STATE_FULL(ch, skills[SKILL_BASH].beats, CMD_BASH, next_mode, 50, 0,
-                        (next_mode == 1) ? GET_ABS_NUM(victim) : door, victim,
-                        AFF_WAITING | AFF_WAITWHEEL, (next_mode == 1) ? TARGET_CHAR : TARGET_OTHER);
+            (next_mode == 1) ? GET_ABS_NUM(victim) : door, victim,
+            AFF_WAITING | AFF_WAITWHEEL, (next_mode == 1) ? TARGET_CHAR : TARGET_OTHER);
         return;
 
     case 1:
@@ -521,7 +521,7 @@ ACMD(do_bash) {
             send_to_char("Your victim is no longer among us.\n\r", ch);
             return;
         }
-        victim = (struct char_data *)wtl->targ1.ptr.ch;
+        victim = (struct char_data*)wtl->targ1.ptr.ch;
         if (!CAN_SEE(ch, victim)) {
             send_to_char("Bash who?\n\r", ch);
             return;
@@ -543,7 +543,7 @@ ACMD(do_bash) {
         if (!bb_instance.is_target_valid(ch, victim, SKILL_BASH)) {
             send_to_char("You feel the Gods looking down upon you, and protecting your target.  "
                          "You freeze momentarily, and reconsider your action.\r\n",
-                         ch);
+                ch);
             return;
         }
 
@@ -566,8 +566,21 @@ ACMD(do_bash) {
         if (prob < 0)
             damage(ch, victim, 0, SKILL_BASH, 0);
         else {
-            WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
-                            CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+            player_spec::battle_mage_handler bash_victim_battle_mage(victim);
+            bool victim_resists_cast_interruption = IS_AFFECTED(victim, AFF_WAITWHEEL)
+                && GET_WAIT_PRIORITY(victim) <= 40
+                && !bash_victim_battle_mage.does_spell_get_interrupted();
+
+            /* Bash's priority-80 force-complete would otherwise always beat a
+               casting battle mage's spell (priority 30) regardless of tactics/
+               levels, since WAIT_STATE_FULL clears AFF_WAITWHEEL before damage()
+               ever reaches the does_spell_get_interrupted() roll that ordinary
+               weapon hits already respect (fight.cpp). Skip the clobber here the
+               same way, so a resisted roll leaves the cast running uninterrupted. */
+            if (!victim_resists_cast_interruption) {
+                WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
+                    CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+            }
             damage(ch, victim, 1, SKILL_BASH, 0);
         }
         return;
@@ -657,7 +670,7 @@ ACMD(do_bash) {
                         send_to_room(buf, EXIT(ch, door)->to_room);
                     } else
                         send_to_room("The door is opened from the other side.\n\r",
-                                     EXIT(ch, door)->to_room);
+                            EXIT(ch, door)->to_room);
                 }
             stop_riding(ch);
             char_from_room(ch);
@@ -667,7 +680,7 @@ ACMD(do_bash) {
         }
         GET_POS(ch) = POSITION_SITTING;
         WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 3, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
-                        TARGET_NONE);
+            TARGET_NONE);
 
         break;
     case -1: // emergency exit.
@@ -678,21 +691,87 @@ ACMD(do_bash) {
     }
 }
 
-char *rescue_message[MAX_RACES][2] = {
-    {"Fearless, you leap into harms way!\r\n", "$n rescues $N.\r\n"},
-    {"Shouting 'Elendil!', you leap to the rescue!\r\n",
-     "Shouting 'Elendil', $n fearlessly rescues $N.\r\n"},
-    {"A harsh guttural warcry escapes your lips as you leap to the rescue!\r\n",
-     "Shouting 'Khazad Ai-Menu' $n fearlessly rescues $N.\r\n"},
-    {"Shouting 'A Elbereth Githloriel!', you leap to the rescue.\r\n",
-     "Shouting 'A Elbereth Githloriel', $n fearlessly rescues $N.\r\n"},
-    {"Shouting 'For the Shire!', you leap to the rescue.\r\n",
-     "Shouting 'For the Shire', $n the brave little halfling rescues $N.\r\n"},
-    {"Fearless, you leap into harms way!\r\n", "$n rescues $N.\r\n"},
-    {"With a bellowing roar, you leap to the rescue!\r\n",
-     "Roaring, $n fearlessly rescues $N.\r\n"}};
+char* rescue_message[MAX_RACES][2] = {
+    { "Fearless, you leap into harms way!\r\n", "$n rescues $N.\r\n" },
+    { "Shouting 'Elendil!', you leap to the rescue!\r\n",
+        "Shouting 'Elendil', $n fearlessly rescues $N.\r\n" },
+    { "A harsh guttural warcry escapes your lips as you leap to the rescue!\r\n",
+        "Shouting 'Khazad Ai-Menu' $n fearlessly rescues $N.\r\n" },
+    { "Shouting 'A Elbereth Githloriel!', you leap to the rescue.\r\n",
+        "Shouting 'A Elbereth Githloriel', $n fearlessly rescues $N.\r\n" },
+    { "Shouting 'For the Shire!', you leap to the rescue.\r\n",
+        "Shouting 'For the Shire', $n the brave little halfling rescues $N.\r\n" },
+    { "Fearless, you leap into harms way!\r\n", "$n rescues $N.\r\n" },
+    { "With a bellowing roar, you leap to the rescue!\r\n",
+        "Roaring, $n fearlessly rescues $N.\r\n" }
+};
 
-ACMD(do_rescue) {
+/*
+ * Returns whoever in the rescuer's room is currently swinging at `victim`, or
+ * NULL if nobody eligible is.  Wraiths can only be pulled off by wraiths, and
+ * mortals can't step in front of a wraith's target.
+ */
+char_data* find_rescue_attacker(char_data* rescuer, char_data* victim)
+{
+    byte shadow_flag = IS_SHADOW(rescuer);
+    char_data* tmp_ch;
+
+    for (tmp_ch = world[rescuer->in_room].people;
+         tmp_ch && ((tmp_ch->specials.fighting != victim) || (shadow_flag && !IS_SHADOW(tmp_ch)) || (!shadow_flag && IS_NPC(tmp_ch) && IS_SHADOW(tmp_ch)));
+         tmp_ch = tmp_ch->next_in_room)
+        ;
+
+    return tmp_ch;
+}
+
+/*
+ * Returns the charmed follower beside the leader, and visible to them, who is
+ * closest to dying among those someone is fighting, or NULL.  `saw_follower`,
+ * when given, is set to whether any such follower stood in the room at all, so
+ * the caller can tell "none here" from "none need rescuing".  `follower_here`,
+ * when given, is set to whether any charmed follower is in the room, seen or
+ * not.
+ */
+char_data* find_most_hurt_rescuable_follower(char_data* leader, bool* saw_follower, bool* follower_here)
+{
+    char_data* worst = nullptr;
+    long long worst_health = 0;
+
+    if (saw_follower)
+        *saw_follower = false;
+    if (follower_here)
+        *follower_here = false;
+
+    for (follow_type* k = leader->followers; k; k = k->next) {
+        char_data* pet = k->follower;
+
+        if (pet->in_room != leader->in_room)
+            continue;
+        if (!IS_AFFECTED(pet, AFF_CHARM))
+            continue;
+        if (follower_here)
+            *follower_here = true;
+        if (!CAN_SEE(leader, pet))
+            continue;
+        if (saw_follower)
+            *saw_follower = true;
+        if (GET_MAX_HIT(pet) <= 0)
+            continue;
+        if (!find_rescue_attacker(leader, pet))
+            continue;
+
+        long long health = (1000LL * GET_HIT(pet)) / GET_MAX_HIT(pet);
+        if (!worst || health < worst_health) {
+            worst = pet;
+            worst_health = health;
+        }
+    }
+
+    return worst;
+}
+
+ACMD(do_rescue)
+{
 
     int room_message = 1;
 
@@ -710,20 +789,81 @@ ACMD(do_rescue) {
         return;
     }
 
-    if (wtl) {
-        if ((wtl->targ1.type != TARGET_CHAR) || !char_exists(wtl->targ1.ch_num) ||
-            wtl->targ1.ptr.ch->in_room != ch->in_room) {
+    /* A bare 'rescue' names nobody, whatever target the interpreter filled in. */
+    const char* rest = argument;
+    while (*rest == ' ')
+        rest++;
+    if (!*rest) {
+        send_to_char("Who do you want to rescue?\n\r", ch);
+        return;
+    }
+
+    /* one_argument() drops a word that opens with a quote (it never copies its
+     * first letter), while the target parser strips the quotes, so read a
+     * quoted word here the same way -- 'leader' must mean leader. */
+    if (*rest == '\'') {
+        int length = 0;
+        for (const char* letter = rest + 1; *letter && *letter != '\'' && length < MAX_INPUT_LENGTH - 1; letter++)
+            arg[length++] = LOWER(*letter);
+        arg[length] = '\0';
+    } else {
+        one_argument(argument, arg);
+    }
+    const bool wants_leader = is_abbrev(arg, "leader") || is_abbrev(arg, "master");
+    const bool wants_followers = !wants_leader && is_abbrev(arg, "followers");
+
+    /*
+     * 'leader'/'master' and 'followers' win over any character the word also
+     * names whenever they apply -- in a fight with an 'orc leader', 'order
+     * followers rescue leader' must save the master, not the orc.  They apply
+     * when the leader, or a charmed follower, is in the room, seen or not: an
+     * unseen one gets the "not here" answer rather than letting the word fall
+     * back to an enemy's name.  Only typed or ordered rescues (cmd CMD_RESCUE)
+     * read keywords: mob bodyguards call in with cmd 0, a resolved target and
+     * that target's own first name.
+     */
+    victim = nullptr;
+    if (cmd == CMD_RESCUE) {
+        if (wants_leader) {
+            if (ch->master && ch->master->in_room == ch->in_room) {
+                if (!CAN_SEE(ch, ch->master)) {
+                    send_to_char("Your leader isn't here.\n\r", ch);
+                    return;
+                }
+                victim = ch->master;
+            }
+        } else if (wants_followers) {
+            bool saw_follower = false;
+            bool follower_here = false;
+            victim = find_most_hurt_rescuable_follower(ch, &saw_follower, &follower_here);
+            if (!victim && saw_follower) {
+                send_to_char("None of your followers need rescuing.\n\r", ch);
+                return;
+            }
+            if (!victim && follower_here) {
+                send_to_char("None of your followers are here.\n\r", ch);
+                return;
+            }
+        }
+    }
+
+    if (victim) {
+        /* A keyword applied. */
+    } else if (wtl && wtl->targ1.type == TARGET_CHAR) {
+        if (!char_exists(wtl->targ1.ch_num) || wtl->targ1.ptr.ch->in_room != ch->in_room) {
             send_to_char("Alas! You lost your victim.\n\r", ch);
             return;
         }
         victim = wtl->targ1.ptr.ch;
-    } else {
-        one_argument(argument, arg);
-
-        if (!(victim = get_char_room_vis(ch, arg))) {
+    } else if (!(victim = get_char_room_vis(ch, arg))) {
+        /* The word named nobody here, and no keyword applied. */
+        if (wants_leader)
+            send_to_char("Your leader isn't here.\n\r", ch);
+        else if (wants_followers)
+            send_to_char("None of your followers are here.\n\r", ch);
+        else
             send_to_char("Who do you want to rescue?\n\r", ch);
-            return;
-        }
+        return;
     }
     if (victim == ch) {
         send_to_char("What about fleeing instead?\n\r", ch);
@@ -737,11 +877,7 @@ ACMD(do_rescue) {
 
     shadow_flag = IS_SHADOW(ch);
 
-    for (tmp_ch = world[ch->in_room].people;
-         tmp_ch && ((tmp_ch->specials.fighting != victim) || (shadow_flag && !IS_SHADOW(tmp_ch)) ||
-                    (!shadow_flag && IS_NPC(tmp_ch) && IS_SHADOW(tmp_ch)));
-         tmp_ch = tmp_ch->next_in_room)
-        ;
+    tmp_ch = find_rescue_attacker(ch, victim);
 
     if (!tmp_ch) {
         if (!shadow_flag)
@@ -790,7 +926,8 @@ ACMD(do_rescue) {
 //============================================================================
 // Probability used for kick and beorning skills.
 //============================================================================
-int get_prob_skill(char_data *attacker, char_data *victim, int skill) {
+int get_prob_skill(char_data* attacker, char_data* victim, int skill)
+{
     int prob = GET_SKILL(attacker, skill);
     prob -= get_real_dodge(victim) / 2;
     prob -= get_real_parry(victim) / 2;
@@ -803,9 +940,10 @@ int get_prob_skill(char_data *attacker, char_data *victim, int skill) {
 /*
  * Also handles wild swing.
  */
-ACMD(do_kick) {
-    struct char_data *victim;
-    struct char_data *t;
+ACMD(do_kick)
+{
+    struct char_data* victim;
+    struct char_data* t;
     sh_int prob, num, dam;
     int attacktype;
 
@@ -824,7 +962,7 @@ ACMD(do_kick) {
     if (IS_SET(world[ch->in_room].room_flags, PEACEROOM)) {
         send_to_char("A peaceful feeling overwhelms you, "
                      "and you cannot bring yourself to attack.\n\r",
-                     ch);
+            ch);
         return;
     }
 
@@ -851,11 +989,11 @@ ACMD(do_kick) {
         }
     }
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(ch, victim, attacktype)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your target.  You "
                      "freeze momentarily, and reconsider your action.\r\n",
-                     ch);
+            ch);
         return;
     }
 
@@ -922,10 +1060,11 @@ ACMD(do_kick) {
 
 delay:
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
-                    AFF_WAITING, TARGET_NONE);
+        AFF_WAITING, TARGET_NONE);
 }
 
-ACMD(do_disengage) {
+ACMD(do_disengage)
+{
 
     if (!ch->specials.fighting) {
         send_to_char("You are not fighting anybody.\n\r", ch);
@@ -945,7 +1084,8 @@ ACMD(do_disengage) {
     stop_fighting(ch);
 }
 
-ACMD(do_defend) {
+ACMD(do_defend)
+{
     if (ch->specials.fighting == nullptr) {
         send_to_char("You are not fighting anybody.\n\r", ch);
         return;
@@ -969,7 +1109,7 @@ ACMD(do_defend) {
         return;
     }
 
-    game_timer::skill_timer &timer = game_timer::skill_timer::instance();
+    game_timer::skill_timer& timer = game_timer::skill_timer::instance();
 
     if (!timer.is_skill_allowed(*ch, SKILL_DEFEND)) {
         send_to_char("You can't use this skill yet.\r\n", ch);
@@ -1002,7 +1142,8 @@ ACMD(do_defend) {
 }
 
 //============================================================================
-bool can_bear_skill(char_data *ch, int skill) {
+bool can_bear_skill(const char_data* ch, int skill)
+{
     using namespace utils;
     if (GET_RACE(ch) != RACE_BEORNING) {
         send_to_char("Unrecognized command.\r\n", ch);
@@ -1014,7 +1155,7 @@ bool can_bear_skill(char_data *ch, int skill) {
         return false;
     }
 
-    const room_data &room = world[ch->in_room];
+    const room_data& room = world[ch->in_room];
     if (is_set(room.room_flags, (long)PEACEROOM)) {
         send_to_char(
             "A peaceful feeling overwhelms you, and you cannot bring yourself to attack.\r\n", ch);
@@ -1041,8 +1182,9 @@ bool can_bear_skill(char_data *ch, int skill) {
 }
 
 //============================================================================
-char_data *is_rend_targ_valid(char_data *render, waiting_type *target) {
-    char_data *victim = NULL;
+char_data* is_rend_targ_valid(char_data* render, const waiting_type* target)
+{
+    char_data* victim = NULL;
 
     if (target->targ1.type == TARGET_TEXT) {
         victim = get_char_room_vis(render, target->targ1.ptr.text->text);
@@ -1084,18 +1226,19 @@ char_data *is_rend_targ_valid(char_data *render, waiting_type *target) {
 }
 
 //============================================================================
-ACMD(do_rend) {
+ACMD(do_rend)
+{
     one_argument(argument, arg);
 
     if (!can_bear_skill(ch, SKILL_REND))
         return;
 
-    char_data *victim = is_rend_targ_valid(ch, wtl);
+    char_data* victim = is_rend_targ_valid(ch, wtl);
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(ch, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your target.\r\n",
-                     ch);
+            ch);
         return;
     }
 
@@ -1114,8 +1257,7 @@ ACMD(do_rend) {
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_REND, 0);
     } else {
-        int dam = ((2 + GET_PROF_LEVEL(PROF_WARRIOR, ch)) * (100 + prob) / 250) +
-                  ((GET_WEIGHT(ch) / 3500) + ch->tmpabilities.str);
+        int dam = ((2 + GET_PROF_LEVEL(PROF_WARRIOR, ch)) * (100 + prob) / 250) + ((GET_WEIGHT(ch) / 3500) + ch->tmpabilities.str);
         if (utils::get_specialization(*ch) != game_types::PS_HeavyFighting) {
             if (utils::get_specialization(*ch) == game_types::PS_WildFighting) {
                 dam = (int)((double)dam * 0.75);
@@ -1127,12 +1269,13 @@ ACMD(do_rend) {
     }
 
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
-                    AFF_WAITING, TARGET_NONE);
+        AFF_WAITING, TARGET_NONE);
 }
 
 //============================================================================
-char_data *is_bite_targ_valid(char_data *biter, waiting_type *target) {
-    char_data *victim = NULL;
+char_data* is_bite_targ_valid(char_data* biter, const waiting_type* target)
+{
+    char_data* victim = NULL;
 
     if (target->targ1.type == TARGET_TEXT) {
         victim = get_char_room_vis(biter, target->targ1.ptr.text->text);
@@ -1170,18 +1313,19 @@ char_data *is_bite_targ_valid(char_data *biter, waiting_type *target) {
 }
 
 //============================================================================
-ACMD(do_bite) {
+ACMD(do_bite)
+{
     one_argument(argument, arg);
 
     if (!can_bear_skill(ch, SKILL_BITE))
         return;
 
-    char_data *victim = is_bite_targ_valid(ch, wtl);
+    char_data* victim = is_bite_targ_valid(ch, wtl);
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(ch, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your target.\r\n",
-                     ch);
+            ch);
         return;
     }
 
@@ -1200,8 +1344,7 @@ ACMD(do_bite) {
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_BITE, 0);
     } else {
-        int dam =
-            ((2 + GET_PROF_LEVEL(PROF_WARRIOR, ch)) * (100 + prob) / 250) + (ch->tmpabilities.str);
+        int dam = ((2 + GET_PROF_LEVEL(PROF_WARRIOR, ch)) * (100 + prob) / 250) + (ch->tmpabilities.str);
         if (utils::get_specialization(*ch) != game_types::PS_HeavyFighting) {
             if (utils::get_specialization(*ch) == game_types::PS_WildFighting) {
                 dam = (int)((double)dam * 0.75);
@@ -1212,12 +1355,13 @@ ACMD(do_bite) {
         damage(ch, victim, dam, SKILL_BITE, 0);
     }
     WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
-                    AFF_WAITING, TARGET_NONE);
+        AFF_WAITING, TARGET_NONE);
 }
 
 //============================================================================
-char_data *is_maul_targ_valid(char_data *mauler, waiting_type *target) {
-    char_data *victim = NULL;
+char_data* is_maul_targ_valid(char_data* mauler, const waiting_type* target)
+{
+    char_data* victim = NULL;
 
     if (target->targ1.type == TARGET_TEXT) {
         victim = get_char_room_vis(mauler, target->targ1.ptr.text->text);
@@ -1254,13 +1398,15 @@ char_data *is_maul_targ_valid(char_data *mauler, waiting_type *target) {
     return victim;
 }
 
-int maul_calculate_duration(char_data *mauler) {
+int maul_calculate_duration(const char_data* mauler)
+{
     int maul_duration = utils::get_prof_level(PROF_WARRIOR, *mauler) - 10;
     maul_duration = maul_duration / 2 * (SECS_PER_MUD_HOUR * 4) / PULSE_FAST_UPDATE;
     return maul_duration;
 }
 
-void apply_maul_victim(char_data *victim, char_data *ch) {
+void apply_maul_victim(char_data* victim, const char_data* ch)
+{
     affected_type af;
     af.type = SKILL_MAUL;
     af.duration = maul_calculate_duration(ch) / 5;
@@ -1271,8 +1417,9 @@ void apply_maul_victim(char_data *victim, char_data *ch) {
     affect_join(victim, &af, FALSE, FALSE);
 }
 
-void apply_maul_char(char_data *ch) {
-    affected_type *current_maul = affected_by_spell(ch, SKILL_MAUL);
+void apply_maul_char(char_data* ch)
+{
+    affected_type* current_maul = affected_by_spell(ch, SKILL_MAUL);
     affected_type af;
     af.type = SKILL_MAUL;
     af.duration = maul_calculate_duration(ch) / 10;
@@ -1295,7 +1442,8 @@ void apply_maul_char(char_data *ch) {
     affect_join(ch, &af, FALSE, FALSE);
 }
 
-ACMD(do_maul) {
+ACMD(do_maul)
+{
     one_argument(argument, arg);
     const int maul_cost = utils::get_specialization(*ch) == game_types::PS_Defender ? 5 : 10;
 
@@ -1303,15 +1451,15 @@ ACMD(do_maul) {
         return;
     }
 
-    char_data *victim = is_maul_targ_valid(ch, wtl);
+    char_data* victim = is_maul_targ_valid(ch, wtl);
     if (victim == NULL) {
         return;
     }
 
-    game_rules::big_brother &bb_instance = game_rules::big_brother::instance();
+    game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
     if (!bb_instance.is_target_valid(ch, victim)) {
         send_to_char("You feel the Gods looking down upon you, and protecting your target.\r\n",
-                     ch);
+            ch);
         return;
     }
 

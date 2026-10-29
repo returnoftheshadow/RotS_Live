@@ -1,0 +1,1 @@
+mob scripts' blocks, section rows, waits and death, crash guards and their reports, hit-point writes, doors and the boot check

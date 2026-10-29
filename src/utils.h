@@ -14,10 +14,16 @@
 #include "platdef.h" /* For byte, sh_int, ush_int, etc. */
 #include "structs.h" /* For time_info_data */
 
+#include <string>
+
 extern struct weather_data weather_info;
 extern sh_int square_root[];
 extern char get_current_time_phase(); // returns the portion number of the tick
-extern int armor_absorb(struct obj_data* obj);
+// Publishes the game hour's fast-update phase that get_current_time_phase() returns until
+// the next call. time_phase must be 0 to FAST_UPDATE_RATE - 1; any other value is logged
+// and ignored.
+void set_current_time_phase(int time_phase);
+extern int armor_absorb(const struct obj_data* obj);
 extern int get_weapon_damage(struct obj_data* obj);
 
 /* public functions */
@@ -39,38 +45,47 @@ void unretire(struct char_data*);
 struct char_data* find_playing_char(int);
 void snuck_out(struct char_data*);
 void snuck_in(struct char_data*);
-int hide_prof(struct char_data*);
-int see_hiding(struct char_data*);
+int hide_prof(const struct char_data*);
+int hide_roll(int prof, bool well); /* the cover of a finished hide */
+int see_hiding(const struct char_data*);
 char unaccent(char);
 char* str_dup(const char* source);
-int str_cmp(char* arg1, char* arg2);
-int strn_cmp(char* arg1, char* arg2, int n);
+int str_cmp(const char* arg1, const char* arg2);
+int strn_cmp(const char* arg1, const char* arg2, int n);
 void log(const char* str);
-void mudlog(char* str, char type, sh_int level, byte file);
-void mudlog_debug_mob(char* buf, char_data* ch);
-void mudlog_aliased_mob(char* buf, char_data* ch, char *mob_alias);
-void vmudlog(char type, char* format, ...);
-void log_death_trap(struct char_data* ch);
+void mudlog(const char* str, char type, sh_int level, byte file);
+bool mudlog_reaches(const struct char_data* ch, int level, int type);
+void mudlog_debug_mob(const char* buf, const char_data* ch);
+void mudlog_aliased_mob(const char* buf, const char_data* ch, const char* mob_alias);
+int has_debug_flag(const char_data* ch);
+void debug_flag_msg(const char* buf, const char_data* ch);
+void vmudlog(char type, const char* format, ...);
+void log_death_trap(const struct char_data* ch);
 int number(int from, int to);
 int dice(int number, int size);
 void sprintbit(long vektor, char* names[], char* result, int var);
 void sprinttype(int type, char* names[], char* result);
+void lowercase(char* str);
+void remove_pattern(const char* str, char* result, const char* patern);
+void sprintbit_resistances(const char_data* ch, long vektor, char* names[], char* result,
+    int default_percent, int use_affect_magnitudes);
 int get_real_OB(struct char_data* ch);
-int get_real_dodge(struct char_data* ch);
+int get_real_dodge(const struct char_data* ch);
 int get_real_parry(struct char_data* ch);
 int CHAR_WEARS_OBJ(struct char_data* ch, struct obj_data* obj);
-char get_colornum(char_data* ch, int col);
-void set_colornum(char_data* ch, int col, int value);
+char get_colornum(const char_data* ch, int col);
+void set_colornum(const char_data* ch, int col, int value);
 
 void string_add_init(struct descriptor_data*, char**);
 void string_add_finish(struct descriptor_data*);
 void string_add(struct descriptor_data*, char*);
-int string_to_new_value(char* arg, int* value);
+int string_to_new_value(char* arg, int* value, char** stopped = 0);
+int string_to_negative_value(const char* arg, int* value);
 char* nth(int);
-void day_to_str(time_info_data* loc_time_info, char* str);
-int find_player_in_table(char* name, int idnum);
+void day_to_str(const time_info_data* loc_time_info, char* str);
+int find_player_in_table(const char* name, int idnum);
 
-char* strcpy_lang(char* targ, char* src, byte freq, int maxlen);
+char* strcpy_lang(char* targ, const char* src, byte freq, int maxlen);
 void reshuffle(int* arr, int len);
 
 void* create_function(int elem_size, int elem_num, int line, const char* file);
@@ -78,55 +93,82 @@ void free_function(void* pnt);
 
 int get_total_fame(char_data* ch);
 
-int get_confuse_modifier(char_data* ch);
-int compare_obj_to_proto(obj_data* obj);
+int get_confuse_modifier(const char_data* ch);
+int resist_type_for_attack(int attack_type);
+int resist_magnitude_for(const char_data* victim, int resist_type);
+int effective_resist_magnitude(const char_data* victim, int resist_type, bool physical_attack);
+int compare_obj_to_proto(const obj_data* obj);
 struct obj_data* obj_to_proto(obj_data* obj);
 void check_inventory_proto(char_data* ch);
 void check_equipment_proto(char_data* ch);
-sh_int get_race_perception(char_data* ch);
-int get_power_of_arda(char_data* ch);
-int has_critical_stat_damage(char_data* ch);
-int can_breathe(char_data* ch);
+// "none", "3 (on)" or "3 (off)" for an obj_flag_data::version value.
+std::string object_version_text(int version);
+// Brings a saved copy up to its prototype's version when the prototype's version is on (> 0) and
+// differs from the copy's. Returns true if it did; see the definition for what is kept.
+bool refresh_object_to_prototype_version(obj_data* obj, const obj_data* proto);
+// Enchants recorded on an object (obj_data::enchants). object_takes_enchant is whether the object
+// as it stands could be given the enchant; apply_object_enchant puts its affect and flags on;
+// record_object_enchant notes it in the first free slot (false when there is none).
+int count_object_enchants(const obj_data* obj);
+std::string object_enchants_text(const obj_data* obj); // "ob +6 (good)", or "none"
+bool object_takes_enchant(const obj_data* obj, const obj_enchant_type& enchant);
+void apply_object_enchant(obj_data* obj, const obj_enchant_type& enchant);
+bool record_object_enchant(obj_data* obj, const obj_enchant_type& enchant);
+sh_int get_race_perception(const char_data* ch);
+int get_power_of_arda(const char_data* ch);
+int has_critical_stat_damage(const char_data* ch);
+int can_breathe(const char_data* ch);
 
-struct time_info_data age(struct char_data* ch);
+struct time_info_data age(const struct char_data* ch);
 
 void track_specialized_mage(char_data* mage);
-void untrack_specialized_mage(char_data* mage);
+void untrack_specialized_mage(const char_data* mage);
 
-int has_alias(char_data* host, char *keyword);
+int has_alias(const char_data* host, const char* keyword);
+int has_program(const char_data* host, int num);
+
+/* Mob aggression and helping as the mob turn applies them (mobact.cpp),
+ * shared with the mob programs that run their own turn. */
+bool mob_race_aggressive_to(const char_data* mob, const char_data* victim);
+bool mob_flag_aggressive_to(const char_data* mob, const char_data* victim);
+bool mob_helper_assist(char_data* ch);
+/* Whether a moving mob opens the closed door that way on its own step
+ * (do_move): a door, closed, not locked, hidden or a lever door, and the
+ * mob not a shadow (do_open refuses those). */
+bool mob_opens_door_on_move(const char_data* ch, int dir);
 
 /* defines for fseek */
 #ifndef SEEK_SET
 #define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
+inline constexpr int SEEK_CUR = 1;
+inline constexpr int SEEK_END = 2;
 #endif
 
 /* define for tacticss */
 
-#define TACTICS_DEFENSIVE 1
-#define TACTICS_CAREFUL 2
-#define TACTICS_NORMAL 3
-#define TACTICS_AGGRESSIVE 4
-#define TACTICS_BERSERK 5
+inline constexpr int TACTICS_DEFENSIVE = 1;
+inline constexpr int TACTICS_CAREFUL = 2;
+inline constexpr int TACTICS_NORMAL = 3;
+inline constexpr int TACTICS_AGGRESSIVE = 4;
+inline constexpr int TACTICS_BERSERK = 5;
 
 /* defines for shooting speeds*/
-#define SHOOTING_SLOW 1
-#define SHOOTING_NORMAL 2
-#define SHOOTING_FAST 3
+inline constexpr int SHOOTING_SLOW = 1;
+inline constexpr int SHOOTING_NORMAL = 2;
+inline constexpr int SHOOTING_FAST = 3;
 
 /* defines for casting speeds*/
-#define CASTING_SLOW 1
-#define CASTING_NORMAL 2
-#define CASTING_FAST 3
+inline constexpr int CASTING_SLOW = 1;
+inline constexpr int CASTING_NORMAL = 2;
+inline constexpr int CASTING_FAST = 3;
 
 /* defines for mudlog() */
 
-#define OFF 0
-#define BRF 1
-#define NRM 2
-#define SPL 3
-#define CMP 4
+inline constexpr int OFF = 0;
+inline constexpr int BRF = 1;
+inline constexpr int NRM = 2;
+inline constexpr int SPL = 3;
+inline constexpr int CMP = 4;
 
 #define TRUE 1
 
@@ -444,6 +486,9 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
 
 #define GET_AMBUSHED(ch) ((ch)->specials.was_ambushed)
 #define GET_LOADLINE(ch) ((ch)->specials.load_line)
+/* The room a zone 'M' line loaded a mob into (real room + 1).  Not
+ * GET_LOADROOM: that is the player's start room (specials2.load_room). */
+#define GET_MOB_LOADROOM(ch) ((ch)->specials.load_room)
 
 #define GET_LOADZONE(ch) ((ch)->specials.homezone)
 
@@ -478,43 +523,51 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
 
 #define CALL_MASK(ch) ((ch)->specials2.bad_pws)
 
-#define WAIT_STATE_BRIEF(ch, cycle, commd, subcommd, prir, new_flag)                    \
-    do {                                                                                \
-        char_data* tmpch;                                                               \
-        if (ch->delay.wait_value != 0) {                                                \
-            if (prir >= ch->delay.priority) {                                           \
-                ch->delay.subcmd = -1;                                                  \
-                complete_delay(ch);                                                     \
-                abort_delay(ch);                                                        \
-            } else {                                                                    \
-                send_to_char("Possible bug - double delay. Please notify Imps.\n", ch); \
-                log("double delay?\n");                                                 \
-                break;                                                                  \
-            }                                                                           \
-        }                                                                               \
-        ch->delay.wait_value = cycle;                                                   \
-        ch->delay.cmd = commd;                                                          \
-        ch->delay.targ1.type = ch->delay.targ2.type = TARGET_IGNORE;                    \
-        ch->delay.subcmd = subcommd;                                                    \
-        /*ch->delay.num = ch->abs_number;*/                                             \
-        ch->delay.priority = prir;                                                      \
-        SET_BIT(ch->specials.affected_by, new_flag);                                    \
-        tmpch = waiting_list;                                                           \
-        if (tmpch == ch)                                                                \
-            tmpch = waiting_list = ch->delay.next;                                      \
-        if (!tmpch)                                                                     \
-            waiting_list = ch;                                                          \
-        else {                                                                          \
-            while (tmpch->delay.next) {                                                 \
-                if (tmpch->delay.next == ch)                                            \
-                    tmpch->delay.next = ch->delay.next;                                 \
-                else                                                                    \
-                    tmpch = tmpch->delay.next;                                          \
-            }                                                                           \
-            if (tmpch != ch)                                                            \
-                tmpch->delay.next = ch;                                                 \
-        }                                                                               \
-        ch->delay.next = 0;                                                             \
+#define WAIT_STATE_BRIEF(ch, cycle, commd, subcommd, prir, new_flag)                        \
+    do {                                                                                    \
+        char_data* tmpch;                                                                   \
+        if (ch->delay.wait_value != 0) {                                                    \
+            if (prir >= ch->delay.priority) {                                               \
+                ch->delay.subcmd = -1;                                                      \
+                complete_delay(ch);                                                         \
+                if (ch->delay.wait_value != 0) {                                            \
+                    /* complete_delay() reentrantly queued a new delay (e.g. a              \
+                       follow-up recovery action) while running the just-finished           \
+                       command -- don't silently clobber it with this action. */            \
+                    send_to_char("Possible bug - double delay. Please notify Imps.\n", ch); \
+                    log("double delay (reentrant queue during complete_delay)?\n");         \
+                    break;                                                                  \
+                }                                                                           \
+                abort_delay(ch);                                                            \
+            } else {                                                                        \
+                send_to_char("Possible bug - double delay. Please notify Imps.\n", ch);     \
+                log("double delay?\n");                                                     \
+                break;                                                                      \
+            }                                                                               \
+        }                                                                                   \
+        ch->delay.wait_value = cycle;                                                       \
+        ch->delay.cmd = commd;                                                              \
+        ch->delay.targ1.type = ch->delay.targ2.type = TARGET_IGNORE;                        \
+        ch->delay.subcmd = subcommd;                                                        \
+        /*ch->delay.num = ch->abs_number;*/                                                 \
+        ch->delay.priority = prir;                                                          \
+        SET_BIT(ch->specials.affected_by, new_flag);                                        \
+        tmpch = waiting_list;                                                               \
+        if (tmpch == ch)                                                                    \
+            tmpch = waiting_list = ch->delay.next;                                          \
+        if (!tmpch)                                                                         \
+            waiting_list = ch;                                                              \
+        else {                                                                              \
+            while (tmpch->delay.next) {                                                     \
+                if (tmpch->delay.next == ch)                                                \
+                    tmpch->delay.next = ch->delay.next;                                     \
+                else                                                                        \
+                    tmpch = tmpch->delay.next;                                              \
+            }                                                                               \
+            if (tmpch != ch)                                                                \
+                tmpch->delay.next = ch;                                                     \
+        }                                                                                   \
+        ch->delay.next = 0;                                                                 \
     } while (0)
 
 #define WAIT_STATE_FULL(ch, cycle, commd, subcommd, prir, flag, dgt, argument, new_flag, data_type) \
@@ -524,6 +577,14 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
             if (prir >= ch->delay.priority) {                                                       \
                 ch->delay.subcmd = -1;                                                              \
                 complete_delay(ch);                                                                 \
+                if (ch->delay.wait_value != 0) {                                                    \
+                    /* complete_delay() reentrantly queued a new delay (e.g. a                      \
+                       follow-up recovery action) while running the just-finished                   \
+                       command -- don't silently clobber it with this action. */                    \
+                    send_to_char("Possible bug - double delay. Please notify Imps.\n", ch);         \
+                    log("double delay (reentrant queue during complete_delay)?\n");                 \
+                    break;                                                                          \
+                }                                                                                   \
                 abort_delay(ch);                                                                    \
             } else {                                                                                \
                 send_to_char("Possible bug - double delay. Please notify Imps.\n", ch);             \
@@ -569,11 +630,11 @@ extern struct race_bodypart_data bodyparts[MAX_BODYTYPES];
 
 #define GET_WAIT_PRIORITY(ch) ((ch)->delay.priority)
 
-int CAN_GO(char_data* ch, int door);
-int CAN_SEE(char_data* sub);
+int CAN_GO(const char_data* ch, int door);
+int CAN_SEE(const char_data* sub);
 int CAN_SEE(char_data* sub, char_data* obj, int light_mode = 0);
-int can_sense(char_data* sub, char_data* obj);
-int CAN_SEE_OBJ(char_data* sub, obj_data* obj);
+int can_sense(const char_data* sub, const char_data* obj);
+int CAN_SEE_OBJ(const char_data* sub, const obj_data* obj);
 
 /* Object And Carry related macros */
 
@@ -650,17 +711,15 @@ int CAN_SEE_OBJ(char_data* sub, obj_data* obj);
 #define PROF_ABBR(ch) (IS_NPC(ch) ? "--" : prof_abbrevs[(int)GET_PROF(ch)])
 #define RACE_ABBR(ch) (IS_NPC(ch) ? "--" : race_abbrevs[(int)GET_RACE(ch)])
 
-#define MOB_AGE_TICKS(ch, tm) (((tm) - (ch)->player.time.logon) / SECS_PER_MUD_HOUR)
-
 universal_list* pool_to_list(universal_list** list, universal_list** pool);
 void from_list_to_pool(universal_list** list, universal_list** head,
     universal_list* body);
 
-int get_race_weight(char_data* ch);
-int get_race_height(char_data* ch);
-sh_int get_race_perception(char_data* ch);
-sh_int get_naked_perception(char_data* ch);
-sh_int get_naked_willpower(char_data* ch);
+int get_race_weight(const char_data* ch);
+int get_race_height(const char_data* ch);
+sh_int get_race_perception(const char_data* ch);
+sh_int get_naked_perception(const char_data* ch);
+sh_int get_naked_willpower(const char_data* ch);
 
 // int get_mental_delay(char_data * ch); /* if mental is <= 1, can do it again. */
 void set_mental_delay(char_data* ch, int value);
@@ -696,7 +755,7 @@ void bzero(char*, int);
 #define CLEAR(x) bzero((char*)(x), sizeof(x))
 
 void show_char_to_char(struct char_data* i, struct char_data* ch, int mode,
-    char* pos_line = 0);
+    const char* pos_line = 0);
 
 #define IS_WATER(room) ((world[(room)].sector_type == SECT_WATER_SWIM) || (world[(room)].sector_type == SECT_WATER_NOSWIM) || (world[(room)].sector_type == SECT_UNDERWATER))
 

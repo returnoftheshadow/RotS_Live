@@ -1,0 +1,2 @@
+The object editor writes its backup of a zone object file here before /save or /done rewrites it
+(SHAPE_OBJ_BACKDIR, protos.h). The game loads nothing from this folder.

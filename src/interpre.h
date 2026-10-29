@@ -14,85 +14,99 @@
 #include "platdef.h" /* For sh_int, ush_int, byte, etc. */
 #include "structs.h" /* For the NOWHERE macro */
 
+#include <string>
+
+namespace account {
+struct AccountData;
+}
+
 #define STATE(d) ((d)->connected)
 
-#define MAX_CMD_LIST 350
+inline constexpr int MAX_CMD_LIST = 350;
 
-#define ACMD(c)                                                                                    \
-    void(c)(struct char_data * ch, char *argument, struct waiting_type *wtl, int cmd, int subcmd)
+#define ACMD(c) \
+    void(c)(struct char_data * ch, char* argument, struct waiting_type* wtl, int cmd, int subcmd)
 
 // #define CRYPT(a,b) ((char *) crypt((a),(b)))
 
-#define CRYPT(a, b) ((char *)(a))
+#define CRYPT(a, b) ((char*)(a))
 
-typedef int (*special_func)(char_data *host, char_data *character, int cmd, char *argument,
-                            int callflag, waiting_type *wait_data);
-#define SPECIAL(cname)                                                                             \
-    int(cname)(struct char_data * host, struct char_data * ch, int cmd, char *arg, int callflag,   \
-               waiting_type *wtl)
+typedef int (*special_func)(char_data* host, char_data* character, int cmd, char* argument,
+    int callflag, waiting_type* wait_data);
+#define SPECIAL(cname)                                                                           \
+    int(cname)(struct char_data * host, struct char_data * ch, int cmd, char* arg, int callflag, \
+        waiting_type* wtl)
 
-#define SPECIAL_NONE 0
-#define SPECIAL_COMMAND 1
-#define SPECIAL_SELF 2
-#define SPECIAL_ENTER 4
-#define SPECIAL_DELAY 8
-#define SPECIAL_TARGET 16
-#define SPECIAL_DAMAGE 32
-#define SPECIAL_DEATH 64
+inline constexpr int SPECIAL_NONE = 0;
+inline constexpr int SPECIAL_COMMAND = 1;
+inline constexpr int SPECIAL_SELF = 2;
+inline constexpr int SPECIAL_ENTER = 4;
+inline constexpr int SPECIAL_DELAY = 8;
+inline constexpr int SPECIAL_TARGET = 16;
+inline constexpr int SPECIAL_DAMAGE = 32;
+inline constexpr int SPECIAL_DEATH = 64;
 
-#define ASSIGNMOB(mob, fname)                                                                      \
-    {                                                                                              \
-        if (real_mobile(mob) >= 0)                                                                 \
-            mob_index[real_mobile(mob)].func = fname;                                              \
+#define ASSIGNMOB(mob, fname)                         \
+    {                                                 \
+        if (real_mobile(mob) >= 0)                    \
+            mob_index[real_mobile(mob)].func = fname; \
     }
 
-#define ASSIGNREALMOB(mob, fname)                                                                  \
-    {                                                                                              \
-        if (mob->nr >= 0)                                                                          \
-            mob_index[mob->nr].func = fname;                                                       \
+#define ASSIGNREALMOB(mob, fname)            \
+    {                                        \
+        if (mob->nr >= 0)                    \
+            mob_index[mob->nr].func = fname; \
     }
 
-#define ASSIGNREALOBJ(obj, fname)                                                                  \
-    {                                                                                              \
-        if (obj->item_number >= 0)                                                                 \
-            obj_index[obj->item_number].func = fname;                                              \
+#define ASSIGNREALOBJ(obj, fname)                     \
+    {                                                 \
+        if (obj->item_number >= 0)                    \
+            obj_index[obj->item_number].func = fname; \
     }
 
-#define ASSIGNOBJ(obj, fname)                                                                      \
-    {                                                                                              \
-        if (real_object(obj) >= 0)                                                                 \
-            obj_index[real_object(obj)].func = fname;                                              \
+#define ASSIGNOBJ(obj, fname)                         \
+    {                                                 \
+        if (real_object(obj) >= 0)                    \
+            obj_index[real_object(obj)].func = fname; \
     }
 
-#define ASSIGNROOM(room, fname)                                                                    \
-    {                                                                                              \
-        if (real_room(room) >= 0)                                                                  \
-            world[real_room(room)].funct = fname;                                                  \
+#define ASSIGNROOM(room, fname)                   \
+    {                                             \
+        if (real_room(room) >= 0)                 \
+            world[real_room(room)].funct = fname; \
     }
 
-void command_interpreter(struct char_data *ch, char *arg_chr, struct waiting_type *arg_wtl = 0);
-int search_block(char *arg, char **list, char exact);
-int old_search_block(char *argument, int begin, unsigned int length, const char **list, int mode);
+void command_interpreter(struct char_data* ch, char* arg_chr, struct waiting_type* arg_wtl = 0);
+int search_block(char* arg, char** list, char exact);
+int old_search_block(const char* argument, int begin, unsigned int length, const char** list, int mode);
 char lower(char c);
-void argument_interpreter(char *argument, char *first_arg, char *second_arg);
-int special(struct char_data *ch, int cmd, char *arg, int callflag, waiting_type *wtl,
-            int in_room = NOWHERE);
-int activate_char_special(char_data *k, char_data *ch, int cmd, char *arg, int callflag,
-                          waiting_type *wtl, int in_room);
+void argument_interpreter(const char* argument, char* first_arg, char* second_arg);
+int special(struct char_data* ch, int cmd, char* arg, int callflag, waiting_type* wtl,
+    int in_room = NOWHERE);
+int activate_char_special(char_data* k, char_data* ch, int cmd, char* arg, int callflag,
+    waiting_type* wtl, int in_room);
 
-char *one_argument(char *argument, char *first_arg);
-int fill_word(char *argument);
-void half_chop(char *string, char *arg1, char *arg2);
-void nanny(struct descriptor_data *d, char *arg);
-int is_abbrev(char *arg1, char *arg2);
-int is_number(char *str);
+char* one_argument(char* argument, char* first_arg);
+int fill_word(char* argument);
+void half_chop(const char* string, char* arg1, char* arg2);
+void nanny(struct descriptor_data* d, char* arg);
+int is_abbrev(const char* arg1, const char* arg2);
+int is_number(const char* str);
 
-void virt_assignmob(struct char_data *);
-void virt_assignobj(struct obj_data *obj);
+void virt_assignmob(const struct char_data*);
+void virt_assignobj(const struct obj_data* obj);
+bool grant_account_character_selection_unlock(
+    const account::AccountData& account_data, std::string* error_message);
+bool account_has_restricting_active_linked_session(const account::AccountData& account_data);
+
+/* command_info::mask bits */
+inline constexpr int CMD_MASK_MOVE_PENALTY = 0x01; /* command has random move penalty */
+inline constexpr int CMD_MASK_STAMINA_PENALTY = 0x02; /* command has random stamina penalty */
+inline constexpr int CMD_MASK_NO_UNHIDE = 0x04; /* command doesn't unhide players */
 
 struct command_info {
-    void (*command_pointer)(struct char_data *ch, char *argument, struct waiting_type *, int cmd,
-                            int subcmd);
+    void (*command_pointer)(struct char_data* ch, char* argument, struct waiting_type*, int cmd,
+        int subcmd);
     byte minimum_position;
     sh_int minimum_level;
     char retired_allowed;
@@ -100,14 +114,11 @@ struct command_info {
     int subcmd;
     byte is_social;
 
-/* mask bits */
-#define CMD_MASK_MOVE_PENALTY 0x01    /* command has random move penalty */
-#define CMD_MASK_STAMINA_PENALTY 0x02 /* command has random stamina penalty */
-#define CMD_MASK_NO_UNHIDE 0x04       /* command doesn't unhide players */
     unsigned char mask;
 
     int target_mask[32];
-    void add_target(int mask_in, int value) {
+    void add_target(int mask_in, int value)
+    {
         for (int index = 0; index < 32; index++) {
             int bit_position_as_int = 1 << index;
             if (bit_position_as_int & mask_in) {
@@ -117,7 +128,8 @@ struct command_info {
     }
 
     /* This is never used anywhere */
-    bool valid_target(int mask_in, int value) {
+    bool valid_target(int mask_in, int value)
+    {
         for (int index = 0; index < 32; index++) {
             int bit_position_as_int = 1 << index;
             if (bit_position_as_int & mask_in) {
@@ -129,211 +141,215 @@ struct command_info {
     }
 };
 
-#define SCMD_INFO 100
-#define SCMD_HANDBOOK 101
-#define SCMD_CREDITS 102
-#define SCMD_WIZLIST 104
-#define SCMD_POLICIES 105
-#define SCMD_VERSION 106
-#define SCMD_IMMLIST 107
-#define SCMD_CLEAR 108
-#define SCMD_WHOAMI 109
-#define SCMD_TOP 110
+inline constexpr int SCMD_INFO = 100;
+inline constexpr int SCMD_HANDBOOK = 101;
+inline constexpr int SCMD_CREDITS = 102;
+inline constexpr int SCMD_WIZLIST = 104;
+inline constexpr int SCMD_POLICIES = 105;
+inline constexpr int SCMD_VERSION = 106;
+inline constexpr int SCMD_IMMLIST = 107;
+inline constexpr int SCMD_CLEAR = 108;
+inline constexpr int SCMD_WHOAMI = 109;
+inline constexpr int SCMD_TOP = 110;
 
-#define SCMD_TOG_BASE 201
-#define SCMD_NOSUMMON 201
-#define SCMD_NOHASSLE 202
-#define SCMD_BRIEF 203
-#define SCMD_COMPACT 204
-#define SCMD_NOTELL 205
+inline constexpr int SCMD_TOG_BASE = 201;
+inline constexpr int SCMD_NOSUMMON = 201;
+inline constexpr int SCMD_NOHASSLE = 202;
+inline constexpr int SCMD_BRIEF = 203;
+inline constexpr int SCMD_COMPACT = 204;
+inline constexpr int SCMD_NOTELL = 205;
 // #define SCMD_NARRATE	207
 // #define SCMD_CHAT	208
-#define SCMD_WIZ 210
-#define SCMD_SPAM 211
-#define SCMD_ROOMFLAGS 212
-#define SCMD_ECHO 213
-#define SCMD_HOLYLIGHT 214
-#define SCMD_SLOWNS 215
-#define SCMD_WRAP 216
-#define SCMD_MSDP 217
-#define SCMD_DESCRIP 218
-#define SCMD_INCOGNITO 219
-#define SCMD_TIME 220
-#define SCMD_MENTAL 221
-#define SCMD_SETPROMPT 222
-#define SCMD_SWIM 223
-#define SCMD_LATIN1 224
-#define SCMD_SPINNER 225
-#define SCMD_ADVANCED_VIEW 226
-#define SCMD_ADVANCED_PROMPT 227
+inline constexpr int SCMD_WIZ = 210;
+inline constexpr int SCMD_SPAM = 211;
+inline constexpr int SCMD_ROOMFLAGS = 212;
+inline constexpr int SCMD_ECHO = 213;
+inline constexpr int SCMD_HOLYLIGHT = 214;
+inline constexpr int SCMD_SLOWNS = 215;
+inline constexpr int SCMD_WRAP = 216;
+inline constexpr int SCMD_MSDP = 217;
+inline constexpr int SCMD_DESCRIP = 218;
+inline constexpr int SCMD_INCOGNITO = 219;
+inline constexpr int SCMD_TIME = 220;
+inline constexpr int SCMD_MENTAL = 221;
+inline constexpr int SCMD_SETPROMPT = 222;
+inline constexpr int SCMD_SWIM = 223;
+inline constexpr int SCMD_LATIN1 = 224;
+inline constexpr int SCMD_SPINNER = 225;
+inline constexpr int SCMD_ADVANCED_VIEW = 226;
+inline constexpr int SCMD_ADVANCED_PROMPT = 227;
 
-#define SCMD_PARDON 301
-#define SCMD_NOTITLE 302
-#define SCMD_SQUELCH 303
-#define SCMD_FREEZE 304
-#define SCMD_THAW 305
-#define SCMD_UNAFFECT 306
-#define SCMD_REROLL 307
-#define SCMD_RETIRE 308
-#define SCMD_REACTV 309
-#define SCMD_REHASH 310
-#define SCMD_RENAME 312
-#define SCMD_NOTE 313
+inline constexpr int SCMD_PARDON = 301;
+inline constexpr int SCMD_NOTITLE = 302;
+inline constexpr int SCMD_SQUELCH = 303;
+inline constexpr int SCMD_FREEZE = 304;
+inline constexpr int SCMD_THAW = 305;
+inline constexpr int SCMD_UNAFFECT = 306;
+inline constexpr int SCMD_REROLL = 307;
+inline constexpr int SCMD_RETIRE = 308;
+inline constexpr int SCMD_REACTV = 309;
+inline constexpr int SCMD_REHASH = 310;
+inline constexpr int SCMD_RENAME = 312;
+inline constexpr int SCMD_NOTE = 313;
 
-#define SCMD_BOARD 400
-#define SCMD_NEWS 401
-#define SCMD_MAIL 402
+inline constexpr int SCMD_BOARD = 400;
+inline constexpr int SCMD_NEWS = 401;
+inline constexpr int SCMD_MAIL = 402;
 
-#define SCMD_NARRATE 0
-#define SCMD_CHAT 1
-#define SCMD_YELL 2
-#define SCMD_SING 3
+inline constexpr int SCMD_NARRATE = 0;
+inline constexpr int SCMD_CHAT = 1;
+inline constexpr int SCMD_YELL = 2;
+inline constexpr int SCMD_SING = 3;
 
-#define SCMD_TELL 0
-#define SCMD_REPLY 1
+inline constexpr int SCMD_TELL = 0;
+inline constexpr int SCMD_REPLY = 1;
 
-#define SCMD_SHUTDOWN 1
-#define SCMD_QUIT 1
+inline constexpr int SCMD_SHUTDOWN = 1;
+inline constexpr int SCMD_QUIT = 1;
 
-#define SCMD_COMMANDS 0
-#define SCMD_SOCIALS 1
-#define SCMD_WIZHELP 2
+inline constexpr int SCMD_COMMANDS = 0;
+inline constexpr int SCMD_SOCIALS = 1;
+inline constexpr int SCMD_WIZHELP = 2;
 
-#define SCMD_GECHO 0
-#define SCMD_QECHO 1
+inline constexpr int SCMD_GECHO = 0;
+inline constexpr int SCMD_QECHO = 1;
 
-#define SCMD_POUR 0
-#define SCMD_FILL 1
+inline constexpr int SCMD_POUR = 0;
+inline constexpr int SCMD_FILL = 1;
 
-#define SCMD_POOFIN 0
-#define SCMD_POOFOUT 1
+inline constexpr int SCMD_POOFIN = 0;
+inline constexpr int SCMD_POOFOUT = 1;
 
-#define SCMD_HIT 0
-#define SCMD_MURDER 1
-#define SCMD_WILL 2
+inline constexpr int SCMD_HIT = 0;
+inline constexpr int SCMD_MURDER = 1;
+inline constexpr int SCMD_WILL = 2;
 
-#define SCMD_EAT 0
-#define SCMD_TASTE 1
-#define SCMD_DRINK 2
-#define SCMD_SIP 3
+inline constexpr int SCMD_EAT = 0;
+inline constexpr int SCMD_TASTE = 1;
+inline constexpr int SCMD_DRINK = 2;
+inline constexpr int SCMD_SIP = 3;
 
-#define SCMD_NONHANDED 0
-#define SCMD_TWOHANDED 1
-#define SCMD_ONEHANDED 2
+inline constexpr int SCMD_NONHANDED = 0;
+inline constexpr int SCMD_TWOHANDED = 1;
+inline constexpr int SCMD_ONEHANDED = 2;
 
-#define SCMD_PAGE 0
-#define SCMD_BEEP 1
+inline constexpr int SCMD_PAGE = 0;
+inline constexpr int SCMD_BEEP = 1;
 
-#define SCMD_BUTCHER 0
-#define SCMD_SCALP 1
+inline constexpr int SCMD_BUTCHER = 0;
+inline constexpr int SCMD_SCALP = 1;
 
-#define SCMD_MOVING 0
-#define SCMD_FOLLOW 1
-#define SCMD_MOUNT 2
-#define SCMD_FLEE 3
-#define SCMD_CARRIED 4
-#define SCMD_STALK 5
+inline constexpr int SCMD_MOVING = 0;
+inline constexpr int SCMD_FOLLOW = 1;
+inline constexpr int SCMD_MOUNT = 2;
+inline constexpr int SCMD_FLEE = 3;
+inline constexpr int SCMD_CARRIED = 4;
+inline constexpr int SCMD_STALK = 5;
 
-#define SCMD_APPLY_POISON 0
-#define SCMD_APPLY_ANTIDOTE 1
+inline constexpr int SCMD_APPLY_POISON = 0;
+inline constexpr int SCMD_APPLY_ANTIDOTE = 1;
 
-#define SCMD_LOOK_NORM 0
-#define SCMD_LOOK_EXAM 1
-#define SCMD_LOOK_BRIEF 2
+inline constexpr int SCMD_LOOK_NORM = 0;
+inline constexpr int SCMD_LOOK_EXAM = 1;
+inline constexpr int SCMD_LOOK_BRIEF = 2;
 
-#define OUTDOORS_LIGHT 0
-#define OUTDOORS_WIND 1
+inline constexpr int OUTDOORS_LIGHT = 0;
+inline constexpr int OUTDOORS_WIND = 1;
 
-#define PROMPT_HIT 1
-#define PROMPT_MANA 2
-#define PROMPT_MOVE 4
-#define PROMPT_STAT 8
-#define PROMPT_MAUL 16
-#define PROMPT_ARROWS 32
-#define PROMPT_ADVANCED 64
-#define PROMPT_ALL (PROMPT_HIT | PROMPT_MANA | PROMPT_MOVE)
+inline constexpr int PROMPT_HIT = 1;
+inline constexpr int PROMPT_MANA = 2;
+inline constexpr int PROMPT_MOVE = 4;
+inline constexpr int PROMPT_STAT = 8;
+inline constexpr int PROMPT_MAUL = 16;
+inline constexpr int PROMPT_ARROWS = 32;
+inline constexpr int PROMPT_ADVANCED = 64;
+inline constexpr int PROMPT_ALL = (PROMPT_HIT | PROMPT_MANA | PROMPT_MOVE);
 
-#define SCMD_KICK 1
-#define SCMD_SWING 2
+inline constexpr int SCMD_KICK = 1;
+inline constexpr int SCMD_SWING = 2;
 
-#define SCMD_BITE 1
-#define SCMD_REND 2
-#define SCMD_MAUL 3
+inline constexpr int SCMD_BITE = 1;
+inline constexpr int SCMD_REND = 2;
+inline constexpr int SCMD_MAUL = 3;
 
-#define CMD_ENTER 7
-#define CMD_LOOK 15
-#define CMD_SAY 17
-#define CMD_YELL 18
-#define CMD_TELL 19
-#define CMD_SOCIAL 22
-#define CMD_KILL 23
-#define CMD_EMOTE 27
-#define CMD_READ 45
-#define CMD_REMOVE 48
-#define CMD_QUIT 55
-#define CMD_OPEN 77
-#define CMD_CLOSE 78
-#define CMD_BASH 90
-#define CMD_RESCUE 91
-#define CMD_KICK 92
-#define CMD_HIT 52
-#define CMD_PRACRESET 119
-#define CMD_WIZNET 124
-#define CMD_SEARCH 125
-#define CMD_PRAY 130
-#define CMD_JIG 132
-#define CMD_BLOCK 133
-#define CMD_CONCENTRATE 143
-#define CMD_ASSIST 146
-#define CMD_KNOCK 151
-#define CMD_WHISTLE 179
-#define CMD_SWING 180
-#define CMD_AFFECTIONS 186
-#define CMD_TRACK 195
-#define CMD_SHAPE 200
-#define CMD_GATHER_FOOD 203
-#define CMD_PREPARE 205
-#define CMD_FAME 208
-#define CMD_ORC_DELAY 209
-#define CMD_STALK 215
-#define CMD_COVER 216
-#define CMD_SHOOT 229
-#define CMD_MARK 237
-#define CMD_BLINDING 238
-#define CMD_BENDTIME 239
-#define CMD_WINDBLAST 240
-#define CMD_SMASH 241
-#define CMD_FRENZY 242
-#define CMD_STOMP 243
-#define CMD_CLEAVE 244
-#define CMD_OVERRUN 245
-#define CMD_DEFEND 246
+inline constexpr int CMD_ENTER = 7;
+inline constexpr int CMD_LOOK = 15;
+inline constexpr int CMD_SAY = 17;
+inline constexpr int CMD_YELL = 18;
+inline constexpr int CMD_TELL = 19;
+inline constexpr int CMD_SOCIAL = 22;
+inline constexpr int CMD_KILL = 23;
+inline constexpr int CMD_EMOTE = 27;
+inline constexpr int CMD_READ = 45;
+inline constexpr int CMD_REMOVE = 48;
+inline constexpr int CMD_QUIT = 55;
+inline constexpr int CMD_OPEN = 77;
+inline constexpr int CMD_CLOSE = 78;
+inline constexpr int CMD_BASH = 90;
+inline constexpr int CMD_RESCUE = 91;
+inline constexpr int CMD_KICK = 92;
+inline constexpr int CMD_HIT = 52;
+inline constexpr int CMD_PRACRESET = 119;
+inline constexpr int CMD_WIZNET = 124;
+inline constexpr int CMD_SEARCH = 125;
+inline constexpr int CMD_PRAY = 130;
+inline constexpr int CMD_JIG = 132;
+inline constexpr int CMD_BLOCK = 133;
+inline constexpr int CMD_CONCENTRATE = 143;
+inline constexpr int CMD_ASSIST = 146;
+inline constexpr int CMD_KNOCK = 151;
+inline constexpr int CMD_WHISTLE = 179;
+inline constexpr int CMD_SWING = 180;
+inline constexpr int CMD_AFFECTIONS = 186;
+inline constexpr int CMD_TRACK = 195;
+inline constexpr int CMD_SHAPE = 200;
+inline constexpr int CMD_GATHER_FOOD = 203;
+inline constexpr int CMD_PREPARE = 205;
+inline constexpr int CMD_FAME = 208;
+inline constexpr int CMD_ORC_DELAY = 209;
+inline constexpr int CMD_STALK = 215;
+inline constexpr int CMD_COVER = 216;
+inline constexpr int CMD_SHOOT = 229;
+inline constexpr int CMD_MARK = 237;
+inline constexpr int CMD_BLINDING = 238;
+inline constexpr int CMD_BENDTIME = 239;
+inline constexpr int CMD_WINDBLAST = 240;
+inline constexpr int CMD_SMASH = 241;
+inline constexpr int CMD_FRENZY = 242;
+inline constexpr int CMD_STOMP = 243;
+inline constexpr int CMD_CLEAVE = 244;
+inline constexpr int CMD_OVERRUN = 245;
+inline constexpr int CMD_DEFEND = 246;
 
-#define CMD_HIDE 86
-#define CMD_AMBUSH 87
-#define CMD_WRITE 82
-#define CMD_EXAMINE 94
-#define CMD_NEXT 168
-#define CMD_SEND 171
-#define CMD_BUY 38
-#define CMD_SELL 39
-#define CMD_VALUE 40
-#define CMD_LIST 41
-#define CMD_CAST 66
-#define CMD_RECITE 112
-#define CMD_USE 99
-#define CMD_PRACTICE 93
-#define CMD_PRACTISE 98
-#define CMD_RENT 74
-#define CMD_OFFER 75
-#define CMD_TAME 210
-#define CMD_CALM 211
-#define CMD_FISH 212
-#define CMD_TRAP 220
+inline constexpr int CMD_HIDE = 86;
+inline constexpr int CMD_AMBUSH = 87;
+inline constexpr int CMD_WRITE = 82;
+inline constexpr int CMD_EXAMINE = 94;
+inline constexpr int CMD_NEXT = 168;
+inline constexpr int CMD_SEND = 171;
+inline constexpr int CMD_BUY = 38;
+inline constexpr int CMD_SELL = 39;
+inline constexpr int CMD_VALUE = 40;
+inline constexpr int CMD_LIST = 41;
+inline constexpr int CMD_GIVE = 54;
+inline constexpr int CMD_BALANCE = 138;
+inline constexpr int CMD_DEPOSIT = 139;
+inline constexpr int CMD_WITHDRAW = 140;
+inline constexpr int CMD_CAST = 66;
+inline constexpr int CMD_RECITE = 112;
+inline constexpr int CMD_USE = 99;
+inline constexpr int CMD_PRACTICE = 93;
+inline constexpr int CMD_PRACTISE = 98;
+inline constexpr int CMD_RENT = 74;
+inline constexpr int CMD_OFFER = 75;
+inline constexpr int CMD_TAME = 210;
+inline constexpr int CMD_CALM = 211;
+inline constexpr int CMD_FISH = 212;
+inline constexpr int CMD_TRAP = 220;
 
-#define CMD_ASK 68
+inline constexpr int CMD_ASK = 68;
 
-#define CMD_SCRIPT 9999 // for waitin_list returns
+inline constexpr int CMD_SCRIPT = 9999; // for waitin_list returns
 
 /* definitions for special mobiles, ferry */
 
@@ -344,15 +360,15 @@ struct ferry_boat_type {
 };
 
 struct ferry_captain_type {
-    int num_of_ferry;     // virt. number of the ferry_boat.
-    int length;           // route length
+    int num_of_ferry; // virt. number of the ferry_boat.
+    int length; // route length
     int ferry_route[100]; // where to put the ferry object
     int cabin_route[100]; // where to put passengers
-    int stop_time[100];   // in quarter-ticks (?) 0 = no stopping
+    int stop_time[100]; // in quarter-ticks (?) 0 = no stopping
     int timer;
     int marker;
     char leave_to_outside[255]; // $n stands for the captain,
-    char leave_to_inside[255];  // $o - for the ferry
+    char leave_to_inside[255]; // $o - for the ferry
     char arrive_to_outside[255];
     char arrive_to_inside[255];
     char move_out_outside[255];

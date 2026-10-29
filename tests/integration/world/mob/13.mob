@@ -1,0 +1,172 @@
+#1301
+banker~
+a banker~
+A banker stands behind a counter here, keeping the account vaults.~
+It exists so the harness can deposit and withdraw through program 34.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 34 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+attacks=no
+~
+#1302
+trader~
+a trader~
+A trader stands here, bartering leather caps for copper beads.~
+It exists so the harness can trade through program 33.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 33 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+store=1303
+attacks=no
+price 1137 1308x2
+~
+#1304
+banker dark~
+a dark banker~
+A banker sits in the dark here, keeping the account vaults.~
+It exists so the harness can ask a banker that cannot see its customer.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 34 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+attacks=no
+~
+#1305
+banker morning~
+a morning banker~
+A banker stands here, keeping the vaults from midnight until noon.~
+It exists so the harness can find a banker closed for half of the day.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 34 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+hours=0-12
+attacks=no
+~
+#1306
+banker evening~
+an evening banker~
+A banker stands here, keeping the vaults from noon until midnight.~
+It exists so the harness can find a banker closed for the other half of the day.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 34 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+hours=12-0
+attacks=no
+~
+#1307
+trader odd~
+an odd trader~
+An odd trader stands here, bartering caps and ingots for copper beads.~
+It exists so the harness can trade a list of three rows, one of them deducted.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 33 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+store=1308
+list=Step right up!
+price 1137 1308x2 deduct
+price 1304 1308x1
+price 1305 1308x1
+attacks=no
+~
+#1308
+banker broken~
+a broken banker~
+A banker stands idle here, its fee set to nothing.~
+It exists so the harness can see a banker disabled by a bad fee option.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 34 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+fee=0
+attacks=no
+~
+#1309
+trader broken~
+a broken trader~
+A trader stands idle here, with no store room to sell from.~
+It exists so the harness can see a trader disabled by a missing store option.
+~
+19
+0 0 M
+5 10 0 0
+30 30
+2 0
+0 100 0
+8 8 1 1 0
+150 70 33 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+attacks=no
+price 1137 1308x1
+~
+#99999

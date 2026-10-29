@@ -1,0 +1,1 @@
+the editors' number and name prompts and their ranges, and the text editor's command list and options field

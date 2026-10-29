@@ -11,9 +11,18 @@
 #include "db.h" /* For REAL */
 #include "handler.h" /* For extract_obj() */
 #include "interpre.h" /* For ACMD() */
+#include "obj2html.h"
+#include "object_skins.h" /* For obj_is_skin() */
 #include "spells.h" /* For TYPE_xxx */
 #include "structs.h" /* For ITEM_xxx */
 #include "utils.h" /* For vmudlog() */
+
+#include <algorithm>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 extern struct index_data* obj_index;
 extern struct obj_data* obj_proto;
@@ -25,6 +34,44 @@ int tables; /* The number of tables written so far */
 int entries; /* The number of entries in the current table so far*/
 int total_entries; /* The number of entries for all tables so far */
 int dump_all; /* If asserted, then we dump /all objects/ */
+
+/* Objects with data obj2html cannot show, listed in a table at the end. Sorted by parent, so
+ * the skins of a parent that is in no table come right under it. */
+struct obj2html_problem {
+    int parent; /* rnum the row sorts under */
+    int skin; /* 0 for the parent's own row, 1 for a skin of it */
+    int rnum;
+    std::string text;
+    bool operator<(const obj2html_problem& other) const
+    {
+        return std::tie(parent, skin, rnum) < std::tie(other.parent, other.skin, other.rnum);
+    }
+};
+static std::vector<obj2html_problem> obj2html_problems;
+
+/* Each parent's skins (rnums, in rnum order), found in one pass before the tables are written.
+ * Only parents that have skins get an entry; it is emptied when the command ends. */
+static std::unordered_map<int, std::vector<int>> obj2html_skins;
+
+/* Gives the skins map's memory back (clear() keeps the buckets). */
+static void obj2html_free_skins() { std::unordered_map<int, std::vector<int>>().swap(obj2html_skins); }
+
+/* Weapon types weapon_hit_type() knows; any other maps to TYPE_HIT and fits no weapon table. */
+static bool obj2html_weapon_type_ok(int type) { return type >= 0 && type <= 14; }
+
+/* Directions in dirs[]: NORTH..DOWN. */
+static bool obj2html_dir_ok(int dir) { return dir >= 0 && dir < NUM_OF_DIRS; }
+
+static bool obj2html_is_gizmo(const struct obj_data* o) { return !strcmp(o->short_description, "gizmo"); }
+
+/* The material's name, or the number in red when it is not a material. */
+static void obj2html_material_cell(FILE* f, int material)
+{
+    if (material >= 0 && material < num_of_object_materials)
+        fprintf(f, "         <TD> %s </TD>\n", object_materials[material]);
+    else
+        fprintf(f, "         <TD> <FONT COLOR=RED> %d </FONT> </TD>\n", material);
+}
 
 /*
  * The type structure.
@@ -57,16 +104,6 @@ int dump_all; /* If asserted, then we dump /all objects/ */
  * is a different thing completely.  Compare function should be diff-
  * erent.
  */
-struct obj2html_type {
-    char* title; /* Title for a table of this type */
-    char** keywords;
-    unsigned long typemask;
-    unsigned long (*get_typemask)(struct obj_data*);
-    struct obj2html_type* subtypes;
-    struct obj_data** to_output; /* For runtime use */
-    int num_to_output; /* For runtime use */
-    unsigned long valid_types; /* For runtime use */
-};
 
 /*
  * Weapon subtypes: currently, for every weapon type we only consider
@@ -306,7 +343,8 @@ char* type_keywords[][2] = {
     { "boat", NULL },
     { "fountain", NULL },
     { "shield", NULL },
-    { "lever", NULL }
+    { "lever", NULL },
+    { "keyring", NULL }
 };
 
 unsigned long
@@ -395,6 +433,9 @@ struct obj2html_type obj2html_types[] = {
     { "Lever Objects", type_keywords[ITEM_LEVER],
         1 << ITEM_LEVER, item_typemask, NULL,
         NULL, 0, 0 },
+    { "Keyrings", type_keywords[ITEM_KEYRING],
+        1 << ITEM_KEYRING, item_typemask, NULL,
+        NULL, 0, 0 },
     { NULL, NULL, 0, NULL, NULL, NULL, 0, 0 }
 };
 
@@ -408,8 +449,8 @@ struct obj2html_type obj2html_types[] = {
  * function for an item of type ITEM_xxx match the format of
  * data printed in obj2html_xxx().
  */
-void obj2html_newtable(struct char_data* ch, FILE* f,
-    struct obj2html_type* t, int type)
+void obj2html_newtable(const struct char_data* ch, FILE* f,
+    const struct obj2html_type* t, int type)
 {
     vsend_to_char(ch, "Constructing object table '%s':\n",
         t->title);
@@ -459,7 +500,7 @@ void obj2html_newtable(struct char_data* ch, FILE* f,
             "          <TH> Hours Filled </TH>\n"
             "          <TH ALIGN=LEFT> Notes </TH>\n");
         break;
-    case 1 << ITEM_FOUNTAIN:
+    case ITEM_FOUNTAIN:
         fprintf(f,
             "          <TH> Drink Units </TH>\n"
             "          <TH ALIGN=LEFT> Notes </TH>\n");
@@ -475,6 +516,9 @@ void obj2html_newtable(struct char_data* ch, FILE* f,
         fprintf(f,
             "          <TH> Room </TH>\n"
             "          <TH> Direction </TH>\n");
+        break;
+    case ITEM_KEYRING:
+        fprintf(f, "          <TH> Can Carry </TH>\n");
         break;
     }
 
@@ -494,8 +538,8 @@ void obj2html_newtable(struct char_data* ch, FILE* f,
  * Finishes the writing of an HTML table; increments the total
  * number of entries by the entries in this table and sends output.
  */
-void obj2html_endtable(struct char_data* ch, FILE* f,
-    struct obj2html_type* t)
+void obj2html_endtable(const struct char_data* ch, FILE* f,
+    const struct obj2html_type* t)
 {
     vsend_to_char(ch, "\r\nTable '%s' created with %d entries.\r\n",
         t->title, entries);
@@ -504,6 +548,60 @@ void obj2html_endtable(struct char_data* ch, FILE* f,
 
     total_entries += entries;
     entries = 0;
+}
+
+/* The number of type dependent cells obj2html() writes for an item of this type. */
+static int obj2html_type_cells(int type)
+{
+    switch (type) {
+    case ITEM_LIGHT:
+    case ITEM_NOTE:
+    case ITEM_DRINKCON:
+    case ITEM_KEYRING:
+        return 1;
+    case ITEM_CONTAINER:
+    case ITEM_FOOD:
+    case ITEM_FOUNTAIN:
+    case ITEM_LEVER:
+        return 2;
+    case ITEM_ARMOR:
+    case ITEM_SHIELD:
+        return 4;
+    case ITEM_WEAPON:
+        return 5;
+    }
+    return 0;
+}
+
+/* Marks a skin's name under its parent's as "  - name" (HTML drops plain spaces). */
+#define OBJ2HTML_SKIN_INDENT "&nbsp;&nbsp;- "
+
+/*
+ * A row for a skin, written right after its parent's row. Only the cells a
+ * skin can set are filled: vnum, name (marked, with the parent's vnum),
+ * cost and material. Every other stat is the parent's, so its cell is left
+ * blank.
+ */
+int obj2html_skin(FILE* f, const struct obj_data* o, const struct obj_data* parent)
+{
+    int i;
+
+    fprintf(f, "     <TR ALIGN=RIGHT%s>\n",
+        IS_SET(o->obj_flags.extra_flags, ITEM_MAGIC) ? " BGCOLOR=33033" : "");
+    fprintf(f, "         <TD> %d </TD>\n", obj_index[o->item_number].virt);
+    fprintf(f, "         <TD ALIGN=LEFT> " OBJ2HTML_SKIN_INDENT "%s <I>(#%d)</I> </TD>\n",
+        o->short_description, obj_index[parent->item_number].virt);
+    for (i = obj2html_type_cells(GET_ITEM_TYPE(o)); i > 0; --i)
+        fprintf(f, "         <TD> </TD>\n");
+    fprintf(f, "         <TD> </TD>\n"); /* weight */
+    fprintf(f, "         <TD> %d </TD>\n", o->obj_flags.cost);
+    fprintf(f, "         <TD> </TD>\n"); /* level */
+    obj2html_material_cell(f, o->obj_flags.material);
+    fprintf(f, "          <TD ALIGN=LEFT> </TD>\n"); /* affections */
+    fprintf(f, "     </TR>\n");
+    ++entries;
+
+    return obj_index[o->item_number].virt;
 }
 
 int obj2html(FILE* f, struct obj_data* o)
@@ -582,7 +680,13 @@ int obj2html(FILE* f, struct obj_data* o)
     case ITEM_LEVER:
         extern char* dirs[];
         fprintf(f, "         <TD> %d </TD>\n", o->obj_flags.value[0]);
-        fprintf(f, "         <TD> %s </TD>\n", dirs[o->obj_flags.value[1]]);
+        if (obj2html_dir_ok(o->obj_flags.value[1]))
+            fprintf(f, "         <TD> %s </TD>\n", dirs[o->obj_flags.value[1]]);
+        else /* shown in red here only: the footer is for objects no table lists */
+            fprintf(f, "         <TD> <FONT COLOR=RED> %d </FONT> </TD>\n", o->obj_flags.value[1]);
+        break;
+    case ITEM_KEYRING:
+        fprintf(f, "         <TD> %d </TD>\n", o->obj_flags.value[0]);
         break;
     }
 
@@ -590,9 +694,7 @@ int obj2html(FILE* f, struct obj_data* o)
     fprintf(f, "         <TD> %d </TD>\n", o->obj_flags.weight);
     fprintf(f, "         <TD> %d </TD>\n", o->obj_flags.cost);
     fprintf(f, "         <TD> %d </TD>\n", o->obj_flags.level);
-    if (o->obj_flags.material >= 0 && o->obj_flags.material < num_of_object_materials)
-        fprintf(f, "         <TD> %s </TD>\n",
-            object_materials[o->obj_flags.material]);
+    obj2html_material_cell(f, o->obj_flags.material);
 
     /* Affection list */
     fprintf(f, "          <TD ALIGN=LEFT>");
@@ -617,46 +719,81 @@ int obj2html(FILE* f, struct obj_data* o)
 }
 
 /*
- * Sets ALL matching typemasks; thus if this type 't' has a type
- * matching 'arg', it will be set; and if this 't' additionally
- * has some subtype that matches this arg, that subtype's
- * typemask will also be set.  Returns the number of types and
- * subtypes with matching keywords.
+ * Marks every type or subtype, at any depth, that has 'arg' as a keyword.
+ * Returns the number of types and subtypes that matched.
  */
-int check_keywords(struct obj2html_type* list, char* arg)
+int check_keywords(struct obj2html_type* list, const char* arg)
 {
     int i, j;
-    int types_selected;
-    char* c;
+    int types_selected = 0;
 
-    types_selected = 0;
-
-    /* Make sure to check all types in this list */
     for (i = 0; list[i].title != NULL; ++i) {
-        /* Now check all keywords for this type */
         for (j = 0; list[i].keywords[j] != NULL; ++j)
             if (!strcmp(arg, list[i].keywords[j])) {
-                ++types_selected;
                 SET_BIT(list[i].valid_types, list[i].typemask);
-
-                /* now we need the next keyword */
-                /* If this type matched, then its subtypes may match */
-                if (list[i].subtypes)
-                    types_selected += check_keywords(list[i].subtypes, arg);
+                ++types_selected;
             }
+        if (list[i].subtypes)
+            types_selected += check_keywords(list[i].subtypes, arg);
     }
 
     return types_selected;
 }
 
-void build_output(struct obj2html_type* list, struct obj_data* o)
+/* The index of the first type in list the object belongs to, -1 for none. */
+static int obj2html_subtype_of(const struct obj2html_type* list, struct obj_data* o)
+{
+    for (int i = 0; list[i].title != NULL; ++i)
+        if (IS_SET(list[i].typemask, list[i].get_typemask(o)))
+            return i;
+    return -1;
+}
+
+/* Whether this type or any type below it was named. */
+static int named_at_or_below(const struct obj2html_type* t)
+{
+    if (t->valid_types)
+        return 1;
+    if (t->subtypes)
+        for (int i = 0; t->subtypes[i].title != NULL; ++i)
+            if (named_at_or_below(&t->subtypes[i]))
+                return 1;
+    return 0;
+}
+
+/*
+ * Whether list[i] is taken. Types named here win; failing that, types with a
+ * named type below them ("slash" alone takes the weapons); failing that, all
+ * of them ("weapon" alone takes every weapon table). So "slash 2h" is the
+ * two-handed slashing weapons, not every two-handed weapon.
+ */
+int obj2html_taken(const struct obj2html_type* list, int i)
+{
+    int k, named = 0, below = 0;
+
+    for (k = 0; list[k].title != NULL; ++k) {
+        named |= list[k].valid_types != 0;
+        below |= named_at_or_below(&list[k]);
+    }
+    if (named)
+        return list[i].valid_types != 0;
+    if (below)
+        return named_at_or_below(&list[i]);
+    return 1;
+}
+
+/*
+ * Files the object under every taken leaf type it belongs to (see
+ * obj2html_taken); 'all' ("obj2html all") takes every type.
+ */
+void build_output(struct obj2html_type* list, struct obj_data* o, int all)
 {
     int i, j;
 
     /* Alright, check every type in this list of types */
     for (i = 0; list[i].title != NULL; ++i) {
-        /* Was this item in the bitvector types selected by the user? */
-        if (IS_SET(list[i].valid_types, list[i].get_typemask(o)) || (dump_all && IS_SET(list[i].typemask, list[i].get_typemask(o)))) {
+        /* Is this item of this type, and was the type taken? */
+        if (IS_SET(list[i].typemask, list[i].get_typemask(o)) && (all || obj2html_taken(list, i))) {
 
             /*
              * If there are subtypes, then we have to continue recursing until
@@ -667,9 +804,12 @@ void build_output(struct obj2html_type* list, struct obj_data* o)
              * and it is good for outputting.
              */
             if (list[i].subtypes)
-                build_output(list[i].subtypes, o);
+                build_output(list[i].subtypes, o, all);
             else {
-                if (!strcmp(o->short_description, "gizmo"))
+                if (obj2html_is_gizmo(o))
+                    return;
+                /* A skin is written after its parent (dump_output), not on its own. */
+                if (o->obj_flags.skin_base)
                     return;
 
                 /* First, make the tables bigger so that they can hold it */
@@ -701,7 +841,7 @@ void build_output(struct obj2html_type* list, struct obj_data* o)
  * per-vnum output.  This can probably be removed once the the whole
  * system is known to be working.
  */
-void dump_output(struct char_data* ch, FILE* f, struct obj2html_type* list)
+void dump_output(const struct char_data* ch, FILE* f, struct obj2html_type* list)
 {
     int i, j, vnum;
 
@@ -718,17 +858,44 @@ void dump_output(struct char_data* ch, FILE* f, struct obj2html_type* list)
                 obj2html_newtable(ch, f, &list[i],
                     GET_ITEM_TYPE(list[i].to_output[0]));
                 for (j = 0; j < list[i].num_to_output; ++j) {
-                    vnum = obj2html(f, list[i].to_output[j]);
+                    struct obj_data* parent = list[i].to_output[j];
+                    vnum = obj2html(f, parent);
                     vsend_to_char(ch, " %5d", vnum);
 
                     if (!(entries % 10))
                         vsend_to_char(ch, "\r\n");
+
+                    auto skins = obj2html_skins.find(parent->item_number);
+                    if (skins == obj2html_skins.end())
+                        continue;
+                    for (int skin : skins->second) {
+                        if (obj2html_is_gizmo(&obj_proto[skin]))
+                            continue;
+                        vnum = obj2html_skin(f, &obj_proto[skin], parent);
+                        vsend_to_char(ch, " %5d", vnum);
+
+                        if (!(entries % 10))
+                            vsend_to_char(ch, "\r\n");
+                    }
                 }
                 vsend_to_char(ch, "\r\n");
                 obj2html_endtable(ch, f, &list[i]);
                 RELEASE(list[i].to_output);
             }
         }
+    }
+}
+
+/*
+ * Frees the tables build_output made, for a run that writes no page.
+ */
+static void obj2html_release(struct obj2html_type* list)
+{
+    for (int i = 0; list[i].title != NULL; ++i) {
+        RELEASE(list[i].to_output);
+        list[i].num_to_output = 0;
+        if (list[i].subtypes)
+            obj2html_release(list[i].subtypes);
     }
 }
 
@@ -749,6 +916,43 @@ void obj2html_clear(struct obj2html_type* list)
 }
 
 /*
+ * Writes the table of objects with data obj2html could not show, sorted by
+ * vnum with each parent's skins right under it, the problem in red, and
+ * empties the list. Returns how many problem objects it listed (not their skins).
+ */
+int obj2html_problem_table(FILE* f)
+{
+    if (obj2html_problems.empty())
+        return 0;
+    std::sort(obj2html_problems.begin(), obj2html_problems.end());
+    fprintf(f, "\n"
+               "<BR> <BR>\n"
+               "<CENTER>\n"
+               "<H2> Problem Objects </H2>\n"
+               "<TABLE BORDER=0 CELLPADDING=4 CELLSPACING=1>\n"
+               "     <TR ALIGN=RIGHT>\n"
+               "          <TH> Vnum </TH>\n"
+               "          <TH ALIGN=LEFT> Item Name </TH>\n"
+               "          <TH ALIGN=LEFT> Problem </TH>\n"
+               "     </TR>\n");
+    for (const auto& problem : obj2html_problems) {
+        fprintf(f, "     <TR ALIGN=RIGHT>\n");
+        fprintf(f, "         <TD> %d </TD>\n", obj_index[problem.rnum].virt);
+        fprintf(f, "         <TD ALIGN=LEFT> %s%s </TD>\n", problem.skin ? OBJ2HTML_SKIN_INDENT : "",
+            obj_proto[problem.rnum].short_description);
+        fprintf(f, "         <TD ALIGN=LEFT> <FONT COLOR=RED> %s </FONT> </TD>\n",
+            problem.text.c_str());
+        fprintf(f, "     </TR>\n");
+    }
+    fprintf(f, "</TABLE>\n"
+               "</CENTER>\n");
+    int listed = std::count_if(obj2html_problems.begin(), obj2html_problems.end(),
+        [](const obj2html_problem& problem) { return problem.skin == 0; });
+    std::vector<obj2html_problem>().swap(obj2html_problems); /* written: nothing kept between runs */
+    return listed;
+}
+
+/*
  * Create an html file (named object_dump.html for the moment) and
  * create a nice, tabularly structured output for easy viewing of
  * object data.  Now we expect to be one directory below the rots/
@@ -763,10 +967,12 @@ ACMD(do_obj2html)
     char* c;
     int i, selected;
     FILE* obj2html_start(void);
-    FILE* obj2html_finish(struct char_data*, FILE * f);
+    FILE* obj2html_finish(const struct char_data*, FILE* f);
 
     /* Clear all output lists and valid type masks */
     obj2html_clear(obj2html_types);
+    obj2html_problems.clear();
+    obj2html_free_skins();
 
     /* Parse arguments.  NOTE: one_argument() guarantees lower case */
     selected = dump_all = 0;
@@ -791,20 +997,65 @@ ACMD(do_obj2html)
         vsend_to_char(ch, "Found %d matching types and subtypes.\r\n",
             selected);
 
+    /* Each parent's skins, before any parent is placed. */
+    for (i = 0; i <= top_of_objt; ++i)
+        if (obj_is_skin(obj_proto[i])) {
+            int base = real_object(obj_proto[i].obj_flags.skin_base);
+            if (base >= 0)
+                obj2html_skins[base].push_back(i);
+        }
+
     /* Make the tables */
-    for (i = 0; i < top_of_objt; ++i)
-        build_output(obj2html_types, &obj_proto[i]);
+    for (i = 0; i <= top_of_objt; ++i) {
+        struct obj_data* o = &obj_proto[i];
+        /* A weapon or armor that fits no table of its type is listed as a problem, with its skins
+         * under it (they have its stats). A bad weapon type belongs to no kind, so any weapon run
+         * lists it; a bad bulk only when its kind (whips, slashing...) is in the run. */
+        std::string problem;
+        if (GET_ITEM_TYPE(o) == ITEM_WEAPON && !obj_is_skin(*o)
+            && (dump_all || obj2html_taken(obj2html_types, ITEM_WEAPON - 1))) {
+            int kind = obj2html_subtype_of(weapon_subtypes, o);
+            if (!obj2html_weapon_type_ok(o->obj_flags.value[3]))
+                problem = "weapon type " + std::to_string(o->obj_flags.value[3]) + " is not a weapon type";
+            else if ((o->obj_flags.value[2] < 0 || o->obj_flags.value[2] > 10)
+                && (dump_all || (kind >= 0 && obj2html_taken(weapon_subtypes, kind))))
+                problem = "bulk " + std::to_string(o->obj_flags.value[2]) + " fits no one- or two-handed table";
+        } else if (GET_ITEM_TYPE(o) == ITEM_ARMOR && !obj_is_skin(*o)
+            && (dump_all || obj2html_taken(obj2html_types, ITEM_ARMOR - 1))
+            && obj2html_subtype_of(armor_subtypes, o) < 0)
+            problem = "wear flags " + std::to_string(o->obj_flags.wear_flags) + " fit no armor table";
+        /* A "gizmo" placeholder stays hidden, as build_output hides it. */
+        if (!problem.empty() && !obj2html_is_gizmo(o)) {
+            obj2html_problems.push_back({ i, 0, i, problem });
+            auto skins = obj2html_skins.find(i);
+            if (skins != obj2html_skins.end())
+                for (int skin : skins->second)
+                    if (!obj2html_is_gizmo(&obj_proto[skin]))
+                        obj2html_problems.push_back({ i, 1, skin, "skin of " + std::to_string(obj_index[i].virt) });
+            continue;
+        }
+        build_output(obj2html_types, o, dump_all);
+    }
 
     /* Write the tables */
     f = obj2html_start();
     if (f == NULL) {
         vsend_to_char(ch, "Failed to start the HTML dump.\r\n");
+        obj2html_free_skins();
+        obj2html_release(obj2html_types);
+        obj2html_problems.clear();
         return;
     }
 
     dump_output(ch, f, obj2html_types);
 
+    int problems = obj2html_problem_table(f);
+    if (problems)
+        vsend_to_char(ch, "%d problem object%s listed at the end.\r\n",
+            problems, problems == 1 ? "" : "s");
+
     f = obj2html_finish(ch, f);
+    obj2html_free_skins();
 }
 
 /*
@@ -851,7 +1102,7 @@ FILE* obj2html_start(void)
  * Finishes the entire HTML page.  Closes the file and makes
  * a usage announcement.
  */
-FILE* obj2html_finish(struct char_data* ch, FILE* f)
+FILE* obj2html_finish(const struct char_data* ch, FILE* f)
 {
     fprintf(f, "</BODY>\n"
                "</HTML>\n");

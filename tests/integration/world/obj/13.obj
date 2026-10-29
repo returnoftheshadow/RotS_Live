@@ -1,0 +1,46 @@
+#1304
+cap iron~
+an iron cap~
+An iron cap lies here.~
+~
+9 0 17
+0 0 0 0 0
+45 60 -1
+0 0 2 0 0
+#1305
+ingot lead~
+a lead ingot~
+A heavy lead ingot lies here.~
+~
+12 0 1
+0 0 0 0 0
+90000 1 -1
+0 0 0 0 0
+#1306
+key brass~
+a brass key~
+A brass key lies here.~
+~
+18 0 1
+0 0 0 0 0
+1 1 -1
+0 0 0 0 0
+#1307
+ring cursed~
+a cursed ring~
+A cursed ring lies here.~
+~
+11 128 3
+0 0 0 0 0
+1 1 -1
+0 0 0 0 0
+#1308
+bead copper~
+a copper bead~
+A copper bead lies here.~
+~
+12 0 1
+0 0 0 0 0
+1 1 -1
+0 0 0 0 0
+#99999

@@ -1,0 +1,505 @@
+#1700
+smith plain~
+a plain smith~
+A plain smith waits here for a star token.~
+His script (1700) checks a given object in a nested block, with no section rows.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1700 100 0
+#1701
+smith labelled~
+a labelled smith~
+A labelled smith waits here for a star token.~
+His script (1701) is the plain smith's with section rows added.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1701 100 0
+#1702
+foreman weary~
+a weary foreman~
+A weary foreman leans here, waiting to be told goodbye.~
+His script (1702) waits between two lines and then ends.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1702 100 0
+#1703
+gatekeeper keeper~
+a gatekeeper~
+A gatekeeper stands here beside the north door.~
+His script (1703) opens the north door for a gift and closes and locks it when told to lock it.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1703 100 0
+#1704
+surveyor~
+a surveyor~
+A surveyor stands here, looking for a way up.~
+His script (1704) points a missing exit somewhere when given an object, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1704 100 0
+#1705
+courier~
+a courier~
+A courier waits here for an address.~
+His script (1705) teleports himself to an unset room when given an object, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1705 100 0
+#1706
+valet~
+a valet~
+A valet waits here to check your equipment.~
+His script (1706) reads equipment slot 22, which does not exist, when given an object, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1706 100 0
+#1707
+dresser~
+a dresser~
+A dresser waits here to undress someone.~
+His script (1707) removes equipment slot 22, which does not exist, when given an object, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1707 100 0
+#1708
+appraiser~
+an appraiser~
+An appraiser waits here to look over your hat.~
+His script (1708) loads a cap, then reads the head slot of an unset character, when given an object.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1708 100 0
+#1709
+mumbler~
+a mumbler~
+A mumbler stands here, muttering half a sentence.~
+His script (1709) speaks, then skips a false IF whose nested block never ends, when given an object.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1709 100 0
+#1710
+renamer~
+a renamer~
+A renamer stands here, eager to rename someone.~
+His script (1710) writes to a name it cannot write when anyone speaks, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1710 100 0
+#1711
+smiler~
+a smiler~
+A smiler stands here with nobody to smile.~
+His script (1711) has an unset character smile when anyone speaks, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1711 100 0
+#1712
+fitter~
+a fitter~
+A fitter stands here with nothing to fit.~
+His script (1712) wears an unset object when anyone speaks, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1712 100 0
+#1713
+copier~
+a copier~
+A copier stands here with nothing to copy.~
+His script (1713) copies an unset object when anyone speaks, then speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1713 100 0
+#1714
+hatter~
+a hatter~
+A hatter waits here for a hat.~
+His script (1714) wears the object he is given.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1714 100 0
+#1715
+scribe~
+a scribe~
+A scribe waits here to copy something.~
+His script (1715) copies the object he is given and gives the copy back.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1715 100 0
+#1716
+hale wrestler~
+a hale wrestler~
+A hale wrestler stands here, flexing.~
+His script (1716) writes 5000000 to his own hit points when given an object.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1716 100 0
+#1717
+dazed wrestler~
+a dazed wrestler~
+A dazed wrestler stands here, swaying.~
+His script (1717) writes 0 to his own hit points when given an object, and 50 when anyone speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1717 100 0
+#1718
+doomed wrestler~
+a doomed wrestler~
+A doomed wrestler stands here, pale.~
+His script (1718) writes -5000000 to his own hit points when given an object.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1718 100 0
+#1719
+accountant~
+an accountant~
+An accountant sits here, dividing.~
+His script (1719) divides a number by zero when given an object and says whether the result is zero.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1719 100 0
+#1721
+foreman patient~
+a patient foreman~
+A patient foreman leans here, in no hurry at all.~
+His script (1721) says one line, waits 100 seconds, says a last line and ends.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1721 100 0
+#1722
+porter~
+a porter~
+A porter stands here, ready to carry things.~
+He has no script; an implementor forces him to give things.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#1723
+wanderer~
+a wanderer~
+A wanderer stands here, ready to leave.~
+His script (1723) teleports himself to room 1201 when anyone speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1723 100 0
+#1724
+listener~
+a listener~
+A listener stands here, all ears.~
+His script (1724) answers when anyone speaks.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1724 100 0
+#1730
+crier~
+a crier~
+A crier stands here, clearing his throat.~
+His script (1730) says a line, waits, says a second line and waits again as its last row.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1730 100 0
+#1731
+clerk first~
+a first clerk~
+A first clerk sits here behind a ledger.~
+His script (1731) skips a false IF whose block ends with a nested block without an else.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1731 100 0
+#1732
+clerk second~
+a second clerk~
+A second clerk sits here behind a ledger.~
+His script (1732) skips a false IF whose block holds a nested block with a non-empty else.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1732 100 0
+#1733
+copyist careless~
+a careless copyist~
+A careless copyist waits here to copy something.~
+His script (1733) is the scribe's with 0 in LOAD_OBJ_X's unused first parameter.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1733 100 0
+#99999

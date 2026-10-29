@@ -1,0 +1,1 @@
+script IF blocks: a false IF skips its block and the nested ones, a true one runs past a skipped nested guard, a nested guard halts the script, and an IF that never ends ends it

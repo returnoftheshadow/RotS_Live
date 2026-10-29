@@ -1,0 +1,1 @@
+the server boots on a harness lib and characters log in

@@ -1,0 +1,1 @@
+boot reads object skins from the world file, and a restyle (command or script) changes a copy in place

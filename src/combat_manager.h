@@ -53,9 +53,9 @@ public:
         double m_ob_value;
     };
 
-    ob_roll roll_ob(char_data* attacker);
+    ob_roll roll_ob(const char_data* attacker);
 
-    bool can_attack(char_data* attacker, char_data* victim);
+    bool can_attack(const char_data* attacker, const char_data* victim);
     bool is_hit_accurate(const char_data& attacker);
 
     // This will return the character's 'left-over' OB if their strike hits.  If this value
@@ -66,14 +66,14 @@ public:
 
     void on_weapon_hit(char_data* attacker, char_data* victim, bool hit_accurate, double remaining_ob);
 
-    void apply_weapon_damage(char_data* attacker, char_data* victim, double damage);
-    bool apply_damage(char_data* attacker, char_data* victim, double damage, int attack_type, int hit_location);
+    void apply_weapon_damage(char_data* attacker, const char_data* victim, double damage);
+    bool apply_damage(const char_data* attacker, const char_data* victim, double damage, int attack_type, int hit_location);
 
 private:
     // Returns true if a riposte occurs.
-    bool does_victim_riposte(char_data* attacker, char_data* riposter);
+    bool does_victim_riposte(const char_data* attacker, const char_data* riposter);
     void do_riposte(char_data* attacker, char_data* riposter);
-    void check_grip(char_data* character, obj_data* weapon);
+    void check_grip(char_data* character, const obj_data* weapon);
 
     double calculate_weapon_damage(const char_data& attacker);
     int get_weapon_skill_type(const char_data& attacker);
@@ -82,7 +82,7 @@ private:
     bool does_find_weakness(const char_data& attacker);
     bool does_rush(const char_data& attacker);
 
-    double apply_armor_reduction(char_data* attacker, char_data* victim, double damage, int weapon_type, int hit_location);
+    double apply_armor_reduction(const char_data* attacker, const char_data* victim, double damage, int weapon_type, int hit_location);
 
     // Deleted functions.
     // Don't put definitions in here so trying to do them will cause a compile error.

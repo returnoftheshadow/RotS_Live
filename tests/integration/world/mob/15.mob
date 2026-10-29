@@ -1,0 +1,37 @@
+#1503
+cloaked figure mysterious traveller man mage magegm guildmaster~
+a mysterious traveller~
+A cloaked figure walks about here, observing the area closely.~
+A copy of the traveller in zone 15, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 7 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#1509
+wise mystic robed man~
+a wise mystic~
+A robed man sits on a bench, thinking.~
+A guild-special copy at the wise mystic's vnum with program 61, the last row of guildmasters[].
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 61 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#99999

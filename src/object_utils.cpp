@@ -290,6 +290,18 @@ bool obj_data::is_quiver() const
 }
 
 //============================================================================
+bool obj_data::is_keyring() const
+{
+    return obj_flags.type_flag == ITEM_KEYRING;
+}
+
+//============================================================================
+bool obj_data::holds_items() const
+{
+    return obj_flags.type_flag == ITEM_CONTAINER || obj_flags.type_flag == ITEM_KEYRING;
+}
+
+//============================================================================
 bool obj_flag_data::is_wearable() const
 {
     static int WEARABLE_ITEMS[7] = {

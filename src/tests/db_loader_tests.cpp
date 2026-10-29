@@ -1,0 +1,5416 @@
+#include "../account_cache.h"
+#include "../account_errors.h"
+#include "../account_index.h"
+#include "../account_management.h"
+#include "../char_utils.h"
+#include "../color.h"
+#include "../db.h"
+#include "../exploits_json.h"
+#include "../handler.h"
+#include "../mob_progs/banker.h"
+#include "../object_skins.h"
+#include "../objects_json.h"
+#include "../owned_character.h"
+#include "../protos.h" /* shape_object, for the object editor's version field */
+#include "../script.h" /* check_script_vnums, for the RESTYLE_OBJ target check */
+#include "../spells.h" /* SPELL_RESIST_* for the affect-persistence tests */
+#include "../utils.h"
+#include "AccountRecordOnDiskBuilder.h"
+#include "test_cleanup.h"
+
+#include <gtest/gtest.h>
+
+#include <cctype>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <limits>
+#include <limits.h>
+#include <new>
+#include <optional>
+#include <random>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <sys/stat.h>
+#include <system_error>
+#include <unistd.h>
+#include <vector>
+
+void build_account_native_player_index(void);
+
+extern struct skill_data skills[]; /* statically initialised in consts.cpp, no boot step needed */
+extern struct player_index_element* player_table;
+extern struct room_data world;
+extern struct index_data* obj_index;
+extern struct obj_data* obj_proto;
+extern struct obj_data* object_list;
+extern int top_of_p_table;
+extern int top_of_world;
+extern int top_of_objt;
+extern struct char_data* mob_proto;
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+extern struct char_data* character_list;
+void build_player_index(void);
+void save_player(struct char_data* ch, int load_room, int index_pos);
+void store_to_char(const struct char_file_u* st, struct char_data* ch);
+int Crash_alias_load(struct char_data* ch, FILE* fp);
+void Crash_report_object_refreshes(const struct char_data* character);
+int file_to_string_alloc(const char* name, char** buf);
+
+namespace {
+
+class ScopedPlayerTableEntry {
+public:
+    explicit ScopedPlayerTableEntry(const char* name = "aragorn")
+        : m_previous_player_table(player_table)
+        , m_previous_top_of_p_table(top_of_p_table)
+    {
+        player_table = new player_index_element[1] {};
+        top_of_p_table = 0;
+        player_table[0].name = strdup(name);
+        player_table[0].level = 1;
+        player_table[0].race = 1;
+        player_table[0].idnum = 1234;
+    }
+
+    ~ScopedPlayerTableEntry()
+    {
+        free(player_table[0].name);
+        delete[] player_table;
+        player_table = m_previous_player_table;
+        top_of_p_table = m_previous_top_of_p_table;
+    }
+
+private:
+    player_index_element* m_previous_player_table;
+    int m_previous_top_of_p_table;
+};
+
+class TemporaryDirectory {
+public:
+    TemporaryDirectory()
+    {
+        char path_template[] = "/tmp/rots-db-loader-XXXXXX";
+        char* created_path = mkdtemp(path_template);
+        EXPECT_NE(created_path, nullptr);
+        if (created_path)
+            m_path = created_path;
+    }
+
+    ~TemporaryDirectory()
+    {
+        if (!m_path.empty()) {
+            std::string command = "rm -rf '" + m_path + "'";
+            std::system(command.c_str());
+        }
+    }
+
+    const std::string& path() const { return m_path; }
+
+private:
+    std::string m_path;
+};
+
+std::string read_file_contents(const std::string& path)
+{
+    FILE* file = std::fopen(path.c_str(), "rb");
+    EXPECT_NE(file, nullptr);
+    if (file == nullptr)
+        return "";
+
+    std::string contents;
+    char buffer[1024];
+    while (true) {
+        const size_t bytes_read = std::fread(buffer, sizeof(char), sizeof(buffer), file);
+        if (bytes_read > 0)
+            contents.append(buffer, bytes_read);
+        if (bytes_read < sizeof(buffer)) {
+            EXPECT_EQ(std::ferror(file), 0);
+            break;
+        }
+    }
+
+    std::fclose(file);
+    return contents;
+}
+
+std::string replace_once(std::string text, const std::string& from, const std::string& to)
+{
+    const size_t position = text.find(from);
+    if (position == std::string::npos)
+        return text;
+    text.replace(position, from.size(), to);
+    return text;
+}
+
+std::string rooted_account_json_path(const std::string& root_directory, const std::string& normalized_email)
+{
+    const char first = normalized_email.empty() ? 'A' : static_cast<char>(std::toupper(static_cast<unsigned char>(normalized_email[0])));
+    std::string bucket = "U-Z";
+    if (first >= 'A' && first <= 'E')
+        bucket = "A-E";
+    else if (first >= 'F' && first <= 'J')
+        bucket = "F-J";
+    else if (first >= 'K' && first <= 'O')
+        bucket = "K-O";
+    else if (first >= 'P' && first <= 'T')
+        bucket = "P-T";
+    return root_directory + "/accounts/" + bucket + "/" + normalized_email + "/account.json";
+}
+
+class ScopedWorkingDirectory {
+public:
+    explicit ScopedWorkingDirectory(const std::string& path)
+    {
+        char buffer[PATH_MAX];
+        char* current_working_directory = getcwd(buffer, sizeof(buffer));
+        EXPECT_NE(current_working_directory, nullptr);
+        if (current_working_directory != nullptr)
+            m_original_path = buffer;
+
+        EXPECT_EQ(chdir(path.c_str()), 0);
+    }
+
+    ~ScopedWorkingDirectory()
+    {
+        if (!m_original_path.empty())
+            EXPECT_EQ(chdir(m_original_path.c_str()), 0);
+    }
+
+private:
+    std::string m_original_path;
+};
+
+class ScopedStderrRedirect {
+public:
+    explicit ScopedStderrRedirect(const std::string& path)
+        : m_path(path)
+    {
+        m_original_stderr_fd = dup(STDERR_FILENO);
+        EXPECT_GE(m_original_stderr_fd, 0);
+
+        m_redirect_fd = open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0600);
+        EXPECT_GE(m_redirect_fd, 0);
+        if (m_redirect_fd >= 0)
+            EXPECT_GE(dup2(m_redirect_fd, STDERR_FILENO), 0);
+    }
+
+    ~ScopedStderrRedirect()
+    {
+        if (m_original_stderr_fd >= 0) {
+            fflush(stderr);
+            EXPECT_GE(dup2(m_original_stderr_fd, STDERR_FILENO), 0);
+            close(m_original_stderr_fd);
+        }
+        if (m_redirect_fd >= 0)
+            close(m_redirect_fd);
+    }
+
+    std::string read_contents() const
+    {
+        fflush(stderr);
+        return read_file_contents(m_path);
+    }
+
+private:
+    std::string m_path;
+    int m_original_stderr_fd = -1;
+    int m_redirect_fd = -1;
+};
+
+// A player character the tests load, store and save. Loading gives it aliases and an
+// object-refresh entry that free_char leaves behind; this object clears both, then its
+// owned_character frees the character. The teardown stays here rather than in owned_character
+// because the game's login and logout clear them already: only a test stops in between.
+class LoadedCharacter {
+public:
+    LoadedCharacter() = default;
+
+    ~LoadedCharacter()
+    {
+        release_aliases();
+        // A descriptor set by the test is the test's own, and the refresh report below writes to
+        // whatever descriptor the character still has.
+        m_character->desc = nullptr;
+        // Login reports the objects Crash_load refreshed, which empties the character's entry; a
+        // test stops short of login, so the entry is emptied here.
+        Crash_report_object_refreshes(m_character);
+    }
+
+    LoadedCharacter(const LoadedCharacter&) = delete;
+    LoadedCharacter& operator=(const LoadedCharacter&) = delete;
+
+    // The character, so the object passes straight to the game's functions.
+    operator char_data*() const { return m_character.get(); }
+    // The character's members.
+    char_data* operator->() const { return m_character.get(); }
+    // The character, for functions that take a char_data&.
+    char_data& operator*() const { return *m_character; }
+
+private:
+    // free_char leaves the alias list, so each alias is released the way do_alias removes one.
+    void release_aliases()
+    {
+        alias_list* alias = GET_ALIAS(m_character);
+        while (alias != nullptr) {
+            alias_list* next_alias = alias->next;
+            RELEASE(alias->command);
+            RELEASE(alias);
+            alias = next_alias;
+        }
+        GET_ALIAS(m_character) = nullptr;
+    }
+
+    // The character under test, freed with free_char after this object's teardown has run.
+    owned_character m_character;
+};
+
+char_file_u make_stored_character(const char* name = "aragorn")
+{
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", name);
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger from the north.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 12;
+    stored_character.language = LANG_HUMAN;
+    stored_character.birth = 1700000000;
+    stored_character.played = 456;
+    stored_character.weight = 190;
+    stored_character.height = 72;
+    stored_character.hometown = 7;
+    stored_character.last_logon = 1700000100;
+    stored_character.points.gold = 1234;
+    stored_character.points.exp = 5678;
+    stored_character.specials2.idnum = 4242;
+    stored_character.specials2.load_room = 3001;
+    stored_character.specials2.act = 0;
+    stored_character.specials2.pref = 1L << 5;
+    stored_character.specials2.tactics = TACTICS_BERSERK;
+    stored_character.specials2.shooting = SHOOTING_FAST;
+    stored_character.specials2.casting = CASTING_SLOW;
+    stored_character.specials2.two_handed = 1;
+    stored_character.profs.colors[COLOR_MAGIC] = CBMAG;
+    stored_character.profs.colors[COLOR_WEATHER] = CBCYN;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.mode = COLOR_VALUE_TRUECOLOR;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.ansi = CBMAG;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.red = 180;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.green = 80;
+    stored_character.profs.color_settings[COLOR_MAGIC].foreground.blue = 255;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.mode = COLOR_VALUE_TRUECOLOR;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.ansi = CBBLU;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.red = 10;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.green = 20;
+    stored_character.profs.color_settings[COLOR_WEATHER].background.blue = 35;
+    stored_character.profs.prof_level[PROF_WARRIOR] = 12;
+    stored_character.profs.prof_coof[PROF_WARRIOR] = 34;
+    return stored_character;
+}
+
+class ScopedObjectPrototypeTable {
+public:
+    ScopedObjectPrototypeTable()
+        : m_previous_obj_index(obj_index)
+        , m_previous_obj_proto(obj_proto)
+        , m_previous_top_of_objt(top_of_objt)
+        , m_previous_object_list(object_list)
+    {
+        obj_index = new index_data[2] {};
+        obj_proto = new obj_data[2] {};
+        top_of_objt = 1;
+        object_list = nullptr;
+
+        initialize_prototype(0, 1001, "steel-helm", "a steel helm", ITEM_ARMOR, WEAR_HEAD, 7, 15);
+        initialize_prototype(1, 1002, "travel-pack", "a travel pack", ITEM_CONTAINER, ITEM_TAKE, 4, 5);
+    }
+
+    ~ScopedObjectPrototypeTable()
+    {
+        while (object_list != nullptr) {
+            obj_data* next = object_list->next;
+            free_obj(object_list);
+            object_list = next;
+        }
+
+        for (int index = 0; index <= top_of_objt; ++index) {
+            free(obj_proto[index].name);
+            free(obj_proto[index].short_description);
+            free(obj_proto[index].description);
+        }
+        delete[] obj_proto;
+        delete[] obj_index;
+        obj_proto = m_previous_obj_proto;
+        obj_index = m_previous_obj_index;
+        top_of_objt = m_previous_top_of_objt;
+        object_list = m_previous_object_list;
+    }
+
+private:
+    void initialize_prototype(int index, int virt, const char* name, const char* short_description, int type_flag, long wear_flags, int weight, int value_two)
+    {
+        obj_index[index].virt = virt;
+        obj_index[index].number = 0;
+        obj_index[index].func = 0;
+
+        clear_object(&obj_proto[index]);
+        obj_proto[index].name = strdup(name);
+        obj_proto[index].short_description = strdup(short_description);
+        obj_proto[index].description = strdup(short_description);
+        obj_proto[index].action_description = nullptr;
+        obj_proto[index].item_number = index;
+        obj_proto[index].obj_flags.type_flag = type_flag;
+        obj_proto[index].obj_flags.wear_flags = wear_flags;
+        obj_proto[index].obj_flags.weight = weight;
+        obj_proto[index].obj_flags.value[2] = value_two;
+    }
+
+    index_data* m_previous_obj_index;
+    obj_data* m_previous_obj_proto;
+    int m_previous_top_of_objt;
+    obj_data* m_previous_object_list;
+};
+
+void write_file(const std::string& path, const std::string& contents)
+{
+    FILE* file = fopen(path.c_str(), "wb");
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(fwrite(contents.data(), sizeof(char), contents.size(), file), contents.size());
+    ASSERT_EQ(fclose(file), 0);
+}
+
+// Count files in dir whose names begin with "<base_name>." (dot-anchored, matching
+// save_player's versioned-file naming convention). Uses std::filesystem::directory_iterator
+// for consistency with finalize_player_file_rename's rename-then-enumerate behavior.
+int count_versioned_files_for(const std::string& dir, const std::string& base_name)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    if (ec) {
+        return -1;
+    }
+    int count = 0;
+    const std::string prefix = base_name + ".";
+    const fs::directory_iterator end;
+    while (it != end) {
+        const std::string filename = it->path().filename().native();
+        if (filename.size() >= prefix.size() &&
+            std::string_view(filename).substr(0, prefix.size()) == prefix) {
+            ++count;
+        }
+        it.increment(ec);
+        if (ec) {
+            return -1;
+        }
+    }
+    return count;
+}
+
+std::string write_valid_legacy_player_file(const std::string& root_directory, const char_file_u& stored_character, const std::string& destination_path = "")
+{
+    ScopedWorkingDirectory working_directory(root_directory);
+    player_index_element* previous_player_table = player_table;
+    const int previous_top_of_p_table = top_of_p_table;
+
+    player_table = new player_index_element[1] {};
+    top_of_p_table = 0;
+    player_table[0].name = strdup(stored_character.name);
+
+    player_table[0].level = stored_character.level;
+    player_table[0].race = stored_character.race;
+    player_table[0].idnum = stored_character.specials2.idnum;
+    player_table[0].log_time = stored_character.last_logon;
+    player_table[0].flags = stored_character.specials2.act;
+
+    LoadedCharacter character;
+
+    char_file_u mutable_store = stored_character;
+    store_to_char(&mutable_store, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character->desc = &descriptor;
+
+    save_player(character, stored_character.specials2.load_room, 0);
+    const std::string generated_path = player_table[0].ch_file;
+
+    // After save_player, the bucket dir must hold exactly ONE versioned file for this
+    // character (the atomic finalize pruned stale siblings).
+    {
+        const std::size_t slash = generated_path.rfind('/');
+        if (slash != std::string::npos) {
+            const std::string bucket_dir = generated_path.substr(0, slash);
+            std::string base_lower = stored_character.name;
+            for (char& c : base_lower)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            EXPECT_EQ(count_versioned_files_for(bucket_dir, base_lower), 1);
+        }
+    }
+
+    const std::string player_text = read_file_contents(generated_path);
+    const std::string final_path = destination_path.empty() ? account::legacy_player_file_path(root_directory, stored_character.name) : destination_path;
+    write_file(final_path, player_text);
+    if (generated_path != final_path)
+        std::remove(generated_path.c_str());
+
+    free(player_table[0].name);
+    delete[] player_table;
+    if (previous_player_table != nullptr && previous_top_of_p_table >= 0) {
+        player_table = previous_player_table;
+        top_of_p_table = previous_top_of_p_table;
+    } else {
+        player_table = nullptr;
+        top_of_p_table = -1;
+    }
+
+    return player_text;
+}
+
+// `records` in the legacy exploits/ file encoding.
+std::string legacy_exploit_bytes(const std::vector<exploit_record>& records)
+{
+    std::string bytes;
+    std::string error_message;
+    EXPECT_TRUE(exploits_json::exploit_records_to_binary(records, &bytes, &error_message)) << error_message;
+    return bytes;
+}
+
+std::string serialize_record(const exploit_record& record)
+{
+    return legacy_exploit_bytes({ record });
+}
+
+exploit_record make_record(int type, const char* timestamp, const char* victim_name, int victim_level, int killer_level, int int_param)
+{
+    exploit_record record {};
+    record.type = type;
+    strncpy(record.chtime, timestamp, sizeof(record.chtime) - 1);
+    strncpy(record.chVictimName, victim_name, sizeof(record.chVictimName) - 1);
+    record.iVictimLevel = victim_level;
+    record.iKillerLevel = killer_level;
+    record.iIntParam = int_param;
+    return record;
+}
+
+void ensure_test_world_room(int room_number)
+{
+    if (room_data::BASE_WORLD == nullptr)
+        world.create_bulk(1);
+
+    top_of_world = 0;
+    world[0].number = room_number;
+}
+
+std::string make_valid_object_bytes(int item_number = 1234, int wear_pos = WEAR_HEAD)
+{
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = item_number;
+    object_data.objects[0].wear_pos = wear_pos;
+
+    std::string error_message;
+    std::string object_bytes;
+    EXPECT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    return object_bytes;
+}
+
+void expect_object_save_data_equal(const objects_json::ObjectSaveData& expected, const objects_json::ObjectSaveData& actual)
+{
+    EXPECT_EQ(actual.rent.time, expected.rent.time);
+    EXPECT_EQ(actual.rent.rentcode, expected.rent.rentcode);
+    EXPECT_EQ(actual.rent.net_cost_per_hour, expected.rent.net_cost_per_hour);
+    EXPECT_EQ(actual.rent.gold, expected.rent.gold);
+    EXPECT_EQ(actual.rent.nitems, expected.rent.nitems);
+    EXPECT_EQ(actual.objects.size(), expected.objects.size());
+    for (size_t index = 0; index < expected.objects.size() && index < actual.objects.size(); ++index) {
+        const auto& expected_object = expected.objects[index];
+        const auto& actual_object = actual.objects[index];
+        EXPECT_EQ(actual_object.item_number, expected_object.item_number);
+        EXPECT_EQ(actual_object.values, expected_object.values);
+        EXPECT_EQ(actual_object.extra_flags, expected_object.extra_flags);
+        EXPECT_EQ(actual_object.weight, expected_object.weight);
+        EXPECT_EQ(actual_object.timer, expected_object.timer);
+        EXPECT_EQ(actual_object.bitvector, expected_object.bitvector);
+        EXPECT_EQ(actual_object.wear_pos, expected_object.wear_pos);
+        EXPECT_EQ(actual_object.loaded_by, expected_object.loaded_by);
+        for (size_t affect_index = 0; affect_index < expected_object.affects.size(); ++affect_index) {
+            EXPECT_EQ(actual_object.affects[affect_index].location, expected_object.affects[affect_index].location);
+            EXPECT_EQ(actual_object.affects[affect_index].modifier, expected_object.affects[affect_index].modifier);
+        }
+    }
+
+    EXPECT_EQ(actual.board_points, expected.board_points);
+    ASSERT_EQ(actual.aliases.size(), expected.aliases.size());
+    for (size_t index = 0; index < expected.aliases.size(); ++index) {
+        EXPECT_EQ(actual.aliases[index].keyword, expected.aliases[index].keyword);
+        EXPECT_EQ(actual.aliases[index].command, expected.aliases[index].command);
+    }
+
+    ASSERT_EQ(actual.followers.size(), expected.followers.size());
+    for (size_t index = 0; index < expected.followers.size(); ++index) {
+        const auto& expected_follower = expected.followers[index];
+        const auto& actual_follower = actual.followers[index];
+        EXPECT_EQ(actual_follower.fol_vnum, expected_follower.fol_vnum);
+        EXPECT_EQ(actual_follower.mount_vnum, expected_follower.mount_vnum);
+        EXPECT_EQ(actual_follower.wimpy, expected_follower.wimpy);
+        EXPECT_EQ(actual_follower.exp, expected_follower.exp);
+        EXPECT_EQ(actual_follower.flag_config, expected_follower.flag_config);
+        EXPECT_EQ(actual_follower.spare1, expected_follower.spare1);
+        EXPECT_EQ(actual_follower.spare2, expected_follower.spare2);
+        ASSERT_EQ(actual_follower.objects.size(), expected_follower.objects.size());
+        for (size_t object_index = 0; object_index < expected_follower.objects.size(); ++object_index) {
+            EXPECT_EQ(actual_follower.objects[object_index].item_number, expected_follower.objects[object_index].item_number);
+            EXPECT_EQ(actual_follower.objects[object_index].wear_pos, expected_follower.objects[object_index].wear_pos);
+        }
+    }
+}
+
+} // namespace
+
+// Every test starts with an empty player index and frees the one its loads and migrations build,
+// so no test leaves entries in the game's index for the next.
+class DbLoader : public testing::Test {
+private:
+    // The empty index the test runs with; the previous one is put back afterwards.
+    ScopedPlayerTableReset m_player_table_reset;
+};
+
+TEST_F(DbLoader, RejectsMalformedPlayerTextWithoutLongStringTerminator)
+{
+    ScopedPlayerTableEntry player_table_entry;
+    char player_name[] = "aragorn";
+    char_file_u character_data {};
+    const char malformed_player_text[] = "#player\n"
+                                         "name        aragorn\n"
+                                         "description \n"
+                                         "This description never terminates cleanly\n"
+                                         "end\n";
+
+    EXPECT_LT(load_char_from_text(player_name, malformed_player_text, &character_data), 0);
+}
+
+TEST_F(DbLoader, DoesNotLeaveTheAccountIndexAuthoritativeWhenTheAccountsDirectoryCannotBeWalked)
+{
+    // A walk that fails for any reason other than "there are no accounts yet" leaves the index
+    // empty. If it stays enabled, every resolver answers "No account exists for that email address."
+    // for every player on the box -- the exact string interpre.cpp matches to offer registration.
+    // Falling back to the directory scan reports the real error instead and offers nothing.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    // A regular file where the accounts directory belongs: opendir fails with ENOTDIR, which is
+    // deterministic whatever uid the test runs as.
+    write_file(temp_directory.path() + "/accounts", "not a directory");
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool still_enabled = account_index::is_enabled();
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(still_enabled)
+        << "an empty index must not stay authoritative after the accounts walk failed";
+}
+
+TEST_F(DbLoader, LegacyPlayerTextRoundTripPreservesCombatState)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+
+    char_file_u original = make_stored_character("aragorn");
+    const std::string player_text = write_valid_legacy_player_file(temp_directory.path(), original);
+
+    char player_name[] = "aragorn";
+    char_file_u loaded {};
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ASSERT_EQ(load_player_from_text(player_name, player_text.c_str(), &loaded), 1);
+
+    EXPECT_EQ(loaded.specials2.tactics, original.specials2.tactics);
+    EXPECT_EQ(loaded.specials2.shooting, original.specials2.shooting);
+    EXPECT_EQ(loaded.specials2.casting, original.specials2.casting);
+    EXPECT_EQ(loaded.specials2.two_handed, original.specials2.two_handed);
+
+    LoadedCharacter live_character;
+    store_to_char(&loaded, live_character);
+
+    EXPECT_EQ(utils::get_tactics(*live_character), original.specials2.tactics);
+    EXPECT_EQ(utils::get_shooting(*live_character), original.specials2.shooting);
+    EXPECT_EQ(utils::get_casting(*live_character), original.specials2.casting);
+    EXPECT_TRUE(IS_TWOHANDED(live_character));
+}
+
+TEST_F(DbLoader, LegacyPlayerTextRoundTripPreservesStructuredColorSettings)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+
+    char_file_u original = make_stored_character("aragorn");
+    const std::string player_text = write_valid_legacy_player_file(temp_directory.path(), original);
+
+    char player_name[] = "aragorn";
+    char_file_u loaded {};
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ASSERT_EQ(load_player_from_text(player_name, player_text.c_str(), &loaded), 1);
+
+    EXPECT_EQ(loaded.profs.colors[COLOR_MAGIC], original.profs.colors[COLOR_MAGIC]);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.ansi, original.profs.color_settings[COLOR_MAGIC].foreground.ansi);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.red, original.profs.color_settings[COLOR_MAGIC].foreground.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.green, original.profs.color_settings[COLOR_MAGIC].foreground.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_MAGIC].foreground.blue, original.profs.color_settings[COLOR_MAGIC].foreground.blue);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.mode, COLOR_VALUE_TRUECOLOR);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.ansi, original.profs.color_settings[COLOR_WEATHER].background.ansi);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.red, original.profs.color_settings[COLOR_WEATHER].background.red);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.green, original.profs.color_settings[COLOR_WEATHER].background.green);
+    EXPECT_EQ(loaded.profs.color_settings[COLOR_WEATHER].background.blue, original.profs.color_settings[COLOR_WEATHER].background.blue);
+
+    LoadedCharacter live_character;
+    store_to_char(&loaded, live_character);
+
+    const std::string magic_sequence = get_color_sequence(live_character, COLOR_MAGIC);
+    const std::string weather_sequence = get_color_sequence(live_character, COLOR_WEATHER);
+    EXPECT_NE(magic_sequence.find("\x1B[38;2;180;80;255m"), std::string::npos) << magic_sequence;
+    EXPECT_NE(weather_sequence.find("\x1B[48;2;10;20;35m"), std::string::npos) << weather_sequence;
+}
+
+TEST_F(DbLoader, LegacyPlayerTextNormalizesOutOfRangeCombatStateValues)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+
+    char_file_u original = make_stored_character("aragorn");
+    std::string player_text = write_valid_legacy_player_file(temp_directory.path(), original);
+    player_text = replace_once(player_text, "tactics     5", "tactics     99");
+    player_text = replace_once(player_text, "shooting    3", "shooting    255");
+    player_text = replace_once(player_text, "casting     1", "casting     7");
+    player_text = replace_once(player_text, "twohanded   1", "twohanded   4");
+
+    char player_name[] = "aragorn";
+    char_file_u loaded {};
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ASSERT_EQ(load_player_from_text(player_name, player_text.c_str(), &loaded), 1);
+
+    EXPECT_EQ(loaded.specials2.tactics, TACTICS_NORMAL);
+    EXPECT_EQ(loaded.specials2.shooting, SHOOTING_NORMAL);
+    EXPECT_EQ(loaded.specials2.casting, CASTING_NORMAL);
+    EXPECT_EQ(loaded.specials2.two_handed, 1);
+
+    LoadedCharacter live_character;
+    store_to_char(&loaded, live_character);
+
+    EXPECT_EQ(utils::get_tactics(*live_character), TACTICS_NORMAL);
+    EXPECT_EQ(utils::get_shooting(*live_character), SHOOTING_NORMAL);
+    EXPECT_EQ(utils::get_casting(*live_character), CASTING_NORMAL);
+    EXPECT_TRUE(IS_TWOHANDED(live_character));
+}
+
+TEST_F(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenRuntimeFileIsMissing)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("aragorn"));
+    const exploit_record expected_record = make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(expected_record));
+
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010103, &migration, &error_message)) << error_message;
+    EXPECT_NE(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].type, expected_record.type);
+    EXPECT_STREQ(records[0].chtime, expected_record.chtime);
+    EXPECT_STREQ(records[0].chVictimName, expected_record.chVictimName);
+    EXPECT_EQ(records[0].iIntParam, expected_record.iIntParam);
+}
+
+TEST_F(DbLoader, LoadsExploitRecordsFromAccountNativeJsonWhenPresent)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    std::vector<exploit_record> expected_records;
+    expected_records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20));
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", expected_records, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].type, expected_records[0].type);
+    EXPECT_EQ(records[0].iIntParam, expected_records[0].iIntParam);
+}
+
+namespace {
+
+// An idnum far outside the 16-bit range.
+constexpr long kWideVictimIdnum = 1010009060L;
+
+// kWideVictimIdnum's low 16 bits read as a signed short: what a legacy record holds for it.
+constexpr long kWideVictimIdnumNarrowed = -31772L;
+
+// Account reader for the faked account cache: "alpha-admin" owns only "aragorn" and has no
+// explicit character links, so every account-owned path resolves without a directory scan.
+// A null `out_account` is reported as a test failure and returns false.
+bool fake_account_reader(const std::string&, const std::string& account_name, account::AccountData* out_account, std::string* error_message)
+{
+    if (out_account == nullptr) {
+        ADD_FAILURE() << "the account reader was given no output account";
+        return false;
+    }
+
+    if (account_name != "alpha-admin") {
+        if (error_message != nullptr) {
+            *error_message = "unexpected account '" + account_name + "'";
+        }
+        return false;
+    }
+
+    account::AccountData faked_account;
+    faked_account.account_name = "alpha-admin";
+    faked_account.normalized_email = "player@example.com";
+    faked_account.characters.push_back("aragorn");
+    *out_account = std::move(faked_account);
+    return true;
+}
+
+// Owner resolver for the faked account cache: "aragorn" belongs to "alpha-admin"; every other
+// character is unowned. A null `out_owner_account_name` is reported as a test failure and
+// returns false.
+bool fake_owner_resolver(const std::string&, const std::string& character_name, std::string* out_owner_account_name, std::string*)
+{
+    if (out_owner_account_name == nullptr) {
+        ADD_FAILURE() << "the owner resolver was given no output owner name";
+        return false;
+    }
+
+    if (character_name == "aragorn") {
+        *out_owner_account_name = "alpha-admin";
+    } else {
+        out_owner_account_name->clear();
+    }
+    return true;
+}
+
+// Serves account reads and owner lookups from the fakes above for one test, and restores the
+// uncached real resolvers on destruction so no other suite sees the enabled cache.
+class ScopedFakeAccountResolvers {
+public:
+    ScopedFakeAccountResolvers()
+    {
+        account_cache::invalidate_all();
+        account_cache::set_backing_resolvers_for_testing(fake_account_reader, fake_owner_resolver);
+        account_cache::set_enabled(true);
+    }
+
+    ~ScopedFakeAccountResolvers()
+    {
+        account_cache::set_enabled(false);
+        account_cache::set_backing_resolvers_for_testing(nullptr, nullptr);
+        account_cache::invalidate_all();
+    }
+
+    ScopedFakeAccountResolvers(const ScopedFakeAccountResolvers&) = delete;
+    ScopedFakeAccountResolvers& operator=(const ScopedFakeAccountResolvers&) = delete;
+};
+
+// A new, uniquely named directory under the system temporary directory, removed with its
+// contents on destruction. path() is empty, with a test failure reported, if none was created.
+class ScopedStandardTemporaryDirectory {
+public:
+    ScopedStandardTemporaryDirectory()
+    {
+        std::error_code error;
+        const std::filesystem::path temporary_root = std::filesystem::temp_directory_path(error);
+        if (error) {
+            ADD_FAILURE() << "no system temporary directory: " << error.message();
+            return;
+        }
+
+        std::random_device random_source;
+        constexpr int kMaximumAttempts = 16;
+        for (int attempt = 0; attempt < kMaximumAttempts && m_path.empty(); ++attempt) {
+            const std::string directory_name = "rots-db-loader-" + std::to_string(random_source());
+            const std::filesystem::path candidate = temporary_root / directory_name;
+            if (std::filesystem::create_directory(candidate, error)) {
+                m_path = candidate.string();
+            }
+        }
+        if (m_path.empty()) {
+            ADD_FAILURE() << "could not create a temporary directory under " << temporary_root.string();
+        }
+    }
+
+    ~ScopedStandardTemporaryDirectory()
+    {
+        if (!m_path.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(m_path, error);
+        }
+    }
+
+    ScopedStandardTemporaryDirectory(const ScopedStandardTemporaryDirectory&) = delete;
+    ScopedStandardTemporaryDirectory& operator=(const ScopedStandardTemporaryDirectory&) = delete;
+
+    const std::string& path() const { return m_path; }
+
+private:
+    // The created directory; empty when creation failed.
+    std::string m_path;
+};
+
+// The whole content of the file at `path`, or an empty string with a test failure reported when
+// it cannot be opened.
+std::string read_whole_text_file(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        ADD_FAILURE() << "cannot open " << path.string();
+        return std::string();
+    }
+
+    const std::istreambuf_iterator<char> content_begin(input);
+    const std::istreambuf_iterator<char> content_end;
+    return std::string(content_begin, content_end);
+}
+
+} // namespace
+
+// Appending a record re-reads the whole history first. For an account-owned character that
+// history is JSON with full idnums, and the re-read keeps them whole. The account comes from
+// faked cache resolvers because the on-disk account scan does not resolve under QEMU; the
+// exploit history files are real.
+TEST_F(DbLoader, AccountNativeWideVictimIdSurvivesAppendingAnotherRecord)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const std::string wide_victim_id_json = "\"victim_id\": " + std::to_string(kWideVictimIdnum) + ",";
+    exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:26:46 2026", "Grishkazh", 30, 25, 0);
+    trophy.lVictimID = kWideVictimIdnum;
+    std::vector<exploit_record> initial_records;
+    initial_records.push_back(trophy);
+    std::string error_message;
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", initial_records, &error_message)) << error_message;
+    const std::string exploits_path = account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn");
+    std::error_code exists_error;
+    ASSERT_TRUE(std::filesystem::exists(exploits_path, exists_error)) << "the seeded history lives at " << exploits_path;
+    ASSERT_NE(read_whole_text_file(exploits_path).find(wide_victim_id_json), std::string::npos) << "the seeded JSON carries the full idnum";
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:30:00 2026", "", 31, 0, 31);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), "aragorn", level_record, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL) << "new records go to the front";
+    EXPECT_EQ(records[1].type, EXPLOIT_PK);
+    EXPECT_EQ(records[1].lVictimID, kWideVictimIdnum) << "the re-read keeps the full idnum";
+    EXPECT_STREQ(records[1].chVictimName, "Grishkazh");
+    EXPECT_NE(read_whole_text_file(exploits_path).find(wide_victim_id_json), std::string::npos) << "the rewritten JSON still carries the full idnum";
+}
+
+namespace {
+
+// A character the faked owner resolver treats as linked to no account.
+constexpr const char* kUnlinkedCharacter = "boromir";
+
+// Writes `contents` as the whole file at `path`, creating its parent directories. Returns false,
+// with a test failure reported, when the file cannot be written.
+bool write_whole_binary_file(const std::filesystem::path& path, std::string_view contents)
+{
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        ADD_FAILURE() << "cannot create " << path.parent_path().string() << ": " << error.message();
+        return false;
+    }
+
+    if (contents.size() > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
+        ADD_FAILURE() << "contents for " << path.string() << " are too large to write in one call";
+        return false;
+    }
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    output.close();
+    if (!output) {
+        ADD_FAILURE() << "cannot write " << path.string();
+        return false;
+    }
+    return true;
+}
+
+// The size of the file at `path`, or nullopt when it does not exist or cannot be sized.
+std::optional<std::uintmax_t> file_size_if_present(const std::filesystem::path& path)
+{
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error) {
+        return std::nullopt;
+    }
+    return size;
+}
+
+} // namespace
+
+TEST_F(DbLoader, AppendingToAnUnlinkedLegacyHistoryKeepsSixteenBitIds)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Tue Sep 15 02:26:46 2026", "", 30, 0, 30);
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, legacy_exploit_bytes({ level_record })));
+
+    std::string error_message;
+    exploit_record trophy = make_record(EXPLOIT_PK, "Tue Sep 15 02:30:00 2026", "Grishkazh", 30, 25, 0);
+    trophy.lVictimID = kWideVictimIdnum;
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), kUnlinkedCharacter, trophy, &error_message)) << error_message;
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(2 * exploits_json::LEGACY_EXPLOIT_RECORD_SIZE)));
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, EXPLOIT_PK) << "new records go to the front";
+    EXPECT_EQ(records[0].lVictimID, kWideVictimIdnumNarrowed) << "appending to a legacy file keeps only the low 16 bits of an id";
+    EXPECT_STREQ(records[0].chVictimName, "Grishkazh");
+    EXPECT_EQ(records[1].type, EXPLOIT_LEVEL);
+    EXPECT_TRUE(file_size_if_present(legacy_path).has_value()) << "loading keeps a valid legacy file";
+}
+
+TEST_F(DbLoader, LoadsAndKeepsAValidLegacyFileForAnUnlinkedCharacter)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const exploit_record level_record = make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20);
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, legacy_exploit_bytes({ level_record })));
+
+    std::vector<exploit_record> records;
+    std::string error_message;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].type, EXPLOIT_LEVEL);
+    EXPECT_STREQ(records[0].chtime, "Mon Jan  1 00:00:00 2024");
+    EXPECT_EQ(records[0].iIntParam, 20);
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(static_cast<std::uintmax_t>(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE)));
+}
+
+TEST_F(DbLoader, RemovesAndLogsALegacyFileThatIsNotAWholeNumberOfRecords)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, std::string(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE + 1, 'x')));
+
+    std::vector<exploit_record> records;
+    records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "stale", 10, 0, 20));
+    std::string error_message = "unchanged";
+    testing::internal::CaptureStderr();
+    const bool loaded = load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_TRUE(loaded);
+    EXPECT_TRUE(records.empty());
+    EXPECT_EQ(error_message, "");
+    EXPECT_FALSE(file_size_if_present(legacy_path).has_value()) << "the malformed file is removed";
+    EXPECT_NE(logged.find("SYSERR"), std::string::npos) << logged;
+    const std::string logged_character = std::string("' for ") + kUnlinkedCharacter + ":";
+    EXPECT_NE(logged.find(logged_character), std::string::npos) << logged;
+    const std::string logged_size = std::to_string(exploits_json::LEGACY_EXPLOIT_RECORD_SIZE + 1) + " bytes";
+    EXPECT_NE(logged.find(logged_size), std::string::npos) << logged;
+}
+
+TEST_F(DbLoader, LoadsAnEmptyLegacyFileAsAnEmptyHistoryAndKeepsIt)
+{
+    ScopedStandardTemporaryDirectory temp_directory;
+    ASSERT_FALSE(temp_directory.path().empty());
+    ScopedFakeAccountResolvers faked_resolvers;
+
+    const std::filesystem::path legacy_path = account::legacy_exploits_file_path(temp_directory.path(), kUnlinkedCharacter);
+    ASSERT_TRUE(write_whole_binary_file(legacy_path, std::string()));
+
+    std::vector<exploit_record> records;
+    std::string error_message;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), kUnlinkedCharacter, &records, &error_message)) << error_message;
+    EXPECT_TRUE(records.empty());
+    EXPECT_EQ(file_size_if_present(legacy_path), std::optional<std::uintmax_t>(0));
+}
+
+TEST_F(DbLoader, ReturnsEmptyExploitHistoryForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(DbLoader, LoadsObjectAndExploitDataFromRuntimeLegacyFilesWhenAccountNativeJsonIsAbsent)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    const std::string runtime_object_bytes = make_valid_object_bytes();
+    write_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), runtime_object_bytes);
+
+    const exploit_record runtime_record = make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(runtime_record));
+
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
+    EXPECT_EQ(object_bytes, runtime_object_bytes);
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].type, runtime_record.type);
+    EXPECT_STREQ(records[0].chtime, runtime_record.chtime);
+}
+
+TEST_F(DbLoader, PrefersAccountNativeObjectAndExploitJsonOverConflictingRuntimeLegacyFiles)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData account_object_data;
+    account_object_data.rent.rentcode = RENT_CRASH;
+    account_object_data.objects.push_back(objects_json::ObjectRecord {});
+    account_object_data.objects[0].item_number = 4321;
+    account_object_data.objects[0].wear_pos = WEAR_HEAD;
+
+    std::string account_object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(account_object_data, &account_object_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", account_object_bytes, &error_message)) << error_message;
+    write_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+
+    std::vector<exploit_record> account_records;
+    account_records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "authoritative", 10, 0, 20));
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", account_records, &error_message)) << error_message;
+    const exploit_record stale_runtime_record = make_record(EXPLOIT_ACHIEVEMENT, "Tue Jan  2 00:00:00 2024", "stale", 11, 0, 0);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(stale_runtime_record));
+
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
+    EXPECT_EQ(object_bytes, account_object_bytes);
+
+    std::vector<exploit_record> loaded_records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &loaded_records, &error_message)) << error_message;
+    ASSERT_EQ(loaded_records.size(), 1u);
+    EXPECT_EQ(loaded_records[0].type, account_records[0].type);
+    EXPECT_STREQ(loaded_records[0].chVictimName, account_records[0].chVictimName);
+}
+
+TEST_F(DbLoader, FailsClosedWhenAccountNativeExploitJsonIsMalformed)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    std::vector<exploit_record> expected_records;
+    expected_records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20));
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", expected_records, &error_message)) << error_message;
+    write_file(account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn"), "{bad-json");
+
+    const exploit_record stale_runtime_record = make_record(EXPLOIT_ACHIEVEMENT, "Tue Jan  2 00:00:00 2024", "stale", 11, 0, 0);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(stale_runtime_record));
+
+    std::vector<exploit_record> records;
+    EXPECT_FALSE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message));
+    EXPECT_FALSE(error_message.empty());
+    EXPECT_EQ(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0)
+        << "Failing closed on authoritative account-native exploit JSON should not silently consume or retire the stale legacy runtime file.";
+}
+
+TEST_F(DbLoader, BuildPlayerIndexIncludesLegacyAndAccountNativeCharacters)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    write_file("players/A-E/aragorn.20.2.111.1700010000.0", "");
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "legolas", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "legolas");
+    stored_character.level = 25;
+    stored_character.race = 3;
+    stored_character.last_logon = 1700010200;
+    stored_character.specials2.idnum = 222;
+    stored_character.specials2.act = 0;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 1);
+    EXPECT_STREQ(player_table[0].name, "aragorn");
+    EXPECT_STREQ(player_table[1].name, "legolas");
+    EXPECT_EQ(player_table[1].idnum, 222);
+    EXPECT_EQ(player_table[1].level, 25);
+    EXPECT_EQ(player_table[1].race, 3);
+    EXPECT_NE(std::string(player_table[1].ch_file).find("legolas.character.json"), std::string::npos);
+
+    char lookup_name[] = "legolas";
+    char_file_u loaded_character {};
+    ASSERT_EQ(load_player(lookup_name, &loaded_character), 1);
+    EXPECT_STREQ(loaded_character.name, "legolas");
+    EXPECT_EQ(loaded_character.specials2.idnum, 222);
+    EXPECT_EQ(loaded_character.player_index, 1);
+}
+
+TEST_F(DbLoader, LoadsAnAccountNativeCharacterIndexedUnderALongEmailAddress)
+{
+    // Nothing caps the length of an email address -- is_valid_email checks shape, not size -- and an
+    // account-native path is "./accounts/<bucket>/<email>/<name>.character.json": 31 fixed bytes
+    // plus the address plus the character name. player_index_element::ch_file holds 160 of those and
+    // update_player_index_entry_from_store accepts anything that fits, so an ordinary long corporate
+    // address indexes without complaint. load_player then has to carry that path, and it runs on
+    // every login for that character.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+
+    const std::string long_email = "a-very-long-but-entirely-ordinary-address@long-subdomain.example.com";
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", long_email, "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "legolas", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "legolas");
+    stored_character.level = 25;
+    stored_character.race = 3;
+    stored_character.last_logon = 1700010200;
+    stored_character.specials2.idnum = 222;
+    stored_character.specials2.act = 0;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 0);
+    // The premise of the test: a path the player index holds happily but that does not fit in a
+    // 100-byte buffer. If this ever stops being true the test below proves nothing.
+    ASSERT_GT(std::strlen(player_table[0].ch_file), static_cast<std::size_t>(100));
+
+    // Forked, because the regression this guards against is a stack-buffer overflow: in-process it
+    // aborts the whole binary and every later suite goes unreported with it.
+    EXPECT_EXIT(
+        {
+            char lookup_name[] = "legolas";
+            char_file_u loaded_character {};
+            const int result = load_player(lookup_name, &loaded_character);
+            std::exit((result == 1 && std::strcmp(loaded_character.name, "legolas") == 0) ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+
+TEST_F(DbLoader, TheLongestPermittedEmailAndCharacterNameStillFitThePlayerIndexField)
+{
+    // MAX_EMAIL_LENGTH exists to keep this true, so assert it against the real path composer and
+    // the real index rather than re-deriving the arithmetic here. If either the cap or the field
+    // changes, this is what says whether they still agree.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+
+    const std::string longest_email = std::string(account::MAX_EMAIL_LENGTH - std::strlen("@example.com"), 'a') + "@example.com";
+    ASSERT_EQ(longest_email.length(), static_cast<std::size_t>(account::MAX_EMAIL_LENGTH));
+    const char longest_character_name[] = "abcdefghijkl";
+    ASSERT_EQ(std::strlen(longest_character_name), static_cast<std::size_t>(MAX_NAME_LENGTH));
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", longest_email, "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", longest_character_name, 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", longest_character_name);
+    stored_character.level = 25;
+    stored_character.race = 3;
+    stored_character.last_logon = 1700010200;
+    stored_character.specials2.idnum = 333;
+    stored_character.specials2.act = 0;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 0);
+    EXPECT_LT(std::strlen(player_table[0].ch_file), sizeof(player_table[0].ch_file));
+    EXPECT_NE(std::string(player_table[0].ch_file).find(".character.json"), std::string::npos);
+
+    char lookup_name[] = "abcdefghijkl";
+    char_file_u loaded_character {};
+    ASSERT_EQ(load_player(lookup_name, &loaded_character), 1);
+    EXPECT_EQ(loaded_character.specials2.idnum, 333);
+}
+
+TEST_F(DbLoader, BuildPlayerIndexKeepsTheAccountUsableWhenOneCharacterFileIsUnreadable)
+{
+    // One unreadable <name>.character.json must not lock its owner out of the whole account. The
+    // boot walker used to quarantine the ACCOUNT for a per-character asset failure, which erases the
+    // account's keys and reserves its email -- so a single bad character file locked the player out
+    // of every other character they own, and refused their address for account creation, over a file
+    // that says nothing about the account record's own integrity. And it is reachable: one unknown
+    // skill/slot/flag NAME rejects an entire character file in this codebase.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+    account_index::clear();
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "twochar", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "twochar", "legolas", 1700010102, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "twochar", "gimli", 1700010103, nullptr, &error_message)) << error_message;
+
+    char_file_u good_character = make_stored_character("legolas");
+    good_character.specials2.idnum = 222;
+    ASSERT_TRUE(account::write_account_character_file(".", "twochar", good_character, &error_message)) << error_message;
+
+    char_file_u broken_character = make_stored_character("gimli");
+    broken_character.specials2.idnum = 223;
+    ASSERT_TRUE(account::write_account_character_file(".", "twochar", broken_character, &error_message)) << error_message;
+    // Present (so the walker's "does it exist?" branch says yes) but unreadable -- the shape a
+    // character file with one unrecognised skill name has.
+    write_file(account::account_character_player_path(".", "twochar", "gimli"),
+        "{ this is not valid character json");
+
+    // Cleared last, so what the boot walk itself produced is what the assertions below observe
+    // rather than the upserts create_account/admin_link_character did during setup.
+    account_index::clear();
+    account_errors::clear();
+    build_player_index();
+
+    EXPECT_EQ(account_index::quarantined_count(), 0u)
+        << "a bad character file is not the ACCOUNT failing to parse";
+
+    // The character is silently absent from the player index, and its owner is told only that it
+    // does not exist. The boot line naming it scrolls away; this is what an immortal can still ask.
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    ASSERT_EQ(recorded.size(), 1u) << "exactly the one character that could not be read";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_EQ(recorded[0].character, "gimli");
+    EXPECT_EQ(recorded[0].account, "twochar");
+    EXPECT_FALSE(recorded[0].reason.empty());
+    account_errors::clear();
+
+    std::string record_path;
+    EXPECT_TRUE(account_index::find_path_by_email("player@example.com", &record_path, nullptr))
+        << "the owner must still be able to log in";
+    EXPECT_TRUE(account_index::find_path_by_account_name("twochar", &record_path, nullptr));
+
+    std::string owner_email;
+    EXPECT_TRUE(account_index::find_owner_email_by_character("legolas", &owner_email, nullptr))
+        << "the account's OTHER characters must still resolve, or their saves stop";
+    EXPECT_EQ(owner_email, "player@example.com");
+
+    // The broken character is simply absent from the player index -- which is what the log line the
+    // walker still prints is evidence of.
+    ASSERT_EQ(top_of_p_table, 0);
+    EXPECT_STREQ(player_table[0].name, "legolas");
+
+    account_index::clear();
+}
+
+TEST_F(DbLoader, BuildPlayerIndexFailsClosedWhenAccountNativePathDoesNotFitPlayerIndex)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    const char* account_name = "abcdefghijklmnopqrst";
+    // Derived from the buffer, not hardcoded: ch_file was widened once already, and a fixture that
+    // silently stops exceeding it turns this into a test of nothing.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file), 'a') + "@example.com";
+    // Planted rather than registered: MAX_EMAIL_LENGTH refuses this address at create_account, so a
+    // record put on disk by hand -- restored from a backup, edited by an operator -- is the one
+    // route that can still walk an over-length path into the boot index. That is the case this
+    // guard has to survive. See tests/AccountRecordOnDiskBuilder.h.
+    const std::string account_directory = rots_tests::plant_account_record_with_unvalidated_email(
+        ".", account_name, long_email, { "aragorn" });
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.idnum = 222;
+    rots_tests::plant_account_character_file(account_directory, stored_character);
+    ASSERT_GE((account_directory + "/aragorn.character.json").size(), sizeof(player_table[0].ch_file))
+        << "Test setup must exceed the legacy player index path buffer.";
+
+    EXPECT_EXIT(build_player_index(), ::testing::ExitedWithCode(1),
+        "too long for the live player index");
+    EXPECT_EQ(top_of_p_table, -1)
+        << "Boot index failure should leave the parent test process without a truncated live entry.";
+}
+
+TEST_F(DbLoader, BuildPlayerIndexPrefersVersionedLegacyPlayerSaveOverFlatArtifactBeforeMigration)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+
+    write_valid_legacy_player_file(".", make_stored_character("aragorn"));
+
+    char_file_u versioned_character = make_stored_character("aragorn");
+    versioned_character.level = 40;
+    versioned_character.specials2.idnum = 2222;
+    const long recent_log_time = time(0);
+    versioned_character.last_logon = recent_log_time;
+    write_valid_legacy_player_file(".", versioned_character, account::legacy_player_file_path(".", "aragorn") + ".1.1.2222." + std::to_string(recent_log_time) + ".0");
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 0);
+    EXPECT_STREQ(player_table[0].name, "aragorn");
+    EXPECT_EQ(player_table[0].idnum, 2222);
+    EXPECT_NE(std::string(player_table[0].ch_file).find(".1.1.2222." + std::to_string(recent_log_time) + ".0"), std::string::npos);
+}
+
+TEST_F(DbLoader, BuildPlayerIndexRemainsConsistentAfterVersionedMigrationRetiresStaleFlatFile)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableReset player_table_reset;
+
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players/K-O", 0700), 0);
+    ASSERT_EQ(mkdir("players/P-T", 0700), 0);
+    ASSERT_EQ(mkdir("players/U-Z", 0700), 0);
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stale_flat_character = make_stored_character("aragorn");
+    stale_flat_character.points.gold = 111;
+    stale_flat_character.specials2.idnum = 1111;
+    write_valid_legacy_player_file(".", stale_flat_character);
+
+    char_file_u versioned_character = make_stored_character("aragorn");
+    versioned_character.points.gold = 222;
+    versioned_character.specials2.idnum = 2222;
+    write_valid_legacy_player_file(".", versioned_character, account::legacy_player_file_path(".", "aragorn") + ".1.1.2222.1700010000.0");
+
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::migrate_legacy_character_by_name(".", "alpha-admin", "aragorn", 1700010103, &migration, &error_message)) << error_message;
+
+    build_player_index();
+
+    ASSERT_EQ(top_of_p_table, 0);
+    EXPECT_STREQ(player_table[0].name, "aragorn");
+    EXPECT_EQ(player_table[0].idnum, 2222);
+    EXPECT_NE(std::string(player_table[0].ch_file).find("aragorn.character.json"), std::string::npos);
+}
+
+TEST_F(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenRuntimeFileIsMissing)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("aragorn"));
+    const std::string expected_bytes = make_valid_object_bytes();
+    write_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), expected_bytes);
+
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010103, &migration, &error_message)) << error_message;
+    EXPECT_NE(access(account::legacy_object_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
+    EXPECT_EQ(object_bytes, expected_bytes);
+}
+
+TEST_F(DbLoader, LoadsObjectSaveBytesFromAccountNativeJsonWhenPresent)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 4321;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+
+    std::string expected_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &expected_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", expected_bytes, &error_message)) << error_message;
+
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
+    EXPECT_EQ(object_bytes, expected_bytes);
+}
+
+TEST_F(DbLoader, FailsClosedWhenAccountNativeObjectJsonIsMalformed)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData account_object_data;
+    account_object_data.rent.rentcode = RENT_CRASH;
+    account_object_data.objects.push_back(objects_json::ObjectRecord {});
+    account_object_data.objects[0].item_number = 4321;
+    account_object_data.objects[0].wear_pos = WEAR_HEAD;
+
+    std::string account_object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(account_object_data, &account_object_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", account_object_bytes, &error_message)) << error_message;
+    write_file(account::account_character_object_path(temp_directory.path(), "alpha-admin", "aragorn"), "{bad-json");
+    write_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+
+    std::string object_bytes;
+    EXPECT_FALSE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message));
+    EXPECT_FALSE(error_message.empty());
+    EXPECT_EQ(access(account::legacy_object_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0)
+        << "Failing closed on authoritative account-native object JSON should not silently consume the stale runtime object file.";
+}
+
+TEST_F(DbLoader, FailsClosedWhenAccountNativeObjectOrExploitJsonCannotBeRead)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 4321;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+
+    std::string account_object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &account_object_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", account_object_bytes, &error_message)) << error_message;
+
+    std::vector<exploit_record> account_records;
+    account_records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "authoritative", 10, 0, 20));
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", account_records, &error_message)) << error_message;
+
+    write_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), make_valid_object_bytes());
+    const exploit_record stale_runtime_record = make_record(EXPLOIT_ACHIEVEMENT, "Tue Jan  2 00:00:00 2024", "stale", 11, 0, 0);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(stale_runtime_record));
+
+    const std::string account_object_path = account::account_character_object_path(temp_directory.path(), "alpha-admin", "aragorn");
+    const std::string account_exploits_path = account::account_character_exploits_path(temp_directory.path(), "alpha-admin", "aragorn");
+    ASSERT_EQ(chmod(account_object_path.c_str(), 0000), 0);
+    ASSERT_EQ(chmod(account_exploits_path.c_str(), 0000), 0);
+
+    std::string object_bytes;
+    EXPECT_FALSE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message));
+    EXPECT_NE(error_message.find("Failed to open file"), std::string::npos);
+
+    std::vector<exploit_record> loaded_records;
+    EXPECT_FALSE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &loaded_records, &error_message));
+    EXPECT_NE(error_message.find("Failed to open file"), std::string::npos);
+
+    ASSERT_EQ(chmod(account_object_path.c_str(), 0600), 0);
+    ASSERT_EQ(chmod(account_exploits_path.c_str(), 0600), 0);
+    EXPECT_EQ(access(account::legacy_object_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+    EXPECT_EQ(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+}
+
+TEST_F(DbLoader, ReturnsEmptyObjectSaveBytesForLinkedCharacterWithoutAccountNativeOrRuntimeFile)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
+    EXPECT_TRUE(object_bytes.empty());
+}
+
+TEST_F(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndLoadsAliasTail)
+{
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.board_points[0] = 77;
+    object_data.aliases.push_back({ "assist", "kill orc" });
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_TRUE(Crash_alias_load(character, fp));
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    EXPECT_EQ(character->specials.board_point[0], 77);
+    ASSERT_NE(GET_ALIAS(character), nullptr);
+    EXPECT_STREQ(GET_ALIAS(character)->keyword, "assist");
+    EXPECT_STREQ(GET_ALIAS(character)->command, "kill orc");
+}
+
+TEST_F(DbLoader, CrashLoadTerminatesALegacyAliasKeywordThatFillsTheWholeField)
+{
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.aliases.push_back({ "nineteen_characters", "kill orc" });
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    // The legacy save stores the keyword as 20 raw bytes, so an alias of exactly 20
+    // characters reaches the loader with no terminator of its own.
+    const size_t keyword_offset = object_bytes.find("nineteen_characters");
+    ASSERT_NE(keyword_offset, std::string::npos);
+    ASSERT_EQ(object_bytes[keyword_offset + 19], '\0');
+    object_bytes[keyword_offset + 19] = 'x';
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_TRUE(Crash_alias_load(character, fp));
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(GET_ALIAS(character), nullptr);
+    EXPECT_STREQ(GET_ALIAS(character)->keyword, "nineteen_characters");
+    EXPECT_STREQ(GET_ALIAS(character)->command, "kill orc");
+}
+
+/* Login clears a character before loading it, so the load fills the profs block the clear made
+   instead of replacing it. */
+TEST_F(DbLoader, StoreToCharFillsTheProfsBlockClearCharMade)
+{
+    constexpr int RANGER_LEVEL = 7;
+    owned_character character;
+    const char_prof_data* const cleared_profs = character->profs;
+    ASSERT_NE(cleared_profs, nullptr);
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    stored_character.race = RACE_HUMAN;
+    stored_character.level = 10;
+    stored_character.weight = 210;
+    stored_character.profs.prof_level[PROF_RANGER] = RANGER_LEVEL;
+    store_to_char(&stored_character, character);
+
+    EXPECT_EQ(character->profs, cleared_profs);
+    EXPECT_EQ(character->profs->prof_level[PROF_RANGER], RANGER_LEVEL);
+}
+
+/* A rent row whose container parent never loaded must not vanish.
+
+   wear_pos above MAX_WEAR encodes container nesting depth, and Crash_load places each object
+   inside equip_array[depth - 1]. The depth itself is bounded, but the parent slot it names can
+   still be empty - a file carrying a depth-2 row with no depth-1 row above it names a slot that
+   was never filled. obj_to_obj() begins `if (!item || !container) return;`, so the object is
+   left on object_list with no room, no carrier and no container: not destroyed, not given to
+   the player, not logged, and holding memory for the rest of the boot.
+
+   The out-of-range depth case already falls back to the character's inventory; a missing parent
+   has to do the same, so that a damaged rent file costs a player nesting, never the item. */
+TEST_F(DbLoader, CrashLoadKeepsAnObjectWhoseContainerParentIsMissing)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+
+    /* A worn item first, so equip_array[0] is populated - without it the branch above catches
+       everything via its `|| !equip_array[0]` escape and the container path is never reached. */
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+    object_data.objects[0].weight = 7;
+    object_data.objects[0].values = { 0, 0, 2, 0, 0 };
+
+    /* Then depth 2, with nothing at depth 1 to hold it. */
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[1].item_number = 1002;
+    object_data.objects[1].wear_pos = MAX_WEAR + 2;
+    object_data.objects[1].weight = 4;
+    object_data.objects[1].values = { 0, 0, 1, 0, 0 };
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message))
+        << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character->carrying, nullptr)
+        << "the object was dropped on the floor of memory instead of being handed to the player";
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, 1002);
+    EXPECT_EQ(character->carrying->obj_flags.weight, 4);
+}
+
+TEST_F(DbLoader, CrashLoadConsumesStagedAccountBackedObjectBytesAndEquipsWearableItems)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+    object_data.objects[0].weight = 7;
+    object_data.objects[0].values = { 0, 0, 2, 0, 0 };
+
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[1].item_number = 1002;
+    object_data.objects[1].wear_pos = MAX_WEAR;
+    object_data.objects[1].weight = 4;
+    object_data.objects[1].values = { 0, 0, 1, 0, 0 };
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[character->equipment[WEAR_HEAD]->item_number].virt, 1001);
+    EXPECT_EQ(character->equipment[WEAR_HEAD]->obj_flags.weight, 7);
+    ASSERT_NE(character->carrying, nullptr);
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, 1002);
+    EXPECT_EQ(character->carrying->obj_flags.weight, 4);
+}
+
+int Crash_obj2store(const obj_data* obj, const char_data* ch, int pos, FILE* fl);
+
+TEST_F(DbLoader, CrashLoadRefreshesOutdatedCopiesWornCarriedAndNested)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    // The helm's prototype is at version 3 and now gives OB +2.
+    obj_proto[0].obj_flags.version = 3;
+    obj_proto[0].affected[0].location = APPLY_OB;
+    obj_proto[0].affected[0].modifier = 2;
+
+    LoadedCharacter character;
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.sex = SEX_MALE;
+    stored_character.race = RACE_HUMAN;
+    stored_character.bodytype = 1;
+    stored_character.level = 10;
+    stored_character.language = LANG_HUMAN;
+    stored_character.specials2.load_room = 3001;
+    stored_character.weight = 210;
+    stored_character.height = 72;
+    store_to_char(&stored_character, character);
+
+    auto helm = [](int wear_pos, int version) {
+        objects_json::ObjectRecord record {};
+        record.item_number = 1001;
+        record.wear_pos = wear_pos;
+        record.version = version;
+        record.affects[0].location = APPLY_OB;
+        record.affects[0].modifier = 8; // what the old copies were saved with
+        return record;
+    };
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(helm(WEAR_HEAD, 0)); // worn, never versioned
+    objects_json::ObjectRecord pack {};
+    pack.item_number = 1002;
+    pack.wear_pos = MAX_WEAR;
+    object_data.objects.push_back(pack); // carried pack...
+    object_data.objects.push_back(helm(MAX_WEAR + 1, 2)); // ...holding an older-version helm
+    object_data.objects.push_back(helm(MAX_WEAR, 3)); // carried, already current
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    obj_data* worn = character->equipment[WEAR_HEAD];
+    ASSERT_NE(worn, nullptr);
+    EXPECT_EQ(worn->affected[0].modifier, 2);
+    EXPECT_EQ(worn->obj_flags.version, 3);
+
+    obj_data* current = nullptr;
+    obj_data* carried_pack = nullptr;
+    for (obj_data* obj = character->carrying; obj; obj = obj->next_content) {
+        if (obj_index[obj->item_number].virt == 1001)
+            current = obj;
+        else
+            carried_pack = obj;
+    }
+    ASSERT_NE(current, nullptr);
+    EXPECT_EQ(current->affected[0].modifier, 8) << "a copy already at the prototype's version is left alone";
+    EXPECT_EQ(current->obj_flags.version, 3);
+
+    ASSERT_NE(carried_pack, nullptr);
+    ASSERT_NE(carried_pack->contains, nullptr);
+    EXPECT_EQ(carried_pack->contains->affected[0].modifier, 2);
+    EXPECT_EQ(carried_pack->contains->obj_flags.version, 3);
+}
+
+TEST_F(DbLoader, CrashObj2StoreWritesTheVersionOnlyForVersionedObjects)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    LoadedCharacter character;
+
+    for (int version : { 0, 4 }) {
+        obj_data* obj = read_object(0, REAL);
+        ASSERT_NE(obj, nullptr);
+        obj->obj_flags.version = version;
+
+        FILE* file = tmpfile();
+        ASSERT_NE(file, nullptr);
+        ASSERT_EQ(Crash_obj2store(obj, character, WEAR_HEAD, file), 1);
+        const long size = std::ftell(file);
+        std::rewind(file);
+        obj_file_elem record {};
+        ASSERT_EQ(std::fread(&record, sizeof(record), 1, file), 1u);
+        if (version == 0) {
+            EXPECT_EQ(size, (long)sizeof(obj_file_elem));
+            EXPECT_EQ(record.item_number_deprecated, DEPRECATED_ID_VALUE);
+        } else {
+            EXPECT_EQ(size, (long)(sizeof(obj_file_elem) + sizeof(int)));
+            EXPECT_EQ(record.item_number_deprecated, VERSIONED_ID_VALUE);
+            int stored = 0;
+            ASSERT_EQ(std::fread(&stored, sizeof(stored), 1, file), 1u);
+            EXPECT_EQ(stored, 4);
+        }
+        EXPECT_EQ(record.item_number, 1001);
+        std::fclose(file);
+    }
+}
+
+namespace {
+
+// What enchant weapon left on a weapon before enchants were recorded: the flags and the affect.
+objects_json::ObjectRecord cast_on_before_records(int vnum, int caster_flags)
+{
+    objects_json::ObjectRecord record {};
+    record.item_number = vnum;
+    record.wear_pos = MAX_WEAR;
+    record.extra_flags = ITEM_MAGIC | caster_flags;
+    record.affects[0].location = APPLY_OB;
+    record.affects[0].modifier = 6;
+    return record;
+}
+
+} // namespace
+
+TEST_F(DbLoader, RecordsOldEnchantsOnlyOnWeaponsThatWereCastOn)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    obj_proto[0].obj_flags.type_flag = ITEM_WEAPON; // 1001, a plain weapon
+    obj_index[1].virt = 5410; // built +6 OB and magic
+    obj_proto[1].obj_flags.type_flag = ITEM_WEAPON;
+
+    objects_json::ObjectSaveData data;
+    data.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_EVIL)); // 0: a good caster
+    data.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_GOOD)); // 1: an evil one
+    data.objects.push_back(cast_on_before_records(1001, 0)); // 2: a neutral one
+    data.objects.push_back(cast_on_before_records(5410, 0)); // 3: built that way
+    data.objects.push_back(cast_on_before_records(9999, 0)); // 4: no such object any more
+    data.objects.push_back(cast_on_before_records(1001, 0)); // 5: +5, not the spell's +6
+    data.objects[5].affects[0].modifier = 5;
+    data.objects.push_back(cast_on_before_records(1001, 0)); // 6: a second affect
+    data.objects[6].affects[1].location = APPLY_STR;
+    data.objects[6].affects[1].modifier = 1;
+    data.objects.push_back(cast_on_before_records(1001, 0)); // 7: not magic
+    data.objects[7].extra_flags = 0;
+    data.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_EVIL)); // 8: already recorded
+    data.objects[8].enchants.push_back({ ENCHANT_OB, ENCHANT_ALIGN_EVIL, 6 });
+    objects_json::FollowerData follower;
+    follower.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_GOOD));
+    data.followers.push_back(follower);
+
+    EXPECT_EQ(record_old_object_enchants(&data), 4);
+
+    const int expected_align[] = { ENCHANT_ALIGN_GOOD, ENCHANT_ALIGN_EVIL, ENCHANT_ALIGN_NEUTRAL };
+    for (int index = 0; index < 3; ++index) {
+        ASSERT_EQ(data.objects[index].enchants.size(), 1u) << index;
+        EXPECT_EQ(data.objects[index].enchants[0].type, ENCHANT_OB);
+        EXPECT_EQ(data.objects[index].enchants[0].amount, 6);
+        EXPECT_EQ(data.objects[index].enchants[0].align, expected_align[index]) << index;
+    }
+    for (int index = 3; index < 8; ++index)
+        EXPECT_TRUE(data.objects[index].enchants.empty()) << index;
+    ASSERT_EQ(data.objects[8].enchants.size(), 1u);
+    EXPECT_EQ(data.objects[8].enchants[0].align, ENCHANT_ALIGN_EVIL) << "a record already there is not second-guessed";
+    ASSERT_EQ(data.followers[0].objects[0].enchants.size(), 1u) << "a pet's gear is in the same file";
+    EXPECT_EQ(data.followers[0].objects[0].enchants[0].align, ENCHANT_ALIGN_EVIL);
+
+    EXPECT_EQ(record_old_object_enchants(&data), 0) << "what it recorded is not recorded twice";
+
+    // The same saved copy on something that is not a weapon is that object's own +6.
+    obj_proto[0].obj_flags.type_flag = ITEM_ARMOR;
+    objects_json::ObjectSaveData armor;
+    armor.objects.push_back(cast_on_before_records(1001, 0));
+    EXPECT_EQ(record_old_object_enchants(&armor), 0);
+    obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
+
+    // A copy carrying both flags got one of them from its prototype; the other is the caster's.
+    obj_proto[0].obj_flags.extra_flags = ITEM_ANTI_GOOD;
+    objects_json::ObjectSaveData both;
+    both.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_GOOD | ITEM_ANTI_EVIL));
+    EXPECT_EQ(record_old_object_enchants(&both), 1);
+    EXPECT_EQ(both.objects[0].enchants[0].align, ENCHANT_ALIGN_GOOD);
+}
+
+TEST_F(DbLoader, LoginRecordsOldEnchantsFromAFileOfTheOlderSchemaAndNeverFromACurrentOne)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
+
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    // A weapon built +6 OB and magic after enchants were recorded sits in a current file looking
+    // exactly like an old cast. It must stay unrecorded.
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_EVIL));
+    std::string saved_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &saved_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", saved_bytes, &error_message)) << error_message;
+
+    const std::string object_path = account::account_character_object_path(temp_directory.path(), "alpha-admin", "aragorn");
+    const std::string current_json = read_file_contents(object_path);
+    const std::string current_version = "\"version\": " + std::to_string(objects_json::OBJECTS_SCHEMA_VERSION) + ",";
+    ASSERT_EQ(current_json.find(current_version), current_json.find("\"version\"")) << "a save is written at the current schema";
+
+    std::string loaded_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &loaded_bytes, &error_message)) << error_message;
+    EXPECT_EQ(loaded_bytes, saved_bytes);
+
+    // The same file as the server before this one wrote it.
+    std::string older_json = current_json;
+    older_json.replace(older_json.find(current_version), current_version.size(),
+        "\"version\": " + std::to_string(objects_json::OBJECTS_SCHEMA_VERSION_UNRECORDED_ENCHANTS) + ",");
+    write_file(object_path, older_json);
+
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &loaded_bytes, &error_message)) << error_message;
+    objects_json::ObjectSaveData loaded;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(loaded_bytes, &loaded, &error_message)) << error_message;
+    ASSERT_EQ(loaded.objects.size(), 1u);
+    ASSERT_EQ(loaded.objects[0].enchants.size(), 1u);
+    EXPECT_EQ(loaded.objects[0].enchants[0].align, ENCHANT_ALIGN_GOOD);
+
+    // Saved again, the file is current and carries the record, so the next login guesses nothing.
+    ASSERT_TRUE(account::write_linked_character_object_file(temp_directory.path(), "aragorn", loaded_bytes, &error_message)) << error_message;
+    const std::string resaved_json = read_file_contents(object_path);
+    EXPECT_EQ(resaved_json.find(current_version), resaved_json.find("\"version\"")) << resaved_json;
+    EXPECT_NE(resaved_json.find("\"enchants\""), std::string::npos) << resaved_json;
+    std::string reloaded_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &reloaded_bytes, &error_message)) << error_message;
+    EXPECT_EQ(reloaded_bytes, loaded_bytes);
+}
+
+TEST_F(DbLoader, AnEnchantIsSavedLoadedAndKeptAcrossAVersionBump)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
+
+    LoadedCharacter character;
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    store_to_char(&stored_character, character);
+
+    // Saved the way the game saves it: the marker, then the version and the enchants.
+    obj_data* sword = read_object(0, REAL);
+    ASSERT_NE(sword, nullptr);
+    const obj_enchant_type enchant = { ENCHANT_OB, ENCHANT_ALIGN_GOOD, 6 };
+    ASSERT_TRUE(object_takes_enchant(sword, enchant));
+    apply_object_enchant(sword, enchant);
+    ASSERT_TRUE(record_object_enchant(sword, enchant));
+
+    FILE* file = tmpfile();
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(Crash_obj2store(sword, character, MAX_WEAR, file), 1);
+    EXPECT_EQ(std::ftell(file), (long)(sizeof(obj_file_elem) + sizeof(obj_file_extra)));
+    std::rewind(file);
+    obj_file_elem stored_record {};
+    ASSERT_EQ(std::fread(&stored_record, sizeof(stored_record), 1, file), 1u);
+    EXPECT_EQ(stored_record.item_number_deprecated, ENCHANTED_ID_VALUE);
+    obj_file_extra stored_extra {};
+    ASSERT_EQ(std::fread(&stored_extra, sizeof(stored_extra), 1, file), 1u);
+    EXPECT_EQ(stored_extra.enchants[0].type, ENCHANT_OB);
+    EXPECT_EQ(stored_extra.enchants[0].align, ENCHANT_ALIGN_GOOD);
+    std::fclose(file);
+
+    // The builder then makes the weapon glow and bumps it.
+    obj_proto[0].obj_flags.version = 2;
+    obj_proto[0].obj_flags.extra_flags = ITEM_GLOW;
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_EVIL));
+    object_data.objects[0].enchants.push_back({ ENCHANT_OB, ENCHANT_ALIGN_GOOD, 6 });
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    obj_data* loaded = character->carrying;
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(loaded->obj_flags.version, 2);
+    EXPECT_EQ(loaded->obj_flags.extra_flags, ITEM_GLOW | ITEM_MAGIC | ITEM_ANTI_EVIL);
+    EXPECT_EQ(loaded->affected[0].location, APPLY_OB);
+    EXPECT_EQ(loaded->affected[0].modifier, 6);
+    EXPECT_EQ(count_object_enchants(loaded), 1);
+}
+
+void Crash_follower_load(char_data* ch, FILE* fp);
+bool Crash_refresh_object(obj_data* obj, long idnum);
+extern int generic_scalp;
+
+void Crash_tell_object_refresh(const char_data* ch, const char* name);
+
+// Short descriptions are builder text of any length; the message is cut to its buffer.
+TEST_F(DbLoader, TheUpdatedMessageIsCutToItsBufferForAnOverlongName)
+{
+    LoadedCharacter character;
+    const std::string name(MAX_STRING_LENGTH * 2, 'x');
+    buf2[0] = '!';
+
+    Crash_tell_object_refresh(character, name.c_str());
+    EXPECT_EQ(std::strlen(buf1), (size_t)MAX_STRING_LENGTH - 1);
+    EXPECT_EQ(buf2[0], '!') << "the buffer after it is untouched";
+}
+
+// A scalp keeps the head it was cut from in its values and flags; a bump never rebuilds one.
+TEST_F(DbLoader, AScalpIsNeverRefreshed)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    for (int rnum : { 0, 1 }) {
+        obj_proto[rnum].obj_flags.version = 3;
+        obj_proto[rnum].affected[0] = { APPLY_OB, 4 };
+    }
+    obj_data* scalp = read_object(0, REAL);
+    obj_data* pack = read_object(1, REAL);
+    for (obj_data* copy : { scalp, pack }) {
+        copy->obj_flags.version = 0;
+        copy->affected[0] = { APPLY_NONE, 0 };
+    }
+    obj_index[0].virt = generic_scalp;
+
+    EXPECT_FALSE(Crash_refresh_object(scalp, 4242));
+    EXPECT_EQ(scalp->obj_flags.version, 0);
+    EXPECT_EQ(scalp->affected[0].location, APPLY_NONE);
+
+    EXPECT_TRUE(Crash_refresh_object(pack, 4242)) << "anything else at that version is";
+    EXPECT_EQ(pack->obj_flags.version, 3);
+    EXPECT_EQ(pack->affected[0].modifier, 4);
+}
+
+// A file cut off inside an enchanted weapon's record is refused whole: nothing is loaded from it.
+TEST_F(DbLoader, AFileCutOffInsideAnEnchantedRecordLoadsNothing)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
+
+    LoadedCharacter character;
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(cast_on_before_records(1001, ITEM_ANTI_EVIL));
+    object_data.objects[0].enchants.push_back({ ENCHANT_OB, ENCHANT_ALIGN_GOOD, 6 });
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    object_bytes.resize(sizeof(rent_info) + sizeof(obj_file_elem) + sizeof(obj_file_extra) - 2);
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    EXPECT_EQ(Crash_load(character), nullptr);
+    EXPECT_EQ(character->carrying, nullptr);
+}
+
+// The idle-out save writes no follower section. The file is still the caller's to close, once.
+TEST_F(DbLoader, AFileThatEndsBeforeItsFollowersIsLeftOpenForTheCaller)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    object_bytes.resize(object_bytes.size() - sizeof(follower_file_elem));
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_TRUE(Crash_alias_load(character, fp));
+    Crash_follower_load(character, fp);
+    EXPECT_EQ(std::ftell(fp), (long)object_bytes.size()) << "still open";
+    EXPECT_EQ(std::fclose(fp), 0);
+}
+
+namespace {
+
+// The follower number Crash_follower_load reads as the end of a save's followers.
+constexpr int END_OF_FOLLOWERS = -17;
+
+// How many objects on object_list are in no room, carried or worn by nobody and in no container:
+// objects no player can see and nothing will ever free.
+int count_objects_held_by_nobody()
+{
+    int held_by_nobody = 0;
+    for (const obj_data* object = object_list; object != nullptr; object = object->next) {
+        if (object->in_room == NOWHERE && object->carried_by == nullptr && object->in_obj == nullptr) {
+            ++held_by_nobody;
+        }
+    }
+    return held_by_nobody;
+}
+
+} // namespace
+
+// A follower's gear saved in a slot one past the last (a damaged save) is read past, as gear in a
+// container is: nothing is put on there, and the follower's next item still loads.
+TEST_F(DbLoader, AFollowersGearSavedOnePastTheLastSlotIsReadPast)
+{
+    constexpr int FOLLOWER_VNUM = 6601;
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    world[0].people = nullptr;
+
+    /* The follower's prototype, which real_mobile finds and read_mobile copies. */
+    char_data follower_prototype {};
+    clear_char(&follower_prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&follower_prototype), MOB_ISNPC);
+    follower_prototype.nr = 0;
+    index_data follower_index[1] {};
+    follower_index[0].virt = FOLLOWER_VNUM;
+    char_data* const saved_mob_proto = mob_proto;
+    index_data* const saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    char_data* const saved_character_list = character_list;
+    mob_proto = &follower_prototype;
+    mob_index = follower_index;
+    top_of_mobt = 0;
+
+    LoadedCharacter character;
+    character->in_room = 0;
+
+    /* One follower (a mount, flag 0) with a helm one past the last slot and a helm on its head. */
+    std::FILE* saved = std::tmpfile();
+    ASSERT_NE(saved, nullptr);
+    const follower_file_elem follower { FOLLOWER_VNUM, 0, 0, 0, 0, 0, 0 };
+    obj_file_elem past_the_last_slot {};
+    past_the_last_slot.item_number_deprecated = DEPRECATED_ID_VALUE;
+    past_the_last_slot.item_number = HELM_VNUM;
+    past_the_last_slot.wear_pos = MAX_WEAR;
+    obj_file_elem on_the_head = past_the_last_slot;
+    on_the_head.wear_pos = WEAR_HEAD;
+    obj_file_elem end_of_gear {};
+    end_of_gear.item_number_deprecated = DEPRECATED_ID_VALUE;
+    end_of_gear.item_number = SENTINEL_ITEM_ID_VALUE;
+    const follower_file_elem end_of_followers { END_OF_FOLLOWERS, 0, 0, 0, 0, 0, 0 };
+    EXPECT_EQ(std::fwrite(&follower, sizeof(follower), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&past_the_last_slot, sizeof(past_the_last_slot), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_gear, sizeof(end_of_gear), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_followers, sizeof(end_of_followers), 1, saved), 1u);
+    std::rewind(saved);
+
+    Crash_follower_load(character, saved);
+
+    EXPECT_EQ(std::fclose(saved), 0);
+    ASSERT_NE(character->followers, nullptr);
+    char_data* loaded = character->followers->follower;
+    int worn_items = 0;
+    for (int slot = 0; slot < MAX_WEAR; ++slot) {
+        if (loaded->equipment[slot] != nullptr) {
+            ++worn_items;
+        }
+    }
+    EXPECT_EQ(worn_items, 1);
+    ASSERT_NE(loaded->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character->followers->next, nullptr);
+
+    /* The follower is freed as extract_char frees a mob, which leaves its profession block to the
+     * prototype; the prototype's is freed below. Its helm goes with the object table. */
+    char_from_room(loaded);
+    remove_char_exists(loaded->abs_number);
+    RELEASE(character->followers);
+    free_char(loaded);
+    release_cleared_character(&follower_prototype);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    character_list = saved_character_list;
+}
+
+// A save naming one wear slot twice (damaged or hand-edited) puts the first item on and the second
+// in the player's inventory, so the player keeps both and nothing is left held by nobody.
+TEST_F(DbLoader, CrashLoadPutsASecondItemForAFilledSlotInTheInventory)
+{
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    LoadedCharacter character;
+    const char_file_u stored_character = make_stored_character("aragorn");
+    store_to_char(&stored_character, character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    for (int helm_weight : { 7, 9 }) {
+        objects_json::ObjectRecord helm {};
+        helm.item_number = HELM_VNUM;
+        helm.wear_pos = WEAR_HEAD;
+        helm.weight = helm_weight;
+        object_data.objects.push_back(helm);
+    }
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[character->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    ASSERT_NE(character->carrying, nullptr) << "the second helm was not given to the player";
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character->carrying->next_content, nullptr);
+    EXPECT_NE(character->carrying, character->equipment[WEAR_HEAD]);
+    EXPECT_EQ(count_objects_held_by_nobody(), 0);
+}
+
+// A follower's gear saved twice for one slot: the follower wears the first item, and the second
+// goes into its leader's inventory, since only worn gear is saved with a follower.
+TEST_F(DbLoader, AFollowersSecondItemForAFilledSlotGoesToItsLeadersInventory)
+{
+    constexpr int FOLLOWER_VNUM = 6601;
+    constexpr int HELM_VNUM = 1001; /* ScopedObjectPrototypeTable's helm */
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    world[0].people = nullptr;
+
+    /* The follower's prototype, which real_mobile finds and read_mobile copies. */
+    char_data follower_prototype {};
+    clear_char(&follower_prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&follower_prototype), MOB_ISNPC);
+    follower_prototype.nr = 0;
+    char follower_short_description[] = "a wolf cub"; /* the follower's name in the log line */
+    follower_prototype.player.short_descr = follower_short_description;
+    index_data follower_index[1] {};
+    follower_index[0].virt = FOLLOWER_VNUM;
+    char_data* const saved_mob_proto = mob_proto;
+    index_data* const saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    char_data* const saved_character_list = character_list;
+    mob_proto = &follower_prototype;
+    mob_index = follower_index;
+    top_of_mobt = 0;
+
+    LoadedCharacter character;
+    const char_file_u stored_character = make_stored_character("aragorn");
+    store_to_char(&stored_character, character); /* the leader's name is in the log line */
+    character->in_room = 0;
+
+    /* One follower (a mount, flag 0) with two helms saved on its head. */
+    std::FILE* saved = std::tmpfile();
+    ASSERT_NE(saved, nullptr);
+    const follower_file_elem follower { FOLLOWER_VNUM, 0, 0, 0, 0, 0, 0 };
+    obj_file_elem on_the_head {};
+    on_the_head.item_number_deprecated = DEPRECATED_ID_VALUE;
+    on_the_head.item_number = HELM_VNUM;
+    on_the_head.wear_pos = WEAR_HEAD;
+    obj_file_elem end_of_gear {};
+    end_of_gear.item_number_deprecated = DEPRECATED_ID_VALUE;
+    end_of_gear.item_number = SENTINEL_ITEM_ID_VALUE;
+    const follower_file_elem end_of_followers { END_OF_FOLLOWERS, 0, 0, 0, 0, 0, 0 };
+    EXPECT_EQ(std::fwrite(&follower, sizeof(follower), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&on_the_head, sizeof(on_the_head), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_gear, sizeof(end_of_gear), 1, saved), 1u);
+    EXPECT_EQ(std::fwrite(&end_of_followers, sizeof(end_of_followers), 1, saved), 1u);
+    std::rewind(saved);
+
+    Crash_follower_load(character, saved);
+
+    EXPECT_EQ(std::fclose(saved), 0);
+    ASSERT_NE(character->followers, nullptr);
+    char_data* loaded = character->followers->follower;
+    ASSERT_NE(loaded->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[loaded->equipment[WEAR_HEAD]->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(loaded->carrying, nullptr);
+    ASSERT_NE(character->carrying, nullptr) << "the second helm was not given to the leader";
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, HELM_VNUM);
+    EXPECT_EQ(character->carrying->next_content, nullptr);
+    EXPECT_EQ(count_objects_held_by_nobody(), 0);
+
+    /* The follower is freed as extract_char frees a mob, which leaves its profession block to the
+     * prototype; the prototype's is freed below. The helms go with the object table. */
+    char_from_room(loaded);
+    remove_char_exists(loaded->abs_number);
+    RELEASE(character->followers);
+    free_char(loaded);
+    release_cleared_character(&follower_prototype);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    character_list = saved_character_list;
+}
+
+// The file the game itself writes, read back by the game: the enchanted weapon's longer record
+// must not put the load, or the rent listing, out of step for the object after it.
+TEST_F(DbLoader, AnEnchantedWeaponSavedByTheGameLoadsBackAndTheRentListingReadsPastIt)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+    obj_proto[0].obj_flags.type_flag = ITEM_WEAPON;
+
+    for (const char* directory : { "accounts", "accounts/A-E", "players", "players/A-E", "plrobjs", "plrobjs/A-E" })
+        ASSERT_EQ(mkdir(directory, 0700), 0) << directory;
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    // Carried newest first, so the sword is written before the pack.
+    obj_to_char(read_object(1, REAL), character);
+    obj_data* sword = read_object(0, REAL);
+    const obj_enchant_type enchant = { ENCHANT_OB, ENCHANT_ALIGN_EVIL, 6 };
+    apply_object_enchant(sword, enchant);
+    ASSERT_TRUE(record_object_enchant(sword, enchant));
+    obj_to_char(sword, character);
+
+    Crash_crashsave(character);
+    ASSERT_TRUE(character->specials.saved_object_file);
+
+    LoadedCharacter imm;
+    descriptor_data imm_descriptor {};
+    imm_descriptor.output = imm_descriptor.small_outbuf;
+    imm_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    imm_descriptor.character = imm;
+    imm->desc = &imm_descriptor;
+    char listed_name[] = "aragorn";
+    Crash_listrent(imm, listed_name);
+    EXPECT_EQ(std::string(imm_descriptor.output), "aragorn rents with:\n\ra steel helm\n\ra travel pack\n\r");
+
+    std::string object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(".", "aragorn", &object_bytes, &error_message)) << error_message;
+    LoadedCharacter returning;
+    store_to_char(&stored_character, returning);
+    stage_account_backed_object_bytes_for_character(returning, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(returning);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    int carried = 0;
+    const obj_data* loaded_sword = nullptr;
+    const obj_data* loaded_pack = nullptr;
+    for (const obj_data* obj = returning->carrying; obj != nullptr; obj = obj->next_content, ++carried) {
+        if (obj->item_number == 0)
+            loaded_sword = obj;
+        else if (obj->item_number == 1)
+            loaded_pack = obj;
+    }
+    EXPECT_EQ(carried, 2);
+    ASSERT_NE(loaded_sword, nullptr);
+    ASSERT_NE(loaded_pack, nullptr);
+    EXPECT_EQ(loaded_sword->obj_flags.extra_flags, ITEM_MAGIC | ITEM_ANTI_GOOD);
+    EXPECT_EQ(loaded_sword->affected[0].location, APPLY_OB);
+    EXPECT_EQ(loaded_sword->affected[0].modifier, 6);
+    ASSERT_EQ(count_object_enchants(loaded_sword), 1);
+    EXPECT_EQ(loaded_sword->enchants[0].align, ENCHANT_ALIGN_EVIL);
+    EXPECT_EQ(count_object_enchants(loaded_pack), 0);
+    EXPECT_EQ(loaded_pack->obj_flags.weight, obj_proto[1].obj_flags.weight);
+}
+
+void write_object(FILE* f, const struct obj_data* obj, int num);
+void load_objects(FILE* obj_f);
+
+TEST_F(DbLoader, SkinLevelLineWrittenOnlyForSkins)
+{
+    char name[] = "sword";
+    char empty[] = "";
+    obj_data o {};
+    o.name = name;
+    o.short_description = name;
+    o.description = name;
+    o.action_description = empty;
+    o.obj_flags.level = 12;
+    o.obj_flags.material = 4;
+    o.obj_flags.version = 3;
+
+    auto level_line = [&]() {
+        FILE* f = tmpfile();
+        write_object(f, &o, 77);
+        std::rewind(f);
+        char line[256];
+        std::string last, all;
+        while (std::fgets(line, sizeof line, f)) {
+            all = line;
+            while (!all.empty() && all[0] == '\r') /* lines end "\n\r" */
+                all.erase(0, 1);
+            if (all.find("12 0 4 0 3") == 0)
+                last = all;
+        }
+        std::fclose(f);
+        while (!last.empty() && (last.back() == '\n' || last.back() == '\r'))
+            last.pop_back();
+        return last;
+    };
+    EXPECT_EQ(level_line(), "12 0 4 0 3");
+    o.obj_flags.skin_base = 4512;
+    o.obj_flags.skin_own = 1;
+    EXPECT_EQ(level_line(), "12 0 4 0 3 4512 1");
+}
+
+// load_objects keeps its place in the prototype table between calls (boot reads one file after
+// another), so this is the one test that may call it.
+/* Also the boot side of a skin's 7-number level line (load_objects is single-use, so it is here):
+ * the 6th and 7th numbers become skin_base and skin_own. */
+TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAsNone)
+{
+    // A second run in one process (--gtest_repeat) would start past the end of the table below.
+    static bool load_objects_has_run = false;
+    if (load_objects_has_run)
+        GTEST_SKIP() << "load_objects fills the prototype table once per process";
+    load_objects_has_run = true;
+
+    index_data* const previous_obj_index = obj_index;
+    obj_data* const previous_obj_proto = obj_proto;
+    const int previous_top_of_objt = top_of_objt;
+    const int prototype_slots = 4;
+    obj_index = new index_data[prototype_slots] {};
+    obj_proto = new obj_data[prototype_slots] {};
+
+    char name[] = "sword";
+    char short_description[] = "a sword";
+    char description[] = "A sword lies here.";
+    char action_description[] = "";
+    obj_data written {};
+    written.name = name;
+    written.short_description = short_description;
+    written.description = description;
+    written.action_description = action_description;
+    written.obj_flags.type_flag = ITEM_WEAPON;
+    written.obj_flags.value[4] = 9;
+    written.obj_flags.level = 12;
+    written.obj_flags.script_number = 7;
+
+    FILE* file = tmpfile();
+    ASSERT_NE(file, nullptr);
+    written.obj_flags.version = 4;
+    write_object(file, &written, 2001); // on
+    written.obj_flags.version = -4;
+    write_object(file, &written, 2002); // off, number kept
+    // A line from before the fifth number existed. Its value[4] above it is 9: what the version
+    // used to be left holding when the line ran short.
+    std::fputs("#2003\nsword~\na sword~\nA sword lies here.~\n~\n5 0 0\n0 0 0 0 9\n1 1 1\n12 0 0 7\n", file);
+    written.obj_flags.version = 4;
+    written.obj_flags.skin_base = 2001;
+    written.obj_flags.skin_own = SKIN_OWN_COST | SKIN_OWN_MATERIAL;
+    write_object(file, &written, 2004); // a skin: a 7-number level line
+    std::fputs("#99999\n$~\n", file);
+    std::rewind(file);
+
+    load_objects(file);
+    std::fclose(file);
+
+    EXPECT_EQ(top_of_objt, 3);
+    EXPECT_EQ(obj_index[0].virt, 2001);
+    EXPECT_EQ(obj_proto[0].obj_flags.version, 4);
+    EXPECT_EQ(obj_proto[0].obj_flags.script_number, 7);
+    EXPECT_EQ(obj_proto[1].obj_flags.version, -4);
+    EXPECT_EQ(obj_index[2].virt, 2003);
+    EXPECT_EQ(obj_proto[2].obj_flags.level, 12);
+    EXPECT_EQ(obj_proto[2].obj_flags.script_number, 7);
+    EXPECT_EQ(obj_proto[2].obj_flags.value[4], 9);
+    EXPECT_EQ(obj_proto[2].obj_flags.version, 0);
+    EXPECT_EQ(obj_proto[2].obj_flags.skin_base, 0) << "a short line is not a skin";
+    EXPECT_EQ(obj_proto[0].obj_flags.skin_base, 0);
+    EXPECT_EQ(obj_index[3].virt, 2004);
+    EXPECT_EQ(obj_proto[3].obj_flags.version, 4);
+    EXPECT_EQ(obj_proto[3].obj_flags.skin_base, 2001);
+    EXPECT_EQ(obj_proto[3].obj_flags.skin_own, SKIN_OWN_COST | SKIN_OWN_MATERIAL);
+
+    delete[] obj_proto;
+    delete[] obj_index;
+    obj_proto = previous_obj_proto;
+    obj_index = previous_obj_index;
+    top_of_objt = previous_top_of_objt;
+}
+
+void shape_center_obj(struct char_data* ch, char* arg);
+
+TEST_F(DbLoader, ObjectEditorVersionFieldTakesExactlyBOrO)
+{
+    obj_data object {};
+    shape_object shape {};
+    shape.object = &object;
+    shape.procedure = SHAPE_EDIT;
+    shape.flags = SHAPE_OBJECT_LOADED;
+
+    LoadedCharacter builder;
+    builder->temp = &shape;
+
+    // Field 22: the first call shows the prompt, the second takes the answer.
+    auto answer = [&](const char* typed) {
+        char prompt[] = "";
+        shape.editflag = 22;
+        shape_center_obj(builder, prompt);
+        char reply[32];
+        std::snprintf(reply, sizeof(reply), "%s", typed);
+        shape_center_obj(builder, reply);
+        return object.obj_flags.version;
+    };
+
+    EXPECT_EQ(answer("o"), 0) << "nothing to turn off yet";
+    EXPECT_EQ(answer("b"), 1);
+    EXPECT_EQ(answer("on"), 1) << "\"on\" is not o";
+    EXPECT_EQ(answer("back"), 1) << "\"back\" is not b";
+    EXPECT_EQ(answer("3"), 1) << "no typed numbers";
+    EXPECT_EQ(answer(""), 1) << "blank keeps it";
+    EXPECT_EQ(answer(" B "), 2);
+    EXPECT_EQ(answer("o"), -2) << "off keeps the number";
+    EXPECT_EQ(answer("o"), -2) << "already off";
+    EXPECT_EQ(answer("b"), 3) << "the next bump counts on from the kept number";
+
+    builder->temp = nullptr;
+}
+
+void implement_object(const struct char_data* ch);
+int load_object(struct char_data* ch, const char* arg);
+int replace_object(struct char_data* ch, char* arg);
+void list_object(const struct char_data* ch, const struct obj_data* obj);
+extern int object_master_idnum;
+
+namespace {
+
+/* An object editor session over a small prototype table: base 4512 (a sword) with skins 4513 and
+ * 4514, a key 4600 and a plain staff 4700. The working copy is edited as obj `basenum`; output is captured. */
+class SkinEditorSession {
+public:
+    SkinEditorSession(int basenum)
+        : m_previous_obj_index(obj_index)
+        , m_previous_obj_proto(obj_proto)
+        , m_previous_top_of_objt(top_of_objt)
+    {
+        obj_index = new index_data[5] {};
+        obj_proto = new obj_data[5] {};
+        top_of_objt = 4;
+
+        init(0, 4512, "a long steel sword");
+        obj_flag_data& sword = obj_proto[0].obj_flags;
+        sword.type_flag = ITEM_WEAPON;
+        sword.extra_flags = 64;
+        sword.wear_flags = ITEM_TAKE | ITEM_WIELD;
+        sword.value[0] = 5;
+        sword.value[1] = 2;
+        sword.value[2] = 10;
+        sword.value[3] = 3;
+        sword.weight = 50;
+        sword.cost = 100;
+        sword.cost_per_day = 7;
+        sword.level = 12;
+        sword.material = 4;
+        sword.script_number = 0;
+        sword.version = 2;
+        obj_proto[0].affected[0].location = APPLY_OB;
+        obj_proto[0].affected[0].modifier = 2;
+        for (int i = 1; i <= 2; i++) {
+            init(i, 4512 + i, "a skin");
+            obj_proto[i].obj_flags.skin_base = 4512;
+            copy_skin_stats_from_base(obj_proto[i], obj_proto[0]);
+        }
+        init(3, 4600, "a brass key");
+        obj_proto[3].obj_flags.type_flag = ITEM_KEY;
+        init(4, 4700, "a wooden staff");
+        obj_proto[4].obj_flags.type_flag = ITEM_STAFF;
+
+        m_descriptor.output = m_descriptor.small_outbuf;
+        m_descriptor.small_outbuf[0] = '\0';
+        m_descriptor.bufptr = 0;
+        m_descriptor.bufspace = SMALL_BUFSIZE - 1;
+        m_descriptor.connected = CON_PLYNG;
+
+        clear_object(&object);
+        object.name = strdup("cloak");
+        object.short_description = strdup("a grey cloak");
+        object.description = strdup("A grey cloak lies here.");
+        object.action_description = strdup("");
+        object.obj_flags.type_flag = ITEM_WORN;
+        object.obj_flags.weight = 20;
+        object.obj_flags.cost = 90;
+        object.obj_flags.material = 4;
+
+        shape.object = &object;
+        shape.procedure = SHAPE_EDIT;
+        shape.flags = SHAPE_OBJECT_LOADED;
+        shape.basenum = basenum;
+        shape.number = basenum;
+        shape.permission = 1;
+
+        builder->temp = &shape;
+        builder->desc = &m_descriptor;
+        m_descriptor.character = builder;
+    }
+
+    ~SkinEditorSession()
+    {
+        builder->temp = nullptr;
+        builder->desc = nullptr;
+        release_test_descriptor(&m_descriptor);
+        /* load_object replaces the working copy with one of its own. */
+        if (shape.object != nullptr && shape.object != &object) {
+            release_object_text(*shape.object);
+        }
+        release_object_text(object);
+        delete[] obj_proto;
+        delete[] obj_index;
+        obj_proto = m_previous_obj_proto;
+        obj_index = m_previous_obj_index;
+        top_of_objt = m_previous_top_of_objt;
+    }
+
+    /* Field `field`: the first call shows the prompt, the second takes the answer. */
+    std::string answer(int field, const char* typed)
+    {
+        char prompt[] = "";
+        shape.editflag = field;
+        shape_center_obj(builder, prompt);
+        if (IS_SET(shape.flags, SHAPE_DIGIT_ACTIVE)) {
+            char reply[64];
+            std::snprintf(reply, sizeof(reply), "%s", typed);
+            shape_center_obj(builder, reply);
+        }
+        return take();
+    }
+
+    std::string take()
+    {
+        std::string text = m_descriptor.output;
+        m_descriptor.output[0] = '\0';
+        m_descriptor.bufptr = 0;
+        m_descriptor.bufspace = (m_descriptor.large_outbuf ? LARGE_BUFSIZE : SMALL_BUFSIZE) - 1;
+        return text;
+    }
+
+    obj_data object {};
+    shape_object shape {};
+    // The builder at the editor, freed after the destructor has detached the shape and descriptor.
+    LoadedCharacter builder;
+
+private:
+    /* Frees an object's text and extra descriptions, which init, the editor and implement
+     * allocate. */
+    static void release_object_text(obj_data& object)
+    {
+        RELEASE(object.name);
+        RELEASE(object.short_description);
+        RELEASE(object.description);
+        RELEASE(object.action_description);
+        while (object.ex_description != nullptr) {
+            extra_descr_data* next = object.ex_description->next;
+            RELEASE(object.ex_description->keyword);
+            RELEASE(object.ex_description->description);
+            RELEASE(object.ex_description);
+            object.ex_description = next;
+        }
+    }
+
+    void init(int index, int virt, const char* short_description)
+    {
+        obj_index[index].virt = virt;
+        clear_object(&obj_proto[index]);
+        obj_proto[index].name = strdup("thing");
+        obj_proto[index].short_description = strdup(short_description);
+        obj_proto[index].description = strdup(short_description);
+        obj_proto[index].action_description = strdup("");
+        obj_proto[index].item_number = index;
+    }
+
+    index_data* m_previous_obj_index;
+    obj_data* m_previous_obj_proto;
+    int m_previous_top_of_objt;
+    descriptor_data m_descriptor {};
+};
+
+bool has(const std::string& text, const char* line) { return text.find(line) != std::string::npos; }
+
+} // namespace
+
+TEST_F(DbLoader, ObjectEditorSetsSkinBase)
+{
+    SkinEditorSession session(4520);
+
+    const std::string out = session.answer(23, "4512");
+
+    const obj_flag_data& flags = session.object.obj_flags;
+    EXPECT_EQ(flags.skin_base, 4512);
+    EXPECT_EQ(flags.skin_own, 0);
+    EXPECT_EQ(flags.type_flag, ITEM_WEAPON);
+    EXPECT_EQ(flags.weight, 50);
+    EXPECT_EQ(flags.value[2], 10);
+    EXPECT_EQ(flags.cost, 100);
+    EXPECT_EQ(flags.level, 12);
+    EXPECT_EQ(session.object.affected[0].location, APPLY_OB);
+    EXPECT_STREQ(session.object.short_description, "a grey cloak") << "text stays its own";
+    EXPECT_TRUE(has(out, "Enter BASE (vnum of the object this is a skin of, 0 = none) [0]:")) << out;
+    EXPECT_TRUE(has(out, "This object is now a skin of obj 4512 (a long steel sword).\n\r")) << out;
+    EXPECT_TRUE(has(out, "Stats, values, affects and flags now come from 4512.\n\r")) << out;
+    EXPECT_TRUE(has(out, "Cost was 90, now follows base (100).\n\r")) << out;
+    EXPECT_FALSE(has(out, "Material was")) << "material did not differ: " << out;
+}
+
+TEST_F(DbLoader, ObjectEditorRefusesKeyBase)
+{
+    SkinEditorSession session(4520);
+
+    const std::string out = session.answer(23, "4600");
+
+    EXPECT_EQ(session.object.obj_flags.skin_base, 0);
+    EXPECT_EQ(session.object.obj_flags.type_flag, ITEM_WORN);
+    EXPECT_TRUE(has(out, "Keys can't have skins.\n\r")) << out;
+}
+
+TEST_F(DbLoader, ObjectEditorRefusesSkinAsBase)
+{
+    SkinEditorSession session(4520);
+
+    std::string out = session.answer(23, "4513");
+    EXPECT_EQ(session.object.obj_flags.skin_base, 0);
+    EXPECT_TRUE(has(out, "Obj 4513 is a skin of obj 4512; use /23 4512.\n\r")) << out;
+
+    out = session.answer(23, "4999");
+    EXPECT_EQ(session.object.obj_flags.skin_base, 0);
+    EXPECT_TRUE(has(out, "There is no obj 4999.\n\r")) << out;
+
+    out = session.answer(23, "4520");
+    EXPECT_EQ(session.object.obj_flags.skin_base, 0);
+    EXPECT_TRUE(has(out, "An object can't be its own base.\n\r")) << out;
+
+    SkinEditorSession base_session(4512);
+    out = base_session.answer(23, "4700");
+    EXPECT_EQ(base_session.object.obj_flags.skin_base, 0);
+    EXPECT_TRUE(has(out, "Obj 4512 has skins (4513, 4514); it can't become a skin.\n\r")) << out;
+}
+
+TEST_F(DbLoader, ObjectEditorRefusesStatEditOnSkin)
+{
+    SkinEditorSession session(4521);
+    session.answer(23, "4512");
+
+    const std::string out = session.answer(13, "75");
+
+    EXPECT_EQ(session.object.obj_flags.weight, 50);
+    EXPECT_TRUE(has(out, "Obj 4521 is a skin of obj 4512; edit stats on 4512.\n\r")) << out;
+    EXPECT_FALSE(has(out, "Enter WEIGHT")) << "no prompt on a skin: " << out;
+    EXPECT_FALSE(IS_SET(session.shape.flags, SHAPE_DIGIT_ACTIVE));
+    EXPECT_EQ(session.shape.editflag, 0);
+
+    /* The creation chain refuses its stat steps (9, 11, 12, 13) and stops at cost. */
+    char blank[] = "";
+    session.shape.flags |= SHAPE_CHAIN;
+    session.shape.editflag = 9;
+    shape_center_obj(session.builder, blank);
+    std::string chain = session.take();
+    EXPECT_TRUE(has(chain, "Obj 4521 is a skin of obj 4512; edit stats on 4512.\n\r")) << chain;
+    EXPECT_FALSE(has(chain, "Enter TYPE")) << chain;
+    EXPECT_TRUE(has(chain, "Enter COST")) << chain;
+    EXPECT_EQ(session.shape.editflag, 14);
+    shape_center_obj(session.builder, blank); /* keep the cost; the chain ends there */
+    chain = session.take();
+    EXPECT_FALSE(has(chain, "is a skin of")) << "refused once per chain: " << chain;
+    EXPECT_EQ(session.shape.editflag, 0);
+    EXPECT_EQ(session.object.obj_flags.cost, 100);
+    EXPECT_EQ(session.object.obj_flags.skin_own, 0) << "a blank cost answer is not an own cost";
+}
+
+/* /49 on a skin: one refusal for the whole chain, then text, cost and the end. */
+TEST_F(DbLoader, ObjectEditorSkinChainRefusesOnce)
+{
+    SkinEditorSession session(4521);
+    session.answer(23, "4512");
+
+    char blank[] = "";
+    char start[] = "49";
+    session.shape.editflag = 0;
+    shape_center_obj(session.builder, start);
+    std::string out = session.take();
+    for (int step = 0; step < 12 && session.shape.editflag != 0; step++) {
+        shape_center_obj(session.builder, blank);
+        out += session.take();
+    }
+    EXPECT_EQ(session.shape.editflag, 0) << out;
+    const std::string refusal = "Obj 4521 is a skin of obj 4512; edit stats on 4512.\n\r";
+    size_t first = out.find(refusal);
+    ASSERT_NE(first, std::string::npos) << out;
+    EXPECT_EQ(out.find(refusal, first + 1), std::string::npos) << "refused twice: " << out;
+    EXPECT_TRUE(has(out, "Enter COST")) << out;
+    EXPECT_FALSE(has(out, "Enter WEIGHT")) << out;
+}
+
+/* A vnum that is not booted yet: the editor's basenum is -1, its number is the vnum. */
+TEST_F(DbLoader, ObjectEditorSkinMessagesOnNewVnum)
+{
+    SkinEditorSession session(-1);
+    session.shape.number = 5013;
+    session.answer(23, "4512");
+
+    std::string out = session.answer(13, "75");
+    EXPECT_TRUE(has(out, "Obj 5013 is a skin of obj 4512; edit stats on 4512.\n\r")) << out;
+
+    out = session.answer(23, "5013");
+    EXPECT_TRUE(has(out, "An object can't be its own base.\n\r")) << out;
+    EXPECT_EQ(session.object.obj_flags.skin_base, 4512);
+}
+
+TEST_F(DbLoader, ObjectEditorOwnCostThenBase)
+{
+    SkinEditorSession session(4521);
+    session.answer(23, "4512");
+
+    session.answer(14, "250");
+    EXPECT_EQ(session.object.obj_flags.cost, 250);
+    EXPECT_TRUE(session.object.obj_flags.skin_own & SKIN_OWN_COST);
+
+    const std::string out = session.answer(14, "base");
+    EXPECT_EQ(session.object.obj_flags.cost, 100);
+    EXPECT_FALSE(session.object.obj_flags.skin_own & SKIN_OWN_COST);
+    EXPECT_TRUE(has(out, "Cost now follows base (100).\n\r")) << out;
+
+    session.answer(18, "2");
+    EXPECT_EQ(session.object.obj_flags.material, 2);
+    EXPECT_TRUE(session.object.obj_flags.skin_own & SKIN_OWN_MATERIAL);
+    const std::string material = session.answer(18, "base");
+    EXPECT_EQ(session.object.obj_flags.material, 4);
+    EXPECT_FALSE(session.object.obj_flags.skin_own & SKIN_OWN_MATERIAL);
+    EXPECT_TRUE(has(material, "Material now follows base (4).\n\r")) << material;
+}
+
+/* A skin whose base is no longer valid (here a key) boots as a plain object: "base" at /14 and /18
+ * is refused and copies nothing, its stats can be edited, and the list shows none as the base's. */
+TEST_F(DbLoader, ObjectEditorSkinOfInvalidBaseIsEditedAsPlain)
+{
+    SkinEditorSession session(4521);
+    session.object.obj_flags.skin_base = 4600;
+
+    const std::string cost = session.answer(14, "base");
+    EXPECT_TRUE(has(cost, "Can't follow the base: base obj 4600 is a key.\n\r")) << cost;
+    const std::string material = session.answer(18, "base");
+    EXPECT_TRUE(has(material, "Can't follow the base: base obj 4600 is a key.\n\r")) << material;
+    const obj_flag_data& flags = session.object.obj_flags;
+    EXPECT_EQ(flags.type_flag, ITEM_WORN) << "nothing copied from the key";
+    EXPECT_EQ(flags.cost, 90);
+    EXPECT_EQ(flags.material, 4);
+
+    const std::string weight = session.answer(13, "75");
+    EXPECT_FALSE(has(weight, "edit stats on")) << weight;
+    EXPECT_EQ(flags.weight, 75);
+
+    list_object(session.builder, &session.object);
+    const std::string list = session.take();
+    EXPECT_FALSE(has(list, "(from 4600)")) << list;
+
+    /* The creation chain asks its stat steps instead of skipping them. */
+    char blank[] = "";
+    session.shape.flags |= SHAPE_CHAIN;
+    session.shape.editflag = 9;
+    shape_center_obj(session.builder, blank);
+    const std::string chain = session.take();
+    EXPECT_FALSE(has(chain, "edit stats on")) << chain;
+    EXPECT_TRUE(has(chain, "Enter TYPE")) << chain;
+}
+
+/* On a skin of a valid base the list marks each stat "(from M)", and an own cost "[own]". */
+TEST_F(DbLoader, ObjectEditorListMarksASkinsStats)
+{
+    SkinEditorSession session(4521);
+    session.answer(23, "4512");
+    session.answer(14, "250");
+
+    list_object(session.builder, &session.object);
+    const std::string list = session.take();
+    EXPECT_TRUE(has(list, "(from 4512)")) << list;
+    EXPECT_TRUE(has(list, "[own]")) << list;
+}
+
+TEST_F(DbLoader, ObjectEditorUnskinKeepsStats)
+{
+    SkinEditorSession session(4521);
+    session.answer(23, "4512");
+    session.answer(14, "250");
+
+    const std::string out = session.answer(23, "0");
+
+    const obj_flag_data& flags = session.object.obj_flags;
+    EXPECT_EQ(flags.skin_base, 0);
+    EXPECT_EQ(flags.skin_own, 0);
+    EXPECT_EQ(flags.cost, 250);
+    EXPECT_EQ(flags.weight, 50);
+    EXPECT_EQ(flags.type_flag, ITEM_WEAPON);
+    EXPECT_TRUE(has(out, "This object is no longer a skin; its stats are now its own.\n\r")) << out;
+
+    session.answer(13, "75");
+    EXPECT_EQ(flags.weight, 75) << "stats can be edited again";
+}
+
+TEST_F(DbLoader, ObjectEditorRefusesKeyTypeOnBaseWithSkins)
+{
+    SkinEditorSession session(4512);
+    session.object.obj_flags.type_flag = ITEM_WEAPON;
+
+    const std::string out = session.answer(9, "18");
+
+    EXPECT_EQ(session.object.obj_flags.type_flag, ITEM_WEAPON);
+    EXPECT_TRUE(has(out, "Obj 4512 has skins (4513, 4514); it can't become a key.\n\r")) << out;
+}
+
+TEST_F(DbLoader, ObjectEditorRefusesNoteTypeOnBaseWithSkins)
+{
+    SkinEditorSession session(4512);
+    session.object.obj_flags.type_flag = ITEM_WEAPON;
+
+    const std::string out = session.answer(9, "16");
+
+    EXPECT_EQ(session.object.obj_flags.type_flag, ITEM_WEAPON);
+    EXPECT_TRUE(has(out, "Obj 4512 has skins (4513, 4514); it can't become a note.\n\r")) << out;
+}
+
+TEST_F(DbLoader, ImplementBaseRefreshesSkinProtos)
+{
+    SkinEditorSession session(4512);
+    session.object.obj_flags = obj_proto[0].obj_flags;
+    session.object.obj_flags.weight = 80;
+    session.object.obj_flags.cost = 140;
+    obj_proto[2].obj_flags.skin_own = SKIN_OWN_COST;
+    obj_proto[2].obj_flags.cost = 7;
+
+    implement_object(session.builder);
+
+    EXPECT_EQ(obj_proto[0].obj_flags.weight, 80);
+    EXPECT_EQ(obj_proto[1].obj_flags.weight, 80);
+    EXPECT_EQ(obj_proto[1].obj_flags.cost, 140);
+    EXPECT_EQ(obj_proto[2].obj_flags.weight, 80);
+    EXPECT_EQ(obj_proto[2].obj_flags.cost, 7) << "own cost kept";
+
+    /* Implementing a skin takes the base's stats into its live proto, whatever the working copy
+     * held, and keeps skin_base and skin_own. */
+    SkinEditorSession skin_session(4513);
+    skin_session.object.obj_flags.skin_base = 4512;
+    skin_session.object.obj_flags.skin_own = SKIN_OWN_MATERIAL;
+    skin_session.object.obj_flags.material = 9;
+    skin_session.object.obj_flags.weight = 3;
+    implement_object(skin_session.builder);
+    EXPECT_EQ(obj_proto[1].obj_flags.skin_base, 4512);
+    EXPECT_EQ(obj_proto[1].obj_flags.skin_own, SKIN_OWN_MATERIAL);
+    EXPECT_EQ(obj_proto[1].obj_flags.weight, 50);
+    EXPECT_EQ(obj_proto[1].obj_flags.material, 9);
+}
+
+TEST_F(DbLoader, ImplementSkinWithKeyBaseStoresPlain)
+{
+    /* Saved as a skin of 4600 before 4600 became a key (or loaded so from the file). */
+    SkinEditorSession session(4513);
+    session.object.obj_flags.skin_base = 4600;
+    session.object.obj_flags.skin_own = SKIN_OWN_COST;
+    session.object.obj_flags.weight = 33;
+    obj_proto[3].obj_flags.weight = 1;
+    obj_proto[3].obj_flags.value[0] = 42;
+
+    implement_object(session.builder);
+    const std::string out = session.take();
+
+    EXPECT_EQ(obj_proto[1].obj_flags.skin_base, 0);
+    EXPECT_EQ(obj_proto[1].obj_flags.skin_own, 0);
+    EXPECT_EQ(obj_proto[1].obj_flags.type_flag, ITEM_WORN) << "not the key's type";
+    EXPECT_EQ(obj_proto[1].obj_flags.weight, 33) << "not the key's weight";
+    EXPECT_EQ(obj_proto[1].obj_flags.value[0], 0);
+    EXPECT_EQ(session.object.obj_flags.skin_base, 4600) << "the working copy keeps the builder's base";
+    EXPECT_TRUE(has(out, "Skin not applied: base obj 4600 is a key.\n\r")) << out;
+    EXPECT_TRUE(skin_rnums_of(3).empty());
+}
+
+/* /23 refuses a skin base on an object that has skins, but implementing it later must too: 4512
+ * (with live skins 4513, 4514) implemented as a skin of 4700 would make skins of a skin. */
+TEST_F(DbLoader, ImplementSkinThatHasSkinsStoresPlain)
+{
+    SkinEditorSession session(4512);
+    session.object.obj_flags = obj_proto[0].obj_flags;
+    session.object.obj_flags.skin_base = 4700;
+
+    implement_object(session.builder);
+    const std::string out = session.take();
+
+    EXPECT_EQ(obj_proto[0].obj_flags.skin_base, 0);
+    EXPECT_EQ(session.object.obj_flags.skin_base, 4700) << "the working copy keeps the builder's base";
+    EXPECT_TRUE(has(out, "Skin not applied: obj 4512 has skins.\n\r")) << out;
+    EXPECT_EQ(skin_rnums_of(0).size(), 2u) << "its skins stay skins of it";
+}
+
+/* /9 refuses a key or note type on a base with skins while editing, but the type can also come
+ * from the file: implement refuses then and nothing changes in the game. */
+TEST_F(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
+{
+    for (int type : { ITEM_KEY, ITEM_NOTE }) {
+        SkinEditorSession session(4512);
+        session.object.obj_flags = obj_proto[0].obj_flags;
+        session.object.obj_flags.type_flag = type;
+        session.object.obj_flags.weight = 99;
+
+        implement_object(session.builder);
+        const std::string out = session.take();
+
+        EXPECT_EQ(obj_proto[0].obj_flags.type_flag, ITEM_WEAPON);
+        EXPECT_EQ(obj_proto[0].obj_flags.weight, 50) << "nothing implemented";
+        const std::string want = std::string("Obj 4512 has skins (4513, 4514); it can't become ")
+            + (type == ITEM_KEY ? "a key" : "a note") + ".\n\rNot implemented.\n\r";
+        EXPECT_TRUE(has(out, want.c_str())) << out;
+    }
+}
+
+/* A note can't be a base: /23 refuses it, like a key. */
+TEST_F(DbLoader, ObjectEditorRefusesNoteBase)
+{
+    SkinEditorSession session(4521);
+    obj_proto[4].obj_flags.type_flag = ITEM_NOTE;
+
+    const std::string out = session.answer(23, "4700");
+
+    EXPECT_EQ(session.object.obj_flags.skin_base, 0);
+    EXPECT_TRUE(has(out, "Notes can't have skins.\n\r")) << out;
+}
+
+/* Runs the editor's file code in a scratch world/obj folder holding 45.obj, then goes back. */
+class ScratchObjFiles {
+public:
+    explicit ScratchObjFiles(const std::string& obj45)
+    {
+        m_saved = std::filesystem::current_path();
+        m_dir = std::filesystem::temp_directory_path() / ("rots-skin-files-" + std::to_string(getpid()));
+        std::filesystem::remove_all(m_dir);
+        std::filesystem::create_directories(m_dir / "world/obj/oldobjs");
+        std::ofstream(m_dir / "world/obj/45.obj", std::ios::binary) << obj45;
+        std::filesystem::current_path(m_dir);
+    }
+    ~ScratchObjFiles()
+    {
+        std::filesystem::current_path(m_saved);
+        std::filesystem::remove_all(m_dir);
+    }
+    std::string read45() const
+    {
+        std::ifstream in(m_dir / "world/obj/45.obj", std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+
+private:
+    std::filesystem::path m_saved, m_dir;
+};
+
+/* A skin's stats in its file are only a fallback: loading it into the editor shows the base's
+ * current stats, and saving it writes them, so /50 and the file never show stale numbers. */
+TEST_F(DbLoader, EditorLoadAndSaveOfASkinUseTheBasesCurrentStats)
+{
+    const std::string file = "#4513\n\ra skin~\n\ra skin~\n\rA skin lies here.~\n\r~\n\r"
+                             "5 0 8193\n\r1 1 1 3 0\n\r33 100 -1\n\r1 0 4 0 0 4512 0\n\r#99999\n\r$~\n\r";
+    ScratchObjFiles files(file);
+    SkinEditorSession session(4513);
+    session.builder->specials2.idnum = object_master_idnum; /* full permission, no zone lookup */
+
+    ASSERT_EQ(load_object(session.builder, "object 4513"), 4513) << session.take();
+    obj_data* loaded = session.shape.object;
+    EXPECT_EQ(loaded->obj_flags.skin_base, 4512);
+    EXPECT_EQ(loaded->obj_flags.weight, 50) << "the base's weight, not the file's 33";
+    EXPECT_EQ(loaded->obj_flags.level, 12);
+    EXPECT_EQ(loaded->obj_flags.value[0], 5);
+
+    loaded->obj_flags.weight = 77; /* a stale working copy */
+    char no_arg[] = "";
+    replace_object(session.builder, no_arg);
+    const std::string saved = files.read45();
+    EXPECT_NE(saved.find("50 100 7\n\r"), std::string::npos) << "saved with the base's stats:\n" << saved;
+    EXPECT_NE(saved.find("12 0 4 0 2 4512 0\n\r"), std::string::npos) << saved;
+}
+
+/* A new exit leads where it is told, with empty text, no door and no key, and is freed like every
+ * other exit. */
+TEST_F(DbLoader, CreatingAnExitMakesAnOpenExitFreedLikeAnyOther)
+{
+    const int ROOM_NUMBER = 4530;
+    constexpr int NO_KEY = -1; /* the key create_exit gives an exit no key opens */
+    const room_data saved_room = world[0];
+    const int saved_top_of_world = top_of_world;
+    top_of_world = 0;
+    world[0].number = ROOM_NUMBER;
+    world[0].dir_option[DOWN] = nullptr;
+
+    world[0].create_exit(DOWN, 0, FALSE);
+
+    room_direction_data* const room_exit = world[0].dir_option[DOWN];
+    ASSERT_NE(room_exit, nullptr);
+    EXPECT_STREQ(room_exit->general_description, "");
+    EXPECT_STREQ(room_exit->keyword, "");
+    EXPECT_EQ(room_exit->exit_width, 0);
+    EXPECT_EQ(room_exit->exit_info, 0);
+    EXPECT_EQ(room_exit->key, NO_KEY);
+    EXPECT_EQ(room_exit->to_room, 0);
+
+    RELEASE(room_exit->general_description);
+    RELEASE(room_exit->keyword);
+    RELEASE(world[0].dir_option[DOWN]);
+    world[0] = saved_room;
+    top_of_world = saved_top_of_world;
+}
+
+/* Creating a room in a free slot gives it fresh placeholder text in place of the text the slot held. */
+TEST_F(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
+{
+    const int saved_top_of_world = top_of_world;
+    const int ROOMS_CREATED = 2;
+    for (int created = 0; created < ROOMS_CREATED; created++) {
+        int free_slot = 0;
+        while (world[free_slot].number >= 0) {
+            free_slot++;
+        }
+        const room_data saved_slot = world[free_slot];
+        const bool slot_had_text = saved_slot.name != nullptr;
+        if (!slot_had_text) {
+            world[free_slot].name = str_dup("New room");
+            world[free_slot].description = str_dup("\n\r");
+        }
+
+        const int room = world.create_room(0);
+
+        ASSERT_EQ(room, free_slot);
+        EXPECT_STREQ(world[room].name, "New room");
+        EXPECT_STREQ(world[room].description, "\n\r");
+        EXPECT_GE(world[room].number, 0);
+
+        /* Put the slot back as it was; a slot that held text keeps the text it holds now. */
+        char* const created_name = world[room].name;
+        char* const created_description = world[room].description;
+        world[room] = saved_slot;
+        if (slot_had_text) {
+            world[room].name = created_name;
+            world[room].description = created_description;
+        } else {
+            free(created_name);
+            free(created_description);
+        }
+    }
+    top_of_world = saved_top_of_world;
+}
+
+extern struct script_head* script_table;
+extern int top_of_script_table;
+
+/* Boot and implement check a RESTYLE_OBJ target: a typed vnum must exist; a number variable
+ * (int1, ob2.vnum) is read when the line runs, so it is skipped. */
+TEST_F(DbLoader, ScriptVnumCheckCoversRestyleTargets)
+{
+    SkinEditorSession session(4512);
+    script_data rows[3] {};
+    const int targets[3] = { 4513, 99998, SCRIPT_PARAM_OB2_VNUM };
+    for (int i = 0; i < 3; ++i) {
+        rows[i].command_type = SCRIPT_RESTYLE_OBJ;
+        rows[i].number = i + 1;
+        rows[i].param[0] = SCRIPT_PARAM_OB1;
+        rows[i].param[1] = targets[i];
+        rows[i].next = i < 2 ? &rows[i + 1] : nullptr;
+    }
+    script_head head {};
+    head.number = 9901;
+    head.script = &rows[0];
+    script_head* saved_table = script_table;
+    int saved_top = top_of_script_table;
+    script_table = &head;
+    top_of_script_table = 0;
+
+    check_script_vnums(0, session.builder);
+    const std::string out = session.take();
+
+    script_table = saved_table;
+    top_of_script_table = saved_top;
+    EXPECT_NE(out.find("SCRIPT ERROR: script #9901, line 2 (restyle obj): object vnum 99998 not found"),
+        std::string::npos)
+        << out;
+    EXPECT_EQ(out.find("line 1"), std::string::npos) << "4513 exists: " << out;
+    EXPECT_EQ(out.find("line 3"), std::string::npos) << "ob2.vnum is read when the line runs: " << out;
+}
+
+TEST_F(DbLoader, AccountNativeCharacterAndObjectsJsonSupportEquippedLoginWithoutMigration)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", stored_character, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+    object_data.objects[0].weight = 7;
+    object_data.objects[0].values = { 0, 0, 2, 0, 0 };
+
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[1].item_number = 1002;
+    object_data.objects[1].wear_pos = MAX_WEAR;
+    object_data.objects[1].weight = 4;
+    object_data.objects[1].values = { 0, 0, 1, 0, 0 };
+
+    std::string expected_object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &expected_object_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", expected_object_bytes, &error_message)) << error_message;
+
+    char_file_u loaded_store {};
+    ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
+
+    std::string loaded_object_bytes;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &loaded_object_bytes, &error_message)) << error_message;
+    EXPECT_EQ(loaded_object_bytes, expected_object_bytes);
+
+    LoadedCharacter character;
+    store_to_char(&loaded_store, character);
+
+    stage_account_backed_object_bytes_for_character(character, loaded_object_bytes.data(), loaded_object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[character->equipment[WEAR_HEAD]->item_number].virt, 1001);
+    ASSERT_NE(character->carrying, nullptr);
+    EXPECT_EQ(obj_index[character->carrying->item_number].virt, 1002);
+}
+
+TEST_F(DbLoader, AccountNativeCrashLoadDoesNotLogMissingLegacyObjectFileWhenFallbackSucceeds)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+    object_data.objects[0].weight = 7;
+    object_data.objects[0].values = { 0, 0, 2, 0, 0 };
+
+    std::string object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(".", "alpha-admin", "aragorn", object_bytes, &error_message)) << error_message;
+
+    char_file_u loaded_store {};
+    ASSERT_TRUE(account::read_account_character_file(".", "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
+
+    LoadedCharacter character;
+    store_to_char(&loaded_store, character);
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+
+    const std::string stderr_path = temp_directory.path() + "/account-native-crash-load.stderr";
+    FILE* fp = nullptr;
+    std::string stderr_output;
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        fp = Crash_load(character);
+        ASSERT_NE(fp, nullptr);
+        stderr_output = stderr_redirect.read_contents();
+    }
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    EXPECT_EQ(stderr_output.find("crashsave: mark0"), std::string::npos) << stderr_output;
+    EXPECT_EQ(stderr_output.find("SYSERR: unable to open crashsave file"), std::string::npos) << stderr_output;
+    ASSERT_NE(character->equipment[WEAR_HEAD], nullptr);
+    EXPECT_EQ(obj_index[character->equipment[WEAR_HEAD]->item_number].virt, 1001);
+}
+
+TEST_F(DbLoader, AccountNativeCrashLoadStillLogsNonMissingLegacyObjectOpenFailures)
+{
+    ScopedObjectPrototypeTable object_prototypes;
+    ensure_test_world_room(3001);
+
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    std::string object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    ASSERT_TRUE(account::write_account_object_file(".", "alpha-admin", "aragorn", object_bytes, &error_message)) << error_message;
+
+    ASSERT_EQ(mkdir("plrobjs/A-E/aragorn.obj", 0700), 0);
+
+    char_file_u loaded_store {};
+    ASSERT_TRUE(account::read_account_character_file(".", "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
+
+    LoadedCharacter character;
+    store_to_char(&loaded_store, character);
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+
+    const std::string stderr_path = temp_directory.path() + "/account-native-crash-load-open-failure.stderr";
+    FILE* fp = nullptr;
+    std::string stderr_output;
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        fp = Crash_load(character);
+        ASSERT_NE(fp, nullptr);
+        stderr_output = stderr_redirect.read_contents();
+    }
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    EXPECT_NE(stderr_output.find("SYSERR: unable to open crashsave file"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("aragorn"), std::string::npos) << stderr_output;
+}
+
+TEST_F(DbLoader, AccountNativeCharacterLoadDoesNotPropagateGarbageColorStateIntoLiveCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.pref = PRF_COLOR;
+    ASSERT_TRUE(account::write_account_character_file(temp_directory.path(), "alpha-admin", stored_character, &error_message)) << error_message;
+
+    char_file_u loaded_store {};
+    loaded_store.profs.color_mask = 0x5a5a5a5a;
+    for (int index = 0; index < MAX_COLOR_FIELDS; ++index)
+        loaded_store.profs.colors[index] = 0x5a;
+    ASSERT_TRUE(account::read_account_character_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_store, &error_message)) << error_message;
+
+    LoadedCharacter character;
+    store_to_char(&loaded_store, character);
+
+    EXPECT_EQ(get_colornum(character, COLOR_ROOM), CNRM);
+}
+
+TEST_F(DbLoader, SavingAccountNativeCharacterDoesNotAttemptLegacySnapshotRefreshAfterMigrationRetirement)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    player_table[0].level = stored_character.level;
+    player_table[0].race = stored_character.race;
+    player_table[0].idnum = stored_character.specials2.idnum;
+    player_table[0].log_time = stored_character.last_logon;
+    player_table[0].flags = stored_character.specials2.act;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character->desc = &descriptor;
+
+    const std::string stderr_path = temp_directory.path() + "/save-char.stderr";
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        save_char(character, stored_character.specials2.load_room, 0);
+    }
+
+    const std::string stderr_output = read_file_contents(stderr_path);
+    EXPECT_EQ(stderr_output.find("failed to refresh account snapshot"), std::string::npos);
+}
+
+TEST_F(DbLoader, SavingLinkedCharacterRefreshesStalePlayerIndexToAccountNativePath)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.points.gold = 321;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
+        account::legacy_player_file_path(".", "aragorn").c_str());
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character->desc = &descriptor;
+
+    save_char(character, stored_character.specials2.load_room, 0);
+
+    const std::string account_character_path = account::account_character_player_path(".", "alpha-admin", "aragorn");
+    EXPECT_STREQ(player_table[0].ch_file, account_character_path.c_str());
+    struct stat file_info {};
+    EXPECT_EQ(stat(account_character_path.c_str(), &file_info), 0);
+    EXPECT_NE(stat(account::legacy_player_file_path(".", "aragorn").c_str(), &file_info), 0)
+        << "Linked account-native saves should not revive a legacy player file.";
+}
+
+/* The bank must know a save worked (bank_save_character, mob_progs/banker.cpp).
+ * save_char and Crash_crashsave return nothing; each sets its flag on the
+ * character only where its file was really written. Run for real here: the
+ * banker tests replace the saver with a stand-in. */
+TEST_F(DbLoader, SaveResultFlagsAreSetOnlyWhereTheFileWasWritten)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    for (const char* directory : { "accounts", "accounts/A-E", "players", "players/A-E", "plrobjs", "plrobjs/A-E" })
+        ASSERT_EQ(mkdir(directory, 0700), 0) << directory;
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character->desc = &descriptor;
+
+    EXPECT_FALSE(character->specials.saved_character_file);
+    EXPECT_FALSE(character->specials.saved_object_file);
+    save_char(character, NOWHERE, 0);
+    EXPECT_TRUE(character->specials.saved_character_file);
+    EXPECT_FALSE(character->specials.saved_object_file) << "save_char does not write the object file";
+    Crash_crashsave(character);
+    EXPECT_TRUE(character->specials.saved_object_file);
+
+    bank_set_character_saver(nullptr); /* the real saver */
+    EXPECT_TRUE(bank_save_character(character));
+    EXPECT_FALSE(character->specials.saved_character_file) << "cleared again: nothing else reads them";
+    EXPECT_FALSE(character->specials.saved_object_file);
+
+    /* The object file can't be opened: an item move is not saved, a coin move is. */
+    ASSERT_EQ(rename("plrobjs/A-E", "plrobjs/gone"), 0);
+    EXPECT_FALSE(bank_save_character(character));
+    EXPECT_TRUE(bank_save_character(character, false)) << "coins live in the character file alone";
+    ASSERT_EQ(rename("plrobjs/gone", "plrobjs/A-E"), 0);
+    EXPECT_TRUE(bank_save_character(character));
+
+    /* No connection: save_char writes nothing at all, and then the object
+     * file is left as it was too, so the two never part. */
+    ASSERT_EQ(std::remove("plrobjs/A-E/aragorn.obj"), 0);
+    character->desc = nullptr;
+    EXPECT_FALSE(bank_save_character(character));
+    struct stat object_file {};
+    EXPECT_NE(stat("plrobjs/A-E/aragorn.obj", &object_file), 0) << "the object file was not written";
+    EXPECT_FALSE(bank_save_character(character, false));
+    character->desc = &descriptor;
+    EXPECT_TRUE(bank_save_character(character, false));
+}
+
+TEST_F(DbLoader, SavingLinkedCharacterRepairsMissingAccountNativeCharacterFileDirectly)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+    write_file(account::account_character_snapshot_path(".", "alpha-admin", "aragorn"), "{bad-json");
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.points.gold = 7777;
+
+    player_table[0].level = stored_character.level;
+    player_table[0].race = stored_character.race;
+    player_table[0].idnum = stored_character.specials2.idnum;
+    player_table[0].log_time = stored_character.last_logon;
+    player_table[0].flags = stored_character.specials2.act;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character->desc = &descriptor;
+
+    const std::string stderr_path = temp_directory.path() + "/save-char-repair.stderr";
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        save_char(character, stored_character.specials2.load_room, 0);
+    }
+
+    char_file_u repaired_store {};
+    ASSERT_TRUE(account::read_account_character_file(".", "alpha-admin", "aragorn", &repaired_store, &error_message)) << error_message;
+    EXPECT_EQ(repaired_store.points.gold, stored_character.points.gold);
+
+    struct stat file_info {};
+    EXPECT_NE(stat(account::legacy_player_file_path(".", "aragorn").c_str(), &file_info), 0);
+    EXPECT_EQ(stat(account::account_character_snapshot_path(".", "alpha-admin", "aragorn").c_str(), &file_info), 0)
+        << "Existing transitional snapshot artifacts are tolerated on the repair path, but should not be required.";
+
+    const std::string stderr_output = read_file_contents(stderr_path);
+    EXPECT_EQ(stderr_output.find("failed to refresh account snapshot"), std::string::npos);
+    EXPECT_EQ(stderr_output.find("failed to repair missing account-native character file"), std::string::npos);
+}
+
+TEST_F(DbLoader, SavingAccountNativeCharacterWithUnreadableAccountRecordDoesNotReviveLegacyPlayerFile)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
+        account::account_character_player_path(".", "alpha-admin", "aragorn").c_str());
+    player_table[0].level = stored_character.level;
+    player_table[0].race = stored_character.race;
+    player_table[0].idnum = stored_character.specials2.idnum;
+    player_table[0].log_time = stored_character.last_logon;
+    player_table[0].flags = stored_character.specials2.act;
+
+    write_file(rooted_account_json_path(".", "player@example.com"), "{bad-json");
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    character->desc = &descriptor;
+
+    const std::string stderr_path = temp_directory.path() + "/save-char-unreadable-account.stderr";
+    {
+        ScopedStderrRedirect stderr_redirect(stderr_path);
+        save_char(character, stored_character.specials2.load_room, 0);
+    }
+
+    struct stat file_info {};
+    EXPECT_NE(stat(account::legacy_player_file_path(".", "aragorn").c_str(), &file_info), 0);
+
+    const std::string stderr_output = read_file_contents(stderr_path);
+    EXPECT_NE(stderr_output.find("refusing legacy fallback for account-native character"), std::string::npos);
+}
+
+TEST_F(DbLoader, CrashLoadDoesNotConsumeStaleStagedObjectBytesForDifferentCharacter)
+{
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ASSERT_EQ(mkdir("plrobjs", 0700), 0);
+    ASSERT_EQ(mkdir("plrobjs/A-E", 0700), 0);
+    ensure_test_world_room(3001);
+
+    LoadedCharacter staged_character;
+    char_file_u staged_store {};
+    std::snprintf(staged_store.name, sizeof(staged_store.name), "%s", "aragorn");
+    std::snprintf(staged_store.title, sizeof(staged_store.title), "%s", "the Ranger");
+    std::snprintf(staged_store.description, sizeof(staged_store.description), "%s", "A ranger.");
+    staged_store.sex = SEX_MALE;
+    staged_store.race = RACE_HUMAN;
+    staged_store.bodytype = 1;
+    staged_store.level = 10;
+    staged_store.language = LANG_HUMAN;
+    staged_store.specials2.load_room = 3001;
+    store_to_char(&staged_store, staged_character);
+
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = 1001;
+    object_data.objects[0].wear_pos = WEAR_HEAD;
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message)) << error_message;
+    stage_account_backed_object_bytes_for_character(staged_character, object_bytes.data(), object_bytes.size());
+
+    LoadedCharacter later_character;
+    char_file_u later_store {};
+    std::snprintf(later_store.name, sizeof(later_store.name), "%s", "boromir");
+    std::snprintf(later_store.title, sizeof(later_store.title), "%s", "of Gondor");
+    std::snprintf(later_store.description, sizeof(later_store.description), "%s", "A captain.");
+    later_store.sex = SEX_MALE;
+    later_store.race = RACE_HUMAN;
+    later_store.bodytype = 1;
+    later_store.level = 10;
+    later_store.language = LANG_HUMAN;
+    later_store.specials2.load_room = 3001;
+    store_to_char(&later_store, later_character);
+
+    EXPECT_EQ(Crash_load(later_character), nullptr);
+    clear_account_backed_object_bytes_for_character(staged_character);
+}
+
+TEST_F(DbLoader, MigratedLegacyObjectPayloadMatchesAccountNativeObjectsJson)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("aragorn"));
+
+    objects_json::ObjectSaveData expected_object_data;
+    expected_object_data.rent.time = 1700010000;
+    expected_object_data.rent.rentcode = RENT_CRASH;
+    expected_object_data.rent.net_cost_per_hour = 25;
+    expected_object_data.objects.push_back(objects_json::ObjectRecord {});
+    expected_object_data.objects[0].item_number = 1001;
+    expected_object_data.objects[0].wear_pos = WEAR_HEAD;
+    expected_object_data.objects[0].values = { 1, 2, 3, 4, 5 };
+    expected_object_data.objects[0].extra_flags = 9;
+    expected_object_data.objects[0].weight = 7;
+    expected_object_data.objects[0].timer = 12;
+    expected_object_data.board_points[0] = 42;
+    expected_object_data.aliases.push_back({ "assist", "kill orc" });
+
+    objects_json::FollowerData follower;
+    follower.fol_vnum = 4444;
+    follower.wimpy = 10;
+    follower.objects.push_back(objects_json::ObjectRecord {});
+    follower.objects[0].item_number = 1002;
+    follower.objects[0].wear_pos = MAX_WEAR;
+    expected_object_data.followers.push_back(follower);
+
+    std::string legacy_object_bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(expected_object_data, &legacy_object_bytes, &error_message)) << error_message;
+    write_file(account::legacy_object_file_path(temp_directory.path(), "aragorn"), legacy_object_bytes);
+
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010103, &migration, &error_message)) << error_message;
+
+    std::string migrated_object_bytes;
+    ASSERT_TRUE(account::read_account_object_file(temp_directory.path(), "alpha-admin", "aragorn", &migrated_object_bytes, &error_message)) << error_message;
+
+    objects_json::ObjectSaveData migrated_object_data;
+    ASSERT_TRUE(objects_json::object_save_data_from_binary(migrated_object_bytes, &migrated_object_data, &error_message)) << error_message;
+    expect_object_save_data_equal(expected_object_data, migrated_object_data);
+}
+
+TEST_F(DbLoader, ReturnsEmptyObjectSaveBytesWhenNoRuntimeOrSnapshotExists)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters/A-E").c_str(), 0700), 0);
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(load_object_save_bytes_for_character(temp_directory.path(), "aragorn", &object_bytes, &error_message)) << error_message;
+    EXPECT_TRUE(object_bytes.empty());
+}
+
+TEST_F(DbLoader, SeedsLegacyExploitFileFromAccountSnapshotWhenAppendingNewRecord)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("aragorn"));
+    const exploit_record existing_record = make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(existing_record));
+
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010103, &migration, &error_message)) << error_message;
+    EXPECT_NE(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+
+    const exploit_record new_record = make_record(EXPLOIT_ACHIEVEMENT, "Tue Jan  2 00:00:00 2024", "Won a battle", 11, 0, 0);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), "aragorn", new_record, &error_message)) << error_message;
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].type, new_record.type);
+    EXPECT_STREQ(records[0].chVictimName, new_record.chVictimName);
+    EXPECT_EQ(records[1].type, existing_record.type);
+    EXPECT_STREQ(records[1].chtime, existing_record.chtime);
+}
+
+TEST_F(DbLoader, WritesExploitRecordsIntoAccountNativeJsonForLinkedCharacters)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    std::vector<exploit_record> existing_records;
+    existing_records.push_back(make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20));
+    ASSERT_TRUE(account::write_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", existing_records, &error_message)) << error_message;
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), "stale");
+
+    const exploit_record new_record = make_record(EXPLOIT_ACHIEVEMENT, "Tue Jan  2 00:00:00 2024", "Won a battle", 11, 0, 0);
+    ASSERT_TRUE(write_exploit_record_for_character(temp_directory.path(), "aragorn", new_record, &error_message)) << error_message;
+
+    std::vector<exploit_record> loaded_records;
+    ASSERT_TRUE(account::read_account_exploit_file(temp_directory.path(), "alpha-admin", "aragorn", &loaded_records, &error_message)) << error_message;
+    ASSERT_EQ(loaded_records.size(), 2u);
+    EXPECT_EQ(loaded_records[0].type, EXPLOIT_ACHIEVEMENT);
+    EXPECT_EQ(loaded_records[1].type, EXPLOIT_LEVEL);
+    EXPECT_NE(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+}
+
+TEST_F(DbLoader, FallsBackToAccountSnapshotWhenRuntimeExploitFileIsMalformed)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/players/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/accounts/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/account_characters/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/plrobjs/A-E").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(temp_directory.path(), "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(temp_directory.path(), "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    write_valid_legacy_player_file(temp_directory.path(), make_stored_character("aragorn"));
+    const exploit_record expected_record = make_record(EXPLOIT_LEVEL, "Mon Jan  1 00:00:00 2024", "level", 10, 0, 20);
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), serialize_record(expected_record));
+
+    account::CharacterMigrationData migration;
+    ASSERT_TRUE(account::migrate_legacy_character_by_name(temp_directory.path(), "alpha-admin", "aragorn", 1700010103, &migration, &error_message)) << error_message;
+    write_file(account::legacy_exploits_file_path(temp_directory.path(), "aragorn"), "bad");
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(temp_directory.path(), "aragorn", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].type, expected_record.type);
+    EXPECT_NE(access(account::legacy_exploits_file_path(temp_directory.path(), "aragorn").c_str(), F_OK), 0);
+}
+
+TEST_F(DbLoader, FailsClosedWhenTemporaryExploitPathAlreadyExists)
+{
+    TemporaryDirectory temp_directory;
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits").c_str(), 0700), 0);
+    ASSERT_EQ(mkdir((temp_directory.path() + "/exploits/A-E").c_str(), 0700), 0);
+
+    const std::string temp_path = account::legacy_exploits_file_path(temp_directory.path(), "aragorn") + ".tmp";
+    write_file(temp_path, "occupied");
+
+    const exploit_record new_record = make_record(EXPLOIT_ACHIEVEMENT, "Tue Jan  2 00:00:00 2024", "Won a battle", 11, 0, 0);
+    std::string error_message;
+    EXPECT_FALSE(write_exploit_record_for_character(temp_directory.path(), "aragorn", new_record, &error_message));
+    EXPECT_NE(error_message.find("temporary exploit file"), std::string::npos);
+}
+
+TEST_F(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeRead)
+{
+    // Five letter buckets exist (A-E, F-J, K-O, P-T, U-Z) and each unreadable bucket files as ONE
+    // quarantined record, so a chmod accident across accounts/ yields exactly 5 -- which does not
+    // exceed MAX_QUARANTINED_RECORDS_AT_BOOT and so boots with an authoritative, EMPTY index. Every
+    // login is then told no account exists. One unreadable bucket is already enough to mean the
+    // index is missing an unknown number of accounts, so it must not speak for the tree.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/P-T", 0700), 0);
+    ASSERT_EQ(chmod("accounts/P-T", 0000), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool still_enabled = account_index::is_enabled();
+    chmod("accounts/P-T", 0700);
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(still_enabled)
+        << "a bucket the server cannot read leaves the index incomplete, so it must not be authoritative";
+}
+
+TEST_F(DbLoader, BootsPastMoreMisfiledRecordsThanTheQuarantineLimit)
+{
+    // The limit is a bug detector -- "a serialization change broke every record, we shipped
+    // something" -- not a corruption tolerance. A record filed where its own email does not resolve
+    // is nobody's bug but the operator's: backing up an account directory in place makes one, and
+    // each one files TWO quarantine entries (the name it sits under, and the address it declares).
+    // A handful of such copies used to exceed the limit and stop the server, locking out every
+    // player over files a system administrator put there with no intention of preventing a boot.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    // Derived from the limit, not a fixed six: a raised limit must not quietly turn this into a
+    // test of a tree that never reached it.
+    const std::size_t misfiled_records = account_index::MAX_QUARANTINED_RECORDS_AT_BOOT + 1;
+    std::string error_message;
+    for (std::size_t index = 0; index < misfiled_records; ++index) {
+        const std::string email = "a" + std::to_string(index) + "@example.com";
+        const std::string account_name = "alpha-admin" + std::to_string(index);
+        ASSERT_TRUE(account::create_account(".", account_name, email, "ValidPass1", 1700010101, nullptr, &error_message))
+            << error_message;
+        ASSERT_EQ(rename(("accounts/A-E/" + email).c_str(), ("accounts/A-E/" + email + ".bak").c_str()), 0);
+    }
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    EXPECT_EXIT(
+        {
+            build_account_native_player_index();
+            std::exit(0);
+        },
+        ::testing::ExitedWithCode(0), "");
+
+    account_index::set_enabled(false);
+    account_index::clear();
+}
+
+TEST_F(DbLoader, StillRefusesToBootPastMoreUnreadableRecordsThanTheQuarantineLimit)
+{
+    // The other half of the same limit: records the server could not read or parse at all are the
+    // class it was written for, and six of them still stop the boot.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    for (std::size_t index = 0; index <= account_index::MAX_QUARANTINED_RECORDS_AT_BOOT; ++index)
+        write_file("accounts/A-E/broken" + std::to_string(index) + ".json", "this is not an account record");
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    EXPECT_EXIT(build_account_native_player_index(), ::testing::ExitedWithCode(1), "Refusing to boot");
+
+    account_index::set_enabled(false);
+    account_index::clear();
+}
+
+TEST_F(DbLoader, RefusesADirectoryAccountThatIsNotAtThePathItsEmailResolvesTo)
+{
+    // Every path the running server composes for an account comes from
+    // normalize_email(account.normalized_email) plus a bucket computed from it, so a record filed
+    // anywhere else cannot be found by the game at all. An earlier version of this check compared
+    // normalize_email() on BOTH sides, which accepted a directory differing only in case -- and the
+    // walk then reached the character loop, where the read resolves through the normalized
+    // directory, gets ENOENT, and is reported as "does not exist": every character on the account
+    // dropped from the player index with no log line and no counter. Refuse the record instead.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_EQ(rename("accounts/A-E/bob@example.com", "accounts/A-E/Bob@Example.com"), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    std::string record_path;
+    const bool resolves = account_index::find_path_by_email("bob@example.com", &record_path, nullptr);
+    const bool reserved = account_index::is_quarantined("bob@example.com");
+    const std::size_t quarantined = account_index::quarantined_count();
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_EQ(quarantined, 1u) << "a record the game cannot resolve must be refused, not indexed";
+    EXPECT_FALSE(resolves) << "it must not answer lookups for an address whose files it cannot reach";
+    EXPECT_TRUE(reserved) << "and its address must stay reserved, or registration writes over the owner";
+}
+
+TEST_F(DbLoader, ReservesTheAddressADirectoryAccountDeclaresAsWellAsTheOneItIsFiledUnder)
+{
+    // Filed under alice@..., declares alice2@... . Quarantining only the directory name leaves the
+    // DECLARED address -- the one the owner types at the login prompt -- reading free, so
+    // create_account_for_email writes a fresh empty account there while the real record sits inert.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "alice2@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_EQ(rename("accounts/A-E/alice2@example.com", "accounts/A-E/alice@example.com"), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool filed_under_reserved = account_index::is_quarantined("alice@example.com");
+    const bool declared_reserved = account_index::is_quarantined("alice2@example.com");
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_TRUE(filed_under_reserved) << "the address it is filed under must be reserved";
+    EXPECT_TRUE(declared_reserved) << "so must the address it declares -- that is the one its owner types";
+}
+
+TEST_F(DbLoader, RecordsAnAccountRecordQuarantinedAtBootSoAnImmortalCanAskAboutIt)
+{
+    // `account errors` is the one place an immortal can ask what went wrong since the last reboot.
+    // A quarantined account locks its owner out entirely, so it belongs in that list beside the
+    // character files the boot walk could not read -- not only in `account index`.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    {
+        std::FILE* file = std::fopen("accounts/A-E/bob@example.com/account.json", "w");
+        ASSERT_NE(file, nullptr);
+        std::fputs("{\"version\": 1, \"account_name\": \"alpha-adm", file);
+        std::fclose(file);
+    }
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+    account_errors::clear();
+
+    build_account_native_player_index();
+
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    const std::size_t quarantined = account_index::quarantined_count();
+    account_index::set_enabled(false);
+    account_index::clear();
+    account_errors::clear();
+
+    ASSERT_EQ(quarantined, 1u);
+    ASSERT_EQ(recorded.size(), 1u) << "the quarantined record must be recorded exactly once";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_EQ(recorded[0].account, "bob@example.com") << "named by the address it is filed under";
+    EXPECT_TRUE(recorded[0].character.empty()) << "a whole account, not one character";
+    EXPECT_FALSE(recorded[0].reason.empty()) << "carrying why it could not be read";
+}
+
+TEST_F(DbLoader, RecordsAMisfiledAccountRecordOnceEvenThoughTwoAddressesAreReserved)
+{
+    // A record filed under alice@ that declares alice2@ is quarantined under BOTH addresses. That is
+    // one bad record, so it must be one entry -- two would read as two broken accounts.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "alice2@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_EQ(rename("accounts/A-E/alice2@example.com", "accounts/A-E/alice@example.com"), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+    account_errors::clear();
+
+    build_account_native_player_index();
+
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    account_index::set_enabled(false);
+    account_index::clear();
+    account_errors::clear();
+
+    ASSERT_EQ(recorded.size(), 1u) << "one misfiled record is one failure";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_EQ(recorded[0].account, "alice@example.com") << "named by the address it is filed under";
+    EXPECT_NE(recorded[0].reason.find("alice2@example.com"), std::string::npos) << "the reason says which address it declares";
+}
+
+TEST_F(DbLoader, RecordsAFlatAccountRecordWithNoUsableEmailByItsPath)
+{
+    // A legacy flat record (accounts/<bucket>/<name>.json) that discloses no email is quarantined
+    // under its own path, since it has no address to be keyed by. It is still a locked-out account.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    std::string record_text;
+    {
+        std::FILE* file = std::fopen("accounts/A-E/bob@example.com/account.json", "r");
+        ASSERT_NE(file, nullptr);
+        char chunk[4096];
+        std::size_t read_bytes = 0;
+        while ((read_bytes = std::fread(chunk, 1, sizeof(chunk), file)) > 0)
+            record_text.append(chunk, read_bytes);
+        std::fclose(file);
+    }
+    const std::string with_email = "\"normalized_email\": \"bob@example.com\"";
+    const std::size_t at = record_text.find(with_email);
+    ASSERT_NE(at, std::string::npos) << record_text;
+    record_text.replace(at, with_email.size(), "\"normalized_email\": \"\"");
+    std::filesystem::remove_all("accounts/A-E/bob@example.com");
+    {
+        std::FILE* file = std::fopen("accounts/A-E/alpha-admin.json", "w");
+        ASSERT_NE(file, nullptr);
+        std::fputs(record_text.c_str(), file);
+        std::fclose(file);
+    }
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+    account_errors::clear();
+
+    build_account_native_player_index();
+
+    const std::vector<account_errors::Entry> recorded = account_errors::recent(10);
+    const std::size_t quarantined = account_index::quarantined_count();
+    account_index::set_enabled(false);
+    account_index::clear();
+    account_errors::clear();
+
+    ASSERT_EQ(quarantined, 1u) << "the flat record with no email must be quarantined";
+    ASSERT_EQ(recorded.size(), 1u) << "and recorded exactly once";
+    EXPECT_EQ(recorded[0].source, account_errors::Source::Boot);
+    EXPECT_NE(recorded[0].account.find("alpha-admin.json"), std::string::npos) << "named by its path, the only key it has";
+    EXPECT_TRUE(recorded[0].character.empty());
+}
+
+TEST_F(DbLoader, DoesNotTrustTheIndexWhenAnAccountBucketCannotBeStatted)
+{
+    // The opendir failure below this check synthesizes an unreadable-bucket record precisely so the
+    // index refuses to speak for a tree it could not read. The stat above it just skipped the
+    // bucket -- no record, no log, no counter -- and the walk still reported success. An accounts/
+    // directory with read but not search permission fails EVERY bucket stat that way: the index
+    // comes up empty and authoritative, and every player is told no account exists for them.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "bob@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+
+    // Readable (opendir and readdir still work), but not searchable (stat on any child fails).
+    ASSERT_EQ(chmod("accounts", 0400), 0);
+
+    account_index::clear();
+    account_index::set_root_directory(".");
+    account_index::set_enabled(true);
+
+    build_account_native_player_index();
+
+    const bool still_enabled = account_index::is_enabled();
+    chmod("accounts", 0700);
+    account_index::set_enabled(false);
+    account_index::clear();
+
+    EXPECT_FALSE(still_enabled)
+        << "a bucket the server cannot stat hides an unknown number of accounts, so the index must not be authoritative";
+}
+
+TEST_F(DbLoader, RecordsTheNamechangeExploitForAnAccountNativeCharacter)
+{
+    // The namechange achievement is the only record that a character used to be somebody else, and
+    // write_exploits refuses to write for a character its account no longer lists. Writing the
+    // record after the account rename therefore dropped it silently: account.json had already been
+    // rewritten to the new name while GET_NAME(ch) was still the old one.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/A-E", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    ASSERT_TRUE(account::create_account(".", "alpha-admin", "player@example.com", "ValidPass1", 1700010101, nullptr, &error_message)) << error_message;
+    ASSERT_TRUE(account::admin_link_character(".", "alpha-admin", "aragorn", 1700010102, nullptr, &error_message)) << error_message;
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    ASSERT_TRUE(account::write_account_character_file(".", "alpha-admin", stored_character, &error_message)) << error_message;
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s",
+        account::account_character_player_path(".", "alpha-admin", "aragorn").c_str());
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "alpha-admin");
+    character->desc = &descriptor;
+
+    char new_name[] = "Bartholomew";
+    ASSERT_EQ(rename_char(character, new_name), 1);
+
+    std::vector<exploit_record> records;
+    ASSERT_TRUE(load_exploit_records_for_character(".", "bartholomew", &records, &error_message)) << error_message;
+    ASSERT_EQ(records.size(), 1u) << "the renamed character must carry the record of what it used to be called";
+    EXPECT_EQ(records[0].type, EXPLOIT_ACHIEVEMENT);
+    EXPECT_NE(std::string(records[0].chVictimName).find("aragorn->"), std::string::npos)
+        << "recorded as: " << records[0].chVictimName;
+}
+
+TEST_F(DbLoader, RefusesARenameWhoseAccountNativePathWouldNotFitThePlayerIndex)
+{
+    // Every other writer of player_table[].ch_file goes through update_player_index_entry_from_store,
+    // which REFUSES an over-length path rather than truncating it. The rename wrote the new path
+    // with a raw snprintf: in memory the entry silently lost its ".character.json" suffix, and on
+    // the next boot populate_player_index_entry_from_store rebuilt the same over-length path, hit
+    // the guard, and exit(1)'d -- one rename could stop the server from booting at all.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+    ensure_test_world_room(3001);
+
+    ASSERT_EQ(mkdir("accounts", 0700), 0);
+    ASSERT_EQ(mkdir("accounts/F-J", 0700), 0);
+    ASSERT_EQ(mkdir("players", 0700), 0);
+    ASSERT_EQ(mkdir("players/A-E", 0700), 0);
+
+    std::string error_message;
+    // Sized so the OLD path still fits ch_file and the NEW one does not -- that is the whole
+    // scenario. Path is 31 bytes of structure + email + name, "aragorn" is 7 and "bartholomew" 11,
+    // so an email of (buffer - 40) puts the two either side of the limit at any buffer width.
+    const std::string long_email = std::string(sizeof(player_table[0].ch_file) - 40 - 12, 'f') + "@example.com";
+    // Planted, not registered: MAX_EMAIL_LENGTH refuses this address at create_account now. See
+    // tests/AccountRecordOnDiskBuilder.h for why an on-disk record is still worth guarding.
+    const std::string account_directory = rots_tests::plant_account_record_with_unvalidated_email(
+        ".", "long-account", long_email, { "aragorn" });
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    rots_tests::plant_account_character_file(account_directory, stored_character);
+
+    const std::string old_character_path = account::account_character_player_path(".", "long-account", "aragorn");
+    std::snprintf(player_table[0].ch_file, sizeof(player_table[0].ch_file), "%s", old_character_path.c_str());
+
+    const std::string would_be_path = account::account_character_player_path(".", "long-account", "bartholomew");
+    ASSERT_GE(would_be_path.size(), sizeof(player_table[0].ch_file))
+        << "this fixture only means anything if the new path really does not fit: " << would_be_path;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "LegacyPw1");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "test-host");
+    std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "long-account");
+    character->desc = &descriptor;
+
+    char new_name[] = "Bartholomew";
+    EXPECT_EQ(rename_char(character, new_name), -1) << "a rename that cannot be indexed must be abandoned, not half-done";
+
+    struct stat file_info { };
+    EXPECT_EQ(stat(old_character_path.c_str(), &file_info), 0) << "the character must still be where it was";
+    EXPECT_STREQ(player_table[0].ch_file, old_character_path.c_str()) << "the player index must still point at it";
+    EXPECT_EQ(stat(would_be_path.c_str(), &file_info), -1) << "nothing may have been written to the path that does not fit";
+
+    account::AccountData account_data;
+    ASSERT_TRUE(account::read_account_file(".", "long-account", &account_data, &error_message)) << error_message;
+    EXPECT_TRUE(account::account_has_character(account_data, "aragorn")) << "the account must still claim the character by its old name";
+}
+
+TEST_F(DbLoader, RefusesARenameToANameThatIsAlreadyTakenAndSaysSo)
+{
+    // The only caller that can reach rename_char is `wizset <victim> name <newname>`, and it has
+    // nothing but the return value to go on. This refusal in particular logged nothing at all, so
+    // an immortal renaming onto an existing name had no way to find out that is what happened.
+    TemporaryDirectory temp_directory;
+    ScopedWorkingDirectory working_directory(temp_directory.path());
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    char taken_name[] = "Aragorn";
+    std::string rename_error;
+    EXPECT_EQ(rename_char(character, taken_name, &rename_error), -1);
+    EXPECT_NE(rename_error.find("already"), std::string::npos) << "reported as: " << rename_error;
+}
+
+TEST_F(DbLoader, ANewRoomStartsInitializedRatherThanWithWhateverWasOnTheHeap)
+{
+    // room_data::room_data() set six of its members and left every other one indeterminate --
+    // including sector_type, room_flags and light, which are the exact three IS_DARK reads
+    // (utils.h:238), and the people/contents/dir_option pointers. The world is allocated with
+    // `new room_data[]`, so a room the loader has not filled in yet answers "is it dark in here?"
+    // out of whatever the allocator last left in that block. In the test binary that made
+    // SpellParser.MagicRoomMessageOmitsColorCodesForObserversWithoutColorEnabled pass or fail
+    // depending on which other tests ran first.
+    alignas(room_data) unsigned char storage[sizeof(room_data)];
+    std::memset(storage, 0xAA, sizeof(storage));
+
+    room_data* room = new (storage) room_data();
+
+    EXPECT_EQ(static_cast<int>(room->light), 0);
+    EXPECT_EQ(room->room_flags, 0L);
+    EXPECT_EQ(room->sector_type, SECT_INSIDE);
+    EXPECT_EQ(room->alignment, 0);
+    EXPECT_EQ(room->people, nullptr);
+    EXPECT_EQ(room->contents, nullptr);
+    EXPECT_EQ(room->ex_description, nullptr);
+    EXPECT_EQ(room->funct, nullptr);
+    EXPECT_EQ(room->bfs_next, nullptr);
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction)
+        EXPECT_EQ(room->dir_option[direction], nullptr) << "direction " << direction;
+}
+
+TEST_F(DbLoader, ThePlayerIndexHoldsTheAccountNativePathOfAnOrdinaryEmailAddress)
+{
+    // The account-native path is 31 bytes of fixed structure plus the email plus the character
+    // name. With MAX_NAME_LENGTH at 12 and ch_file at 80, that leaves 36 characters for an email
+    // address -- and nothing anywhere caps email length. Worse, the conversion path writes the
+    // files and links the character with NO length check, so the failure does not surface then: it
+    // surfaces at the next boot, in populate_player_index_entry_from_store, as exit(1). A player
+    // with an ordinary address converting a character stops the server starting.
+    ScopedPlayerTableEntry player_table_entry("aragorn");
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    const std::string ordinary_path = "./accounts/A-E/alexandra.richardson@student.university.edu/aragorn.character.json";
+    ASSERT_GT(ordinary_path.size(), 80u) << "this fixture only means anything if it exceeded the old limit";
+
+    std::string error_message;
+    EXPECT_TRUE(update_player_index_entry_from_store(&stored_character, ordinary_path.c_str(), &error_message))
+        << error_message;
+    EXPECT_STREQ(player_table[stored_character.player_index].ch_file, ordinary_path.c_str())
+        << "the path must be held whole -- a truncated one loses the .character.json suffix save_char tests for";
+}
+
+/* ------------------------------------------------------------------------------------------
+   Item-granted permanent affects must not be persisted.
+
+   An item that grants a spell (APPLY_SPELL) does it through affect_modify, which is the only
+   caller in the tree that passes is_object = 1; the is_object paths in mystic.cpp all write
+   duration = -1. That affect lives on ch->affected like any other, so char_to_store used to
+   write it to the save and store_to_char used to restore it at login -- before Crash_load had
+   equipped anything. Nothing records which item produced an affect, so a restored one was never
+   reconciled against the character's actual equipment: it survived the item being given away
+   (the orphan), and it accumulated one element per login next to whatever item WAS held (the
+   stack). equip_char re-fires APPLY_SPELL for every equipped item on every login, so there is
+   nothing to persist in the first place.
+   ------------------------------------------------------------------------------------------ */
+
+namespace {
+
+/* A character char_to_store/store_to_char will accept: name, profs and skills allocated. */
+struct AffectPersistenceCharacter {
+    // The character under test, freed with its affects after the destructor has run.
+    LoadedCharacter character;
+    // The character's name, which the destructor detaches so free_char does not release it.
+    char name[MAX_NAME_LENGTH + 1] = "aragorn";
+
+    AffectPersistenceCharacter()
+    {
+        character->player.name = name;
+        character->player.race = RACE_HUMAN;
+    }
+
+    ~AffectPersistenceCharacter()
+    {
+        // The name is this object's array, so free_char must not release it.
+        character->player.name = nullptr;
+    }
+
+    void add_affect(int type, int duration, int location, int modifier, int effect_modifier)
+    {
+        affected_type af {};
+        af.type = type;
+        af.duration = duration;
+        af.location = location;
+        af.modifier = modifier;
+        af.bitvector = 0;
+        af.counter = 0;
+        af.effect_modifier = effect_modifier;
+        affect_to_char(character, &af);
+    }
+};
+
+int stored_affect_count(const char_file_u& stored_character)
+{
+    int count = 0;
+    for (int i = 0; i < MAX_AFFECT; ++i)
+        if (stored_character.affected[i].type)
+            ++count;
+    return count;
+}
+
+/* Modelled on world object 2073, the ice-resistant charm: a HOLD item whose single affect is
+   "A 27 7842" -- APPLY_SPELL, with the payload packing the spell number in the low byte
+   (7842 & 255 = 162 = SPELL_RESIST_COLD) and the magnitude above it (7842 / 256 = 30). */
+constexpr int kResistCharmVnum = 2073;
+constexpr int kResistColdAtThirtyPercent = 30 * 256 + SPELL_RESIST_COLD;
+
+class ScopedResistCharmPrototype {
+public:
+    ScopedResistCharmPrototype()
+        : m_previous_obj_index(obj_index)
+        , m_previous_obj_proto(obj_proto)
+        , m_previous_top_of_objt(top_of_objt)
+        , m_previous_object_list(object_list)
+    {
+        obj_index = new index_data[1] {};
+        obj_proto = new obj_data[1] {};
+        top_of_objt = 0;
+        object_list = nullptr;
+
+        obj_index[0].virt = kResistCharmVnum;
+        obj_index[0].number = 0;
+        obj_index[0].func = 0;
+
+        clear_object(&obj_proto[0]);
+        obj_proto[0].name = strdup("charm ice");
+        obj_proto[0].short_description = strdup("an ice-resistant charm");
+        obj_proto[0].description = strdup("A white charm was left here.");
+        obj_proto[0].action_description = nullptr;
+        obj_proto[0].item_number = 0;
+        obj_proto[0].obj_flags.type_flag = ITEM_TREASURE;
+        obj_proto[0].obj_flags.wear_flags = ITEM_TAKE | ITEM_HOLD;
+        obj_proto[0].obj_flags.weight = 0;
+        obj_proto[0].affected[0].location = APPLY_SPELL;
+        obj_proto[0].affected[0].modifier = kResistColdAtThirtyPercent;
+    }
+
+    ~ScopedResistCharmPrototype()
+    {
+        while (object_list != nullptr) {
+            obj_data* next = object_list->next;
+            free_obj(object_list);
+            object_list = next;
+        }
+
+        free(obj_proto[0].name);
+        free(obj_proto[0].short_description);
+        free(obj_proto[0].description);
+        delete[] obj_proto;
+        delete[] obj_index;
+        obj_proto = m_previous_obj_proto;
+        obj_index = m_previous_obj_index;
+        top_of_objt = m_previous_top_of_objt;
+        object_list = m_previous_object_list;
+    }
+
+private:
+    index_data* m_previous_obj_index;
+    obj_data* m_previous_obj_proto;
+    int m_previous_top_of_objt;
+    obj_data* m_previous_object_list;
+};
+
+} // namespace
+
+TEST(AffectPersistence, CharToStoreDoesNotWriteAnItemGrantedPermanentAffect)
+{
+    AffectPersistenceCharacter owner;
+    // What holding a resist-cold charm leaves on the character.
+    owner.add_affect(SPELL_RESIST_COLD, -1, APPLY_RESIST, RESIST_COLD, 30);
+
+    char_file_u stored_character {};
+    char_to_store(owner.character, &stored_character);
+
+    EXPECT_EQ(stored_affect_count(stored_character), 0)
+        << "the charm re-grants this on equip; persisting it is what orphans it";
+}
+
+TEST(AffectPersistence, CharToStoreStillWritesATimedAffect)
+{
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_COLD, 40, APPLY_RESIST, RESIST_COLD, 30);
+
+    char_file_u stored_character {};
+    char_to_store(owner.character, &stored_character);
+
+    ASSERT_EQ(stored_affect_count(stored_character), 1);
+    EXPECT_EQ(stored_character.affected[0].type, SPELL_RESIST_COLD);
+    EXPECT_EQ(stored_character.affected[0].duration, 40);
+    EXPECT_EQ(stored_character.affected[0].effect_modifier, 30);
+}
+
+TEST(AffectPersistence, CharToStoreKeepsATimedAffectThatFollowsAPermanentOne)
+{
+    // affect_to_char prepends, so adding the cast one second puts the permanent one behind it;
+    // add them the other way round so the permanent affect is at the head and the timed affect
+    // has to be packed down into the slot the skipped one would have taken. A "skip in place"
+    // implementation would leave a hole and drop the timed affect.
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_COLD, 40, APPLY_RESIST, RESIST_COLD, 30);
+    owner.add_affect(SPELL_RESIST_FIRE, -1, APPLY_RESIST, RESIST_FIRE, 30);
+
+    char_file_u stored_character {};
+    char_to_store(owner.character, &stored_character);
+
+    ASSERT_EQ(stored_affect_count(stored_character), 1);
+    EXPECT_EQ(stored_character.affected[0].type, SPELL_RESIST_COLD)
+        << "the cast affect must be written, and written into the first slot";
+    EXPECT_EQ(stored_character.affected[0].duration, 40);
+}
+
+TEST(AffectPersistence, StoreToCharDropsAPermanentAffectAlreadyOnDisk)
+{
+    // The repair half of the fix: every save written before it still holds the orphan, so the
+    // read side has to drop it too or those characters keep the resistance for good.
+    ensure_test_world_room(3001);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = -1;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    EXPECT_EQ(affected_by_spell(character, SPELL_RESIST_COLD), nullptr)
+        << "no item has been equipped yet -- Crash_load has not even run";
+    EXPECT_EQ(character->specials.resistance & (1 << RESIST_COLD), 0);
+}
+
+TEST(AffectPersistence, StoreToCharStillRestoresATimedAffect)
+{
+    ensure_test_world_room(3001);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = 40;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+
+    affected_type* restored = affected_by_spell(character, SPELL_RESIST_COLD);
+    ASSERT_NE(restored, nullptr) << "a cast resistance still has to survive a relog";
+    EXPECT_EQ(restored->duration, 40);
+    EXPECT_EQ(restored->effect_modifier, 30);
+    EXPECT_NE(character->specials.resistance & (1 << RESIST_COLD), 0);
+}
+
+TEST(AffectPersistence, ARoundTripCannotCarryAPermanentAffectBackOntoTheCharacter)
+{
+    // The whole bug in one test: hold the charm, save, log back in with nothing equipped.
+    ensure_test_world_room(3001);
+
+    AffectPersistenceCharacter owner;
+    owner.add_affect(SPELL_RESIST_LIGHT, -1, APPLY_RESIST, RESIST_LGHT, 30);
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    char_to_store(owner.character, &stored_character);
+    stored_character.specials2.load_room = 3001;
+
+    LoadedCharacter reloaded;
+    store_to_char(&stored_character, reloaded);
+
+    EXPECT_EQ(affected_by_spell(reloaded, SPELL_RESIST_LIGHT), nullptr);
+    EXPECT_EQ(reloaded->specials.resistance & (1 << RESIST_LGHT), 0)
+        << "buy one charm, log out, give it away, keep the resistance forever";
+}
+
+TEST(AffectPersistence, TheBoundaryBetweenKeptAndDroppedDurationsIsZero)
+{
+    // Asserted through char_to_store rather than against affect_is_permanent, which would only
+    // restate the predicate. What matters is where the cut falls: affect_update (limits.cpp)
+    // decrements a duration >= 1 and leaves anything negative alone, so 0 is an expiring affect
+    // that must still be saved and -1 is the permanent one that must not be.
+    struct Case {
+        int duration;
+        bool expected_to_persist;
+        const char* why;
+    };
+    const Case cases[] = {
+        { 40, true, "a cast resistance (level * 2) must survive a relog" },
+        { 1, true, "one tick left is still a real affect" },
+        { 0, true, "duration 0 expires on the next update; it is not permanent" },
+        { -1, false, "what every is_object path in mystic.cpp writes" },
+        { -7, false, "any negative duration never expires, so it is permanent too" },
+    };
+
+    for (const Case& test_case : cases) {
+        AffectPersistenceCharacter owner;
+        owner.add_affect(SPELL_RESIST_COLD, test_case.duration, APPLY_RESIST, RESIST_COLD, 30);
+
+        char_file_u stored_character {};
+        char_to_store(owner.character, &stored_character);
+
+        EXPECT_EQ(stored_affect_count(stored_character), test_case.expected_to_persist ? 1 : 0)
+            << "duration " << test_case.duration << ": " << test_case.why;
+    }
+}
+
+TEST(AffectPersistence, AStillEquippedItemReGrantsItsAffectOnLogin)
+{
+    // The claim the whole fix rests on: dropping the saved record is only safe because
+    // Crash_load re-equips the item and equip_char re-fires APPLY_SPELL, which re-grants the
+    // affect. This drives the real path end to end -- store_to_char with the orphaned record
+    // present, then Crash_load with the charm still in the HOLD slot -- so it fails if anyone
+    // later changes equip_char, Crash_load or the APPLY_SPELL decode such that a character who
+    // logs in still holding a resist item comes back without the resistance.
+    ensure_test_world_room(3001);
+    ScopedResistCharmPrototype charm;
+
+    ASSERT_NE(skills[SPELL_RESIST_COLD].spell_pointer, nullptr)
+        << "the resist spells are wired statically in consts.cpp; if that goes, so does the fix";
+
+    char_file_u stored_character = make_stored_character("aragorn");
+    stored_character.specials2.load_room = 3001;
+    // A save written before the fix: the permanent record is still on disk.
+    stored_character.affected[0].type = SPELL_RESIST_COLD;
+    stored_character.affected[0].duration = -1;
+    stored_character.affected[0].location = APPLY_RESIST;
+    stored_character.affected[0].modifier = RESIST_COLD;
+    stored_character.affected[0].effect_modifier = 30;
+
+    LoadedCharacter character;
+    store_to_char(&stored_character, character);
+    ASSERT_EQ(affected_by_spell(character, SPELL_RESIST_COLD), nullptr)
+        << "the saved record is dropped -- at this point only the item can put it back";
+
+    // ...and the object save still has the charm held.
+    objects_json::ObjectSaveData object_data;
+    object_data.rent.rentcode = RENT_CRASH;
+    object_data.objects.push_back(objects_json::ObjectRecord {});
+    object_data.objects[0].item_number = kResistCharmVnum;
+    object_data.objects[0].wear_pos = HOLD;
+    object_data.objects[0].timer = -1;
+    // Crash_obj2char copies the affects off the file record over the prototype's, so the save
+    // has to carry them exactly as a real object file does: "A 27 7842" on the charm.
+    object_data.objects[0].affects[0].location = APPLY_SPELL;
+    object_data.objects[0].affects[0].modifier = kResistColdAtThirtyPercent;
+
+    std::string object_bytes;
+    std::string error_message;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(object_data, &object_bytes, &error_message))
+        << error_message;
+
+    stage_account_backed_object_bytes_for_character(character, object_bytes.data(), object_bytes.size());
+    FILE* fp = Crash_load(character);
+    ASSERT_NE(fp, nullptr);
+    ASSERT_EQ(std::fclose(fp), 0);
+
+    ASSERT_NE(character->equipment[HOLD], nullptr) << "the charm has to come back in the HOLD slot";
+
+    affected_type* regranted = affected_by_spell(character, SPELL_RESIST_COLD);
+    ASSERT_NE(regranted, nullptr)
+        << "equip_char must re-grant the affect the save no longer carries";
+    EXPECT_EQ(regranted->duration, -1);
+    EXPECT_EQ(regranted->location, APPLY_RESIST);
+    EXPECT_EQ(regranted->effect_modifier, 30)
+        << "the magnitude comes off the item's own payload (7842 / 256), not the save";
+    EXPECT_NE(character->specials.resistance & (1 << RESIST_COLD), 0);
+
+    // Counted by walking the list, NOT with affected_by_spell's start_affect overload: that
+    // falls back to ch->affected when the start pointer is null (handler.cpp), so passing
+    // regranted->next on a one-element list silently restarts from the head and finds the same
+    // affect again.
+    int resist_cold_affects = 0;
+    for (affected_type* walk = character->affected; walk != nullptr; walk = walk->next)
+        if (walk->type == SPELL_RESIST_COLD)
+            ++resist_cold_affects;
+    EXPECT_EQ(resist_cold_affects, 1)
+        << "exactly one -- the restored record must not stack with the item's own";
+}
+
+namespace {
+
+// A uniquely named folder under the system temporary directory, removed with everything in it
+// when the object goes out of scope.
+class ScratchDirectory {
+public:
+    ScratchDirectory()
+    {
+        std::error_code error;
+        const std::filesystem::path temporary_root = std::filesystem::temp_directory_path(error);
+        if (error) {
+            ADD_FAILURE() << "no temporary directory: " << error.message();
+            return;
+        }
+
+        std::random_device random_source;
+        const int attempt_limit = 16;
+        for (int attempt = 0; attempt < attempt_limit; ++attempt) {
+            const std::string folder_name = "rots-db-loader-" + std::to_string(random_source());
+            const std::filesystem::path candidate = temporary_root / folder_name;
+            if (std::filesystem::create_directory(candidate, error)) {
+                m_path = candidate;
+                return;
+            }
+        }
+        ADD_FAILURE() << "could not create a scratch directory under " << temporary_root;
+    }
+
+    ~ScratchDirectory()
+    {
+        if (!m_path.empty()) {
+            std::error_code error;
+            std::filesystem::remove_all(m_path, error);
+        }
+    }
+
+    ScratchDirectory(const ScratchDirectory&) = delete;
+    ScratchDirectory& operator=(const ScratchDirectory&) = delete;
+
+    // The full path of 'file_name' inside this directory.
+    std::string file(std::string_view file_name) const
+    {
+        const std::filesystem::path file_path = m_path / std::filesystem::path(file_name);
+        return file_path.string();
+    }
+
+private:
+    std::filesystem::path m_path; // the created directory; empty if creation failed
+};
+
+// Writes 'contents' to 'file_path' byte for byte, replacing any existing file.
+void write_text_file(const std::string& file_path, std::string_view contents)
+{
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(output.is_open()) << file_path;
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    output.close();
+    ASSERT_FALSE(output.fail()) << file_path;
+}
+
+} // namespace
+
+TEST_F(DbLoader, FileToStringAllocLoadsFilesLongerThanMaxStringLength)
+{
+    // Content longer than MAX_STRING_LENGTH loads whole, without a SYSERR.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("oversized.txt");
+
+    std::string raw_content;
+    std::string expected;
+    const int line_count = 400;
+    for (int line_index = 0; line_index < line_count; ++line_index) {
+        char line_text[64];
+        std::snprintf(line_text, sizeof(line_text), "padding line %03d for the size limit\n",
+                      line_index);
+        raw_content += line_text;
+        expected += line_text;
+        expected += '\r';
+    }
+    ASSERT_GT(raw_content.size(), static_cast<std::size_t>(MAX_STRING_LENGTH))
+        << "the fixture must be longer than MAX_STRING_LENGTH";
+    write_text_file(file_path, raw_content);
+
+    char* loaded = nullptr;
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocAppendsACarriageReturnAfterEveryNewline)
+{
+    // Each line keeps its '\n' and gains a '\r'.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("small.txt");
+    write_text_file(file_path,
+        "Line one of the message.\n"
+        "Line two, shorter.\n"
+        "Final line here.\n");
+
+    const std::string expected = "Line one of the message.\n\r"
+                                 "Line two, shorter.\n\r"
+                                 "Final line here.\n\r";
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), expected);
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocYieldsAnEmptyStringForAnEmptyFile)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("empty.txt");
+    write_text_file(file_path, "");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_STREQ(loaded, "");
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocNeverSplitsALongLine)
+{
+    // A line of any length comes back whole, with one '\r' after its '\n'.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("long-line.txt");
+    const std::string long_line(150, 'x');
+    write_text_file(file_path, long_line + "\n");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    const std::string loaded_text(loaded);
+    EXPECT_EQ(loaded_text, long_line + "\n\r");
+    EXPECT_EQ(loaded_text.find('\r'), long_line.size() + 1)
+        << "no '\\r' may appear inside the line";
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocKeepsAnUnterminatedLastLine)
+{
+    // A last line without '\n' is kept and still gains a '\r'.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("unterminated.txt");
+    write_text_file(file_path, "First line.\nLast line without a newline");
+
+    char* loaded = nullptr;
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), "First line.\n\rLast line without a newline\r");
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocLeavesTheStringAndLogsNoSyserrForAMissingFile)
+{
+    // Some files are optional, so a missing one is logged without a SYSERR
+    // and the caller's existing string is kept.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("missing.txt");
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_STREQ(loaded, "previous text");
+    EXPECT_NE(stderr_output.find("could not open"), std::string::npos) << stderr_output;
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocRejectsANullNameWithASyserr)
+{
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(nullptr, &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocRejectsANullBufferWithASyserr)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("present.txt");
+    write_text_file(file_path, "Some text.\n");
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), nullptr);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+}
+
+TEST_F(DbLoader, FileToStringAllocLoadsAFileExactlyAtTheSizeLimit)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("at-limit.txt");
+    const std::string contents(text_file_byte_limit, 'x');
+    write_text_file(file_path, contents);
+
+    char* loaded = nullptr;
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(result, 0);
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(std::string(loaded), contents + "\r");
+    EXPECT_EQ(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocRefusesAFileOverTheSizeLimitWithASyserr)
+{
+    // The caller's existing string is kept, as for any other load failure.
+    const ScratchDirectory scratch_directory;
+    const std::string file_path = scratch_directory.file("over-limit.txt");
+    write_text_file(file_path, std::string(text_file_byte_limit + 1, 'x'));
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(file_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_STREQ(loaded, "previous text");
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("limit"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+TEST_F(DbLoader, FileToStringAllocRefusesADirectoryWithASyserr)
+{
+    // A directory where a text file belongs is refused, not loaded as empty text.
+    const ScratchDirectory scratch_directory;
+    const std::string directory_path = scratch_directory.file("not-a-file");
+    std::error_code create_error;
+    ASSERT_TRUE(std::filesystem::create_directory(directory_path, create_error))
+        << create_error.message();
+    char* loaded = str_dup("previous text");
+    char* const previous = loaded;
+
+    testing::internal::CaptureStderr();
+    const int result = file_to_string_alloc(directory_path.c_str(), &loaded);
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(result, -1);
+    EXPECT_EQ(loaded, previous);
+    EXPECT_NE(stderr_output.find("SYSERR"), std::string::npos) << stderr_output;
+    EXPECT_NE(stderr_output.find("not a regular file"), std::string::npos) << stderr_output;
+
+    RELEASE(loaded);
+}
+
+namespace {
+
+// The text fread_string reads from 'contents', which must hold a '~'-terminated string.
+std::string read_tilde_terminated_string(std::string_view contents)
+{
+    FILE* stream = std::tmpfile();
+    if (stream == nullptr) {
+        ADD_FAILURE() << "no temporary file";
+        return std::string();
+    }
+    std::fwrite(contents.data(), sizeof(char), contents.size(), stream);
+    std::rewind(stream);
+
+    char* text = fread_string(stream, "db_loader_tests");
+    std::fclose(stream);
+    std::string copy(text);
+    RELEASE(text);
+    return copy;
+}
+
+// Letters on each of fread_string_full_lines's lines.
+constexpr size_t FULL_LINE_LETTERS = 999;
+// Lines fread_string_full_lines writes.
+constexpr size_t FULL_LINE_COUNT = 8;
+// Bytes fread_string keeps for those lines: each line's letters, its newline and an added '\r'.
+constexpr size_t FULL_LINES_KEPT_LENGTH = FULL_LINE_COUNT * (FULL_LINE_LETTERS + 2);
+
+// The opening lines of a long string for fread_string, none of them ending it.
+std::string fread_string_full_lines()
+{
+    std::string contents;
+    for (size_t line_number = 0; line_number < FULL_LINE_COUNT; ++line_number) {
+        contents.append(FULL_LINE_LETTERS, 'a');
+        contents += '\n';
+    }
+    return contents;
+}
+
+// The player file write_player_text writes for a level 10 character whose connection carries
+// 'descriptor''s password and host.
+std::string written_player_text(descriptor_data* descriptor)
+{
+    const ScratchDirectory scratch_directory;
+    const std::string player_path = scratch_directory.file("aragorn.txt");
+
+    char_file_u stored_character {};
+    std::snprintf(stored_character.name, sizeof(stored_character.name), "%s", "aragorn");
+    std::snprintf(stored_character.title, sizeof(stored_character.title), "%s", "the Ranger");
+    std::snprintf(stored_character.description, sizeof(stored_character.description), "%s", "A ranger.");
+    stored_character.race = RACE_HUMAN;
+    stored_character.level = 10;
+    owned_character character;
+    store_to_char(&stored_character, character);
+    character->desc = descriptor;
+
+    const bool written = write_player_text(character, 3001, player_path.c_str());
+    if (!written) {
+        ADD_FAILURE() << "write_player_text failed for " << player_path;
+        return std::string();
+    }
+    return read_whole_text_file(player_path);
+}
+
+// The value written on the player file line that starts with 'key', without the line's end.
+std::string player_text_value(const std::string& player_text, std::string_view key)
+{
+    const std::string line_start = "\n" + std::string(key);
+    const size_t key_position = player_text.find(line_start);
+    if (key_position == std::string::npos) {
+        ADD_FAILURE() << "no " << key << " line in:\n" << player_text;
+        return std::string();
+    }
+    const size_t value_start = key_position + line_start.size();
+    const size_t line_end = player_text.find('\n', value_start);
+    return player_text.substr(value_start, line_end - value_start);
+}
+
+} // namespace
+
+TEST_F(DbLoader, FreadStringSkipsLeadingBlankLines)
+{
+    // A zone file's name follows the "#<zone>" line, so its first line read is the blank rest of
+    // that line. The '~' test must not look in front of the empty buffer for one.
+    EXPECT_EQ(read_tilde_terminated_string("\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
+    EXPECT_EQ(read_tilde_terminated_string("\n\nA dusty hall.\n~\n"), "A dusty hall.\n\r");
+}
+
+TEST_F(DbLoader, FreadStringStopsAtTheTildeTerminator)
+{
+    EXPECT_EQ(read_tilde_terminated_string("A dusty hall.\n~\nignored\n"), "A dusty hall.\n\r");
+    EXPECT_EQ(read_tilde_terminated_string("A dusty hall.~\n"), "A dusty hall.");
+    EXPECT_EQ(read_tilde_terminated_string("~\n"), "");
+}
+
+TEST_F(DbLoader, FreadStringLoadsTheLargestStringThatFits)
+{
+    // The last line takes the accumulated text to one byte short of the buffer, leaving room for
+    // the terminator.
+    const size_t last_line_letters = MAX_STRING_LENGTH - 1 - FULL_LINES_KEPT_LENGTH - 2;
+    const std::string contents = fread_string_full_lines() + std::string(last_line_letters, 'b') + "~\n";
+
+    std::string expected;
+    for (size_t line_number = 0; line_number < FULL_LINE_COUNT; ++line_number) {
+        expected.append(FULL_LINE_LETTERS, 'a');
+        expected += "\n\r";
+    }
+    expected.append(last_line_letters, 'b');
+
+    EXPECT_EQ(read_tilde_terminated_string(contents), expected);
+}
+
+TEST_F(DbLoader, FreadStringRefusesAStringWithNoRoomForItsTerminator)
+{
+    // The last line takes the accumulated text to the whole buffer.
+    const size_t last_line_letters = MAX_STRING_LENGTH - FULL_LINES_KEPT_LENGTH - 2;
+    const std::string contents = fread_string_full_lines() + std::string(last_line_letters, 'b') + "~\n";
+
+    EXPECT_EXIT(read_tilde_terminated_string(contents), ::testing::ExitedWithCode(0), "string too large");
+}
+
+TEST_F(DbLoader, FreadStringRefusesALineBreakWithNoRoomForItsTerminator)
+{
+    // A line that does not end the string takes the accumulated text to one byte short of the
+    // buffer, so the '\r' added after it leaves no room for the terminator.
+    const size_t line_letters = MAX_STRING_LENGTH - 1 - FULL_LINES_KEPT_LENGTH - 1;
+    const std::string contents = fread_string_full_lines() + std::string(line_letters, 'c') + "\n~\n";
+
+    EXPECT_EXIT(read_tilde_terminated_string(contents), ::testing::ExitedWithCode(0), "string too large");
+}
+
+TEST_F(DbLoader, WritePlayerTextWritesExactlyThePasswordFieldWidth)
+{
+    descriptor_data descriptor {};
+    // A full-width password leaves no terminator inside the encrypted field.
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "ABCDEFGHIJ");
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", "localhost");
+
+    const std::string player_text = written_player_text(&descriptor);
+
+    EXPECT_EQ(player_text_value(player_text, "password    ").size(), static_cast<size_t>(MAX_PWD_LENGTH))
+        << player_text;
+}
+
+TEST_F(DbLoader, WritePlayerTextCutsALongHostToTheFieldWidth)
+{
+    descriptor_data descriptor {};
+    std::snprintf(descriptor.pwd, sizeof(descriptor.pwd), "%s", "secret");
+    const std::string long_host(sizeof(descriptor.host) - 1, 'h');
+    std::snprintf(descriptor.host, sizeof(descriptor.host), "%s", long_host.c_str());
+
+    const std::string player_text = written_player_text(&descriptor);
+
+    EXPECT_EQ(player_text_value(player_text, "host        "), std::string(HOST_LEN, 'h')) << player_text;
+}
+
+/* ---- checked_sector_type: the world loader and the room editor keep sector types in range. ---- */
+
+namespace {
+
+// The room checked_sector_type logs a sector type against.
+constexpr int CHECKED_ROOM_NUMBER = 3001;
+// The last sector type: SECT_SWAMP, one below num_of_sector_types.
+constexpr int LAST_SECTOR_TYPE = SECT_SWAMP;
+// A sector type past the last.
+constexpr int SECTOR_PAST_THE_LAST = LAST_SECTOR_TYPE + 5;
+
+// The start of the line checked_sector_type logs for <sector_type> in CHECKED_ROOM_NUMBER.
+std::string sector_log_line(int sector_type)
+{
+    return "room " + std::to_string(CHECKED_ROOM_NUMBER) + " has sector type "
+        + std::to_string(sector_type);
+}
+
+} // namespace
+
+TEST(CheckedSectorType, KeepsASectorInRangeWithoutLogging)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(LAST_SECTOR_TYPE, CHECKED_ROOM_NUMBER);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, LAST_SECTOR_TYPE);
+    EXPECT_EQ(log_text, "");
+}
+
+TEST(CheckedSectorType, ANegativeSectorBecomesInsideAndIsLogged)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(-1, CHECKED_ROOM_NUMBER);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, SECT_INSIDE);
+    EXPECT_NE(log_text.find(sector_log_line(-1)), std::string::npos) << log_text;
+}
+
+TEST(CheckedSectorType, ASectorPastTheLastBecomesTheLastAndIsLogged)
+{
+    testing::internal::CaptureStderr();
+    const int sector = checked_sector_type(SECTOR_PAST_THE_LAST, CHECKED_ROOM_NUMBER);
+    const std::string log_text = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(sector, LAST_SECTOR_TYPE);
+    EXPECT_NE(log_text.find(sector_log_line(SECTOR_PAST_THE_LAST)), std::string::npos) << log_text;
+}

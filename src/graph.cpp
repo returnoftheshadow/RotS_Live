@@ -223,7 +223,7 @@ void hunt_victim(struct char_data* ch)
             found = 1;
 
     if (!found) {
-        do_say(ch,  "Damn!  My prey is gone!!", 0, 0, 0);
+        do_say(ch, "Damn!  My prey is gone!!", 0, 0, 0);
         ch->specials.hunting = 0;
         return;
     }
@@ -298,7 +298,7 @@ const char* water_track_desc(int track_age)
     }
 }
 
-int show_tracks(char_data* ch, char* name, int mode)
+int show_tracks(const char_data* ch, const char* name, int mode)
 {
     /*
      * returns the number of tracks shown
@@ -352,7 +352,7 @@ int show_tracks(char_data* ch, char* name, int mode)
     return count;
 }
 
-int show_blood_trail(struct char_data* ch, char* name, int mode)
+int show_blood_trail(const struct char_data* ch, const char* name, int mode)
 {
     int tmp, count, chance_factor, ch_num, tr_time, shall_show;
     room_data* ch_room;

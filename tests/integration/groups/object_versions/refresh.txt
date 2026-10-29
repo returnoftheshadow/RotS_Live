@@ -1,0 +1,1 @@
+a version bump, written to the world file by /done, refreshes saved copies once at login, keeping enchants, broken keys, worn affects and drink contents and weight; turning the version off
