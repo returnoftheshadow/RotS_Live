@@ -1782,13 +1782,14 @@ void list_help(const struct char_data* ch)
 /*********--------------------------------*********/
 void list_simple_proto(const struct char_data* ch, const struct char_data* mob)
 {
-    char str[255];
+    /* Sized for the typed alias and short description lines, as list_proto's is. */
+    char str[MAX_STRING_LENGTH];
 
     //  recalculate_mob(ch);
     send_to_char("Simple editing mode.\n\r", ch);
-    sprintf(str, "(1) alias(es)         :%s\n\r", mob->player.name);
+    snprintf(str, sizeof(str), "(1) alias(es)         :%s\n\r", mob->player.name);
     send_to_char(str, ch);
-    sprintf(str, "(2) reference description  :%s\n\r", mob->player.short_descr);
+    snprintf(str, sizeof(str), "(2) reference description  :%s\n\r", mob->player.short_descr);
     send_to_char(str, ch);
     sprintf(str, "(3) full  description   :\n\r");
     send_to_char(str, ch);
@@ -1824,9 +1825,9 @@ void list_proto(const struct char_data* ch, const struct char_data* mob)
 {
     static char str[MAX_STRING_LENGTH];
     send_to_char("Full editing mode.\n\r", ch);
-    sprintf(str, "(1) alias(es)         :%s\n\r", mob->player.name);
+    snprintf(str, sizeof(str), "(1) alias(es)         :%s\n\r", mob->player.name);
     send_to_char(str, ch);
-    sprintf(str, "(2) reference description  :%s\n\r", mob->player.short_descr);
+    snprintf(str, sizeof(str), "(2) reference description  :%s\n\r", mob->player.short_descr);
     send_to_char(str, ch);
     sprintf(str, "(3) full  description   :\n\r");
     send_to_char(str, ch);
@@ -1958,7 +1959,7 @@ int load_proto(struct char_data* ch, const char* arg)
     char str[255], fname[80];
     FILE* file;
 
-    if (2 != sscanf(arg, "%s %d", str, &number)) {
+    if (2 != sscanf(arg, "%254s %d", str, &number)) {
         send_to_char("Choose a mobile by 'shape mobile <number>'\n\r", ch);
         return -1;
     }
@@ -2673,14 +2674,15 @@ void implement_proto(const struct char_data* ch, bool report_vendor = true, bool
 ACMD(do_shape)
 {
     sh_int key, stlen, newflag;
-    char str[50], tmp[50], tmp2[50];
+    /* str holds typed text plus a few characters; tmp and tmp2 hold one typed word each. */
+    char str[MAX_STRING_LENGTH], tmp[MAX_INPUT_LENGTH], tmp2[MAX_INPUT_LENGTH];
     int room_number, i;
     room_number = ch->in_room;
 
     key = 0;
     for (stlen = 0; argument[stlen] <= ' '; stlen++)
         ;
-    if (1 != sscanf(argument, "%s", str))
+    if (1 != sscanf(argument, "%254s", str))
         key = 0;
     else {
         stlen += i = strlen(str);
@@ -2726,7 +2728,7 @@ ACMD(do_shape)
     ch->specials.prompt_value = -1;
     if (key && !ch->temp) {
         tmp[0] = 0;
-        sscanf(argument + stlen, "%s", tmp);
+        sscanf(argument + stlen, "%254s", tmp);
         if (strlen(tmp) && !strncmp("new", tmp, strlen(tmp))) {
             for (stlen = 0; argument[stlen] <= ' '; stlen++)
                 ;
@@ -2736,10 +2738,10 @@ ACMD(do_shape)
                 ;
             for (; argument[stlen] > ' '; stlen++)
                 ; /*new*/
-            sprintf(str, "new %s\n\r", argument + stlen);
+            snprintf(str, sizeof(str), "new %s\n\r", argument + stlen);
             newflag = 1;
         } else {
-            sprintf(str, "load %s\n\r", argument + stlen);
+            snprintf(str, sizeof(str), "load %s\n\r", argument + stlen);
             newflag = 0;
         }
         if ((key == SHAPE_PROTOS || key == SHAPE_OBJECTS || key == SHAPE_ROOMS || key == SHAPE_SCRIPTS) && newflag) {
@@ -2828,7 +2830,7 @@ ACMD(do_shape)
                 ->position
                 = ch->specials.position;
             send_to_char("You start shaping a room.\n\r", ch);
-            if (2 == sscanf(argument, "%s %s", tmp, tmp2))
+            if (2 == sscanf(argument, "%254s %254s", tmp, tmp2))
                 if (!strncmp(tmp2, "current", strlen(tmp2)))
                     sprintf(str, "load %d", world[ch->in_room].number);
             shape_center_room(ch, str);
@@ -2883,7 +2885,7 @@ ACMD(do_shape)
             SHAPE_ROOM(ch)
                 ->position
                 = ch->specials.position;
-            if (2 == sscanf(argument, "%s %s", tmp, tmp2))
+            if (2 == sscanf(argument, "%254s %254s", tmp, tmp2))
                 if (!strncmp(tmp2, "current", strlen(tmp2)))
                     sprintf(str, "load %d", world[ch->in_room].number / 100);
             shape_center_zone(ch, str);
@@ -2911,7 +2913,7 @@ ACMD(do_shape)
             shape_center_script(ch, str);
             break;
         case SHAPE_MUDLLES:
-            if (2 != sscanf(argument, "%s %s", tmp, tmp2)) {
+            if (2 != sscanf(argument, "%254s %254s", tmp, tmp2)) {
                 send_to_char("format is 'shape program <number>'.\n\r", ch);
                 break;
             }
@@ -2924,7 +2926,7 @@ ACMD(do_shape)
                 = -1;
             SET_BIT(PRF_FLAGS(ch), PRF_DISPTEXT);
             ch->specials.prompt_number = 8;
-            sprintf(str, "load %s", tmp2);
+            snprintf(str, sizeof(str), "load %s", tmp2);
             shape_center_mudlle(ch, str);
 
             break;
@@ -3016,7 +3018,7 @@ void extra_coms_proto(struct char_data* ch, char* argument)
         comm_key = SHAPE_NONE;
         str[0] = 0;
         str2[0] = 0;
-        sscanf(argument, "%s %s", str, str2);
+        sscanf(argument, "%254s %49s", str, str2);
         if (str[0] == 0)
             return;
         do {
