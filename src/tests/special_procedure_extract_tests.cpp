@@ -1240,6 +1240,23 @@ TEST_F(SpecialProcedureTest, ArTarthalonCallsTheOneHeSummonsWhoComes)
 
 // ---- the ranger mob's hiding ----
 
+// Someone comes into a ranger's room as it waits out a script's pause; the hide it starts ends
+// the pause, and the rest of the script removes it: it does not then go on to track or wander.
+TEST_F(SpecialProcedureTest, ARangerWhoseHidingRemovesItIsLetGo)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* ranger = make_mob_with("ranger", nullptr);
+    ranger->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, ranger->delay.cmd);
+
+    EXPECT_EQ(0, mob_ranger(ranger, &m_player, 0, empty_argument(), SPECIAL_ENTER, nullptr));
+
+    EXPECT_FALSE(is_in_game(ranger));
+}
+
 // Someone comes into a standing ranger's room: it starts to hide, and then wanders off.
 TEST_F(SpecialProcedureTest, ARangerSomeoneComesUponHidesAndWanders)
 {

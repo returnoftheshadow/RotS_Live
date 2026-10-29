@@ -486,6 +486,34 @@ TEST_F(CombatMovementTest, AFleerRemovedBeforeItEntersIsLetGo)
     EXPECT_FALSE(is_in_game(fleer));
 }
 
+// A roll that beats a test mob's save against the wind: it is pushed out.
+constexpr double PUSHING_ROLL = 0.99;
+// A dexterity whose save against the wind the lowest roll does not beat.
+constexpr int WIND_RESISTING_DEXTERITY = 120;
+
+// The wind pushes the victim out, where it is removed: the caster does not go on to hurt it.
+TEST_F(CombatMovementTest, AWindblastVictimRemovedWhereItLandsIsNotHurt)
+{
+    install_guard_and_watcher(ON_BEFORE_ENTER);
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* caster = make_walker("caster");
+    char_data* first_victim = make_walker("first");
+    char_data* second_victim = make_walker("second");
+    second_victim->tmpabilities.dex = WIND_RESISTING_DEXTERITY; // it saves, and is only hurt
+    // The player stands aside: pushing a player out would move its race's power between zones.
+    world[0].people = m_player.next_in_room;
+    push_test_random_value(LOWEST_ROLL); // the damage roll
+    push_test_random_value(PUSHING_ROLL); // the first victim's save: it fails and is pushed
+    push_test_random_value(LOWEST_ROLL); // the direction it is pushed
+    push_test_random_value(LOWEST_ROLL); // the second victim's save
+
+    on_windblast_success(caster, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_FALSE(is_in_game(first_victim));
+    EXPECT_TRUE(is_in_game(second_victim)) << "the blast went on to the next one";
+}
+
 // Too tired to strike, the attacker still frightens its badly hurt victim into fleeing; the
 // victim is removed where it flees to, and the attack lets it go.
 TEST_F(CombatMovementTest, AMissThatMakesTheVictimFleeLetsGoOfARemovedVictim)
