@@ -2352,8 +2352,8 @@ struct obj_data* create_money(int amount)
         exit(1);
     }
 
-    CREATE(obj, struct obj_data, 1);
     CREATE(new_descr, struct extra_descr_data, 1);
+    obj = new obj_data();
     clear_object(obj);
     if (amount == 1) {
         obj->name = str_dup("coin money copper");

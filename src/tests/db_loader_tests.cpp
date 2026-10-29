@@ -2838,6 +2838,7 @@ public:
         /* load_object replaces the working copy with one of its own. */
         if (shape.object != nullptr && shape.object != &object) {
             release_object_text(*shape.object);
+            delete shape.object;
         }
         release_object_text(object);
         delete[] obj_proto;

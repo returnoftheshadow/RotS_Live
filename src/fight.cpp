@@ -697,7 +697,7 @@ obj_data* make_physical_corpse(char_data* character, const char_data* killer, in
     }
 
     if (!corpse) {
-        CREATE(corpse, struct obj_data, 1);
+        corpse = new obj_data();
         clear_object(corpse);
         corpse->next = object_list;
         object_list = corpse;
@@ -961,43 +961,6 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
     } else {
         extract_char(dead_man);
     }
-}
-
-/*
- * Simple enough function to check whether a character has
- * Death_ward up or not.
- */
-int check_death_ward(struct char_data* ch)
-{
-    if (affected_by_spell(ch, SPELL_DEATH_WARD) != NULL) {
-        affect_from_char(ch, SPELL_DEATH_WARD);
-        affect_total(ch);
-
-        if (GET_HIT(ch) <= 0 && GET_HIT(ch) + affected_by_spell(ch, SPELL_DEATH_WARD)->modifier > 0) {
-            act("$n's whole body flashes with blinding light, "
-                "and stirs back to life!",
-                FALSE, ch, 0, 0, TO_ROOM);
-            send_to_char("Your ward flares up and sinks into your body."
-                         "You are alive!\n\r",
-                ch);
-
-            if (GET_HIT(ch) < 0) {
-                GET_HIT(ch) += affected_by_spell(ch, SPELL_DEATH_WARD)->modifier;
-                if (!GET_HIT(ch))
-                    GET_HIT(ch) = 1;
-            }
-            stop_fighting_him(ch);
-            stop_fighting(ch);
-            update_pos(ch);
-            return TRUE;
-        } else {
-            send_to_char("Your ward sends one short pulse through your veins, "
-                         "then fades.\r\n",
-                ch);
-            return FALSE;
-        }
-    } else
-        return FALSE;
 }
 
 void die(char_data* dead_man, char_data* killer, int attack_type)
