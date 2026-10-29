@@ -252,10 +252,7 @@ void implement_room(const struct char_data* ch)
     SUBST(name);
     SUBST(description);
 
-    real->sector_type = curr->sector_type;
-
-    if (real->sector_type >= num_of_sector_types)
-        real->sector_type = num_of_sector_types - 1;
+    real->sector_type = checked_sector_type(curr->sector_type, real->number);
 
     tmpdescr = real->ex_description;
     while (tmpdescr) {
@@ -1388,8 +1385,14 @@ int create_room(struct char_data* ch, const char* arg)
     char str[255], fname[80];
     FILE* f;
     //  struct extra_descr_data * tmpdescr;
-    if (2 != sscanf(arg, "%s %s\n\r", str, fname)) {
+    if (2 != sscanf(arg, "%254s %79s\n\r", str, fname)) {
         send_to_char("format: create <zone number>\n\r", ch);
+        REMOVE_BIT(SHAPE_ROOM(ch)->flags, SHAPE_ROOM_LOADED);
+        return -1;
+    }
+    if (!shape_file_name_fits(SHAPE_ROM_DIR, fname, sizeof(SHAPE_ROOM(ch)->f_from))
+        || !shape_file_name_fits(SHAPE_ROM_BACKDIR, fname, sizeof(SHAPE_ROOM(ch)->f_old))) {
+        send_to_char("That file name is too long.\n\r", ch);
         REMOVE_BIT(SHAPE_ROOM(ch)->flags, SHAPE_ROOM_LOADED);
         return -1;
     }
@@ -1581,12 +1584,16 @@ int append_room(struct char_data* ch, const char* arg)
     return -1;
   }*/
     if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_FILENAME)) {
-        if (2 != sscanf("%s %s", str, fname)) {
+        if (2 != sscanf(arg, "%254s %79s", str, fname)) {
             if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_FILENAME)) {
                 send_to_char("No file defined to write into. Use 'add <filename>\n\r'",
                     ch);
                 return -1;
             }
+        } else if (!shape_file_name_fits(SHAPE_ROM_DIR, fname, sizeof(SHAPE_ROOM(ch)->f_from))
+            || !shape_file_name_fits(SHAPE_ROM_BACKDIR, fname, sizeof(SHAPE_ROOM(ch)->f_old))) {
+            send_to_char("That file name is too long.\n\r", ch);
+            return -1;
         } else {
             sprintf(SHAPE_ROOM(ch)->f_from, SHAPE_ROM_DIR, fname);
             sprintf(SHAPE_ROOM(ch)->f_old, SHAPE_ROM_BACKDIR, fname);

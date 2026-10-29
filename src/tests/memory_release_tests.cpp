@@ -62,3 +62,16 @@ private:
 };
 
 } // namespace
+
+TEST_F(MemoryReleaseTest, FreeingAMobWithNoPrototypeGivesBackItsKeywords)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        extract_char(make_mob("listener", 0));
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
