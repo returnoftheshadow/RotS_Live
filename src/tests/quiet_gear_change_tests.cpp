@@ -1,7 +1,11 @@
-/* Putting gear on and taking it off. A quiet gear change (gear_change::quiet) casts no harmful
- * item spell and deals no poison blow, while a spell that gives a lasting affect for as
- * long as the item is worn still gives it and takes it away. Taking gear off a player who is
- * killed is not quiet, and the player still dies only once. */
+// Putting gear on and taking it off. A quiet gear change (gear_change::quiet) casts no harmful
+// item spell and deals no poison blow, while a spell that gives a lasting affect for as
+// long as the item is worn still gives it and takes it away. Taking gear off a player who is
+// killed is not quiet, and the player still dies only once.
+//
+// A login puts gear on quietly and then casts the rest, once the player and its followers all
+// stand in the room: every item spell, and the blow of an item's poison, as putting the gear on
+// casts them.
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
@@ -11,18 +15,20 @@
 #include "../skill_timer.h"
 #include "../spells.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 ACMD(do_wear);
 ACMD(do_quit);
 ACMD(do_purge);
 void Crash_rentsave(struct char_data* character, int cost);
-void load_character(struct char_data* character);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 bool is_corpse(const obj_data* container);
 
@@ -30,6 +36,8 @@ extern int top_of_p_table;
 extern int r_mortal_start_room[];
 extern int r_mortal_idle_room[];
 extern struct index_data* mob_index;
+extern struct char_data* mob_proto;
+extern int top_of_mobt;
 
 using namespace scripted_room;
 
@@ -41,6 +49,33 @@ constexpr int POISON_BIT_POSITION = 11;
 constexpr int RING_MANA_REGENERATION = 7;
 /* The vnum a test mob (one with no prototype) is saved under as a follower. */
 constexpr int TEST_MOB_VNUM = 9900;
+// The vnums of the two mob prototypes: the one a login makes followers from, and the one it makes
+// their mounts from.
+constexpr int FOLLOWER_VNUM = 9901;
+constexpr int MOUNT_VNUM = 9902;
+// Their indexes in the prototype table: read_mobile gives a mob its prototype's index as nr.
+constexpr int FOLLOWER_PROTOTYPE = 0;
+constexpr int MOUNT_PROTOTYPE = 1;
+constexpr int MOB_PROTOTYPE_COUNT = 2;
+// A follower's constitution: low enough that it dies at 0 hit points, as a player does.
+constexpr int FOLLOWER_CONSTITUTION = 1;
+// A follower prototype's level, and its abilities other than constitution: an ordinary mob's.
+constexpr int FOLLOWER_LEVEL = 10;
+constexpr int FOLLOWER_ABILITY = 18;
+// The profession points, all of them warrior's, and the mini level (MINI_LEVELS_PER_LEVEL a
+// level) of a warrior grown to the most their level allows (advance_mini_level).
+constexpr int WARRIOR_PROFESSION_POINTS = 100;
+constexpr int MINI_LEVELS_PER_LEVEL = 100;
+// What die() takes from a player for a death: a tenth (DEATH_LOSS_SHARE) of the experience above
+// DEATH_LOSS_FLOOR, divided by the level plus DEATH_LOSS_LEVEL_OFFSET.
+constexpr int DEATH_LOSS_FLOOR = 3000;
+constexpr int DEATH_LOSS_LEVEL_OFFSET = 2;
+constexpr int DEATH_LOSS_SHARE = 10;
+// The level of the player with no connection a login frees: a mortal's.
+constexpr int UNCONNECTED_PLAYER_LEVEL = 10;
+// A vnum for room 0 that is also another room's index (SECOND_ROOM's): the room a login that took
+// the vnum for a room would strike.
+constexpr int LOGIN_ROOM_VNUM = SECOND_ROOM;
 // The idle timer, in minutes, from which the next idle check pulls a player into the void and
 // removes them from the game at once.
 constexpr int IDLE_MINUTES_BEFORE_REMOVAL = 28;
@@ -49,6 +84,13 @@ constexpr int IDLE_MINUTES_BEFORE_REMOVAL = 28;
 constexpr int IDLER_LEVEL = 10;
 // What the room sees when a blow kills (die).
 constexpr const char* DEATH_MESSAGE = "is dead!  R.I.P.";
+// The damage an item's poison deals its wearer as the item goes on (equip_char).
+constexpr int POISON_BLOW_DAMAGE = 5;
+// Enough long aliases, saved between a player's objects and their followers, that the followers
+// lie past what the C library has read ahead of the aliases: a rewrite of the object file while
+// it is being read would lose them.
+constexpr int ALIASES_PAST_THE_READ_BUFFER = 24;
+constexpr std::size_t ALIAS_COMMAND_LENGTH = 250;
 /* Few enough hit points that an item's poison (5) or chill ray (10 or more) kills. */
 constexpr int LOW_HIT_POINTS = 1;
 /* The hit points the player starts with, plenty to survive anything the tests set off. */
@@ -67,6 +109,12 @@ constexpr std::uintmax_t OBJECT_FILE_SIZE_LIMIT = 1 << 20;
 /* The subfolders of plrobjs that Crash_get_filename files a character's objects under. */
 constexpr const char* OBJECT_FILE_FOLDERS[] = { "plrobjs/A-E", "plrobjs/F-J", "plrobjs/K-O",
     "plrobjs/P-T", "plrobjs/U-Z", "plrobjs/ZZZ" };
+
+// Whether a follower record rides in on a mount (make_follower_record).
+enum class follower_mount {
+    none,
+    ridden,
+};
 
 /* Runs the test in a fresh, empty temporary folder holding the object file folders, so whatever
  * a rent, a login or a death reads and writes lands there and goes with it. */
@@ -145,6 +193,11 @@ protected:
         m_saved_room_flags = world[0].room_flags;
         world[0].name = m_room_name;
         world[0].description = m_room_description;
+        // A player who dies may come back to life in the second room, and looks at it then.
+        m_saved_second_room_name = world[SECOND_ROOM].name;
+        m_saved_second_room_description = world[SECOND_ROOM].description;
+        world[SECOND_ROOM].name = m_room_name;
+        world[SECOND_ROOM].description = m_room_description;
         /* No crack opens under an earthquake indoors (it would add a room). */
         world[0].room_flags = INDOORS;
         /* A test mob has no prototype (nr -1), and a follower is saved under its mob's vnum from
@@ -152,6 +205,15 @@ protected:
         m_saved_mob_index = mob_index;
         m_mob_index[0].virt = TEST_MOB_VNUM;
         mob_index = &m_mob_index[1];
+        // Then the prototypes read_mobile copies, in vnum order for real_mobile's search.
+        m_saved_mob_proto = mob_proto;
+        m_saved_top_of_mobt = top_of_mobt;
+        m_mob_index[1 + FOLLOWER_PROTOTYPE].virt = FOLLOWER_VNUM;
+        m_mob_index[1 + MOUNT_PROTOTYPE].virt = MOUNT_VNUM;
+        make_mob_prototype(FOLLOWER_PROTOTYPE, m_follower_keywords);
+        make_mob_prototype(MOUNT_PROTOTYPE, m_mount_keywords);
+        mob_proto = m_mob_prototypes;
+        top_of_mobt = MOB_PROTOTYPE_COUNT - 1;
         /* Enough of a character for a login not to take it for a damaged one (calc_load_room). */
         m_player.abilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
         m_player.abilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
@@ -163,14 +225,36 @@ protected:
     void TearDown() override
     {
         take_player_off_the_character_list();
+        release_player_aliases();
         world[0].name = m_saved_room_name;
         world[0].description = m_saved_room_description;
         world[0].room_flags = m_saved_room_flags;
+        world[SECOND_ROOM].name = m_saved_second_room_name;
+        world[SECOND_ROOM].description = m_saved_second_room_description;
         ScriptedRoomFixture::TearDown();
         top_of_p_table = m_saved_top_of_p_table;
         mob_index = m_saved_mob_index;
+        mob_proto = m_saved_mob_proto;
+        top_of_mobt = m_saved_top_of_mobt;
+        for (char_data& prototype : m_mob_prototypes) {
+            release_cleared_character(&prototype);
+        }
         r_mortal_start_room[RACE_HUMAN] = m_saved_mortal_start_room;
         r_mortal_idle_room[RACE_HUMAN] = m_saved_mortal_idle_room;
+    }
+
+    // Releases the aliases a login gave the player, as do_alias removes one: the fixture never
+    // frees the player.
+    void release_player_aliases()
+    {
+        alias_list* alias = GET_ALIAS(&m_player);
+        while (alias != nullptr) {
+            alias_list* next_alias = alias->next;
+            RELEASE(alias->command);
+            RELEASE(alias);
+            alias = next_alias;
+        }
+        GET_ALIAS(&m_player) = nullptr;
     }
 
     /* Puts the player on the character list, as one in the game is. */
@@ -249,6 +333,136 @@ protected:
         EXPECT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
         give_spell(ring, spell_number);
         return ring;
+    }
+
+    // No exit: an earthquake opens no way down, and nobody leaves room 0.
+    void close_room_zero_exits()
+    {
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            world[0].dir_option[direction] = nullptr;
+        }
+    }
+
+    // Makes prototype <index> a mob called <keywords> with MOB_HIT_POINTS hit points, which
+    // read_mobile copies exactly. free_char leaves a prototype's text and profession block alone,
+    // and TearDown releases the block.
+    void make_mob_prototype(int index, char* keywords)
+    {
+        char_data& prototype = m_mob_prototypes[index];
+        clear_char(&prototype, MOB_ISNPC);
+        SET_BIT(MOB_FLAGS(&prototype), MOB_ISNPC);
+        prototype.nr = index;
+        prototype.player.name = keywords;
+        prototype.player.short_descr = keywords;
+        prototype.player.race = RACE_HUMAN;
+        prototype.player.level = FOLLOWER_LEVEL;
+        prototype.abilities.str = FOLLOWER_ABILITY;
+        prototype.abilities.dex = FOLLOWER_ABILITY;
+        prototype.abilities.intel = FOLLOWER_ABILITY;
+        prototype.abilities.wil = FOLLOWER_ABILITY;
+        prototype.abilities.lea = FOLLOWER_ABILITY;
+        prototype.abilities.con = FOLLOWER_CONSTITUTION;
+        prototype.abilities.hit = MOB_HIT_POINTS;
+        prototype.tmpabilities.hit = MOB_HIT_POINTS;
+        prototype.specials.position = POSITION_STANDING;
+        prototype.specials.default_pos = POSITION_STANDING;
+    }
+
+    // The hit points every follower a login makes from now on starts with.
+    void set_follower_hit_points(int hit_points)
+    {
+        // read_mobile draws a mob's hit points between these two.
+        m_mob_prototypes[FOLLOWER_PROTOTYPE].abilities.hit = hit_points;
+        m_mob_prototypes[FOLLOWER_PROTOTYPE].tmpabilities.hit = hit_points;
+    }
+
+    // Makes the player's hit points, as the gear's affects work them out at login, many times
+    // any one blow a test's earthquake deals: a warrior grown to the most their level allows.
+    void make_player_hardy()
+    {
+        m_player.profs->prof_coof[PROF_WARRIOR] = WARRIOR_PROFESSION_POINTS;
+        m_player.specials2.mini_level = LEVEL_MAX * MINI_LEVELS_PER_LEVEL;
+    }
+
+    // A follower record for the player's object file: a tamed mob made from the follower
+    // prototype, wearing <gear>, and riding in on a mob made from the mount prototype when <mount>
+    // is ridden.
+    static objects_json::FollowerData make_follower_record(
+        std::vector<objects_json::ObjectRecord> gear, follower_mount mount = follower_mount::none)
+    {
+        objects_json::FollowerData follower;
+        follower.fol_vnum = FOLLOWER_VNUM;
+        follower.flag_config = FOL_TAMED;
+        if (mount == follower_mount::ridden) {
+            follower.mount_vnum = MOUNT_VNUM;
+        }
+        follower.objects = std::move(gear);
+        return follower;
+    }
+
+    // An object file record for a ring worn on the right hand that casts <spell_number>.
+    static objects_json::ObjectRecord make_ring_record_casting(int spell_number)
+    {
+        objects_json::ObjectRecord ring = make_record(RING_VNUM, WEAR_FINGER_R);
+        ring.affects[0].location = APPLY_SPELL;
+        ring.affects[0].modifier = spell_number;
+        return ring;
+    }
+
+    // Writes <rented> as the player's object file and takes the player out of the game, as it is
+    // before a login: in no room, coming back to room 0. False, after reporting why, when the
+    // file cannot be written.
+    bool rent_out_player(const objects_json::ObjectSaveData& rented)
+    {
+        if (!write_player_object_file(rented)) {
+            return false;
+        }
+        char_from_room(&m_player);
+        m_player.specials2.load_room = ROOM_VNUM;
+        return true;
+    }
+
+    // The mobs made from prototype <prototype> that stand in room <room>, in the order they stand
+    // there.
+    static std::vector<char_data*> mobs_in_room(int prototype, int room = 0)
+    {
+        std::vector<char_data*> mobs;
+        for (char_data* person = world[room].people; person; person = person->next_in_room) {
+            if (IS_NPC(person) && person->nr == prototype) {
+                mobs.push_back(person);
+            }
+        }
+        return mobs;
+    }
+
+    // The followers a login made that stand in room <room>.
+    static std::vector<char_data*> followers_in_room(int room = 0)
+    {
+        return mobs_in_room(FOLLOWER_PROTOTYPE, room);
+    }
+
+    // How many mobs made from the prototypes are in the game, wherever they are.
+    static int count_prototype_mobs_in_game()
+    {
+        int count = 0;
+        for (const char_data* character = character_list; character; character = character->next) {
+            if (IS_NPC(character) && character->nr >= 0) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    // How many objects made from the prototype with <vnum> are in the game.
+    static int count_objects_in_game(int vnum)
+    {
+        int count = 0;
+        for (const obj_data* object = object_list; object; object = object->next) {
+            if (object->item_number >= 0 && obj_index[object->item_number].virt == vnum) {
+                ++count;
+            }
+        }
+        return count;
     }
 
     /* The path of the player's object file, as the game names it. */
@@ -357,18 +571,521 @@ protected:
     char* m_saved_room_name = nullptr;
     char* m_saved_room_description = nullptr;
     long m_saved_room_flags = 0;
-    // The name and description room 0 has during the test.
+    // The second room's name and description before the test, put back by TearDown.
+    char* m_saved_second_room_name = nullptr;
+    char* m_saved_second_room_description = nullptr;
+    // The name and description rooms 0 and SECOND_ROOM have during the test.
     char m_room_name[16] = "A room";
     char m_room_description[16] = "A room.\n\r";
-    // The mob index the tests use: its first entry is index -1, a test mob's.
-    index_data m_mob_index[2] {};
+    // The mob index the tests use: its first entry is index -1, a test mob's, and then one for
+    // each prototype.
+    index_data m_mob_index[1 + MOB_PROTOTYPE_COUNT] { };
     // The mob index SetUp found, put back by TearDown.
     index_data* m_saved_mob_index = nullptr;
+    // The mob prototype table and its last index before the test, put back by TearDown.
+    char_data* m_saved_mob_proto = nullptr;
+    int m_saved_top_of_mobt = 0;
+    // The tests' mob prototype table: what a login makes followers and their mounts from
+    // (make_mob_prototype).
+    char_data m_mob_prototypes[MOB_PROTOTYPE_COUNT] { };
+    // The prototypes' keywords and short descriptions.
+    char m_follower_keywords[16] = "follower";
+    char m_mount_keywords[16] = "mount";
     // Holds the object files the tests read and write.
     ScopedObjectFileFolder m_object_file_folder;
 };
 
 } // namespace
+
+// ---- logging in ----
+
+// A player too hurt to survive their ring's chill ray logs in wearing it: the ray kills them once
+// they stand in their room, and they come back to life there once, leaving one corpse that holds
+// everything they rented with.
+TEST_F(QuietGearChangeTest, APlayerTheirGearsSpellKillsAtLoginDiesOnceInTheirRoom)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord chill_ray_ring = make_ring_record_casting(SPELL_CHILL_RAY);
+    rented.objects.push_back(std::move(chill_ray_ring));
+    objects_json::ObjectRecord stone = make_record(STONE_VNUM, MAX_WEAR);
+    rented.objects.push_back(std::move(stone));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+
+    const bool player_remains = load_character(&m_player);
+
+    EXPECT_TRUE(player_remains);
+    EXPECT_EQ(0, m_player.in_room);
+    EXPECT_EQ(1, count_in_room(&m_player));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
+// A player logging in wearing a ring of sanctuary is given sanctuary once they stand in their
+// room.
+TEST_F(QuietGearChangeTest, APlayerLoggingInIsGivenTheirGearsSpell)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord sanctuary_ring = make_ring_record_casting(SPELL_SANCTUARY);
+    rented.objects.push_back(std::move(sanctuary_ring));
+    ASSERT_TRUE(rent_out_player(rented));
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_NE(nullptr, affected_by_spell(&m_player, SPELL_SANCTUARY));
+    EXPECT_TRUE(IS_AFFECTED(&m_player, AFF_SANCTUARY));
+    ASSERT_NE(nullptr, m_player.equipment[WEAR_FINGER_R]);
+}
+
+// A ring's evasion, a lasting affect the quiet login gives as the ring goes on, is not cast a
+// second time once the player stands in their room: it is given, and announced, once.
+TEST_F(QuietGearChangeTest, APlayerLoggingInIsGivenTheirGearsWornAffectOnce)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord evasion_ring = make_ring_record_casting(SPELL_ARMOR);
+    rented.objects.push_back(std::move(evasion_ring));
+    ASSERT_TRUE(rent_out_player(rented));
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    int evasion_affects = 0;
+    for (const affected_type* affect = m_player.affected; affect; affect = affect->next) {
+        if (affect->type == SPELL_ARMOR) {
+            ++evasion_affects;
+        }
+    }
+    EXPECT_EQ(1, evasion_affects);
+    EXPECT_EQ(1, count_in_output("You feel someone protecting you."));
+}
+
+// A player logging in to the room whose vnum is another room's index shakes the room they stand
+// in with their ring's earthquake: the mob beside them is hurt, and the one in the other room is
+// not.
+TEST_F(QuietGearChangeTest, AHarmfulSpellAtLoginStrikesTheRoomThePlayerLogsInto)
+{
+    link_second_room();
+    close_room_zero_exits();
+    world[0].number = LOGIN_ROOM_VNUM;
+    char_data* beside = make_mob("beside", 0);
+    char_data* elsewhere = make_mob("elsewhere", 0, SECOND_ROOM);
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    rented.objects.push_back(std::move(earthquake_ring));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.specials2.load_room = LOGIN_ROOM_VNUM;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(0, m_player.in_room);
+    EXPECT_LT(GET_HIT(beside), MOB_HIT_POINTS);
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(elsewhere));
+}
+
+// A player logging in wearing a poisonous ring is poisoned, takes the poison's blow once as they
+// come into their room, and the poison goes on hurting them with each tick.
+TEST_F(QuietGearChangeTest, GearPoisonHurtsAPlayerAsTheyLogInAndGoesOnHurtingThem)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord ring = make_record(RING_VNUM, WEAR_FINGER_R);
+    ring.affects[0].location = APPLY_BITVECTOR;
+    ring.affects[0].modifier = POISON_BIT_POSITION;
+    rented.objects.push_back(ring);
+    ASSERT_TRUE(rent_out_player(rented));
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_TRUE(IS_AFFECTED(&m_player, AFF_POISON));
+    // The player comes in at full health, which putting the ring on works out again.
+    EXPECT_EQ(GET_MAX_HIT(&m_player) - POISON_BLOW_DAMAGE, GET_HIT(&m_player));
+    const int hit_points_after_login = GET_HIT(&m_player);
+
+    point_update();
+
+    EXPECT_LT(GET_HIT(&m_player), hit_points_after_login);
+}
+
+// A player logging in in an earthquake ring shakes their room before their follower comes in:
+// the follower, too hurt to survive a quake, comes in unhurt and follows them.
+TEST_F(QuietGearChangeTest, ALeadersEarthquakeAtLoginDoesNotReachTheirFollower)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    rented.objects.push_back(std::move(earthquake_ring));
+    objects_json::FollowerData follower = make_follower_record({ });
+    rented.followers.push_back(std::move(follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    set_follower_hit_points(LOW_HIT_POINTS);
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_EQ(LOW_HIT_POINTS, GET_HIT(followers[0]));
+    EXPECT_EQ(&m_player, followers[0]->master);
+    EXPECT_EQ(0, count_corpses_in_room());
+}
+
+// A player too hurt to survive their ring's chill ray dies of it once at login and comes back to
+// life in the start room. Their two tamed followers, in earthquake rings, come in beside them
+// there with their gear and the one's mount, follow them still charmed, and cast nothing: the
+// mob in the start room is unhurt.
+TEST_F(QuietGearChangeTest, ALeaderKilledAtLoginComesBackWithAllTheirFollowersAndTheirGear)
+{
+    link_second_room();
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    char_data* bystander = make_mob("bystander", 0, SECOND_ROOM);
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord chill_ray_ring = make_ring_record_casting(SPELL_CHILL_RAY);
+    rented.objects.push_back(std::move(chill_ray_ring));
+    for (int alias = 0; alias < ALIASES_PAST_THE_READ_BUFFER; ++alias) {
+        objects_json::AliasData long_alias;
+        long_alias.keyword = "alias" + std::to_string(alias);
+        long_alias.command.assign(ALIAS_COMMAND_LENGTH, 'x');
+        rented.aliases.push_back(std::move(long_alias));
+    }
+    const objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    objects_json::FollowerData mounted_follower
+        = make_follower_record({ earthquake_ring }, follower_mount::ridden);
+    rented.followers.push_back(std::move(mounted_follower));
+    objects_json::FollowerData unmounted_follower = make_follower_record({ earthquake_ring });
+    rented.followers.push_back(std::move(unmounted_follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+    // Experience their level needs, so that one death's loss costs no level.
+    const int experience_before_login = xp_to_level(GET_LEVEL(&m_player));
+    m_player.points.exp = experience_before_login;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(1, count_in_output("You are dead!"));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+    // One death's loss, as die() takes it from a player who killed themselves.
+    const int one_death = (experience_before_login - DEATH_LOSS_FLOOR)
+        / (GET_LEVEL(&m_player) + DEATH_LOSS_LEVEL_OFFSET) / DEATH_LOSS_SHARE;
+    EXPECT_EQ(experience_before_login - one_death, m_player.points.exp);
+    const std::vector<char_data*> followers = followers_in_room(SECOND_ROOM);
+    ASSERT_EQ(2u, followers.size());
+    for (const char_data* follower : followers) {
+        EXPECT_EQ(&m_player, follower->master);
+        EXPECT_TRUE(IS_AFFECTED(follower, AFF_CHARM));
+        EXPECT_NE(nullptr, follower->equipment[WEAR_FINGER_R]);
+        EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(follower));
+    }
+    const std::vector<char_data*> mounts = mobs_in_room(MOUNT_PROTOTYPE, SECOND_ROOM);
+    ASSERT_EQ(1u, mounts.size());
+    EXPECT_EQ(followers[0], mounts[0]->master);
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(bystander));
+    int aliases = 0;
+    for (const alias_list* alias = GET_ALIAS(&m_player); alias; alias = alias->next) {
+        ++aliases;
+    }
+    EXPECT_EQ(ALIASES_PAST_THE_READ_BUFFER, aliases);
+    // Saved again once the followers joined, so that the file lists them.
+    objects_json::ObjectSaveData saved;
+    ASSERT_TRUE(read_player_object_file(saved));
+    EXPECT_EQ(RENT_CRASH, saved.rent.rentcode);
+    EXPECT_EQ(2u, saved.followers.size());
+}
+
+// A follower's earthquake at login shakes their leader, who stands in the room it comes into.
+TEST_F(QuietGearChangeTest, AFollowersEarthquakeAtLoginShakesTheirLeader)
+{
+    make_player_hardy();
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    const objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    objects_json::FollowerData follower = make_follower_record({ earthquake_ring });
+    rented.followers.push_back(std::move(follower));
+    ASSERT_TRUE(rent_out_player(rented));
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_LT(GET_HIT(&m_player), GET_MAX_HIT(&m_player));
+    EXPECT_EQ(0, count_corpses_in_room());
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_EQ(&m_player, followers[0]->master);
+}
+
+// A follower's earthquake at login that kills its leader ends the casting: the next follower,
+// brought in beside the leader where it came back to life, casts nothing and is unhurt, and both
+// followers follow the leader.
+TEST_F(QuietGearChangeTest, AFollowersSpellThatKillsTheLeaderEndsTheCasting)
+{
+    // The leader comes back to life out of the quake's reach.
+    link_second_room();
+    close_room_zero_exits();
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    const objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    objects_json::FollowerData first_follower = make_follower_record({ earthquake_ring });
+    rented.followers.push_back(std::move(first_follower));
+    objects_json::FollowerData second_follower = make_follower_record({ earthquake_ring });
+    rented.followers.push_back(std::move(second_follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(1, count_in_output("You are dead!"));
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+    // The first follower stays where its quake struck; the second comes in beside the leader.
+    const std::vector<char_data*> first_followers = followers_in_room(0);
+    const std::vector<char_data*> second_followers = followers_in_room(SECOND_ROOM);
+    ASSERT_EQ(1u, first_followers.size());
+    ASSERT_EQ(1u, second_followers.size());
+    for (const char_data* follower : { first_followers[0], second_followers[0] }) {
+        EXPECT_EQ(&m_player, follower->master);
+        EXPECT_TRUE(IS_AFFECTED(follower, AFF_CHARM));
+        EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(follower));
+    }
+}
+
+// A later follower's earthquake at login that kills the leader releases the follower already
+// following it, as any death does: that one is no longer charmed and follows nobody, while the
+// one that killed the leader joins it after.
+TEST_F(QuietGearChangeTest, ALeaderKilledByALaterFollowerReleasesTheOneAlreadyFollowing)
+{
+    // The leader comes back to life out of the quake's reach.
+    link_second_room();
+    close_room_zero_exits();
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::FollowerData earlier_follower = make_follower_record({ });
+    rented.followers.push_back(std::move(earlier_follower));
+    const objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    objects_json::FollowerData later_follower = make_follower_record({ earthquake_ring });
+    rented.followers.push_back(std::move(later_follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(1, count_in_output("You are dead!"));
+    const std::vector<char_data*> followers = followers_in_room(0);
+    ASSERT_EQ(2u, followers.size());
+    EXPECT_EQ(nullptr, followers[0]->master);
+    EXPECT_FALSE(IS_AFFECTED(followers[0], AFF_CHARM));
+    EXPECT_EQ(&m_player, followers[1]->master);
+    EXPECT_TRUE(IS_AFFECTED(followers[1], AFF_CHARM));
+}
+
+// A follower whose earthquake at login kills the leader takes no blow from its poisonous ring:
+// nothing more is cast once the leader has died.
+TEST_F(QuietGearChangeTest, AFollowersPoisonBlowIsNotDealtOnceTheLeaderHasDied)
+{
+    link_second_room();
+    close_room_zero_exits();
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord poisonous_ring = make_record(RING_VNUM, WEAR_FINGER_L);
+    poisonous_ring.affects[0].location = APPLY_BITVECTOR;
+    poisonous_ring.affects[0].modifier = POISON_BIT_POSITION;
+    const objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    objects_json::FollowerData follower
+        = make_follower_record({ earthquake_ring, poisonous_ring });
+    rented.followers.push_back(std::move(follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    EXPECT_EQ(1, count_in_output("You are dead!"));
+    const std::vector<char_data*> followers = followers_in_room(0);
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_TRUE(IS_AFFECTED(followers[0], AFF_POISON));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(followers[0]));
+}
+
+// A follower whose record the object file cuts off part way through its gear comes in at login
+// with the gear read before the cut, but follows nobody and is not charmed.
+TEST_F(QuietGearChangeTest, AFollowerWhoseRecordIsCutOffComesInFollowingNobody)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    std::string bytes_without_followers;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(rented, &bytes_without_followers));
+    const objects_json::ObjectRecord sanctuary_ring = make_ring_record_casting(SPELL_SANCTUARY);
+    objects_json::FollowerData follower = make_follower_record({ sanctuary_ring });
+    rented.followers.push_back(std::move(follower));
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(rented, &bytes));
+    // The follower records start where the end-of-followers record stands in a file with none;
+    // the cut falls inside the first record of the follower's gear.
+    const std::size_t followers_start = bytes_without_followers.size() - sizeof(follower_file_elem);
+    constexpr std::size_t bytes_into_the_gear = 10;
+    bytes.resize(followers_start + sizeof(follower_file_elem) + bytes_into_the_gear);
+    std::ofstream object_file(player_object_file(), std::ios::binary);
+    object_file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    object_file.close();
+    ASSERT_TRUE(object_file);
+    char_from_room(&m_player);
+    m_player.specials2.load_room = ROOM_VNUM;
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_EQ(nullptr, followers[0]->master);
+    EXPECT_FALSE(IS_AFFECTED(followers[0], AFF_CHARM));
+    EXPECT_EQ(nullptr, followers[0]->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.followers);
+}
+
+// With nobody dying, every follower's gear casts at login: each follower's ring gives it
+// sanctuary.
+TEST_F(QuietGearChangeTest, EveryFollowersGearCastsAtALoginNobodyDiesIn)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    const objects_json::ObjectRecord sanctuary_ring = make_ring_record_casting(SPELL_SANCTUARY);
+    objects_json::FollowerData first_follower = make_follower_record({ sanctuary_ring });
+    rented.followers.push_back(std::move(first_follower));
+    objects_json::FollowerData second_follower = make_follower_record({ sanctuary_ring });
+    rented.followers.push_back(std::move(second_follower));
+    ASSERT_TRUE(rent_out_player(rented));
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(2u, followers.size());
+    for (char_data* follower : followers) {
+        EXPECT_NE(nullptr, affected_by_spell(follower, SPELL_SANCTUARY));
+        EXPECT_EQ(&m_player, follower->master);
+    }
+}
+
+// A follower coming in at login in a poisonous ring takes the poison's blow once.
+TEST_F(QuietGearChangeTest, AFollowersPoisonousGearHurtsItAsItComesIn)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord ring = make_record(RING_VNUM, WEAR_FINGER_R);
+    ring.affects[0].location = APPLY_BITVECTOR;
+    ring.affects[0].modifier = POISON_BIT_POSITION;
+    objects_json::FollowerData follower = make_follower_record({ ring });
+    rented.followers.push_back(std::move(follower));
+    ASSERT_TRUE(rent_out_player(rented));
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_TRUE(IS_AFFECTED(followers[0], AFF_POISON));
+    EXPECT_EQ(MOB_HIT_POINTS - POISON_BLOW_DAMAGE, GET_HIT(followers[0]));
+}
+
+// A follower too hurt to survive its own ring's chill ray dies of it at login and is not touched
+// again, and the follower loaded after it is still given its ring's sanctuary.
+TEST_F(QuietGearChangeTest, AFollowerItsOwnGearKillsAtLoginIsNotTouchedAgain)
+{
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    const objects_json::ObjectRecord chill_ray_ring = make_ring_record_casting(SPELL_CHILL_RAY);
+    objects_json::FollowerData doomed_follower
+        = make_follower_record({ chill_ray_ring }, follower_mount::ridden);
+    rented.followers.push_back(std::move(doomed_follower));
+    const objects_json::ObjectRecord sanctuary_ring = make_ring_record_casting(SPELL_SANCTUARY);
+    objects_json::FollowerData surviving_follower = make_follower_record({ sanctuary_ring });
+    rented.followers.push_back(std::move(surviving_follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    set_follower_hit_points(LOW_HIT_POINTS);
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    EXPECT_NE(nullptr, affected_by_spell(followers[0], SPELL_SANCTUARY));
+    ASSERT_NE(nullptr, m_player.followers);
+    EXPECT_EQ(followers[0], m_player.followers->follower);
+    EXPECT_EQ(nullptr, m_player.followers->next);
+    EXPECT_TRUE(mobs_in_room(MOUNT_PROTOTYPE).empty());
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+// A later follower's earthquake at login can kill an earlier one already following the leader;
+// the leader is left with the later one.
+TEST_F(QuietGearChangeTest, ALaterFollowersEarthquakeCanKillAnEarlierFollower)
+{
+    make_player_hardy();
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::FollowerData earlier_follower = make_follower_record({ });
+    rented.followers.push_back(std::move(earlier_follower));
+    const objects_json::ObjectRecord earthquake_ring = make_ring_record_casting(SPELL_EARTHQUAKE);
+    objects_json::FollowerData later_follower = make_follower_record({ earthquake_ring });
+    rented.followers.push_back(std::move(later_follower));
+    ASSERT_TRUE(rent_out_player(rented));
+    set_follower_hit_points(LOW_HIT_POINTS);
+
+    ASSERT_TRUE(load_character(&m_player));
+
+    const std::vector<char_data*> followers = followers_in_room();
+    ASSERT_EQ(1u, followers.size());
+    ASSERT_NE(nullptr, m_player.followers);
+    EXPECT_EQ(followers[0], m_player.followers->follower);
+    EXPECT_EQ(nullptr, m_player.followers->next);
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+// A player with no connection killed by their own gear at login is freed, and the login reports
+// it so that nobody touches them again. Their follower, still held, leaves the game with its gear
+// and its mount.
+TEST_F(QuietGearChangeTest, ALoginReportsALeaderItsGearFreedAndRemovesTheirFollowers)
+{
+    // The game frees the player as their gear kills them.
+    char_data* unconnected = owned_character(MOB_VOID).release();
+    unconnected->player.name = str_dup("Unconnected");
+    unconnected->player.race = RACE_HUMAN;
+    unconnected->player.level = UNCONNECTED_PLAYER_LEVEL;
+    unconnected->abilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
+    unconnected->abilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
+    unconnected->tmpabilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
+    unconnected->tmpabilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
+    unconnected->tmpabilities.move = PLAYER_MOVES;
+    unconnected->tmpabilities.hit = LOW_HIT_POINTS;
+    unconnected->specials.position = POSITION_STANDING;
+    unconnected->in_room = NOWHERE;
+    unconnected->specials2.load_room = ROOM_VNUM;
+    register_pc_char(unconnected);
+    // Its object file, written under its own name.
+    char object_file_path[MAX_INPUT_LENGTH];
+    ASSERT_TRUE(Crash_get_filename(GET_NAME(unconnected), object_file_path));
+    objects_json::ObjectSaveData rented;
+    rented.rent.rentcode = RENT_RENTED;
+    objects_json::ObjectRecord chill_ray_ring = make_ring_record_casting(SPELL_CHILL_RAY);
+    rented.objects.push_back(std::move(chill_ray_ring));
+    const objects_json::ObjectRecord sword = make_record(SWORD_VNUM, WIELD);
+    objects_json::FollowerData mounted_follower
+        = make_follower_record({ sword }, follower_mount::ridden);
+    rented.followers.push_back(std::move(mounted_follower));
+    std::string bytes;
+    ASSERT_TRUE(objects_json::object_save_data_to_binary(rented, &bytes));
+    std::ofstream object_file(object_file_path, std::ios::binary);
+    object_file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    object_file.close();
+    ASSERT_TRUE(object_file);
+
+    const bool leader_remains = load_character(unconnected);
+
+    EXPECT_FALSE(leader_remains);
+    EXPECT_FALSE(is_in_game(unconnected));
+    EXPECT_EQ(0, count_prototype_mobs_in_game());
+    EXPECT_EQ(0, count_objects_in_game(SWORD_VNUM));
+    EXPECT_EQ(1, count_corpses_in_room());
+}
 
 /* An evasion ring put on quietly, as a login puts gear on, gives its evasion for as long as it
  * is worn and takes it away as it comes off quietly; the ring's mana regeneration comes and goes too. */
