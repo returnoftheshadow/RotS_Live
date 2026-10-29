@@ -198,6 +198,19 @@ TEST_F(AffectTickTest, EveryAffectLosesAnHourOnItsPhase)
     EXPECT_EQ(AFFECT_HOURS - 1, affected_by_spell(mob, SPELL_SANCTUARY)->duration);
 }
 
+TEST_F(AffectTickTest, AnAffectWithNoHoursLeftIsRemoved)
+{
+    char_data* mob = make_lone_mob("mob", 0);
+    give_affect(mob, SPELL_ARMOR);
+    give_affect(mob, SPELL_SANCTUARY, SANCTUARY_STRENGTH);
+    affected_by_spell(mob, SPELL_SANCTUARY)->duration = 0;
+
+    affect_update_person(mob, HOURLY_AFFECT_UPDATE);
+
+    EXPECT_EQ(nullptr, affected_by_spell(mob, SPELL_SANCTUARY));
+    EXPECT_EQ(AFFECT_HOURS - 1, affected_by_spell(mob, SPELL_ARMOR)->duration);
+}
+
 // The poison's damage breaks the sanctuary next in the list; the armor after it still ticks.
 TEST_F(AffectTickTest, APoisonTickThatBreaksASanctuaryGoesOnToTheAffectAfterIt)
 {
