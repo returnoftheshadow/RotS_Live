@@ -1011,7 +1011,7 @@ void finalize_new_character_start_state(struct char_data* ch)
 
 void check_breathing(char_data* ch)
 {
-    affected_type newaf;
+    affected_type newaf{};
     affected_type* tmpaf;
 
     tmpaf = affected_by_spell(ch, SPELL_ASPHYXIATION);
@@ -1276,7 +1276,7 @@ void do_fame_war_bonuses(struct char_data* ch)
     }
 
     if (!pkaff) {
-        affected_type newpkaf;
+        affected_type newpkaf{};
         assign_pk_bonuses(ch, coeff, tier, true);
         newpkaf.type = SPELL_FAME_WAR;
         newpkaf.duration = 100;
@@ -1294,7 +1294,7 @@ void do_fame_war_bonuses(struct char_data* ch)
 void do_power_of_arda(char_data* ch)
 {
     affected_type* tmpaf;
-    affected_type newaf;
+    affected_type newaf{};
     int level, maxlevel;
 
     if (GET_RACE(ch) == RACE_HARADRIM) {
@@ -1441,14 +1441,16 @@ void affect_update_person(struct char_data* i, int mode)
                 if (GET_POS(i) == POSITION_STUNNED)
                     update_pos(i);
             } else {
-                if (af->type > 0 && af->type < MAX_SKILLS)
+                // Removing the affect frees it, so its type is read first.
+                const int expired_type = af->type;
+                if (expired_type > 0 && expired_type < MAX_SKILLS)
                     /* It must be a spell */
-                    if (!af->next || af->next->type != af->type || af->next->duration > 0)
+                    if (!af->next || af->next->type != expired_type || af->next->duration > 0)
                         affect_remove_notify(i, af);
                     else
                         affect_remove(i, af);
 
-                if (af->type == SPELL_ANGER)
+                if (expired_type == SPELL_ANGER)
                     i->specials.attacked_level = 0;
             }
         }
@@ -1460,7 +1462,7 @@ ASPELL(spell_poison);
 void affect_update_room(struct room_data* room)
 {
     struct affected_type *tmpaf, *next_tmpaf, *checkaf;
-    struct affected_type newaf;
+    struct affected_type newaf{};
     struct char_data *tmpch, *next_tmpch;
     int time_phase, tmp, direction, mod, roomnum, movechance;
     extern char* dirs[];

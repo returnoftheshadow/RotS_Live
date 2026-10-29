@@ -236,4 +236,38 @@ TEST(RoomContents, ALookAtAFloorOfAHundredAndOneCountsTheLastItem)
     EXPECT_NE(output.find("...and 1 more item is lying here.\n\r"), std::string::npos) << output;
 }
 
+TEST(RoomContents, TakingAnObjectFromTheMiddleOfAFloorKeepsTheRest)
+{
+    FloorFixture fixture(3);
+    obj_data* first = world[0].contents;
+    obj_data* middle = first->next_content;
+    obj_data* last = middle->next_content;
+
+    obj_from_room(middle);
+
+    EXPECT_EQ(world[0].contents, first);
+    EXPECT_EQ(first->next_content, last);
+    EXPECT_EQ(middle->in_room, NOWHERE);
+    EXPECT_EQ(middle->next_content, nullptr);
+}
+
+// An object that names a room whose floor does not list it has nothing to be unlinked from: the floor
+// is left as it is and the mismatch is logged.
+TEST(RoomContents, TakingAnObjectMissingFromItsRoomsFloorLeavesTheFloorAndLogsIt)
+{
+    constexpr int FLOOR_OBJECTS = 2;
+    FloorFixture fixture(FLOOR_OBJECTS);
+    obj_data stray;
+    clear_object(&stray);
+    stray.in_room = 0;
+
+    testing::internal::CaptureStderr();
+    obj_from_room(&stray);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(FloorFixture::listed(), static_cast<size_t>(FLOOR_OBJECTS));
+    EXPECT_EQ(stray.in_room, NOWHERE);
+    EXPECT_NE(logged.find("SYSERR: obj_from_room"), std::string::npos) << logged;
+}
+
 } // namespace

@@ -157,4 +157,92 @@ protected:
     char m_hall_name[16] = "A Quiet Hall";
 };
 
+namespace {
+
+// How each entry but the last of a divination list ends.
+constexpr std::string_view LIST_SEPARATOR = ", ";
+// How a divination list that holds every entry ends.
+constexpr std::string_view LIST_END = ".\n\r";
+// How a divination list cut short ends, in place of its last entry's separator.
+constexpr std::string_view CUT_LIST_END = ", and more.\n\r";
+// The line that starts the report's list of objects.
+constexpr std::string_view OBJECTS_HEADER = "Objects in the room:\n\r";
+// The characters a LONG_NAME entry takes in a list, its separator included.
+constexpr size_t LONG_NAME_ENTRY_LENGTH
+    = std::string_view(LONG_NAME).size() + LIST_SEPARATOR.size();
+// Far more LONG_NAME objects than the report's object list holds.
+constexpr size_t LITTERED_FLOOR_OBJECTS = 60;
+// Far more LONG_NAME mobs than the report's list of people holds.
+constexpr size_t CROWD_SIZE = 40;
+
+} // namespace
+
+TEST_F(DivinationTest, ReportsASmallRoomInFull)
+{
+    add_mobs(1, "a grey wolf");
+    add_objects(1, "a shield");
+    add_objects(1, "a sword");
+    char flags[MAX_STRING_LENGTH];
+    sprintbit(INDOORS, room_bits, flags, 0);
+
+    const std::string report = divine();
+
+    const std::string expected = "You feel confident about your location.\n\r (#"
+        + std::to_string(world[DIVINATION_ROOM].number) + ") [ " + sector_types[SECT_FIELD] + ", "
+        + flags + "], Exits are:\n\r"
+        + "north: to A Quiet Hall (#" + std::to_string(world[HALL_ROOM].number) + ")\n\r"
+        + "     door 'gate', key 'None'.\n\r"
+        + "Living beings in the room:\n\ra grey wolf, Seer.\n\r"
+        + "Objects in the room:\n\ra sword, a shield.\n\r";
+    EXPECT_EQ(report, expected);
+}
+
+TEST_F(DivinationTest, ReportsAnEmptyFloorAsNone)
+{
+    const std::string report = divine();
+
+    EXPECT_NE(report.find("Living beings in the room:\n\rSeer.\n\r"), std::string::npos) << report;
+    EXPECT_NE(report.find("Objects in the room:\n\r None.\n\r"), std::string::npos) << report;
+}
+
+TEST_F(DivinationTest, ALitteredFloorListsWhatFitsAndSaysThereIsMore)
+{
+    add_objects(LITTERED_FLOOR_OBJECTS, LONG_NAME);
+
+    const std::string objects = report_line(divine(), OBJECTS_HEADER);
+
+    EXPECT_LE(objects.size(), DIVINATION_LIST_LIMIT);
+    EXPECT_EQ(objects.size() - objects.rfind(CUT_LIST_END), CUT_LIST_END.size()) << objects;
+    // The header and the ending, less the separator it replaces, leave room for the whole names
+    // that fit.
+    const size_t ending_length = CUT_LIST_END.size() - LIST_SEPARATOR.size();
+    const size_t names_that_fit
+        = (DIVINATION_LIST_LIMIT - OBJECTS_HEADER.size() - ending_length) / LONG_NAME_ENTRY_LENGTH;
+    EXPECT_EQ(count_occurrences(objects, LONG_NAME), names_that_fit) << objects;
+}
+
+TEST_F(DivinationTest, ACrowdedRoomListsWhoFitsAndSaysThereIsMore)
+{
+    add_mobs(CROWD_SIZE, LONG_NAME);
+
+    const std::string people = report_line(divine(), "Living beings in the room:\n\r");
+
+    EXPECT_LE(people.size(), DIVINATION_LIST_LIMIT);
+    EXPECT_NE(people.find(CUT_LIST_END), std::string::npos) << people;
+    EXPECT_EQ(people.find("Seer"), std::string::npos) << "the mystic, first in, is listed last";
+}
+
+TEST_F(DivinationTest, AFloorThatJustFitsIsListedInFull)
+{
+    // The last entry ends with LIST_END in place of a separator.
+    const size_t ending_length = LIST_END.size() - LIST_SEPARATOR.size();
+    const size_t names_that_fit
+        = (DIVINATION_LIST_LIMIT - OBJECTS_HEADER.size() - ending_length) / LONG_NAME_ENTRY_LENGTH;
+    add_objects(names_that_fit, LONG_NAME);
+
+    const std::string objects = report_line(divine(), OBJECTS_HEADER);
+
+    EXPECT_EQ(count_occurrences(objects, LONG_NAME), names_that_fit) << objects;
+    EXPECT_EQ(objects.find("and more"), std::string::npos) << objects;
+}
 } // namespace
