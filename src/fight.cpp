@@ -962,6 +962,7 @@ static void raw_kill_by(char_data* dead_man, const char_data* killer, CorpseGear
         killer = nullptr;
     }
 
+    death_watch::note_died(dead_man);
     obj_data* corpse = make_corpse(dead_man, corpse_gear, attack_type);
     if (killer_watch.freed()) {
         killer = nullptr;
