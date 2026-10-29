@@ -1085,6 +1085,38 @@ TEST_F(SpecialProcedureTest, ARangerSomeoneComesUponHidesAndWanders)
     EXPECT_EQ(SECOND_ROOM, ranger->in_room);
 }
 
+// ---- commands that go on after offering themselves ----
+
+TEST_F(SpecialProcedureTest, AFleeWhoseProcedureRemovesTheFleerGoesNoFurther)
+{
+    char_data* fleer = make_mob_with("fleer", nullptr);
+    char_data* foe = make_mob_with("foe", nullptr);
+    make_mob_with("guard", remove_actor_fleeing);
+    start_fight(fleer, foe);
+
+    do_flee(fleer, empty_argument(), nullptr, FLEE_COMMAND, 0);
+
+    EXPECT_FALSE(is_in_game(fleer));
+    ASSERT_TRUE(is_in_game(foe));
+    EXPECT_EQ(nullptr, foe->specials.fighting);
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+}
+
+TEST_F(SpecialProcedureTest, AFleeNoProcedureTakesGetsAway)
+{
+    char_data* fleer = make_mob_with("fleer", nullptr);
+    char_data* foe = make_mob_with("foe", nullptr);
+    make_mob_with("bystander", record_offer);
+    start_fight(fleer, foe);
+
+    do_flee(fleer, empty_argument(), nullptr, FLEE_COMMAND, 0);
+
+    ASSERT_TRUE(is_in_game(fleer));
+    EXPECT_EQ(SECOND_ROOM, fleer->in_room);
+    EXPECT_EQ(nullptr, fleer->specials.fighting);
+    EXPECT_EQ(nullptr, foe->specials.fighting);
+}
+
 /* Makes room 0's way north a door called "door". */
 static void make_north_a_door(char* keyword)
 {
@@ -1244,4 +1276,65 @@ TEST_F(SpecialProcedureTest, ACommandAtARoomBringsTheOneGivingItBack)
     EXPECT_TRUE(was_offered(bystander)) << "the command was given there";
     ASSERT_TRUE(is_in_game(immortal));
     EXPECT_EQ(0, immortal->in_room);
+}
+
+// Makes <follower> a charmed follower of <leader>, as taming leaves it.
+static void charm_into_following(char_data* follower, char_data* leader)
+{
+    add_follower(follower, leader, FOLLOW_MOVE);
+    SET_BIT(follower->specials.affected_by, AFF_CHARM);
+}
+
+// The first follower ordered is removed as it starts to speak; the next is still ordered.
+TEST_F(SpecialProcedureTest, OrderedFollowersGoOnPastOneTheOrderRemoves)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_marked_character);
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, &m_player);
+    charm_into_following(first, &m_player);
+    ASSERT_EQ(first, m_player.followers->follower) << "the first is ordered first";
+    record.character_to_remove = first;
+
+    run_command(do_order, "followers say hello");
+
+    EXPECT_FALSE(is_in_game(first));
+    EXPECT_EQ(1, count_in_output("says 'hello'")) << "the second spoke: " << output();
+    EXPECT_TRUE(output_has("Ok.")) << output();
+}
+
+TEST_F(SpecialProcedureTest, OrderedFollowersAllCarryOutTheOrder)
+{
+    assign_command_pointers();
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, &m_player);
+    charm_into_following(first, &m_player);
+
+    run_command(do_order, "followers say hello");
+
+    EXPECT_EQ(2, count_in_output("says 'hello'")) << output();
+    EXPECT_TRUE(output_has("Ok.")) << output();
+}
+
+// As the first follower speaks, the leader is removed: the orders end there.
+TEST_F(SpecialProcedureTest, AnOrderThatRemovesTheLeaderEndsTheOrders)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_marked_character);
+    char_data* leader = make_player_character("leader");
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, leader);
+    charm_into_following(first, leader);
+    record.character_to_remove = leader;
+    char argument[] = "followers say hello";
+
+    do_order(leader, argument, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(leader));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(nullptr, second->master);
+    EXPECT_EQ(1, count_in_output("says 'hello'")) << "only the first spoke: " << output();
 }

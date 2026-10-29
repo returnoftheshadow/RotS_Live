@@ -684,6 +684,31 @@ TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide
     EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
 }
 
+// ---- orders ----
+
+// Each follower ordered to speak is removed by what it says (a mob that removes whoever speaks):
+// the order goes on from one removed follower to the next.
+TEST_F(DeathAndDamagePathsTest, AnOrderGoesOnPastAFollowerItRemoves)
+{
+    assign_command_pointers();
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+            { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } },
+            { SCRIPT_END, nullptr, {} } });
+    make_mob("warden", SCRIPT_VNUM);
+    char_data* followers[2] = { make_mob("first", 0), make_mob("second", 0) };
+    for (char_data* follower : followers) {
+        add_follower(follower, &m_player, FOLLOW_MOVE);
+        SET_BIT(follower->specials.affected_by, AFF_CHARM);
+    }
+
+    run_command(do_order, "followers say vanish");
+
+    EXPECT_FALSE(is_in_game(followers[0]));
+    EXPECT_FALSE(is_in_game(followers[1]));
+    EXPECT_EQ(nullptr, m_player.followers);
+}
+
 /* ---- a walker removed at the end of its route ---- */
 
 namespace {

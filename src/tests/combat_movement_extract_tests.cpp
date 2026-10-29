@@ -212,6 +212,9 @@ protected:
 
 } // namespace
 
+// A roll that number() turns into its lowest result.
+constexpr double LOWEST_ROLL = 0.0;
+
 /* ---- moving into a room whose mob removes the one arriving ---- */
 
 TEST_F(CombatMovementTest, AWalkerRemovedBeforeItEntersNeverMoves)
@@ -665,6 +668,62 @@ TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
     EXPECT_LT(ponger->tmpabilities.hit, ponger->abilities.hit);
 }
 
+// ---- skills and special procedures ----
+
+// The body of a damage script that removes the attacker (ch2).
+static std::vector<body_line> remove_the_attacker_body()
+{
+    return { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } };
+}
+
+TEST_F(CombatMovementTest, ARendWhoseBlowRemovesTheBearStopsThere)
+{
+    install_script(ON_DAMAGE, remove_the_attacker_body());
+    char_data* bear = make_walker("bear");
+    bear->player.race = RACE_BEORNING;
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    waiting_type target {};
+    target.targ1.set_character(victim);
+
+    SET_BIT(victim->specials.affected_by, AFF_BASH); // only a bashed victim is rent
+
+    do_rend(bear, empty_argument(), &target, 0, 0);
+
+    EXPECT_FALSE(is_in_game(bear));
+    EXPECT_TRUE(is_in_game(victim));
+}
+
+TEST_F(CombatMovementTest, ABiteWhoseBlowRemovesTheBearStopsThere)
+{
+    install_script(ON_DAMAGE, remove_the_attacker_body());
+    char_data* bear = make_walker("bear");
+    bear->player.race = RACE_BEORNING;
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    waiting_type target {};
+    target.targ1.set_character(victim);
+
+    do_bite(bear, empty_argument(), &target, 0, 0);
+
+    EXPECT_FALSE(is_in_game(bear));
+}
+
+TEST_F(CombatMovementTest, AMaulWhoseBlowRemovesTheBearStopsThere)
+{
+    install_script(ON_DAMAGE, remove_the_attacker_body());
+    char_data* bear = make_walker("bear");
+    bear->player.race = RACE_BEORNING;
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    waiting_type target {};
+    target.targ1.set_character(victim);
+
+    do_maul(bear, empty_argument(), &target, 0, 0);
+
+    EXPECT_FALSE(is_in_game(bear));
+}
+
 // Thuringwethil at this many hit points or fewer is beaten and leaves the game (her procedure).
 constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
 // A blow too light to kill anyone with her hit points.
@@ -701,6 +760,79 @@ TEST_F(CombatMovementTest, ABlowAtThuringwethilLetsGoOfHerWhenSheLeaves)
     RELEASE(vampire_profs);
 }
 
+// ---- delays that run the rest of a paused script ----
+
+// do_bash's stage that knocks down the character it waited on (its subcommand).
+constexpr int BASH_CHARACTER_STAGE = 1;
+
+// A bash knocks its victim down, which ends the victim's pause: the rest of its script makes the
+// basher vanish, and the basher then does not go on to hurt anyone.
+TEST_F(CombatMovementTest, ABasherTheBashedMobsPausedScriptRemovesStopsThere)
+{
+    install_pause_then_vanish_scripts();
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    char_data* basher = make_walker("basher");
+    basher->specials.script_number = OTHER_SCRIPT_VNUM;
+    basher->points.OB = SURE_TO_LAND_OB; // a mob knows every skill at 80
+    run_command_as(basher, do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, victim->delay.cmd);
+    waiting_type target {};
+    target.targ1.set_character(victim);
+
+    do_bash(basher, empty_argument(), &target, CMD_BASH, BASH_CHARACTER_STAGE);
+
+    EXPECT_FALSE(is_in_game(basher));
+    EXPECT_TRUE(is_in_game(victim));
+    EXPECT_EQ(victim->tmpabilities.hit, victim->abilities.hit) << "nobody was left to hurt it";
+}
+
+// A rescue holds up the one rescued, which ends its pause: the rest of its script makes the
+// rescuer vanish, and the rescuer is then not held up in turn.
+TEST_F(CombatMovementTest, ARescuerTheRescuedMobsPausedScriptRemovesStopsThere)
+{
+    install_pause_then_vanish_scripts();
+    char_data* rescued = make_walker("rescued");
+    rescued->specials.script_number = SCRIPT_VNUM;
+    char_data* attacker = make_walker("attacker");
+    char_data* rescuer = make_walker("rescuer");
+    rescuer->specials.script_number = OTHER_SCRIPT_VNUM;
+    run_command_as(rescuer, do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, rescued->delay.cmd);
+    set_fighting(attacker, rescued);
+    set_fighting(rescued, attacker);
+    waiting_type target {};
+    target.targ1.set_character(rescued);
+    push_test_random_value(LOWEST_ROLL); // the rescue succeeds (a mob knows it at 80)
+    char rescued_name[] = "rescued";
+
+    do_rescue(rescuer, rescued_name, &target, CMD_RESCUE, 0);
+
+    EXPECT_FALSE(is_in_game(rescuer)) << output();
+    EXPECT_TRUE(is_in_game(rescued));
+}
+
+// Disengaging ends the disengager's pause: the rest of its script makes the one it fights vanish,
+// which ends the fight, and there is nobody left to stop fighting.
+TEST_F(CombatMovementTest, ADisengageWhosePausedScriptEndsTheFightStopsThere)
+{
+    install_pause_then_vanish_scripts();
+    char_data* disengager = make_walker("disengager");
+    disengager->specials.script_number = SCRIPT_VNUM;
+    char_data* foe = make_walker("foe");
+    foe->specials.script_number = OTHER_SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, disengager->delay.cmd);
+    set_fighting(disengager, foe); // the foe does not fight back, so it lets the disengager go
+
+    do_disengage(disengager, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(foe));
+    ASSERT_TRUE(is_in_game(disengager));
+    EXPECT_EQ(nullptr, disengager->specials.fighting);
+    EXPECT_EQ(0, count_in_output("stops fighting"));
+}
+
 /* ---- blows ---- */
 
 /* The victim's damage script removes whoever strikes it. The first fighter's blow removes it, and
@@ -721,6 +853,20 @@ TEST_F(CombatMovementTest, TheCombatRoundLetsGoOfAFighterItsOwnBlowRemoved)
 
     EXPECT_FALSE(is_in_game(first_fighter));
     EXPECT_FALSE(is_in_game(second_fighter));
+    EXPECT_TRUE(is_in_game(victim));
+}
+
+TEST_F(CombatMovementTest, AKickerTheVictimsScriptRemovesHasNoRecovery)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* kicker = make_walker("kicker");
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    char argument[] = "victim";
+
+    do_kick(kicker, argument, nullptr, 0, SCMD_KICK);
+
+    EXPECT_FALSE(is_in_game(kicker));
     EXPECT_TRUE(is_in_game(victim));
 }
 
