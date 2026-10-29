@@ -1746,7 +1746,19 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
         tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
+        // A special procedure can remove either fighter whatever it returns (Thuringwethil's
+        // leaves at 500 hit points).
+        freed_watch special_victim_watch(victim);
+        freed_watch special_attacker_watch(attacker);
         i = special(attacker, 0, "", SPECIAL_DAMAGE, &tmpwtl);
+        if (special_victim_watch.freed()) {
+            return 1;
+        }
+
+        if (special_attacker_watch.freed()) {
+            return 0;
+        }
+
         if (i) {
             if (attacker->specials.fighting == victim)
                 stop_fighting(attacker);
@@ -2656,6 +2668,7 @@ void hit(char_data* ch, char_data* victim, int type)
                 do_parry(ch, victim, w_type);
                 freed_watch attacker_watch(ch);
                 freed_watch defender_watch(victim);
+                freed_watch weapon_watch(wielded);
                 if (check_riposte(ch, victim))
                     return;
                 /* The riposte's scripts can remove either fighter, or ch's weapon. */
@@ -2663,7 +2676,13 @@ void hit(char_data* ch, char_data* victim, int type)
                     return;
                 }
 
-                check_grip(ch, wielded);
+                // A weapon the riposte's scripts destroyed is no longer gripped.
+                const obj_data* gripped_weapon = wielded;
+                if (weapon_watch.freed()) {
+                    gripped_weapon = nullptr;
+                }
+
+                check_grip(ch, gripped_weapon);
                 check_grip(victim, victim->equipment[WIELD]);
             } else {
                 /* Generate a hit location based on bodypart structure */
@@ -2721,13 +2740,16 @@ void hit(char_data* ch, char_data* victim, int type)
                 weapon_master.do_on_damage_dealt(dam, victim);
 
                 freed_watch attacker_watch(ch);
+                freed_watch weapon_watch(wielded);
                 damage(ch, victim, dam, w_type, location);
                 /* The blow's scripts can remove the attacker. */
                 if (attacker_watch.freed()) {
                     return;
                 }
 
-                if (dam > 0) {
+                // The weapon's ON_DAMAGE script may have extracted it during damage(), which frees
+                // it: a destroyed weapon is no longer gripped.
+                if (dam > 0 && !weapon_watch.freed()) {
                     check_grip(ch, wielded);
                 }
 
@@ -2761,7 +2783,14 @@ void hit(char_data* ch, char_data* victim, int type)
         tmpwtl.targ1.set_character(victim);
         tmpwtl.targ2.ptr.other = 0;
         tmpwtl.targ2.type = TARGET_NONE;
+        // A special procedure can remove either fighter whatever it returns, as in damage().
+        freed_watch special_victim_watch(victim);
+        freed_watch special_attacker_watch(ch);
         tmp = special(ch, 0, "", SPECIAL_DAMAGE, &tmpwtl);
+        if (special_victim_watch.freed() || special_attacker_watch.freed()) {
+            return;
+        }
+
         if (tmp) {
             if (ch->specials.fighting == victim)
                 stop_fighting(ch);
@@ -2783,6 +2812,8 @@ void hit(char_data* ch, char_data* victim, int type)
         GET_POS(victim) = POSITION_FIGHTING;
     }
 
+    // Fleeing can remove the victim (a script where it arrives, a death room), as in damage().
+    freed_watch fleeing_watch(victim);
     if (GET_HIT(victim) < GET_MAX_HIT(victim) / 5) {
         act("You wish that your wounds would stop BLEEDING so much!",
             FALSE, victim, 0, 0, TO_CHAR);
@@ -2790,6 +2821,10 @@ void hit(char_data* ch, char_data* victim, int type)
             if (IS_SET(victim->specials2.act, MOB_WIMPY))
                 if (GET_POSITION(victim) > POSITION_SLEEPING)
                     do_flee(victim, "", 0, 0, 0);
+
+        if (fleeing_watch.freed()) {
+            return;
+        }
     }
 
     if (!IS_NPC(victim) && WIMP_LEVEL(victim) && victim != ch && GET_HIT(victim) < WIMP_LEVEL(victim)) {
@@ -2797,10 +2832,18 @@ void hit(char_data* ch, char_data* victim, int type)
             send_to_char("You wimp out, and attempt to flee!\n\r", victim);
             do_flee(victim, "", 0, 0, 0);
         }
+
+        if (fleeing_watch.freed()) {
+            return;
+        }
     }
 
     if (!IS_NPC(victim) && !(victim->desc && victim->desc->descriptor) && victim->specials.fighting && GET_POS(victim) > POSITION_INCAP) {
         do_flee(victim, "", 0, 0, 0);
+        if (fleeing_watch.freed()) {
+            return;
+        }
+
         victim->specials.was_in_room = victim->in_room;
     }
 }

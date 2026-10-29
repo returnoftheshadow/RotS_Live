@@ -483,6 +483,24 @@ TEST_F(CombatMovementTest, AFleerRemovedBeforeItEntersIsLetGo)
     EXPECT_FALSE(is_in_game(fleer));
 }
 
+// Too tired to strike, the attacker still frightens its badly hurt victim into fleeing; the
+// victim is removed where it flees to, and the attack lets it go.
+TEST_F(CombatMovementTest, AMissThatMakesTheVictimFleeLetsGoOfARemovedVictim)
+{
+    install_guard_and_watcher(ON_BEFORE_ENTER);
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* attacker = make_walker("attacker");
+    char_data* victim = make_walker("victim");
+    make_ready_to_flee(victim);
+    attacker->specials.position = POSITION_FIGHTING;
+    attacker->specials.ENERGY = 0;
+
+    hit(attacker, victim, TYPE_UNDEFINED);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_TRUE(is_in_game(attacker));
+}
+
 /* The wind pushes its victim out, where it is removed. AddressSanitizer is what protects this
  * test: the wind would go on to try the freed victim's other exits. */
 TEST_F(CombatMovementTest, AVictimTheWindPushesIsLetGoWhereAGuardRemovesIt)
@@ -645,6 +663,42 @@ TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
 
     EXPECT_EQ(1, count_in_output("Ouch."));
     EXPECT_LT(ponger->tmpabilities.hit, ponger->abilities.hit);
+}
+
+// Thuringwethil at this many hit points or fewer is beaten and leaves the game (her procedure).
+constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
+// A blow too light to kill anyone with her hit points.
+constexpr int LIGHT_BLOW_DAMAGE = 10;
+
+// Thuringwethil's procedure has her leave once she is down to 500 hit points, whatever event
+// calls it: a blow at her through damage() lets go of her when she does.
+TEST_F(CombatMovementTest, ABlowAtThuringwethilLetsGoOfHerWhenSheLeaves)
+{
+    char_data* attacker = make_walker("attacker");
+    char_data* vampire = make_walker("thuringwethil");
+    index_data prototype_index[1] {};
+    prototype_index[0].func = thuringwethil;
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+    vampire->nr = 0;
+    char vampire_name[] = "thuringwethil";
+    RELEASE(vampire->player.name);
+    RELEASE(vampire->player.short_descr);
+    vampire->player.name = vampire_name;
+    vampire->player.short_descr = vampire_name;
+    char_prof_data* vampire_profs = vampire->profs; // free_char leaves it to the prototype
+    SET_BIT(MOB_FLAGS(vampire), MOB_SPEC);
+    vampire->tmpabilities.hit = THURINGWETHIL_BEATEN_HIT_POINTS;
+
+    EXPECT_EQ(1, damage(attacker, vampire, LIGHT_BLOW_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_TRUE(is_in_game(attacker));
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    RELEASE(vampire_profs);
 }
 
 /* ---- blows ---- */
