@@ -18,6 +18,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -785,6 +786,9 @@ void spirit_death(char_data* character)
 
 obj_data* make_corpse(char_data* character, const char_data* killer, int attack_type)
 {
+    /* A knocker a procedure on the far side of a door kills is lent that room: it falls where it
+     * stands. */
+    room_lend::end_for(character);
     if (!IS_SHADOW(character)) {
         return make_physical_corpse(character, killer, attack_type);
     } else {
@@ -910,6 +914,10 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
         affect_remove(dead_man, dead_man->affected);
     }
     death_cry(dead_man);
+    /* The dying are dead from here on, as die() leaves them: taking their gear off can cast an
+     * item's spell or poison them (unequip_char), and a blow or death then would land on someone
+     * half stripped and kill them a second time. */
+    GET_POS(dead_man) = POSITION_DEAD;
     obj_data* corpse = make_corpse(dead_man, killer, attack_type);
 
     // Let big brother know that the player died.
@@ -948,6 +956,8 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
             GET_MOVE(dead_man) = 0;
         }
 
+        /* A player with no link is saved and freed by extract_char. */
+        freed_watch dying_player_watch(dead_man);
         if (GET_LEVEL(dead_man) < LEVEL_IMMORT) {
             // Note, these are two different int arrays.
             dead_man->specials2.load_room = mortal_start_room[race];
@@ -957,7 +967,9 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
             extract_char(dead_man, r_immort_start_room);
         }
 
-        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+        if (!dying_player_watch.freed()) {
+            REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+        }
     } else {
         extract_char(dead_man);
     }
@@ -1690,6 +1702,13 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
 
     if (!victim)
         return 0;
+
+    /* Someone in no room is being taken out of the game (extract_char takes the gear off after
+     * the room, and an item's spell can strike as it comes off): no blow lands, as a death there
+     * would have no room for its corpse. */
+    if (victim->in_room == NOWHERE) {
+        return 0;
+    }
 
     if (!attacker)
         attacker = victim; /* emergency fix */

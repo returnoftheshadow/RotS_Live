@@ -23,6 +23,7 @@
 #include "mudlle.h"
 #include "pkill.h"
 #include "protos.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -3773,6 +3774,9 @@ char* fread_line(FILE* fp)
 /* release memory allocated for a char struct */
 void free_char(struct char_data* ch)
 {
+    note_char_freed(ch);
+    /* A lend still in scope would otherwise give the room back to freed memory. */
+    room_lend::end_for(ch);
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);
@@ -3855,6 +3859,7 @@ void free_obj(struct obj_data* obj)
          RELEASE(thith);
        }
    } */
+    note_object_freed(obj);
 
     RELEASE(obj);
 }

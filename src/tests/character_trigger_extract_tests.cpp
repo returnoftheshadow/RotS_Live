@@ -57,3 +57,58 @@ protected:
 };
 
 } // namespace
+
+/* ---- scripts paused with DO_WAIT ---- */
+
+/* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list
+ * resumes it. */
+constexpr int PAUSE_PULSES = 1;
+
+/* A script body that pauses for one pulse, then tells the room the mob fades and removes it. */
+static std::vector<body_line> pause_then_remove_body()
+{
+    return { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+        { SCRIPT_SEND_TO_ROOM, "The mob fades.", { SCRIPT_PARAM_CH1_ROOM } },
+        { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } };
+}
+
+TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemoved)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    make_mob("first mob", SCRIPT_VNUM);
+    make_mob("second mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_NE(nullptr, waiting_list) << "both mobs paused";
+
+    process_waiting_list();
+
+    EXPECT_EQ(2, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, character_list);
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
+/* ---- rooms lent while knocking ---- */
+
+/* A character freed by free_char alone while lent a room ends the lend, so going out of scope
+ * the lend gives no room back to freed memory, and an older lend of someone else still ends as
+ * usual. */
+TEST_F(CharacterTriggerTest, FreeingACharacterEndsItsRoomLend)
+{
+    owned_character visitor(MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(visitor), MOB_ISNPC);
+    visitor->nr = -1; /* no prototype: free_char releases its strings */
+    visitor->player.name = str_dup("visitor");
+    register_npc_char(visitor);
+    /* In room 0 as far as it knows, but on no list, so nothing else ends the lend. */
+    visitor->in_room = 0;
+    {
+        room_lend player_lend(&m_player, SECOND_ROOM);
+        {
+            room_lend visitor_lend(visitor, SECOND_ROOM);
+            /* Freed as the game frees it, while still lent the room. */
+            free_char(visitor.release());
+        }
+        EXPECT_EQ(SECOND_ROOM, m_player.in_room) << "the player's lend outlives the visitor's";
+    }
+    EXPECT_EQ(0, m_player.in_room);
+}

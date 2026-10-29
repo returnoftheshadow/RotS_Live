@@ -102,3 +102,54 @@ private:
 };
 
 } // namespace
+
+TEST_F(FishAndUseTest, AStaffOfASpellPastTheSkillsTableDoesNothing)
+{
+    obj_data* staff = hold_stick(ITEM_STAFF, SPELL_PAST_THE_TABLE);
+
+    run_command(do_use, "ring");
+
+    EXPECT_TRUE(output_has("You tap")) << output();
+    EXPECT_EQ(0, staff->obj_flags.value[2]) << "the charge is spent, as for a staff of no spell";
+}
+
+TEST_F(FishAndUseTest, AWandOfASpellBeforeTheSkillsTableDoesNothing)
+{
+    obj_data* wand = hold_stick(ITEM_WAND, SPELL_BEFORE_THE_TABLE);
+
+    run_command(do_use, "ring tester");
+
+    EXPECT_TRUE(output_has("You point")) << output();
+    EXPECT_EQ(0, wand->obj_flags.value[2]);
+}
+
+TEST_F(FishAndUseTest, AStaffOfAResistSpellHasNobodyToMakeResistant)
+{
+    hold_stick(ITEM_STAFF, SPELL_RESIST_FIRE);
+
+    run_command(do_use, "ring");
+
+    EXPECT_TRUE(output_has("Nothing seems to happen.")) << output();
+    EXPECT_EQ(nullptr, affected_by_spell(&m_player, SPELL_RESIST_FIRE));
+}
+
+TEST_F(FishAndUseTest, AWandOfAResistSpellPointedAtAnObjectHasNobodyToMakeResistant)
+{
+    hold_stick(ITEM_WAND, SPELL_RESIST_FIRE);
+    obj_to_room(make_object(STONE_VNUM, 0), 0);
+
+    run_command(do_use, "ring stone");
+
+    EXPECT_TRUE(output_has("Nothing seems to happen.")) << output();
+    EXPECT_EQ(nullptr, affected_by_spell(&m_player, SPELL_RESIST_FIRE));
+}
+
+TEST_F(FishAndUseTest, AWandOfAResistSpellPointedAtSomeoneMakesThemResistant)
+{
+    hold_stick(ITEM_WAND, SPELL_RESIST_FIRE);
+
+    run_command(do_use, "ring tester");
+
+    EXPECT_TRUE(output_has("You feel resistant to fire!")) << output();
+    EXPECT_NE(nullptr, affected_by_spell(&m_player, SPELL_RESIST_FIRE));
+}
