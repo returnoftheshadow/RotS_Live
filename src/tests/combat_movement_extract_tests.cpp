@@ -670,6 +670,27 @@ TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
 
 // ---- skills and special procedures ----
 
+// The id the first olog-hai of these tests gets, past any id the other tests give.
+constexpr long FIRST_OLOG_HAI_IDNUM = 900000;
+// How well the olog-hai knows its skills: as well as a mob knows every skill.
+constexpr int OLOG_HAI_SKILL_LEVEL = 80;
+
+// Makes the player an olog-hai who knows its skills and wields a sword (a mob olog-hai cannot use
+// them: its damage divides by its tactics, which a mob does not have).
+static void make_olog_hai(char_data& player, obj_data* sword)
+{
+    // The skill timers outlive a test and are kept by id: each test's olog-hai is someone new.
+    static long next_idnum = FIRST_OLOG_HAI_IDNUM;
+    player.specials2.idnum = next_idnum++;
+    player.player.race = RACE_OLOGHAI;
+    for (int skill : { SKILL_SMASH, SKILL_STOMP, SKILL_CLEAVE }) {
+        player.knowledge[skill] = OLOG_HAI_SKILL_LEVEL;
+        player.skills[skill] = OLOG_HAI_SKILL_LEVEL;
+    }
+    equip_char(&player, sword, WIELD);
+    player.points.OB = SURE_TO_LAND_OB;
+}
+
 // The body of a damage script that removes the attacker (ch2).
 static std::vector<body_line> remove_the_attacker_body()
 {
@@ -722,6 +743,71 @@ TEST_F(CombatMovementTest, AMaulWhoseBlowRemovesTheBearStopsThere)
     do_maul(bear, empty_argument(), &target, 0, 0);
 
     EXPECT_FALSE(is_in_game(bear));
+}
+
+// A roll high enough that an olog-hai's skill lands, and that a smash knocks a rider off.
+constexpr double LANDING_ROLL = 0.99;
+// How long a paused victim's script waits: only a delay that ends the pause early resumes it.
+constexpr int PAUSE_PULSES = 5;
+// The hit points any blow takes: a smash fells the rider.
+constexpr int LAST_HIT_POINT = 1;
+
+// The olog-hai's cleave hits everyone in the room; each victim's damage script removes it, and the
+// cleave still goes on to the next.
+TEST_F(CombatMovementTest, ACleaveGoesOnPastVictimsThatRemoveThemselves)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    make_olog_hai(m_player, make_object(SWORD_VNUM, 0));
+    char_data* first = make_walker("first");
+    first->specials.script_number = SCRIPT_VNUM;
+    char_data* second = make_walker("second");
+    second->specials.script_number = SCRIPT_VNUM;
+
+    do_cleave(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(first));
+    EXPECT_FALSE(is_in_game(second));
+}
+
+// Stomp knocks its victim down before hurting it; the victim was paused in a script whose rest,
+// run at once by the knock-down, removes it: the stomp does not hurt what is gone.
+TEST_F(CombatMovementTest, AStompOnAPausedVictimItsScriptRemovesHurtsNobody)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    make_olog_hai(m_player, make_object(SWORD_VNUM, 0));
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, victim->delay.cmd);
+    push_test_random_value(LANDING_ROLL); // the stomp's to-hit roll
+
+    do_stomp(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(victim)) << output();
+}
+
+// A smash fells a mounted victim whose death script refuses death: the victim is still there, so
+// it is knocked off its mount as any smash of a rider does.
+TEST_F(CombatMovementTest, ASmashOnARiderWhoRefusesToDieStillUnseatsIt)
+{
+    install_script(ON_DIE, { { SCRIPT_RETURN_FALSE, nullptr, {} } });
+    make_olog_hai(m_player, make_object(SWORD_VNUM, 0));
+    char_data* rider = make_walker("rider");
+    rider->specials.script_number = SCRIPT_VNUM;
+    rider->tmpabilities.hit = LAST_HIT_POINT;
+    char_data* horse = make_walker("horse");
+    seat(rider, horse);
+    waiting_type target {};
+    target.targ1.set_character(rider);
+    push_test_random_value(LANDING_ROLL); // the to-hit roll
+    push_test_random_value(LANDING_ROLL); // the smash's roll to knock a rider off
+
+    do_smash(&m_player, empty_argument(), &target, 0, 0);
+
+    ASSERT_TRUE(is_in_game(rider));
+    EXPECT_FALSE(IS_RIDING(rider)) << output();
 }
 
 // Thuringwethil at this many hit points or fewer is beaten and leaves the game (her procedure).
