@@ -1594,9 +1594,11 @@ int Crash_report_unrentables(struct char_data* ch, struct char_data* recep,
     if (obj) {
         if (Crash_is_unrentable(obj)) {
             has_norents = 1;
-            /* Built on the heap: a short description has no length limit, and this recurses
-               once per object carried. */
-            std::string refusal = "$n tells you, 'You cannot store ";
+            /* A string, because a short description has no length limit. It is kept between calls
+               so its buffer is reused, not reallocated for every unrentable item; the game is
+               single-threaded, and act() is done with it before the recursion below. */
+            static std::string refusal;
+            refusal = "$n tells you, 'You cannot store ";
             refusal += OBJS(obj, ch);
             refusal += ".'";
             act(refusal.c_str(), FALSE, recep, 0, ch, TO_VICT);
