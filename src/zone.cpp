@@ -9,6 +9,7 @@
 #include "db.h" /* For buf2 and struct reset_com */
 #include "handler.h" /* For FOLLOW_MOVE */
 #include "pkill.h" /* For pkill_get_XXX_fame() */
+#include "script.h" /* For release_char_script_state */
 #include "structs.h" /* For struct owner_list */
 #include "utils.h" /* For CREATE */
 #include "zone.h"
@@ -927,7 +928,8 @@ void reset_zone(int zone)
                     break;
                 case 12: /* Assign script to mob */
                     mob->specials.script_number = ZCMD.arg2;
-                    mob->specials.script_info = 0; /* Probably unnecessary */
+                    /* A mob found with 'L' may have run its old script already. */
+                    release_char_script_state(mob);
                     break;
                 default:
                     vmudlog(CMP, "Unrecognized 'A' command: %d %d %d in zone #%d.",

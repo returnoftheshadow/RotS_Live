@@ -1217,6 +1217,58 @@ TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
     EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
 }
 
+/* ---- a zone reset that gives a mob another script (A 12) ---- */
+
+/* The zone reset commands the test runs, as reset_zone reads them: 'L' subcommand 0 finds the
+ * <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12 gives it script <arg2>. */
+constexpr int RESET_FINDS_MOB = 0;
+constexpr int RESET_ROOM = 0;
+constexpr int NO_PROTOTYPE = -1;
+constexpr int FIRST_MATCH = 1;
+constexpr int RESET_ASSIGNS_SCRIPT = 12;
+constexpr int RESET_COMMAND_COUNT = 2;
+
+TEST_F(CharacterTriggerTest, AMobGivenAnotherScriptByAZoneResetRunsTheNewOneAfresh)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_SEND_TO_ROOM, "Old script heard [%s].",
+                                  { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_ROOM, "New script heard [%s].",
+                    { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    char_data* mob = make_mob("listener", SCRIPT_VNUM);
+    run_command(do_say, "first");
+    ASSERT_TRUE(output_has("Old script heard [first].")) << output();
+    ASSERT_NE(nullptr, mob->specials.script_info) << "its script kept its state";
+    /* L 0: the first mob with no prototype in room 0; A 12: give it OTHER_SCRIPT_VNUM. */
+    reset_com commands[RESET_COMMAND_COUNT] {};
+    commands[0].command = 'L';
+    commands[0].arg1 = RESET_FINDS_MOB;
+    commands[0].arg2 = RESET_ROOM;
+    commands[0].arg3 = NO_PROTOTYPE;
+    commands[0].arg4 = FIRST_MATCH;
+    commands[1].command = 'A';
+    commands[1].arg1 = RESET_ASSIGNS_SCRIPT;
+    commands[1].arg2 = OTHER_SCRIPT_VNUM;
+    zone_data zone {};
+    zone.cmd = commands;
+    zone.cmdno = RESET_COMMAND_COUNT;
+    /* The fixture's zone table goes back before the local zone does. */
+    zone_data* const fixture_zone_table = zone_table;
+    zone_table = &zone;
+
+    reset_zone(0);
+    zone_table = fixture_zone_table;
+
+    EXPECT_EQ(OTHER_SCRIPT_VNUM, mob->specials.script_number);
+    EXPECT_EQ(nullptr, mob->specials.script_info) << "the old script's state was let go";
+    run_command(do_say, "second");
+    EXPECT_TRUE(output_has("New script heard [second].")) << output();
+    EXPECT_FALSE(output_has("Old script heard [second].")) << output();
+}
+
 /* ---- rooms lent while knocking ---- */
 
 /* A character freed by free_char alone while lent a room ends the lend, so going out of scope

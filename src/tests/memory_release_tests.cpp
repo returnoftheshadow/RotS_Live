@@ -45,6 +45,16 @@ constexpr std::size_t ALLOWED_GROWTH = ROUNDS * SMALLEST_LEAK_PER_ROUND / 4;
 /* An amount create_money shows as a large heap of coins, with an extra description of its own. */
 constexpr int COINS_IN_A_LARGE_HEAP = 5000;
 
+/* The zone reset commands install_script_assigning_zone writes, as reset_zone reads them: 'L'
+ * subcommand 0 finds the <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12
+ * gives it script <arg2>. */
+constexpr int RESET_FINDS_MOB = 0;
+constexpr int RESET_ROOM = 0;
+constexpr int NO_PROTOTYPE = -1;
+constexpr int FIRST_MATCH = 1;
+constexpr int RESET_ASSIGNS_SCRIPT = 12;
+constexpr int RESET_COMMAND_COUNT = 2;
+
 class MemoryReleaseTest : public ScriptedRoomFixture {
 protected:
     /* How many bytes in use grew over ROUNDS calls of <round>, measured after WARM_UP_ROUNDS
@@ -74,7 +84,28 @@ protected:
         m_descriptor.bufspace = SMALL_BUFSIZE - 1;
     }
 
+    /* Makes the zone table one zone whose reset finds the first mob with no prototype in room 0
+     * ('L') and gives it script <script_vnum> (A 12). */
+    void install_script_assigning_zone(int script_vnum)
+    {
+        m_commands[0].command = 'L';
+        m_commands[0].arg1 = RESET_FINDS_MOB;
+        m_commands[0].arg2 = RESET_ROOM;
+        m_commands[0].arg3 = NO_PROTOTYPE;
+        m_commands[0].arg4 = FIRST_MATCH;
+        m_commands[1].command = 'A';
+        m_commands[1].arg1 = RESET_ASSIGNS_SCRIPT;
+        m_commands[1].arg2 = script_vnum;
+        m_zone.cmd = m_commands;
+        m_zone.cmdno = RESET_COMMAND_COUNT;
+        zone_table = &m_zone;
+    }
+
 private:
+    // The reset commands install_script_assigning_zone writes.
+    reset_com m_commands[RESET_COMMAND_COUNT] {};
+    // The zone those commands belong to; TearDown puts the game's zone table back.
+    zone_data m_zone {};
 };
 
 } // namespace
@@ -87,6 +118,30 @@ TEST_F(MemoryReleaseTest, FreeingAMobWithNoPrototypeGivesBackItsKeywords)
 
     const std::size_t growth = growth_over_rounds([this]() -> void {
         extract_char(make_mob("listener", 0));
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, AZoneResetGivingAMobAnotherScriptGivesBackItsOldScriptState)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY,
+            { { SCRIPT_SEND_TO_ROOM, "The mob heard [%s].",
+                { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    char_data* mob = make_mob("listener", SCRIPT_VNUM);
+    /* The reset gives the mob the same script again, so each say starts it afresh. */
+    install_script_assigning_zone(SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_NE(nullptr, mob->specials.script_info) << "hearing gave the mob script state";
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        reset_zone(0);
+        run_command(do_say, "hello");
+        clear_output();
     });
 
     EXPECT_LT(growth, ALLOWED_GROWTH);

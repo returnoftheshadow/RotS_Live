@@ -218,6 +218,9 @@ void note_object_freed(obj_data* object);
 /* The same for <character>, whose running scripts' ch1-ch3 naming it are emptied. free_char calls
  * it for every character it frees. */
 void note_char_freed(char_data* character);
+/* Releases <character>'s script state, so that its next trigger starts afresh: at once or, while
+ * a script is running on that state, when the script ends. */
+void release_char_script_state(char_data* character);
 
 /* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the
  * trigger on <current> has run. <following> is current's next_in_room from before the trigger,
