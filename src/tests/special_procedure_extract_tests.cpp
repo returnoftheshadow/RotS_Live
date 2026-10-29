@@ -789,11 +789,161 @@ TEST_F(SpecialProcedureTest, ARiderWhoseDeathRemovesTheMountLeavesThePassengerBe
     EXPECT_EQ(0, passenger->in_room);
 }
 
-// ---- the dragon's breath ----
-
 // Rolls that number(from, to) turns into its lowest and its highest result.
 constexpr double LOWEST_ROLL = 0.0;
 constexpr double HIGHEST_ROLL = 0.999;
+
+// ---- mob turns ----
+
+TEST_F(SpecialProcedureTest, AMobWhoseOwnProcedureRemovesItEndsItsTurn)
+{
+    char_data* vanishing = make_mob_with("vanishing", remove_own_mob);
+
+    one_mobile_activity(vanishing);
+
+    EXPECT_FALSE(is_in_game(vanishing));
+}
+
+TEST_F(SpecialProcedureTest, EveryMobTakesItsTurnWhenNoneIsRemoved)
+{
+    char_data* first = make_mob_with("first", record_offer);
+    char_data* second = make_mob_with("second", record_offer);
+    SET_BIT(MOB_FLAGS(first), MOB_SENTINEL);
+    SET_BIT(MOB_FLAGS(second), MOB_SENTINEL);
+    push_test_random_value(LOWEST_ROLL); // the first in the list takes its turn
+    push_test_random_value(LOWEST_ROLL); // and so does the second
+
+    mobile_activity();
+
+    EXPECT_TRUE(was_offered(first));
+    EXPECT_TRUE(was_offered(second));
+}
+
+// The first mob in the list removes the one after it and then itself: the pass ends there, and
+// says so in the log.
+TEST_F(SpecialProcedureTest, AMobActivityPassEndsWhenATurnRemovesTheNextMobToo)
+{
+    char_data* next = make_mob_with("next", record_offer);
+    char_data* remover = make_mob_with("remover", remove_marked_then_self);
+    ASSERT_EQ(remover, character_list);
+    ASSERT_EQ(next, remover->next);
+    record.character_to_remove = next;
+    push_test_random_value(LOWEST_ROLL); // the remover takes its turn
+
+    testing::internal::CaptureStderr();
+    mobile_activity();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(remover));
+    EXPECT_FALSE(is_in_game(next));
+    EXPECT_NE(std::string::npos,
+        logged.find("SYSERR: mobile_activity: the next character was freed; the rest wait for the "
+                    "next pass."))
+        << logged;
+}
+
+// How long the paused scripts wait: only a delay that ends the pause early resumes them.
+constexpr int PAUSE_PULSES = 5;
+
+// Returns the specs of script SCRIPT_VNUM, which pauses on hearing anything and then says
+// <word>, and of script OTHER_SCRIPT_VNUM, which runs <reaction> when it hears <heard>. The rest
+// of a paused script names nobody but its mob, so it reaches others through what it says.
+static std::vector<script_spec> pause_then_say_scripts(const char* word, const char* heard,
+    const std::vector<body_line>& reaction)
+{
+    std::vector<body_line> listener = { { SCRIPT_IF_STR_CONTAINS, heard, { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_BEGIN, nullptr, {} } };
+    listener.insert(listener.end(), reaction.begin(), reaction.end());
+    listener.push_back({ SCRIPT_END, nullptr, {} });
+    return { { SCRIPT_VNUM,
+                 { { ON_HEAR_SAY,
+                     { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+                         { SCRIPT_DO_SAY, word, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, listener } } } };
+}
+
+// The bodyguard rescues its master, which ends the master's pause: the rest of its script makes
+// the master's foe vanish, and the bodyguard does not then go after it.
+TEST_F(SpecialProcedureTest, ABodyguardWhoseRescueRemovesTheMastersFoeLetsItGo)
+{
+    install_scripts(pause_then_say_scripts(
+        "vanish", "VANISH", { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } }));
+    char_data* master = make_mob_with("master", nullptr);
+    master->specials.script_number = SCRIPT_VNUM;
+    char_data* foe = make_mob_with("foe", nullptr);
+    foe->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* bodyguard = make_mob_with("bodyguard", nullptr);
+    SET_BIT(MOB_FLAGS(bodyguard), MOB_BODYGUARD | MOB_SENTINEL);
+    add_follower(bodyguard, master, FOLLOW_MOVE);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, master->delay.cmd);
+    start_fight(master, foe);
+    push_test_random_value(LOWEST_ROLL); // the rescue succeeds (a mob knows it at 80)
+
+    one_mobile_activity(bodyguard);
+
+    EXPECT_FALSE(is_in_game(foe));
+    ASSERT_TRUE(is_in_game(bodyguard));
+    EXPECT_EQ(nullptr, bodyguard->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, ABodyguardRescuesEachFollowerInTrouble)
+{
+    char_data* bodyguard = make_mob_with("bodyguard", nullptr);
+    SET_BIT(MOB_FLAGS(bodyguard), MOB_BODYGUARD | MOB_SENTINEL);
+    char_data* first = make_mob_with("first", nullptr);
+    char_data* second = make_mob_with("second", nullptr);
+    add_follower(first, bodyguard, FOLLOW_MOVE);
+    add_follower(second, bodyguard, FOLLOW_MOVE);
+    char_data* first_foe = make_mob_with("foe", nullptr);
+    char_data* second_foe = make_mob_with("enemy", nullptr);
+    start_fight(first, first_foe);
+    start_fight(second, second_foe);
+    push_test_random_value(LOWEST_ROLL); // the first rescue succeeds
+    push_test_random_value(LOWEST_ROLL); // and so does the second
+
+    one_mobile_activity(bodyguard);
+
+    EXPECT_EQ(bodyguard, first_foe->specials.fighting);
+    EXPECT_EQ(bodyguard, second_foe->specials.fighting);
+}
+
+// The bodyguard rescues a follower, which ends the follower's pause: the rest of its script
+// makes a stranger take the follower on and then vanish, so that the follower follows nobody.
+// The rescues end there: the follower's place in the bodyguard's list is gone. Before the rescue
+// another mob that followed someone was removed, so a place in the list that has gone leads on
+// to one naming a removed mob.
+TEST_F(SpecialProcedureTest, ABodyguardStopsRescuingOnceTheRescuedStopsFollowingIt)
+{
+    install_scripts(pause_then_say_scripts("leave", "LEAVE",
+        { { SCRIPT_DO_FOLLOW, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_CH1 } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } }));
+    char_data* bodyguard = make_mob_with("bodyguard", nullptr);
+    SET_BIT(MOB_FLAGS(bodyguard), MOB_BODYGUARD | MOB_SENTINEL);
+    char_data* follower = make_mob_with("follower", nullptr);
+    follower->specials.script_number = SCRIPT_VNUM;
+    add_follower(follower, bodyguard, FOLLOW_MOVE);
+    char_data* stranger = make_mob_with("stranger", nullptr);
+    stranger->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* foe = make_mob_with("foe", nullptr);
+    char_data* stray = make_mob_with("stray", nullptr);
+    add_follower(stray, foe, FOLLOW_MOVE);
+    extract_char(stray);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, follower->delay.cmd);
+    start_fight(follower, foe);
+    push_test_random_value(LOWEST_ROLL); // the rescue succeeds
+
+    one_mobile_activity(bodyguard);
+
+    EXPECT_FALSE(is_in_game(stranger));
+    ASSERT_TRUE(is_in_game(follower));
+    EXPECT_EQ(nullptr, follower->master);
+    EXPECT_EQ(nullptr, bodyguard->followers);
+    EXPECT_EQ(bodyguard, foe->specials.fighting) << "the rescue itself went ahead";
+}
+
+// ---- the dragon's breath ----
 
 // Makes <breather> a fighting dragon whose breath comes this turn, with the player standing aside
 // (a player burnt to death would be saved to disk).
@@ -865,6 +1015,23 @@ TEST_F(SpecialProcedureTest, TheBreathEndsWithADragonAVictimRemoves)
 
     EXPECT_FALSE(is_in_game(breather));
     EXPECT_FALSE(is_hurt(second));
+}
+
+// The dragon breathes on its own turn, and its victim's damage script removes it: the turn ends
+// there. AddressSanitizer is what protects this test: the turn would go on to read the freed
+// dragon's delay.
+TEST_F(SpecialProcedureTest, ADragonItsBreathsVictimRemovesEndsItsTurn)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* breather = make_mob_with("dragon", dragon);
+    char_data* victim = make_mob_with("victim", nullptr);
+    victim->specials.script_number = SCRIPT_VNUM;
+    ready_to_breathe(m_player, breather);
+
+    one_mobile_activity(breather);
+
+    EXPECT_FALSE(is_in_game(breather));
+    EXPECT_TRUE(is_in_game(victim));
 }
 
 // ---- procedures that speak ----
