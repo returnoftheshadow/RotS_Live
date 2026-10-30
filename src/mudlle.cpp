@@ -1125,6 +1125,8 @@ SPECIAL(intelligent)
                 break;
             //  prog_point is automatic.,.
             host->specials.tactics++;
+            /* The call goes on the host's own call list. <ch> only set the program off; it is
+               often a player, whose union1 holds a reply pointer, not a call list. */
             PROG_NUMBER(host) = tmpvar;
             PROG_POINT(host) = -1;
             cmd_line = SPECIAL_PROGRAM(host);
