@@ -1087,13 +1087,18 @@ void shape_center_proto(struct char_data* ch, char* arg)
                     ->editflag
                     = proto_chain[3];
             break;
-        case 4:
+        case 4: {
+            char* before = SHAPE_PROTO(ch)->proto->player.description;
             DESCRCHANGE("DETAILED DESCRIPTION, shown by 'look <mob>'", SHAPE_PROTO(ch)->proto->player.description)
+            /* The editor copy owns its description, so the one an edit replaces is freed. */
+            if (SHAPE_PROTO(ch)->proto->player.description != before) {
+                RELEASE(before);
+            }
             if (IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_CHAIN))
                 SHAPE_PROTO(ch)
                     ->editflag
                     = proto_chain[4];
-            break;
+        } break;
         case 42: {
             char* before = SHAPE_PROTO(ch)->proto->specials.mob_options;
             bool finishing = IS_SET(SHAPE_PROTO(ch)->flags, SHAPE_SIMPLE_ACTIVE);

@@ -2117,6 +2117,9 @@ struct snoop_data {
 
 inline constexpr int BLOCK_STR_LEN = 512; /* how much to allocate initially
            for string_add messages */
+inline constexpr int MAX_NOTE_LENGTH = 1000; /* most characters a note written with `write` may hold */
+/* Most characters the text editor keeps in any text; string_add_finish explains the headroom. */
+inline constexpr int MAX_EDITED_TEXT_LENGTH = MAX_STRING_LENGTH - 257;
 
 struct descriptor_data {
     SocketType descriptor; /* file descriptor for socket	*/
@@ -2144,6 +2147,7 @@ struct descriptor_data {
     char* showstr_point; /*		-			*/
     char** str; /* for the modify-str system		*/
     unsigned int max_str; /*  allocated length of *str		*/
+    unsigned int str_limit; /* most characters string_add lets *str hold; 0 = no limit */
     unsigned int len_str; /* present length of *str               */
     unsigned int cur_str; /* current pointer position in *str     */
     int prompt_mode; /* control of prompt-printing		*/
