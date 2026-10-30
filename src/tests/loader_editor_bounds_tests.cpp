@@ -993,4 +993,260 @@ TEST(CharacterJsonLoader, SkipsAndLogsAnAffectTypeOutsideTheSkillTable)
         << log_text;
 }
 
+/* ---------------------------------------------------------------- fame command */
+
+// A player looking up PK records with the fame command, against a PK table the test fills.
+class FameCommandTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        m_previous_table = pkill_tab;
+        m_previous_length = pkill_tab_len;
+        clear_char(&m_player, MOB_VOID);
+        m_player.player.name = m_player_name;
+        m_player.player.level = 10;
+        m_player.in_room = 0;
+        m_player.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_player;
+    }
+
+    void TearDown() override
+    {
+        pkill_tab = m_previous_table;
+        pkill_tab_len = m_previous_length;
+        free(m_descriptor.get()->showstr_head);
+        m_descriptor.get()->showstr_head = nullptr;
+        m_descriptor.get()->showstr_point = nullptr;
+    }
+
+    // Makes the PK table <count> kills of player index 1 by player index 0, all made now.
+    void fill_kills(int count)
+    {
+        m_kills.assign(count, make_pkill(0, 1));
+        pkill_tab = m_kills.data();
+        pkill_tab_len = count;
+    }
+
+    // Runs fame with <argument>.
+    void fame(std::string argument)
+    {
+        do_fame(&m_player, &argument[0], nullptr, 0, 0);
+    }
+
+    // Collects what the player is told.
+    CapturingDescriptor m_descriptor;
+    // Storage for the player's name.
+    char m_player_name[16] = "Looker";
+    // The player typing fame.
+    char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
+    // The PK table while a test runs.
+    std::vector<PKILL> m_kills;
+    // The PK table before the test.
+    PKILL* m_previous_table = nullptr;
+    // Its length.
+    int m_previous_length = 0;
+};
+
+// How many times <needle> occurs in <haystack>.
+int count_of(const std::string& haystack, std::string_view needle)
+{
+    int count = 0;
+    for (size_t position = haystack.find(needle); position != std::string::npos;
+         position = haystack.find(needle, position + needle.size())) {
+        ++count;
+    }
+    return count;
+}
+
+TEST_F(FameCommandTest, ListsEveryRecordOfAPlayerWhoseRecordsOutgrowTheOldBuffer)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    constexpr int KILL_COUNT = 150; /* about 10,000 characters of records */
+    fill_kills(KILL_COUNT);
+
+    fame("aragorn");
+
+    const std::string output = m_descriptor.output();
+    EXPECT_EQ(count_of(output, "Aragorn killed Per%s%s%sent.\r\n"), KILL_COUNT);
+    const std::string summary = "There were " + std::to_string(KILL_COUNT)
+        + " records found about Aragorn, total fame 0.\r\n";
+    EXPECT_NE(output.find(summary), std::string::npos);
+}
+
+TEST_F(FameCommandTest, ShowsAPercentSignInANameAsWritten)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    fill_kills(1);
+
+    fame("aragorn");
+
+    const std::string output = m_descriptor.output();
+    EXPECT_NE(output.find("Aragorn killed Per%s%s%sent.\r\n"), std::string::npos) << output;
+    EXPECT_NE(output.find("There was 1 record found about Aragorn, total fame 0.\r\n"), std::string::npos) << output;
+}
+
+TEST_F(FameCommandTest, ShowsAPercentSignInTheDaysBattlesAsWritten)
+{
+    ScopedPlayerIndex index({ "aragorn", "per%s%s%sent" });
+    constexpr int KILL_COUNT = 3;
+    fill_kills(KILL_COUNT);
+
+    fame("all");
+
+    EXPECT_EQ(count_of(m_descriptor.output(), "Aragorn killed Per%s%s%sent.\r\n"), KILL_COUNT)
+        << m_descriptor.output();
+}
+
+/* ---------------------------------------------------------------- act */
+
+// A player in room 0 reading what act sends them.
+class ActMessageTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        clear_char(&m_player, MOB_VOID);
+        m_player.player.name = m_player_name;
+        m_player.player.level = 10;
+        m_player.in_room = 0;
+        m_player.specials.position = POSITION_STANDING; /* act skips sleepers */
+        m_player.desc = m_descriptor.get();
+        m_descriptor.get()->character = &m_player;
+    }
+
+    // What act sends the player for <message> with <text> as $T.
+    std::string act_to_player(const char* message, const char* text = nullptr)
+    {
+        act(message, FALSE, &m_player, nullptr, const_cast<char*>(text), TO_CHAR);
+        return m_descriptor.output();
+    }
+
+    // Collects what the player is told.
+    CapturingDescriptor m_descriptor;
+    // Storage for the player's name.
+    char m_player_name[16] = "Speaker";
+    // The player.
+    char_data m_player {};
+    // Frees what clear_char gave m_player when the test ends.
+    ClearedCharacterRelease m_player_release { &m_player };
+};
+
+TEST_F(ActMessageTest, SendsAnOrdinaryMessageAsBefore)
+{
+    EXPECT_EQ(act_to_player("you say '$T'", "hello"), "You say 'hello'\n\r");
+}
+
+TEST_F(ActMessageTest, CutsAMessageLongerThanItsBufferAndStillEndsTheLine)
+{
+    const std::string text(MAX_STRING_LENGTH + 500, 'X');
+
+    const std::string output = act_to_player("$T", text.c_str());
+
+    ASSERT_EQ(output.size(), static_cast<size_t>(MAX_STRING_LENGTH - 1));
+    EXPECT_EQ(output.substr(output.size() - 2), "\n\r");
+    EXPECT_EQ(output.find_first_not_of('X'), output.size() - 2);
+}
+
+TEST_F(ActMessageTest, DropsADollarSignEndingTheMessage)
+{
+    testing::internal::CaptureStderr();
+    const std::string output = act_to_player("that costs 5$");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(output, "That costs 5\n\r");
+}
+
+TEST_F(ActMessageTest, DropsAnUnknownCodeBeforeAnyOther)
+{
+    testing::internal::CaptureStderr();
+    const std::string output = act_to_player("a$zb");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(output, "Ab\n\r");
+}
+
+/* ---------------------------------------------------------------- typed text in act formats */
+
+// A speaker and a listener standing in room 0. Typed text reaches commands with every '$'
+// doubled by process_input, so the tests pass it that way.
+class TypedTextChannelTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        ensure_room_zero();
+        m_saved_people = world[0].people;
+        set_up(m_speaker, m_speaker_name, m_speaker_descriptor);
+        set_up(m_listener, m_listener_name, m_listener_descriptor);
+        SET_BIT(PRF_FLAGS(&m_speaker), PRF_ECHO);
+        m_speaker.next_in_room = &m_listener;
+        m_listener.next_in_room = nullptr;
+        world[0].people = &m_speaker;
+    }
+
+    void TearDown() override { world[0].people = m_saved_people; }
+
+    // Makes <person> a standing player called <name> in room 0, reading through <descriptor>.
+    static void set_up(char_data& person, char* name, CapturingDescriptor& descriptor)
+    {
+        clear_char(&person, MOB_VOID);
+        person.player.name = name;
+        person.player.level = 10;
+        person.in_room = 0;
+        person.specials.position = POSITION_STANDING;
+        person.desc = descriptor.get();
+        descriptor.get()->character = &person;
+        descriptor.get()->descriptor = 1; /* say speaks only to connected listeners */
+    }
+
+    // Collects what the speaker is told.
+    CapturingDescriptor m_speaker_descriptor;
+    // Collects what the listener hears.
+    CapturingDescriptor m_listener_descriptor;
+    // Storage for the speaker's name.
+    char m_speaker_name[16] = "Speaker";
+    // Storage for the listener's name.
+    char m_listener_name[16] = "Listener";
+    // The player typing.
+    char_data m_speaker {};
+    // Frees what clear_char gave m_speaker when the test ends.
+    ClearedCharacterRelease m_speaker_release { &m_speaker };
+    // The player hearing.
+    char_data m_listener {};
+    // Frees what clear_char gave m_listener when the test ends.
+    ClearedCharacterRelease m_listener_release { &m_listener };
+    // Room 0's people before the test.
+    char_data* m_saved_people = nullptr;
+};
+
+TEST_F(TypedTextChannelTest, SayShowsTypedCodesLiterally)
+{
+    char typed[] = "$$o $$T $$F $$p $$n hello";
+
+    do_say(&m_speaker, typed, nullptr, 0, 0);
+
+    EXPECT_EQ(m_listener_descriptor.output(), "Speaker says '$o $T $F $p $n hello'\n\r");
+    EXPECT_EQ(m_speaker_descriptor.output(), "You say '$o $T $F $p $n hello'\n\r");
+}
+
+TEST_F(TypedTextChannelTest, SayShowsOrdinaryTextAsBefore)
+{
+    char typed[] = "well met";
+
+    do_say(&m_speaker, typed, nullptr, 0, 0);
+
+    EXPECT_EQ(m_listener_descriptor.output(), "Speaker says 'well met'\n\r");
+}
+
+TEST_F(TypedTextChannelTest, EmoteShowsTypedCodesLiterally)
+{
+    char typed[] = "grins $$o $$T $$F $$p";
+
+    do_emote(&m_speaker, typed, nullptr, 0, 0);
+
+    EXPECT_EQ(m_listener_descriptor.output(), "Speaker grins $o $T $F $p\n\r");
+    EXPECT_EQ(m_speaker_descriptor.output(), "Speaker grins $o $T $F $p\n\r");
+}
 } // namespace

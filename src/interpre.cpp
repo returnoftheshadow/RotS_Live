@@ -9,6 +9,7 @@
  **************************************************************************/
 
 #include "platdef.h"
+#include <algorithm>
 #include <ctype.h>
 #include <optional>
 #include <stdio.h>
@@ -1353,6 +1354,10 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
             cmd = old_search_block(argument, begin, look_at, command, 0);
         }
     } else {
+        /* A delayed or program-called command has no typed text: its specials and handler are
+         * given an empty argument. */
+        argument[0] = '\0';
+
         /* if you're hazed, you have a 10% chance of forgetting targ1 */
         if (IS_AFFECTED(ch, AFF_HAZE))
             if (!number(0, 9)) {
@@ -1375,8 +1380,13 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
         cmd = -1;
 
     if (cmd <= 0) {
-        one_argument(argument + begin, local_buf);
-        subcmd = find_action(local_buf);
+        /* Only a typed word can name a social (find_action takes an empty one for whichever
+         * social it tries first). */
+        subcmd = -1;
+        if (!mode) {
+            one_argument(argument + begin, local_buf);
+            subcmd = find_action(local_buf);
+        }
         if (subcmd >= 0)
             cmd = CMD_SOCIAL;
         else
@@ -1527,11 +1537,9 @@ char* one_argument(char* argument, char* first_arg)
         /* Find length of first word */
         /* Make all letters lower case, AND copy them to first_arg */
         if (*(argument + begin) == '\'') {
-            for (look_at = 0; *(argument + begin + look_at) && (*(argument + begin + look_at) != '\''); look_at++)
-                *(first_arg + look_at) = LOWER(*(argument + begin + look_at));
-
-            if (*(argument + begin + look_at) == '\'')
-                look_at++;
+            /* A word that opens with a quote comes back empty, with only the quote consumed. */
+            *first_arg = '\0';
+            look_at = 1;
         } else {
             for (look_at = 0; *(argument + begin + look_at) > ' '; look_at++)
                 *(first_arg + look_at) = LOWER(*(argument + begin + look_at));
@@ -2299,24 +2307,32 @@ int find_name(const char* name)
     return -1;
 }
 
+bool parse_name(std::string_view argument, char* name)
+{
+    size_t name_start = 0;
+    while (name_start < argument.size()
+        && isspace(static_cast<unsigned char>(argument[name_start])))
+        ++name_start;
+    const std::string_view letters = argument.substr(name_start);
+
+    const bool fits = !letters.empty() && letters.size() <= static_cast<size_t>(MAX_PARSED_NAME_LENGTH);
+    const bool accepted = fits
+        && std::all_of(letters.begin(), letters.end(),
+            [](unsigned char letter) -> bool { return isalpha(letter) != 0; });
+    if (!accepted) {
+        name[0] = '\0';
+        return false;
+    }
+
+    letters.copy(name, letters.size());
+    name[letters.size()] = '\0';
+    return true;
+}
+
+// Returns 0 when 'arg' holds a name, 1 when it is refused; see parse_name.
 int _parse_name(const char* arg, char* name)
 {
-    int i;
-
-    /* skip whitespaces */
-    for (; isspace(*arg); arg++)
-        ;
-
-    for (i = 0; (*name = *arg); arg++, i++, name++)
-        if (!isalpha(*arg) || i > 15)
-            return 1;
-
-    if (!i)
-        return 1;
-    else
-        name[i] = 0;
-
-    return 0;
+    return parse_name(arg, name) ? 0 : 1;
 }
 
 namespace {
@@ -3004,6 +3020,11 @@ bool grant_account_character_selection_unlock(
 
     g_account_character_selection_unlocks[unlock_key] = build_account_character_selection_unlock(active_sessions);
     return true;
+}
+
+void clear_account_character_selection_unlocks_for_testing()
+{
+    g_account_character_selection_unlocks.clear();
 }
 
 void show_character_menu(struct descriptor_data* d)
