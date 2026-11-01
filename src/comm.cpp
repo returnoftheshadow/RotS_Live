@@ -2730,30 +2730,31 @@ void process_waiting_list()
 {
     char_data* next_waiter;
     for (char_data* waiter = waiting_list; waiter; waiter = next_waiter) {
-        if (waiter->delay.wait_value > 0) {
-            (waiter->delay.wait_value)--;
+        waiting_type& delay = waiter->delay;
+        if (delay.wait_value > 0) {
+            delay.wait_value--;
         }
 
-        if (waiter->delay.wait_value > 0) {
+        if (delay.wait_value > 0) {
             if (!IS_NPC(waiter) && IS_AFFECTED(waiter, AFF_WAITWHEEL)) {
                 if (PRF_FLAGGED(waiter, PRF_SPINNER)) {
                     write_to_descriptor(waiter->desc->descriptor,
-                        wait_wheel[waiter->delay.wait_value % 8]);
+                        wait_wheel[delay.wait_value % 8]);
                 }
             }
 
-            next_waiter = waiter->delay.next;
-        } else if (waiter->delay.wait_value == 0) {
+            next_waiter = delay.next;
+        } else if (delay.wait_value == 0) {
             /* Completing the delay can free the waiter (a resumed script that removes its mob), and
              * with it any other waiter, so the waiter after it is saved and only compared until
              * it is found still waiting. */
-            char_data* following = waiter->delay.next;
+            char_data* following = delay.next;
             freed_watch waiter_watch(waiter);
             /* here is the block calling actual procedures */
             complete_delay(waiter);
             if (waiter_watch.freed()) {
-                /* extract_char took the waiter off the list. If the one after it went too, the
-                 * rest of the list waits for the next pulse. */
+                /* extract_char took the waiter off the list and freed it, delay included. If
+                 * the one after it went too, the rest of the list waits for the next pulse. */
                 if (in_waiting_list(following)) {
                     next_waiter = following;
                 } else {
@@ -2764,13 +2765,13 @@ void process_waiting_list()
                 }
                 continue;
             }
-            next_waiter = waiter->delay.next;
+            next_waiter = delay.next;
 
-            if (waiter->delay.wait_value == 0)
+            if (delay.wait_value == 0)
                 /* look out for the similar code in raw_kill() */
                 abort_delay(waiter);
         } else {
-            next_waiter = waiter->delay.next;
+            next_waiter = delay.next;
         }
     }
 }
