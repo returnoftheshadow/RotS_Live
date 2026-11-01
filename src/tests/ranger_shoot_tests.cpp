@@ -58,8 +58,6 @@ protected:
     char_data* make_archer()
     {
         char_data* archer = make_mob("archer", 0);
-        /* A charmed follower's damage is recorded; clear_char zeroed the record's map. */
-        new (&archer->damage_details) player_damage_details();
         add_follower(archer, &m_player, FOLLOW_MOVE);
         SET_BIT(archer->specials.affected_by, AFF_CHARM);
         obj_data* bow = make_object(SWORD_VNUM, 0);
