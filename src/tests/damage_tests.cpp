@@ -1,7 +1,9 @@
+#include "../damage_meters.h"
 #include "../spells.h"
 #include "../utils.h"
 #include "test_random_utils.h"
 #include <gtest/gtest.h>
+#include <string>
 
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location);
 
@@ -11,6 +13,9 @@ extern char_data* combat_list;
 extern char_data* combat_next_dude;
 
 namespace {
+
+// The damage of the hit the damage-meter tests record; small enough that nobody dies.
+constexpr int METERED_HIT_DAMAGE = 10;
 
 void ensure_test_world(int minimum_room_number)
 {
@@ -303,4 +308,25 @@ TEST_F(CharmedPetMasterSwitchTest, DoesNotDragTheIdleMasterIntoTheFightWhenTheMo
         << "Expected the mob to keep fighting the pet it was already engaged with.";
     EXPECT_EQ(context.pet.tmpabilities.hit, 490)
         << "Expected the mob's swing to land on the pet it was fighting.";
+}
+
+TEST_F(DamageMethodTest, RecordsNoMeterForAMobThatIsNotACharmedFollower) {
+    DamageTestContext context;
+
+    damage(&context.attacker, &context.victim, METERED_HIT_DAMAGE, TYPE_HIT, 0);
+
+    EXPECT_EQ(context.attacker.damage_details, nullptr);
+}
+
+TEST_F(CharmedPetMasterSwitchTest, GivesACharmedFollowerAMeterWithItsFirstDamage) {
+    CharmedPetTestContext context;
+    ASSERT_EQ(context.pet.damage_details, nullptr);
+
+    damage(&context.pet, &context.mob, METERED_HIT_DAMAGE, TYPE_HIT, 0);
+
+    ASSERT_NE(context.pet.damage_details, nullptr);
+    const std::string report = get_damage_meter_report(context.pet);
+    const std::string expected = "Count: 1, Total: " + std::to_string(METERED_HIT_DAMAGE);
+    EXPECT_NE(report.find(expected), std::string::npos) << report;
+    free_damage_meter(context.pet);
 }
