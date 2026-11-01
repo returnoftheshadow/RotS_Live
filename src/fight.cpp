@@ -32,6 +32,7 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "char_utils_combat.h"
+#include "damage_meters.h"
 #include "mob_progs/ranger_prog.h"
 
 #include <ctime>
@@ -1966,8 +1967,8 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     // if victim is a berserker, let people know that rage may be entered.
     wild_fighting.update_health(victim->tmpabilities.hit);
 
-    if (utils::is_pc(*attacker) || (attacker->master && utils::is_affected_by(*attacker, AFF_CHARM))) {
-        attacker->damage_details.add_damage(attacktype, dam);
+    if (keeps_damage_meter(*attacker)) {
+        ensure_damage_meter(*attacker).add_damage(attacktype, dam);
     }
 
     if (attacker->group) {
