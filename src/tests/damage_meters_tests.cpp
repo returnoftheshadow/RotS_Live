@@ -27,6 +27,8 @@ constexpr float FIRST_ROUND_SECONDS = 1.25f;
 constexpr float SECOND_ROUND_SECONDS = 2.5f;
 // The name of the player a test reports on.
 constexpr char PLAYER_NAME[] = "Hurin";
+// The damage a group member deals in the group meter test.
+constexpr int GROUP_DAMAGE = 30;
 
 // The report line that shows seconds of combat time, written as the damage report writes it.
 std::string combat_time_text(float seconds)
@@ -66,11 +68,15 @@ public:
 
     ~CombatListContext() { combat_list = previous_combat_list; }
 
-    // Makes second_fighter an NPC, as a mob from the world files is.
+    // Makes second_fighter an NPC, as a mob from the world files is: no skill arrays, and no
+    // prototype, so free_char frees its texts.
     void make_second_fighter_a_mob()
     {
+        RELEASE(second_fighter->skills);
+        RELEASE(second_fighter->knowledge);
         second_fighter->specials2.act = MOB_ISNPC;
-        second_fighter->player.short_descr = second_fighter_short_description;
+        second_fighter->nr = -1;
+        second_fighter->player.short_descr = str_dup("a cave troll");
     }
 
     // The head of combat_list.
@@ -79,8 +85,6 @@ public:
     owned_character second_fighter;
 
 private:
-    // Storage for second_fighter's short description once it is a mob, which its reports print.
-    char second_fighter_short_description[16] = "a cave troll";
     // The combat_list in place before this context replaced it.
     char_data* previous_combat_list = nullptr;
 };
@@ -101,6 +105,20 @@ TEST(DamageMeters, AddsTheGivenSecondsToEveryFightersPersonalMeter)
     const std::string second_report = get_damage_meter_report(*context.second_fighter);
     EXPECT_NE(first_report.find(expected), std::string::npos) << first_report;
     EXPECT_NE(second_report.find(expected), std::string::npos) << second_report;
+}
+
+TEST(DamageMeters, AddsTheGivenSecondsToTheGroupMeter)
+{
+    CombatListContext context;
+    group_data group(context.first_fighter);
+    group.track_damage(context.first_fighter, GROUP_DAMAGE);
+
+    tick_damage_meters(FIRST_ROUND_SECONDS);
+    tick_damage_meters(SECOND_ROUND_SECONDS);
+
+    // GROUP_DAMAGE over FIRST_ROUND_SECONDS + SECOND_ROUND_SECONDS: 30 / 3.75 is 8 per second.
+    const std::string group_report = group.get_damage_report();
+    EXPECT_NE(group_report.find("DPS: 8.00"), std::string::npos) << group_report;
 }
 
 TEST(DamageMeters, CountsCombatTimeForAPlayerWhoHasNotDealtDamageYet)
@@ -150,6 +168,7 @@ TEST(DamageMeters, KeptByPlayersAndCharmedMobsWithAMaster)
     const owned_character master;
     const owned_character mob(MOB_ISNPC);
     mob->specials2.act = MOB_ISNPC;
+    mob->nr = -1; /* no prototype, so free_char frees its profession data */
     EXPECT_TRUE(keeps_damage_meter(*player));
     EXPECT_FALSE(keeps_damage_meter(*mob));
 
@@ -314,8 +333,13 @@ TEST_F(ReadMobileDamageMeterTest, AMobReadFromItsPrototypeHasNoMeterOfItsOwn)
     char_data* second_mob = read_mobile(0, REAL);
     ASSERT_NE(second_mob, nullptr);
 
-    EXPECT_EQ(first_mob->damage_details, nullptr);
-    EXPECT_EQ(second_mob->damage_details, nullptr);
+    for (char_data* mob : { first_mob, second_mob }) {
+        EXPECT_EQ(mob->damage_details, nullptr);
+        /* TearDown frees the prototype's meter; a mob sharing it must not free it too. */
+        if (mob->damage_details == m_mob_proto[0].damage_details) {
+            mob->damage_details = nullptr;
+        }
+    }
 
     release_mob(second_mob);
     release_mob(first_mob);
