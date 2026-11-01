@@ -2131,7 +2131,7 @@ int append_object(struct char_data* ch, char* arg)
         return replace_object(ch, arg);
     }
 
-    if (2 != sscanf(arg, "%s %s", str, fname)) {
+    if (2 != sscanf(arg, "%254s %79s", str, fname)) {
 
         if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_FILENAME)) {
 
@@ -2145,6 +2145,12 @@ int append_object(struct char_data* ch, char* arg)
     }
 
     else {
+
+        if (!shape_file_name_fits(SHAPE_MOB_DIR, fname, sizeof(SHAPE_OBJECT(ch)->f_from))
+            || !shape_file_name_fits(SHAPE_MOB_BACKDIR, fname, sizeof(SHAPE_OBJECT(ch)->f_old))) {
+            send_to_char("That file name is too long.\n\r", ch);
+            return -1;
+        }
 
         sprintf(SHAPE_OBJECT(ch)->f_from, SHAPE_MOB_DIR, fname);
 
@@ -2314,7 +2320,7 @@ void extra_coms_obj(struct char_data* ch, char* argument)
         comm_key = SHAPE_NONE;
         str[0] = 0;
         str2[0] = 0;
-        sscanf(argument, "%s %s", str, str2);
+        sscanf(argument, "%254s %49s", str, str2);
         if (str[0] == 0)
             return;
         do {

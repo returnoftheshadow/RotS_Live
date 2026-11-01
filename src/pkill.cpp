@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <limits>
 #include <time.h>
 
 #include "db.h"
@@ -44,6 +46,39 @@ typedef struct {
 RANKING good_ranking = { NULL, 0, 0, 0 };
 RANKING evil_ranking = { NULL, 0, 0, 0 };
 RANKING total_ranking = { NULL, 0, 0, 0 };
+
+extern struct player_index_element* player_table;
+extern int top_of_p_table;
+
+namespace {
+
+/*
+ * In memory a record names each player by player index. A player missing from the index
+ * (deleted, purged or unreadable) is kept as PKILL_UNINDEXED_BASE - idnum instead, so the
+ * record is written back with its idnum and the player present keeps its points until the
+ * record expires. Every negative reference reads as "someone".
+ */
+constexpr int PKILL_UNINDEXED_BASE = -2;
+
+/* The reference for a player whose <idnum> is not in the index, or -1 if it cannot be kept. */
+int pkill_unindexed_reference(long idnum)
+{
+    if (idnum < 0 || idnum > std::numeric_limits<int>::max() + PKILL_UNINDEXED_BASE)
+        return -1;
+    return PKILL_UNINDEXED_BASE - static_cast<int>(idnum);
+}
+
+/* The idnum the file stores for a record's <reference>, or -1 if it names none. */
+long pkill_reference_idnum(int reference)
+{
+    if (reference >= 0 && reference <= top_of_p_table)
+        return player_table[reference].idnum;
+    if (reference <= PKILL_UNINDEXED_BASE)
+        return PKILL_UNINDEXED_BASE - reference;
+    return -1;
+}
+
+} // namespace
 
 /*
  * Return > 0 if 'race' is a good race; otherwise return -1.
@@ -293,7 +328,7 @@ void pkill_update_rank(long idx)
     extern struct player_index_element* player_table;
     extern int top_of_p_table;
 
-    if (idx == -1 || idx > top_of_p_table)
+    if (idx < 0 || idx > top_of_p_table)
         return;
 
     r = player_table[idx].rank;
@@ -439,7 +474,6 @@ int pkill_update_file(const char* file, PKILL pkills[], int n)
     int i, nwritten;
     FILE* f;
     PKILL p;
-    extern struct player_index_element* player_table;
 
     f = fopen(file, "a");
     if (f == NULL) {
@@ -449,6 +483,14 @@ int pkill_update_file(const char* file, PKILL pkills[], int n)
 
     nwritten = 0;
     for (i = 0; i < n; ++i) {
+        const long killer_idnum = pkill_reference_idnum(pkills[i].killer);
+        const long victim_idnum = pkill_reference_idnum(pkills[i].victim);
+        if (killer_idnum < 0 || victim_idnum < 0) {
+            vmudlog(BRF, "SYSERR: pkill_update_file: dropping a pkill record with no idnum to "
+                         "write (killer reference %d, victim reference %d).",
+                pkills[i].killer, pkills[i].victim);
+            continue;
+        }
         if (!pkill_expired(&pkills[i])) {
             /*
              * The pkill file stores killer and victim IDs, not
@@ -458,9 +500,10 @@ int pkill_update_file(const char* file, PKILL pkills[], int n)
              * player table indexes in the PKILL struct so that
              * we don't have to reference the player_table here.
              */
+            memset(&p, 0, sizeof(p)); /* no stack bytes in the padding written */
             pkill_copy(&p, &pkills[i]);
-            p.killer = player_table[p.killer].idnum;
-            p.victim = player_table[p.victim].idnum;
+            p.killer = killer_idnum;
+            p.victim = victim_idnum;
             fwrite(&p, sizeof(PKILL), 1, f);
             ++nwritten;
         }
@@ -486,12 +529,12 @@ int pkill_update_player_tab(PKILL pkills[], int nkills)
     for (i = 0; i < nkills; ++i) {
         p = &pkills[i];
 
-        p->killer = pkill_update_character_by_id(p->killer,
-            p->killer_points);
+        const long killer_index = pkill_update_character_by_id(p->killer, p->killer_points);
+        p->killer = killer_index >= 0 ? killer_index : pkill_unindexed_reference(p->killer);
         pkill_update_rank(p->killer);
 
-        p->victim = pkill_update_character_by_id(p->victim,
-            p->victim_points);
+        const long victim_index = pkill_update_character_by_id(p->victim, p->victim_points);
+        p->victim = victim_index >= 0 ? victim_index : pkill_unindexed_reference(p->victim);
         pkill_update_rank(p->victim);
     }
 
@@ -581,6 +624,14 @@ void pkill_unref_character_by_index(int idx)
     int i;
     int r;
     extern struct player_index_element* player_table;
+    extern int top_of_p_table;
+
+    if (idx < 0 || idx > top_of_p_table) {
+        vmudlog(BRF, "SYSERR: pkill_unref_character_by_index: player index %d is not in the "
+                     "player index.",
+            idx);
+        return;
+    }
 
     /* Set all PKILL records referencing this char to ref -1 */
     for (i = 0; i < pkill_tab_len; ++i) {

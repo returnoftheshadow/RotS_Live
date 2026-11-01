@@ -321,7 +321,6 @@ protected:
     char_data* make_player_character(const char* name, int room = 0)
     {
         char_data* player = owned_character().release();
-        new (&player->damage_details) player_damage_details();
         player->player.name = str_dup(name);
         player->player.race = RACE_HUMAN;
         player->player.level = 10;

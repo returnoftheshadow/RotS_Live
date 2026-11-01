@@ -49,6 +49,7 @@
 
 #include "base_utils.h"
 #include "char_utils.h"
+#include "damage_meters.h"
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
@@ -272,14 +273,8 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
 
     if (add == AFFECT_MODIFY_SET) {
         SET_BIT(ch->specials.affected_by, bitv);
-        if (utils::is_set(bitv, long(AFF_CHARM))) {
-            ch->damage_details.reset();
-        }
     } else if (add == AFFECT_MODIFY_REMOVE) {
         REMOVE_BIT(ch->specials.affected_by, bitv);
-        if (utils::is_set(bitv, long(AFF_CHARM))) {
-            ch->damage_details.reset();
-        }
 
         mod = -mod;
     }
@@ -703,6 +698,10 @@ void affect_to_char(struct char_data* ch, const struct affected_type* af)
     // 5
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_SET, af->counter);
+    /* A pet starts tracking its damage as soon as it is charmed. */
+    if (utils::is_set(af->bitvector, long(AFF_CHARM))) {
+        reset_damage_meter(*ch);
+    }
     affect_total(ch);
 }
 
@@ -759,6 +758,10 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
 
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_REMOVE, af->counter);
+    /* A pet's damage report is cleared when it is released. */
+    if (utils::is_set(af->bitvector, long(AFF_CHARM))) {
+        reset_damage_meter(*ch);
+    }
 
     /* remove structure *af from linked list */
     if (ch->affected == af) {
@@ -1082,7 +1085,7 @@ void stop_follower(struct char_data* ch, int mode)
                 affect_from_char(ch, SKILL_RECRUIT);
             }
             REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);
-            ch->damage_details.reset();
+            reset_damage_meter(*ch);
         } else {
             act("You stop following $N.", FALSE, ch, 0, ch->master, TO_CHAR);
             if (ch->in_room == ch->master->in_room) {
