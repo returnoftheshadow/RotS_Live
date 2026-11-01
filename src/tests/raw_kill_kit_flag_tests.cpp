@@ -103,8 +103,6 @@ protected:
     static char_data* make_linkless_player(const char* name)
     {
         char_data* player = owned_character().release();
-        /* clear_char zeroes the whole character, the map inside its damage record included. */
-        new (&player->damage_details) player_damage_details();
         player->player.name = str_dup(name);
         player->player.race = RACE_HUMAN;
         player->player.level = MORTAL_LEVEL;

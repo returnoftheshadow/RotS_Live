@@ -5,6 +5,7 @@
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
+#include "../damage_meters.h"
 #include "../objects_json.h"
 #include "../skill_timer.h"
 #include "../spells.h"
@@ -356,13 +357,13 @@ TEST_F(QuietGearChangeTest, ASlainPlayersPoisonousGearDealsNoBlowAsTheCorpseTake
     run_command(do_wear, "ring");
     ASSERT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
     /* Putting the ring on dealt its blow; only a blow from here on counts. */
-    m_player.damage_details.reset();
+    reset_damage_meter(m_player);
 
     raw_kill(&m_player, nullptr, 0);
 
     const std::string no_damage_report
         = std::string(GET_NAME(&m_player)) + " has not recorded any damage dealt.\n";
-    EXPECT_EQ(no_damage_report, m_player.damage_details.get_damage_report(&m_player));
+    EXPECT_EQ(no_damage_report, get_damage_meter_report(m_player));
     ASSERT_NE(nullptr, ring->in_obj);
 }
 
