@@ -1,5 +1,6 @@
 #include "../damage_meters.h"
 #include "../db.h"
+#include "../handler.h"
 #include "../owned_character.h"
 #include "../spells.h"
 #include "../structs.h"
@@ -179,6 +180,72 @@ TEST(DamageMeters, KeptByPlayersAndCharmedMobsWithAMaster)
     mob->specials.affected_by &= ~AFF_CHARM;
     EXPECT_FALSE(keeps_damage_meter(*mob)) << "following, but no longer charmed";
     mob->master = nullptr;
+}
+
+namespace {
+
+// A mob that a player has recruited, with one hit on its damage meter.
+class RecruitedPetContext {
+public:
+    RecruitedPetContext()
+    {
+        pet->specials2.act = MOB_ISNPC;
+        pet->nr = -1; /* no prototype, so free_char frees its profession data */
+        pet->player.short_descr = str_dup("a cave troll");
+        pet->master = master;
+
+        affected_type recruit {};
+        recruit.type = SKILL_RECRUIT;
+        recruit.duration = -1;
+        recruit.location = APPLY_NONE;
+        recruit.bitvector = AFF_CHARM;
+        affect_to_char(pet, &recruit);
+
+        ensure_damage_meter(*pet).add_damage(TYPE_HIT, HIT_DAMAGE);
+    }
+
+    ~RecruitedPetContext()
+    {
+        affect_from_char(pet, SKILL_RECRUIT);
+        pet->master = nullptr;
+    }
+
+    RecruitedPetContext(const RecruitedPetContext&) = delete;
+    RecruitedPetContext& operator=(const RecruitedPetContext&) = delete;
+
+    // The player the pet follows.
+    const owned_character master;
+    // The recruited mob, charmed by the recruit affect.
+    const owned_character pet { MOB_ISNPC };
+};
+
+} // namespace
+
+TEST(DamageMeters, APetKeepsItsReportWhenAnotherAffectComesAndGoes)
+{
+    RecruitedPetContext context;
+    affected_type curse {};
+    curse.type = SPELL_CURSE;
+    curse.duration = 1;
+    curse.location = APPLY_NONE;
+
+    affect_to_char(context.pet, &curse);
+    const std::string cursed_report = get_damage_meter_report(*context.pet);
+    affect_from_char(context.pet, SPELL_CURSE);
+    const std::string uncursed_report = get_damage_meter_report(*context.pet);
+
+    const std::string recorded_hit = count_and_total_text(1, HIT_DAMAGE);
+    EXPECT_NE(cursed_report.find(recorded_hit), std::string::npos) << cursed_report;
+    EXPECT_NE(uncursed_report.find(recorded_hit), std::string::npos) << uncursed_report;
+}
+
+TEST(DamageMeters, ReleasingAPetClearsItsReport)
+{
+    RecruitedPetContext context;
+
+    affect_from_char(context.pet, SKILL_RECRUIT);
+
+    EXPECT_EQ(get_damage_meter_report(*context.pet), no_damage_report("a cave troll"));
 }
 
 TEST(DamageMeters, ResettingACharacterWithNoMeterLeavesItWithout)

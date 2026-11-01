@@ -273,14 +273,8 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
 
     if (add == AFFECT_MODIFY_SET) {
         SET_BIT(ch->specials.affected_by, bitv);
-        if (utils::is_set(bitv, long(AFF_CHARM))) {
-            reset_damage_meter(*ch);
-        }
     } else if (add == AFFECT_MODIFY_REMOVE) {
         REMOVE_BIT(ch->specials.affected_by, bitv);
-        if (utils::is_set(bitv, long(AFF_CHARM))) {
-            reset_damage_meter(*ch);
-        }
 
         mod = -mod;
     }
@@ -704,6 +698,11 @@ void affect_to_char(struct char_data* ch, const struct affected_type* af)
     // 5
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_SET, af->counter);
+    /* A new pet starts a new damage report. affect_total re-applies every affect, so the
+       reset belongs here, where the charm is added, and not in affect_modify. */
+    if (utils::is_set(af->bitvector, long(AFF_CHARM))) {
+        reset_damage_meter(*ch);
+    }
     affect_total(ch);
 }
 
@@ -760,6 +759,10 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
 
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_REMOVE, af->counter);
+    /* A released pet's damage report is cleared with the charm that kept it. */
+    if (utils::is_set(af->bitvector, long(AFF_CHARM))) {
+        reset_damage_meter(*ch);
+    }
 
     /* remove structure *af from linked list */
     if (ch->affected == af) {
