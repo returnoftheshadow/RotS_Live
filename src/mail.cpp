@@ -632,7 +632,7 @@ void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, cha
     }
 
     while (has_mail(recipient)) {
-        CREATE(tmp_obj, struct obj_data, 1);
+        tmp_obj = new obj_data();
         clear_object(tmp_obj);
 
         tmp_obj->name = str_dup("mail paper letter");
