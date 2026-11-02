@@ -26,6 +26,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -371,6 +372,16 @@ void initialise_script_info_obj(obj_data* obj, int index)
     /* -1 means ignore the index */
     if (index != -1)
         obj->obj_flags.script_info->index = index;
+}
+
+void note_object_freed(obj_data* object)
+{
+    freed_watch::note_freed(object);
+}
+
+void note_char_freed(char_data* character)
+{
+    freed_watch::note_freed(character);
 }
 
 void clear_script_info(info_script* inf)
@@ -1030,6 +1041,54 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return 1;
     } // switch (trigger_type)
     return return_value;
+}
+
+bool is_on_content_list(const obj_data* first, const obj_data* object)
+{
+    for (const obj_data* content = first; content; content = content->next_content) {
+        if (content == object) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* True if <person> is one of the people on the next_in_room list that starts with <first>;
+ * compared by address and never read, as is_on_content_list. */
+static bool is_on_people_list(const char_data* first, const char_data* person)
+{
+    for (const char_data* listed = first; listed; listed = listed->next_in_room) {
+        if (listed == person) {
+            return true;
+        }
+    }
+    return false;
+}
+
+char_data* next_person_after_trigger(const room_data& room, char_data* current,
+    bool current_freed, char_data* following)
+{
+    if (!current_freed) {
+        return current->next_in_room;
+    }
+    /* following may have been freed or moved too, so it is only compared, never read, until it
+     * is found among the room's people. */
+    if (is_on_people_list(room.people, following)) {
+        return following;
+    }
+    return nullptr;
+}
+
+obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
+    bool current_freed, obj_data* following)
+{
+    if (!current_freed) {
+        return current->next_content;
+    }
+    if (is_on_content_list(room.contents, following)) {
+        return following;
+    }
+    return nullptr;
 }
 
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)

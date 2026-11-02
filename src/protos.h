@@ -79,6 +79,13 @@ inline constexpr char SHAPE_MDL_BACKDIR[] = "world/mdl/oldmdls/%s.mdl";
 inline constexpr char SHAPE_SCRIPT_DIR[] = "world/scr/%s.scr";
 inline constexpr char SHAPE_SCRIPT_BACKDIR[] = "world/scr/oldscrs/%s.scr";
 
+/* Whether <file_format>, one of the SHAPE_*_DIR formats above, filled in with <name> fits a
+ * field of <field_size> bytes such as an editor's f_from or f_old. */
+inline bool shape_file_name_fits(const char* file_format, const char* name, size_t field_size)
+{
+    return snprintf(nullptr, 0, file_format, name) < static_cast<int>(field_size);
+}
+
 struct script_data; //  Declaration.  Definition follows below.
 
 struct shape_proto {

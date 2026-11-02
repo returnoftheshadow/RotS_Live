@@ -6,6 +6,7 @@
 #include "db.h"
 #include "stopwatch.h"
 #include "structs.h"
+#include "utils.h"
 
 #include <cstdio>
 #include <functional>
@@ -16,8 +17,10 @@
 namespace savebench {
 namespace {
 
-// Time `body` `iterations` times; return {min, avg, max} microseconds (share filled later).
+// Time `body` `iterations` times, running `prepare` untimed before each one; return
+// {min, avg, max} microseconds (share filled later).
 StageTiming time_stage(const std::string& name, int iterations,
+                       const std::function<void()>& prepare,
                        const std::function<void()>& body) {
     StageTiming t;
     t.name = name;
@@ -26,6 +29,7 @@ StageTiming time_stage(const std::string& name, int iterations,
     long hi = 0;
     Stopwatch sw;
     for (int i = 0; i < iterations; ++i) {
+        prepare();
         sw.start();
         body();
         sw.stop();
@@ -38,6 +42,12 @@ StageTiming time_stage(const std::string& name, int iterations,
     t.max_us = hi;
     t.avg_us = (iterations > 0) ? sum / iterations : 0;
     return t;
+}
+
+// Time `body` `iterations` times; return {min, avg, max} microseconds (share filled later).
+StageTiming time_stage(const std::string& name, int iterations,
+                       const std::function<void()>& body) {
+    return time_stage(name, iterations, []() -> void {}, body);
 }
 
 // Fill each stage's share and the "other" remainder = max(0, end-to-end total - sum(named)).
@@ -175,18 +185,24 @@ bool profile_load(const std::string& root, const std::string& account_name,
         character_json::apply_character_data_to_store(cd, &chd, &err_L4);
     }));
     // L5: char_file_u -> live char (OFFLINE only; store_to_char allocates into the char).
-    // Build the scratch char the project's way and reuse one struct across iterations.
-    // NOTE: store_to_char unconditionally CREATE()s title/description/profs/name on every
-    // call with no prior free, so per-iteration inner allocations leak; delete scratch frees
-    // only the struct shell. The leak is bounded and acceptable for a short-lived offline
-    // benchmark — matches the existing db_loader_tests idiom.
+    // store_to_char expects a freshly cleared character, as login gives it, and allocates text
+    // and affects into it that only free_char releases. So each iteration loads into a new
+    // scratch char, made and freed outside the timed span.
     if (include_store_to_char) {
-        char_data* scratch = new char_data {};
-        clear_char(scratch, MOB_VOID);
-        out->stages.push_back(time_stage("L5 store_to_char", iterations, [&]() {
+        char_data* scratch = nullptr;
+        const auto make_scratch = [&scratch]() -> void {
+            if (scratch) {
+                free_char(scratch);
+            }
+            CREATE(scratch, char_data, 1);
+            clear_char(scratch, MOB_VOID);
+        };
+        out->stages.push_back(time_stage("L5 store_to_char", iterations, make_scratch, [&]() -> void {
             store_to_char(&chd, scratch);
         }));
-        delete scratch;
+        if (scratch) {
+            free_char(scratch);
+        }
     }
     out->total = time_stage("TOTAL load", iterations, [&]() {
         account::AccountData a;

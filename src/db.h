@@ -122,6 +122,9 @@ void reset_char(struct char_data*);
 void free_char(struct char_data*);
 void free_obj(struct obj_data*);
 int real_room(int);
+/* Returns sector_type when it names a sector; otherwise logs it against room_number and returns
+ * the nearest sector (SECT_INSIDE below the range, the last sector above it). */
+int checked_sector_type(int sector_type, int room_number);
 int real_program(int);
 char* fread_string(FILE*, const char*);
 int real_object(int);
