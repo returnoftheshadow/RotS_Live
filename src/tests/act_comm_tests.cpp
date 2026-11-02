@@ -9,12 +9,13 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <optional>
 #include <string>
 
 ACMD(do_alias);
 ACMD(do_write);
 void clear_char(struct char_data* ch, int mode);
-int replace_pattern(descriptor_data* descriptor, const char* pattern, const char* new_pattern);
+std::optional<int> replace_pattern(descriptor_data* descriptor, const char* pattern, const char* new_pattern);
 extern struct obj_data* obj_proto;
 extern struct index_data* obj_index;
 extern int top_of_objt;

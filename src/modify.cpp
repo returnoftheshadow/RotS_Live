@@ -16,6 +16,7 @@
 #include <time.h>
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <string_view>
 
 #include "comm.h"
@@ -154,11 +155,12 @@ static bool edit_fits_limit(descriptor_data* descriptor, size_t current_length, 
     return false;
 }
 
-/* Replaces every pattern in the text with new_pattern and returns how many were replaced, or -1,
- * leaving the text unchanged, when the result would not fit its limit (edit_fits_limit).  The
- * cursor keeps its place in the text: it moves by the size change of each replacement wholly before
- * it, and to the end of the replacement of a match it falls inside. */
-int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
+/* Replaces every pattern in the text with new_pattern and returns how many were replaced, 0 when
+ * nothing matches.  Returns no count, leaving the text unchanged, when the result would not fit its
+ * limit (edit_fits_limit has told the writer).  The cursor keeps its place in the text: it moves by
+ * the size change of each replacement wholly before it, and to the end of the replacement of a
+ * match it falls inside. */
+std::optional<int> replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
 {
     if (!pattern || !*pattern || !new_pattern || !*d->str)
         return 0;
@@ -194,11 +196,11 @@ int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pat
         new_length = text.size() - count * (old_text.size() - new_text.size());
     }
     if (!edit_fits_limit(d, text.size(), new_length))
-        return -1;
+        return std::nullopt;
     const size_t allocation = (new_length / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
     if (allocation > std::numeric_limits<unsigned int>::max()) {
         log("SYSERR: replace_pattern: the replaced text is too long to edit");
-        return -1;
+        return std::nullopt;
     }
 
     char* replaced = nullptr;
@@ -481,10 +483,10 @@ void string_add(struct descriptor_data* d, char* str)
                 send_to_char("No pattern to replace.\n\r", d->character);
             else {
                 *tmpstr2 = 0;
-                tmp = replace_pattern(d, tmpstr, tmpstr2 + 1);
-                if (tmp >= 0) {
-                    sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", tmp,
-                        !tmp ? "" : "s");
+                const std::optional<int> replaced = replace_pattern(d, tmpstr, tmpstr2 + 1);
+                if (replaced) {
+                    sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", *replaced,
+                        !*replaced ? "" : "s");
                     send_to_char(buf, d->character);
                     send_to_char(*d->str, d->character);
                 }
@@ -950,6 +952,9 @@ void page_string(struct descriptor_data* d, char* str, int keep_internal)
     show_string(d, "");
 }
 
+/* The lines show_string sends at a time; the reader presses return for the next page. */
+constexpr int PAGE_LINES = 22;
+
 void show_string(struct descriptor_data* d, char* input)
 {
     char buffer[MAX_STRING_LENGTH], buf[MAX_INPUT_LENGTH];
@@ -964,14 +969,14 @@ void show_string(struct descriptor_data* d, char* input)
         return;
     }
 
-    /* show a chunk: 22 lines, or as much of them as buffer holds (the rest shows next) */
+    /* show a chunk: PAGE_LINES lines, or as much of them as buffer holds (the rest shows next) */
     for (scan = buffer;; scan++, d->showstr_point++) {
         if (scan >= buffer + sizeof(buffer) - 2) {
             *scan = '\0';
         } else if ((*scan = *d->showstr_point) == '\n') {
             lines++;
             continue;
-        } else if (!*scan || (lines >= 22)) {
+        } else if (!*scan || (lines >= PAGE_LINES)) {
             if (*scan == '\r')
                 scan++;
 
