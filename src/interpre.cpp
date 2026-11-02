@@ -24,6 +24,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_boot_options.h"
 #include "handler.h"
 #include "interpre.h"
@@ -36,6 +37,7 @@
 #include "creation_points.h"
 #include "protos.h"
 #include "savebench.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -1426,13 +1428,19 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
                 may_not_perform = !may_not_perform;
             }
             if (!no_specials && !may_not_perform) {
+                /* A procedure that frees ch ends the command (special returns 1 for it), and the
+                 * targets' procedures are not asked: argument_info can be ch's own delay. */
+                freed_watch actor_watch(ch);
                 may_not_perform |= special(ch, cmd, argument + begin + look_at,
                     SPECIAL_COMMAND, argument_info, NOWHERE);
-                if (cmd != CMD_SELL) /* TEMPORARY, to keep CMD_SELL from crashing */
-                    may_not_perform |= special(ch, cmd, argument + begin + look_at,
-                        SPECIAL_TARGET, argument_info, NOWHERE);
-                else /* also temp */
-                    may_not_perform = 1;
+                if (!actor_watch.freed()) {
+                    if (cmd != CMD_SELL) { /* TEMPORARY, to keep CMD_SELL from crashing */
+                        may_not_perform |= special(ch, cmd, argument + begin + look_at,
+                            SPECIAL_TARGET, argument_info, NOWHERE);
+                    } else { /* also temp */
+                        may_not_perform = 1;
+                    }
+                }
             }
 
             /*
@@ -1641,8 +1649,6 @@ int activate_obj_special(struct obj_data* host, struct char_data* ch, int cmd,
 int special(struct char_data* ch, int cmd, char* arg, int callflag,
     struct waiting_type* wtl, int in_room)
 {
-    register struct obj_data* i;
-    register struct char_data* k;
     int j, remote_mode;
     struct char_data* tmpch;
 
@@ -1659,16 +1665,31 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
     if (in_room == NOWHERE)
         return FALSE;
 
+    /* Any procedure can free ch, its own host or anyone or anything else here (a death, a script
+     * it sets off). Once ch is gone no other procedure is offered the command, and wtl, which can
+     * be ch's own delay, is not read again. */
+    freed_watch actor_watch(ch);
+
     if (callflag == SPECIAL_DEATH) {
         /* in this case, specials are called on ch itself */
         if (activate_char_special(ch, ch, cmd, arg, callflag, wtl, in_room))
             return 1;
+        if (actor_watch.freed()) {
+            return 1;
+        }
         return 0;
     }
 
     if ((callflag == SPECIAL_TARGET) || (callflag == SPECIAL_DAMAGE)) { /* instead of room, checking targets */
         if (!wtl)
             return 0;
+
+        /* The first target's procedure can free an object named as the second target. */
+        obj_data* second_target_object = nullptr;
+        if (wtl->targ2.type == TARGET_OBJ) {
+            second_target_object = wtl->targ2.ptr.obj;
+        }
+        freed_watch second_target_object_watch(second_target_object);
 
         switch (wtl->targ1.type) {
         case TARGET_ROOM:
@@ -1701,6 +1722,9 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
                 return 1;
             break;
         }
+        if (actor_watch.freed()) {
+            return 1;
+        }
 
         switch (wtl->targ2.type) {
         case TARGET_ROOM:
@@ -1712,6 +1736,9 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
             break;
 
         case TARGET_OBJ:
+            if (second_target_object_watch.freed()) {
+                break;
+            }
             if (wtl->targ2.ptr.obj->item_number < 0)
                 break;
             if ((void*)(obj_index[wtl->targ2.ptr.obj->item_number].func))
@@ -1727,40 +1754,94 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
                 return 1;
             break;
         }
+        if (actor_watch.freed()) {
+            return 1;
+        }
         return 0;
     }
 
+    room_data& room = world[in_room];
+
     /* special in room? */
-    if ((void*)(world[in_room].funct))
-        if ((*world[in_room].funct)(ch, ch, cmd, arg, callflag, 0))
-            return (1);
+    if (room.funct) {
+        if ((*room.funct)(ch, ch, cmd, arg, callflag, 0)) {
+            return 1;
+        }
+        if (actor_watch.freed()) {
+            return 1;
+        }
+    }
 
     if (!remote_mode) {
         /* special in equipment list? */
-        for (j = 0; j <= (MAX_WEAR - 1); j++)
-            if (ch->equipment[j] && ch->equipment[j]->item_number >= 0)
-                if (activate_obj_special(ch->equipment[j], ch, cmd, arg, callflag, wtl))
-                    return (1);
+        for (j = 0; j <= (MAX_WEAR - 1); j++) {
+            obj_data* worn = ch->equipment[j];
+            if (!worn || worn->item_number < 0) {
+                continue;
+            }
+            if (activate_obj_special(worn, ch, cmd, arg, callflag, wtl)) {
+                return 1;
+            }
+            if (actor_watch.freed()) {
+                return 1;
+            }
+        }
 
-        /* special in inventory? */
-        for (i = ch->carrying; i; i = i->next_content)
-            if (i->item_number >= 0)
-                if (activate_obj_special(i, ch, cmd, arg, callflag, wtl))
+        /* special in inventory? While an item is there the offer goes on from it, wherever its
+         * procedure moved it; once it is freed, from the item that came after it, if ch still
+         * carries that one. */
+        obj_data* item = ch->carrying;
+        while (item) {
+            obj_data* following = item->next_content;
+            freed_watch item_watch(item);
+            if (item->item_number >= 0) {
+                if (activate_obj_special(item, ch, cmd, arg, callflag, wtl)) {
                     return 1;
+                }
+                if (actor_watch.freed()) {
+                    return 1;
+                }
+            }
+            if (!item_watch.freed()) {
+                item = item->next_content;
+            } else if (is_on_content_list(ch->carrying, following)) {
+                item = following;
+            } else {
+                item = nullptr;
+            }
+        }
     }
 
     /* special in mobile present? */
-    for (k = world[in_room].people; k; k = k->next_in_room)
-        if (activate_char_special(k, ch, cmd, arg, callflag, wtl, in_room))
+    char_data* person = room.people;
+    while (person) {
+        char_data* following = person->next_in_room;
+        freed_watch person_watch(person);
+        if (activate_char_special(person, ch, cmd, arg, callflag, wtl, in_room)) {
             return 1;
+        }
+        if (actor_watch.freed()) {
+            return 1;
+        }
+        person = next_person_after_trigger(room, person, person_watch.freed(), following);
+    }
 
     /* special in object present? */
-    for (i = world[in_room].contents; i; i = i->next_content)
-        if (i->item_number >= 0)
-            if (obj_index[i->item_number].func)
-                if ((*obj_index[i->item_number].func)((struct char_data*)(i), ch,
-                        cmd, arg, callflag, wtl))
-                    return 1;
+    obj_data* object = room.contents;
+    while (object) {
+        obj_data* following = object->next_content;
+        freed_watch object_watch(object);
+        if (object->item_number >= 0 && obj_index[object->item_number].func) {
+            const special_func object_procedure = obj_index[object->item_number].func;
+            if (object_procedure(reinterpret_cast<char_data*>(object), ch, cmd, arg, callflag, wtl)) {
+                return 1;
+            }
+            if (actor_watch.freed()) {
+                return 1;
+            }
+        }
+        object = next_content_after_trigger(room, object, object_watch.freed(), following);
+    }
 
     return 0;
 }

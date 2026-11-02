@@ -18,6 +18,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -32,6 +33,7 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "char_utils_combat.h"
+#include "damage_meters.h"
 #include "mob_progs/ranger_prog.h"
 
 #include <ctime>
@@ -785,6 +787,10 @@ void spirit_death(char_data* character)
 
 obj_data* make_corpse(char_data* character, const char_data* killer, int attack_type)
 {
+    /* Knocking on a door briefly treats the knocker as standing on the far side, so the room
+     * there can answer the knock. If something there kills the knocker, move them back to the
+     * room they are really in first, so their corpse is left on their side of the door. */
+    room_lend::end_for(character);
     if (!IS_SHADOW(character)) {
         return make_physical_corpse(character, killer, attack_type);
     } else {
@@ -910,6 +916,9 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
         affect_remove(dead_man, dead_man->affected);
     }
     death_cry(dead_man);
+    /* Mark them dead before the corpse takes their gear. Taking off an item can poison its
+     * wearer or cast its spell, and nothing may hurt or kill someone who is already dying. */
+    GET_POS(dead_man) = POSITION_DEAD;
     obj_data* corpse = make_corpse(dead_man, killer, attack_type);
 
     // Let big brother know that the player died.
@@ -948,6 +957,8 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
             GET_MOVE(dead_man) = 0;
         }
 
+        /* A player with no link is saved and freed by extract_char. */
+        freed_watch dying_player_watch(dead_man);
         if (GET_LEVEL(dead_man) < LEVEL_IMMORT) {
             // Note, these are two different int arrays.
             dead_man->specials2.load_room = mortal_start_room[race];
@@ -957,7 +968,9 @@ void raw_kill(char_data* dead_man, const char_data* killer, int attack_type)
             extract_char(dead_man, r_immort_start_room);
         }
 
-        REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+        if (!dying_player_watch.freed()) {
+            REMOVE_BIT(PLR_FLAGS(dead_man), PLR_WAS_KITTED);
+        }
     } else {
         extract_char(dead_man);
     }
@@ -1654,6 +1667,12 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     if (!victim)
         return 0;
 
+    /* Someone in no room is being removed from the game, so they take no damage: dying there
+     * would leave a corpse with no room to fall in. */
+    if (victim->in_room == NOWHERE) {
+        return 0;
+    }
+
     if (!attacker)
         attacker = victim; /* emergency fix */
 
@@ -1929,8 +1948,8 @@ int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int 
     // if victim is a berserker, let people know that rage may be entered.
     wild_fighting.update_health(victim->tmpabilities.hit);
 
-    if (utils::is_pc(*attacker) || (attacker->master && utils::is_affected_by(*attacker, AFF_CHARM))) {
-        attacker->damage_details.add_damage(attacktype, dam);
+    if (keeps_damage_meter(*attacker)) {
+        ensure_damage_meter(*attacker).add_damage(attacktype, dam);
     }
 
     if (attacker->group) {

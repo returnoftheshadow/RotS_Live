@@ -2149,6 +2149,8 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
         stored_character->affected[index].next = nullptr;
     }
 
+    /* Counts every listed affect, loaded or skipped, for the flag check below. */
+    long combined_affect_bits = 0;
     for (size_t index = 0; index < json_character.affects.size() && index < MAX_AFFECT; ++index) {
         if (!validate_affect_data(json_character.affects[index], index, error_message))
             return false;
@@ -2156,6 +2158,19 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
         long affect_flag_bits = 0;
         if (!decode_affected_flags(json_character.affects[index].flags, &affect_flag_bits, error_message))
             return false;
+        combined_affect_bits |= affect_flag_bits;
+
+        /* Every affect reader indexes the skill table by type, so a type outside it is not
+           loaded; its slot stays empty. */
+        const long affect_type = json_character.affects[index].type;
+        if (affect_type < 0 || affect_type >= MAX_SKILLS) {
+            const std::string message = "SYSERR: apply_character_data_to_store: "
+                + std::string(stored_character->name) + "'s affect " + std::to_string(index)
+                + " has type " + std::to_string(affect_type) + ", outside 0-"
+                + std::to_string(MAX_SKILLS - 1) + "; skipped.";
+            log(message.c_str());
+            continue;
+        }
 
         affected_type& affect = stored_character->affected[index];
         affect.type = static_cast<sh_int>(json_character.affects[index].type);
@@ -2168,9 +2183,6 @@ bool apply_character_data_to_store(const CharacterData& json_character, char_fil
         affect.effect_modifier = json_character.affects[index].effect_modifier;
     }
 
-    long combined_affect_bits = 0;
-    for (int index = 0; index < MAX_AFFECT; ++index)
-        combined_affect_bits |= stored_character->affected[index].bitvector;
     if (combined_affect_bits != affected_flags) {
         set_error(error_message, "Affected flag list must match the flags implied by structured affects.");
         return false;
