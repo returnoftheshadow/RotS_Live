@@ -520,6 +520,15 @@ void string_add(struct descriptor_data* d, char* str)
                 *str = 0;
                 break;
             }
+            /* format_string builds its result in a buffer of MAX_STRING_LENGTH, which the indent and
+             * line breaks it adds to any text the editor can make still fit.  A longer text, stored
+             * before the editor held it to MAX_EDITED_TEXT_LENGTH, would overrun it. */
+            if (d->len_str > static_cast<unsigned int>(MAX_EDITED_TEXT_LENGTH)) {
+                send_to_char("This text is too long to format.\n\r", d->character);
+                *str = 0;
+                crmark = 0;
+                break;
+            }
             /* Flattened and formatted in a copy, so a result past the limit leaves the text as it
              * was. */
             char* flattened;

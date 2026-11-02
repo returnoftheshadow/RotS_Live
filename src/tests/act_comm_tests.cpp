@@ -888,4 +888,53 @@ TEST_F(StopEditingTextTest, AMobWritingIntoAFreedFieldIgnoresLaterLines)
     EXPECT_EQ(m_kept_descriptor.str, &m_kept_field);
 }
 
+/* Half of format_string's 79-column line, so no line holds two of these words with the space between
+ * them, and formatting adds a line break for nearly every one. */
+constexpr std::size_t LINE_LONG_WORD_LENGTH = 39;
+/* A word of LINE_LONG_WORD_LENGTH and the space after it. */
+const std::string LINE_LONG_WORD = std::string(LINE_LONG_WORD_LENGTH, 'x') + " ";
+/* The words in stored_long_text(), enough for formatting to grow it past MAX_STRING_LENGTH. */
+constexpr int STORED_LONG_TEXT_WORDS = 200;
+
+/* A stored text longer than the editor lets a text grow, as an old world or player file can hold. */
+std::string stored_long_text()
+{
+    std::string text;
+    for (int word = 0; word < STORED_LONG_TEXT_WORDS; ++word) {
+        text += LINE_LONG_WORD;
+    }
+    return text + "\n";
+}
+
+/* %f on a stored text longer than the editor allows is refused, and the text is kept: formatting it
+ * would overrun format_string's buffer. */
+TEST(StoredTextFormattingTest, FormattingATextPastTheEditorsCapIsRefused)
+{
+    descriptor_data descriptor {};
+    TestDescriptorRelease descriptor_release(&descriptor);
+    descriptor.output = descriptor.small_outbuf;
+    descriptor.bufspace = SMALL_BUFSIZE - 1;
+    descriptor.connected = CON_PLYNG;
+    owned_character builder;
+    builder->desc = &descriptor;
+    descriptor.character = builder;
+    const std::string stored_text = stored_long_text();
+    char* text = str_dup(stored_text.c_str());
+    string_add_init(&descriptor, &text);
+    ASSERT_GT(descriptor.len_str, static_cast<unsigned int>(MAX_EDITED_TEXT_LENGTH));
+
+    std::string format_line = "%f";
+    format_line.push_back('\0');
+    string_add(&descriptor, &format_line[0]);
+
+    EXPECT_EQ(std::string(text), stored_text);
+    const std::string output(descriptor.output);
+    EXPECT_NE(output.find("This text is too long to format.\n\r"), std::string::npos);
+    EXPECT_EQ(output.find("Your text is formatted."), std::string::npos);
+
+    builder->desc = nullptr;
+    descriptor.str = nullptr;
+    RELEASE(text);
+}
+
 } // namespace
