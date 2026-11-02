@@ -38,6 +38,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -1955,6 +1956,7 @@ void from_list_to_pool(universal_list** list, universal_list** head, universal_l
     used_in_universal_list--;
     universal_list_counter++; /* added because we are freeing body */
 
+    freed_log::note_freed(body);
     free(body);
 }
 

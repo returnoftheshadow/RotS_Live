@@ -62,8 +62,36 @@ char* fname(const char* namelist);
 void obj_to_char(struct obj_data* object, struct char_data* ch);
 void obj_from_char(struct obj_data* object);
 
-void equip_char(struct char_data* ch, struct obj_data* obj, int pos);
-struct obj_data* unequip_char(struct char_data* ch, int pos);
+/* How equip_char and unequip_char treat an item's spells (APPLY_SPELL) and its poison. Its stat
+ * affects are given or taken either way. */
+enum class gear_change {
+    /* Someone puts the item on or takes it off: its spells are cast on the wearer, and its
+     * poison hurts the wearer. */
+    cast,
+    /* The game dresses or strips someone coming into or leaving the game (login, rent, quit,
+     * removal): only a spell that gives a lasting affect for as long as the item is worn
+     * (item_spell_is_worn_affect) gives or takes it. No other spell is cast and the poison hurts
+     * nobody, so the wearer and the item are never freed. */
+    quiet,
+};
+
+/* Puts <obj>, held by nobody, on <ch> in <pos>. With gear_change::cast, putting it on can hurt
+ * the wearer: a spell the item casts on its wearer, or the poison it gives (5 damage, and death
+ * at 0 hit points or fewer). The blow can kill the wearer or set off a script that removes the
+ * wearer or the item. Returns false when the wearer or the item was freed: the caller must touch
+ * neither again, and one that must know which watches it with a freed_watch. Returns true
+ * otherwise, whether or not the item is worn: an item refused for its alignment or race goes into
+ * the inventory, and one a death stripped off lies in the corpse. */
+bool equip_char(struct char_data* ch, struct obj_data* obj, int pos,
+    gear_change change = gear_change::cast);
+/* Takes the item in <pos> off <ch> and returns it; logs and returns null when nothing is worn
+ * there. The item is left for the caller to put somewhere. With gear_change::cast, taking it off
+ * can hurt the wearer as putting it on can (equip_char), unless the wearer is dead or in no
+ * room, so it can free the wearer: a caller that uses the wearer afterwards watches it with a
+ * freed_watch, and puts the item where the wearer was if it is gone. The item a freed wearer
+ * took off is held by nobody. */
+struct obj_data* unequip_char(struct char_data* ch, int pos,
+    gear_change change = gear_change::cast);
 /* Encumbrance weight an item of this weight adds when worn in this slot. */
 int worn_encumb_weight(int weight, int slot);
 
@@ -97,6 +125,37 @@ struct char_data* get_char(const char* name);
 void char_from_room(struct char_data* ch);
 void char_to_room(struct char_data* ch, int room);
 void extract_char(struct char_data* ch, int new_room = -1);
+
+/* Lends a character a room it does not stand in, for code that asks where it is (the procedures
+ * on the far side of a door it knocks on), while it stays on its own room's list of people.
+ * char_from_room and extract_char first end any lend of the character they are given, putting it
+ * back where it stands, so that it leaves the right room, and free_char ends any lend of the
+ * character it frees; otherwise the lend puts it back when it goes out of scope. A lend must be a local variable: lends nest, and each ends in the reverse
+ * order of its making. */
+class room_lend {
+public:
+    /* Lends <character>, which stands in a room, the room <lent_room>. */
+    room_lend(char_data* character, int lent_room);
+    ~room_lend();
+
+    room_lend(const room_lend&) = delete;
+    room_lend& operator=(const room_lend&) = delete;
+
+    /* Ends every lend of <character>, putting it back in the room it stands in. */
+    static void end_for(char_data* character);
+
+private:
+    // The newest lend still in scope; each points on to the one made before it. Null when nothing
+    // is lent, which is nearly always, so char_from_room pays one test.
+    static room_lend* newest;
+
+    // The character lent the room; null once the lend has ended.
+    char_data* m_character;
+    // The room the character stands in, given back when the lend ends.
+    int m_own_room;
+    // The lend made before this one, which is the newest again once this one goes.
+    room_lend* m_older;
+};
 
 int in_affected_list(const struct char_data* ch);
 
@@ -134,6 +193,10 @@ void add_follower(struct char_data* ch, struct char_data* leader, int mode);
 void stop_follower(struct char_data* ch, int mode);
 char circle_follow(const struct char_data* ch, struct char_data* victim, int mode);
 void die_follower(struct char_data* ch);
+/* True if <entry> is on <leader>'s follower list and still stands for <follower>. <entry> and
+ * <follower> are compared by address until <entry> is found there, so either may have gone (a
+ * null one is never found). */
+bool is_follower_entry(const char_data* leader, const follow_type* entry, const char_data* follower);
 
 inline constexpr int FOLLOW_MOVE = 1;
 inline constexpr int FOLLOW_GROUP = 2;

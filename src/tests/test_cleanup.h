@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../damage_meters.h"
 #include "../db.h"
 #include "../interpre.h"
 #include "../protocol.h"
@@ -11,13 +12,14 @@ extern struct player_index_element* player_table;
 extern int top_of_p_table;
 
 // Frees the profession, skill and knowledge arrays clear_char gave a character that the test
-// owns itself and never hands to free_char, such as a fixture member or a stack character.
-// Safe on a zeroed character and on one released already.
+// owns itself and never hands to free_char, such as a fixture member or a stack character, and
+// the damage meter a fight gave it. Safe on a zeroed character and on one released already.
 inline void release_cleared_character(char_data* character)
 {
     RELEASE(character->profs);
     RELEASE(character->skills);
     RELEASE(character->knowledge);
+    free_damage_meter(*character);
 }
 
 // Releases a character on the stack or in a fixture when the scope ends, so the test frees what

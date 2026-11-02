@@ -82,6 +82,11 @@ int search_block(char* arg, char** list, char exact);
 int old_search_block(const char* argument, int begin, unsigned int length, const char** list, int mode);
 char lower(char c);
 void argument_interpreter(const char* argument, char* first_arg, char* second_arg);
+/* Offers <cmd> by <ch> to the special procedures that <callflag> asks: for SPECIAL_DEATH ch's
+ * own; for SPECIAL_TARGET and SPECIAL_DAMAGE those of wtl's targets; otherwise <in_room>'s
+ * (ch's room for NOWHERE), ch's equipment and inventory when that is ch's room, and those of
+ * the people and objects there. Returns 1 as soon as a procedure returns nonzero, and also once
+ * a procedure has freed ch, which the caller must then not touch; otherwise 0. */
 int special(struct char_data* ch, int cmd, char* arg, int callflag, waiting_type* wtl,
     int in_room = NOWHERE);
 int activate_char_special(char_data* k, char_data* ch, int cmd, char* arg, int callflag,

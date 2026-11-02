@@ -166,6 +166,26 @@ inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
+void note_object_freed(obj_data* object);
+void note_char_freed(char_data* character);
+
+/* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the
+ * trigger on <current> has run. <following> is current's next_in_room from before the trigger,
+ * and <current_freed> says whether current was freed meanwhile (a freed_watch tells). While
+ * current exists, the loop goes on from it as it always has, to its next_in_room (wherever a
+ * script has moved it). Once it is freed, the loop goes on from <following> if that is still in
+ * the room, and else ends (null). */
+char_data* next_person_after_trigger(const room_data& room, char_data* current,
+    bool current_freed, char_data* following);
+/* The same for a loop over <room>'s contents. */
+obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
+    bool current_freed, obj_data* following);
+/* True if <object> is on the next_content list that starts with <first>: a room's contents, an
+ * inventory or a container's contents. <object> is compared by address and never read, so it may
+ * be one that has been freed: the answer is then false, unless an object made since at the same
+ * address is on the list. */
+bool is_on_content_list(const obj_data* first, const obj_data* object);
+
 void continue_char_script(char_data* ch);
 
 /* Report script lines whose vnums name nothing -- informational only. */
