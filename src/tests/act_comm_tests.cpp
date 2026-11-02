@@ -2,6 +2,7 @@
 #include "../handler.h"
 #include "../interpre.h"
 #include "../mail.h"
+#include "../owned_character.h"
 #include "../structs.h"
 #include "../utils.h"
 #include "test_cleanup.h"
@@ -22,6 +23,7 @@ extern int top_of_objt;
 extern struct obj_data* object_list;
 extern struct room_data world;
 extern int top_of_world;
+extern struct descriptor_data* descriptor_list;
 void postmaster_send_mail(
     struct char_data* character, int command_number, const char* argument, char_data* host);
 
@@ -554,6 +556,78 @@ TEST_F(NoteWritingTest, StartingANoteSaysToEndItWithPercentE)
         << m_descriptor.output;
 }
 
+/* %f formats the note and shows it when the result fits the note's limit. */
+TEST_F(NoteWritingTest, FormattingWithinTheLimitFormatsTheText)
+{
+    start_writing();
+
+    type("Meet me at the ford.");
+    type("%f");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_STREQ(*m_descriptor.str, "   Meet me at the ford. \n\r"); /* the line end becomes a space */
+    EXPECT_EQ(m_descriptor.len_str, std::strlen(*m_descriptor.str));
+    EXPECT_EQ(m_descriptor.cur_str, m_descriptor.len_str);
+    EXPECT_NE(std::string(m_descriptor.output).find("Your text is formatted."), std::string::npos);
+}
+
+/* A word and the space after it, repeated to make a line %f breaks many times. */
+const std::string FORMATTED_WORD = "ford ";
+
+/* %f is refused when the indent and line breaks it adds would take the note past its limit, and the
+ * note keeps its text and cursor. */
+TEST_F(NoteWritingTest, FormattingPastTheLimitIsRefusedAndTheTextKept)
+{
+    start_writing();
+    std::string first_line;
+    while (first_line.size() + FORMATTED_WORD.size() <= NEAR_LIMIT_LINE_LENGTH) {
+        first_line += FORMATTED_WORD;
+    }
+    type(first_line.c_str());
+    ASSERT_NE(m_descriptor.str, nullptr);
+    const unsigned int cursor_before = m_descriptor.cur_str;
+
+    type("%f");
+
+    EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\r");
+    EXPECT_EQ(m_descriptor.len_str, (first_line + "\n\r").size());
+    EXPECT_EQ(m_descriptor.cur_str, cursor_before);
+    EXPECT_NE(std::string(m_descriptor.output).find(past_limit_message()), std::string::npos);
+    EXPECT_EQ(std::string(m_descriptor.output).find("Your text is formatted."), std::string::npos);
+}
+
+/* %s with no '~' after the pattern, or with nothing after it, says how to use it and replaces
+ * nothing. */
+TEST_F(NoteWritingTest, AReplacementWithoutATildeIsRefused)
+{
+    start_writing();
+    type("Meet me at the ford.");
+
+    type("%sford");
+    type("%s");
+
+    ASSERT_NE(m_descriptor.str, nullptr);
+    EXPECT_STREQ(*m_descriptor.str, "Meet me at the ford.\n\r");
+    const std::string output = m_descriptor.output;
+    const std::string usage = "Use %s<old>~<new>.\n\r";
+    const size_t first_usage = output.find(usage);
+    ASSERT_NE(first_usage, std::string::npos) << output;
+    EXPECT_NE(output.find(usage, first_usage + usage.size()), std::string::npos) << output;
+    EXPECT_EQ(output.find("Replaced"), std::string::npos) << output;
+}
+
+/* %s with nothing before the '~' still says there is no pattern. */
+TEST_F(NoteWritingTest, AReplacementWithAnEmptyPatternSaysSo)
+{
+    start_writing();
+    type("Meet me at the ford.");
+
+    type("%s~river");
+
+    EXPECT_STREQ(*m_descriptor.str, "Meet me at the ford.\n\r");
+    EXPECT_NE(std::string(m_descriptor.output).find("No pattern to replace."), std::string::npos);
+}
+
 /* A writer of MIN_MAIL_LEVEL with the price of a stamp, in room 0 with a postmaster, and a player
  * table holding the one the letter is to. */
 class MailWritingTest : public ::testing::Test {
@@ -690,6 +764,128 @@ TEST_F(MailWritingTest, ALineReachingExactlyTheLimitIsAdded)
     EXPECT_EQ(std::string(*m_descriptor.str), first_line + "\n\rford!!\n\r");
     EXPECT_EQ(std::strlen(*m_descriptor.str), static_cast<size_t>(MAX_MAIL_SIZE));
     EXPECT_EQ(output().find(past_limit_message(MAX_MAIL_SIZE)), std::string::npos) << output();
+}
+
+/* Two writers on the descriptor list, each with the text editor open on a field of its own: the
+ * first on a field about to be freed, the second on one that is not. */
+class StopEditingTextTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        m_saved_descriptor_list = descriptor_list;
+        m_freed_field = str_dup("The old text.\n\r");
+        m_kept_field = str_dup("Other text.\n\r");
+        SET_BIT(MOB_FLAGS(m_mob_writer), MOB_ISNPC);
+        connect(m_kept_descriptor, m_kept_writer);
+        string_add_init(&m_kept_descriptor, &m_kept_field);
+        m_freed_descriptor.next = &m_kept_descriptor;
+        descriptor_list = &m_freed_descriptor;
+    }
+
+    void TearDown() override
+    {
+        descriptor_list = m_saved_descriptor_list;
+        for (descriptor_data* descriptor : { &m_freed_descriptor, &m_kept_descriptor }) {
+            if (descriptor->character != nullptr) {
+                descriptor->character->desc = nullptr;
+            }
+            descriptor->str = nullptr;
+            release_test_descriptor(descriptor);
+        }
+        RELEASE(m_freed_field);
+        RELEASE(m_kept_field);
+        RELEASE(m_unopened_field);
+    }
+
+    /* Connects <writer> through <descriptor>, playing and writing to its small output buffer. */
+    static void connect(descriptor_data& descriptor, char_data* writer)
+    {
+        descriptor.output = descriptor.small_outbuf;
+        descriptor.small_outbuf[0] = '\0';
+        descriptor.bufspace = SMALL_BUFSIZE - 1;
+        descriptor.connected = CON_PLYNG;
+        descriptor.character = writer;
+        writer->desc = &descriptor;
+    }
+
+    /* Has <writer> open the text editor on the field about to be freed. */
+    void open_freed_field(char_data* writer)
+    {
+        connect(m_freed_descriptor, writer);
+        string_add_init(&m_freed_descriptor, &m_freed_field);
+        m_freed_descriptor.str_limit = MAX_NOTE_LENGTH;
+        m_freed_descriptor.small_outbuf[0] = '\0';
+        m_freed_descriptor.bufptr = 0;
+        m_freed_descriptor.bufspace = SMALL_BUFSIZE - 1;
+    }
+
+    /* Ends the edits of the field about to be freed and of one nobody has open. */
+    void stop_editing() { stop_editing_text({ &m_freed_field, &m_unopened_field }); }
+
+    /* Types <line> on the first writer's connection. */
+    void type_after_stop(const char* line)
+    {
+        std::string mutable_line = line;
+        mutable_line.push_back('\0');
+        string_add(&m_freed_descriptor, &mutable_line[0]);
+    }
+
+    descriptor_data m_freed_descriptor {}; // the first writer's connection
+    descriptor_data m_kept_descriptor {}; // the second writer's connection
+    owned_character m_player_writer; // a player who may open the field about to be freed
+    owned_character m_mob_writer { MOB_ISNPC }; // a mob who may open it, as a switched immortal
+    owned_character m_kept_writer; // the player editing the field that is kept
+    char* m_freed_field = nullptr; // the text about to be freed; the test frees it as the caller would
+    char* m_kept_field = nullptr; // the text the second writer goes on editing
+    char* m_unopened_field = nullptr; // a field about to be freed that nobody has open
+
+private:
+    descriptor_data* m_saved_descriptor_list = nullptr; // restored in TearDown
+};
+
+/* A player writing into a freed field is stopped and told; the player editing another field goes on. */
+TEST_F(StopEditingTextTest, StopsOnlyAPlayerWritingIntoAFreedField)
+{
+    open_freed_field(m_player_writer);
+    ASSERT_TRUE(IS_SET(PLR_FLAGS(m_player_writer), PLR_WRITING));
+
+    stop_editing();
+
+    EXPECT_EQ(m_freed_descriptor.str, nullptr);
+    EXPECT_EQ(m_freed_descriptor.str_limit, 0u);
+    EXPECT_FALSE(IS_SET(PLR_FLAGS(m_player_writer), PLR_WRITING));
+    EXPECT_NE(std::string(m_freed_descriptor.output).find("What you were writing is gone.\n\r"),
+        std::string::npos)
+        << m_freed_descriptor.output;
+    EXPECT_EQ(m_kept_descriptor.str, &m_kept_field);
+    EXPECT_TRUE(IS_SET(PLR_FLAGS(m_kept_writer), PLR_WRITING));
+    EXPECT_EQ(std::string(m_kept_descriptor.output).find("What you were writing is gone."),
+        std::string::npos);
+
+    type_after_stop("A line typed after the stop.");
+
+    EXPECT_EQ(m_freed_descriptor.str, nullptr);
+}
+
+/* A mob a switched immortal writes as is stopped too. The writing bit is the mob's own flag and stays
+ * set, so the input loop still sends its lines to the editor, which ignores them. */
+TEST_F(StopEditingTextTest, AMobWritingIntoAFreedFieldIgnoresLaterLines)
+{
+    open_freed_field(m_mob_writer);
+    const long flags_before = MOB_FLAGS(m_mob_writer);
+
+    stop_editing();
+
+    EXPECT_EQ(m_freed_descriptor.str, nullptr);
+    EXPECT_EQ(MOB_FLAGS(m_mob_writer), flags_before);
+    EXPECT_NE(std::string(m_freed_descriptor.output).find("What you were writing is gone.\n\r"),
+        std::string::npos)
+        << m_freed_descriptor.output;
+
+    type_after_stop("A line typed after the stop.");
+
+    EXPECT_EQ(m_freed_descriptor.str, nullptr);
+    EXPECT_EQ(m_kept_descriptor.str, &m_kept_field);
 }
 
 } // namespace

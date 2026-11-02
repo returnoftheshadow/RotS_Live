@@ -363,8 +363,13 @@ void string_add(struct descriptor_data* d, char* str)
     int terminator = 0;
     int tmp, tmp2, tmpmark, crmark;
 
+    /* No text is open, though the input loop still sends lines here: stop_editing_text ended the
+     * edit, and a mob's PLR_WRITING bit (one of its own flags) stays set after it. */
+    if (!d->str)
+        return;
+
     /* A text not started yet has no length, whatever an earlier edit on this connection left. */
-    if (!d->str || !*d->str) {
+    if (!*d->str) {
         d->len_str = 0;
         d->cur_str = 0;
         d->max_str = 0;
@@ -479,7 +484,10 @@ void string_add(struct descriptor_data* d, char* str)
                 continue;
 
             tmpstr = scan + 2;
-            if (tmpstr == tmpstr2)
+            /* With no '~' the line holds no replacement to read. */
+            if (*tmpstr2 != '~')
+                send_to_char("Use %s<old>~<new>.\n\r", d->character);
+            else if (tmpstr == tmpstr2)
                 send_to_char("No pattern to replace.\n\r", d->character);
             else {
                 *tmpstr2 = 0;
@@ -512,20 +520,30 @@ void string_add(struct descriptor_data* d, char* str)
                 *str = 0;
                 break;
             }
+            /* Flattened and formatted in a copy, so a result past the limit leaves the text as it
+             * was. */
+            char* flattened;
+            CREATE(flattened, char, d->len_str + 1);
+            memcpy(flattened, *d->str, d->len_str);
             for (tmp = 0; tmp < (int)d->len_str; tmp++)
-                if (*(*d->str + tmp) == '\n')
-                    *(*d->str + tmp) = ' ';
-                else if (*(*d->str + tmp) < ' ')
-                    memmove(*d->str + tmp, *d->str + tmp + 1, d->len_str - tmp);
+                if (*(flattened + tmp) == '\n')
+                    *(flattened + tmp) = ' ';
+                else if (*(flattened + tmp) < ' ')
+                    memmove(flattened + tmp, flattened + tmp + 1, d->len_str - tmp);
 
-            *(*d->str + d->len_str) = 0;
+            *(flattened + d->len_str) = 0;
 
-            tmpstr = format_string(*d->str);
+            tmpstr = format_string(flattened);
+            RELEASE(flattened);
+            crmark = 0;
+            *str = 0;
+            if (!edit_fits_limit(d, d->len_str, strlen(tmpstr))) {
+                RELEASE(tmpstr);
+                break;
+            }
             RELEASE(*d->str);
             *d->str = tmpstr;
             tmpmark = d->len_str = d->cur_str = d->max_str = strlen(tmpstr);
-            crmark = 0;
-            *str = 0;
             send_to_char("Your text is formatted.\n\r", d->character);
             send_to_char(*d->str, d->character);
             break;
