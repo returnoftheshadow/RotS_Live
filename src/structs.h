@@ -1831,7 +1831,10 @@ public:
     struct char_special2_data specials2; /* Additional special constants  */
     struct char_prof_data* profs; /* prof cooficients */
     specialization_data extra_specialization_data; /* extra data used by some specializations */
-    player_damage_details damage_details; /* structure for storing damage data */
+    // The personal damage meter behind the `damage` report: null until the character first needs
+    // one (see keeps_damage_meter in damage_meters.h), owned by the character and deleted by
+    // free_char. A whole-character copy must not share it.
+    player_damage_details* damage_details = nullptr;
     byte* skills; /* dynam. alloc. array of pracs spent                                         on
                      skills */
     byte* knowledge; /* array of knowledge, computed from

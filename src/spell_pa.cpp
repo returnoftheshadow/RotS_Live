@@ -1172,3 +1172,17 @@ ACMD(do_prepare)
     if (subcmd == 2)
         send_to_char("You release your prepared spell.\n\r", ch);
 }
+
+bool spell_lacks_victim(char_data* caster, const char_data* victim, int spell_number)
+{
+    if (victim) {
+        return false;
+    }
+    vmudlog(NRM, "SYSERR: %s: spell %d (%s) has nobody to work on: a staff, or a wand pointed at "
+                 "an object.",
+        __func__, spell_number, skills[spell_number].name);
+    if (caster) {
+        send_to_char("Nothing seems to happen.\n\r", caster);
+    }
+    return true;
+}

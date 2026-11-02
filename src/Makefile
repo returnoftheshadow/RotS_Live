@@ -51,6 +51,7 @@ SOURCES := \
     db.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
+    freed_watch.cpp \
     game_heartbeat.cpp \
     game_time_text.cpp \
     graph.cpp \
