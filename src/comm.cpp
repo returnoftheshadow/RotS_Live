@@ -26,6 +26,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_heartbeat.h"
 #include "game_time_text.h"
 #include "handler.h"
@@ -860,33 +861,17 @@ void check_state_deadlines(time_t now)
     }
 }
 
-void game_loop(SocketType s, GameHeartbeat& heartbeat)
+/* Sets how many connections the game may hold, from the listening socket <s> and the
+ * system's limit. */
+static void set_connection_limits(SocketType s)
 {
-    fd_set input_set, output_set, exc_set;
-    struct timeval null_time;
-    // The real time each pass of the loop is given.
-    constexpr std::chrono::microseconds PULSE_LENGTH(OPT_USEC);
-    // The earliest instant the next pass may start: each pass moves it to the end of its sleep.
-    std::chrono::steady_clock::time_point pulse_start = std::chrono::steady_clock::now();
-    char comm[MAX_INPUT_LENGTH];
-    char prompt[MAX_INPUT_LENGTH];
-    char* pptr;
-    struct descriptor_data *point, *next_point;
-    struct char_data *wait_ch, *wait_tmp;
-    int mask;
-    int tmp;
-    char disp, tmpflag;
-    char buf[100];
-
-    null_time.tv_sec = 0;
-    null_time.tv_usec = 0;
-
     maxdesc = s;
 
 #if defined(OPEN_MAX)
     avail_descs = OPEN_MAX - 8;
 #elif defined(USE_TABLE_SIZE)
     {
+        char buf[100];
         int retval;
 
         retval = setdtablesize(64);
@@ -903,349 +888,406 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
 #endif
 
     avail_descs = std::min(avail_descs, MAX_PLAYERS);
+}
 
-    mask = sigmask(SIGUSR1) | sigmask(SIGUSR2) | sigmask(SIGALRM) | sigmask(SIGTERM) | sigmask(SIGURG) | sigmask(SIGXCPU) | sigmask(SIGHUP) | sigmask(SIGSEGV) | sigmask(SIGBUS);
+/* Fills the three sets with the connections that can be read, can be written, or have failed
+ * (<s> is in <input_set> when someone is connecting), then sleeps out the rest of the pulse that
+ * began at <pulse_start> and moves <pulse_start> to the start of the next one. Returns false if
+ * the connections could not be checked, which ends the game loop. */
+static bool wait_for_next_pulse(SocketType s, int signal_mask,
+    std::chrono::steady_clock::time_point& pulse_start, fd_set& input_set, fd_set& output_set,
+    fd_set& exception_set)
+{
+    // The real time each pass of the loop is given.
+    constexpr std::chrono::microseconds PULSE_LENGTH(OPT_USEC);
+    struct timeval null_time;
+    struct descriptor_data* point;
 
-    /* Main loop */
-    while (!circle_shutdown) {
-        /* Check what's happening out there */
-        FD_ZERO(&input_set);
-        FD_ZERO(&output_set);
-        FD_ZERO(&exc_set);
-        FD_SET(s, &input_set);
-        for (point = descriptor_list; point; point = point->next)
-            if (point->descriptor) {
-                FD_SET(point->descriptor, &input_set);
-                FD_SET(point->descriptor, &exc_set);
-                FD_SET(point->descriptor, &output_set);
-            }
+    null_time.tv_sec = 0;
+    null_time.tv_usec = 0;
 
-        /* check out the time: sleep off whatever this pass's work left of its budget */
-        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-        const std::chrono::steady_clock::duration time_spent = now - pulse_start;
-        std::chrono::steady_clock::duration time_left = PULSE_LENGTH - time_spent;
-        if (time_left < std::chrono::steady_clock::duration::zero()) {
-            time_left = std::chrono::steady_clock::duration::zero();
-        }
-        pulse_start = now + time_left;
-
-        sigsetmask(mask);
-
-        if ((tmp = select(maxdesc + 1, &input_set, &output_set, &exc_set, &null_time) < 0)) {
-            if (errno != EINTR) {
-                perror("Select poll");
-                return;
-            }
+    FD_ZERO(&input_set);
+    FD_ZERO(&output_set);
+    FD_ZERO(&exception_set);
+    FD_SET(s, &input_set);
+    for (point = descriptor_list; point; point = point->next)
+        if (point->descriptor) {
+            FD_SET(point->descriptor, &input_set);
+            FD_SET(point->descriptor, &exception_set);
+            FD_SET(point->descriptor, &output_set);
         }
 
-        // sleep_for waits at least time_left, even if a signal arrives during it.
-        std::this_thread::sleep_for(time_left);
+    /* check out the time: sleep off whatever this pass's work left of its budget */
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::duration time_spent = now - pulse_start;
+    std::chrono::steady_clock::duration time_left = PULSE_LENGTH - time_spent;
+    if (time_left < std::chrono::steady_clock::duration::zero()) {
+        time_left = std::chrono::steady_clock::duration::zero();
+    }
+    pulse_start = now + time_left;
 
-        sigsetmask(0);
+    sigsetmask(signal_mask);
 
-        /* Respond to whatever might be happening */
+    if (select(maxdesc + 1, &input_set, &output_set, &exception_set, &null_time) < 0) {
+        if (errno != EINTR) {
+            perror("Select poll");
+            return false;
+        }
+    }
 
-        /* Pnew connection? */
-        if (FD_ISSET(s, &input_set)) {
-            if (pnew_descriptor(s) == 0) // here was <0, had to change
-            {
-                perror("Pnew connection");
+    // sleep_for waits at least time_left, even if a signal arrives during it.
+    std::this_thread::sleep_for(time_left);
+
+    sigsetmask(0);
+
+    return true;
+}
+
+/* Accepts a new connection on the listening socket <s>, if someone is connecting. */
+static void accept_new_connection(SocketType s, const fd_set& input_set)
+{
+    if (FD_ISSET(s, &input_set)) {
+        if (pnew_descriptor(s) == 0) // here was <0, had to change
+        {
+            perror("Pnew connection");
+        }
+    }
+}
+
+/* Closes every connection the system reports has failed, and takes it out of <input_set> and
+ * <output_set>. */
+static void close_failed_connections(fd_set& input_set, fd_set& output_set,
+    const fd_set& exception_set)
+{
+    struct descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+        if (point->descriptor) {
+            if (FD_ISSET(point->descriptor, &exception_set)) {
+                FD_CLR(point->descriptor, &input_set);
+                FD_CLR(point->descriptor, &output_set);
+                close_socket(point, FALSE);
             }
         }
+    }
+}
 
-        /* kick out the freaky folks */
-        for (point = descriptor_list; point; point = next_point) {
-            next_point = point->next;
-            if (point->descriptor) {
-                if (FD_ISSET(point->descriptor, &exc_set)) {
-                    FD_CLR(point->descriptor, &input_set);
-                    FD_CLR(point->descriptor, &output_set);
+/* Reads what each player has sent into their input queue. Nothing they typed runs yet. */
+static void read_typed_input(const fd_set& input_set)
+{
+    struct descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+        if (point->descriptor) {
+            if (FD_ISSET(point->descriptor, &input_set)) {
+                if (process_input(point) < 0) {
                     close_socket(point, FALSE);
                 }
             }
         }
+    }
+}
 
-        /* take our input off of the TCP queues */
-        for (point = descriptor_list; point; point = next_point) {
-            next_point = point->next;
-            if (point->descriptor) {
-                if (FD_ISSET(point->descriptor, &input_set)) {
-                    if (process_input(point) < 0) {
+/* Runs one typed line per connection: a command in the game, or an answer to the login menus.
+ * A character still waiting on a delayed action keeps their input queued. */
+static void run_typed_commands()
+{
+    char comm[MAX_INPUT_LENGTH];
+    struct descriptor_data* point;
+    char tmpflag;
+
+    for (point = descriptor_list; point; point = next_to_process) {
+        next_to_process = point->next;
+        if (point->descriptor) {
+            if (point->character)
+                tmpflag = (!IS_AFFECTED(point->character, AFF_WAITING));
+            else
+                tmpflag = 1;
+
+            if (tmpflag && (get_from_q(&point->input, comm))) {
+                if (point->character && !IS_NPC(point->character) && point->connected == CON_PLYNG && point->character->specials.was_in_room != NOWHERE) {
+                    if (point->character->in_room != NOWHERE) {
+                        char_from_room(point->character);
+                    }
+
+                    char_to_room(point->character, point->character->specials.was_in_room);
+                    point->character->specials.was_in_room = NOWHERE;
+                    act("$n has returned.", TRUE, point->character, 0, 0, TO_ROOM);
+                    point->character->specials.timer = 0;
+                }
+                if (point->character && IS_AFFECTED(point->character, AFF_WAITWHEEL)) {
+                    point->character->delay.wait_value = 1;
+                    point->character->specials.timer = 0;
+                }
+                if (point->character && IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
+                    /* The flag is saved with the character; after a fresh
+                     * load there is no text being edited.  Players only: on
+                     * a mob these bits are its own flags (NOBASH, AGGR). */
+                    if (!point->str && !IS_NPC(point->character))
+                        REMOVE_BIT(PLR_FLAGS(point->character), PLR_MAILING | PLR_WRITING);
+                    else
+                        string_add(point, comm);
+                }
+
+                point->prompt_mode = 1;
+                if (!point->connected) {
+                    if (point->showstr_point) {
+                        show_string(point, comm);
+                    } else {
+                        if (!IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
+                            replace_aliases(point->character, comm);
+                            command_interpreter(point->character, comm, 0);
+                        }
+                    }
+                } else {
+                    nanny(point, comm);
+                }
+            }
+        }
+    }
+}
+
+/* Sends each connection the output buffered for it this pulse. */
+static void send_buffered_output(const fd_set& output_set)
+{
+    struct descriptor_data *point, *next_point;
+
+    for (point = descriptor_list; point; point = next_point) {
+        next_point = point->next;
+        if (point->descriptor) {
+            if (*(point->output)) {
+                if (FD_ISSET(point->descriptor, &output_set)) {
+                    int output_result = process_output(point);
+                    if (output_result < 0) {
                         close_socket(point, FALSE);
-                    }
-                }
-            }
-        }
-
-        /* process_commands */
-        for (wait_ch = waiting_list; wait_ch; wait_ch = wait_tmp) {
-            if (wait_ch->delay.wait_value > 0) {
-                (wait_ch->delay.wait_value)--;
-            }
-
-            if (wait_ch->delay.wait_value > 0) {
-                if (!IS_NPC(wait_ch) && IS_AFFECTED(wait_ch, AFF_WAITWHEEL)) {
-                    if (PRF_FLAGGED(wait_ch, PRF_SPINNER)) {
-                        write_to_descriptor(wait_ch->desc->descriptor,
-                            wait_wheel[wait_ch->delay.wait_value % 8]);
-                    }
-                }
-
-                wait_tmp = wait_ch->delay.next;
-            } else if (wait_ch->delay.wait_value == 0) {
-                /* here is the block calling actual procedures */
-                complete_delay(wait_ch);
-                wait_tmp = wait_ch->delay.next;
-
-                if (wait_ch->delay.wait_value == 0)
-                    /* look out for the similar code in raw_kill() */
-                    abort_delay(wait_ch);
-            } else {
-                wait_tmp = wait_ch->delay.next;
-            }
-        }
-
-        for (point = descriptor_list; point; point = next_to_process) {
-            next_to_process = point->next;
-            if (point->descriptor) {
-                if (point->character)
-                    tmpflag = (!IS_AFFECTED(point->character, AFF_WAITING));
-                else
-                    tmpflag = 1;
-
-                if (tmpflag && (get_from_q(&point->input, comm))) {
-                    if (point->character && !IS_NPC(point->character) && point->connected == CON_PLYNG && point->character->specials.was_in_room != NOWHERE) {
-                        if (point->character->in_room != NOWHERE) {
-                            char_from_room(point->character);
-                        }
-
-                        char_to_room(point->character, point->character->specials.was_in_room);
-                        point->character->specials.was_in_room = NOWHERE;
-                        act("$n has returned.", TRUE, point->character, 0, 0, TO_ROOM);
-                        point->character->specials.timer = 0;
-                    }
-                    if (point->character && IS_AFFECTED(point->character, AFF_WAITWHEEL)) {
-                        point->character->delay.wait_value = 1;
-                        point->character->specials.timer = 0;
-                    }
-                    if (point->character && IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
-                        /* The flag is saved with the character; after a fresh
-                         * load there is no text being edited.  Players only: on
-                         * a mob these bits are its own flags (NOBASH, AGGR). */
-                        if (!point->str && !IS_NPC(point->character))
-                            REMOVE_BIT(PLR_FLAGS(point->character), PLR_MAILING | PLR_WRITING);
-                        else
-                            string_add(point, comm);
-                    }
-
-                    point->prompt_mode = 1;
-                    if (!point->connected) {
-                        if (point->showstr_point) {
-                            show_string(point, comm);
-                        } else {
-                            if (!IS_SET(PLR_FLAGS(point->character), PLR_WRITING)) {
-                                replace_aliases(point->character, comm);
-                                command_interpreter(point->character, comm, 0);
-                            }
-                        }
+                    } else if (output_result > 0) {
+                        point->prompt_mode = 1;
                     } else {
-                        nanny(point, comm);
-                    }
-                }
-            }
-        }
-
-        for (point = descriptor_list; point; point = next_point) {
-            next_point = point->next;
-            if (point->descriptor) {
-                if (*(point->output)) {
-                    if (FD_ISSET(point->descriptor, &output_set)) {
-                        int output_result = process_output(point);
-                        if (output_result < 0) {
-                            close_socket(point, FALSE);
-                        } else if (output_result > 0) {
-                            point->prompt_mode = 1;
-                        } else {
-                            /* output_result == 0: EAGAIN deferral -- t->output is still
-                               full of the unflushed text. The command-processing block
-                               earlier this same pulse may have already set prompt_mode
-                               when it queued that text (comm.cpp, "process_commands"
-                               loop) -- if we left that alone, the immediate,
-                               unbuffered prompt write below would fire ahead of the
-                               still-undelivered buffered text, and the client would
-                               see its prompt jump in front of a game message (or the
-                               room-name line, etc.) that hasn't arrived yet. Clear it
-                               so the prompt is held until a later pulse actually
-                               flushes this text successfully (which re-sets
-                               prompt_mode via the branch above). */
-                            point->prompt_mode = 0;
-                        }
-                    } else {
-                        /* Socket wasn't reported writable by select() this pulse (kernel
-                           send buffer transiently full -- more likely under bursty/rapid
-                           output), so process_output() wasn't even attempted: t->output
-                           is still sitting there unflushed. Same reasoning as the EAGAIN
-                           branch above -- don't let an already-set prompt_mode fire the
-                           prompt ahead of this still-buffered text. This path needs no
-                           new code from this bundle to trigger; it's existed as long as
-                           this select()-based loop has, independent of the EAGAIN case. */
+                        /* output_result == 0: EAGAIN deferral -- t->output is still
+                           full of the unflushed text. run_typed_commands earlier
+                           this same pulse may have already set prompt_mode when it
+                           queued that text -- if we left that alone, the immediate,
+                           unbuffered prompt write in send_prompts would fire ahead of the
+                           still-undelivered buffered text, and the client would
+                           see its prompt jump in front of a game message (or the
+                           room-name line, etc.) that hasn't arrived yet. Clear it
+                           so the prompt is held until a later pulse actually
+                           flushes this text successfully (which re-sets
+                           prompt_mode via the branch above). */
                         point->prompt_mode = 0;
                     }
-                }
-            }
-        }
-
-        /* kick out the Phreaky Pholks II  -JE */
-        for (point = descriptor_list; point; point = next_to_process) {
-            next_to_process = point->next;
-            if (point->descriptor) {
-                if (STATE(point) == CON_CLOSE) {
-                    close_socket(point, FALSE);
-                }
-            }
-        }
-
-        /* give the people some prompts */
-        for (point = descriptor_list; point; point = point->next)
-            if (point->prompt_mode && point->descriptor) {
-                if (point->character) {
-                    tmp = (IS_SET(PLR_FLAGS(point->character), PLR_WRITING));
                 } else {
-                    tmp = !(point->connected);
+                    /* Socket wasn't reported writable by select() this pulse (kernel
+                       send buffer transiently full -- more likely under bursty/rapid
+                       output), so process_output() wasn't even attempted: t->output
+                       is still sitting there unflushed. Same reasoning as the EAGAIN
+                       branch above -- don't let an already-set prompt_mode fire the
+                       prompt ahead of this still-buffered text. This path needs no
+                       new code from this bundle to trigger; it's existed as long as
+                       this select()-based loop has, independent of the EAGAIN case. */
+                    point->prompt_mode = 0;
                 }
-                if (tmp) {
-                    /* write_to_descriptor() returns 0 on a full successful
-                       write, -2 on EAGAIN (nothing written), -1 fatal --
-                       only a real 0 leaves a bare prompt dangling on the
-                       wire that later needs its leading break. */
-                    if (write_to_descriptor(point->descriptor, "] ") == 0)
+            }
+        }
+    }
+}
+
+/* Closes the connections that are finished, such as a player who quit. */
+static void close_finished_connections()
+{
+    struct descriptor_data* point;
+
+    for (point = descriptor_list; point; point = next_to_process) {
+        next_to_process = point->next;
+        if (point->descriptor) {
+            if (STATE(point) == CON_CLOSE) {
+                close_socket(point, FALSE);
+            }
+        }
+    }
+}
+
+/* Sends a prompt to each connection that has been sent something this pulse. */
+static void send_prompts()
+{
+    char prompt[MAX_INPUT_LENGTH];
+    char* pptr;
+    struct descriptor_data* point;
+    int tmp;
+    char disp, tmpflag;
+
+    for (point = descriptor_list; point; point = point->next)
+        if (point->prompt_mode && point->descriptor) {
+            if (point->character) {
+                tmp = (IS_SET(PLR_FLAGS(point->character), PLR_WRITING));
+            } else {
+                tmp = !(point->connected);
+            }
+            if (tmp) {
+                /* write_to_descriptor() returns 0 on a full successful
+                   write, -2 on EAGAIN (nothing written), -1 fatal --
+                   only a real 0 leaves a bare prompt dangling on the
+                   wire that later needs its leading break. */
+                if (write_to_descriptor(point->descriptor, "] ") == 0)
+                    point->bare_prompt_pending = true;
+            } else if (!point->connected) {
+                if (point->showstr_point) {
+                    if (write_to_descriptor(point->descriptor,
+                            "*** Press return to continue, q to quit ***")
+                        == 0)
                         point->bare_prompt_pending = true;
-                } else if (!point->connected) {
-                    if (point->showstr_point) {
-                        if (write_to_descriptor(point->descriptor,
-                                "*** Press return to continue, q to quit ***")
-                            == 0)
-                            point->bare_prompt_pending = true;
-                    } else { /*if point->showstr_point */
-                        struct char_data* opponent;
-                        struct char_data* tank;
+                } else { /*if point->showstr_point */
+                    struct char_data* opponent;
+                    struct char_data* tank;
 
-                        pptr = prompt;
+                    pptr = prompt;
 
-                        if (GET_INVIS_LEV(point->character)) {
-                            sprintf(prompt, "i%d", GET_INVIS_LEV(point->character));
-                            disp = FALSE;
-                        } else
-                            prompt[0] = 0;
+                    if (GET_INVIS_LEV(point->character)) {
+                        sprintf(prompt, "i%d", GET_INVIS_LEV(point->character));
+                        disp = FALSE;
+                    } else
+                        prompt[0] = 0;
 
-                        if (IS_RIDING(point->character))
-                            sprintf(prompt, "%s R", prompt);
+                    if (IS_RIDING(point->character))
+                        sprintf(prompt, "%s R", prompt);
 
-                        if (PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
-                            sprintf(prompt, "%s [", prompt);
-                            add_prompt(prompt, point->character, PROMPT_ADVANCED);
-                            /* what is being shaped, as the normal prompt shows it */
-                            if (PRF_FLAGGED(point->character, PRF_DISPTEXT)) {
-                                strcat(prompt, " ");
-                                add_prompt(prompt, point->character, PRF_DISPTEXT);
-                            }
-                        } else if (((GET_HIT(point->character) < GET_MAX_HIT(point->character)) || point->character->specials.fighting) && PRF_FLAGGED(point->character, PRF_PROMPT)) {
-                            sprintf(prompt, "%s HP:", prompt);
+                    if (PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
+                        sprintf(prompt, "%s [", prompt);
+                        add_prompt(prompt, point->character, PROMPT_ADVANCED);
+                        /* what is being shaped, as the normal prompt shows it */
+                        if (PRF_FLAGGED(point->character, PRF_DISPTEXT)) {
+                            strcat(prompt, " ");
+                            add_prompt(prompt, point->character, PRF_DISPTEXT);
                         }
+                    } else if (((GET_HIT(point->character) < GET_MAX_HIT(point->character)) || point->character->specials.fighting) && PRF_FLAGGED(point->character, PRF_PROMPT)) {
+                        sprintf(prompt, "%s HP:", prompt);
+                    }
 
-                        opponent = point->character->specials.fighting;
+                    opponent = point->character->specials.fighting;
 
-                        if (!PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
-                            add_prompt(prompt, point->character,
-                                PRF_FLAGGED(point->character, PRF_DISPTEXT)      ? PRF_DISPTEXT
-                                    : !PRF_FLAGGED(point->character, PRF_PROMPT) ? 0
-                                                                                 : PROMPT_ALL);
-                        }
+                    if (!PRF_FLAGGED(point->character, PRF_ADVANCED_PROMPT)) {
+                        add_prompt(prompt, point->character,
+                            PRF_FLAGGED(point->character, PRF_DISPTEXT)      ? PRF_DISPTEXT
+                                : !PRF_FLAGGED(point->character, PRF_PROMPT) ? 0
+                                                                             : PROMPT_ALL);
+                    }
 
-                        if (opponent && IS_MENTAL(opponent)) {
-                            sprintf(prompt, "%s Mind:", prompt);
-                            add_prompt(prompt, point->character, PROMPT_STAT);
-                        }
+                    if (opponent && IS_MENTAL(opponent)) {
+                        sprintf(prompt, "%s Mind:", prompt);
+                        add_prompt(prompt, point->character, PROMPT_STAT);
+                    }
 
-                        if (IS_RIDING(point->character))
-                            add_prompt(prompt, point->character->mount_data.mount, PROMPT_MOVE);
+                    if (IS_RIDING(point->character))
+                        add_prompt(prompt, point->character->mount_data.mount, PROMPT_MOVE);
 
-                        if (GET_RACE(point->character) == RACE_BEORNING) {
-                            affected_type* maul_buff = affected_by_spell(point->character, SKILL_MAUL);
-                            if (maul_buff && maul_buff->location == APPLY_MAUL) {
-                                sprintf(prompt, "%s Maul:", prompt);
-                                add_prompt(prompt, point->character, PROMPT_MAUL);
-                            }
-                        }
-
-                        const obj_data* quiver = point->character->equipment[WEAR_BACK];
-                        if (quiver && quiver->is_quiver()) {
-                            sprintf(prompt, "%s A:(", prompt);
-                            add_prompt(prompt, point->character, PROMPT_ARROWS);
-                        }
-
-                        if (point->character->specials.position == POSITION_FIGHTING) {
-                            if (opponent) {
-                                if (opponent->specials.fighting != point->character) {
-                                    tank = opponent->specials.fighting;
-                                    if (tank) {
-                                        sprintf(prompt, "%s, %s:", prompt,
-                                            PERS(tank, point->character, FALSE, FALSE));
-                                        add_prompt(prompt, tank,
-                                            (IS_MENTAL(opponent)) ? PROMPT_STAT
-                                                                  : PROMPT_HIT);
-                                    }
-                                }
-                                sprintf(prompt, "%s, %s:", prompt,
-                                    PERS(opponent, point->character, FALSE, FALSE));
-
-                                add_prompt(prompt, opponent,
-                                    (IS_MENTAL(point->character))
-                                        ? PROMPT_STAT
-                                        : (IS_SHADOW(opponent) ? PROMPT_STAT : PROMPT_HIT));
-                            }
-                        }
-
-                        // Check for a blank space in the first position or the last
-                        if (prompt[0] == ' ')
-                            pptr++;
-                        if (prompt[strlen(prompt) - 1] == ' ')
-                            prompt[strlen(prompt) - 1] = '\0';
-
-                        disp = TRUE;
-                        if (point->character->specials.position == POSITION_SHAPING)
-                            strcat(prompt, "]");
-                        else
-                            strcat(prompt, ">");
-
-                        if (point->character)
-                            tmpflag = !IS_AFFECTED(point->character, AFF_WAITWHEEL);
-                        else
-                            tmpflag = 1;
-                        if (tmpflag) {
-                            if (write_to_descriptor(point->descriptor, pptr) == 0)
-                                point->bare_prompt_pending = true;
+                    if (GET_RACE(point->character) == RACE_BEORNING) {
+                        affected_type* maul_buff = affected_by_spell(point->character, SKILL_MAUL);
+                        if (maul_buff && maul_buff->location == APPLY_MAUL) {
+                            sprintf(prompt, "%s Maul:", prompt);
+                            add_prompt(prompt, point->character, PROMPT_MAUL);
                         }
                     }
-                }
-                point->prompt_mode = 0;
-            }
 
+                    const obj_data* quiver = point->character->equipment[WEAR_BACK];
+                    if (quiver && quiver->is_quiver()) {
+                        sprintf(prompt, "%s A:(", prompt);
+                        add_prompt(prompt, point->character, PROMPT_ARROWS);
+                    }
+
+                    if (point->character->specials.position == POSITION_FIGHTING) {
+                        if (opponent) {
+                            if (opponent->specials.fighting != point->character) {
+                                tank = opponent->specials.fighting;
+                                if (tank) {
+                                    sprintf(prompt, "%s, %s:", prompt,
+                                        PERS(tank, point->character, FALSE, FALSE));
+                                    add_prompt(prompt, tank,
+                                        (IS_MENTAL(opponent)) ? PROMPT_STAT
+                                                              : PROMPT_HIT);
+                                }
+                            }
+                            sprintf(prompt, "%s, %s:", prompt,
+                                PERS(opponent, point->character, FALSE, FALSE));
+
+                            add_prompt(prompt, opponent,
+                                (IS_MENTAL(point->character))
+                                    ? PROMPT_STAT
+                                    : (IS_SHADOW(opponent) ? PROMPT_STAT : PROMPT_HIT));
+                        }
+                    }
+
+                    // Check for a blank space in the first position or the last
+                    if (prompt[0] == ' ')
+                        pptr++;
+                    if (prompt[strlen(prompt) - 1] == ' ')
+                        prompt[strlen(prompt) - 1] = '\0';
+
+                    disp = TRUE;
+                    if (point->character->specials.position == POSITION_SHAPING)
+                        strcat(prompt, "]");
+                    else
+                        strcat(prompt, ">");
+
+                    if (point->character)
+                        tmpflag = !IS_AFFECTED(point->character, AFF_WAITWHEEL);
+                    else
+                        tmpflag = 1;
+                    if (tmpflag) {
+                        if (write_to_descriptor(point->descriptor, pptr) == 0)
+                            point->bare_prompt_pending = true;
+                    }
+                }
+            }
+            point->prompt_mode = 0;
+        }
+}
+
+/* Saves every player in the game before a shutdown or reboot. */
+static void save_players_before_shutdown()
+{
+    struct char_data* ch;
+
+    for (ch = character_list; ch; ch = ch->next) {
+        if (!IS_NPC(ch) && ch->desc) {
+            save_char(ch, NOWHERE, 0);
+            Crash_crashsave(ch);
+        }
+    }
+    bank_vaults_write_behind(); /* a vault file a failed write left behind */
+}
+
+void game_loop(SocketType s, GameHeartbeat& heartbeat)
+{
+    fd_set input_set, output_set, exception_set;
+    // The earliest instant the next pass may start: each pass moves it to the end of its sleep.
+    std::chrono::steady_clock::time_point pulse_start = std::chrono::steady_clock::now();
+
+    set_connection_limits(s);
+
+    const int signal_mask = sigmask(SIGUSR1) | sigmask(SIGUSR2) | sigmask(SIGALRM) | sigmask(SIGTERM) | sigmask(SIGURG) | sigmask(SIGXCPU) | sigmask(SIGHUP) | sigmask(SIGSEGV) | sigmask(SIGBUS);
+
+    /* Main loop: one pass is one pulse, and each step runs for everyone before the next. */
+    while (!circle_shutdown) {
+        if (!wait_for_next_pulse(s, signal_mask, pulse_start, input_set, output_set, exception_set)) {
+            return;
+        }
+        accept_new_connection(s, input_set);
+        close_failed_connections(input_set, output_set, exception_set);
+        read_typed_input(input_set);
+        /* Delayed actions that finish this pulse run before anything typed this pulse. */
+        process_waiting_list();
+        run_typed_commands();
+        send_buffered_output(output_set);
+        close_finished_connections();
+        send_prompts();
         heartbeat.run_pass();
 
         tics++; /* tics since last checkpoint signal */
 
-        // Save chars before a shutdown or reboot.  --S
         if (circle_shutdown || circle_reboot) {
-            struct char_data* ch;
-
-            for (ch = character_list; ch; ch = ch->next) {
-                if (!IS_NPC(ch) && ch->desc) {
-                    save_char(ch, NOWHERE, 0);
-                    Crash_crashsave(ch);
-                }
-            }
-            bank_vaults_write_behind(); /* a vault file a failed write left behind */
+            save_players_before_shutdown();
         }
     }
 }
@@ -2578,6 +2620,9 @@ void complete_delay(struct char_data* ch)
     REMOVE_BIT(ch->specials.affected_by, AFF_WAITING);
 
     if (ch->delay.cmd == CMD_SCRIPT) {
+        /* A forced completion (subcmd -1: another action replacing the pause, or a death) runs
+         * the rest of the script here and now, as an ordinary one does; it can free ch, which
+         * the forcer then must not touch (WAIT_STATE's and raw_kill's watches). */
         continue_char_script(ch);
         return;
     }
@@ -2593,6 +2638,122 @@ void complete_delay(struct char_data* ch)
             intelligent(ch, 0, -1, "", SPECIAL_DELAY, &(ch->delay));
     } else if (ch->delay.cmd > 0)
         command_interpreter(ch, "", &(ch->delay));
+}
+
+namespace {
+
+/* How starting a delay found the one <character> was already waiting out. */
+enum class current_delay_outcome {
+    none_left, /* there was none, or it was completed and the character waits for nothing */
+    kept, /* it outranks the new one, or completing it started another: a double delay */
+    character_freed, /* completing it freed the character */
+};
+
+/* Completes the delay <character> is waiting out if <priority> is at least its priority, telling
+ * it of a double delay otherwise. <log_double_delay> picks how the unforced double delay is noted,
+ * as the two WAIT_STATE macros always did. */
+current_delay_outcome end_current_delay(char_data* character, int priority, bool log_double_delay)
+{
+    if (character->delay.wait_value == 0) {
+        return current_delay_outcome::none_left;
+    }
+    if (priority < character->delay.priority) {
+        send_to_char("Possible bug - double delay. Please notify Imps.\n", character);
+        if (log_double_delay) {
+            log("double delay?\n");
+        } else {
+            printf("double delay?\n");
+        }
+        return current_delay_outcome::kept;
+    }
+
+    character->delay.subcmd = -1;
+    freed_watch waiter_watch(character);
+    complete_delay(character);
+    if (waiter_watch.freed()) {
+        return current_delay_outcome::character_freed;
+    }
+    if (character->delay.wait_value != 0) {
+        /* complete_delay() reentrantly queued a new delay (e.g. a follow-up recovery action)
+           while running the just-finished command -- don't silently clobber it with this
+           action. */
+        send_to_char("Possible bug - double delay. Please notify Imps.\n", character);
+        log("double delay (reentrant queue during complete_delay)?\n");
+        return current_delay_outcome::kept;
+    }
+    abort_delay(character);
+    return current_delay_outcome::none_left;
+}
+
+/* Puts <character> at the end of the waiting list, taking it out of wherever it was in it. */
+void append_to_waiting_list(char_data* character)
+{
+    char_data* listed = waiting_list;
+    if (listed == character)
+        listed = waiting_list = character->delay.next;
+    if (!listed)
+        waiting_list = character;
+    else {
+        while (listed->delay.next) {
+            if (listed->delay.next == character)
+                listed->delay.next = character->delay.next;
+            else
+                listed = listed->delay.next;
+        }
+        if (listed != character)
+            listed->delay.next = character;
+    }
+    character->delay.next = 0;
+}
+
+} // namespace
+
+bool start_wait_state_full(char_data* character, int cycle, int command, int subcommand,
+    int priority, int flag, int target_number, void* argument, long new_flag, int target_type)
+{
+    const current_delay_outcome outcome = end_current_delay(character, priority, false);
+    if (outcome != current_delay_outcome::none_left && target_type == TARGET_TEXT && argument) {
+        /* No delay holds the text: the caller took it from the pool for this one. */
+        put_to_txt_block_pool(static_cast<txt_block*>(argument));
+    }
+    if (outcome == current_delay_outcome::character_freed) {
+        return false;
+    }
+    if (outcome == current_delay_outcome::kept) {
+        return true;
+    }
+    character->delay.wait_value = cycle;
+    character->delay.cmd = command;
+    character->delay.subcmd = subcommand;
+    character->delay.targ1.ptr.other = argument;
+    character->delay.priority = priority;
+    character->delay.flg = flag;
+    character->delay.targ1.ch_num = target_number;
+    character->delay.targ1.type = target_type;
+    character->delay.targ2.type = TARGET_IGNORE;
+    SET_BIT(character->specials.affected_by, new_flag);
+    append_to_waiting_list(character);
+    return true;
+}
+
+bool start_wait_state_brief(char_data* character, int cycle, int command, int subcommand,
+    int priority, long new_flag)
+{
+    const current_delay_outcome outcome = end_current_delay(character, priority, true);
+    if (outcome == current_delay_outcome::character_freed) {
+        return false;
+    }
+    if (outcome == current_delay_outcome::kept) {
+        return true;
+    }
+    character->delay.wait_value = cycle;
+    character->delay.cmd = command;
+    character->delay.targ1.type = character->delay.targ2.type = TARGET_IGNORE;
+    character->delay.subcmd = subcommand;
+    character->delay.priority = priority;
+    SET_BIT(character->specials.affected_by, new_flag);
+    append_to_waiting_list(character);
+    return true;
 }
 
 int in_waiting_list(const char_data* ch)
@@ -2629,6 +2790,56 @@ void abort_delay(char_data* wait_ch)
     if (in_waiting_list(wait_ch)) {
         log("SYSERR: abort_delay, character remaining in waiting_list");
         abort_delay(wait_ch);
+    }
+}
+
+void process_waiting_list()
+{
+    char_data* next_waiter;
+    for (char_data* waiter = waiting_list; waiter; waiter = next_waiter) {
+        waiting_type& delay = waiter->delay;
+        if (delay.wait_value > 0) {
+            delay.wait_value--;
+        }
+
+        if (delay.wait_value > 0) {
+            if (!IS_NPC(waiter) && IS_AFFECTED(waiter, AFF_WAITWHEEL)) {
+                if (PRF_FLAGGED(waiter, PRF_SPINNER)) {
+                    write_to_descriptor(waiter->desc->descriptor,
+                        wait_wheel[delay.wait_value % 8]);
+                }
+            }
+
+            next_waiter = delay.next;
+        } else if (delay.wait_value == 0) {
+            /* Completing the delay can free the waiter (a resumed script that removes its mob), and
+             * with it any other waiter, so the waiter after it is saved and only compared until
+             * it is found still waiting. */
+            char_data* following = delay.next;
+            freed_watch waiter_watch(waiter);
+            /* here is the block calling actual procedures */
+            complete_delay(waiter);
+            if (waiter_watch.freed()) {
+                /* extract_char took the waiter off the list and freed it, delay included. If
+                 * the one after it went too, the rest of the list waits for the next pulse. */
+                if (in_waiting_list(following)) {
+                    next_waiter = following;
+                } else {
+                    vmudlog(NRM,
+                        "SYSERR: %s: the next waiter was freed; the rest wait for the next pulse.",
+                        __func__);
+                    next_waiter = nullptr;
+                }
+                continue;
+            }
+            next_waiter = delay.next;
+
+            if (delay.wait_value == 0)
+                /* look out for the similar code in raw_kill() */
+                abort_delay(waiter);
+        } else {
+            next_waiter = delay.next;
+        }
     }
 }
 

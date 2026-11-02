@@ -157,4 +157,29 @@ protected:
     char m_hall_name[16] = "A Quiet Hall";
 };
 
+/* The spells whose item form is a worn affect, the only item spells a quiet gear change casts. */
+constexpr std::array<int, 11> WORN_AFFECT_SPELLS = { SPELL_DETECT_HIDDEN, SPELL_ARMOR,
+    SPELL_INSIGHT, SPELL_HAZE, SPELL_DEATH_WARD, SPELL_RESIST_FIRE, SPELL_RESIST_COLD,
+    SPELL_RESIST_LIGHT, SPELL_RESIST_ILLUSION, SPELL_RESIST_PHYSICAL, SPELL_RESIST_DARK };
+
+TEST(ItemSpellIsWornAffect, IsTrueForExactlyTheListedSpells)
+{
+    for (int spell_number = 0; spell_number < MAX_SKILLS; ++spell_number) {
+        const bool is_listed = std::find(WORN_AFFECT_SPELLS.begin(), WORN_AFFECT_SPELLS.end(),
+                                   spell_number)
+            != WORN_AFFECT_SPELLS.end();
+        EXPECT_EQ(item_spell_is_worn_affect(spell_number), is_listed) << "spell " << spell_number;
+    }
+}
+
+/* Confuse and pragmatism look at is_object but give an affect that ticks down, and a harmful
+ * spell is a cast whatever gives it. */
+TEST(ItemSpellIsWornAffect, IsFalseForCastsThatLookAtTheItem)
+{
+    EXPECT_FALSE(item_spell_is_worn_affect(SPELL_CONFUSE));
+    EXPECT_FALSE(item_spell_is_worn_affect(SPELL_PRAGMATISM));
+    EXPECT_FALSE(item_spell_is_worn_affect(SPELL_CHILL_RAY));
+    EXPECT_FALSE(item_spell_is_worn_affect(SPELL_POISON));
+}
+
 } // namespace

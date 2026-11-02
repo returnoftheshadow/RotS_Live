@@ -184,3 +184,26 @@ protected:
 };
 
 } // namespace
+
+/* The delay a bash leaves its victim (as olog_hai's bash and the trap give it): its priority
+ * outranks tracking's, 30, and any pulses left keep it running. */
+constexpr int BASHED_DELAY_PRIORITY = 80;
+constexpr int BASHED_DELAY_PULSES = 5;
+
+/* Tracking while a delay that outranks it runs is a double delay: tracking does not start, and the
+ * text block it took for the name to track goes back to the pool. */
+TEST_F(CombatMovementTest, ATrackThatCannotStartGivesBackItsTextBlock)
+{
+    m_player.delay.wait_value = BASHED_DELAY_PULSES;
+    m_player.delay.priority = BASHED_DELAY_PRIORITY;
+    char trackee[] = "trackee";
+
+    do_track(&m_player, trackee, nullptr, CMD_TRACK, 0);
+
+    EXPECT_TRUE(output_has("Possible bug - double delay.")) << output();
+    ASSERT_NE(nullptr, txt_block_pool);
+    EXPECT_STREQ("trackee", txt_block_pool->text);
+    EXPECT_EQ(BASHED_DELAY_PRIORITY, m_player.delay.priority) << "the delay running is kept";
+    m_player.delay.wait_value = 0;
+    m_player.delay.priority = 0;
+}
