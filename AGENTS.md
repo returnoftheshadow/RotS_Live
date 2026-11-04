@@ -34,6 +34,14 @@
 - C/C++: functions/variables lower_snake_case; constants UPPER_SNAKE_CASE; types TitleCase where applicable.
 - Rust (proxy): follow `rustfmt` defaults; module/file lowercase with underscores.
 
+## Style overrides
+This project's conventions take precedence over the code-style plugins; the rules in `.claude/code-style-rules/` turn off the checks that disagree. Where the plugins' guidance differs, follow this:
+- Layout: WebKit braces, the formatter's style above, not Allman.
+- Naming: the conventions above, not the plugins' examples; output parameters are `out_name`.
+- Comments: `//` comments.
+- Game objects: `code-style-cpp-11`'s "no raw `new` or `delete`" does not apply to `char_data`, `obj_data` and `room_data`, which are never wrapped in smart pointers and are freed only on the extraction path.
+- `std::filesystem`: use the non-throwing overloads, and add no new exceptions.
+
 ## Testing Guidelines
 - C/C++: add or update unit tests in `src/tests/` when working in covered areas, run them via `make test`, and also perform smoke tests manually by building and running locally, typically via `make smoke-account` for the account flow. For account/login/authentication changes, treat that smoke run as a required separate validation step before finalizing. Verify server boots, accepts connections, and changed features behave as expected.
 - When the user reports a bug or finding, default to adding a focused unit/regression test for it first whenever the affected area is unit-testable. If a meaningful unit test is not practical, say so explicitly and add the next-best automated coverage you can.
