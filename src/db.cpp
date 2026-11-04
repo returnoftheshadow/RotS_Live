@@ -1359,7 +1359,7 @@ void index_boot(int mode)
             CREATE(mob_index, struct index_data, rec_count);
             break;
         case DB_BOOT_OBJ:
-            CREATE(obj_proto, struct obj_data, rec_count);
+            obj_proto = new obj_data[rec_count]();
             CREATE(obj_index, struct index_data, rec_count);
             break;
         case DB_BOOT_ZON:
@@ -2142,8 +2142,7 @@ struct obj_data* read_object(int nr, int type)
     } else
         i = nr;
 
-    CREATE(obj, struct obj_data, 1);
-    *obj = obj_proto[i];
+    obj = new obj_data(obj_proto[i]);
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)
@@ -3777,6 +3776,8 @@ char* fread_line(FILE* fp)
 /* release memory allocated for a char struct */
 void free_char(struct char_data* ch)
 {
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_character_freed(ch);
     note_char_freed(ch);
     /* A lend still in scope would otherwise give the room back to freed memory. */
     room_lend::end_for(ch);
@@ -3862,9 +3863,13 @@ void free_obj(struct obj_data* obj)
          RELEASE(thith);
        }
    } */
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_object_freed(obj);
     note_object_freed(obj);
 
-    RELEASE(obj);
+    if (global_release_flag) {
+        delete obj;
+    }
 }
 
 // The read in file_to_string_read_lines() asks for up to the limit plus one byte in one call.
@@ -4145,7 +4150,7 @@ void clear_char(struct char_data* ch, int mode)
 
 void clear_object(struct obj_data* obj)
 {
-    memset((char*)obj, 0, (size_t)sizeof(struct obj_data));
+    *obj = obj_data();
 
     obj->item_number = -1;
     obj->in_room = NOWHERE;

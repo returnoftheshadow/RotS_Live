@@ -410,9 +410,9 @@ protected:
     }
     void TearDown() override
     {
-        while (obj_data* o = m_ch.carrying) {
-            obj_from_char(o);
-            free(o);
+        while (obj_data* carried = m_ch.carrying) {
+            obj_from_char(carried);
+            delete carried;
         }
         object_list = m_saved_list;
         obj_index = m_saved_index;
