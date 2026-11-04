@@ -705,7 +705,7 @@ bool beorning_item_restriction(const char_data* character, const obj_data* item)
 
     return true;
 }
-bool perform_remove(struct char_data* ch, int pos);
+void perform_remove(struct char_data* ch, int pos);
 
 /* Puts <item>, which <character> carries, on in <item_slot> with the checks and messages of the
  * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
@@ -1078,15 +1078,13 @@ ACMD(do_grab)
     }
 }
 
-/* Takes off what <ch> wears in <pos> for the remove command; a belt takes what hangs on it with it.
- * Returns false when taking something off freed ch, which must then not be touched again. */
-bool perform_remove(struct char_data* ch, int pos)
+void perform_remove(struct char_data* ch, int pos)
 {
     struct obj_data* obj;
 
     if (!(obj = ch->equipment[pos])) {
         log("Error in perform_remove: bad pos passed.");
-        return true;
+        return;
     }
 
     if (IS_CARRYING_N(ch) >= CAN_CARRY_N(ch))
@@ -1156,7 +1154,6 @@ bool perform_remove(struct char_data* ch, int pos)
         //	 if (obj->obj_flags.value[2] && obj->obj_flags.value[3])
         //	    world[ch->in_room].light--;
     }
-    return true;
 }
 
 ACMD(do_remove)
