@@ -330,8 +330,6 @@ ACMD(do_ask)
     }
 }
 
-#define MAX_NOTE_LENGTH 1000 /* arbitrary */
-
 ACMD(do_write)
 {
     struct obj_data *paper = 0, *pen = 0;
@@ -356,7 +354,7 @@ ACMD(do_write)
             return;
         }
         if (!(pen = get_obj_in_list_vis(ch, penname, ch->carrying, 9999))) {
-            sprintf(buf, "You have no %s.\n\r", papername);
+            sprintf(buf, "You have no %s.\n\r", penname);
             send_to_char(buf, ch);
             return;
         }
@@ -400,10 +398,10 @@ ACMD(do_write)
         send_to_char("There's something written on it already.\n\r", ch);
     else {
         /* we can write - hooray! */
-        send_to_char("Ok.. go ahead and write.. end the note with a @.\n\r", ch);
+        send_to_char("Ok.. go ahead and write.. end the note with %e.\n\r", ch);
         act("$n begins to jot down a note.", TRUE, ch, 0, 0, TO_ROOM);
         ch->desc->str = &paper->action_description;
-        ch->desc->max_str = MAX_NOTE_LENGTH;
+        ch->desc->str_limit = MAX_NOTE_LENGTH;
     }
 }
 

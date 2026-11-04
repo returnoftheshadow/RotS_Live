@@ -14,6 +14,10 @@ ACMD(do_examine);
 ACMD(do_say);
 void name_from_drinkcon(struct obj_data* object);
 void name_to_drinkcon(struct obj_data* object, int liquid_type);
+int new_room(const struct char_data* character, int number);
+void free_room(struct char_data* character);
+void free_zone(struct char_data* character);
+void free_script(struct char_data* character);
 
 using namespace scripted_room;
 
@@ -73,5 +77,203 @@ TEST_F(MemoryReleaseTest, FreeingAMobWithNoPrototypeGivesBackItsKeywords)
         extract_char(make_mob("listener", 0));
     });
 
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(MemoryReleaseTest, OpeningTheTextEditorFreesTheTextItCopies)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        char* text = str_dup("Meet me at the ford.\n\r");
+        string_add_init(&m_descriptor, &text);
+        char finish[] = "%e";
+        string_add(&m_descriptor, finish);
+        RELEASE(text);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+namespace {
+
+/* shape_center_room's field 9: the chosen exit's description. */
+constexpr int ROOM_EXIT_DESCRIPTION_FIELD = 9;
+/* shape_center_room's field 14: the room's first extra description. */
+constexpr int ROOM_EXTRA_DESCRIPTION_FIELD = 14;
+/* shape_center_zone's field 21: the zone's description. */
+constexpr int ZONE_DESCRIPTION_FIELD = 21;
+/* shape_center_zone's field 22: the zone's map. */
+constexpr int ZONE_MAP_FIELD = 22;
+/* shape_center_script's field 21: the script's description. */
+constexpr int SCRIPT_DESCRIPTION_FIELD = 21;
+
+/* A builder in room 0 at a shape editor, sent output through the fixture's connection. */
+class ShapeEditorMemoryTest : public MemoryReleaseTest {
+protected:
+    void SetUp() override
+    {
+        MemoryReleaseTest::SetUp();
+        m_builder->player.name = str_dup("Builder");
+        m_builder->in_room = 0;
+        m_builder->desc = &m_descriptor;
+        m_descriptor.character = m_builder;
+    }
+
+    void TearDown() override
+    {
+        m_builder->desc = nullptr;
+        m_descriptor.character = &m_player;
+        m_descriptor.str = nullptr;
+        MemoryReleaseTest::TearDown();
+    }
+
+    /* Opens the editor's current field in the text editor, finishes it unchanged with %e, and has
+     * the editor take the text back, as a builder does who opens a text and saves it at once.
+     * <shape_center> is the editor's handler for what the builder types. */
+    void save_field_unchanged(void (*shape_center)(char_data*, char*))
+    {
+        char prompt[] = "";
+        shape_center(m_builder, prompt);
+        char finish[] = "%e";
+        string_add(&m_descriptor, finish);
+        shape_center(m_builder, prompt);
+        clear_output();
+    }
+
+    /* Starts the room editor on a new room; free_room frees the editor state, so it is allocated. */
+    shape_room* start_room_editor()
+    {
+        shape_room* editor = nullptr;
+        CREATE1(editor, shape_room);
+        editor->procedure = SHAPE_EDIT;
+        m_builder->temp = editor;
+        new_room(m_builder, ROOM_VNUM);
+        SET_BIT(editor->flags, SHAPE_ROOM_LOADED);
+        return editor;
+    }
+
+    /* Starts the zone editor on a zone with a description and a map; free_zone frees the editor
+     * state, so it is allocated. */
+    shape_zone* start_zone_editor()
+    {
+        shape_zone* editor = nullptr;
+        CREATE1(editor, shape_zone);
+        editor->procedure = SHAPE_EDIT;
+        SET_BIT(editor->flags, SHAPE_ZONE_LOADED);
+        editor->zone_descr = str_dup("Trees crowd the path.\n\r");
+        editor->zone_map = str_dup("[ ]-[ ]\n\r");
+        m_builder->temp = editor;
+        return editor;
+    }
+
+    owned_character m_builder; // the builder at the editor
+};
+
+} // namespace
+
+TEST_F(ShapeEditorMemoryTest, SavingARoomExitDescriptionFreesTheOneItReplaces)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    shape_room* const editor = start_room_editor();
+    room_direction_data* room_exit = nullptr;
+    CREATE1(room_exit, room_direction_data);
+    room_exit->general_description = str_dup("A heavy door.\n\r");
+    room_exit->keyword = str_dup("door");
+    editor->room->dir_option[NORTH] = room_exit;
+    editor->exit_chosen = NORTH;
+
+    const std::size_t growth = growth_over_rounds([this, editor]() -> void {
+        editor->editflag = ROOM_EXIT_DESCRIPTION_FIELD;
+        save_field_unchanged(shape_center_room);
+    });
+
+    EXPECT_STREQ(editor->room->dir_option[NORTH]->general_description, "A heavy door.\n\r");
+    free_room(m_builder);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(ShapeEditorMemoryTest, SavingARoomExtraDescriptionFreesTheOneItReplaces)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    shape_room* const editor = start_room_editor();
+    extra_descr_data* extra = nullptr;
+    CREATE1(extra, extra_descr_data);
+    extra->keyword = str_dup("torch");
+    extra->description = str_dup("It burns low.\n\r");
+    editor->room->ex_description = extra;
+
+    const std::size_t growth = growth_over_rounds([this, editor]() -> void {
+        editor->editflag = ROOM_EXTRA_DESCRIPTION_FIELD;
+        save_field_unchanged(shape_center_room);
+    });
+
+    EXPECT_STREQ(editor->room->ex_description->description, "It burns low.\n\r");
+    free_room(m_builder);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(ShapeEditorMemoryTest, SavingAZoneDescriptionFreesTheOneItReplaces)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    shape_zone* const editor = start_zone_editor();
+
+    const std::size_t growth = growth_over_rounds([this, editor]() -> void {
+        editor->editflag = ZONE_DESCRIPTION_FIELD;
+        save_field_unchanged(shape_center_zone);
+    });
+
+    EXPECT_STREQ(editor->zone_descr, "Trees crowd the path.\n\r");
+    free_zone(m_builder);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(ShapeEditorMemoryTest, SavingAZoneMapFreesTheOneItReplaces)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    shape_zone* const editor = start_zone_editor();
+
+    const std::size_t growth = growth_over_rounds([this, editor]() -> void {
+        editor->editflag = ZONE_MAP_FIELD;
+        save_field_unchanged(shape_center_zone);
+    });
+
+    EXPECT_STREQ(editor->zone_map, "[ ]-[ ]\n\r");
+    free_zone(m_builder);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+TEST_F(ShapeEditorMemoryTest, SavingAScriptDescriptionFreesTheOneItReplaces)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    /* free_script frees the editor state, so it is allocated. */
+    shape_script* editor = nullptr;
+    CREATE1(editor, shape_script);
+    editor->procedure = SHAPE_EDIT;
+    SET_BIT(editor->flags, SHAPE_SCRIPT_LOADED);
+    editor->name = str_dup("The ferryman");
+    editor->description = str_dup("He waits at the ford.\n\r");
+    m_builder->temp = editor;
+
+    const std::size_t growth = growth_over_rounds([this, editor]() -> void {
+        editor->editflag = SCRIPT_DESCRIPTION_FIELD;
+        save_field_unchanged(shape_center_script);
+    });
+
+    EXPECT_STREQ(editor->description, "He waits at the ford.\n\r");
+    free_script(m_builder);
     EXPECT_LT(growth, ALLOWED_GROWTH);
 }
