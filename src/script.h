@@ -165,7 +165,41 @@ inline constexpr int SCRIPT_PARAM_OB2_VNUM = 502;
 inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
+/* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
+ * script ended with RETURN_FALSE (what that stops is listed with each ON_ trigger above).
+ * An object's own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL and ON_WEAR scripts go through
+ * call_object_trigger instead: given one of those, call_trigger runs nothing, logs an error and
+ * returns 1.
+ *
+ * A script can free characters and objects (EXTRACT_CHAR, EXTRACT_OBJ, a death it causes),
+ * including the subjects it was given, so a caller that uses one afterwards keeps a freed_watch
+ * (freed_watch.h) on it across the call. call_trigger itself touches nothing freed:
+ *   - ON_BEFORE_ENTER, ON_ENTER: once the one entering (subject2) is freed, the room's remaining
+ *     mobs and objects still react, told nobody is entering.
+ *   - ON_DAMAGE: once the victim (subject) or the attacker (subject2) is freed, the weapon's
+ *     script does not run, and 0 is returned: no damage is to be dealt.
+ *   - ON_HEAR_SAY, ON_HEAR_YELL: once the mob is freed its yell script does not run; once the
+ *     speaker is, the yell script is told nobody spoke. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
+
+/* How an object's own trigger script ended, for the command that fired it. */
+enum class object_trigger_result {
+    proceed, /* there is no such script, or it ended without RETURN_FALSE */
+    refused, /* it ended with RETURN_FALSE; the command decides what that stops */
+    object_extracted, /* the object was freed while the script ran, whatever the script returned */
+};
+
+/* Runs <object>'s own ON_DRINK, ON_EAT, ON_EXAMINE_OBJECT, ON_PULL or ON_WEAR script, with the
+ * object as ob1 and <character> (which may be null) as ch1.
+ *
+ * After object_extracted the caller must not read, write or free the object again: it is gone,
+ * whether the script extracted it itself or something the script set off did (a container
+ * extracted with it, another script). A null <object> is logged and returns object_extracted,
+ * as there is nothing to touch; any other trigger_type runs nothing, is logged and returns
+ * proceed. */
+[[nodiscard]] object_trigger_result call_object_trigger(int trigger_type, obj_data* object,
+    char_data* character);
+
 void note_object_freed(obj_data* object);
 void note_char_freed(char_data* character);
 
