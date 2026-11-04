@@ -590,7 +590,7 @@ void postmaster_send_mail(struct char_data* ch, int cmd, const char* arg, char_d
     ch->desc->name = (char*)str_dup(recipient);
     ch->desc->str = (char**)malloc(sizeof(char*));
     *(ch->desc->str) = 0;
-    ch->desc->max_str = MAX_MAIL_SIZE;
+    ch->desc->str_limit = MAX_MAIL_SIZE;
 }
 
 void postmaster_check_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
@@ -632,7 +632,7 @@ void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, cha
     }
 
     while (has_mail(recipient)) {
-        CREATE(tmp_obj, struct obj_data, 1);
+        tmp_obj = new obj_data();
         clear_object(tmp_obj);
 
         tmp_obj->name = str_dup("mail paper letter");

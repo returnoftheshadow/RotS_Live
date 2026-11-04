@@ -1,7 +1,11 @@
 #include "../big_brother.h"
+#include "../db.h"
 #include "../interpre.h"
+#include "../owned_character.h"
 #include "../structs.h"
+#include "../utils.h"
 #include "../world_clock.h"
+#include "test_cleanup.h"
 
 #include <chrono>
 #include <gtest/gtest.h>
@@ -256,4 +260,171 @@ TEST(BigBrotherCorpseLoot, EnemyMayNotLootBag)
     // The refused bag did not use up an item.
     EXPECT_TRUE(context.enemy_loots(context.bread));
     EXPECT_TRUE(context.enemy_loots(context.key));
+}
+
+namespace {
+// The character numbers of the PK pair the freed-memory tests make, apart from AfkPlayerContext's.
+constexpr int PK_PAIR_PLAYER_NUMBER = 4301;
+constexpr int PK_PAIR_OPPONENT_NUMBER = 4302;
+// The level both of the pair have, so each is in the other's PK range.
+constexpr int PK_PAIR_LEVEL = 30;
+// How long after its PK the successor goes AFK: well inside big_brother::PK_AFK_PROTECTION_DELAY,
+// so a PK time left at its address would refuse it protection.
+constexpr std::chrono::seconds AFK_DELAY_AFTER_PK(1);
+
+// A player character and a PK opponent in level range of it, neither on any list.
+void make_pk_pair(char_data& player, char_data& opponent)
+{
+    player.abs_number = PK_PAIR_PLAYER_NUMBER;
+    player.player.level = PK_PAIR_LEVEL;
+    opponent.abs_number = PK_PAIR_OPPONENT_NUMBER;
+    opponent.player.level = PK_PAIR_LEVEL;
+}
+
+// A heap character the game frees with free_char under "setfree off", which keeps its memory so
+// a successor can stand at the same address, and a PK opponent. Big Brother forgets both, and
+// the character (or its successor) is freed, on destruction whether or not the test finished.
+class FreedCharacterContext {
+public:
+    FreedCharacterContext()
+    {
+        big_brother::create(weather_info, &world);
+        make_pk_pair(*character, opponent);
+    }
+
+    ~FreedCharacterContext()
+    {
+        big_brother& rules = big_brother::instance();
+        rules.on_character_disconnected(character);
+        rules.on_character_disconnected(&opponent);
+    }
+
+    // Frees the character as the game does, keeping its memory for a successor.
+    void free_keeping_memory()
+    {
+        // Under "setfree off" free_char forgets clear_char's arrays without freeing them.
+        release_cleared_character(character);
+        global_release_flag = 0;
+        free_char(character);
+        global_release_flag = 1;
+    }
+
+    // Stands a new character at the freed one's address.
+    char_data* successor()
+    {
+        make_pk_pair(*character, opponent);
+        return character;
+    }
+
+    // The character to be freed, then its successor at the same address.
+    owned_character character;
+    // The other side of any PK engagement, and the attacker the protection is checked against.
+    char_data opponent {};
+};
+
+// A dead player's corpse, protected by Big Brother after a player killed him, that the game
+// frees with free_obj under "setfree off" so a successor can stand at its address. Big Brother
+// forgets the corpse and both characters, and the corpse is deleted, on destruction whether or
+// not the test finished.
+class FreedCorpseContext {
+public:
+    FreedCorpseContext()
+    {
+        big_brother::create(weather_info, &world);
+        make_pk_pair(dead, killer);
+        corpse = new obj_data {};
+        corpse->contains = &bread;
+        big_brother::instance().on_character_died(&dead, &killer, corpse);
+    }
+
+    ~FreedCorpseContext()
+    {
+        global_release_flag = 1;
+        big_brother& rules = big_brother::instance();
+        corpse->contains = nullptr;
+        if (m_freed) {
+            delete corpse;
+        } else {
+            free_obj(corpse);
+        }
+        rules.on_character_disconnected(&dead);
+        rules.on_character_disconnected(&killer);
+    }
+
+    // Frees the corpse as the game does, keeping its memory for a successor.
+    void free_keeping_memory()
+    {
+        corpse->contains = nullptr;
+        global_release_flag = 0;
+        free_obj(corpse);
+        global_release_flag = 1;
+        m_freed = true;
+    }
+
+    // The dead player, whose looting protection outlives the corpse.
+    char_data dead {};
+    // The player who killed him, so the corpse is protected from everyone.
+    char_data killer {};
+    // What the corpse holds; Big Brother protects only a corpse with something in it.
+    obj_data bread {};
+    // The corpse to be freed, and its successor's memory once it has been.
+    obj_data* corpse = nullptr;
+
+private:
+    // Whether free_keeping_memory has run, leaving the memory to delete on destruction.
+    bool m_freed = false;
+};
+} // namespace
+
+/* Big Brother holds AFK protection under a character's address. free_char must make it forget
+ * them: the allocator may put the next character at that address. */
+TEST(BigBrotherFreedCharacter, ACharacterFreedWhileAfkLeavesNoProtectionAtItsAddress)
+{
+    FreedCharacterContext context;
+    big_brother& rules = big_brother::instance();
+    rules.on_character_afked(context.character, REFERENCE_TIME);
+    ASSERT_FALSE(rules.is_target_valid(&context.opponent, context.character))
+        << "AFK protection was not granted";
+
+    context.free_keeping_memory();
+    char_data* const successor = context.successor();
+
+    EXPECT_TRUE(rules.is_target_valid(&context.opponent, successor))
+        << "a character at a freed character's address inherited its AFK protection";
+}
+
+/* Big Brother holds the time of a character's last PK engagement under its address. free_char
+ * must make it forget it, or a character later at that address is refused AFK protection for an
+ * engagement it never had. */
+TEST(BigBrotherFreedCharacter, ACharacterFreedSoonAfterPkLeavesNoPkTimeAtItsAddress)
+{
+    FreedCharacterContext context;
+    big_brother& rules = big_brother::instance();
+    rules.on_character_attacked_player(context.character, &context.opponent, REFERENCE_TIME);
+
+    context.free_keeping_memory();
+    char_data* const successor = context.successor();
+    rules.on_character_afked(successor, REFERENCE_TIME + AFK_DELAY_AFTER_PK);
+
+    EXPECT_FALSE(rules.is_target_valid(&context.opponent, successor))
+        << "a character at a freed character's address was refused AFK protection for its PK";
+}
+
+/* Big Brother holds a corpse's protection under the corpse's address. free_obj must make it
+ * forget it: the allocator may put the next object at that address. The dead player's looting
+ * protection is held by id and stays. */
+TEST(BigBrotherFreedObject, ACorpseFreedWhileProtectedLeavesNoProtectionAtItsAddress)
+{
+    FreedCorpseContext context;
+    big_brother& rules = big_brother::instance();
+    ASSERT_TRUE(rules.is_corpse_protected(&context.killer, context.corpse))
+        << "the corpse was not protected";
+
+    context.free_keeping_memory();
+    obj_data* const successor = context.corpse;
+
+    EXPECT_FALSE(rules.is_corpse_protected(&context.killer, successor))
+        << "an object at a freed corpse's address inherited its protection";
+    EXPECT_TRUE(rules.is_target_looting(&context.dead))
+        << "freeing the corpse ended the dead player's looting protection";
 }
