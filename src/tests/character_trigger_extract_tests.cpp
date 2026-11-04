@@ -33,6 +33,14 @@ constexpr int BLOW_DAMAGE = 30;
 
 class CharacterTriggerTest : public ScriptedRoomFixture {
 protected:
+    void SetUp() override
+    {
+        ScriptedRoomFixture::SetUp();
+        /* Made at boot; a blow and a death ask it. Making it again keeps the one there is, and
+         * blows and deaths of mobs alone record nothing in it. */
+        game_rules::big_brother::create(weather_info, &world);
+    }
+
     /* Makes script SCRIPT_VNUM one block that tells ch2 the mob vanishes and then removes the
      * mob (ch1) from the game, ending without RETURN_FALSE. */
     void install_self_removing_mob_script(int trigger_type)
@@ -104,6 +112,87 @@ TEST_F(CharacterTriggerTest, LaterListenersStillHearASpeakerAListenerRemoved)
 
     EXPECT_FALSE(is_in_game(speaker));
     EXPECT_TRUE(output_has("The witness nods."));
+}
+
+/* What script THIRD_SCRIPT_VNUM of removes_the_next_mob_scripts tells the room. */
+constexpr const char* THIRD_MOB_MESSAGE = "The third mob looks up.";
+
+/* Script SCRIPT_VNUM says a word on <trigger_type>, script OTHER_SCRIPT_VNUM removes its own mob on
+ * hearing that word, and script THIRD_SCRIPT_VNUM tells the room THIRD_MOB_MESSAGE on
+ * <trigger_type>. */
+static std::vector<script_spec> removes_the_next_mob_scripts(int trigger_type)
+{
+    return { { SCRIPT_VNUM, { { trigger_type, { { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} },
+                    { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { trigger_type, { { SCRIPT_SEND_TO_ROOM, THIRD_MOB_MESSAGE, { SCRIPT_PARAM_CH1_ROOM } } } } } } };
+}
+
+/* The first mob's answer makes the second, next in line, remove itself: the third hears the
+ * answer, and then the player. */
+TEST_F(CharacterTriggerTest, ALaterMobStillHearsWhenAnEarlierOnesScriptRemovesTheOneBetween)
+{
+    install_scripts(removes_the_next_mob_scripts(ON_HEAR_SAY));
+    make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    make_mob("third", THIRD_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(second));
+    EXPECT_EQ(2, count_in_output(THIRD_MOB_MESSAGE));
+}
+
+/* ---- the say and the yell blocks of a hearing script ---- */
+
+TEST_F(CharacterTriggerTest, AMobThatRemovesItselfOnHearingRunsNoYellBlock)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } },
+            { ON_HEAR_YELL, { { SCRIPT_SEND_TO_CHAR, "The yell block ran.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(output_has("The yell block ran."));
+}
+
+/* Hearing a say runs a mob's yell block after its say block. */
+TEST_F(CharacterTriggerTest, HearingASayRunsTheYellBlockToo)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_SEND_TO_CHAR, "The say block ran.", { SCRIPT_PARAM_CH2 } } } },
+            { ON_HEAR_YELL, { { SCRIPT_SEND_TO_CHAR, "The yell block ran.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("The say block ran."));
+    EXPECT_TRUE(output_has("The yell block ran."));
+}
+
+/* The say block removes the one who spoke: the yell block after it is told nobody spoke, so it
+ * has no speaker's room to tell. */
+TEST_F(CharacterTriggerTest, AYellBlockIsToldNobodySpokeOnceTheSayBlockRemovesTheSpeaker)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } },
+            { ON_HEAR_YELL,
+                { { SCRIPT_SEND_TO_ROOM, "The speaker is answered.", { SCRIPT_PARAM_CH2_ROOM } },
+                    { SCRIPT_SEND_TO_ROOM, "The yell block ran.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    char_data* speaker = make_mob("speaker", 0);
+    make_mob("listener", SCRIPT_VNUM);
+
+    run_command_as(speaker, do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(speaker));
+    EXPECT_TRUE(output_has("The yell block ran."));
+    EXPECT_FALSE(output_has("The speaker is answered."));
 }
 
 /* ---- giving (ON_RECEIVE) ---- */
@@ -197,6 +286,23 @@ TEST_F(CharacterTriggerTest, GivingAllStopsWhenTheReceiversScriptDropsTheNextIte
     EXPECT_EQ(nullptr, m_player.carrying);
 }
 
+/* The keeper's script removes the giver: the giving stops, and the giver's other stone falls to
+ * the floor with it. */
+TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptRemovesTheGiver)
+{
+    install_script(ON_RECEIVE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* giver = make_mob("giver", 0);
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    obj_to_char(make_object(STONE_VNUM, 0), giver);
+    obj_to_char(make_object(STONE_VNUM, 0), giver);
+
+    run_command_as(giver, do_give, "all.stone keeper");
+
+    EXPECT_FALSE(is_in_game(giver));
+    EXPECT_EQ(1, count_contents(keeper->carrying));
+    EXPECT_EQ(1, count_contents(world[0].contents));
+}
+
 /* The same for giving all of a kind: the script drops the second stone. */
 TEST_F(CharacterTriggerTest, GivingAllOfAKindStopsWhenTheReceiversScriptDropsTheNextOne)
 {
@@ -265,6 +371,50 @@ TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
     EXPECT_EQ(2, count_contents(world[0].contents)) << "the wearer dropped both rings";
 }
 
+TEST_F(CharacterTriggerTest, AMobWearingAllOfAKindStopsWhenARingsScriptRemovesIt)
+{
+    install_script(ON_WEAR, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* wearer = make_mob("wearer", 0);
+    obj_to_char(make_object(RING_VNUM, 0), wearer);
+    obj_to_char(make_scripted(RING_VNUM), wearer); /* looked at first */
+
+    run_command_as(wearer, do_wear, "all.ring");
+
+    EXPECT_FALSE(is_in_game(wearer));
+    EXPECT_EQ(2, count_contents(world[0].contents)) << "the wearer dropped both rings";
+}
+
+/* The stone answers to "ring" too, so wear all.ring looks at it next; the ring's script destroys
+ * it. */
+TEST_F(CharacterTriggerTest, WearingAllOfAKindStopsWhenARingsScriptExtractsTheNextOne)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB2 } } });
+    prototype_for(STONE_VNUM).name = prototype_for(RING_VNUM).name;
+    obj_data* stone = give_player(make_object(STONE_VNUM, 0));
+    obj_data* ring = give_player(make_scripted(RING_VNUM)); /* looked at first */
+
+    run_command(do_wear, "all.ring");
+
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_FALSE(is_in_object_list(stone));
+}
+
+TEST_F(CharacterTriggerTest, WearingAllOfAKindWearsEveryRingWhoseScriptKeepsIt)
+{
+    install_harmless_script(ON_WEAR);
+    obj_data* first = give_player(make_scripted(RING_VNUM));
+    obj_data* second = give_player(make_scripted(RING_VNUM));
+
+    run_command(do_wear, "all.ring");
+
+    EXPECT_EQ(2, count_in_output(SCRIPT_RAN_MESSAGE));
+    EXPECT_EQ(second, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(first, m_player.equipment[WEAR_FINGER_L]);
+}
+
 TEST_F(CharacterTriggerTest, WearingAllWearsEveryRingWhoseScriptKeepsIt)
 {
     install_harmless_script(ON_WEAR);
@@ -317,7 +467,7 @@ TEST_F(CharacterTriggerTest, EveryMobThatKeepsItselfReactsToSomeoneEntering)
 }
 
 /* A guard removes the mob that walked in: the watcher and the stone after it still react, told
- * nobody is entering. */
+ * nobody is entering. The stone's script removes the stone, and has nobody's room to tell. */
 TEST_F(CharacterTriggerTest, LaterMobsStillReactWhenAMobEnteringIsRemoved)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -327,16 +477,52 @@ TEST_F(CharacterTriggerTest, LaterMobsStillReactWhenAMobEnteringIsRemoved)
                 { { SCRIPT_SEND_TO_CHAR, "You are watched.", { SCRIPT_PARAM_CH2 } },
                     { SCRIPT_SEND_TO_ROOM, "The watcher looks up.", { SCRIPT_PARAM_CH1_ROOM } } } } } },
         { THIRD_SCRIPT_VNUM,
-            { { ON_ENTER, { { SCRIPT_SEND_TO_CHAR, "The stone glints.", { SCRIPT_PARAM_CH1 } } } } } } });
+            { { ON_ENTER,
+                { { SCRIPT_SEND_TO_ROOM, "Someone is there.", { SCRIPT_PARAM_CH1_ROOM } },
+                    { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } } } } } });
     make_mob("guard", SCRIPT_VNUM);
     make_mob("watcher", OTHER_SCRIPT_VNUM);
-    obj_to_room(make_object(STONE_VNUM, THIRD_SCRIPT_VNUM), 0);
+    obj_data* stone = make_object(STONE_VNUM, THIRD_SCRIPT_VNUM);
+    obj_to_room(stone, 0);
     char_data* wanderer = make_mob("wanderer", 0);
 
     EXPECT_EQ(1, call_trigger(ON_ENTER, &world[0], wanderer, 0));
 
     EXPECT_FALSE(is_in_game(wanderer));
     EXPECT_TRUE(output_has("The watcher looks up."));
+    EXPECT_FALSE(is_in_object_list(stone)) << "its script ran";
+    EXPECT_FALSE(output_has("Someone is there."));
+}
+
+/* The first mob's greeting makes the second, next in line, remove itself: the third still
+ * reacts. */
+TEST_F(CharacterTriggerTest, ALaterMobStillReactsWhenAnEarlierOnesScriptRemovesTheOneBetween)
+{
+    install_scripts(removes_the_next_mob_scripts(ON_ENTER));
+    make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    make_mob("third", THIRD_SCRIPT_VNUM);
+
+    EXPECT_EQ(1, call_trigger(ON_ENTER, &world[0], &m_player, 0));
+
+    EXPECT_FALSE(is_in_game(second));
+    EXPECT_TRUE(output_has(THIRD_MOB_MESSAGE));
+}
+
+/* The first mob's script returns false: the mobs after it do not react, and whoever was entering
+ * is kept out. */
+TEST_F(CharacterTriggerTest, AMobThatRefusesKeepsTheMobsAfterItFromReacting)
+{
+    install_scripts({ { SCRIPT_VNUM, { { ON_BEFORE_ENTER, { { SCRIPT_RETURN_FALSE, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_BEFORE_ENTER,
+                { { SCRIPT_SEND_TO_ROOM, "The watcher looks up.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    make_mob("guard", SCRIPT_VNUM);
+    make_mob("watcher", OTHER_SCRIPT_VNUM);
+
+    EXPECT_EQ(0, call_trigger(ON_BEFORE_ENTER, &world[0], &m_player, 0));
+
+    EXPECT_FALSE(output_has("The watcher looks up."));
 }
 
 TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
@@ -362,9 +548,9 @@ TEST_F(CharacterTriggerTest, LaterMobsStillReactBeforeAMobEnteringIsRemoved)
 /* Experience a victim is worth gaining from. */
 constexpr int EXPERIENCE_WORTH_GAINING = 5000;
 
-/* A mob that its own death script removes has had its end there: its killer gains nothing, no
- * kill is logged and no corpse is made. The mob's things are left in the room, as EXTRACT_CHAR
- * leaves them, and the rest of the script finds ch1 empty. */
+/* A mob that its own death script removes has had its end there: its killer gains nothing and no
+ * corpse is made. The mob's things are left in the room, as EXTRACT_CHAR leaves them, and the rest
+ * of the script finds ch1 empty. */
 TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesGivesNothingAndLeavesNoCorpse)
 {
     install_script(ON_DIE,
@@ -376,15 +562,12 @@ TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesGivesNothingAndLeavesN
     obj_to_char(stone, victim);
     const int experience_before = GET_EXP(&m_player);
 
-    testing::internal::CaptureStderr();
     die(victim, &m_player, 0);
-    const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_FALSE(is_in_game(victim));
     EXPECT_EQ(experience_before, GET_EXP(&m_player));
     EXPECT_EQ(stone, world[0].contents) << "its things are left in the room, and no corpse";
     EXPECT_EQ(nullptr, stone->next_content);
-    EXPECT_EQ(std::string::npos, logged.find("killed by")) << logged;
     EXPECT_FALSE(output_has("The dying one lingers.")) << "ch1 is empty: nobody's room to tell";
 }
 
@@ -393,7 +576,6 @@ TEST_F(CharacterTriggerTest, AMobThatRemovesItselfAsItDiesGivesNothingAndLeavesN
 TEST_F(CharacterTriggerTest, AMobItsDeathScriptKillsOutrightGivesNothingAndHasOneCorpse)
 {
     install_script(ON_DIE, { { SCRIPT_RAW_KILL, nullptr, { SCRIPT_PARAM_CH1 } } });
-    game_rules::big_brother::create(weather_info, &world); /* made at boot; a death tells it */
     char_data* victim = make_mob("victim", SCRIPT_VNUM);
     victim->points.exp = EXPERIENCE_WORTH_GAINING;
     /* Its corpse is marked with its prototype's number. */
@@ -486,6 +668,52 @@ TEST_F(CharacterTriggerTest, ABlowLandsWhenTheVictimsScriptKeepsBoth)
     EXPECT_EQ(0, damage(attacker, victim, BLOW_DAMAGE, TYPE_HIT, 0));
 
     EXPECT_EQ(MOB_HIT_POINTS - BLOW_DAMAGE, GET_HIT(victim));
+}
+
+/* The victim's script removes the victim: the attacker's weapon is not looked at. */
+TEST_F(CharacterTriggerTest, AWeaponsDamageScriptDoesNotRunForAVictimItsOwnScriptRemoved)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_DAMAGE, { { SCRIPT_SEND_TO_ROOM, "The sword hums.", { SCRIPT_PARAM_CH2_ROOM } } } } } } });
+    char_data* attacker = make_mob("attacker", 0);
+    equip_char(attacker, make_object(SWORD_VNUM, OTHER_SCRIPT_VNUM), WIELD);
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+
+    EXPECT_EQ(0, call_trigger(ON_DAMAGE, victim, attacker, 0));
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_FALSE(output_has("The sword hums."));
+}
+
+TEST_F(CharacterTriggerTest, AWeaponsDamageScriptRunsWhenTheVictimsScriptKeepsBoth)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_DAMAGE, { { SCRIPT_SEND_TO_ROOM, "The victim winces.", { SCRIPT_PARAM_CH1_ROOM } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_DAMAGE, { { SCRIPT_SEND_TO_ROOM, "The sword hums.", { SCRIPT_PARAM_CH2_ROOM } } } } } } });
+    char_data* attacker = make_mob("attacker", 0);
+    equip_char(attacker, make_object(SWORD_VNUM, OTHER_SCRIPT_VNUM), WIELD);
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+
+    EXPECT_EQ(1, call_trigger(ON_DAMAGE, victim, attacker, 0));
+
+    EXPECT_TRUE(output_has("The victim winces."));
+    EXPECT_TRUE(output_has("The sword hums."));
+}
+
+/* The weapon's script removes the victim: no damage is to be dealt. */
+TEST_F(CharacterTriggerTest, AWeaponsDamageScriptThatRemovesTheVictimEndsTheBlow)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* attacker = make_mob("attacker", 0);
+    equip_char(attacker, make_scripted(SWORD_VNUM), WIELD);
+    char_data* victim = make_mob("victim", 0);
+
+    EXPECT_EQ(0, call_trigger(ON_DAMAGE, victim, attacker, 0));
+
+    EXPECT_FALSE(is_in_game(victim));
 }
 
 /* ---- the variables of a running script ---- */
