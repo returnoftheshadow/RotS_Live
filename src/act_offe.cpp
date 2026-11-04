@@ -16,6 +16,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -127,7 +128,12 @@ ACMD(do_hit)
             act("$CD$n attacks YOU!", FALSE, ch, NULL, victim, TO_VICT);
             act("$CHYou attack $N!", FALSE, ch, NULL, victim, TO_CHAR);
 
+            freed_watch attacker_watch(ch);
             hit(ch, victim, TYPE_UNDEFINED);
+            /* The blow can remove the attacker (a riposte that kills it, a script). */
+            if (attacker_watch.freed()) {
+                return;
+            }
 
             WAIT_STATE(ch, 2); /* HVORFOR DET?? */
         } else {
@@ -363,7 +369,12 @@ ACMD(do_flee)
         if (res) {
             act("$n panics, and attempts to flee!", TRUE, ch, 0, 0, TO_ROOM);
 
+            freed_watch fleer_watch(ch);
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
+            /* An ON_BEFORE_ENTER script where it fled to removed the one fleeing. */
+            if (fleer_watch.freed()) {
+                return;
+            }
             if (!special(ch, cmd + 1, "", SPECIAL_COMMAND, 0) && number(0, 1) && die) {
                 /* The escape has not succeded */
                 switch (die) {

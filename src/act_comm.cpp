@@ -17,6 +17,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "script.h"
@@ -110,9 +111,26 @@ ACMD(do_say)
         } else
             send_to_char("Ok.\n\r", ch);
 
-        for (s = world[ch->in_room].people; s; s = s->next_in_room)
-            if (IS_NPC(s) && (s != ch))
-                call_trigger(ON_HEAR_SAY, s, ch, talk_line);
+        room_data& room = world[ch->in_room];
+        freed_watch speaker_watch(ch);
+        char_data* speaker = ch;
+        s = room.people;
+        while (s) {
+            char_data* following = s->next_in_room;
+            if (!IS_NPC(s) || s == ch) {
+                s = following;
+                continue;
+            }
+
+            freed_watch listener_watch(s);
+            call_trigger(ON_HEAR_SAY, s, speaker, talk_line);
+            /* A listener's script can remove the speaker: the rest still hear the words, from
+             * nobody. */
+            if (speaker_watch.freed()) {
+                speaker = nullptr;
+            }
+            s = next_person_after_trigger(room, s, listener_watch.freed(), following);
+        }
     }
 }
 
