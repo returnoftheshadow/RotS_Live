@@ -75,7 +75,6 @@ int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1);
 int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room);
 static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
     bool& out_object_freed);
-static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch);
 void clear_script_info(info_script* inf);
 int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
@@ -1133,6 +1132,31 @@ static int trigger_room_people(int trigger_type, room_data& room, char_data* ent
     return 1;
 }
 
+/* Sets off ON_ENTER on each of <room>'s contents, with <entering> entering, until a script
+ * returns false, and returns 0 if one did, else 1. Once <entering_watch> (on entering) reports it
+ * freed, the rest are told nobody is entering. */
+static int trigger_room_contents(room_data& room, char_data* entering,
+    const freed_watch& entering_watch)
+{
+    if (entering_watch.freed()) {
+        entering = nullptr;
+    }
+    obj_data* object = room.contents;
+    while (object) {
+        obj_data* following = object->next_content;
+        bool object_freed = false;
+        const int script_result = trigger_object_event(ON_ENTER, object, entering, object_freed);
+        if (!script_result) {
+            return 0;
+        }
+        if (entering_watch.freed()) {
+            entering = nullptr;
+        }
+        object = next_content_after_trigger(room, object, object_freed, following);
+    }
+    return 1;
+}
+
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
 {
     int return_value = 1;
@@ -1152,8 +1176,8 @@ int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
         if (return_value) {
             return_value = trigger_room_people(ON_ENTER, *room, ch, entering_watch);
         }
-        for (obj_data* object = room->contents; object && return_value; object = object->next_content) {
-            return_value = trigger_object_event(ON_ENTER, object, entering_watch.freed() ? nullptr : ch);
+        if (return_value) {
+            return_value = trigger_room_contents(*room, ch, entering_watch);
         }
         break;
 
@@ -2412,13 +2436,6 @@ static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
     const int script_result = run_script(info, script_position->next);
     out_object_freed = watch.freed();
     return script_result;
-}
-
-/* The same, for the callers that do not ask whether the object was freed. */
-static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch)
-{
-    bool object_freed = false;
-    return trigger_object_event(trigger_type, obj, ch, object_freed);
 }
 
 object_trigger_result call_object_trigger(int trigger_type, obj_data* object, char_data* character)

@@ -243,6 +243,32 @@ TEST_F(ObjectTriggerTest, PullingALeverWithAScriptThatKeepsItGoesAhead)
     EXPECT_EQ(lever, world[0].contents);
 }
 
+/* ---- entering a room (ON_ENTER on the room's objects) ---- */
+
+TEST_F(ObjectTriggerTest, EnterTriggersEveryObjectWhenEachExtractsItself)
+{
+    install_self_extracting_script(ON_ENTER);
+    obj_to_room(make_scripted(STONE_VNUM), 0);
+    obj_to_room(make_scripted(STONE_VNUM), 0);
+    obj_to_room(make_scripted(STONE_VNUM), 0);
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_EQ(3, count_in_output(CRUMBLE_MESSAGE));
+    EXPECT_EQ(nullptr, world[0].contents);
+}
+
+TEST_F(ObjectTriggerTest, EnterTriggersEveryObjectWhoseScriptKeepsIt)
+{
+    install_harmless_script(ON_ENTER);
+    obj_to_room(make_scripted(STONE_VNUM), 0);
+    obj_to_room(make_scripted(STONE_VNUM), 0);
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_EQ(2, count_in_output(SCRIPT_RAN_MESSAGE));
+}
+
 /* ---- call_object_trigger and call_trigger ---- */
 
 TEST_F(ObjectTriggerTest, ScriptThatKeepsItsObjectProceeds)
