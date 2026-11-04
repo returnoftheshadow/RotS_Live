@@ -57,7 +57,7 @@ void perform_give(struct char_data* ch, struct char_data* vict, struct obj_data*
 int perform_drop(struct char_data* ch, struct obj_data* obj, sh_int RDR);
 void perform_remove(struct char_data* ch, int pos);
 int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg);
-void perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
+bool perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
 int find_action(const char* arg);
 extern struct index_data* obj_index;
 extern char* get_param_text(int); /* shapescript.cpp */
@@ -73,7 +73,8 @@ int trigger_char_die(char_data* ch);
 int trigger_char_path_end(char_data* ch);
 int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1);
 int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room);
-int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch);
+static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
+    bool& out_object_freed);
 void clear_script_info(info_script* inf);
 int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
@@ -985,12 +986,27 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return_value = trigger_room_event(ON_BEFORE_ENTER, (room_data*)subject, (char_data*)subject2);
         break;
 
-    case ON_DAMAGE:
-        return_value = trigger_char_damage((char_data*)subject, (char_data*)subject2);
-        if (return_value)
-            if ((tmpobj = ((char_data*)subject2)->equipment[WIELD]))
-                return_value = trigger_object_damage(tmpobj, (char_data*)subject, (char_data*)subject2);
+    case ON_DAMAGE: {
+        char_data* victim = (char_data*)subject;
+        char_data* attacker = (char_data*)subject2;
+        freed_watch victim_watch(victim);
+        freed_watch attacker_watch(attacker);
+        return_value = trigger_char_damage(victim, attacker);
+        /* A script that removed either fighter has ended the blow: nobody is left to strike or
+         * be struck, and the attacker's weapon is not looked at. */
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return 0;
+        }
+        if (return_value) {
+            if ((tmpobj = attacker->equipment[WIELD])) {
+                return_value = trigger_object_damage(tmpobj, victim, attacker);
+            }
+        }
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return 0;
+        }
         break;
+    }
 
     case ON_DIE:
         return_value = trigger_char_die((char_data*)subject); // we don't do anything with killer yet
@@ -1001,19 +1017,20 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         break;
 
     case ON_DRINK:
-        return_value = trigger_object_event(ON_DRINK, (obj_data*)subject, (char_data*)subject2);
-        break;
-
     case ON_EAT:
-        return_value = trigger_object_event(ON_EAT, (obj_data*)subject, (char_data*)subject2);
-        break;
+    case ON_EXAMINE_OBJECT:
+    case ON_PULL:
+    case ON_WEAR: {
+        char error_message[128];
+        snprintf(error_message, sizeof(error_message),
+            "SYSERR: %s: trigger %d is an object's own trigger; use call_object_trigger", __func__,
+            trigger_type);
+        log(error_message);
+        return 1;
+    }
 
     case ON_ENTER:
         return_value = trigger_room_event(ON_ENTER, (room_data*)subject, (char_data*)subject2); // This will trigger room, characters, objects
-        break;
-
-    case ON_EXAMINE_OBJECT:
-        return_value = trigger_object_event(ON_EXAMINE_OBJECT, (obj_data*)subject, (char_data*)subject2);
         break;
 
     case ON_HEAR_SAY:
@@ -1024,16 +1041,8 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return_value = trigger_char_hear((char_data*)subject, (char_data*)subject2, (char*)subject3);
         break;
 
-    case ON_PULL:
-        return_value = trigger_object_event(ON_PULL, (obj_data*)subject, (char_data*)subject2);
-        break;
-
     case ON_RECEIVE:
         return_value = trigger_char_receive((char_data*)subject, (char_data*)subject2, (obj_data*)subject3);
-        break;
-
-    case ON_WEAR:
-        return_value = trigger_object_event(ON_WEAR, (obj_data*)subject, (char_data*)subject2);
         break;
 
     default:
@@ -1091,30 +1100,85 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
     return nullptr;
 }
 
+/* Sets off <trigger_type> (ON_BEFORE_ENTER or ON_ENTER) on each of <room>'s people but
+ * <entering>, the one entering, until a script returns false, and returns 0 if one did, else 1.
+ * Once <entering_watch> (on entering) reports it freed, the rest are told nobody is entering. */
+static int trigger_room_people(int trigger_type, room_data& room, char_data* entering,
+    const freed_watch& entering_watch)
+{
+    char_data* person = room.people;
+    while (person) {
+        char_data* following = person->next_in_room;
+        if (person == entering) {
+            person = following;
+            continue;
+        }
+
+        freed_watch person_watch(person);
+        int script_result;
+        if (trigger_type == ON_BEFORE_ENTER) {
+            script_result = trigger_before_char_enter(person, entering, &room);
+        } else {
+            script_result = trigger_char_enter(person, entering, &room);
+        }
+        if (!script_result) {
+            return 0;
+        }
+        if (entering_watch.freed()) {
+            entering = nullptr;
+        }
+        person = next_person_after_trigger(room, person, person_watch.freed(), following);
+    }
+    return 1;
+}
+
+/* Sets off ON_ENTER on each of <room>'s contents, with <entering> entering, until a script
+ * returns false, and returns 0 if one did, else 1. Once <entering_watch> (on entering) reports it
+ * freed, the rest are told nobody is entering. */
+static int trigger_room_contents(room_data& room, char_data* entering,
+    const freed_watch& entering_watch)
+{
+    if (entering_watch.freed()) {
+        entering = nullptr;
+    }
+    obj_data* object = room.contents;
+    while (object) {
+        obj_data* following = object->next_content;
+        bool object_freed = false;
+        const int script_result = trigger_object_event(ON_ENTER, object, entering, object_freed);
+        if (!script_result) {
+            return 0;
+        }
+        if (entering_watch.freed()) {
+            entering = nullptr;
+        }
+        object = next_content_after_trigger(room, object, object_freed, following);
+    }
+    return 1;
+}
+
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
 {
     int return_value = 1;
-    char_data* tmpch;
-    obj_data* tmpobj;
+    /* A script can free the one entering; the room's later people and objects are then told
+     * nobody is entering. */
+    freed_watch entering_watch(ch);
 
     switch (trigger_type) {
 
     case ON_BEFORE_ENTER:
-
-        for (tmpch = room->people; tmpch && return_value; tmpch = tmpch->next_in_room)
-            if (tmpch != ch)
-                return_value = trigger_before_char_enter(tmpch, ch, room);
-
+        return_value = trigger_room_people(ON_BEFORE_ENTER, *room, ch, entering_watch);
         break;
 
     case ON_ENTER:
         if (!(return_value = trigger_room_enter(room, ch)))
             return_value = 0;
-        for (tmpch = room->people; tmpch && return_value; tmpch = tmpch->next_in_room)
-            if (tmpch != ch)
-                return_value = trigger_char_enter(tmpch, ch, room);
-        for (tmpobj = room->contents; tmpobj && return_value; tmpobj = tmpobj->next_content)
-            return_value = trigger_object_event(ON_ENTER, tmpobj, ch);
+        if (return_value) {
+            return_value = trigger_room_people(ON_ENTER, *room, ch, entering_watch);
+        }
+        if (return_value) {
+            return_value = trigger_room_contents(*room, ch, entering_watch);
+        }
         break;
 
     default:
@@ -1535,8 +1599,9 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpobj = get_obj_param(curr->param[1], info);
                 /* find_eq_pos reads the object: an unset one crashed the server. */
                 tmpint = (tmpch && tmpobj) ? find_eq_pos(tmpch, tmpobj, 0) : -1;
-                if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj))
+                if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj)) {
                     perform_wear(tmpch, tmpobj, tmpint);
+                }
             }
             curr = curr->next;
             break;
@@ -2272,6 +2337,8 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
 
     if (IS_AFFECTED(ch, AFF_WAITING))
         return 1;
+    freed_watch hearer_watch(ch);
+    freed_watch speaker_watch(speaking);
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_SAY)))
         if (script_position->next) {
             initialise_script_info_char(ch, index);
@@ -2280,6 +2347,14 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             ch->specials.script_info->str[0] = text;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    /* The yell script is looked up on the mob, which the say script may have removed; a speaker
+     * it removed is nobody to the yell script. */
+    if (hearer_watch.freed()) {
+        return return_value;
+    }
+    if (speaker_watch.freed()) {
+        speaking = nullptr;
+    }
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
             initialise_script_info_char(ch, index);
@@ -2335,79 +2410,66 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
     return return_value;
 }
 
-int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch)
+/* Runs <obj>'s own <trigger_type> script with <ch> as ch1 and the object as ob1, and returns what
+ * the script returned (1 when the object has no such script). <out_object_freed> is set when the
+ * object was freed while the script ran; it must then not be touched. */
+static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
+    bool& out_object_freed)
 {
     int index;
-    script_data* script_position;
-    int return_value = 1;
+    out_object_freed = false;
+
+    script_data* script_position
+        = char_has_script(&index, obj->obj_flags.script_number, trigger_type);
+    if (!script_position || !script_position->next) {
+        return 1;
+    }
+
+    initialise_script_info_obj(obj, index);
+    /* free_obj leaves the script's state alone, so info stays valid while the script runs even if
+     * the object does not. */
+    info_script* info = obj->obj_flags.script_info;
+    info->ch[0] = ch;
+    info->ob[0] = obj;
+
+    freed_watch watch(obj);
+    const int script_result = run_script(info, script_position->next);
+    out_object_freed = watch.freed();
+    return script_result;
+}
+
+object_trigger_result call_object_trigger(int trigger_type, obj_data* object, char_data* character)
+{
+    char error_message[128];
+
+    if (!object) {
+        snprintf(error_message, sizeof(error_message), "SYSERR: %s: trigger %d for no object",
+            __func__, trigger_type);
+        log(error_message);
+        return object_trigger_result::object_extracted;
+    }
 
     switch (trigger_type) {
-
-    case ON_EAT:
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_EAT)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
-    case ON_ENTER:
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_ENTER)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
-    case ON_EXAMINE_OBJECT:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_EXAMINE_OBJECT)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
     case ON_DRINK:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_DRINK)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
+    case ON_EAT:
+    case ON_EXAMINE_OBJECT:
     case ON_PULL:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_PULL)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
     case ON_WEAR:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_WEAR)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
         break;
+    default:
+        snprintf(error_message, sizeof(error_message),
+            "SYSERR: %s: trigger %d is not an object's own trigger", __func__, trigger_type);
+        log(error_message);
+        return object_trigger_result::proceed;
     }
-    return return_value;
+
+    bool object_freed = false;
+    const int script_result = trigger_object_event(trigger_type, object, character, object_freed);
+    if (object_freed) {
+        return object_trigger_result::object_extracted;
+    }
+    if (!script_result) {
+        return object_trigger_result::refused;
+    }
+    return object_trigger_result::proceed;
 }
