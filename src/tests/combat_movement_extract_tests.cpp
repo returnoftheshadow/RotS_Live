@@ -11,6 +11,7 @@
 
 ACMD(do_move);
 ACMD(do_flee);
+ACMD(do_hit);
 ACMD(do_kick);
 ACMD(do_say);
 ACMD(do_rend);
@@ -25,6 +26,7 @@ ACMD(do_disengage);
 ACMD(do_track);
 void perform_violence();
 void on_windblast_success(char_data* character, int mana_cost, int move_cost);
+void on_windblast_hit(char_data* character);
 void die(char_data* dead_man, char_data* killer, int attack_type);
 void affect_update_person(struct char_data* character, int mode);
 void assign_command_pointers(void);
@@ -40,6 +42,10 @@ namespace {
 
 /* Enough movement points for any step. */
 constexpr int PLENTY_OF_MOVES = 100;
+/* An offensive bonus that lands a blow whatever the rolls. */
+constexpr int SURE_TO_LAND_OB = 200;
+/* The damage bonus of a blow that hurts. */
+constexpr int STRIKER_DAMAGE = 10;
 
 /* A mob procedure that removes whoever arrives in its room. Written out rather than through
  * SPECIAL, so that it names only the parameters it reads. */
@@ -149,6 +155,17 @@ protected:
         walker->abilities.move = PLENTY_OF_MOVES;
         walker->tmpabilities.move = PLENTY_OF_MOVES;
         return walker;
+    }
+
+    /* A mob in room 0 sure to land a blow that hurts: its offensive bonus beats any roll, and
+     * only a blow with a damage bonus does harm without a weapon. */
+    char_data* make_sure_striker(const char* keywords)
+    {
+        char_data* striker = make_walker(keywords);
+        striker->points.OB = SURE_TO_LAND_OB;
+        striker->points.damage = STRIKER_DAMAGE;
+        striker->specials.ENERGY = ENE_TO_HIT * 2;
+        return striker;
     }
 
     /* Seats <rider> on <mount>, behind any rider already there, as do_ride leaves them. */
@@ -426,25 +443,161 @@ TEST_F(CombatMovementTest, AMountRemovedAsItsRiderArrivesIsLetGo)
     EXPECT_EQ(SECOND_ROOM, rider->in_room);
 }
 
-/* A roll that makes the to-hit roll a sure hit. */
-constexpr double SURE_HIT_ROLL = 0.999;
+/* ---- fleeing ---- */
 
-/* The victim's damage script removes its attacker: the combat round goes on without it. */
+TEST_F(CombatMovementTest, AFleerRemovedBeforeItEntersIsLetGo)
+{
+    install_guard_and_watcher(ON_BEFORE_ENTER);
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* fleer = make_walker("fleer");
+    fleer->specials.position = POSITION_FIGHTING;
+
+    do_flee(fleer, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(fleer));
+}
+
+/* The wind pushes its victim out, where it is removed. AddressSanitizer is what protects this
+ * test: the wind would go on to try the freed victim's other exits. */
+TEST_F(CombatMovementTest, AVictimTheWindPushesIsLetGoWhereAGuardRemovesIt)
+{
+    install_guard_and_watcher(ON_BEFORE_ENTER);
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* victim = make_walker("victim");
+
+    on_windblast_hit(victim);
+
+    EXPECT_FALSE(is_in_game(victim));
+}
+
+/* The asker answers "go" by saying "x1" and fleeing. Two mobs, where there are any, answer each
+ * "x" with two says, without end. The guard's ON_BEFORE_ENTER script tells the room it checked. */
+static std::vector<script_spec> exhaust_then_flee_scripts()
+{
+    const std::vector<body_line> answer = { { SCRIPT_IF_STR_CONTAINS, "X", { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "x1", { SCRIPT_PARAM_CH1 } },
+        { SCRIPT_DO_SAY, "x2", { SCRIPT_PARAM_CH1 } }, { SCRIPT_END, nullptr, {} } };
+    return { { SCRIPT_VNUM,
+                 { { ON_HEAR_SAY,
+                     { { SCRIPT_IF_STR_CONTAINS, "GO", { SCRIPT_PARAM_STR1 } },
+                         { SCRIPT_BEGIN, nullptr, {} },
+                         { SCRIPT_DO_SAY, "x1", { SCRIPT_PARAM_CH1 } },
+                         { SCRIPT_DO_FLEE, nullptr, { SCRIPT_PARAM_CH1 } },
+                         { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, answer } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_BEFORE_ENTER,
+                { { SCRIPT_SEND_TO_ROOM, "The guard checks.", { SCRIPT_PARAM_CH1_ROOM } } } } } } };
+}
+
+/* With no answerers the guard's script runs and lets the asker through. */
+TEST_F(CombatMovementTest, AGuardWhoseScriptRunsLetsTheFleerIn)
+{
+    install_scripts(exhaust_then_flee_scripts());
+    char_data* speaker = make_walker("speaker");
+    char_data* asker = make_walker("asker");
+    asker->specials.script_number = SCRIPT_VNUM;
+    make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
+    world[0].people = m_player.next_in_room;
+
+    run_command_as(speaker, do_say, "go");
+
+    EXPECT_EQ(SECOND_ROOM, asker->in_room);
+}
+
+/* ---- blows ---- */
+
+/* The victim's damage script removes whoever strikes it. The first fighter's blow removes it, and
+ * the round goes on: the second fighter's blow sets the same script off. */
 TEST_F(CombatMovementTest, TheCombatRoundLetsGoOfAFighterItsOwnBlowRemoved)
 {
     install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
-    char_data* fighter = make_walker("fighter");
+    char_data* first_fighter = make_sure_striker("first");
+    char_data* second_fighter = make_sure_striker("second");
     char_data* victim = make_walker("victim");
     victim->specials.script_number = SCRIPT_VNUM;
-    fighter->specials.position = POSITION_FIGHTING;
-    set_fighting(fighter, victim);
-    fighter->specials.ENERGY = ENE_TO_HIT * 2;
-    push_test_random_value(SURE_HIT_ROLL);
+    first_fighter->specials.position = POSITION_FIGHTING;
+    second_fighter->specials.position = POSITION_FIGHTING;
+    set_fighting(first_fighter, victim);
+    set_fighting(second_fighter, victim);
 
     perform_violence();
 
-    EXPECT_FALSE(is_in_game(fighter));
+    EXPECT_FALSE(is_in_game(first_fighter));
+    EXPECT_FALSE(is_in_game(second_fighter));
     EXPECT_TRUE(is_in_game(victim));
+}
+
+/* The hit command's blow removes the attacker. AddressSanitizer is what protects this test: the
+ * command would go on to make the attacker wait. */
+TEST_F(CombatMovementTest, AnAttackerItsOwnBlowRemovedIsNotMadeToWait)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* attacker = make_sure_striker("attacker");
+    char_data* victim = make_walker("victim");
+    victim->specials.script_number = SCRIPT_VNUM;
+
+    run_command_as(attacker, do_hit, "victim");
+
+    EXPECT_FALSE(is_in_game(attacker));
+    EXPECT_TRUE(is_in_game(victim));
+}
+
+/* What a blow deals that leaves its badly hurt victim alive to flee. */
+constexpr int NO_DAMAGE = 0;
+
+/* The blow frightens its badly hurt victim into fleeing, and the victim is removed where it flees
+ * to: the blow says the victim is gone. */
+TEST_F(CombatMovementTest, ABlowLetsGoOfAWimpyVictimRemovedWhereItFlees)
+{
+    install_guard_and_watcher(ON_BEFORE_ENTER);
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* attacker = make_walker("attacker");
+    char_data* victim = make_walker("victim");
+    make_ready_to_flee(victim);
+
+    EXPECT_EQ(1, damage(attacker, victim, NO_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_TRUE(is_in_game(attacker));
+}
+
+/* ---- dying ---- */
+
+/* Experience a victim is worth gaining from. */
+constexpr int EXPERIENCE_WORTH_GAINING = 5000;
+
+/* A kill pays the killer: what the tests of a mob removed as it dies, which pays nothing, are set
+ * against. */
+TEST_F(CombatMovementTest, AKillPaysTheKiller)
+{
+    char_data* dying = make_walker("dying");
+    dying->points.exp = EXPERIENCE_WORTH_GAINING;
+    give_prototype(dying);
+    const int experience_before = GET_EXP(&m_player);
+
+    die(dying, &m_player, 0);
+
+    EXPECT_FALSE(is_in_game(dying));
+    EXPECT_GT(GET_EXP(&m_player), experience_before);
+}
+
+/* The dying mob's last words make its killer, a mob, hear them and remove itself: the death goes
+ * on without a killer. */
+TEST_F(CombatMovementTest, ADeathGoesOnWithoutAKillerSomethingRemoved)
+{
+    install_avenge_me_scripts();
+    char_data* killer = make_walker("killer");
+    killer->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* dying = make_walker("dying");
+    dying->specials.script_number = SCRIPT_VNUM;
+    give_prototype(dying);
+
+    die(dying, killer, 0);
+
+    EXPECT_FALSE(is_in_game(killer));
+    EXPECT_FALSE(is_in_game(dying));
+    EXPECT_NE(nullptr, world[0].contents) << "the death went on and left a corpse";
 }
 
 /* The delay a bash leaves its victim (as olog_hai's bash and the trap give it): its priority

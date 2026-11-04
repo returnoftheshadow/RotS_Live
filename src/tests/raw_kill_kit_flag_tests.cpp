@@ -1,9 +1,10 @@
 /* raw_kill clears a dying player's "already kitted" flag. A player with no link is freed by the
- * death, and raw_kill does not touch it afterwards. */
+ * death, and neither raw_kill nor a blow that set the death off touches it afterwards. */
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
 #include "../skill_timer.h"
+#include "../spells.h"
 
 #include <filesystem>
 #include <string>
@@ -147,4 +148,96 @@ TEST_F(RawKillKitFlagTest, AConnectedPlayersDeathClearsItsKitFlag)
     raw_kill(&m_player, nullptr, 0);
 
     EXPECT_FALSE(IS_SET(PLR_FLAGS(&m_player), PLR_WAS_KITTED));
+}
+
+namespace {
+
+/* An offensive bonus that lands a blow on anyone without a far greater parry. */
+constexpr int SURE_TO_LAND_OB = 200;
+/* A parry that turns aside a blow with SURE_TO_LAND_OB behind it. */
+constexpr int CERTAIN_PARRY = 1000;
+/* The whole of a character's parry, unspent. */
+constexpr int FULL_CURRENT_PARRY = 100;
+/* The defender's strength and dexterity: what a parry and a riposte divide and scale by. */
+constexpr int DEFENDER_ABILITY = 18;
+/* The riposte skill of a player who knows it. */
+constexpr int RIPOSTE_SKILL = 80;
+/* A roll that number() turns into its lowest result. */
+constexpr double LOWEST_ROLL = 0.0;
+/* What a blow deals that leaves its hurt victim alive to flee. */
+constexpr int NO_DAMAGE = 0;
+/* Above the hit points the player is given here. */
+constexpr int WIMPY_ABOVE_ITS_HIT_POINTS = MOB_HIT_POINTS + 1;
+
+/* Blows at a player with no link: the guard in the next room, or the attacker's own damage script,
+ * kills the player outright, which frees it. */
+class LinklessPlayerBlowTest : public RawKillKitFlagTest {
+protected:
+    void SetUp() override
+    {
+        RawKillKitFlagTest::SetUp();
+        link_second_room();
+        /* Whoever comes into the guard's room dies. */
+        install_scripts({ { SCRIPT_VNUM,
+            { { ON_BEFORE_ENTER, { { SCRIPT_RAW_KILL, nullptr, { SCRIPT_PARAM_CH2 } } } },
+                { ON_DAMAGE, { { SCRIPT_RAW_KILL, nullptr, { SCRIPT_PARAM_CH2 } } } } } } });
+    }
+};
+
+} // namespace
+
+/* A wimpy player flees the blow, into a room where it is killed: the blow says the player is gone.
+ * AddressSanitizer is what protects this test: the blow would go on to read the freed player. */
+TEST_F(LinklessPlayerBlowTest, ABlowLetsGoOfAWimpyPlayerKilledWhereItFlees)
+{
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* attacker = make_mob("attacker", 0);
+    char_data* player = make_linkless_player("Wimp");
+    WIMP_LEVEL(player) = WIMPY_ABOVE_ITS_HIT_POINTS;
+
+    EXPECT_EQ(1, damage(attacker, player, NO_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_FALSE(is_in_game(player));
+    EXPECT_TRUE(is_in_game(attacker));
+}
+
+/* A player with no link flees any blow in a fight, here into a room where it is killed: the blow
+ * says the player is gone. AddressSanitizer is what protects this test: the blow would go on to
+ * write to the freed player. */
+TEST_F(LinklessPlayerBlowTest, ABlowLetsGoOfAPlayerKilledWhereItFleesForHavingNoLink)
+{
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* attacker = make_mob("attacker", 0);
+    char_data* player = make_linkless_player("Absent");
+
+    EXPECT_EQ(1, damage(attacker, player, NO_DAMAGE, TYPE_HIT, 0));
+
+    EXPECT_FALSE(is_in_game(player));
+    EXPECT_TRUE(is_in_game(attacker));
+}
+
+/* The player turns the attacker's blow aside and ripostes, and the attacker's damage script kills
+ * the player for it. AddressSanitizer is what protects this test: the blow would go on to check the
+ * freed player's grip. */
+TEST_F(LinklessPlayerBlowTest, ABlowLetsGoOfADefenderItsRiposteGotKilled)
+{
+    char_data* attacker = make_mob("attacker", SCRIPT_VNUM);
+    attacker->points.OB = SURE_TO_LAND_OB;
+    attacker->specials.ENERGY = ENE_TO_HIT * 2;
+    char_data* defender = make_linkless_player("Defender");
+    defender->specials.position = POSITION_FIGHTING;
+    defender->tmpabilities.str = DEFENDER_ABILITY;
+    defender->tmpabilities.dex = DEFENDER_ABILITY;
+    defender->points.parry = CERTAIN_PARRY;
+    SET_CURRENT_PARRY(defender) = FULL_CURRENT_PARRY;
+    defender->knowledge[SKILL_RIPOSTE] = RIPOSTE_SKILL;
+    equip_char(defender, make_object(SWORD_VNUM, 0), WIELD);
+    push_test_random_value(LOWEST_ROLL); /* the to-hit roll: not the one that never misses */
+    push_test_random_value(LOWEST_ROLL); /* the offensive bonus's roll */
+    push_test_random_value(LOWEST_ROLL); /* the riposte's roll: it lands */
+
+    hit(attacker, defender, TYPE_UNDEFINED);
+
+    EXPECT_FALSE(is_in_game(defender));
+    EXPECT_TRUE(is_in_game(attacker));
 }
