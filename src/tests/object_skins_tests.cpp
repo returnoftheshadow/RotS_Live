@@ -557,8 +557,43 @@ TEST_F(ObjectSkins, DrinkNameCyclesLeaveThePrototypesTextAlone)
     EXPECT_STREQ(m_proto[0].name, "flask");
 }
 
+/* Filling and emptying change only the name: the copy keeps the rest of the text it showed. */
+TEST_F(ObjectSkins, DrinkNameCyclesKeepTheRestOfTheText)
+{
+    object_text::fields text;
+    text.name = "flask";
+    text.short_description = "a leather flask";
+    text.description = "A leather flask lies here.";
+    text.action_description = "It smells of ale.";
+    text.extra_descriptions.push_back({ "stitching", "The stitching is frayed." });
+    text.extra_descriptions.push_back({ "strap", "The strap is worn." });
+    m_proto[0].obj_flags.type_flag = ITEM_DRINKCON;
+    m_proto[0].set_text(create_object_text(std::move(text)));
+    obj_data* drink = load(kBase);
+    obj_to_char(drink, &m_ch);
+
+    const auto expect_rest_of_text_kept = [drink]() -> void {
+        EXPECT_STREQ(drink->short_description, "a leather flask");
+        EXPECT_STREQ(drink->description, "A leather flask lies here.");
+        EXPECT_STREQ(drink->action_description, "It smells of ale.");
+        ASSERT_NE(drink->ex_description, nullptr);
+        EXPECT_STREQ(drink->ex_description->keyword, "stitching");
+        EXPECT_STREQ(drink->ex_description->description, "The stitching is frayed.");
+        ASSERT_NE(drink->ex_description->next, nullptr);
+        EXPECT_STREQ(drink->ex_description->next->keyword, "strap");
+    };
+
+    name_to_drinkcon(drink, LIQ_WATER);
+    EXPECT_STREQ(drink->name, "water flask");
+    expect_rest_of_text_kept();
+
+    name_from_drinkcon(drink);
+    EXPECT_STREQ(drink->name, "flask");
+    expect_rest_of_text_kept();
+}
+
 /* Copies made before an implement share the prototype's old text: restyling one leaves the other
- * showing it. */
+ * showing it, and the text goes with that last copy. */
 TEST_F(ObjectSkins, RestyleLeavesTheOldTextToOtherCopies)
 {
     apply_object_skins();
@@ -566,7 +601,7 @@ TEST_F(ObjectSkins, RestyleLeavesTheOldTextToOtherCopies)
     obj_data* other = load(kBase);
     obj_to_char(sword, &m_ch);
     obj_to_char(other, &m_ch);
-    const std::shared_ptr<const object_text> old_text = m_proto[0].shared_text();
+    const std::weak_ptr<const object_text> old_text = m_proto[0].shared_text();
     object_text::fields implemented = object_text_fields_of(m_proto[0]);
     implemented.short_description = "a new sword";
     m_proto[0].set_text(create_object_text(std::move(implemented)));
@@ -574,8 +609,11 @@ TEST_F(ObjectSkins, RestyleLeavesTheOldTextToOtherCopies)
     obj_data* n = nullptr;
     ASSERT_EQ(restyle_object(sword, rn(kSkin), &n), restyle_result::ok);
     EXPECT_EQ(sword->shared_text(), m_proto[2].shared_text());
-    EXPECT_EQ(other->shared_text(), old_text);
+    EXPECT_EQ(other->shared_text(), old_text.lock());
     EXPECT_STREQ(other->short_description, "text 4512");
+
+    extract_obj(other);
+    EXPECT_TRUE(old_text.expired()) << "the restyled copy let go of it too";
 }
 
 TEST_F(ObjectSkins, LevelLineReaderLeavesNonNumericLine)

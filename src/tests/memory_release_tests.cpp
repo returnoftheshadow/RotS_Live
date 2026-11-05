@@ -5,9 +5,11 @@
  * changing the game, so these tests count the allocator's bytes in use (allocated_bytes.h) and
  * are skipped where it cannot tell. Each does its operation many times, so a leak far outgrows
  * what the allocator keeps cached. */
+#include "../mail.h"
 #include "../note_writing.h"
 #include "../object_text.h"
 #include "allocated_bytes.h"
+#include "scoped_mail_file.h"
 #include "scripted_room_fixture.h"
 
 #include <string>
@@ -22,6 +24,10 @@ int new_room(const struct char_data* character, int number);
 void free_room(struct char_data* character);
 void free_zone(struct char_data* character);
 void free_script(struct char_data* character);
+void new_obj(const struct char_data* character);
+void free_object(struct char_data* character);
+void postmaster_receive_mail(
+    struct char_data* character, int command_number, const char* argument, char_data* host);
 
 using namespace scripted_room;
 
@@ -116,6 +122,10 @@ constexpr int ZONE_DESCRIPTION_FIELD = 21;
 constexpr int ZONE_MAP_FIELD = 22;
 /* shape_center_script's field 21: the script's description. */
 constexpr int SCRIPT_DESCRIPTION_FIELD = 21;
+/* shape_center_obj's field 1: the object's aliases, the keywords that find it. */
+constexpr int OBJECT_ALIASES_FIELD = 1;
+/* shape_center_obj's field 4: the look text, shown by look and examine. */
+constexpr int OBJECT_LOOK_TEXT_FIELD = 4;
 
 /* A builder in room 0 at a shape editor, sent output through the fixture's connection. */
 class ShapeEditorMemoryTest : public MemoryReleaseTest {
@@ -173,6 +183,19 @@ protected:
         editor->zone_descr = str_dup("Trees crowd the path.\n\r");
         editor->zone_map = str_dup("[ ]-[ ]\n\r");
         m_builder->temp = editor;
+        return editor;
+    }
+
+    /* Starts the object editor on a new object; free_object frees the editor state, so it is
+     * allocated. */
+    shape_object* start_object_editor()
+    {
+        shape_object* editor = nullptr;
+        CREATE(editor, shape_object, 1);
+        editor->procedure = SHAPE_EDIT;
+        m_builder->temp = editor;
+        new_obj(m_builder);
+        SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
         return editor;
     }
 
@@ -284,6 +307,59 @@ TEST_F(ShapeEditorMemoryTest, SavingAScriptDescriptionFreesTheOneItReplaces)
     EXPECT_LT(growth, ALLOWED_GROWTH);
 }
 
+/* Leaving the object editor frees the object it was editing, with every text field, edited or not,
+ * and its extra descriptions. */
+TEST_F(ShapeEditorMemoryTest, LeavingTheObjectEditorGivesBackTheObjectsText)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        shape_object* const editor = start_object_editor();
+        extra_descr_data* dent = nullptr;
+        CREATE(dent, extra_descr_data, 1);
+        dent->keyword = str_dup("dent");
+        dent->description = str_dup("A deep dent.");
+        editor->object->ex_description = dent;
+        /* The first call shows the prompt, the second takes the new aliases: enough words that a
+         * copy kept each round outgrows ALLOWED_GROWTH. */
+        char prompt[] = "";
+        std::string aliases;
+        while (aliases.size() < SMALLEST_LEAK_PER_ROUND) {
+            aliases += "lantern ";
+        }
+        editor->editflag = OBJECT_ALIASES_FIELD;
+        shape_center_obj(m_builder, prompt);
+        shape_center_obj(m_builder, &aliases[0]);
+        free_object(m_builder);
+        clear_output();
+    });
+
+    EXPECT_EQ(m_builder->temp, nullptr);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+/* Saving an object's look text frees the text it replaces, which the editing session owns. */
+TEST_F(ShapeEditorMemoryTest, SavingAnObjectsLookTextFreesTheOneItReplaces)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    shape_object* const editor = start_object_editor();
+    RELEASE(editor->object->action_description);
+    editor->object->action_description = str_dup("A plain brass lantern.\n\r");
+
+    const std::size_t growth = growth_over_rounds([this, editor]() -> void {
+        editor->editflag = OBJECT_LOOK_TEXT_FIELD;
+        save_field_unchanged(shape_center_obj);
+    });
+
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\r");
+    free_object(m_builder);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
 /* A prototype given a new text, as implement_object gives it one, frees the text it showed once
  * the copies made before still showing it are gone. */
 TEST_F(MemoryReleaseTest, APrototypesReplacedTextGoesWithItsLastCopy)
@@ -348,6 +424,77 @@ TEST_F(MemoryReleaseTest, WritingANoteGivesBackTheEditorsBufferAndTheNotesText)
         char finish[] = "%e";
         string_add(&m_descriptor, finish);
         extract_obj(note);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+/* A note freed under its writer frees what the writer had typed. */
+TEST_F(MemoryReleaseTest, FreeingANoteBeingWrittenOnGivesBackTheEditorsBuffer)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    descriptor_list = &m_descriptor;
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* note = make_object(STONE_VNUM, 0);
+        start_writing_note(m_descriptor, *note);
+        /* Long enough that a buffer kept each round outgrows ALLOWED_GROWTH. */
+        std::string line(SMALLEST_LEAK_PER_ROUND, 'x');
+        string_add(&m_descriptor, &line[0]);
+        extract_obj(note);
+        clear_output();
+    });
+
+    descriptor_list = nullptr;
+    EXPECT_EQ(m_descriptor.written_note_text, nullptr);
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+/* A name a script gives an object goes in the object's text, so the copy the script made of it is
+ * freed, and the object's text goes with the object. */
+TEST_F(MemoryReleaseTest, RenamingAnObjectByScriptGivesBackTheName)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    /* Long enough that a name kept each round outgrows ALLOWED_GROWTH. */
+    const std::string new_name(SMALLEST_LEAK_PER_ROUND, 'x');
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, new_name.c_str(), { SCRIPT_PARAM_OB1_NAME } } });
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        obj_data* stone = make_scripted(STONE_VNUM);
+        obj_to_char(stone, &m_player);
+        run_command(do_examine, "stone");
+        /* free_obj leaves an object's script state alone, for a script still running; that is not
+         * what this test measures. */
+        RELEASE(stone->obj_flags.script_info);
+        extract_obj(stone);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+/* A letter copies the words the mail system read for it, frees them, and frees its text when it goes. */
+TEST_F(MemoryReleaseTest, ReceivingALetterGivesBackItsWords)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    const scoped_mail_file mail_file;
+    char_data* const postmaster = make_mob("postmaster", 0);
+    char sender[] = "Frodo";
+
+    const std::size_t growth = growth_over_rounds([this, postmaster, &sender]() -> void {
+        /* Long enough that words kept each round outgrow ALLOWED_GROWTH. */
+        std::string words(SMALLEST_LEAK_PER_ROUND, 'x');
+        store_mail(m_player.player.name, sender, &words[0]);
+        postmaster_receive_mail(&m_player, 0, "", postmaster);
+        extract_obj(m_player.carrying);
         clear_output();
     });
 

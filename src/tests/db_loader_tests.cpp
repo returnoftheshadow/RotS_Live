@@ -2657,7 +2657,7 @@ TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAs
     index_data* const previous_obj_index = obj_index;
     obj_data* const previous_obj_proto = obj_proto;
     const int previous_top_of_objt = top_of_objt;
-    const int prototype_slots = 4;
+    const int prototype_slots = 8;
     obj_index = new index_data[prototype_slots] {};
     obj_proto = new obj_data[prototype_slots] {};
 
@@ -2690,13 +2690,19 @@ TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAs
     written.obj_flags.skin_base = 2001;
     written.obj_flags.skin_own = SKIN_OWN_COST | SKIN_OWN_MATERIAL;
     write_object(file, &written, 2004); // a skin: a 7-number level line
+    // How the loader tidies a short description's article and a room line's first letter.
+    const char* const rest_of_object = "~\n5 0 0\n0 0 0 0 0\n1 1 1\n12 0 0 7\n";
+    std::fprintf(file, "#2005\naxe~\nA rusty axe~\na rusty axe lies here.~\n%s", rest_of_object);
+    std::fprintf(file, "#2006\nblade~\nAn old blade~\nan old blade lies here.~\n%s", rest_of_object);
+    std::fprintf(file, "#2007\nblade~\nThe Blade~\nthe Blade lies here.~\n%s", rest_of_object);
+    std::fprintf(file, "#2008\nsting~\nSting~\n~\n%s", rest_of_object);
     std::fputs("#99999\n$~\n", file);
     std::rewind(file);
 
     load_objects(file);
     std::fclose(file);
 
-    EXPECT_EQ(top_of_objt, 3);
+    EXPECT_EQ(top_of_objt, 7);
     EXPECT_EQ(obj_index[0].virt, 2001);
     EXPECT_EQ(obj_proto[0].obj_flags.version, 4);
     EXPECT_EQ(obj_proto[0].obj_flags.script_number, 7);
@@ -2728,6 +2734,17 @@ TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAs
     EXPECT_STREQ(shown_first->next->keyword, "first");
     EXPECT_EQ(shown_first->next->next, nullptr);
     EXPECT_EQ(obj_proto[0].ex_description, nullptr);
+
+    // A short description's article is lower case, and a room line starts with a capital.
+    EXPECT_STREQ(obj_proto[4].short_description, "a rusty axe");
+    EXPECT_STREQ(obj_proto[4].description, "A rusty axe lies here.");
+    EXPECT_STREQ(obj_proto[5].short_description, "an old blade");
+    EXPECT_STREQ(obj_proto[5].description, "An old blade lies here.");
+    EXPECT_STREQ(obj_proto[6].short_description, "the Blade");
+    EXPECT_STREQ(obj_proto[6].description, "The Blade lies here.");
+    // A name keeps its capital, and an empty room line stays empty.
+    EXPECT_STREQ(obj_proto[7].short_description, "Sting");
+    EXPECT_STREQ(obj_proto[7].description, "");
 
     delete[] obj_proto;
     delete[] obj_index;
@@ -3405,6 +3422,30 @@ TEST_F(DbLoader, ImplementListsExtraDescriptionsLastFirst)
     EXPECT_EQ(shown_first->next->next, nullptr);
 }
 
+/* implement gives the prototype every text field of the working copy, and leaves the working copy
+ * its own strings to go on editing. */
+TEST_F(DbLoader, ImplementGivesThePrototypeEveryTextFieldOfTheWorkingCopy)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    RELEASE(session.object.action_description);
+    session.object.action_description = strdup("It is warm to the touch.");
+    add_extra_description(session.object, "hem", "The hem is torn.");
+
+    implement_object(session.builder);
+
+    const obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    EXPECT_STREQ(staff.name, "cloak");
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_STREQ(staff.description, "A grey cloak lies here.");
+    EXPECT_STREQ(staff.action_description, "It is warm to the touch.");
+    ASSERT_NE(staff.ex_description, nullptr);
+    EXPECT_STREQ(staff.ex_description->keyword, "hem");
+    EXPECT_STREQ(staff.ex_description->description, "The hem is torn.");
+    EXPECT_NE(staff.name, session.object.name);
+    EXPECT_NE(staff.action_description, session.object.action_description);
+    EXPECT_NE(staff.ex_description, session.object.ex_description);
+}
+
 void name_to_drinkcon(struct obj_data* object, int liquid_type);
 
 /* Filling a copy made before an implement leaves the old name it shares with other such copies
@@ -3587,41 +3628,12 @@ constexpr int EDITOR_TEST_NUMBER = 4530;
 void free_object(struct char_data* character);
 void new_obj(const struct char_data* character);
 
-/* shape_center_obj's field 1: the object's aliases, the keywords that find it. */
-constexpr int OBJECT_ALIASES_FIELD = 1;
 /* shape_center_obj's field 4: the look text, shown by look and examine. */
 constexpr int OBJECT_LOOK_TEXT_FIELD = 4;
 
-/* Leaving the object editor frees the object it was editing, its text and extra descriptions
- * too. */
-TEST_F(DbLoader, LeavingTheObjectEditorFreesTheObjectItEdited)
-{
-    SkinEditorSession session(EDITOR_TEST_NUMBER);
-    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
-    CREATE(editor, shape_object, 1);
-    editor->procedure = SHAPE_EDIT;
-    session.builder->temp = editor;
-    new_obj(session.builder);
-    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
-    add_extra_description(*editor->object, "dent", "A deep dent.");
-
-    /* /1: the first call shows the prompt, the second takes the new aliases. */
-    char prompt[] = "";
-    char aliases[] = "lantern brass";
-    editor->editflag = OBJECT_ALIASES_FIELD;
-    shape_center_obj(session.builder, prompt);
-    shape_center_obj(session.builder, aliases);
-    ASSERT_STREQ(editor->object->name, "lantern brass");
-    ASSERT_STREQ(editor->object->short_description, "gizmo");
-
-    free_object(session.builder);
-
-    EXPECT_EQ(session.builder->temp, nullptr);
-}
-
-/* Each edit of the look text starts from the text before it and replaces it, and leaving the editor
- * frees the last. */
-TEST_F(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
+/* Each edit of the look text starts from the text before it. That each replaced text is freed is
+ * memory_release_tests' to check. */
+TEST_F(DbLoader, ObjectEditorLookTextEditStartsFromTheTextBefore)
 {
     SkinEditorSession session(EDITOR_TEST_NUMBER);
     shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
@@ -3651,8 +3663,6 @@ TEST_F(DbLoader, ObjectEditorLookTextEditsReplaceEachOther)
     EXPECT_EQ(editor->tmpstr, nullptr);
 
     free_object(session.builder);
-
-    EXPECT_EQ(session.builder->temp, nullptr);
 }
 
 void new_mob(const struct char_data* character);

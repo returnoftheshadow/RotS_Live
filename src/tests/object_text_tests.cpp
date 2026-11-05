@@ -1,6 +1,7 @@
 #include "../db.h"
 #include "../object_text.h"
 #include "../structs.h"
+#include "scripted_room_fixture.h"
 
 #include <gtest/gtest.h>
 
@@ -9,7 +10,55 @@
 #include <string>
 #include <utility>
 
+void get_corpse_desc(object_text::fields& out_text, const char_data* ch, int attacktype);
+obj_data* make_physical_corpse(char_data* character, const char_data* killer, int attack_type);
+
+using namespace scripted_room;
+
 namespace {
+
+/* The attack get_corpse_desc describes as leaving a corpse "cleanly slain". */
+constexpr int CLEANLY_SLAIN_ATTACK = 25;
+
+/* What create_money shows for one amount. */
+struct money_text {
+    // The amount of coins.
+    int amount;
+    // The name, short description, room line and the keyword and text of its extra description.
+    const char* name;
+    const char* short_description;
+    const char* description;
+    const char* look_keyword;
+    const char* look_text;
+};
+
+constexpr const char* COINS_NAME = "coins money gold";
+
+/* Each amount either side of where the words change. */
+const money_text MONEY_TEXTS[] = {
+    { 1, "coin money copper", "a coin", "One miserable copper coin is lying here.", "coin gold",
+        "It's just one miserable little copper coin." },
+    { 2, COINS_NAME, "a small pile of coins", "A small pile of coins is lying here.", COINS_NAME,
+        "There are 2 copper coins." },
+    { COPP_IN_SILV - 1, COINS_NAME, "a small pile of coins", "A small pile of coins is lying here.",
+        COINS_NAME, "There are 99 copper coins." },
+    { COPP_IN_SILV, COINS_NAME, "a small pile of coins", "A small pile of coins is lying here.",
+        COINS_NAME, "There are about 1 silver coins." },
+    { COPP_IN_SILV + 1, COINS_NAME, "a pile of coins", "A pile of coins is lying here.", COINS_NAME,
+        "There are about 1 silver coins." },
+    { COPP_IN_GOLD, COINS_NAME, "a pile of coins", "A pile of coins is lying here.", COINS_NAME,
+        "It looks to be about 1 gold coins." },
+    { COPP_IN_GOLD + 1, COINS_NAME, "a large heap of coins", "A large heap of coins is lying here.",
+        COINS_NAME, "It looks to be about 1 gold coins." },
+    { 25000, COINS_NAME, "a large heap of coins", "A large heap of coins is lying here.", COINS_NAME,
+        "You guess there are, maybe, 20 gold coins." },
+    { 25001, COINS_NAME, "a huge mound of coins", "A huge mound of coins is lying here.", COINS_NAME,
+        "You guess there are, maybe, 20 gold coins." },
+    { 500000, COINS_NAME, "a huge mound of coins", "A huge mound of coins is lying here.", COINS_NAME,
+        "There is a lot of gold." },
+    { 500001, COINS_NAME, "an enormous mountain of coins",
+        "An enormous mountain of money is lying here.", COINS_NAME, "There is a lot of gold." },
+};
 
 /* A text with every field and two extra descriptions. */
 object_text::fields make_lantern_fields()
@@ -188,4 +237,119 @@ TEST(ObjectText, FreeingAnObjectWithASharedTextLogsNothing)
     const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(logged.find("SYSERR"), std::string::npos) << logged;
+}
+
+/* Coins show the words for their amount, in a text of their own. */
+TEST(CreateMoney, ShowsTheWordsForItsAmount)
+{
+    obj_data* const saved_object_list = object_list;
+    for (const money_text& expected : MONEY_TEXTS) {
+        SCOPED_TRACE(expected.amount);
+        object_list = nullptr;
+
+        obj_data* const coins = create_money(expected.amount);
+
+        EXPECT_STREQ(coins->name, expected.name);
+        EXPECT_STREQ(coins->short_description, expected.short_description);
+        EXPECT_STREQ(coins->description, expected.description);
+        EXPECT_EQ(coins->action_description, nullptr);
+        ASSERT_NE(coins->ex_description, nullptr);
+        EXPECT_STREQ(coins->ex_description->keyword, expected.look_keyword);
+        EXPECT_STREQ(coins->ex_description->description, expected.look_text);
+        EXPECT_EQ(coins->ex_description->next, nullptr);
+        ASSERT_NE(coins->shared_text(), nullptr);
+        EXPECT_EQ(coins->shared_text().use_count(), 1) << "no other object shows the coins' text";
+        free_obj(coins);
+    }
+    object_list = saved_object_list;
+}
+
+namespace {
+
+/* A corpse's words, in room 0 of the scripted room. */
+class CorpseTextTest : public ScriptedRoomFixture {
+protected:
+    void SetUp() override
+    {
+        ScriptedRoomFixture::SetUp();
+        m_saved_sector = world[0].sector_type;
+        world[0].sector_type = SECT_CITY;
+    }
+
+    void TearDown() override
+    {
+        world[0].sector_type = m_saved_sector;
+        ScriptedRoomFixture::TearDown();
+    }
+
+private:
+    int m_saved_sector = 0; // room 0's sector, restored in TearDown
+};
+
+} // namespace
+
+/* A mob's corpse names the mob and says how it died. */
+TEST_F(CorpseTextTest, AMobsCorpseNamesTheMob)
+{
+    char_data* const mob = make_mob("a warg", 0);
+    object_text::fields text;
+
+    get_corpse_desc(text, mob, CLEANLY_SLAIN_ATTACK);
+
+    EXPECT_EQ(text.short_description, std::optional<std::string>("the cleanly slain corpse of a warg"));
+    EXPECT_EQ(text.description, std::optional<std::string>("The cleanly slain corpse of a warg is lying here."));
+}
+
+/* A player's corpse shows the player's race, not the player's name. */
+TEST_F(CorpseTextTest, APlayersCorpseShowsItsRace)
+{
+    object_text::fields text;
+
+    get_corpse_desc(text, &m_player, CLEANLY_SLAIN_ATTACK);
+
+    EXPECT_EQ(text.short_description, std::optional<std::string>("the cleanly slain corpse of *a Human*"));
+}
+
+/* In water a corpse floats. */
+TEST_F(CorpseTextTest, ACorpseInWaterFloats)
+{
+    char_data* const mob = make_mob("a warg", 0);
+    for (const int sector : { SECT_WATER_NOSWIM, SECT_WATER_SWIM, SECT_UNDERWATER }) {
+        SCOPED_TRACE(sector);
+        world[0].sector_type = sector;
+        object_text::fields text;
+
+        get_corpse_desc(text, mob, CLEANLY_SLAIN_ATTACK);
+
+        EXPECT_EQ(text.description, std::optional<std::string>("The cleanly slain corpse of a warg is floating here."));
+        EXPECT_EQ(text.short_description, std::optional<std::string>("the cleanly slain corpse of a warg"));
+    }
+}
+
+/* A mob with no name leaves a corpse that says so, as printf showed one. */
+TEST_F(CorpseTextTest, ACorpseOfAMobWithNoNameSaysSo)
+{
+    char_data* const mob = make_mob("a warg", 0);
+    char* const short_description = mob->player.short_descr;
+    mob->player.short_descr = nullptr;
+    object_text::fields text;
+
+    get_corpse_desc(text, mob, CLEANLY_SLAIN_ATTACK);
+
+    mob->player.short_descr = short_description;
+    EXPECT_EQ(text.short_description, std::optional<std::string>("the cleanly slain corpse of (null)"));
+}
+
+/* A corpse made in a death has a text of its own, holding its name and those words. */
+TEST_F(CorpseTextTest, ACorpseHasATextOfItsOwn)
+{
+    obj_data* const corpse = make_physical_corpse(&m_player, &m_player, CLEANLY_SLAIN_ATTACK);
+
+    ASSERT_NE(corpse, nullptr);
+    EXPECT_STREQ(corpse->name, "corpse");
+    EXPECT_STREQ(corpse->short_description, "the cleanly slain corpse of *a Human*");
+    EXPECT_STREQ(corpse->description, "The cleanly slain corpse of *a Human* is lying here.");
+    EXPECT_EQ(corpse->action_description, nullptr);
+    ASSERT_NE(corpse->shared_text(), nullptr);
+    EXPECT_EQ(corpse->shared_text().use_count(), 1) << "no other object shows the corpse's text";
 }

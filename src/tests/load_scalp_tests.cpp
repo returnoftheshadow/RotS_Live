@@ -18,6 +18,8 @@ extern struct index_data* obj_index;
 extern int top_of_objt;
 extern struct obj_data* object_list;
 extern int generic_scalp;
+extern struct player_index_element* player_table;
+extern int top_of_p_table;
 extern struct room_data world;
 extern int top_of_world;
 obj_data* load_scalp(int number);
@@ -32,6 +34,10 @@ constexpr int SCALP_PROTOTYPE = 0;
 const int CORPSE_VNUM = 1200; // a corpse prototype, after the scalp in the vnum-sorted index
 const int CORPSE_RNUM = SCALP_PROTOTYPE + 1;
 const int BLUDGEON_WEAPON_TYPE = 7; // weapon_hit_type gives TYPE_BLUDGEON: the head is destroyed
+const int SLASHING_WEAPON_TYPE = game_types::WT_SLASHING; // the head comes off whole, as a scalp
+// A player's idnum in the test's player table, and one no player in it has.
+const int PLAYER_IDNUM = 77;
+const int DELETED_PLAYER_IDNUM = 78;
 // The value[3] that marks a corpse: make_physical_corpse sets it and is_corpse reads it.
 const int CORPSE_MARKER = 1;
 // The real number of the room the corpses lie in: the only room the test world needs.
@@ -102,7 +108,34 @@ TEST_F(LoadScalpTest, ScalpOfARemovedMobLoadsAsAnOldSkull)
 
     ASSERT_NE(scalp, nullptr) << "a scalp whose mob no longer exists must not be destroyed at login";
     EXPECT_STREQ(scalp->short_description, "An old skull");
+    EXPECT_STREQ(scalp->name, "head skull");
+    EXPECT_STREQ(scalp->description, "An old, bleached skull is lying here.");
     EXPECT_EQ(scalp->obj_flags.value[4], kRemovedMobVnum) << "the original head number is kept";
+}
+
+/* A player's head names the player with a capital, in both its descriptions. */
+TEST_F(LoadScalpTest, HeadOfAPlayerNamesThePlayerWithACapital)
+{
+    char player_name[] = "thrain";
+    player_index_element player {};
+    player.name = player_name;
+    player.idnum = PLAYER_IDNUM;
+    player_index_element* const saved_player_table = player_table;
+    const int saved_top_of_p_table = top_of_p_table;
+    player_table = &player;
+    top_of_p_table = 0;
+
+    obj_data* head = load_scalp(-PLAYER_IDNUM);
+    obj_data* skull = load_scalp(-DELETED_PLAYER_IDNUM);
+
+    player_table = saved_player_table;
+    top_of_p_table = saved_top_of_p_table;
+    ASSERT_NE(head, nullptr);
+    EXPECT_STREQ(head->name, "head");
+    EXPECT_STREQ(head->short_description, "A severed head of Thrain");
+    EXPECT_STREQ(head->description, "A severed head of Thrain is lying here.");
+    ASSERT_NE(skull, nullptr) << "a deleted player's head is an old skull";
+    EXPECT_STREQ(skull->short_description, "An old skull");
 }
 
 TEST_F(LoadScalpTest, ScalpOfAnExistingMobNamesTheMob)
@@ -173,7 +206,10 @@ protected:
 
         object_text::fields corpse_text;
         corpse_text.name = "corpse";
+        corpse_text.short_description = "the corpse of a warg";
         corpse_text.description = "The corpse of a warg is lying here.";
+        corpse_text.action_description = "It stares back.";
+        corpse_text.extra_descriptions.push_back({ "fur", "Matted fur." });
         m_corpse_text = create_object_text(std::move(corpse_text));
         m_untouched = make_corpse();
         m_beheaded = make_corpse(); /* first on the floor, so "corpse" finds it */
@@ -190,6 +226,9 @@ protected:
     void TearDown() override
     {
         m_character->equipment[WIELD] = nullptr;
+        while (m_character->carrying != nullptr) {
+            extract_obj(m_character->carrying);
+        }
         while (world[CORPSE_ROOM].contents != nullptr) {
             extract_obj(world[CORPSE_ROOM].contents);
         }
@@ -215,6 +254,17 @@ protected:
         return corpse;
     }
 
+    /* Everything but the room line is what the corpse's prototype shows. */
+    static void expect_rest_of_text_kept(const obj_data& corpse)
+    {
+        EXPECT_STREQ(corpse.name, "corpse");
+        EXPECT_STREQ(corpse.short_description, "the corpse of a warg");
+        EXPECT_STREQ(corpse.action_description, "It stares back.");
+        ASSERT_NE(corpse.ex_description, nullptr);
+        EXPECT_STREQ(corpse.ex_description->keyword, "fur");
+        EXPECT_STREQ(corpse.ex_description->description, "Matted fur.");
+    }
+
     std::shared_ptr<const object_text> m_corpse_text; // the corpse prototype's text, shared by both copies
     obj_data* m_untouched = nullptr; // the copy left alone
     obj_data* m_beheaded = nullptr; // the copy the character beheads
@@ -233,10 +283,28 @@ TEST_F(BeheadCorpseTest, BeheadingACopyLeavesTheSharedRoomLineAlone)
     do_butcher(m_character, argument, nullptr, 0, SCMD_SCALP);
 
     EXPECT_STREQ(m_beheaded->description, "The corpse of a warg is lying here, its head a bloody mess.");
-    EXPECT_STREQ(m_beheaded->name, "corpse");
+    expect_rest_of_text_kept(*m_beheaded);
     EXPECT_NE(m_beheaded->shared_text(), m_corpse_text);
     EXPECT_EQ(m_untouched->shared_text(), m_corpse_text);
     EXPECT_STREQ(m_untouched->description, "The corpse of a warg is lying here.");
+}
+
+/* Taking the head off whole gives the corpse the other room line, gives the taker the head, and
+ * leaves the line the other copy shares as it was. */
+TEST_F(BeheadCorpseTest, TakingAHeadOffWholeLeavesTheSharedRoomLineAlone)
+{
+    m_club.obj_flags.value[3] = SLASHING_WEAPON_TYPE;
+
+    char argument[] = "corpse";
+    do_butcher(m_character, argument, nullptr, 0, SCMD_SCALP);
+
+    EXPECT_STREQ(m_beheaded->description, "The corpse of a warg is lying here, its head missing.");
+    expect_rest_of_text_kept(*m_beheaded);
+    EXPECT_NE(m_beheaded->shared_text(), m_corpse_text);
+    EXPECT_EQ(m_untouched->shared_text(), m_corpse_text);
+    EXPECT_STREQ(m_untouched->description, "The corpse of a warg is lying here.");
+    ASSERT_NE(m_character->carrying, nullptr);
+    EXPECT_STREQ(m_character->carrying->short_description, "A severed head of a warg");
 }
 
 } // namespace
