@@ -206,7 +206,6 @@ TEST_F(NoteWritingTest, AWrittenNoteHasATextOfItsOwn)
     ASSERT_EQ(m_descriptor.written_note, m_note) << m_descriptor.output;
 
     type("Meet me at the ford.");
-    /* Finished directly: %e regrows the text with a copy that reads past the old buffer. */
     string_add_finish(&m_descriptor);
 
     EXPECT_EQ(m_descriptor.str, nullptr);
