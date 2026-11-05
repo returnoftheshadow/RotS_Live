@@ -1445,9 +1445,8 @@ int run_script(struct info_script* info, struct script_data* position)
                     }
                     if (renamed_object) {
                         object_text::fields text = object_text_fields_of(*renamed_object);
-                        text.short_description = new_text;
+                        text.short_description = take_allocated_string(new_text);
                         renamed_object->set_text(create_object_text(std::move(text)));
-                        RELEASE(new_text);
                     } else {
                         *wtxt = new_text;
                     }

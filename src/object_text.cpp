@@ -1,17 +1,28 @@
 #include "object_text.h"
 
+#include <algorithm>
+#include <iterator>
 #include <utility>
 
 namespace {
 
-/* obj_data's text fields are char* for the many functions that read them, and nothing writes
- * through them, so the shared, const text is handed out as char*. */
-char* view_of(const std::optional<std::string>& field)
+const char* view_of(const std::optional<std::string>& field)
 {
     if (!field) {
         return nullptr;
     }
-    return const_cast<char*>(field->c_str());
+    return field->c_str();
+}
+
+/* A list node showing `extra`, linked to nothing yet. extra_descr_data's fields are char* because
+ * rooms use it too; nothing writes through an object's. */
+extra_descr_data node_showing(const object_text::extra_description& extra)
+{
+    extra_descr_data node;
+    node.keyword = const_cast<char*>(extra.keyword.c_str());
+    node.description = const_cast<char*>(extra.description.c_str());
+    node.next = nullptr;
+    return node;
 }
 
 std::optional<std::string> value_of(const char* field)
@@ -36,33 +47,27 @@ object_text::object_text(fields text)
     : m_fields(std::move(text))
 {
     const std::vector<extra_description>& extras = m_fields.extra_descriptions;
-    m_extra_description_nodes.resize(extras.size());
-    for (std::size_t index = 0; index < extras.size(); ++index) {
-        extra_descr_data& node = m_extra_description_nodes[index];
-        node.keyword = const_cast<char*>(extras[index].keyword.c_str());
-        node.description = const_cast<char*>(extras[index].description.c_str());
-        if (index + 1 < extras.size()) {
-            node.next = &m_extra_description_nodes[index + 1];
-        } else {
-            node.next = nullptr;
-        }
+    m_extra_description_nodes.reserve(extras.size());
+    std::transform(extras.begin(), extras.end(), std::back_inserter(m_extra_description_nodes), node_showing);
+    for (std::size_t index = 0; index + 1 < m_extra_description_nodes.size(); ++index) {
+        m_extra_description_nodes[index].next = &m_extra_description_nodes[index + 1];
     }
 }
 
-char* object_text::name() const { return view_of(m_fields.name); }
+const char* object_text::name() const { return view_of(m_fields.name); }
 
-char* object_text::short_description() const { return view_of(m_fields.short_description); }
+const char* object_text::short_description() const { return view_of(m_fields.short_description); }
 
-char* object_text::description() const { return view_of(m_fields.description); }
+const char* object_text::description() const { return view_of(m_fields.description); }
 
-char* object_text::action_description() const { return view_of(m_fields.action_description); }
+const char* object_text::action_description() const { return view_of(m_fields.action_description); }
 
-extra_descr_data* object_text::extra_descriptions() const
+const extra_descr_data* object_text::extra_descriptions() const
 {
     if (m_extra_description_nodes.empty()) {
         return nullptr;
     }
-    return const_cast<extra_descr_data*>(m_extra_description_nodes.data());
+    return m_extra_description_nodes.data();
 }
 
 std::shared_ptr<const object_text> create_object_text(object_text::fields text)

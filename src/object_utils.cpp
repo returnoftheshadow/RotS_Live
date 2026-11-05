@@ -349,9 +349,10 @@ void obj_data::set_text(std::shared_ptr<const object_text> new_text)
         ex_description = nullptr;
         return;
     }
-    name = text->name();
-    short_description = text->short_description();
-    description = text->description();
-    action_description = text->action_description();
-    ex_description = text->extra_descriptions();
+    /* The fields are char* for the many functions that read them; nothing writes through them. */
+    name = const_cast<char*>(text->name());
+    short_description = const_cast<char*>(text->short_description());
+    description = const_cast<char*>(text->description());
+    action_description = const_cast<char*>(text->action_description());
+    ex_description = const_cast<extra_descr_data*>(text->extra_descriptions());
 }

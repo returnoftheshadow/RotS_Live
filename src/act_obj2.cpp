@@ -72,7 +72,8 @@ void name_from_drinkcon(struct obj_data* obj)
         ;
 
     if (*((obj->name) + i) == ' ') {
-        rename_object(*obj, (obj->name) + i + 1);
+        const char* const name_without_liquid = (obj->name) + i + 1;
+        rename_object(*obj, name_without_liquid);
     }
 }
 

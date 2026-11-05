@@ -47,16 +47,14 @@ public:
     /* The text as values. */
     const fields& values() const { return m_fields; }
 
-    /* Each field as obj_data shows it, null for a field with no value. Read only through these:
-     * the text is shared and never changes. */
-    char* name() const;
-    char* short_description() const;
-    char* description() const;
-    char* action_description() const;
+    /* Each field as a C string, null for a field with no value. */
+    const char* name() const;
+    const char* short_description() const;
+    const char* description() const;
+    const char* action_description() const;
 
-    /* The first extra description, linked to the rest in order; null when there are none. Read
-     * only, like the fields. */
-    extra_descr_data* extra_descriptions() const;
+    /* The first extra description, linked to the rest in order; null when there are none. */
+    const extra_descr_data* extra_descriptions() const;
 
 private:
     // The text itself, never changed after construction so the pointers handed out stay valid.

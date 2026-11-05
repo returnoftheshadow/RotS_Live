@@ -2169,17 +2169,6 @@ struct obj_data* read_object(int nr, int type)
     return obj;
 }
 
-/* `text`, which fread_string allocated, as a value; frees it. */
-static std::string take_read_string(char* text)
-{
-    std::string value;
-    if (text) {
-        value = text;
-    }
-    RELEASE(text);
-    return value;
-}
-
 /* read all objects from obj file; generate index and prototypes */
 void load_objects(FILE* obj_f)
 {
@@ -2214,18 +2203,18 @@ void load_objects(FILE* obj_f)
                 fprintf(stderr, "format error at or near %s\n", buf2);
                 exit(1);
             }
-            text.name = take_read_string(tmpptr);
+            text.name = take_allocated_string(tmpptr);
 
             tmpptr = fread_string(obj_f, buf2);
             if (*tmpptr)
                 if (!str_cmp(fname(tmpptr), "a") || !str_cmp(fname(tmpptr), "an") || !str_cmp(fname(tmpptr), "the"))
                     *tmpptr = tolower(*tmpptr);
-            text.short_description = take_read_string(tmpptr);
+            text.short_description = take_allocated_string(tmpptr);
             tmpptr = fread_string(obj_f, buf2);
             if (tmpptr && *tmpptr)
                 *tmpptr = toupper(*tmpptr);
-            text.description = take_read_string(tmpptr);
-            text.action_description = take_read_string(fread_string(obj_f, buf2));
+            text.description = take_allocated_string(tmpptr);
+            text.action_description = take_allocated_string(fread_string(obj_f, buf2));
 
             /* *** numeric data *** */
 
@@ -2273,8 +2262,8 @@ void load_objects(FILE* obj_f)
 
             while (fscanf(obj_f, " %s \n", chk), *chk == 'E') {
                 object_text::extra_description extra;
-                extra.keyword = take_read_string(fread_string(obj_f, buf2));
-                extra.description = take_read_string(fread_string(obj_f, buf2));
+                extra.keyword = take_allocated_string(fread_string(obj_f, buf2));
+                extra.description = take_allocated_string(fread_string(obj_f, buf2));
                 text.extra_descriptions.push_back(std::move(extra));
             }
             /* A prototype's list shows its extra descriptions last first; implement_object builds
@@ -3879,6 +3868,7 @@ static void log_hand_set_object_text(const obj_data& object)
 /* release memory allocated for an obj struct */
 void free_obj(struct obj_data* obj)
 {
+    /* A writer's editor must not outlive the note it writes on. */
     stop_writing_on_note(*obj);
     if (game_rules::big_brother::is_created())
         game_rules::big_brother::instance().on_object_freed(obj);
