@@ -3843,6 +3843,7 @@ void free_char(struct char_data* ch)
     }
     // printf("skills freed, and others\n");
 
+    RELEASE(ch->specials.recite_lines);
     ch->extra_specialization_data.reset();
     free_damage_meter(*ch);
     remove_char_exists(ch->abs_number);

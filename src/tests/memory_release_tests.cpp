@@ -15,6 +15,7 @@
 
 ACMD(do_examine);
 ACMD(do_say);
+SPECIAL(reciter);
 void name_from_drinkcon(struct obj_data* object);
 void name_to_drinkcon(struct obj_data* object, int liquid_type);
 int new_room(const struct char_data* character, int number);
@@ -347,6 +348,129 @@ TEST_F(MemoryReleaseTest, WritingANoteGivesBackTheEditorsBufferAndTheNotesText)
         char finish[] = "%e";
         string_add(&m_descriptor, finish);
         extract_obj(note);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
+namespace {
+
+/* What the scroll holds: a line to say, then one to act out. */
+constexpr const char* RECITER_POEM = "The first line.\n\r+$n bows.\n\r";
+/* What the reciter has left once it has said the first line. */
+constexpr const char* POEM_AFTER_FIRST_LINE = "+$n bows.\n\r";
+/* A roll that keeps the reciter from skipping its turn. */
+constexpr double RECITING_ROLL = 0.99;
+
+class ReciterTest : public MemoryReleaseTest {
+protected:
+    /* Gives <mob> a scroll holding <poem>, in a text only that scroll shows, as a script's rename
+     * or a restyle leaves it. */
+    obj_data* give_scroll(char_data* mob, const char* poem)
+    {
+        obj_data* scroll = make_object(STONE_VNUM, 0);
+        object_text::fields text = object_text_fields_of(*scroll);
+        text.name = "textscroll";
+        text.extra_descriptions.push_back({ "textscroll", poem });
+        scroll->set_text(create_object_text(std::move(text)));
+        obj_to_char(scroll, mob);
+        return scroll;
+    }
+
+    /* One turn of <mob>'s reciter procedure, which it does not skip. */
+    void take_turn(char_data* mob)
+    {
+        push_test_random_value(RECITING_ROLL);
+        char argument[] = "";
+        reciter(mob, mob, 0, argument, 0, nullptr);
+    }
+};
+
+} // namespace
+
+/* The first turn picks up the scroll's poem; each later one performs a line, and the turn after the
+ * last line ends the poem. */
+TEST_F(ReciterTest, PerformsEachLineInTurnThenEndsThePoem)
+{
+    char_data* mob = make_mob("listener", 0);
+    give_scroll(mob, RECITER_POEM);
+
+    take_turn(mob);
+    EXPECT_STREQ(mob->specials.recite_lines, RECITER_POEM);
+    EXPECT_FALSE(output_has("The first line."));
+
+    take_turn(mob);
+    EXPECT_TRUE(output_has("The first line.")) << output();
+    EXPECT_STREQ(mob->specials.recite_lines, POEM_AFTER_FIRST_LINE);
+
+    take_turn(mob);
+    EXPECT_TRUE(output_has("bows.")) << output();
+
+    take_turn(mob);
+    EXPECT_EQ(mob->specials.recite_lines, nullptr);
+    extract_char(mob);
+}
+
+/* The reciter reads its own copy of the poem, so the scroll's shared text is never read mid-poem. */
+TEST_F(ReciterTest, ReadsItsOwnCopyOfThePoem)
+{
+    char_data* mob = make_mob("listener", 0);
+    const obj_data* scroll = give_scroll(mob, RECITER_POEM);
+
+    take_turn(mob);
+
+    EXPECT_NE(mob->specials.recite_lines, scroll->ex_description->description);
+    extract_char(mob);
+}
+
+/* A scroll that goes mid-poem takes its text with it when nothing else shows that text; the reciter
+ * carries on from its copy. */
+TEST_F(ReciterTest, CarriesOnWhenItsScrollIsGone)
+{
+    char_data* mob = make_mob("listener", 0);
+    obj_data* scroll = give_scroll(mob, RECITER_POEM);
+    take_turn(mob);
+
+    extract_obj(scroll);
+    take_turn(mob);
+
+    EXPECT_TRUE(output_has("The first line.")) << output();
+    extract_char(mob);
+}
+
+TEST_F(ReciterTest, RecitingAPoemToItsEndKeepsNoCopy)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    char_data* mob = make_mob("listener", 0);
+    give_scroll(mob, RECITER_POEM);
+
+    const std::size_t growth = growth_over_rounds([&]() -> void {
+        const int turns_in_a_poem = 4;
+        for (int turn = 0; turn < turns_in_a_poem; ++turn) {
+            take_turn(mob);
+        }
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+    extract_char(mob);
+}
+
+TEST_F(ReciterTest, FreeingAReciterMidPoemGivesBackItsCopy)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+
+    const std::size_t growth = growth_over_rounds([&]() -> void {
+        char_data* mob = make_mob("listener", 0);
+        obj_data* scroll = give_scroll(mob, RECITER_POEM);
+        take_turn(mob);
+        extract_obj(scroll);
+        extract_char(mob);
         clear_output();
     });
 

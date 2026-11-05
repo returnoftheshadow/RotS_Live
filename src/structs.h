@@ -1266,7 +1266,7 @@ struct char_special_data {
 
     int mental_delay;
     int trap_number; /* used to determine #s in trap */
-    char* recite_lines; /* For reciters, how far read? */
+    char* recite_lines; /* A reciter's own copy of what it has left to read */
     ubyte shooting; /* shooting speed for archery spec*/
     ubyte casting; /*  casting speed for spell casters*/
 };
