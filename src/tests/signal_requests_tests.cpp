@@ -83,6 +83,12 @@ constexpr const char* STOP_ACCOUNT = "stopper";
 constexpr int STOP_VAULT_COINS = 1234;
 // The playing players' level: a mortal's, below LEVEL_IMMORT.
 constexpr int STOP_PLAYER_LEVEL = 10;
+// The root the account and object code is given: the temporary folder the test runs in.
+constexpr const char* SAVE_ROOT = ".";
+// The script number make_object gives an object that runs no script.
+constexpr int NO_SCRIPT = 0;
+// The wear position saved_wear_position gives an object saved nowhere.
+constexpr int NOT_SAVED = -1;
 // The account the players are linked to, as every player on the game is.
 constexpr const char* PLAYERS_ACCOUNT = "fellowship";
 // That account's email address and password.
@@ -111,6 +117,9 @@ class StopSavingTest : public scripted_room::ScriptedRoomFixture {
 protected:
     void SetUp() override
     {
+        // Saved first, so TearDown puts back the real index even when a step below fails.
+        m_saved_player_table = player_table;
+        m_saved_top_of_p_table = top_of_p_table;
         ScriptedRoomFixture::SetUp();
         link_second_room();
 
@@ -142,8 +151,6 @@ protected:
         };
         bank_set_directory_resolver(resolve_account);
 
-        m_saved_player_table = player_table;
-        m_saved_top_of_p_table = top_of_p_table;
         m_player_entries[PLAYER_ENTRY].name = m_player.player.name;
         m_player_entries[SECOND_PLAYER_ENTRY].name = m_second_player_name;
         m_player_entries[MENU_PLAYER_ENTRY].name = m_menu_player_name;
@@ -151,12 +158,14 @@ protected:
         top_of_p_table = PLAYER_ENTRY_COUNT - 1;
 
         std::string error_message;
-        ASSERT_TRUE(account::create_account(".", PLAYERS_ACCOUNT, PLAYERS_EMAIL, PLAYERS_PASSWORD,
-            ACCOUNT_TIME, nullptr, &error_message))
+        ASSERT_TRUE(account::create_account(SAVE_ROOT, PLAYERS_ACCOUNT, PLAYERS_EMAIL,
+            PLAYERS_PASSWORD, ACCOUNT_TIME, nullptr, &error_message))
             << error_message;
-        for (const char* name : { m_player.player.name, m_second_player_name, m_menu_player_name }) {
-            ASSERT_TRUE(account::admin_link_character(".", PLAYERS_ACCOUNT, name, ACCOUNT_TIME,
-                nullptr, &error_message))
+        const char* const linked_names[] = { m_player.player.name, m_second_player_name,
+            m_menu_player_name };
+        for (const char* name : linked_names) {
+            ASSERT_TRUE(account::admin_link_character(SAVE_ROOT, PLAYERS_ACCOUNT, name,
+                ACCOUNT_TIME, nullptr, &error_message))
                 << error_message;
         }
 
@@ -193,12 +202,12 @@ protected:
         ScriptedRoomFixture::TearDown();
     }
 
-    /* Makes <player> a mortal human named <name>, connected through <descriptor> in state
-     * <connection_state>, standing in no room. */
+    // Makes <player> a mortal human named <name>, connected through <descriptor> in state
+    // <connection_state>, standing in no room.
     static void join_game(char_data& player, descriptor_data& descriptor, char* name,
         int connection_state)
     {
-        clear_char(&player, 0);
+        clear_char(&player, MOB_VOID);
         player.player.name = name;
         player.player.race = RACE_HUMAN;
         player.player.level = STOP_PLAYER_LEVEL;
@@ -211,15 +220,15 @@ protected:
         player.desc = &descriptor;
     }
 
-    /* Opens the account's vault, gives it STOP_VAULT_COINS and fails to write it, so that only the
-     * vault in play holds them: the file is left behind. */
+    // Opens the account's vault, gives it STOP_VAULT_COINS and fails to write it, so that only the
+    // vault in play holds them: the file is left behind.
     void leave_vault_file_behind()
     {
         std::string error_message;
         bank_vault* vault = bank_vault_open(STOP_ACCOUNT, BANK_SIDE_LIGHT, &error_message);
         ASSERT_NE(vault, nullptr) << error_message;
         vault->coins = STOP_VAULT_COINS;
-        /* The write goes through a temporary file: a folder in its place makes it fail. */
+        // The write goes through a temporary file: a folder in its place makes it fail.
         const std::filesystem::path blocker = vault_file().string() + ".tmp";
         std::error_code error;
         ASSERT_TRUE(std::filesystem::create_directory(blocker, error)) << error.message();
@@ -229,29 +238,29 @@ protected:
         ASSERT_FALSE(std::filesystem::exists(vault_file(), error));
     }
 
-    /* The file the account's vault is written to. */
+    // The file the account's vault is written to.
     std::filesystem::path vault_file() const
     {
         return m_vault_folder / bank_side_file_name(BANK_SIDE_LIGHT);
     }
 
-    /* Whether <name> has a character file of its own on the account. */
+    // Whether <name> has a character file of its own on the account.
     static bool has_character_file(const char* name)
     {
         std::string error_message;
-        const bool exists = account::account_character_file_exists(".", PLAYERS_ACCOUNT, name,
+        const bool exists = account::account_character_file_exists(SAVE_ROOT, PLAYERS_ACCOUNT, name,
             &error_message);
         EXPECT_TRUE(error_message.empty()) << error_message;
         return exists;
     }
 
-    /* The room <name>'s character file brings them back to; NOWHERE, after reporting why, when the
-     * file cannot be read. */
+    // The room <name>'s character file brings them back to; NOWHERE, after reporting why, when the
+    // file cannot be read.
     static int saved_load_room(const char* name)
     {
         char_file_u stored {};
         std::string error_message;
-        if (!account::read_account_character_file(".", PLAYERS_ACCOUNT, name, &stored,
+        if (!account::read_account_character_file(SAVE_ROOT, PLAYERS_ACCOUNT, name, &stored,
                 &error_message)) {
             ADD_FAILURE() << "no character file for " << name << ": " << error_message;
             return NOWHERE;
@@ -259,24 +268,25 @@ protected:
         return stored.specials2.load_room;
     }
 
-    /* What <name>'s object file holds; empty, after reporting why, when it cannot be read. */
+    // What <name>'s object file holds; empty, after reporting why, when it cannot be read.
     static objects_json::ObjectSaveData saved_objects(const char* name)
     {
         objects_json::ObjectSaveData saved;
         std::string bytes;
         std::string error_message;
-        if (!load_object_save_bytes_for_character(".", name, &bytes, &error_message)) {
+        if (!load_object_save_bytes_for_character(SAVE_ROOT, name, &bytes, &error_message)) {
             ADD_FAILURE() << "no object file for " << name << ": " << error_message;
             return saved;
         }
+
         if (!objects_json::object_save_data_from_binary(bytes, &saved, &error_message)) {
             ADD_FAILURE() << "unreadable object file for " << name << ": " << error_message;
         }
         return saved;
     }
 
-    /* Where the object with vnum <virtual_number> was saved in <saved>: its wear position, or -1
-     * when it was saved nowhere. */
+    // Where the object with vnum <virtual_number> was saved in <saved>: its wear position, or
+    // NOT_SAVED when it was saved nowhere.
     static int saved_wear_position(const objects_json::ObjectSaveData& saved, int virtual_number)
     {
         for (const objects_json::ObjectRecord& object : saved.objects) {
@@ -284,10 +294,10 @@ protected:
                 return object.wear_pos;
             }
         }
-        return -1;
+        return NOT_SAVED;
     }
 
-    /* The whole of the file at <path>; empty, after reporting why, when there is none. */
+    // The whole of the file at <path>; empty, after reporting why, when there is none.
     static std::string read_saved_file(const std::filesystem::path& path)
     {
         std::error_code error;
@@ -465,9 +475,15 @@ TEST_F(StopSavingTest, AStopSavesEachPlayingPlayerToTheRoomTheyAreIn)
 // A stop saves each playing player's gear, what they carry and what they wear, as a crash save.
 TEST_F(StopSavingTest, AStopSavesEachPlayingPlayersGear)
 {
-    obj_to_char(make_object(scripted_room::STONE_VNUM, 0), &m_player);
-    equip_char(&m_player, make_object(scripted_room::RING_VNUM, 0), WEAR_FINGER_R);
-    obj_to_char(make_object(scripted_room::BREAD_VNUM, 0), &m_second_player);
+    obj_data* stone = make_object(scripted_room::STONE_VNUM, NO_SCRIPT);
+    ASSERT_NE(stone, nullptr);
+    obj_to_char(stone, &m_player);
+    obj_data* ring = make_object(scripted_room::RING_VNUM, NO_SCRIPT);
+    ASSERT_NE(ring, nullptr);
+    equip_char(&m_player, ring, WEAR_FINGER_R);
+    obj_data* bread = make_object(scripted_room::BREAD_VNUM, NO_SCRIPT);
+    ASSERT_NE(bread, nullptr);
+    obj_to_char(bread, &m_second_player);
 
     save_everything_for_stop();
 
@@ -486,18 +502,26 @@ TEST_F(StopSavingTest, AStopSavesEachPlayingPlayersGear)
 // A connection still at the menus has no character in the game, so a stop saves nothing for it.
 TEST_F(StopSavingTest, AStopSavesNothingForAPlayerStillAtTheMenus)
 {
-    obj_to_char(make_object(scripted_room::STONE_VNUM, 0), &m_menu_player);
-    /* Linking a character gives it an object file of its own already. */
+    obj_data* stone = make_object(scripted_room::STONE_VNUM, NO_SCRIPT);
+    ASSERT_NE(stone, nullptr);
+    obj_to_char(stone, &m_menu_player);
+    // Linking a character gives it an object file of its own already.
     std::string objects_before;
-    ASSERT_TRUE(load_object_save_bytes_for_character(".", m_menu_player_name, &objects_before));
+    std::string error_message;
+    ASSERT_TRUE(load_object_save_bytes_for_character(SAVE_ROOT, m_menu_player_name,
+        &objects_before, &error_message))
+        << error_message;
 
     save_everything_for_stop();
 
     EXPECT_TRUE(has_character_file(m_player.player.name))
         << "Expected the playing player to be saved.";
-    EXPECT_FALSE(has_character_file(m_menu_player_name));
+    EXPECT_FALSE(has_character_file(m_menu_player_name))
+        << "Expected no character file for the player at the menus.";
     std::string objects_after;
-    ASSERT_TRUE(load_object_save_bytes_for_character(".", m_menu_player_name, &objects_after));
+    ASSERT_TRUE(load_object_save_bytes_for_character(SAVE_ROOT, m_menu_player_name,
+        &objects_after, &error_message))
+        << error_message;
     EXPECT_EQ(objects_before, objects_after)
         << "Expected the stop to leave the object file of the player at the menus as it was.";
 }
