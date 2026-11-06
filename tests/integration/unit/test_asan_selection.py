@@ -656,7 +656,7 @@ def test_sanitizer_report_lines_read_the_log_a_restart_set_aside(repo_root: Path
 
 
 def test_a_failure_without_reports_says_so() -> None:
-    assert asan_selection.scenario_outcome_summary(1, "", []).endswith("`asan-runs-shard-1` artifact.\nNo game.log holds an AddressSanitizer report.\n")
+    assert asan_selection.scenario_outcome_summary(1, "", []).endswith("`asan-runs-shard-1` artifact.\nNo server log holds an AddressSanitizer report.\n")
 
 
 def test_run_scenarios_returns_pytests_status(repo_root: Path, tmp_path: Path) -> None:

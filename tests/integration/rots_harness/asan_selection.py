@@ -557,7 +557,8 @@ def sanitizer_report_lines(runs_root: Path, since: float) -> list[str]:
     Unreadable files are skipped; the lines are made echo-safe.
     """
     lines: list[str] = []
-    for log_path in sorted(runs_root.glob(f"*/{GAME_LOGS_PATTERN}")):
+    log_paths = sorted(runs_root.glob(f"*/{GAME_LOGS_PATTERN}"))
+    for log_path in log_paths:
         try:
             if log_path.stat().st_mtime < since:
                 continue
@@ -583,13 +584,13 @@ def scenario_outcome_summary(status: int, shard_text: str, report_lines: Sequenc
         f"`{RUNS_ARTIFACT_FORMAT.format(number=shard_number)}` artifact.",
     ]
     if report_lines:
-        lines += ["", "AddressSanitizer reports in their game.log files:", ""]
+        lines += ["", "AddressSanitizer reports in their server logs:", ""]
         text = quoted_lines(report_lines[:SUMMARY_REPORT_LINE_LIMIT]).rstrip("\n")
         lines.append(text)
         if len(report_lines) > SUMMARY_REPORT_LINE_LIMIT:
             lines.append(f"\nand {len(report_lines) - SUMMARY_REPORT_LINE_LIMIT} more report lines")
     else:
-        lines.append("No game.log holds an AddressSanitizer report.")
+        lines.append("No server log holds an AddressSanitizer report.")
     return "\n".join(lines) + "\n"
 
 

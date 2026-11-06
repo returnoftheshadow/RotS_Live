@@ -401,7 +401,7 @@ class HarnessServer:
     character_set: CharacterSet
     # Reads the server's log and exit state for crash evidence.
     monitor: CrashMonitor
-    # Starts the server again for restart() and stops it after the test.
+    # Stops the old server and starts the new one in restart().
     launcher: ServerLauncher
     # The random seed every server of the test is started with.
     seed: int
@@ -415,7 +415,7 @@ class HarnessServer:
     # Drives game time on a server started with @pytest.mark.schedule(...); None otherwise.
     time_control: Optional[TimeControl] = None
     # The schedule the test's @pytest.mark.schedule(...) names, which restart() starts the new server with; None without one.
-    schedule: Optional[str] = None
+    schedule: str | None = None
     # How many servers the test has booted: 1, and one more for each restart().
     boots: int = 1
 
@@ -570,7 +570,8 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
     (run_dir / TEST_NAME_FILE).write_text(request.node.nodeid + "\n", encoding="utf-8")
     try:
         lib_dir = lib_provider.lib_for(character_set, run_dir, resets)
-        handle = start_on_a_free_port(harness_launcher, run_dir, lib_dir, session_seed(), schedule=schedule)
+        seed = session_seed()
+        handle = start_on_a_free_port(harness_launcher, run_dir, lib_dir, seed, schedule=schedule)
         time_control = None
         if schedule is not None:
             time_control = start_time_control(harness_launcher, handle, schedule, run_dir)
@@ -584,9 +585,9 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         else:
             shutil.rmtree(run_dir, ignore_errors=True)
         raise
+    monitor = CrashMonitor(handle)
     harness_server = HarnessServer(
-        handle, lib_dir, run_dir, character_set, CrashMonitor(handle), harness_launcher, session_seed(),
-        time_control=time_control, schedule=schedule,
+        handle, lib_dir, run_dir, character_set, monitor, harness_launcher, seed, time_control=time_control, schedule=schedule,
     )
     try:
         yield harness_server
@@ -595,7 +596,8 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         teardown_problems: list[str] = []
         try:
             try:
-                teardown_problems = end_sessions(harness_server.sessions, harness_server.handle.is_alive())
+                server_alive = harness_server.handle.is_alive()
+                teardown_problems = end_sessions(harness_server.sessions, server_alive)
             finally:
                 harness_launcher.stop(harness_server.handle)
         except KeyboardInterrupt as caught:

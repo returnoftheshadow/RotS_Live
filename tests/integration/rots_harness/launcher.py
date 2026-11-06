@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, Iterator, Optional
+from typing import Any, BinaryIO, Callable, Iterable, Iterator, Optional
 
 LOOPBACK = "127.0.0.1"
 INTEGRATION_TMP_RELATIVE = "build/integration/tmp"
@@ -149,12 +149,8 @@ def _port_is_free(port: int) -> bool:
     return True
 
 
-def set_aside_logs(run_dir: Path, boot: int, log_names: tuple[str, ...]) -> list[Path]:
-    """Renames each of log_names in run_dir that exists after SET_ASIDE_LOG_FORMAT, numbered boot, and returns the new paths.
-
-    A server started again in the same run directory then writes fresh logs, and the stopped
-    server's stay beside them as evidence.
-    """
+def set_aside_logs(run_dir: Path, boot: int, log_names: Iterable[str]) -> list[Path]:
+    """Renames each of log_names in run_dir that exists after SET_ASIDE_LOG_FORMAT, numbered boot, and returns the new paths."""
     set_aside: list[Path] = []
     for log_name in log_names:
         log_path = run_dir / log_name
