@@ -34,6 +34,8 @@
 #include "mob_progs/ranger_prog.h"
 #include "mob_walker.h"
 
+#include <string>
+
 /*   external vars  */
 extern int get_number(char** name);
 extern int num_of_ferries;
@@ -3913,15 +3915,20 @@ SPECIAL(reciter)
     if (c) { // singing already...
         e = strchr(c, '\n');
         if (e) {
-            *e = '\0';
-            if (*c == '+')
-                act((char*)(c + 1), TRUE, host, 0, 0, TO_ROOM);
+            std::string line(c, e - c);
+            /* Lines end in "\n\r"; the next line starts after both, or after a lone '\n'. */
+            ++e;
+            if (*e == '\r')
+                ++e;
+            char* rest_of_poem = str_dup(e);
+            RELEASE(host->specials.recite_lines);
+            host->specials.recite_lines = rest_of_poem;
+            if (line[0] == '+')
+                act(line.c_str() + 1, TRUE, host, 0, 0, TO_ROOM);
             else
-                do_say(host, c, 0, 0, 0);
-            *e = '\n';
-            host->specials.recite_lines = e + 2; // it appears, asif each line is terminated by a two character combination
+                do_say(host, line.data(), 0, 0, 0);
         } else
-            host->specials.recite_lines = NULL;
+            RELEASE(host->specials.recite_lines);
         return 0;
     }
 // Not singing
@@ -3943,7 +3950,8 @@ remove_scroll:
             mudlog("reciter: done extracting", BRF, LEVEL_GOD, TRUE);
             return 0;
         }
-        host->specials.recite_lines = o->ex_description->description;
+        /* A copy of its own: the scroll's text can go while the poem is recited. */
+        host->specials.recite_lines = str_dup(o->ex_description->description);
     } else
         mudlog("reciter: missing poem", BRF, LEVEL_GOD, TRUE);
     return 0;

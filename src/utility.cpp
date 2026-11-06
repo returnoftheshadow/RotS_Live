@@ -1500,6 +1500,17 @@ void free_function(void* pnt)
     //  printf("  free\n");
     create_pointer = 0;
 }
+
+std::string take_allocated_string(char* text)
+{
+    std::string value;
+    if (text) {
+        value = text;
+    }
+    RELEASE(text);
+    return value;
+}
+
 void initialize_buffers()
 {
     return;

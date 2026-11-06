@@ -133,9 +133,11 @@ set(ROTS_SERVER_SOURCES
     mudlle.cpp
     mudlle2.cpp
     mystic.cpp
+    note_writing.cpp
     number_text.cpp
     obj2html.cpp
     object_skins.cpp
+    object_text.cpp
     object_utils.cpp
     objsave.cpp
     olog_hai.cpp
@@ -248,6 +250,7 @@ set(ROTS_TEST_SOURCES
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
     tests/negative_room_report_tests.cpp
+    tests/note_writing_tests.cpp
     tests/process_output_tests.cpp
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
@@ -274,6 +277,7 @@ set(ROTS_TEST_SOURCES
     tests/number_text_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_skins_tests.cpp
+    tests/object_text_tests.cpp
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp
     tests/test_random_utils_tests.cpp

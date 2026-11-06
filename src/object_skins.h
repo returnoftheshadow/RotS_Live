@@ -61,7 +61,7 @@ enum class restyle_result { ok,
  * values, affects, enchants, script, loaded_by, owner, touched). The object stays where it is, so
  * a caller still holding it (e.g. after the object's own trigger) is safe. A drink container's
  * name is rebuilt from the target's the way filling and emptying build it (the target's liquid
- * word dropped, the copy's own liquid in front when full); its old name is left, never freed,
- * since older copies can share it after an implement. On ok *new_obj
- * is set to obj; on every refusal nothing changes and *new_obj is left alone. */
+ * word dropped, the copy's own liquid in front when full). The text the copy showed goes if no other
+ * object shows it, so a caller must not hold a pointer into it across this call. On ok *new_obj is
+ * set to obj; on every refusal nothing changes and *new_obj is left alone. */
 restyle_result restyle_object(obj_data* obj, int target_rnum, obj_data** new_obj);
