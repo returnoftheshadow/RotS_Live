@@ -112,3 +112,18 @@ TEST(StringToNegativeValue, OtherInputIsLeftAlone)
         EXPECT_EQ(42, value) << "input '" << in << "'";
     }
 }
+
+/* ---- take_allocated_string: an allocated C string as a value. ---- */
+
+TEST(TakeAllocatedString, GivesTheTextAsAValue)
+{
+    char* text = nullptr;
+    CREATE(text, char, sizeof("a brass lantern"));
+    strcpy(text, "a brass lantern");
+    EXPECT_EQ(take_allocated_string(text), "a brass lantern");
+}
+
+TEST(TakeAllocatedString, GivesAnEmptyStringForNull)
+{
+    EXPECT_EQ(take_allocated_string(nullptr), "");
+}

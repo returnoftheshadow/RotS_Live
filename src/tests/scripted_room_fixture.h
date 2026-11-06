@@ -12,6 +12,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "object_text_test_support.h"
 #include "test_cleanup.h"
 #include "test_random_utils.h"
 
@@ -170,6 +171,7 @@ protected:
             prototype.obj_flags.type_flag = specification.item_type;
             prototype.obj_flags.wear_flags = specification.wear_flags;
             prototype.obj_flags.weight = 1;
+            make_text_shared(prototype);
             m_index[index].virt = specification.virtual_number;
         }
         prototype_for(BREAD_VNUM).obj_flags.value[0] = BREAD_FILLING;

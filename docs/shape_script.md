@@ -150,9 +150,9 @@ the world files checked on 2026-10-18 uses it. It does not change the object's
 keywords; it replaces the copy's *short description* (the name players see,
 e.g. "a blackened longsword") with a new string. The change is never saved:
 an object's save record holds no text, so after a relog, rent or reboot the
-copy takes its prototype's name again. The new string is never freed, not
-even when the object is extracted (a few bytes each time). A `RESTYLE_OBJ` on the copy also replaces it with the
-new look's name.
+copy takes its prototype's name again. The new string goes with the object,
+or at the copy's next rename. A `RESTYLE_OBJ` on the copy also replaces it with
+the new look's name.
 
 Use the `get_param_text()` output shown in `/50` to verify that parameters map
 to the intended variables.
