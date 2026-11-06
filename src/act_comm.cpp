@@ -17,12 +17,15 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "note_writing.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+#include "world_clock.h"
 
 extern struct room_data world;
 extern struct descriptor_data* descriptor_list;
@@ -35,7 +38,7 @@ ACMD(do_petitio)
 
 void say_to_char(struct char_data* speaker, struct char_data* aud,
     const char* color, const char* action,
-    const char* end, char* text, int force_visible)
+    const char* end, const char* text, int force_visible)
 {
     char speech[600];
     int freq, l;
@@ -109,15 +112,31 @@ ACMD(do_say)
         } else
             send_to_char("Ok.\n\r", ch);
 
-        for (s = world[ch->in_room].people; s; s = s->next_in_room)
-            if (IS_NPC(s) && (s != ch))
-                call_trigger(ON_HEAR_SAY, s, ch, talk_line);
+        room_data& room = world[ch->in_room];
+        freed_watch speaker_watch(ch);
+        char_data* speaker = ch;
+        s = room.people;
+        while (s) {
+            char_data* following = s->next_in_room;
+            if (!IS_NPC(s) || s == ch) {
+                s = following;
+                continue;
+            }
+
+            freed_watch listener_watch(s);
+            call_trigger(ON_HEAR_SAY, s, speaker, talk_line);
+            /* A listener's script can remove the speaker: the rest still hear the words, from
+             * nobody. */
+            if (speaker_watch.freed()) {
+                speaker = nullptr;
+            }
+            s = next_person_after_trigger(room, s, listener_watch.freed(), following);
+        }
     }
 }
 
-
 void convert_string(const char* str, int hide_invisible, struct char_data* ch,
-    struct obj_data* obj, void* vict_obj,
+    const struct obj_data* obj, void* vict_obj,
     struct char_data* to, const char* buf);
 extern char act_buffer[MAX_STRING_LENGTH];
 
@@ -312,8 +331,6 @@ ACMD(do_ask)
     }
 }
 
-#define MAX_NOTE_LENGTH 1000 /* arbitrary */
-
 ACMD(do_write)
 {
     struct obj_data *paper = 0, *pen = 0;
@@ -338,7 +355,7 @@ ACMD(do_write)
             return;
         }
         if (!(pen = get_obj_in_list_vis(ch, penname, ch->carrying, 9999))) {
-            sprintf(buf, "You have no %s.\n\r", papername);
+            sprintf(buf, "You have no %s.\n\r", penname);
             send_to_char(buf, ch);
             return;
         }
@@ -382,10 +399,9 @@ ACMD(do_write)
         send_to_char("There's something written on it already.\n\r", ch);
     else {
         /* we can write - hooray! */
-        send_to_char("Ok.. go ahead and write.. end the note with a @.\n\r", ch);
+        send_to_char("Ok.. go ahead and write.. end the note with %e.\n\r", ch);
         act("$n begins to jot down a note.", TRUE, ch, 0, 0, TO_ROOM);
-        ch->desc->str = &paper->action_description;
-        ch->desc->max_str = MAX_NOTE_LENGTH;
+        start_writing_note(*ch->desc, *paper);
     }
 }
 
@@ -682,6 +698,12 @@ ACMD(do_alias)
         //  send_to_char(buf,ch);
         return;
     }
+    if (strlen(arg) > MAX_ALIAS_KEYWORD_LENGTH) {
+        sprintf(buf, "An alias keyword may be at most %d characters long.\n\r", MAX_ALIAS_KEYWORD_LENGTH);
+        send_to_char(buf, ch);
+        return;
+    }
+
     count = 0;
     for (list = ch->specials.alias, list2 = 0; list; list2 = list, list = list->next) {
         //    printf("list->keyword=%s\n",list->keyword);
@@ -731,8 +753,8 @@ ACMD(do_alias)
         //    printf("replacing alias\n");
         list2 = list;
     }
-    strncpy(list2->keyword, arg, 20);
-    list2->keyword[strlen(arg)] = 0;
+    strncpy(list2->keyword, arg, MAX_ALIAS_KEYWORD_LENGTH);
+    list2->keyword[MAX_ALIAS_KEYWORD_LENGTH] = 0;
 
     RELEASE(list2->command);
     //  list2->command=(char *)calloc(strlen(arg2)+1,1);
@@ -766,7 +788,8 @@ ACMD(do_afk)
 
     if (!affected_by_spell(ch, SPELL_ANGER)) {
         game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
-        bb_instance.on_character_afked(ch);
+        const WorldClock::time_point now = WorldClock::now();
+        bb_instance.on_character_afked(ch, now);
     } else {
         send_to_char("You are too angry to be granted the protection of the Gods... wait a few minutes.\n\r", ch);
     }

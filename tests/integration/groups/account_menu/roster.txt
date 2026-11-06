@@ -1,0 +1,1 @@
+the character roster selects by name or number, sorts, filters, keeps its sort between sessions, and lists a character without a file last

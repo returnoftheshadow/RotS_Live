@@ -1,0 +1,1 @@
+poison ticks once per game hour for its duration, then wears off

@@ -178,11 +178,31 @@ This is RotS's **"magic resistance"**: e.g. `save = 20` → ×0.50 damage; `save
 **innate penetration (`mage/5`)** directly cancels resistance points; **higher-level PC victims**
 shrug off low-level casters (`+LEVELA/5`).
 
-### Final `damage()` finalization (`fight.cpp:1588`, shared with melee)
-1. **Elemental resistance** (`check_resistances`, `utility.cpp:1792`): matches the spell's element
-   (`skills[spell].skill_spec`) against the victim's resist/vuln flags → **×⅔ if resistant,
-   ×3⁄2 if vulnerable**, else ×1. (Untyped spells — `PLRSPEC_NONE` — are never elementally
-   resisted.)
+### Final `damage()` finalization (`fight.cpp:1619`, shared with melee)
+1. **Elemental resistance** (`check_resistances`, `utility.cpp:1924`): matches the attack's element
+   against the victim's resist/vuln flags → **×⅔ if resistant, ×3⁄2 if vulnerable**, else ×1.
+   A resistance written by a spell or an item carries a **percentage** instead, and that
+   percentage is used in place of the flat ⅔ (`effective_resist_magnitude`, `fight.cpp`).
+   **The higher source wins**: the largest percentage on the victim, or a flag-only source on
+   the same element — a worn `A 30` item, the mob's own record, or a resist affect with no
+   strength — weighed at **33%**, or **22%** against a melee hit (the flag misses one
+   swing in three, so two thirds of 33% on average; archery and wild swings resist as
+   physical with no miss roll, so they weigh it at 33%). When a flag wins, or ties, the flat rule
+   applies exactly as before; when a percentage is higher, it applies on every hit
+   (issue #452). `affections` shows the same choice: the percentage, or 33% when the flag wins.
+
+   Two details that are easy to get wrong:
+   - **Untyped attacks are not exempt.** `RESIST_NONE` is **0**, and `IS_RESISTANT(victim, 0)`
+     tests **bit 0**. So an untyped spell — and every special attack that deals damage (bash,
+     ambush, maul, bite, rend, smash, stomp, overrun, cleave, trap, mark, windblast, blinding) —
+     is resisted by a victim carrying bit 0. 44 live mobs carry it.
+   - **Weapon swings and archery test bit 0 before physical.** `TYPE_HIT`..`TYPE_CRUSH` and
+     `SKILL_ARCHERY` sit below `MAX_SKILLS`, so they resolve through blank `skills[]` rows naming
+     bit 0 — and `skills[131]` is `defend`, so **bludgeon tests bit 14**. This is an accident of
+     `MAX_SKILLS` being raised 128 → 256 in 2018 (`2bcee24`), not a design. It is **preserved
+     deliberately** (`uses_legacy_weapon_spec`, `utility.cpp:1905`) so that a mob-toughness change
+     does not ride along with the resistance work — correcting it would move 46 live mobs.
+     Revisit after the resistance release has been tested and deployed.
 2. **Spells ignore armor.** Armor is subtracted only inside `hit()` for weapon swings
    (combat-loop §3); `apply_spell_damage`→`damage()` never touches it. So §3/§4 multipliers land on
    nearly the raw roll.

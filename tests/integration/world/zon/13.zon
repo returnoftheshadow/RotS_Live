@@ -1,0 +1,23 @@
+#13
+Harness market~
+Banker and barter vendor fixtures for the bank and vendor scenarios.
+~
+~
+0
+? 6 6 5
+1399
+999
+2
+M 0 1301 1301 0 100 100 1 1 banker waits in the bank hall
+M 0 1302 1302 0 100 100 1 1 trader waits in the trade hall
+O 0 1137 1303 0 100 1 leather cap stocks the trader's store room
+M 0 1304 1304 0 100 100 1 1 dark banker waits in the dark vault hall
+M 0 1305 1305 0 100 100 1 1 morning banker waits in the morning bank
+M 0 1306 1306 0 100 100 1 1 evening banker waits in the evening bank
+M 0 1307 1307 0 100 100 1 1 odd trader waits in the odd trade hall
+O 0 1137 1308 0 100 1 leather cap stocks the odd store room
+O 0 1304 1308 0 100 1 iron cap stocks the odd store room
+O 0 1305 1308 0 100 1 lead ingot stocks the odd store room
+M 0 1308 1309 0 100 100 1 1 broken banker waits in the broken market
+M 0 1309 1309 0 100 100 1 1 broken trader waits in the broken market
+S

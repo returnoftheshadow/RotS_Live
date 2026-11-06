@@ -1,0 +1,1 @@
+what scripts do to the world: hit-point writes, a north door opened and locked from both sides, and a listener beside a mob that leaves on speech

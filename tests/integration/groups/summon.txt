@@ -1,0 +1,1 @@
+summon cannot reach a player in a dark room, and its zone-distance bonus uses exclusive or

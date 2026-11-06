@@ -1,0 +1,1 @@
+script lines that would crash or use something unset are reported and skipped; reports reaching an immortal, DO_WEAR, LOAD_OBJ_X, division by zero and the boot check

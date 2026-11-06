@@ -1,0 +1,1 @@
+the script editor: rows removed, inserted and swapped, section rows, list ranges, its row labels and the permission to implement

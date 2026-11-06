@@ -17,17 +17,22 @@
 // returns 1 if program should continue as normal, 0 if not (eg on_die 0 == do not kill char)
 
 #include "platdef.h"
+#include <algorithm>
 #include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <utility>
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "object_skins.h"
+#include "object_text.h"
 #include "pkill.h"
 #include "protos.h"
 #include "script.h"
@@ -46,33 +51,290 @@ ACMD(do_action);
 extern struct script_head* script_table;
 extern struct room_data world;
 extern int top_of_script_table;
-int set_exit_state(struct room_data* room, int dir, int newstate);
+int set_exit_state(const struct room_data* room, int dir, int newstate);
 extern int rev_dir[];
 extern struct char_data* waiting_list;
-extern void raw_kill(char_data* ch, char_data* killer, int attacktype);
+extern void raw_kill(char_data* ch, const char_data* killer, int attacktype);
 void perform_give(struct char_data* ch, struct char_data* vict, struct obj_data* obj);
 int perform_drop(struct char_data* ch, struct obj_data* obj, sh_int RDR);
 void perform_remove(struct char_data* ch, int pos);
-int find_eq_pos(struct char_data* ch, struct obj_data* obj, char* arg);
-void perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
-int find_action(char* arg);
+int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg);
+bool perform_wear(struct char_data* ch, struct obj_data* obj, int where, bool wearall = false);
+int find_action(const char* arg);
 extern struct index_data* obj_index;
+extern char* get_param_text(int); /* shapescript.cpp */
 
 // Internal declarations
-int trigger_room_enter(room_data* room, char_data* ch);
+int trigger_room_enter(const room_data* room, const char_data* ch);
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch);
 int trigger_char_enter(char_data* ch, char_data* vict, room_data* room);
 script_data* char_has_script(int* index, char_data* ch, int script_type);
 int run_char_script(char_data* ch, void* sub1, void* sub2, script_data* position);
 int script_char_do_say(char_data* ch, char* line);
 int trigger_char_die(char_data* ch);
+int trigger_char_path_end(char_data* ch);
 int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1);
 int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room);
-int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch);
+static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
+    bool& out_object_freed);
 void clear_script_info(info_script* inf);
 int trigger_char_hear(char_data* ch, char_data* speaking, char* text);
 int trigger_char_damage(char_data* vict, char_data* ch);
 int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch);
+
+/*
+ * Script lines that name a mobile, object or room by vnum.  Scripts keep the
+ * vnum as written and look it up only when the line runs, so a vnum that does
+ * not exist can be reported with the script number and line number -- the
+ * address the builder needs to fix it.  Reporting only: a bad line still runs
+ * exactly as it did before.
+ */
+enum script_ref_kind { SREF_MOB,
+    SREF_OBJ,
+    SREF_ROOM };
+static const char* sref_name[] = { "mobile", "object", "room" };
+
+static const char* script_cmd_name(int command)
+{
+    switch (command) {
+    case SCRIPT_ASSIGN_EQ:
+        return "assign eq";
+    case SCRIPT_ASSIGN_INV:
+        return "assign inv";
+    case SCRIPT_ASSIGN_ROOM:
+        return "assign room";
+    case SCRIPT_CHANGE_EXIT_TO:
+        return "change exit to";
+    case SCRIPT_DO_REMOVE:
+        return "do remove";
+    case SCRIPT_EQUIP_CHAR:
+        return "equip char";
+    case SCRIPT_LOAD_MOB:
+        return "load mob";
+    case SCRIPT_LOAD_OBJ:
+        return "load obj";
+    case SCRIPT_RESTYLE_OBJ:
+        return "restyle obj";
+    case SCRIPT_SET_EXIT_STATE:
+        return "set exit state";
+    case SCRIPT_TELEPORT_CHAR:
+        return "teleport";
+    case SCRIPT_TELEPORT_CHAR_X:
+        return "teleport x";
+    case SCRIPT_TELEPORT_CHAR_XL:
+        return "teleport xl";
+    }
+    return "?";
+}
+
+static void report_script_vnum(int script_index, const script_data* cmd, int kind, int vnum,
+    const char_data* to)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s vnum %d not found",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), sref_name[kind], vnum);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    /* The builder who implemented it sees it straight away -- unless mudlog
+     * already reached them, which would duplicate it. */
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
+/* A change exit to line whose room has no exit in that direction, or whose
+ * direction is not 0-5.  Writing to it would crash, so the line is skipped. */
+static void report_script_bad_exit(int script_index, const script_data* cmd, int room_vnum, int dir)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room %d has no exit %d",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), room_vnum, dir);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
+/* A line whose room parameter names no room (an unset room variable, or the
+ * room of a character that is not set).  Using it would crash, so the line
+ * is skipped. */
+static void report_script_no_room(int script_index, const script_data* cmd)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): room not found",
+        script_no, cmd->number, script_cmd_name(cmd->command_type));
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+}
+
+/* A slot or direction typed into the line that is outside the range the
+ * command indexes with (0 to limit - 1).  The line is skipped when it runs. */
+static void report_script_range(int script_index, const script_data* cmd, const char* what, int value,
+    int limit, const char_data* to)
+{
+    char errbuf[256];
+    int script_no = (script_index >= 0 && script_index <= top_of_script_table)
+        ? script_table[script_index].number
+        : -1;
+
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s %d is not 0-%d",
+        script_no, cmd->number, script_cmd_name(cmd->command_type), what, value, limit - 1);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    if (to && !mudlog_reaches(to, LEVEL_AREAGOD, NRM)) {
+        send_to_char(errbuf, to);
+        send_to_char("\n\r", to);
+    }
+}
+
+/* The equipment slot or exit direction a line names, checked at boot and on
+ * implement like the vnums below. */
+static void check_script_ranges(int script_index, const script_data* cmd, const char_data* to)
+{
+    int p, limit;
+    const char* what;
+
+    switch (cmd->command_type) {
+    case SCRIPT_ASSIGN_EQ:
+        p = 2;
+        what = "slot";
+        limit = MAX_WEAR;
+        break;
+    case SCRIPT_DO_REMOVE:
+        p = 1;
+        what = "slot";
+        limit = MAX_WEAR;
+        break;
+    case SCRIPT_SET_EXIT_STATE:
+        p = 0;
+        what = "direction";
+        limit = NUM_OF_DIRS;
+        break;
+    case SCRIPT_CHANGE_EXIT_TO:
+        p = 1;
+        what = "direction";
+        limit = NUM_OF_DIRS;
+        break;
+    default:
+        return;
+    }
+    if (cmd->param[p] < 0 || cmd->param[p] >= limit)
+        report_script_range(script_index, cmd, what, cmd->param[p], limit, to);
+}
+
+/* Report every vnum in one script that names nothing.  Run at boot, once
+ * rooms, mobiles and objects exist, and when a builder implements a script.
+ * A 0 parameter names nothing, so there is nothing to report. */
+void check_script_vnums(int script_index, char_data* to)
+{
+    script_data* cmd;
+    int first, last, kind, p, v, found;
+
+    for (cmd = script_table[script_index].script; cmd; cmd = cmd->next) {
+        check_script_ranges(script_index, cmd, to);
+        switch (cmd->command_type) {
+        case SCRIPT_LOAD_MOB:
+            first = last = 0;
+            kind = SREF_MOB;
+            break;
+        case SCRIPT_LOAD_OBJ:
+        case SCRIPT_ASSIGN_INV:
+        case SCRIPT_ASSIGN_ROOM:
+            first = last = 0;
+            kind = SREF_OBJ;
+            break;
+        case SCRIPT_TELEPORT_CHAR:
+        case SCRIPT_TELEPORT_CHAR_X:
+            first = last = 0;
+            kind = SREF_ROOM;
+            break;
+        case SCRIPT_CHANGE_EXIT_TO:
+            first = last = 2;
+            kind = SREF_ROOM;
+            break;
+        case SCRIPT_EQUIP_CHAR:
+            first = 1;
+            last = 5;
+            kind = SREF_OBJ;
+            break;
+        case SCRIPT_RESTYLE_OBJ:
+            /* a typed vnum; a variable (int1, ob2.vnum) is read, or refused, when the line runs */
+            if (get_param_text(cmd->param[1]))
+                continue;
+            first = last = 1;
+            kind = SREF_OBJ;
+            break;
+        default:
+            continue;
+        }
+        for (p = first; p <= last; p++) {
+            if (!(v = cmd->param[p]))
+                continue;
+            found = (kind == SREF_MOB) ? real_mobile(v)
+                : (kind == SREF_OBJ)   ? real_object(v)
+                                       : real_room(v);
+            if (found < 0)
+                report_script_vnum(script_index, cmd, kind, v, to);
+        }
+    }
+}
+
+/*
+ * The script line run_script is executing, so a failure several calls deep
+ * (world[] given a negative room) can name the script and line.  A guard in
+ * run_script saves and restores it, so nested scripts and every exit path
+ * leave the outer script's line in place.
+ */
+static int running_script_index = -1;
+static script_data* running_script_cmd = 0;
+
+struct running_script_guard {
+    int index;
+    script_data* cmd;
+    running_script_guard()
+        : index(running_script_index)
+        , cmd(running_script_cmd)
+    {
+    }
+    ~running_script_guard()
+    {
+        running_script_index = index;
+        running_script_cmd = cmd;
+    }
+};
+
+/* world[] was given a negative room while a script line is running. */
+bool report_script_negative_room(void)
+{
+    char errbuf[256];
+    int script_no;
+
+    if (!running_script_cmd)
+        return false;
+
+    script_no = (running_script_index >= 0 && running_script_index <= top_of_script_table)
+        ? script_table[running_script_index].number
+        : -1;
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d: negative room lookup",
+        script_no, running_script_cmd->number);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
+    return true;
+}
+
+void check_script_table(void)
+{
+    int i;
+
+    for (i = 0; i <= top_of_script_table; i++)
+        check_script_vnums(i, 0);
+}
 
 // Returns the index position of a script in the script_table when supplied with a vnum
 // -1 == script not found (0 is a valid position in the script_table)
@@ -113,6 +375,16 @@ void initialise_script_info_obj(obj_data* obj, int index)
     /* -1 means ignore the index */
     if (index != -1)
         obj->obj_flags.script_info->index = index;
+}
+
+void note_object_freed(obj_data* object)
+{
+    freed_watch::note_freed(object);
+}
+
+void note_char_freed(char_data* character)
+{
+    freed_watch::note_freed(character);
 }
 
 void clear_script_info(info_script* inf)
@@ -160,16 +432,51 @@ get_text_param_writable(int param, struct info_script* info)
         else
             return NULL;
     default:
+        /* The format had a %s with no argument to go with it. */
         vmudlog(BRF, "Script #%d attempted to write to string "
-                     "variable %s.",
-            script_table[info->index].number);
+                     "variable %d.",
+            script_table[info->index].number, param);
         return NULL;
     }
 }
 
+/*
+ * Expand a builder-authored script message safely.  The stored text is NOT a
+ * printf format string: the first "%s" is replaced with `arg` (empty when
+ * `arg` is null), "%%" becomes one '%', and every other character -- a stray
+ * '%', a "%n", or a second "%s" -- is copied literally.  A script whose text
+ * carries extra conversions can therefore never read or write memory when it
+ * fires.  The result is always NUL-terminated and never exceeds outsz-1 bytes.
+ */
+void script_format_text(char* out, size_t outsz, const char* text, const char* arg)
+{
+    size_t o = 0;
+    int used_arg = 0;
+    if (!out || outsz == 0)
+        return;
+    if (!text) {
+        out[0] = 0;
+        return;
+    }
+    for (const char* p = text; *p && o < outsz - 1; p++) {
+        if (*p == '%' && *(p + 1) == '%') {
+            out[o++] = '%';
+            p++;
+        } else if (*p == '%' && *(p + 1) == 's' && !used_arg) {
+            for (const char* a = arg; a && *a && o < outsz - 1; a++)
+                out[o++] = *a;
+            used_arg = 1;
+            p++;
+        } else {
+            out[o++] = *p;
+        }
+    }
+    out[o] = 0;
+}
+
 // Returns a pointer to a text field/parameter
 
-char* get_text_param(int param, info_script* info)
+char* get_text_param(int param, const info_script* info)
 {
     switch (param) {
 
@@ -230,6 +537,21 @@ char* get_text_param(int param, info_script* info)
     }
 }
 
+/* A RESTYLE_OBJ target held in a variable: int1-3 or obN.vnum, read when the line runs. */
+bool is_restyle_target_param(int param)
+{
+    switch (param) {
+    case SCRIPT_PARAM_INT1:
+    case SCRIPT_PARAM_INT2:
+    case SCRIPT_PARAM_INT3:
+    case SCRIPT_PARAM_OB1_VNUM:
+    case SCRIPT_PARAM_OB2_VNUM:
+    case SCRIPT_PARAM_OB3_VNUM:
+        return true;
+    }
+    return false;
+}
+
 /*
  * Return 0 if the script is not allowed to write to the
  * integer param.  For writable integer params, return 1.
@@ -260,6 +582,17 @@ int is_int_param_writable(int param)
 }
 
 /*
+ * A script may write directly into a character's hit points via
+ * SET_INT_VALUE (chX.hit), bypassing update_pos()/normal death
+ * processing entirely.  Clamp to a range far beyond any real
+ * character's hit points but well inside int range, so downstream
+ * code that scales GET_HIT() (e.g. report_char_health(), add_prompt())
+ * can't be handed a pathological value.
+ */
+static const int MIN_SCRIPT_HIT_VALUE = -1000000;
+static const int MAX_SCRIPT_HIT_VALUE = 1000000;
+
+/*
  * Set dest to val if dest is a valid destination.  dest
  * should refer to one of the settable variables in a script,
  * such as chx.hit.
@@ -274,16 +607,60 @@ void set_int_value(struct info_script* info, int param, int val)
     if (x == NULL)
         return;
 
-    if (is_int_param_writable(param))
+    if (is_int_param_writable(param)) {
+        char_data* affected_ch = NULL;
+
+        switch (param) {
+        case SCRIPT_PARAM_CH1_HIT:
+            val = std::max(MIN_SCRIPT_HIT_VALUE, std::min(val, MAX_SCRIPT_HIT_VALUE));
+            affected_ch = info->ch[0];
+            break;
+        case SCRIPT_PARAM_CH2_HIT:
+            val = std::max(MIN_SCRIPT_HIT_VALUE, std::min(val, MAX_SCRIPT_HIT_VALUE));
+            affected_ch = info->ch[1];
+            break;
+        case SCRIPT_PARAM_CH3_HIT:
+            val = std::max(MIN_SCRIPT_HIT_VALUE, std::min(val, MAX_SCRIPT_HIT_VALUE));
+            affected_ch = info->ch[2];
+            break;
+        default:
+            break;
+        }
+
         *x = val;
-    else
+
+        /* Keep GET_POS() consistent with the new hit value instead of
+         * leaving a character "alive" per position but lethally
+         * wounded per hit (see update_pos(), fight.cpp). Only resync
+         * when the write pushes hit non-positive, or when the
+         * character was already sitting at DEAD/INCAP/STUNNED from an
+         * earlier script write and needs releasing now that they've
+         * been healed - not on every positive write, since update_pos()
+         * forces STANDING/FIGHTING whenever hit > 0, which would
+         * wrongly yank a resting/sitting/sleeping character to their
+         * feet just because a script topped up their hit (e.g. a heal
+         * effect). Without the second condition, a character healed
+         * back to positive from a prior scripted DEAD/INCAP/STUNNED
+         * would stay stuck at that stale position - and since the
+         * command dispatcher requires position above it for nearly
+         * everything, that's a soft-lock until the next point_update()
+         * sweep happens to notice and release them. POSITION_SHAPING is
+         * deliberately excluded here - it's the OLC "shape" editor
+         * state (interpre.cpp), unrelated to dying, and shouldn't be
+         * disturbed by a positive hit write. */
+        if (affected_ch) {
+            bool already_dying = GET_POS(affected_ch) == POSITION_DEAD || GET_POS(affected_ch) == POSITION_INCAP || GET_POS(affected_ch) == POSITION_STUNNED;
+            if (val <= 0 || already_dying)
+                update_pos(affected_ch);
+        }
+    } else
         vmudlog(BRF, "Script #%d tried to write to unwritable "
                      "integer parameter %s",
             script_table[info->index].number,
             get_param_text(param));
 }
 
-void op_error(struct info_script* info, int command)
+void op_error(const struct info_script* info, int command)
 {
     vmudlog(BRF, "Unrecognized binary integer operation %d in script #%d",
         command, script_table[info->index].number);
@@ -295,7 +672,7 @@ void op_error(struct info_script* info, int command)
  * command on a and b.  I.e., if command is MULT, then
  * return a * b.
  */
-int int_binary_op(struct info_script* info, int command, int* a, int* b)
+int int_binary_op(const struct info_script* info, int command, const int* a, const int* b)
 {
     switch (command) {
     case SCRIPT_SET_INT_SUM:
@@ -307,9 +684,11 @@ int int_binary_op(struct info_script* info, int command, int* a, int* b)
     case SCRIPT_SET_INT_DIV:
         if (*b != 0)
             return *a / *b;
-        else
+        else {
             vmudlog(BRF, "Script #%d tried to divide by 0.",
                 script_table[info->index].number);
+            return 0;
+        }
     case SCRIPT_SET_INT_RANDOM:
         return number(*a, *b);
     default:
@@ -319,7 +698,7 @@ int int_binary_op(struct info_script* info, int command, int* a, int* b)
     return 0;
 }
 
-int int_unary_op(struct info_script* info, int command, int* a)
+int int_unary_op(const struct info_script* info, int command, const int* a)
 {
     switch (command) {
     case SCRIPT_SET_INT_VALUE:
@@ -331,7 +710,7 @@ int int_unary_op(struct info_script* info, int command, int* a)
     return 0;
 }
 
-int int_0ary_op(struct info_script* info, int command)
+int int_0ary_op(const struct info_script* info, int command)
 {
     switch (command) {
     case SCRIPT_SET_INT_WAR_STATUS:
@@ -510,7 +889,7 @@ void assign_char_param(int param, info_script* info, char_data* ch)
     }
 }
 
-char_data* get_char_param(int param, info_script* info)
+char_data* get_char_param(int param, const info_script* info)
 {
     switch (param) {
     case SCRIPT_PARAM_CH1:
@@ -524,7 +903,7 @@ char_data* get_char_param(int param, info_script* info)
     }
 }
 
-room_data* get_room_param(int param, info_script* info)
+room_data* get_room_param(int param, const info_script* info)
 {
     switch (param) {
     case SCRIPT_PARAM_RM1:
@@ -554,7 +933,7 @@ room_data* get_room_param(int param, info_script* info)
     }
 }
 
-obj_data* get_obj_param(int param, info_script* info)
+obj_data* get_obj_param(int param, const info_script* info)
 {
     switch (param) {
     case SCRIPT_PARAM_OB1:
@@ -609,31 +988,51 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return_value = trigger_room_event(ON_BEFORE_ENTER, (room_data*)subject, (char_data*)subject2);
         break;
 
-    case ON_DAMAGE:
-        return_value = trigger_char_damage((char_data*)subject, (char_data*)subject2);
-        if (return_value)
-            if ((tmpobj = ((char_data*)subject2)->equipment[WIELD]))
-                return_value = trigger_object_damage(tmpobj, (char_data*)subject, (char_data*)subject2);
+    case ON_DAMAGE: {
+        char_data* victim = (char_data*)subject;
+        char_data* attacker = (char_data*)subject2;
+        freed_watch victim_watch(victim);
+        freed_watch attacker_watch(attacker);
+        return_value = trigger_char_damage(victim, attacker);
+        /* A script that removed either fighter has ended the blow: nobody is left to strike or
+         * be struck, and the attacker's weapon is not looked at. */
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return 0;
+        }
+        if (return_value) {
+            if ((tmpobj = attacker->equipment[WIELD])) {
+                return_value = trigger_object_damage(tmpobj, victim, attacker);
+            }
+        }
+        if (victim_watch.freed() || attacker_watch.freed()) {
+            return 0;
+        }
         break;
+    }
 
     case ON_DIE:
         return_value = trigger_char_die((char_data*)subject); // we don't do anything with killer yet
         break;
 
-    case ON_DRINK:
-        return_value = trigger_object_event(ON_DRINK, (obj_data*)subject, (char_data*)subject2);
+    case ON_PATH_END:
+        return_value = trigger_char_path_end((char_data*)subject);
         break;
 
+    case ON_DRINK:
     case ON_EAT:
-        return_value = trigger_object_event(ON_EAT, (obj_data*)subject, (char_data*)subject2);
-        break;
+    case ON_EXAMINE_OBJECT:
+    case ON_PULL:
+    case ON_WEAR: {
+        char error_message[128];
+        snprintf(error_message, sizeof(error_message),
+            "SYSERR: %s: trigger %d is an object's own trigger; use call_object_trigger", __func__,
+            trigger_type);
+        log(error_message);
+        return 1;
+    }
 
     case ON_ENTER:
         return_value = trigger_room_event(ON_ENTER, (room_data*)subject, (char_data*)subject2); // This will trigger room, characters, objects
-        break;
-
-    case ON_EXAMINE_OBJECT:
-        return_value = trigger_object_event(ON_EXAMINE_OBJECT, (obj_data*)subject, (char_data*)subject2);
         break;
 
     case ON_HEAR_SAY:
@@ -644,16 +1043,8 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
         return_value = trigger_char_hear((char_data*)subject, (char_data*)subject2, (char*)subject3);
         break;
 
-    case ON_PULL:
-        return_value = trigger_object_event(ON_PULL, (obj_data*)subject, (char_data*)subject2);
-        break;
-
     case ON_RECEIVE:
         return_value = trigger_char_receive((char_data*)subject, (char_data*)subject2, (obj_data*)subject3);
-        break;
-
-    case ON_WEAR:
-        return_value = trigger_object_event(ON_WEAR, (obj_data*)subject, (char_data*)subject2);
         break;
 
     default:
@@ -663,30 +1054,133 @@ int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3
     return return_value;
 }
 
+bool is_on_content_list(const obj_data* first, const obj_data* object)
+{
+    for (const obj_data* content = first; content; content = content->next_content) {
+        if (content == object) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* True if <person> is one of the people on the next_in_room list that starts with <first>;
+ * compared by address and never read, as is_on_content_list. */
+static bool is_on_people_list(const char_data* first, const char_data* person)
+{
+    for (const char_data* listed = first; listed; listed = listed->next_in_room) {
+        if (listed == person) {
+            return true;
+        }
+    }
+    return false;
+}
+
+char_data* next_person_after_trigger(const room_data& room, char_data* current,
+    bool current_freed, char_data* following)
+{
+    if (!current_freed) {
+        return current->next_in_room;
+    }
+    /* following may have been freed or moved too, so it is only compared, never read, until it
+     * is found among the room's people. */
+    if (is_on_people_list(room.people, following)) {
+        return following;
+    }
+    return nullptr;
+}
+
+obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
+    bool current_freed, obj_data* following)
+{
+    if (!current_freed) {
+        return current->next_content;
+    }
+    if (is_on_content_list(room.contents, following)) {
+        return following;
+    }
+    return nullptr;
+}
+
+/* Sets off <trigger_type> (ON_BEFORE_ENTER or ON_ENTER) on each of <room>'s people but
+ * <entering>, the one entering, until a script returns false, and returns 0 if one did, else 1.
+ * Once <entering_watch> (on entering) reports it freed, the rest are told nobody is entering. */
+static int trigger_room_people(int trigger_type, room_data& room, char_data* entering,
+    const freed_watch& entering_watch)
+{
+    char_data* person = room.people;
+    while (person) {
+        char_data* following = person->next_in_room;
+        if (person == entering) {
+            person = following;
+            continue;
+        }
+
+        freed_watch person_watch(person);
+        int script_result;
+        if (trigger_type == ON_BEFORE_ENTER) {
+            script_result = trigger_before_char_enter(person, entering, &room);
+        } else {
+            script_result = trigger_char_enter(person, entering, &room);
+        }
+        if (!script_result) {
+            return 0;
+        }
+        if (entering_watch.freed()) {
+            entering = nullptr;
+        }
+        person = next_person_after_trigger(room, person, person_watch.freed(), following);
+    }
+    return 1;
+}
+
+/* Sets off ON_ENTER on each of <room>'s contents, with <entering> entering, until a script
+ * returns false, and returns 0 if one did, else 1. Once <entering_watch> (on entering) reports it
+ * freed, the rest are told nobody is entering. */
+static int trigger_room_contents(room_data& room, char_data* entering,
+    const freed_watch& entering_watch)
+{
+    if (entering_watch.freed()) {
+        entering = nullptr;
+    }
+    obj_data* object = room.contents;
+    while (object) {
+        obj_data* following = object->next_content;
+        bool object_freed = false;
+        const int script_result = trigger_object_event(ON_ENTER, object, entering, object_freed);
+        if (!script_result) {
+            return 0;
+        }
+        if (entering_watch.freed()) {
+            entering = nullptr;
+        }
+        object = next_content_after_trigger(room, object, object_freed, following);
+    }
+    return 1;
+}
+
 int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
 {
     int return_value = 1;
-    char_data* tmpch;
-    obj_data* tmpobj;
+    /* A script can free the one entering; the room's later people and objects are then told
+     * nobody is entering. */
+    freed_watch entering_watch(ch);
 
     switch (trigger_type) {
 
     case ON_BEFORE_ENTER:
-
-        for (tmpch = room->people; tmpch && return_value; tmpch = tmpch->next_in_room)
-            if (tmpch != ch)
-                return_value = trigger_before_char_enter(tmpch, ch, room);
-
+        return_value = trigger_room_people(ON_BEFORE_ENTER, *room, ch, entering_watch);
         break;
 
     case ON_ENTER:
         if (!(return_value = trigger_room_enter(room, ch)))
             return_value = 0;
-        for (tmpch = room->people; tmpch && return_value; tmpch = tmpch->next_in_room)
-            if (tmpch != ch)
-                return_value = trigger_char_enter(tmpch, ch, room);
-        for (tmpobj = room->contents; tmpobj && return_value; tmpobj = tmpobj->next_content)
-            return_value = trigger_object_event(ON_ENTER, tmpobj, ch);
+        if (return_value) {
+            return_value = trigger_room_people(ON_ENTER, *room, ch, entering_watch);
+        }
+        if (return_value) {
+            return_value = trigger_room_contents(*room, ch, entering_watch);
+        }
         break;
 
     default:
@@ -697,19 +1191,116 @@ int trigger_room_event(int trigger_type, room_data* room, char_data* ch)
     return return_value;
 }
 
-script_data* get_next_command(script_data* curr)
+/* Scans forward from a block and returns the command to resume at.
+
+   The `curr = curr->next` in the for-increment is LOAD-BEARING: do not fold it
+   into an else-branch of the SCRIPT_BEGIN test. When the scan meets a nested
+   SCRIPT_BEGIN, the recursive call returns the command after that nested block's
+   FIRST terminator -- and for the `IF / BEGIN / ... / END_ELSE_BEGIN / END` shape
+   that nearly every world script uses, the first terminator is the
+   END_ELSE_BEGIN, so the call hands back the (usually empty) else-branch's END,
+   not the end of the nested statement. The extra advance steps over that END so
+   the scan keeps hunting for THIS level's terminator.
+
+   Without it the scan stops on the nested END, mistakes it for this block's own,
+   and resumes one END too early -- inside the very block it was asked to skip.
+   That regression shipped in 8446205 and broke the skip target at 79 sites across
+   44 live scripts (e.g. Brali #2709: giving any non-quest item ran the quest
+   reward). See src/tests/script_flow_tests.cpp.
+
+   Section rows are invisible to the scan: it steps over any that follow a
+   nested block before taking the extra step, so a script skips the same rows
+   with or without them. */
+script_data* get_next_command(const script_data* curr)
 {
 
     curr = curr->next;
     for (; (curr) && ((curr->command_type != SCRIPT_END) && (curr->command_type != SCRIPT_END_ELSE_BEGIN));
          curr = curr->next)
-        if (curr->command_type == SCRIPT_BEGIN)
+        if (curr->command_type == SCRIPT_BEGIN) {
             curr = get_next_command(curr);
+            /* The extra step must land where it would with no section rows:
+             * a section labelling an empty else branch would otherwise take
+             * the place of the END the step is meant to pass. */
+            while (curr && curr->command_type == SCRIPT_SECTION)
+                curr = curr->next;
+            if (!curr)
+                break; /* the nested block never ended */
+        }
 
     if (curr)
         return curr->next;
     else
         return 0;
+}
+
+/* The command an IF guards: the next one that is not a section, so that a
+ * section between an IF and its BEGIN (or its one command) changes nothing. */
+static script_data* script_guarded(script_data* curr)
+{
+    for (curr = curr->next; curr && curr->command_type == SCRIPT_SECTION; curr = curr->next)
+        ;
+    return curr;
+}
+
+/* RESTYLE_OBJ <ob1-3> <vnum, int1-3 or obN.vnum>: changes the object, in place, into another
+ * look of its family. A refusal changes nothing and is logged; the script carries on. */
+static void restyle_script_object(info_script* info, script_data* curr)
+{
+    char errbuf[256];
+    int script_no = (info->index >= 0 && info->index <= top_of_script_table)
+        ? script_table[info->index].number
+        : -1;
+    int obj_var = curr->param[0];
+    bool obj_var_ok = obj_var == SCRIPT_PARAM_OB1 || obj_var == SCRIPT_PARAM_OB2 || obj_var == SCRIPT_PARAM_OB3;
+    obj_data* old_obj = obj_var_ok ? get_obj_param(obj_var, info) : 0;
+    int vnum = curr->param[1];
+    const char* problem = 0;
+    char reason[96];
+
+    /* The editor allows only these; a world file edited by hand can hold anything. */
+    if (is_restyle_target_param(vnum)) {
+        int* v = get_int_param(vnum, info);
+        vnum = v ? *v : 0;
+    } else if (get_param_text(vnum)) {
+        problem = "target must be a vnum, int1-3 or obN.vnum";
+    }
+    if (!obj_var_ok)
+        problem = "object must be ob1-3";
+    if (!problem && (!old_obj || old_obj->item_number < 0)) {
+        problem = "no object";
+    } else if (!problem) {
+        int old_vnum = obj_index[old_obj->item_number].virt;
+        obj_data* new_obj = 0;
+        switch (restyle_object(old_obj, real_object(vnum), &new_obj)) {
+        case restyle_result::ok: {
+            /* new_obj is old_obj, changed in place: the script's ob[] and the trigger's caller
+             * still hold a valid object. */
+            obj_data* top = new_obj;
+            while (top->in_obj)
+                top = top->in_obj;
+            if (top->carried_by && !IS_NPC(top->carried_by))
+                SET_BIT(PLR_FLAGS(top->carried_by), PLR_CRASH);
+            return;
+        }
+        case restyle_result::no_such_object:
+            report_script_vnum(info->index, curr, SREF_OBJ, vnum, 0);
+            return;
+        case restyle_result::same_object:
+            sprintf(reason, "already obj %d", vnum);
+            break;
+        case restyle_result::not_same_family:
+            sprintf(reason, "obj %d -> %d not same family", old_vnum, vnum);
+            break;
+        default:
+            strcpy(reason, "no object");
+            break;
+        }
+        problem = reason;
+    }
+    sprintf(errbuf, "SCRIPT ERROR: script #%d, line %d (%s): %s", script_no, curr->number,
+        script_cmd_name(curr->command_type), problem);
+    mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 }
 
 int run_script(struct info_script* info, struct script_data* position)
@@ -736,10 +1327,15 @@ int run_script(struct info_script* info, struct script_data* position)
     int tmpint, tmpint2;
     struct follow_type *k, *next_fol;
 
+    running_script_guard script_context;
+
     curr = position;
     if (!position)
         exit = TRUE;
     while (!exit) {
+        running_script_index = info->index;
+        running_script_cmd = curr;
+
         switch (curr->command_type) {
 
         case SCRIPT_ABORT:
@@ -748,6 +1344,19 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_ASSIGN_EQ:
             if (curr->param[0] && curr->param[1]) {
+                /* The slot indexes equipment[]; outside it, skip the line. */
+                if (curr->param[2] < 0 || curr->param[2] >= MAX_WEAR) {
+                    report_script_range(info->index, curr, "slot", curr->param[2], MAX_WEAR, 0);
+                    /* A miss, like an empty slot: the result reads "not found". */
+                    ptrint = get_int_param(curr->param[3], info);
+                    if (ptrint == &info->ints[0] || ptrint == &info->ints[1] || ptrint == &info->ints[2])
+                        *ptrint = 0;
+                    curr = curr->next;
+                    break;
+                }
+                /* Cleared first, as ASSIGN_INV and ASSIGN_ROOM do: with no
+                 * character it used to keep an earlier line's object. */
+                tmpobj = 0;
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     tmpobj = tmpch->equipment[curr->param[2]];
@@ -773,6 +1382,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 if (tmpch) {
                     tmpobj = get_obj_in_list_num_containers(real_object(curr->param[0]), tmpch->carrying);
                     tobjcnt = count_obj_in_list(real_object(curr->param[0]), tmpch->carrying);
+                    if (real_object(curr->param[0]) < 0)
+                        report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
                 }
                 ptrint = get_int_param(curr->param[3], info);
 
@@ -796,6 +1407,8 @@ int run_script(struct info_script* info, struct script_data* position)
                 if (tmprm) {
                     tmpobj = get_obj_in_list_vnum(curr->param[0], tmprm->contents);
                     tobjcnt = count_obj_in_list(real_object(curr->param[0]), tmprm->contents);
+                    if (real_object(curr->param[0]) < 0)
+                        report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
                 }
                 ptrint = get_int_param(curr->param[3], info);
 
@@ -815,8 +1428,29 @@ int run_script(struct info_script* info, struct script_data* position)
         case SCRIPT_ASSIGN_STR:
             if (curr->param[0] && curr->text) {
                 wtxt = get_text_param_writable(curr->param[0], info);
-                CREATE(*wtxt, char, strlen(curr->text) + 1);
-                sprintf(*wtxt, curr->text);
+                /* Only str1-3 and obN.name can be written; anything else
+                 * crashed the server. */
+                if (wtxt) {
+                    const size_t text_size = strlen(curr->text) + 1;
+                    char* new_text = nullptr;
+                    CREATE(new_text, char, text_size);
+                    script_format_text(new_text, text_size, curr->text, NULL);
+                    /* obN.name: the object gets a text of its own with the new name; the text
+                     * it showed stays with its prototype and the other copies sharing it. */
+                    obj_data* renamed_object = nullptr;
+                    for (obj_data* object : info->ob) {
+                        if (object && wtxt == &object->short_description) {
+                            renamed_object = object;
+                        }
+                    }
+                    if (renamed_object) {
+                        object_text::fields text = object_text_fields_of(*renamed_object);
+                        text.short_description = take_allocated_string(new_text);
+                        renamed_object->set_text(create_object_text(std::move(text)));
+                    } else {
+                        *wtxt = new_text;
+                    }
+                }
             }
             curr = curr->next;
             break;
@@ -829,8 +1463,17 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[2]) {
                 tmprm = get_room_param(curr->param[0], info);
                 tmpint = real_room(curr->param[2]);
-                if (tmprm && (tmpint != NOWHERE) && (-1 < curr->param[1] < 6))
-                    tmprm->dir_option[curr->param[1]]->to_room = tmpint;
+                if (tmpint == NOWHERE)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[2], 0);
+                if (tmprm && (tmpint != NOWHERE)) {
+                    /* The old check (-1 < dir < 6) was always true, and a
+                     * missing exit is a null pointer: either one crashed. */
+                    if (curr->param[1] < 0 || curr->param[1] >= NUM_OF_DIRS
+                        || !tmprm->dir_option[curr->param[1]])
+                        report_script_bad_exit(info->index, curr, tmprm->number, curr->param[1]);
+                    else
+                        tmprm->dir_option[curr->param[1]]->to_room = tmpint;
+                }
             }
             curr = curr->next;
             break;
@@ -909,11 +1552,17 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_DO_REMOVE:
-            if (curr->param[0] && curr->param[1]) {
-                tmpch = get_char_param(curr->param[0], info);
-                if (tmpch && (-1 < curr->param[1] < MAX_WEAR))
-                    if (tmpch->equipment[curr->param[1]])
+            /* param[1] is the slot, and 0 is the light: testing it for
+             * non-zero made the light impossible to remove, and the old range
+             * check (-1 < slot < MAX_WEAR) was always true. */
+            if (curr->param[0]) {
+                if (curr->param[1] < 0 || curr->param[1] >= MAX_WEAR)
+                    report_script_range(info->index, curr, "slot", curr->param[1], MAX_WEAR, 0);
+                else {
+                    tmpch = get_char_param(curr->param[0], info);
+                    if (tmpch && tmpch->equipment[curr->param[1]])
                         perform_remove(tmpch, curr->param[1]);
+                }
             }
             curr = curr->next;
             break;
@@ -921,7 +1570,7 @@ int run_script(struct info_script* info, struct script_data* position)
         case SCRIPT_DO_SAY:
             if (curr->text && curr->param[0]) {
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     do_say(tmpch, output, 0, 0, 0);
@@ -934,6 +1583,11 @@ int run_script(struct info_script* info, struct script_data* position)
                 if ((tmpint = find_action(curr->text)) != -1) {
                     tmpch = get_char_param(curr->param[0], info);
                     tmpch2 = get_char_param(curr->param[1], info);
+                    /* An unset performer crashed the server. */
+                    if (!tmpch) {
+                        curr = curr->next;
+                        break;
+                    }
                     if ((tmpch2) && (tmpch2->in_room == tmpch->in_room)) {
                         tmpwtl.targ1.ptr.ch = tmpch2;
                         tmpwtl.targ1.type = TARGET_CHAR;
@@ -962,9 +1616,11 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[0], info);
                 tmpobj = get_obj_param(curr->param[1], info);
-                tmpint = find_eq_pos(tmpch, tmpobj, 0);
-                if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj))
+                /* find_eq_pos reads the object: an unset one crashed the server. */
+                tmpint = (tmpch && tmpobj) ? find_eq_pos(tmpch, tmpobj, 0) : -1;
+                if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj)) {
                     perform_wear(tmpch, tmpobj, tmpint);
+                }
             }
             curr = curr->next;
             break;
@@ -972,7 +1628,7 @@ int run_script(struct info_script* info, struct script_data* position)
         case SCRIPT_DO_YELL:
             if (curr->text && curr->param[0]) {
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch)
                     do_gen_com(tmpch, output, 0, 0, SCMD_YELL);
@@ -981,6 +1637,10 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_END:
+            curr = curr->next;
+            break;
+
+        case SCRIPT_SECTION: /* a title in the editor's list; nothing to run */
             curr = curr->next;
             break;
 
@@ -993,10 +1653,16 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[0], info);
                 if (tmpch) {
                     for (tmpint = 1; tmpint < 6; tmpint++) {
-                        if ((tmpint2 = real_object(curr->param[tmpint])) > 0) {
+                        /* A 0 slot is empty.  Skip it before the lookup: real
+                         * number 0 is a valid object, so an object with vnum 0
+                         * would otherwise load into every empty slot. */
+                        if (!curr->param[tmpint])
+                            continue;
+                        if ((tmpint2 = real_object(curr->param[tmpint])) >= 0) {
                             tmpobj = read_object(tmpint2, REAL);
                             obj_to_char(tmpobj, tmpch);
-                        }
+                        } else
+                            report_script_vnum(info->index, curr, SREF_OBJ, curr->param[tmpint], 0);
                     }
                     do_wear(tmpch, "all", 0, 0, 0);
                 }
@@ -1025,6 +1691,11 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpobj = 0;
                 assign_obj_param(curr->param[0], info, tmpobj);
             }
+            curr = curr->next;
+            break;
+
+        case SCRIPT_RESTYLE_OBJ:
+            restyle_script_object(info, curr);
             curr = curr->next;
             break;
 
@@ -1057,12 +1728,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint == *ptrint2) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1082,12 +1753,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint < *ptrint2) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1107,12 +1778,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint > *ptrint2) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1130,12 +1801,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (*ptrint > 0) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1144,7 +1815,7 @@ int run_script(struct info_script* info, struct script_data* position)
             } else
                 exit = TRUE;
             break;
-        
+
         case SCRIPT_IF_INT_FALSE:
             if (!curr->param[0]) {
                 exit = TRUE;
@@ -1159,12 +1830,12 @@ int run_script(struct info_script* info, struct script_data* position)
             if (*ptrint < 1) {
                 curr = curr->next;
             } else {
-                if (curr->next) {
-                    if (curr->next->command_type == SCRIPT_BEGIN) {
-                        curr = curr->next;
+                if (script_guarded(curr)) {
+                    if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                        curr = script_guarded(curr);
                         curr = get_next_command(curr);
                     } else {
-                        curr = curr->next->next;
+                        curr = script_guarded(curr)->next;
                     }
                 } else {
                     exit = TRUE;
@@ -1179,12 +1850,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (IS_NPC(tmpch)) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1195,7 +1866,7 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_IF_ROOM_SUNLIT:
-            if (!curr->param[0]) { 
+            if (!curr->param[0]) {
                 exit = TRUE;
                 break;
             }
@@ -1204,22 +1875,23 @@ int run_script(struct info_script* info, struct script_data* position)
                 exit = TRUE;
                 break;
             }
-            if (IS_SUNLIT(tmprm->number)) {
+            /* IS_SUNLIT takes the room's place in world[], not its vnum. */
+            if (IS_SUNLIT(real_room(tmprm->number))) {
                 curr = curr->next;
             } else {
-                if (!curr->next) {
+                if (!script_guarded(curr)) {
                     exit = TRUE;
                     break;
                 }
-                if (curr->next->command_type == SCRIPT_BEGIN) {
-                    curr = curr->next;
+                if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                    curr = script_guarded(curr);
                     curr = get_next_command(curr);
                 } else {
-                    curr = curr->next->next;
+                    curr = script_guarded(curr)->next;
                 }
             }
             break;
-            
+
         case SCRIPT_IF_STR_CONTAINS:
             if (curr->param[0]) {
                 txt1 = get_text_param(curr->param[0], info);
@@ -1236,12 +1908,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     } else {
                         RELEASE(txt2);
                         txt2 = 0;
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1258,12 +1930,12 @@ int run_script(struct info_script* info, struct script_data* position)
                     if (!strcasecmp(txt1, curr->text)) {
                         curr = curr->next;
                     } else {
-                        if (curr->next) {
-                            if (curr->next->command_type == SCRIPT_BEGIN) {
-                                curr = curr->next;
+                        if (script_guarded(curr)) {
+                            if (script_guarded(curr)->command_type == SCRIPT_BEGIN) {
+                                curr = script_guarded(curr);
                                 curr = get_next_command(curr);
                             } else
-                                curr = curr->next->next;
+                                curr = script_guarded(curr)->next;
                         } else
                             exit = TRUE;
                     }
@@ -1275,7 +1947,12 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_MOB:
             if (curr->param[0] && curr->param[1]) {
-                tmpch = read_mobile(real_mobile(curr->param[0]), REAL);
+                /* Its own variable: tmpint is read by later commands (see
+                 * TELEPORT_CHAR_XL), so the report must not change it. */
+                int rnum = real_mobile(curr->param[0]);
+                if (rnum < 0)
+                    report_script_vnum(info->index, curr, SREF_MOB, curr->param[0], 0);
+                tmpch = read_mobile(rnum, REAL);
                 if (tmpch)
                     assign_char_param(curr->param[1], info, tmpch);
             }
@@ -1284,7 +1961,11 @@ int run_script(struct info_script* info, struct script_data* position)
 
         case SCRIPT_LOAD_OBJ:
             if (curr->param[0] && curr->param[1]) {
-                tmpobj = read_object(real_object(curr->param[0]), REAL);
+                /* Its own variable, for the same reason as SCRIPT_LOAD_MOB. */
+                int rnum = real_object(curr->param[0]);
+                if (rnum < 0)
+                    report_script_vnum(info->index, curr, SREF_OBJ, curr->param[0], 0);
+                tmpobj = read_object(rnum, REAL);
                 if (tmpobj)
                     assign_obj_param(curr->param[1], info, tmpobj);
             }
@@ -1292,7 +1973,8 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_LOAD_OBJ_X:
-            if (curr->param[0] && curr->param[1]) {
+            /* Always copies ob1; with ob1 unset it crashed the server. */
+            if (curr->param[0] && curr->param[1] && info->ob[0]) {
                 tmpobj = read_object(info->ob[0]->item_number, REAL);
                 if (tmpobj) {
                     assign_obj_param(curr->param[1], info, tmpobj);
@@ -1317,7 +1999,10 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpobj = get_obj_param(curr->param[0], info);
                 tmprm = get_room_param(curr->param[1], info);
                 if (tmpobj && tmprm)
-                    if ((tmpobj->in_room >= 0) ? world[tmpobj->in_room].number : 0 == tmprm->number)
+                    /* Was "in_room >= 0 ? room vnum : 0 == wanted", which took the
+                     * object out of whatever room it was in.  All 73 live lines
+                     * already name the object's own room or extract it next. */
+                    if (tmpobj->in_room >= 0 && world[tmpobj->in_room].number == tmprm->number)
                         obj_from_room(tmpobj);
             }
             curr = curr->next;
@@ -1373,7 +2058,7 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->text && curr->param[0]) {
                 tmpch = get_char_param(curr->param[0], info);
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 if (tmpch) {
                     send_to_char(output, tmpch);
                     send_to_char("\n", tmpch);
@@ -1386,7 +2071,7 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->text && curr->param[0]) {
                 tmprm = get_room_param(curr->param[0], info);
                 txt1 = get_text_param(curr->param[1], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 if (tmprm) {
                     send_to_room(output, real_room(tmprm->number));
                     send_to_room("\n", real_room(tmprm->number));
@@ -1400,7 +2085,7 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmprm = get_room_param(curr->param[0], info);
                 tmpch = get_char_param(curr->param[1], info);
                 txt1 = get_text_param(curr->param[2], info);
-                sprintf(output, curr->text, txt1);
+                script_format_text(output, sizeof(output), curr->text, txt1);
                 if (tmprm && tmpch) {
                     send_to_room_except(output, real_room(tmprm->number), tmpch);
                     send_to_room_except("\n", real_room(tmprm->number), tmpch);
@@ -1410,7 +2095,10 @@ int run_script(struct info_script* info, struct script_data* position)
             break;
 
         case SCRIPT_SET_EXIT_STATE:
-            if (curr->param[0]) {
+            /* param[0] is the direction, and 0 is north: testing it for
+             * non-zero made every north door impossible to set.  Check the
+             * range instead, since set_exit_state indexes the exits with it. */
+            if (curr->param[0] >= 0 && curr->param[0] < NUM_OF_DIRS) {
                 tmprm = get_room_param(curr->param[2], info);
                 if (set_exit_state(tmprm, curr->param[0], curr->param[1])) {
                     tmpint = tmprm->dir_option[curr->param[0]]->to_room;
@@ -1418,7 +2106,8 @@ int run_script(struct info_script* info, struct script_data* position)
                     if ((tmprm2) && (tmprm2->dir_option[rev_dir[curr->param[0]]]) && (tmprm2->dir_option[rev_dir[curr->param[0]]]->to_room == real_room(tmprm->number)))
                         set_exit_state(tmprm2, rev_dir[curr->param[0]], curr->param[1]);
                 }
-            }
+            } else
+                report_script_range(info->index, curr, "direction", curr->param[0], NUM_OF_DIRS, 0);
             curr = curr->next;
             break;
 
@@ -1466,6 +2155,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[1], info);
                 tmpint = real_room(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[0], 0);
                 if ((tmpch) && (tmpint > -1)) {
                     if (IS_RIDING(tmpch))
                         stop_riding(tmpch);
@@ -1489,6 +2180,8 @@ int run_script(struct info_script* info, struct script_data* position)
             if (curr->param[0] && curr->param[1]) {
                 tmpch = get_char_param(curr->param[1], info);
                 tmpint = real_room(curr->param[0]);
+                if (tmpint < 0)
+                    report_script_vnum(info->index, curr, SREF_ROOM, curr->param[0], 0);
                 if ((tmpch) && (tmpint > -1)) {
                     if (IS_RIDING(tmpch))
                         stop_riding(tmpch);
@@ -1504,11 +2197,17 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpch = get_char_param(curr->param[1], info);
                 tmprm = get_room_param(curr->param[0], info);
                 if ((tmpch) && (tmpint > -1)) {
-                    if (IS_RIDING(tmpch)) {
-                        stop_riding(tmpch);
+                    /* Crash guard only: a missing room was a null pointer.
+                     * The tmpint test above is left exactly as it was. */
+                    if (!tmprm)
+                        report_script_no_room(info->index, curr);
+                    else {
+                        if (IS_RIDING(tmpch)) {
+                            stop_riding(tmpch);
+                        }
+                        char_from_room(tmpch);
+                        char_to_room(tmpch, real_room(tmprm->number));
                     }
-                    char_from_room(tmpch);
-                    char_to_room(tmpch, real_room(tmprm->number));
                 }
             }
             curr = curr->next;
@@ -1532,7 +2231,7 @@ int run_script(struct info_script* info, struct script_data* position)
 
 // A room's reaction to a character's entry
 
-int trigger_room_enter(room_data* room, char_data* ch)
+int trigger_room_enter(const room_data* room, const char_data* ch)
 {
     return 1;
 }
@@ -1547,6 +2246,7 @@ void continue_char_script(char_data* ch)
 
     initialise_script_info_char(ch, -1); // Invalidates all pointers, but its safter this way
     ch->specials.script_info->ch[0] = ch;
+    ch->delay.cmd = 0;
     return_value = run_script(ch->specials.script_info, ch->specials.script_info->next_command);
 }
 
@@ -1608,6 +2308,25 @@ int trigger_char_die(char_data* ch)
     return return_value;
 }
 
+// A walker mob has completed its route (path: at its end; loop: one lap done)
+
+int trigger_char_path_end(char_data* ch)
+{
+    int index;
+    int return_value = 1;
+    script_data* script_position;
+
+    if (IS_AFFECTED(ch, AFF_WAITING))
+        return 1;
+    if ((script_position = char_has_script(&index, ch->specials.script_number, ON_PATH_END)))
+        if (script_position->next) {
+            initialise_script_info_char(ch, index);
+            ch->specials.script_info->ch[0] = ch;
+            return_value = run_script(ch->specials.script_info, script_position->next);
+        }
+    return return_value;
+}
+
 // A character's reaction to another character's entry
 
 int trigger_char_enter(char_data* ch, char_data* vict, room_data* room)
@@ -1637,6 +2356,8 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
 
     if (IS_AFFECTED(ch, AFF_WAITING))
         return 1;
+    freed_watch hearer_watch(ch);
+    freed_watch speaker_watch(speaking);
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_SAY)))
         if (script_position->next) {
             initialise_script_info_char(ch, index);
@@ -1645,6 +2366,14 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
             ch->specials.script_info->str[0] = text;
             return_value = run_script(ch->specials.script_info, script_position->next);
         }
+    /* The yell script is looked up on the mob, which the say script may have removed; a speaker
+     * it removed is nobody to the yell script. */
+    if (hearer_watch.freed()) {
+        return return_value;
+    }
+    if (speaker_watch.freed()) {
+        speaking = nullptr;
+    }
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
             initialise_script_info_char(ch, index);
@@ -1700,79 +2429,66 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
     return return_value;
 }
 
-int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch)
+/* Runs <obj>'s own <trigger_type> script with <ch> as ch1 and the object as ob1, and returns what
+ * the script returned (1 when the object has no such script). <out_object_freed> is set when the
+ * object was freed while the script ran; it must then not be touched. */
+static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
+    bool& out_object_freed)
 {
     int index;
-    script_data* script_position;
-    int return_value = 1;
+    out_object_freed = false;
+
+    script_data* script_position
+        = char_has_script(&index, obj->obj_flags.script_number, trigger_type);
+    if (!script_position || !script_position->next) {
+        return 1;
+    }
+
+    initialise_script_info_obj(obj, index);
+    /* free_obj leaves the script's state alone, so info stays valid while the script runs even if
+     * the object does not. */
+    info_script* info = obj->obj_flags.script_info;
+    info->ch[0] = ch;
+    info->ob[0] = obj;
+
+    freed_watch watch(obj);
+    const int script_result = run_script(info, script_position->next);
+    out_object_freed = watch.freed();
+    return script_result;
+}
+
+object_trigger_result call_object_trigger(int trigger_type, obj_data* object, char_data* character)
+{
+    char error_message[128];
+
+    if (!object) {
+        snprintf(error_message, sizeof(error_message), "SYSERR: %s: trigger %d for no object",
+            __func__, trigger_type);
+        log(error_message);
+        return object_trigger_result::object_extracted;
+    }
 
     switch (trigger_type) {
-
-    case ON_EAT:
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_EAT)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
-    case ON_ENTER:
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_ENTER)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
-    case ON_EXAMINE_OBJECT:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_EXAMINE_OBJECT)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
     case ON_DRINK:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_DRINK)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
+    case ON_EAT:
+    case ON_EXAMINE_OBJECT:
     case ON_PULL:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_PULL)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
-        break;
-
     case ON_WEAR:
-
-        if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_WEAR)))
-            if (script_position->next) {
-                initialise_script_info_obj(obj, index);
-                obj->obj_flags.script_info->ch[0] = ch;
-                obj->obj_flags.script_info->ob[0] = obj;
-                return_value = run_script(obj->obj_flags.script_info, script_position->next);
-            }
         break;
+    default:
+        snprintf(error_message, sizeof(error_message),
+            "SYSERR: %s: trigger %d is not an object's own trigger", __func__, trigger_type);
+        log(error_message);
+        return object_trigger_result::proceed;
     }
-    return return_value;
+
+    bool object_freed = false;
+    const int script_result = trigger_object_event(trigger_type, object, character, object_freed);
+    if (object_freed) {
+        return object_trigger_result::object_extracted;
+    }
+    if (!script_result) {
+        return object_trigger_result::refused;
+    }
+    return object_trigger_result::proceed;
 }

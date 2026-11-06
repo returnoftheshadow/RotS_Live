@@ -12,11 +12,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "big_brother.h"
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
+#include "mob_walker.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -43,13 +45,99 @@ void* virt_program_number(int number);
 int find_first_step(int, int);
 
 void enforce_position(struct char_data*, int);
+extern int top_of_mobt;
+
+/* Race aggression as the mob turn applies it: a mob with race preferences,
+ * that is not a mount, toward a character it is aggressive to by race. */
+bool mob_race_aggressive_to(const char_data* mob, const char_data* victim)
+{
+    return mob->specials2.pref && !IS_SET(mob->specials2.act, MOB_MOUNT) && IS_AGGR_TO(mob, victim);
+}
+
+/* The AGGRESSIVE flag: any player, unless AGGRESSIVE_EVIL, _GOOD or _NEUTRAL
+ * limit it to those alignments. A mount is never aggressive. */
+bool mob_flag_aggressive_to(const char_data* mob, const char_data* victim)
+{
+    const long act = mob->specials2.act;
+    if (!IS_SET(act, MOB_AGGRESSIVE) || IS_SET(act, MOB_MOUNT) || IS_NPC(victim))
+        return false;
+    const bool evil = IS_SET(act, MOB_AGGRESSIVE_EVIL);
+    const bool good = IS_SET(act, MOB_AGGRESSIVE_GOOD);
+    const bool neutral = IS_SET(act, MOB_AGGRESSIVE_NEUTRAL);
+    if (!evil && !good && !neutral)
+        return true;
+    return (evil && IS_EVIL(victim)) || (good && IS_GOOD(victim)) || (neutral && IS_NEUTRAL(victim));
+}
+
+/* A HELPER mob that is awake and not fighting joins the fight of one mob in
+ * its room. An ally whose enemy it cannot see, or whose enemy the gods
+ * protect, is passed over before anything is said. True once it has said its
+ * line and assisted, whatever became of the blow (sanctuary, a peace room),
+ * or if a script on its line removed it or its ally. */
+bool mob_helper_assist(char_data* ch)
+{
+    if (!AWAKE(ch) || !IS_SET(ch->specials2.act, MOB_HELPER) || ch->specials.fighting)
+        return false;
+
+    struct waiting_type wtl;
+    wtl.cmd = wtl.subcmd = wtl.priority = 0;
+    const room_data& room = world[ch->in_room];
+    for (char_data* ally = room.people; ally; ally = ally->next_in_room) {
+        // Don't assist allies that you are aggressive to.
+        if (IS_AGGR_TO(ch, ally))
+            continue;
+
+        // Never assist guardians or orc followers.
+        if (MOB_FLAGGED(ally, MOB_GUARDIAN) || (MOB_FLAGGED(ally, MOB_ORC_FRIEND) && MOB_FLAGGED(ally, MOB_PET)))
+            continue;
+
+        char_data* enemy = ally->specials.fighting;
+        if (enemy && IS_NPC(ally) && CAN_SEE(ch, ally) && CAN_SEE(ch, enemy)
+            && game_rules::big_brother::instance().is_target_valid(ch, enemy)) {
+            bool assist = false;
+            if (IS_AGGR_TO(ch, enemy)) {
+                // Always assist against targets that you are aggressive to.
+                assist = true;
+            } else {
+                // Assist if the ally has the same alignment as the helper, and the ally
+                // is not aggressive to its enemy.
+                if (GET_ALIGNMENT(ch) * GET_ALIGNMENT(ally) > 0 && !IS_AGGR_TO(ally, enemy)) {
+                    assist = true;
+                }
+            }
+
+            if (assist) {
+                /* The line can set off hear scripts that remove either of them. */
+                const int ch_number = ch->abs_number;
+                const int ally_number = ally->abs_number;
+                if (GET_INT_BASE(ch) >= 7) {
+                    do_say(ch, "I must protect my friend!", 0, 0, 0);
+                    if (!char_exists(ch_number) || !char_exists(ally_number))
+                        return true;
+                }
+                wtl.targ1.type = TARGET_CHAR;
+                wtl.targ1.ptr.ch = ally;
+                wtl.targ1.ch_num = ally_number;
+                wtl.cmd = CMD_ASSIST;
+                do_assist(ch, "", &wtl, 0, 0);
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 void mobile_activity(void)
 {
-    struct char_data* ch;
+    struct char_data *ch, *next_ch;
     SPECIAL(*tmpfunc);
 
-    for (ch = character_list; ch; ch = ch->next)
+    for (ch = character_list; ch; ch = next_ch) {
+        /* A turn can remove the character taking it (its script, a death).
+         * Its own next pointer is then gone, so the one saved before the
+         * turn is used; while it lives, its current one is, as always. */
+        next_ch = ch->next;
+        int abs_number = ch->abs_number;
         if (!number(0, 3)) {
             if (IS_NPC(ch))
                 one_mobile_activity(ch);
@@ -60,6 +148,10 @@ void mobile_activity(void)
                     tmpfunc(ch, ch, 0, "", SPECIAL_SELF, 0);
             }
         }
+        if (char_exists(abs_number))
+            next_ch = ch->next;
+    }
+    walker_remove_finished();
 }
 
 void one_mobile_activity(char_data* ch)
@@ -88,6 +180,10 @@ void one_mobile_activity(char_data* ch)
         return;
     }
 
+    /* For the negative-room warning; the room was range-checked above. */
+    running_mob_guard mob_context((ch->nr >= 0 && ch->nr <= top_of_mobt) ? mob_index[ch->nr].virt : -1,
+        world[ch->in_room].number);
+
     is_passive = 0;
     if (MOB_FLAGGED(ch, MOB_PET) && !utils::is_guardian(*ch) && ch->master && char_exists(ch->master_number)) {
         if (ch->in_room == ch->master->in_room) {
@@ -96,11 +192,11 @@ void one_mobile_activity(char_data* ch)
     }
 
     // handle interrupts
-    if(ch->specials.fighting && ch->interrupt_count > 0 && ch->interrupt_time > 0) {
+    if (ch->specials.fighting && ch->interrupt_count > 0 && ch->interrupt_time > 0) {
         ch->interrupt_time = ch->interrupt_time - 1;
-        if(ch->interrupt_time == 0) {
+        if (ch->interrupt_time == 0) {
             ch->interrupt_count = ch->interrupt_count - 1;
-            if(ch->interrupt_count > 0) {
+            if (ch->interrupt_count > 0) {
                 ch->interrupt_time = 10;
             }
         }
@@ -114,7 +210,7 @@ void one_mobile_activity(char_data* ch)
 
         /* Examine call for special procedure */
         if (IS_SET(ch->specials2.act, MOB_SPEC) && !no_specials) {
-            sprintf(buf, "%s - find prog: %d, func:%d",  GET_NAME(ch), ch->specials2.act, mob_index[ch->nr].func);
+            sprintf(buf, "%s - find prog: %d, func:%d", GET_NAME(ch), ch->specials2.act, mob_index[ch->nr].func);
             mudlog_aliased_mob(buf, ch, "progdebug");
             if (!mob_index[ch->nr].func && ch->specials.store_prog_number) {
                 tmpfunc = (SPECIAL(*))virt_program_number(ch->specials.store_prog_number);
@@ -141,55 +237,20 @@ void one_mobile_activity(char_data* ch)
 
         // STOP here if mob is now busy (I believe this occurs when methods above return FALSE when they should be TRUE )
         // BECAUSE: other things are checking subcmd and delay time BUT subcmd gets set to 0 ABOVE!??
-        if(ch->delay.wait_value && ch->delay.cmd) {
+        if (ch->delay.wait_value && ch->delay.cmd) {
             return;
         }
 
-        if(!ch->specials.fighting) {
+        if (!ch->specials.fighting) {
             ch->interrupt_count = 0;
             ch->interrupt_time = 0;
         }
 
         /* mob - helper */
-        const room_data& room = world[ch->in_room];
-        if (AWAKE(ch) && IS_SET(ch->specials2.act, MOB_HELPER) && !ch->specials.fighting) {
-            for (char_data* ally = room.people; ally; ally = ally->next_in_room) {
-                // Don't assist allies that you are aggressive to.
-                if (IS_AGGR_TO(ch, ally))
-                    continue;
-
-                // Never assist guardians or orc followers.
-                if (MOB_FLAGGED(ally, MOB_GUARDIAN) || (MOB_FLAGGED(ally, MOB_ORC_FRIEND) && MOB_FLAGGED(ally, MOB_PET)))
-                    continue;
-
-                char_data* enemy = ally->specials.fighting;
-                if (enemy && IS_NPC(ally) && CAN_SEE(ch, ally)) {
-                    bool assist = false;
-                    if (IS_AGGR_TO(ch, enemy)) {
-                        // Always assist against targets that you are aggressive to.
-                        assist = true;
-                    } else {
-                        // Assist if the ally has the same alignment as the helper, and the ally
-                        // is not aggressive to its enemy.
-                        if (GET_ALIGNMENT(ch) * GET_ALIGNMENT(ally) > 0 && !IS_AGGR_TO(ally, enemy)) {
-                            assist = true;
-                        }
-                    }
-
-                    if (assist) {
-                        if (GET_INT_BASE(ch) >= 7) {
-                            do_say(ch, "I must protect my friend!", 0, 0, 0);
-                        }
-                        wtl.targ1.type = TARGET_CHAR;
-                        wtl.targ1.ptr.ch = ally;
-                        wtl.targ1.ch_num = ally->abs_number;
-                        wtl.cmd = CMD_ASSIST;
-                        do_assist(ch, "", &wtl, 0, 0);
-                        break;
-                    }
-                }
-            }
-        }
+        const int helper_number = ch->abs_number;
+        mob_helper_assist(ch);
+        if (!char_exists(helper_number))
+            return; /* a script on its line removed it */
 
         /* bodyguard - follower */
         if (AWAKE(ch) && IS_SET(ch->specials2.act, MOB_BODYGUARD) && ch->master && (ch->master->in_room == ch->in_room)) {
@@ -303,14 +364,26 @@ void one_mobile_activity(char_data* ch)
                 }
             } /* Scavenger */
 
-            if (!IS_SET(ch->specials2.act, MOB_SENTINEL) && (GET_POS(ch) == POSITION_STANDING) && (!ch->master) && ((door = number(0, 45)) < NUM_OF_DIRS) && CAN_GO(ch, door) && !IS_SET(world[EXIT(ch, door)->to_room].room_flags, NO_MOB) && !IS_SET(world[EXIT(ch, door)->to_room].room_flags, DEATH)) {
-                if (ch->specials.last_direction == door)
-                    ch->specials.last_direction = -1;
-                else {
-                    /* checking for STAY flags */
-                    if ((!IS_SET(ch->specials2.act, MOB_STAY_ZONE) || (world[EXIT(ch, door)->to_room].zone == world[ch->in_room].zone)) && (!IS_SET(ch->specials2.act, MOB_STAY_TYPE) || (world[EXIT(ch, door)->to_room].sector_type == world[ch->in_room].sector_type))) {
-                        ch->specials.last_direction = door;
-                        do_move(ch, "", 0, ++door, 0);
+            /* A ridden mount has no master while ridden (do_ride), but its
+             * rider steers it: it never walks off on its own. */
+            if (!IS_SET(ch->specials2.act, MOB_SENTINEL) && (GET_POS(ch) == POSITION_STANDING) && (!ch->master) && !IS_RIDDEN(ch) && ((door = number(0, 45)) < NUM_OF_DIRS)) {
+                bool usable = exit_is_usable(ch, door);
+                walker_result walked = walker_wander(ch, door, usable);
+                if (walked == WALKER_GONE)
+                    return; /* its ON_PATH_END script or its step removed the mob */
+                if (walked == WALKER_NOT_HANDLED && usable) {
+                    if (ch->specials.last_direction == door)
+                        ch->specials.last_direction = -1;
+                    else {
+                        /* checking for STAY flags */
+                        if (stay_flags_allow(ch, door)) {
+                            ch->specials.last_direction = door;
+                            int abs_number = ch->abs_number;
+                            do_move(ch, "", 0, ++door, 0);
+                            /* The step can remove the mob (a script where it arrives, a death). */
+                            if (!char_exists(abs_number))
+                                return;
+                        }
                     }
                 }
             } /* if can go */
@@ -319,7 +392,7 @@ void one_mobile_activity(char_data* ch)
             if (ch->specials2.pref) {
                 for (tmp_ch = world[ch->in_room].people; tmp_ch;
                      tmp_ch = tmp_ch->next_in_room)
-                    if ((ch != tmp_ch) && (!IS_SET(ch->specials2.act, MOB_MOUNT)) && IS_AGGR_TO(ch, tmp_ch) && CAN_SEE(ch, tmp_ch)) {
+                    if ((ch != tmp_ch) && mob_race_aggressive_to(ch, tmp_ch) && CAN_SEE(ch, tmp_ch)) {
                         sscanf(tmp_ch->player.name, "%s", buf);
                         wtl.targ1.type = TARGET_CHAR;
                         wtl.targ1.ptr.ch = tmp_ch;
@@ -340,7 +413,7 @@ void one_mobile_activity(char_data* ch)
                      tmp_ch = tmp_ch->next_in_room) {
                     if (!IS_NPC(tmp_ch) && CAN_SEE(ch, tmp_ch) && !PRF_FLAGGED(tmp_ch, PRF_NOHASSLE)) {
                         if (!IS_SET(ch->specials2.act, MOB_WIMPY) || !AWAKE(tmp_ch)) {
-                            if ((IS_SET(ch->specials2.act, MOB_AGGRESSIVE_EVIL) && IS_EVIL(tmp_ch)) || (IS_SET(ch->specials2.act, MOB_AGGRESSIVE_GOOD) && IS_GOOD(tmp_ch)) || (IS_SET(ch->specials2.act, MOB_AGGRESSIVE_NEUTRAL) && IS_NEUTRAL(tmp_ch)) || (!IS_SET(ch->specials2.act, MOB_AGGRESSIVE_EVIL) && !IS_SET(ch->specials2.act, MOB_AGGRESSIVE_NEUTRAL) && !IS_SET(ch->specials2.act, MOB_AGGRESSIVE_GOOD))) {
+                            if (mob_flag_aggressive_to(ch, tmp_ch)) {
                                 if (MOB_FLAGGED(ch, MOB_SWITCHING)) {
                                     if (!vict)
                                         vict = tmp_ch;
@@ -396,7 +469,7 @@ void one_mobile_activity(char_data* ch)
                         wtl.cmd = CMD_HIT;
                         do_hit(ch, buf, &wtl, 0, 0);
                     }
-                } else if (IS_SET(ch->specials2.act, MOB_HUNTER) || IS_AFFECTED(ch, AFF_HUNT)) {
+                } else if ((IS_SET(ch->specials2.act, MOB_HUNTER) || IS_AFFECTED(ch, AFF_HUNT)) && !IS_RIDDEN(ch)) {
                     int modifier = 0;
 
                     if (IS_AFFECTED(ch, AFF_CONFUSE))
@@ -488,7 +561,7 @@ void remember(struct char_data* ch, struct char_data* victim)
 }
 
 /* make ch forget victim */
-void forget(struct char_data* ch, struct char_data* victim)
+void forget(struct char_data* ch, const struct char_data* victim)
 {
     struct memory_rec *curr, *prev = NULL;
 

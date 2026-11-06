@@ -1,0 +1,11 @@
+#12
+Harness distant zone~
+Second zone for the summon-distance scenario: map (3,4), 5 squares from zone 11.
+~
+~
+0
+? 3 4 5
+1299
+999
+2
+S

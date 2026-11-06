@@ -16,13 +16,18 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "object_text.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+
+#include <string>
+#include <utility>
 
 /* extern variables */
 extern struct room_data world;
@@ -50,34 +55,36 @@ void weight_change_object(struct obj_data* obj, int weight)
     }
 }
 
+/* Gives `object` a text of its own with `new_name` as its name; the text it showed, which its
+ * prototype and other copies may share, is left to them. */
+static void rename_object(obj_data& object, std::string new_name)
+{
+    object_text::fields text = object_text_fields_of(object);
+    text.name = std::move(new_name);
+    object.set_text(create_object_text(std::move(text)));
+}
+
 void name_from_drinkcon(struct obj_data* obj)
 {
     int i;
-    char* new_name;
-    extern struct obj_data* obj_proto;
 
     for (i = 0; (*((obj->name) + i) != ' ') && (*((obj->name) + i) != '\0'); i++)
         ;
 
     if (*((obj->name) + i) == ' ') {
-        new_name = str_dup((obj->name) + i + 1);
-        if (obj->item_number < 0 || obj->name != obj_proto[obj->item_number].name)
-            RELEASE(obj->name);
-        obj->name = new_name;
+        const char* const name_without_liquid = (obj->name) + i + 1;
+        rename_object(*obj, name_without_liquid);
     }
 }
 
 void name_to_drinkcon(struct obj_data* obj, int type)
 {
-    char* new_name;
-    extern struct obj_data* obj_proto;
     extern char* drinknames[];
 
-    CREATE(new_name, char, strlen(obj->name) + strlen(drinknames[type]) + 2);
-    sprintf(new_name, "%s %s", drinknames[type], obj->name);
-    if (obj->item_number < 0 || obj->name != obj_proto[obj->item_number].name)
-        RELEASE(obj->name);
-    obj->name = new_name;
+    std::string new_name = drinknames[type];
+    new_name += ' ';
+    new_name += obj->name;
+    rename_object(*obj, std::move(new_name));
 }
 
 extern struct obj_data generic_water;
@@ -204,7 +211,12 @@ ACMD(do_drink)
         affect_join(ch, &af, FALSE, FALSE);
     }
 
-    call_trigger(ON_DRINK, temp, ch, 0);
+    /* What the script returns does not matter to drinking, but a script that extracted the
+     * container has freed it: the drink above is all there is. */
+    const object_trigger_result drink_result = call_object_trigger(ON_DRINK, temp, ch);
+    if (drink_result == object_trigger_result::object_extracted) {
+        return;
+    }
 
     /* empty the container, and no longer poison. */
     if (temp != &generic_water && temp != &generic_poison)
@@ -279,13 +291,22 @@ ACMD(do_eat)
         affect_join(ch, &af, FALSE, FALSE);
     }
 
-    call_trigger(ON_EAT, food, ch, 0);
+    /* What the script returns does not matter to eating, but a script that extracted the food
+     * has freed it, so it is not used up a second time. One that removed the eater leaves the
+     * food to be used up all the same, with no one to tell. */
+    freed_watch eater_watch(ch);
+    const object_trigger_result eat_result = call_object_trigger(ON_EAT, food, ch);
+    if (eat_result == object_trigger_result::object_extracted) {
+        return;
+    }
 
     if (subcmd == SCMD_EAT)
         extract_obj(food);
     else {
         if (!(--food->obj_flags.value[0])) {
-            send_to_char("There's nothing left now.\n\r", ch);
+            if (!eater_watch.freed()) {
+                send_to_char("There's nothing left now.\n\r", ch);
+            }
             extract_obj(food);
         }
     }
@@ -473,7 +494,7 @@ ACMD(do_pour)
     return;
 }
 
-void wear_message(struct char_data* ch, struct obj_data* obj, int where)
+void wear_message(struct char_data* ch, const struct obj_data* obj, int where)
 {
     char* wear_messages[][2] = {
         { "$n lights $p and holds it.",
@@ -623,7 +644,7 @@ void wear_message(struct char_data* ch, struct obj_data* obj, int where)
     }
 }
 
-bool ologhai_item_restriction(char_data* character, obj_data* item)
+bool ologhai_item_restriction(const char_data* character, const obj_data* item)
 {
     // Only Olog-Hais here
     if (GET_RACE(character) != RACE_OLOGHAI) {
@@ -639,7 +660,7 @@ bool ologhai_item_restriction(char_data* character, obj_data* item)
     return false;
 }
 
-bool beorning_item_restriction(char_data* character, obj_data* item)
+bool beorning_item_restriction(const char_data* character, const obj_data* item)
 {
     if (CAN_WEAR(item, ITEM_WEAR_SHIELD)) {
         send_to_char("You cannot wear a shield.\n\r", character);
@@ -692,7 +713,12 @@ bool beorning_item_restriction(char_data* character, obj_data* item)
 }
 void perform_remove(struct char_data* ch, int pos);
 
-void perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
+/* Puts <item>, which <character> carries, on in <item_slot> with the checks and messages of the
+ * wear command. With <wearall> (wear all) a slot already in use is left alone; without it, what
+ * is there is taken off first. Returns false when the item's ON_WEAR script freed the item or the
+ * wearer: the caller must then touch neither again. Returns true otherwise, whether or not the
+ * item was worn. */
+bool perform_wear(char_data* character, obj_data* item, int item_slot, bool wearall = false)
 {
     static int item_slots[] = {
         ITEM_TAKE, ITEM_WEAR_FINGER, ITEM_WEAR_FINGER, ITEM_WEAR_NECK,
@@ -756,34 +782,40 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     /*---------- Beorning item restriction here ----------*/
     if (GET_RACE(character) == RACE_BEORNING) {
         if (!beorning_item_restriction(character, item)) {
-            return;
+            return true;
         }
     }
 
     if (ologhai_item_restriction(character, item)) {
-        return;
+        return true;
     }
 
     /* see if this is shield, and weapon is in two hands */
     if ((GET_ITEM_TYPE(item) == ITEM_SHIELD) && IS_TWOHANDED(character) && character->equipment[WIELD]) {
         send_to_char("You cannot wear a shield while wielding a weapon in two hands\n\r", character);
-        return;
+        return true;
     }
 
     /* first, make sure that the wear position is valid. */
     if (!CAN_WEAR(item, item_slots[item_slot])) {
         act("You can't wear $p there.", FALSE, character, item, 0, TO_CHAR);
-        return;
+        return true;
     }
 
     /* if this is a belt item, make sure the person is wearing a belt */
     if ((item_slot == WEAR_BELT_1) && (!character->equipment[WEAR_WAISTE])) {
         send_to_char("You are not wearing a belt to put that on.\n\r", character);
-        return;
+        return true;
     }
 
-    if (!call_trigger(ON_WEAR, item, character, 0))
-        return;
+    freed_watch wearer_watch(character);
+    const object_trigger_result wear_result = call_object_trigger(ON_WEAR, item, character);
+    if (wear_result == object_trigger_result::object_extracted || wearer_watch.freed()) {
+        return false;
+    }
+    if (wear_result == object_trigger_result::refused) {
+        return true;
+    }
 
     /* for neck, finger, and wrist, try pos 2 if pos 1 is already full */
     if ((item_slot == WEAR_FINGER_R) || (item_slot == WEAR_NECK_1) || (item_slot == WEAR_WRIST_R))
@@ -805,11 +837,11 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
             } else {
                 send_to_char(already_wearing_messages[item_slot], character);
             }
-            return;
+            return true;
         }
         if (IS_CARRYING_N(character) >= CAN_CARRY_N(character)) {
             send_to_char("Your hands are already full!\n\r", character);
-            return;
+            return true;
         } else {
             perform_remove(character, item_slot);
         }
@@ -818,9 +850,10 @@ void perform_wear(char_data* character, obj_data* item, int item_slot, bool wear
     obj_from_char(item);
     wear_message(character, item, item_slot);
     equip_char(character, item, item_slot);
+    return true;
 }
 
-int find_eq_pos(struct char_data* ch, struct obj_data* obj, char* arg)
+int find_eq_pos(const struct char_data* ch, const struct obj_data* obj, char* arg)
 {
     int where = -1;
 
@@ -917,6 +950,7 @@ ACMD(do_wear)
     }
 
     if (dotmode == FIND_ALL) {
+        freed_watch wearer_watch(ch);
         for (obj = ch->carrying; obj; obj = next_obj) {
             next_obj = obj->next_content;
 
@@ -926,7 +960,16 @@ ACMD(do_wear)
 
             if (where >= 0) {
                 items_worn++;
+                freed_watch next_item_watch(next_obj);
                 perform_wear(ch, obj, where, true);
+                /* An item's ON_WEAR script can remove the wearer, or destroy the item to be
+                 * looked at next; either ends the wearing. */
+                if (wearer_watch.freed()) {
+                    return;
+                }
+                if (next_item_watch.freed()) {
+                    break;
+                }
             }
         }
         if (!items_worn)
@@ -939,15 +982,25 @@ ACMD(do_wear)
         if (!(obj = get_obj_in_list(arg1, ch->carrying))) {
             sprintf(buf, "You don't seem to have any %ss.\n\r", arg1);
             send_to_char(buf, ch);
-        } else
+        } else {
+            freed_watch wearer_watch(ch);
             while (obj) {
                 next_obj = get_obj_in_list_vis(ch, arg1, obj->next_content, 9999);
-                if ((where = find_eq_pos(ch, obj, 0)) >= 0)
+                if ((where = find_eq_pos(ch, obj, 0)) >= 0) {
+                    freed_watch next_item_watch(next_obj);
                     perform_wear(ch, obj, where, false);
-                else
+                    /* As for wear all. */
+                    if (wearer_watch.freed()) {
+                        return;
+                    }
+                    if (next_item_watch.freed()) {
+                        next_obj = nullptr;
+                    }
+                } else
                     act("You can't wear $p.", FALSE, ch, obj, 0, TO_CHAR);
                 obj = next_obj;
             }
+        }
     } else {
         if (!(obj = get_obj_in_list_vis(ch, arg1, ch->carrying, 9999))) {
             sprintf(buf, "You don't seem to have %s %s.\n\r", AN(arg1), arg1);
@@ -997,8 +1050,8 @@ ACMD(do_wield)
             }
         } else {
             REMOVE_BIT(ch->specials.affected_by, AFF_TWOHANDED);
-            perform_wear(ch, obj, WIELD);
-            if (obj->obj_flags.value[2] > 4 && !ch->equipment[WEAR_SHIELD]) {
+            const bool weapon_and_wielder_remain = perform_wear(ch, obj, WIELD);
+            if (weapon_and_wielder_remain && obj->obj_flags.value[2] > 4 && !ch->equipment[WEAR_SHIELD]) {
                 do_twohand(ch, 0, 0, 0, SCMD_TWOHANDED);
             }
         }

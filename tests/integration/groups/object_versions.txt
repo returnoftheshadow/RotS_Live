@@ -1,0 +1,1 @@
+object version bumps refresh saved copies at login, keeping play state and the enchants the prototype can take; the test inn's rent refusals

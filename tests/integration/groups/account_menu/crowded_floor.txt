@@ -1,0 +1,1 @@
+a crowded room lists 100 objects and counts the rest, so the people in it still show

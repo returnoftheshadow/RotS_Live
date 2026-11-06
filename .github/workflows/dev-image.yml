@@ -1,0 +1,79 @@
+name: Development image
+
+# Publishes the image the Dockerfile builds as a pre-release, dev-image-jammy-<Dockerfile hash>,
+# so CI's image jobs (.github/actions/dev-image) can load it instead of rebuilding it from the
+# Ubuntu snapshot. A push whose Dockerfile already has its pre-release does nothing else.
+
+on:
+  push:
+    branches:
+      - master
+      - release-frodo
+      - release-frodo-next
+
+permissions:
+  contents: read
+
+concurrency:
+  # Pushes to two branches with the same Dockerfile would otherwise both publish it.
+  group: dev-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish the development image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      # Creating the pre-release and its tag.
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Look for this Dockerfile's pre-release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          hash="$(sha256sum Dockerfile | cut -d ' ' -f 1)"
+          tag="dev-image-jammy-${hash:0:16}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "$tag is already published."
+          fi
+
+      - name: Build the image from the Dockerfile
+        id: image
+        if: steps.existing.outputs.found != 'true'
+        # Always a fresh build, so what is published comes from the committed Dockerfile alone.
+        uses: ./.github/actions/dev-image
+        with:
+          build: "true"
+
+      - name: Publish the pre-release
+        if: steps.existing.outputs.found != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.image.outputs.tag }}
+          DIRECTORY: ${{ steps.image.outputs.directory }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          image_id="$(docker image inspect --format '{{ .Id }}' rots-dev:ci)"
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          The Ubuntu 22.04 development image built from the Dockerfile at $GITHUB_SHA, for CI to load
+          instead of rebuilding it. Not a game release.
+
+          - Dockerfile SHA-256: $(sha256sum Dockerfile | cut -d ' ' -f 1)
+          - Image ID: $image_id
+          - Built by: $RUN_URL
+
+          Load it with: zstd -dc rots-dev-jammy.tar.zst | docker load
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Development image $TAG" --notes-file "$RUNNER_TEMP/notes.md" \
+            "$DIRECTORY/rots-dev-jammy.tar.zst" "$DIRECTORY/rots-dev-jammy.tar.zst.sha256"

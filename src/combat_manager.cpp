@@ -93,7 +93,7 @@ namespace {
  * Public Functions
  *********************************************************************/
 //============================================================================
-bool combat_manager::can_attack(char_data* attacker, char_data* victim)
+bool combat_manager::can_attack(const char_data* attacker, const char_data* victim)
 {
     if (!attacker || !victim)
         return false;
@@ -108,7 +108,7 @@ bool combat_manager::can_attack(char_data* attacker, char_data* victim)
 }
 
 //============================================================================
-combat_manager::ob_roll combat_manager::roll_ob(char_data* attacker)
+combat_manager::ob_roll combat_manager::roll_ob(const char_data* attacker)
 {
     double roll = number(35.0);
 
@@ -246,7 +246,7 @@ double combat_manager::get_evasion_malus(const char_data& attacker, const char_d
 }
 
 //============================================================================
-bool combat_manager::does_victim_riposte(char_data* attacker, char_data* riposter)
+bool combat_manager::does_victim_riposte(const char_data* attacker, const char_data* riposter)
 {
     if (utils::is_npc(*riposter))
         return false;
@@ -302,7 +302,7 @@ void combat_manager::do_riposte(char_data* attacker, char_data* riposter)
 // NOTE: A weapon is considered one handed if it has a bulk of
 // 4 or less.
 //============================================================================
-void combat_manager::check_grip(char_data* character, obj_data* weapon)
+void combat_manager::check_grip(char_data* character, const obj_data* weapon)
 {
     if (!weapon || !character)
         return;
@@ -440,7 +440,7 @@ bool combat_manager::does_rush(const char_data& attacker)
 }
 
 //============================================================================
-void combat_manager::apply_weapon_damage(char_data* attacker, char_data* victim, double damage)
+void combat_manager::apply_weapon_damage(char_data* attacker, const char_data* victim, double damage)
 {
     int hit_location = get_hit_location(*victim);
     int weapon_type = get_weapon_skill_type(*attacker);
@@ -464,7 +464,7 @@ void combat_manager::apply_weapon_damage(char_data* attacker, char_data* victim,
 // should be done after the victim's armor is factored in.  The
 // modified amount is returned.
 //============================================================================
-double combat_manager::apply_armor_reduction(char_data* attacker, char_data* victim, double damage, int weapon_type, int hit_location)
+double combat_manager::apply_armor_reduction(const char_data* attacker, const char_data* victim, double damage, int weapon_type, int hit_location)
 {
     // Bogus hit location
     if (hit_location < 0 || hit_location > MAX_WEAR)
@@ -523,7 +523,7 @@ double combat_manager::apply_armor_reduction(char_data* attacker, char_data* vic
 //============================================================================
 // Damage returns true if the victim is killed and false otherwise.
 //============================================================================
-bool combat_manager::apply_damage(char_data* attacker, char_data* victim, double damage, int attack_type, int hit_location)
+bool combat_manager::apply_damage(const char_data* attacker, const char_data* victim, double damage, int attack_type, int hit_location)
 {
     return false;
 }

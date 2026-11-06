@@ -97,19 +97,22 @@ Send comments, bug reports, etc. to jelson@server.cs.jhu.edu
 #include "handler.h"
 #include "interpre.h"
 #include "mail.h"
+#include "object_text.h"
 #include "structs.h"
 #include "utils.h"
 
-void postmaster_send_mail(struct char_data* ch, int cmd, char* arg, char_data* host);
-void postmaster_check_mail(struct char_data* ch, int cmd, char* arg, char_data* host);
-void postmaster_receive_mail(struct char_data* ch, int cmd, char* arg, char_data* host);
+#include <utility>
+
+void postmaster_send_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
+void postmaster_check_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
+void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, char_data* host);
 
 extern struct room_data* world;
 extern struct index_data* mob_index;
 extern struct obj_data* object_list;
 extern int no_mail;
-int find_name(char* name);
-int _parse_name(char* arg, char* name);
+int find_name(const char* name);
+int _parse_name(const char* arg, char* name);
 
 mail_index_type* mail_index = 0; /* list of recs in the mail file  */
 position_list_type* free_list = 0; /* list of free positions in file */
@@ -140,7 +143,7 @@ long pop_free_list(void)
 }
 
 mail_index_type*
-find_char_in_index(char* searchee)
+find_char_in_index(const char* searchee)
 {
     mail_index_type* temp_rec;
 
@@ -157,7 +160,7 @@ find_char_in_index(char* searchee)
     return temp_rec;
 }
 
-void write_to_file(void* buf, int size, long filepos)
+void write_to_file(const void* buf, int size, long filepos)
 {
     FILE* mail_file;
 
@@ -276,7 +279,7 @@ int scan_file(void)
 
 /* HAS_MAIL */
 /* a simple little function which tells you if the guy has mail or not */
-int has_mail(char* recipient)
+int has_mail(const char* recipient)
 {
     if (find_char_in_index(recipient))
         return 1;
@@ -288,7 +291,7 @@ int has_mail(char* recipient)
    who the mail is to (name), who it's from (name), and a pointer to the
    actual message text.			*/
 
-void store_mail(char* to, char* from, char* message_pointer)
+void store_mail(char* to, const char* from, char* message_pointer)
 {
     header_block_type header;
     data_block_type data;
@@ -384,7 +387,7 @@ void store_mail(char* to, char* from, char* message_pointer)
 you're retrieving.  It returns to you a char pointer to the message text.
 The mail is then discarded from the file and the mail index. */
 
-char* read_delete(char* recipient, char* recipient_formatted, int is_good)
+char* read_delete(const char* recipient, const char* recipient_formatted, int is_good)
 /* recipient is the name as it appears in the index.
      recipient_formatted is the name as it should appear on the mail
      header (i.e. the text handed to the player) */
@@ -524,7 +527,7 @@ SPECIAL(postmaster)
     }
 }
 
-int mail_ok(struct char_data* ch)
+int mail_ok(const struct char_data* ch)
 {
     if (no_mail) {
         send_to_char("Sorry, the mail system is having technical difficulties.\n\r", ch);
@@ -536,7 +539,7 @@ int mail_ok(struct char_data* ch)
 
 /* Find mailman removed - crashed the mud and isn't needed anyway... */
 
-void postmaster_send_mail(struct char_data* ch, int cmd, char* arg, char_data* host)
+void postmaster_send_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
 {
     struct char_data* mailman;
     char buf[200], recipient[100], *tmp;
@@ -590,10 +593,10 @@ void postmaster_send_mail(struct char_data* ch, int cmd, char* arg, char_data* h
     ch->desc->name = (char*)str_dup(recipient);
     ch->desc->str = (char**)malloc(sizeof(char*));
     *(ch->desc->str) = 0;
-    ch->desc->max_str = MAX_MAIL_SIZE;
+    ch->desc->str_limit = MAX_MAIL_SIZE;
 }
 
-void postmaster_check_mail(struct char_data* ch, int cmd, char* arg, char_data* host)
+void postmaster_check_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
 {
     struct char_data* mailman;
     char buf[200], recipient[100], *tmp;
@@ -612,7 +615,7 @@ void postmaster_check_mail(struct char_data* ch, int cmd, char* arg, char_data* 
     act(buf, FALSE, mailman, 0, ch, TO_VICT);
 }
 
-void postmaster_receive_mail(struct char_data* ch, int cmd, char* arg, char_data* host)
+void postmaster_receive_mail(struct char_data* ch, int cmd, const char* arg, char_data* host)
 {
     struct char_data* mailman;
     char buf[200], recipient[100], *tmp;
@@ -632,22 +635,27 @@ void postmaster_receive_mail(struct char_data* ch, int cmd, char* arg, char_data
     }
 
     while (has_mail(recipient)) {
-        CREATE(tmp_obj, struct obj_data, 1);
+        tmp_obj = new obj_data();
         clear_object(tmp_obj);
 
-        tmp_obj->name = str_dup("mail paper letter");
-        tmp_obj->short_description = str_dup("a letter");
-        tmp_obj->description = str_dup("Someone has dropped a letter here.");
+        object_text::fields text;
+        text.name = "mail paper letter";
+        text.short_description = "a letter";
+        text.description = "Someone has dropped a letter here.";
 
         tmp_obj->obj_flags.type_flag = ITEM_NOTE;
         tmp_obj->obj_flags.wear_flags = ITEM_TAKE | ITEM_HOLD;
         tmp_obj->obj_flags.weight = 1;
         tmp_obj->obj_flags.cost = 30;
         tmp_obj->obj_flags.cost_per_day = 10;
-        tmp_obj->action_description = read_delete(recipient, GET_NAME(ch), (GET_ALIGNMENT(ch) > 0));
-
-        if (!tmp_obj->action_description)
-            tmp_obj->action_description = str_dup("Mail system error - please report.  Error #11.\n\r");
+        char* const letter = read_delete(recipient, GET_NAME(ch), (GET_ALIGNMENT(ch) > 0));
+        if (letter) {
+            text.action_description = letter;
+            free(letter);
+        } else {
+            text.action_description = "Mail system error - please report.  Error #11.\n\r";
+        }
+        tmp_obj->set_text(create_object_text(std::move(text)));
 
         tmp_obj->next = object_list;
         object_list = tmp_obj;

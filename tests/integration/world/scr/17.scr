@@ -1,0 +1,421 @@
+#1700 Harness plain smith~
+Brali's shape (#2709): the star token block holds a nested guard with an empty else branch.~
+15 1 0 0 0 0 0 0
+ a given object starts the token check~
+57 2 1700 955 0 0 0 0
+ int3 is the star token's vnum~
+4 3 402 955 0 0 0 0
+ is the object the star token?~
+1 4 0 0 0 0 0 0
+ ~
+8 5 200 0 0 0 0 0
+ a mob giver halts the script~
+1 6 0 0 0 0 0 0
+ ~
+30 7 100 0 0 0 0 0
+ I do not trade with your kind.~
+6 8 0 0 0 0 0 0
+ ~
+5 9 0 0 0 0 0 0
+ ~
+2 10 0 0 0 0 0 0
+ ~
+30 11 100 0 0 0 0 0
+ A star token! Here is your reward.~
+5 12 0 0 0 0 0 0
+ ~
+30 13 100 0 0 0 0 0
+ That is no star token.~
+2 14 0 0 0 0 0 0
+ ~
+30 15 100 0 0 0 0 0
+ Who is next?~
+999 0 0 0 0 0 0 0
+#1701 Harness labelled smith~
+Script 1700 with section rows: between the IF and its BEGIN, before the nested IF, and on the empty else branch.~
+15 1 0 0 0 0 0 0
+ a given object starts the token check~
+78 2 0 0 0 0 0 0
+ Token check | the reward runs only for the star token~
+57 3 1700 955 0 0 0 0
+ int3 is the star token's vnum~
+4 4 402 955 0 0 0 0
+ is the object the star token?~
+78 5 0 0 0 0 0 0
+ Reward | the star token's block~
+1 6 0 0 0 0 0 0
+ ~
+78 7 0 0 0 0 0 0
+ Guard | a mob giver halts the script~
+8 8 200 0 0 0 0 0
+ a mob giver halts the script~
+1 9 0 0 0 0 0 0
+ ~
+30 10 100 0 0 0 0 0
+ I do not trade with your kind.~
+6 11 0 0 0 0 0 0
+ ~
+5 12 0 0 0 0 0 0
+ ~
+78 13 0 0 0 0 0 0
+ No guard | a player giver goes on~
+2 14 0 0 0 0 0 0
+ ~
+30 15 100 0 0 0 0 0
+ A star token! Here is your reward.~
+5 16 0 0 0 0 0 0
+ ~
+30 17 100 0 0 0 0 0
+ That is no star token.~
+2 18 0 0 0 0 0 0
+ ~
+30 19 100 0 0 0 0 0
+ Who is next?~
+999 0 0 0 0 0 0 0
+#1702 Harness weary foreman~
+Says one line, waits, says a last line and ends (#270).~
+17 1 0 0 0 0 0 0
+ anything said in the room starts the farewell~
+30 2 100 0 0 0 0 0
+ Goodbye, then.~
+58 3 4 0 0 0 0 0
+ four pulses, one second~
+30 4 100 0 0 0 0 0
+ My shift is over at last.~
+999 0 0 0 0 0 0 0
+#1703 Harness gatekeeper~
+Opens the north door of his room when given anything; closes and locks it when he hears "lock" (#312).~
+15 1 0 0 0 0 0 0
+ a given object opens the door~
+44 2 0 0 102 0 0 0
+ north (direction 0) of his room, state 0: open~
+17 3 0 0 0 0 0 0
+ speech containing "lock" closes and locks it~
+10 4 950 0 0 0 0 0
+LOCK~
+44 5 0 2 102 0 0 0
+ north of his room, state 2: closed and locked~
+999 0 0 0 0 0 0 0
+#1704 Harness surveyor~
+Points the up exit of his room, which has none, at room 1101 (#312).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+50 2 102 4 1101 0 0 0
+ his room's up exit (4) to room 1101~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1705 Harness courier~
+Teleports himself to rm1, which is unset, after a line that leaves a room number set (#312).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+40 2 1101 300 0 0 0 0
+ ch3 is unset, so nobody moves; the line looks up room 1101~
+75 3 700 100 0 0 0 0
+ ch1 to rm1, which is unset~
+30 4 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1706 Harness valet~
+Reads equipment slot 22 into ob1; slots are 0-21 (#312).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+52 2 100 400 22 953 0 0
+ ch1's slot 22 into ob1, found into int1~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1707 Harness dresser~
+Removes equipment slot 22; slots are 0-21 (#312).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+54 2 100 22 0 0 0 0
+ ch1 removes slot 22~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1708 Harness appraiser~
+Loads a cap, then reads the head slot of ch3, which is unset (#312).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+47 2 1137 500 0 0 0 0
+ a leather cap into ob2~
+48 3 500 100 0 0 0 0
+ ob2 into ch1's inventory~
+52 4 300 600 6 953 0 0
+ ch3's head slot (6) into ob3, found into int1~
+73 5 953 0 0 0 0 0
+ found something?~
+30 6 100 0 0 0 0 0
+ Phantom.~
+76 7 953 0 0 0 0 0
+ found nothing?~
+30 8 100 0 0 0 0 0
+ Nothing.~
+30 9 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1709 Harness mumbler~
+Speaks, then skips a false IF whose nested block never ends (#368).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+30 2 100 0 0 0 0 0
+ Still here.~
+8 3 200 0 0 0 0 0
+ a player giver: false~
+1 4 0 0 0 0 0 0
+ ~
+8 5 100 0 0 0 0 0
+ ~
+1 6 0 0 0 0 0 0
+ ~
+30 7 100 0 0 0 0 0
+ Never said.~
+999 0 0 0 0 0 0 0
+#1710 Harness renamer~
+Writes to ch1.name, which a script cannot write (#318).~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+31 2 101 0 0 0 0 0
+A new name~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1711 Harness smiler~
+Has ch3, which is unset, smile (#318).~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+56 2 300 0 0 0 0 0
+smile~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1712 Harness fitter~
+Has ch1 wear ob1, which a hear trigger leaves unset (#318).~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+55 2 100 400 0 0 0 0
+ ch1 wears ob1~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1713 Harness copier~
+Copies ob1, which a hear trigger leaves unset, into ob2 (#318).~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+77 2 1 500 0 0 0 0
+ a copy of ob1 into ob2~
+30 3 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1714 Harness hatter~
+Wears the object he is given.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+55 2 100 400 0 0 0 0
+ ch1 wears ob1~
+999 0 0 0 0 0 0 0
+#1715 Harness scribe~
+Copies the object he is given and gives the copy to the giver.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+77 2 1 500 0 0 0 0
+ a copy of ob1 into ob2~
+48 3 500 100 0 0 0 0
+ ob2 into ch1's inventory~
+46 4 100 200 500 0 0 0
+ ch1 gives ob2 to ch2~
+999 0 0 0 0 0 0 0
+#1716 Harness hale wrestler~
+Writes 5000000 to his own hit points (#272).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+57 2 5000000 111 0 0 0 0
+ ch1.hit = 5000000~
+999 0 0 0 0 0 0 0
+#1717 Harness dazed wrestler~
+Writes 0 to his own hit points when given anything, and 50 when he hears speech (#272).~
+15 1 0 0 0 0 0 0
+ a given object stuns him~
+57 2 0 111 0 0 0 0
+ ch1.hit = 0~
+17 3 0 0 0 0 0 0
+ speech heals him~
+57 4 50 111 0 0 0 0
+ ch1.hit = 50~
+999 0 0 0 0 0 0 0
+#1718 Harness doomed wrestler~
+Writes -5000000 to his own hit points (#272).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+57 2 -5000000 111 0 0 0 0
+ ch1.hit = -5000000~
+999 0 0 0 0 0 0 0
+#1719 Harness accountant~
+Divides 1000000 by 0 into int1, which held 99, and says whether the result is 0 (#272).~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+57 2 99 953 0 0 0 0
+ int1 = 99~
+57 3 1000000 954 0 0 0 0
+ int2 = 1000000~
+57 4 0 955 0 0 0 0
+ int3 = 0~
+62 5 953 954 955 0 0 0
+ int1 = int2 / int3~
+4 6 953 955 0 0 0 0
+ int1 == 0?~
+1 7 0 0 0 0 0 0
+ ~
+30 8 100 0 0 0 0 0
+ Quotient zero.~
+5 9 0 0 0 0 0 0
+ ~
+30 10 100 0 0 0 0 0
+ Quotient not zero.~
+2 11 0 0 0 0 0 0
+ ~
+999 0 0 0 0 0 0 0
+#1720 Harness boot report~
+Never run: each line names something that does not exist, for the boot-time check (#312).~
+15 1 0 0 0 0 0 0
+ no mob uses this script~
+39 2 1799 100 0 0 0 0
+ load mob 1799~
+47 3 1799 400 0 0 0 0
+ load obj 1799~
+35 4 1799 400 100 953 0 0
+ assign inv 1799~
+68 5 1799 400 102 953 0 0
+ assign room 1799~
+40 6 1799 100 0 0 0 0
+ teleport to room 1799~
+65 7 1799 100 0 0 0 0
+ teleport x to room 1799~
+50 8 102 0 1799 0 0 0
+ change exit to room 1799~
+70 9 100 1799 0 0 0 0
+ equip char with object 1799~
+52 10 100 400 22 953 0 0
+ assign eq slot 22~
+54 11 100 -1 0 0 0 0
+ do remove slot -1~
+44 12 6 0 102 0 0 0
+ set exit state direction 6~
+50 40 102 7 1101 0 0 0
+ change exit to direction 7, numbered 40 out of order~
+999 0 0 0 0 0 0 0
+#1721 Harness patient foreman~
+Says one line, waits 400 pulses (100 seconds), says a last line and ends (#270).~
+17 1 0 0 0 0 0 0
+ anything said in the room starts the farewell~
+30 2 100 0 0 0 0 0
+ Goodbye, then.~
+58 3 400 0 0 0 0 0
+ 400 pulses, 100 seconds~
+30 4 100 0 0 0 0 0
+ My shift is over at last.~
+999 0 0 0 0 0 0 0
+#1723 Harness wanderer~
+Teleports himself to room 1201 when he hears speech.~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+65 2 1201 100 0 0 0 0
+ ch1 to room 1201~
+999 0 0 0 0 0 0 0
+#1724 Harness listener~
+Answers when he hears speech.~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+30 2 100 0 0 0 0 0
+ I heard that.~
+999 0 0 0 0 0 0 0
+#1730 Harness crier~
+Says a line, waits, says a second line and waits again: a DO_WAIT is the script's last row.~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+30 2 100 0 0 0 0 0
+ First.~
+58 3 4 0 0 0 0 0
+ four pulses, one second~
+30 4 100 0 0 0 0 0
+ Second.~
+58 5 4 0 0 0 0 0
+ four pulses, the script's last row~
+999 0 0 0 0 0 0 0
+#1731 Harness first clerk~
+A false IF whose block ends with a nested IF / BEGIN / ... / END that has no else branch.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+57 2 1 953 0 0 0 0
+ int1 = 1~
+57 3 0 954 0 0 0 0
+ int2 = 0~
+4 4 953 954 0 0 0 0
+ int1 == int2: false~
+1 5 0 0 0 0 0 0
+ ~
+7 6 954 953 0 0 0 0
+ int2 < int1~
+1 7 0 0 0 0 0 0
+ ~
+30 8 100 0 0 0 0 0
+ Nested body.~
+2 9 0 0 0 0 0 0
+ ~
+5 10 0 0 0 0 0 0
+ ~
+30 11 100 0 0 0 0 0
+ Outer else.~
+2 12 0 0 0 0 0 0
+ ~
+30 13 100 0 0 0 0 0
+ After.~
+999 0 0 0 0 0 0 0
+#1732 Harness second clerk~
+A false IF whose block holds a nested IF / BEGIN / ... / END_ELSE_BEGIN / ... / END with a non-empty else branch.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+57 2 1 953 0 0 0 0
+ int1 = 1~
+57 3 0 954 0 0 0 0
+ int2 = 0~
+4 4 953 954 0 0 0 0
+ int1 == int2: false~
+1 5 0 0 0 0 0 0
+ ~
+7 6 954 953 0 0 0 0
+ int2 < int1~
+1 7 0 0 0 0 0 0
+ ~
+30 8 100 0 0 0 0 0
+ Nested then.~
+5 9 0 0 0 0 0 0
+ ~
+30 10 100 0 0 0 0 0
+ Nested else.~
+2 11 0 0 0 0 0 0
+ ~
+30 12 100 0 0 0 0 0
+ Outer tail.~
+5 13 0 0 0 0 0 0
+ ~
+30 14 100 0 0 0 0 0
+ Outer else.~
+2 15 0 0 0 0 0 0
+ ~
+30 16 100 0 0 0 0 0
+ After.~
+999 0 0 0 0 0 0 0
+#1733 Harness careless copyist~
+Script 1715 with 0 in LOAD_OBJ_X's first parameter, which the script editor calls unused.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+77 2 0 500 0 0 0 0
+ a copy of ob1 into ob2, with 0 as the unused first parameter~
+48 3 500 100 0 0 0 0
+ ob2 into ch1's inventory~
+46 4 100 200 500 0 0 0
+ ch1 gives ob2 to ch2~
+999 0 0 0 0 0 0 0
+#99999

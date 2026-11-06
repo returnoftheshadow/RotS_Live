@@ -1,0 +1,764 @@
+/* Special procedures that remove characters or objects while a command, a move, a mob's turn or a
+ * dragon's breath is still going through them: whatever offered the procedure stops touching
+ * what was removed, and goes on as before with what is left.
+ *
+ * The procedures here are test procedures given to mobs (through a prototype entry), objects
+ * (through their prototype's index entry) and rooms; procedure_record tells what they did. */
+#include "scripted_room_fixture.h"
+
+#include "../big_brother.h"
+#include "../skill_timer.h"
+#include "../spells.h"
+
+#include <algorithm>
+#include <deque>
+#include <string>
+#include <vector>
+
+ACMD(do_move);
+ACMD(do_say);
+ACMD(do_flee);
+ACMD(do_knock);
+ACMD(do_gen_com);
+ACMD(do_at);
+ACMD(do_order);
+ACMD(do_mental);
+ACMD(do_concentrate);
+combat_result_struct damage_stat(char_data* killer, char_data* victim, int stat_number, int amount);
+void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
+void one_mobile_activity(char_data* mob);
+void mobile_activity(void);
+void assign_command_pointers(void);
+SPECIAL(dragon);
+SPECIAL(gatekeeper);
+SPECIAL(gatekeeper2);
+SPECIAL(thuringwethil);
+SPECIAL(guild);
+SPECIAL(ar_tarthalon);
+SPECIAL(mob_ranger);
+
+extern struct index_data* mob_index;
+extern int top_of_mobt;
+
+using namespace scripted_room;
+
+namespace {
+
+/* Enough movement points for any step. */
+constexpr int PLENTY_OF_MOVES = 100;
+/* The interpreter's number for flee; do_flee offers this plus one to the procedures. */
+constexpr int FLEE_COMMAND = 84;
+/* Hit points at which Thuringwethil leaves whenever her procedure runs. */
+constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 400;
+/* The lowest stat a mental attack does not count as critical; one point less makes a wimpy mob
+ * flee. */
+constexpr int LOWEST_SAFE_STAT = 3;
+/* A stat no test's mental attack brings near zero. */
+constexpr int SAFE_STAT = 50;
+/* How many mobs one test can give a prototype entry (and with it a procedure). */
+constexpr int MOB_PROTOTYPE_SLOTS = 8;
+
+/* What the test procedures act on and what they saw, cleared before each test. */
+struct procedure_record {
+    // The character remove_marked_character and remove_marked_on_death remove.
+    char_data* character_to_remove = nullptr;
+    // The object remove_marked_object removes.
+    obj_data* object_to_remove = nullptr;
+    // The hosts record_offer ran for, in order.
+    std::vector<const void*> offered_hosts;
+};
+
+procedure_record record;
+
+/* The test procedures below have the special_func signature written out rather than through
+ * SPECIAL, so each names only the parameters it reads, in full. */
+
+/* Notes that <host> was offered the command. It reads the one acting, as most procedures do, so
+ * a freed one handed to it is a use after free that AddressSanitizer reports. */
+int record_offer(char_data* host, char_data* actor, int, char*, int, waiting_type*)
+{
+    if (actor && actor->in_room == NOWHERE) {
+        ADD_FAILURE() << "the one acting is nowhere";
+    }
+    record.offered_hosts.push_back(host);
+    return 0;
+}
+
+/* Takes the command for itself: no procedure after it is offered it. */
+int intercept_command(char_data* host, char_data*, int, char*, int, waiting_type*)
+{
+    record.offered_hosts.push_back(host);
+    return 1;
+}
+
+/* Removes its own mob, and lets the command go on. */
+int remove_own_mob(char_data* host, char_data*, int, char*, int, waiting_type*)
+{
+    extract_char(host);
+    return 0;
+}
+
+/* Removes its own object, and lets the command go on. */
+int remove_own_object(char_data* host, char_data*, int, char*, int, waiting_type*)
+{
+    extract_obj(reinterpret_cast<obj_data*>(host));
+    return 0;
+}
+
+/* Removes the one acting, and lets the command go on. */
+int remove_actor(char_data*, char_data* actor, int, char*, int, waiting_type*)
+{
+    extract_char(actor);
+    return 0;
+}
+
+/* A guard: removes whoever sets off north past it, and lets the command go on. */
+int remove_actor_going_north(
+    char_data*, char_data* actor, int command_number, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_COMMAND && command_number == NORTH + 1) {
+        extract_char(actor);
+    }
+    return 0;
+}
+
+/* Removes record.character_to_remove, if a character is still marked. */
+void remove_the_marked_character()
+{
+    if (record.character_to_remove) {
+        char_data* marked = record.character_to_remove;
+        record.character_to_remove = nullptr;
+        extract_char(marked);
+    }
+}
+
+/* Removes record.character_to_remove when anyone acts, and lets the command go on. */
+int remove_marked_character(char_data*, char_data*, int, char*, int, waiting_type*)
+{
+    remove_the_marked_character();
+    return 0;
+}
+
+/* As remove_marked_character, but only when someone sets off north. */
+int remove_marked_going_north(
+    char_data*, char_data*, int command_number, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_COMMAND && command_number == NORTH + 1) {
+        remove_the_marked_character();
+    }
+    return 0;
+}
+
+/* As remove_marked_character, but only for the one arriving being record.character_to_remove. */
+int remove_marked_arriving(char_data*, char_data* actor, int, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_ENTER && actor == record.character_to_remove) {
+        remove_the_marked_character();
+    }
+    return 0;
+}
+
+/* As remove_marked_character, but only when its own mob dies. */
+int remove_marked_on_death(char_data*, char_data*, int, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_DEATH) {
+        remove_the_marked_character();
+    }
+    return 0;
+}
+
+/* Removes record.object_to_remove, and lets the command go on. */
+int remove_marked_object(char_data*, char_data*, int, char*, int, waiting_type*)
+{
+    if (record.object_to_remove) {
+        obj_data* marked = record.object_to_remove;
+        record.object_to_remove = nullptr;
+        extract_obj(marked);
+    }
+    return 0;
+}
+
+/* Removes whoever flees past it, and lets the flight go on. */
+int remove_actor_fleeing(
+    char_data*, char_data* actor, int command_number, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_COMMAND && command_number == FLEE_COMMAND + 1) {
+        extract_char(actor);
+    }
+    return 0;
+}
+
+/* Removes whoever yells within earshot, and lets the yell go on. */
+int remove_actor_yelling(
+    char_data*, char_data* actor, int command_number, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_COMMAND && command_number == CMD_YELL) {
+        extract_char(actor);
+    }
+    return 0;
+}
+
+/* On the far side of a door, removes whoever knocks on it. */
+int remove_actor_knocking(
+    char_data*, char_data* actor, int command_number, char*, int, waiting_type*)
+{
+    if (command_number == CMD_KNOCK) {
+        extract_char(actor);
+    }
+    return 0;
+}
+
+/* On the far side of a door, takes whoever knocks on it through to that side. */
+int take_knocker_through(
+    char_data*, char_data* actor, int command_number, char*, int, waiting_type*)
+{
+    if (command_number == CMD_KNOCK) {
+        char_from_room(actor);
+        char_to_room(actor, SECOND_ROOM);
+    }
+    return 0;
+}
+
+/* Removes whoever damages its mob, and lets the damage go on. */
+int remove_attacker(char_data*, char_data* actor, int, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_DAMAGE) {
+        extract_char(actor);
+    }
+    return 0;
+}
+
+/* On its own mob's turn, removes record.character_to_remove and then the mob itself. */
+int remove_marked_then_self(char_data* host, char_data*, int, char*, int callflag, waiting_type*)
+{
+    if (callflag == SPECIAL_SELF) {
+        remove_the_marked_character();
+        extract_char(host);
+    }
+    return 0;
+}
+
+class SpecialProcedureTest : public ScriptedRoomFixture {
+protected:
+    void SetUp() override
+    {
+        ScriptedRoomFixture::SetUp();
+        link_second_room();
+        /* Made at boot; damage and deaths ask them. Making them again keeps the ones there are. */
+        game_rules::big_brother::create(weather_info, &world);
+        game_timer::skill_timer::create(weather_info, &world);
+        record = procedure_record {};
+        m_saved_mob_index = mob_index;
+        m_saved_top_of_mobt = top_of_mobt;
+        mob_index = m_mob_prototypes;
+        top_of_mobt = MOB_PROTOTYPE_SLOTS - 1;
+        for (int room = 0; room <= SECOND_ROOM; ++room) {
+            m_saved_room_procedures[room] = world[room].funct;
+            m_saved_room_flags[room] = world[room].room_flags;
+            world[room].funct = nullptr;
+            world[room].room_flags = 0;
+        }
+    }
+
+    void TearDown() override
+    {
+        /* The mobs still in the game are extracted with their prototype entries in place. */
+        ScriptedRoomFixture::TearDown();
+        for (char_prof_data*& professions : m_mob_professions)
+            RELEASE(professions);
+        mob_index = m_saved_mob_index;
+        top_of_mobt = m_saved_top_of_mobt;
+        for (int room = 0; room <= SECOND_ROOM; ++room) {
+            world[room].funct = m_saved_room_procedures[room];
+            world[room].room_flags = m_saved_room_flags[room];
+        }
+        record = procedure_record {};
+    }
+
+    /* Gives <mob> a prototype entry of its own running <procedure> (none for null), as a mob read
+     * from the world files has. The game then no longer frees the mob's strings or profession
+     * block, so the test keeps them. */
+    void give_prototype(char_data* mob, special_func procedure)
+    {
+        if (m_used_prototypes >= MOB_PROTOTYPE_SLOTS) {
+            ADD_FAILURE() << "more than " << MOB_PROTOTYPE_SLOTS << " mobs with prototypes";
+            return;
+        }
+        const int slot = m_used_prototypes++;
+        m_mob_prototypes[slot].func = procedure;
+        mob->nr = slot;
+        if (procedure) {
+            SET_BIT(MOB_FLAGS(mob), MOB_SPEC);
+        }
+        m_mob_names.emplace_back(mob->player.name);
+        RELEASE(mob->player.name);
+        RELEASE(mob->player.short_descr);
+        mob->player.name = m_mob_names.back().data();
+        mob->player.short_descr = m_mob_names.back().data();
+        m_mob_professions.push_back(mob->profs);
+    }
+
+    /* A mob in <room> with a prototype entry running <procedure>, and the moves to walk anywhere. */
+    char_data* make_mob_with(const char* keywords, special_func procedure, int room = 0)
+    {
+        char_data* mob = make_mob(keywords, 0, room);
+        mob->abilities.move = PLENTY_OF_MOVES;
+        mob->tmpabilities.move = PLENTY_OF_MOVES;
+        give_prototype(mob, procedure);
+        return mob;
+    }
+
+    /* An object of the prototype with <vnum>, whose prototype runs <procedure>; not placed. */
+    obj_data* make_object_with(int virtual_number, special_func procedure)
+    {
+        obj_data* object = make_object(virtual_number, 0);
+        obj_index[object->item_number].func = procedure;
+        return object;
+    }
+
+    /* A player character in <room> with no connection, made on the heap so that the game can
+     * free it; TearDown extracts it with the mobs if it is still in the game. */
+    char_data* make_player_character(const char* name, int room = 0)
+    {
+        char_data* player = owned_character().release();
+        player->player.name = str_dup(name);
+        player->player.race = RACE_HUMAN;
+        player->player.level = 10;
+        player->tmpabilities.str = 18;
+        player->tmpabilities.dex = 18;
+        player->tmpabilities.intel = 18;
+        player->tmpabilities.move = PLENTY_OF_MOVES;
+        player->specials.position = POSITION_STANDING;
+        player->next = character_list;
+        character_list = player;
+        register_pc_char(player);
+        char_to_room(player, room);
+        return player;
+    }
+
+    /* Makes <victim> one that mental attacks reach and that never resists one: full perception,
+     * no willpower and a mind that can be fathomed. */
+    static void open_to_mental_attack(char_data* victim)
+    {
+        victim->specials2.perception = 100;
+        victim->points.willpower = 0;
+        victim->player.bodytype = 1;
+    }
+
+    /* Makes <mob> a wimpy one whose strength turns critical, and so makes it flee, at the first
+     * point a mental attack drains, while every other stat stays far from zero. */
+    static void make_critical_on_strength_loss(char_data* mob)
+    {
+        SET_BIT(MOB_FLAGS(mob), MOB_WIMPY);
+        /* A move compares each stat with its base, so the bases are set as well. */
+        mob->abilities.str = SAFE_STAT;
+        mob->abilities.dex = SAFE_STAT;
+        mob->abilities.con = SAFE_STAT;
+        mob->tmpabilities.str = LOWEST_SAFE_STAT;
+        mob->tmpabilities.intel = SAFE_STAT;
+        mob->tmpabilities.wil = SAFE_STAT;
+        mob->tmpabilities.dex = SAFE_STAT;
+        mob->tmpabilities.con = SAFE_STAT;
+        mob->tmpabilities.lea = SAFE_STAT;
+    }
+
+    /* Thuringwethil, beaten, open to mental attack: any call of her procedure, a mental attack's
+     * included, removes her. */
+    char_data* make_beaten_thuringwethil()
+    {
+        char_data* vampire = make_mob_with("vampire", thuringwethil);
+        vampire->tmpabilities.hit = THURINGWETHIL_BEATEN_HIT_POINTS;
+        open_to_mental_attack(vampire);
+        return vampire;
+    }
+
+    /* Seats <rider> on <mount>, behind any rider already there, as do_ride leaves them. */
+    static void seat(char_data* rider, char_data* mount)
+    {
+        rider->mount_data.mount = mount;
+        rider->mount_data.mount_number = mount->abs_number;
+        rider->mount_data.next_rider = nullptr;
+        rider->mount_data.next_rider_number = -1;
+        if (!mount->mount_data.rider) {
+            mount->mount_data.rider = rider;
+            mount->mount_data.rider_number = rider->abs_number;
+            return;
+        }
+        char_data* last = mount->mount_data.rider;
+        while (last->mount_data.next_rider) {
+            last = last->mount_data.next_rider;
+        }
+        last->mount_data.next_rider = rider;
+        last->mount_data.next_rider_number = rider->abs_number;
+    }
+
+    /* Moves <walker> north, as the interpreter does for the north command. */
+    static void walk_north(char_data* walker) { do_move(walker, empty_argument(), nullptr, NORTH + 1, 0); }
+
+    /* Offers <actor>'s command <command_number> to the procedures here, as the interpreter
+     * does. */
+    static int offer_command(char_data* actor, int command_number = NORTH + 1)
+    {
+        return special(actor, command_number, empty_argument(), SPECIAL_COMMAND, nullptr);
+    }
+
+    /* A writable empty argument for the commands. */
+    static char* empty_argument()
+    {
+        static char empty[1] = "";
+        empty[0] = '\0';
+        return empty;
+    }
+
+    /* Whether record_offer or intercept_command ran for <host>. */
+    static bool was_offered(const void* host)
+    {
+        const std::vector<const void*>& offered = record.offered_hosts;
+        return std::find(offered.begin(), offered.end(), host) != offered.end();
+    }
+
+    /* Puts <first> and <second> in a fight with each other. */
+    static void start_fight(char_data* first, char_data* second)
+    {
+        set_fighting(first, second);
+        set_fighting(second, first);
+    }
+
+private:
+    // The prototype entries give_prototype hands out, in place of the game's mob_index.
+    index_data m_mob_prototypes[MOB_PROTOTYPE_SLOTS] {};
+    // How many of m_mob_prototypes give_prototype has handed out.
+    int m_used_prototypes = 0;
+    // The names of the mobs with prototype entries, which the game no longer frees; a deque, so
+    // earlier names never move.
+    std::deque<std::string> m_mob_names;
+    // The profession blocks clear_char gave the mobs with prototype entries, which free_char then
+    // leaves alone as it leaves a prototype's; released by TearDown.
+    std::vector<char_prof_data*> m_mob_professions;
+    // The game's mob prototype entries and their count, put back by TearDown.
+    index_data* m_saved_mob_index = nullptr;
+    int m_saved_top_of_mobt = 0;
+    // The procedures and flags of rooms 0 and SECOND_ROOM before the test, put back by TearDown.
+    special_func m_saved_room_procedures[SECOND_ROOM + 1] {};
+    long m_saved_room_flags[SECOND_ROOM + 1] {};
+};
+
+} // namespace
+
+/* ---- special(): what a command is offered to ---- */
+
+TEST_F(SpecialProcedureTest, EveryProcedureHereIsOfferedACommandNobodyTakes)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    world[0].funct = record_offer;
+    obj_data* worn = make_object_with(RING_VNUM, record_offer);
+    equip_char(actor, worn, WEAR_FINGER_R);
+    obj_data* carried = make_object_with(STONE_VNUM, record_offer);
+    obj_to_char(carried, actor);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+    obj_data* lying = make_object_with(BREAD_VNUM, record_offer);
+    obj_to_room(lying, 0);
+
+    EXPECT_EQ(0, offer_command(actor));
+
+    const std::vector<const void*> expected
+        = { actor, worn, carried, bystander, lying };
+    EXPECT_EQ(expected, record.offered_hosts);
+}
+
+TEST_F(SpecialProcedureTest, AProcedureThatTakesTheCommandIsTheLastOfferedIt)
+{
+    char_data* taker = make_mob_with("taker", intercept_command);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(1, offer_command(&m_player));
+
+    EXPECT_TRUE(was_offered(taker));
+    EXPECT_FALSE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, TheMobAfterOneThatRemovesItselfIsStillOfferedTheCommand)
+{
+    char_data* vanishing = make_mob_with("vanishing", remove_own_mob);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(0, offer_command(&m_player));
+
+    EXPECT_FALSE(is_in_game(vanishing));
+    EXPECT_TRUE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, TheItemAfterOneThatRemovesItselfIsStillOfferedTheCommand)
+{
+    obj_data* recording = make_object_with(RING_VNUM, record_offer);
+    obj_to_char(recording, &m_player);
+    obj_data* crumbling = make_object_with(STONE_VNUM, remove_own_object);
+    obj_to_char(crumbling, &m_player);
+    ASSERT_EQ(crumbling, m_player.carrying) << "the crumbling one is offered first";
+
+    EXPECT_EQ(0, offer_command(&m_player));
+
+    EXPECT_FALSE(is_in_object_list(crumbling));
+    EXPECT_TRUE(was_offered(recording));
+}
+
+TEST_F(SpecialProcedureTest, TheObjectAfterOneThatRemovesItselfIsStillOfferedTheCommand)
+{
+    obj_data* recording = make_object_with(RING_VNUM, record_offer);
+    obj_to_room(recording, 0);
+    obj_data* crumbling = make_object_with(STONE_VNUM, remove_own_object);
+    obj_to_room(crumbling, 0);
+    ASSERT_EQ(crumbling, world[0].contents) << "the crumbling one is offered first";
+
+    EXPECT_EQ(0, offer_command(&m_player));
+
+    EXPECT_FALSE(is_in_object_list(crumbling));
+    EXPECT_TRUE(was_offered(recording));
+}
+
+TEST_F(SpecialProcedureTest, ARoomThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    world[0].funct = remove_actor;
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(1, offer_command(actor));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_FALSE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, AWornItemThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    equip_char(actor, make_object_with(RING_VNUM, remove_actor), WEAR_FINGER_R);
+    equip_char(actor, make_object_with(SWORD_VNUM, record_offer), WIELD);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+
+    EXPECT_EQ(1, offer_command(actor));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_TRUE(record.offered_hosts.empty());
+    EXPECT_FALSE(was_offered(bystander));
+}
+
+TEST_F(SpecialProcedureTest, AMobThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    make_mob_with("guard", remove_actor);
+    char_data* bystander = make_mob_with("bystander", record_offer);
+    obj_data* lying = make_object_with(BREAD_VNUM, record_offer);
+    obj_to_room(lying, 0);
+
+    EXPECT_EQ(1, offer_command(actor));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_TRUE(record.offered_hosts.empty());
+}
+
+TEST_F(SpecialProcedureTest, ATargetThatRemovesTheOneActingEndsTheCommand)
+{
+    char_data* actor = make_mob_with("actor", nullptr);
+    char_data* first_target = make_mob_with("first", remove_actor);
+    char_data* second_target = make_mob_with("second", record_offer);
+    waiting_type targets {};
+    targets.targ1.set_character(first_target);
+    targets.targ2.set_character(second_target);
+
+    EXPECT_EQ(1, special(actor, NORTH + 1, empty_argument(), SPECIAL_TARGET, &targets));
+
+    EXPECT_FALSE(is_in_game(actor));
+    EXPECT_FALSE(was_offered(second_target));
+}
+
+TEST_F(SpecialProcedureTest, ATargetObjectTheFirstTargetRemovedIsNotOfferedTheCommand)
+{
+    char_data* first_target = make_mob_with("first", remove_marked_object);
+    obj_data* second_target = make_object_with(RING_VNUM, record_offer);
+    obj_to_room(second_target, 0);
+    record.object_to_remove = second_target;
+    waiting_type targets {};
+    targets.targ1.set_character(first_target);
+    targets.targ2.type = TARGET_OBJ;
+    targets.targ2.ptr.obj = second_target;
+
+    EXPECT_EQ(0, special(&m_player, NORTH + 1, empty_argument(), SPECIAL_TARGET, &targets));
+
+    EXPECT_FALSE(is_in_object_list(second_target));
+    EXPECT_TRUE(record.offered_hosts.empty());
+}
+
+TEST_F(SpecialProcedureTest, BothTargetsAreOfferedACommandNeitherTakes)
+{
+    char_data* first_target = make_mob_with("first", record_offer);
+    obj_data* second_target = make_object_with(RING_VNUM, record_offer);
+    obj_to_room(second_target, 0);
+    waiting_type targets {};
+    targets.targ1.set_character(first_target);
+    targets.targ2.type = TARGET_OBJ;
+    targets.targ2.ptr.obj = second_target;
+
+    EXPECT_EQ(0, special(&m_player, NORTH + 1, empty_argument(), SPECIAL_TARGET, &targets));
+
+    const std::vector<const void*> expected = { first_target, second_target };
+    EXPECT_EQ(expected, record.offered_hosts);
+}
+
+/* A death procedure that removes its own mob ends the death there: there is no one left to die,
+ * and no corpse. */
+TEST_F(SpecialProcedureTest, ADeathProcedureThatRemovesTheDyingEndsTheDeath)
+{
+    char_data* dying = make_mob_with("dying", remove_own_mob);
+
+    raw_kill(dying, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(dying));
+    EXPECT_EQ(nullptr, world[0].contents) << "no corpse";
+}
+
+TEST_F(SpecialProcedureTest, ADeathWithAProcedureThatLetsItGoOnLeavesACorpse)
+{
+    char_data* dying = make_mob_with("dying", record_offer);
+
+    raw_kill(dying, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(dying));
+    EXPECT_NE(nullptr, world[0].contents) << "a corpse";
+}
+
+/* ---- the interpreter ---- */
+
+/* The guard removes the one typing north; the north command and its targets' procedures are
+ * then left alone. */
+TEST_F(SpecialProcedureTest, ACommandWhoseProcedureRemovesTheOneTypingItGoesNoFurther)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_actor_going_north);
+    char_data* walker = make_mob_with("walker", nullptr);
+    char north[] = "north";
+
+    command_interpreter(walker, north);
+
+    EXPECT_FALSE(is_in_game(walker));
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+}
+
+TEST_F(SpecialProcedureTest, ACommandNoProcedureTakesIsCarriedOut)
+{
+    assign_command_pointers();
+    make_mob_with("bystander", record_offer);
+    char_data* walker = make_mob_with("walker", nullptr);
+    char north[] = "north";
+
+    command_interpreter(walker, north);
+
+    ASSERT_TRUE(is_in_game(walker));
+    EXPECT_EQ(SECOND_ROOM, walker->in_room);
+}
+
+/* Makes room 0's way north a door called "door". */
+static void make_north_a_door(char* keyword)
+{
+    room_direction_data* north = world[0].dir_option[NORTH];
+    north->keyword = keyword;
+    SET_BIT(north->exit_info, EX_ISDOOR);
+}
+
+/* Whether <character> is on <room>'s list of people. Compares addresses only, so it may be given
+ * one that has been freed. */
+static bool is_listed_in_room(int room, const char_data* character)
+{
+    for (const char_data* person = world[room].people; person; person = person->next_in_room) {
+        if (person == character) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The knocker is removed while lent the far room: it leaves the room it stands in, and what it
+ * carried falls there. */
+TEST_F(SpecialProcedureTest, AKnockWhoseFarSideRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = remove_actor_knocking;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_EQ(&m_player, world[0].people) << "only the player is left here";
+    EXPECT_EQ(nullptr, m_player.next_in_room);
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
+}
+
+TEST_F(SpecialProcedureTest, AKnockerTakenThroughTheDoorStandsOnlyOnTheFarSide)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    world[SECOND_ROOM].funct = take_knocker_through;
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_EQ(SECOND_ROOM, knocker->in_room);
+    EXPECT_TRUE(is_listed_in_room(SECOND_ROOM, knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+}
+
+/* How long the gatekeeper's script pauses: long enough that the knock, not the waiting list, ends
+ * the pause. */
+constexpr int GATEKEEPER_PAUSE_PULSES = 5;
+
+/* The gatekeeper on the far side takes the knock, which ends its pause: the rest of its script
+ * yells, and a guard where the knocker stands removes the knocker on hearing it. */
+TEST_F(SpecialProcedureTest, AKnockWhoseGatekeepersYellRemovesTheKnockerLeavesItsOwnRoomWhole)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { GATEKEEPER_PAUSE_PULSES } },
+            { SCRIPT_DO_YELL, "Who goes there?", { SCRIPT_PARAM_CH1 } } });
+    char_data* keeper = make_mob_with("gatekeeper", nullptr);
+    keeper->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, keeper->delay.cmd);
+    char_from_room(keeper);
+    char_to_room(keeper, SECOND_ROOM);
+    mob_index[keeper->nr].func = gatekeeper;
+    SET_BIT(MOB_FLAGS(keeper), MOB_SPEC);
+    char_data* guard = make_mob_with("guard", remove_marked_character);
+    char_data* knocker = make_mob_with("knocker", nullptr);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, knocker);
+    record.character_to_remove = knocker;
+    char door[] = "door";
+    make_north_a_door(door);
+    char argument[] = "door";
+
+    do_knock(knocker, argument, nullptr, CMD_KNOCK, 0);
+
+    EXPECT_FALSE(is_in_game(knocker));
+    EXPECT_FALSE(is_listed_in_room(0, knocker));
+    EXPECT_TRUE(is_listed_in_room(0, guard));
+    EXPECT_TRUE(is_listed_in_room(0, &m_player));
+    EXPECT_EQ(0, stone->in_room) << "what it carried falls where it stood";
+}
+
+TEST_F(SpecialProcedureTest, AKnockIsHeardOnTheFarSideAndTheKnockerStaysPut)
+{
+    char door[] = "door";
+    make_north_a_door(door);
+    char_data* listener = make_mob_with("listener", record_offer, SECOND_ROOM);
+    char argument[] = "door";
+
+    run_command(do_knock, argument);
+
+    EXPECT_TRUE(was_offered(listener));
+    EXPECT_EQ(0, m_player.in_room);
+    EXPECT_TRUE(output_has("You knocked on the door.")) << output();
+}

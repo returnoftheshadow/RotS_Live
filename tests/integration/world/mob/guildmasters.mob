@@ -1,0 +1,164 @@
+#2043
+uruk guild master guildmaster~
+an uruk guildmaster~
+An uruk guildmaster stands here.~
+A copy of the uruk guildmaster in zone 20, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 11 0
+150 70 58 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+123 10 0 0 0 100 10240
+#3888
+starved prisoner~
+a starved prisoner~
+A starved prisoner lies against the wall.~
+A guild-special copy at the orc prisoner's vnum with program 0, which names no row.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#4601
+mage orc uruk young~
+the young uruk mage~
+The young uruk mage stands at a window, staring out over Mirkwood Forest.~
+A copy of the young uruk mage in zone 46, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 11 0
+150 70 12 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+3 10 0 0 0 100 2048
+#4608
+scarred trainer~
+a scarred trainer~
+A scarred trainer glowers here.~
+A guild-special copy at 4608 with program 9, the URUK WARRIOR row; it teaches only uruk-hai
+and speaks human language.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 11 0
+150 70 9 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 2048
+#8500
+elven enchanter elf~
+an elven enchanter~
+An elven enchanter stands here concentrating on a sword.~
+A guild-special copy at the elven enchanter's vnum with program 62, one past the last row.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 3 0
+150 70 62 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#10003
+scorther mage man~
+Scorther~
+A black-cloaked, withdrawn man is standing here.~
+A copy of Scorther in zone 100, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 16 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#10054
+aroden ranger wanderer man~
+Aroden~
+A weathered wanderer leans on his staff here.~
+A copy of Aroden in zone 100, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 28 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+2 10 0 0 0 100 63
+#13600
+tall magus magi lhuth uruk-lhuth~
+Magus~
+A tall uruk-hai, shrouded in robes of darkness, sits on the throne.~
+A copy of the Magus in zone 136, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 15 0
+150 70 30 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 32768
+#32200
+glass-eyed glass shaman orc goblin~
+a glass-eyed shaman~
+A goblin shaman stands here, a glass eye revolving aimlessly within one of his sockets.~
+A copy of the glass-eyed shaman in zone 322, for the guild-teaching scenario.
+~
+3
+0 0 M
+20 60 10 10
+100 100
+2 0
+0 1000 0
+8 8 1 13 0
+150 70 47 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+123 10 0 0 0 100 8192
+#99999

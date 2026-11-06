@@ -44,7 +44,7 @@ void TO_STACK(struct char_data* host, long x)
     }
 }
 
-long STACK_VALUE(struct char_data* host)
+long STACK_VALUE(const struct char_data* host)
 {
     int tmp;
     if (SPECIAL_STACKPOINT(host) < 0)
@@ -67,7 +67,7 @@ long FROM_STACK(struct char_data* host)
     return tmp;
 }
 
-void DOWN_STACK(struct char_data* host)
+void DOWN_STACK(const struct char_data* host)
 {
     int tmp;
 
@@ -78,7 +78,7 @@ void DOWN_STACK(struct char_data* host)
     [SPECIAL_STACKPOINT(host) - 1] = tmp;
 }
 
-void UP_STACK(struct char_data* host)
+void UP_STACK(const struct char_data* host)
 {
     int tmp;
     tmp = STACK_VALUE(host);
@@ -88,7 +88,7 @@ void UP_STACK(struct char_data* host)
     [0] = tmp;
 }
 
-void TO_LIST(struct char_data* host, void* entr, int type)
+void TO_LIST(const struct char_data* host, void* entr, int type)
 {
     char tmp, tmp2, overfl;
 
@@ -132,7 +132,7 @@ void TO_LIST(struct char_data* host, void* entr, int type)
      */
 }
 
-void TO_LIST(struct char_data* host, target_data* newtarg)
+void TO_LIST(const struct char_data* host, const target_data* newtarg)
 {
     char tmp, tmp2, overfl;
 
@@ -249,7 +249,7 @@ void DOWN_LIST(struct char_data* host)
         }
 }
 
-int CHECK_LIST(struct char_data* host, char val)
+int CHECK_LIST(const struct char_data* host, char val)
 {
     if (SPECIAL_LIST_AREA(host)->field[(int)val].type == TARGET_CHAR)
         if (!char_exists(SPECIAL_LIST_AREA(host)->field[(int)val].ch_num)) {
@@ -305,8 +305,8 @@ void TEXT_LIST(struct char_data* host, char* targ)
     }
 }
 
-int compare_list(struct char_data* host, struct target_data* it1,
-    struct target_data* it2)
+int compare_list(const struct char_data* host, const struct target_data* it1,
+    const struct target_data* it2)
 {
     char typ1, typ2;
     int tmp;
@@ -434,7 +434,7 @@ int compare_list(struct char_data* host, struct target_data* it1,
     return 0;
 }
 
-void int_itemtostring(struct char_data* host)
+void int_itemtostring(const struct char_data* host)
 {
     switch (SPECIAL_LIST_TYPE(host)) {
     case TARGET_NONE:

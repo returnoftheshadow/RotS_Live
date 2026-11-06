@@ -184,7 +184,7 @@ int find_action_old(char* arg)
     return tmp;
 }
 
-int find_action(char* arg)
+int find_action(const char* arg)
 {
     int bot, top, mid, len;
 
@@ -213,7 +213,7 @@ int find_action(char* arg)
 
 char action_arg[MAX_INPUT_LENGTH];
 
-int social_parser(char_data* ch, char* argument, waiting_type* wtl)
+int social_parser(char_data* ch, const char* argument, waiting_type* wtl)
 /*** returns the social info in wtl, and 1/0 if success/fail ***/
 {
     char* arg;
@@ -257,7 +257,7 @@ int social_parser(char_data* ch, char* argument, waiting_type* wtl)
     return 1;
 }
 
-void report_wrong_position(char_data* ch);
+void report_wrong_position(const char_data* ch);
 
 ACMD(do_action)
 {
@@ -329,7 +329,7 @@ ACMD(do_insult)
                 sprintf(buf, "You insult %s.\n\r", PERS(victim, ch, FALSE, FALSE));
                 send_to_char(buf, ch);
 
-                switch (random() % 3) {
+                switch (number(0, 2)) {
                 case 0:
                     if (GET_SEX(ch) == SEX_MALE) {
                         if (GET_SEX(victim) == SEX_MALE)

@@ -9,6 +9,7 @@
 
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/param.h>
 #include <sys/resource.h>
 #include <sys/socket.h>

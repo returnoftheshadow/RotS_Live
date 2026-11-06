@@ -82,9 +82,9 @@ extern struct room_data world;
 extern struct obj_data* obj_proto;
 extern struct descriptor_data* descriptor_list;
 extern struct player_index_element* player_table;
-int find_name(char* name);
-int has_mail(char* recipient);
-int _parse_name(char* arg, char* name);
+int find_name(const char* name);
+int has_mail(const char* recipient);
+int _parse_name(const char* arg, char* name);
 
 /*
  * format: lnum, vnum, read lvl, write lvl, remove lvl, filename, 0 at end
@@ -114,7 +114,7 @@ int find_slot(void)
 }
 
 /* search the room ch is standING(in to find which board he's looking at */
-board_info_type* find_board(struct char_data* ch)
+board_info_type* find_board(const struct char_data* ch)
 {
     struct obj_data* obj;
     int i;
@@ -736,12 +736,27 @@ void board_info_type::flush_board()
     }
 }
 
-static char html_message_line[MAX_STRING_LENGTH + 200];
+/* Expand the message straight into the file: '\n' -> "<br>", '\r' dropped.
+ * Written a character at a time (stdio buffers it) so an arbitrarily long
+ * post cannot overflow a fixed staging buffer -- a post with enough line
+ * breaks used to crash the server here. */
+void write_board_message_html(FILE* ht_fl, const char* text, int len)
+{
+    for (int j = 0; j < len; j++) {
+        if (text[j] == '\r' || text[j] == '\0')
+            continue;
+        if (text[j] == '\n')
+            fputs("<br>", ht_fl);
+        else
+            putc(text[j], ht_fl);
+    }
+}
+
 void board_info_type::save_board()
 {
     FILE* fl;
     FILE *ht_fl, *ind_fl;
-    int i, j1, j2, no_html;
+    int i, no_html;
     char *tmp1 = 0, *tmp2 = 0;
     char ht_name[100];
 
@@ -795,30 +810,14 @@ void board_info_type::save_board()
 
         if (!no_html) {
 
-            j1 = j2 = 0;
-            if (tmp2) {
-                for (j1 = 0, j2 = 0; j1 < msg_index[i].message_len; j1++) {
-                    if (tmp2[j1] == '\r')
-                        continue;
-                    if (tmp2[j1] == '\n') {
-                        html_message_line[j2++] = '<';
-                        html_message_line[j2++] = 'b';
-                        html_message_line[j2++] = 'r';
-                        html_message_line[j2++] = '>';
-                    } else
-                        html_message_line[j2++] = tmp2[j1];
-                }
-            }
-            html_message_line[j2] = 0;
-
             fprintf(ind_fl, "<A HREF=\"%s.html#Message%d\">Message %3d, %s</a><br>\n\r",
                 short_name, msg_index[i].msg_num, msg_index[i].msg_num,
                 (tmp1) ? tmp1 : "No title");
             fprintf(ht_fl, "<b><u><A NAME=\"Message%d\">Message %3d, %s</A></u></b><BR>", msg_index[i].msg_num, msg_index[i].msg_num,
                 (tmp1) ? tmp1 : "No title");
 
-            if (j2)
-                fwrite(html_message_line, sizeof(char), j2, ht_fl);
+            if (tmp2)
+                write_board_message_html(ht_fl, tmp2, msg_index[i].message_len);
             fprintf(ht_fl, "<br><br>");
         }
 
@@ -908,7 +907,7 @@ void board_info_type::reset_board()
     unlink(FILENAME);
 }
 board_info_type::board_info_type(int objnum, int l_read, int l_write, int l_rem,
-    int max_msg, char* file, char* titlename)
+    int max_msg, const char* file, const char* titlename)
 {
     /** This stuff is copied lower to the mail_info_type constructor -
         be careful and considerate. **/
@@ -953,7 +952,7 @@ board_info_type::board_info_type()
     filename[0] = 0;
 }
 mail_info_type::mail_info_type(int objnum, int l_read, int l_write, int l_rem,
-    int max_msg, char* file, char* titlename) /*:
+    int max_msg, const char* file, const char* titlename) /*:
   /  board_info_type::board_info_type/(objnum, l_read, l_write, l_rem, max_msg, file)*/
 {
     vnum = objnum;
@@ -1102,7 +1101,7 @@ void report_news(struct char_data* ch)
  *  The old report_mail function has been replaced with has_mail from the new mail system
  *  Rather than rewrite all instances of report_mail, i just made report_mail use has_mail
  */
-void report_mail(struct char_data* ch)
+void report_mail(const struct char_data* ch)
 {
     char recipient[100];
 

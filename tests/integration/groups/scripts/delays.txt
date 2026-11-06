@@ -1,0 +1,1 @@
+script waits: a finished script leaves no delay, a waiting one shows it, and a mob slain after or during its wait

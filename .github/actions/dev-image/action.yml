@@ -1,0 +1,103 @@
+name: Development image
+description: >-
+  Loads the Dockerfile's image as rots-dev:ci without the Ubuntu snapshot when it can: from the
+  Actions cache, else from the repository's pre-release for the Dockerfile's hash. Only when
+  neither has it, or the build input is true, is it built from the Dockerfile.
+
+inputs:
+  build:
+    description: Build from the Dockerfile even when a stored image exists.
+    default: "false"
+  token:
+    description: Token for downloading the pre-release.
+    default: ${{ github.token }}
+
+outputs:
+  tag:
+    description: The pre-release tag for this Dockerfile, dev-image-jammy-<first 16 hex digits of its SHA-256>.
+    value: ${{ steps.key.outputs.tag }}
+  directory:
+    description: The directory holding the compressed image and its SHA-256 file.
+    value: ${{ steps.key.outputs.directory }}
+
+runs:
+  using: composite
+  steps:
+    - name: Key the image by the Dockerfile's hash
+      id: key
+      shell: bash
+      # The image copies no files, so the Dockerfile alone decides its contents.
+      run: |
+        hash="$(sha256sum Dockerfile | cut -d ' ' -f 1)"
+        directory="$RUNNER_TEMP/dev-image"
+        mkdir -p "$directory"
+        {
+          echo "hash=$hash"
+          echo "tag=dev-image-jammy-${hash:0:16}"
+          echo "directory=$directory"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore the image from the Actions cache
+      id: cache
+      if: inputs.build != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.key.outputs.directory }}
+        key: ${{ steps.key.outputs.tag }}
+
+    - name: Download the image from the repository's pre-release
+      id: release
+      if: inputs.build != 'true' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TAG: ${{ steps.key.outputs.tag }}
+        DIRECTORY: ${{ steps.key.outputs.directory }}
+      run: |
+        cd "$DIRECTORY" || exit 1
+        if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'rots-dev-jammy.tar.zst*' \
+            && sha256sum --check --quiet rots-dev-jammy.tar.zst.sha256; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        else
+          rm -f rots-dev-jammy.tar.zst rots-dev-jammy.tar.zst.sha256
+          echo "No usable pre-release $TAG; building the image."
+        fi
+
+    - name: Load the stored image
+      id: load
+      if: steps.cache.outputs.cache-hit == 'true' || steps.release.outputs.found == 'true'
+      shell: bash
+      env:
+        HASH: ${{ steps.key.outputs.hash }}
+        DIRECTORY: ${{ steps.key.outputs.directory }}
+      # An image built from another Dockerfile is discarded and rebuilt rather than tested in.
+      run: |
+        zstd --decompress --stdout "$DIRECTORY/rots-dev-jammy.tar.zst" | docker load
+        label="$(docker image inspect --format '{{ index .Config.Labels "org.returnoftheshadow.dockerfile-sha256" }}' rots-dev:ci)"
+        if [ "$label" = "$HASH" ]; then
+          echo "loaded=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::The stored image was built from Dockerfile $label, not $HASH; building the image."
+          docker image rm rots-dev:ci
+          rm -f "$DIRECTORY/rots-dev-jammy.tar.zst" "$DIRECTORY/rots-dev-jammy.tar.zst.sha256"
+        fi
+
+    - name: Build the image from the Dockerfile
+      id: build
+      if: steps.load.outputs.loaded != 'true'
+      shell: bash
+      env:
+        HASH: ${{ steps.key.outputs.hash }}
+        DIRECTORY: ${{ steps.key.outputs.directory }}
+      run: |
+        docker build --label "org.returnoftheshadow.dockerfile-sha256=$HASH" --tag rots-dev:ci .
+        docker save rots-dev:ci | zstd --quiet --threads=0 -o "$DIRECTORY/rots-dev-jammy.tar.zst"
+        (cd "$DIRECTORY" && sha256sum rots-dev-jammy.tar.zst > rots-dev-jammy.tar.zst.sha256)
+
+    - name: Save the image to the Actions cache
+      # Parallel jobs race to save the same key; the losers only log a warning.
+      if: steps.build.outcome == 'success' || steps.release.outputs.found == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.key.outputs.directory }}
+        key: ${{ steps.key.outputs.tag }}

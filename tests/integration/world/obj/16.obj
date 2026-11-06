@@ -1,0 +1,82 @@
+#1601
+sword plain~
+a plain sword~
+A plain sword lies here.~
+~
+5 0 8193
+5 2 2 3 0
+130 2000 -1
+1 0 4 0 0
+#1602
+stone dwarven~
+a dwarven stone~
+A dwarven stone lies here.~
+~
+12 268697600 1
+0 0 0 0 0
+1 0 0
+0 0 0 0 0
+#1603
+helm leather~
+a leather helm~
+A leather helm lies here.~
+~
+9 0 17
+1 0 0 0 0
+50 100 -1
+1 0 2 0 0
+#1604
+key brass~
+a brass key~
+A brass key lies here.~
+~
+18 8 1
+0 0 0 0 0
+5 10 -1
+1 0 4 0 0
+#1605
+chest small~
+a small chest~
+A small chest sits here.~
+~
+15 0 1
+100 13 1604 0 0
+200 50 -1
+1 0 5 0 0
+#1606
+trinket cursed~
+a cursed trinket~
+A cursed trinket lies here.~
+~
+12 0 1
+0 0 0 0 0
+10 100 -2
+1 0 0 0 0
+#1607
+token pewter~
+a pewter token~
+A pewter token lies here.~
+~
+12 4096 1
+0 0 0 0 0
+1 10 -1
+1 0 0 0 0
+#1608
+waterskin skin~
+a waterskin~
+A waterskin lies here.~
+~
+17 0 1
+20 10 0 0 0
+30 10 -1
+1 0 2 0 0
+#1609
+relic strange~
+a strange relic~
+A strange relic lies here.~
+~
+12 536862559 32769
+0 0 0 0 0
+10 100 -1
+1 0 0 0 0
+#99999

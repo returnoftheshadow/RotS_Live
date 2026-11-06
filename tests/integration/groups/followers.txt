@@ -1,0 +1,1 @@
+followers left behind (sitting, delayed, without moves, unseen or riding) and their leaders' ACK lines; followers of a leader that dies where it arrives; group, ungroup and report

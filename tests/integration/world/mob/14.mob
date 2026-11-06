@@ -1,0 +1,91 @@
+#1450
+boar pen~
+a pen boar~
+A pen boar snuffles here, waiting to be tamed.~
+It is an animal a ranger can tame, kept for the zone-slot scenarios.
+~
+2
+0 0 M
+1 10 0 0
+20 20
+2 0
+0 100 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 50 2
+0
+10 10 10 10 10 10
+1 0 0 0 0 100 0
+#1451
+bear grizzly~
+a grizzly bear~
+A grizzly bear stands here, too strong for the harness ranger.~
+A level-14 animal, one level past what the tame scenarios' ranger can tame.
+~
+2
+0 0 M
+14 10 0 0
+20 20
+2 0
+0 100 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 50 2
+0
+10 10 10 10 10 10
+1 0 0 0 0 100 0
+#1452
+wolf grey~
+a grey wolf~
+A grey wolf stands here, only just within the harness ranger's reach.~
+A level-12 animal the tame scenarios' ranger can tame only while it has no other tame.
+~
+2
+0 0 M
+12 10 0 0
+20 20
+2 0
+0 100 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 50 2
+0
+10 10 10 10 10 10
+1 0 0 0 0 100 0
+#1453
+owl watchful~
+a watchful owl~
+A watchful owl stands here, noticing everything.~
+An animal with perception, which tame refuses.
+~
+2
+0 0 M
+1 10 0 0
+20 20
+2 0
+0 100 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 50 2
+0
+10 10 10 10 10 10
+1 10 0 0 0 100 0
+#1454
+scarecrow straw~
+a straw scarecrow~
+A straw scarecrow stands here, noticing nothing.~
+A creature without perception that is not an animal, which tame refuses.
+~
+2
+0 0 M
+1 10 0 0
+20 20
+2 0
+0 100 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+1 0 0 0 0 100 0
+#99999

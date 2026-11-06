@@ -1,0 +1,12 @@
+#18
+Harness boar pen~
+Zone for the tame zone-slot scenario: one boar reset into the pen.
+~
+~
+0
+? 9 9 5
+1809
+999
+2
+M 0 1450 1801 0 100 100 1 1 pen boar waits in the boar pen
+S

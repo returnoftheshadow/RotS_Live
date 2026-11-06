@@ -1,0 +1,1 @@
+what happens to objects outside versioning and rent: a purge that should leave the purger's inventory alone, and a builder-set flag kept through a drop

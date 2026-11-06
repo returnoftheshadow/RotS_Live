@@ -727,7 +727,7 @@ and magical doors.
 #
 RESCUE
 
-[Syntax      ] rescue <target>
+[Syntax      ] rescue <target> / rescue followers / rescue leader
 [Group       ] Warrior
 [Level       ] 3
 [Offensive   ] Yes
@@ -736,7 +736,22 @@ RESCUE
 replacing the target in combat with you.  It only works against
 one enemy, though, and it does not work at all for mental combat.
 
-> rescue quifael
+Rescuing 'followers' saves whichever of your tames, recruits or
+guardians you can see is closest to dying, measured as the fraction of
+health they have left.  Those that nobody is fighting are passed over.
+
+Rescuing 'leader' (or 'master') saves the character you are following,
+if they are in the room and you can see them.  Your tames can be told
+to protect you with 'order followers rescue leader'.
+
+These words mean your followers or your leader even when someone in the
+room has that name.  Only when they do not apply - no tames, recruits or
+guardians of yours here, or nobody you follow here - are they taken as a
+name instead.
+
+> rescue quifael                - rescues Quifael.
+> rescue followers              - rescues whichever follower is worst off.
+> order followers rescue leader - your tames try to rescue you.
 
 #
 "FIND WEAKNESS"
