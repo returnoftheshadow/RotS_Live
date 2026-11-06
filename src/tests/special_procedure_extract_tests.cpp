@@ -656,6 +656,297 @@ TEST_F(SpecialProcedureTest, ACommandNoProcedureTakesIsCarriedOut)
     EXPECT_EQ(SECOND_ROOM, walker->in_room);
 }
 
+/* ---- the dragon's breath ---- */
+
+/* Rolls that number(from, to) turns into its lowest and its highest result. */
+constexpr double LOWEST_ROLL = 0.0;
+constexpr double HIGHEST_ROLL = 0.999;
+
+/* Makes <breather> a fighting dragon whose breath comes this turn, with the player standing aside
+ * (a player burnt to death would be saved to disk). */
+static void ready_to_breathe(char_data& player, char_data* breather)
+{
+    world[0].people = player.next_in_room;
+    breather->specials.position = POSITION_FIGHTING;
+    push_test_random_value(LOWEST_ROLL); /* it breathes this turn */
+}
+
+/* Whether <victim> has lost hit points. */
+static bool is_hurt(const char_data* victim) { return victim->tmpabilities.hit < victim->abilities.hit; }
+
+TEST_F(SpecialProcedureTest, TheBreathHurtsEveryoneInTheRoomButTheDragon)
+{
+    char_data* breather = make_mob_with("dragon", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    char_data* second = make_mob_with("second", nullptr);
+    ready_to_breathe(m_player, breather);
+
+    dragon(breather, breather, 0, empty_argument(), SPECIAL_SELF, nullptr);
+
+    EXPECT_TRUE(is_hurt(first));
+    EXPECT_TRUE(is_hurt(second));
+    EXPECT_FALSE(is_hurt(breather));
+}
+
+/* The first victim's damage script makes the one after it vanish: the breath goes on to the one
+ * after that. */
+TEST_F(SpecialProcedureTest, TheBreathGoesOnPastAVictimItsNeighbourRemoved)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_DAMAGE, { { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} },
+                    { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    char_data* breather = make_mob_with("dragon", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    first->specials.script_number = SCRIPT_VNUM;
+    char_data* second = make_mob_with("second", nullptr);
+    second->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* third = make_mob_with("third", nullptr);
+    ready_to_breathe(m_player, breather);
+
+    dragon(breather, breather, 0, empty_argument(), SPECIAL_SELF, nullptr);
+
+    EXPECT_TRUE(is_hurt(first));
+    EXPECT_FALSE(is_in_game(second));
+    EXPECT_TRUE(is_hurt(third));
+}
+
+/* The first victim's damage script removes the dragon: nobody after it is breathed on. */
+TEST_F(SpecialProcedureTest, TheBreathEndsWithADragonAVictimRemoves)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* breather = make_mob_with("dragon", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    first->specials.script_number = SCRIPT_VNUM;
+    char_data* second = make_mob_with("second", nullptr);
+    ready_to_breathe(m_player, breather);
+
+    dragon(breather, breather, 0, empty_argument(), SPECIAL_SELF, nullptr);
+
+    EXPECT_FALSE(is_in_game(breather));
+    EXPECT_FALSE(is_hurt(second));
+}
+
+/* ---- procedures that speak ---- */
+
+/* What a gatekeeper's own delay holds while it deals with a request (gatekeeper, gatekeeper2): the
+ * command of a procedure's delay, the request for a knock, and in targ2 the code for there being
+ * nothing like that here. */
+constexpr int PROCEDURE_DELAY_COMMAND = -1;
+constexpr int KNOCK_REQUEST = 1;
+constexpr int NOTHING_LIKE_THAT_HERE = -1;
+
+/* Makes script SCRIPT_VNUM remove whoever speaks within earshot (ch2). */
+static std::vector<body_line> remove_the_speaker_body()
+{
+    return { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } };
+}
+
+/* A gatekeeper that ends its delay with nothing to do says so; the hearer's script removes it on
+ * hearing it, and its delay is then left alone. */
+TEST_F(SpecialProcedureTest, AGatekeeperTheHearersRemoveAsItSpeaksIsLetGo)
+{
+    install_script(ON_HEAR_SAY, remove_the_speaker_body());
+    for (special_func procedure : { gatekeeper, gatekeeper2 }) {
+        char_data* keeper = make_mob_with("gatekeeper", nullptr);
+        char_data* hearer = make_mob_with("hearer", nullptr);
+        hearer->specials.script_number = SCRIPT_VNUM;
+
+        EXPECT_FALSE(procedure(
+            keeper, &m_player, PROCEDURE_DELAY_COMMAND, empty_argument(), SPECIAL_DELAY, nullptr));
+
+        EXPECT_FALSE(is_in_game(keeper));
+        extract_char(hearer);
+    }
+}
+
+TEST_F(SpecialProcedureTest, AGatekeeperWithNothingToOpenSaysSoAndForgetsTheRequest)
+{
+    for (special_func procedure : { gatekeeper, gatekeeper2 }) {
+        char_data* keeper = make_mob_with("gatekeeper", nullptr);
+        keeper->delay.cmd = PROCEDURE_DELAY_COMMAND;
+        keeper->delay.subcmd = KNOCK_REQUEST;
+        keeper->delay.targ2.ch_num = NOTHING_LIKE_THAT_HERE;
+
+        EXPECT_FALSE(procedure(
+            keeper, &m_player, PROCEDURE_DELAY_COMMAND, empty_argument(), SPECIAL_DELAY, nullptr));
+
+        EXPECT_EQ(0, keeper->delay.cmd);
+        EXPECT_EQ(0, keeper->delay.subcmd);
+        extract_char(keeper);
+    }
+    EXPECT_EQ(2, count_in_output("There is nothing like that here.")) << output();
+}
+
+/* Thuringwethil, beaten, says her last words; the hearer's script removes her on hearing them,
+ * and she is not touched again. */
+TEST_F(SpecialProcedureTest, ThuringwethilTheHearersRemoveAsSheLeavesIsLetGo)
+{
+    install_script(ON_HEAR_SAY, remove_the_speaker_body());
+    char_data* vampire = make_mob_with("thuringwethil", nullptr);
+    vampire->tmpabilities.hit = THURINGWETHIL_BEATEN_HIT_POINTS;
+    char_data* hearer = make_mob_with("hearer", nullptr);
+    hearer->specials.script_number = SCRIPT_VNUM;
+
+    EXPECT_EQ(1, thuringwethil(vampire, vampire, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_FALSE(output_has("her clothing falls to the ground")) << output();
+}
+
+TEST_F(SpecialProcedureTest, ThuringwethilBeatenSaysHerLastWordsAndLeaves)
+{
+    char_data* vampire = make_mob_with("thuringwethil", nullptr);
+    vampire->tmpabilities.hit = THURINGWETHIL_BEATEN_HIT_POINTS;
+
+    EXPECT_EQ(1, thuringwethil(vampire, vampire, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_TRUE(output_has("Curse you all")) << output();
+    EXPECT_TRUE(output_has("her clothing falls to the ground")) << output();
+}
+
+/* A guildmaster's refusal is heard by a mob whose script removes the guildmaster: the practice
+ * command ends there, taken. */
+TEST_F(SpecialProcedureTest, AGuildmasterTheHearersRemoveAsItRefusesEndsThePractice)
+{
+    install_script(ON_HEAR_SAY, remove_the_speaker_body());
+    char_data* teacher = make_mob_with("guildmaster", guild);
+    char_data* hearer = make_mob_with("hearer", nullptr);
+    hearer->specials.script_number = SCRIPT_VNUM;
+
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+
+    EXPECT_FALSE(is_in_game(teacher));
+    EXPECT_TRUE(output_has("Go away, I won't teach you anything!")) << output();
+}
+
+TEST_F(SpecialProcedureTest, AGuildmasterSaysWhyItWillNotTeach)
+{
+    char_data* teacher = make_mob_with("guildmaster", guild);
+
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+    teacher->specials2.will_teach = 1 << RACE_HUMAN;
+    SET_BIT(PLR_FLAGS(&m_player), PLR_ISSHADOW);
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+    REMOVE_BIT(PLR_FLAGS(&m_player), PLR_ISSHADOW);
+    teacher->specials2.rp_flag = 1 << RACE_DWARF;
+    EXPECT_EQ(1, offer_command(&m_player, CMD_PRACTICE));
+
+    EXPECT_TRUE(is_in_game(teacher));
+    EXPECT_TRUE(output_has("Go away, I won't teach you anything!")) << output();
+    EXPECT_TRUE(output_has("Ugh!  I'm not teaching YOU!")) << output();
+    EXPECT_TRUE(output_has("Sorry, I can't teach you.")) << output();
+}
+
+/* Ar-Tarthalon, fighting, calls the one he summons, who hears it in the same room; random values
+ * pushed first make him call this turn and choose whom. */
+static void ready_to_summon(bool calls_sorcerer, char_data* king)
+{
+    king->specials.position = POSITION_FIGHTING;
+    push_test_random_value(LOWEST_ROLL); /* he calls this turn */
+    if (calls_sorcerer) {
+        push_test_random_value(HIGHEST_ROLL); /* Balkazor */
+    } else {
+        push_test_random_value(LOWEST_ROLL); /* Karahaz */
+    }
+}
+
+/* The one called hears the call, and his own script removes him: Ar-Tarthalon does not then
+ * bring him. */
+TEST_F(SpecialProcedureTest, ArTarthalonLetsGoOfTheOneHisCallRemoves)
+{
+    install_script(ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    for (const bool calls_sorcerer : { true, false }) {
+        char_data* king = make_mob_with("king", nullptr);
+        char_data* summoned = nullptr;
+        if (calls_sorcerer) {
+            summoned = make_mob_with("balkazor", nullptr);
+        } else {
+            summoned = make_mob_with("karahaz", nullptr);
+        }
+        summoned->specials.script_number = SCRIPT_VNUM;
+        ready_to_summon(calls_sorcerer, king);
+
+        EXPECT_EQ(0, ar_tarthalon(king, king, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+        EXPECT_FALSE(is_in_game(summoned));
+        extract_char(king);
+    }
+}
+
+/* One Ar-Tarthalon would summon who stands in no room, on its way into or out of the game, is not
+ * called. */
+TEST_F(SpecialProcedureTest, ArTarthalonDoesNotCallOneInNoRoom)
+{
+    for (const bool calls_sorcerer : { true, false }) {
+        char_data* king = make_mob_with("king", nullptr);
+        char_data* summoned = nullptr;
+        if (calls_sorcerer) {
+            summoned = make_mob_with("balkazor", nullptr);
+        } else {
+            summoned = make_mob_with("karahaz", nullptr);
+        }
+        char_from_room(summoned);
+        ready_to_summon(calls_sorcerer, king);
+
+        EXPECT_EQ(0, ar_tarthalon(king, king, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+        EXPECT_EQ(NOWHERE, summoned->in_room);
+        extract_char(king);
+        extract_char(summoned);
+    }
+    EXPECT_FALSE(output_has("Balkazor")) << output();
+    EXPECT_FALSE(output_has("Karahaz")) << output();
+}
+
+/* A room of the route Ar-Tarthalon's summoned take to him, from which they step east. */
+constexpr int AR_TARTHALON_ROUTE_ROOM_VNUM = 8480;
+
+/* Called from room AR_TARTHALON_ROUTE_ROOM_VNUM of his route, the one Ar-Tarthalon summons steps
+ * east (to room SECOND_ROOM here). */
+TEST_F(SpecialProcedureTest, ArTarthalonCallsTheOneHeSummonsWhoComes)
+{
+    world[0].number = AR_TARTHALON_ROUTE_ROOM_VNUM;
+    for (const bool calls_sorcerer : { true, false }) {
+        char_data* king = make_mob_with("king", nullptr);
+        char_data* summoned = nullptr;
+        if (calls_sorcerer) {
+            summoned = make_mob_with("balkazor", nullptr);
+        } else {
+            summoned = make_mob_with("karahaz", nullptr);
+        }
+        ready_to_summon(calls_sorcerer, king);
+
+        EXPECT_EQ(0, ar_tarthalon(king, king, 0, empty_argument(), SPECIAL_SELF, nullptr));
+
+        ASSERT_TRUE(is_in_game(summoned));
+        EXPECT_EQ(SECOND_ROOM, summoned->in_room);
+        extract_char(king);
+        extract_char(summoned);
+    }
+    EXPECT_TRUE(output_has("Balkazor my sorcerer, I command you to aid me!")) << output();
+    EXPECT_TRUE(output_has("Karahaz!  Master swordsman, Come!")) << output();
+}
+
+/* ---- the ranger mob's hiding ---- */
+
+/* Someone comes into a standing ranger's room: it starts to hide, and then wanders off. */
+TEST_F(SpecialProcedureTest, ARangerSomeoneComesUponHidesAndWanders)
+{
+    char_data* ranger = make_mob_with("ranger", nullptr);
+    push_test_random_value(LOWEST_ROLL); /* it wanders north */
+
+    EXPECT_EQ(0, mob_ranger(ranger, &m_player, 0, empty_argument(), SPECIAL_ENTER, nullptr));
+
+    EXPECT_EQ(CMD_HIDE, ranger->delay.cmd);
+    EXPECT_EQ(SECOND_ROOM, ranger->in_room);
+}
+
 /* Makes room 0's way north a door called "door". */
 static void make_north_a_door(char* keyword)
 {
