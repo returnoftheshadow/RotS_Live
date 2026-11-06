@@ -13,7 +13,7 @@ DEFAULT_ALLOWED: tuple[str, ...] = ()
 SANITIZER_MARKERS = ("AddressSanitizer", "LeakSanitizer", "UndefinedBehaviorSanitizer", "runtime error:")
 # sigsegv_handler() in comm.cpp prints this ahead of its backtrace.
 SIGNAL_MARKER = "Error: signal"
-# hupsig() in signals.cpp logs this on every requested stop; it is not a crash.
+# The game loop logs this when SIGHUP, SIGINT or SIGTERM stops the server; it is not a crash.
 SHUTDOWN_SIGNAL_LINE = "Received SIGHUP, SIGINT, or SIGTERM"
 
 
@@ -58,8 +58,9 @@ class CrashMonitor:
         elif status != 0:
             problems.append(f"server process exited with status {status} after stop")
         elif not self._shutdown_notice_seen:
-            # hupsig() logs the notice before exit(0), but diesig() in signals.cpp ends the server
-            # on SIGILL, SIGFPE or SIGBUS with exit(0) and no log line, so 0 alone is not clean.
+            # A requested stop logs the notice before exit(0), but diesig() in signals.cpp ends
+            # the server on SIGILL, SIGFPE or SIGBUS with exit(0) and no log line, so 0 alone is
+            # not clean.
             problems.append("server exited with status 0 without logging the shutdown notice")
         return problems
 
