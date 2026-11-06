@@ -37,6 +37,8 @@
 #include "mob_walker.h"
 #include "spec_pro.h"
 
+#include <string>
+
 /*   external vars  */
 extern int get_number(char** name);
 extern int num_of_ferries;
@@ -4053,24 +4055,20 @@ SPECIAL(reciter)
     if (c) { // singing already...
         e = strchr(c, '\n');
         if (e) {
-            /* The poem is the scroll prototype's text, shared by every copy: the line is copied
-             * out rather than cut off in place. */
             std::string line(c, e - c);
-            freed_watch reciter_watch(host);
-            if (line[0] == '+')
-                act(line.c_str() + 1, TRUE, host, 0, 0, TO_ROOM);
-            else
-                do_say(host, line.data(), 0, 0, 0);
-            /* A listener's script can remove the reciter as it speaks. */
-            if (reciter_watch.freed())
-                return 0;
             /* Lines end in "\n\r"; the next line starts after both, or after a lone '\n'. */
             ++e;
             if (*e == '\r')
                 ++e;
-            host->specials.recite_lines = e;
+            char* rest_of_poem = str_dup(e);
+            RELEASE(host->specials.recite_lines);
+            host->specials.recite_lines = rest_of_poem;
+            if (line[0] == '+')
+                act(line.c_str() + 1, TRUE, host, 0, 0, TO_ROOM);
+            else
+                do_say(host, line.data(), 0, 0, 0);
         } else
-            host->specials.recite_lines = NULL;
+            RELEASE(host->specials.recite_lines);
         return 0;
     }
 // Not singing
@@ -4092,7 +4090,8 @@ remove_scroll:
             mudlog("reciter: done extracting", BRF, LEVEL_GOD, TRUE);
             return 0;
         }
-        host->specials.recite_lines = o->ex_description->description;
+        /* A copy of its own: the scroll's text can go while the poem is recited. */
+        host->specials.recite_lines = str_dup(o->ex_description->description);
     } else
         mudlog("reciter: missing poem", BRF, LEVEL_GOD, TRUE);
     return 0;

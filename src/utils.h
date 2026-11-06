@@ -98,6 +98,8 @@ void reshuffle(int* arr, int len);
 
 void* create_function(int elem_size, int elem_num, int line, const char* file);
 void free_function(void* pnt);
+/* `text`, which CREATE allocated, as a value; frees it as RELEASE does. Null gives an empty string. */
+std::string take_allocated_string(char* text);
 
 int get_total_fame(char_data* ch);
 
