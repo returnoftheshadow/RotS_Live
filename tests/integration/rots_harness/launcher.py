@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, Iterator, Optional
+from typing import Any, BinaryIO, Callable, Iterable, Iterator, Optional
 
 LOOPBACK = "127.0.0.1"
 INTEGRATION_TMP_RELATIVE = "build/integration/tmp"
@@ -60,6 +60,11 @@ GAME_LOOP_LOG_TEXT = "Entering game loop."
 # hold GAME_LOOP_LOG_TEXT; the server logs it before it sends a prompt, so this only bounds a
 # prompt from another process.
 OWN_SERVER_CONFIRM_SECONDS = 5.0
+# The server's output in its run directory.
+GAME_LOG_NAME = "game.log"
+# What set_aside_logs renames a stopped server's log to: game.log from the first boot becomes
+# game.boot-1.log.
+SET_ASIDE_LOG_FORMAT = "{stem}.boot-{boot}{suffix}"
 # The variable pytest-xdist sets in each worker to its name, gw0, gw1 and so on; unset outside a worker.
 XDIST_WORKER_VARIABLE = "PYTEST_XDIST_WORKER"
 # A pytest-xdist worker name and its number.
@@ -142,6 +147,19 @@ def _port_is_free(port: int) -> bool:
         except OSError:
             return False
     return True
+
+
+def set_aside_logs(run_dir: Path, boot: int, log_names: Iterable[str]) -> list[Path]:
+    """Renames each of log_names in run_dir that exists after SET_ASIDE_LOG_FORMAT, numbered boot, and returns the new paths."""
+    set_aside: list[Path] = []
+    for log_name in log_names:
+        log_path = run_dir / log_name
+        if not log_path.exists():
+            continue
+        new_path = run_dir / SET_ASIDE_LOG_FORMAT.format(stem=log_path.stem, boot=boot, suffix=log_path.suffix)
+        log_path.rename(new_path)
+        set_aside.append(new_path)
+    return set_aside
 
 
 def allocate_free_port() -> int:
@@ -502,7 +520,7 @@ class LocalProcessLauncher(ServerLauncher):
         """
         program_relative = HARNESS_BINARY_RELATIVE if schedule is not None else self._binary_relative
         self.require_program(program_relative)
-        log_path = run_dir / "game.log"
+        log_path = run_dir / GAME_LOG_NAME
         with log_path.open("wb") as log_file, _explaining_unexecutable(self._repo_root / program_relative):
             process = subprocess.Popen(
                 self.command(lib_dir, port, seed, schedule),
@@ -661,7 +679,7 @@ class DockerComposeLauncher(ServerLauncher):
         # One deadline covers both waits, so a slow port publication shortens the prompt wait.
         deadline = time.monotonic() + self._startup_timeout
         try:
-            log_path = run_dir / "game.log"
+            log_path = run_dir / GAME_LOG_NAME
             with log_path.open("wb") as log_file:
                 process = subprocess.Popen(
                     self.server_command(run_dir, lib_dir, port, container_name, seed, schedule),

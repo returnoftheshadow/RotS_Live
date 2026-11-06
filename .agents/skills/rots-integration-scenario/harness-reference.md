@@ -185,6 +185,7 @@ Each test gets `build/integration/runs/<12 hex>/`:
 | `game.log` | the server's stderr, and its stdout too when the test has no schedule |
 | `stdout.log` | a schedule server's ordinary stdout lines; `harness: ` replies are not written here |
 | `<lowercase name>.txt` | one transcript per character, appended on every read, colour codes removed |
+| `game.boot-<n>.log`, `stdout.boot-<n>.log` | after `server.restart()`, the logs of the server the restart stopped, numbered from 1 |
 
 A passing test's directory is deleted. It is kept when `ROTS_IT_KEEP=1`, when any test in the
 session has failed, when the server's checks fail, when the run is interrupted, or when setup
@@ -202,7 +203,7 @@ leave them; other kept directories are someone else's evidence.
 sanitizer marker, `Error: signal`, any `SYSERR` line (none is allowed today), the server exiting
 during the test, and after the stop a non-zero status or a status 0 without the
 `Received SIGHUP, SIGINT, or SIGTERM` line. A session that does not answer `quit` also fails the
-test.
+test. `server.restart()` checks the stop it makes the same way, and fails the test at that point.
 
 A program that is missing, or older than the newest `.cpp` or `.h` file it is built from, stops
 each test that runs it at setup with the build command (`ServerLauncher.require_program` and
@@ -424,6 +425,7 @@ What an observer reads for a character is `PERS` (`utility.cpp`): the name, a st
 | --- | --- |
 | `login(name)` | logs the character in and returns its `GameSession`; it is quit after the test |
 | `advance_hours(n)` | runs `n` game hours on a schedule server and returns when the server acknowledges them; fails the test without `@pytest.mark.schedule` |
+| `restart()` | stops the server with SIGTERM while every session is still logged in, as a service stop does, closes the sessions without quitting them, and boots a new server on the same lib; log in again with `login`. Fails the test when the stop shows problems |
 | `run_dir`, `lib_dir` | the run directory and the test's lib |
 
 `GameSession` (`rots_harness/session.py`):

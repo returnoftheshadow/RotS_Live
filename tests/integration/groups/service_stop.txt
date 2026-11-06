@@ -1,0 +1,1 @@
+what a service stop saves for the players still logged in, read back by the next boot
