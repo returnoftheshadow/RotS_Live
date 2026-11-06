@@ -2564,6 +2564,7 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
             if (i) {
                 append(i);
             }
+
             /* A '$' or "$C" ending the string leaves strp on its terminator. */
             if (*strp != '\0') {
                 ++strp;
@@ -2586,14 +2587,16 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
     *point++ = '\r';
     *point = '\0';
 
-    if (used_color)
+    if (used_color) {
         strcpy(point, normal_color);
+    }
 
     /* Find the first character in the string, ignoring ANSI colors */
     for (strp = output; *strp == '\x1B';) {
         while (*strp != '\0' && *strp != 'm') {
             ++strp;
         }
+
         if (*strp != '\0') {
             ++strp;
         }

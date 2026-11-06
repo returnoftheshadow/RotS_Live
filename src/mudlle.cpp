@@ -1122,6 +1122,7 @@ SPECIAL(intelligent)
             if (tmpvar < 1 || tmpvar >= num_of_programs) {
                 break;
             }
+
             if (host->specials.tactics >= SPECIAL_CALLLIST - 1)
                 break;
             //  prog_point is automatic.,.
