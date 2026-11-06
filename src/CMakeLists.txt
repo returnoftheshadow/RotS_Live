@@ -226,6 +226,7 @@ set(ROTS_TEST_SOURCES
     tests/raw_kill_kit_flag_tests.cpp
     tests/quiet_gear_change_tests.cpp
     tests/room_light_tests.cpp
+    tests/weather_tests.cpp
     tests/mob_options_tests.cpp
     tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp
@@ -239,7 +240,9 @@ set(ROTS_TEST_SOURCES
     tests/death_and_damage_paths_tests.cpp
     tests/loader_editor_bounds_tests.cpp
     tests/special_procedure_extract_tests.cpp
+    tests/command_interpreter_callback_tests.cpp
     tests/fish_and_use_tests.cpp
+    tests/mudlle_stack_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp

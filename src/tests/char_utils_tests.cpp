@@ -677,6 +677,43 @@ TEST(DamageReports, ReturnsFriendlyEmptyReports) {
 }
 
 namespace {
+
+// The width get_damage_report pads each attack type's label to ("%-24s").
+constexpr size_t DAMAGE_LABEL_WIDTH = 24;
+
+// How the damage report's row for <label> starts when the attack type hit once: the label padded
+// to DAMAGE_LABEL_WIDTH, then the hit count.
+std::string damage_row_for_one_hit(const std::string& label)
+{
+    return label + std::string(DAMAGE_LABEL_WIDTH - label.size(), ' ') + "<Count: 1";
+}
+
+} // namespace
+
+TEST(DamageReports, AnUnnamedAttackTypeGetsANumberedLabel)
+{
+    player_damage_details player_report;
+    CharUtilsTestContext context;
+    player_report.add_damage(TYPE_SUFFERING, 3);
+
+    const std::string report = player_report.get_damage_report(&context.character);
+
+    const std::string label = "attack type " + std::to_string(TYPE_SUFFERING);
+    EXPECT_NE(report.find(damage_row_for_one_hit(label)), std::string::npos) << report;
+}
+
+TEST(DamageReports, ASpellIsListedByItsName)
+{
+    player_damage_details player_report;
+    CharUtilsTestContext context;
+    player_report.add_damage(SPELL_MAGIC_MISSILE, 7);
+
+    const std::string report = player_report.get_damage_report(&context.character);
+
+    EXPECT_NE(report.find(damage_row_for_one_hit("magic missile")), std::string::npos) << report;
+}
+
+namespace {
 // An arbitrary fixed instant for the mob-age tests, so each sets the time explicitly.
 const WorldClock::time_point MOB_AGE_TEST_NOW = WorldClock::time_point {} + std::chrono::hours(10);
 // The world time one game hour (tick) lasts, from the production constant.
