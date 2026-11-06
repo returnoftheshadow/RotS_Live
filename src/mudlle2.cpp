@@ -45,14 +45,10 @@ void TO_STACK(struct char_data* host, long x)
 
 long STACK_VALUE(const struct char_data* host)
 {
-    int tmp;
     if (SPECIAL_STACKPOINT(host) <= 0) {
-        tmp = 0;
-    } else {
-        tmp = SPECIAL_STACK(host)[SPECIAL_STACKPOINT(host) - 1];
+        return 0;
     }
-
-    return tmp;
+    return SPECIAL_STACK(host)[SPECIAL_STACKPOINT(host) - 1];
 }
 
 long FROM_STACK(struct char_data* host)
@@ -263,7 +259,23 @@ void DOWN_LIST(struct char_data* host)
         }
 }
 
-int CHECK_LIST(const struct char_data* host, char val);
+int CHECK_LIST(const struct char_data* host, char val)
+{
+    if (SPECIAL_LIST_AREA(host)->field[(int)val].type == TARGET_CHAR)
+        if (!char_exists(SPECIAL_LIST_AREA(host)->field[(int)val].ch_num)) {
+            SPECIAL_LIST_AREA(host)
+                ->field[(int)val]
+                .type
+                = TARGET_NONE;
+            SPECIAL_LIST_AREA(host)
+                ->field[(int)val]
+                .ptr.other
+                = 0;
+            return 0;
+        }
+
+    return 1;
+}
 
 void turn_stack(const struct char_data* host, int turns, void (*turn_once)(const struct char_data*))
 {
@@ -312,24 +324,6 @@ void turn_list(struct char_data* host, int turns, void (*turn_once)(struct char_
     for (int turn = 0; turn < turns; ++turn) {
         turn_once(host);
     }
-}
-
-int CHECK_LIST(const struct char_data* host, char val)
-{
-    if (SPECIAL_LIST_AREA(host)->field[(int)val].type == TARGET_CHAR)
-        if (!char_exists(SPECIAL_LIST_AREA(host)->field[(int)val].ch_num)) {
-            SPECIAL_LIST_AREA(host)
-                ->field[(int)val]
-                .type
-                = TARGET_NONE;
-            SPECIAL_LIST_AREA(host)
-                ->field[(int)val]
-                .ptr.other
-                = 0;
-            return 0;
-        }
-
-    return 1;
 }
 
 void TEXT_LIST(struct char_data* host, char* targ)

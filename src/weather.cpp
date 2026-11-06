@@ -8,6 +8,7 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include <iterator>
 #include <stdio.h>
 
 #include "comm.h"
@@ -312,22 +313,24 @@ int sector_age_value(int sector_type)
 
 const char* weather_message_for_sector(int sector_type)
 {
-    constexpr int SECTOR_COUNT = sizeof(weather_info.sky) / sizeof(weather_info.sky[0]);
-    constexpr int MESSAGE_ROWS = sizeof(weather_messages) / sizeof(weather_messages[0]);
-    static_assert(SECTOR_COUNT == sizeof(weather_messages[0]) / sizeof(weather_messages[0][0]),
+    constexpr int SECTOR_COUNT = static_cast<int>(std::size(weather_info.sky));
+    constexpr int MESSAGE_ROWS = static_cast<int>(std::size(weather_messages));
+    static_assert(std::size(weather_info.sky) == std::size(weather_messages[0]),
         "weather_messages needs one column per sector");
 
-    char complaint[MAX_STRING_LENGTH];
     if (sector_type < 0 || sector_type >= SECTOR_COUNT) {
+        char complaint[MAX_STRING_LENGTH];
         snprintf(complaint, sizeof(complaint), "SYSERR: weather_message_for_sector: sector type %d is not a sector.",
             sector_type);
         log(complaint);
         return NULL;
     }
 
-    // Sky values start at SKY_CLOUDLESS (0); the two rows before it are sunrise and sunset.
-    const int message_row = weather_info.sky[sector_type] + 2;
-    if (message_row < 2 || message_row >= MESSAGE_ROWS) {
+    // Sky values start at SKY_CLOUDLESS (0); the rows before it are sunrise and sunset.
+    constexpr int FIRST_SKY_ROW = WEATHER_MESSAGE_SET + 1;
+    const int message_row = weather_info.sky[sector_type] + FIRST_SKY_ROW;
+    if (message_row < FIRST_SKY_ROW || message_row >= MESSAGE_ROWS) {
+        char complaint[MAX_STRING_LENGTH];
         snprintf(complaint, sizeof(complaint), "SYSERR: weather_message_for_sector: sector %d has sky value %d.",
             sector_type, weather_info.sky[sector_type]);
         log(complaint);
