@@ -646,6 +646,15 @@ def test_sanitizer_report_lines_skip_logs_older_than_the_run(repo_root: Path) ->
     assert asan_selection.sanitizer_report_lines(repo_root / asan_selection.RUNS_RELATIVE, 2000.0) == []
 
 
+def test_sanitizer_report_lines_read_the_log_a_restart_set_aside(repo_root: Path) -> None:
+    write_run(repo_root, "abc", "scenarios/test_service_stop.py::test_a", "Entering game loop.\n")
+    set_aside = repo_root / asan_selection.RUNS_RELATIVE / "abc" / "game.boot-1.log"
+    set_aside.write_text("==36==ERROR: AddressSanitizer: heap-use-after-free on address 0x407fc56e\n", encoding="utf-8")
+    assert asan_selection.sanitizer_report_lines(repo_root / asan_selection.RUNS_RELATIVE, 0.0) == [
+        "scenarios/test_service_stop.py::test_a: ==36==ERROR: AddressSanitizer: heap-use-after-free on address 0x407fc56e",
+    ]
+
+
 def test_a_failure_without_reports_says_so() -> None:
     assert asan_selection.scenario_outcome_summary(1, "", []).endswith("`asan-runs-shard-1` artifact.\nNo game.log holds an AddressSanitizer report.\n")
 

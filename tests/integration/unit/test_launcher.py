@@ -98,6 +98,22 @@ def test_local_start_gives_the_server_a_standard_input_pipe(tmp_path: Path, monk
     assert recorded_kwargs[0]["stdin"] == launcher.subprocess.PIPE
 
 
+def test_set_aside_logs_numbers_each_log_by_its_boot_and_skips_missing_ones(tmp_path: Path) -> None:
+    (tmp_path / "game.log").write_text("first boot\n", encoding="utf-8")
+    set_aside = launcher.set_aside_logs(tmp_path, 1, ("game.log", "stdout.log"))
+    assert set_aside == [tmp_path / "game.boot-1.log"]
+    assert (tmp_path / "game.boot-1.log").read_text(encoding="utf-8") == "first boot\n"
+    assert not (tmp_path / "game.log").exists()
+
+
+def test_set_aside_logs_keeps_an_earlier_boots_log(tmp_path: Path) -> None:
+    (tmp_path / "game.boot-1.log").write_text("first boot\n", encoding="utf-8")
+    (tmp_path / "game.log").write_text("second boot\n", encoding="utf-8")
+    launcher.set_aside_logs(tmp_path, 2, ("game.log",))
+    assert (tmp_path / "game.boot-1.log").read_text(encoding="utf-8") == "first boot\n"
+    assert (tmp_path / "game.boot-2.log").read_text(encoding="utf-8") == "second boot\n"
+
+
 def test_allocate_free_port_returns_a_high_port() -> None:
     port = launcher.allocate_free_port()
     assert 1024 < port < 65536
