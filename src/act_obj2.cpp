@@ -20,10 +20,14 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "object_text.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
+
+#include <string>
+#include <utility>
 
 /* extern variables */
 extern struct room_data world;
@@ -51,34 +55,36 @@ void weight_change_object(struct obj_data* obj, int weight)
     }
 }
 
+/* Gives `object` a text of its own with `new_name` as its name; the text it showed, which its
+ * prototype and other copies may share, is left to them. */
+static void rename_object(obj_data& object, std::string new_name)
+{
+    object_text::fields text = object_text_fields_of(object);
+    text.name = std::move(new_name);
+    object.set_text(create_object_text(std::move(text)));
+}
+
 void name_from_drinkcon(struct obj_data* obj)
 {
     int i;
-    char* new_name;
-    extern struct obj_data* obj_proto;
 
     for (i = 0; (*((obj->name) + i) != ' ') && (*((obj->name) + i) != '\0'); i++)
         ;
 
     if (*((obj->name) + i) == ' ') {
-        new_name = str_dup((obj->name) + i + 1);
-        if (obj->item_number < 0 || obj->name != obj_proto[obj->item_number].name)
-            RELEASE(obj->name);
-        obj->name = new_name;
+        const char* const name_without_liquid = (obj->name) + i + 1;
+        rename_object(*obj, name_without_liquid);
     }
 }
 
 void name_to_drinkcon(struct obj_data* obj, int type)
 {
-    char* new_name;
-    extern struct obj_data* obj_proto;
     extern char* drinknames[];
 
-    CREATE(new_name, char, strlen(obj->name) + strlen(drinknames[type]) + 2);
-    sprintf(new_name, "%s %s", drinknames[type], obj->name);
-    if (obj->item_number < 0 || obj->name != obj_proto[obj->item_number].name)
-        RELEASE(obj->name);
-    obj->name = new_name;
+    std::string new_name = drinknames[type];
+    new_name += ' ';
+    new_name += obj->name;
+    rename_object(*obj, std::move(new_name));
 }
 
 extern struct obj_data generic_water;

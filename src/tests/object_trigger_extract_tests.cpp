@@ -6,6 +6,8 @@
  * call_object_trigger's results directly. */
 #include "scripted_room_fixture.h"
 
+#include <utility>
+
 ACMD(do_eat);
 ACMD(do_drink);
 ACMD(do_examine);
@@ -578,4 +580,97 @@ TEST_F(ObjectTriggerTest, PullingStopsWhenTheScriptRemovesThePuller)
     do_pull(puller, empty_argument, &target, 0, 0);
 
     EXPECT_FALSE(is_in_game(puller));
+}
+
+/* ---- renaming an object (ASSIGN_STR obN.name) ---- */
+
+/* The name a script gives its object goes in a text of the object's own, freed with it; the
+ * prototype and its other copies keep their name. */
+TEST_F(ObjectTriggerTest, ARenamedObjectHasATextOfItsOwn)
+{
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_STREQ("a glowing stone", stone->short_description);
+    EXPECT_EQ(stone->shared_text().use_count(), 1) << "no other object shows the new name";
+    EXPECT_STREQ("a grey stone", prototype_for(STONE_VNUM).short_description);
+}
+
+/* A script changes only the object's short description: it keeps the rest of the text it showed. */
+TEST_F(ObjectTriggerTest, ARenamedObjectKeepsTheRestOfItsText)
+{
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+    object_text::fields text = object_text_fields_of(prototype_for(STONE_VNUM));
+    text.description = "A grey stone lies here.";
+    text.action_description = "It hums.";
+    text.extra_descriptions.push_back({ "veins", "Veins of quartz." });
+    prototype_for(STONE_VNUM).set_text(create_object_text(std::move(text)));
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_STREQ("a glowing stone", stone->short_description);
+    EXPECT_STREQ("stone grey", stone->name);
+    EXPECT_STREQ("A grey stone lies here.", stone->description);
+    EXPECT_STREQ("It hums.", stone->action_description);
+    ASSERT_NE(nullptr, stone->ex_description);
+    EXPECT_STREQ("veins", stone->ex_description->keyword);
+    EXPECT_STREQ("Veins of quartz.", stone->ex_description->description);
+}
+
+/* An object a script found and renamed through ob2 or ob3 gets a text of its own, as its own object
+ * does: the other copies, its prototype and the script's own object keep theirs. */
+TEST_F(ObjectTriggerTest, AnObjectFoundByAScriptAndRenamedHasATextOfItsOwn)
+{
+    const std::pair<int, int> variables[]
+        = { { SCRIPT_PARAM_OB2, SCRIPT_PARAM_OB2_NAME }, { SCRIPT_PARAM_OB3, SCRIPT_PARAM_OB3_NAME } };
+    for (const std::pair<int, int>& variable : variables) {
+        SCOPED_TRACE(variable.first);
+        install_script(ON_EXAMINE_OBJECT,
+            { { SCRIPT_ASSIGN_INV, nullptr,
+                  { BREAD_VNUM, variable.first, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                { SCRIPT_ASSIGN_STR, "a stale loaf", { variable.second } } });
+        obj_data* other_loaf = make_object(BREAD_VNUM, 0);
+        obj_to_char(other_loaf, &m_player);
+        obj_data* renamed = make_object(BREAD_VNUM, 0); /* first in the pack, so the script finds it */
+        obj_to_char(renamed, &m_player);
+        obj_data* stone = make_scripted(STONE_VNUM);
+        obj_to_char(stone, &m_player);
+
+        run_command(do_examine, "stone");
+
+        EXPECT_STREQ("a stale loaf", renamed->short_description);
+        ASSERT_NE(nullptr, renamed->shared_text());
+        EXPECT_STREQ("a stale loaf", renamed->shared_text()->short_description());
+        EXPECT_EQ(renamed->shared_text().use_count(), 1);
+        EXPECT_STREQ("a loaf of bread", other_loaf->short_description);
+        EXPECT_STREQ("a loaf of bread", prototype_for(BREAD_VNUM).short_description);
+        EXPECT_STREQ("a grey stone", stone->short_description);
+
+        extract_obj(stone);
+        extract_obj(renamed);
+        extract_obj(other_loaf);
+    }
+}
+
+/* Renamed again, the object lets go of the name the script gave it first and keeps the new one. */
+TEST_F(ObjectTriggerTest, AnObjectRenamedTwiceKeepsTheLatestName)
+{
+    install_script(ON_EXAMINE_OBJECT,
+        { { SCRIPT_ASSIGN_STR, "a dull stone", { SCRIPT_PARAM_OB1_NAME } },
+            { SCRIPT_ASSIGN_STR, "a glowing stone", { SCRIPT_PARAM_OB1_NAME } } });
+    obj_data* stone = make_scripted(STONE_VNUM);
+    obj_to_char(stone, &m_player);
+
+    run_command(do_examine, "stone");
+
+    EXPECT_STREQ("a glowing stone", stone->short_description);
+    EXPECT_EQ(stone->shared_text().use_count(), 1) << "no other object shows the new name";
+    EXPECT_STREQ("a grey stone", prototype_for(STONE_VNUM).short_description);
 }

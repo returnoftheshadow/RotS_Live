@@ -24,6 +24,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "mail.h"
+#include "note_writing.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
@@ -326,6 +327,7 @@ void string_add_finish(struct descriptor_data* d)
     else if (strlen(*d->str) > MAX_EDITED_TEXT_LENGTH)
         *(*d->str + MAX_EDITED_TEXT_LENGTH) = 0;
 
+    finish_writing_note(*d);
     d->str = 0;
     d->str_limit = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
@@ -641,6 +643,8 @@ void string_add(struct descriptor_data* d, char* str)
         }
     }
 
+    save_written_note(*d);
+
     if (terminator) {
         if (!d->connected && (PLR_FLAGGED(d->character, PLR_MAILING))) {
             store_mail(d->name, d->character->player.name, *d->str);
@@ -699,8 +703,6 @@ ACMD(do_string)
     char name[MAX_STRING_LENGTH], string[MAX_STRING_LENGTH];
     int field, type;
     struct char_data* mob;
-    struct obj_data* obj;
-    struct extra_descr_data *ed, *tmp;
 
     if (IS_NPC(ch))
         return;
@@ -771,85 +773,6 @@ ACMD(do_string)
     } else /* type == TP_OBJ */ {
         send_to_char("Sorry, string has been disabled for objects.\n\r", ch);
         return;
-
-        /* locate the object */
-        if (!(obj = get_obj_vis(ch, name))) {
-            send_to_char("Can't find such a thing here..\n\r", ch);
-            return;
-        }
-
-        switch (field) {
-        case 1:
-            ch->desc->str = &obj->name;
-            break;
-        case 2:
-            ch->desc->str = &obj->short_description;
-            break;
-        case 3:
-            ch->desc->str = &obj->description;
-            break;
-        case 4:
-            if (!*string) {
-                send_to_char("You have to supply a keyword.\n\r", ch);
-                return;
-            }
-            /* try to locate extra description */
-            for (ed = obj->ex_description;; ed = ed->next)
-                if (!ed) /* the field was not found. create a new one. */ {
-                    CREATE(ed, struct extra_descr_data, 1);
-                    ed->next = obj->ex_description;
-                    obj->ex_description = ed;
-                    CREATE(ed->keyword, char, strlen(string) + 1);
-                    strcpy(ed->keyword, string);
-                    ed->description = 0;
-                    ch->desc->str = &ed->description;
-                    send_to_char("New field.\n\r", ch);
-                    break;
-                } else if (!str_cmp(ed->keyword, string)) /* the field exists */ {
-                    RELEASE(ed->description);
-                    ed->description = 0;
-                    ch->desc->str = &ed->description;
-                    send_to_char("Modifying description.\n\r", ch);
-                    break;
-                }
-            ch->desc->max_str = MAX_STRING_LENGTH;
-            return; /* the stndrd (see below) procedure does not apply here */
-            break;
-        case 6:
-            if (!*string) {
-                send_to_char("You must supply a field name.\n\r", ch);
-                return;
-            }
-            /* try to locate field */
-            for (ed = obj->ex_description;; ed = ed->next)
-                if (!ed) {
-                    send_to_char("No field with that keyword.\n\r", ch);
-                    return;
-                } else if (!str_cmp(ed->keyword, string)) {
-                    RELEASE(ed->keyword);
-                    RELEASE(ed->description);
-
-                    /* delete the entry in the desr list */
-                    if (ed == obj->ex_description)
-                        obj->ex_description = ed->next;
-                    else {
-                        for (tmp = obj->ex_description; tmp->next != ed;
-                             tmp = tmp->next)
-                            ;
-                        tmp->next = ed->next;
-                    }
-                    RELEASE(ed);
-
-                    send_to_char("Field deleted.\n\r", ch);
-                    return;
-                }
-            break;
-        default:
-            send_to_char(
-                "That field is undefined for objects.\n\r", ch);
-            return;
-            break;
-        }
     }
 
     RELEASE(*ch->desc->str);
