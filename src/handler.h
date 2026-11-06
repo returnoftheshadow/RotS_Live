@@ -238,7 +238,7 @@ int Crash_clean_file(const char* name);
 void Crash_listrent(const struct char_data* ch, const char* name);
 // int	Crash_load(struct char_data *ch);
 void Crash_crashsave(struct char_data* ch, int rent_code = RENT_CRASH);
-void Crash_idlesave(const struct char_data* ch);
+void Crash_idlesave(struct char_data* ch);
 void Crash_save_all(void);
 FILE* Crash_get_file_by_name(const char* name, const char* mode);
 FILE* Crash_load(struct char_data* ch);

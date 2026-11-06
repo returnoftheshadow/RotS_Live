@@ -8,11 +8,15 @@
  * queues it with push_test_random_value. */
 #include "scripted_room_fixture.h"
 
+#include "../act_move.h"
 #include "../big_brother.h"
 #include "../char_utils.h"
 #include "../comm.h" /* complete_delay */
+#include "../mob_walker.h"
 #include "../skill_timer.h"
 #include "../spells.h"
+
+#include <string>
 
 ACMD(do_wear);
 ACMD(do_wield);
@@ -264,6 +268,92 @@ protected:
 
 /* ---- putting gear on and taking it off ---- */
 
+/* A poisonous item hurts a healthy mob as it goes on, and stays worn. */
+TEST_F(DeathAndDamagePathsTest, APoisonousItemHurtsItsNewWearerAndStaysOn)
+{
+    make_ring_and_sword_poisonous();
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+
+    run_command_as(wearer, do_wear, "ring");
+
+    ASSERT_TRUE(is_in_game(wearer));
+    EXPECT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(MOB_HIT_POINTS - POISON_DAMAGE, GET_HIT(wearer));
+    EXPECT_TRUE(IS_AFFECTED(wearer, AFF_POISON));
+}
+
+/* The poison's blow sets off the wearer's damage script, which removes the wearer: the wearing
+ * stops there. */
+TEST_F(DeathAndDamagePathsTest, AWearerItsDamageScriptRemovesAsPoisonTakesHoldIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* wearer = make_mob("wearer", SCRIPT_VNUM);
+    obj_to_char(make_object(RING_VNUM, 0), wearer);
+
+    run_command_as(wearer, do_wear, "ring");
+
+    EXPECT_FALSE(is_in_game(wearer));
+}
+
+/* A mob too hurt to survive the poison dies wielding a two-handed weapon: the wield does not go
+ * on to take it in two hands. */
+TEST_F(DeathAndDamagePathsTest, AMobThePoisonKillsAsItWieldsIsLetGo)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(SWORD_VNUM).obj_flags.value[2] = TWO_HANDED_BULK;
+    char_data* wielder = make_mob("wielder", 0);
+    wielder->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    obj_data* sword = make_object(SWORD_VNUM, 0);
+    obj_to_char(sword, wielder);
+
+    run_command_as(wielder, do_wield, "sword");
+
+    EXPECT_FALSE(is_in_game(wielder));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_TRUE(is_in_object_list(sword));
+}
+
+/* Taking a poisonous item off hurts a healthy wearer, who keeps it. */
+TEST_F(DeathAndDamagePathsTest, TakingAPoisonousItemOffHurtsTheWearerWhoKeepsIt)
+{
+    make_ring_and_sword_poisonous();
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+    run_command_as(wearer, do_wear, "ring");
+    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+
+    run_command_as(wearer, do_remove, "ring");
+
+    ASSERT_TRUE(is_in_game(wearer));
+    EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(wearer));
+    EXPECT_EQ(ring, wearer->carrying);
+    EXPECT_EQ(nullptr, wearer->equipment[WEAR_FINGER_R]);
+}
+
+/* Taking the item off sets off the wearer's damage script, which removes the wearer: the item
+ * lies on the floor where the wearer was. */
+TEST_F(DeathAndDamagePathsTest, AWearerItsDamageScriptRemovesAsPoisonLeavesDropsTheItem)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* wearer = make_mob("wearer", 0);
+    obj_data* ring = make_object(RING_VNUM, 0);
+    obj_to_char(ring, wearer);
+    run_command_as(wearer, do_wear, "ring");
+    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
+    wearer->specials.script_number = SCRIPT_VNUM;
+
+    run_command_as(wearer, do_remove, "all");
+
+    EXPECT_FALSE(is_in_game(wearer));
+    EXPECT_TRUE(is_on_the_floor(ring));
+    EXPECT_EQ(nullptr, ring->carried_by);
+}
+
 /* A mob slain while it wears a poisonous item is stripped into one corpse: taking the item off
  * the dying mob does not kill it again. */
 TEST_F(DeathAndDamagePathsTest, AMobSlainWearingAPoisonousItemLeavesOneCorpse)
@@ -303,6 +393,75 @@ TEST_F(DeathAndDamagePathsTest, AMobRemovedWearingAPoisonousItemIsRemovedOnce)
     EXPECT_TRUE(is_on_the_floor(ring));
 }
 
+/* ---- callers that take gear off or put it on ---- */
+
+/* A mover its damage script removes as its stay-zone ring comes off leaves the ring behind, and
+ * the rest of its gear is not looked at. */
+TEST_F(DeathAndDamagePathsTest, AMoverRemovedAsItsStayZoneGearComesOffLeavesItBehind)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(RING_VNUM).obj_flags.extra_flags |= ITEM_STAY_ZONE;
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* mover = make_mob_wearing_poisonous_ring("mover", SCRIPT_VNUM);
+    obj_data* ring = mover->equipment[WEAR_FINGER_R];
+
+    EXPECT_FALSE(prohibit_item_stay_zone_move(mover, 0));
+
+    EXPECT_FALSE(is_in_game(mover));
+    EXPECT_TRUE(is_on_the_floor(ring));
+}
+
+/* A mover the stay-zone ring only hurts as it comes off leaves it behind and goes on. */
+TEST_F(DeathAndDamagePathsTest, AMoverHurtAsItsStayZoneGearComesOffLeavesItBehind)
+{
+    make_ring_and_sword_poisonous();
+    prototype_for(RING_VNUM).obj_flags.extra_flags |= ITEM_STAY_ZONE;
+    char_data* mover = make_mob_wearing_poisonous_ring("mover", 0);
+    obj_data* ring = mover->equipment[WEAR_FINGER_R];
+
+    EXPECT_TRUE(prohibit_item_stay_zone_move(mover, 0));
+
+    ASSERT_TRUE(is_in_game(mover));
+    EXPECT_TRUE(is_on_the_floor(ring));
+    EXPECT_EQ(nullptr, mover->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(MOB_HIT_POINTS - 2 * POISON_DAMAGE, GET_HIT(mover));
+}
+
+/* A zone reset puts a ring on a mob whose damage script, set off by the ring's poison, destroys
+ * the ring: the stone meant for the last object loaded has nothing to go in, and is not made. */
+TEST_F(DeathAndDamagePathsTest, AResetPutsNothingInAnItemItsWearerDestroyed)
+{
+    make_ring_and_sword_poisonous();
+    install_script(ON_DAMAGE,
+        { { SCRIPT_ASSIGN_EQ, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1, WEAR_FINGER_R, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } });
+    char_data* keeper = make_mob("keeper", SCRIPT_VNUM);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    ASSERT_TRUE(is_in_game(keeper));
+    EXPECT_EQ(nullptr, keeper->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
+    EXPECT_EQ(0, count_objects_of(STONE_VNUM));
+}
+
+/* The same reset on a mob the poison only hurts: the stone goes in the ring it wears. */
+TEST_F(DeathAndDamagePathsTest, AResetPutsTheStoneInTheRingItsMobWears)
+{
+    make_ring_and_sword_poisonous();
+    char_data* keeper = make_mob("keeper", 0);
+    install_ring_then_stone_reset();
+
+    reset_zone(0);
+
+    obj_data* ring = keeper->equipment[WEAR_FINGER_R];
+    ASSERT_NE(nullptr, ring);
+    EXPECT_EQ(MOB_HIT_POINTS - POISON_DAMAGE, GET_HIT(keeper));
+    ASSERT_NE(nullptr, ring->contains);
+    EXPECT_EQ(real_number_of(STONE_VNUM), ring->contains->item_number);
+}
+
 /* Nobody in no room is hurt: a blow at someone being taken out of the game lands nowhere. */
 TEST_F(DeathAndDamagePathsTest, ABlowAtSomeoneInNoRoomLandsNowhere)
 {
@@ -338,4 +497,60 @@ TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide
     EXPECT_TRUE(is_in_game(doorkeeper));
     EXPECT_EQ(1, count_corpses_in_room());
     EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
+}
+
+/* ---- a walker removed at the end of its route ---- */
+
+namespace {
+
+/* Takes <walker> to the end of a path route that is room 0 alone and removes the walker there
+ * (path_complete_extract): its last wander roll queues it for walker_remove_finished. Mob table
+ * entry 0 carries the route only for that roll, and the walker is that entry's mob only then. */
+void finish_walker_route(char_data* walker)
+{
+    std::string options = "walker_type=path\n\rwalker_rooms=" + std::to_string(ROOM_VNUM)
+        + "\n\rpath_complete_extract=yes\n\r";
+    mob_proto[0].specials.mob_options = options.data();
+    walker_config_rebuild(0);
+    const int walker_number = walker->nr;
+    walker->nr = 0;
+    const walker_result result = walker_wander(walker, NORTH, true);
+    walker->nr = walker_number;
+    mob_proto[0].specials.mob_options = nullptr;
+    walker_config_rebuild(0);
+    EXPECT_EQ(WALKER_HANDLED, result);
+}
+
+} // namespace
+
+/* A walker removed at the end of its route takes its gear with it, and nothing is left behind. */
+TEST_F(DeathAndDamagePathsTest, AWalkerAtTheEndOfItsRouteLeavesWithItsGear)
+{
+    link_second_room();
+    make_ring_and_sword_poisonous();
+    char_data* walker = make_mob_wearing_poisonous_ring("walker", 0);
+    finish_walker_route(walker);
+
+    walker_remove_finished();
+
+    EXPECT_FALSE(is_in_game(walker));
+    EXPECT_EQ(0, count_corpses_in_room());
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
+}
+
+/* The poison of the ring coming off a walker removed at the end of its route kills it: it dies
+ * there, leaving its corpse, and is not removed a second time. */
+TEST_F(DeathAndDamagePathsTest, AWalkerItsGearKillsAsItLeavesAtTheEndOfItsRouteIsLetGo)
+{
+    link_second_room();
+    make_ring_and_sword_poisonous();
+    char_data* walker = make_mob_wearing_poisonous_ring("walker", 0);
+    walker->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
+    finish_walker_route(walker);
+
+    walker_remove_finished();
+
+    EXPECT_FALSE(is_in_game(walker));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_EQ(0, count_objects_of(RING_VNUM));
 }
