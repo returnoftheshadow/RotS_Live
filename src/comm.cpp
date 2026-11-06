@@ -606,12 +606,14 @@ char* trim_prompt_blanks(char* prompt)
         return nullptr;
     }
     char* start = prompt;
-    if (prompt[0] == ' ')
+    if (prompt[0] == ' ') {
         start++;
+    }
     // An empty prompt has no last character to look at.
     const size_t prompt_length = strlen(prompt);
-    if (prompt_length > 0 && prompt[prompt_length - 1] == ' ')
+    if (prompt_length > 0 && prompt[prompt_length - 1] == ' ') {
         prompt[prompt_length - 1] = '\0';
+    }
     return start;
 }
 
@@ -2435,8 +2437,9 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
        terminator and the closing color still fit; a longer message is cut there. */
     const char* const text_end = output + MAX_STRING_LENGTH - (3 + strlen(normal_color));
     auto append = [&point, text_end](const char* text) -> void {
-        while (*text != '\0' && point < text_end)
+        while (*text != '\0' && point < text_end) {
             *point++ = *text++;
+        }
     };
 
     i = NULL;
@@ -2558,11 +2561,13 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
                 log(buf1);
                 break;
             }
-            if (i)
+            if (i) {
                 append(i);
+            }
             /* A '$' or "$C" ending the string leaves strp on its terminator. */
-            if (*strp != '\0')
+            if (*strp != '\0') {
                 ++strp;
+            }
 
             if (clobbered_color && used_color != NULL) {
                 append(used_color);
@@ -2571,8 +2576,9 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
         } else if (*strp == '\0') {
             break;
         } else {
-            if (point < text_end)
+            if (point < text_end) {
                 *point++ = *strp;
+            }
             ++strp;
         }
 
@@ -2585,10 +2591,12 @@ void convert_string(const char* str, int hide_invisible, struct char_data* ch, c
 
     /* Find the first character in the string, ignoring ANSI colors */
     for (strp = output; *strp == '\x1B';) {
-        while (*strp != '\0' && *strp != 'm')
+        while (*strp != '\0' && *strp != 'm') {
             ++strp;
-        if (*strp != '\0')
+        }
+        if (*strp != '\0') {
             ++strp;
+        }
     }
 
     if (isalpha(*strp))

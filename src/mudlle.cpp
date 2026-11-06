@@ -1119,8 +1119,9 @@ SPECIAL(intelligent)
         case 'K':
             tmpvar = FROM_STACK(host);
             /* Programs are numbered from 1. */
-            if (tmpvar < 1 || tmpvar >= num_of_programs)
+            if (tmpvar < 1 || tmpvar >= num_of_programs) {
                 break;
+            }
             if (host->specials.tactics >= SPECIAL_CALLLIST - 1)
                 break;
             //  prog_point is automatic.,.

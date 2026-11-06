@@ -46,10 +46,11 @@ void TO_STACK(struct char_data* host, long x)
 long STACK_VALUE(const struct char_data* host)
 {
     int tmp;
-    if (SPECIAL_STACKPOINT(host) <= 0)
+    if (SPECIAL_STACKPOINT(host) <= 0) {
         tmp = 0;
-    else
+    } else {
         tmp = SPECIAL_STACK(host)[SPECIAL_STACKPOINT(host) - 1];
+    }
 
     return tmp;
 }
@@ -71,8 +72,9 @@ void DOWN_STACK(const struct char_data* host)
     int tmp;
 
     /* An empty stack has nothing to turn. */
-    if (SPECIAL_STACKPOINT(host) <= 0)
+    if (SPECIAL_STACKPOINT(host) <= 0) {
         return;
+    }
 
     tmp = SPECIAL_STACK(host)[0];
     memmove(SPECIAL_STACK(host), SPECIAL_STACK(host) + 1,

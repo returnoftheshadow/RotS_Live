@@ -2392,8 +2392,9 @@ bool parse_name(std::string_view argument, char* name)
 {
     size_t name_start = 0;
     while (name_start < argument.size()
-        && isspace(static_cast<unsigned char>(argument[name_start])))
+        && isspace(static_cast<unsigned char>(argument[name_start]))) {
         ++name_start;
+    }
     const std::string_view letters = argument.substr(name_start);
 
     const bool fits = !letters.empty() && letters.size() <= static_cast<size_t>(MAX_PARSED_NAME_LENGTH);
