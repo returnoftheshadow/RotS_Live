@@ -9,6 +9,7 @@
 #include "../handler.h"
 #include "../mob_progs/banker.h"
 #include "../object_skins.h"
+#include "../object_text.h"
 #include "../objects_json.h"
 #include "../owned_character.h"
 #include "../protos.h" /* shape_object, for the object editor's version field */
@@ -32,6 +33,7 @@
 #include <iterator>
 #include <limits>
 #include <limits.h>
+#include <memory>
 #include <new>
 #include <optional>
 #include <random>
@@ -336,6 +338,7 @@ public:
 
     ~ScopedObjectPrototypeTable()
     {
+        // read_object allocates with new, so each copy goes back through free_obj.
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
             free_obj(object_list);
@@ -2654,7 +2657,7 @@ TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAs
     index_data* const previous_obj_index = obj_index;
     obj_data* const previous_obj_proto = obj_proto;
     const int previous_top_of_objt = top_of_objt;
-    const int prototype_slots = 4;
+    const int prototype_slots = 8;
     obj_index = new index_data[prototype_slots] {};
     obj_proto = new obj_data[prototype_slots] {};
 
@@ -2680,18 +2683,26 @@ TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAs
     write_object(file, &written, 2002); // off, number kept
     // A line from before the fifth number existed. Its value[4] above it is 9: what the version
     // used to be left holding when the line ran short.
-    std::fputs("#2003\nsword~\na sword~\nA sword lies here.~\n~\n5 0 0\n0 0 0 0 9\n1 1 1\n12 0 0 7\n", file);
+    std::fputs("#2003\nsword~\na sword~\nA sword lies here.~\n~\n5 0 0\n0 0 0 0 9\n1 1 1\n12 0 0 7\n"
+               "E\nfirst~\nThe first.~\nE\nsecond~\nThe second.~\n",
+        file);
     written.obj_flags.version = 4;
     written.obj_flags.skin_base = 2001;
     written.obj_flags.skin_own = SKIN_OWN_COST | SKIN_OWN_MATERIAL;
     write_object(file, &written, 2004); // a skin: a 7-number level line
+    // How the loader tidies a short description's article and a room line's first letter.
+    const char* const rest_of_object = "~\n5 0 0\n0 0 0 0 0\n1 1 1\n12 0 0 7\n";
+    std::fprintf(file, "#2005\naxe~\nA rusty axe~\na rusty axe lies here.~\n%s", rest_of_object);
+    std::fprintf(file, "#2006\nblade~\nAn old blade~\nan old blade lies here.~\n%s", rest_of_object);
+    std::fprintf(file, "#2007\nblade~\nThe Blade~\nthe Blade lies here.~\n%s", rest_of_object);
+    std::fprintf(file, "#2008\nsting~\nSting~\n~\n%s", rest_of_object);
     std::fputs("#99999\n$~\n", file);
     std::rewind(file);
 
     load_objects(file);
     std::fclose(file);
 
-    EXPECT_EQ(top_of_objt, 3);
+    EXPECT_EQ(top_of_objt, 7);
     EXPECT_EQ(obj_index[0].virt, 2001);
     EXPECT_EQ(obj_proto[0].obj_flags.version, 4);
     EXPECT_EQ(obj_proto[0].obj_flags.script_number, 7);
@@ -2707,6 +2718,33 @@ TEST_F(DbLoader, WorldObjectVersionSurvivesWriteAndLoadAndAShortLevelLineReadsAs
     EXPECT_EQ(obj_proto[3].obj_flags.version, 4);
     EXPECT_EQ(obj_proto[3].obj_flags.skin_base, 2001);
     EXPECT_EQ(obj_proto[3].obj_flags.skin_own, SKIN_OWN_COST | SKIN_OWN_MATERIAL);
+
+    // Each prototype shows its own text, and the extra descriptions last in the file first.
+    ASSERT_NE(obj_proto[2].shared_text(), nullptr);
+    EXPECT_NE(obj_proto[2].shared_text(), obj_proto[0].shared_text());
+    EXPECT_STREQ(obj_proto[2].name, "sword");
+    EXPECT_STREQ(obj_proto[2].short_description, "a sword");
+    EXPECT_STREQ(obj_proto[2].description, "A sword lies here.");
+    EXPECT_STREQ(obj_proto[2].action_description, "");
+    const extra_descr_data* const shown_first = obj_proto[2].ex_description;
+    ASSERT_NE(shown_first, nullptr);
+    EXPECT_STREQ(shown_first->keyword, "second");
+    EXPECT_STREQ(shown_first->description, "The second.");
+    ASSERT_NE(shown_first->next, nullptr);
+    EXPECT_STREQ(shown_first->next->keyword, "first");
+    EXPECT_EQ(shown_first->next->next, nullptr);
+    EXPECT_EQ(obj_proto[0].ex_description, nullptr);
+
+    // A short description's article is lower case, and a room line starts with a capital.
+    EXPECT_STREQ(obj_proto[4].short_description, "a rusty axe");
+    EXPECT_STREQ(obj_proto[4].description, "A rusty axe lies here.");
+    EXPECT_STREQ(obj_proto[5].short_description, "an old blade");
+    EXPECT_STREQ(obj_proto[5].description, "An old blade lies here.");
+    EXPECT_STREQ(obj_proto[6].short_description, "the Blade");
+    EXPECT_STREQ(obj_proto[6].description, "The Blade lies here.");
+    // A name keeps its capital, and an empty room line stays empty.
+    EXPECT_STREQ(obj_proto[7].short_description, "Sting");
+    EXPECT_STREQ(obj_proto[7].description, "");
 
     delete[] obj_proto;
     delete[] obj_index;
@@ -2877,7 +2915,7 @@ public:
     LoadedCharacter builder;
 
 private:
-    /* Frees an object's text and extra descriptions, which init, the editor and implement
+    /* Frees a working copy's text and extra descriptions, which the session and the editor
      * allocate. */
     static void release_object_text(obj_data& object)
     {
@@ -2898,10 +2936,12 @@ private:
     {
         obj_index[index].virt = virt;
         clear_object(&obj_proto[index]);
-        obj_proto[index].name = strdup("thing");
-        obj_proto[index].short_description = strdup(short_description);
-        obj_proto[index].description = strdup(short_description);
-        obj_proto[index].action_description = strdup("");
+        object_text::fields text;
+        text.name = "thing";
+        text.short_description = short_description;
+        text.description = short_description;
+        text.action_description = "";
+        obj_proto[index].set_text(create_object_text(std::move(text)));
         obj_proto[index].item_number = index;
     }
 
@@ -2912,6 +2952,31 @@ private:
 };
 
 bool has(const std::string& text, const char* line) { return text.find(line) != std::string::npos; }
+
+/* SkinEditorSession's staff, a plain prototype with no skins: the object the implement and copy
+ * tests edit, copy and implement over. */
+constexpr int STAFF_VIRTUAL_NUMBER = 4700;
+constexpr int STAFF_REAL_NUMBER = 4;
+
+/* Gives `prototype` a new text with an extra description put at the front of its list. */
+void add_prototype_extra_description(obj_data& prototype, const char* keyword, const char* description)
+{
+    object_text::fields text = object_text_fields_of(prototype);
+    text.extra_descriptions.insert(text.extra_descriptions.begin(), { keyword, description });
+    prototype.set_text(create_object_text(std::move(text)));
+}
+
+/* Puts an extra description at the front of a working copy's list, allocated as the editor
+ * allocates one. */
+void add_extra_description(obj_data& object, const char* keyword, const char* description)
+{
+    extra_descr_data* node = nullptr;
+    CREATE(node, extra_descr_data, 1);
+    node->keyword = strdup(keyword);
+    node->description = strdup(description);
+    node->next = object.ex_description;
+    object.ex_description = node;
+}
 
 } // namespace
 
@@ -3245,6 +3310,184 @@ TEST_F(DbLoader, ImplementRefusesKeyOrNoteTypeOnBaseWithSkins)
     }
 }
 
+/* A copy in the game when its prototype is implemented keeps the text it was made with. */
+TEST_F(DbLoader, ImplementKeepsTheTextALiveCopyShows)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    add_prototype_extra_description(staff, "runes", "Runes run along the staff.");
+    obj_data* const copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(copy, nullptr);
+
+    implement_object(session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    EXPECT_STREQ(copy->name, "thing");
+    EXPECT_STREQ(copy->short_description, "a wooden staff");
+    EXPECT_STREQ(copy->description, "a wooden staff");
+    EXPECT_STREQ(copy->action_description, "");
+    ASSERT_NE(copy->ex_description, nullptr);
+    EXPECT_STREQ(copy->ex_description->keyword, "runes");
+    EXPECT_STREQ(copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(copy);
+}
+
+/* With no copy in the game, the text a prototype showed goes when implement replaces it. */
+TEST_F(DbLoader, ImplementFreesTheReplacedTextWhenNoCopyShowsIt)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    add_prototype_extra_description(staff, "runes", "Runes run along the staff.");
+    const std::weak_ptr<const object_text> old_text = staff.shared_text();
+
+    implement_object(session.builder);
+
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_EQ(staff.ex_description, nullptr);
+    EXPECT_TRUE(old_text.expired());
+}
+
+/* Text a prototype replaced while copies showed it is kept while any copy shows it: one copy
+ * still reads it after the other is extracted, and it goes with the last. */
+TEST_F(DbLoader, ImplementKeepsTheReplacedTextUntilTheLastCopyShowingItGoes)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    add_prototype_extra_description(staff, "runes", "Runes run along the staff.");
+    const std::weak_ptr<const object_text> old_text = staff.shared_text();
+    obj_data* const first_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    obj_data* const second_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(first_copy, nullptr);
+    ASSERT_NE(second_copy, nullptr);
+
+    implement_object(session.builder);
+    EXPECT_FALSE(old_text.expired());
+
+    extract_obj(first_copy);
+    EXPECT_FALSE(old_text.expired());
+    EXPECT_STREQ(second_copy->name, "thing");
+    EXPECT_STREQ(second_copy->short_description, "a wooden staff");
+    ASSERT_NE(second_copy->ex_description, nullptr);
+    EXPECT_STREQ(second_copy->ex_description->description, "Runes run along the staff.");
+
+    extract_obj(second_copy);
+    EXPECT_TRUE(old_text.expired());
+}
+
+/* A copy made between two implements shows the first one's text, kept apart from the boot text an
+ * older copy shows; each goes with the copy showing it. */
+TEST_F(DbLoader, EachImplementsReplacedTextGoesWithTheCopiesShowingIt)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    const std::weak_ptr<const object_text> boot_text = obj_proto[STAFF_REAL_NUMBER].shared_text();
+    obj_data* const boot_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(boot_copy, nullptr);
+    implement_object(session.builder);
+    const std::weak_ptr<const object_text> implemented_text
+        = obj_proto[STAFF_REAL_NUMBER].shared_text();
+    obj_data* const implemented_copy = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(implemented_copy, nullptr);
+
+    implement_object(session.builder);
+    EXPECT_NE(implemented_copy->shared_text(), obj_proto[STAFF_REAL_NUMBER].shared_text());
+
+    extract_obj(boot_copy);
+    EXPECT_TRUE(boot_text.expired());
+    EXPECT_FALSE(implemented_text.expired());
+    EXPECT_STREQ(implemented_copy->short_description, "a grey cloak");
+
+    extract_obj(implemented_copy);
+    EXPECT_TRUE(implemented_text.expired());
+    EXPECT_STREQ(obj_proto[STAFF_REAL_NUMBER].short_description, "a grey cloak");
+}
+
+/* implement keeps the extra descriptions in the order the prototype showed them at boot: last in
+ * the file first. */
+TEST_F(DbLoader, ImplementListsExtraDescriptionsLastFirst)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    add_extra_description(session.object, "second", "The second.");
+    add_extra_description(session.object, "first", "The first.");
+
+    implement_object(session.builder);
+
+    const extra_descr_data* const shown_first = obj_proto[STAFF_REAL_NUMBER].ex_description;
+    ASSERT_NE(shown_first, nullptr);
+    EXPECT_STREQ(shown_first->keyword, "second");
+    ASSERT_NE(shown_first->next, nullptr);
+    EXPECT_STREQ(shown_first->next->keyword, "first");
+    EXPECT_STREQ(shown_first->next->description, "The first.");
+    EXPECT_EQ(shown_first->next->next, nullptr);
+}
+
+/* implement gives the prototype every text field of the working copy, and leaves the working copy
+ * its own strings to go on editing. */
+TEST_F(DbLoader, ImplementGivesThePrototypeEveryTextFieldOfTheWorkingCopy)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    RELEASE(session.object.action_description);
+    session.object.action_description = strdup("It is warm to the touch.");
+    add_extra_description(session.object, "hem", "The hem is torn.");
+
+    implement_object(session.builder);
+
+    const obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+    EXPECT_STREQ(staff.name, "cloak");
+    EXPECT_STREQ(staff.short_description, "a grey cloak");
+    EXPECT_STREQ(staff.description, "A grey cloak lies here.");
+    EXPECT_STREQ(staff.action_description, "It is warm to the touch.");
+    ASSERT_NE(staff.ex_description, nullptr);
+    EXPECT_STREQ(staff.ex_description->keyword, "hem");
+    EXPECT_STREQ(staff.ex_description->description, "The hem is torn.");
+    EXPECT_NE(staff.name, session.object.name);
+    EXPECT_NE(staff.action_description, session.object.action_description);
+    EXPECT_NE(staff.ex_description, session.object.ex_description);
+}
+
+void name_to_drinkcon(struct obj_data* object, int liquid_type);
+
+/* Filling a copy made before an implement leaves the old name it shares with other such copies
+ * alone: they all still show it. */
+TEST_F(DbLoader, FillingACopyKeepsTheOldNameOtherCopiesShare)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data* const filled = read_object(STAFF_REAL_NUMBER, REAL);
+    obj_data* const untouched = read_object(STAFF_REAL_NUMBER, REAL);
+    ASSERT_NE(filled, nullptr);
+    ASSERT_NE(untouched, nullptr);
+    implement_object(session.builder);
+    ASSERT_STREQ(obj_proto[STAFF_REAL_NUMBER].name, "cloak");
+
+    name_to_drinkcon(filled, LIQ_WATER);
+
+    EXPECT_STREQ(filled->name, "water thing");
+    EXPECT_STREQ(untouched->name, "thing");
+
+    extract_obj(filled);
+    extract_obj(untouched);
+}
+
+/* A copy shares its prototype's text, and freeing it leaves that text to the prototype. */
+TEST_F(DbLoader, ACopySharesItsPrototypesText)
+{
+    SkinEditorSession session(STAFF_VIRTUAL_NUMBER);
+    obj_data& staff = obj_proto[STAFF_REAL_NUMBER];
+
+    obj_data* const copy = read_object(STAFF_REAL_NUMBER, REAL);
+
+    ASSERT_NE(copy, nullptr);
+    ASSERT_NE(staff.shared_text(), nullptr);
+    EXPECT_EQ(copy->shared_text(), staff.shared_text());
+    EXPECT_EQ(copy->name, staff.name);
+    EXPECT_EQ(copy->ex_description, staff.ex_description);
+
+    extract_obj(copy);
+    EXPECT_EQ(staff.shared_text().use_count(), 1);
+    EXPECT_STREQ(staff.name, "thing");
+}
+
 /* A note can't be a base: /23 refuses it, like a key. */
 TEST_F(DbLoader, ObjectEditorRefusesNoteBase)
 {
@@ -3378,12 +3621,53 @@ TEST_F(DbLoader, CreatingRoomsReplacesTheTextOfTheSlotsTheyReuse)
     top_of_world = saved_top_of_world;
 }
 
+/* The number the object, mob, room and zone editor tests edit. No object in SkinEditorSession's
+ * table has it, so a session gives these tests only its builder and output. */
+constexpr int EDITOR_TEST_NUMBER = 4530;
+
+void free_object(struct char_data* character);
+void new_obj(const struct char_data* character);
+
+/* shape_center_obj's field 4: the look text, shown by look and examine. */
+constexpr int OBJECT_LOOK_TEXT_FIELD = 4;
+
+/* Each edit of the look text starts from the text before it. That each replaced text is freed is
+ * memory_release_tests' to check. */
+TEST_F(DbLoader, ObjectEditorLookTextEditStartsFromTheTextBefore)
+{
+    SkinEditorSession session(EDITOR_TEST_NUMBER);
+    shape_object* editor = nullptr; /* free_object frees the editor state, so it is allocated */
+    CREATE(editor, shape_object, 1);
+    editor->procedure = SHAPE_EDIT;
+    session.builder->temp = editor;
+    new_obj(session.builder);
+    SET_BIT(editor->flags, SHAPE_OBJECT_LOADED);
+
+    /* /4: the first call opens the text editor, the call after %e takes the text. */
+    const auto add_look_text_line = [&session, editor](const char* line) -> void {
+        char prompt[] = "";
+        editor->editflag = OBJECT_LOOK_TEXT_FIELD;
+        shape_center_obj(session.builder, prompt);
+        ASSERT_EQ(session.builder->desc->str, &editor->tmpstr);
+        std::string typed = line;
+        string_add(session.builder->desc, &typed[0]);
+        char finish[] = "%e";
+        string_add(session.builder->desc, finish);
+        shape_center_obj(session.builder, prompt);
+    };
+
+    add_look_text_line("A plain brass lantern.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\r");
+    add_look_text_line("It is dented.");
+    EXPECT_STREQ(editor->object->action_description, "A plain brass lantern.\n\rIt is dented.\n\r");
+    EXPECT_EQ(editor->tmpstr, nullptr);
+
+    free_object(session.builder);
+}
+
 void new_mob(const struct char_data* character);
 void free_proto(struct char_data* character);
 
-/* The number the mob, room and zone editor tests edit. No object in SkinEditorSession's table has
- * it, so a session gives these tests only its builder and output. */
-constexpr int EDITOR_TEST_NUMBER = 4530;
 /* shape_center_proto's field 4: the mob's detailed description. */
 constexpr int MOB_DESCRIPTION_FIELD = 4;
 
@@ -4915,6 +5199,7 @@ public:
 
     ~ScopedResistCharmPrototype()
     {
+        // read_object allocates with new, so each copy goes back through free_obj.
         while (object_list != nullptr) {
             obj_data* next = object_list->next;
             free_obj(object_list);

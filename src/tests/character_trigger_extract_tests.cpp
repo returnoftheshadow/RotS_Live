@@ -859,3 +859,45 @@ TEST_F(CharacterTriggerTest, FreeingACharacterEndsItsRoomLend)
     }
     EXPECT_EQ(0, m_player.in_room);
 }
+
+/* ---- text being edited ---- */
+
+/* A character freed while an edit points into any of the text "string char" can edit ends the edit,
+ * so no line typed later goes into the freed character. */
+TEST_F(CharacterTriggerTest, FreeingACharacterEndsAnEditOfAnyOfItsText)
+{
+    descriptor_list = &m_descriptor;
+    int fields_edited = 0;
+    for (char* char_player_data::*const field :
+        { &char_player_data::name, &char_player_data::title, &char_player_data::short_descr,
+            &char_player_data::long_descr, &char_player_data::description }) {
+        SCOPED_TRACE(fields_edited);
+        char_data* mob = make_mob("statue", 0);
+        m_descriptor.str = &(mob->player.*field);
+        m_descriptor.str_limit = MAX_NOTE_LENGTH;
+
+        extract_char(mob);
+
+        EXPECT_EQ(nullptr, m_descriptor.str);
+        EXPECT_EQ(0, m_descriptor.str_limit);
+        ++fields_edited;
+        EXPECT_EQ(fields_edited, count_in_output("What you were writing is gone.")) << output();
+    }
+}
+
+/* A player freed while typing its own description ends the edit too, as its describe command leaves
+ * one open. */
+TEST_F(CharacterTriggerTest, FreeingAPlayerEndsAnEditOfItsOwnDescription)
+{
+    descriptor_list = &m_descriptor;
+    {
+        owned_character typist;
+        typist->desc = &m_descriptor;
+        m_descriptor.character = typist;
+        m_descriptor.str = &typist->player.description;
+    }
+    m_descriptor.character = &m_player;
+
+    EXPECT_EQ(nullptr, m_descriptor.str);
+    EXPECT_TRUE(output_has("What you were writing is gone.")) << output();
+}
