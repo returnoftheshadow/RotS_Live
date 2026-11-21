@@ -505,17 +505,17 @@ TEST_F(CombatMovementTest, AGuardWhoseScriptRunsLetsTheFleerIn)
     EXPECT_EQ(SECOND_ROOM, asker->in_room);
 }
 
-/* What the ping mob adds to its run count, int1, on each run. */
+// What the ping mob adds to its run count, int1, on each run.
 constexpr int ONE_RUN = 1;
 
-/* Scripts for a chain of runs inside one another as deep as runs may go. Script SCRIPT_VNUM answers
- * whatever it hears with "pong", and tells the room "Ouch." when it is hurt. Script
- * OTHER_SCRIPT_VNUM counts its runs in int1 and answers with "ping", but on run
- * <acting_run> does <action> instead. Script THIRD_SCRIPT_VNUM is a guard that checks whoever
- * enters its room.
- *
- * The pong mob, made first, hears the player first, so the ping mob's run n is at depth 2n: its
- * run 128 is at MAX_SCRIPT_NESTING, where no further run may start, and its run 127 two below. */
+// Scripts for a chain of runs inside one another as deep as runs may go. Script SCRIPT_VNUM answers
+// whatever it hears with "pong", and tells the room "Ouch." when it is hurt. Script
+// OTHER_SCRIPT_VNUM counts its runs in int1 and answers with "ping", but on run
+// <acting_run> does <action> instead. Script THIRD_SCRIPT_VNUM is a guard that checks whoever
+// enters its room.
+//
+// The pong mob, made first, hears the player first, so the ping mob's run n is at depth 2n: its
+// run 128 is at MAX_SCRIPT_NESTING, where no further run may start, and its run 127 two below.
 static std::vector<script_spec> deepest_run_scripts(int acting_run, const body_line& action)
 {
     return { { SCRIPT_VNUM,
@@ -535,11 +535,11 @@ static std::vector<script_spec> deepest_run_scripts(int acting_run, const body_l
                 { { SCRIPT_SEND_TO_ROOM, "The guard checks.", { SCRIPT_PARAM_CH1_ROOM } } } } } } };
 }
 
-/* The run the ping mob makes at the deepest a run may go. */
+// The run the ping mob makes at the deepest a run may go.
 constexpr int DEEPEST_PING_RUN = MAX_SCRIPT_NESTING / 2;
 
-/* The ping mob flees at the deepest run: the guard's script cannot run, so the guard keeps it out
- * (a refused ON_BEFORE_ENTER fails closed). */
+// The ping mob flees at the deepest run: the guard's script cannot run, so the guard keeps it out
+// (a refused ON_BEFORE_ENTER fails closed).
 TEST_F(CombatMovementTest, AGuardWhoseScriptIsTooDeepKeepsTheDoorShut)
 {
     install_scripts(
@@ -560,7 +560,7 @@ TEST_F(CombatMovementTest, AGuardWhoseScriptIsTooDeepKeepsTheDoorShut)
     EXPECT_NE(std::string::npos, logged.find(refusal)) << logged;
 }
 
-/* Two runs shallower the guard's script runs and lets the pinger in. */
+// Two runs shallower the guard's script runs and lets the pinger in.
 TEST_F(CombatMovementTest, AGuardWhoseScriptIsJustDeepEnoughLetsTheFleerIn)
 {
     install_scripts(
@@ -578,8 +578,8 @@ TEST_F(CombatMovementTest, AGuardWhoseScriptIsJustDeepEnoughLetsTheFleerIn)
     EXPECT_EQ(SECOND_ROOM, pinger->in_room);
 }
 
-/* The ping mob hits the pong mob at the deepest run: the pong mob's damage script cannot run, so
- * the blow is not dealt (a refused ON_DAMAGE fails closed). */
+// The ping mob hits the pong mob at the deepest run: the pong mob's damage script cannot run, so
+// the blow is not dealt (a refused ON_DAMAGE fails closed).
 TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsTooDeepIsNotDealt)
 {
     install_scripts(deepest_run_scripts(
@@ -589,8 +589,8 @@ TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsTooDeepIsNotDealt)
     char_data* pinger = make_walker("pinger");
     pinger->specials.script_number = OTHER_SCRIPT_VNUM;
     pinger->points.OB = SURE_TO_LAND_OB;
-    pinger->specials.ENERGY = ENE_TO_HIT * 2; /* ready to strike */
-    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); /* a blow that hurts */
+    pinger->specials.ENERGY = ENE_TO_HIT * 2; // ready to strike
+    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); // a blow that hurts
 
     testing::internal::CaptureStderr();
     run_command(do_say, "go");
@@ -600,7 +600,7 @@ TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsTooDeepIsNotDealt)
     EXPECT_EQ(ponger->abilities.hit, ponger->tmpabilities.hit);
 }
 
-/* Two runs shallower the damage script runs, and the blow is dealt. */
+// Two runs shallower the damage script runs, and the blow is dealt.
 TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
 {
     install_scripts(deepest_run_scripts(
@@ -610,8 +610,8 @@ TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
     char_data* pinger = make_walker("pinger");
     pinger->specials.script_number = OTHER_SCRIPT_VNUM;
     pinger->points.OB = SURE_TO_LAND_OB;
-    pinger->specials.ENERGY = ENE_TO_HIT * 2; /* ready to strike */
-    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); /* a blow that hurts */
+    pinger->specials.ENERGY = ENE_TO_HIT * 2; // ready to strike
+    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); // a blow that hurts
 
     testing::internal::CaptureStderr();
     run_command(do_say, "go");
@@ -644,10 +644,10 @@ TEST_F(CombatMovementTest, TheCombatRoundLetsGoOfAFighterItsOwnBlowRemoved)
     EXPECT_TRUE(is_in_game(victim));
 }
 
-/* ---- scripts refused past the limits ---- */
+// ---- scripts refused past the limits ----
 
-/* With two mobs answering the "x", the event's scripts are used up before the asker flees: the
- * guard's script, refused, keeps the asker out. */
+// With two mobs answering the "x", the event's scripts are used up before the asker flees: the
+// guard's script, refused, keeps the asker out.
 TEST_F(CombatMovementTest, AGuardWhoseScriptIsRefusedKeepsTheDoorShut)
 {
     install_scripts(exhaust_then_flee_scripts());
@@ -657,7 +657,7 @@ TEST_F(CombatMovementTest, AGuardWhoseScriptIsRefusedKeepsTheDoorShut)
     make_mob("first answerer", OTHER_SCRIPT_VNUM);
     make_mob("second answerer", OTHER_SCRIPT_VNUM);
     make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
-    world[0].people = m_player.next_in_room; /* the player stands aside */
+    world[0].people = m_player.next_in_room; // the player stands aside
 
     testing::internal::CaptureStderr();
     run_command_as(speaker, do_say, "go");

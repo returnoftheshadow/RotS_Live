@@ -928,7 +928,7 @@ void reset_zone(int zone)
                     break;
                 case 12: /* Assign script to mob */
                     mob->specials.script_number = ZCMD.arg2;
-                    /* A mob found with 'L' may have run its old script already. */
+                    // A mob found with 'L' may have run its old script already.
                     release_char_script_state(mob);
                     break;
                 default:

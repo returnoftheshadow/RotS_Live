@@ -712,8 +712,8 @@ TEST_F(CharacterTriggerTest, AMobsScriptRunsOnAfterItRemovesTheMob)
     EXPECT_TRUE(output_has("Still running."));
 }
 
-/* The ring's own wear script destroys it while the mob's script, which wore it, still holds it in
- * a second variable: that variable is emptied too. */
+// The ring's own wear script destroys it while the mob's script, which wore it, still holds it in
+// a second variable: that variable is emptied too.
 TEST_F(CharacterTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -736,9 +736,9 @@ TEST_F(CharacterTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable
     EXPECT_TRUE(output_has("It was []."));
 }
 
-/* The first mob's script makes it speak, the second mob answers, and the first mob hears the
- * answer: its hearing script starts again on the mob's one script state, so the first run carries
- * on with the second run's variables (ch2 is now the answerer, and ob2 is empty). */
+// The first mob's script makes it speak, the second mob answers, and the first mob hears the
+// answer: its hearing script starts again on the mob's one script state, so the first run carries
+// on with the second run's variables (ch2 is now the answerer, and ob2 is empty).
 TEST_F(CharacterTriggerTest, AMobsTriggerSetOffInsideItsScriptSharesItsVariables)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -768,10 +768,10 @@ TEST_F(CharacterTriggerTest, AMobsTriggerSetOffInsideItsScriptSharesItsVariables
     EXPECT_TRUE(output_has("Holding [].")) << output();
 }
 
-/* A mob relays a text from its own str2, and a listener's answer sets off the mob's hearing script
- * again while its relay is still being heard: that run releases the mob's str2 and str1, as every
- * run of the mob's scripts starts again on its one state. The rest of the room still hears the
- * relay whole, and the relaying run then sees str2 emptied and str1 holding the answer. */
+// A mob relays a text from its own str2, and a listener's answer sets off the mob's hearing script
+// again while its relay is still being heard: that run releases the mob's str2 and str1, as every
+// run of the mob's scripts starts again on its one state. The rest of the room still hears the
+// relay whole, and the relaying run then sees str2 emptied and str1 holding the answer.
 TEST_F(CharacterTriggerTest, ARelayStillReachesTheRoomWhenAnAnswerRestartsTheRelayersState)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -794,8 +794,8 @@ TEST_F(CharacterTriggerTest, ARelayStillReachesTheRoomWhenAnAnswerRestartsTheRel
             { { ON_HEAR_SAY,
                 { { SCRIPT_SEND_TO_ROOM, "Echo [%s].",
                     { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
-    /* Each one made goes after those already there: the relayer speaks to the answerer, whose answer
-     * restarts the relayer's state, before the echo hears it. */
+    // Each one made goes after those already there: the relayer speaks to the answerer, whose
+    // answer restarts the relayer's state, before the echo hears it.
     make_mob("answerer", OTHER_SCRIPT_VNUM);
     make_mob("echo", THIRD_SCRIPT_VNUM);
     make_mob("relayer", SCRIPT_VNUM);
@@ -876,13 +876,13 @@ TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNex
         << logged;
 }
 
-/* A delay that outranks a script's pause, whose priority is 0 (as bash gives its victim): how
- * long it lasts and its priority. */
+// A delay that outranks a script's pause, whose priority is 0 (as bash gives its victim): how
+// long it lasts and its priority.
 constexpr int OUTRANKING_DELAY_PULSES = 3;
 constexpr int OUTRANKING_DELAY_PRIORITY = 50;
 
-/* A higher-priority delay given to a paused mob (as bash gives its victim) runs the rest of its
- * script at once, as it always has; the rest removes the mob, and starting the delay says so. */
+// A higher-priority delay given to a paused mob (as bash gives its victim) runs the rest of its
+// script at once, as it always has; the rest removes the mob, and starting the delay says so.
 TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
 {
     install_script(ON_HEAR_SAY, pause_then_remove_body());
@@ -899,14 +899,14 @@ TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
     EXPECT_EQ(nullptr, waiting_list);
 }
 
-/* How long the rest of the script pauses the second time. */
+// How long the rest of the script pauses the second time.
 constexpr int SECOND_PAUSE_PULSES = 5;
-/* The socket of the mob's connection: any but the player's (1). */
+// The socket of the mob's connection: any but the player's (1).
 constexpr int MOB_SOCKET = 2;
 
-/* A new delay runs the rest of a paused script at once; when that rest pauses again, the new pause
- * is kept and the delay that forced it is not started: a double delay, told and logged as it
- * always was. */
+// A new delay runs the rest of a paused script at once; when that rest pauses again, the new pause
+// is kept and the delay that forced it is not started: a double delay, told and logged as it
+// always was.
 TEST_F(CharacterTriggerTest, ARestThatPausesAgainKeepsItsPauseAsADoubleDelay)
 {
     install_script(ON_HEAR_SAY,
@@ -915,7 +915,7 @@ TEST_F(CharacterTriggerTest, ARestThatPausesAgainKeepsItsPauseAsADoubleDelay)
             { SCRIPT_DO_WAIT, nullptr, { SECOND_PAUSE_PULSES } },
             { SCRIPT_SEND_TO_ROOM, "The mob sleeps.", { SCRIPT_PARAM_CH1_ROOM } } });
     char_data* mob = make_mob("mob", SCRIPT_VNUM);
-    descriptor_data connection {}; /* so that what the mob is told can be read */
+    descriptor_data connection {}; // so that what the mob is told can be read
     connection.output = connection.small_outbuf;
     connection.bufspace = SMALL_BUFSIZE - 1;
     connection.connected = CON_PLYNG;
@@ -940,11 +940,11 @@ TEST_F(CharacterTriggerTest, ARestThatPausesAgainKeepsItsPauseAsADoubleDelay)
     EXPECT_NE(std::string::npos, logged.find("double delay (reentrant queue during complete_delay)?"));
 }
 
-/* The command a mob program's delay names, as mudlle's gives it, and how long it lasts. */
+// The command a mob program's delay names, as mudlle's gives it, and how long it lasts.
 constexpr int PROGRAM_DELAY_COMMAND = -1;
 constexpr int PROGRAM_DELAY_PULSES = 2;
 
-/* The same for a delay a mob's own program gives it. */
+// The same for a delay a mob's own program gives it.
 TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
 {
     install_script(ON_HEAR_SAY, pause_then_remove_body());
@@ -960,8 +960,8 @@ TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobRunsTheRestOfItsScriptAtOn
     EXPECT_EQ(1, count_in_output("The mob fades."));
 }
 
-/* A paused mob that is killed runs the rest of its script first, as it always has; the rest
- * removes it, so there is nobody left to make a corpse of. */
+// A paused mob that is killed runs the rest of its script first, as it always has; the rest
+// removes it, so there is nobody left to make a corpse of.
 TEST_F(CharacterTriggerTest, APausedMobThatIsKilledFinishesItsScriptFirst)
 {
     install_script(ON_HEAR_SAY, pause_then_remove_body());
@@ -977,9 +977,9 @@ TEST_F(CharacterTriggerTest, APausedMobThatIsKilledFinishesItsScriptFirst)
     EXPECT_EQ(nullptr, waiting_list);
 }
 
-/* ---- text variables ---- */
+// ---- text variables ----
 
-/* A hearing script keeps the text it heard across a pause. */
+// A hearing script keeps the text it heard across a pause.
 TEST_F(CharacterTriggerTest, AHearingScriptStillHasWhatItHeardAfterAPause)
 {
     install_script(ON_HEAR_SAY,
@@ -994,7 +994,7 @@ TEST_F(CharacterTriggerTest, AHearingScriptStillHasWhatItHeardAfterAPause)
     EXPECT_TRUE(output_has("Still heard."));
 }
 
-/* str1 carries on from run to run, as it always has: a later run still has what the mob heard. */
+// str1 carries on from run to run, as it always has: a later run still has what the mob heard.
 TEST_F(CharacterTriggerTest, ALaterRunStillHasTheLastHeardText)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -1030,14 +1030,14 @@ TEST_F(CharacterTriggerTest, AYellBlockIsToldNobodySpokeOnceTheSayBlockRemovesTh
     EXPECT_FALSE(output_has("The speaker is answered."));
 }
 
-/* ---- a mob's script set off again while it runs ---- */
+// ---- a mob's script set off again while it runs ----
 
-/* What the asker's runs set and compare in its int variables. */
+// What the asker's runs set and compare in its int variables.
 constexpr int SHARED_INT_VALUE = 9;
 
-/* The asker's hearing script says "ping"; the answerer's says "pong", which the asker hears
- * inside its first run. The nested run sees the int2 the outer run set and sets int1, which the
- * outer run then sees: the two share int1-int3, as one state always has. */
+// The asker's hearing script says "ping"; the answerer's says "pong", which the asker hears
+// inside its first run. The nested run sees the int2 the outer run set and sets int1, which the
+// outer run then sees: the two share int1-int3, as one state always has.
 TEST_F(CharacterTriggerTest, ANestedRunSharesTheOuterRunsInts)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -1067,8 +1067,8 @@ TEST_F(CharacterTriggerTest, ANestedRunSharesTheOuterRunsInts)
     EXPECT_TRUE(output_has("The nested run's int1 came back.")) << output();
 }
 
-/* The asker's nested run removes the asker; its first run goes on with what it has left (ch2,
- * the answerer the nested run heard). */
+// The asker's nested run removes the asker; its first run goes on with what it has left (ch2,
+// the answerer the nested run heard).
 TEST_F(CharacterTriggerTest, AScriptRunsOnAfterANestedRunRemovesItsMob)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -1093,8 +1093,8 @@ TEST_F(CharacterTriggerTest, AScriptRunsOnAfterANestedRunRemovesItsMob)
     EXPECT_TRUE(output_has("Outer still running."));
 }
 
-/* A nested run that pauses leaves its resume point where the waiting list finds it, and resumes
- * with the text it heard ("pong"), which the mob's one state still holds. */
+// A nested run that pauses leaves its resume point where the waiting list finds it, and resumes
+// with the text it heard ("pong"), which the mob's one state still holds.
 TEST_F(CharacterTriggerTest, ANestedRunThatPausesResumesFromTheWaitingList)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -1125,15 +1125,15 @@ TEST_F(CharacterTriggerTest, ANestedRunThatPausesResumesFromTheWaitingList)
     EXPECT_EQ(1, count_in_output("Resumed."));
 }
 
-/* Two mobs that answer whatever they hear would answer each other for ever: past
- * MAX_SCRIPT_NESTING runs inside one another the next is refused and logged. */
+// Two mobs that answer whatever they hear would answer each other for ever: past
+// MAX_SCRIPT_NESTING runs inside one another the next is refused and logged.
 TEST_F(CharacterTriggerTest, ScriptsNestedTooDeeplyAreRefused)
 {
     install_script(ON_HEAR_SAY, { { SCRIPT_DO_SAY, "again", { SCRIPT_PARAM_CH1 } } });
     char_data* speaker = make_mob("speaker", 0);
     char_data* first = make_mob("first", SCRIPT_VNUM);
     char_data* second = make_mob("second", SCRIPT_VNUM);
-    world[0].people = m_player.next_in_room; /* nobody to send the endless talk to */
+    world[0].people = m_player.next_in_room; // nobody to send the endless talk to
 
     testing::internal::CaptureStderr();
     run_command_as(speaker, do_say, "go");
@@ -1145,9 +1145,9 @@ TEST_F(CharacterTriggerTest, ScriptsNestedTooDeeplyAreRefused)
     EXPECT_TRUE(is_in_game(second));
 }
 
-/* ---- mobs made from a prototype ---- */
+// ---- mobs made from a prototype ----
 
-/* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
+// A copy never shares its prototype's script state, so freeing it cannot free the prototype's.
 TEST_F(CharacterTriggerTest, AMobIsMadeWithoutItsPrototypesScriptState)
 {
     char_data prototype {};
@@ -1179,8 +1179,8 @@ TEST_F(CharacterTriggerTest, AMobIsMadeWithoutItsPrototypesScriptState)
     RELEASE(prototype.profs);
 }
 
-/* Scripts for two mobs that answer every "x" with two of their own, without end: SCRIPT_VNUM's
- * mob also starts on hearing "go", OTHER_SCRIPT_VNUM's only answers. */
+// Scripts for two mobs that answer every "x" with two of their own, without end: SCRIPT_VNUM's
+// mob also starts on hearing "go", OTHER_SCRIPT_VNUM's only answers.
 static std::vector<script_spec> answering_scripts()
 {
     const std::vector<body_line> answer = { { SCRIPT_IF_STR_CONTAINS, "X", { SCRIPT_PARAM_STR1 } },
@@ -1193,19 +1193,19 @@ static std::vector<script_spec> answering_scripts()
         { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, answer } } } };
 }
 
-/* How much of the log a failed check shows: the refusal comes early, and the log is long. */
+// How much of the log a failed check shows: the refusal comes early, and the log is long.
 constexpr std::size_t LOGGED_TEXT_SHOWN = 400;
 
-/* Two mobs that answer every "x" with two of their own would run without end: past
- * MAX_SCRIPT_RUNS_PER_EVENT runs in the one event the first mob's "go" starts, the rest are
- * refused, with one SYSERR. */
+// Two mobs that answer every "x" with two of their own would run without end: past
+// MAX_SCRIPT_RUNS_PER_EVENT runs in the one event the first mob's "go" starts, the rest are
+// refused, with one SYSERR.
 TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
 {
     install_scripts(answering_scripts());
     char_data* speaker = make_mob("speaker", 0);
     make_mob("first", SCRIPT_VNUM);
     make_mob("second", OTHER_SCRIPT_VNUM);
-    world[0].people = m_player.next_in_room; /* nobody to send the talk to */
+    world[0].people = m_player.next_in_room; // nobody to send the talk to
 
     testing::internal::CaptureStderr();
     run_command_as(speaker, do_say, "go");
@@ -1217,10 +1217,10 @@ TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
     EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
 }
 
-/* ---- a zone reset that gives a mob another script (A 12) ---- */
+// ---- a zone reset that gives a mob another script (A 12) ----
 
-/* The zone reset commands the test runs, as reset_zone reads them: 'L' subcommand 0 finds the
- * <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12 gives it script <arg2>. */
+// The zone reset commands the test runs, as reset_zone reads them: 'L' subcommand 0 finds the
+// <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12 gives it script <arg2>.
 constexpr int RESET_FINDS_MOB = 0;
 constexpr int RESET_ROOM = 0;
 constexpr int NO_PROTOTYPE = -1;
@@ -1242,7 +1242,7 @@ TEST_F(CharacterTriggerTest, AMobGivenAnotherScriptByAZoneResetRunsTheNewOneAfre
     run_command(do_say, "first");
     ASSERT_TRUE(output_has("Old script heard [first].")) << output();
     ASSERT_NE(nullptr, mob->specials.script_info) << "its script kept its state";
-    /* L 0: the first mob with no prototype in room 0; A 12: give it OTHER_SCRIPT_VNUM. */
+    // L 0: the first mob with no prototype in room 0; A 12: give it OTHER_SCRIPT_VNUM.
     reset_com commands[RESET_COMMAND_COUNT] {};
     commands[0].command = 'L';
     commands[0].arg1 = RESET_FINDS_MOB;
@@ -1255,7 +1255,7 @@ TEST_F(CharacterTriggerTest, AMobGivenAnotherScriptByAZoneResetRunsTheNewOneAfre
     zone_data zone {};
     zone.cmd = commands;
     zone.cmdno = RESET_COMMAND_COUNT;
-    /* The fixture's zone table goes back before the local zone does. */
+    // The fixture's zone table goes back before the local zone does.
     zone_data* const fixture_zone_table = zone_table;
     zone_table = &zone;
 

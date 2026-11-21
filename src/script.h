@@ -165,14 +165,7 @@ inline constexpr int SCRIPT_PARAM_OB2_VNUM = 502;
 inline constexpr int SCRIPT_PARAM_OB3_VNUM = 602;
 
 int find_script_by_number(int number);
-/* How many scripts can run inside one another (a script setting off a trigger whose script sets
- * off another...), and how many one event can run in all, the first included. Both are far
- * beyond what any script does, so only runaway scripts reach them: two mobs answering each
- * other's says for ever, which would otherwise exhaust the stack, or answering with several says
- * each, which would otherwise run without end. A trigger set off past either limit runs no
- * script, and one SYSERR per event and limit says so. It then goes ahead as though there were no
- * script, except ON_BEFORE_ENTER and ON_DAMAGE, which refuse: no one gets in, and no damage is
- * dealt, by running scripts into the limits. */
+// How deep scripts may run inside one another, and how many runs one event may start in all.
 inline constexpr int MAX_SCRIPT_NESTING = 256;
 inline constexpr int MAX_SCRIPT_RUNS_PER_EVENT = 10000;
 /* Runs the scripts a game event triggers. Returns 1 if the event goes ahead as usual and 0 if a
@@ -189,7 +182,10 @@ inline constexpr int MAX_SCRIPT_RUNS_PER_EVENT = 10000;
  *   - ON_DAMAGE: once the victim (subject) or the attacker (subject2) is freed, the weapon's
  *     script does not run, and 0 is returned: no damage is to be dealt.
  *   - ON_HEAR_SAY, ON_HEAR_YELL: once the mob is freed its yell script does not run; once the
- *     speaker is, the yell script is told nobody spoke. */
+ *     speaker is, the yell script is told nobody spoke.
+ *
+ * A script refused at either limit does not run (one SYSERR per event and limit) and counts as
+ * returning 1, or 0 for ON_BEFORE_ENTER and ON_DAMAGE. */
 int call_trigger(int trigger_type, void* subject, void* subject2, void* subject3);
 
 /* How an object's own trigger script ended, for the command that fired it. */
@@ -210,16 +206,13 @@ enum class object_trigger_result {
 [[nodiscard]] object_trigger_result call_object_trigger(int trigger_type, obj_data* object,
     char_data* character);
 
-/* Tells the game that <object> is about to be freed: every freed_watch on it reports freed (so a
- * call_object_trigger on it reports object_extracted), every running script's ob1-ob3 naming it
- * is emptied, and its script state is released, at once or, while a script is running on that
- * state, when the script ends. free_obj calls it for every object it frees. */
+// Tells the game that <object> is about to be freed: every freed_watch on it reports freed, no
+// running script still names it, and its script state is released once no script is using it.
+// free_obj calls it for every object it frees.
 void note_object_freed(obj_data* object);
-/* The same for <character>, whose running scripts' ch1-ch3 naming it are emptied. free_char calls
- * it for every character it frees. */
+// The same for <character>. free_char calls it for every character it frees.
 void note_char_freed(char_data* character);
-/* Releases <character>'s script state, so that its next trigger starts afresh: at once or, while
- * a script is running on that state, when the script ends. */
+// Releases <character>'s script state, so that its next trigger starts afresh.
 void release_char_script_state(char_data* character);
 
 /* For a loop that sets off a trigger on each of <room>'s people: the one to go on to once the
@@ -239,9 +232,8 @@ obj_data* next_content_after_trigger(const room_data& room, obj_data* current,
  * address is on the list. */
 bool is_on_content_list(const obj_data* first, const obj_data* object);
 
-/* Resumes the script <ch> paused with DO_WAIT, with ch1 set to ch, the other character, object and
- * room variables and str2-str3 empty, and str1 and int1-int3 as they were. The script can free
- * ch. */
+// Resumes the script <ch> paused with DO_WAIT as a new run (clear_script_info) with ch1 set to
+// ch. The script can free ch.
 void continue_char_script(char_data* ch);
 
 /* Report script lines whose vnums name nothing -- informational only. */

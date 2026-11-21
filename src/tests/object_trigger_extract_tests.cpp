@@ -379,7 +379,7 @@ TEST_F(ObjectTriggerTest, EnterFollowsAnObjectThatMovesItselfOut)
     EXPECT_FALSE(output_has("[a cloth bag] stirs.")) << output();
 }
 
-/* A copy never shares its prototype's script state, so freeing it cannot free the prototype's. */
+// A copy never shares its prototype's script state, so freeing it cannot free the prototype's.
 TEST_F(ObjectTriggerTest, AnObjectIsMadeWithoutItsPrototypesScriptState)
 {
     info_script prototype_state {};
@@ -502,9 +502,9 @@ TEST_F(ObjectTriggerTest, CallTriggerRunsNoObjectTrigger)
     EXPECT_EQ(ring, object_list);
 }
 
-/* ---- what a running object script keeps ---- */
+// ---- what a running object script keeps ----
 
-/* The stone's script runs on after it extracted the stone, with its variables intact. */
+// The stone's script runs on after it extracted the stone, with its variables intact.
 TEST_F(ObjectTriggerTest, AScriptRunsOnAfterItExtractsItsObject)
 {
     install_script(ON_EXAMINE_OBJECT,
@@ -518,8 +518,8 @@ TEST_F(ObjectTriggerTest, AScriptRunsOnAfterItExtractsItsObject)
     EXPECT_TRUE(output_has("Still running."));
 }
 
-/* Examining the ring wears it, and the ring's wear script extracts it while the examine script
- * still holds it in a second variable: that variable is emptied too. */
+// Examining the ring wears it, and the ring's wear script extracts it while the examine script
+// still holds it in a second variable: that variable is emptied too.
 TEST_F(ObjectTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
 {
     install_scripts({ { SCRIPT_VNUM,
@@ -537,9 +537,9 @@ TEST_F(ObjectTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
     EXPECT_TRUE(output_has("It was []."));
 }
 
-/* Examining the ring wears it, which runs the ring's own wear script inside the examine script.
- * The ring has one script state, so the wear script starts it afresh: the examine script carries
- * on without the stone it had found. */
+// Examining the ring wears it, which runs the ring's own wear script inside the examine script.
+// The ring has one script state, so the wear script starts it afresh: the examine script carries
+// on without the stone it had found.
 TEST_F(ObjectTriggerTest, AnObjectsTriggerSetOffInsideItsScriptSharesItsVariables)
 {
     install_scripts({ { SCRIPT_VNUM,

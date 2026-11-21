@@ -45,9 +45,9 @@ constexpr std::size_t ALLOWED_GROWTH = ROUNDS * SMALLEST_LEAK_PER_ROUND / 4;
 /* An amount create_money shows as a large heap of coins, with an extra description of its own. */
 constexpr int COINS_IN_A_LARGE_HEAP = 5000;
 
-/* The zone reset commands install_script_assigning_zone writes, as reset_zone reads them: 'L'
- * subcommand 0 finds the <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12
- * gives it script <arg2>. */
+// The zone reset commands install_script_assigning_zone writes, as reset_zone reads them: 'L'
+// subcommand 0 finds the <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12
+// gives it script <arg2>.
 constexpr int RESET_FINDS_MOB = 0;
 constexpr int RESET_ROOM = 0;
 constexpr int NO_PROTOTYPE = -1;
@@ -84,8 +84,8 @@ protected:
         m_descriptor.bufspace = SMALL_BUFSIZE - 1;
     }
 
-    /* Makes the zone table one zone whose reset finds the first mob with no prototype in room 0
-     * ('L') and gives it script <script_vnum> (A 12). */
+    // Makes the zone table one zone whose reset finds the first mob with no prototype in room 0
+    // ('L') and gives it script <script_vnum> (A 12).
     void install_script_assigning_zone(int script_vnum)
     {
         m_commands[0].command = 'L';
@@ -133,7 +133,7 @@ TEST_F(MemoryReleaseTest, AZoneResetGivingAMobAnotherScriptGivesBackItsOldScript
             { { SCRIPT_SEND_TO_ROOM, "The mob heard [%s].",
                 { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
     char_data* mob = make_mob("listener", SCRIPT_VNUM);
-    /* The reset gives the mob the same script again, so each say starts it afresh. */
+    // The reset gives the mob the same script again, so each say starts it afresh.
     install_script_assigning_zone(SCRIPT_VNUM);
     run_command(do_say, "hello");
     ASSERT_NE(nullptr, mob->specials.script_info) << "hearing gave the mob script state";
