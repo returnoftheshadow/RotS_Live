@@ -1837,6 +1837,8 @@ struct char_data* read_mobile(int nr, int type)
     *mob = mob_proto[i];
     // The copy starts without a damage meter of its own rather than sharing the prototype's.
     mob->damage_details = nullptr;
+    // Script state belongs to one character; freeing this mob releases its own.
+    mob->specials.script_info = nullptr;
 
     mob->in_room = NOWHERE;
 
@@ -2152,6 +2154,8 @@ struct obj_data* read_object(int nr, int type)
         i = nr;
 
     obj = new obj_data(obj_proto[i]); /* sharing the prototype's text */
+    // Script state belongs to one object; freeing this one releases its own.
+    obj->obj_flags.script_info = nullptr;
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)

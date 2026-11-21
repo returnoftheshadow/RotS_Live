@@ -176,25 +176,6 @@ TEST_F(CharacterTriggerTest, HearingASayRunsTheYellBlockToo)
     EXPECT_TRUE(output_has("The yell block ran."));
 }
 
-/* The say block removes the one who spoke: the yell block after it is told nobody spoke, so it
- * has no speaker's room to tell. */
-TEST_F(CharacterTriggerTest, AYellBlockIsToldNobodySpokeOnceTheSayBlockRemovesTheSpeaker)
-{
-    install_scripts({ { SCRIPT_VNUM,
-        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } },
-            { ON_HEAR_YELL,
-                { { SCRIPT_SEND_TO_ROOM, "The speaker is answered.", { SCRIPT_PARAM_CH2_ROOM } },
-                    { SCRIPT_SEND_TO_ROOM, "The yell block ran.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
-    char_data* speaker = make_mob("speaker", 0);
-    make_mob("listener", SCRIPT_VNUM);
-
-    run_command_as(speaker, do_say, "hello");
-
-    EXPECT_FALSE(is_in_game(speaker));
-    EXPECT_TRUE(output_has("The yell block ran."));
-    EXPECT_FALSE(output_has("The speaker is answered."));
-}
-
 /* ---- giving (ON_RECEIVE) ---- */
 
 /* How many stones the player gives in the give-all tests. */
@@ -765,6 +746,128 @@ TEST_F(CharacterTriggerTest, AMobsScriptRunsOnAfterItRemovesTheMob)
     EXPECT_TRUE(output_has("Still running."));
 }
 
+// The ring's own wear script destroys it while the mob's script, which wore it, still holds it in
+// a second variable: that variable is emptied too.
+TEST_F(CharacterTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_ASSIGN_INV, nullptr,
+                                    { RING_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_ASSIGN_INV, nullptr,
+                                      { RING_VNUM, SCRIPT_PARAM_OB3, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_DO_WEAR, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } },
+                                  { SCRIPT_SEND_TO_CHAR, "It was [%s].",
+                                      { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB3_NAME } } } } } },
+        { OTHER_SCRIPT_VNUM, { { ON_WEAR, { { SCRIPT_EXTRACT_OBJ, nullptr, { SCRIPT_PARAM_OB1 } } } } } } });
+    char_data* wearer = make_mob("wearer", SCRIPT_VNUM);
+    obj_data* ring = make_object(RING_VNUM, OTHER_SCRIPT_VNUM);
+    obj_to_char(ring, wearer);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_TRUE(output_has("It was []."));
+}
+
+// The listener's script answers the speaker it holds in ch2, and the answer makes the speaker
+// remove itself: the rest of the listener's script finds ch2 empty, with no name to tell.
+TEST_F(CharacterTriggerTest, ACharacterFreedByANestedScriptIsGoneFromTheOuterScriptsVariables)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Gone [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_CH2_NAME } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} },
+                    { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    make_mob("listener", SCRIPT_VNUM);
+    char_data* speaker = make_mob("speaker", OTHER_SCRIPT_VNUM);
+
+    run_command_as(speaker, do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(speaker));
+    EXPECT_TRUE(output_has("Gone [].")) << output();
+}
+
+// The first mob's script makes it speak, the second mob answers, and the first mob hears the
+// answer: its hearing script starts again on the mob's one script state, so the first run carries
+// on with the second run's variables (ch2 is now the answerer, and ob2 is empty).
+TEST_F(CharacterTriggerTest, AMobsTriggerSetOffInsideItsScriptSharesItsVariables)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_ASSIGN_INV, nullptr,
+                                      { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_CHAR, "Holding %s.",
+                                      { SCRIPT_PARAM_CH2, SCRIPT_PARAM_OB2_NAME } },
+                                  { SCRIPT_SEND_TO_ROOM, "Holding [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_OB2_NAME } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    char_data* asker = make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    obj_to_char(make_object(STONE_VNUM, 0), asker);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(output_has("Holding a grey stone.")) << "ch2 is the answerer by then";
+    EXPECT_TRUE(output_has("Holding [].")) << output();
+}
+
+// A mob relays a text from its own str2, and a listener's answer sets off the mob's hearing script
+// again while its relay is still being heard: that run releases the mob's str2 and str1, as every
+// run of the mob's scripts starts again on its one state. The rest of the room still hears the
+// relay whole, and the relaying run then sees str2 emptied and str1 holding the answer.
+TEST_F(CharacterTriggerTest, ARelayStillReachesTheRoomWhenAnAnswerRestartsTheRelayersState)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "GO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_ASSIGN_STR, "relay words", { SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_DO_SAY, "%s", { SCRIPT_PARAM_CH1, SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Still [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Heard [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "RELAY", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "answer", { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_ROOM, "Echo [%s].",
+                    { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    // Each one made goes after those already there: the relayer speaks to the answerer, whose
+    // answer restarts the relayer's state, before the echo hears it.
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    make_mob("echo", THIRD_SCRIPT_VNUM);
+    make_mob("relayer", SCRIPT_VNUM);
+
+    run_command(do_say, "go");
+
+    EXPECT_TRUE(output_has("Echo [relay words].")) << output();
+    EXPECT_TRUE(output_has("Still [].")) << output();
+    EXPECT_TRUE(output_has("Heard [answer].")) << output();
+}
+
 /* ---- scripts paused with DO_WAIT ---- */
 
 /* How long a test script pauses (DO_WAIT): one pulse, so the next pass over the waiting list
@@ -832,6 +935,442 @@ TEST_F(CharacterTriggerTest, AWaitingListPassEndsWhenAResumedScriptRemovesTheNex
         logged.find("SYSERR: process_waiting_list: the next waiter was freed; the rest wait for "
                     "the next pulse."))
         << logged;
+}
+
+// A delay that outranks a script's pause, whose priority is 0 (as bash gives its victim): how
+// long it lasts and its priority.
+constexpr int OUTRANKING_DELAY_PULSES = 3;
+constexpr int OUTRANKING_DELAY_PRIORITY = 50;
+
+// A higher-priority delay given to a paused mob (as bash gives its victim) runs the rest of its
+// script at once, as it always has; the rest removes the mob, and starting the delay says so.
+TEST_F(CharacterTriggerTest, ANewDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    const bool mob_remains = WAIT_STATE_FULL(mob, OUTRANKING_DELAY_PULSES, 0, 0,
+        OUTRANKING_DELAY_PRIORITY, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+
+    EXPECT_FALSE(mob_remains);
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
+// How long the rest of the script pauses the second time.
+constexpr int SECOND_PAUSE_PULSES = 5;
+// The socket of the mob's connection: any but the player's (1).
+constexpr int MOB_SOCKET = 2;
+
+// A new delay runs the rest of a paused script at once; when that rest pauses again, the new pause
+// is kept and the delay that forced it is not started: a double delay, told and logged as it
+// always was.
+TEST_F(CharacterTriggerTest, ARestThatPausesAgainKeepsItsPauseAsADoubleDelay)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_SEND_TO_ROOM, "The mob stirs.", { SCRIPT_PARAM_CH1_ROOM } },
+            { SCRIPT_DO_WAIT, nullptr, { SECOND_PAUSE_PULSES } },
+            { SCRIPT_SEND_TO_ROOM, "The mob sleeps.", { SCRIPT_PARAM_CH1_ROOM } } });
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    descriptor_data connection {}; // so that what the mob is told can be read
+    connection.output = connection.small_outbuf;
+    connection.bufspace = SMALL_BUFSIZE - 1;
+    connection.connected = CON_PLYNG;
+    connection.descriptor = MOB_SOCKET;
+    connection.character = mob;
+    mob->desc = &connection;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    testing::internal::CaptureStderr();
+    const bool mob_remains = WAIT_STATE_FULL(mob, OUTRANKING_DELAY_PULSES, 0, 0,
+        OUTRANKING_DELAY_PRIORITY, 0, 0, 0, AFF_WAITING, TARGET_IGNORE);
+    const std::string logged = testing::internal::GetCapturedStderr();
+    mob->desc = nullptr;
+
+    EXPECT_TRUE(mob_remains);
+    EXPECT_EQ(1, count_in_output("The mob stirs."));
+    EXPECT_EQ(0, count_in_output("The mob sleeps."));
+    EXPECT_EQ(CMD_SCRIPT, mob->delay.cmd) << "the second pause is kept";
+    EXPECT_NE(std::string::npos,
+        std::string(connection.output).find("Possible bug - double delay. Please notify Imps."));
+    EXPECT_NE(std::string::npos, logged.find("double delay (reentrant queue during complete_delay)?"));
+}
+
+// The command a mob program's delay names, as mudlle's gives it, and how long it lasts.
+constexpr int PROGRAM_DELAY_COMMAND = -1;
+constexpr int PROGRAM_DELAY_PULSES = 2;
+
+// The same for a delay a mob's own program gives it.
+TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobRunsTheRestOfItsScriptAtOnce)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    const bool mob_remains = WAIT_STATE_BRIEF(mob, PROGRAM_DELAY_PULSES, PROGRAM_DELAY_COMMAND, 0,
+        OUTRANKING_DELAY_PRIORITY, AFF_WAITING);
+
+    EXPECT_FALSE(mob_remains);
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+}
+
+// The level of the mage that casts its prepared spell, high enough for the spell.
+constexpr int PREPARED_MAGE_LEVEL = 80;
+// A finished preparation's delay, as do_prepare leaves it: no pulses left, at its priority.
+constexpr int FINISHED_PREPARATION_PULSES = -1;
+constexpr int FINISHED_PREPARATION_PRIORITY = 20;
+// The lowest roll, which every concentration roll of the cast passes.
+constexpr double LOWEST_ROLL = 0.0;
+
+// A mob casts its prepared spell at itself, and the blow sets off its own damage script, which
+// pauses. The short wait after a prepared spell ends that pause, the rest of the script removes the
+// mob, and the cast ends with it.
+TEST_F(CharacterTriggerTest, APreparedSpellEndsWhenItsAfterWaitRunsTheCastersScriptToItsRemoval)
+{
+    install_script(ON_DAMAGE, pause_then_remove_body());
+    char_data* mage = make_mob("mage", SCRIPT_VNUM);
+    mage->player.level = PREPARED_MAGE_LEVEL;
+    // A finished preparation, as do_prepare leaves it.
+    ASSERT_TRUE(WAIT_STATE_BRIEF(mage, FINISHED_PREPARATION_PULSES, CMD_PREPARE,
+        SPELL_MAGIC_MISSILE, FINISHED_PREPARATION_PRIORITY, 0));
+    mage->delay.targ1.ch_num = SPELL_MAGIC_MISSILE;
+    // More lowest rolls than the cast makes, so that its concentration roll always passes.
+    const int lowest_rolls = 32;
+    for (int roll = 0; roll < lowest_rolls; ++roll) {
+        push_test_random_value(LOWEST_ROLL);
+    }
+
+    waiting_type program_cast {};
+    program_cast.cmd = CMD_CAST;
+    program_cast.targ1.type = TARGET_OTHER;
+    program_cast.targ1.ch_num = SPELL_MAGIC_MISSILE;
+    program_cast.targ2.type = TARGET_CHAR;
+    program_cast.targ2.choice = TAR_CHAR_ROOM;
+    program_cast.targ2.ptr.ch = mage;
+    program_cast.targ2.ch_num = GET_ABS_NUM(mage);
+    char no_argument[] = "";
+
+    do_cast(mage, no_argument, &program_cast, CMD_CAST, 0);
+
+    EXPECT_EQ(1, count_in_output("The mob fades.")) << output();
+    EXPECT_FALSE(is_in_game(mage));
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
+// A paused mob that is killed runs the rest of its script first, as it always has; the rest
+// removes it, so there is nobody left to make a corpse of.
+TEST_F(CharacterTriggerTest, APausedMobThatIsKilledFinishesItsScriptFirst)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, mob->delay.cmd);
+
+    raw_kill(mob, nullptr, 0);
+
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, world[0].contents) << "no corpse";
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
+// ---- text variables ----
+
+// A hearing script keeps the text it heard across a pause.
+TEST_F(CharacterTriggerTest, AHearingScriptStillHasWhatItHeardAfterAPause)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+            { SCRIPT_SEND_TO_ROOM, "Still heard.", { SCRIPT_PARAM_CH1_ROOM } } });
+    make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+
+    process_waiting_list();
+
+    EXPECT_TRUE(output_has("Still heard."));
+}
+
+// str1 carries on from run to run, as it always has: a later run still has what the mob heard.
+TEST_F(CharacterTriggerTest, ALaterRunStillHasTheLastHeardText)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_SEND_TO_CHAR, SCRIPT_RAN_MESSAGE, { SCRIPT_PARAM_CH2 } } } },
+            { ON_ENTER,
+                { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_SEND_TO_CHAR, "The old text is still there.", { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_TRUE(output_has(SCRIPT_RAN_MESSAGE));
+
+    call_trigger(ON_ENTER, &world[0], &m_player, 0);
+
+    EXPECT_TRUE(output_has("The old text is still there."));
+}
+
+/* The say block removes the one who spoke: the yell block after it is told nobody spoke, so it
+ * has no speaker's room to tell. */
+TEST_F(CharacterTriggerTest, AYellBlockIsToldNobodySpokeOnceTheSayBlockRemovesTheSpeaker)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } },
+            { ON_HEAR_YELL,
+                { { SCRIPT_SEND_TO_ROOM, "The speaker is answered.", { SCRIPT_PARAM_CH2_ROOM } },
+                    { SCRIPT_SEND_TO_ROOM, "The yell block ran.", { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    char_data* speaker = make_mob("speaker", 0);
+    make_mob("listener", SCRIPT_VNUM);
+
+    run_command_as(speaker, do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(speaker));
+    EXPECT_TRUE(output_has("The yell block ran."));
+    EXPECT_FALSE(output_has("The speaker is answered."));
+}
+
+// ---- a mob's script set off again while it runs ----
+
+// What the asker's runs set and compare in its int variables.
+constexpr int SHARED_INT_VALUE = 9;
+
+// The asker's hearing script says "ping"; the answerer's says "pong", which the asker hears
+// inside its first run. The nested run sees the int2 the outer run set and sets int1, which the
+// outer run then sees: the two share int1-int3, as one state always has.
+TEST_F(CharacterTriggerTest, ANestedRunSharesTheOuterRunsInts)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { SHARED_INT_VALUE, SCRIPT_PARAM_INT2 } },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT2 } },
+                                  { SCRIPT_SEND_TO_ROOM, "The nested run's int1 came back.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { SHARED_INT_VALUE, SCRIPT_PARAM_INT3 } },
+                                  { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT2, SCRIPT_PARAM_INT3 } },
+                                  { SCRIPT_SET_INT_VALUE, nullptr, { SHARED_INT_VALUE, SCRIPT_PARAM_INT1 } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_TRUE(output_has("The nested run's int1 came back.")) << output();
+}
+
+// The asker's nested run removes the asker; its first run goes on with what it has left (ch2,
+// the answerer the nested run heard).
+TEST_F(CharacterTriggerTest, AScriptRunsOnAfterANestedRunRemovesItsMob)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Outer still running.", { SCRIPT_PARAM_CH2_ROOM } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    char_data* asker = make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+
+    run_command(do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(asker));
+    EXPECT_TRUE(output_has("Outer still running."));
+}
+
+// A nested run that pauses leaves its resume point where the waiting list finds it, and resumes
+// with the text it heard ("pong"), which the mob's one state still holds.
+TEST_F(CharacterTriggerTest, ANestedRunThatPausesResumesFromTheWaitingList)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Outer done.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+                                  { SCRIPT_IF_STR_CONTAINS, "PONG", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Resumed.", { SCRIPT_PARAM_CH1_ROOM } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "PING", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } } } } });
+    make_mob("asker", SCRIPT_VNUM);
+    make_mob("answerer", OTHER_SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_TRUE(output_has("Outer done."));
+    ASSERT_FALSE(output_has("Resumed."));
+
+    process_waiting_list();
+
+    EXPECT_EQ(1, count_in_output("Resumed."));
+}
+
+// Two mobs that answer whatever they hear would answer each other for ever: past
+// MAX_SCRIPT_NESTING runs inside one another the next is refused and logged.
+TEST_F(CharacterTriggerTest, ScriptsNestedTooDeeplyAreRefused)
+{
+    install_script(ON_HEAR_SAY, { { SCRIPT_DO_SAY, "again", { SCRIPT_PARAM_CH1 } } });
+    char_data* speaker = make_mob("speaker", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", SCRIPT_VNUM);
+    world[0].people = m_player.next_in_room; // nobody to send the endless talk to
+
+    testing::internal::CaptureStderr();
+    run_command_as(speaker, do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(std::string::npos, logged.find("too many scripts are running inside one another"));
+    EXPECT_NE(std::string::npos, logged.find(std::to_string(MAX_SCRIPT_NESTING)));
+    EXPECT_TRUE(is_in_game(first));
+    EXPECT_TRUE(is_in_game(second));
+}
+
+// ---- mobs made from a prototype ----
+
+// A copy never shares its prototype's script state, so freeing it cannot free the prototype's.
+TEST_F(CharacterTriggerTest, AMobIsMadeWithoutItsPrototypesScriptState)
+{
+    char_data prototype {};
+    clear_char(&prototype, MOB_ISNPC);
+    SET_BIT(MOB_FLAGS(&prototype), MOB_ISNPC);
+    char prototype_name[] = "copy";
+    prototype.player.name = prototype_name;
+    prototype.player.short_descr = prototype_name;
+    prototype.abilities.hit = MOB_HIT_POINTS;
+    prototype.tmpabilities.hit = MOB_HIT_POINTS;
+    info_script prototype_state {};
+    prototype.specials.script_info = &prototype_state;
+    index_data prototype_index[1] {};
+    char_data* saved_mob_proto = mob_proto;
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_proto = &prototype;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+
+    char_data* copy = read_mobile(0, REAL);
+
+    ASSERT_NE(nullptr, copy);
+    EXPECT_EQ(nullptr, copy->specials.script_info);
+    extract_char(copy);
+    mob_proto = saved_mob_proto;
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+    RELEASE(prototype.profs);
+}
+
+// Scripts for two mobs that answer every "x" with two of their own, without end: SCRIPT_VNUM's
+// mob also starts on hearing "go", OTHER_SCRIPT_VNUM's only answers.
+static std::vector<script_spec> answering_scripts()
+{
+    const std::vector<body_line> answer = { { SCRIPT_IF_STR_CONTAINS, "X", { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_BEGIN, nullptr, {} }, { SCRIPT_DO_SAY, "x1", { SCRIPT_PARAM_CH1 } },
+        { SCRIPT_DO_SAY, "x2", { SCRIPT_PARAM_CH1 } }, { SCRIPT_END, nullptr, {} } };
+    std::vector<body_line> start_or_answer = { { SCRIPT_IF_STR_CONTAINS, "GO", { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_DO_SAY, "x1", { SCRIPT_PARAM_CH1 } } };
+    start_or_answer.insert(start_or_answer.end(), answer.begin(), answer.end());
+    return { { SCRIPT_VNUM, { { ON_HEAR_SAY, start_or_answer } } },
+        { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, answer } } } };
+}
+
+// How much of the log a failed check shows: the refusal comes early, and the log is long.
+constexpr std::size_t LOGGED_TEXT_SHOWN = 400;
+
+// Two mobs that answer every "x" with two of their own would run without end: past
+// MAX_SCRIPT_RUNS_PER_EVENT runs in the one event the first mob's "go" starts, the rest are
+// refused, with one SYSERR.
+TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
+{
+    install_scripts(answering_scripts());
+    char_data* speaker = make_mob("speaker", 0);
+    make_mob("first", SCRIPT_VNUM);
+    make_mob("second", OTHER_SCRIPT_VNUM);
+    world[0].people = m_player.next_in_room; // nobody to send the talk to
+
+    testing::internal::CaptureStderr();
+    run_command_as(speaker, do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    const std::string refusal = "too many scripts have run for one event";
+    const size_t first = logged.find(refusal);
+    ASSERT_NE(std::string::npos, first) << logged.substr(0, LOGGED_TEXT_SHOWN);
+    EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
+}
+
+// ---- a zone reset that gives a mob another script (A 12) ----
+
+// The zone reset commands the test runs, as reset_zone reads them: 'L' subcommand 0 finds the
+// <arg4>th mob with prototype <arg3> in room <arg2>, and 'A' subcommand 12 gives it script <arg2>.
+constexpr int RESET_FINDS_MOB = 0;
+constexpr int RESET_ROOM = 0;
+constexpr int NO_PROTOTYPE = -1;
+constexpr int FIRST_MATCH = 1;
+constexpr int RESET_ASSIGNS_SCRIPT = 12;
+constexpr int RESET_COMMAND_COUNT = 2;
+
+TEST_F(CharacterTriggerTest, AMobGivenAnotherScriptByAZoneResetRunsTheNewOneAfresh)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_SEND_TO_ROOM, "Old script heard [%s].",
+                                  { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SEND_TO_ROOM, "New script heard [%s].",
+                    { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    char_data* mob = make_mob("listener", SCRIPT_VNUM);
+    run_command(do_say, "first");
+    ASSERT_TRUE(output_has("Old script heard [first].")) << output();
+    ASSERT_NE(nullptr, mob->specials.script_info) << "its script kept its state";
+    // L 0: the first mob with no prototype in room 0; A 12: give it OTHER_SCRIPT_VNUM.
+    reset_com commands[RESET_COMMAND_COUNT] {};
+    commands[0].command = 'L';
+    commands[0].arg1 = RESET_FINDS_MOB;
+    commands[0].arg2 = RESET_ROOM;
+    commands[0].arg3 = NO_PROTOTYPE;
+    commands[0].arg4 = FIRST_MATCH;
+    commands[1].command = 'A';
+    commands[1].arg1 = RESET_ASSIGNS_SCRIPT;
+    commands[1].arg2 = OTHER_SCRIPT_VNUM;
+    zone_data zone {};
+    zone.cmd = commands;
+    zone.cmdno = RESET_COMMAND_COUNT;
+    // The fixture's zone table goes back before the local zone does.
+    zone_data* const fixture_zone_table = zone_table;
+    zone_table = &zone;
+
+    reset_zone(0);
+    zone_table = fixture_zone_table;
+
+    EXPECT_EQ(OTHER_SCRIPT_VNUM, mob->specials.script_number);
+    EXPECT_EQ(nullptr, mob->specials.script_info) << "the old script's state was let go";
+    run_command(do_say, "second");
+    EXPECT_TRUE(output_has("New script heard [second].")) << output();
+    EXPECT_FALSE(output_has("Old script heard [second].")) << output();
 }
 
 /* ---- rooms lent while knocking ---- */
