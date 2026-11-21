@@ -418,4 +418,26 @@ Script 1715 with 0 in LOAD_OBJ_X's first parameter, which the script editor call
 46 4 100 200 500 0 0 0
  ch1 gives ob2 to ch2~
 999 0 0 0 0 0 0 0
+#1734 Harness hapless summoner~
+Loads mob 1799, which does not exist, into ch3, then teleports ch3 to room 1101.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+39 2 1799 300 0 0 0 0
+ load mob 1799 into ch3~
+40 3 1101 300 0 0 0 0
+ ch3 to room 1101~
+30 4 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
+#1735 Harness steady summoner~
+Loads the porter (mob 1722) into ch3, then teleports ch3 to room 1101.~
+15 1 0 0 0 0 0 0
+ a given object starts it~
+39 2 1722 300 0 0 0 0
+ load mob 1722 into ch3~
+40 3 1101 300 0 0 0 0
+ ch3 to room 1101~
+30 4 100 0 0 0 0 0
+ Still here.~
+999 0 0 0 0 0 0 0
 #99999

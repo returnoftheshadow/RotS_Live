@@ -1,8 +1,8 @@
 """Mob scripts run as written: a false IF skips its whole block, nested blocks included, section
 rows change nothing, a script that has finished stays finished when its mob is killed, a line
 that would crash is reported and skipped, script writes to hit points are clamped and keep the
-position in step, a north door opens and locks, and the boot check reports every line that names
-something missing."""
+position in step, a north door opens and locks, a mob a script loads can be placed, and the boot
+check reports every line that names something missing."""
 
 from __future__ import annotations
 
@@ -356,7 +356,9 @@ class ReportedLine:
 # (report_script_bad_exit). Script 1705: TELEPORT_CHAR_XL to rm1, which is unset, after a line
 # that leaves tmpint at room 1101's real number (report_script_no_room). Scripts 1706 and 1707:
 # ASSIGN_EQ and DO_REMOVE on slot 22, outside 0 to MAX_WEAR - 1 (report_script_range), which the
-# boot check also reports.
+# boot check also reports. Script 1734: LOAD_MOB of mob 1799, which does not exist, into ch3
+# (report_script_vnum), which the boot check also reports, then a TELEPORT_CHAR of ch3, which the
+# missing mob leaves unset, so it moves nobody.
 SURVEYOR_LINE = ReportedLine(
     ScriptMob(vnum=1704, keyword="surveyor", short_description="a surveyor"),
     "SCRIPT ERROR: script #1704, line 2 (change exit to): room 1101 has no exit 4",
@@ -366,6 +368,7 @@ SURVEYOR_LINE = ReportedLine(
 COURIER = ScriptMob(vnum=1705, keyword="courier", short_description="a courier")
 VALET = ScriptMob(vnum=1706, keyword="valet", short_description="a valet")
 DRESSER = ScriptMob(vnum=1707, keyword="dresser", short_description="a dresser")
+HAPLESS_SUMMONER = ScriptMob(vnum=1734, keyword="hapless", short_description="a hapless summoner")
 REPORTED_LINES = [
     pytest.param(SURVEYOR_LINE, id="change-exit-to-a-missing-exit", marks=placed(SURVEYOR_LINE.mob)),
     pytest.param(
@@ -392,6 +395,14 @@ REPORTED_LINES = [
         ),
         marks=placed(DRESSER), id="do-remove-slot-22",
     ),
+    pytest.param(
+        ReportedLine(
+            HAPLESS_SUMMONER,
+            "SCRIPT ERROR: script #1734, line 2 (load mob): mobile vnum 1799 not found",
+            1,
+        ),
+        marks=placed(HAPLESS_SUMMONER), id="load-mob-of-a-missing-mob",
+    ),
 ]
 # A level-20 human warrior in the implementor's room, who must not read script reports.
 ROOM_WATCHER = Character(
@@ -413,7 +424,8 @@ def test_a_script_line_that_would_crash_is_reported_and_skipped(server, case: Re
 
     Pins #312's crash guards in run_script (script.cpp): each case's line is skipped with a
     SCRIPT ERROR report in game.log and the script's last line still runs, on two gives in a
-    row. Nothing here draws a random number.
+    row. #559 made run_script report and skip a LOAD_MOB of a missing mob; before it, the line
+    loaded a copy of whatever lay before the mob table. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     still_here = said(case.mob.short_description, STILL_HERE_LINE)
@@ -855,3 +867,33 @@ def test_a_listener_ahead_of_a_mob_that_leaves_on_speech_still_answers(server) -
     assert reply.count(said(LISTENER.short_description, LISTENER_LINE)) == 1, reply
     looked = implementor.command("look").text
     assert "A listener stands here" in looked and "A wanderer" not in looked, looked
+
+
+# The steady summoner (mob 1735), whose script loads the porter (mob 1722) into ch3 and
+# teleports ch3 to room 1101, and what look shows for the porter (mob/17.mob).
+STEADY_SUMMONER = ScriptMob(vnum=1735, keyword="steady", short_description="a steady summoner")
+PORTER_STANDS_HERE = "A porter stands here, ready to carry things."
+
+
+@pytest.mark.scripts_actions
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+@placed(STEADY_SUMMONER)
+def test_a_script_load_mob_of_a_mob_that_exists_loads_it_and_the_script_goes_on(server) -> None:
+    """LOAD_MOB of a mob that exists loads it into the variable, the next line places it, and the script goes on.
+
+    The control for the missing-mob case above: run_script (script.cpp) reads the porter's
+    prototype (read_mobile, db.cpp), which leaves him in no room, and the summoner's
+    TELEPORT_CHAR puts him in room 1101, the implementor's. Nothing is reported. read_mobile's
+    hit-point roll is the only draw, and nothing here reads hit points.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    before = implementor.command("look").text
+    assert PORTER_STANDS_HERE not in before, before
+
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", STEADY_SUMMONER)
+    assert said(STEADY_SUMMONER.short_description, STILL_HERE_LINE) in reply, reply
+    after = implementor.command("look").text
+    assert after.count(PORTER_STANDS_HERE) == 1, after
+    reports = [message for message in log_messages(server) if message.startswith("SCRIPT ERROR: script #1735,")]
+    assert reports == [], reports

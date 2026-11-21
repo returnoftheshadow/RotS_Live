@@ -502,4 +502,40 @@ His script (1733) is the scribe's with 0 in LOAD_OBJ_X's unused first parameter.
 0
 10 10 10 10 10 10
 0 10 0 0 1733 100 0
+#1734
+summoner hapless~
+a hapless summoner~
+A hapless summoner waits here to call someone up.~
+His script (1734) loads mob 1799, which does not exist, into ch3 and teleports ch3 to room 1101.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1734 100 0
+#1735
+summoner steady~
+a steady summoner~
+A steady summoner waits here to call someone up.~
+His script (1735) loads the porter (mob 1722) into ch3 and teleports ch3 to room 1101.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1735 100 0
 #99999
