@@ -666,6 +666,24 @@ int check_if_flag(int if_flag, int last_cmd, int last_mob, int last_obj, int zon
     return 1;
 }
 
+// Runs <dress>, which puts gear on <mob> and can free <mob> (an item's poison) or <obj> (a script
+// that removes the last object loaded), and forgets whichever was freed: the commands after this
+// one then have no mob, or no last object to put things in.
+template <typename Dressing>
+static void dress_reset_mob(char_data*& mob, int& last_mob, obj_data*& obj, Dressing dress)
+{
+    freed_watch mob_watch(mob);
+    freed_watch object_watch(obj);
+    dress();
+    if (mob_watch.freed()) {
+        mob = 0;
+        last_mob = 0;
+    }
+    if (object_watch.freed()) {
+        obj = 0;
+    }
+}
+
 /*
  * Perform a zone reset on the specified zone.  This entails
  * walking over the entire list of zone commands and performing
@@ -1063,21 +1081,8 @@ void reset_zone(int zone)
                     obj = read_object(ZCMD.arg7, REAL);
                     obj_to_char(obj, mob);
                 }
-                {
-                    /* Putting gear on can kill the mob (an item's poison) or set off a script
-                     * that removes it or the last item loaded: the commands after this one then
-                     * have no mob, or no last object to put things in. */
-                    freed_watch mob_watch(mob);
-                    freed_watch object_watch(obj);
-                    do_wear(mob, "all", 0, 0, 0);
-                    if (mob_watch.freed()) {
-                        mob = 0;
-                        last_mob = 0;
-                    }
-                    if (object_watch.freed()) {
-                        obj = 0;
-                    }
-                }
+                dress_reset_mob(mob, last_mob, obj,
+                    [&]() -> void { do_wear(mob, "all", 0, 0, 0); });
                 last_cmd = 1;
                 last_obj = 0;
                 break;
@@ -1103,17 +1108,8 @@ void reset_zone(int zone)
                         last_cmd = 1;
                     } else {
                         obj = read_object(ZCMD.arg1, REAL);
-                        /* As for 'K'. */
-                        freed_watch mob_watch(mob);
-                        freed_watch object_watch(obj);
-                        equip_char(mob, obj, ZCMD.arg2);
-                        if (mob_watch.freed()) {
-                            mob = 0;
-                            last_mob = 0;
-                        }
-                        if (object_watch.freed()) {
-                            obj = 0;
-                        }
+                        dress_reset_mob(mob, last_mob, obj,
+                            [&]() -> void { equip_char(mob, obj, ZCMD.arg2); });
                         last_cmd = 1;
                     }
                 } else
