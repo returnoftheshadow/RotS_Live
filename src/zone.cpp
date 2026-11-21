@@ -7,6 +7,7 @@
 
 #include "comm.h" /* For TO_ROOM */
 #include "db.h" /* For buf2 and struct reset_com */
+#include "freed_watch.h"
 #include "handler.h" /* For FOLLOW_MOVE */
 #include "pkill.h" /* For pkill_get_XXX_fame() */
 #include "structs.h" /* For struct owner_list */
@@ -686,6 +687,7 @@ void reset_zone(int zone)
     extern struct room_data world;
     extern struct index_data* mob_index;
     extern struct index_data* obj_index;
+    extern struct obj_data* obj_proto;
     extern struct char_data* character_list;
     int set_exit_state(const struct room_data*, int, int);
     void add_follower(struct char_data*, struct char_data*, int mode);
@@ -1061,7 +1063,21 @@ void reset_zone(int zone)
                     obj = read_object(ZCMD.arg7, REAL);
                     obj_to_char(obj, mob);
                 }
-                do_wear(mob, "all", 0, 0, 0);
+                {
+                    /* Putting gear on can kill the mob (an item's poison) or set off a script
+                     * that removes it or the last item loaded: the commands after this one then
+                     * have no mob, or no last object to put things in. */
+                    freed_watch mob_watch(mob);
+                    freed_watch object_watch(obj);
+                    do_wear(mob, "all", 0, 0, 0);
+                    if (mob_watch.freed()) {
+                        mob = 0;
+                        last_mob = 0;
+                    }
+                    if (object_watch.freed()) {
+                        obj = 0;
+                    }
+                }
                 last_cmd = 1;
                 last_obj = 0;
                 break;
@@ -1073,9 +1089,31 @@ void reset_zone(int zone)
                 if ((!ZCMD.arg3 || obj_index[ZCMD.arg1].number < ZCMD.arg3) && (ZCMD.arg4 == 100 || ZCMD.arg4 > number(0, 99))) {
                     if (ZCMD.arg2 < 0 || ZCMD.arg2 >= MAX_WEAR) {
                         last_cmd = 0;
+                    } else if (mob->equipment[ZCMD.arg2]) {
+                        /* equip_char refuses a filled slot without placing the item, which would
+                         * leave it held by nobody and never freed, so it is not made. The log
+                         * line is the one equip_char wrote. last_cmd stays 1 so the commands
+                         * after this one run as they do when it loads; a 'P' into the last
+                         * object loaded has none to go in. */
+                        char refusal[MAX_STRING_LENGTH];
+                        snprintf(refusal, sizeof(refusal), "SYSERR: Char is already equipped: %s, %s",
+                            GET_NAME(mob), obj_proto[ZCMD.arg1].short_description);
+                        log(refusal);
+                        obj = 0;
+                        last_cmd = 1;
                     } else {
                         obj = read_object(ZCMD.arg1, REAL);
+                        /* As for 'K'. */
+                        freed_watch mob_watch(mob);
+                        freed_watch object_watch(obj);
                         equip_char(mob, obj, ZCMD.arg2);
+                        if (mob_watch.freed()) {
+                            mob = 0;
+                            last_mob = 0;
+                        }
+                        if (object_watch.freed()) {
+                            obj = 0;
+                        }
                         last_cmd = 1;
                     }
                 } else

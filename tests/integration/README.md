@@ -444,7 +444,9 @@ Each test gets `build/integration/runs/<id>/` holding:
 - `game.log`, the server's output (its standard error only, for a test with a schedule);
 - `stdout.log`, for a test with a schedule only: the server's ordinary standard output, without
   the `harness: ` replies to time requests;
-- one transcript per character (`testimm.txt` for `Testimm`), the text the character read.
+- one transcript per character (`testimm.txt` for `Testimm`), the text the character read;
+- after `server.restart()`, `game.boot-<n>.log` (and `stdout.boot-<n>.log`), the logs of the
+  server the restart stopped, numbered from 1.
 
 A passing test's directory is deleted. It is kept when the lib or server fails to set up after
 the lib was copied in, when any test in the session has failed, when the server's checks fail,
@@ -519,6 +521,12 @@ A plain server's game time follows the wall clock. A test marked
 stands still until `server.advance_hours(n)` runs `n` whole game hours of the hourly and fast
 updates and returns once the server acknowledges them. Zone resets, mob activity, combat and
 skill timers do not run under that schedule. `advance_hours` fails a test without the marker.
+
+`server.restart()` stops the server the way a service stop does, with SIGTERM while the
+characters are still logged in, and boots a new server on the same lib, so a test can read back
+what the stop saved. The sessions are closed rather than quit, since quitting saves the
+character itself; log in again with `server.login(name)`. The stop is checked like the one after
+the test, and a problem fails the test there.
 
 Before writing or changing a scenario, or the harness itself, read the
 `rots-integration-scenario` skill (`.agents/skills/rots-integration-scenario/SKILL.md`).

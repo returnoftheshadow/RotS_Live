@@ -80,9 +80,11 @@ ECHO_SAFE_CHARACTER = re.compile(r"[ A-Za-z0-9_.*?:/=@\-~%\[\]()$;|&`'\",!<>+{}^
 INTEGRATION_RELATIVE = "tests/integration/"
 # Where the harness keeps each test's run directory, relative to the repository root (conftest.py).
 RUNS_RELATIVE = "build/integration/runs"
-# The file in a run directory naming its test, and the server's log (conftest.py).
+# The file in a run directory naming its test (conftest.py).
 TEST_NAME_FILE = "test-id.txt"
-GAME_LOG_NAME = "game.log"
+# Every server log in a run directory: game.log, and the game.boot-<n>.log of each server a
+# restart stopped (launcher.set_aside_logs).
+GAME_LOGS_PATTERN = "game*.log"
 # The line AddressSanitizer starts each report with.
 SANITIZER_ERROR_TEXT = "ERROR: AddressSanitizer"
 # The artifact the workflow uploads a shard's kept run directories as.
@@ -550,12 +552,13 @@ def checked_scenario_inputs(environ: Mapping[str, str], repo_root: Path) -> tupl
 
 
 def sanitizer_report_lines(runs_root: Path, since: float) -> list[str]:
-    """The SANITIZER_ERROR_TEXT lines of every game.log under runs_root changed at or after since, each after its test's id.
+    """The SANITIZER_ERROR_TEXT lines of every server log under runs_root changed at or after since, each after its test's id.
 
     Unreadable files are skipped; the lines are made echo-safe.
     """
     lines: list[str] = []
-    for log_path in sorted(runs_root.glob(f"*/{GAME_LOG_NAME}")):
+    log_paths = sorted(runs_root.glob(f"*/{GAME_LOGS_PATTERN}"))
+    for log_path in log_paths:
         try:
             if log_path.stat().st_mtime < since:
                 continue
@@ -581,13 +584,13 @@ def scenario_outcome_summary(status: int, shard_text: str, report_lines: Sequenc
         f"`{RUNS_ARTIFACT_FORMAT.format(number=shard_number)}` artifact.",
     ]
     if report_lines:
-        lines += ["", "AddressSanitizer reports in their game.log files:", ""]
+        lines += ["", "AddressSanitizer reports in their server logs:", ""]
         text = quoted_lines(report_lines[:SUMMARY_REPORT_LINE_LIMIT]).rstrip("\n")
         lines.append(text)
         if len(report_lines) > SUMMARY_REPORT_LINE_LIMIT:
             lines.append(f"\nand {len(report_lines) - SUMMARY_REPORT_LINE_LIMIT} more report lines")
     else:
-        lines.append("No game.log holds an AddressSanitizer report.")
+        lines.append("No server log holds an AddressSanitizer report.")
     return "\n".join(lines) + "\n"
 
 

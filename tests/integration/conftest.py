@@ -19,12 +19,14 @@ from rots_harness.world_resets import MobReset, ObjectReset, WorldReset
 from rots_harness.crashmonitor import CrashMonitor
 from rots_harness.dockerlock import DEFAULT_LOCK_DIR, DEFAULT_WAIT_SECONDS, DockerLock, parse_wait_seconds
 from rots_harness.launcher import (
+    GAME_LOG_NAME,
     HARNESS_BINARY_RELATIVE,
     DockerComposeLauncher,
     LocalProcessLauncher,
     ServerHandle,
     ServerLauncher,
     check_repo_relative,
+    set_aside_logs,
     start_on_a_free_port,
 )
 from rots_harness.libbuilder import ROTSTOOL_RELATIVE, LibTemplateBuilder, RunLibProvider, discard_session_templates, session_templates_dir
@@ -389,7 +391,7 @@ def hour_timeout_seconds() -> float:
 class HarnessServer:
     """One test's running server, its lib and run directory, and the sessions logged in to it."""
 
-    # The started server; the server fixture stops it after the test.
+    # The running server; restart() replaces it, and the server fixture stops it after the test.
     handle: ServerHandle
     # This test's own copy of the character set's template lib.
     lib_dir: Path
@@ -399,6 +401,10 @@ class HarnessServer:
     character_set: CharacterSet
     # Reads the server's log and exit state for crash evidence.
     monitor: CrashMonitor
+    # Stops the old server and starts the new one in restart().
+    launcher: ServerLauncher
+    # The random seed every server of the test is started with.
+    seed: int
     # Every session login() opened, quit by the server fixture after the test.
     sessions: list[GameSession] = field(default_factory=list)
     # Set by the crash checks; keeps the run directory.
@@ -408,6 +414,10 @@ class HarnessServer:
     interrupted_problems: list[str] = field(default_factory=list)
     # Drives game time on a server started with @pytest.mark.schedule(...); None otherwise.
     time_control: Optional[TimeControl] = None
+    # The schedule the test's @pytest.mark.schedule(...) names, which restart() starts the new server with; None without one.
+    schedule: str | None = None
+    # How many servers the test has booted: 1, and one more for each restart().
+    boots: int = 1
 
     def login(self, name: str) -> GameSession:
         """Logs the named character in and returns its session; the fixture quits it after the test."""
@@ -429,6 +439,50 @@ class HarnessServer:
         if self.time_control is None:
             pytest.fail("advance_hours needs @pytest.mark.schedule(...) on the test", pytrace=False)
         self.time_control.advance_hours(hours, hours * hour_timeout_seconds() + HOUR_TIMEOUT_MARGIN_SECONDS)
+
+    def restart(self) -> None:
+        """Stops the server with every session still logged in, as a service stop does, then boots a new server on the same lib.
+
+        The sessions are closed rather than quit, so whatever the characters hold is saved by the
+        stop. The stop is checked as the fixture checks its stop after the test, and a problem
+        fails the test here.
+        The stopped server's logs are kept beside the new server's as game.boot-<n>.log (and
+        stdout.boot-<n>.log). Characters log in again with login(), which reaches the new server.
+        """
+        self.launcher.stop(self.handle)
+        for game_session in self.sessions:
+            game_session.close()
+        self.sessions.clear()
+        if self.time_control is not None:
+            self.time_control.close()
+            self.time_control = None
+        problems = self.monitor.check_after_stop()
+        if problems:
+            self.crash_detected = True
+            pytest.fail("problems while stopping the server for the restart:\n" + "\n".join(problems))
+        set_aside_logs(self.run_dir, self.boots, (GAME_LOG_NAME, OUTPUT_LOG_NAME))
+        self.boots += 1
+        self.handle = start_on_a_free_port(self.launcher, self.run_dir, self.lib_dir, self.seed, schedule=self.schedule)
+        self.monitor = CrashMonitor(self.handle)
+        if self.schedule is not None:
+            self.time_control = start_time_control(self.launcher, self.handle, self.schedule, self.run_dir)
+
+
+def start_time_control(server_launcher: ServerLauncher, handle: ServerHandle, schedule: str, run_dir: Path) -> TimeControl:
+    """The TimeControl of a harness server started with schedule, once it has written its ready line.
+
+    Any failure, including the constructor's OSError for an output log it cannot open, stops the server.
+    """
+    time_control = None
+    try:
+        time_control = TimeControl(handle.process.stdin, handle.process.stdout, run_dir / OUTPUT_LOG_NAME)
+        time_control.wait_ready(schedule, READY_TIMEOUT_SECONDS)
+    except BaseException:
+        server_launcher.stop(handle)
+        if time_control is not None:
+            time_control.close()
+        raise
+    return time_control
 
 
 def selected_launcher() -> ServerLauncher:
@@ -516,19 +570,11 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
     (run_dir / TEST_NAME_FILE).write_text(request.node.nodeid + "\n", encoding="utf-8")
     try:
         lib_dir = lib_provider.lib_for(character_set, run_dir, resets)
-        handle = start_on_a_free_port(harness_launcher, run_dir, lib_dir, session_seed(), schedule=schedule)
+        seed = session_seed()
+        handle = start_on_a_free_port(harness_launcher, run_dir, lib_dir, seed, schedule=schedule)
         time_control = None
         if schedule is not None:
-            # Any failure here stops the server, including the constructor's OSError for an
-            # output log it cannot open.
-            try:
-                time_control = TimeControl(handle.process.stdin, handle.process.stdout, run_dir / OUTPUT_LOG_NAME)
-                time_control.wait_ready(schedule, READY_TIMEOUT_SECONDS)
-            except BaseException:
-                harness_launcher.stop(handle)
-                if time_control is not None:
-                    time_control.close()
-                raise
+            time_control = start_time_control(harness_launcher, handle, schedule, run_dir)
     except BaseException:
         # BaseException so an interrupted setup keeps its evidence too. keep_run_directory never
         # sees this case: a run directory holding more than test-id.txt is always kept, because its
@@ -539,7 +585,10 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         else:
             shutil.rmtree(run_dir, ignore_errors=True)
         raise
-    harness_server = HarnessServer(handle, lib_dir, run_dir, character_set, CrashMonitor(handle), time_control=time_control)
+    monitor = CrashMonitor(handle)
+    harness_server = HarnessServer(
+        handle, lib_dir, run_dir, character_set, monitor, harness_launcher, seed, time_control=time_control, schedule=schedule,
+    )
     try:
         yield harness_server
     finally:
@@ -547,15 +596,16 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         teardown_problems: list[str] = []
         try:
             try:
-                teardown_problems = end_sessions(harness_server.sessions, handle.is_alive())
+                server_alive = harness_server.handle.is_alive()
+                teardown_problems = end_sessions(harness_server.sessions, server_alive)
             finally:
-                harness_launcher.stop(handle)
+                harness_launcher.stop(harness_server.handle)
         except KeyboardInterrupt as caught:
             # Ctrl-C, SIGTERM or SIGHUP while sessions quit or the server stops. Stopping again
             # finishes a stop the interrupt cut short; the interrupt is raised once the run
             # directory is recorded.
             interruption = caught
-            harness_launcher.stop(handle)
+            harness_launcher.stop(harness_server.handle)
         if harness_server.time_control is not None:
             harness_server.time_control.close()
         problems = teardown_problems + harness_server.monitor.check_after_stop()

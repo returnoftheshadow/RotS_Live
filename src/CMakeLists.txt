@@ -159,6 +159,7 @@ set(ROTS_SERVER_SOURCES
     shapescript.cpp
     shapezon.cpp
     shop.cpp
+    signal_requests.cpp
     signals.cpp
     skill_timer.cpp
     spec_ass.cpp
@@ -218,6 +219,8 @@ set(ROTS_TEST_SOURCES
     tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
     tests/mystic_tests.cpp
+    tests/ranger_tests.cpp
+    tests/ranger_shoot_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/kill_experience_tests.cpp
@@ -226,6 +229,7 @@ set(ROTS_TEST_SOURCES
     tests/raw_kill_kit_flag_tests.cpp
     tests/quiet_gear_change_tests.cpp
     tests/room_light_tests.cpp
+    tests/weather_tests.cpp
     tests/mob_options_tests.cpp
     tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp
@@ -238,13 +242,18 @@ set(ROTS_TEST_SOURCES
     tests/combat_movement_extract_tests.cpp
     tests/death_and_damage_paths_tests.cpp
     tests/spec_pro_tests.cpp
+    tests/stay_zone_death_tests.cpp
     tests/loader_editor_bounds_tests.cpp
+    tests/spell_affect_tests.cpp
     tests/special_procedure_extract_tests.cpp
+    tests/command_interpreter_callback_tests.cpp
     tests/fish_and_use_tests.cpp
+    tests/mudlle_stack_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
     tests/shape_section_tests.cpp
+    tests/signal_requests_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
     tests/negative_room_report_tests.cpp
