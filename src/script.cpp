@@ -1509,11 +1509,15 @@ static void report_refused_run(const info_script* info, const char* reason)
     log(error_message);
 }
 
+// What the event does when its script is refused by MAX_SCRIPT_NESTING or
+// MAX_SCRIPT_RUNS_PER_EVENT.
+enum class RefusedScriptOutcome { EVENT_GOES_AHEAD, EVENT_STOPS };
+
 // Runs the script from <position> with <info>, and returns 1 to let the event go ahead or 0 if
-// the script ended with RETURN_FALSE. A run refused by MAX_SCRIPT_NESTING or
-// MAX_SCRIPT_RUNS_PER_EVENT returns <refused_result> instead.
-static int run_script_or(struct info_script* info, struct script_data* position,
-    int refused_result)
+// the script ended with RETURN_FALSE. A run refused at either limit runs nothing and returns 1
+// for EVENT_GOES_AHEAD or 0 for EVENT_STOPS.
+static int run_script(struct info_script* info, struct script_data* position,
+    RefusedScriptOutcome when_refused)
 {
     char output[500];
     int return_value = 1;
@@ -1543,7 +1547,10 @@ static int run_script_or(struct info_script* info, struct script_data* position,
         if (first_refusal_of_its_kind) {
             report_refused_run(info, refusal);
         }
-        return refused_result;
+        if (when_refused == RefusedScriptOutcome::EVENT_STOPS) {
+            return 0;
+        }
+        return 1;
     }
 
     running_script_guard script_context;
@@ -2458,10 +2465,10 @@ static int run_script_or(struct info_script* info, struct script_data* position,
     return return_value;
 }
 
-// As run_script_or, for the triggers that go ahead when their script is refused.
+// As above, for the triggers whose event goes ahead when their script is refused.
 int run_script(struct info_script* info, struct script_data* position)
 {
-    return run_script_or(info, position, 1);
+    return run_script(info, position, RefusedScriptOutcome::EVENT_GOES_AHEAD);
 }
 
 // *******************************************************************************
@@ -2510,7 +2517,8 @@ int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room)
             info.ch[1] = vict;
             info.rm[0] = room;
             // A guard whose script was refused keeps the door shut.
-            return_value = run_script_or(&info, script_position->next, 0);
+            return_value = run_script(&info, script_position->next,
+                RefusedScriptOutcome::EVENT_STOPS);
         }
     return return_value;
 }
@@ -2530,7 +2538,8 @@ int trigger_char_damage(char_data* vict, char_data* ch)
             info.ch[0] = vict;
             info.ch[1] = ch;
             // A blow whose damage script was refused deals no damage.
-            return_value = run_script_or(&info, script_position->next, 0);
+            return_value = run_script(&info, script_position->next,
+                RefusedScriptOutcome::EVENT_STOPS);
         }
     return return_value;
 }
@@ -2675,7 +2684,8 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
             info.ch[1] = ch;
             info.ob[0] = obj;
             // A blow whose damage script was refused deals no damage.
-            return_value = run_script_or(&info, script_position->next, 0);
+            return_value = run_script(&info, script_position->next,
+                RefusedScriptOutcome::EVENT_STOPS);
         }
 
     return return_value;
