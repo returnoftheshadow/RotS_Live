@@ -2457,12 +2457,10 @@ bool ranger_rehide(char_data* host, const ranger_config& opts)
             return false;
         /* do_hide's wind-up; the cover comes when it ends, so until then the
          * mob keeps the cover it snuck in with, and a broken one gives none. */
-        // Ending the host's own delay can remove it (the rest of a paused script): then it is
-        // handled, and nothing is to use the host.
-        if (!WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
-                AFF_WAITING | AFF_WAITWHEEL)) {
-            return true;
-        }
+        // The host has no delay (checked on entry), so starting this one ends none and runs no
+        // script: it cannot free the host.
+        (void)WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
+            AFF_WAITING | AFF_WAITWHEEL);
         return host->delay.wait_value > 0;
     }
     if (GET_HIDING(host))
@@ -3526,6 +3524,24 @@ SPECIAL(dragon)
 constexpr int THURINGWETHIL_BAT_VNUM = 15301;
 constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
 
+// Closes and locks the iron door out of room <room> in <direction> (named <direction_name> in
+// the log), and tells the room it slams shut. Returns the room the door leads to, which is
+// NOWHERE when the room has no exit that way (logged) or the exit leads nowhere.
+static int slam_iron_door(int room, int direction, const char* direction_name)
+{
+    room_direction_data* door = world[room].dir_option[direction];
+    if (!door) {
+        vmudlog(BRF, "vampire_huntress: room %d has no %s exit", world[room].number,
+            direction_name);
+        return NOWHERE;
+    }
+
+    SET_BIT(door->exit_info, EX_CLOSED);
+    SET_BIT(door->exit_info, EX_LOCKED);
+    send_to_room("The iron door slams shut.\n\r\n", room);
+    return door->to_room;
+}
+
 SPECIAL(vampire_huntress)
 { // Thuringwethil - in bat form she hunts through her zone
     struct char_data *victim, *mob; // quite quickly.  If she comes across a PC she will either
@@ -3533,7 +3549,6 @@ SPECIAL(vampire_huntress)
     int to_room, tmpno; // them back to the dungeons of her tower.
     struct affected_type af{};
     obj_data* obj;
-    room_data* room;
     // If she is too badly hurt in a fight, she will flee back to
     // her tower and change into human form and regenerate.  Once
     if (host->in_room == NOWHERE) // healed she will once again assume bat form and hunt her
@@ -3689,14 +3704,11 @@ SPECIAL(vampire_huntress)
                     act("$n seems to fall through the roof to land painfully on the floor.", FALSE,
                         victim, 0, 0, TO_ROOM);
                     GET_POS(victim) = POSITION_RESTING;
-                    room = &world[victim->in_room];
-                    SET_BIT(room->dir_option[0]->exit_info, EX_CLOSED);
-                    SET_BIT(room->dir_option[0]->exit_info, EX_LOCKED);
-                    send_to_room("The iron door slams shut.\n\r\n", real_room(room->number));
-                    room = &world[room->dir_option[0]->to_room];
-                    SET_BIT(room->dir_option[2]->exit_info, EX_CLOSED);
-                    SET_BIT(room->dir_option[2]->exit_info, EX_LOCKED);
-                    send_to_room("The iron door slams shut.\n\r\n", real_room(room->number));
+                    // The cell's door north, then the same door from the corridor's side.
+                    const int corridor = slam_iron_door(victim->in_room, NORTH, "north");
+                    if (corridor != NOWHERE) {
+                        slam_iron_door(corridor, SOUTH, "south");
+                    }
                     do_look(victim, "", wtl, 0, 0);
                     // Ending the bat's own delay, or its blow, can remove it (a script).
                     if (!WAIT_STATE_FULL(host, 200, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
@@ -3742,7 +3754,12 @@ SPECIAL(vampire_huntress)
             obj_to_char(obj, mob);
         if ((obj = read_object(6510, VIRT)))
             obj_to_char(obj, mob);
+        // Putting the gear on can kill or remove her new form (an item's poison or spell).
+        freed_watch human_form_watch(mob);
         do_wear(mob, "all", 0, 0, 0);
+        if (human_form_watch.freed()) {
+            return 1;
+        }
         tmpwtl.subcmd = 0;
         tmpwtl.cmd = 6;
         if (CAN_GO(mob, tmpwtl.cmd - 1))
@@ -3850,6 +3867,13 @@ SPECIAL(vampire_doorkeep)
                 act("A huge wolf suddenly appears, charges at $n and vanishes!", FALSE, victim, 0,
                     0, TO_ROOM);
         }
+    // The door is room 15345's south exit and room 15355's north exit.
+    if (!room->dir_option[SOUTH] || !room2->dir_option[NORTH]) {
+        mudlog("vampire_doorkeep: the door between rooms 15345 and 15355 is missing a side", BRF,
+            LEVEL_GOD, TRUE);
+        return 0;
+    }
+
     if (close_it)
         if (!IS_SET(room->dir_option[2]->exit_info, EX_CLOSED)) {
             SET_BIT(room->dir_option[2]->exit_info, EX_CLOSED);
@@ -3969,11 +3993,15 @@ SPECIAL(vampire_killer)
                 tmpwtl.cmd = 2;
             else {
                 room = &world[real_room(15396)];
-                if (IS_SET(room->dir_option[2]->exit_info, EX_CLOSED)) {
+                const room_direction_data* cell_door = room->dir_option[SOUTH];
+                if (!cell_door) {
+                    vmudlog(BRF, "vampire_killer: room %d has no south exit", room->number);
+                } else if (IS_SET(cell_door->exit_info, EX_CLOSED)) {
                     do_unlock(host, "irondoor", 0, 0, 0);
                     do_open(host, "irondoor", 0, 0, 0);
-                } else
+                } else {
                     tmpwtl.cmd = 3;
+                }
             }
             break;
         }
@@ -3982,11 +4010,15 @@ SPECIAL(vampire_killer)
                 tmpwtl.cmd = 4;
             else {
                 room = &world[real_room(15397)];
-                if (IS_SET(room->dir_option[2]->exit_info, EX_CLOSED)) {
+                const room_direction_data* cell_door = room->dir_option[SOUTH];
+                if (!cell_door) {
+                    vmudlog(BRF, "vampire_killer: room %d has no south exit", room->number);
+                } else if (IS_SET(cell_door->exit_info, EX_CLOSED)) {
                     do_unlock(host, "irondoor", 0, 0, 0);
                     do_open(host, "irondoor", 0, 0, 0);
-                } else
+                } else {
                     tmpwtl.cmd = 3;
+                }
             }
             break;
         }
