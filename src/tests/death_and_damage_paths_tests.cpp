@@ -55,12 +55,11 @@ constexpr int FEWER_HIT_POINTS_THAN_THE_POISON = 3;
 constexpr int TWO_HANDED_BULK = 5;
 /* The ghoul the ghoul special raises, which sinks back into the ground when idle. */
 constexpr int RISEN_GHOUL_VNUM = 15300;
-/* The tower room both of Thuringwethil's forms fly back to when they leave. */
+// The tower room both of Thuringwethil's forms fly back to when they leave.
 constexpr int VAMPIRE_TOWER_VNUM = 15379;
-/* Thuringwethil at this many hit points or fewer is beaten and leaves the game. */
+// Thuringwethil at this many hit points or fewer is beaten and leaves the game.
 constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
-/* A roll that number(from, to) turns into its lowest result: an idle ghoul then dismisses a
- * follower. */
+// A roll that number(from, to) turns into its lowest result.
 constexpr double LOWEST_ROLL = 0.0;
 
 /* The killer remove_the_killer_on_death removes; null once it has. */
@@ -689,10 +688,10 @@ TEST_F(DeathAndDamagePathsTest, AWalkerItsGearKillsAsItLeavesAtTheEndOfItsRouteI
     EXPECT_EQ(0, count_objects_of(RING_VNUM));
 }
 
-/* ---- a ghoul sinking back into the ground ---- */
+// ---- a ghoul sinking back into the ground ----
 
-/* A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
- * second time, and its body is left. */
+// A dismissed ghoul that the poison of the gear it loses kills dies there: it is not removed a
+// second time, and its body is left.
 TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
 {
     make_ring_and_sword_poisonous();
@@ -707,7 +706,7 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
     ASSERT_NE(nullptr, risen->equipment[WEAR_FINGER_R]);
     ASSERT_NE(nullptr, risen->equipment[WIELD]);
     risen->tmpabilities.hit = FEWER_HIT_POINTS_THAN_THE_POISON;
-    push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
+    push_test_random_value(LOWEST_ROLL); // the idle follower is dismissed
     char no_argument[1] = "";
 
     ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
@@ -718,8 +717,8 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThePoisonOfItsGearKillsIsLetGo)
     EXPECT_EQ(1, count_corpses_in_room());
 }
 
-/* A ghoul fading away is removed by its damage script as its ring comes off: the fading stops
- * there. The ring goes as the rest of its gear does. */
+// A ghoul fading away is removed by its damage script as its ring comes off: the fading stops
+// there. The ring goes as the rest of its gear does.
 TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
 {
     make_ring_and_sword_poisonous();
@@ -729,7 +728,7 @@ TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
     make_into_risen_ghoul(risen);
     obj_data* ring = risen->equipment[WEAR_FINGER_R];
     add_follower(risen, summoner, FOLLOW_MOVE);
-    push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
+    push_test_random_value(LOWEST_ROLL); // the idle follower is dismissed
     char no_argument[1] = "";
 
     ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
@@ -739,8 +738,8 @@ TEST_F(DeathAndDamagePathsTest, AFadingGhoulItsGearRemovesLeavesTheRing)
     EXPECT_FALSE(is_in_object_list(ring));
 }
 
-/* A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is
- * destroyed and nothing is left. */
+// A dismissed ghoul that survives losing its gear sinks into the ground as before: the gear is
+// destroyed and nothing is left.
 TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGround)
 {
     char_data* summoner = make_mob("ghoul", 0);
@@ -751,7 +750,7 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGr
     obj_to_char(ring, risen);
     run_command_as(risen, do_wear, "ring");
     ASSERT_EQ(ring, risen->equipment[WEAR_FINGER_R]);
-    push_test_random_value(LOWEST_ROLL); /* the idle follower is dismissed */
+    push_test_random_value(LOWEST_ROLL); // the idle follower is dismissed
     char no_argument[1] = "";
 
     ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
@@ -761,15 +760,15 @@ TEST_F(DeathAndDamagePathsTest, ADismissedGhoulThatSurvivesItsGearSinksIntoTheGr
     EXPECT_EQ(0, count_corpses_in_room());
 }
 
-/* A player following an idle ghoul is not dismissed with its risen ghouls: the player keeps
- * what they wear and stays, and the risen ghoul behind them sinks into the ground. */
+// A player following an idle ghoul is not dismissed with its risen ghouls: the player keeps
+// what they wear and stays, and the risen ghoul behind them sinks into the ground.
 TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
 {
     char_data* summoner = make_mob("ghoul", 0);
     char_data* risen = make_mob("risen", 0);
     make_into_risen_ghoul(risen);
     add_follower(risen, summoner, FOLLOW_MOVE);
-    /* In the game as a player is; followed last, so first among the ghoul's followers. */
+    // In the game as a player is; followed last, so first among the ghoul's followers.
     register_pc_char(&m_player);
     m_player.next = character_list;
     character_list = &m_player;
@@ -779,7 +778,7 @@ TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
     run_command(do_wear, "ring");
     ASSERT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
     ASSERT_EQ(&m_player, summoner->followers->follower);
-    push_test_random_value(LOWEST_ROLL); /* an idle follower is dismissed */
+    push_test_random_value(LOWEST_ROLL); // an idle follower is dismissed
     char no_argument[1] = "";
 
     ghoul(summoner, summoner, 0, no_argument, SPECIAL_SELF, nullptr);
@@ -802,11 +801,11 @@ TEST_F(DeathAndDamagePathsTest, APlayerFollowingAGhoulKeepsTheirGearAndStays)
     EXPECT_FALSE(is_in_game(risen));
 }
 
-/* ---- Thuringwethil flying back to her tower ---- */
+// ---- Thuringwethil flying back to her tower ----
 
-/* The Vampire Huntress, badly hurt in a fight, flies to her tower and destroys her gear there: the
- * poison of her ring kills her as it comes off, and she is let go, leaving her body in the tower
- * and no human form behind. */
+// The Vampire Huntress, badly hurt in a fight, flies to her tower and destroys her gear there: the
+// poison of her ring kills her as it comes off, and she is let go, leaving her body in the tower
+// and no human form behind.
 TEST_F(DeathAndDamagePathsTest, AFleeingVampireHuntressThePoisonOfHerGearKillsIsLetGo)
 {
     link_second_room();
@@ -829,9 +828,9 @@ TEST_F(DeathAndDamagePathsTest, AFleeingVampireHuntressThePoisonOfHerGearKillsIs
     EXPECT_EQ(nullptr, body->next_content);
 }
 
-/* Thuringwethil, fully healed, melts away to her tower and destroys her gear there: the poison
- * of her ring sets off her damage script, which removes her, and she is let go with no bat form
- * behind. Being at full health, she always outlives the poison itself. */
+// Thuringwethil, fully healed, melts away to her tower and destroys her gear there: the poison
+// of her ring sets off her damage script, which removes her, and she is let go with no bat form
+// behind. Being at full health, she always outlives the poison itself.
 TEST_F(DeathAndDamagePathsTest, AHealedThuringwethilHerGearRemovesIsLetGo)
 {
     link_second_room();
