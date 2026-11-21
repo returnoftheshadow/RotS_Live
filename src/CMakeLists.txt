@@ -247,6 +247,7 @@ set(ROTS_TEST_SOURCES
     tests/stay_zone_death_tests.cpp
     tests/loader_editor_bounds_tests.cpp
     tests/spell_affect_tests.cpp
+    tests/spell_removal_tests.cpp
     tests/special_procedure_extract_tests.cpp
     tests/command_interpreter_callback_tests.cpp
     tests/fish_and_use_tests.cpp

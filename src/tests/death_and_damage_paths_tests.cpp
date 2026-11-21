@@ -659,6 +659,60 @@ TEST_F(DeathAndDamagePathsTest, AMobNegativeRegenerationKillsIsLetGo)
 
 // ---- spells ----
 
+// The shout's blow at the first mob sets off a script that removes the mob after it: the shout
+// strikes the first and stops there.
+TEST_F(DeathAndDamagePathsTest, AShoutOfPainStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(second, first->next_in_room);
+
+    spell_shout_of_pain(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(first));
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+}
+
+// The shout's blow at the first mob sets off its damage script, which removes the caster: the
+// shout ends with the caster, and the mob after it is not struck.
+TEST_F(DeathAndDamagePathsTest, AShoutOfPainEndsWithTheCasterItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", 0);
+
+    spell_shout_of_pain(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(first));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(second));
+}
+
+// As for the shout: an earthquake stops at the mob its blow removes.
+TEST_F(DeathAndDamagePathsTest, AnEarthquakeStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(second, first->next_in_room);
+
+    spell_earthquake(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+}
+
 // A blaze burning in the room strikes the first mob, whose script removes the mob after it: the
 // blaze burns nobody more this time.
 TEST_F(DeathAndDamagePathsTest, ARoomBlazeStopsAtTheMobItsBlowRemoves)
