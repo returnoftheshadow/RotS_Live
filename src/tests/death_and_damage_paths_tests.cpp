@@ -70,6 +70,8 @@ constexpr int BLAZE_STRENGTH = 10;
 // it is, and a room spell's roll (number(0, 12)) of 0 makes it strike an occupant.
 constexpr double MIST_STAYS_ROLL = 0.99;
 constexpr double ROOM_SPELL_STRIKES_ROLL = 0.0;
+// A mob level at which casting a shout of pain never fumbles.
+constexpr int UNFUMBLING_CASTER_LEVEL = 50;
 
 /* The killer remove_the_killer_on_death removes; null once it has. */
 char_data* killer_to_remove = nullptr;
@@ -739,6 +741,26 @@ TEST_F(DeathAndDamagePathsTest, ARoomBlazeStopsAtTheMobItsBlowRemoves)
     while (world[0].affected) {
         affect_remove_room(&world[0], world[0].affected);
     }
+}
+
+// A mob finishes casting a shout of pain whose blow sets off a script that removes it: the cast
+// ends there, leaving the delay that went with the caster alone.
+TEST_F(DeathAndDamagePathsTest, ACastEndsWithTheCasterItsSpellRemoves)
+{
+    assign_command_pointers();
+    take_player_out_of_the_room();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* caster = make_mob("caster", 0);
+    caster->player.level = UNFUMBLING_CASTER_LEVEL;
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    char line[] = "cast 'shout of pain'";
+    command_interpreter(caster, line, nullptr);
+    ASSERT_GT(caster->delay.wait_value, 0) << "the cast did not start";
+
+    complete_delay(caster);
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(victim));
 }
 
 /* ---- a walker removed at the end of its route ---- */

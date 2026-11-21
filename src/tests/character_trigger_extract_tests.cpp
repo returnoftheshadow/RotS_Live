@@ -1021,6 +1021,49 @@ TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobRunsTheRestOfItsScriptAtOn
     EXPECT_EQ(1, count_in_output("The mob fades."));
 }
 
+// The level of the mage that casts its prepared spell, high enough for the spell.
+constexpr int PREPARED_MAGE_LEVEL = 80;
+// A finished preparation's delay, as do_prepare leaves it: no pulses left, at its priority.
+constexpr int FINISHED_PREPARATION_PULSES = -1;
+constexpr int FINISHED_PREPARATION_PRIORITY = 20;
+// The lowest roll, which every concentration roll of the cast passes.
+constexpr double LOWEST_ROLL = 0.0;
+
+// A mob casts its prepared spell at itself, and the blow sets off its own damage script, which
+// pauses. The short wait after a prepared spell ends that pause, the rest of the script removes the
+// mob, and the cast ends with it.
+TEST_F(CharacterTriggerTest, APreparedSpellEndsWhenItsAfterWaitRunsTheCastersScriptToItsRemoval)
+{
+    install_script(ON_DAMAGE, pause_then_remove_body());
+    char_data* mage = make_mob("mage", SCRIPT_VNUM);
+    mage->player.level = PREPARED_MAGE_LEVEL;
+    // A finished preparation, as do_prepare leaves it.
+    ASSERT_TRUE(WAIT_STATE_BRIEF(mage, FINISHED_PREPARATION_PULSES, CMD_PREPARE,
+        SPELL_MAGIC_MISSILE, FINISHED_PREPARATION_PRIORITY, 0));
+    mage->delay.targ1.ch_num = SPELL_MAGIC_MISSILE;
+    // More lowest rolls than the cast makes, so that its concentration roll always passes.
+    const int lowest_rolls = 32;
+    for (int roll = 0; roll < lowest_rolls; ++roll) {
+        push_test_random_value(LOWEST_ROLL);
+    }
+
+    waiting_type program_cast {};
+    program_cast.cmd = CMD_CAST;
+    program_cast.targ1.type = TARGET_OTHER;
+    program_cast.targ1.ch_num = SPELL_MAGIC_MISSILE;
+    program_cast.targ2.type = TARGET_CHAR;
+    program_cast.targ2.choice = TAR_CHAR_ROOM;
+    program_cast.targ2.ptr.ch = mage;
+    program_cast.targ2.ch_num = GET_ABS_NUM(mage);
+    char no_argument[] = "";
+
+    do_cast(mage, no_argument, &program_cast, CMD_CAST, 0);
+
+    EXPECT_EQ(1, count_in_output("The mob fades.")) << output();
+    EXPECT_FALSE(is_in_game(mage));
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
 // A paused mob that is killed runs the rest of its script first, as it always has; the rest
 // removes it, so there is nobody left to make a corpse of.
 TEST_F(CharacterTriggerTest, APausedMobThatIsKilledFinishesItsScriptFirst)
