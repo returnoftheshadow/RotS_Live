@@ -36,6 +36,8 @@
 #include "note_writing.h"
 #include "protocol.h"
 #include "script.h"
+#include "signal_requests.h"
+#include "signals.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -524,6 +526,9 @@ void run_the_game(sh_int port, std::shared_ptr<GameTickSchedule> schedule)
     GameHeartbeat heartbeat(schedule);
     game_loop(s, heartbeat);
 
+    // A stop signal that arrived during the last pass still logs its notice and exits with 0.
+    perform_signal_requests(game_signal_steps());
+
     close_sockets(s);
     // fclose(player_fl);
 
@@ -936,10 +941,16 @@ static bool wait_for_next_pulse(SocketType s, int signal_mask,
         }
     }
 
-    // sleep_for waits at least time_left, even if a signal arrives during it.
-    std::this_thread::sleep_for(time_left);
+    // Cut short, within STOP_POLL_INTERVAL, only by a stop that reaches the process during
+    // the wait: SIGINT, which the mask lets through, or any stop the harness's input thread
+    // receives. The mask holds SIGTERM and SIGHUP back through the wait, so on the production
+    // server those are acted on below, within one pulse.
+    sleep_unless_stop_requested(time_left);
 
+    // Delivers the signals the mask held back, then acts on every signal recorded since the
+    // last pass, while no connection is half-processed.
     sigsetmask(0);
+    perform_signal_requests(game_signal_steps());
 
     return true;
 }

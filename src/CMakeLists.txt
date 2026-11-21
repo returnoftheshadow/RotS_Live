@@ -159,6 +159,7 @@ set(ROTS_SERVER_SOURCES
     shapescript.cpp
     shapezon.cpp
     shop.cpp
+    signal_requests.cpp
     signals.cpp
     skill_timer.cpp
     spec_ass.cpp
@@ -244,6 +245,7 @@ set(ROTS_TEST_SOURCES
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
     tests/shape_section_tests.cpp
+    tests/signal_requests_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
     tests/negative_room_report_tests.cpp
