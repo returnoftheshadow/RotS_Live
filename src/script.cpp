@@ -18,6 +18,7 @@
 
 #include "platdef.h"
 #include <algorithm>
+#include <cassert>
 #include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -353,57 +354,239 @@ int find_script_by_number(const int number)
         return i;
 }
 
-void initialise_script_info_char(char_data* ch, int index)
+// Empties what a run starts without: ch1-ch3, ob1-ob3, rm1-rm3, and str2-str3 (released). str1 and
+// int1-int3 carry on from run to run.
+// A nested run releases str2-str3 under the outer run, so a command copies a state's text before
+// calling code that can run a script.
+void clear_script_info(info_script* state)
 {
+    for (int variable = 0; variable < 3; ++variable) {
+        state->ch[variable] = nullptr;
+        state->ob[variable] = nullptr;
+        state->rm[variable] = nullptr;
+    }
 
-    if (!(ch->specials.script_info))
-        CREATE1(ch->specials.script_info, info_script);
-    clear_script_info(ch->specials.script_info);
-
-    /* -1 means ignore the index */
-    if (index != -1)
-        ch->specials.script_info->index = index;
+    for (int text = 1; text < 3; ++text) {
+        if (state->str_dynamic[text]) {
+            RELEASE(state->str[text]);
+        }
+        state->str[text] = nullptr;
+        state->str_dynamic[text] = 0;
+    }
 }
 
-void initialise_script_info_obj(obj_data* obj, int index)
+// Releases <state>, str1 and every other text it owns included; nothing may be using it.
+static void release_script_state_now(info_script*& in_out_state)
 {
+    clear_script_info(in_out_state);
+    if (in_out_state->str_dynamic[0]) {
+        RELEASE(in_out_state->str[0]);
+    }
+    RELEASE(in_out_state);
+}
 
-    if (!(obj->obj_flags.script_info))
-        CREATE1(obj->obj_flags.script_info, info_script);
-    clear_script_info(obj->obj_flags.script_info);
+// Makes <info>'s text variable <text> (0 for str1) a copy of <value>, or empty for a null one.
+static void set_script_text(info_script& info, int text, const char* value)
+{
+    // Copied before the old text goes, in case value is that text.
+    char* copy = nullptr;
+    if (value) {
+        copy = str_dup(value);
+    }
 
-    /* -1 means ignore the index */
-    if (index != -1)
-        obj->obj_flags.script_info->index = index;
+    if (info.str_dynamic[text]) {
+        RELEASE(info.str[text]);
+    }
+    info.str[text] = copy;
+    info.str_dynamic[text] = 0;
+    if (copy) {
+        info.str_dynamic[text] = 1;
+    }
+}
+
+namespace {
+
+// The script state of each run_script call in progress, innermost first.
+class running_script_frame {
+public:
+    // Makes this run the innermost one and counts it toward the event's run limit.
+    explicit running_script_frame(info_script* state)
+        : m_state(state)
+        , m_enclosing(innermost)
+    {
+        innermost = this;
+        ++depth;
+        ++runs_in_event;
+    }
+
+    // Frames are run_script's locals, so they end in the reverse order of their making.
+    ~running_script_frame()
+    {
+        assert(innermost == this);
+        innermost = m_enclosing;
+        --depth;
+        // The outermost run is over, and with it the event.
+        if (depth == 0) {
+            runs_in_event = 0;
+            nesting_refusal_reported = false;
+            runs_refusal_reported = false;
+        }
+
+        if (m_owns_state) {
+            release_script_state_now(m_state);
+        }
+    }
+
+    running_script_frame(const running_script_frame&) = delete;
+    running_script_frame& operator=(const running_script_frame&) = delete;
+
+    // Why another run may not start now, or null if it may: MAX_SCRIPT_NESTING runs are going on
+    // inside one another, or MAX_SCRIPT_RUNS_PER_EVENT have run since the outermost began. Sets
+    // <out_first_of_its_kind> when this is the event's first refusal for that limit, so that one
+    // SYSERR per event and limit reports them.
+    static const char* refusal_reason(bool& out_first_of_its_kind)
+    {
+        out_first_of_its_kind = false;
+        if (depth >= MAX_SCRIPT_NESTING) {
+            out_first_of_its_kind = !nesting_refusal_reported;
+            nesting_refusal_reported = true;
+            return "too many scripts are running inside one another";
+        }
+
+        if (runs_in_event >= MAX_SCRIPT_RUNS_PER_EVENT) {
+            out_first_of_its_kind = !runs_refusal_reported;
+            runs_refusal_reported = true;
+            return "too many scripts have run for one event";
+        }
+        return nullptr;
+    }
+
+    // Hands <state> to the outermost script running with it, to be released when that script
+    // ends. False, with nothing changed, if no script is running with it.
+    static bool adopt(info_script* state)
+    {
+        running_script_frame* outermost_user = nullptr;
+        for (running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            if (frame->m_state == state) {
+                outermost_user = frame;
+            }
+        }
+
+        if (!outermost_user) {
+            return false;
+        }
+        outermost_user->m_owns_state = true;
+        return true;
+    }
+
+    // Empties every running script's ob1-ob3 that names <object>.
+    static void forget(const obj_data* object)
+    {
+        for (running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            for (obj_data*& variable : frame->m_state->ob) {
+                if (variable == object) {
+                    variable = nullptr;
+                }
+            }
+        }
+    }
+
+    // Empties every running script's ch1-ch3 that names <character>.
+    static void forget(const char_data* character)
+    {
+        for (running_script_frame* frame = innermost; frame; frame = frame->m_enclosing) {
+            for (char_data*& variable : frame->m_state->ch) {
+                if (variable == character) {
+                    variable = nullptr;
+                }
+            }
+        }
+    }
+
+private:
+    // The innermost run_script in progress; each frame points on to the one it runs inside. Null
+    // when no script is running, which is nearly always, so a free costs one test.
+    static inline running_script_frame* innermost = nullptr;
+    // How many frames there are, innermost included.
+    static inline int depth = 0;
+    // How many runs have started since the outermost one, which counts; back to 0 when it ends.
+    static inline int runs_in_event = 0;
+    // Set once this event has reported a MAX_SCRIPT_NESTING refusal.
+    static inline bool nesting_refusal_reported = false;
+    // Set once this event has reported a MAX_SCRIPT_RUNS_PER_EVENT refusal.
+    static inline bool runs_refusal_reported = false;
+
+    // The state this run_script call reads and writes; it outlives the call unless m_owns_state.
+    info_script* m_state;
+    // Set by adopt: the state's subject has been freed, so this frame releases the state on exit.
+    bool m_owns_state = false;
+    // The frame of the script this one runs inside, or null; innermost again once this one ends.
+    running_script_frame* m_enclosing;
+};
+
+// A subject's script state ready for one trigger run: created on first use and emptied of what
+// a run starts without (clear_script_info). A trigger set off while the subject's script runs
+// shares this state with that run.
+class trigger_state {
+public:
+    // <in_out_own_state> is the subject's script_info. <index> is the script's place in
+    // script_table, or -1, to resume the paused run, to keep the one the state has.
+    trigger_state(info_script*& in_out_own_state, int index)
+    {
+        if (!in_out_own_state) {
+            CREATE1(in_out_own_state, info_script);
+        }
+        m_state = in_out_own_state;
+        clear_script_info(m_state);
+        if (index != -1) {
+            m_state->index = index;
+        }
+    }
+
+    trigger_state(const trigger_state&) = delete;
+    trigger_state& operator=(const trigger_state&) = delete;
+
+    // The state the trigger's script is to run with.
+    info_script& info() { return *m_state; }
+
+private:
+    // The subject's state; it outlives the run even if the subject is freed meanwhile.
+    info_script* m_state = nullptr;
+};
+
+} // namespace
+
+// Releases a subject's script state as the subject is freed: at once, or when the script still
+// running with it ends.
+static void release_script_state(info_script*& in_out_state)
+{
+    if (!in_out_state) {
+        return;
+    }
+
+    if (!running_script_frame::adopt(in_out_state)) {
+        release_script_state_now(in_out_state);
+    }
+    in_out_state = nullptr;
 }
 
 void note_object_freed(obj_data* object)
 {
     freed_watch::note_freed(object);
+    running_script_frame::forget(object);
+    release_script_state(object->obj_flags.script_info);
 }
 
 void note_char_freed(char_data* character)
 {
     freed_watch::note_freed(character);
+    running_script_frame::forget(character);
+    release_script_state(character->specials.script_info);
 }
 
-void clear_script_info(info_script* inf)
+void release_char_script_state(char_data* character)
 {
-    inf->ch[0] = 0;
-    inf->ch[1] = 0;
-    inf->ch[2] = 0;
-    inf->rm[0] = 0;
-    inf->rm[1] = 0;
-    inf->rm[2] = 0;
-    inf->ob[0] = 0;
-    inf->ob[1] = 0;
-    inf->ob[2] = 0;
-    if (inf->str[0] != NULL && inf->str_dynamic[0] != 0)
-        RELEASE(inf->str[0]);
-    if (inf->str[1] != NULL && inf->str_dynamic[1] != 1)
-        RELEASE(inf->str[1]);
-    if (inf->str[2] != NULL && inf->str_dynamic[2] != 1)
-        RELEASE(inf->str[2]);
+    release_script_state(character->specials.script_info);
 }
 
 char**
@@ -1303,7 +1486,38 @@ static void restyle_script_object(info_script* info, script_data* curr)
     mudlog(errbuf, NRM, LEVEL_AREAGOD, TRUE);
 }
 
-int run_script(struct info_script* info, struct script_data* position)
+// Logs a run refused for <reason> (running_script_frame::refusal_reason).
+static void report_refused_run(const info_script* info, const char* reason)
+{
+    char error_message[256];
+    int script_number = -1;
+    if (info->index >= 0 && info->index <= top_of_script_table) {
+        script_number = script_table[info->index].number;
+    }
+    const char* character_name = "none";
+    if (info->ch[0] && GET_NAME(info->ch[0])) {
+        character_name = GET_NAME(info->ch[0]);
+    }
+    const char* object_name = "none";
+    if (info->ob[0] && info->ob[0]->short_description) {
+        object_name = info->ob[0]->short_description;
+    }
+    snprintf(error_message, sizeof(error_message),
+        "SYSERR: %s: script #%d not run: %s (limits %d deep, %d runs; ch1 %s, ob1 %s)", __func__,
+        script_number, reason, MAX_SCRIPT_NESTING, MAX_SCRIPT_RUNS_PER_EVENT, character_name,
+        object_name);
+    log(error_message);
+}
+
+// What the event does when its script is refused by MAX_SCRIPT_NESTING or
+// MAX_SCRIPT_RUNS_PER_EVENT.
+enum class RefusedScriptOutcome { EVENT_GOES_AHEAD, EVENT_STOPS };
+
+// Runs the script from <position> with <info>, and returns 1 to let the event go ahead or 0 if
+// the script ended with RETURN_FALSE. A run refused at either limit runs nothing and returns 1
+// for EVENT_GOES_AHEAD or 0 for EVENT_STOPS.
+static int run_script(struct info_script* info, struct script_data* position,
+    RefusedScriptOutcome when_refused)
 {
     char output[500];
     int return_value = 1;
@@ -1327,7 +1541,21 @@ int run_script(struct info_script* info, struct script_data* position)
     int tmpint, tmpint2;
     struct follow_type *k, *next_fol;
 
+    bool first_refusal_of_its_kind = false;
+    const char* refusal = running_script_frame::refusal_reason(first_refusal_of_its_kind);
+    if (refusal) {
+        if (first_refusal_of_its_kind) {
+            report_refused_run(info, refusal);
+        }
+
+        if (when_refused == RefusedScriptOutcome::EVENT_STOPS) {
+            return 0;
+        }
+        return 1;
+    }
+
     running_script_guard script_context;
+    running_script_frame frame(info);
 
     curr = position;
     if (!position)
@@ -1443,12 +1671,26 @@ int run_script(struct info_script* info, struct script_data* position)
                             renamed_object = object;
                         }
                     }
+                    // str1-str3 own their text: release the old; the state releases the new one.
+                    int owned_text = -1;
+                    for (int text = 0; text < 3; ++text) {
+                        if (wtxt == &info->str[text]) {
+                            owned_text = text;
+                        }
+                    }
+
                     if (renamed_object) {
                         object_text::fields text = object_text_fields_of(*renamed_object);
                         text.short_description = take_allocated_string(new_text);
                         renamed_object->set_text(create_object_text(std::move(text)));
                     } else {
+                        if (owned_text >= 0 && info->str_dynamic[owned_text]) {
+                            RELEASE(*wtxt);
+                        }
                         *wtxt = new_text;
+                        if (owned_text >= 0) {
+                            info->str_dynamic[owned_text] = 1;
+                        }
                     }
                 }
             }
@@ -1607,7 +1849,7 @@ int run_script(struct info_script* info, struct script_data* position)
             if ((curr->param[0]) && (info->ch[0]) && !(IS_SET(info->ch[0]->specials.affected_by, AFF_WAITING))) {
                 if (curr->next)
                     info->next_command = curr->next;
-                WAIT_STATE_BRIEF(info->ch[0], curr->param[0], CMD_SCRIPT, 0, 0, AFF_WAITING);
+                (void)WAIT_STATE_BRIEF(info->ch[0], curr->param[0], CMD_SCRIPT, 0, 0, AFF_WAITING);
             }
             exit = TRUE;
             break;
@@ -1618,6 +1860,7 @@ int run_script(struct info_script* info, struct script_data* position)
                 tmpobj = get_obj_param(curr->param[1], info);
                 /* find_eq_pos reads the object: an unset one crashed the server. */
                 tmpint = (tmpch && tmpobj) ? find_eq_pos(tmpch, tmpobj, 0) : -1;
+                // An ON_WEAR script freeing the object or wearer empties every variable naming it.
                 if ((tmpint >= 0) && tmpch && tmpobj && (tmpobj->carried_by == tmpch) && (tmpch->equipment[tmpint] != tmpobj)) {
                     perform_wear(tmpch, tmpobj, tmpint);
                 }
@@ -2223,6 +2466,12 @@ int run_script(struct info_script* info, struct script_data* position)
     return return_value;
 }
 
+// As run_script(info, position, when_refused) with EVENT_GOES_AHEAD: a refused run returns 1.
+int run_script(struct info_script* info, struct script_data* position)
+{
+    return run_script(info, position, RefusedScriptOutcome::EVENT_GOES_AHEAD);
+}
+
 // *******************************************************************************
 // ***************************** Triggers for rooms ******************************
 // *******************************************************************************
@@ -2242,12 +2491,12 @@ int trigger_room_enter(const room_data* room, const char_data* ch)
 
 void continue_char_script(char_data* ch)
 {
-    int return_value;
-
-    initialise_script_info_char(ch, -1); // Invalidates all pointers, but its safter this way
-    ch->specials.script_info->ch[0] = ch;
+    // As at the start of any run: what the variables named before the pause may be gone.
+    trigger_state state(ch->specials.script_info, -1);
+    info_script& info = state.info();
+    info.ch[0] = ch;
     ch->delay.cmd = 0;
-    return_value = run_script(ch->specials.script_info, ch->specials.script_info->next_command);
+    run_script(&info, info.next_command);
 }
 
 //  A character can prevent another entering the room by returning FALSE
@@ -2263,11 +2512,14 @@ int trigger_before_char_enter(char_data* ch, char_data* vict, room_data* room)
 
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_BEFORE_ENTER)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = vict;
-            ch->specials.script_info->rm[0] = room;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = vict;
+            info.rm[0] = room;
+            // A guard whose script was refused keeps the door shut.
+            return_value = run_script(&info, script_position->next,
+                RefusedScriptOutcome::EVENT_STOPS);
         }
     return return_value;
 }
@@ -2282,10 +2534,13 @@ int trigger_char_damage(char_data* vict, char_data* ch)
         return 1;
     if ((script_position = char_has_script(&index, vict->specials.script_number, ON_DAMAGE)))
         if (script_position->next) {
-            initialise_script_info_char(vict, index);
-            vict->specials.script_info->ch[0] = vict;
-            vict->specials.script_info->ch[1] = ch;
-            return_value = run_script(vict->specials.script_info, script_position->next);
+            trigger_state state(vict->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = vict;
+            info.ch[1] = ch;
+            // A blow whose damage script was refused deals no damage.
+            return_value = run_script(&info, script_position->next,
+                RefusedScriptOutcome::EVENT_STOPS);
         }
     return return_value;
 }
@@ -2301,9 +2556,10 @@ int trigger_char_die(char_data* ch)
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_DIE)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2320,9 +2576,10 @@ int trigger_char_path_end(char_data* ch)
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_PATH_END)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2339,11 +2596,12 @@ int trigger_char_enter(char_data* ch, char_data* vict, room_data* room)
         return 1;
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_ENTER)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = vict;
-            ch->specials.script_info->rm[0] = room;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = vict;
+            info.rm[0] = room;
+            return_value = run_script(&info, script_position->next);
         }
     return return_value;
 }
@@ -2360,11 +2618,12 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
     freed_watch speaker_watch(speaking);
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_SAY)))
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = speaking;
-            ch->specials.script_info->str[0] = text;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = speaking;
+            set_script_text(info, 0, text);
+            return_value = run_script(&info, script_position->next);
         }
     /* The yell script is looked up on the mob, which the say script may have removed; a speaker
      * it removed is nobody to the yell script. */
@@ -2376,11 +2635,12 @@ int trigger_char_hear(char_data* ch, char_data* speaking, char* text)
     }
     if ((script_position = char_has_script(&index, ch->specials.script_number, ON_HEAR_YELL))) {
         if (script_position->next) {
-            initialise_script_info_char(ch, index);
-            ch->specials.script_info->ch[0] = ch;
-            ch->specials.script_info->ch[1] = speaking;
-            ch->specials.script_info->str[0] = text;
-            return_value = run_script(ch->specials.script_info, script_position->next);
+            trigger_state state(ch->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch;
+            info.ch[1] = speaking;
+            set_script_text(info, 0, text);
+            return_value = run_script(&info, script_position->next);
         }
     }
     return return_value;
@@ -2396,11 +2656,12 @@ int trigger_char_receive(char_data* ch1, char_data* ch2, obj_data* ob1)
         return 1;
     if ((script_position = char_has_script(&index, ch1->specials.script_number, ON_RECEIVE)))
         if (script_position->next) {
-            initialise_script_info_char(ch1, index);
-            ch1->specials.script_info->ch[0] = ch1;
-            ch1->specials.script_info->ch[1] = ch2;
-            ch1->specials.script_info->ob[0] = ob1;
-            return_value = run_script(ch1->specials.script_info, script_position->next);
+            trigger_state state(ch1->specials.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = ch1;
+            info.ch[1] = ch2;
+            info.ob[0] = ob1;
+            return_value = run_script(&info, script_position->next);
         }
 
     return return_value;
@@ -2418,12 +2679,14 @@ int trigger_object_damage(obj_data* obj, char_data* vict, char_data* ch)
 
     if ((script_position = char_has_script(&index, obj->obj_flags.script_number, ON_DAMAGE)))
         if (script_position->next) {
-            initialise_script_info_obj(obj, index);
-            obj->obj_flags.script_info->ch[0] = vict;
-            obj->obj_flags.script_info->ch[1] = ch;
-            obj->obj_flags.script_info->ob[0] = obj;
-            obj->obj_flags.script_info->rm[0] = 0; // ADD room of character
-            return_value = run_script(obj->obj_flags.script_info, script_position->next);
+            trigger_state state(obj->obj_flags.script_info, index);
+            info_script& info = state.info();
+            info.ch[0] = vict;
+            info.ch[1] = ch;
+            info.ob[0] = obj;
+            // A blow whose damage script was refused deals no damage.
+            return_value = run_script(&info, script_position->next,
+                RefusedScriptOutcome::EVENT_STOPS);
         }
 
     return return_value;
@@ -2444,15 +2707,13 @@ static int trigger_object_event(int trigger_type, obj_data* obj, char_data* ch,
         return 1;
     }
 
-    initialise_script_info_obj(obj, index);
-    /* free_obj leaves the script's state alone, so info stays valid while the script runs even if
-     * the object does not. */
-    info_script* info = obj->obj_flags.script_info;
-    info->ch[0] = ch;
-    info->ob[0] = obj;
+    trigger_state state(obj->obj_flags.script_info, index);
+    info_script& info = state.info();
+    info.ch[0] = ch;
+    info.ob[0] = obj;
 
     freed_watch watch(obj);
-    const int script_result = run_script(info, script_position->next);
+    const int script_result = run_script(&info, script_position->next);
     out_object_freed = watch.freed();
     return script_result;
 }

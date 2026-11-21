@@ -531,6 +531,122 @@ TEST_F(CombatMovementTest, AGuardWhoseScriptRunsLetsTheFleerIn)
     EXPECT_EQ(SECOND_ROOM, asker->in_room);
 }
 
+// What the ping mob adds to its run count, int1, on each run.
+constexpr int ONE_RUN = 1;
+
+// Scripts for a chain of runs inside one another as deep as runs may go. Script SCRIPT_VNUM answers
+// whatever it hears with "pong", and tells the room "Ouch." when it is hurt. Script
+// OTHER_SCRIPT_VNUM counts its runs in int1 and answers with "ping", but on run
+// <acting_run> does <action> instead. Script THIRD_SCRIPT_VNUM is a guard that checks whoever
+// enters its room.
+//
+// The pong mob, made first, hears the player first, so the ping mob's run n is at depth 2n: its
+// run 128 is at MAX_SCRIPT_NESTING, where no further run may start, and its run 127 two below.
+static std::vector<script_spec> deepest_run_scripts(int acting_run, const body_line& action)
+{
+    return { { SCRIPT_VNUM,
+                 { { ON_HEAR_SAY, { { SCRIPT_DO_SAY, "pong", { SCRIPT_PARAM_CH1 } } } },
+                     { ON_DAMAGE, { { SCRIPT_SEND_TO_ROOM, "Ouch.", { SCRIPT_PARAM_CH1_ROOM } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_SET_INT_VALUE, nullptr, { ONE_RUN, SCRIPT_PARAM_INT2 } },
+                    { SCRIPT_SET_INT_SUM, nullptr,
+                        { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT2 } },
+                    { SCRIPT_SET_INT_VALUE, nullptr, { acting_run, SCRIPT_PARAM_INT3 } },
+                    { SCRIPT_IF_INT_EQUAL, nullptr, { SCRIPT_PARAM_INT1, SCRIPT_PARAM_INT3 } },
+                    { SCRIPT_BEGIN, nullptr, {} }, action, { SCRIPT_END_ELSE_BEGIN, nullptr, {} },
+                    { SCRIPT_DO_SAY, "ping", { SCRIPT_PARAM_CH1 } }, { SCRIPT_END, nullptr, {} } } } } },
+        { THIRD_SCRIPT_VNUM,
+            { { ON_BEFORE_ENTER,
+                { { SCRIPT_SEND_TO_ROOM, "The guard checks.", { SCRIPT_PARAM_CH1_ROOM } } } } } } };
+}
+
+// The run the ping mob makes at the deepest a run may go.
+constexpr int DEEPEST_PING_RUN = MAX_SCRIPT_NESTING / 2;
+
+// The ping mob flees at the deepest run: the guard's script cannot run, so the guard keeps it out
+// (a refused ON_BEFORE_ENTER fails closed).
+TEST_F(CombatMovementTest, AGuardWhoseScriptIsTooDeepKeepsTheDoorShut)
+{
+    install_scripts(
+        deepest_run_scripts(DEEPEST_PING_RUN, { SCRIPT_DO_FLEE, nullptr, { SCRIPT_PARAM_CH1 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, pinger->in_room) << "refused, the guard keeps the pinger out";
+    const std::string refusal
+        = "script #" + std::to_string(THIRD_SCRIPT_VNUM) + " not run: too many scripts are running";
+    EXPECT_NE(std::string::npos, logged.find(refusal)) << logged;
+}
+
+// Two runs shallower the guard's script runs and lets the pinger in.
+TEST_F(CombatMovementTest, AGuardWhoseScriptIsJustDeepEnoughLetsTheFleerIn)
+{
+    install_scripts(
+        deepest_run_scripts(DEEPEST_PING_RUN - 1, { SCRIPT_DO_FLEE, nullptr, { SCRIPT_PARAM_CH1 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(SECOND_ROOM, pinger->in_room);
+}
+
+// The ping mob hits the pong mob at the deepest run: the pong mob's damage script cannot run, so
+// the blow is not dealt (a refused ON_DAMAGE fails closed).
+TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsTooDeepIsNotDealt)
+{
+    install_scripts(deepest_run_scripts(
+        DEEPEST_PING_RUN, { SCRIPT_DO_HIT, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_CH2 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    pinger->points.OB = SURE_TO_LAND_OB;
+    pinger->specials.ENERGY = ENE_TO_HIT * 2; // ready to strike
+    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); // a blow that hurts
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, count_in_output("Ouch."));
+    EXPECT_EQ(ponger->abilities.hit, ponger->tmpabilities.hit);
+}
+
+// Two runs shallower the damage script runs, and the blow is dealt.
+TEST_F(CombatMovementTest, ABlowWhoseDamageScriptIsJustDeepEnoughIsDealt)
+{
+    install_scripts(deepest_run_scripts(
+        DEEPEST_PING_RUN - 1, { SCRIPT_DO_HIT, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_CH2 } }));
+    char_data* ponger = make_walker("ponger");
+    ponger->specials.script_number = SCRIPT_VNUM;
+    char_data* pinger = make_walker("pinger");
+    pinger->specials.script_number = OTHER_SCRIPT_VNUM;
+    pinger->points.OB = SURE_TO_LAND_OB;
+    pinger->specials.ENERGY = ENE_TO_HIT * 2; // ready to strike
+    equip_char(pinger, make_object(SWORD_VNUM, 0), WIELD); // a blow that hurts
+
+    testing::internal::CaptureStderr();
+    run_command(do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(1, count_in_output("Ouch."));
+    EXPECT_LT(ponger->tmpabilities.hit, ponger->abilities.hit);
+}
+
 /* ---- blows ---- */
 
 /* The victim's damage script removes whoever strikes it. The first fighter's blow removes it, and
@@ -552,6 +668,28 @@ TEST_F(CombatMovementTest, TheCombatRoundLetsGoOfAFighterItsOwnBlowRemoved)
     EXPECT_FALSE(is_in_game(first_fighter));
     EXPECT_FALSE(is_in_game(second_fighter));
     EXPECT_TRUE(is_in_game(victim));
+}
+
+// ---- scripts refused past the limits ----
+
+// With two mobs answering the "x", the event's scripts are used up before the asker flees: the
+// guard's script, refused, keeps the asker out.
+TEST_F(CombatMovementTest, AGuardWhoseScriptIsRefusedKeepsTheDoorShut)
+{
+    install_scripts(exhaust_then_flee_scripts());
+    char_data* speaker = make_walker("speaker");
+    char_data* asker = make_walker("asker");
+    asker->specials.script_number = SCRIPT_VNUM;
+    make_mob("first answerer", OTHER_SCRIPT_VNUM);
+    make_mob("second answerer", OTHER_SCRIPT_VNUM);
+    make_mob("guard", THIRD_SCRIPT_VNUM, SECOND_ROOM);
+    world[0].people = m_player.next_in_room; // the player stands aside
+
+    testing::internal::CaptureStderr();
+    run_command_as(speaker, do_say, "go");
+    testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, asker->in_room) << "refused, the guard keeps the asker out";
 }
 
 /* The hit command's blow removes the attacker. AddressSanitizer is what protects this test: the
