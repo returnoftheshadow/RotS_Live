@@ -261,6 +261,11 @@ void forget(struct char_data* ch, const struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
 int damage(struct char_data* ch, struct char_data* victim, int dam, int attacktype, int hit_location);
 int check_sanctuary(char_data* ch, char_data* victim);
+// Where the wearable gear in a dead character's containers goes when its corpse is made.
+enum class CorpseGear { LEFT_IN_CONTAINERS, GATHERED };
+// Makes <character>'s corpse, holding its gear, in the room it stands in, and returns it.
+// Declared here for the tests (object_text_tests.cpp).
+obj_data* make_physical_corpse(char_data* character, CorpseGear corpse_gear, int attack_type);
 
 char* money_message(int sum, int mode = 0);
 

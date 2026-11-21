@@ -16,9 +16,11 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "mob_walker.h"
+#include "script.h"
 #include "structs.h"
 #include "utils.h"
 
@@ -138,6 +140,9 @@ void mobile_activity(void)
          * turn is used; while it lives, its current one is, as always. */
         next_ch = ch->next;
         int abs_number = ch->abs_number;
+        // A turn that removed the saved one too leaves nobody known to go on from: the rest wait
+        // for the next pass.
+        freed_watch next_watch(next_ch);
         if (!number(0, 3)) {
             if (IS_NPC(ch))
                 one_mobile_activity(ch);
@@ -148,8 +153,15 @@ void mobile_activity(void)
                     tmpfunc(ch, ch, 0, "", SPECIAL_SELF, 0);
             }
         }
-        if (char_exists(abs_number))
+
+        if (char_exists(abs_number)) {
             next_ch = ch->next;
+        } else if (next_watch.freed()) {
+            vmudlog(NRM,
+                "SYSERR: %s: the next character was freed; the rest wait for the next pass.",
+                __func__);
+            break;
+        }
     }
     walker_remove_finished();
 }
@@ -203,6 +215,10 @@ void one_mobile_activity(char_data* ch)
     }
 
     if (IS_MOB(ch) && ch->delay.wait_value <= 1 && !is_passive) {
+        // Its own procedure, and each fight, rescue, assist or flee below, can remove the mob (a
+        // riposte, a script, a death room where it fled); its turn ends there.
+        freed_watch mob_watch(ch);
+
         /* Tamed mobs can stay in non-default positions... */
         if (!IS_AFFECTED(ch, AFF_CHARM)) {
             enforce_position(ch, ch->specials.default_pos);
@@ -235,6 +251,10 @@ void one_mobile_activity(char_data* ch)
             }
         }
 
+        if (mob_watch.freed()) {
+            return;
+        }
+
         // STOP here if mob is now busy (I believe this occurs when methods above return FALSE when they should be TRUE )
         // BECAUSE: other things are checking subcmd and delay time BUT subcmd gets set to 0 ABOVE!??
         if (ch->delay.wait_value && ch->delay.cmd) {
@@ -259,6 +279,8 @@ void one_mobile_activity(char_data* ch)
                 do_stand(ch, "", 0, 0, 0);
 
             tmp_ch = (ch->master)->specials.fighting;
+            // The rescue can remove the master's foe (the rest of the master's paused script).
+            freed_watch foe_watch(tmp_ch);
 
             if (tmp_ch && (tmp_ch->specials.fighting == ch->master)) {
                 sscanf(ch->master->player.name, "%s", buf);
@@ -268,7 +290,15 @@ void one_mobile_activity(char_data* ch)
                 wtl.targ1.ch_num = ch->master->abs_number;
                 wtl.cmd = CMD_RESCUE;
                 do_rescue(ch, buf, &wtl, 0, 0);
+                if (mob_watch.freed()) {
+                    return;
+                }
             }
+
+            if (foe_watch.freed()) {
+                tmp_ch = nullptr;
+            }
+
             if (tmp_ch && !(ch->specials.fighting)) {
                 sscanf(tmp_ch->player.name, "%s", buf);
                 wtl.targ1.type = TARGET_CHAR;
@@ -276,6 +306,9 @@ void one_mobile_activity(char_data* ch)
                 wtl.targ1.ch_num = tmp_ch->abs_number;
                 wtl.cmd = CMD_HIT;
                 do_hit(ch, buf, &wtl, 0, 0);
+                if (mob_watch.freed()) {
+                    return;
+                }
             }
         }
 
@@ -292,7 +325,18 @@ void one_mobile_activity(char_data* ch)
                     wtl.targ1.ptr.ch = tmpfol->follower;
                     wtl.targ1.ch_num = tmpfol->follower->abs_number;
                     wtl.cmd = CMD_RESCUE;
+                    char_data* rescued = tmpfol->follower;
+                    freed_watch rescued_watch(rescued);
                     do_rescue(ch, buf, &wtl, 0, 0);
+                    if (mob_watch.freed()) {
+                        return;
+                    }
+
+                    // The rescue can end the rescued one's following, which takes its list entry
+                    // with it.
+                    if (rescued_watch.freed() || !is_follower_entry(ch, tmpfol, rescued)) {
+                        break;
+                    }
                 }
             }
         }
@@ -311,6 +355,9 @@ void one_mobile_activity(char_data* ch)
                     wtl.targ1.ch_num = ch->master->abs_number;
                     wtl.cmd = CMD_ASSIST;
                     do_assist(ch, "", &wtl, 0, 0);
+                    if (mob_watch.freed()) {
+                        return;
+                    }
                 }
             }
         }
@@ -319,6 +366,9 @@ void one_mobile_activity(char_data* ch)
         if (utils::is_guardian(*ch) && ch->master && ch->specials.fighting) {
             if (ch->master->in_room != ch->in_room) {
                 do_flee(ch, "", NULL, 0, 0);
+                if (mob_watch.freed()) {
+                    return;
+                }
             }
         }
 
@@ -335,13 +385,18 @@ void one_mobile_activity(char_data* ch)
         if (AWAKE(ch) && !(ch->specials.fighting)) {
             if (IS_SET(ch->specials2.act, MOB_SCAVENGER)) { /* if scavenger */
                 if (world[ch->in_room].contents && !number(0, 5)) {
-                    for (max = 1, best_obj = 0, obj = world[ch->in_room].contents;
+                    room_data& scavenged_room = world[ch->in_room];
+                    for (max = 1, best_obj = 0, obj = scavenged_room.contents;
                          obj; obj = obj->next_content) {
                         if (CAN_GET_OBJ(ch, obj)) {
                             if (obj->obj_flags.cost > max) {
                                 best_obj = obj;
                                 max = obj->obj_flags.cost;
-                            } else if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)
+                            } else if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER) {
+                                // do_wear's ON_WEAR scripts can remove the mob or disturb the
+                                // room's or bag's items.
+                                freed_watch container_watch(obj);
+                                bool scavenging_disturbed = false;
                                 for (inside = obj->contains; inside; inside = next_obj) {
                                     next_obj = inside->next_content;
                                     if (inside->obj_flags.wear_flags > 1)
@@ -350,11 +405,42 @@ void one_mobile_activity(char_data* ch)
                                             obj_to_char(inside, ch);
                                             act("$n gets $p from $P.",
                                                 TRUE, ch, inside, obj, TO_ROOM);
+                                            freed_watch next_item_watch(next_obj);
+                                            freed_watch best_item_watch(best_obj);
                                             do_wear(ch, "all", 0, 0, 0);
+                                            if (mob_watch.freed()) {
+                                                return;
+                                            }
+
+                                            if (best_item_watch.freed()) {
+                                                best_obj = nullptr;
+                                            }
+
+                                            if (container_watch.freed()
+                                                || next_item_watch.freed()) {
+                                                scavenging_disturbed = true;
+                                                break;
+                                            }
+
+                                            if (!is_on_content_list(scavenged_room.contents, obj)
+                                                || (next_obj && next_obj->in_obj != obj)) {
+                                                scavenging_disturbed = true;
+                                                break;
+                                            }
                                         }
                                 }
+
+                                if (scavenging_disturbed) {
+                                    break;
+                                }
+                            }
                         }
                     } /* for */
+
+                    // A script set off above can have taken the best item out of the room.
+                    if (best_obj && !is_on_content_list(scavenged_room.contents, best_obj)) {
+                        best_obj = nullptr;
+                    }
 
                     if (best_obj) {
                         obj_from_room(best_obj);
@@ -433,14 +519,22 @@ void one_mobile_activity(char_data* ch)
                     wtl.targ1.ch_num = vict->abs_number;
                     wtl.cmd = CMD_HIT;
                     do_hit(ch, buf, &wtl, 0, 0);
+                    if (mob_watch.freed()) {
+                        return;
+                    }
+
                     vict = 0;
                 }
             } /* if aggressive */
 
             if ((IS_SET(ch->specials2.act, MOB_MEMORY) || IS_SET(ch->specials2.act, MOB_HUNTER) || (IS_AFFECTED(ch, AFF_HUNT))) && ch->specials.memory) {
                 /* we assume pets do not hunt by themselves */
-                if (MOB_FLAGGED(ch, MOB_PET) && (GET_POS(ch) == POSITION_FIGHTING))
+                if (MOB_FLAGGED(ch, MOB_PET) && (GET_POS(ch) == POSITION_FIGHTING)) {
                     do_flee(ch, "", 0, 0, 0);
+                    if (mob_watch.freed()) {
+                        return;
+                    }
+                }
 
                 /* checking memory */
                 if (!IS_SET(ch->specials2.act, MOB_SENTINEL) && (GET_POS(ch) == POSITION_STANDING)) {
