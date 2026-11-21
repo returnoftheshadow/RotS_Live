@@ -502,4 +502,40 @@ His script (1733) is the scribe's with 0 in LOAD_OBJ_X's unused first parameter.
 0
 10 10 10 10 10 10
 0 10 0 0 1733 100 0
+#1740
+pilgrim fading~
+a fading pilgrim~
+A fading pilgrim leans on his staff here.~
+His script (1740) says a line, waits, says a second line and removes him from the game.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1740 100 0
+#1741
+steward~
+a steward~
+A steward stands here, attending the pilgrim.~
+His script (1741) bows on hearing speech that mentions dusk, waits, then straightens up.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 1741 100 0
 #99999

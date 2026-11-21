@@ -897,6 +897,56 @@ TEST_F(CharacterTriggerTest, TheWaitingListLetsGoOfMobsTheirResumedScriptsRemove
     EXPECT_EQ(nullptr, waiting_list);
 }
 
+// The only waiter's resumed script removes its mob: the pass ends with the list, and nothing is
+// logged.
+TEST_F(CharacterTriggerTest, ALastWaiterRemovedByItsResumedScriptEndsThePassQuietly)
+{
+    install_script(ON_HEAR_SAY, pause_then_remove_body());
+    char_data* mob = make_mob("mob", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(mob, waiting_list) << "the mob paused";
+    ASSERT_EQ(nullptr, mob->delay.next) << "it is the last waiter";
+
+    testing::internal::CaptureStderr();
+    process_waiting_list();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(mob));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_EQ(nullptr, waiting_list);
+    EXPECT_EQ(std::string::npos, logged.find("SYSERR")) << logged;
+}
+
+// What the waiter that stays tells the room when its script resumes.
+constexpr const char* STAYING_MOB_MESSAGE = "The other mob stays.";
+
+// The first waiter's resumed script removes its mob; the waiter after it, which stays, still
+// resumes on the same pass.
+TEST_F(CharacterTriggerTest, TheWaiterAfterOneRemovedByItsResumedScriptStillResumesOnTheSamePass)
+{
+    install_scripts({ { SCRIPT_VNUM, { { ON_HEAR_SAY, pause_then_remove_body() } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+                    { SCRIPT_SEND_TO_ROOM, STAYING_MOB_MESSAGE, { SCRIPT_PARAM_CH1_ROOM } } } } } } });
+    char_data* leaving = make_mob("leaving mob", SCRIPT_VNUM);
+    char_data* staying = make_mob("staying mob", OTHER_SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_EQ(leaving, waiting_list) << "the leaving mob paused first";
+    ASSERT_EQ(staying, leaving->delay.next) << "the staying mob paused after it";
+
+    testing::internal::CaptureStderr();
+    process_waiting_list();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(leaving));
+    EXPECT_TRUE(is_in_game(staying));
+    EXPECT_EQ(1, count_in_output("The mob fades."));
+    EXPECT_EQ(1, count_in_output(STAYING_MOB_MESSAGE));
+    EXPECT_EQ(nullptr, waiting_list);
+    EXPECT_EQ(std::string::npos, logged.find("SYSERR")) << logged;
+}
+
 /* How long the second waiter waits: longer than the first one's pause, so it still waits when the
  * first resumes. */
 constexpr int LONGER_WAIT_PULSES = 5;
