@@ -92,7 +92,7 @@ extern struct obj_data generic_poison;
 ACMD(do_drink)
 {
     struct obj_data* temp;
-    struct affected_type af;
+    struct affected_type af{};
     int amount, weight;
     int on_ground = 0;
 
@@ -232,7 +232,7 @@ ACMD(do_drink)
 ACMD(do_eat)
 {
     struct obj_data* food;
-    struct affected_type af;
+    struct affected_type af{};
     int amount;
 
     one_argument(argument, arg);

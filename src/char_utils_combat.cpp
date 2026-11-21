@@ -445,7 +445,7 @@ void on_attacked_character(char_data* attacker, char_data* victim)
 {
     /* Give anger */
     if (victim && !IS_NPC(attacker) && (victim != attacker)) {
-        affected_type affect;
+        affected_type affect{};
         affected_type* existing_affect;
 
         bool is_long_anger = is_victim_player(victim);
