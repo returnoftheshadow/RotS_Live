@@ -847,23 +847,6 @@ static bool speak_and_stay(char_data* host, const char* words, Speech speech)
     return !speaker_watch.freed();
 }
 
-// Destroys everything <wearer> has equipped. Taking an item off can kill or remove the wearer
-// (gear poison, an item spell): true if it is still there.
-static bool destroy_equipment_and_stay(char_data* wearer)
-{
-    freed_watch wearer_watch(wearer);
-    for (int position = 0; position < MAX_WEAR; ++position) {
-        if (wearer->equipment[position]) {
-            obj_data* removed = unequip_char(wearer, position);
-            extract_obj(removed);
-            if (wearer_watch.freed()) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 /*
  * This function is not highly commented, except for its
  * differences from gatekeeper2.  If you'd like commentary,
@@ -3423,7 +3406,7 @@ SPECIAL(ghoul)
             if (mob && !mob->followers) {
                 act("$n seems to fade away into the ground.", TRUE, host, 0, 0, TO_ROOM);
                 // What it carries falls to the ground (extract_char).
-                if (destroy_equipment_and_stay(mob)) {
+                if (extract_worn_gear(mob)) {
                     extract_char(mob);
                 }
             }
@@ -3729,14 +3712,10 @@ SPECIAL(vampire_huntress)
         act("$n flaps her great wings, and flies away.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        if (!destroy_equipment_and_stay(host)) {
+        if (!extract_worn_gear(host)) {
             return 1;
         }
-        for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
-            obj = host->carrying;
-            obj_from_char(host->carrying);
-            extract_obj(obj);
-        }
+        extract_carried_objects(host);
         const int human_form_number = real_mobile(THURINGWETHIL_HUMAN_VNUM);
         if (human_form_number < 0) {
             mudlog("vampire_huntress: her human form does not exist!", BRF, LEVEL_GOD, TRUE);
@@ -3780,7 +3759,6 @@ SPECIAL(thuringwethil)
 {
     struct char_data *victim, *tmpch;
     obj_data* obj;
-    int tmpno;
     waiting_type tmpwtl;
 
     for (obj = world[host->in_room].contents; obj; obj = obj->next_content)
@@ -3817,14 +3795,10 @@ SPECIAL(thuringwethil)
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        if (!destroy_equipment_and_stay(host)) {
+        if (!extract_worn_gear(host)) {
             return 1;
         }
-        for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
-            obj = host->carrying;
-            obj_from_char(host->carrying);
-            extract_obj(obj);
-        }
+        extract_carried_objects(host);
         extract_char(host); // strange... extract works here with no room_data errors
         const int bat_form_number = real_mobile(THURINGWETHIL_BAT_VNUM);
         if (bat_form_number < 0) {
