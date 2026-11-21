@@ -1,4 +1,5 @@
-"""Summon's legacy pins: the dark-room block and the zone-distance arithmetic."""
+"""Summon's pins: the dark-room block, the zone-distance arithmetic, the stay-zone gear a target
+leaves behind across zones, and a target who quits while the spell is cast."""
 
 from __future__ import annotations
 
@@ -53,6 +54,23 @@ DISTANT_VICTIM = Character(
     class_name="warrior",
     stored=StoredValues(int=VICTIM_INTELLIGENCE),
 )
+# A level-12 dwarf warrior who starts in zone 12: the stone girdle and the dwarven stone are
+# dwarves' gear (their DWARF flag zaps anyone else who puts one on, equip_char in handler.cpp).
+DISTANT_DWARF = Character(
+    name="Testdelver",
+    race="dwarf",
+    sex="male",
+    level=12,
+    load_room=ROOM_DISTANT_CELL,
+    class_name="warrior",
+    stored=StoredValues(int=VICTIM_INTELLIGENCE),
+)
+# The stone girdle (object 1185, obj/11.obj): worn about the waist, STAY_ZONE.
+GIRDLE_VNUM = 1185
+GIRDLE = "a stone girdle"
+# The dwarven stone (object 1602, obj/16.obj): carried, STAY_ZONE.
+STONE_VNUM = 1602
+STONE = "a dwarven stone"
 
 # The caster's mage level: a single-class mage's mage level is its overall level, up to 30.
 CASTER_MAGE_LEVEL = CASTER.level
@@ -83,6 +101,15 @@ UNSEEN_ARRIVAL_MARKER = "Someone appears in the room."
 ARRIVAL_MARKER_FORMAT = "{} appears in the room."
 # What the victim reads when it is moved (spell_summon); format with the caster's name.
 SUMMONED_MARKER_FORMAT = "{} summons you!"
+# What the caster reads when the target left the game while the spell was cast (do_cast,
+# spell_pa.cpp, for a TAR_CHAR_WORLD target in no room).
+LEFT_THE_WORLD_MARKER = "Your victim has left the world."
+# What a mortal reads as it quits (do_quit, act_othe.cpp).
+QUIT_MARKER = "As you quit, all your posessions drop to the ground!"
+# What a summoned character reads for each stay-zone item it carries as it leaves its zone
+# (prohibit_item_stay_zone_move, act_move.cpp); format with the short description. A worn one
+# comes off with no line.
+DROP_FORMAT = "You drop {}."
 # What a character reads when the implementor teleports it (do_teleport, act_wiz.cpp).
 TELEPORTED_MARKER = "has teleported you!"
 # What look prints instead of the room for a character who cannot see (do_look, act_info.cpp).
@@ -293,3 +320,109 @@ def test_summon_reaches_a_zone_five_map_squares_away_as_if_it_were_nearer_than_t
     summoned_marker = SUMMONED_MARKER_FORMAT.format(CASTER.name)
     summoned = victim.expect([summoned_marker]) + victim.drain(SETTLE_SECONDS)
     assert "Arena Centre" in summoned, summoned
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, CASTER, DISTANT_DWARF)
+def test_summon_across_zones_leaves_the_targets_stay_zone_gear_in_the_room_it_left(server) -> None:
+    """Legacy pin: a target summoned out of its zone leaves its stay-zone gear where it stood.
+
+    spell_summon (mage.cpp) calls prohibit_item_stay_zone_move (act_move.cpp) for a target in
+    another zone before its save roll: the worn girdle comes off and lies in the room the
+    target leaves, with no line, and the carried stone drops there with "You drop". Both stay
+    even though the target is then summoned. The save cannot succeed (the distant-zone margin
+    below), and the one draw left, the concentration roll, is repeated by cast_summon; the drop
+    happens only in the cast that reaches spell_summon.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    caster = server.login(CASTER.name)
+    victim = server.login(DISTANT_DWARF.name)
+    implementor.command(f"goto {ROOM_DISTANT_CELL}")
+    for vnum, keyword, short_description in ((GIRDLE_VNUM, "girdle", GIRDLE), (STONE_VNUM, "stone", STONE)):
+        created = implementor.command(f"load obj {vnum}")
+        assert created.contains(f"You create {short_description}."), created.text
+        given = implementor.command(f"give {keyword} {DISTANT_DWARF.name.lower()}")
+        assert given.contains(f"You give {short_description} to {DISTANT_DWARF.name}."), given.text
+    worn = victim.command("wear girdle")
+    assert worn.contains(f"You wear {GIRDLE} around your waist."), worn.text
+    caster_inputs, victim_inputs = setup_caster_and_victim(implementor, DISTANT_DWARF)
+
+    # Distant case, caster in Arena Centre (zone 11), Testdelver in the Distant Cell (zone 12),
+    # as in the distant-zone pin above, a dwarf in place of a human (no race term in the save):
+    #   dist       = ((0 - 3) ^ 2) + ((0 - 4) ^ 2) = -1 + -2 = -3        (spell_summon, mage.cpp)
+    #   save_value = Mag / 3 + (Int - 8) / 4 + 0 + dist                   (0: not a hobbit)
+    #              = 3 / 3   + (0 - 8) / 4   + 0 + -3 = 1 + -2 + 0 + -3 = -4   (Mag:3, Int:[0/0/0])
+    #   casting_dc = 10 + 30 / 3 + (40 - 8) / 4 + 0 = 28                  (Mag:30, Int:[40/40/40])
+    #   saved      = number(1, 20) + -4 > 28: at most 16, never.
+    assert caster_inputs == (CASTER_MAGE_LEVEL, CASTER_INTELLIGENCE, 0), caster_inputs
+    assert victim_inputs == (3, VICTIM_INTELLIGENCE, 0), victim_inputs
+    caster_mage_level, caster_intelligence, caster_spell_pen = caster_inputs
+    victim_mage_level, victim_intelligence = victim_inputs[:2]
+    caster_x, caster_y = zone_map_square(11)
+    victim_x, victim_y = zone_map_square(12)
+    distance = ((caster_x - victim_x) ^ 2) + ((caster_y - victim_y) ^ 2)
+    save_value = c_divide(victim_mage_level, 3) + c_divide(victim_intelligence - 8, 4) + 0 + distance
+    casting_dc = 10 + c_divide(caster_mage_level, 3) + c_divide(caster_intelligence - 8, 4) + caster_spell_pen
+    assert (distance, save_value, casting_dc) == (-3, -4, 28)
+    assert 20 + save_value <= casting_dc
+    implementor.drain(SETTLE_SECONDS)
+
+    reply = cast_summon(caster, DISTANT_DWARF.name)
+    assert ARRIVAL_MARKER_FORMAT.format(DISTANT_DWARF.name) in reply, reply
+    summoned = victim.expect([SUMMONED_MARKER_FORMAT.format(CASTER.name)]) + victim.drain(SETTLE_SECONDS)
+    assert summoned.count(DROP_FORMAT.format(STONE)) == 1, summoned
+    assert DROP_FORMAT.format(GIRDLE) not in summoned, summoned
+    assert summoned.index(DROP_FORMAT.format(STONE)) < summoned.index(SUMMONED_MARKER_FORMAT.format(CASTER.name)), summoned
+    assert "Arena Centre" in summoned, summoned
+    watched = implementor.expect([f"{DISTANT_DWARF.name} drops {STONE}."]) + implementor.drain(SETTLE_SECONDS)
+    assert watched.count(f"{DISTANT_DWARF.name} drops {STONE}.") == 1, watched
+
+    equipment = victim.command("equipment").text
+    assert GIRDLE not in equipment, equipment
+    carried = victim.command("inventory").text
+    assert STONE not in carried, carried
+    floor = implementor.command("look").text
+    assert floor.count("A stone girdle lies here.") == 1, floor
+    assert floor.count("A dwarven stone lies here.") == 1, floor
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, CASTER, DISTANT_VICTIM)
+def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits_during_the_cast(server) -> None:
+    """Fix pin (#534): a target who quits while summon is cast is not summoned.
+
+    Quitting takes a mortal out of every room to the character menu (extract_char,
+    handler.cpp) but keeps its character, so the cast's target still exists when the casting
+    delay ends. do_cast (spell_pa.cpp) checks a TAR_CHAR_WORLD target for a room and stops with
+    "Your victim has left the world." #534 made the cast stop there; before it, spell_summon ran
+    on a target in no room and pulled it out of the menu. The check comes before the
+    concentration roll, so nothing draws. Summon's 36 beats at mage level 30 are about four and a half seconds
+    (CAST_TIMEOUT), and the quit is a single pass. The target's connection stays open until
+    the cast ends: closing it would free the character.
+    """
+    server.login(IMPLEMENTOR.name)
+    caster = server.login(CASTER.name)
+    victim = server.login(DISTANT_VICTIM.name)
+
+    caster.send_line(f"cast 'summon' {DISTANT_VICTIM.name.lower()}")
+    started = caster.expect([CONCENTRATE_MARKER, NOBODY_MARKER, NO_ENERGY_MARKER])
+    assert CONCENTRATE_MARKER in started, started
+    victim.send_line("quit")
+    quit_text = victim.expect([QUIT_MARKER])
+    assert QUIT_MARKER in quit_text, quit_text
+
+    outcomes = [
+        LEFT_THE_WORLD_MARKER,
+        NOBODY_MARKER,
+        FAILED_MARKER,
+        LOST_CONCENTRATION_MARKER,
+        PROTECTED_TARGET_MARKER,
+        UNSEEN_ARRIVAL_MARKER,
+        ARRIVAL_MARKER_FORMAT.format(DISTANT_VICTIM.name),
+    ]
+    reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+    assert LEFT_THE_WORLD_MARKER in reply, reply
+    assert ARRIVAL_MARKER_FORMAT.format(DISTANT_VICTIM.name) not in reply, reply
+    menu = victim.drain(SETTLE_SECONDS)
+    assert SUMMONED_MARKER_FORMAT.format(CASTER.name) not in menu, menu
+    victim.close()
