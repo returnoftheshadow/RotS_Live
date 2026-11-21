@@ -1,0 +1,102 @@
+#2401
+Outside the Gate~
+A bare stretch of flagstones before a stout door to the north, where callers knock.
+~
+24 0 0 0
+D0
+~
+door~
+3 0 2402 5
+S
+#2402
+Gatehouse~
+A narrow gatehouse; the gate leads back south, and only its keeper opens it.
+~
+24 0 0 0
+D2
+~
+gate~
+3 0 2401 5
+S
+#2403
+Post Office~
+A cramped post office with a single counter, where letters are written and collected.
+~
+24 0 0 0
+S
+#2404
+Herald's Hall~
+A long hall whose herald calls out the name of everyone who comes in from the south.
+~
+24 0 0 0
+D2
+~
+~
+0 0 2405 5
+S
+#2405
+Antechamber~
+A small antechamber between two halls, one to the north and one to the south.
+~
+24 0 0 0
+D0
+~
+~
+0 0 2404 5
+D2
+~
+~
+0 0 2406 5
+S
+#2406
+Odd Herald's Hall~
+A second hall, whose herald reads out a greeting a careless builder wrote.
+~
+24 0 0 0
+D0
+~
+~
+0 0 2405 5
+S
+#2407
+Dummy Yard~
+A sandy yard where practice dummies are set up and cut down, beside a cask of ale.
+~
+24 0 0 0
+S
+#2408
+Seer's Room~
+A quiet room for divining one's whereabouts, with a hatch to the east and an opening north.
+~
+24 0 0 0
+D0
+~
+~
+0 0 2409 5
+D1
+~
+hatch~
+3 0 2410 5
+S
+#2409
+Cluttered Room~
+A room whose floor is easily cluttered, north of the seer's room.
+~
+24 0 0 0
+D2
+~
+~
+0 0 2408 5
+S
+#2410
+Store Cupboard~
+A cupboard behind the hatch, west of the seer's room.
+~
+24 0 0 0
+D3
+~
+hatch~
+3 0 2408 5
+S
+#99999
+$~
