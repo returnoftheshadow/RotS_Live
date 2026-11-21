@@ -64,7 +64,6 @@ ACMD(do_hit);
 
 ACMD(do_quit)
 {
-    int tmp;
     affected_type* aff = affected_by_spell(ch, SPELL_FAME_WAR);
     void die(struct char_data*, struct char_data*, int);
 
@@ -110,11 +109,10 @@ ACMD(do_quit)
 
     if (GET_LEVEL(ch) >= LEVEL_IMMORT) {
         Crash_crashsave(ch, RENT_QUIT);
-        for (tmp = 0; tmp < MAX_WEAR; tmp++)
-            if (ch->equipment[tmp])
-                extract_obj(unequip_char(ch, tmp));
-        while (ch->carrying)
-            extract_obj(ch->carrying);
+        if (!extract_worn_gear(ch)) {
+            return;
+        }
+        extract_carried_objects(ch);
         /* char is saved in extract_char */
         extract_char(ch);
     } else {
