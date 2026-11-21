@@ -1422,6 +1422,67 @@ TEST_F(SpecialProcedureTest, ReleasedConcentrationHitsAndDrawsTheVictimIntoTheFi
     EXPECT_EQ(mystic, victim->specials.fighting);
 }
 
+// The spirit a cursing mystic starts with, far more than a curse spends.
+constexpr int PLENTY_OF_SPIRIT = 100;
+// More rolls than one curse draws after its first stat.
+constexpr int CURSE_DRAWS = 20;
+// A curse roll that lands on intelligence (number(0, 9) at 0.15 is 1) and spends little spirit.
+constexpr double CURSE_INTELLIGENCE_ROLL = 0.15;
+
+// The curse hits strength first and then intelligence; Thuringwethil leaves at the first.
+TEST_F(SpecialProcedureTest, ACurseStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    mystic->points.spirit = PLENTY_OF_SPIRIT;
+    push_test_random_value(LOWEST_ROLL); // the first stat is strength
+    for (int draw = 0; draw < CURSE_DRAWS; ++draw) {
+        push_test_random_value(CURSE_INTELLIGENCE_ROLL); // every other stat is intelligence
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, vampire, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    ASSERT_TRUE(is_in_game(mystic));
+}
+
+TEST_F(SpecialProcedureTest, ACurseHitsAndDrawsTheVictimIntoTheFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    mystic->points.spirit = PLENTY_OF_SPIRIT;
+    push_test_random_value(LOWEST_ROLL); // the first stat is strength
+    for (int draw = 0; draw < CURSE_DRAWS; ++draw) {
+        push_test_random_value(CURSE_INTELLIGENCE_ROLL); // every other stat is intelligence
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, victim, nullptr, 0, 0);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+// A wimpy mystic cursing itself into a critical stat flees, and a guard where it arrives removes
+// it; the curse then leaves the caster alone.
+TEST_F(SpecialProcedureTest, ASelfCurseStopsAtACasterItsFlightRemoved)
+{
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    open_to_mental_attack(mystic);
+    make_critical_on_strength_loss(mystic);
+    mystic->points.spirit = PLENTY_OF_SPIRIT;
+    make_mob_with("guard", remove_marked_arriving, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(LOWEST_ROLL); // the first stat is strength
+    for (int draw = 0; draw < CURSE_DRAWS; ++draw) {
+        push_test_random_value(CURSE_INTELLIGENCE_ROLL); // intelligence; the flight goes north
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, mystic, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(mystic));
+}
+
 // The victim of a released concentration flees, and a guard where it arrives removes the
 // attacker; the attack then leaves the attacker alone.
 TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAnAttackerTheFlightRemoved)
