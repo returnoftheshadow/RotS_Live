@@ -358,6 +358,27 @@ TEST_F(CharacterTriggerTest, WearingAllStopsWhenARingsScriptExtractsTheNextItem)
     EXPECT_FALSE(is_in_object_list(stone));
 }
 
+/* The ring's script drops the sword wear all would wield next: the wearing stops there, and the
+ * ring lying on the floor after the sword is not put on. */
+TEST_F(CharacterTriggerTest, WearingAllStopsWhenARingsScriptDropsTheNextItem)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_INV, nullptr,
+              { SWORD_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB2 } } });
+    obj_to_room(make_object(RING_VNUM, 0), 0);
+    obj_data* sword = give_player(make_object(SWORD_VNUM, 0));
+    obj_data* ring = give_player(make_scripted(RING_VNUM)); /* looked at first */
+
+    run_command(do_wear, "all");
+
+    EXPECT_EQ(ring, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.equipment[WIELD]);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_L]);
+    EXPECT_EQ(sword, world[0].contents);
+    EXPECT_EQ(nullptr, m_player.carrying);
+}
+
 TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
 {
     install_script(ON_WEAR, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
@@ -369,6 +390,19 @@ TEST_F(CharacterTriggerTest, AMobWearingAllStopsWhenARingsScriptRemovesIt)
 
     EXPECT_FALSE(is_in_game(wearer));
     EXPECT_EQ(2, count_contents(world[0].contents)) << "the wearer dropped both rings";
+}
+
+/* The ring's script drops it: there is nothing left in the player's hands to wear. */
+TEST_F(CharacterTriggerTest, ARingWhoseScriptDropsItIsLeftOnTheFloor)
+{
+    install_script(ON_WEAR, { { SCRIPT_DO_DROP, nullptr, { SCRIPT_PARAM_CH1, SCRIPT_PARAM_OB1 } } });
+    obj_data* ring = give_player(make_scripted(RING_VNUM));
+
+    run_command(do_wear, "ring");
+
+    EXPECT_EQ(ring, world[0].contents);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(nullptr, m_player.equipment[WEAR_FINGER_L]);
 }
 
 TEST_F(CharacterTriggerTest, AMobWearingAllOfAKindStopsWhenARingsScriptRemovesIt)

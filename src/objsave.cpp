@@ -20,6 +20,7 @@
 #include "damage_meters.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -1233,9 +1234,18 @@ void extract_followers(const struct char_data* ch)
         next_fol = k->next;
         if (!IS_NPC(k->follower))
             continue;
-        for (x = 0; x < MAX_WEAR; x++)
-            if (k->follower->equipment[x])
-                extract_obj(unequip_char(k->follower, x));
+        /* Taking an item off can kill the follower (its poison) or set off a script that removes
+         * it, and its follow record with it: there is then nothing left to extract. */
+        char_data* follower = k->follower;
+        freed_watch follower_watch(follower);
+        for (x = 0; x < MAX_WEAR && !follower_watch.freed(); x++) {
+            if (follower->equipment[x]) {
+                extract_obj(unequip_char(follower, x));
+            }
+        }
+        if (follower_watch.freed()) {
+            continue;
+        }
         for (x = 0; (x < 1000) && k->follower->carrying; x++) {
             obj = k->follower->carrying;
             obj_from_char(k->follower->carrying);
@@ -1482,7 +1492,29 @@ void Crash_crashsave(struct char_data* ch, int rent_code)
     REMOVE_BIT(PLR_FLAGS(ch), PLR_CRASH);
 }
 
-void Crash_idlesave(const struct char_data* ch)
+/* Removes the unrentable items <wearer> wears and those inside its gear. A worn one comes off as
+ * unequip_char takes gear off, casting its spells and poison, which can free <wearer>: returns
+ * false then, and <wearer> must not be touched again. */
+static bool extract_worn_norents_and_stay(struct char_data* wearer)
+{
+    freed_watch wearer_watch(wearer);
+    for (int slot = 0; slot < MAX_WEAR; slot++) {
+        obj_data* worn = wearer->equipment[slot];
+        if (!worn) {
+            continue;
+        }
+        Crash_extract_norents(worn->contains);
+        if (Crash_is_unrentable(worn)) {
+            extract_obj(unequip_char(wearer, slot));
+            if (wearer_watch.freed()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void Crash_idlesave(struct char_data* ch)
 {
     char buf[MAX_INPUT_LENGTH];
     struct rent_info rent;
@@ -1499,9 +1531,11 @@ void Crash_idlesave(const struct char_data* ch)
         return;
 
     Crash_extract_norents(ch->carrying);
-    for (j = 0; j < MAX_WEAR; j++)
-        if (ch->equipment[j])
-            Crash_extract_norents(ch->equipment[j]);
+    /* A death frees an idler with no connection; raw_kill has already saved its object file. */
+    if (!extract_worn_norents_and_stay(ch)) {
+        fclose(fp);
+        return;
+    }
 
     cost = 0;
 

@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "act_move.h"
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
@@ -146,7 +147,9 @@ int check_simple_move(struct char_data* ch, int cmd, int* mv_cost, int mode)
      Returns :
 
      0 : success
-     1 : intercepted by specials, or something like that
+     1 : intercepted by specials, or something like that; also when a special
+         procedure or an ON_BEFORE_ENTER script removed ch, which the caller must
+         then not touch
      2 : need a boat
      3 : not enough move points
      4 : mount exhausted // obsolete
@@ -322,11 +325,16 @@ void set_blood_trail(const struct char_data* ch, int dir)
     }
 }
 
+/* What perform_move_mount returns when a special procedure or script removed the mount or a
+ * rider before anyone moved: the move did not happen. */
+constexpr int MOUNT_MOVE_CALLED_OFF = -1;
+
 /*
  * moves the mount and everybody riding it..
  * performs special() on everybody except the primary rider
  * or the mount itself, depending on who is moving.
- * Returns 1 on success, 0 otherwise
+ * Returns 1 on success, MOUNT_MOVE_CALLED_OFF when someone was removed before anyone moved, and
+ * 0 otherwise
  *
  * assumes the move is legal, e.g. the door is open.
  */
@@ -351,8 +359,16 @@ int perform_move_mount(struct char_data* ch, int dir)
 
     is_death = IS_SET(world[new_room].room_flags, DEATH);
 
+    /* A special procedure, a script or a death below can remove the mount; it is not touched
+     * again once it is gone. */
+    freed_watch mount_watch(ch);
+
     /* supposedly, the primary rider has already passed special() */
     special(ch->mount_data.rider, dir + 1, "", SPECIAL_COMMAND, 0);
+    /* Removing a rider unseats it: with the mount or every rider gone, the move is off. */
+    if (mount_watch.freed() || !ch->mount_data.rider) {
+        return MOUNT_MOVE_CALLED_OFF;
+    }
 
     for (tmpch = ch->mount_data.rider->mount_data.next_rider,
         num2 = ch->mount_data.rider->mount_data.next_rider_number;
@@ -363,11 +379,16 @@ int perform_move_mount(struct char_data* ch, int dir)
             stop_riding(tmpch);
 
         freed_watch rider_watch(tmpch);
+        freed_watch carrying_mount_watch(ch);
         tmp = check_simple_move(tmpch, dir, &move_cost, SCMD_CARRIED);
+        /* Something the rider's check set off removed the mount: nobody is left to carry. */
+        if (carrying_mount_watch.freed()) {
+            return MOUNT_MOVE_CALLED_OFF;
+        }
         if (rider_watch.freed()) {
             /* An ON_BEFORE_ENTER script removed the rider: the move is off, as below. */
             stop_riding_all(ch);
-            return 0;
+            return MOUNT_MOVE_CALLED_OFF;
         }
         if (tmp) {
             if (tmp == 3)
@@ -418,8 +439,19 @@ int perform_move_mount(struct char_data* ch, int dir)
         }
         char_from_room(tmpch);
         char_to_room(tmpch, new_room);
-        if (is_death)
+        if (is_death) {
+            /* The death (its special procedure, the rest of a paused script it runs) can
+             * remove the mount or the next rider: the riders after a removed one are left
+             * where they are. */
+            freed_watch next_rider_watch(tmpch2);
             raw_kill(tmpch, NULL, 0);
+            if (mount_watch.freed()) {
+                return 0;
+            }
+            if (next_rider_watch.freed()) {
+                break;
+            }
+        }
     }
     /* Setting tracks in room */
     if ((IS_NPC(ch) || (GET_RACE(ch) != RACE_GOD)) && !(IS_AFFECTED(ch, AFF_FLYING))) {
@@ -474,7 +506,6 @@ int perform_move_mount(struct char_data* ch, int dir)
 
     /* Arriving can remove the mount or a rider (a special, a script). The move has happened, so
      * the function still returns 1, but nobody removed is used again. */
-    freed_watch mount_watch(ch);
     for (tmpch = ch->mount_data.rider; tmpch; tmpch = tmpch2) {
         tmpch2 = tmpch->mount_data.next_rider;
         freed_watch rider_watch(tmpch);
@@ -521,8 +552,12 @@ void parse_container_for_stay_zone(char_data* ch, const obj_data* container, con
     }
 };
 
-void prohibit_item_stay_zone_move(char_data* ch, int room)
+bool prohibit_item_stay_zone_move(char_data* ch, int room)
 {
+    freed_watch mover_watch(ch);
+    /* A player with a link who dies is not freed: the death moves them to their start room, or
+     * to the character menu in no room. Either way they are no longer where they stood. */
+    const int mover_room = ch->in_room;
     // Check for gear that character is wearing.
     for (int gear_index = 0; gear_index < MAX_WEAR; gear_index++) {
         obj_data* item = ch->equipment[gear_index];
@@ -539,6 +574,9 @@ void prohibit_item_stay_zone_move(char_data* ch, int room)
         if (IS_OBJ_STAT(ch->equipment[gear_index], ITEM_STAY_ZONE)) {
             obj_data* item = unequip_char(ch, gear_index);
             obj_to_room(item, room);
+            if (mover_watch.freed() || ch->in_room != mover_room) {
+                return false;
+            }
         }
     }
 
@@ -559,6 +597,7 @@ void prohibit_item_stay_zone_move(char_data* ch, int room)
             obj_to_room(item, room);
         }
     }
+    return true;
 }
 
 /*
@@ -891,6 +930,10 @@ ACMD(do_move)
                     command_interpreter(follower, argument, &tmpwtl);
                 }
             }
+            /* A follower moving ahead can set off scripts that remove the mover. */
+            if (mover_watch.freed()) {
+                return;
+            }
 
             if (!IS_AFFECTED(ch, AFF_SNEAK) || (subcmd == SCMD_FLEE) || number(0, 125) > GET_SKILL(ch, SKILL_SNEAK) + get_real_stealth(ch)) {
                 sprintf(buf2, " leaves %s.", dirs[cmd]);
@@ -939,8 +982,10 @@ ACMD(do_move)
             }
 
             // Check for item_stay_zone in players inventory and equipment.
-            if (different_zone) {
-                prohibit_item_stay_zone_move(ch, was_in);
+            /* Taking the gear off can kill or remove the mover before it moves, as a failed
+             * check does: then nothing moves. */
+            if (different_zone && !prohibit_item_stay_zone_move(ch, was_in)) {
+                return;
             }
 
             char_from_room(ch);
@@ -1078,13 +1123,26 @@ ACMD(do_move)
                     command_interpreter(follower, argument, &tmpwtl);
                 }
             }
+            /* A follower moving ahead can set off scripts that remove the mover. */
+            if (mover_watch.freed()) {
+                return;
+            }
 
+            /* ... or that unseat it, or remove its mount (which unseats it too). */
+            if (!IS_RIDING(ch)) {
+                return;
+            }
             GET_MOVE(ch->mount_data.mount) -= tmp_move;
 
             sprintf(buf2, "$N has forced you %s.\n\r", dirs[cmd]);
             act(buf2, FALSE, ch->mount_data.mount, 0, ch, TO_CHAR);
 
             res_flag = perform_move_mount(ch->mount_data.mount, cmd);
+            /* A move called off before anyone moved is a failed move: nobody follows, as when a
+             * walker's check fails above. */
+            if (res_flag == MOUNT_MOVE_CALLED_OFF) {
+                return;
+            }
             /* Arriving can remove the rider as it can a walker, above. */
             mover_gone = mover_watch.freed();
         }
