@@ -15,6 +15,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -765,7 +766,10 @@ ACMD(do_cast)
                         return;
                     } else if (ch->extra_specialization_data.is_mage_spec()) {
                         elemental_spec_data* spec_data = ch->extra_specialization_data.get_mage_spec();
-                        if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
+                        if (!spec_data) {
+                            vmudlog(NRM, "SYSERR: %s: %s has no mage specialization data.",
+                                __func__, GET_NAME(ch));
+                        } else if (spec_data->exposed_target == tmpwtl.targ2.ptr.ch) {
                             send_to_char(
                                 "You have already exposed your target to the elements!\n\r", ch);
                             return;
@@ -795,7 +799,13 @@ ACMD(do_cast)
                 }
             }
 
-            WAIT_STATE_BRIEF(ch, casting_time, cmd, spell_index, 30, AFF_WAITING | AFF_WAITWHEEL);
+            // Ending ch's own delay can remove it (the rest of a paused script).
+            if (!WAIT_STATE_BRIEF(ch, casting_time, cmd, spell_index, 30,
+                    AFF_WAITING | AFF_WAITWHEEL)) {
+                tmpwtl.targ1.cleanup();
+                tmpwtl.targ2.cleanup();
+                return;
+            }
             ch->delay.targ1 = tmpwtl.targ1;
             ch->delay.targ2 = tmpwtl.targ2;
             tmpwtl.targ1.cleanup();
@@ -1026,9 +1036,14 @@ ACMD(do_cast)
             return;
         }
 
-        /* execute the spell */
+        // The spell can remove the caster (a script its blow sets off, a death), and with it the
+        // delay <wtl> may belong to.
+        freed_watch caster_watch(ch);
         ((*skills[spell_index].spell_pointer)(ch, arg, SPELL_TYPE_SPELL, tar_char, tar_obj, tar_dig,
             0));
+        if (caster_watch.freed()) {
+            return;
+        }
 
         /*
          * Casting a prepared spell now causes a short after-spell
@@ -1038,7 +1053,12 @@ ACMD(do_cast)
          * *never* greater than zero.
          */
         if (prepared_spell == spell_index) {
-            WAIT_STATE_BRIEF(ch, number(1, skills[spell_index].beats / 4), -1, 0, 50, AFF_WAITING);
+            // The wait ends a pause the spell set off in ch's script, and the rest of the script
+            // can remove ch and the delay <wtl> may belong to.
+            const int after_spell_wait = number(1, skills[spell_index].beats / 4);
+            if (!WAIT_STATE_BRIEF(ch, after_spell_wait, -1, 0, 50, AFF_WAITING)) {
+                return;
+            }
         }
 
         wtl->targ1.cleanup();
@@ -1170,8 +1190,10 @@ ACMD(do_prepare)
                 return;
             }
 
-            WAIT_STATE_BRIEF(ch, CASTING_TIME(ch, spl) * 2, cmd, 1, 30,
-                AFF_WAITING | AFF_WAITWHEEL);
+            if (!WAIT_STATE_BRIEF(ch, CASTING_TIME(ch, spl) * 2, cmd, 1, 30,
+                    AFF_WAITING | AFF_WAITWHEEL)) {
+                return;
+            }
 
             ch->delay.targ1.type = TARGET_OTHER;
             ch->delay.targ1.ch_num = spl;
@@ -1196,7 +1218,9 @@ ACMD(do_prepare)
         }
 
         spl = ch->delay.targ1.ch_num;
-        WAIT_STATE_BRIEF(ch, -1, CMD_PREPARE, spl, 20, 0);
+        if (!WAIT_STATE_BRIEF(ch, -1, CMD_PREPARE, spl, 20, 0)) {
+            return;
+        }
         send_to_char("You completed your preparations.\n\r", ch);
         return;
     }

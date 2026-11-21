@@ -6,6 +6,7 @@
 
 #include "../big_brother.h"
 #include "../damage_meters.h"
+#include "../limits.h"
 #include "../objects_json.h"
 #include "../skill_timer.h"
 #include "../spells.h"
@@ -27,6 +28,7 @@ bool is_corpse(const obj_data* container);
 
 extern int top_of_p_table;
 extern int r_mortal_start_room[];
+extern int r_mortal_idle_room[];
 extern struct index_data* mob_index;
 
 using namespace scripted_room;
@@ -39,6 +41,14 @@ constexpr int POISON_BIT_POSITION = 11;
 constexpr int RING_MANA_REGENERATION = 7;
 /* The vnum a test mob (one with no prototype) is saved under as a follower. */
 constexpr int TEST_MOB_VNUM = 9900;
+// The idle timer, in minutes, from which the next idle check pulls a player into the void and
+// removes them from the game at once.
+constexpr int IDLE_MINUTES_BEFORE_REMOVAL = 28;
+// The idle player's level, a mortal's: check_idling removes nobody of LEVEL_GOD or above who is
+// connected, and the idler is a mortal with no connection.
+constexpr int IDLER_LEVEL = 10;
+// What the room sees when a blow kills (die).
+constexpr const char* DEATH_MESSAGE = "is dead!  R.I.P.";
 /* Few enough hit points that an item's poison (5) or chill ray (10 or more) kills. */
 constexpr int LOW_HIT_POINTS = 1;
 /* The hit points the player starts with, plenty to survive anything the tests set off. */
@@ -127,6 +137,9 @@ protected:
         /* A player who comes back to life, or logs in, starts in room 0 and looks at it. */
         m_saved_mortal_start_room = r_mortal_start_room[RACE_HUMAN];
         r_mortal_start_room[RACE_HUMAN] = 0;
+        // A player idling out is pulled into the void, the second room.
+        m_saved_mortal_idle_room = r_mortal_idle_room[RACE_HUMAN];
+        r_mortal_idle_room[RACE_HUMAN] = SECOND_ROOM;
         m_saved_room_name = world[0].name;
         m_saved_room_description = world[0].description;
         m_saved_room_flags = world[0].room_flags;
@@ -157,6 +170,7 @@ protected:
         top_of_p_table = m_saved_top_of_p_table;
         mob_index = m_saved_mob_index;
         r_mortal_start_room[RACE_HUMAN] = m_saved_mortal_start_room;
+        r_mortal_idle_room[RACE_HUMAN] = m_saved_mortal_idle_room;
     }
 
     /* Puts the player on the character list, as one in the game is. */
@@ -191,6 +205,39 @@ protected:
         ring->affected[0].location = APPLY_BITVECTOR;
         ring->affected[0].modifier = POISON_BIT_POSITION;
         return ring;
+    }
+
+    // A player with no connection standing in room 0 beside the fixture's player, idle long enough
+    // that the next idle check removes them from the game and frees them. The void is the second
+    // room, and room 0 has no exit.
+    char_data* make_idle_player()
+    {
+        link_second_room();
+        // No exit: an earthquake opens no way down, and nobody leaves.
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            world[0].dir_option[direction] = nullptr;
+        }
+
+        // The game frees the idler as it removes them.
+        char_data* idler = owned_character(MOB_VOID).release();
+        idler->player.name = str_dup("Idler");
+        idler->player.race = RACE_HUMAN;
+        idler->player.level = IDLER_LEVEL;
+        idler->abilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
+        idler->abilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
+        idler->tmpabilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
+        idler->tmpabilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
+        idler->abilities.hit = PLAYER_HIT_POINTS;
+        idler->tmpabilities.hit = PLAYER_HIT_POINTS;
+        idler->specials.position = POSITION_STANDING;
+        idler->in_room = NOWHERE;
+        register_pc_char(idler);
+        // extract_char takes a player off the character list, and aborts if they are not on it.
+        idler->next = character_list;
+        character_list = idler;
+        char_to_room(idler, 0);
+        idler->specials.timer = IDLE_MINUTES_BEFORE_REMOVAL;
+        return idler;
     }
 
     /* Puts on <wearer> a ring that casts <spell_number> as it comes off. It takes its spell only
@@ -304,6 +351,8 @@ protected:
     int m_saved_top_of_p_table = 0;
     // A human's start room before the test, put back by TearDown.
     int m_saved_mortal_start_room = 0;
+    // A human's idle room before the test, put back by TearDown.
+    int m_saved_mortal_idle_room = 0;
     // Room 0's name, description and flags before the test, put back by TearDown.
     char* m_saved_room_name = nullptr;
     char* m_saved_room_description = nullptr;
@@ -543,4 +592,44 @@ TEST_F(QuietGearChangeTest, ExtractCarriedObjectsEmptiesTheInventoryAndItsContai
     EXPECT_FALSE(is_in_object_list(bag));
     EXPECT_FALSE(is_in_object_list(bread));
     EXPECT_EQ(ring, holder->equipment[WEAR_FINGER_R]);
+}
+
+// A player removed for idling while too hurt to survive their poisonous ring dies of the ring's
+// poison as it comes off: the removal stops there, the player dies once, leaving one corpse where
+// they idled, and the ring goes.
+TEST_F(QuietGearChangeTest, AnIdlePlayerTheirPoisonousRingKillsIsLetGo)
+{
+    char_data* idler = make_idle_player();
+    obj_data* ring = make_poisonous_ring();
+    obj_to_char(ring, idler);
+    run_command_as(idler, do_wear, "ring");
+    ASSERT_EQ(ring, idler->equipment[WEAR_FINGER_R]);
+    idler->tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_EQ(1, check_idling(idler));
+
+    EXPECT_FALSE(is_in_game(idler));
+    EXPECT_EQ(1, count_in_output(DEATH_MESSAGE));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_FALSE(is_in_object_list(ring));
+}
+
+// As above, with a ring that cannot be rented: the idle save takes it off (Crash_idlesave), and
+// its poison kills the idler there.
+TEST_F(QuietGearChangeTest, AnIdlePlayerTheirUnrentablePoisonousRingKillsIsLetGo)
+{
+    char_data* idler = make_idle_player();
+    obj_data* ring = make_poisonous_ring();
+    SET_BIT(ring->obj_flags.extra_flags, ITEM_NORENT);
+    obj_to_char(ring, idler);
+    run_command_as(idler, do_wear, "ring");
+    ASSERT_EQ(ring, idler->equipment[WEAR_FINGER_R]);
+    idler->tmpabilities.hit = LOW_HIT_POINTS;
+
+    ASSERT_EQ(1, check_idling(idler));
+
+    EXPECT_FALSE(is_in_game(idler));
+    EXPECT_EQ(1, count_in_output(DEATH_MESSAGE));
+    EXPECT_EQ(1, count_corpses_in_room());
+    EXPECT_FALSE(is_in_object_list(ring));
 }

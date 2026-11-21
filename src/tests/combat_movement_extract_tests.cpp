@@ -947,6 +947,30 @@ TEST_F(CombatMovementTest, ADisengageWhosePausedScriptEndsTheFightStopsThere)
     EXPECT_EQ(0, count_in_output("stops fighting"));
 }
 
+// How long the fear the test gives lasts, in hours: it is still on when its tick comes.
+constexpr int FEAR_HOURS = 5;
+// affect_update_person's mode for the hourly pass, as against fast_update's.
+constexpr int HOURLY_AFFECT_UPDATE = 0;
+
+// Fear makes a mob flee into a room whose guard removes it: the fear does not go on with it.
+TEST_F(CombatMovementTest, AMobFearDrivesIntoItsRemovalIsLetGo)
+{
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_BEFORE_ENTER, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } } } } } });
+    make_mob("guard", SCRIPT_VNUM, SECOND_ROOM);
+    char_data* frightened = make_walker("frightened");
+    frightened->specials.position = POSITION_FIGHTING;
+    affected_type fear {};
+    fear.type = SPELL_FEAR;
+    fear.duration = FEAR_HOURS;
+    fear.location = APPLY_NONE;
+    affect_to_char(frightened, &fear);
+
+    affect_update_person(frightened, HOURLY_AFFECT_UPDATE);
+
+    EXPECT_FALSE(is_in_game(frightened));
+}
+
 /* ---- blows ---- */
 
 /* The victim's damage script removes whoever strikes it. The first fighter's blow removes it, and

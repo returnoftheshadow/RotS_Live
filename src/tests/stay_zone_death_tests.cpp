@@ -1,5 +1,5 @@
 /* A player with a link who dies as a stay-zone item comes off on the way to another zone: the
- * death sends them to their start room, and the move that was taking them on stops.
+ * death sends them to their start room, and the move or spell that was taking them on stops.
  *
  * The item is a ring that gives its wearer the poison flag (APPLY_BITVECTOR), so taking it off
  * hurts the wearer; a wearer with fewer hit points than the poison deals dies of it. */
@@ -254,6 +254,20 @@ TEST_F(StayZoneDeathTest, APlayerTheStayZoneItemKillsAsTheyWalkOutDoesNotArrive)
 
     EXPECT_EQ(START_ROOM, m_player.in_room);
     EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+    EXPECT_TRUE(is_on_the_floor_of_room_zero(ring));
+}
+
+TEST_F(StayZoneDeathTest, APlayerTheStayZoneItemKillsAsTheyAreSummonedIsNotSummoned)
+{
+    char_data* caster = make_mob("caster", 0, SECOND_ROOM);
+    obj_data* ring = wear_deadly_stay_zone_ring();
+
+    spell_summon(caster, empty_argument(), SPELL_TYPE_SPELL, &m_player, nullptr, 0, 0);
+
+    EXPECT_EQ(START_ROOM, m_player.in_room);
+    EXPECT_EQ(caster, world[SECOND_ROOM].people);
+    EXPECT_EQ(nullptr, caster->next_in_room);
+    EXPECT_FALSE(output_has("summons you"));
     EXPECT_TRUE(is_on_the_floor_of_room_zero(ring));
 }
 

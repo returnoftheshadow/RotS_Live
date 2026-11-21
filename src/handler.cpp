@@ -973,31 +973,31 @@ affected_type* room_affected_by_spell(const room_data* room, int spell)
 void affect_join(struct char_data* ch, struct affected_type* af,
     char avg_dur, char avg_mod)
 {
-    struct affected_type* hjp;
-    char found = FALSE;
-
-    for (hjp = ch->affected; !found && hjp; hjp = hjp->next) {
-        if (hjp->type == af->type) {
-
-            if (af->duration < hjp->duration)
-                af->duration += hjp->duration;
-
-            //	 if (avg_dur)
-            //	    af->duration /= 2;
-
-            if (((af->modifier >= 0) && (af->modifier < hjp->modifier)) || ((af->modifier >= 0) && (af->modifier < hjp->modifier)))
-                af->modifier += hjp->modifier;
-
-            //	 if (avg_mod)
-            //	    af->modifier /= 2;
-
-            affect_remove(ch, hjp);
-            affect_to_char(ch, af);
-            found = TRUE;
-        }
+    // The affect of af's type that af replaces.
+    struct affected_type* existing = ch->affected;
+    while (existing && existing->type != af->type) {
+        existing = existing->next;
     }
-    if (!found)
-        affect_to_char(ch, af);
+
+    if (existing) {
+        if (af->duration < existing->duration) {
+            af->duration += existing->duration;
+        }
+
+        //	 if (avg_dur)
+        //	    af->duration /= 2;
+
+        if ((af->modifier >= 0) && (af->modifier < existing->modifier)) {
+            af->modifier += existing->modifier;
+        }
+
+        //	 if (avg_mod)
+        //	    af->modifier /= 2;
+
+        affect_remove(ch, existing);
+    }
+
+    affect_to_char(ch, af);
 }
 
 //***************** follow_type procedures ********************************
