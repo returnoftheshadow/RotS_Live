@@ -92,6 +92,13 @@ bool equip_char(struct char_data* ch, struct obj_data* obj, int pos,
  * took off is held by nobody. */
 struct obj_data* unequip_char(struct char_data* ch, int pos,
     gear_change change = gear_change::cast);
+// Takes off every item <wearer> has equipped, as unequip_char does with <change>, and extracts
+// each one. Returns false as soon as taking an item off frees <wearer> (only with
+// gear_change::cast; see unequip_char); the caller must not touch <wearer> again. Returns true
+// when the wearer is still in the game.
+[[nodiscard]] bool extract_worn_gear(char_data* wearer, gear_change change = gear_change::cast);
+// Extracts every object in <holder>'s inventory, with its contents.
+void extract_carried_objects(char_data* holder);
 /* Encumbrance weight an item of this weight adds when worn in this slot. */
 int worn_encumb_weight(int weight, int slot);
 

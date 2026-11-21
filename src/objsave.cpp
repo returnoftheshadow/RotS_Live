@@ -1226,33 +1226,20 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
 
 void extract_followers(const struct char_data* ch)
 {
-    struct obj_data* obj;
     struct follow_type *k, *next_fol;
-    int x;
 
     for (k = ch->followers; k; k = next_fol) {
         next_fol = k->next;
         if (!IS_NPC(k->follower))
             continue;
-        /* Taking an item off can kill the follower (its poison) or set off a script that removes
-         * it, and its follow record with it: there is then nothing left to extract. */
+        // A follower freed while stripped takes its follow record <k> with it.
         char_data* follower = k->follower;
-        freed_watch follower_watch(follower);
-        for (x = 0; x < MAX_WEAR && !follower_watch.freed(); x++) {
-            if (follower->equipment[x]) {
-                extract_obj(unequip_char(follower, x));
-            }
-        }
-        if (follower_watch.freed()) {
+        if (!extract_worn_gear(follower)) {
             continue;
         }
-        for (x = 0; (x < 1000) && k->follower->carrying; x++) {
-            obj = k->follower->carrying;
-            obj_from_char(k->follower->carrying);
-            extract_obj(obj);
-        }
-        extract_followers(k->follower);
-        extract_char(k->follower);
+        extract_carried_objects(follower);
+        extract_followers(follower);
+        extract_char(follower);
     }
 }
 

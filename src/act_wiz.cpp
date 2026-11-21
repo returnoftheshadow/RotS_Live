@@ -1585,7 +1585,7 @@ ACMD(do_purge)
     struct char_data *vict, *next_v;
     struct obj_data *obj, *next_o;
     struct affected_type *tmpaf, *next_tmpaf;
-    int my_zone, tmp;
+    int my_zone;
 
     if (IS_NPC(ch) || (ch->in_room == NOWHERE))
         return;
@@ -1624,23 +1624,10 @@ ACMD(do_purge)
 
             act("$n disintegrates $N.", FALSE, ch, 0, vict, TO_NOTVICT);
 
-            /* Taking an item off can kill the victim (its poison) or set off a script that
-             * removes it: nothing is then left to purge. */
-            freed_watch victim_watch(vict);
-            for (tmp = 0; tmp < MAX_WEAR; tmp++) {
-                if (vict->equipment[tmp]) {
-                    extract_obj(unequip_char(vict, tmp));
-                    if (victim_watch.freed()) {
-                        return;
-                    }
-                }
+            if (!extract_worn_gear(vict)) {
+                return;
             }
-
-            for (tmp = 0; (tmp < 1000) && vict->carrying; tmp++) {
-                obj = vict->carrying;
-                obj_from_char(vict->carrying);
-                extract_obj(obj);
-            }
+            extract_carried_objects(vict);
 
             if (IS_NPC(vict)) {
                 extract_char(vict);
