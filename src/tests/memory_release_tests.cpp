@@ -570,9 +570,6 @@ TEST_F(MemoryReleaseTest, RenamingAnObjectByScriptGivesBackTheName)
         obj_data* stone = make_scripted(STONE_VNUM);
         obj_to_char(stone, &m_player);
         run_command(do_examine, "stone");
-        /* free_obj leaves an object's script state alone, for a script still running; that is not
-         * what this test measures. */
-        RELEASE(stone->obj_flags.script_info);
         extract_obj(stone);
         clear_output();
     });

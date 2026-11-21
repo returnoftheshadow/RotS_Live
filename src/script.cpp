@@ -1547,6 +1547,7 @@ static int run_script(struct info_script* info, struct script_data* position,
         if (first_refusal_of_its_kind) {
             report_refused_run(info, refusal);
         }
+
         if (when_refused == RefusedScriptOutcome::EVENT_STOPS) {
             return 0;
         }
@@ -2465,7 +2466,7 @@ static int run_script(struct info_script* info, struct script_data* position,
     return return_value;
 }
 
-// As above, for the triggers whose event goes ahead when their script is refused.
+// As run_script(info, position, when_refused) with EVENT_GOES_AHEAD: a refused run returns 1.
 int run_script(struct info_script* info, struct script_data* position)
 {
     return run_script(info, position, RefusedScriptOutcome::EVENT_GOES_AHEAD);
