@@ -1245,3 +1245,205 @@ TEST_F(SpecialProcedureTest, ACommandAtARoomBringsTheOneGivingItBack)
     ASSERT_TRUE(is_in_game(immortal));
     EXPECT_EQ(0, immortal->in_room);
 }
+
+// ---- mental attacks ----
+
+// damage_stat's stat number for strength, the first stat a mental attack drains.
+constexpr int STRENGTH_STAT = 0;
+// What a test's direct stat damage drains, and a strength that one drained point kills.
+constexpr int ONE_STAT_POINT = 1;
+// Full perception (GET_PERCEPTION), which always reaches a mind as open as the victim's.
+constexpr int FULL_PERCEPTION = 100;
+// An attacker's willpower when it adds nothing to the attack.
+constexpr int NO_WILLPOWER = 0;
+// A released concentration's stat roll (number(0, 5)) that lands on intelligence, the second.
+constexpr double INTELLIGENCE_ROLL = 0.2;
+// Thuringwethil's level in the experience test, and the level the fixture gives its player and
+// mobs.
+constexpr int VAMPIRE_LEVEL = 20;
+constexpr int FIXTURE_LEVEL = 10;
+// A mental hit's damage when both rolls of the Will land, as with no save.
+constexpr int TWO_HITS_OF_WILL = 2;
+// A mini level far enough off that a hit's experience earns none.
+constexpr int DISTANT_MINI_LEVEL = 1000;
+// The power a released concentration has stored, in points (each PULSE_MENTAL_FIGHT of
+// mental delay below zero).
+constexpr int STORED_POWER = 4;
+// do_concentrate's subcommand that releases a concentration.
+constexpr int RELEASE_SUBCOMMAND = -1;
+
+// The experience do_mental gives for a hit of <damage> by an attacker of <attacker_level> on a
+// victim of <victim_level>.
+constexpr int mental_hit_experience(int victim_level, int attacker_level, int damage)
+{
+    return (1 + victim_level) * std::min(20 + attacker_level * 2, damage * 5)
+        / (1 + attacker_level);
+}
+
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* vampire = make_beaten_thuringwethil();
+
+    const combat_result_struct result
+        = damage_stat(attacker, vampire, STRENGTH_STAT, ONE_STAT_POINT);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_FALSE(result.will_die);
+    EXPECT_FALSE(result.wants_to_flee);
+    ASSERT_TRUE(is_in_game(attacker));
+    EXPECT_EQ(nullptr, attacker->specials.fighting);
+}
+
+// A procedure that removes its own mob and lets the damage go on.
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAVictimThatRemovedItselfAndLetItGoOn)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* victim = make_mob_with("victim", remove_own_mob);
+
+    const combat_result_struct result
+        = damage_stat(attacker, victim, STRENGTH_STAT, ONE_STAT_POINT);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_FALSE(result.will_die);
+    ASSERT_TRUE(is_in_game(attacker));
+    EXPECT_EQ(nullptr, attacker->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAnAttackerTheVictimsProcedureRemoved)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* victim = make_mob_with("victim", remove_attacker);
+    const int strength_before = victim->tmpabilities.str;
+
+    damage_stat(attacker, victim, STRENGTH_STAT, ONE_STAT_POINT);
+
+    EXPECT_FALSE(is_in_game(attacker));
+    EXPECT_EQ(strength_before, victim->tmpabilities.str) << "no stat damaged";
+}
+
+// Readies <attacker> to press its Will on <victim>: already fighting it, and with no willpower
+// of its own the victim never saves. Queues the perception roll and a hit on strength.
+static void ready_mental_hit_on_strength(char_data* attacker, char_data* victim)
+{
+    set_fighting(attacker, victim);
+    attacker->specials2.perception = FULL_PERCEPTION;
+    attacker->points.willpower = NO_WILLPOWER;
+    push_test_random_value(LOWEST_ROLL); // the perception roll is reached
+    push_test_random_value(LOWEST_ROLL); // the hit lands on strength
+}
+
+// Thuringwethil leaves as the hit asks her procedure; the experience for the hit is still what
+// her level gives.
+TEST_F(SpecialProcedureTest, AMentalHitOnAVictimItsProcedureRemovesStillGivesItsExperience)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    vampire->player.level = VAMPIRE_LEVEL;
+    m_player.specials2.mini_level = DISTANT_MINI_LEVEL;
+    m_player.points.exp = 0;
+    ready_mental_hit_on_strength(&m_player, vampire);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_EQ(mental_hit_experience(VAMPIRE_LEVEL, FIXTURE_LEVEL, TWO_HITS_OF_WILL),
+        m_player.points.exp);
+}
+
+TEST_F(SpecialProcedureTest, AMentalHitThatKillsAMobLeavesItAlone)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    victim->tmpabilities.str = ONE_STAT_POINT;
+    ready_mental_hit_on_strength(&m_player, victim);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(nullptr, m_player.specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, AMentalHitThatLandsGivesItsExperienceAndAFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    m_player.specials2.mini_level = DISTANT_MINI_LEVEL;
+    m_player.points.exp = 0;
+    ready_mental_hit_on_strength(&m_player, victim);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(&m_player, victim->specials.fighting);
+    EXPECT_EQ(mental_hit_experience(FIXTURE_LEVEL, FIXTURE_LEVEL, TWO_HITS_OF_WILL),
+        m_player.points.exp);
+    EXPECT_TRUE(output_has("You force your Will against")) << output();
+}
+
+// A released concentration hits strength and then intelligence; Thuringwethil leaves at the
+// first.
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, vampire);
+    mystic->points.willpower = NO_WILLPOWER;
+    mystic->specials.mental_delay = -STORED_POWER * PULSE_MENTAL_FIGHT;
+    push_test_random_value(LOWEST_ROLL); // no more power from the release roll
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(LOWEST_ROLL); // strength
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(INTELLIGENCE_ROLL);
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, RELEASE_SUBCOMMAND);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    ASSERT_TRUE(is_in_game(mystic));
+    EXPECT_EQ(nullptr, mystic->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, ReleasedConcentrationHitsAndDrawsTheVictimIntoTheFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = NO_WILLPOWER;
+    mystic->specials.mental_delay = -STORED_POWER * PULSE_MENTAL_FIGHT;
+    push_test_random_value(LOWEST_ROLL); // no more power from the release roll
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(LOWEST_ROLL); // strength
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(INTELLIGENCE_ROLL);
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, RELEASE_SUBCOMMAND);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+// The victim of a released concentration flees, and a guard where it arrives removes the
+// attacker; the attack then leaves the attacker alone.
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAnAttackerTheFlightRemoved)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    make_critical_on_strength_loss(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = NO_WILLPOWER;
+    mystic->specials.mental_delay = -STORED_POWER * PULSE_MENTAL_FIGHT;
+    make_mob_with("guard", remove_marked_character, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(LOWEST_ROLL); // no more power from the release roll
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(LOWEST_ROLL); // strength
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(INTELLIGENCE_ROLL);
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, RELEASE_SUBCOMMAND);
+
+    EXPECT_FALSE(is_in_game(mystic));
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(SECOND_ROOM, victim->in_room);
+}
