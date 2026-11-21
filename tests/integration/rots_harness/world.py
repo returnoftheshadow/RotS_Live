@@ -26,3 +26,6 @@ ROOM_BROKEN_MARKET = 1309
 ROOM_INN = 1601
 # Room 1801, zone 18's PEACEROOM boar pen, where the zone resets one pen boar (mob 1450).
 ROOM_BOAR_PEN = 1801
+# Room 2201, zone 22's Order Hall: lit, with no exits, no PEACEROOM flag and nothing placed in it
+# at boot.
+ROOM_ORDER_HALL = 2201

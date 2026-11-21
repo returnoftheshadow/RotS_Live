@@ -8,11 +8,11 @@ resets, so scenarios place the mobs with `world_resets` or `load mob`.
 These notes hold what the numbers do not show.
 
 - The mobs are here and not in a `mob/153.mob`: mob vnums ascend from file to file in index
-  order, and `mob/guildmasters.mob` already runs from 2043 to 32200, so no file can hold 15300
-  to 15399. A zone-20 mob still fits before `guildmasters.mob`.
+  order, and `mob/guildmasters.mob` runs from 3888 to 32200, so no file can hold 15300 to 15399.
+  A zone-20 mob fits before `mob/guildmaster-uruk.mob` (2043).
 - `spec_ass.cpp` binds 2012, 2041 and 2043 to specials by vnum; a new mob here avoids them.
-- The catalogue's zone 20 also lists the uruk guildmaster, 2043, which lives in
-  `mob/guildmasters.mob` (`shared.md`) but falls in zone 20's vnums.
+- The catalogue's zone 20 also lists the uruk guildmaster, 2043, which has
+  `mob/guildmaster-uruk.mob` to itself (`shared.md`) but falls in zone 20's vnums.
 
 ## Mobs
 

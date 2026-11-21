@@ -7,7 +7,7 @@
 
 namespace olog_hai {
 int get_prob_skill(char_data* attacker, char_data* victim, int skill);
-void apply_victim_delay(char_data* victim, int delay);
+[[nodiscard]] bool apply_victim_delay(char_data* victim, int delay);
 bool is_skill_valid(const char_data* ch, const int& skill_id);
 char_data* is_target_valid(char_data* attacker, const waiting_type* target);
 char_data* is_smash_target_valid(char_data* attacker, const waiting_type* target);
@@ -19,7 +19,8 @@ int calculate_smash_damage(char_data& attacker, int prob);
 int calculate_cleave_damage(char_data& attacker, int prob);
 int calculate_stomp_damage(char_data& attacker, int prob);
 void apply_frenzy_affect(char_data* character);
-void room_target(char_data* ch, void (*skill_damage)(char_data* character, char_data* victim));
+bool room_target(
+    char_data* attacker, void (*skill_damage)(char_data* character, char_data* victim));
 }
 
 int get_direction(std::string direction);
@@ -424,7 +425,8 @@ TEST(OlogHaiHelpers, VictimDelaySkipsNobashNpcs) {
     context.original_victim.specials2.act = MOB_ISNPC | MOB_NOBASH;
     waiting_list = nullptr;
 
-    olog_hai::apply_victim_delay(&context.original_victim, 9);
+    EXPECT_TRUE(olog_hai::apply_victim_delay(&context.original_victim, 9))
+        << "the victim is still there";
 
     EXPECT_EQ(context.original_victim.delay.wait_value, 0)
         << "Expected apply_victim_delay to leave no delay state on NPCs flagged as nobash targets.";
@@ -436,7 +438,8 @@ TEST(OlogHaiHelpers, VictimDelaySkipsTargetsAlreadyBashed) {
     context.original_victim.specials.affected_by = AFF_BASH;
     waiting_list = nullptr;
 
-    olog_hai::apply_victim_delay(&context.original_victim, 9);
+    EXPECT_TRUE(olog_hai::apply_victim_delay(&context.original_victim, 9))
+        << "the victim is still there";
 
     EXPECT_EQ(context.original_victim.delay.wait_value, 0)
         << "Expected apply_victim_delay to leave existing bash victims untouched.";
@@ -447,7 +450,8 @@ TEST(OlogHaiHelpers, VictimDelayAddsWaitStateForEligibleTargets) {
     OlogHaiTestContext context;
     waiting_list = nullptr;
 
-    olog_hai::apply_victim_delay(&context.original_victim, 9);
+    EXPECT_TRUE(olog_hai::apply_victim_delay(&context.original_victim, 9))
+        << "the victim is still there";
 
     EXPECT_EQ(context.original_victim.delay.wait_value, 9);
     EXPECT_EQ(context.original_victim.delay.cmd, CMD_BASH);

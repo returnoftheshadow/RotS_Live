@@ -1,0 +1,109 @@
+#2200
+warden~
+an order warden~
+An order warden stands here, listening.~
+His script (2200) removes from the game any level-7 speaker he hears.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 2200 100 0
+#2201
+captain~
+a lackey captain~
+A lackey captain stands here, ready to give orders.~
+His script (2201) removes himself from the game when he hears speech containing "farewell".
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 2201 100 0
+#2202
+ash lackey~
+an ash lackey~
+An ash lackey stands here, awaiting orders.~
+Charmed from the start (AFF_CHARM), so whoever he follows can order him; no script.
+~
+2
+32 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2203
+elm lackey~
+an elm lackey~
+An elm lackey stands here, awaiting orders.~
+Charmed from the start (AFF_CHARM), so whoever he follows can order him; no script.
+~
+2
+32 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2204
+yew lackey~
+a yew lackey~
+A yew lackey stands here, awaiting orders.~
+Charmed from the start (AFF_CHARM) and level 7, the level the order warden removes; no script.
+~
+2
+32 0 M
+7 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2205
+taster frail~
+a frail taster~
+A frail taster stands here, looking unwell.~
+One hit point and constitution 2, so poison's first tick or any blow kills him; no script.
+~
+2
+0 0 M
+1 10 0 0
+1 1
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 2 10
+0 10 0 0 0 100 0
+#99999
