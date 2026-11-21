@@ -1654,6 +1654,29 @@ struct obj_data* unequip_char(struct char_data* ch, int pos, gear_change change)
     return (obj);
 }
 
+bool extract_worn_gear(char_data* wearer, gear_change change)
+{
+    freed_watch wearer_watch(wearer);
+    for (int slot = 0; slot < MAX_WEAR; ++slot) {
+        if (!wearer->equipment[slot]) {
+            continue;
+        }
+        extract_obj(unequip_char(wearer, slot, change));
+        if (wearer_watch.freed()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void extract_carried_objects(char_data* holder)
+{
+    // extract_obj takes each object off the holder's list, so the list empties.
+    while (holder->carrying) {
+        extract_obj(holder->carrying);
+    }
+}
+
 int get_number(char** name)
 {
 
