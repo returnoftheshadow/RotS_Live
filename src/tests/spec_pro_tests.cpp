@@ -7,6 +7,7 @@
 #include "test_cleanup.h"
 
 #include <memory>
+#include <string>
 
 SPECIAL(ar_tarthalon);
 SPECIAL(ghoul);
@@ -14,6 +15,8 @@ SPECIAL(vampire_killer);
 SPECIAL(wolf_summoner);
 SPECIAL(reciter);
 SPECIAL(herald);
+SPECIAL(vampire_huntress);
+SPECIAL(thuringwethil);
 
 extern struct char_data* mob_proto;
 extern struct index_data* mob_index;
@@ -68,6 +71,16 @@ constexpr int RISEN_GHOUL_VNUM = 15300;
 
 // Enough movement points for any step.
 constexpr int PLENTY_OF_MOVES = 100;
+
+// Thuringwethil's bat form (the Vampire Huntress) and her human form, and the tower room both fly
+// back to.
+constexpr int THURINGWETHIL_BAT_VNUM = 15301;
+constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
+constexpr int VAMPIRE_TOWER_VNUM = 15379;
+// The most hit points Thuringwethil can have and still be beaten.
+constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
+// Hit points of a Vampire Huntress badly enough hurt to flee (below a fifth of MOB_HIT_POINTS).
+constexpr int FLEEING_HUNTRESS_HIT_POINTS = 50;
 
 // A poem the reciter must only read: it lives in read-only memory, so a write into it faults.
 const char READ_ONLY_POEM[] = "First line\n\rSecond line\n\r";
@@ -551,4 +564,53 @@ TEST_F(SpecialProcTest, TheHeraldKeepsAStrayPercentSignAsWritten)
     run_set_off_by(herald, herald_mob, &m_player);
 
     EXPECT_TRUE(output_has("Hail Tester, the Brave! I am 100% sure.")) << output();
+}
+
+// ---- Thuringwethil changing form ----
+
+// The Vampire Huntress, badly hurt, flies to her tower to become a woman there, but the mob
+// table has no human form: she stays in the tower as the bat, and nothing is read before the
+// table.
+TEST_F(SpecialProcTest, AFleeingVampireHuntressWithNoHumanFormStaysABat)
+{
+    install_mob_table({ THURINGWETHIL_BAT_VNUM });
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    char_data* huntress = make_mob("huntress", 0);
+    huntress->specials.position = POSITION_FIGHTING;
+    huntress->tmpabilities.hit = FLEEING_HUNTRESS_HIT_POINTS;
+    const int characters_before = count_characters();
+
+    testing::internal::CaptureStderr();
+    const int handled = run_own_turn(vampire_huntress, huntress);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(1, handled);
+    ASSERT_TRUE(is_in_game(huntress));
+    EXPECT_EQ(SECOND_ROOM, huntress->in_room);
+    EXPECT_EQ(characters_before, count_characters());
+    EXPECT_NE(std::string::npos, logged.find("vampire_huntress: her human form does not exist!"))
+        << logged;
+}
+
+// Thuringwethil, healed, melts away to become the bat again, but the mob table has no bat form:
+// she leaves, and no bat is made from before the table.
+TEST_F(SpecialProcTest, AHealedThuringwethilWithNoBatFormLeavesNothingBehind)
+{
+    install_mob_table({ THURINGWETHIL_HUMAN_VNUM });
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    char_data* vampire = make_mob("thuringwethil", 0);
+    vampire->abilities.hit = 2 * THURINGWETHIL_BEATEN_HIT_POINTS;
+    vampire->tmpabilities.hit = 2 * THURINGWETHIL_BEATEN_HIT_POINTS;
+    const int characters_before = count_characters();
+
+    testing::internal::CaptureStderr();
+    const int handled = run_own_turn(thuringwethil, vampire);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(1, handled);
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_EQ(characters_before - 1, count_characters());
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+    EXPECT_NE(std::string::npos, logged.find("thuringwethil: her bat form does not exist!"))
+        << logged;
 }

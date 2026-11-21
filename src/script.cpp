@@ -1950,11 +1950,15 @@ int run_script(struct info_script* info, struct script_data* position)
                 /* Its own variable: tmpint is read by later commands (see
                  * TELEPORT_CHAR_XL), so the report must not change it. */
                 int rnum = real_mobile(curr->param[0]);
-                if (rnum < 0)
+                if (rnum < 0) {
+                    // Reported here, the line loads nothing and the script goes on.
                     report_script_vnum(info->index, curr, SREF_MOB, curr->param[0], 0);
-                tmpch = read_mobile(rnum, REAL);
-                if (tmpch)
-                    assign_char_param(curr->param[1], info, tmpch);
+                } else {
+                    tmpch = read_mobile(rnum, REAL);
+                    if (tmpch) {
+                        assign_char_param(curr->param[1], info, tmpch);
+                    }
+                }
             }
             curr = curr->next;
             break;

@@ -3521,6 +3521,11 @@ SPECIAL(dragon)
     return 0;
 }
 
+// Thuringwethil's two forms: the Vampire Huntress, the bat that hunts her zone, and the woman
+// she becomes in her tower to heal.
+constexpr int THURINGWETHIL_BAT_VNUM = 15301;
+constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
+
 SPECIAL(vampire_huntress)
 { // Thuringwethil - in bat form she hunts through her zone
     struct char_data *victim, *mob; // quite quickly.  If she comes across a PC she will either
@@ -3720,7 +3725,12 @@ SPECIAL(vampire_huntress)
             obj_from_char(host->carrying);
             extract_obj(obj);
         }
-        mob = read_mobile(real_mobile(15302), REAL);
+        const int human_form_number = real_mobile(THURINGWETHIL_HUMAN_VNUM);
+        if (human_form_number < 0) {
+            mudlog("vampire_huntress: her human form does not exist!", BRF, LEVEL_GOD, TRUE);
+            return 1;
+        }
+        mob = read_mobile(human_form_number, REAL);
         GET_HIT(mob) = GET_HIT(host) * 3;
         extract_char(host); // Gives a [room_data..] error presumably when it returns - strange...
         char_to_room(mob, real_room(15379));
@@ -3799,7 +3809,12 @@ SPECIAL(thuringwethil)
             extract_obj(obj);
         }
         extract_char(host); // strange... extract works here with no room_data errors
-        victim = read_mobile(real_mobile(15301), REAL);
+        const int bat_form_number = real_mobile(THURINGWETHIL_BAT_VNUM);
+        if (bat_form_number < 0) {
+            mudlog("thuringwethil: her bat form does not exist!", BRF, LEVEL_GOD, TRUE);
+            return 1;
+        }
+        victim = read_mobile(bat_form_number, REAL);
         char_to_room(victim, real_room(15379));
         /*    tmpwtl.cmd = 6;
           tmpwtl.subcmd = 0;

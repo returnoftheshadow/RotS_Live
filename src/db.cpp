@@ -1822,8 +1822,15 @@ struct char_data* read_mobile(int nr, int type)
             sprintf(buf, "Mobile (V) %d does not exist in database.", nr);
             return (0);
         }
-    } else
+    } else {
+        // A caller that passes real_mobile's -1 for a missing prototype is refused here.
+        if (nr < 0 || nr > top_of_mobt) {
+            vmudlog(BRF, "SYSERR: read_mobile: real number %d is outside the mob table (0 to %d).",
+                nr, top_of_mobt);
+            return nullptr;
+        }
         i = nr;
+    }
 
     CREATE(mob, struct char_data, 1);
 
@@ -1871,8 +1878,7 @@ struct char_data* read_mobile(int nr, int type)
         was_fixed = 1;
     }
     if (was_fixed) {
-        sprintf(buf, "Mobile %d had its stats fixed.",
-            (nr >= 0) ? mob_index[nr].virt : -1);
+        sprintf(buf, "Mobile %d had its stats fixed.", mob_index[i].virt);
         mudlog(buf, CMP, LEVEL_GRGOD, TRUE);
     }
 
