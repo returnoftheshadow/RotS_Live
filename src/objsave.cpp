@@ -1238,8 +1238,8 @@ void extract_followers(const struct char_data* ch)
             continue;
         }
         extract_carried_objects(follower);
-        extract_followers(k->follower);
-        extract_char(k->follower);
+        extract_followers(follower);
+        extract_char(follower);
     }
 }
 

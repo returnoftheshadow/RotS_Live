@@ -432,11 +432,11 @@ TEST_F(QuietGearChangeTest, APurgedMobItsPoisonousRingKillsIsLetGo)
     EXPECT_FALSE(is_in_object_list(ring));
 }
 
-/* ---- stripping a character leaving the game ---- */
+// ---- stripping a character leaving the game ----
 
 namespace {
 
-/* How many objects in the game are made from the test prototype <virtual_number>. */
+// How many objects in the game are made from the test prototype <virtual_number>.
 int count_objects_of(int virtual_number)
 {
     int count = 0;
@@ -448,7 +448,7 @@ int count_objects_of(int virtual_number)
     return count;
 }
 
-/* Whether <wearer> wears nothing at all. */
+// Whether <wearer> wears nothing at all.
 bool wears_nothing(const char_data* wearer)
 {
     for (int slot = 0; slot < MAX_WEAR; ++slot) {
@@ -461,16 +461,17 @@ bool wears_nothing(const char_data* wearer)
 
 } // namespace
 
-/* Stripping a mob takes off and extracts everything it wears, and it stays in the game. */
+// Stripping a mob takes off and extracts everything it wears, in the first and last slots too,
+// and it stays in the game.
 TEST_F(QuietGearChangeTest, ExtractWornGearExtractsEveryWornItem)
 {
     char_data* wearer = make_mob("wearer", 0);
     obj_data* ring = make_object(RING_VNUM, 0);
     obj_data* sword = make_object(SWORD_VNUM, 0);
-    ASSERT_TRUE(equip_char(wearer, ring, WEAR_FINGER_R));
-    ASSERT_TRUE(equip_char(wearer, sword, WIELD));
-    ASSERT_EQ(ring, wearer->equipment[WEAR_FINGER_R]);
-    ASSERT_EQ(sword, wearer->equipment[WIELD]);
+    ASSERT_TRUE(equip_char(wearer, ring, WEAR_LIGHT));
+    ASSERT_TRUE(equip_char(wearer, sword, WEAR_BELT_3));
+    ASSERT_EQ(ring, wearer->equipment[WEAR_LIGHT]);
+    ASSERT_EQ(sword, wearer->equipment[WEAR_BELT_3]);
 
     EXPECT_TRUE(extract_worn_gear(wearer));
 
@@ -480,8 +481,8 @@ TEST_F(QuietGearChangeTest, ExtractWornGearExtractsEveryWornItem)
     EXPECT_FALSE(is_in_object_list(sword));
 }
 
-/* A mob too hurt to survive its poisonous ring dies of the ring's poison as it comes off:
- * stripping it stops there and says the mob is gone, and the ring goes too. */
+// A mob too hurt to survive its poisonous ring dies of the ring's poison as it comes off:
+// stripping it stops there and says the mob is gone, and the ring goes too.
 TEST_F(QuietGearChangeTest, ExtractWornGearStopsWhenThePoisonKillsTheWearer)
 {
     char_data* wearer = make_mob("wearer", 0);
@@ -498,7 +499,7 @@ TEST_F(QuietGearChangeTest, ExtractWornGearStopsWhenThePoisonKillsTheWearer)
     EXPECT_FALSE(is_in_object_list(ring));
 }
 
-/* Stripped quietly, the same mob takes no blow from its poisonous ring and stays in the game. */
+// Stripped quietly, the same mob takes no blow from its poisonous ring and stays in the game.
 TEST_F(QuietGearChangeTest, ExtractWornGearQuietlyHurtsNobody)
 {
     char_data* wearer = make_mob("wearer", 0);
@@ -517,16 +518,18 @@ TEST_F(QuietGearChangeTest, ExtractWornGearQuietlyHurtsNobody)
     EXPECT_FALSE(is_in_object_list(ring));
 }
 
-/* Extracting what a mob carries empties its inventory, a bag's contents included, and leaves
- * what it wears on it. */
+// Extracting what a mob carries empties its inventory, a bag's contents included, and leaves
+// what it wears on it.
 TEST_F(QuietGearChangeTest, ExtractCarriedObjectsEmptiesTheInventoryAndItsContainers)
 {
     char_data* holder = make_mob("holder", 0);
     obj_data* ring = make_object(RING_VNUM, 0);
     ASSERT_TRUE(equip_char(holder, ring, WEAR_FINGER_R));
-    obj_to_char(make_object(STONE_VNUM, 0), holder);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, holder);
     obj_data* bag = make_object(BAG_VNUM, 0);
-    obj_to_obj(make_object(BREAD_VNUM, 0), bag);
+    obj_data* bread = make_object(BREAD_VNUM, 0);
+    obj_to_obj(bread, bag);
     obj_to_char(bag, holder);
     ASSERT_EQ(1, count_objects_of(STONE_VNUM));
     ASSERT_EQ(1, count_objects_of(BAG_VNUM));
@@ -536,8 +539,8 @@ TEST_F(QuietGearChangeTest, ExtractCarriedObjectsEmptiesTheInventoryAndItsContai
 
     EXPECT_EQ(nullptr, holder->carrying);
     EXPECT_EQ(0, IS_CARRYING_N(holder));
-    EXPECT_EQ(0, count_objects_of(STONE_VNUM));
-    EXPECT_EQ(0, count_objects_of(BAG_VNUM));
-    EXPECT_EQ(0, count_objects_of(BREAD_VNUM));
+    EXPECT_FALSE(is_in_object_list(stone));
+    EXPECT_FALSE(is_in_object_list(bag));
+    EXPECT_FALSE(is_in_object_list(bread));
     EXPECT_EQ(ring, holder->equipment[WEAR_FINGER_R]);
 }

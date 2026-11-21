@@ -1661,7 +1661,8 @@ bool extract_worn_gear(char_data* wearer, gear_change change)
         if (!wearer->equipment[slot]) {
             continue;
         }
-        extract_obj(unequip_char(wearer, slot, change));
+        obj_data* taken_off = unequip_char(wearer, slot, change);
+        extract_obj(taken_off);
         if (wearer_watch.freed()) {
             return false;
         }

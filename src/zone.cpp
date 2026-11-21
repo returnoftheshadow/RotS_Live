@@ -666,21 +666,23 @@ int check_if_flag(int if_flag, int last_cmd, int last_mob, int last_obj, int zon
     return 1;
 }
 
-// Runs <dress>, which puts gear on <mob> and can free <mob> (an item's poison) or <obj> (a script
-// that removes the last object loaded), and forgets whichever was freed: the commands after this
-// one then have no mob, or no last object to put things in.
+// Runs <dress>, which puts gear on <in_out_mob> and can free it or <in_out_obj> (see equip_char).
+// Sets <in_out_mob> to null and <out_last_mob> to 0 when the mob was freed, and <in_out_obj> to
+// null when the object was, so the zone commands that follow find no mob or no last object.
 template <typename Dressing>
-static void dress_reset_mob(char_data*& mob, int& last_mob, obj_data*& obj, Dressing dress)
+static void dress_reset_mob(char_data*& in_out_mob, int& out_last_mob, obj_data*& in_out_obj,
+    Dressing dress)
 {
-    freed_watch mob_watch(mob);
-    freed_watch object_watch(obj);
+    freed_watch mob_watch(in_out_mob);
+    freed_watch object_watch(in_out_obj);
     dress();
     if (mob_watch.freed()) {
-        mob = 0;
-        last_mob = 0;
+        in_out_mob = nullptr;
+        out_last_mob = 0;
     }
+
     if (object_watch.freed()) {
-        obj = 0;
+        in_out_obj = nullptr;
     }
 }
 
