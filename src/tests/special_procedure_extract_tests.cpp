@@ -920,6 +920,122 @@ TEST_F(SpecialProcedureTest, AGatekeeperWithNothingToOpenSaysSoAndForgetsTheRequ
 
 // Thuringwethil, beaten, says her last words; the hearer's script removes her on hearing them,
 // and she is not touched again.
+// How long a gatekeeper's script pauses: long enough that only the gatekeeper's next delay ends
+// the pause.
+constexpr int GATEKEEPER_SCRIPT_PAUSE_PULSES = 5;
+
+// The words a gatekeeper's resumed script says.
+constexpr const char* WHO_GOES_THERE = "Who goes there?";
+
+// A gatekeeper's script paused when the player spoke; the player's knock starts the gatekeeper's
+// own delay, which ends the pause, and the rest of the script removes the gatekeeper: the
+// gatekeeper takes the knock, so nothing goes on with it.
+TEST_F(SpecialProcedureTest, AGatekeeperItsResumedScriptRemovesTakesTheKnock)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { GATEKEEPER_SCRIPT_PAUSE_PULSES } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    for (const special_func procedure : { gatekeeper, gatekeeper2 }) {
+        char_data* keeper = make_mob_with("gatekeeper", nullptr);
+        keeper->specials.script_number = SCRIPT_VNUM;
+        run_command(do_say, "hello");
+        ASSERT_EQ(CMD_SCRIPT, keeper->delay.cmd);
+
+        EXPECT_TRUE(procedure(keeper, &m_player, CMD_KNOCK, empty_argument(), SPECIAL_COMMAND,
+            nullptr));
+
+        EXPECT_FALSE(is_in_game(keeper));
+    }
+}
+
+// As above, but the rest of the script speaks, and the one knocking hears it and is removed by
+// its own script. (A resumed script knows only its own mob, so it cannot name the visitor.)
+TEST_F(SpecialProcedureTest, AGatekeeperWhoseResumedScriptRemovesTheVisitorTakesTheKnock)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_DO_WAIT, nullptr, { GATEKEEPER_SCRIPT_PAUSE_PULSES } },
+                                  { SCRIPT_DO_SAY, WHO_GOES_THERE, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } } } } } });
+    for (const special_func procedure : { gatekeeper, gatekeeper2 }) {
+        char_data* keeper = make_mob_with("gatekeeper", nullptr);
+        keeper->specials.script_number = SCRIPT_VNUM;
+        char_data* visitor = make_mob_with("visitor", nullptr);
+        run_command_as(visitor, do_say, "hello");
+        ASSERT_EQ(CMD_SCRIPT, keeper->delay.cmd);
+        visitor->specials.script_number = OTHER_SCRIPT_VNUM;
+
+        EXPECT_TRUE(procedure(keeper, visitor, CMD_KNOCK, empty_argument(), SPECIAL_COMMAND,
+            nullptr));
+
+        EXPECT_FALSE(is_in_game(visitor));
+        EXPECT_TRUE(is_in_game(keeper));
+        extract_char(keeper);
+    }
+}
+
+// Makes <keeper> one whose delay ends with <visitor>'s knock still to answer, and who is
+// aggressive to <visitor>'s race.
+static void await_enemy_knock(char_data* keeper, char_data* visitor)
+{
+    keeper->specials2.pref = 1 << GET_RACE(visitor);
+    keeper->delay.cmd = PROCEDURE_DELAY_COMMAND;
+    keeper->delay.subcmd = KNOCK_REQUEST;
+    keeper->delay.targ1.ch_num = visitor->abs_number;
+    keeper->delay.targ1.ptr.ch = visitor;
+    keeper->delay.targ2.ch_num = NORTH;
+}
+
+// A gatekeeper whose delay ends with an enemy at the gate yells for help, naming the enemy's
+// room, and forgets the request. The player is connected, so hears the yell.
+TEST_F(SpecialProcedureTest, AGatekeeperYellsToArmsAtAnEnemyAndForgetsTheRequest)
+{
+    descriptor_list = &m_descriptor;
+    // A yell reaches a player with any channel on.
+    SET_BIT(PRF_FLAGS(&m_player), PRF_NARRATE);
+    char room_name[] = "the Gate";
+    char* const saved_room_name = world[0].name;
+    world[0].name = room_name;
+    for (const special_func procedure : { gatekeeper, gatekeeper2 }) {
+        char_data* keeper = make_mob_with("gatekeeper", nullptr);
+        char_data* visitor = make_mob_with("visitor", nullptr);
+        await_enemy_knock(keeper, visitor);
+
+        EXPECT_FALSE(procedure(
+            keeper, &m_player, PROCEDURE_DELAY_COMMAND, empty_argument(), SPECIAL_DELAY, nullptr));
+
+        EXPECT_EQ(0, keeper->delay.cmd);
+        EXPECT_EQ(0, keeper->delay.subcmd);
+        extract_char(keeper);
+        extract_char(visitor);
+    }
+    world[0].name = saved_room_name;
+    EXPECT_EQ(2, count_in_output("To arms! The enemy is at the Gate!")) << output();
+}
+
+// The gatekeeper's yell is offered to the room's procedure, which removes it: its delay is then
+// left alone.
+TEST_F(SpecialProcedureTest, AGatekeeperTheYellsProcedureRemovesIsLetGo)
+{
+    char room_name[] = "the Gate";
+    char* const saved_room_name = world[0].name;
+    world[0].name = room_name;
+    world[0].funct = remove_actor_yelling;
+    for (const special_func procedure : { gatekeeper, gatekeeper2 }) {
+        char_data* keeper = make_mob_with("gatekeeper", nullptr);
+        char_data* visitor = make_mob_with("visitor", nullptr);
+        await_enemy_knock(keeper, visitor);
+
+        EXPECT_FALSE(procedure(
+            keeper, &m_player, PROCEDURE_DELAY_COMMAND, empty_argument(), SPECIAL_DELAY, nullptr));
+
+        EXPECT_FALSE(is_in_game(keeper));
+        extract_char(visitor);
+    }
+    world[0].name = saved_room_name;
+}
+
 TEST_F(SpecialProcedureTest, ThuringwethilTheHearersRemoveAsSheLeavesIsLetGo)
 {
     install_script(ON_HEAR_SAY, remove_the_speaker_body());

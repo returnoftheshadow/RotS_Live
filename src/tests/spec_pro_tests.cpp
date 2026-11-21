@@ -428,7 +428,65 @@ TEST_F(SpecialProcTest, WhatADismissedGhoulCarriedFallsToTheGround)
     EXPECT_EQ(0, bread->in_room);
 }
 
+// The summoning ghoul and the ghoul it dismisses each carry something: what the dismissed one
+// carried falls to the ground, and the summoner keeps its own.
+TEST_F(SpecialProcTest, ADismissedGhoulsBelongingsFallAndTheSummonerKeepsItsOwn)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, summoner);
+    char_data* risen = make_risen_ghoul();
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_data* bread = make_object(BREAD_VNUM, 0);
+    obj_to_char(bread, risen);
+    push_test_random_value(LOWEST_ROLL); // the idle follower is dismissed
+
+    run_own_turn(ghoul, summoner);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_EQ(stone, summoner->carrying);
+    EXPECT_EQ(nullptr, stone->next_content);
+    EXPECT_EQ(0, bread->in_room);
+}
+
+// A fighting ghoul calls for help, but the mob table has no risen ghoul: that is logged, and
+// nothing rises.
+TEST_F(SpecialProcTest, AGhoulWithNoRisenGhoulInTheTableRaisesNothing)
+{
+    install_mob_table({ SUMMONER_VNUM });
+    char_data* summoner = make_mob("ghoul", 0);
+    summoner->specials.position = POSITION_FIGHTING;
+    const int characters_before = count_characters();
+    push_test_random_value(LOWEST_ROLL); // it calls for help
+
+    testing::internal::CaptureStderr();
+    run_own_turn(ghoul, summoner);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(characters_before, count_characters());
+    EXPECT_EQ(0, count_followers(summoner));
+    EXPECT_NE(std::string::npos, logged.find("ghoul: the risen ghoul does not exist!")) << logged;
+}
+
 // ---- the vampire killer ----
+
+// Nobody is in either cell, so he would leave the upper cell by its north door, but the cell has
+// no north exit: that is logged, and he stays.
+TEST_F(SpecialProcTest, TheVampireKillerInACellWithNoNorthExitLogsAndStays)
+{
+    world[0].number = LOWER_CELL_VNUM;
+    world[SECOND_ROOM].number = UPPER_CELL_VNUM;
+    char_from_room(&m_player);
+    char_data* killer = make_walker("killer", SECOND_ROOM);
+
+    testing::internal::CaptureStderr();
+    run_own_turn(vampire_killer, killer);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(SECOND_ROOM, killer->in_room);
+    EXPECT_NE(std::string::npos, logged.find("vampire_killer: his cell has no north exit"))
+        << logged;
+}
 
 // Nobody is in either cell, so he leaves the upper cell through its closed door.
 TEST_F(SpecialProcTest, TheVampireKillerInAnEmptyCellLeavesThroughItsDoor)
@@ -733,4 +791,33 @@ TEST_F(SpecialProcTest, AHealedThuringwethilWithNoBatFormLeavesNothingBehind)
     EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
     EXPECT_NE(std::string::npos, logged.find("thuringwethil: her bat form does not exist!"))
         << logged;
+}
+
+// ---- the herald, continued ----
+
+// A newcomer with no title is announced with nothing where the title goes.
+TEST_F(SpecialProcTest, TheHeraldAnnouncesANewcomerWithNoTitleByNameAlone)
+{
+    char announcement[] = "Hail %s, %s!";
+    char_data* herald_mob = make_mob("herald", 0);
+    herald_mob->player.death_cry2 = announcement;
+    m_player.player.title = nullptr;
+
+    run_set_off_by(herald, herald_mob, &m_player);
+
+    EXPECT_TRUE(output_has("Hail Tester, !")) << output();
+}
+
+// Only the first two "%s" are filled in; a third is kept as written.
+TEST_F(SpecialProcTest, TheHeraldKeepsAThirdPlaceholderAsWritten)
+{
+    char announcement[] = "Hail %s, %s! Beware %s.";
+    char title[] = "the Brave";
+    char_data* herald_mob = make_mob("herald", 0);
+    herald_mob->player.death_cry2 = announcement;
+    m_player.player.title = title;
+
+    run_set_off_by(herald, herald_mob, &m_player);
+
+    EXPECT_TRUE(output_has("Hail Tester, the Brave! Beware %s.")) << output();
 }

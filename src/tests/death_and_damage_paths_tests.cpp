@@ -19,6 +19,7 @@
 #include <string>
 
 ACMD(do_wear);
+ACMD(do_say);
 ACMD(do_wield);
 ACMD(do_remove);
 ACMD(do_cleave);
@@ -70,8 +71,14 @@ constexpr int HUMAN_FORM_FIRST_ITEM_VNUM = 6338;
 constexpr int HUNTRESS_HIT_POINTS_HER_HUMAN_FORM_CANNOT_SURVIVE = 1;
 // The cell the Vampire Huntress takes a prisoner of the player's race to.
 constexpr int CELL_FOR_HUMANS_VNUM = 15398;
-// The roll of number(0, 2) on which the Vampire Huntress, coming upon a player, carries them off.
+// The rolls of number(0, 2) on which the Vampire Huntress, coming upon a player, carries them off
+// or attacks them.
 constexpr double ABDUCTION_ROLL = 0.5;
+constexpr double ATTACK_ROLL = 0.9;
+// The to-hit roll of number(1, 35) that always lands a blow.
+constexpr double SURE_HIT_ROLL = 0.999;
+// How long a script's pause lasts: long enough that only the Huntress's own next delay ends it.
+constexpr int SCRIPT_PAUSE_PULSES = 5;
 // A door's key number when it has no keyhole.
 constexpr int NO_KEYHOLE = -1;
 
@@ -1015,4 +1022,44 @@ TEST_F(DeathAndDamagePathsTest, AVampireHuntressCellDoorWithNoFarSideIsLogged)
     EXPECT_TRUE(is_closed_and_locked(world[SECOND_ROOM].dir_option[NORTH]));
     EXPECT_NE(std::string::npos, logged.find("vampire_huntress: room 15379 has no south exit"))
         << logged;
+}
+
+// The Huntress's script paused when she heard the player; carrying the player off starts her own
+// delay, which ends the pause, and the rest of her script removes her: she is let go there.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerResumedScriptRemovesAsSheCarriesThePlayerOffIsLetGo)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { SCRIPT_PAUSE_PULSES } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* huntress = ready_huntress_at_sunrise(true);
+    char_from_room(huntress);
+    char_to_room(huntress, 0);
+    huntress->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, huntress->delay.cmd);
+    push_test_random_value(ABDUCTION_ROLL);
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(huntress));
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+}
+
+// The Huntress attacks the player with a weapon whose damage script removes its wielder: she is
+// let go there.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerWeaponsDamageScriptRemovesAsSheAttacksIsLetGo)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* huntress = ready_huntress_at_sunrise(true);
+    ASSERT_TRUE(equip_char(huntress, make_object(SWORD_VNUM, SCRIPT_VNUM), WIELD));
+    GET_ENERGY(huntress) = ENE_TO_HIT;
+    push_test_random_value(ATTACK_ROLL);
+    push_test_random_value(SURE_HIT_ROLL);
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(huntress));
+    EXPECT_EQ(0, m_player.in_room);
 }
