@@ -61,6 +61,17 @@ constexpr int VAMPIRE_TOWER_VNUM = 15379;
 constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
 // A roll that number(from, to) turns into its lowest result.
 constexpr double LOWEST_ROLL = 0.0;
+// A regeneration that drains far more hit points than a mob has in one fast update.
+constexpr int DRAINING_REGENERATION = -10 * MOB_HIT_POINTS;
+// How long a room spell the tests cast lasts, in hours, and how hard the blaze burns.
+constexpr int ROOM_SPELL_HOURS = 5;
+constexpr int BLAZE_STRENGTH = 10;
+// affect_update_room's rolls: a mist roll (number(1, 100)) of 75 or more would keep a mist where
+// it is, and a room spell's roll (number(0, 12)) of 0 makes it strike an occupant.
+constexpr double MIST_STAYS_ROLL = 0.99;
+constexpr double ROOM_SPELL_STRIKES_ROLL = 0.0;
+// A mob level at which casting a shout of pain never fumbles.
+constexpr int UNFUMBLING_CASTER_LEVEL = 50;
 
 /* The killer remove_the_killer_on_death removes; null once it has. */
 char_data* killer_to_remove = nullptr;
@@ -630,6 +641,126 @@ TEST_F(DeathAndDamagePathsTest, AKnockerKilledFromBeyondTheDoorFallsOnItsOwnSide
     EXPECT_TRUE(is_in_game(doorkeeper));
     EXPECT_EQ(1, count_corpses_in_room());
     EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
+}
+
+// ---- dying of negative regeneration ----
+
+// A mob whose regeneration drains its last hit points dies of it, and its death is noted
+// without touching what is left of it.
+TEST_F(DeathAndDamagePathsTest, AMobNegativeRegenerationKillsIsLetGo)
+{
+    char_data* drained = make_mob("drained", 0);
+    drained->tmpabilities.hit = 0;
+    drained->points.health_regen = DRAINING_REGENERATION;
+
+    fast_update();
+
+    EXPECT_FALSE(is_in_game(drained));
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+// ---- spells ----
+
+// The shout's blow at the first mob sets off a script that removes the mob after it: the shout
+// strikes the first and stops there.
+TEST_F(DeathAndDamagePathsTest, AShoutOfPainStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(second, first->next_in_room);
+
+    spell_shout_of_pain(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(first));
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+}
+
+// The shout's blow at the first mob sets off its damage script, which removes the caster: the
+// shout ends with the caster, and the mob after it is not struck.
+TEST_F(DeathAndDamagePathsTest, AShoutOfPainEndsWithTheCasterItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", 0);
+
+    spell_shout_of_pain(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(first));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(MOB_HIT_POINTS, GET_HIT(second));
+}
+
+// As for the shout: an earthquake stops at the mob its blow removes.
+TEST_F(DeathAndDamagePathsTest, AnEarthquakeStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* caster = make_mob("caster", 0);
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(second, first->next_in_room);
+
+    spell_earthquake(caster, empty_argument(), SPELL_TYPE_SPELL, nullptr, nullptr, 0, 0);
+
+    EXPECT_TRUE(is_in_game(caster));
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+}
+
+// A blaze burning in the room strikes the first mob, whose script removes the mob after it: the
+// blaze burns nobody more this time.
+TEST_F(DeathAndDamagePathsTest, ARoomBlazeStopsAtTheMobItsBlowRemoves)
+{
+    take_player_out_of_the_room();
+    install_hurt_then_vanish_scripts();
+    char_data* first = make_mob("first", SCRIPT_VNUM);
+    char_data* second = make_mob("second", OTHER_SCRIPT_VNUM);
+    ASSERT_EQ(first, world[0].people);
+    ASSERT_EQ(second, first->next_in_room);
+    affected_type blaze {};
+    blaze.type = ROOMAFF_SPELL;
+    blaze.duration = ROOM_SPELL_HOURS;
+    blaze.modifier = BLAZE_STRENGTH;
+    blaze.location = SPELL_BLAZE;
+    affect_to_room(&world[0], &blaze);
+    push_test_random_value(MIST_STAYS_ROLL); // whether a mist would move: there is none
+    push_test_random_value(ROOM_SPELL_STRIKES_ROLL); // the blaze strikes the first
+
+    affect_update_room(&world[0]);
+
+    EXPECT_LT(GET_HIT(first), MOB_HIT_POINTS);
+    EXPECT_FALSE(is_in_game(second));
+    while (world[0].affected) {
+        affect_remove_room(&world[0], world[0].affected);
+    }
+}
+
+// A mob finishes casting a shout of pain whose blow sets off a script that removes it: the cast
+// ends there, leaving the delay that went with the caster alone.
+TEST_F(DeathAndDamagePathsTest, ACastEndsWithTheCasterItsSpellRemoves)
+{
+    assign_command_pointers();
+    take_player_out_of_the_room();
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* caster = make_mob("caster", 0);
+    caster->player.level = UNFUMBLING_CASTER_LEVEL;
+    char_data* victim = make_mob("victim", SCRIPT_VNUM);
+    char line[] = "cast 'shout of pain'";
+    command_interpreter(caster, line, nullptr);
+    ASSERT_GT(caster->delay.wait_value, 0) << "the cast did not start";
+
+    complete_delay(caster);
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_TRUE(is_in_game(victim));
 }
 
 /* ---- a walker removed at the end of its route ---- */
