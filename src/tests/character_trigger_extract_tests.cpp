@@ -736,6 +736,33 @@ TEST_F(CharacterTriggerTest, AnObjectFreedByANestedScriptIsGoneFromEveryVariable
     EXPECT_TRUE(output_has("It was []."));
 }
 
+// The listener's script answers the speaker it holds in ch2, and the answer makes the speaker
+// remove itself: the rest of the listener's script finds ch2 empty, with no name to tell.
+TEST_F(CharacterTriggerTest, ACharacterFreedByANestedScriptIsGoneFromTheOuterScriptsVariables)
+{
+    install_scripts({ { SCRIPT_VNUM,
+                          { { ON_HEAR_SAY,
+                              { { SCRIPT_IF_STR_CONTAINS, "HELLO", { SCRIPT_PARAM_STR1 } },
+                                  { SCRIPT_BEGIN, nullptr, {} },
+                                  { SCRIPT_DO_SAY, "vanish", { SCRIPT_PARAM_CH1 } },
+                                  { SCRIPT_SEND_TO_ROOM, "Gone [%s].",
+                                      { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_CH2_NAME } },
+                                  { SCRIPT_END, nullptr, {} } } } } },
+        { OTHER_SCRIPT_VNUM,
+            { { ON_HEAR_SAY,
+                { { SCRIPT_IF_STR_CONTAINS, "VANISH", { SCRIPT_PARAM_STR1 } },
+                    { SCRIPT_BEGIN, nullptr, {} },
+                    { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } },
+                    { SCRIPT_END, nullptr, {} } } } } } });
+    make_mob("listener", SCRIPT_VNUM);
+    char_data* speaker = make_mob("speaker", OTHER_SCRIPT_VNUM);
+
+    run_command_as(speaker, do_say, "hello");
+
+    EXPECT_FALSE(is_in_game(speaker));
+    EXPECT_TRUE(output_has("Gone [].")) << output();
+}
+
 // The first mob's script makes it speak, the second mob answers, and the first mob hears the
 // answer: its hearing script starts again on the mob's one script state, so the first run carries
 // on with the second run's variables (ch2 is now the answerer, and ob2 is empty).

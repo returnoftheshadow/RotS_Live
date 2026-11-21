@@ -147,6 +147,33 @@ TEST_F(MemoryReleaseTest, AZoneResetGivingAMobAnotherScriptGivesBackItsOldScript
     EXPECT_LT(growth, ALLOWED_GROWTH);
 }
 
+// A mob that heard a say has script state holding the words it heard (str1); freeing the mob
+// gives that state back, words and all.
+TEST_F(MemoryReleaseTest, AMobsScriptStateIsGivenBackWhenTheMobIsFreed)
+{
+    if (!allocated_bytes()) {
+        GTEST_SKIP() << "this allocator cannot report the bytes in use";
+    }
+    install_scripts({ { SCRIPT_VNUM,
+        { { ON_HEAR_SAY,
+            { { SCRIPT_SEND_TO_ROOM, "The mob heard [%s].",
+                { SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_STR1 } } } } } } });
+    char_data* first_mob = make_mob("listener", SCRIPT_VNUM);
+    run_command(do_say, "hello");
+    ASSERT_NE(nullptr, first_mob->specials.script_info) << "hearing gave the mob script state";
+    extract_char(first_mob);
+    clear_output();
+
+    const std::size_t growth = growth_over_rounds([this]() -> void {
+        char_data* mob = make_mob("listener", SCRIPT_VNUM);
+        run_command(do_say, "hello");
+        extract_char(mob);
+        clear_output();
+    });
+
+    EXPECT_LT(growth, ALLOWED_GROWTH);
+}
+
 TEST_F(MemoryReleaseTest, OpeningTheTextEditorFreesTheTextItCopies)
 {
     if (!allocated_bytes()) {
