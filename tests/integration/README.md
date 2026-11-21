@@ -13,7 +13,10 @@ A scenario fails when the server shows trouble, even if its own checks pass:
 
 - a crash marker in the server log (a sanitizer report or the `Error: signal` line the
   server prints when it catches a fatal signal);
-- a `SYSERR` line the harness does not expect;
+- a `SYSERR` line the harness does not expect: one containing none of the fragments the test
+  names with `@pytest.mark.expect_syserr(...)` (below, "Writing a scenario");
+- a fragment the test names with `@pytest.mark.expect_syserr(...)` that no `SYSERR` line
+  contains by the time the server has stopped;
 - the server exiting during the test, or, when it is stopped, exiting with a non-zero status or
   without logging its shutdown notice.
 
@@ -521,6 +524,16 @@ A plain server's game time follows the wall clock. A test marked
 stands still until `server.advance_hours(n)` runs `n` whole game hours of the hourly and fast
 updates and returns once the server acknowledges them. Zone resets, mob activity, combat and
 skill timers do not run under that schedule. `advance_hours` fails a test without the marker.
+
+Any `SYSERR` line fails a test unless the test expects it. A test that pins a `SYSERR` the game
+logs names it with `@pytest.mark.expect_syserr("fragment", ...)`, one or more literal fragments
+of the line (case and spacing as logged). A `SYSERR` line containing any of them does not fail
+the test, and each fragment must be contained in at least one `SYSERR` line of a server the test
+booted, before or after a `server.restart()`, or the test fails after the server stops with
+`expected SYSERR never logged: '<fragment>'`. Lines without `SYSERR` never count, and every other
+`SYSERR` line still fails the test. Markers on the module, a class and the test add up; a
+fragment named twice, an empty one or a marker with none is refused. To check how many times a
+line is logged, read `server.run_dir / "game.log"` in the test.
 
 `server.restart()` stops the server the way a service stop does, with SIGTERM while the
 characters are still logged in, and boots a new server on the same lib, so a test can read back
