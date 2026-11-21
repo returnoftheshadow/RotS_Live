@@ -313,17 +313,23 @@ private:
     index_data* m_saved_mob_index = nullptr;
     int m_saved_top_of_mobt = 0;
     extra_descr_data* m_saved_extra_descriptions[2] { };
-    // What room THIRD_ROOM held before the test, put back by TearDown.
-    struct saved_room {
-        // The fields add_third_room changes.
+    // The fields of a room that add_third_room changes, as they were before it.
+    struct SavedRoom {
+        // The room's vnum.
         int number = 0;
+        // The room's zone.
         int zone = 0;
+        // The room's light count.
         byte light = 0;
+        // Who was in the room.
         char_data* people = nullptr;
+        // What lay in the room.
         obj_data* contents = nullptr;
+        // The room's exits, one per direction.
         room_direction_data* exits[NUM_OF_DIRS] {};
     };
-    saved_room m_saved_third_room;
+    // What room THIRD_ROOM held before the test, put back by TearDown.
+    SavedRoom m_saved_third_room;
 };
 
 } // namespace
@@ -766,7 +772,8 @@ TEST_F(SpecialProcTest, AFleeingVampireHuntressWithNoHumanFormStaysABat)
     ASSERT_TRUE(is_in_game(huntress));
     EXPECT_EQ(SECOND_ROOM, huntress->in_room);
     EXPECT_EQ(characters_before, count_characters());
-    EXPECT_NE(std::string::npos, logged.find("vampire_huntress: her human form does not exist!"))
+    EXPECT_NE(std::string::npos,
+        logged.find("vampire_huntress: her human form, mob 15302, does not exist!"))
         << logged;
 }
 
@@ -789,7 +796,8 @@ TEST_F(SpecialProcTest, AHealedThuringwethilWithNoBatFormLeavesNothingBehind)
     EXPECT_FALSE(is_in_game(vampire));
     EXPECT_EQ(characters_before - 1, count_characters());
     EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
-    EXPECT_NE(std::string::npos, logged.find("thuringwethil: her bat form does not exist!"))
+    EXPECT_NE(
+        std::string::npos, logged.find("thuringwethil: her bat form, mob 15301, does not exist!"))
         << logged;
 }
 

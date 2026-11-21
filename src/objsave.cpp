@@ -1224,12 +1224,10 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
     } while (1);
 }
 
-// Removes <ch>'s NPC followers from the game, as a rent does: each one's gear is taken off and
-// destroyed, then what it carries and its own followers, and then the follower itself. Taking
-// gear off can cast an area spell (earthquake, shout of pain) that kills or removes other
-// followers, or <ch>. Returns false when <ch> was freed on the way: the caller must not touch it
-// again.
-[[nodiscard]] bool extract_followers(const struct char_data* ch)
+// Removes <ch>'s NPC followers from the game as a rent does, destroying their gear, what they
+// carry and their own NPC followers. Taking gear off can kill <ch>: returns false when <ch> was
+// freed, and the caller must not touch it again.
+[[nodiscard]] static bool extract_followers(const struct char_data* ch)
 {
     freed_watch leader_watch(ch);
     const follow_type* following = ch->followers;
@@ -1240,8 +1238,7 @@ void Crash_follower_load(struct char_data* ch, FILE* fp)
             continue;
         }
 
-        // Every way through leaves <follower> out of the game, dead or extracted, so each pass
-        // takes one NPC off the list and the walk ends.
+        // Every path takes <follower> out of the game, so the walk ends.
         if (extract_worn_gear(follower)) {
             extract_carried_objects(follower);
             if (extract_followers(follower)) {
@@ -1585,10 +1582,17 @@ void Crash_idlesave(struct char_data* ch)
     if (IS_NPC(ch))
         return true;
 
-    if (!Crash_get_filename(GET_NAME(ch), buf))
+    if (!Crash_get_filename(GET_NAME(ch), buf)) {
+        snprintf(buf1, sizeof(buf1), "SYSERR: no rent file name for %s.", GET_NAME(ch));
+        log(buf1);
         return true;
-    if (!(fp = fopen(buf, "w+b")))
+    }
+    if (!(fp = fopen(buf, "w+b"))) {
+        snprintf(buf1, sizeof(buf1), "SYSERR: unable to open rent file '%s' for %s: %s", buf,
+            GET_NAME(ch), strerror(errno));
+        log(buf1);
         return true;
+    }
 
     Crash_extract_norents(ch->carrying);
 

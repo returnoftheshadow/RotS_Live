@@ -918,8 +918,6 @@ TEST_F(SpecialProcedureTest, AGatekeeperWithNothingToOpenSaysSoAndForgetsTheRequ
     EXPECT_EQ(2, count_in_output("There is nothing like that here.")) << output();
 }
 
-// Thuringwethil, beaten, says her last words; the hearer's script removes her on hearing them,
-// and she is not touched again.
 // How long a gatekeeper's script pauses: long enough that only the gatekeeper's next delay ends
 // the pause.
 constexpr int GATEKEEPER_SCRIPT_PAUSE_PULSES = 5;
@@ -1036,6 +1034,8 @@ TEST_F(SpecialProcedureTest, AGatekeeperTheYellsProcedureRemovesIsLetGo)
     world[0].name = saved_room_name;
 }
 
+// Thuringwethil, beaten, says her last words; the hearer's script removes her on hearing them,
+// and she is not touched again.
 TEST_F(SpecialProcedureTest, ThuringwethilTheHearersRemoveAsSheLeavesIsLetGo)
 {
     install_script(ON_HEAR_SAY, remove_the_speaker_body());

@@ -299,9 +299,9 @@ protected:
 
     // Makes room 0 Thuringwethil's tower, where the Vampire Huntress flies at sunrise and comes
     // upon the player, and SECOND_ROOM the cell she carries a human prisoner off to. The cell's
-    // north door leads up to the tower (no door when <cell_has_door> is false), and the tower's
-    // south exit is that door's far side. Returns the Huntress, waiting in the cell.
-    char_data* ready_huntress_at_sunrise(bool cell_has_door)
+    // north door leads up to the tower, and the tower's south exit is that door's far side.
+    // Returns the Huntress, waiting in the cell.
+    char_data* ready_huntress_at_sunrise()
     {
         link_second_room();
         world[0].number = VAMPIRE_TOWER_VNUM;
@@ -314,10 +314,7 @@ protected:
         m_cell_door.key = NO_KEYHOLE;
         m_cell_door.to_room = 0;
         m_cell_door.exit_info = EX_ISDOOR;
-        world[SECOND_ROOM].dir_option[NORTH] = nullptr;
-        if (cell_has_door) {
-            world[SECOND_ROOM].dir_option[NORTH] = &m_cell_door;
-        }
+        world[SECOND_ROOM].dir_option[NORTH] = &m_cell_door;
 
         weather_info.sunlight = SUN_RISE;
         return make_mob("huntress", 0, SECOND_ROOM);
@@ -361,9 +358,11 @@ protected:
     // SECOND_ROOM's name and description as SetUp found them, put back by TearDown.
     char* m_saved_second_room_name = nullptr;
     char* m_saved_second_room_description = nullptr;
-    // The cell's name and description, and its north door, set by ready_huntress_at_sunrise.
+    // The cell's name and description, set by ready_huntress_at_sunrise.
     char m_cell_text[8] = "A cell";
+    // The keyword and description of the cell's north door.
     char m_cell_door_keyword[9] = "irondoor";
+    // The cell's north door, set by ready_huntress_at_sunrise.
     room_direction_data m_cell_door {};
 };
 
@@ -974,7 +973,7 @@ TEST_F(DeathAndDamagePathsTest, AVampireHuntressHumanFormThePoisonOfHerNewGearKi
 // She carries the player off to their cell and slams the cell's door shut from both sides.
 TEST_F(DeathAndDamagePathsTest, AVampireHuntressLocksHerPrisonersCellFromBothSides)
 {
-    char_data* huntress = ready_huntress_at_sunrise(true);
+    char_data* huntress = ready_huntress_at_sunrise();
     push_test_random_value(ABDUCTION_ROLL);
     char no_argument[1] = "";
 
@@ -990,7 +989,8 @@ TEST_F(DeathAndDamagePathsTest, AVampireHuntressLocksHerPrisonersCellFromBothSid
 // The cell has no north door: that is logged, and the prisoner is left in the cell as before.
 TEST_F(DeathAndDamagePathsTest, AVampireHuntressPrisonersCellWithNoDoorIsLogged)
 {
-    char_data* huntress = ready_huntress_at_sunrise(false);
+    char_data* huntress = ready_huntress_at_sunrise();
+    world[SECOND_ROOM].dir_option[NORTH] = nullptr;
     push_test_random_value(ABDUCTION_ROLL);
     char no_argument[1] = "";
 
@@ -1009,7 +1009,7 @@ TEST_F(DeathAndDamagePathsTest, AVampireHuntressPrisonersCellWithNoDoorIsLogged)
 // closed and locked.
 TEST_F(DeathAndDamagePathsTest, AVampireHuntressCellDoorWithNoFarSideIsLogged)
 {
-    char_data* huntress = ready_huntress_at_sunrise(true);
+    char_data* huntress = ready_huntress_at_sunrise();
     world[0].dir_option[SOUTH] = nullptr;
     push_test_random_value(ABDUCTION_ROLL);
     char no_argument[1] = "";
@@ -1031,7 +1031,7 @@ TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerResumedScriptRemovesAsSheCarr
     install_script(ON_HEAR_SAY,
         { { SCRIPT_DO_WAIT, nullptr, { SCRIPT_PAUSE_PULSES } },
             { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
-    char_data* huntress = ready_huntress_at_sunrise(true);
+    char_data* huntress = ready_huntress_at_sunrise();
     char_from_room(huntress);
     char_to_room(huntress, 0);
     huntress->specials.script_number = SCRIPT_VNUM;
@@ -1051,7 +1051,7 @@ TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerResumedScriptRemovesAsSheCarr
 TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerWeaponsDamageScriptRemovesAsSheAttacksIsLetGo)
 {
     install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
-    char_data* huntress = ready_huntress_at_sunrise(true);
+    char_data* huntress = ready_huntress_at_sunrise();
     ASSERT_TRUE(equip_char(huntress, make_object(SWORD_VNUM, SCRIPT_VNUM), WIELD));
     GET_ENERGY(huntress) = ENE_TO_HIT;
     push_test_random_value(ATTACK_ROLL);

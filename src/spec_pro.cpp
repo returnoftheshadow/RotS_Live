@@ -2440,8 +2440,7 @@ bool ranger_rehide(char_data* host, const ranger_config& opts)
             return false;
         /* do_hide's wind-up; the cover comes when it ends, so until then the
          * mob keeps the cover it snuck in with, and a broken one gives none. */
-        // The host has no delay (checked on entry), so starting this one ends none and runs no
-        // script: it cannot free the host.
+        // The host has no delay (checked on entry), so this one runs no script that could free it.
         (void)WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
             AFF_WAITING | AFF_WAITWHEEL);
         return host->delay.wait_value > 0;
@@ -3507,15 +3506,15 @@ SPECIAL(dragon)
 constexpr int THURINGWETHIL_BAT_VNUM = 15301;
 constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
 
-// Closes and locks the iron door out of room <room> in <direction> (named <direction_name> in
-// the log), and tells the room it slams shut. Returns the room the door leads to, which is
-// NOWHERE when the room has no exit that way (logged) or the exit leads nowhere.
-static int slam_iron_door(int room, int direction, const char* direction_name)
+// Closes and locks the iron door out of room <room> in <direction>, and tells the room it slams
+// shut. Returns the room the door leads to, which is NOWHERE when the room has no exit that way
+// (logged) or the exit leads nowhere.
+static int slam_iron_door(int room, int direction)
 {
     room_direction_data* door = world[room].dir_option[direction];
     if (!door) {
         vmudlog(BRF, "vampire_huntress: room %d has no %s exit", world[room].number,
-            direction_name);
+            dirs[direction]);
         return NOWHERE;
     }
 
@@ -3688,9 +3687,9 @@ SPECIAL(vampire_huntress)
                         victim, 0, 0, TO_ROOM);
                     GET_POS(victim) = POSITION_RESTING;
                     // The cell's door north, then the same door from the corridor's side.
-                    const int corridor = slam_iron_door(victim->in_room, NORTH, "north");
+                    const int corridor = slam_iron_door(victim->in_room, NORTH);
                     if (corridor != NOWHERE) {
-                        slam_iron_door(corridor, SOUTH, "south");
+                        slam_iron_door(corridor, SOUTH);
                     }
                     do_look(victim, "", wtl, 0, 0);
                     // Ending the bat's own delay, or its blow, can remove it (a script).
@@ -3718,7 +3717,8 @@ SPECIAL(vampire_huntress)
         extract_carried_objects(host);
         const int human_form_number = real_mobile(THURINGWETHIL_HUMAN_VNUM);
         if (human_form_number < 0) {
-            mudlog("vampire_huntress: her human form does not exist!", BRF, LEVEL_GOD, TRUE);
+            vmudlog(BRF, "vampire_huntress: her human form, mob %d, does not exist!",
+                THURINGWETHIL_HUMAN_VNUM);
             return 1;
         }
         mob = read_mobile(human_form_number, REAL);
@@ -3802,7 +3802,8 @@ SPECIAL(thuringwethil)
         extract_char(host); // strange... extract works here with no room_data errors
         const int bat_form_number = real_mobile(THURINGWETHIL_BAT_VNUM);
         if (bat_form_number < 0) {
-            mudlog("thuringwethil: her bat form does not exist!", BRF, LEVEL_GOD, TRUE);
+            vmudlog(BRF, "thuringwethil: her bat form, mob %d, does not exist!",
+                THURINGWETHIL_BAT_VNUM);
             return 1;
         }
         victim = read_mobile(bat_form_number, REAL);
@@ -3841,6 +3842,7 @@ SPECIAL(vampire_doorkeep)
                 act("A huge wolf suddenly appears, charges at $n and vanishes!", FALSE, victim, 0,
                     0, TO_ROOM);
         }
+
     // The door is room 15345's south exit and room 15355's north exit.
     if (!room->dir_option[SOUTH] || !room2->dir_option[NORTH]) {
         mudlog("vampire_doorkeep: the door between rooms 15345 and 15355 is missing a side", BRF,
