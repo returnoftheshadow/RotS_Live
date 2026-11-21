@@ -1,0 +1,1 @@
+mobs whose speech scripts answer each other stop at the script limits, each logged once per event, instead of crashing the server

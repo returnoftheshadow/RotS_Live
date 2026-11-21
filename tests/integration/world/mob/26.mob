@@ -1,0 +1,73 @@
+#2600
+squire dressed~
+a dressed squire~
+A dressed squire stands here.~
+Zone 26's reset loads him, only while a player is in the zone, and dresses him.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2601
+echo~
+an echo~
+An echo hangs in the air here.~
+His script (2600) says "Hi." whenever he hears anything said.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 2600 100 0
+#2602
+mirror~
+a mirror~
+A mirror stands here, listening.~
+His script (2600) says "Hi." whenever he hears anything said.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 2600 100 0
+#2603
+chanter~
+a chanter~
+A chanter stands here, listening.~
+His script (2600) says "Hi." whenever he hears anything said.
+~
+2
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 2600 100 0
+#99999
