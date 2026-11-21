@@ -1,5 +1,6 @@
-/* raw_kill clears a dying player's "already kitted" flag. A player with no link is freed by the
- * death, and neither raw_kill nor a blow that set the death off touches it afterwards. */
+// raw_kill clears a dying player's "already kitted" flag and tells one who dies awake they leave
+// their leader. A player with no link is freed by the death, and neither raw_kill nor a blow that
+// set the death off touches it afterwards.
 #include "scripted_room_fixture.h"
 
 #include "../big_brother.h"
@@ -148,6 +149,54 @@ TEST_F(RawKillKitFlagTest, AConnectedPlayersDeathClearsItsKitFlag)
     raw_kill(&m_player, nullptr, 0);
 
     EXPECT_FALSE(IS_SET(PLR_FLAGS(&m_player), PLR_WAS_KITTED));
+}
+
+namespace {
+
+// What the dying player reads as they leave the leader they follow and the leader's group.
+constexpr const char* STOP_FOLLOWING_LINE = "You stop following leader.";
+constexpr const char* LEAVE_GROUP_LINE = "You leave the group of leader.";
+
+// Has player follow leader and join the leader's group.
+void follow_and_group_with(char_data* player, char_data* leader)
+{
+    add_follower(player, leader, FOLLOW_MOVE);
+    add_character_to_group(player, leader);
+}
+
+} // namespace
+
+// Killed outside a fight (a death room, slay, a script), the player is still standing when they
+// leave their leader and its group, so they read both lines.
+TEST_F(RawKillKitFlagTest, APlayerKilledOutsideAFightReadsThatTheyLeaveTheirLeaderAndGroup)
+{
+    char_data* leader = make_mob("leader", 0);
+    follow_and_group_with(&m_player, leader);
+    ASSERT_EQ(leader, m_player.master);
+    ASSERT_EQ(POSITION_STANDING, GET_POS(&m_player));
+
+    raw_kill(&m_player, nullptr, 0);
+
+    EXPECT_TRUE(output_has(STOP_FOLLOWING_LINE)) << output();
+    EXPECT_TRUE(output_has(LEAVE_GROUP_LINE)) << output();
+    EXPECT_EQ(nullptr, m_player.master);
+    EXPECT_EQ(nullptr, m_player.group);
+}
+
+// A player killed in a fight is already dead, as die() leaves them, when they leave their leader
+// and its group, so they read neither line.
+TEST_F(RawKillKitFlagTest, APlayerKilledInAFightReadsNeitherLine)
+{
+    char_data* leader = make_mob("leader", 0);
+    follow_and_group_with(&m_player, leader);
+    GET_POS(&m_player) = POSITION_DEAD;
+
+    raw_kill(&m_player, nullptr, 0);
+
+    EXPECT_FALSE(output_has(STOP_FOLLOWING_LINE)) << output();
+    EXPECT_FALSE(output_has(LEAVE_GROUP_LINE)) << output();
+    EXPECT_EQ(nullptr, m_player.master);
+    EXPECT_EQ(nullptr, m_player.group);
 }
 
 namespace {

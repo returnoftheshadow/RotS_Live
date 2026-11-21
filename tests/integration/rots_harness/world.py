@@ -15,6 +15,9 @@ ROOM_ARENA_EAST = 1132
 ROOM_DARK_CELL = 1133
 # Room 1138, in zone 11, whose one exit leads east into the Gallows Pit.
 ROOM_GALLOWS_APPROACH = 1138
+# Room 1137, the DEATH room in zone 11 east of the approach, with no exits: whoever walks in dies
+# (do_move, act_move.cpp, which calls raw_kill outside any fight).
+ROOM_GALLOWS_PIT = 1137
 # Room 1180, the signpost room in zone 11, whose two extra descriptions both answer to "sign".
 ROOM_SIGNPOST = 1180
 # Room 1302, the lit trade hall in zone 13, where zone 13 resets the trader (mob 1302).
