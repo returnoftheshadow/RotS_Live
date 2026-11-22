@@ -9,7 +9,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_log import log_lines_holding, read_game_log
-from rots_harness.game_text import NOT_HERE_REPLY
+from rots_harness.game_text import FIGHT_ONGOING_REPLY, NOT_HERE_REPLY
 from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.replies import text_seen_before_a_say
 from rots_harness.session import GameSession
@@ -62,13 +62,10 @@ STRANDED_BUYER = Character(
 # The copper bead, the currency of every price line in zone 13 (tests/integration/world/obj/13.obj).
 CURRENCY_VNUM = 1308
 CURRENCY_KEYWORD = "bead"
-CURRENCY_NAME = "a copper bead"
-# The leather cap (tests/integration/world/obj/11.obj); its keywords are "cap leather".
-LEATHER_CAP_NAME = "a leather cap"
-# The iron cap and the lead ingot the odd trader sells (tests/integration/world/obj/13.obj). The
-# ingot weighs 90000, more than anyone carries: CAN_CARRY_W (utils.h) is 2000 + 1000 * strength,
-# and strength tops out at 40 (wizset's range), so at most 42000.
-IRON_CAP_NAME = "an iron cap"
+CURRENCY_NAME = world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION
+# The lead ingot the odd trader sells (tests/integration/world/obj/13.obj). It weighs 90000, more
+# than anyone carries: CAN_CARRY_W (utils.h) is 2000 + 1000 * strength, and strength tops out at
+# 40 (wizset's range), so at most 42000.
 LEAD_INGOT_NAME = "a lead ingot"
 # How many beads the trader asks for a leather cap, `price 1137 1308x2` (mob/13.mob).
 CAP_PRICE_BEADS = 2
@@ -95,8 +92,6 @@ NO_GIFTS_MARKER = TRADER_TELL_FORMAT.format("I don't take gifts.")
 NO_ATTACKS_MARKER = TRADER_TELL_FORMAT.format("Don't even think about it.")
 NOTHING_TO_SELL_MARKER = TRADER_TELL_FORMAT.format("I have nothing to sell right now.")
 NOT_STOCKED_MARKER = TRADER_TELL_FORMAT.format("I don't have that. Try 'list'.")
-# What an attacker reads when a fight with its target has started (do_hit, act_offe.cpp).
-FIGHT_ONGOING_MARKER = "You do the best you can!"
 # What a buyer reads when the item would take it past its carrying weight (vendor_buy).
 TOO_HEAVY_MARKER = "You can't carry that much weight."
 # What the room hears from a trader its options disable (SPECIAL(barter_vendor)), and the boot
@@ -153,7 +148,7 @@ def test_a_vendor_lists_its_stocked_item_with_its_price(server) -> None:
     """
     buyer = server.login(BUYER.name)
 
-    expected = stock_lines(DEFAULT_LIST_HEADER, ((LEATHER_CAP_NAME, cost_text(CAP_PRICE_BEADS)),))
+    expected = stock_lines(DEFAULT_LIST_HEADER, ((world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, cost_text(CAP_PRICE_BEADS)),))
     assert_lines(buyer.command("list"), expected)
 
 
@@ -167,11 +162,11 @@ def test_a_vendor_refuses_a_short_payment_and_takes_nothing(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    give_beads(implementor, world.ROOM_TRADE_HALL, "Trade Hall", BUYER, CAP_PRICE_BEADS - 1)
+    give_beads(implementor, world.ROOM_TRADE_HALL, world.ROOM_TRADE_HALL_NAME, BUYER, CAP_PRICE_BEADS - 1)
 
     assert buyer.command("buy cap").contains(SHORT_PAYMENT_MARKER)
     assert carried_count(buyer, CURRENCY_NAME) == CAP_PRICE_BEADS - 1
-    assert LEATHER_CAP_NAME not in buyer.command("inventory").text
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in buyer.command("inventory").text
 
 
 @pytest.mark.schedule("affect-hours")
@@ -187,18 +182,18 @@ def test_a_vendor_trades_a_fresh_copy_for_the_priced_beads_and_logs_the_trade(se
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    give_beads(implementor, world.ROOM_TRADE_HALL, "Trade Hall", BUYER, CAP_PRICE_BEADS)
+    give_beads(implementor, world.ROOM_TRADE_HALL, world.ROOM_TRADE_HALL_NAME, BUYER, CAP_PRICE_BEADS)
 
-    assert_lines(buyer.command("buy cap"), trade_lines(CAP_PRICE_BEADS, LEATHER_CAP_NAME))
-    seen_by_implementor = text_seen_before_a_say(buyer, BUYER, implementor)
-    assert f"{BUYER.name} buys {LEATHER_CAP_NAME}." in seen_by_implementor, seen_by_implementor
+    assert_lines(buyer.command("buy cap"), trade_lines(CAP_PRICE_BEADS, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION))
+    seen_by_implementor = text_seen_before_a_say(buyer, BUYER.name, implementor)
+    assert f"{BUYER.name} buys {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION}." in seen_by_implementor, seen_by_implementor
     assert carried_count(buyer, CURRENCY_NAME) == 0
-    assert buyer.command("inventory").contains(LEATHER_CAP_NAME)
-    still_listed = stock_lines(DEFAULT_LIST_HEADER, ((LEATHER_CAP_NAME, cost_text(CAP_PRICE_BEADS)),))
+    assert buyer.command("inventory").contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
+    still_listed = stock_lines(DEFAULT_LIST_HEADER, ((world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, cost_text(CAP_PRICE_BEADS)),))
     assert_lines(buyer.command("list"), still_listed)
 
     trade_log_line = (
-        f"VENDOR: {BUYER.name} buys {LEATHER_CAP_NAME} ({world.OBJECT_LEATHER_CAP}) from mobile #{TRADER_VNUM}, "
+        f"VENDOR: {BUYER.name} buys {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION} ({world.OBJECT_LEATHER_CAP}) from mobile #{TRADER_VNUM}, "
         f"paid {cost_text(CAP_PRICE_BEADS)} ({CURRENCY_VNUM})"
     )
     game_log = read_game_log(server.handle.log_path)
@@ -217,7 +212,7 @@ def test_a_vendor_with_an_empty_store_has_nothing_to_sell(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
     goto(implementor, ROOM_STORE_ROOM, "Store Room")
-    assert implementor.command("get cap").contains(f"You get {LEATHER_CAP_NAME}.")
+    assert implementor.command("get cap").contains(f"You get {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION}.")
 
     assert buyer.command("list").contains(NOTHING_TO_SELL_MARKER)
     assert buyer.command("buy cap").contains(NOT_STOCKED_MARKER)
@@ -233,7 +228,7 @@ def test_a_vendor_refuses_a_gift(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    give_beads(implementor, world.ROOM_TRADE_HALL, "Trade Hall", BUYER, 1)
+    give_beads(implementor, world.ROOM_TRADE_HALL, world.ROOM_TRADE_HALL_NAME, BUYER, 1)
 
     assert buyer.command(f"give {CURRENCY_KEYWORD} trader").contains(NO_GIFTS_MARKER)
     assert carried_count(buyer, CURRENCY_NAME) == 1
@@ -257,7 +252,7 @@ def test_a_vendor_refuses_an_attack_and_no_fight_starts(server) -> None:
     assert buyer.command("kill trader").contains(NO_ATTACKS_MARKER)
     second_attack = buyer.command("kill trader")
     assert second_attack.contains(NO_ATTACKS_MARKER), second_attack.text
-    assert FIGHT_ONGOING_MARKER not in second_attack.text, second_attack.text
+    assert FIGHT_ONGOING_REPLY not in second_attack.text, second_attack.text
 
 
 @pytest.mark.schedule("affect-hours")
@@ -274,8 +269,8 @@ def test_a_vendor_lists_its_header_and_counts_only_deducted_rows(server) -> None
     expected = stock_lines(
         ODD_LIST_HEADER,
         (
-            (f"{LEATHER_CAP_NAME} (1 left)", cost_text(ODD_LEATHER_CAP_PRICE_BEADS)),
-            (IRON_CAP_NAME, cost_text(ODD_IRON_CAP_PRICE_BEADS)),
+            (f"{world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION} (1 left)", cost_text(ODD_LEATHER_CAP_PRICE_BEADS)),
+            (world.OBJECT_IRON_CAP_SHORT_DESCRIPTION, cost_text(ODD_IRON_CAP_PRICE_BEADS)),
             (LEAD_INGOT_NAME, cost_text(ODD_INGOT_PRICE_BEADS)),
         ),
     )
@@ -295,9 +290,9 @@ def test_a_vendor_sells_by_list_number_and_by_numbered_keyword(server) -> None:
     buyer = server.login(ODD_BUYER.name)
     give_beads(implementor, ROOM_ODD_TRADE_HALL, "Odd Trade Hall", ODD_BUYER, 2 * ODD_IRON_CAP_PRICE_BEADS)
 
-    assert_lines(buyer.command("buy 2"), trade_lines(ODD_IRON_CAP_PRICE_BEADS, IRON_CAP_NAME))
-    assert_lines(buyer.command("buy 2.cap"), trade_lines(ODD_IRON_CAP_PRICE_BEADS, IRON_CAP_NAME))
-    assert carried_count(buyer, IRON_CAP_NAME) == 2
+    assert_lines(buyer.command("buy 2"), trade_lines(ODD_IRON_CAP_PRICE_BEADS, world.OBJECT_IRON_CAP_SHORT_DESCRIPTION))
+    assert_lines(buyer.command("buy 2.cap"), trade_lines(ODD_IRON_CAP_PRICE_BEADS, world.OBJECT_IRON_CAP_SHORT_DESCRIPTION))
+    assert carried_count(buyer, world.OBJECT_IRON_CAP_SHORT_DESCRIPTION) == 2
     assert carried_count(buyer, CURRENCY_NAME) == 0
 
 
@@ -314,17 +309,17 @@ def test_a_vendor_hands_over_a_deducted_store_copy_and_stops_listing_it(server) 
     buyer = server.login(ODD_BUYER.name)
     give_beads(implementor, ROOM_ODD_TRADE_HALL, "Odd Trade Hall", ODD_BUYER, ODD_LEATHER_CAP_PRICE_BEADS)
 
-    assert_lines(buyer.command("buy cap"), trade_lines(ODD_LEATHER_CAP_PRICE_BEADS, LEATHER_CAP_NAME))
+    assert_lines(buyer.command("buy cap"), trade_lines(ODD_LEATHER_CAP_PRICE_BEADS, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION))
     remaining = stock_lines(
         ODD_LIST_HEADER,
         (
-            (IRON_CAP_NAME, cost_text(ODD_IRON_CAP_PRICE_BEADS)),
+            (world.OBJECT_IRON_CAP_SHORT_DESCRIPTION, cost_text(ODD_IRON_CAP_PRICE_BEADS)),
             (LEAD_INGOT_NAME, cost_text(ODD_INGOT_PRICE_BEADS)),
         ),
     )
     after = buyer.command("list")
     assert_lines(after, remaining)
-    assert LEATHER_CAP_NAME not in after.text, after.text
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in after.text, after.text
 
 
 @pytest.mark.schedule("affect-hours")

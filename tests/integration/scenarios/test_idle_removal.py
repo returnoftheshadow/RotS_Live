@@ -39,8 +39,6 @@ IDLER = Character(
 # The idler's maximum hit points: 10 + level 10 + the class term, its constitution adding nothing.
 IDLER_MAXIMUM_HIT = 74
 
-# Zone 21's draining grey sash, worn about the body: maximum hit points -72.
-SASH_VNUM = 2100
 # The maximum hit points the sash takes away.
 SASH_HIT_PENALTY = 72
 # The idler's maximum hit points while wearing the sash.
@@ -122,7 +120,7 @@ def idle_the_idler_for_28_hours(server, implementor: GameSession, idler: GameSes
     hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag")
     hand_object(implementor, world.OBJECT_SICKLY_AMULET, "amulet")
     if with_sash:
-        hand_object(implementor, SASH_VNUM, "sash")
+        hand_object(implementor, world.OBJECT_GREY_SASH, "sash")
     worn = idler.command("wear cap")
     assert worn.contains("You wear a leather cap on your head."), worn.text
 
@@ -176,7 +174,7 @@ def test_an_idler_whose_gear_poisons_them_as_it_comes_off_is_removed_and_returns
     assert gone.contains(NO_SUCH_PLAYER_MARKER), gone.text
     assert count_in_log(server.handle.log_path, IDLE_REMOVAL_LOG) == 1
     assert count_in_log(server.handle.log_path, "killed by") == 0
-    assert saved_wear_positions(server.lib_dir, IDLER) == {
+    assert saved_wear_positions(server.lib_dir, IDLER.name) == {
         world.OBJECT_SICKLY_AMULET: NECK_WEAR_POSITION,
         world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION,
         world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION,
@@ -187,9 +185,9 @@ def test_an_idler_whose_gear_poisons_them_as_it_comes_off_is_removed_and_returns
     assert returned.command("look").contains(BACK_FROM_AFK_MARKER)
     assert returned.command("look").room_name() == IDLE_HALL_NAME
     equipment = returned.command("equipment")
-    assert equipment.contains("a sickly amulet") and equipment.contains("a leather cap"), equipment.text
+    assert equipment.contains(world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION) and equipment.contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION), equipment.text
     inventory = returned.command("inventory")
-    assert inventory.contains("a leather bag"), inventory.text
+    assert inventory.contains(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION), inventory.text
 
 
 @pytest.mark.schedule("affect-hours")
@@ -233,13 +231,13 @@ def test_an_idler_whose_gear_kills_them_as_it_comes_off_dies_once_and_the_server
     hall = implementor.command("look")
     assert hall.contains(CORPSE_MARKER), hall.text
     corpse = implementor.command("look in corpse")
-    assert corpse.contains("a leather cap") and corpse.contains("a draining grey sash"), corpse.text
-    assert "a sickly amulet" not in corpse.text and "a leather bag" not in corpse.text, corpse.text
+    assert corpse.contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) and corpse.contains("a draining grey sash"), corpse.text
+    assert world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION not in corpse.text and world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION not in corpse.text, corpse.text
     gone = implementor.command(f"stat player {IDLER.name.lower()}")
     assert gone.contains(NO_SUCH_PLAYER_MARKER), gone.text
     assert count_in_log(server.handle.log_path, IDLE_REMOVAL_LOG) == 1
     assert count_in_log(server.handle.log_path, DEATH_LOG) == 1
-    assert saved_wear_positions(server.lib_dir, IDLER) == {}
+    assert saved_wear_positions(server.lib_dir, IDLER.name) == {}
 
     returned = server.login(IDLER.name)
     assert returned.command("look").contains(BACK_FROM_AFK_MARKER)

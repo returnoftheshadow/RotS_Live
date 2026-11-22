@@ -15,7 +15,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import STOP_USING_FORMAT
+from rots_harness.game_text import INVENTORY_HEADER, STOP_USING_FORMAT, WEAR_HEAD_FORMAT
 from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, goto, load_mob, load_object, where_lines
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEVEL_PATTERN, read_stat
@@ -58,22 +58,21 @@ CARRIER = Character(
 
 # Test-world objects (obj/11.obj, obj/13.obj, obj/16.obj, obj/19.obj): each tuple is the vnum,
 # a keyword that names only it among the objects a test hands over, and its short description.
-CURSED_RING = (1307, "ring", "a cursed ring")  # worn on a finger; NODROP, so it cannot be given
-BELT = (1902, "belt", "a leather belt")  # worn about the waist; gives the belt hooks
-LEATHER_CAP = (world.OBJECT_LEATHER_CAP, "cap", "a leather cap")  # worn on the head
-BAG = (world.OBJECT_LEATHER_BAG, "bag", "a leather bag")  # a container, with no wear slot and not wieldable
-IRON_CAP = (1304, "cap", "an iron cap")  # worn on the head, so it finds the slot taken
-KEYRING = (1901, "keyring", "a brass keyring")  # hangs on a belt hook
-CHAIN_SHIRT = (world.OBJECT_CHAIN_SHIRT, "shirt", "a chain shirt")  # worn on the body
-COPPER_BEAD = (world.OBJECT_COPPER_BEAD, "bead", "a copper bead")  # carried, never worn
-LEATHER_HELM = (world.OBJECT_LEATHER_HELM, "helm", "a leather helm")  # worn on the head; no zone resets one
+CURSED_RING = (world.OBJECT_CURSED_RING, "ring", world.OBJECT_CURSED_RING_SHORT_DESCRIPTION)  # worn on a finger; NODROP, so it cannot be given
+BELT = (world.OBJECT_LEATHER_BELT, "belt", "a leather belt")  # worn about the waist; gives the belt hooks
+LEATHER_CAP = (world.OBJECT_LEATHER_CAP, "cap", world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)  # worn on the head
+BAG = (world.OBJECT_LEATHER_BAG, "bag", world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)  # a container, with no wear slot and not wieldable
+IRON_CAP = (world.OBJECT_IRON_CAP, "cap", world.OBJECT_IRON_CAP_SHORT_DESCRIPTION)  # worn on the head, so it finds the slot taken
+KEYRING = (world.OBJECT_BRASS_KEYRING, "keyring", world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION)  # hangs on a belt hook
+CHAIN_SHIRT = (world.OBJECT_CHAIN_SHIRT, "shirt", world.OBJECT_CHAIN_SHIRT_SHORT_DESCRIPTION)  # worn on the body
+COPPER_BEAD = (world.OBJECT_COPPER_BEAD, "bead", world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION)  # carried, never worn
+LEATHER_HELM = (world.OBJECT_LEATHER_HELM, "helm", world.OBJECT_LEATHER_HELM_SHORT_DESCRIPTION)  # worn on the head; no zone resets one
 
 # What get and wear print (do_get in act_obj1.cpp, wear_message in act_obj2.cpp); each is
 # formatted with an object's short description.
 GET_FORMAT = "You get {}."
 WEAR_FINGER_FORMAT = "You slide {} on to your right ring finger."
 WEAR_WAIST_FORMAT = "You wear {} around your waist."
-WEAR_HEAD_FORMAT = "You wear {} on your head."
 WEAR_BELT_HOOK_FORMAT = "You fasten {} on your belt."
 WEAR_BODY_FORMAT = "You wear {} on your body."
 # What wear all prints for an item whose head slot is already taken (perform_wear).
@@ -100,8 +99,6 @@ ROOM_KEYRING_FALLS_MARKER = "A brass keyring falls to the ground."
 CANNOT_CARRY_FORMAT = "{}: you can't carry that many items!"
 # What the implementor reads as it purges a mob (do_purge, act_wiz.cpp).
 PURGED_MARKER = "Ok."
-# The line inventory prints before the carried objects (do_inventory, act_info.cpp).
-INVENTORY_HEADER = "You are carrying:"
 # The stat lines the full-hands margin rests on (do_stat_character, act_wiz.cpp).
 CURRENT_DEXTERITY_PATTERN = re.compile(r"Dex:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")
 CARRIED_ITEMS_PATTERN = re.compile(r"Carried: weight: -?\d+, items: (\d+);")
@@ -340,7 +337,7 @@ def test_purge_destroys_what_a_mob_wears_and_carries_and_leaves_nothing_behind(s
     is reset anywhere, so `where` by vnum finds every copy in the world.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    goto(implementor, world.ROOM_ARENA_WEST, "Arena West", exact=False)
+    goto(implementor, world.ROOM_ARENA_WEST, world.ROOM_ARENA_WEST_NAME, exact=False)
     load_mob(implementor, world.MOB_PORTER, "a porter")
     give_new_object(implementor, LEATHER_HELM[0], "helm", "porter", shown_recipient="a porter", short_description=LEATHER_HELM[2])
     dressed = implementor.command("force porter wear helm")

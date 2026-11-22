@@ -103,15 +103,16 @@ class Character:
         return spec
 
 
-IMPLEMENTOR = Character(name="Testimm", race="human", sex="male", level=LEVEL_IMPLEMENTOR, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
-
-
 def immortal(name: str, level: int) -> Character:
-    """An immortal test character: a human male warrior of level whose load room is world.ROOM_IMMORTAL_START.
+    """Return an immortal test character: a human male warrior who loads in ROOM_IMMORTAL_START.
 
-    Nothing checks that level is an immortal's; the caller picks it.
+    level should be an immortal's; it is not checked.
     """
     return Character(name=name, race="human", sex="male", level=level, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
+
+
+# The implementor most scenarios set up and inspect their tests with.
+IMPLEMENTOR = immortal("Testimm", LEVEL_IMPLEMENTOR)
 
 
 def custom_mage(

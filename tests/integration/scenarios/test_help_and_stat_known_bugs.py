@@ -197,7 +197,7 @@ def test_stat_obj_does_not_label_a_learning_affect_sex(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    load_object(implementor, world.OBJECT_STONE_GIRDLE, "a stone girdle")
+    load_object(implementor, world.OBJECT_STONE_GIRDLE, world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION)
     affect_line = OBJECT_AFFECT_LINE_PATTERN.search(read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE))
     assert affect_line is not None
     assert STALE_LEARNING_LABEL not in affect_line.group(1).split(), affect_line.group(0)
@@ -215,7 +215,7 @@ def test_stat_shows_the_statted_characters_absorb(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
     join_player(implementor)
-    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description="a chain shirt")
+    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description=world.OBJECT_CHAIN_SHIRT_SHORT_DESCRIPTION)
     worn = player.command("wear shirt")
     assert worn.contains("You wear a chain shirt on your body."), worn.text
     info = player.command("info")

@@ -8,6 +8,7 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.game_log import wait_for_log_count
+from rots_harness.game_text import NOTHING_FOUND_REPLY
 from rots_harness.immortal_commands import goto
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -62,9 +63,6 @@ ACORN_LOCATION_LINE = "In object: a leather satchel, Carried by: Nobody"
 SPARE_BASCINET_VNUM = 2611
 # The object vnum of the P row after it, which puts a flint in the last object loaded.
 STRAY_FLINT_VNUM = 2612
-# What the implementor's `where <vnum>` prints when no object or mob has that vnum
-# (perform_immort_where, act_info.cpp).
-NOTHING_FOUND_LINE = "Couldn't find any such thing."
 # What the reset logs for the second E row into the head slot (reset_zone, zone.cpp).
 ALREADY_EQUIPPED_SYSERR = "SYSERR: Char is already equipped: a dressed squire, a spare bascinet"
 # Seconds to wait for a line to reach game.log: the Docker launcher relays the server's stderr
@@ -131,5 +129,5 @@ def test_a_reset_row_for_a_wear_slot_its_mob_has_filled_makes_no_item(server) ->
 
     for vnum in (SPARE_BASCINET_VNUM, STRAY_FLINT_VNUM):
         where = implementor.command(f"where {vnum}")
-        assert where.contains(NOTHING_FOUND_LINE), where.text
+        assert where.contains(NOTHING_FOUND_REPLY), where.text
     wait_for_log_count(server.handle.log_path, ALREADY_EQUIPPED_SYSERR, 1, exact=True, timeout=LOG_TIMEOUT_SECONDS, poll=LOG_POLL_SECONDS)

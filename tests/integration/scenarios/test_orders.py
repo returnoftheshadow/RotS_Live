@@ -10,7 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import FORCED_REPLY
+from rots_harness.game_text import FORCED_REPLY, NOBODY_WILLING_REPLY, NOW_FOLLOWS_FORMAT
 from rots_harness.immortal_commands import goto, load_mob
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -54,16 +54,12 @@ CAPTAIN = HallMob(vnum=2201, keyword="captain", short_description="a lackey capt
 # name matches across them. Not level 7, so the warden never removes it.
 LEADER = Character(name="Testleader", race="human", sex="male", level=10, load_room=world.ROOM_ORDER_HALL, class_name="warrior")
 
-# How look names the Order Hall.
-ORDER_HALL_NAME = "Order Hall"
 
 # What the room reads as the leader orders its followers (do_order, act_offe.cpp); format with the
 # leader as the room sees it.
 ISSUES_AN_ORDER_FORMAT = "{} issues an order."
 # What the leader reads once at least one follower was ordered (do_order).
 ORDER_DONE_MARKER = "Ok."
-# What the leader reads when no follower in the room is charmed (do_order).
-NOBODY_WILLING_MARKER = "Nobody here is willing to carry out your orders!"
 # What a listener reads as a mob speaks (say_to_char, act_comm.cpp); format with the speaker as
 # the listener sees it and the words.
 SAYS_FORMAT = "{} says '{}'"
@@ -72,9 +68,6 @@ SAYS_FORMAT = "{} says '{}'"
 HATES_YOUR_GUTS_FORMAT = "{} hates your guts!"
 # What the rest of the room reads then; format with the follower and the leader.
 REALIZES_A_JERK_FORMAT = "{} realizes that {} is a jerk!"
-# What the room reads as a mob starts following someone (add_follower, handler.cpp); format with
-# the follower and the leader.
-NOW_FOLLOWS_FORMAT = "{} now follows {}."
 # What the room reads as a mob sits down (do_sit, act_move.cpp); format with the mob.
 SITS_DOWN_FORMAT = "{} sits down."
 # The `stat mob` line naming a mob's master (do_stat_character, act_wiz.cpp); format with the
@@ -113,7 +106,7 @@ def gather_followers(implementor: GameSession, leader: GameSession, followers: l
     do_order walks that list from the head, so the followers are made to follow in reverse:
     the order then reaches them in the order given here.
     """
-    goto(implementor, world.ROOM_ORDER_HALL, ORDER_HALL_NAME)
+    goto(implementor, world.ROOM_ORDER_HALL, world.ROOM_ORDER_HALL_NAME)
     for follower in followers:
         load_mob(implementor, follower.vnum, follower.short_description)
 
@@ -128,7 +121,7 @@ def order_followers(leader: GameSession, command: str) -> str:
     do_order sends "Ok." or the refusal after every follower's command has run, so the whole
     order is read once either arrives.
     """
-    return reply_to(leader, f"order followers {command}", [ORDER_DONE_MARKER, NOBODY_WILLING_MARKER])
+    return reply_to(leader, f"order followers {command}", [ORDER_DONE_MARKER, NOBODY_WILLING_REPLY])
 
 
 def stat_mob(implementor: GameSession, mob: HallMob) -> str:
@@ -242,7 +235,7 @@ def test_an_order_that_removes_its_leader_ends_there(server) -> None:
     The elm lackey never says farewell either way. Nothing on the path draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    goto(implementor, world.ROOM_ORDER_HALL, ORDER_HALL_NAME)
+    goto(implementor, world.ROOM_ORDER_HALL, world.ROOM_ORDER_HALL_NAME)
     for mob in (CAPTAIN, ASH, ELM):
         load_mob(implementor, mob.vnum, mob.short_description)
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import NO_ENERGY, cast_until_it_lands
+from rots_harness.casting import NO_ENERGY_REPLY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
 from rots_harness.immortal_commands import give_new_object
@@ -15,16 +15,13 @@ from test_identify import ATTRIBUTES_HEADER, MAGE
 
 pytestmark = [pytest.mark.scenario, pytest.mark.identify]
 
-# The keyword and short description of the strange relic (world.OBJECT_STRANGE_RELIC): wear
-# flags TAKE and THROW (bit 15), and every extra flag from bit 0 to 28 but 5 (INVISIBLE), 7
-# (NODROP) and 13 (the retired !DONATE). Its WILLPOWER (bit 15) is gone by the time the mage
-# holds it: the give clears it (obj_from_char, handler.cpp), which
-# test_object_versions_known_bugs.py pins. NOINVIS (bit 14) stays.
-RELIC_KEYWORD = "relic"
-RELIC_SHORT_DESCRIPTION = "a strange relic"
-
+# The strange relic (world.OBJECT_STRANGE_RELIC) has the wear flags TAKE and THROW (bit 15), and
+# every extra flag from bit 0 to 28 but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE).
+# Its WILLPOWER (bit 15) is gone by the time the mage holds it: the give clears it
+# (obj_from_char, handler.cpp), which test_object_versions_known_bugs.py pins. NOINVIS (bit 14)
+# stays.
 # The first line identify prints (do_identify_object, act_info.cpp).
-IDENTIFIED_MARKER = f"You feel certain the object you have is {RELIC_SHORT_DESCRIPTION}."
+IDENTIFIED_MARKER = f"You feel certain the object you have is {world.OBJECT_STRANGE_RELIC_SHORT_DESCRIPTION}."
 # The start of identify's wear sentence for an object of type other (do_identify_object,
 # item_messages[12], act_info.cpp).
 WEAR_SENTENCE_START = "This item can be"
@@ -39,15 +36,15 @@ def identify_relic(server) -> list:
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs mana and nothing restores mana between requests under affect-hours, so
-    the repeats end at NO_ENERGY at the latest.
+    the repeats end at NO_ENERGY_REPLY at the latest.
     """
     implementor = server.login(IMPLEMENTOR.name)
     mage: GameSession = server.login(MAGE.name)
     mage_keyword = MAGE.name.lower()
-    give_new_object(implementor, world.OBJECT_STRANGE_RELIC, RELIC_KEYWORD, mage_keyword, shown_recipient=MAGE.name, short_description=RELIC_SHORT_DESCRIPTION)
+    give_new_object(implementor, world.OBJECT_STRANGE_RELIC, world.OBJECT_STRANGE_RELIC_KEYWORD, mage_keyword, shown_recipient=MAGE.name, short_description=world.OBJECT_STRANGE_RELIC_SHORT_DESCRIPTION)
 
-    outcomes = [IDENTIFIED_MARKER, NO_ENERGY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
-    reply = cast_until_it_lands(mage, f"cast 'identify' {RELIC_KEYWORD}", outcomes)
+    outcomes = [IDENTIFIED_MARKER, NO_ENERGY_REPLY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
+    reply = cast_until_it_lands(mage, f"cast 'identify' {world.OBJECT_STRANGE_RELIC_KEYWORD}", outcomes)
     assert IDENTIFIED_MARKER in reply, reply
     return [line.strip() for line in reply.splitlines()]
 

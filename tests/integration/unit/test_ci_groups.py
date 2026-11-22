@@ -246,8 +246,7 @@ def read_real_scenario(path: str) -> str:
 
 
 def test_a_scenario_file_other_scenarios_import_imports_no_scenario_file() -> None:
-    # CI follows importers one level only, so a change to a file that an imported file imports
-    # would not run the groups of the file at the top of the chain.
+    # CI follows importers one level only, so a chain would hide the top file's groups.
     scenario_paths = ci_groups.scenario_file_paths(REPO_ROOT)
     assert scenario_paths, REPO_ROOT
     scenario_modules = {Path(path).stem for path in scenario_paths}
@@ -255,7 +254,8 @@ def test_a_scenario_file_other_scenarios_import_imports_no_scenario_file() -> No
     for path in scenario_paths:
         if not ci_groups.importer_reasons(path, scenario_paths, read_real_scenario):
             continue
-        imported = ci_groups.imported_module_names(read_real_scenario(path))
+        scenario_source = read_real_scenario(path)
+        imported = ci_groups.imported_module_names(scenario_source)
         assert imported is not None, f"{path} does not parse"
         imported_scenarios = sorted(imported & scenario_modules)
         chains.extend(f"{Path(path).name} imports {module}.py" for module in imported_scenarios)

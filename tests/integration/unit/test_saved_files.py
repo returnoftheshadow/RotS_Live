@@ -11,6 +11,7 @@ from rots_harness import world
 from rots_harness.characters import HARNESS_EMAIL, Character
 from rots_harness.saved_files import (
     CARRIED_WEAR_POSITION,
+    CHARACTER_FILE_KINDS,
     HARNESS_ACCOUNT_FILE,
     HARNESS_ACCOUNT_FOLDER,
     HEAD_WEAR_POSITION,
@@ -45,16 +46,16 @@ def test_stored_account_reads_the_harness_account_record(tmp_path: Path) -> None
 def test_account_file_finds_the_one_file_in_any_account_folder(tmp_path: Path) -> None:
     saved_path = tmp_path / "accounts" / "K-O" / "other@example.com" / "testwearer.objects.json"
     write_json(saved_path, {"objects": []})
-    assert account_file(tmp_path, WEARER, "objects") == saved_path
+    assert account_file(tmp_path, WEARER.name, "objects") == saved_path
 
 
 def test_account_file_fails_naming_the_file_when_there_is_none_or_two(tmp_path: Path) -> None:
     with pytest.raises(AssertionError, match="expected one testwearer.character.json"):
-        account_file(tmp_path, WEARER, "character")
+        account_file(tmp_path, WEARER.name, "character")
     write_json(tmp_path / HARNESS_ACCOUNT_FOLDER / "testwearer.character.json", {})
     write_json(tmp_path / "accounts" / "K-O" / "other@example.com" / "testwearer.character.json", {})
     with pytest.raises(AssertionError, match="expected one testwearer.character.json"):
-        account_file(tmp_path, WEARER, "character")
+        account_file(tmp_path, WEARER.name, "character")
 
 
 def test_saved_wear_positions_map_each_vnum_to_its_wear_position(tmp_path: Path) -> None:
@@ -63,10 +64,17 @@ def test_saved_wear_positions_map_each_vnum_to_its_wear_position(tmp_path: Path)
         {"item_number": world.OBJECT_LEATHER_BAG, "wear_pos": CARRIED_WEAR_POSITION},
     ]
     write_json(tmp_path / HARNESS_ACCOUNT_FOLDER / "testwearer.objects.json", {"objects": objects})
-    assert saved_wear_positions(tmp_path, WEARER) == {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
+    assert saved_wear_positions(tmp_path, WEARER.name) == {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
 
 
 def test_the_wear_positions_are_the_headers() -> None:
     structs_text = (SOURCE_DIRECTORY / "structs.h").read_text(encoding="latin-1")
     assert f"inline constexpr int WEAR_HEAD = {HEAD_WEAR_POSITION};" in structs_text
     assert f"inline constexpr int MAX_WEAR = {CARRIED_WEAR_POSITION};" in structs_text
+
+
+@pytest.mark.parametrize("kind", CHARACTER_FILE_KINDS)
+def test_each_character_file_kind_is_a_file_account_storage_names(kind: str) -> None:
+    storage_path = SOURCE_DIRECTORY / "account_management.cpp"
+    storage_source = storage_path.read_text(encoding="latin-1")
+    assert f'".{kind}.json"' in storage_source, f"no .{kind}.json in {storage_path}"

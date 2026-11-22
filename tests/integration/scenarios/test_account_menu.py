@@ -13,10 +13,12 @@ import pytest
 from rots_harness import world
 from rots_harness.accounts import (
     ACCOUNT_MENU_NEW_CHARACTER,
-    INVALID_CREDENTIALS_MARKER,
+    INVALID_CREDENTIALS_REPLY,
     NEW_CHARACTER_NAME_PROMPT,
-    SHORT_PASSWORD_REFUSAL,
+    SHORT_PASSWORD_REPLY,
+    UNREADABLE_ROW_PART,
     account_connection,
+    account_show_characters,
     closes_within,
     playing_connection,
 )
@@ -24,14 +26,14 @@ from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR
 from rots_harness.game_log import log_lines_holding, read_game_log
 from rots_harness.game_text import QUIT_DROP_REPLY
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
-from rots_harness.saved_files import HARNESS_ACCOUNT_FILE, stored_account
+from rots_harness.saved_files import CHARACTER_FILE_KINDS, HARNESS_ACCOUNT_FILE, stored_account
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
     ACCOUNT_MENU_PROMPT,
     CHARACTER_CHOICE_PROMPT,
     CHARACTER_MENU_ENTER,
     CHARACTER_MENU_PROMPT,
-    ENTER_GAME_MARKER,
+    ENTER_GAME_REPLY,
     LOGIN_PASSWORD_PROMPT,
     GameSession,
 )
@@ -137,8 +139,6 @@ ROSTER_SELECTION_ERROR = "Select a linked character by number or name, or enter 
 # One roster row, `%zu) [%3d %s] %-12.12s`, or `%zu) [ ?? ???] %-12.12s` for a character whose file
 # cannot be read: row, level, race, name (format_account_character_short_entry, account_management.cpp).
 ROSTER_ROW_PATTERN = re.compile(r"(\d+)\) \[ *(\d+|\?\?) (\w+|\?\?\?)\] (\w+)")
-# The level and race columns of a row whose character file cannot be read.
-UNREADABLE_ROW_COLUMNS = "[ ?? ???]"
 # The side sort's section headers (side_section_label, account_management.cpp).
 GODS_SECTION_HEADER = "-- Gods --"
 GOOD_SECTION_HEADER = "-- Good --"
@@ -204,11 +204,6 @@ RENAMED_TO = "Testnewname"
 # What `wizset ... name` prints on success and on a taken name (do_wizset, act_wiz.cpp; rename_char, db.cpp).
 RENAME_DONE_REPLY = "You changed their name successfully."
 RENAME_TAKEN_REFUSAL = "That rename was refused -- nothing was changed: that name is already taken."
-# The start of the character list line of `account show`
-# (format_account_summary, account_management_presentation.cpp).
-ACCOUNT_SHOW_CHARACTERS_PREFIX = "Characters ("
-# The three files account storage keeps for each linked character (account_management.cpp).
-CHARACTER_FILE_KINDS = ("character", "objects", "exploits")
 
 
 def answer_password(connection: GameSession, password: str) -> str:
@@ -263,7 +258,7 @@ def assert_rows_numbered_from_one(roster_text: str) -> None:
 def enter_selected_character(connection: GameSession) -> str:
     """Enters the game from the character menu and returns the name of the room the character stands in."""
     connection.send_line(CHARACTER_MENU_ENTER)
-    connection.expect([ENTER_GAME_MARKER])
+    connection.expect([ENTER_GAME_REPLY])
     return connection.command("look").room_name()
 
 
@@ -295,14 +290,6 @@ def request_reset(connection: GameSession) -> str:
     for requested_line in RESET_REQUESTED_LINES:
         assert requested_line in requested, requested
     return requested
-
-
-def account_show_characters(implementor: GameSession) -> str:
-    """The character list line `account show` prints for the harness account."""
-    reply = implementor.command(f"account show {HARNESS_EMAIL}").text
-    lines = [line.strip() for line in reply.splitlines() if line.strip().startswith(ACCOUNT_SHOW_CHARACTERS_PREFIX)]
-    assert len(lines) == 1, reply
-    return lines[0]
 
 
 @pytest.mark.account_menu_sessions
@@ -345,11 +332,11 @@ def test_the_fifth_wrong_password_opens_the_reset_menu(server) -> None:
     with account_connection(server.handle, server.run_dir, "resetmenu") as connection:
         replies = exhaust_passwords(connection)
         for earlier_reply in replies[:-1]:
-            assert INVALID_CREDENTIALS_MARKER in earlier_reply, earlier_reply
+            assert INVALID_CREDENTIALS_REPLY in earlier_reply, earlier_reply
             assert LOGIN_PASSWORD_PROMPT in earlier_reply, earlier_reply
             assert RESET_MENU_LINES[0] not in earlier_reply, earlier_reply
         last_reply = replies[-1]
-        assert INVALID_CREDENTIALS_MARKER in last_reply, last_reply
+        assert INVALID_CREDENTIALS_REPLY in last_reply, last_reply
         assert LOGIN_PASSWORD_PROMPT not in last_reply, last_reply
         for menu_line in RESET_MENU_LINES:
             assert menu_line in last_reply, last_reply
@@ -475,7 +462,7 @@ def test_a_correct_reset_code_sets_a_new_password_and_the_old_one_stops_working(
     with account_connection(server.handle, server.run_dir, "resetlogin") as connection:
         enter_email(connection)
         old_password = answer_password(connection, HARNESS_PASSWORD)
-        assert INVALID_CREDENTIALS_MARKER in old_password and LOGIN_PASSWORD_PROMPT in old_password, old_password
+        assert INVALID_CREDENTIALS_REPLY in old_password and LOGIN_PASSWORD_PROMPT in old_password, old_password
         new_password = answer_password(connection, NEW_PASSWORD)
         assert ACCOUNT_MENU_HEADER in new_password and ACCOUNT_MENU_PROMPT in new_password, new_password
 
@@ -491,7 +478,7 @@ def test_a_reset_refuses_a_short_new_password_and_a_mismatched_retype(server) ->
         connection.expect([NEW_PASSWORD_PROMPT])
         connection.send_line(SHORT_PASSWORD)
         short = connection.expect([NEW_PASSWORD_PROMPT, RETYPE_PASSWORD_PROMPT])
-        assert SHORT_PASSWORD_REFUSAL in short and RETYPE_PASSWORD_PROMPT not in short, short
+        assert SHORT_PASSWORD_REPLY in short and RETYPE_PASSWORD_PROMPT not in short, short
         connection.send_line(NEW_PASSWORD)
         connection.expect([RETYPE_PASSWORD_PROMPT])
         connection.send_line(MISMATCHED_PASSWORD)
@@ -514,7 +501,7 @@ def test_failed_logins_are_reported_at_the_next_successful_login(server) -> None
         enter_email(connection)
         for _attempt in range(failed_attempts):
             reply = answer_password(connection, WRONG_PASSWORD)
-            assert INVALID_CREDENTIALS_MARKER in reply, reply
+            assert INVALID_CREDENTIALS_REPLY in reply, reply
         login = answer_password(connection, HARNESS_PASSWORD)
         assert ACCOUNT_MENU_PROMPT in login, login
         assert FAILED_LOGIN_NOTICE_FORMAT.format(failed_attempts) in login, login
@@ -527,7 +514,7 @@ def test_one_failed_login_is_reported_in_the_singular(server) -> None:
     with account_connection(server.handle, server.run_dir, "noticesingular") as connection:
         enter_email(connection)
         wrong = answer_password(connection, WRONG_PASSWORD)
-        assert INVALID_CREDENTIALS_MARKER in wrong, wrong
+        assert INVALID_CREDENTIALS_REPLY in wrong, wrong
         login = answer_password(connection, HARNESS_PASSWORD)
         assert ONE_FAILED_LOGIN_NOTICE in login, login
         assert FAILED_LOGIN_PLURAL_WORD not in login, login
@@ -540,7 +527,7 @@ def test_the_failed_login_notice_is_shown_only_once(server) -> None:
     with account_connection(server.handle, server.run_dir, "noticefirst") as connection:
         enter_email(connection)
         wrong = answer_password(connection, WRONG_PASSWORD)
-        assert INVALID_CREDENTIALS_MARKER in wrong, wrong
+        assert INVALID_CREDENTIALS_REPLY in wrong, wrong
         first_login = answer_password(connection, HARNESS_PASSWORD)
         assert FAILED_LOGIN_NOTICE_WORDS in first_login, first_login
         connection.send_line(ACCOUNT_MENU_LOG_OUT)
@@ -624,7 +611,7 @@ def test_the_roster_selects_a_character_by_its_full_name_in_any_case(server) -> 
         open_roster(connection)
         reply = roster_answer(connection, "aSWIN")
         assert CHARACTER_MENU_PROMPT in reply and ROSTER_SELECTION_ERROR not in reply, reply
-        assert enter_selected_character(connection) == "Arena West"
+        assert enter_selected_character(connection) == world.ROOM_ARENA_WEST_NAME
         connection.quit()
 
 
@@ -750,7 +737,7 @@ def test_a_name_the_filter_hides_still_selects_its_character(server) -> None:
         assert ROSTER_MAGE.name not in roster_names(filtered), filtered
         selected = roster_answer(connection, ROSTER_MAGE.name)
         assert CHARACTER_MENU_PROMPT in selected and ROSTER_SELECTION_ERROR not in selected, selected
-        assert enter_selected_character(connection) == "Arena East"
+        assert enter_selected_character(connection) == world.ROOM_ARENA_EAST_NAME
         connection.quit()
 
 
@@ -820,7 +807,7 @@ def test_a_sort_chosen_before_selecting_a_character_is_kept_in_the_next_session(
         selected = roster_answer(connection, "1")
         assert CHARACTER_MENU_PROMPT in selected, selected
         assert stored_account(server.lib_dir)["roster_sort"] == "level"
-        assert enter_selected_character(connection) == "Arena East"
+        assert enter_selected_character(connection) == world.ROOM_ARENA_EAST_NAME
         connection.quit()
     assert stored_account(server.lib_dir)["roster_sort"] == "level"
     with account_connection(server.handle, server.run_dir, "sortselectnext") as connection:
@@ -842,7 +829,7 @@ def test_a_linked_character_without_a_file_is_listed_last_as_unreadable_and_neve
     under the name and level sorts although its name would sort first, has its own Unavailable
     section under the side sort, and is left out by a filter."""
     link_ghost(server)
-    ghost_row = f"3) {UNREADABLE_ROW_COLUMNS} {GHOST_NAME}"
+    ghost_row = f"3) {UNREADABLE_ROW_PART} {GHOST_NAME}"
     readable_names = [IMPLEMENTOR.name, SURVIVOR.name]
     with account_connection(server.handle, server.run_dir, "ghostrows") as connection:
         linked_order = open_roster(connection)
@@ -855,7 +842,7 @@ def test_a_linked_character_without_a_file_is_listed_last_as_unreadable_and_neve
         assert headers == [GODS_SECTION_HEADER, GOOD_SECTION_HEADER, UNAVAILABLE_SECTION_HEADER], side_sorted
         assert roster_names(side_sorted.split(UNAVAILABLE_SECTION_HEADER)[1]) == [GHOST_NAME], side_sorted
         filtered = roster_answer(connection, "W")
-        assert roster_names(filtered) == readable_names and UNREADABLE_ROW_COLUMNS not in filtered, filtered
+        assert roster_names(filtered) == readable_names and UNREADABLE_ROW_PART not in filtered, filtered
         assert "2 of 3 characters shown (Warrior).  Press W to clear." in filtered, filtered
 
 
@@ -872,5 +859,5 @@ def test_selecting_a_linked_character_without_a_file_is_refused_and_the_roster_s
         assert CHARACTER_MENU_PROMPT not in refused, refused
         selected = roster_answer(connection, SURVIVOR.name)
         assert CHARACTER_MENU_PROMPT in selected, selected
-        assert enter_selected_character(connection) == "Arena West"
+        assert enter_selected_character(connection) == world.ROOM_ARENA_WEST_NAME
         connection.quit()

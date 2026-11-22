@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping
 
 import pytest
 
@@ -22,7 +21,8 @@ from rots_harness.immortal_commands import (
     where_lines,
     wizset,
 )
-from rots_harness.session import SessionTimeout, Transcript
+from rots_harness.session import SessionTimeout
+from unit.fakes import RecordingSession
 
 # The game's source folder, whose format strings the reply formats come from.
 SOURCE_DIR = Path(__file__).resolve().parents[3] / "src"
@@ -47,56 +47,34 @@ WHERE_REPLY = "\n\r".join(
 )
 
 
-class FakeSession:
-    """Stands in for a GameSession: records each command and answers it from a fixed table."""
-
-    def __init__(self, replies: Mapping[str, str], *, time_out: bool = False) -> None:
-        """Answers each command with replies[command], or "" when the table has none; time_out raises SessionTimeout instead."""
-        # The reply text for each command line, as sent.
-        self._replies = replies
-        # Whether command raises SessionTimeout instead of answering.
-        self._time_out = time_out
-        # Each command line sent, in order.
-        self.commands: list[str] = []
-
-    def command(self, text: str) -> Transcript:
-        """Records the line, then answers from the table or times out."""
-        self.commands.append(text)
-        if self._time_out:
-            raise SessionTimeout("no prompt")
-
-        reply_text = self._replies.get(text, "")
-        return Transcript(reply_text)
-
-
 def test_goto_without_a_room_name_sends_goto_and_asserts_nothing() -> None:
-    session = FakeSession({})
+    session = RecordingSession()
     reply = goto(session, 1131)
     assert session.commands == ["goto 1131"]
     assert reply.text == ""
 
 
 def test_goto_with_a_room_name_checks_the_room_name_exactly() -> None:
-    session = FakeSession({"goto testwearer": ARENA_CENTRE_REPLY})
+    session = RecordingSession(command_replies={"goto testwearer": ARENA_CENTRE_REPLY})
     reply = goto(session, "testwearer", "Arena Centre")
     assert reply.text == ARENA_CENTRE_REPLY
 
 
 def test_goto_fails_naming_the_room_when_the_room_name_differs() -> None:
-    session = FakeSession({"goto 1131": ARENA_CENTRE_REPLY})
+    session = RecordingSession(command_replies={"goto 1131": ARENA_CENTRE_REPLY})
     with pytest.raises(AssertionError, match="goto 1131 did not reach 'Arena'"):
         goto(session, 1131, "Arena")
 
 
 def test_goto_not_exact_accepts_the_name_anywhere_in_the_reply() -> None:
-    session = FakeSession({"goto 1131": ARENA_CENTRE_REPLY})
+    session = RecordingSession(command_replies={"goto 1131": ARENA_CENTRE_REPLY})
     goto(session, 1131, "centre.", exact=False)
     with pytest.raises(AssertionError, match="goto 1131 shows no 'Arena West'"):
         goto(session, 1131, "Arena West", exact=False)
 
 
 def test_load_object_without_a_short_description_checks_only_you_create() -> None:
-    session = FakeSession({"load obj 1137": "\n\rYou create something else.\n\r"})
+    session = RecordingSession(command_replies={"load obj 1137": "\n\rYou create something else.\n\r"})
     load_object(session, 1137)
     assert session.commands == ["load obj 1137"]
     with pytest.raises(AssertionError, match="no 'You create' in the reply to load obj 1138"):
@@ -104,14 +82,14 @@ def test_load_object_without_a_short_description_checks_only_you_create() -> Non
 
 
 def test_load_object_with_a_short_description_checks_the_whole_reply() -> None:
-    session = FakeSession({"load obj 1137": CAP_CREATED_REPLY})
+    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY})
     assert load_object(session, 1137, "a leather cap").text == CAP_CREATED_REPLY
     with pytest.raises(AssertionError, match="no 'You create a leather bag.' in the reply to load obj 1137"):
         load_object(session, 1137, "a leather bag")
 
 
 def test_load_mob_sends_load_mob_and_checks_as_load_object_does() -> None:
-    session = FakeSession({"load mob 1105": "\n\rYou create the harness innkeeper.\n\r"})
+    session = RecordingSession(command_replies={"load mob 1105": "\n\rYou create the harness innkeeper.\n\r"})
     load_mob(session, 1105)
     load_mob(session, 1105, "the harness innkeeper")
     assert session.commands == ["load mob 1105", "load mob 1105"]
@@ -120,38 +98,38 @@ def test_load_mob_sends_load_mob_and_checks_as_load_object_does() -> None:
 
 
 def test_give_new_object_loads_gives_and_returns_the_give_replys_text() -> None:
-    session = FakeSession({"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
     given = give_new_object(session, 1137, "cap", "testwearer")
     assert session.commands == ["load obj 1137", "give cap testwearer"]
     assert given == CAP_GIVEN_REPLY
 
 
 def test_give_new_object_without_options_checks_only_you_create_and_you_give() -> None:
-    session = FakeSession({"load obj 1137": "You create x.", "give cap testwearer": "You give x to y."})
+    session = RecordingSession(command_replies={"load obj 1137": "You create x.", "give cap testwearer": "You give x to y."})
     give_new_object(session, 1137, "cap", "testwearer")
-    failing = FakeSession({"load obj 1137": "You create x.", "give cap testwearer": "Testwearer refuses."})
+    failing = RecordingSession(command_replies={"load obj 1137": "You create x.", "give cap testwearer": "Testwearer refuses."})
     with pytest.raises(AssertionError, match="no 'You give' in the reply to give"):
         give_new_object(failing, 1137, "cap", "testwearer")
 
 
 def test_give_new_object_fails_on_the_load_before_it_gives() -> None:
-    session = FakeSession({"give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(command_replies={"give cap testwearer": CAP_GIVEN_REPLY})
     with pytest.raises(AssertionError, match="no 'You create' in the reply to load obj 1137"):
         give_new_object(session, 1137, "cap", "testwearer")
     assert session.commands == ["load obj 1137"]
 
 
 def test_give_new_object_with_a_shown_recipient_checks_the_recipient() -> None:
-    session = FakeSession({"load obj 1137": "You create x.", "give cap testwearer": "You give x to Testwearer."})
+    session = RecordingSession(command_replies={"load obj 1137": "You create x.", "give cap testwearer": "You give x to Testwearer."})
     give_new_object(session, 1137, "cap", "testwearer", shown_recipient="Testwearer")
     with pytest.raises(AssertionError, match="no 'to Testtaker.' in the reply to give"):
         give_new_object(session, 1137, "cap", "testwearer", shown_recipient="Testtaker")
 
 
 def test_give_new_object_with_a_short_description_checks_both_replies_up_to_the_recipient() -> None:
-    session = FakeSession({"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
     give_new_object(session, 1137, "cap", "testwearer", short_description="a leather cap")
-    wrong_give = FakeSession({"load obj 1137": "You create a leather bag.", "give cap testwearer": "You give a leather cap to Testwearer."})
+    wrong_give = RecordingSession(command_replies={"load obj 1137": "You create a leather bag.", "give cap testwearer": "You give a leather cap to Testwearer."})
     with pytest.raises(AssertionError, match="no 'You create a leather bag.'"):
         give_new_object(session, 1137, "cap", "testwearer", short_description="a leather bag")
 
@@ -160,33 +138,33 @@ def test_give_new_object_with_a_short_description_checks_both_replies_up_to_the_
 
 
 def test_give_new_object_with_both_options_checks_the_whole_give_reply() -> None:
-    session = FakeSession({"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
     give_new_object(session, 1137, "cap", "testwearer", shown_recipient="Testwearer", short_description="a leather cap")
     with pytest.raises(AssertionError, match="no 'You give a leather cap to a porter.' in the reply to give"):
         give_new_object(session, 1137, "cap", "testwearer", shown_recipient="a porter", short_description="a leather cap")
 
 
 def test_wizset_sends_the_target_field_and_value_and_returns_the_reply() -> None:
-    session = FakeSession({"wizset player testpupil lea 40": "Testpupil's lea set to 40.\n\r"})
+    session = RecordingSession(command_replies={"wizset player testpupil lea 40": "Testpupil's lea set to 40.\n\r"})
     assert wizset(session, "player testpupil", "lea", 40) == "Testpupil's lea set to 40.\n\r"
     assert session.commands == ["wizset player testpupil lea 40"]
 
 
 def test_wizset_with_a_shown_name_checks_the_name_too() -> None:
-    session = FakeSession({"wizset player testpupil lea 40": "Testpupil's lea set to 40."})
+    session = RecordingSession(command_replies={"wizset player testpupil lea 40": "Testpupil's lea set to 40."})
     wizset(session, "player testpupil", "lea", 40, shown_name="Testpupil")
     with pytest.raises(AssertionError, match="no \"Testother's lea set to 40.\" in the reply to wizset"):
         wizset(session, "player testpupil", "lea", 40, shown_name="Testother")
 
 
 def test_wizset_without_a_shown_name_fails_on_another_value() -> None:
-    session = FakeSession({"wizset mob porter hit 5": "a porter's hit set to 6."})
+    session = RecordingSession(command_replies={"wizset mob porter hit 5": "a porter's hit set to 6."})
     with pytest.raises(AssertionError, match="no 'hit set to 5.' in the reply to wizset"):
         wizset(session, "mob porter", "hit", 5)
 
 
 def test_where_lines_keeps_the_numbered_lines_naming_the_short_description() -> None:
-    session = FakeSession({"where 1137": WHERE_REPLY})
+    session = RecordingSession(command_replies={"where 1137": WHERE_REPLY})
     lines = where_lines(session, 1137, "a leather cap")
     assert session.commands == ["where 1137"]
     assert lines == [
@@ -197,21 +175,21 @@ def test_where_lines_keeps_the_numbered_lines_naming_the_short_description() -> 
 
 
 def test_set_syslog_checks_the_level_it_set() -> None:
-    session = FakeSession({"syslog normal": "Your syslog is now normal.\n\r"})
+    session = RecordingSession(command_replies={"syslog normal": "Your syslog is now normal.\n\r"})
     set_syslog(session, "normal")
     with pytest.raises(AssertionError, match="no 'Your syslog is now off.' in the reply to syslog"):
         set_syslog(session, "off")
 
 
 def test_set_holylight_checks_the_setting_it_made() -> None:
-    session = FakeSession({"set holylight off": "Holylight mode is now off.\n\r"})
+    session = RecordingSession(command_replies={"set holylight off": "Holylight mode is now off.\n\r"})
     set_holylight(session, "off")
     with pytest.raises(AssertionError, match="no 'Holylight mode is now on.' in the reply to set holylight"):
         set_holylight(session, "on")
 
 
 def test_a_timeout_passes_through() -> None:
-    session = FakeSession({}, time_out=True)
+    session = RecordingSession(time_out_commands=True)
     with pytest.raises(SessionTimeout):
         goto(session, 1131, "Arena Centre")
 

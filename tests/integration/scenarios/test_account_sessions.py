@@ -19,9 +19,9 @@ from rots_harness.session import (
     CHARACTER_CHOICE_PROMPT,
     CHARACTER_MENU_ENTER,
     CHARACTER_MENU_PROMPT,
-    ENTER_GAME_MARKER,
+    ENTER_GAME_REPLY,
     LOGIN_PASSWORD_PROMPT,
-    ONE_CHARACTER_ONLINE_MARKER,
+    ONE_CHARACTER_ONLINE_START,
     GameSession,
     LoginRefused,
 )
@@ -46,7 +46,7 @@ HOLDER_AT_LOWEST_UNRESTRICTED_LEVEL = Character(
 
 # What the one-character rule prints; format with the playing character's name
 # (active_account_session_restriction_message_for_session, interpre.cpp).
-ALREADY_CONNECTED_FORMAT = ONE_CHARACTER_ONLINE_MARKER + " {}."
+ALREADY_CONNECTED_FORMAT = ONE_CHARACTER_ONLINE_START + " {}."
 # The account menu's line for one active character; format with its name, level and state
 # (append_active_account_session_status, interpre.cpp).
 ACTIVE_CHARACTER_FORMAT = "Active character: {} (level {}, {})"
@@ -104,7 +104,7 @@ def test_quitting_to_the_character_menu_frees_the_account_for_another_character(
         assert QUIT_DROP_REPLY in quit_reply, quit_reply
         server.login(BETA.name)
         alpha.send_line(CHARACTER_MENU_ENTER)
-        refused = alpha.expect([ACCOUNT_MENU_PROMPT, CHARACTER_MENU_PROMPT, ENTER_GAME_MARKER])
+        refused = alpha.expect([ACCOUNT_MENU_PROMPT, CHARACTER_MENU_PROMPT, ENTER_GAME_REPLY])
         assert ALREADY_CONNECTED_FORMAT.format(BETA.name) in refused and ACCOUNT_MENU_PROMPT in refused, refused
         assert ACTIVE_CHARACTER_FORMAT.format(BETA.name, BETA.level, "playing") in refused, refused
 
@@ -124,7 +124,7 @@ def test_an_offline_level_92_character_lifts_the_rule(server) -> None:
     may play two of its other characters at once."""
     server.login(ALPHA.name)
     beta = server.login(BETA.name)
-    assert beta.command("look").room_name() == "Arena West"
+    assert beta.command("look").room_name() == world.ROOM_ARENA_WEST_NAME
 
 
 @pytest.mark.characters(ALPHA, BETA)

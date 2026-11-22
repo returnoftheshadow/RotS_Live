@@ -529,7 +529,7 @@ print mid-reply. These shared modules hold the helpers and text scenarios use in
   pass the file's own `timeout=` and `poll=`, and `describe=` for extra failure detail), and
   `logged_messages` and `count_logged` for mudlog's messages.
 - `rots_harness/casting.py`: `cast_until_it_lands(caster, "cast 'identify' stone", outcomes)`
-  repeats a cast after `LOST_CONCENTRATION` and returns the first other reply; list `NO_ENERGY`
+  repeats a cast after `LOST_CONCENTRATION_REPLY` and returns the first other reply; list `NO_ENERGY_REPLY`
   among the outcomes and check the returned text yourself. Pass `timeout=` when the spell takes
   longer than `CAST_TIMEOUT_SECONDS` (15.0).
 - `rots_harness/accounts.py`: `account_connection(server.handle, server.run_dir, label)` and
@@ -537,10 +537,10 @@ print mid-reply. These shared modules hold the helpers and text scenarios use in
   does not manage, closed when the `with` block ends; `closes_within(connection, seconds)`; and
   the account-menu text several account files share, such as `NEW_CHARACTER_NAME_PROMPT`.
 - `rots_harness/saved_files.py`: what the server saved under the lib's accounts folder:
-  `stored_account(server.lib_dir)`, `account_file(server.lib_dir, character, "objects")`,
+  `stored_account(server.lib_dir)`, `account_file(server.lib_dir, character.name, "objects")`,
   `saved_wear_positions` and the wear-position constants.
 - `rots_harness/shaping.py`: the shaping editors' prompts and release markers on the records two
-  or more shaping files open, such as `MOBILE_PROMPT` and `ZONE_RELEASED`.
+  or more shaping files open, such as `MOBILE_PROMPT` and `ZONE_RELEASED_REPLY`.
 
 `rots_harness.characters.immortal(name, level)` declares an immortal test character in the
 immortal start room. `server.relog(session)` quits a character and logs it in again, returning

@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import INNKEEPER_TELLS_START, RENTED_REPLY
 from rots_harness.immortal_commands import give_new_object, load_mob, load_object, where_lines
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
@@ -521,16 +522,12 @@ def test_whistle_recalls_the_whistlers_tame_from_elsewhere_in_the_zone(server) -
 # Objects the tame is dressed in and handed (obj/16.obj, obj/11.obj, obj/13.obj): each tuple is
 # the vnum, a keyword and the short description. No zone resets any of them, so `where` by vnum
 # finds every copy in the world.
-TAME_HELM = (world.OBJECT_LEATHER_HELM, "helm", "a leather helm")
-TAME_BAG = (world.OBJECT_LEATHER_BAG, "bag", "a leather bag")
-TAME_BEAD = (world.OBJECT_COPPER_BEAD, "bead", "a copper bead")
-# A grey pebble (object 1701, obj/17.obj) for the tamer to carry: the innkeeper refuses a renter
+TAME_HELM = (world.OBJECT_LEATHER_HELM, "helm", world.OBJECT_LEATHER_HELM_SHORT_DESCRIPTION)
+TAME_BAG = (world.OBJECT_LEATHER_BAG, "bag", world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
+TAME_BEAD = (world.OBJECT_COPPER_BEAD, "bead", world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION)
+# A grey pebble (world.OBJECT_GREY_PEBBLE) for the tamer to carry: the innkeeper refuses a renter
 # who carries nothing (Crash_offer_rent, objsave.cpp).
-PEBBLE = (1701, "pebble", "a grey pebble")
-# What the renter reads as the innkeeper takes the rent (gen_receptionist, objsave.cpp).
-RENTED_MARKER = "The harness innkeeper stores your belongings and helps you into your private chamber."
-# The start of every refusal the innkeeper tells the renter.
-INNKEEPER_TELLS_FRAGMENT = "The harness innkeeper tells you, '"
+PEBBLE = (world.OBJECT_GREY_PEBBLE, "pebble", "a grey pebble")
 
 
 @pytest.mark.schedule("affect-hours")
@@ -565,8 +562,8 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     give_new_object(implementor, PEBBLE[0], PEBBLE[1], TAMER.name.lower(), shown_recipient=TAMER.name, short_description=PEBBLE[2])
     load_mob(implementor, world.MOB_INNKEEPER)
 
-    rented = reply_to(tamer, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT])
-    assert RENTED_MARKER in rented, rented
+    rented = reply_to(tamer, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_START])
+    assert RENTED_REPLY in rented, rented
     assert CHARACTER_MENU_PROMPT in rented, rented
     tamer.close()
     assert boar_rooms(implementor) == []

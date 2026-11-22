@@ -8,7 +8,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, immortal
-from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, TELEPORTED_BY_ANYONE
+from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, TELEPORTED_END
 from rots_harness.immortal_commands import give_new_object, goto, load_object, set_holylight, wizset
 from rots_harness.replies import reply_to
 from rots_harness.text_lines import lines_after
@@ -136,8 +136,8 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     carrier = server.login(CARRIER.name)
     goto(implementor, world.ROOM_GALLOWS_APPROACH, "Gallows Approach")
-    load_object(implementor, world.OBJECT_LEATHER_BAG, "a leather bag")
-    load_object(implementor, world.OBJECT_LEATHER_CAP, "a leather cap")
+    load_object(implementor, world.OBJECT_LEATHER_BAG, world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_LEATHER_CAP, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
     assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
     given = implementor.command(f"give bag {CARRIER.name.lower()}")
     assert given.contains(f"You give a leather bag to {CARRIER.name}."), given.text
@@ -148,12 +148,12 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
 
     corpse = implementor.command("look in corpse").text
     corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
-    assert "a leather bag" in corpse_contents, corpse
-    assert "a leather cap" not in corpse_contents, corpse
+    assert world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION in corpse_contents, corpse
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in corpse_contents, corpse
     taken = implementor.command("get bag corpse")
     assert taken.contains("You get a leather bag from"), taken.text
     bag = implementor.command("look in bag").text
-    assert lines_after(bag, BAG_CONTENTS_HEADER) == ["a leather cap"], bag
+    assert lines_after(bag, BAG_CONTENTS_HEADER) == [world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION], bag
 
 
 @pytest.mark.followers
@@ -261,5 +261,5 @@ def test_a_level_93_immortal_cannot_teleport_the_implementor(server) -> None:
     implementor.drain(SETTLE_SECONDS)
 
     god.command(f"teleport {IMPLEMENTOR.name.lower()} {world.ROOM_ARENA_EAST}")
-    assert TELEPORTED_BY_ANYONE not in implementor.drain(SETTLE_SECONDS)
-    assert implementor.command("look").room_name() == "Immortal Start"
+    assert TELEPORTED_END not in implementor.drain(SETTLE_SECONDS)
+    assert implementor.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME

@@ -9,9 +9,17 @@ import re
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import LOST_CONCENTRATION, NO_ENERGY
+from rots_harness.casting import LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import DEATH_CRY_FORMAT, NEW_BODY_MESSAGE, NOW_FOLLOWING_FORMAT
+from rots_harness.game_text import (
+    CONCENTRATE_REPLY,
+    DEATH_CRY_FORMAT,
+    FOLLOWED_FORMAT,
+    FOLLOWER_ACK,
+    NEW_BODY_MESSAGE,
+    NOTHING_FOUND_REPLY,
+    NOW_FOLLOWING_FORMAT,
+)
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, set_holylight, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -85,21 +93,15 @@ COB_VNUM = 2301
 # The cob's moves at boot, its file's maximum.
 COB_MOVES = 100
 
-# The room the leader walks to, east of the arena centre.
-DESTINATION_ROOM_NAME = "Arena East"
 # The end of what the follower reads as the leader walks east (do_move, act_move.cpp), sent
 # before any of the follower's outcomes.
 LEADER_LEAVES_MARKER = "leaves east."
 # What the leader reads when a follower is left behind (do_move, act_move.cpp); format with the
 # follower as the leader sees it. Its pronoun is the follower's: the act() actor is the follower.
 LEADER_ACK_MARKER_FORMAT = "ACK! {} could not follow, you lost {}!"
-# What the follower reads when it is left behind (do_move): the pronoun is the leader's.
-FOLLOWER_ACK_MARKER = "ACK! You could not follow him!"
 # The start of every ACK line, the leader's and the follower's.
 ANY_ACK_MARKER = "ACK!"
-# What a follower reads when it follows (do_move); format with the leader as the follower sees it.
-FOLLOWED_MARKER_FORMAT = "You follow {}."
-# The start of FOLLOWED_MARKER_FORMAT, whoever the leader is.
+# The start of FOLLOWED_FORMAT, whoever the leader is.
 ANY_FOLLOWED_MARKER = "You follow "
 # The start of what a rider reads as it mounts the pony (do_ride, ranger.cpp). The pronoun after
 # it is the rider's today, not the pony's (a known bug).
@@ -148,11 +150,9 @@ EXHAUSTED_MARKER = "You are too exhausted to move."
 STOP_FOLLOWING_UNSEEN_MARKER = "You stop following someone."
 # The name of the room a follower sees as it walks into the pit (do_look on arrival).
 PIT_ROOM_NAME = "Gallows Pit"
-# What the caster reads when the casting delay starts (do_cast, spell_pa.cpp).
-CONCENTRATE_MARKER = "You start to concentrate."
 # The outcomes of cure self when the delay ends: the concentration roll fails (do_cast), or the
 # spell runs on a caster at full hit points or below them (spell_cure_self, mage.cpp).
-CAST_OUTCOME_MARKERS = [LOST_CONCENTRATION, "You are already healthy.", "You feel better."]
+CAST_OUTCOME_MARKERS = [LOST_CONCENTRATION_REPLY, "You are already healthy.", "You feel better."]
 # Seconds to wait for the cast's outcome: cure self's 36 beats at mage level 10 are
 # 36 * 30 / (30 + 10) = 27 passes, under seven seconds (CASTING_TIME, spells.h); 20 leaves room
 # for a loaded host.
@@ -196,13 +196,13 @@ def walk_east(leader: GameSession, follower: GameSession) -> tuple:
     """
     leader.send_line("east")
     follower_text = follower.expect([LEADER_LEAVES_MARKER]) + follower.drain(SETTLE_SECONDS)
-    leader_text = leader.expect([DESTINATION_ROOM_NAME]) + leader.drain(SETTLE_SECONDS)
+    leader_text = leader.expect([world.ROOM_ARENA_EAST_NAME]) + leader.drain(SETTLE_SECONDS)
     return follower_text, leader_text
 
 
 def walk_leader_east(leader: GameSession) -> str:
     """Walks the leader east and returns what it read: its new room first, then the rest of the pass."""
-    return reply_to(leader, "east", [DESTINATION_ROOM_NAME])
+    return reply_to(leader, "east", [world.ROOM_ARENA_EAST_NAME])
 
 
 def gather_in_arena_centre(leader: GameSession, follower: GameSession) -> None:
@@ -248,7 +248,7 @@ def test_a_sitting_follower_left_behind_gets_ack_lines_and_a_standing_one_follow
 
     assert follower.command("sit").contains("You sit down."), follower.everything
     left_behind, leader_text = walk_east(leader, follower)
-    assert left_behind.count(FOLLOWER_ACK_MARKER) == 1, left_behind
+    assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
     leader_ack = LEADER_ACK_MARKER_FORMAT.format(FOLLOWER.name, "her")
     assert leader_text.count(leader_ack) == 1, leader_text
     assert follower.command("look").room_name() == "Arena Centre"
@@ -257,9 +257,9 @@ def test_a_sitting_follower_left_behind_gets_ack_lines_and_a_standing_one_follow
     assert leader.command("west").room_name() == "Arena Centre"
     assert follower.command("stand").contains("You stand up."), follower.everything
     followed, leader_text = walk_east(leader, follower)
-    assert FOLLOWED_MARKER_FORMAT.format(LEADER.name) in followed, followed
-    assert FOLLOWER_ACK_MARKER not in followed, followed
-    assert DESTINATION_ROOM_NAME in followed, followed
+    assert FOLLOWED_FORMAT.format(LEADER.name) in followed, followed
+    assert FOLLOWER_ACK not in followed, followed
+    assert world.ROOM_ARENA_EAST_NAME in followed, followed
     assert leader_ack not in leader_text, leader_text
 
 
@@ -280,11 +280,11 @@ def test_a_follower_in_a_casting_delay_gets_the_ack_line_instead_of_busy(server)
     gather_in_arena_centre(leader, follower)
 
     follower.send_line("cast 'cure self'")
-    started = follower.expect([CONCENTRATE_MARKER, NO_ENERGY])
-    assert CONCENTRATE_MARKER in started, started
+    started = follower.expect([CONCENTRATE_REPLY, NO_ENERGY_REPLY])
+    assert CONCENTRATE_REPLY in started, started
     left_behind, leader_text = walk_east(leader, follower)
     assert BUSY_MARKER not in left_behind, left_behind
-    assert left_behind.count(FOLLOWER_ACK_MARKER) == 1, left_behind
+    assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
     assert leader_text.count(LEADER_ACK_MARKER_FORMAT.format(CASTING_FOLLOWER.name, "her")) == 1, leader_text
 
     follower.expect(CAST_OUTCOME_MARKERS, timeout=CAST_TIMEOUT)
@@ -310,7 +310,7 @@ def test_a_follower_without_moves_left_behind_gets_ack_lines(server) -> None:
     wizset(leader, f"player {FOLLOWER.name.lower()}", "move", 0, shown_name=FOLLOWER.name)
     left_behind, leader_text = walk_east(leader, follower)
     assert EXHAUSTED_MARKER in left_behind, left_behind
-    assert left_behind.count(FOLLOWER_ACK_MARKER) == 1, left_behind
+    assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
     assert leader_text.count(LEADER_ACK_MARKER_FORMAT.format(FOLLOWER.name, "her")) == 1, leader_text
     assert follower.command("look").room_name() == "Arena Centre"
 
@@ -375,12 +375,12 @@ def test_every_follower_follows_a_mob_leader_that_survives_the_step(server) -> N
 
     force(implementor, "bystander", "east")
     for follower, character in zip(followers, ARENA_FOLLOWERS):
-        text = follower.expect([DESTINATION_ROOM_NAME]) + follower.drain(SETTLE_SECONDS)
-        assert text.count(FOLLOWED_MARKER_FORMAT.format("someone")) == 1, f"{character.name}:\n{text}"
+        text = follower.expect([world.ROOM_ARENA_EAST_NAME]) + follower.drain(SETTLE_SECONDS)
+        assert text.count(FOLLOWED_FORMAT.format("someone")) == 1, f"{character.name}:\n{text}"
         assert NEW_BODY_MESSAGE not in text, f"{character.name}:\n{text}"
         assert ANY_ACK_MARKER not in text, f"{character.name}:\n{text}"
     for follower in followers:
-        assert follower.command("look").room_name() == DESTINATION_ROOM_NAME
+        assert follower.command("look").room_name() == world.ROOM_ARENA_EAST_NAME
 
 
 @pytest.mark.schedule("affect-hours")
@@ -477,13 +477,13 @@ def test_a_sitting_follower_the_leader_cannot_see_leaves_the_leader_no_ack_line(
     assert follower.command("sit").contains("You sit down."), follower.everything
 
     left_behind, leader_text = walk_east(leader, follower)
-    assert left_behind.count(FOLLOWER_ACK_MARKER) == 1, left_behind
+    assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
     assert leader_text.count(LEADER_ACK_MARKER_FORMAT.format(FOLLOWER.name, "her")) == 1, leader_text
 
     assert leader.command("west").room_name() == "Arena Centre"
     put_on_the_ring(leader, follower)
     left_behind, leader_text = walk_east(leader, follower)
-    assert left_behind.count(FOLLOWER_ACK_MARKER) == 1, left_behind
+    assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
     assert ANY_ACK_MARKER not in leader_text, leader_text
 
 
@@ -586,7 +586,7 @@ def test_a_rider_whose_mount_can_move_rides_east_and_its_follower_follows(server
     # follower's step before it returns), so the drain collects whatever the follower did.
     followed = follower.expect([RIDES_EAST_FORMAT.format(HORSEMAN.name)]) + follower.drain(SETTLE_SECONDS)
     assert followed.count(RIDES_EAST_FORMAT.format(HORSEMAN.name)) == 1, followed
-    assert followed.count(FOLLOWED_MARKER_FORMAT.format(HORSEMAN.name)) == 1, followed
+    assert followed.count(FOLLOWED_FORMAT.format(HORSEMAN.name)) == 1, followed
     assert PADDOCK_ROOM_NAME in followed, followed
     assert ANY_ACK_MARKER not in followed, followed
     # The implementor reads the same line, with the "(holy protection)" an immortal sees beside
@@ -643,7 +643,7 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     assert looked.count(COB_CORPSE_LINE) == 1, looked
     assert looked.count("corpse") == 2, looked
     cob = implementor.command("where cob").text
-    assert "Couldn't find any such thing." in cob, cob
+    assert NOTHING_FOUND_REPLY in cob, cob
     stat_text = read_stat(implementor, f"player {SINKHOLE_HORSEMAN.name.lower()}")
     assert re.search(r"HP :\[1/", stat_text), stat_text
 

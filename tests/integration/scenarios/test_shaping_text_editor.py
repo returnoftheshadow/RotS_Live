@@ -7,9 +7,17 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import TEXT_EDITOR_CURSOR, TEXT_EDITOR_PROMPT, TEXT_SO_FAR
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.shaping import MOBILE_PROMPT, MOBILE_RELEASED, SHAPED_RECORD
+from rots_harness.shaping import (
+    COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_SETTLE_SECONDS,
+    MOBILE_PROMPT,
+    MOBILE_RELEASED_REPLY,
+    SHAPED_RECORD,
+    release_editor,
+)
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_prompts]
@@ -23,8 +31,6 @@ MORTAL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="warrior",
 )
-# The prompt while a text is being written (comm.cpp).
-EDITOR_PROMPT = "] "
 # The opening lines every text editor shows before the line about %f (string_add_commands,
 # modify.cpp).
 COMMAND_LIST_HEAD = [
@@ -47,9 +53,6 @@ FORMAT_REFUSED = "This text is one setting per line, so %f is not allowed here."
 FORMAT_COMMANDS = ["%f", "%F", "~f"]
 # Two settings typed into the options, which a format would join into one line.
 OPTION_LINES = ["first setting", "second setting"]
-# What %r prints before the text, and after the part before the cursor (string_add, modify.cpp).
-TEXT_SO_FAR = "Your text so far:"
-CURSOR_MARK = ">>"
 # What %f prints in any other text that is still empty.
 NOTHING_TO_FORMAT = "What are you trying to format?"
 # The start of what %f prints once it has formatted a text.
@@ -59,24 +62,21 @@ FORMATTED_MARKER = "Your text is formatted."
 EXTENDED_MODE_MARKER = "You switched to extended editing mode."
 # What /42 prints before it opens the text editor on the mob options.
 OPTIONS_FIELD_MARKER = "You are about to change OPTIONS, settings for the mob program, one per line:"
-# Seconds to keep reading after a marker, for the rest of the reply.
-SETTLE_SECONDS = 0.5
 
 
 def open_mob_options(implementor: GameSession) -> str:
     """Opens mob 1130's options in the text editor; returns what the editor printed."""
-    opened = reply_to(implementor, f"shape mob {SHAPED_RECORD}", [MOBILE_PROMPT, "could not open that file.", "No such mob"], settle=SETTLE_SECONDS)
+    opened = reply_to(implementor, f"shape mob {SHAPED_RECORD}", [MOBILE_PROMPT, COULD_NOT_OPEN_FILE_REPLY, "No such mob"], settle=EDITOR_SETTLE_SECONDS)
     assert MOBILE_PROMPT in opened, opened
-    extended = reply_to(implementor, "/simple", ["editing mode."], settle=SETTLE_SECONDS)
+    extended = reply_to(implementor, "/simple", ["editing mode."], settle=EDITOR_SETTLE_SECONDS)
     assert EXTENDED_MODE_MARKER in extended, extended
-    return reply_to(implementor, "/42", [OPTIONS_FIELD_MARKER, MOBILE_PROMPT], settle=SETTLE_SECONDS)
+    return reply_to(implementor, "/42", [OPTIONS_FIELD_MARKER, MOBILE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
 
 
 def close_mob_editor(implementor: GameSession) -> None:
     """Abandons the options text and leaves the editor, so the session can quit."""
     implementor.send_line("%q")
-    released = reply_to(implementor, "/free", [MOBILE_RELEASED], settle=SETTLE_SECONDS)
-    assert MOBILE_RELEASED in released, released
+    release_editor(implementor, MOBILE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
@@ -86,10 +86,10 @@ def test_a_mortals_description_editor_lists_its_commands_and_q_leaves_it(server)
     among them; %q then leaves the editor, so the next line is a command again."""
     mortal = server.login(MORTAL.name)
 
-    opened = reply_to(mortal, "set description", [GENERAL_HELP_LINE], settle=SETTLE_SECONDS)
+    opened = reply_to(mortal, "set description", [GENERAL_HELP_LINE], settle=EDITOR_SETTLE_SECONDS)
     mortal.send_line("%q")
     # Still in the editor, look would only add a line to the text and get the editor's prompt.
-    looked = reply_to(mortal, "look", [world.ROOM_ARENA_CENTRE_NAME, EDITOR_PROMPT], settle=SETTLE_SECONDS)
+    looked = reply_to(mortal, "look", [world.ROOM_ARENA_CENTRE_NAME, TEXT_EDITOR_PROMPT], settle=EDITOR_SETTLE_SECONDS)
 
     opened_lines = raw_lines(opened)
     start = opened_lines.index(COMMAND_LIST_HEAD[0]) if COMMAND_LIST_HEAD[0] in opened_lines else -1
@@ -126,12 +126,12 @@ def test_the_mob_options_editor_refuses_format(server, format_command: str) -> N
     assert OPTIONS_FIELD_MARKER in opened, opened
     for option_line in OPTION_LINES:
         implementor.send_line(option_line)
-    formatted = reply_to(implementor, format_command, [FORMAT_REFUSED, NOTHING_TO_FORMAT, FORMATTED_MARKER], settle=SETTLE_SECONDS)
-    shown = reply_to(implementor, "%r", [CURSOR_MARK], settle=SETTLE_SECONDS)
+    formatted = reply_to(implementor, format_command, [FORMAT_REFUSED, NOTHING_TO_FORMAT, FORMATTED_MARKER], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "%r", [TEXT_EDITOR_CURSOR], settle=EDITOR_SETTLE_SECONDS)
     close_mob_editor(implementor)
 
     assert FORMAT_REFUSED in raw_lines(formatted), formatted
     shown_lines = raw_lines(shown)
     start = shown_lines.index(TEXT_SO_FAR) if TEXT_SO_FAR in shown_lines else -1
     shown_text = [line for line in shown_lines[start + 1:] if line] if start >= 0 else []
-    assert shown_text[:3] == OPTION_LINES + [CURSOR_MARK], shown
+    assert shown_text[:3] == OPTION_LINES + [TEXT_EDITOR_CURSOR], shown

@@ -39,12 +39,8 @@ MORTAL = Character(
 
 # The keyring fixtures of the test world, in obj/19.obj.
 KEY_VNUM = 1900  # an iron harness key; opens the Key Hall door
-KEYRING_VNUM = 1901  # a brass keyring (ITEM_KEYRING), wearable on a belt hook or held
-BELT_VNUM = 1902  # a leather belt, worn about the waist; gives the belt hooks
 
 KEY = "an iron harness key"
-KEYRING = "a brass keyring"
-BAG = "a leather bag"
 
 # do_wear (act_obj2.cpp): the waist message, then the belt-hook message.
 WEAR_BELT_MARKER = "You wear a leather belt around your waist."
@@ -83,16 +79,16 @@ def wear_belt_keyring(mortal: GameSession) -> None:
 def test_a_belt_keyring_takes_shows_and_gives_back_a_key_by_a_short_name(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (BELT_VNUM, KEYRING_VNUM, KEY_VNUM), ("belt", "keyring", "key"))
+    hand_over(implementor, (world.OBJECT_LEATHER_BELT, world.OBJECT_BRASS_KEYRING, KEY_VNUM), ("belt", "keyring", "key"))
     wear_belt_keyring(mortal)
 
     # "keyr" is a 3-4 letter start of the keyword "keyring" (isname with full 0, belt_keyring).
     put = mortal.command("put key keyr")
-    assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
+    assert put.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), put.text
     looked = mortal.command("look in keyr")
     assert looked.contains("(worn)") and looked.contains(KEY), looked.text
     got = mortal.command("get key keyr")
-    assert got.contains(f"You get {KEY} from {KEYRING}."), got.text
+    assert got.contains(f"You get {KEY} from {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), got.text
     carried = mortal.command("inventory")
     assert carried.contains(KEY), carried.text
 
@@ -104,7 +100,7 @@ def test_a_key_on_a_belt_keyring_unlocks_and_locks_a_door_but_one_in_a_bag_does_
     mortal = server.login(MORTAL.name)
     hand_over(
         implementor,
-        (BELT_VNUM, KEYRING_VNUM, world.OBJECT_LEATHER_BAG, KEY_VNUM),
+        (world.OBJECT_LEATHER_BELT, world.OBJECT_BRASS_KEYRING, world.OBJECT_LEATHER_BAG, KEY_VNUM),
         ("belt", "keyring", "bag", "key"),
     )
     wear_belt_keyring(mortal)
@@ -112,14 +108,14 @@ def test_a_key_on_a_belt_keyring_unlocks_and_locks_a_door_but_one_in_a_bag_does_
     # Control: a key inside a carried bag is not searched (has_key looks only at loose keys,
     # the held item and keyrings).
     bagged = mortal.command("put key bag")
-    assert bagged.contains(f"You put {KEY} in {BAG}."), bagged.text
+    assert bagged.contains(f"You put {KEY} in {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION}."), bagged.text
     refused = mortal.command("unlock door")
     assert refused.contains(NO_KEY_MARKER), refused.text
 
     moved = mortal.command("get key bag")
-    assert moved.contains(f"You get {KEY} from {BAG}."), moved.text
+    assert moved.contains(f"You get {KEY} from {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION}."), moved.text
     ringed = mortal.command("put key keyr")
-    assert ringed.contains(f"You put {KEY} on {KEYRING}."), ringed.text
+    assert ringed.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), ringed.text
     unlocked = mortal.command("unlock door")
     assert unlocked.contains(UNLOCK_MARKER), unlocked.text
     locked = mortal.command("lock door")
@@ -131,10 +127,10 @@ def test_a_key_on_a_belt_keyring_unlocks_and_locks_a_door_but_one_in_a_bag_does_
 def test_a_key_on_a_held_keyring_unlocks_a_door(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (KEYRING_VNUM, KEY_VNUM), ("keyring", "key"))
+    hand_over(implementor, (world.OBJECT_BRASS_KEYRING, KEY_VNUM), ("keyring", "key"))
 
     put = mortal.command("put key keyring")
-    assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
+    assert put.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), put.text
     held = mortal.command("hold keyring")
     assert held.contains(HOLD_KEYRING_MARKER), held.text
     unlocked = mortal.command("unlock door")
@@ -146,7 +142,7 @@ def test_a_key_on_a_held_keyring_unlocks_a_door(server) -> None:
 def test_only_keys_go_on_a_keyring(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (KEYRING_VNUM, world.OBJECT_TAINTED_BREAD), ("keyring", "bread"))
+    hand_over(implementor, (world.OBJECT_BRASS_KEYRING, world.OBJECT_TAINTED_BREAD), ("keyring", "bread"))
 
     refused = mortal.command("put bread keyring")
     assert refused.contains("Only keys can go on a keyring."), refused.text
@@ -160,10 +156,10 @@ def test_plain_get_does_not_reach_into_a_belt_keyring(server) -> None:
     """Legacy pin: "get <x>" with no container searches only the room (do_get, act_obj1.cpp)."""
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (BELT_VNUM, KEYRING_VNUM, KEY_VNUM), ("belt", "keyring", "key"))
+    hand_over(implementor, (world.OBJECT_LEATHER_BELT, world.OBJECT_BRASS_KEYRING, KEY_VNUM), ("belt", "keyring", "key"))
     wear_belt_keyring(mortal)
     put = mortal.command("put key keyr")
-    assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
+    assert put.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), put.text
 
     got = mortal.command("get key")
     assert got.contains("You don't see a key here."), got.text
@@ -181,7 +177,7 @@ def test_put_does_not_reach_a_held_bag(server) -> None:
     hand_over(implementor, (world.OBJECT_LEATHER_BAG, KEY_VNUM), ("bag", "key"))
 
     held = mortal.command("hold bag")
-    assert held.contains(BAG), held.text
+    assert held.contains(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION), held.text
     refused = mortal.command("put key bag")
     assert refused.contains("You don't see a bag here."), refused.text
 
@@ -193,10 +189,10 @@ def test_rent_is_refused_while_a_key_is_on_a_belt_keyring(server) -> None:
     worn keyring through the equipment and its contents (Crash_report_unrentables)."""
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (BELT_VNUM, KEYRING_VNUM, KEY_VNUM), ("belt", "keyring", "key"))
+    hand_over(implementor, (world.OBJECT_LEATHER_BELT, world.OBJECT_BRASS_KEYRING, KEY_VNUM), ("belt", "keyring", "key"))
     wear_belt_keyring(mortal)
     put = mortal.command("put key keyr")
-    assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
+    assert put.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), put.text
     load_mob(implementor, world.MOB_INNKEEPER)
 
     # Both outcomes are listed, so a rent that goes through fails on the assertion at once
@@ -213,10 +209,10 @@ def test_examine_a_belt_keyring_shows_its_keys(server) -> None:
     the object over, act_info.cpp)."""
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (BELT_VNUM, KEYRING_VNUM, KEY_VNUM), ("belt", "keyring", "key"))
+    hand_over(implementor, (world.OBJECT_LEATHER_BELT, world.OBJECT_BRASS_KEYRING, KEY_VNUM), ("belt", "keyring", "key"))
     wear_belt_keyring(mortal)
     put = mortal.command("put key keyring")
-    assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
+    assert put.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), put.text
 
     examined = mortal.command("examine keyring")
     assert examined.contains("When you look inside, you see:"), examined.text
@@ -230,9 +226,9 @@ def test_a_held_keyring_shows_its_keys_but_put_and_get_do_not_reach_it(server) -
     and get search only the inventory and the room."""
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (KEYRING_VNUM, KEY_VNUM, KEY_VNUM), ("keyring", "key", "key"))
+    hand_over(implementor, (world.OBJECT_BRASS_KEYRING, KEY_VNUM, KEY_VNUM), ("keyring", "key", "key"))
     put = mortal.command("put key keyring")
-    assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
+    assert put.contains(f"You put {KEY} on {world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION}."), put.text
     held = mortal.command("hold keyring")
     assert held.contains(HOLD_KEYRING_MARKER), held.text
 

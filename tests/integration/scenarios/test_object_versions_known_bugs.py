@@ -9,7 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import DROP_FORMAT, NO_ONE_AROUND_REPLY, NOT_HERE_REPLY, TELEPORTED_FORMAT
+from rots_harness.game_text import DROP_FORMAT, INVENTORY_HEADER, NOT_HERE_REPLY, NO_ONE_AROUND_REPLY, TELEPORTED_FORMAT
 from rots_harness.immortal_commands import give_new_object, load_object
 from rots_harness.replies import reply_to
 from test_object_versions import (
@@ -55,9 +55,6 @@ OWNER = Character(
 # are every bit from 0 to 28 but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE), among them
 # 15, WILLPOWER. The waterskin (test_object_versions.py) holds 10 of its 20 drinks and weighs 30.
 SWORD_KEYWORD = "sword"
-SWORD_SHORT_DESCRIPTION = "a plain sword"
-RELIC_KEYWORD = "relic"
-RELIC_SHORT_DESCRIPTION = "a strange relic"
 # The waterskin's weight after one sip: the prototype's 30, less the 1 drink the sip took
 # (do_drink, act_obj2.cpp, takes the drink's amount off the weight).
 SIPPED_WATERSKIN_WEIGHT_LINE_START = "Weight: 29,"
@@ -74,7 +71,6 @@ PENNILESS_MYSTIC = dataclasses.replace(MORTAL_MYSTIC, stored=StoredValues(gold=O
 PURGED_MARKER = "Ok."
 PURGE_REFUSED_MARKER = "Fuuuuuuuuu!"
 NO_ONE_TO_PURGE_MARKER = "I don't know anyone or anything by that name."
-INVENTORY_HEADER = "You are carrying:"
 # What sip answers a drinker too drunk to drink (do_drink, act_obj2.cpp).
 TOO_DRUNK_MARKER = "You can't seem to get close enough to your mouth."
 # The extra flag stat obj lists for bit 15 (extra_bits[], consts.cpp).
@@ -115,7 +111,7 @@ def test_purging_a_player_leaves_the_purgers_inventory_alone(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    load_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_PLAIN_SWORD, world.OBJECT_PLAIN_SWORD_SHORT_DESCRIPTION)
 
     purged = implementor.command(f"purge {MORTAL_MYSTIC.name.lower()}")
     assert purged.contains(PURGED_MARKER), purged.text
@@ -126,7 +122,7 @@ def test_purging_a_player_leaves_the_purgers_inventory_alone(server) -> None:
 
     inventory = implementor.command("inventory")
     assert inventory.contains(INVENTORY_HEADER), inventory.text
-    assert inventory.contains(SWORD_SHORT_DESCRIPTION), inventory.text
+    assert inventory.contains(world.OBJECT_PLAIN_SWORD_SHORT_DESCRIPTION), inventory.text
 
 
 @pytest.mark.object_versions_refresh
@@ -172,13 +168,13 @@ def test_a_builder_set_willpower_flag_survives_a_drop(server) -> None:
     loaded and should still have it on the floor. Nothing on this path draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    load_object(implementor, world.OBJECT_STRANGE_RELIC, RELIC_SHORT_DESCRIPTION)
-    loaded_flags = extra_flags_line(stat_object(implementor, RELIC_KEYWORD))
+    load_object(implementor, world.OBJECT_STRANGE_RELIC, world.OBJECT_STRANGE_RELIC_SHORT_DESCRIPTION)
+    loaded_flags = extra_flags_line(stat_object(implementor, world.OBJECT_STRANGE_RELIC_KEYWORD))
     assert WILLPOWER_FLAG in loaded_flags, loaded_flags
 
-    dropped = implementor.command(f"drop {RELIC_KEYWORD}")
-    assert dropped.contains(DROP_FORMAT.format(RELIC_SHORT_DESCRIPTION)), dropped.text
-    dropped_flags = extra_flags_line(stat_object(implementor, RELIC_KEYWORD))
+    dropped = implementor.command(f"drop {world.OBJECT_STRANGE_RELIC_KEYWORD}")
+    assert dropped.contains(DROP_FORMAT.format(world.OBJECT_STRANGE_RELIC_SHORT_DESCRIPTION)), dropped.text
+    dropped_flags = extra_flags_line(stat_object(implementor, world.OBJECT_STRANGE_RELIC_KEYWORD))
     assert WILLPOWER_FLAG in dropped_flags, dropped_flags
 
 
@@ -198,7 +194,7 @@ def test_an_offer_to_a_mortal_without_gold_does_not_promise_a_lifetime_of_rent(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    give_new_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, MORTAL_MYSTIC.name.lower(), shown_recipient=MORTAL_MYSTIC.name, short_description=SWORD_SHORT_DESCRIPTION)
+    give_new_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, MORTAL_MYSTIC.name.lower(), shown_recipient=MORTAL_MYSTIC.name, short_description=world.OBJECT_PLAIN_SWORD_SHORT_DESCRIPTION)
     teleport = implementor.command(f"teleport {MORTAL_MYSTIC.name.lower()} {world.ROOM_INN}")
     assert not teleport.contains(NO_ONE_AROUND_REPLY), teleport.text
     arrival = mystic.expect([TELEPORTED_MARKER]) + mystic.drain(SETTLE_SECONDS)

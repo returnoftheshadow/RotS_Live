@@ -13,19 +13,27 @@ from rots_harness.characters import IMPLEMENTOR, immortal
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.shaping import (
+    COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_SETTLE_SECONDS,
     MOBILE_PROMPT,
-    MOBILE_RELEASED,
+    MOBILE_RELEASED_REPLY,
     OBJECT_PROMPT,
-    OBJECT_RELEASED,
-    ROOM_RELEASED,
+    OBJECT_RELEASED_REPLY,
+    ORDERED_SCRIPT,
+    ORDERED_SCRIPT_PROMPT,
+    ROOM_IMPLEMENTED_REPLY,
+    ROOM_RELEASED_REPLY,
+    SCRIPT_FILE_RELATIVE,
     SCRIPT_PROMPT,
-    SCRIPT_RELEASED,
+    SCRIPT_RELEASED_REPLY,
     SHAPED_RECORD,
     SHAPED_SCRIPT,
+    SIGNPOST_ROOM_PROMPT,
     ZONE_FILE_RELATIVE,
+    ZONE_IMPLEMENTED_REPLY,
     ZONE_NUMBER,
     ZONE_PROMPT,
-    ZONE_RELEASED,
+    ZONE_RELEASED_REPLY,
 )
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from rots_harness.text_lines import raw_lines
@@ -38,14 +46,10 @@ pytestmark = [pytest.mark.scenario, pytest.mark.shaping]
 BUILDER = immortal("Testbuild", 93)
 # An idnum no test character has, made the owner of zone 11 so it is no longer open to all.
 OUTSIDE_OWNER = 99999
-# The room editor's prompt on the signpost room while no field is being answered (prompt_text in
-# consts.cpp).
-SIGNPOST_PROMPT = f"Shaping: {world.ROOM_SIGNPOST}>"
 # What a / line gets once the shaper is no longer shaping (shape_center, shapemob.cpp).
 NOT_SHAPING = "Use 'shape <mob|obj|room|script> <number>' to start shaping."
-# What the zone editor prints on load and on implement (load_zone, implement_zone).
+# What the zone editor prints on load (load_zone).
 ZONE_LOADED_MARKER = "Zone loaded"
-ZONE_IMPLEMENTED = "The zone was implemented."
 # What every editor command but a field number prints first (extra_coms_* in shape*.cpp).
 EDITOR_COMMAND_MARKER = "shapeless indefinity"
 # The signpost room's two extra descriptions, in their file order, and what `look sign` shows
@@ -55,33 +59,31 @@ BOOTED_SIGN_TEXT = "The sign reads SECOND."
 BOOTED_EXTRA_DESCS = "Extra descs: sign plaque sign"
 # A refusal in the zone editor ends with this word (the checks in shape_center_zone).
 REFUSAL_END = "dropped."
-# Seconds to keep reading after a marker, for the rest of the reply.
-SETTLE_SECONDS = 0.5
 
 
 def open_zone_editor(session: GameSession) -> str:
     """Starts shaping zone 11; returns what the load printed."""
-    loaded = reply_to(session, f"shape zone {ZONE_NUMBER}", [ZONE_PROMPT, "could not open that file."], settle=SETTLE_SECONDS)
+    loaded = reply_to(session, f"shape zone {ZONE_NUMBER}", [ZONE_PROMPT, COULD_NOT_OPEN_FILE_REPLY], settle=EDITOR_SETTLE_SECONDS)
     assert ZONE_LOADED_MARKER in loaded, loaded
     return loaded
 
 
 def free_editor(session: GameSession, released: str) -> None:
     """Leaves an editor, or finds the shaper already out of it, so the session can quit."""
-    freed = reply_to(session, "/free", [released, NOT_SHAPING], settle=SETTLE_SECONDS)
+    freed = reply_to(session, "/free", [released, NOT_SHAPING], settle=EDITOR_SETTLE_SECONDS)
     assert released in freed or NOT_SHAPING in freed, freed
 
 
 def give_zone_an_outside_owner(implementor: GameSession, save: bool) -> None:
     """Makes OUTSIDE_OWNER the owner of zone 11, in the game and, if save, in the zone file."""
     open_zone_editor(implementor)
-    reply_to(implementor, "/14", ["Enter owner idnum to add:"], settle=SETTLE_SECONDS)
-    reply_to(implementor, str(OUTSIDE_OWNER), [ZONE_PROMPT], settle=SETTLE_SECONDS)
+    reply_to(implementor, "/14", ["Enter owner idnum to add:"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, str(OUTSIDE_OWNER), [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     if save:
-        reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
-    implemented = reply_to(implementor, "/implement", [ZONE_IMPLEMENTED, "You are not allowed"], settle=SETTLE_SECONDS)
-    assert ZONE_IMPLEMENTED in implemented, implemented
-    free_editor(implementor, ZONE_RELEASED)
+        reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=EDITOR_SETTLE_SECONDS)
+    implemented = reply_to(implementor, "/implement", [ZONE_IMPLEMENTED_REPLY, "You are not allowed"], settle=EDITOR_SETTLE_SECONDS)
+    assert ZONE_IMPLEMENTED_REPLY in implemented, implemented
+    free_editor(implementor, ZONE_RELEASED_REPLY)
 
 
 @pytest.mark.shaping_script_editor
@@ -101,15 +103,15 @@ def test_a_builder_without_permission_cannot_implement_a_script(server) -> None:
     builder = server.login(BUILDER.name)
     give_zone_an_outside_owner(implementor, save=False)
 
-    opened = reply_to(builder, f"shape script {SHAPED_SCRIPT}", [SCRIPT_PROMPT], settle=SETTLE_SECONDS)
+    opened = reply_to(builder, f"shape script {SHAPED_SCRIPT}", [SCRIPT_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     assert "Limited permission only." in opened, opened
-    reply_to(builder, "/20", ["Enter line SCRIPT NAME"], settle=SETTLE_SECONDS)
-    reply_to(builder, "hacked", [SCRIPT_PROMPT], settle=SETTLE_SECONDS)
-    reply_to(builder, "/implement", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
-    free_editor(builder, SCRIPT_RELEASED)
-    reply_to(implementor, f"shape script {SHAPED_SCRIPT}", [SCRIPT_PROMPT], settle=SETTLE_SECONDS)
-    shown = reply_to(implementor, "/51", ["Script #1100:"], settle=SETTLE_SECONDS)
-    free_editor(implementor, SCRIPT_RELEASED)
+    reply_to(builder, "/20", ["Enter line SCRIPT NAME"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(builder, "hacked", [SCRIPT_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(builder, "/implement", [EDITOR_COMMAND_MARKER], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(builder, SCRIPT_RELEASED_REPLY)
+    reply_to(implementor, f"shape script {SHAPED_SCRIPT}", [SCRIPT_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "/51", ["Script #1100:"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, SCRIPT_RELEASED_REPLY)
 
     assert "Script #1100: harness stub" in raw_lines(shown), shown
 
@@ -131,11 +133,11 @@ def test_a_zone_done_refused_for_permission_keeps_the_edits(server) -> None:
 
     loaded = open_zone_editor(builder)
     assert "Limited permission only." in loaded, loaded
-    reply_to(builder, "/20", ["Enter line ZONE NAME"], settle=SETTLE_SECONDS)
-    reply_to(builder, "Builder arena", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    refused = reply_to(builder, "/done", ["You are not allowed to save this zone."], settle=SETTLE_SECONDS)
-    shown = reply_to(builder, "/51", ["Zone #11:", NOT_SHAPING], settle=SETTLE_SECONDS)
-    free_editor(builder, ZONE_RELEASED)
+    reply_to(builder, "/20", ["Enter line ZONE NAME"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(builder, "Builder arena", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    refused = reply_to(builder, "/done", ["You are not allowed to save this zone."], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(builder, "/51", ["Zone #11:", NOT_SHAPING], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(builder, ZONE_RELEASED_REPLY)
 
     assert "You are not allowed to save this zone." in raw_lines(refused), refused
     assert "Zone #11: Builder arena" in raw_lines(shown), shown
@@ -161,11 +163,11 @@ def test_saving_a_room_unedited_keeps_its_extra_descriptions_in_order(server) ->
     room_file = server.lib_dir / "world" / "wld" / "11.wld"
     booted_keywords = extra_description_keywords(record(file_text(room_file), world.ROOM_SIGNPOST))
 
-    reply_to(implementor, f"shape room {world.ROOM_SIGNPOST}", [SIGNPOST_PROMPT], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
+    reply_to(implementor, f"shape room {world.ROOM_SIGNPOST}", [SIGNPOST_ROOM_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once /50 answers, /save has finished writing.
-    reply_to(implementor, "/50", ["(17) Room level"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ROOM_RELEASED)
+    reply_to(implementor, "/50", ["(17) Room level"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ROOM_RELEASED_REPLY)
 
     assert booted_keywords == SIGNPOST_KEYWORDS_IN_FILE_ORDER
     saved_keywords = extra_description_keywords(record(file_text(room_file), world.ROOM_SIGNPOST))
@@ -175,7 +177,7 @@ def test_saving_a_room_unedited_keeps_its_extra_descriptions_in_order(server) ->
 def look_and_stat_extra_descriptions(implementor: GameSession) -> tuple:
     """What `look sign` shows in the signpost room, and stat room's Extra descs line."""
     looked = implementor.command("look sign").text
-    stat_text = read_stat(implementor, "room", last_line=OBJECT_STAT_LAST_LINE, settle=SETTLE_SECONDS)
+    stat_text = read_stat(implementor, "room", last_line=OBJECT_STAT_LAST_LINE, settle=EDITOR_SETTLE_SECONDS)
     extra_descs = next((line for line in raw_lines(stat_text) if line.startswith("Extra descs:")), "")
     return looked, extra_descs.rstrip()
 
@@ -195,13 +197,13 @@ def test_implementing_a_room_unedited_keeps_what_look_shows(server) -> None:
     implementor.command(f"goto {world.ROOM_SIGNPOST}")
     booted = look_and_stat_extra_descriptions(implementor)
 
-    reply_to(implementor, f"shape room {world.ROOM_SIGNPOST}", [SIGNPOST_PROMPT], settle=SETTLE_SECONDS)
-    implemented = reply_to(implementor, "/implement", ["Room implemented.", "You may not"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ROOM_RELEASED)
+    reply_to(implementor, f"shape room {world.ROOM_SIGNPOST}", [SIGNPOST_ROOM_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    implemented = reply_to(implementor, "/implement", [ROOM_IMPLEMENTED_REPLY, "You may not"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ROOM_RELEASED_REPLY)
     after = look_and_stat_extra_descriptions(implementor)
 
     assert BOOTED_SIGN_TEXT in booted[0] and booted[1] == BOOTED_EXTRA_DESCS, booted
-    assert "Room implemented." in raw_lines(implemented), implemented
+    assert ROOM_IMPLEMENTED_REPLY in raw_lines(implemented), implemented
     assert BOOTED_SIGN_TEXT in after[0], after
     assert after[1] == BOOTED_EXTRA_DESCS, after
 
@@ -215,7 +217,7 @@ def test_zreset_names_the_zone_by_its_number(server) -> None:
     0 for the test world's first zone, where its log line prints the zone number (:2140)."""
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = reply_to(implementor, f"zreset {ZONE_NUMBER}", [": Harness arena.", "Invalid zone number."], settle=SETTLE_SECONDS)
+    reply = reply_to(implementor, f"zreset {ZONE_NUMBER}", [": Harness arena.", "Invalid zone number."], settle=EDITOR_SETTLE_SECONDS)
 
     assert f"Reset zone {ZONE_NUMBER}: Harness arena." in raw_lines(reply), reply
 
@@ -231,10 +233,10 @@ class RecordEditor(NamedTuple):
 
 
 RECORD_EDITORS = [
-    RecordEditor(f"shape room {world.ROOM_SIGNPOST}", SIGNPOST_PROMPT, ROOM_RELEASED, Path("world") / "wld" / "11.wld", "#1184"),
-    RecordEditor(f"shape mob {SHAPED_RECORD}", MOBILE_PROMPT, MOBILE_RELEASED, Path("world") / "mob" / "11.mob", "#1131"),
-    RecordEditor(f"shape object {SHAPED_RECORD}", OBJECT_PROMPT, OBJECT_RELEASED, Path("world") / "obj" / "11.obj", "#1136"),
-    RecordEditor(f"shape script {SHAPED_SCRIPT}", SCRIPT_PROMPT, SCRIPT_RELEASED, Path("world") / "scr" / "11.scr", "#1180"),
+    RecordEditor(f"shape room {world.ROOM_SIGNPOST}", SIGNPOST_ROOM_PROMPT, ROOM_RELEASED_REPLY, Path("world") / "wld" / "11.wld", "#1184"),
+    RecordEditor(f"shape mob {SHAPED_RECORD}", MOBILE_PROMPT, MOBILE_RELEASED_REPLY, Path("world") / "mob" / "11.mob", "#1131"),
+    RecordEditor(f"shape object {SHAPED_RECORD}", OBJECT_PROMPT, OBJECT_RELEASED_REPLY, Path("world") / "obj" / "11.obj", "#1136"),
+    RecordEditor(f"shape script {SHAPED_SCRIPT}", SCRIPT_PROMPT, SCRIPT_RELEASED_REPLY, SCRIPT_FILE_RELATIVE, "#1180"),
 ]
 
 
@@ -256,8 +258,8 @@ def test_saving_a_record_leaves_the_rest_of_the_file_unchanged(server, editor: R
     booted = world_file.read_bytes()
     next_record = editor.next_record.encode("latin-1")
 
-    reply_to(implementor, editor.open_line, [editor.prompt], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
+    reply_to(implementor, editor.open_line, [editor.prompt], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once /free answers, /save has finished writing.
     free_editor(implementor, editor.release_marker)
 
@@ -275,11 +277,11 @@ def test_the_script_editors_1_labels_the_rows_it_shows(server) -> None:
     zone editor's /1 labels them."""
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply_to(implementor, "shape script 1180", ["Script: 1180>"], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/8", ["Enter row number"], settle=SETTLE_SECONDS)
-    reply_to(implementor, "2", ["Script: 1180>"], settle=SETTLE_SECONDS)
-    shown = reply_to(implementor, "/1", ["(third)", "No next command."], settle=SETTLE_SECONDS)
-    free_editor(implementor, SCRIPT_RELEASED)
+    reply_to(implementor, f"shape script {ORDERED_SCRIPT}", [ORDERED_SCRIPT_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/8", ["Enter row number"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "2", [ORDERED_SCRIPT_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "/1", ["(third)", "No next command."], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, SCRIPT_RELEASED_REPLY)
 
     shown_lines = raw_lines(shown)
     assert any(line.startswith("Prev: ") and "(first)" in line for line in shown_lines), shown
@@ -298,10 +300,10 @@ def test_a_lower_case_zone_filter_letter_lists_its_rows(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    reply_to(implementor, "/2", ["Enter filter:"], settle=SETTLE_SECONDS)
-    reply_to(implementor, "m", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", ["List range:"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ZONE_RELEASED)
+    reply_to(implementor, "/2", ["Enter filter:"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "m", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", ["List range:"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ZONE_RELEASED_REPLY)
 
     assert any(line.startswith("  1 M::") for line in raw_lines(listing)), listing
 
@@ -317,10 +319,10 @@ def test_a_dollar_typed_into_a_zone_comment_is_stored_once(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    reply_to(implementor, "/5", ["Enter line COMMENT"], settle=SETTLE_SECONDS)
-    reply_to(implementor, "costs $5", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    shown = reply_to(implementor, "/1", ["Curr:"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ZONE_RELEASED)
+    reply_to(implementor, "/5", ["Enter line COMMENT"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "costs $5", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "/1", ["Curr:"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ZONE_RELEASED_REPLY)
 
     shown_lines = [line.strip() for line in raw_lines(shown)]
     assert "costs $5" in shown_lines, shown
@@ -337,15 +339,15 @@ def test_a_door_row_with_a_direction_above_5_is_refused(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    reply_to(implementor, "/6", ["Next command chosen:", "No next command."], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/10", ["New command added next to current, and selected."], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/3", ["Enter command type:"], settle=SETTLE_SECONDS)
-    reply_to(implementor, "D", ["Enter 4 numbers:"], settle=SETTLE_SECONDS)
-    answered = reply_to(implementor, "0 1131 9 1", ["Enter line COMMENT", ZONE_PROMPT], settle=SETTLE_SECONDS)
+    reply_to(implementor, "/6", ["Next command chosen:", "No next command."], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/10", ["New command added next to current, and selected."], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/3", ["Enter command type:"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "D", ["Enter 4 numbers:"], settle=EDITOR_SETTLE_SECONDS)
+    answered = reply_to(implementor, "0 1131 9 1", ["Enter line COMMENT", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     if "Enter line COMMENT" in answered:
-        reply_to(implementor, "", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    shown = reply_to(implementor, "/1", ["Curr:"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ZONE_RELEASED)
+        reply_to(implementor, "", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "/1", ["Curr:"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ZONE_RELEASED_REPLY)
 
     assert any(line.endswith(REFUSAL_END) for line in raw_lines(answered)), answered
     assert "Exit:X" not in shown, shown
@@ -367,10 +369,10 @@ def test_a_negative_zone_lifespan_or_level_is_refused(server, field_line: str, a
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    reply_to(implementor, field_line, ["Enter "], settle=SETTLE_SECONDS)
-    answered = reply_to(implementor, answer, [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    shown = reply_to(implementor, "/51", ["Owners:"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ZONE_RELEASED)
+    reply_to(implementor, field_line, ["Enter "], settle=EDITOR_SETTLE_SECONDS)
+    answered = reply_to(implementor, answer, [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "/51", ["Owners:"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ZONE_RELEASED_REPLY)
 
     assert any(line.endswith(REFUSAL_END) for line in raw_lines(answered)), answered
     assert kept in shown, shown
@@ -391,8 +393,8 @@ def test_saving_a_zone_unedited_keeps_the_files_words(server) -> None:
     booted_words = zone_file.read_text(encoding="latin-1").split()
 
     open_zone_editor(implementor)
-    reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/1", ["Curr:"], settle=SETTLE_SECONDS)
-    free_editor(implementor, ZONE_RELEASED)
+    reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/1", ["Curr:"], settle=EDITOR_SETTLE_SECONDS)
+    free_editor(implementor, ZONE_RELEASED_REPLY)
 
     assert zone_file.read_text(encoding="latin-1").split() == booted_words

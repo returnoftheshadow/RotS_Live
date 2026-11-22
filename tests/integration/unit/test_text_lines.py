@@ -37,12 +37,14 @@ def test_reply_text_removes_carriage_returns() -> None:
 
 
 def test_assert_lines_finds_consecutive_lines() -> None:
-    assert_lines(Transcript("head\r\none\r\ntwo\r\n"), ("one", "two"))
+    reply = Transcript("head\r\none\r\ntwo\r\n")
+    assert_lines(reply, ("one", "two"))
 
 
 def test_assert_lines_fails_when_the_lines_are_not_consecutive() -> None:
     with pytest.raises(AssertionError, match="expected:"):
-        assert_lines(Transcript("one\r\nbetween\r\ntwo\r\n"), ("one", "two"))
+        reply = Transcript("one\r\nbetween\r\ntwo\r\n")
+        assert_lines(reply, ("one", "two"))
 
 
 def test_lines_after_drops_the_header_line_blanks_and_prompts() -> None:
@@ -115,7 +117,8 @@ def test_first_number_reads_the_first_group() -> None:
 
 def test_first_number_fails_naming_the_pattern() -> None:
     with pytest.raises(AssertionError, match="Con:"):
-        first_number(re.compile(r"Con:\[(\d+)"), "HP :[3/40]")
+        constitution_pattern = re.compile(r"Con:\[(\d+)")
+        first_number(constitution_pattern, "HP :[3/40]")
 
 
 def test_capitalised_raises_only_the_first_letter() -> None:

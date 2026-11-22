@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 from rots_harness.session import GameSession
@@ -43,4 +44,4 @@ def test_a_blank_email_line_closes_the_connection_and_the_server_still_serves(se
         connection.close()
 
     implementor = server.login(IMPLEMENTOR.name)
-    assert implementor.command("look").room_name() == "Immortal Start"
+    assert implementor.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME

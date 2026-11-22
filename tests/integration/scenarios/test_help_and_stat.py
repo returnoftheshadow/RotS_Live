@@ -272,7 +272,7 @@ def slot_row(slot: str, colour: str) -> str:
 def armour_the_player(implementor: GameSession, player: GameSession) -> int:
     """Gives the player the chain shirt to wear and returns the absorb its own info shows."""
     join_player(implementor)
-    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description="a chain shirt")
+    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description=world.OBJECT_CHAIN_SHIRT_SHORT_DESCRIPTION)
     worn = player.command("wear shirt")
     assert worn.contains("You wear a chain shirt on your body."), worn.text
     info = player.command("info")
@@ -546,7 +546,7 @@ def test_stat_obj_names_wear_and_extra_flags(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    load_object(implementor, world.OBJECT_STONE_GIRDLE, "a stone girdle")
+    load_object(implementor, world.OBJECT_STONE_GIRDLE, world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION)
     stat = read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE)
     assert GIRDLE_WEAR_LINE in stat, stat
     assert GIRDLE_EXTRA_FLAGS_LINE in stat, stat

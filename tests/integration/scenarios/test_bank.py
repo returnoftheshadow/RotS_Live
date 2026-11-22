@@ -14,7 +14,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_log import log_lines_holding, read_game_log
-from rots_harness.game_text import UNRECOGNIZED_COMMAND_REPLY
+from rots_harness.game_text import FIGHT_ONGOING_REPLY, UNRECOGNIZED_COMMAND_REPLY
 from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
 from rots_harness.replies import reply_to, text_seen_before_a_say
 from rots_harness.session import GameSession
@@ -123,18 +123,9 @@ STRANDED_CUSTOMER = Character(
     class_name="warrior",
 )
 
-# The short descriptions of world.OBJECT_LEATHER_CAP and world.OBJECT_LEATHER_BAG, and the iron
-# cap of the test world (tests/integration/world/obj/13.obj) with its short description.
-CAP_NAME = "a leather cap"
-BAG_NAME = "a leather bag"
-IRON_CAP_VNUM = 1304
-IRON_CAP_NAME = "an iron cap"
 # A brass key: type 18, ITEM_KEY, which Crash_is_unrentable (objsave.cpp) refuses.
 KEY_VNUM = 1306
 KEY_NAME = "a brass key"
-# A cursed ring: extra flags 128, ITEM_NODROP.
-CURSED_RING_VNUM = 1307
-CURSED_RING_NAME = "a cursed ring"
 # The copper in a purse: 10 gold (COPP_IN_GOLD is 1000, structs.h).
 PURSE_COPPER = 10000
 COPPER_IN_GOLD = 1000
@@ -177,8 +168,6 @@ BAD_FEE_LOG_LINE = "MOB ERROR: mobile #1308, options line 1: bad fee - banker di
 # The marker of a SYSERR line, which fails a harness run (CrashMonitor); a problem with a mob's
 # options is logged without it.
 SYSERR_MARKER = "SYSERR"
-# What the attacker reads when a fight with its target has started (do_hit, act_offe.cpp).
-FIGHT_ONGOING_MARKER = "You do the best you can!"
 # The implementor's reply to `invis` with no argument (do_invis, act_wiz.cpp).
 INVISIBLE_MARKER = f"Your invisibility level is {IMPLEMENTOR.level}."
 
@@ -208,12 +197,12 @@ def balance_lines(coins: str, item_rows: tuple = ()) -> tuple:
 
 
 EMPTY_VAULT_LINES = balance_lines("0 copper")
-ONE_CAP_VAULT_LINES = balance_lines("0 copper", (CAP_NAME,))
+ONE_CAP_VAULT_LINES = balance_lines("0 copper", (world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION,))
 # What the depositor reads when the banker takes or returns an item (bank_deposit, bank_withdraw).
 DEPOSITED_FORMAT = "You hand over {}."
 WITHDRAWN_FORMAT = "You are handed {}."
-DEPOSITED_CAP_MARKER = DEPOSITED_FORMAT.format(CAP_NAME)
-WITHDRAWN_CAP_MARKER = WITHDRAWN_FORMAT.format(CAP_NAME)
+DEPOSITED_CAP_MARKER = DEPOSITED_FORMAT.format(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
+WITHDRAWN_CAP_MARKER = WITHDRAWN_FORMAT.format(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
 # What bystanders read for an item deposit or withdrawal (bank_deposit, bank_withdraw).
 ROOM_DEPOSIT_FORMAT = "{} deposits {}."
 ROOM_WITHDRAW_FORMAT = "{} withdraws {}."
@@ -342,11 +331,11 @@ def test_a_banker_keeps_an_item_lists_it_and_hands_it_back(server) -> None:
     give_cap_in_bank_hall(implementor, DEPOSITOR)
 
     assert depositor.command("deposit cap").contains(DEPOSITED_CAP_MARKER)
-    assert CAP_NAME not in depositor.command("inventory").text
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in depositor.command("inventory").text
     assert_lines(depositor.command("balance"), ONE_CAP_VAULT_LINES)
 
     assert depositor.command("withdraw 1").contains(WITHDRAWN_CAP_MARKER)
-    assert depositor.command("inventory").contains(CAP_NAME)
+    assert depositor.command("inventory").contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
     assert_lines(depositor.command("balance"), EMPTY_VAULT_LINES)
 
     assert depositor.command("withdraw 1").contains(NOTHING_LIKE_THAT_MARKER)
@@ -399,7 +388,7 @@ def test_an_accounts_characters_share_one_vault_per_side(server) -> None:
 
     outsider_balance = outsider.command("balance")
     assert_lines(outsider_balance, EMPTY_VAULT_LINES)
-    assert CAP_NAME not in outsider_balance.text, outsider_balance.text
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in outsider_balance.text, outsider_balance.text
 
     folder = account_folder(server.lib_dir)
     light_vault_bytes = (folder / LIGHT_VAULT_FILE_NAME).read_bytes()
@@ -473,7 +462,7 @@ def test_a_banker_refuses_a_gift(server) -> None:
     give_cap_in_bank_hall(implementor, DEPOSITOR)
 
     assert depositor.command("give cap banker").contains(NO_GIFTS_MARKER)
-    assert depositor.command("inventory").contains(CAP_NAME)
+    assert depositor.command("inventory").contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
 
 
 @pytest.mark.bank_refusals
@@ -495,7 +484,7 @@ def test_a_banker_refuses_an_attack_and_no_fight_starts(server) -> None:
     assert depositor.command("kill banker").contains(NO_ATTACKS_MARKER)
     second_attack = depositor.command("kill banker")
     assert second_attack.contains(NO_ATTACKS_MARKER), second_attack.text
-    assert FIGHT_ONGOING_MARKER not in second_attack.text, second_attack.text
+    assert FIGHT_ONGOING_REPLY not in second_attack.text, second_attack.text
 
 
 @pytest.mark.bank_refusals
@@ -596,20 +585,20 @@ def test_a_bystander_sees_item_moves_but_not_coin_moves_or_the_bankers_tells(ser
     depositor = server.login(DEPOSITOR.name)
     bystander = server.login(KINSMAN.name)
     give_cap_in_bank_hall(implementor, DEPOSITOR)
-    bystander.expect([f"gives {CAP_NAME} to {DEPOSITOR.name}."])
+    bystander.expect([f"gives {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION} to {DEPOSITOR.name}."])
 
     assert depositor.command("deposit 5 gold").contains("You deposit 5 gold.")
     assert depositor.command("withdraw 9").contains(NOTHING_LIKE_THAT_MARKER)
     assert depositor.command("deposit cap").contains(DEPOSITED_CAP_MARKER)
-    seen_by_deposit = text_seen_before_a_say(depositor, DEPOSITOR, bystander)
-    assert ROOM_DEPOSIT_FORMAT.format(DEPOSITOR.name, CAP_NAME) in seen_by_deposit, seen_by_deposit
+    seen_by_deposit = text_seen_before_a_say(depositor, DEPOSITOR.name, bystander)
+    assert ROOM_DEPOSIT_FORMAT.format(DEPOSITOR.name, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) in seen_by_deposit, seen_by_deposit
     assert "gold" not in seen_by_deposit, seen_by_deposit
     assert "I hold nothing" not in seen_by_deposit, seen_by_deposit
 
     assert depositor.command("withdraw 2 gold").contains("You withdraw 2 gold.")
     assert depositor.command("withdraw 1").contains(WITHDRAWN_CAP_MARKER)
-    seen_by_withdrawal = text_seen_before_a_say(depositor, DEPOSITOR, bystander)
-    assert ROOM_WITHDRAW_FORMAT.format(DEPOSITOR.name, CAP_NAME) in seen_by_withdrawal, seen_by_withdrawal
+    seen_by_withdrawal = text_seen_before_a_say(depositor, DEPOSITOR.name, bystander)
+    assert ROOM_WITHDRAW_FORMAT.format(DEPOSITOR.name, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) in seen_by_withdrawal, seen_by_withdrawal
     assert "gold" not in seen_by_withdrawal, seen_by_withdrawal
 
 
@@ -630,9 +619,9 @@ def test_a_banker_refuses_a_key_loose_or_inside_a_bag(server) -> None:
     hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", DEPOSITOR)
 
     assert depositor.command("deposit key").contains(CANNOT_KEEP_MARKER)
-    assert depositor.command("put key bag").contains(f"You put {KEY_NAME} in {BAG_NAME}.")
+    assert depositor.command("put key bag").contains(f"You put {KEY_NAME} in {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION}.")
     assert depositor.command("deposit bag").contains(CANNOT_KEEP_MARKER)
-    assert depositor.command("inventory").contains(BAG_NAME)
+    assert depositor.command("inventory").contains(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
     assert_lines(depositor.command("balance"), EMPTY_VAULT_LINES)
 
 
@@ -649,14 +638,14 @@ def test_a_banker_refuses_a_cursed_item_inside_a_bag_or_loose(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
-    load_object(implementor, CURSED_RING_VNUM)
+    load_object(implementor, world.OBJECT_CURSED_RING)
     load_object(implementor, world.OBJECT_LEATHER_BAG)
-    assert implementor.command("put ring bag").contains(f"You put {CURSED_RING_NAME} in {BAG_NAME}.")
+    assert implementor.command("put ring bag").contains(f"You put {world.OBJECT_CURSED_RING_SHORT_DESCRIPTION} in {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION}.")
     given = implementor.command(f"give bag {DEPOSITOR.name.lower()}")
     assert given.contains(f"to {DEPOSITOR.name}."), given.text
 
     assert depositor.command("deposit bag").contains(CANNOT_KEEP_MARKER)
-    assert depositor.command("get ring bag").contains(f"You get {CURSED_RING_NAME}")
+    assert depositor.command("get ring bag").contains(f"You get {world.OBJECT_CURSED_RING_SHORT_DESCRIPTION}")
     assert depositor.command("deposit ring").contains(CANNOT_KEEP_MARKER)
     assert_lines(depositor.command("balance"), EMPTY_VAULT_LINES)
 
@@ -679,14 +668,14 @@ def test_a_vault_takes_its_tenth_item_and_refuses_the_eleventh(server) -> None:
     for put_number in range(VAULT_SLOTS - 1):
         load_object(implementor, world.OBJECT_LEATHER_CAP)
         reply = staff_reply(implementor, f"vault put {account_name} 1 cap")
-        assert VAULT_PUT_FORMAT.format(CAP_NAME) in reply, reply
+        assert VAULT_PUT_FORMAT.format(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) in reply, reply
     hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
     hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
 
     assert depositor.command("deposit cap").contains(DEPOSITED_CAP_MARKER)
     assert depositor.command("balance").contains(slots_line(VAULT_SLOTS))
     assert depositor.command("deposit cap").contains(VAULT_FULL_MARKER)
-    assert depositor.command("inventory").contains(CAP_NAME)
+    assert depositor.command("inventory").contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
 
     load_object(implementor, world.OBJECT_LEATHER_CAP)
     assert STAFF_VAULT_FULL_MARKER in staff_reply(implementor, f"vault put {account_name} 1 cap")
@@ -732,18 +721,18 @@ def test_a_withdrawal_finds_its_slot_by_number_keyword_or_abbreviation_and_renum
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
     hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", DEPOSITOR)
-    hand_object(implementor, IRON_CAP_VNUM, "cap", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_IRON_CAP, "cap", DEPOSITOR)
     hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
-    empty_bag_row = f"{BAG_NAME} (sealed, 0 inside)"
+    empty_bag_row = f"{world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION} (sealed, 0 inside)"
 
     assert depositor.command("deposit lea").contains(DEPOSITED_CAP_MARKER)
-    assert depositor.command("deposit cap").contains(DEPOSITED_FORMAT.format(IRON_CAP_NAME))
-    assert depositor.command("deposit bag").contains(DEPOSITED_FORMAT.format(BAG_NAME))
-    assert_lines(depositor.command("balance"), balance_lines("0 copper", (CAP_NAME, IRON_CAP_NAME, empty_bag_row)))
+    assert depositor.command("deposit cap").contains(DEPOSITED_FORMAT.format(world.OBJECT_IRON_CAP_SHORT_DESCRIPTION))
+    assert depositor.command("deposit bag").contains(DEPOSITED_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION))
+    assert_lines(depositor.command("balance"), balance_lines("0 copper", (world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, world.OBJECT_IRON_CAP_SHORT_DESCRIPTION, empty_bag_row)))
 
     assert depositor.command("withdraw 5").contains(NOTHING_LIKE_THAT_MARKER)
-    assert depositor.command("withdraw 2.cap").contains(WITHDRAWN_FORMAT.format(IRON_CAP_NAME))
-    assert_lines(depositor.command("balance"), balance_lines("0 copper", (CAP_NAME, empty_bag_row)))
+    assert depositor.command("withdraw 2.cap").contains(WITHDRAWN_FORMAT.format(world.OBJECT_IRON_CAP_SHORT_DESCRIPTION))
+    assert_lines(depositor.command("balance"), balance_lines("0 copper", (world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, empty_bag_row)))
     assert depositor.command("withdraw lea").contains(WITHDRAWN_CAP_MARKER)
     assert_lines(depositor.command("balance"), balance_lines("0 copper", (empty_bag_row,)))
 
@@ -763,10 +752,10 @@ def test_a_deposited_bag_keeps_its_contents_and_lists_as_sealed(server) -> None:
     go_to_bank_hall(implementor)
     hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
     hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", DEPOSITOR)
-    assert depositor.command("put cap bag").contains(f"You put {CAP_NAME} in {BAG_NAME}.")
+    assert depositor.command("put cap bag").contains(f"You put {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION} in {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION}.")
 
-    assert depositor.command("deposit bag").contains(DEPOSITED_FORMAT.format(BAG_NAME))
-    assert_lines(depositor.command("balance"), balance_lines("0 copper", (f"{BAG_NAME} (sealed, 1 inside)",)))
+    assert depositor.command("deposit bag").contains(DEPOSITED_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION))
+    assert_lines(depositor.command("balance"), balance_lines("0 copper", (f"{world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION} (sealed, 1 inside)",)))
     vault = json.loads((account_folder(server.lib_dir) / LIGHT_VAULT_FILE_NAME).read_text(encoding="utf-8"))
     stored_objects = vault["slots"][0]["objects"]
     expected_objects = [(world.OBJECT_LEATHER_BAG, 0), (world.OBJECT_LEATHER_CAP, 1)]
@@ -821,7 +810,7 @@ def test_vault_shows_a_characters_account_side_and_slots(server) -> None:
     assert expected_header in view, view
     slot_row = re.search(r"^ 1  (.{40}) stored (\d+) days?$", view, re.MULTILINE)
     assert slot_row is not None, view
-    assert (slot_row.group(1).rstrip(), slot_row.group(2)) in ((CAP_NAME, "0"), (CAP_NAME, "1")), view
+    assert (slot_row.group(1).rstrip(), slot_row.group(2)) in ((world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, "0"), (world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, "1")), view
 
 
 @pytest.mark.bank_staff
@@ -841,13 +830,13 @@ def test_vault_take_and_put_move_items_and_coins_and_the_owner_sees_it(server) -
     assert depositor.command("deposit cap").contains(DEPOSITED_CAP_MARKER)
     set_gold(implementor, IMPLEMENTOR, PURSE_COPPER)
 
-    assert VAULT_TAKE_FORMAT.format(CAP_NAME) in staff_reply(implementor, f"vault take {account_name} 1 1")
+    assert VAULT_TAKE_FORMAT.format(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) in staff_reply(implementor, f"vault take {account_name} 1 1")
     assert_lines(depositor.command("balance"), EMPTY_VAULT_LINES)
-    assert VAULT_PUT_FORMAT.format(CAP_NAME) in staff_reply(implementor, f"vault put {account_name} 1 cap")
+    assert VAULT_PUT_FORMAT.format(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) in staff_reply(implementor, f"vault put {account_name} 1 cap")
     assert VAULT_PUT_FORMAT.format("5 gold") in staff_reply(implementor, f"vault put {account_name} 1 coins 5 gold")
     assert VAULT_TAKE_FORMAT.format("2 gold") in staff_reply(implementor, f"vault take {account_name} 1 coins 2 gold")
 
-    assert_lines(depositor.command("balance"), balance_lines("3 gold", (CAP_NAME,)))
+    assert_lines(depositor.command("balance"), balance_lines("3 gold", (world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION,)))
 
 
 @pytest.mark.bank_staff

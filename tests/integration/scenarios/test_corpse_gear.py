@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import LOST_CONCENTRATION, NO_ENERGY
+from rots_harness.casting import LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import CORPSE_CONTENTS_HEADER, IS_DEAD_FORMAT
 from rots_harness.immortal_commands import goto, load_mob, load_object
@@ -27,8 +27,6 @@ pytestmark = [pytest.mark.scenario, pytest.mark.corpse_gear]
 # The frail taster (mob 2205, tests/integration/world/mob/22.mob): one hit point, constitution 2,
 # no script, no resistances.
 TASTER_VNUM = 2205
-# How look names the Order Hall.
-ORDER_HALL_NAME = "Order Hall"
 # The damage each poison tick deals (affect_update, limits.cpp).
 POISON_TICK_DAMAGE = 5
 
@@ -60,10 +58,10 @@ SETTLE_SECONDS = 1.0
 
 def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
     """Brings the implementor to the Order Hall, loads the taster and gives it a bag with a cap in it."""
-    goto(implementor, world.ROOM_ORDER_HALL, ORDER_HALL_NAME)
+    goto(implementor, world.ROOM_ORDER_HALL, world.ROOM_ORDER_HALL_NAME)
     load_mob(implementor, TASTER_VNUM, "a frail taster")
-    load_object(implementor, world.OBJECT_LEATHER_BAG, "a leather bag")
-    load_object(implementor, world.OBJECT_LEATHER_CAP, "a leather cap")
+    load_object(implementor, world.OBJECT_LEATHER_BAG, world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_LEATHER_CAP, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
     assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
     given = implementor.command("give bag taster")
     assert given.contains("You give a leather bag to a frail taster."), given.text
@@ -73,12 +71,12 @@ def assert_the_corpse_holds_the_cap_outside_the_bag(implementor: GameSession) ->
     """Asserts the taster's corpse lists the bag and the cap, and the bag no longer holds the cap."""
     corpse = implementor.command("look in corpse").text
     corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
-    assert "a leather bag" in corpse_contents, corpse
-    assert "a leather cap" in corpse_contents, corpse
+    assert world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION in corpse_contents, corpse
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION in corpse_contents, corpse
     taken = implementor.command("get bag corpse")
     assert taken.contains("You get a leather bag from"), taken.text
     bag = implementor.command("look in bag").text
-    assert "a leather cap" not in bag, bag
+    assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in bag, bag
 
 
 @pytest.mark.schedule("affect-hours")
@@ -153,8 +151,8 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
     assert hit_points - 7 < 0
 
     while True:
-        outcome = reply_to(slinger, "cast 'magic missile' taster", [TASTER_DEAD_MARKER, LOST_CONCENTRATION, NO_ENERGY], timeout=CAST_TIMEOUT)
-        assert NO_ENERGY not in outcome, "the mage ran out of mana before a cast held"
+        outcome = reply_to(slinger, "cast 'magic missile' taster", [TASTER_DEAD_MARKER, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY], timeout=CAST_TIMEOUT)
+        assert NO_ENERGY_REPLY not in outcome, "the mage ran out of mana before a cast held"
         if TASTER_DEAD_MARKER in outcome:
             break
     implementor.drain(SETTLE_SECONDS)

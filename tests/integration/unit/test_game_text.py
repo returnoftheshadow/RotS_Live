@@ -17,9 +17,13 @@ SOURCE_DIR = REPOSITORY_ROOT / "src"
 MESSAGES_FILE = REPOSITORY_ROOT / "lib" / "misc" / "messages"
 # The source files' suffixes.
 SOURCE_SUFFIXES = (".cpp", ".h")
-# Each text whose words the sources print around a part the game fills in at run time, with that
-# part: look in prints the container's first keyword, which make_corpse sets to "corpse".
-FILLED_IN_PARTS = {"CORPSE_CONTENTS_HEADER": "corpse"}
+# Each text whose sources print part of it at run time, with that part (see the text's own comment).
+FILLED_IN_PARTS = {
+    "CORPSE_CONTENTS_HEADER": "corpse",
+    "RENTED_REPLY": "The harness innkeeper",
+    "INNKEEPER_TELLS_START": "The harness innkeeper",
+    "FOLLOWER_ACK": "him",
+}
 
 
 def game_texts() -> list[tuple[str, str]]:
@@ -29,11 +33,14 @@ def game_texts() -> list[tuple[str, str]]:
 
 
 def fixed_pieces(name: str, text: str) -> list[str]:
-    """The pieces of text the game prints as written: a format string split at each {}, without a
-    part FILLED_IN_PARTS names."""
+    """Return the pieces of text the game prints as written.
+
+    A format string splits at each {}, and at the part FILLED_IN_PARTS names for name.
+    """
     filled_in = FILLED_IN_PARTS.get(name)
     if filled_in is not None:
-        text = text.replace(filled_in, "", 1)
+        text = text.replace(filled_in, "{}", 1)
+
     pieces = text.split("{}")
     return [piece for piece in pieces if piece.strip()]
 
@@ -71,3 +78,4 @@ def test_each_text_is_printed_by_the_game(name: str, text: str) -> None:
 def test_a_format_string_splits_at_its_fields() -> None:
     assert fixed_pieces("ANY_FORMAT", "{} has teleported you!") == [" has teleported you!"]
     assert fixed_pieces("CORPSE_CONTENTS_HEADER", "corpse (here) :") == [" (here) :"]
+    assert fixed_pieces("FOLLOWER_ACK", "ACK! You could not follow him!") == ["ACK! You could not follow ", "!"]

@@ -11,7 +11,15 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import IS_DEAD_FORMAT
+from rots_harness.game_text import (
+    FIGHT_ONGOING_REPLY,
+    INNKEEPER_TELLS_START,
+    IS_DEAD_FORMAT,
+    NOBODY_WILLING_REPLY,
+    NOTHING_FOUND_REPLY,
+    NOW_FOLLOWS_FORMAT,
+    RENTED_REPLY,
+)
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
@@ -111,8 +119,6 @@ WARBAND_KEYWORD = "warhost"
 GEAR_KEYWORD = "gearmark"
 # A keyword nothing answers to.
 NO_MATCH_KEYWORD = "nosuchthing"
-# What an immortal's `where` answers when nothing matches (perform_immort_where, act_info.cpp).
-NOTHING_FOUND_MARKER = "Couldn't find any such thing."
 
 # What `look <recruit>` lists before the weapon once it has worn its gear, in order.
 ARMOUR_BEFORE_WIELD = (
@@ -151,8 +157,6 @@ WIELDS_FORMAT = "{} wields {}."
 BOTH_HANDS_FORMAT = "{} takes his weapon with both hands."
 # What the leader reads as a recruit mounts its wolf (do_ride, ranger.cpp).
 MOUNTS_FORMAT = "{} mounts {} and starts riding him."
-# What the leader reads at login as a wolf follows its recruit (add_follower, handler.cpp).
-NOW_FOLLOWS_FORMAT = "{} now follows {}."
 # What the leader reads as a recruit assists it (do_assist, act_offe.cpp).
 ASSISTS_FORMAT = "{} assists you!"
 # What the leader reads as a recruit strikes the dummy (do_hit, act_offe.cpp).
@@ -170,7 +174,7 @@ ORDER_REFUSAL_MARKERS = [
     "Order who to do what?",
     "That person isn't here.",
     "has an indifferent look.",
-    "Nobody here is willing to carry out your orders!",
+    NOBODY_WILLING_REPLY,
 ]
 # do_recruit's refusals.
 RECRUIT_REFUSAL_MARKERS = [
@@ -186,18 +190,14 @@ RECRUIT_REFUSAL_MARKERS = [
 # do_lead's refusals.
 LEAD_REFUSAL_MARKERS = ["There is nobody by that name.", "You can not lead this.", "is already following", "doesn't want you to lead"]
 # do_hit's refusals.
-HIT_REFUSAL_MARKERS = ["They aren't here.", "A peaceful feeling overwhelms you", "You do the best you can!"]
+HIT_REFUSAL_MARKERS = ["They aren't here.", "A peaceful feeling overwhelms you", FIGHT_ONGOING_REPLY]
 # What a parried, dodged or evaded blow shows its attacker's room (do_parry, do_dodge, do_evade).
 MISSED_BLOW_MARKERS = ["deflects", "dodges", "is not where", "distracts"]
 # What a walker reads when the way is shut (do_move, act_move.cpp).
 NO_WAY_MARKER = "You cannot go that way."
 
-# What the renter reads as the receptionist stores its belongings (gen_receptionist, objsave.cpp).
-RENTED_MARKER = "The harness innkeeper stores your belongings and helps you into your private chamber."
 # What an angry renter reads from a receptionist of race 1 (gen_receptionist).
 TOO_ANGRY_MARKER = "The harness innkeeper tells you, 'You're too angry.  Come back when you've cooled down.'"
-# How every answer the innkeeper tells the renter starts.
-INNKEEPER_TELLS_FRAGMENT = "The harness innkeeper tells you, '"
 # The game hours of anger the leader's blow gives (on_attacked_character, char_utils_combat.cpp).
 ANGER_HOURS = 2
 
@@ -248,8 +248,8 @@ def implementor_reply(implementor: GameSession, command: str) -> str:
     implementor.send_line(command)
     # `stat` and `where` lines can end like a prompt, so a `where` that matches nothing marks the end.
     implementor.send_line(f"where {NO_MATCH_KEYWORD}")
-    text = implementor.expect([NOTHING_FOUND_MARKER], timeout=REPLY_TIMEOUT)
-    return text.rsplit(NOTHING_FOUND_MARKER, 1)[0]
+    text = implementor.expect([NOTHING_FOUND_REPLY], timeout=REPLY_TIMEOUT)
+    return text.rsplit(NOTHING_FOUND_REPLY, 1)[0]
 
 
 def matched_groups(pattern: re.Pattern, text: str) -> tuple:
@@ -437,8 +437,8 @@ def walk_out_and_back(implementor: GameSession, leader: GameSession, gear: Count
 
 def rent(leader: GameSession) -> None:
     """Rents at the innkeeper and asserts the rent ended the leader's play at the character menu."""
-    reply = reply_to(leader, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT])
-    assert RENTED_MARKER in reply and CHARACTER_MENU_PROMPT in reply, reply
+    reply = reply_to(leader, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_START])
+    assert RENTED_REPLY in reply and CHARACTER_MENU_PROMPT in reply, reply
     leader.close()
 
 
@@ -560,7 +560,7 @@ def check_anger_and_wait_it_out(server, implementor: GameSession, leader: GameSe
     """Asserts the receptionist refuses the angry leader, then advances the hours its anger lasts."""
     angry = implementor_reply(implementor, f"stat player {LEADER_KEYWORD}")
     assert ANGER_AFFECT_PATTERN.search(angry), angry
-    refused = reply_to(leader, "rent", [INNKEEPER_TELLS_FRAGMENT, CHARACTER_MENU_PROMPT])
+    refused = reply_to(leader, "rent", [INNKEEPER_TELLS_START, CHARACTER_MENU_PROMPT])
     assert TOO_ANGRY_MARKER in refused and CHARACTER_MENU_PROMPT not in refused, refused
     server.advance_hours(ANGER_HOURS + 1)
     leader.drain(SETTLE_SECONDS)

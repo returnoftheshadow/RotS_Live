@@ -1,10 +1,13 @@
-"""Unit tests for rots_harness.world: each vnum names a fixture of the test world, and each room
-name is the one its room's file holds."""
+"""Unit tests for rots_harness.world.
+
+Each vnum names a fixture of the test world, and each room name, short description and keyword
+is the one its fixture's file holds.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 import pytest
 
@@ -26,6 +29,12 @@ OBJECT_SHORT_DESCRIPTIONS = [
     (world.OBJECT_LEATHER_HELM, "a leather helm"),
     (world.OBJECT_STRANGE_RELIC, "a strange relic"),
     (world.OBJECT_FLASK, "a flask"),
+    (world.OBJECT_IRON_CAP, "an iron cap"),
+    (world.OBJECT_CURSED_RING, "a cursed ring"),
+    (world.OBJECT_GREY_PEBBLE, "a grey pebble"),
+    (world.OBJECT_BRASS_KEYRING, "a brass keyring"),
+    (world.OBJECT_LEATHER_BELT, "a leather belt"),
+    (world.OBJECT_GREY_SASH, "a draining grey sash"),
 ]
 # Each mob constant and the short description its fixture holds.
 MOB_SHORT_DESCRIPTIONS = [
@@ -35,12 +44,24 @@ MOB_SHORT_DESCRIPTIONS = [
     (world.MOB_STRAW_SCARECROW, "a straw scarecrow"),
     (world.MOB_MYSTERIOUS_TRAVELLER, "a mysterious traveller"),
     (world.MOB_PORTER, "a porter"),
+    (world.MOB_PRACTICE_DUMMY, "a practice dummy"),
 ]
 # Each room name constant and the room it names.
 ROOM_NAMES = [
+    (world.ROOM_IMMORTAL_START, world.ROOM_IMMORTAL_START_NAME),
+    (world.ROOM_ARENA_WEST, world.ROOM_ARENA_WEST_NAME),
     (world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME),
+    (world.ROOM_ARENA_EAST, world.ROOM_ARENA_EAST_NAME),
     (world.ROOM_HUMAN_START, world.ROOM_HUMAN_START_NAME),
+    (world.ROOM_TRADE_HALL, world.ROOM_TRADE_HALL_NAME),
+    (world.ROOM_ORDER_HALL, world.ROOM_ORDER_HALL_NAME),
 ]
+# The suffix of a short description constant, after the name of the vnum constant it describes.
+SHORT_DESCRIPTION_SUFFIX = "_SHORT_DESCRIPTION"
+# The suffix of a keyword constant, after the name of the vnum constant it names.
+KEYWORD_SUFFIX = "_KEYWORD"
+# The suffix of a room name constant, after the name of the room constant it names.
+NAME_SUFFIX = "_NAME"
 
 
 def records_by_vnum(category: str, reader: Callable[[Path], list]) -> dict:
@@ -58,6 +79,12 @@ def world_constants(prefix: str) -> set[str]:
     """The names of world.py's integer constants that start with prefix."""
     bindings = vars(world).items()
     return {name for name, value in bindings if name.startswith(prefix) and isinstance(value, int)}
+
+
+def world_texts(suffix: str) -> dict[str, str]:
+    """Return world.py's string constants whose names end in suffix, by the vnum constant they belong to."""
+    bindings = vars(world).items()
+    return {name.removesuffix(suffix): value for name, value in bindings if name.endswith(suffix) and isinstance(value, str)}
 
 
 def test_every_room_constant_is_a_room_of_the_test_world() -> None:
@@ -95,3 +122,31 @@ def test_each_mob_constant_names_its_fixture(vnum: int, short_description: str) 
 def test_each_room_name_is_its_rooms(vnum: int, name: str) -> None:
     rooms = records_by_vnum("wld", world_catalogue.read_rooms)
     assert rooms[vnum].name == name
+
+
+def test_every_room_name_constant_is_checked_here() -> None:
+    checked = {name for _, name in ROOM_NAMES}
+    room_names = world_texts(NAME_SUFFIX)
+    unchecked = sorted(f"{room}{NAME_SUFFIX}" for room, name in room_names.items() if name not in checked)
+    assert not unchecked, f"add {unchecked} to ROOM_NAMES"
+
+
+def test_each_short_description_constant_is_its_fixtures() -> None:
+    expected_objects = dict(OBJECT_SHORT_DESCRIPTIONS)
+    expected_mobs = dict(MOB_SHORT_DESCRIPTIONS)
+    short_descriptions = world_texts(SHORT_DESCRIPTION_SUFFIX)
+    wrong = []
+    for name, text in short_descriptions.items():
+        expected = expected_objects if name.startswith("OBJECT_") else expected_mobs
+        vnum = getattr(world, name)
+        if expected.get(vnum) != text:
+            wrong.append(name)
+
+    assert not wrong, f"these short descriptions are not their fixtures': {wrong}"
+
+
+def test_each_keyword_constant_is_one_of_its_objects_keywords() -> None:
+    objects = records_by_vnum("obj", world_catalogue.read_objects)
+    keywords = world_texts(KEYWORD_SUFFIX)
+    wrong = sorted(name for name, keyword in keywords.items() if keyword not in objects[getattr(world, name)].keywords.split())
+    assert not wrong, f"these keywords are not their objects': {wrong}"

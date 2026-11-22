@@ -17,9 +17,14 @@ ACCOUNT_MENU_PLAY = "2"
 CHARACTER_CHOICE_PROMPT = "Character number or name:"
 CHARACTER_MENU_PROMPT = "Make your choice:"
 CHARACTER_MENU_ENTER = "1"
-ENTER_GAME_MARKER = "Here we go..."
-BAD_CREDENTIALS_MARKER = "Invalid account credentials"
-ONE_CHARACTER_ONLINE_MARKER = "You are already connected as"
+# What the character menu's enter choice answers as the character enters the game (WELC_MESSG,
+# config.cpp).
+ENTER_GAME_REPLY = "Here we go..."
+# The start of what a refused account password prints (CON_ACCTPWD in nanny, interpre.cpp).
+BAD_CREDENTIALS_START = "Invalid account credentials"
+# The start of what choosing a second character to play prints while one is online
+# (active_account_session_restriction_message_for_session, interpre.cpp).
+ONE_CHARACTER_ONLINE_START = "You are already connected as"
 ONE_CHARACTER_ONLINE_RULE = "an account may have one character online unless it owns a character above level 91 (interpre.cpp, first_restricting_active_account_session_for_account)"
 PROMPT_TERMINATORS = (">", "]")
 # A complete control sequence: colour codes and the clear-screen pair ESC[H ESC[J.
@@ -28,7 +33,8 @@ CSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 INCOMPLETE_CSI_PATTERN = re.compile(r"\x1b(\[[0-9;?]*)?\Z")
 # How much of the unread text an error message quotes.
 PENDING_TEXT_QUOTED = 1500
-FAREWELL_MARKERS = ("Goodbye", "As you quit")
+# The starts of the lines quit answers with as it lets the character go (do_quit, act_othe.cpp).
+FAREWELL_STARTS = ("Goodbye", "As you quit")
 # The longest one read blocks, so a wait loop checks its deadline at least this often.
 READ_TIMEOUT_SECONDS = 0.25
 # The shortest read timeout a wait loop sets: settimeout(0) would make the socket non-blocking.
@@ -206,18 +212,18 @@ class GameSession:
         self.send_line(self._character_name)
         self._expect_or_refuse([CHARACTER_MENU_PROMPT], timeout)
         self.send_line(CHARACTER_MENU_ENTER)
-        arrival = self._expect_or_refuse([ENTER_GAME_MARKER], timeout)
+        arrival = self._expect_or_refuse([ENTER_GAME_REPLY], timeout)
         # Entering the game shows the room and then a prompt; expect may already have read that prompt.
         if not ends_with_prompt(arrival):
-            self.wait_for_prompt(timeout, after=ENTER_GAME_MARKER)
+            self.wait_for_prompt(timeout, after=ENTER_GAME_REPLY)
 
     def _expect_or_refuse(self, markers: List[str], timeout: float) -> str:
         """Like expect, but raises LoginRefused as soon as the game refuses the login instead of waiting out the timeout."""
-        text = self.expect([*markers, BAD_CREDENTIALS_MARKER, ONE_CHARACTER_ONLINE_MARKER], timeout)
-        if BAD_CREDENTIALS_MARKER in text:
-            raise LoginRefused(f"{self.character_name}: the server refused the account login: {BAD_CREDENTIALS_MARKER}")
-        if ONE_CHARACTER_ONLINE_MARKER in text:
-            refusal = next(line.strip() for line in text.splitlines() if ONE_CHARACTER_ONLINE_MARKER in line)
+        text = self.expect([*markers, BAD_CREDENTIALS_START, ONE_CHARACTER_ONLINE_START], timeout)
+        if BAD_CREDENTIALS_START in text:
+            raise LoginRefused(f"{self.character_name}: the server refused the account login: {BAD_CREDENTIALS_START}")
+        if ONE_CHARACTER_ONLINE_START in text:
+            refusal = next(line.strip() for line in text.splitlines() if ONE_CHARACTER_ONLINE_START in line)
             raise LoginRefused(f"{self.character_name}: {refusal} The game's rule: {ONE_CHARACTER_ONLINE_RULE}.")
         return text
 
@@ -229,7 +235,7 @@ class GameSession:
         try:
             self.drain(PRE_COMMAND_DRAIN_SECONDS)
             self.send_line("quit")
-            self.expect(FAREWELL_MARKERS, timeout)
+            self.expect(FAREWELL_STARTS, timeout)
         except SessionTimeout as refusal:
             raise QuitRefused(f"{self.character_name}: quit was refused or never answered") from refusal
         finally:

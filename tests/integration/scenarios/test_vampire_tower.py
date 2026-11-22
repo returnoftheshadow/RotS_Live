@@ -10,7 +10,7 @@ from rots_harness.game_log import count_logged, logged_messages
 from rots_harness.immortal_commands import goto, set_syslog
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.shaping import ROOM_RELEASED
+from rots_harness.shaping import COULD_NOT_OPEN_FILE_REPLY, ROOM_IMPLEMENTED_REPLY, ROOM_RELEASED_REPLY
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.vampire_tower]
@@ -49,11 +49,10 @@ VISITOR = Character(
 # The room editor's replies (shaperom.cpp): loading the room, or failing to; asking which exit
 # to remove and removing it; and implementing the room.
 ROOM_LOADED = f"loading room #{ROOM_BEFORE_THE_DOOR}"
-ROOM_LOAD_FAILURES = ["could not open that file.", "no room here."]
+ROOM_LOAD_FAILURES = [COULD_NOT_OPEN_FILE_REPLY, "no room here."]
 WHICH_EXIT_TO_REMOVE = "Enter exit to remove (n e s w u d):"
 SOUTH_EXIT_REMOVED = "Exit SOUTH removed."
 NO_SUCH_EXIT = "This exit did not exist already."
-ROOM_IMPLEMENTED = "Room implemented."
 IMPLEMENT_REFUSALS = ["You may not do that in this zone.", "You have nothing to implement"]
 
 # Seconds to keep reading after an outcome, for text already sent to arrive.
@@ -91,10 +90,10 @@ def remove_the_south_exit_outside_the_door(implementor: GameSession) -> None:
     assert WHICH_EXIT_TO_REMOVE in asked, asked
     removed = reply_to(implementor, "s", [SOUTH_EXIT_REMOVED, NO_SUCH_EXIT])
     assert SOUTH_EXIT_REMOVED in removed, removed
-    implemented = reply_to(implementor, "/implement", [ROOM_IMPLEMENTED, *IMPLEMENT_REFUSALS])
-    assert ROOM_IMPLEMENTED in implemented, implemented
-    released = reply_to(implementor, "/free", [ROOM_RELEASED])
-    assert ROOM_RELEASED in released, released
+    implemented = reply_to(implementor, "/implement", [ROOM_IMPLEMENTED_REPLY, *IMPLEMENT_REFUSALS])
+    assert ROOM_IMPLEMENTED_REPLY in implemented, implemented
+    released = reply_to(implementor, "/free", [ROOM_RELEASED_REPLY])
+    assert ROOM_RELEASED_REPLY in released, released
 
 
 @pytest.mark.schedule("affect-hours")

@@ -32,8 +32,6 @@ SKIPPED_LINES = ("Nested body.", "Nested then.", "Nested else.", "Outer tail.")
 # The careless copyist (mob 1733): the scribe's script (1715: copy the given object with
 # LOAD_OBJ_X, take the copy, give it back) with 0 in LOAD_OBJ_X's first parameter.
 CARELESS_COPYIST = ScriptMob(vnum=1733, keyword="careless", short_description="a careless copyist")
-# A grey pebble (tests/integration/world/obj/17.obj).
-PEBBLE_VNUM = 1701
 # Seconds to wait for the crier's second line: four passes are one second (OPT_USEC, comm.cpp);
 # the rest leaves room for a loaded host.
 WAIT_TIMEOUT = 10.0
@@ -104,7 +102,7 @@ def test_a_false_if_ending_in_a_nested_block_without_an_else_runs_its_else_branc
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", FIRST_CLERK.keyword)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", FIRST_CLERK.keyword)
     outer_else = said(FIRST_CLERK.short_description, OUTER_ELSE_LINE)
     after = said(FIRST_CLERK.short_description, AFTER_LINE)
     assert outer_else in reply and after in reply, reply
@@ -129,7 +127,7 @@ def test_a_false_if_skips_a_nested_block_with_a_non_empty_else_branch(server) ->
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", SECOND_CLERK.keyword)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", SECOND_CLERK.keyword)
     outer_else = said(SECOND_CLERK.short_description, OUTER_ELSE_LINE)
     after = said(SECOND_CLERK.short_description, AFTER_LINE)
     assert outer_else in reply and after in reply, reply

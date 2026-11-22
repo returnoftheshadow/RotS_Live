@@ -2,16 +2,14 @@
 
 The server writes a log line before it sends the reply that caused it, but under the Docker
 launcher the log reaches game.log through compose, so a line can arrive after the reply: a test
-that needs a line waits for it. The log is read as latin-1, which decodes every byte, so a
-count of an ASCII line is the same whatever else the log holds. Callers pass the server's
-`handle.log_path`.
+that needs a line waits for it. Callers pass the server's `handle.log_path`.
 """
 
 from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 # Seconds wait_for_log_count and count_logged wait by default.
 LOG_TIMEOUT_SECONDS = 10.0
@@ -20,7 +18,7 @@ LOG_POLL_SECONDS = 0.2
 # How much of the log's end a failed wait quotes when the caller gives no describe.
 FAILURE_TAIL_CHARACTERS = 2000
 # What separates mudlog's '<type>, <time>' from its message on each line (mudlog, utility.cpp).
-MESSAGE_SEPARATOR = " :: "
+_MESSAGE_SEPARATOR = " :: "
 
 
 def read_game_log(log_path: Path) -> str:
@@ -33,12 +31,14 @@ def read_game_log(log_path: Path) -> str:
 
 def count_in_log(log_path: Path, line: str) -> int:
     """How many times game.log holds line so far, anywhere in its text; nothing is waited for."""
-    return read_game_log(log_path).count(line)
+    text = read_game_log(log_path)
+    return text.count(line)
 
 
 def log_lines_holding(log_path: Path, marker: str) -> list[str]:
     """The lines of game.log so far that contain marker, in log order; nothing is waited for."""
-    lines = read_game_log(log_path).splitlines()
+    text = read_game_log(log_path)
+    lines = text.splitlines()
     return [log_line for log_line in lines if marker in log_line]
 
 
@@ -89,8 +89,9 @@ def logged_messages(log_path: Path) -> list[str]:
 
     Lines without the separator, such as the boot's own output, are left out.
     """
-    lines = read_game_log(log_path).splitlines()
-    return [log_line.split(MESSAGE_SEPARATOR, 1)[1] for log_line in lines if MESSAGE_SEPARATOR in log_line]
+    text = read_game_log(log_path)
+    lines = text.splitlines()
+    return [log_line.split(_MESSAGE_SEPARATOR, 1)[1] for log_line in lines if _MESSAGE_SEPARATOR in log_line]
 
 
 def count_logged(
@@ -107,7 +108,12 @@ def count_logged(
     expected_count after a timeout or above it.
     """
     deadline = time.monotonic() + timeout
-    while logged_messages(log_path).count(message) < expected_count and time.monotonic() < deadline:
+    while True:
+        messages = logged_messages(log_path)
+        if messages.count(message) >= expected_count or time.monotonic() >= deadline:
+            break
+
         time.sleep(poll)
 
-    return logged_messages(log_path).count(message)
+    final_messages = logged_messages(log_path)
+    return final_messages.count(message)

@@ -35,11 +35,11 @@ class RangeCase(NamedTuple):
 
 
 # Mob 1130 in extended mode, where the fields have their extended numbers (list_help, shapemob.cpp).
-MOB_EDITOR = RangeCase((f"shape mob {shaping.SHAPED_RECORD}", "/simple"), shaping.MOBILE_PROMPT, "/50", shaping.MOBILE_RELEASED)
-OBJECT_EDITOR = RangeCase((f"shape object {shaping.SHAPED_RECORD}",), shaping.OBJECT_PROMPT, "/50", shaping.OBJECT_RELEASED)
-ROOM_EDITOR = RangeCase((f"shape room {world.ROOM_IMMORTAL_START}",), shaping.IMMORTAL_START_ROOM_PROMPT, "/50", shaping.ROOM_RELEASED)
-ZONE_EDITOR = RangeCase((f"shape zone {shaping.ZONE_NUMBER}",), shaping.ZONE_PROMPT, "/51", shaping.ZONE_RELEASED)
-SCRIPT_EDITOR = RangeCase((f"shape script {shaping.SHAPED_SCRIPT}",), shaping.SCRIPT_PROMPT, "/51", shaping.SCRIPT_RELEASED)
+MOB_EDITOR = RangeCase((f"shape mob {shaping.SHAPED_RECORD}", "/simple"), shaping.MOBILE_PROMPT, "/50", shaping.MOBILE_RELEASED_REPLY)
+OBJECT_EDITOR = RangeCase((f"shape object {shaping.SHAPED_RECORD}",), shaping.OBJECT_PROMPT, "/50", shaping.OBJECT_RELEASED_REPLY)
+ROOM_EDITOR = RangeCase((f"shape room {world.ROOM_IMMORTAL_START}",), shaping.IMMORTAL_START_ROOM_PROMPT, "/50", shaping.ROOM_RELEASED_REPLY)
+ZONE_EDITOR = RangeCase((f"shape zone {shaping.ZONE_NUMBER}",), shaping.ZONE_PROMPT, "/51", shaping.ZONE_RELEASED_REPLY)
+SCRIPT_EDITOR = RangeCase((f"shape script {shaping.SHAPED_SCRIPT}",), shaping.SCRIPT_PROMPT, "/51", shaping.SCRIPT_RELEASED_REPLY)
 
 # Each editor's range refusals (the checks beside each message in shape_center_proto,
 # shape_center_obj, shape_center_room and shape_center_zone).
@@ -90,28 +90,20 @@ NEGATIVE_ALIGNMENT_LISTED = "(7) alignment    :-300"
 SUBTRACTED_DAMAGE_LISTED = "(11) damage       :1"
 # The last character of every field's prompt (Dgt] or Lin], prompt_text in consts.cpp).
 FIELD_PROMPT_END = "]"
-# Seconds to keep reading after a marker, for the rest of the reply.
-SETTLE_SECONDS = 0.5
 
 
 def open_editor(implementor: GameSession, editor: RangeCase) -> None:
     """Starts shaping the editor's record and gets it ready for the fields."""
     for line in editor.open_lines:
-        opened = reply_to(implementor, line, [editor.prompt, "could not open that file."], settle=SETTLE_SECONDS)
+        opened = reply_to(implementor, line, [editor.prompt, shaping.COULD_NOT_OPEN_FILE_REPLY], settle=shaping.EDITOR_SETTLE_SECONDS)
         assert editor.prompt in opened, opened
-
-
-def close_editor(implementor: GameSession, editor: RangeCase) -> None:
-    """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [editor.release_marker], settle=SETTLE_SECONDS)
-    assert editor.release_marker in released, released
 
 
 def answer_field(implementor: GameSession, editor: RangeCase, field_line: str, answer: str) -> str:
     """Opens a field's prompt, answers it, and returns the reply up to the editor prompt."""
-    prompt = reply_to(implementor, field_line, [FIELD_PROMPT_END, editor.prompt], settle=SETTLE_SECONDS)
+    prompt = reply_to(implementor, field_line, [FIELD_PROMPT_END, editor.prompt], settle=shaping.EDITOR_SETTLE_SECONDS)
     assert FIELD_PROMPT_END in prompt, prompt
-    return reply_to(implementor, answer, [editor.prompt], settle=SETTLE_SECONDS)
+    return reply_to(implementor, answer, [editor.prompt], settle=shaping.EDITOR_SETTLE_SECONDS)
 
 
 def editor_id(editor: RangeCase) -> str:
@@ -131,8 +123,8 @@ def test_a_number_out_of_its_fields_range_is_refused_and_the_field_kept(server, 
 
     open_editor(implementor, editor)
     replies = [answer_field(implementor, editor, refusal.field_line, refusal.answer) for refusal in refusals]
-    listing = reply_to(implementor, editor.list_line, [editor.prompt], settle=SETTLE_SECONDS)
-    close_editor(implementor, editor)
+    listing = reply_to(implementor, editor.list_line, [editor.prompt], settle=shaping.EDITOR_SETTLE_SECONDS)
+    shaping.release_editor(implementor, editor.release_marker, settle=shaping.EDITOR_SETTLE_SECONDS)
 
     listing_lines = raw_lines(listing)
     for refusal, reply in zip(refusals, replies):
@@ -151,8 +143,8 @@ def test_a_minus_answer_sets_alignment_negative_but_subtracts_from_damage(server
     open_editor(implementor, MOB_EDITOR)
     answer_field(implementor, MOB_EDITOR, "/7", "-300")
     answer_field(implementor, MOB_EDITOR, "/11", "-1")
-    listing = reply_to(implementor, MOB_EDITOR.list_line, [MOB_EDITOR.prompt], settle=SETTLE_SECONDS)
-    close_editor(implementor, MOB_EDITOR)
+    listing = reply_to(implementor, MOB_EDITOR.list_line, [MOB_EDITOR.prompt], settle=shaping.EDITOR_SETTLE_SECONDS)
+    shaping.release_editor(implementor, MOB_EDITOR.release_marker, settle=shaping.EDITOR_SETTLE_SECONDS)
 
     listing_lines = raw_lines(listing)
     assert NEGATIVE_ALIGNMENT_LISTED in listing_lines, listing
@@ -171,8 +163,8 @@ def test_q_at_a_name_prompt_is_refused_and_the_name_kept(server, editor: RangeCa
 
     open_editor(implementor, editor)
     reply = answer_field(implementor, editor, refusal.field_line, refusal.answer)
-    listing = reply_to(implementor, editor.list_line, [editor.prompt], settle=SETTLE_SECONDS)
-    close_editor(implementor, editor)
+    listing = reply_to(implementor, editor.list_line, [editor.prompt], settle=shaping.EDITOR_SETTLE_SECONDS)
+    shaping.release_editor(implementor, editor.release_marker, settle=shaping.EDITOR_SETTLE_SECONDS)
 
     assert refusal.refusal in raw_lines(reply), reply
     assert refusal.listed in raw_lines(listing), listing

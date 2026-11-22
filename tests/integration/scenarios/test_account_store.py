@@ -9,10 +9,16 @@ import re
 import pytest
 
 from rots_harness import world
-from rots_harness.accounts import INVALID_CREDENTIALS_MARKER, SHORT_PASSWORD_REFUSAL, account_connection
+from rots_harness.accounts import (
+    INVALID_CREDENTIALS_REPLY,
+    SHORT_PASSWORD_REPLY,
+    UNREADABLE_ROW_PART,
+    account_connection,
+    account_show_characters,
+)
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
 from rots_harness.game_log import log_lines_holding
-from rots_harness.saved_files import HARNESS_ACCOUNT_FOLDER, stored_account
+from rots_harness.saved_files import CHARACTER_FILE_KINDS, HARNESS_ACCOUNT_FOLDER, stored_account
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
     ACCOUNT_MENU_PROMPT,
@@ -46,14 +52,6 @@ DELETE_REFUSALS = (
 UNKNOWN_PLAYER = "nosuch"
 # The folder delete_player_character_by_index copies a linked character's file into (db.cpp).
 ARCHIVE_FOLDER = "players/ZZZ"
-# The start of the character list line of `account show`
-# (format_account_summary, account_management_presentation.cpp).
-ACCOUNT_SHOW_CHARACTERS_PREFIX = "Characters ("
-# The three files account storage keeps for each linked character (account_management.cpp).
-CHARACTER_FILE_KINDS = ("character", "objects", "exploits")
-# The level and race columns of a roster row whose character file cannot be read
-# (format_account_character_short_entry, account_management.cpp).
-UNREADABLE_ROW_COLUMNS = "[ ?? ???]"
 # One readable roster row, `%zu) [%3d %s] %-12.12s`: row, level, race, name (account_management.cpp).
 ROSTER_ROW_PATTERN = re.compile(r"(\d+)\) \[ *(\d+) (\w+)\] (\w+)")
 
@@ -113,14 +111,6 @@ def password_reply(connection: GameSession) -> str:
     return connection.expect([LOGIN_PASSWORD_PROMPT, ACCOUNT_MENU_PROMPT])
 
 
-def account_show_characters(implementor: GameSession) -> str:
-    """The character list line `account show` prints for the harness account."""
-    reply = implementor.command(f"account show {HARNESS_EMAIL}").text
-    lines = [line.strip() for line in reply.splitlines() if line.strip().startswith(ACCOUNT_SHOW_CHARACTERS_PREFIX)]
-    assert len(lines) == 1, reply
-    return lines[0]
-
-
 @pytest.mark.characters(IMPLEMENTOR, VICTIM)
 def test_deleting_a_linked_character_unlinks_it_and_archives_its_file(server) -> None:
     """Pins #282: `delete` takes a linked character off its account (account show, the record's
@@ -152,7 +142,7 @@ def test_deleting_a_linked_character_unlinks_it_and_archives_its_file(server) ->
         connection.send_line(ACCOUNT_MENU_PLAY)
         roster = connection.expect([CHARACTER_CHOICE_PROMPT])
         assert [match[3] for match in ROSTER_ROW_PATTERN.findall(roster)] == [IMPLEMENTOR.name], roster
-        assert UNREADABLE_ROW_COLUMNS not in roster, roster
+        assert UNREADABLE_ROW_PART not in roster, roster
         assert "1 character displayed." in roster, roster
 
 
@@ -205,7 +195,7 @@ def test_account_passwd_refuses_a_short_password_and_keeps_the_old_one(server) -
     implementor = server.login(IMPLEMENTOR.name)
     password_hash = stored_account(server.lib_dir)["password_hash"]
     reply = implementor.command(f"account passwd {HARNESS_EMAIL} {SHORT_PASSWORD}")
-    assert SHORT_PASSWORD_REFUSAL in reply.text, reply.text
+    assert SHORT_PASSWORD_REPLY in reply.text, reply.text
     assert stored_account(server.lib_dir)["password_hash"] == password_hash
 
 
@@ -227,12 +217,12 @@ def test_a_blocked_account_cannot_sign_in_until_it_is_unblocked(server) -> None:
     assert ACCOUNT_BLOCKED_REPLY in blocked.text, blocked.text
     with account_connection(server.handle, server.run_dir, "blockedlogin") as connection:
         refused = password_reply(connection)
-        assert INVALID_CREDENTIALS_MARKER in refused and ACCOUNT_MENU_PROMPT not in refused, refused
+        assert INVALID_CREDENTIALS_REPLY in refused and ACCOUNT_MENU_PROMPT not in refused, refused
     unblocked = implementor.command(f"account unblock {HARNESS_EMAIL}")
     assert ACCOUNT_UNBLOCKED_REPLY in unblocked.text, unblocked.text
     with account_connection(server.handle, server.run_dir, "unblockedlogin") as connection:
         admitted = password_reply(connection)
-        assert ACCOUNT_MENU_PROMPT in admitted and INVALID_CREDENTIALS_MARKER not in admitted, admitted
+        assert ACCOUNT_MENU_PROMPT in admitted and INVALID_CREDENTIALS_REPLY not in admitted, admitted
 
 
 @pytest.mark.characters(IMPLEMENTOR)

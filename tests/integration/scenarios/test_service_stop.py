@@ -16,17 +16,11 @@ pytestmark = [pytest.mark.scenario, pytest.mark.service_stop]
 
 # A mortal who starts in the middle of the arena and walks to its western end.
 WAYFARER = Character(name="Wayfarer", race="human", sex="male", level=10, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior")
-# How the game names the leather cap (world.OBJECT_LEATHER_CAP), which the wayfarer wears, in
-# equipment and messages.
-CAP_NAME = "a leather cap"
-# How the game names the leather bag (world.OBJECT_LEATHER_BAG), which the wayfarer carries, in
-# the inventory.
-BAG_NAME = "a leather bag"
 
 
 def saved_load_room(lib_dir: Path, character: Character) -> int:
     """The room the character's saved file brings them back to."""
-    character_path = account_file(lib_dir, character, "character")
+    character_path = account_file(lib_dir, character.name, "character")
     saved_text = character_path.read_text(encoding="utf-8")
     saved = json.loads(saved_text)
     return saved["state"]["load_room"]
@@ -50,20 +44,20 @@ def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry
     give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WAYFARER.name.lower(), shown_recipient=WAYFARER.name)
     give_new_object(implementor, world.OBJECT_LEATHER_BAG, "bag", WAYFARER.name.lower(), shown_recipient=WAYFARER.name)
     worn = wayfarer.command("wear cap")
-    assert worn.contains(CAP_NAME), worn.text
+    assert worn.contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION), worn.text
     walked = wayfarer.command("west")
-    assert walked.room_name() == "Arena West", walked.text
+    assert walked.room_name() == world.ROOM_ARENA_WEST_NAME, walked.text
 
     # The entry save stores a room-table index, not a vnum (#493); it only must not be the west room yet.
     assert saved_load_room(server.lib_dir, WAYFARER) != world.ROOM_ARENA_WEST
-    before = saved_wear_positions(server.lib_dir, WAYFARER)
+    before = saved_wear_positions(server.lib_dir, WAYFARER.name)
     assert world.OBJECT_LEATHER_CAP not in before and world.OBJECT_LEATHER_BAG not in before, before
 
     server.restart()
 
     assert saved_load_room(server.lib_dir, WAYFARER) == world.ROOM_ARENA_WEST
-    assert saved_wear_positions(server.lib_dir, WAYFARER) == {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
+    assert saved_wear_positions(server.lib_dir, WAYFARER.name) == {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
     returned = server.login(WAYFARER.name)
-    assert returned.command("look").room_name() == "Arena West"
-    assert returned.command("equipment").contains(CAP_NAME)
-    assert returned.command("inventory").contains(BAG_NAME)
+    assert returned.command("look").room_name() == world.ROOM_ARENA_WEST_NAME
+    assert returned.command("equipment").contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
+    assert returned.command("inventory").contains(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)

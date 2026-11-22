@@ -3,25 +3,28 @@ and saving their new numbers, a section row, and a list range over rows numbered
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.shaping import SCRIPT_RELEASED, SECTION_COMMENT_PROMPT, SECTION_TITLE_PROMPT
+from rots_harness.shaping import (
+    COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_SETTLE_SECONDS,
+    ORDERED_SCRIPT,
+    SCRIPT_FILE_RELATIVE,
+    SCRIPT_RELEASED_REPLY,
+    SECTION_COMMENT_PROMPT_START,
+    SECTION_TITLE_PROMPT_START,
+    release_editor,
+)
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_script_editor]
 
-# The test world's scripts: #1180 has three ON_ENTER rows numbered 1, 2 and 3 with the texts
-# first, second and third; #1181 has rows numbered 1, 2, 4 and 3 with the texts one, two, four
-# and three (tests/integration/world/scr/11.scr).
-ORDERED_SCRIPT = 1180
+# The test world's script #1181, whose rows are numbered 1, 2, 4 and 3 with the texts one, two,
+# four and three (tests/integration/world/scr/11.scr); ORDERED_SCRIPT is #1180.
 OUT_OF_ORDER_SCRIPT = 1181
-# The script file /save rewrites, relative to the lib (SHAPE_SCRIPT_DIR, protos.h).
-SCRIPT_FILE_RELATIVE = Path("world") / "scr" / "11.scr"
 # What /9, /11 and /13 print (shape_center_script).
 ROW_REMOVED = "Command removed."
 ROW_INSERTED_BEFORE = "New command added before current, and selected."
@@ -36,8 +39,6 @@ SECTION_COMMENT = "what a visitor hears"
 LIST_WIDTH = 78
 # The type name /3 takes for a section.
 SECTION_TYPE = "SECTION"
-# Seconds to keep reading after a marker, for the rest of the reply.
-SETTLE_SECONDS = 0.5
 
 
 def on_enter_row(number: int, text: str) -> str:
@@ -52,14 +53,8 @@ def prompt(script_number: int) -> str:
 
 def open_script(implementor: GameSession, script_number: int) -> None:
     """Starts shaping a script, with its first row selected."""
-    opened = reply_to(implementor, f"shape script {script_number}", [prompt(script_number), "could not open that file."], settle=SETTLE_SECONDS)
+    opened = reply_to(implementor, f"shape script {script_number}", [prompt(script_number), COULD_NOT_OPEN_FILE_REPLY], settle=EDITOR_SETTLE_SECONDS)
     assert prompt(script_number) in opened, opened
-
-
-def close_script(implementor: GameSession) -> None:
-    """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [SCRIPT_RELEASED], settle=SETTLE_SECONDS)
-    assert SCRIPT_RELEASED in released, released
 
 
 def listed_rows(listing: str) -> list:
@@ -75,10 +70,10 @@ def test_a_row_inserted_before_the_first_after_removing_the_first_heads_the_scri
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, ORDERED_SCRIPT)
-    removed = reply_to(implementor, "/9", [ROW_REMOVED, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
-    inserted = reply_to(implementor, "/11", [ROW_INSERTED_BEFORE, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=SETTLE_SECONDS)
-    close_script(implementor)
+    removed = reply_to(implementor, "/9", [ROW_REMOVED, prompt(ORDERED_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    inserted = reply_to(implementor, "/11", [ROW_INSERTED_BEFORE, prompt(ORDERED_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, SCRIPT_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     assert ROW_REMOVED in raw_lines(removed), removed
     assert ROW_INSERTED_BEFORE in raw_lines(inserted), inserted
@@ -100,12 +95,12 @@ def test_swapped_rows_are_renumbered_and_saved_in_their_new_order(server) -> Non
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, ORDERED_SCRIPT)
-    switched = reply_to(implementor, "/13", [ROWS_SWITCHED, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/save", ["shapeless indefinity"], settle=SETTLE_SECONDS)
+    switched = reply_to(implementor, "/13", [ROWS_SWITCHED, prompt(ORDERED_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/save", ["shapeless indefinity"], settle=EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once /51 answers, /save has finished writing.
-    reply_to(implementor, "/51", [f"Script #{ORDERED_SCRIPT}:"], settle=SETTLE_SECONDS)
-    close_script(implementor)
+    reply_to(implementor, "/51", [f"Script #{ORDERED_SCRIPT}:"], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, SCRIPT_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     assert ROWS_SWITCHED in raw_lines(switched), switched
     assert listed_rows(listing) == [
@@ -139,15 +134,15 @@ def test_a_section_row_set_with_3_shows_as_a_titled_banner(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, ORDERED_SCRIPT)
-    reply_to(implementor, "/3", ["Enter COMMAND TYPE"], settle=SETTLE_SECONDS)
-    title_prompt = reply_to(implementor, SECTION_TYPE, [SECTION_TITLE_PROMPT, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
-    comment_prompt = reply_to(implementor, SECTION_TITLE, [SECTION_COMMENT_PROMPT, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
-    reply_to(implementor, SECTION_COMMENT, [prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=SETTLE_SECONDS)
-    close_script(implementor)
+    reply_to(implementor, "/3", ["Enter COMMAND TYPE"], settle=EDITOR_SETTLE_SECONDS)
+    title_prompt = reply_to(implementor, SECTION_TYPE, [SECTION_TITLE_PROMPT_START, prompt(ORDERED_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    comment_prompt = reply_to(implementor, SECTION_TITLE, [SECTION_COMMENT_PROMPT_START, prompt(ORDERED_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, SECTION_COMMENT, [prompt(ORDERED_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, SCRIPT_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
-    assert SECTION_TITLE_PROMPT in title_prompt, title_prompt
-    assert SECTION_COMMENT_PROMPT in comment_prompt, comment_prompt
+    assert SECTION_TITLE_PROMPT_START in title_prompt, title_prompt
+    assert SECTION_COMMENT_PROMPT_START in comment_prompt, comment_prompt
     label = "[1] "
     banner_middle = f" {SECTION_TITLE} "
     banner_width = LIST_WIDTH - len(label)
@@ -168,10 +163,10 @@ def test_a_list_range_finds_a_row_numbered_out_of_order(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, OUT_OF_ORDER_SCRIPT)
-    reply_to(implementor, "/52", ["Enter list range:"], settle=SETTLE_SECONDS)
-    range_set = reply_to(implementor, "3 3", ["List range set:", "Range not changed.", prompt(OUT_OF_ORDER_SCRIPT)], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", ["List range: 3-3"], settle=SETTLE_SECONDS)
-    close_script(implementor)
+    reply_to(implementor, "/52", ["Enter list range:"], settle=EDITOR_SETTLE_SECONDS)
+    range_set = reply_to(implementor, "3 3", ["List range set:", "Range not changed.", prompt(OUT_OF_ORDER_SCRIPT)], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", ["List range: 3-3"], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, SCRIPT_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     assert "List range set: 3-3." in raw_lines(range_set), range_set
     assert listed_rows(listing) == [on_enter_row(3, "three")], listing

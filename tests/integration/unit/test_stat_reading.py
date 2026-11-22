@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Sequence
-
 import pytest
 
 from rots_harness.session import SessionTimeout
@@ -14,7 +12,6 @@ from rots_harness.stat_reading import (
     AFFECT_BITS_PATTERN,
     ANGER_AFFECT_PATTERN,
     CHARACTER_STAT_LAST_LINE,
-    CLERIC_LEVEL_PATTERN,
     CONSTITUTION_PATTERN,
     HIT_POINTS_BEFORE_GAIN_PATTERN,
     HIT_POINTS_PATTERN,
@@ -27,9 +24,11 @@ from rots_harness.stat_reading import (
     PRACTICE_SESSIONS_PATTERN,
     SAVING_THROW_PATTERN,
     STRENGTH_PATTERN,
+    affect_bits,
     read_stat,
 )
 from rots_harness.text_lines import first_number
+from unit.fakes import RecordingSession
 
 # The game's stat source, whose format strings the last-line markers come from.
 ACT_WIZ_SOURCE = Path(__file__).resolve().parents[3] / "src" / "act_wiz.cpp"
@@ -77,43 +76,20 @@ EXPECTED_TEXT = "Class levels: Mag:30 Cle:15\n\rRES: <NONE> VUL: <NONE>"
 DRAINED_TEXT = "\n\rS:Surging> "
 
 
-class FakeSession:
-    """Stands in for a GameSession: records each call, in order, and answers with fixed text."""
-
-    def __init__(self, *, timeout_on_expect: bool = False) -> None:
-        """Answers expect with EXPECTED_TEXT, or raises SessionTimeout when timeout_on_expect."""
-        # Each call as (method name, arguments), in the order they were made.
-        self.calls: list[tuple] = []
-        # Whether expect raises SessionTimeout instead of returning.
-        self._timeout_on_expect = timeout_on_expect
-
-    def send_line(self, line: str) -> None:
-        """Records the line."""
-        self.calls.append(("send_line", line))
-
-    def expect(self, markers: Sequence[str], **keywords: float) -> str:
-        """Records the markers and any keyword (timeout), then answers or times out."""
-        self.calls.append(("expect", list(markers), keywords))
-        if self._timeout_on_expect:
-            raise SessionTimeout("none of the markers arrived")
-
-        return EXPECTED_TEXT
-
-    def drain(self, timeout: float) -> str:
-        """Records the settle time."""
-        self.calls.append(("drain", timeout))
-        return DRAINED_TEXT
+def answering_session() -> RecordingSession:
+    """Return a fake session whose first expect answers EXPECTED_TEXT and whose drains answer DRAINED_TEXT."""
+    return RecordingSession([EXPECTED_TEXT], DRAINED_TEXT)
 
 
 def test_read_stat_sends_stat_waits_for_the_character_stats_last_line_and_settles_one_second() -> None:
-    session = FakeSession()
+    session = answering_session()
     text = read_stat(session, "player testpupil")
     assert text == EXPECTED_TEXT + DRAINED_TEXT
     assert session.calls == [("send_line", "stat player testpupil"), ("expect", ["VUL:"], {}), ("drain", 1.0)]
 
 
 def test_read_stat_waits_for_a_given_last_line_or_another_outcome_and_settles_as_given() -> None:
-    session = FakeSession()
+    session = answering_session()
     read_stat(session, "obj sword", last_line=OBJECT_STAT_LAST_LINE, other_outcomes=["No such object around."], settle=0.5)
     assert session.calls == [
         ("send_line", "stat obj sword"),
@@ -123,7 +99,7 @@ def test_read_stat_waits_for_a_given_last_line_or_another_outcome_and_settles_as
 
 
 def test_read_stat_lets_a_timeout_through() -> None:
-    session = FakeSession(timeout_on_expect=True)
+    session = RecordingSession()
     with pytest.raises(SessionTimeout):
         read_stat(session, "mob boar")
     assert [call[0] for call in session.calls] == ["send_line", "expect"]
@@ -156,7 +132,6 @@ def test_the_no_such_mob_reply_is_what_stat_mob_sends() -> None:
         (LEVEL_PATTERN, 30),
         (PRACTICE_SESSIONS_PATTERN, 190),
         (MAGE_LEVEL_PATTERN, 30),
-        (CLERIC_LEVEL_PATTERN, 15),
         (SAVING_THROW_PATTERN, 0),
     ],
 )
@@ -199,3 +174,20 @@ def test_the_saving_throw_pattern_reads_a_negative_saving_throw() -> None:
 def test_the_anger_pattern_finds_only_an_anger_affect_line() -> None:
     assert ANGER_AFFECT_PATTERN.search(DYING_MOB_STAT_TEXT) is not None
     assert ANGER_AFFECT_PATTERN.search(CHARACTER_STAT_TEXT) is None
+
+
+def test_affect_bits_reads_the_aff_lines_names_without_their_full_stops() -> None:
+    assert affect_bits(DYING_MOB_STAT_TEXT) == ["POISON"]
+    assert affect_bits(CHARACTER_STAT_TEXT) == ["<NONE>"]
+    assert affect_bits(" AFF: CHARM. TWO-HANDED.\n\r") == ["CHARM", "TWO-HANDED"]
+
+
+def test_affect_bits_fails_without_an_aff_line_at_a_line_start() -> None:
+    with pytest.raises(AssertionError):
+        affect_bits("NOT AFF: CHARM.")
+
+
+def test_read_stat_takes_settle_only_by_keyword() -> None:
+    session = answering_session()
+    with pytest.raises(TypeError):
+        read_stat(session, "mob boar", CHARACTER_STAT_LAST_LINE, (), 0.5)  # type: ignore[misc]

@@ -8,7 +8,7 @@ import re
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import NO_ENERGY, cast_until_it_lands
+from rots_harness.casting import NO_ENERGY_REPLY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
 from rots_harness.immortal_commands import give_new_object
@@ -39,13 +39,10 @@ MAGE = Character(
 # and bulk 2; the tainted bread (world.OBJECT_TAINTED_BREAD), food that fills 2 and is poisoned;
 # and the sickly amulet (world.OBJECT_SICKLY_AMULET), the one object with an affect.
 STONE_KEYWORD = "stone"
-STONE_SHORT_DESCRIPTION = "a dwarven stone"
 SWORD_KEYWORD = "sword"
-SWORD_SHORT_DESCRIPTION = "a plain sword"
 BREAD_KEYWORD = "bread"
 BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
 AMULET_KEYWORD = "amulet"
-AMULET_SHORT_DESCRIPTION = "a sickly amulet"
 
 # The first line identify prints (do_identify_object, act_info.cpp).
 IDENTIFIED_MARKER_FORMAT = "You feel certain the object you have is {}."
@@ -82,10 +79,10 @@ def cast_identify(caster: GameSession, keyword: str, short_description: str) -> 
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs mana and nothing restores mana between requests under affect-hours, so
-    the repeats end at NO_ENERGY at the latest.
+    the repeats end at NO_ENERGY_REPLY at the latest.
     """
     identified_marker = IDENTIFIED_MARKER_FORMAT.format(short_description)
-    outcomes = [identified_marker, NO_ENERGY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
+    outcomes = [identified_marker, NO_ENERGY_REPLY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
     reply = cast_until_it_lands(caster, f"cast 'identify' {keyword}", outcomes)
     assert identified_marker in reply, reply
     return reply
@@ -122,7 +119,7 @@ def test_identify_lists_race_restriction_and_stay_zone_lines_without_a_lone_full
     concentration roll in do_cast, which cast_identify repeats; the affect-hours schedule keeps
     everything else from drawing.
     """
-    reply = identify_new_object(server, world.OBJECT_DWARVEN_STONE, STONE_KEYWORD, STONE_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_DWARVEN_STONE, STONE_KEYWORD, world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION)
     assert attribute_lines(reply) == EXPECTED_ATTRIBUTE_LINES, reply
     assert "." not in [line.strip() for line in reply.splitlines()], reply
 
@@ -137,7 +134,7 @@ def test_identify_describes_a_weapon_with_its_type_and_aligned_stat_rows(server)
     The one draw that can stop the cast is the concentration roll in do_cast, which
     cast_identify repeats; the affect-hours schedule keeps everything else from drawing.
     """
-    reply = identify_new_object(server, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, world.OBJECT_PLAIN_SWORD_SHORT_DESCRIPTION)
     lines = [line.strip() for line in reply.splitlines()]
     assert WEAPON_SENTENCE in lines, reply
     sentence_index = lines.index(WEAPON_SENTENCE)
@@ -172,7 +169,7 @@ def test_identify_heads_the_affection_list_with_a_colon_and_no_leading_space(ser
     The one draw that can stop the cast is the concentration roll in do_cast, which
     cast_identify repeats; the affect-hours schedule keeps everything else from drawing.
     """
-    reply = identify_new_object(server, world.OBJECT_SICKLY_AMULET, AMULET_KEYWORD, AMULET_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_SICKLY_AMULET, AMULET_KEYWORD, world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION)
     raw_lines = reply.splitlines()
     stripped_lines = [line.strip() for line in raw_lines]
     assert AFFECTIONS_HEADER in stripped_lines, reply

@@ -27,9 +27,16 @@ from dataclasses import dataclass
 
 import pytest
 
-from rots_harness.casting import LOST_CONCENTRATION, NO_ENERGY
+from rots_harness.casting import LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import DEATH_CRY_FORMAT, NOW_FOLLOWING_FORMAT
+from rots_harness.game_text import (
+    DEATH_CRY_FORMAT,
+    DRINK_EMPTY_REPLY,
+    FOLLOWED_FORMAT,
+    FOLLOWER_ACK,
+    NOW_FOLLOWING_FORMAT,
+    WEAR_HEAD_FORMAT,
+)
 from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -155,8 +162,6 @@ STUBBORN_ROOM_LINE = "A stubborn old man stands here."
 # The ledger's action description, which examine shows once its script has run.
 LEDGER_DESCRIPTION = "Columns of small figures fill the ledger."
 
-# What the wearer reads as a head item goes on (wear_message, act_obj2.cpp); format with the item.
-WEAR_ON_HEAD_FORMAT = "You wear {} on your head."
 # What the puller reads as a lever moves (do_pull, act_move.cpp); format with the lever.
 PULL_FORMAT = "You pull at {}."
 # What do_pull sends the hatch's room as it opens the closed hatch.
@@ -169,18 +174,12 @@ EAT_FORMAT = "You eat {}."
 NOTHING_TO_EAT = "You don't seem to have any."
 # What the drinker reads as it drinks water (do_drink, act_obj2.cpp).
 DRINK_WATER = "You drink the water."
-# What do_drink says for a container with nothing left in it.
-DRINK_EMPTY = "It's empty."
 # The start of what a rider reads as it mounts the mule (do_ride, ranger.cpp).
 MOUNTED_START = "You mount a harness mule and start riding "
 # What do_ride says to someone already riding.
 ALREADY_RIDING = "You are riding already."
-# What a follower reads when it cannot follow (do_move, act_move.cpp): the leader's pronoun.
-FOLLOWER_ACK = "ACK! You could not follow him!"
 # What the leader reads then; format with the follower, whose pronoun ends it.
 LEADER_ACK_FORMAT = "ACK! {} could not follow, you lost her!"
-# What a follower reads when it does follow (do_move); format with the leader.
-FOLLOWED_FORMAT = "You follow {}."
 # What a killer reads for its share of a kill (group_gain, fight.cpp).
 EXPERIENCE_SHARE_PATTERN = re.compile(r"You receive your share of experience -- (\d+) points\.")
 
@@ -320,11 +319,11 @@ def cast_magic_missile_until_it_lands(caster: GameSession, target: TriggerMob, l
     failures ends in can_cast_spell's refusal, which fails the test.
     """
     while True:
-        text = reply_to(caster, f"cast 'magic missile' {target.keyword}", [LOST_CONCENTRATION, NO_ENERGY, *landed_markers], timeout=WAIT_TIMEOUT)
+        text = reply_to(caster, f"cast 'magic missile' {target.keyword}", [LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY, *landed_markers], timeout=WAIT_TIMEOUT)
         if any(marker in text for marker in landed_markers):
             return text
-        assert NO_ENERGY not in text, text
-        assert LOST_CONCENTRATION in text, text
+        assert NO_ENERGY_REPLY not in text, text
+        assert LOST_CONCENTRATION_REPLY in text, text
 
 
 @pytest.mark.script_triggers_movement
@@ -461,7 +460,7 @@ def test_a_wear_script_that_returns_false_keeps_the_item_off(server) -> None:
 
     refused = wearer.command("wear diadem").text
     assert DIADEM_LINE in refused, refused
-    assert WEAR_ON_HEAD_FORMAT.format("a thorned diadem") not in refused, refused
+    assert WEAR_HEAD_FORMAT.format("a thorned diadem") not in refused, refused
     assert "a thorned diadem" not in wearer.command("equipment").text
     assert wearer.command("inventory").contains("a thorned diadem")
 
@@ -476,7 +475,7 @@ def test_a_wear_script_that_does_not_refuse_lets_the_item_be_worn(server) -> Non
     assert wearer.command("get coronet").contains("You get a silver coronet.")
 
     worn = wearer.command("wear coronet").text
-    wear_message = WEAR_ON_HEAD_FORMAT.format("a silver coronet")
+    wear_message = WEAR_HEAD_FORMAT.format("a silver coronet")
     assert CORONET_LINE in worn and wear_message in worn, worn
     assert worn.index(CORONET_LINE) < worn.index(wear_message), worn
     assert wearer.command("equipment").contains("a silver coronet")
@@ -563,7 +562,7 @@ def test_drinking_goes_ahead_when_the_drink_script_returns_false(server) -> None
     drunk = diner.command("drink flask").text
     assert DRINK_WATER in drunk and FLASK_LINE in drunk, drunk
     assert drunk.index(DRINK_WATER) < drunk.index(FLASK_LINE), drunk
-    assert diner.command("drink flask").contains(DRINK_EMPTY)
+    assert diner.command("drink flask").contains(DRINK_EMPTY_REPLY)
 
 
 @pytest.mark.script_triggers_objects

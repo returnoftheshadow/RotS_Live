@@ -11,16 +11,18 @@ import re
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import NO_ENERGY, cast_until_it_lands
+from rots_harness.casting import NO_ENERGY_REPLY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT, UNRECOGNIZED_COMMAND_REPLY
 from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
 from rots_harness.saved_files import account_file
 from rots_harness.session import GameSession
-from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
+from rots_harness.stat_reading import read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.resistances]
 
+# The cleric level on stat's profession levels line (do_stat_character, act_wiz.cpp).
+CLERIC_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:(\d+) ")
 # The spirit each mystic is stored with: protection costs 5 (skills[] in consts.cpp) and a lost
 # concentration 2, so this pays for every cast a test makes and leaves room for losses.
 MYSTIC_SPIRIT = 40
@@ -210,7 +212,7 @@ def cast_protection(caster: GameSession, sphere: str, target: str = "") -> str:
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs spirit, and nothing regenerates spirit between requests under
-    affect-hours, which every test here uses, so the repeats end at NO_ENERGY at the latest.
+    affect-hours, which every test here uses, so the repeats end at NO_ENERGY_REPLY at the latest.
     """
     outcomes = [
         RESISTANT_MARKER_START,
@@ -219,7 +221,7 @@ def cast_protection(caster: GameSession, sphere: str, target: str = "") -> str:
         OTHER_ALREADY_PROTECTED_END,
         NOBODY_MARKER,
         WRONG_SPHERE_START,
-        NO_ENERGY,
+        NO_ENERGY_REPLY,
     ]
     line = f"cast 'protection' {sphere} {target}".rstrip()
     return cast_until_it_lands(caster, line, outcomes)
@@ -587,7 +589,7 @@ def test_a_save_keeps_the_protection_and_drops_the_worn_items_resistance(server)
 
     wizset(implementor, f"player {WEARER.name.lower()}", "hunger", 10, shown_name=WEARER.name)
 
-    character_file = account_file(server.lib_dir, WEARER, "character")
+    character_file = account_file(server.lib_dir, WEARER.name, "character")
     affects = json.loads(character_file.read_text(encoding="utf-8"))["affects"]
     protections = [affect for affect in affects if affect["type"] == PROTECTION_AFFECT_TYPE]
     assert len(protections) == 1, affects

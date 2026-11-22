@@ -61,7 +61,6 @@ SMITHS = [
 
 # The star token and a grey pebble (tests/integration/world/obj/17.obj).
 STAR_TOKEN_VNUM = 1700
-PEBBLE_VNUM = 1701
 # The weary foreman (mob 1702), whose script 1702 says a line when anyone speaks, waits four
 # passes (DO_WAIT), says a last line and ends.
 WEARY_FOREMAN = ScriptMob(vnum=1702, keyword="weary", short_description="a weary foreman")
@@ -158,7 +157,7 @@ def test_a_false_if_skips_its_whole_block_with_the_nested_block_inside(server, s
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", smith.keyword)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", smith.keyword)
     assert said(smith.short_description, FINAL_LINE) in reply, reply
     assert said(smith.short_description, NOT_A_TOKEN_LINE) in reply, reply
     assert REWARD_LINE not in reply, reply
@@ -330,7 +329,7 @@ def test_a_waiting_mob_that_removes_itself_last_on_the_waiting_list_logs_nothing
     (handler.cpp) puts what the mob carried on the floor. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", FADING_PILGRIM.keyword)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", FADING_PILGRIM.keyword)
     before = implementor.command("look").text
     assert PILGRIM_IN_ROOM in before and PEBBLE_ON_FLOOR not in before, before
 
@@ -472,7 +471,7 @@ def test_a_script_line_that_would_crash_is_reported_and_skipped(server, case: Re
     still_here = said(case.mob.short_description, STILL_HERE_LINE)
 
     for gives in (1, 2):
-        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", case.mob.keyword)
+        reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", case.mob.keyword)
         assert still_here in reply, reply
         assert count_logged(server.handle.log_path, case.report, case.boot_reports + gives, timeout=WAIT_TIMEOUT, poll=LOG_POLL_SECONDS) == case.boot_reports + gives
 
@@ -491,7 +490,7 @@ def test_a_script_report_reaches_an_immortal_with_syslog_on_and_no_mortal(server
     watcher = server.login(ROOM_WATCHER.name)
     set_syslog(implementor, "normal")
     load_mob(implementor, SURVEYOR_LINE.mob.vnum, SURVEYOR_LINE.mob.short_description)
-    load_object(implementor, PEBBLE_VNUM)
+    load_object(implementor, world.OBJECT_GREY_PEBBLE)
     watcher.drain(SETTLE_SECONDS)
 
     # The report line ends in "]", which command() would take for the prompt.
@@ -524,7 +523,7 @@ def test_assign_eq_on_an_unset_character_finds_no_object(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", APPRAISER.keyword)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", APPRAISER.keyword)
     assert said(APPRAISER.short_description, "Nothing.") in reply, reply
     assert "Phantom." not in reply, reply
     assert said(APPRAISER.short_description, STILL_HERE_LINE) in reply, reply
@@ -549,7 +548,7 @@ def test_skipping_a_false_if_whose_nested_block_never_ends_ends_the_script(serve
     implementor = server.login(IMPLEMENTOR.name)
 
     for give_number in (1, 2):
-        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", MUMBLER.keyword)
+        reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", MUMBLER.keyword)
         assert reply.count(said(MUMBLER.short_description, STILL_HERE_LINE)) == 1, (give_number, reply)
         assert "Never said." not in reply, (give_number, reply)
 
@@ -681,7 +680,7 @@ def test_a_script_hit_write_above_the_limit_is_clamped_and_reads_healthy(server)
     number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", HALE.keyword)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", HALE.keyword)
 
     stat = read_stat(implementor, f"mob {HALE.keyword}")
     assert int(stat_value(HIT_POINTS_PATTERN, stat)) == SCRIPT_HIT_LIMIT, stat
@@ -705,7 +704,7 @@ def test_a_script_hit_write_of_zero_stuns_and_a_later_write_stands_the_mob_up(se
     stunned, incapacitated or dead. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", DAZED.keyword)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", DAZED.keyword)
 
     stat = read_stat(implementor, f"mob {DAZED.keyword}")
     # update_pos (fight.cpp) for the dazed wrestler, with hit 0 and Con from stat:
@@ -743,7 +742,7 @@ def test_a_script_hit_write_far_below_zero_leaves_the_mob_dead_until_the_hourly_
     hour's regeneration is bounded below.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", DOOMED.keyword)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", DOOMED.keyword)
 
     stat = read_stat(implementor, f"mob {DOOMED.keyword}")
     hit_match = HIT_POINTS_PATTERN.search(stat)
@@ -789,7 +788,7 @@ def test_a_script_division_by_zero_gives_zero_and_is_logged(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", ACCOUNTANT.keyword)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", ACCOUNTANT.keyword)
     assert said(ACCOUNTANT.short_description, "Quotient zero.") in reply, reply
     assert "Quotient not zero." not in reply, reply
     assert count_logged(server.handle.log_path, "Script #1719 tried to divide by 0.", 1, timeout=WAIT_TIMEOUT, poll=LOG_POLL_SECONDS) == 1
@@ -826,7 +825,7 @@ def test_a_script_opens_and_locks_a_north_door_from_both_sides(server) -> None:
     load_mob(implementor, GATEKEEPER.vnum, GATEKEEPER.short_description)
     watcher.drain(SETTLE_SECONDS)
 
-    opened = give_new_object(implementor, PEBBLE_VNUM, "pebble", GATEKEEPER.keyword)
+    opened = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", GATEKEEPER.keyword)
     assert "Door opens quietly." in opened, opened
     watched = watcher.expect(["Gate opens quietly."]) + watcher.drain(SETTLE_SECONDS)
     assert watched.count("Gate opens quietly.") == 1, watched
@@ -930,7 +929,7 @@ def test_a_script_load_mob_of_a_mob_that_exists_loads_it_and_the_script_goes_on(
     before = implementor.command("look").text
     assert PORTER_STANDS_HERE not in before, before
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", STEADY_SUMMONER.keyword)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", STEADY_SUMMONER.keyword)
     assert said(STEADY_SUMMONER.short_description, STILL_HERE_LINE) in reply, reply
     after = implementor.command("look").text
     assert after.count(PORTER_STANDS_HERE) == 1, after

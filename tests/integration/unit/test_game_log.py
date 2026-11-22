@@ -31,7 +31,8 @@ SHORT_POLL = 0.01
 
 def write_log(log_path: Path, text: str) -> None:
     """Writes text to log_path as latin-1 bytes, as the server's log holds them."""
-    log_path.write_bytes(text.encode("latin-1"))
+    log_bytes = text.encode("latin-1")
+    log_path.write_bytes(log_bytes)
 
 
 def test_the_defaults_are_the_ten_seconds_and_fifth_of_a_second_most_files_use() -> None:

@@ -12,7 +12,7 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_log import read_game_log
-from rots_harness.game_text import FORCED_REPLY
+from rots_harness.game_text import FORCED_REPLY, OUTPUT_OVERFLOW
 from rots_harness.immortal_commands import goto
 from rots_harness.replies import reply_to
 from rots_harness.world_resets import MobReset
@@ -43,8 +43,6 @@ ANSWER = "Hi."
 ECHO_SAYS_LINE = f"An echo says '{ANSWER}'"
 # What a listener reads as the mirror answers.
 MIRROR_SAYS_LINE = f"A mirror says '{ANSWER}'"
-# What the output buffer shows once a pulse's text overflows it (write_to_output, comm.cpp).
-OVERFLOW_MARKER = "**OVERFLOW**"
 # The refusal at the nesting limit (running_script_frame::refusal_reason and report_refused_run,
 # script.cpp), as far as it is the same for every refused run.
 NESTING_REFUSAL = f"too many scripts are running inside one another (limits {MAX_SCRIPT_NESTING} deep, {MAX_SCRIPT_RUNS_PER_EVENT} runs;"
@@ -106,7 +104,7 @@ def test_two_mobs_answering_each_other_stop_at_the_nesting_limit(server) -> None
     speaker = server.login(SPEAKER.name)
     said = speaker.command(f"say {HELLO}")
     answers = said.text + speaker.drain(SETTLE_SECONDS)
-    assert OVERFLOW_MARKER not in answers, answers[-1500:]
+    assert OUTPUT_OVERFLOW not in answers, answers[-1500:]
     assert answers.count(ECHO_SAYS_LINE) == MAX_SCRIPT_NESTING, answers[-1500:]
     assert answers.count(MIRROR_SAYS_LINE) == MAX_SCRIPT_NESTING, answers[-1500:]
 

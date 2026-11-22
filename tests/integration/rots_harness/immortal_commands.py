@@ -1,4 +1,4 @@
-"""Commands an implementor sends to set up or inspect a test, each checked against its reply.
+"""Commands an implementor sends to set up or inspect a test; set-up commands check their reply.
 
 Each helper sends its commands through GameSession.command and asserts only what its
 docstring names; an optional argument makes a check stronger, so a caller passes only
@@ -110,8 +110,8 @@ def wizset(implementor: GameSession, target: str, field: str, value: int | str, 
     """Sends `wizset <target> <field> <value>`, such as target "player testpupil", and returns the reply's text.
 
     Asserts the reply holds "<shown_name>'s <field> set to <value>.", or only "<field> set to
-    <value>." without shown_name. A field wizset answers otherwise, such as a name, is not for
-    this helper.
+    <value>." without shown_name. field must be a number field, which wizset answers with
+    WIZSET_FORMAT.
     """
     reply = implementor.command(f"wizset {target} {field} {value}")
     expected = WIZSET_FORMAT.format(field, value)

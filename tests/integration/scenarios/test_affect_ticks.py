@@ -9,7 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import DEATH_CRY_FORMAT, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
+from rots_harness.game_text import DEATH_CRY_FORMAT, EATEN_POISON_REPLY, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
 from rots_harness.immortal_commands import give_new_object, goto, load_mob
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -47,15 +47,11 @@ SAINT = Character(
     stored=StoredValues(hunger=10, alignment=SAINT_ALIGNMENT),
 )
 
-# Zone 21's draining grey sash: maximum hit points -72.
-SASH_VNUM = 2100
 # Zone 21's ivory wand of sanctuary, with one charge.
 SANCTUARY_WAND_VNUM = 2103
 # The damage of a poison tick (affect_update_person, limits.cpp).
 POISON_TICK_DAMAGE = 5
 
-# What the eater and the room read when the bread poisons (do_eat, act_obj2.cpp).
-EATEN_POISON_MARKER = "Oops, that tasted rather strange!"
 # What the room reads when the scarecrow eats the bread.
 SCARECROW_COUGHS_MARKER = "A straw scarecrow coughs and utters some strange sounds."
 # What the room reads when the scarecrow puts the sash on.
@@ -121,11 +117,11 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     goto(implementor, ROOM_SICK_WARD, SICK_WARD_NAME)
 
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", TASTER.name.lower())
-    assert taster.command("eat bread").contains(EATEN_POISON_MARKER)
+    assert taster.command("eat bread").contains(EATEN_POISON_REPLY)
     load_mob(implementor, world.MOB_STRAW_SCARECROW, "a straw scarecrow")
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", "scarecrow")
     force_scarecrow(implementor, "eat bread", SCARECROW_COUGHS_MARKER)
-    give_new_object(implementor, SASH_VNUM, "sash", "scarecrow")
+    give_new_object(implementor, world.OBJECT_GREY_SASH, "sash", "scarecrow")
     force_scarecrow(implementor, "wear sash", SCARECROW_WEARS_MARKER)
 
     scarecrow = read_stat(implementor, "mob scarecrow")
@@ -183,7 +179,7 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     used = saint.command(f"use wand {SAINT.name.lower()}")
     assert used.contains(SANCTUARY_MARKER), used.text
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", SAINT.name.lower())
-    assert saint.command("eat bread").contains(EATEN_POISON_MARKER)
+    assert saint.command("eat bread").contains(EATEN_POISON_REPLY)
 
     before = read_stat(implementor, f"player {SAINT.name.lower()}")
     strength = first_number(STAT_SANCTUARY_PATTERN, before)

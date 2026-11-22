@@ -10,6 +10,7 @@ import pytest
 from rots_harness import session
 from rots_harness.launcher import ServerHandle
 from rots_harness.session import GameSession, QuitRefused, Transcript, end_sessions, ends_with_prompt
+from unit.fakes import FakeSocket
 
 
 def test_transcript_room_name_is_the_first_non_empty_line() -> None:
@@ -30,41 +31,6 @@ def test_prompt_detection_accepts_trailing_whitespace_and_both_terminators() -> 
     assert ends_with_prompt("You breathe out fire.\nHP:Healthy > ")
     assert ends_with_prompt("some output\n]")
     assert not ends_with_prompt("You start to cast a spell...")
-
-
-class FakeSocket:
-    """Stands in for the server connection. `replies` maps a line the session sends to the answers
-    for its first, second, ... send; a line with no answer left is never answered. An answer given
-    as a tuple of chunks arrives one chunk per recv(). `greeting` is what the server sends on connect."""
-
-    def __init__(self, replies: dict[str, list[bytes | tuple[bytes, ...]]], greeting: bytes = b"") -> None:
-        # Answers still to give per sent line, in send order; copied so the caller's lists stay intact.
-        self._replies = {line: list(answers) for line, answers in replies.items()}
-        # Chunks the coming recv() calls return, one each; empty means recv() times out.
-        self._pending: list[bytes] = [greeting] if greeting else []
-        # Whether the session has closed the connection.
-        self.closed = False
-        # Every line the session sent, in order and without the newline.
-        self.sent_lines: list[str] = []
-
-    def settimeout(self, _timeout: float) -> None:
-        pass
-
-    def sendall(self, data: bytes) -> None:
-        line = data.decode("latin-1").strip()
-        self.sent_lines.append(line)
-        answers = self._replies.get(line, [])
-        if answers:
-            answer = answers.pop(0)
-            self._pending.extend(answer if isinstance(answer, tuple) else [answer])
-
-    def recv(self, _size: int) -> bytes:
-        if not self._pending:
-            raise socket.timeout()
-        return self._pending.pop(0)
-
-    def close(self) -> None:
-        self.closed = True
 
 
 GREETING = b"Log in with your account email address at the prompt.\r\n\r\nAccount email: "

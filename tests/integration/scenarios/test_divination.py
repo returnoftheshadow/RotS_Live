@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION, NO_ENERGY
+from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import UNKNOWN_SPELL_REPLY
 from rots_harness.immortal_commands import goto
@@ -22,9 +22,6 @@ pytestmark = [pytest.mark.scenario, pytest.mark.divination]
 ROOM_SEERS_ROOM = 2408
 ROOM_CLUTTERED_ROOM = 2409
 CLUTTERED_ROOM_NAME = "Cluttered Room"
-# What the seer's room holds from boot: the practice dummy (mob/24.mob) and a flask
-# (world.OBJECT_FLASK).
-DUMMY_VNUM = 2404
 
 # The base and current mana the seer is stored with, enough for many casts; a lost concentration
 # costs half of the spell's mana (do_cast, spell_pa.cpp).
@@ -72,7 +69,6 @@ CLUTTERED_ROOM_HEADER = [
 # object list passes divination's limit of 999 characters (DIVINATION_LIST_LIMIT, spells.h): each
 # cap adds "a leather cap, " (15 characters), so 80 make 22 + 80 * 15 = 1222 with the header.
 CAPS_DROPPED = 80
-CAP_ENTRY = "a leather cap"
 CAP_CREATED = "You create a leather cap."
 # The list keeps the entries after which "and more.\n\r" (11 characters) still fits the limit,
 # then ends with it (limit_divination_list, mystic.cpp): 22 + 64 * 15 = 982 and
@@ -89,8 +85,8 @@ def divine(seer: GameSession) -> list:
     """Casts divination, repeating it after a lost concentration; returns the report's lines from
     its first line on."""
     while True:
-        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL_REPLY], timeout=CAST_TIMEOUT_SECONDS)
-        if LOST_CONCENTRATION in reply:
+        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY, UNKNOWN_SPELL_REPLY], timeout=CAST_TIMEOUT_SECONDS)
+        if LOST_CONCENTRATION_REPLY in reply:
             continue
         lines = stripped_lines(reply)
         assert SEERS_ROOM_REPORT[0] in lines, reply
@@ -98,7 +94,7 @@ def divine(seer: GameSession) -> list:
 
 
 @pytest.mark.schedule("affect-hours")
-@pytest.mark.world_resets(MobReset(DUMMY_VNUM, ROOM_SEERS_ROOM), ObjectReset(world.OBJECT_FLASK, ROOM_SEERS_ROOM))
+@pytest.mark.world_resets(MobReset(world.MOB_PRACTICE_DUMMY, ROOM_SEERS_ROOM), ObjectReset(world.OBJECT_FLASK, ROOM_SEERS_ROOM))
 @pytest.mark.characters(SEER)
 def test_divination_reports_the_room_its_exits_and_who_and_what_is_there(server) -> None:
     """In the seer's room divination reports the room's number, sector and flags, its two exits with
@@ -132,5 +128,5 @@ def test_divination_cuts_a_crowded_object_list_short_with_and_more(server) -> No
     assert report[:len(CLUTTERED_ROOM_HEADER)] == CLUTTERED_ROOM_HEADER, report
     object_list = report[len(CLUTTERED_ROOM_HEADER)]
     assert object_list.endswith(LIST_CUT), report
-    assert object_list.count(CAP_ENTRY) == CAPS_KEPT, report
+    assert object_list.count(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION) == CAPS_KEPT, report
     assert len(OBJECTS_HEADER) + 2 + len(object_list) + 2 <= LIST_LIMIT, report

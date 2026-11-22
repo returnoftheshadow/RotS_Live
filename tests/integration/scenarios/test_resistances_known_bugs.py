@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import NO_ENERGY, cast_until_it_lands
+from rots_harness.casting import NO_ENERGY_REPLY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto, wizset
@@ -71,9 +71,9 @@ def cast_protection_fire(caster: GameSession) -> str:
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs spirit, and nothing regenerates spirit between requests under
-    affect-hours, so the repeats end at NO_ENERGY at the latest.
+    affect-hours, so the repeats end at NO_ENERGY_REPLY at the latest.
     """
-    outcomes = [FIRE_RESISTANT_MARKER, ALREADY_PROTECTED_MARKER, NO_ENERGY]
+    outcomes = [FIRE_RESISTANT_MARKER, ALREADY_PROTECTED_MARKER, NO_ENERGY_REPLY]
     return cast_until_it_lands(caster, "cast 'protection' fire", outcomes)
 
 

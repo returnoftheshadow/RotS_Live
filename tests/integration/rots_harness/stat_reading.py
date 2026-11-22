@@ -1,14 +1,12 @@
-"""Reads an implementor's stat replies and the numbers in them.
+"""Reads an implementor's stat replies and the stat-line patterns two or more scenario files read.
 
-stat prints lines ending in "]", where GameSession.command would stop early, so read_stat waits
-for the reply's last line instead. The patterns are the stat lines two or more scenario files
-read with the same pattern text; one a single file reads stays in that file.
+read_stat waits for the reply's last line, as reply_to does.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Sequence
+from collections.abc import Sequence
 
 from rots_harness.replies import SETTLE_SECONDS, reply_to
 from rots_harness.session import GameSession
@@ -42,8 +40,6 @@ LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 PRACTICE_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
 # The mage level on the profession levels line.
 MAGE_LEVEL_PATTERN = re.compile(r"Class levels: Mag:(\d+) ")
-# The cleric level on the profession levels line.
-CLERIC_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:(\d+) ")
 # The saving throw on the combat line.
 SAVING_THROW_PATTERN = re.compile(r"Saving throws (-?\d+),")
 # The affect bits line's flag names, such as "POISON.", or "<NONE>".
@@ -59,6 +55,7 @@ def read_stat(
     target: str,
     last_line: str = CHARACTER_STAT_LAST_LINE,
     other_outcomes: Sequence[str] = (),
+    *,
     settle: float = SETTLE_SECONDS,
 ) -> str:
     """The implementor's reply to `stat <target>`, such as target "player testsaint", "mob boar" or "obj sword".
@@ -70,3 +67,15 @@ def read_stat(
     """
     outcomes = [last_line, *other_outcomes]
     return reply_to(implementor, f"stat {target}", outcomes, settle=settle)
+
+
+def affect_bits(stat_text: str) -> list[str]:
+    """Return the affect bit names on a character stat's AFF line, such as ["CHARM"] or ["<NONE>"].
+
+    Each name loses the full stop the game prints after it. Asserts the reply holds an AFF line at
+    a line's start (AFFECT_BITS_AT_LINE_START_PATTERN).
+    """
+    match = AFFECT_BITS_AT_LINE_START_PATTERN.search(stat_text)
+    assert match is not None, stat_text
+    names = match.group(1).split()
+    return [name.rstrip(".") for name in names]

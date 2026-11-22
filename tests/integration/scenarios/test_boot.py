@@ -16,7 +16,7 @@ MAGE = custom_mage(level=30, load_room=world.ROOM_ARENA_CENTRE)
 @pytest.mark.characters(IMPLEMENTOR)
 def test_an_implementor_logs_in_to_immortal_start(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
-    assert implementor.command("look").room_name() == "Immortal Start"
+    assert implementor.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME
 
 
 @pytest.mark.characters(IMPLEMENTOR, MAGE)

@@ -9,6 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import OUTPUT_OVERFLOW
 from rots_harness.text_lines import stripped_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.account_menu_crowded_floor]
@@ -34,8 +35,6 @@ REMAINDER_LINE_START = "...and "
 # title, and the end of the line. The title comes from rotstool, so only the ends are matched.
 IMPLEMENTOR_LINE_START = f"{IMPLEMENTOR.name} "
 IMPLEMENTOR_LINE_END = " is standing here."
-# What write_to_output appends when a player's output buffer overflows (comm.cpp).
-OVERFLOW_MARKER = "**OVERFLOW**"
 # Seconds the onlooker reads before looking, so the drop messages are not taken for the look's reply.
 SETTLE_SECONDS = 1.0
 
@@ -66,7 +65,7 @@ def test_a_crowded_floor_lists_100_objects_then_a_remainder_line_then_the_people
     onlooker.drain(SETTLE_SECONDS)
 
     looked = onlooker.command("look").text
-    assert OVERFLOW_MARKER not in looked, looked
+    assert OUTPUT_OVERFLOW not in looked, looked
     lines = stripped_lines(looked)
     cap_lines = [index for index, line in enumerate(lines) if line == CAP_FLOOR_LINE]
     assert len(cap_lines) == FLOOR_LIST_LIMIT, looked

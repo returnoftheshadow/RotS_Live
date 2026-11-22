@@ -18,10 +18,7 @@ pytestmark = [pytest.mark.scenario, pytest.mark.vendor]
 # (tests/integration/world/mob/13.mob and obj/13.obj).
 CURRENCY_VNUM = 1308
 CURRENCY_KEYWORD = "bead"
-CURRENCY_NAME = "a copper bead"
-# The short description of the leather cap (world.OBJECT_LEATHER_CAP), whose keywords are
-# "cap leather".
-CAP_NAME = "a leather cap"
+CURRENCY_NAME = world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION
 # The three-letter abbreviation of the cap's keyword `leather`.
 CAP_ABBREVIATION = "lea"
 
@@ -29,7 +26,7 @@ CAP_ABBREVIATION = "lea"
 TRADE_LINES = (
     "You hand over:",
     f"  {CAP_PRICE_BEADS} x {CURRENCY_NAME}",
-    f"You now have {CAP_NAME}.",
+    f"You now have {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION}.",
 )
 
 
@@ -51,8 +48,8 @@ def test_sell_with_no_keeper_in_the_room_is_not_for_here(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     wanderer = server.login(WANDERER.name)
-    goto(implementor, world.ROOM_ARENA_WEST, "Arena West")
-    give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WANDERER.name.lower(), shown_recipient=WANDERER.name, short_description=CAP_NAME)
+    goto(implementor, world.ROOM_ARENA_WEST, world.ROOM_ARENA_WEST_NAME)
+    give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WANDERER.name.lower(), shown_recipient=WANDERER.name, short_description=world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
 
     reply = wanderer.command("sell cap")
     assert reply.contains(NOT_HERE_REPLY), reply.text
@@ -78,7 +75,7 @@ def test_a_vendor_sells_by_an_abbreviated_keyword(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    goto(implementor, world.ROOM_TRADE_HALL, "Trade Hall")
+    goto(implementor, world.ROOM_TRADE_HALL, world.ROOM_TRADE_HALL_NAME)
     for bead_number in range(CAP_PRICE_BEADS):
         give_new_object(implementor, CURRENCY_VNUM, CURRENCY_KEYWORD, BUYER.name.lower(), shown_recipient=BUYER.name, short_description=CURRENCY_NAME)
 

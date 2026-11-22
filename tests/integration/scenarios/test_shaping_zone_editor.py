@@ -13,7 +13,18 @@ from rots_harness.characters import IMPLEMENTOR
 from rots_harness.immortal_commands import set_syslog
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.shaping import SECTION_COMMENT_PROMPT, SECTION_TITLE_PROMPT, ZONE_FILE_RELATIVE, ZONE_NUMBER, ZONE_PROMPT, ZONE_RELEASED
+from rots_harness.shaping import (
+    COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_SETTLE_SECONDS,
+    SECTION_COMMENT_PROMPT_START,
+    SECTION_TITLE_PROMPT_START,
+    ZONE_FILE_RELATIVE,
+    ZONE_IMPLEMENTED_REPLY,
+    ZONE_NUMBER,
+    ZONE_PROMPT,
+    ZONE_RELEASED_REPLY,
+    release_editor,
+)
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_zone_editor]
@@ -33,8 +44,8 @@ SECTION_COMMENT = "who waits where"
 LIST_WIDTH = 78
 SECTION_COMMENT_INDENT = 2
 
-# What load_zone prints when the zone file or the zone in it is missing.
-ZONE_FILE_MISSING_MARKER = "could not open that file."
+# What load_zone prints when the zone file holds no such zone; a missing file is
+# COULD_NOT_OPEN_FILE_REPLY.
 ZONE_MISSING_MARKER = "no zone here."
 # What /6 prints when it moves to the next row, and /10 when it inserts one.
 NEXT_ROW_MARKER = "Next command chosen:"
@@ -48,8 +59,6 @@ COMMENT_PROMPT = "Enter line COMMENT"
 UNRECOGNIZED_COMMAND_MARKER = "Unrecognized command."
 # The start of the summary /implement ends with, with or without disabled rows (implement_zone).
 IMPLEMENTED_MARKER = "The zone was implemented"
-# The summary when every row resolved, or when no row was disabled.
-IMPLEMENTED_CLEANLY = "The zone was implemented."
 # The summary after one row was disabled.
 IMPLEMENTED_WITH_ONE_DISABLED = (
     "The zone was implemented, but 1 command(s) were DISABLED because of the error(s) above."
@@ -68,8 +77,6 @@ ZONE_RESET_MARKER = ": Harness arena."
 ORC_KEYWORD = "target"
 SNAKE_KEYWORD = "snake"
 SNAKE_ROOM = 1134
-# Seconds to keep reading after a marker, for the editor prompt that follows it.
-SETTLE_SECONDS = 0.5
 
 
 def zone_reset_rows(zone_text: str) -> list:
@@ -114,16 +121,10 @@ def open_zone_editor(implementor: GameSession) -> None:
     loaded = reply_to(
         implementor,
         f"shape zone {ZONE_NUMBER}",
-        [ZONE_LOADED_MARKER, ZONE_FILE_MISSING_MARKER, ZONE_MISSING_MARKER],
-        settle=SETTLE_SECONDS,
+        [ZONE_LOADED_MARKER, COULD_NOT_OPEN_FILE_REPLY, ZONE_MISSING_MARKER],
+        settle=EDITOR_SETTLE_SECONDS,
     )
     assert ZONE_LOADED_MARKER in loaded, loaded
-
-
-def close_zone_editor(implementor: GameSession) -> None:
-    """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [ZONE_RELEASED], settle=SETTLE_SECONDS)
-    assert ZONE_RELEASED in released, released
 
 
 def insert_row_after_the_last(implementor: GameSession, command_letter: str) -> str:
@@ -132,26 +133,26 @@ def insert_row_after_the_last(implementor: GameSession, command_letter: str) -> 
     The reply ends at the row's next prompt: its numbers, or a section's title.
     """
     for skipped_row in ZONE_ROWS[1:]:
-        moved = reply_to(implementor, "/6", [NEXT_ROW_MARKER, "No next command."], settle=SETTLE_SECONDS)
+        moved = reply_to(implementor, "/6", [NEXT_ROW_MARKER, "No next command."], settle=EDITOR_SETTLE_SECONDS)
         assert NEXT_ROW_MARKER in moved, moved
-    inserted = reply_to(implementor, "/10", [ROW_INSERTED_MARKER], settle=SETTLE_SECONDS)
+    inserted = reply_to(implementor, "/10", [ROW_INSERTED_MARKER], settle=EDITOR_SETTLE_SECONDS)
     assert ROW_INSERTED_MARKER in inserted, inserted
-    typed = reply_to(implementor, "/3", [COMMAND_TYPE_PROMPT], settle=SETTLE_SECONDS)
+    typed = reply_to(implementor, "/3", [COMMAND_TYPE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     assert COMMAND_TYPE_PROMPT in typed, typed
     return reply_to(
         implementor,
         command_letter,
-        [EIGHT_NUMBERS_PROMPT, SECTION_TITLE_PROMPT, UNRECOGNIZED_COMMAND_MARKER],
-        settle=SETTLE_SECONDS,
+        [EIGHT_NUMBERS_PROMPT, SECTION_TITLE_PROMPT_START, UNRECOGNIZED_COMMAND_MARKER],
+        settle=EDITOR_SETTLE_SECONDS,
     )
 
 
 def enter_row_numbers_and_comment(implementor: GameSession, numbers: str, comment: str) -> None:
     """Answers the new row's number and comment prompts, then checks the row is selected."""
-    numbered = reply_to(implementor, numbers, [COMMENT_PROMPT, ZONE_PROMPT], settle=SETTLE_SECONDS)
+    numbered = reply_to(implementor, numbers, [COMMENT_PROMPT, ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     assert COMMENT_PROMPT in numbered, numbered
     implementor.send_line(comment)
-    shown = reply_to(implementor, "/1", ["Curr:", "No current command."], settle=SETTLE_SECONDS)
+    shown = reply_to(implementor, "/1", ["Curr:", "No current command."], settle=EDITOR_SETTLE_SECONDS)
     assert f"Curr:   {NEW_ROW_NUMBER} " in shown, shown
 
 
@@ -161,18 +162,18 @@ def implement(implementor: GameSession) -> str:
         implementor,
         "/implement",
         [IMPLEMENTED_MARKER, NOT_ALLOWED_TO_IMPLEMENT_MARKER, NO_SUCH_ZONE_MARKER],
-        settle=SETTLE_SECONDS,
+        settle=EDITOR_SETTLE_SECONDS,
     )
 
 
 def add_section_row(implementor: GameSession) -> None:
     """Inserts a row after the last as a section with SECTION_TITLE and SECTION_COMMENT."""
     title_prompt = insert_row_after_the_last(implementor, "=")
-    assert SECTION_TITLE_PROMPT in title_prompt, title_prompt
-    comment_prompt = reply_to(implementor, SECTION_TITLE, [SECTION_COMMENT_PROMPT, ZONE_PROMPT], settle=SETTLE_SECONDS)
-    assert SECTION_COMMENT_PROMPT in comment_prompt, comment_prompt
+    assert SECTION_TITLE_PROMPT_START in title_prompt, title_prompt
+    comment_prompt = reply_to(implementor, SECTION_TITLE, [SECTION_COMMENT_PROMPT_START, ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    assert SECTION_COMMENT_PROMPT_START in comment_prompt, comment_prompt
     implementor.send_line(SECTION_COMMENT)
-    shown = reply_to(implementor, "/1", ["Curr:", "No current command."], settle=SETTLE_SECONDS)
+    shown = reply_to(implementor, "/1", ["Curr:", "No current command."], settle=EDITOR_SETTLE_SECONDS)
     assert f"Curr:   {NEW_ROW_NUMBER} " in shown and SECTION_TITLE in shown, shown
 
 
@@ -194,11 +195,11 @@ def test_implementing_a_kit_row_naming_a_missing_object_tells_the_builder(server
     assert EIGHT_NUMBERS_PROMPT in numbers_prompt, numbers_prompt
     enter_row_numbers_and_comment(implementor, KIT_ROW_NUMBERS, "kit with a missing object")
     report = implement(implementor)
-    close_zone_editor(implementor)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     report_lines = raw_lines(report)
     assert zone_error("K", "object", disabled=False) in report_lines, report
-    assert IMPLEMENTED_CLEANLY in report_lines, report
+    assert ZONE_IMPLEMENTED_REPLY in report_lines, report
 
 
 @pytest.mark.schedule("affect-hours")
@@ -213,7 +214,7 @@ def test_implementing_a_mob_row_naming_a_missing_mob_disables_it_and_says_so(ser
     assert EIGHT_NUMBERS_PROMPT in numbers_prompt, numbers_prompt
     enter_row_numbers_and_comment(implementor, MOB_ROW_NUMBERS, "a mob that does not exist")
     report = implement(implementor)
-    close_zone_editor(implementor)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     report_lines = raw_lines(report)
     assert zone_error("M", "mobile", disabled=True) in report_lines, report
@@ -233,7 +234,7 @@ def test_a_builder_whose_syslog_shows_zone_errors_reads_each_one_once(server) ->
     assert EIGHT_NUMBERS_PROMPT in numbers_prompt, numbers_prompt
     enter_row_numbers_and_comment(implementor, KIT_ROW_NUMBERS, "kit with a missing object")
     report = implement(implementor)
-    close_zone_editor(implementor)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     error_line = zone_error("K", "object", disabled=False)
     assert report.count(error_line) == 1, report
@@ -247,11 +248,11 @@ def test_an_m_rows_number_prompt_says_an_xp_percent_of_100_is_normal(server) -> 
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    prompt = reply_to(implementor, "/4", ["Enter 8 numbers [", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    kept = reply_to(implementor, "", ["Values kept.", ZONE_PROMPT], settle=SETTLE_SECONDS)
+    prompt = reply_to(implementor, "/4", ["Enter 8 numbers [", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    kept = reply_to(implementor, "", ["Values kept.", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     assert "Values kept." in kept, kept
     implementor.send_line("")
-    close_zone_editor(implementor)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     prompt_lines = raw_lines(prompt)
     assert "  max_world, max_alive_line: 0 = no limit.  xp%: 100 = normal (0 also normal)" in prompt_lines, prompt
@@ -266,12 +267,12 @@ def test_a_list_range_limits_the_zone_list_and_its_footer_says_so(server) -> Non
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    range_prompt = reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=SETTLE_SECONDS)
+    range_prompt = reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     assert "Enter list range: start [end] (0 = all, blank keeps) [all]:" in raw_lines(range_prompt), range_prompt
-    range_set = reply_to(implementor, "2", ["List range set:", "Range not changed.", ZONE_PROMPT], settle=SETTLE_SECONDS)
+    range_set = reply_to(implementor, "2", ["List range set:", "Range not changed.", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
     assert "List range set: from 2." in raw_lines(range_set), range_set
-    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    close_zone_editor(implementor)
+    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     listing_lines = raw_lines(listing)
     assert "List range: from 2 (/52 to change)." in listing_lines, listing
@@ -287,10 +288,10 @@ def test_a_list_range_with_an_end_stops_the_zone_list_there(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    range_set = reply_to(implementor, "1 1", ["List range set:", "Range not changed.", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    close_zone_editor(implementor)
+    reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    range_set = reply_to(implementor, "1 1", ["List range set:", "Range not changed.", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     assert "List range set: 1-1." in raw_lines(range_set), range_set
     listing_lines = raw_lines(listing)
@@ -306,12 +307,12 @@ def test_a_list_range_of_0_clears_it(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_zone_editor(implementor)
-    reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    reply_to(implementor, "2", ["List range set:", "Range not changed.", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    cleared = reply_to(implementor, "0", ["List range cleared.", "Range not changed.", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    close_zone_editor(implementor)
+    reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "2", ["List range set:", "Range not changed.", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    cleared = reply_to(implementor, "0", ["List range cleared.", "Range not changed.", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     assert "List range cleared." in raw_lines(cleared), cleared
     listing_lines = raw_lines(listing)
@@ -339,12 +340,12 @@ def test_a_list_range_answer_it_cannot_use_is_refused_and_changes_nothing(server
     open_zone_editor(implementor)
     replies = []
     for answer, refusal in RANGE_REFUSALS:
-        prompt = reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=SETTLE_SECONDS)
+        prompt = reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
         assert "Enter list range: start [end] (0 = all, blank keeps) [all]:" in raw_lines(prompt), prompt
-        replies.append((refusal, reply_to(implementor, answer, ["Range not changed.", "List range", ZONE_PROMPT], settle=SETTLE_SECONDS)))
-    last_prompt = reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=SETTLE_SECONDS)
-    reply_to(implementor, "", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    close_zone_editor(implementor)
+        replies.append((refusal, reply_to(implementor, answer, ["Range not changed.", "List range", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)))
+    last_prompt = reply_to(implementor, "/52", ["Enter list range:", ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     for refusal, reply in replies:
         assert refusal in raw_lines(reply), reply
@@ -363,8 +364,8 @@ def test_a_section_row_shows_as_a_titled_banner_in_the_zone_list(server) -> None
 
     open_zone_editor(implementor)
     add_section_row(implementor)
-    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=SETTLE_SECONDS)
-    close_zone_editor(implementor)
+    listing = reply_to(implementor, "/50", [ZONE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     label = f"{NEW_ROW_NUMBER:3d} "
     banner_width = LIST_WIDTH - len(label)
@@ -396,10 +397,10 @@ def test_saving_a_zone_writes_its_section_row_to_the_zone_file(server) -> None:
 
     open_zone_editor(implementor)
     add_section_row(implementor)
-    save_reply = reply_to(implementor, "/save", ["shapeless indefinity"], settle=SETTLE_SECONDS)
+    save_reply = reply_to(implementor, "/save", ["shapeless indefinity"], settle=EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once /1 answers, /save has finished writing.
-    synced = reply_to(implementor, "/1", ["Curr:"], settle=SETTLE_SECONDS)
-    close_zone_editor(implementor)
+    synced = reply_to(implementor, "/1", ["Curr:"], settle=EDITOR_SETTLE_SECONDS)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
     assert "could not" not in save_reply + synced, save_reply + synced
     assert (server.lib_dir / ZONE_BACKUP_RELATIVE).read_text(encoding="latin-1") == pre_save_text
@@ -419,7 +420,7 @@ def where_rows(implementor: GameSession, keyword: str) -> list:
 
 def reset_zone(implementor: GameSession) -> str:
     """Runs zreset on zone 11 and returns everything up to its reply, which names the zone."""
-    return reply_to(implementor, f"zreset {ZONE_NUMBER}", [ZONE_RESET_MARKER, "Invalid zone number."], settle=SETTLE_SECONDS)
+    return reply_to(implementor, f"zreset {ZONE_NUMBER}", [ZONE_RESET_MARKER, "Invalid zone number."], settle=EDITOR_SETTLE_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
@@ -438,13 +439,13 @@ def test_implementing_a_zone_keeps_its_living_mobs_counted_against_their_rows(se
 
     open_zone_editor(implementor)
     report = implement(implementor)
-    close_zone_editor(implementor)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
     reset_zone(implementor)
     after_implement = (len(where_rows(implementor, ORC_KEYWORD)), len(where_rows(implementor, SNAKE_KEYWORD)))
 
     assert [len(rows) for rows in booted] == [1, 1], booted
     assert before_implement == (1, 1)
-    assert IMPLEMENTED_CLEANLY in raw_lines(report), report
+    assert ZONE_IMPLEMENTED_REPLY in raw_lines(report), report
     assert after_implement == (1, 1)
 
 
@@ -466,7 +467,7 @@ def test_a_reset_reports_a_kit_row_whose_object_is_missing_each_time_it_runs(ser
     assert EIGHT_NUMBERS_PROMPT in numbers_prompt, numbers_prompt
     enter_row_numbers_and_comment(implementor, KIT_ROW_NUMBERS, "kit the snake with a missing object")
     implement(implementor)
-    close_zone_editor(implementor)
+    release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
     with_snake_alive = reset_zone(implementor)
     implementor.command(f"goto {SNAKE_ROOM}")
     purged = implementor.command(f"purge {SNAKE_KEYWORD}")

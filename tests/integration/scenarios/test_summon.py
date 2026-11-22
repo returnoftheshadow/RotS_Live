@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 from rots_harness import world
-from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION, NO_ENERGY, cast_until_it_lands
+from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import QUIT_DROP_REPLY, TELEPORTED_BY_ANYONE
+from rots_harness.game_text import CONCENTRATE_REPLY, QUIT_DROP_REPLY, TELEPORTED_END
 from rots_harness.immortal_commands import give_new_object, set_holylight
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import MAGE_LEVEL_PATTERN, read_stat
@@ -69,10 +69,6 @@ DISTANT_DWARF = Character(
     class_name="warrior",
     stored=StoredValues(int=VICTIM_INTELLIGENCE),
 )
-# The short descriptions of the stone girdle (world.OBJECT_STONE_GIRDLE), worn about the waist,
-# and the dwarven stone (world.OBJECT_DWARVEN_STONE), carried; both are STAY_ZONE.
-GIRDLE = "a stone girdle"
-STONE = "a dwarven stone"
 
 # The caster's mage level: a single-class mage's mage level is its overall level, up to 30.
 CASTER_MAGE_LEVEL = CASTER.level
@@ -82,8 +78,6 @@ ZONE_DIRECTORY = Path(__file__).resolve().parents[1] / "world" / "zon"
 # What the caster reads when summon's target lookup finds nobody it can see (report_wrong_target,
 # interpre.cpp, for a mask with TAR_CHAR_WORLD).
 NOBODY_MARKER = "Nobody by that name."
-# What the caster reads when the casting delay starts (do_cast, spell_pa.cpp).
-CONCENTRATE_MARKER = "You start to concentrate."
 # What the caster reads when the victim saves or summon refuses the target (spell_summon).
 FAILED_MARKER = "You failed."
 # The start of what the caster reads when do_cast's big_brother check protects the target
@@ -145,12 +139,12 @@ def cast_summon(caster: GameSession, target_name: str) -> str:
 
     A lost concentration is the one roll left that can stop the cast, so the cast is repeated
     after it. Each loss costs mana, and nothing regenerates mana between requests under
-    affect-hours, which every test here uses, so the repeats end at NO_ENERGY at the latest.
+    affect-hours, which every test here uses, so the repeats end at NO_ENERGY_REPLY at the latest.
     """
     outcomes = [
         NOBODY_MARKER,
         FAILED_MARKER,
-        NO_ENERGY,
+        NO_ENERGY_REPLY,
         PROTECTED_TARGET_MARKER,
         RECENT_PK_MARKER,
         UNSEEN_ARRIVAL_MARKER,
@@ -195,11 +189,11 @@ def test_a_mage_cannot_summon_a_player_standing_in_a_dark_room(server) -> None:
     # with report_wrong_target before the delay, the concentration roll or new_saves_spell.
     dark_reply = cast_summon(caster, DARK_VICTIM.name)
     assert NOBODY_MARKER in dark_reply, dark_reply
-    assert CONCENTRATE_MARKER not in dark_reply, dark_reply
+    assert CONCENTRATE_REPLY not in dark_reply, dark_reply
     assert victim.command("look").room_name() == DARK_ROOM_LOOK
 
     implementor.command(f"teleport {DARK_VICTIM.name.lower()} {world.ROOM_ARENA_WEST}")
-    victim.expect([TELEPORTED_BY_ANYONE])
+    victim.expect([TELEPORTED_END])
     victim.drain(SETTLE_SECONDS)
 
     # Control case, Testlost in Arena West (1130, lit, zone 11), caster in Arena Centre (zone 11):
@@ -317,11 +311,11 @@ def test_summon_across_zones_leaves_the_targets_stay_zone_gear_in_the_room_it_le
     caster = server.login(CASTER.name)
     victim = server.login(DISTANT_DWARF.name)
     implementor.command(f"goto {ROOM_DISTANT_CELL}")
-    stay_zone_items = ((world.OBJECT_STONE_GIRDLE, "girdle", GIRDLE), (world.OBJECT_DWARVEN_STONE, "stone", STONE))
+    stay_zone_items = ((world.OBJECT_STONE_GIRDLE, "girdle", world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION), (world.OBJECT_DWARVEN_STONE, "stone", world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION))
     for vnum, keyword, short_description in stay_zone_items:
         give_new_object(implementor, vnum, keyword, DISTANT_DWARF.name.lower(), shown_recipient=DISTANT_DWARF.name, short_description=short_description)
     worn = victim.command("wear girdle")
-    assert worn.contains(f"You wear {GIRDLE} around your waist."), worn.text
+    assert worn.contains(f"You wear {world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION} around your waist."), worn.text
     caster_inputs, victim_inputs = setup_caster_and_victim(implementor, DISTANT_DWARF)
 
     # Distant case, caster in Arena Centre (zone 11), Testdelver in the Distant Cell (zone 12),
@@ -347,17 +341,17 @@ def test_summon_across_zones_leaves_the_targets_stay_zone_gear_in_the_room_it_le
     reply = cast_summon(caster, DISTANT_DWARF.name)
     assert ARRIVAL_MARKER_FORMAT.format(DISTANT_DWARF.name) in reply, reply
     summoned = victim.expect([SUMMONED_MARKER_FORMAT.format(CASTER.name)]) + victim.drain(SETTLE_SECONDS)
-    assert summoned.count(DROP_FORMAT.format(STONE)) == 1, summoned
-    assert DROP_FORMAT.format(GIRDLE) not in summoned, summoned
-    assert summoned.index(DROP_FORMAT.format(STONE)) < summoned.index(SUMMONED_MARKER_FORMAT.format(CASTER.name)), summoned
+    assert summoned.count(DROP_FORMAT.format(world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION)) == 1, summoned
+    assert DROP_FORMAT.format(world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION) not in summoned, summoned
+    assert summoned.index(DROP_FORMAT.format(world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION)) < summoned.index(SUMMONED_MARKER_FORMAT.format(CASTER.name)), summoned
     assert "Arena Centre" in summoned, summoned
-    watched = implementor.expect([f"{DISTANT_DWARF.name} drops {STONE}."]) + implementor.drain(SETTLE_SECONDS)
-    assert watched.count(f"{DISTANT_DWARF.name} drops {STONE}.") == 1, watched
+    watched = implementor.expect([f"{DISTANT_DWARF.name} drops {world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION}."]) + implementor.drain(SETTLE_SECONDS)
+    assert watched.count(f"{DISTANT_DWARF.name} drops {world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION}.") == 1, watched
 
     equipment = victim.command("equipment").text
-    assert GIRDLE not in equipment, equipment
+    assert world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION not in equipment, equipment
     carried = victim.command("inventory").text
-    assert STONE not in carried, carried
+    assert world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION not in carried, carried
     floor = implementor.command("look").text
     assert floor.count("A stone girdle lies here.") == 1, floor
     assert floor.count("A dwarven stone lies here.") == 1, floor
@@ -382,8 +376,8 @@ def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits
     victim = server.login(DISTANT_VICTIM.name)
 
     caster.send_line(f"cast 'summon' {DISTANT_VICTIM.name.lower()}")
-    started = caster.expect([CONCENTRATE_MARKER, NOBODY_MARKER, NO_ENERGY])
-    assert CONCENTRATE_MARKER in started, started
+    started = caster.expect([CONCENTRATE_REPLY, NOBODY_MARKER, NO_ENERGY_REPLY])
+    assert CONCENTRATE_REPLY in started, started
     victim.send_line("quit")
     quit_text = victim.expect([QUIT_DROP_REPLY])
     assert QUIT_DROP_REPLY in quit_text, quit_text
@@ -392,7 +386,7 @@ def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits
         LEFT_THE_WORLD_MARKER,
         NOBODY_MARKER,
         FAILED_MARKER,
-        LOST_CONCENTRATION,
+        LOST_CONCENTRATION_REPLY,
         PROTECTED_TARGET_MARKER,
         UNSEEN_ARRIVAL_MARKER,
         ARRIVAL_MARKER_FORMAT.format(DISTANT_VICTIM.name),

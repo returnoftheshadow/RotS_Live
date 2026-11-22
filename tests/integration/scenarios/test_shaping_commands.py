@@ -25,16 +25,14 @@ class Editor(NamedTuple):
 
 
 # The mob, object, room and script editors on the test world's first record of each kind.
-MOB_EDITOR = Editor(f"shape mob {shaping.SHAPED_RECORD}", shaping.MOBILE_PROMPT, shaping.MOBILE_RELEASED)
-OBJECT_EDITOR = Editor(f"shape object {shaping.SHAPED_RECORD}", shaping.OBJECT_PROMPT, shaping.OBJECT_RELEASED)
-ROOM_EDITOR = Editor(f"shape room {world.ROOM_IMMORTAL_START}", shaping.IMMORTAL_START_ROOM_PROMPT, shaping.ROOM_RELEASED)
-SCRIPT_EDITOR = Editor(f"shape script {shaping.SHAPED_SCRIPT}", shaping.SCRIPT_PROMPT, shaping.SCRIPT_RELEASED)
+MOB_EDITOR = Editor(f"shape mob {shaping.SHAPED_RECORD}", shaping.MOBILE_PROMPT, shaping.MOBILE_RELEASED_REPLY)
+OBJECT_EDITOR = Editor(f"shape object {shaping.SHAPED_RECORD}", shaping.OBJECT_PROMPT, shaping.OBJECT_RELEASED_REPLY)
+ROOM_EDITOR = Editor(f"shape room {world.ROOM_IMMORTAL_START}", shaping.IMMORTAL_START_ROOM_PROMPT, shaping.ROOM_RELEASED_REPLY)
+SCRIPT_EDITOR = Editor(f"shape script {shaping.SHAPED_SCRIPT}", shaping.SCRIPT_PROMPT, shaping.SCRIPT_RELEASED_REPLY)
 
 # What a loader prints when the record or its file is missing (load_proto, load_object,
 # load_room and load_script in the shape*.cpp files).
-LOAD_FAILURE_MARKERS = ["could not open that file.", "No such mob or file corrupted.", "no object here.", "no room here."]
-# Seconds to keep reading after a marker, for the prompt that follows it.
-SETTLE_SECONDS = 0.5
+LOAD_FAILURE_MARKERS = [shaping.COULD_NOT_OPEN_FILE_REPLY, "No such mob or file corrupted.", "no object here.", "no room here."]
 
 
 def refusal(typed: str) -> str:
@@ -92,10 +90,10 @@ def test_a_disabled_editor_command_refuses_with_what_was_typed(server, editor: E
     as typed, and the editor stays open on its record."""
     implementor = server.login(IMPLEMENTOR.name)
 
-    opened = reply_to(implementor, editor.open_line, [editor.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
+    opened = reply_to(implementor, editor.open_line, [editor.prompt, *LOAD_FAILURE_MARKERS], settle=shaping.EDITOR_SETTLE_SECONDS)
     assert editor.prompt in opened, opened
-    reply = reply_to(implementor, typed, [editor.prompt, editor.release_marker], settle=SETTLE_SECONDS)
-    released = reply_to(implementor, "/free", [editor.release_marker], settle=SETTLE_SECONDS)
+    reply = reply_to(implementor, typed, [editor.prompt, editor.release_marker], settle=shaping.EDITOR_SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [editor.release_marker], settle=shaping.EDITOR_SETTLE_SECONDS)
     assert editor.release_marker in released, released
 
     assert refusal(typed) in raw_lines(reply), reply
@@ -139,10 +137,10 @@ def test_a_zone_open_to_all_gives_full_permission_from_level_93(server) -> None:
     lower = server.login(LEVEL_92_BUILDER.name)
     god = server.login(LEVEL_93_BUILDER.name)
 
-    lower_opened = reply_to(lower, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
-    god_opened = reply_to(god, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
+    lower_opened = reply_to(lower, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=shaping.EDITOR_SETTLE_SECONDS)
+    god_opened = reply_to(god, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=shaping.EDITOR_SETTLE_SECONDS)
     for builder in (lower, god):
-        released = reply_to(builder, "/free", [ROOM_EDITOR.release_marker], settle=SETTLE_SECONDS)
+        released = reply_to(builder, "/free", [ROOM_EDITOR.release_marker], settle=shaping.EDITOR_SETTLE_SECONDS)
         assert ROOM_EDITOR.release_marker in released, released
 
     assert ROOM_EDITOR.prompt in lower_opened and ROOM_EDITOR.prompt in god_opened, lower_opened + god_opened
@@ -170,15 +168,15 @@ def test_recalculate_needs_six_letters_and_sets_a_mobs_numbers_from_its_level(se
     from its level."""
     implementor = server.login(IMPLEMENTOR.name)
 
-    opened = reply_to(implementor, MOB_EDITOR.open_line, [MOB_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
+    opened = reply_to(implementor, MOB_EDITOR.open_line, [MOB_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=shaping.EDITOR_SETTLE_SECONDS)
     assert MOB_EDITOR.prompt in opened, opened
-    extended = reply_to(implementor, "/simple", ["editing mode."], settle=SETTLE_SECONDS)
+    extended = reply_to(implementor, "/simple", ["editing mode."], settle=shaping.EDITOR_SETTLE_SECONDS)
     assert "You switched to extended editing mode." in extended, extended
-    short = reply_to(implementor, "/rec", [UNKNOWN_EDITOR_COMMAND, RECALCULATED], settle=SETTLE_SECONDS)
-    after_short = reply_to(implementor, "/50", ["(42) options"], settle=SETTLE_SECONDS)
-    recalculated = reply_to(implementor, "/recalc", [RECALCULATED, UNKNOWN_EDITOR_COMMAND], settle=SETTLE_SECONDS)
-    after_recalc = reply_to(implementor, "/50", ["(42) options"], settle=SETTLE_SECONDS)
-    released = reply_to(implementor, "/free", [MOB_EDITOR.release_marker], settle=SETTLE_SECONDS)
+    short = reply_to(implementor, "/rec", [UNKNOWN_EDITOR_COMMAND, RECALCULATED], settle=shaping.EDITOR_SETTLE_SECONDS)
+    after_short = reply_to(implementor, "/50", ["(42) options"], settle=shaping.EDITOR_SETTLE_SECONDS)
+    recalculated = reply_to(implementor, "/recalc", [RECALCULATED, UNKNOWN_EDITOR_COMMAND], settle=shaping.EDITOR_SETTLE_SECONDS)
+    after_recalc = reply_to(implementor, "/50", ["(42) options"], settle=shaping.EDITOR_SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [MOB_EDITOR.release_marker], settle=shaping.EDITOR_SETTLE_SECONDS)
     assert MOB_EDITOR.release_marker in released, released
 
     assert UNKNOWN_EDITOR_COMMAND in raw_lines(short), short

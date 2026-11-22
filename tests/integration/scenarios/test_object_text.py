@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, StoredValues
+from rots_harness.game_text import DRINK_EMPTY_REPLY
 from rots_harness.immortal_commands import goto, load_mob, load_object, wizset
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -22,9 +23,9 @@ pytestmark = [pytest.mark.scenario, pytest.mark.object_text]
 # names it.
 ROOM_DUMMY_YARD = 2407
 DUMMY_YARD_NAME = "Dummy Yard"
-# The practice dummy (mob/24.mob): level 1, bodytype 1 (humanoid), so its corpse has a head
-# (load_scalp, act_obj1.cpp, gives none for bodytype 0); no gold, so its corpse holds no coins.
-DUMMY_VNUM = 2404
+# The practice dummy's keyword and short description (world.MOB_PRACTICE_DUMMY): level 1,
+# bodytype 1 (humanoid), so its corpse has a head (load_scalp, act_obj1.cpp, gives none for
+# bodytype 0); no gold, so its corpse holds no coins.
 DUMMY_KEYWORD = "dummy"
 DUMMY_SHORT_DESCRIPTION = "a practice dummy"
 # The keyword of the plain steel sword (world.OBJECT_PLAIN_STEEL_SWORD), a slashing weapon, which
@@ -66,7 +67,6 @@ SOBER_IMPLEMENTOR = dataclasses.replace(IMPLEMENTOR, stored=StoredValues(drunk=0
 POURED = "You pour some ale into the flask."
 DRANK = "You drink the ale."
 NOT_FOUND = "You can't find it!"
-EMPTY = "It's empty."
 # What `look in` prints for a drink container (do_look, act_info.cpp): an empty one, and the
 # start of a full one's line ("It's <fullness>full of a <colour> liquid.").
 LOOK_IN_EMPTY = "It is empty."
@@ -85,7 +85,7 @@ def go_to_yard(implementor: GameSession) -> None:
 
 def slay_a_dummy(implementor: GameSession) -> None:
     """Loads a practice dummy beside the implementor and slays it."""
-    load_mob(implementor, DUMMY_VNUM, DUMMY_SHORT_DESCRIPTION)
+    load_mob(implementor, world.MOB_PRACTICE_DUMMY, DUMMY_SHORT_DESCRIPTION)
     slain = implementor.command(f"slay {DUMMY_KEYWORD}")
     assert slain.contains("You chop"), slain.text
 
@@ -97,9 +97,9 @@ def floor_lines(implementor: GameSession) -> list:
 
 
 def drink(implementor: GameSession, target: str) -> str:
-    """The outcome line drinking from the target prints: DRANK, NOT_FOUND or EMPTY."""
+    """The outcome line drinking from the target prints: DRANK, NOT_FOUND or DRINK_EMPTY_REPLY."""
     reply = implementor.command(f"drink {target}").text
-    outcomes = [line for line in stripped_lines(reply) if line in (DRANK, NOT_FOUND, EMPTY)]
+    outcomes = [line for line in stripped_lines(reply) if line in (DRANK, NOT_FOUND, DRINK_EMPTY_REPLY)]
     assert outcomes, reply
     return outcomes[0]
 
@@ -168,7 +168,7 @@ def test_a_filled_flask_answers_to_its_liquid_and_its_twin_does_not(server) -> N
     assert POURED in stripped_lines(poured), poured
     assert drink(implementor, "ale") == DRANK
     assert drink(implementor, "2.ale") == NOT_FOUND
-    assert drink(implementor, "2.flask") == EMPTY
+    assert drink(implementor, "2.flask") == DRINK_EMPTY_REPLY
 
     again = server.relog(implementor)
     assert drink(again, "ale") == NOT_FOUND
