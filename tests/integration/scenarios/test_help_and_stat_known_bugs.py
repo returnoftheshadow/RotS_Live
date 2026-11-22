@@ -9,6 +9,7 @@ import re
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_help_and_stat import (
     CHAIN_SHIRT_VNUM,
@@ -61,14 +62,11 @@ OBJECT_AFFECT_LINE_PATTERN = re.compile(r"Affections:([^\r\n]*)")
 STALE_LEARNING_LABEL = "SEX"
 # The name of the player's room, world.ROOM_ARENA_CENTRE, as goto shows it.
 ARENA_CENTRE_NAME = "Arena Centre"
-# Seconds to keep reading after a reply, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def read_stat(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player <name>`, read up to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {name.lower()}", [STAT_LAST_LINE_MARKER])
 
 
 def incognito_display(session: GameSession) -> str:
@@ -87,8 +85,7 @@ def join_player(implementor: GameSession) -> None:
 
 def read_object_stat(implementor: GameSession, keyword: str) -> str:
     """The implementor's `stat obj <keyword>`, read up to its last line, the affect list."""
-    implementor.send_line(f"stat obj {keyword}")
-    return implementor.expect(["Affections:"]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat obj {keyword}", ["Affections:"])
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="help uruk should show the URUK-HAI URUK entry, whose keywords include URUK exactly")

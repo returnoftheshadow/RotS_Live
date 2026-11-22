@@ -13,7 +13,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_saving]
 
@@ -159,37 +161,23 @@ def case_id(case: EditorCase) -> str:
     return case.open_line.split()[1]
 
 
-def lines_of(text: str) -> list:
-    """The text's lines without the carriage returns the game sends with each line end."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def reply_to(session: GameSession, line: str, outcomes: list) -> str:
-    """Sends a line and returns what came back, up to and just after the first outcome.
-
-    Editor prompts end in ':' or ']' mid-field, so command() cannot be used inside an editor.
-    """
-    session.send_line(line)
-    return session.expect(outcomes) + session.drain(SETTLE_SECONDS)
-
-
 def open_editor(implementor: GameSession, case: EditorCase) -> None:
     """Starts shaping the case's record."""
-    opened = reply_to(implementor, case.open_line, [case.prompt, "could not open that file."])
+    opened = reply_to(implementor, case.open_line, [case.prompt, "could not open that file."], settle=SETTLE_SECONDS)
     assert case.prompt in opened, opened
 
 
 def edit_text_field(implementor: GameSession, case: EditorCase) -> None:
     """Types the case's new text into its one-line field."""
-    prompt = reply_to(implementor, case.edit_line, ["Enter line", case.prompt])
+    prompt = reply_to(implementor, case.edit_line, ["Enter line", case.prompt], settle=SETTLE_SECONDS)
     assert "Enter line" in prompt, prompt
-    answered = reply_to(implementor, case.new_text, [case.prompt])
+    answered = reply_to(implementor, case.new_text, [case.prompt], settle=SETTLE_SECONDS)
     assert case.prompt in answered, answered
 
 
 def read_live(watcher: GameSession, case: EditorCase) -> str:
     """What the watcher reads of the case's record in the live game."""
-    replies = [reply_to(watcher, step.line, list(step.markers)) for step in case.watch]
+    replies = [reply_to(watcher, step.line, list(step.markers), settle=SETTLE_SECONDS) for step in case.watch]
     return "".join(replies)
 
 
@@ -226,22 +214,22 @@ def test_a_done_that_cannot_back_up_the_file_keeps_shaping_and_changes_nothing(s
 
     open_editor(implementor, case)
     edit_text_field(implementor, case)
-    failed = reply_to(implementor, "/done", [NOT_SAVED_LINES[1], case.release_marker])
-    shown = reply_to(implementor, case.list_line, [case.prompt, NOT_SHAPING])
+    failed = reply_to(implementor, "/done", [NOT_SAVED_LINES[1], case.release_marker], settle=SETTLE_SECONDS)
+    shown = reply_to(implementor, case.list_line, [case.prompt, NOT_SHAPING], settle=SETTLE_SECONDS)
     live_after_failure = read_live(watcher, case)
     bytes_after_failure = world_file.read_bytes()
     backup_dir.mkdir()
-    done = reply_to(implementor, "/done", [case.release_marker, NOT_SAVED_LINES[1], NOT_SHAPING])
+    done = reply_to(implementor, "/done", [case.release_marker, NOT_SAVED_LINES[1], NOT_SHAPING], settle=SETTLE_SECONDS)
     live_after_done = read_live(watcher, case)
 
-    failed_lines = lines_of(failed)
+    failed_lines = raw_lines(failed)
     assert case.backup_failure in failed_lines, failed
     assert failed_lines[failed_lines.index(case.backup_failure) + 1:][:2] == NOT_SAVED_LINES, failed
     assert case.release_marker not in failed, failed
-    assert case.shown_prefix + case.new_text in lines_of(shown), shown
+    assert case.shown_prefix + case.new_text in raw_lines(shown), shown
     assert bytes_after_failure == booted_bytes
     assert case.live_prefix + case.old_text in live_after_failure, live_after_failure
-    assert case.release_marker in lines_of(done), done
+    assert case.release_marker in raw_lines(done), done
     assert NOT_SAVED_LINES[0] not in done, done
     assert case.live_prefix + case.new_text in live_after_done, live_after_done
 
@@ -264,16 +252,16 @@ def test_save_rewrites_the_record_and_keeps_the_old_file_as_the_backup(server, c
 
     open_editor(implementor, case)
     edit_text_field(implementor, case)
-    saved = reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER])
+    saved = reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
     # The game runs one line at a time, so once the listing answers, /save has finished writing.
-    synced = reply_to(implementor, case.list_line, [case.prompt])
-    released = reply_to(implementor, "/free", [case.release_marker])
+    synced = reply_to(implementor, case.list_line, [case.prompt], settle=SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [case.release_marker], settle=SETTLE_SECONDS)
     assert case.release_marker in released, released
 
     replies = saved + synced
     assert "could not" not in replies.lower(), replies
     if save_reply:
-        assert save_reply in lines_of(replies), replies
+        assert save_reply in raw_lines(replies), replies
     saved_record = record(file_text(server.lib_dir / case.file_relative), vnum)
     backup_file = server.lib_dir / case.backup_dir_relative / case.file_relative.name
     backup_record = record(file_text(backup_file), vnum)
@@ -302,12 +290,12 @@ def test_a_plain_add_of_a_record_already_in_the_file_saves_it(server, case: Edit
 
     open_editor(implementor, case)
     edit_text_field(implementor, case)
-    added = reply_to(implementor, "/add", [ADD_REPLIES[case], case.prompt])
-    reply_to(implementor, case.list_line, [case.prompt])
-    released = reply_to(implementor, "/free", [case.release_marker])
+    added = reply_to(implementor, "/add", [ADD_REPLIES[case], case.prompt], settle=SETTLE_SECONDS)
+    reply_to(implementor, case.list_line, [case.prompt], settle=SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [case.release_marker], settle=SETTLE_SECONDS)
     assert case.release_marker in released, released
 
-    assert ADD_REPLIES[case] in lines_of(added), added
+    assert ADD_REPLIES[case] in raw_lines(added), added
     saved_text = file_text(server.lib_dir / case.file_relative)
     assert f"{case.new_text}~" in record(saved_text, vnum), saved_text
     assert saved_text.count(f"{case.new_text}~") == 1, saved_text
@@ -323,9 +311,9 @@ def test_add_in_the_zone_editor_says_there_is_nothing_to_add_to(server) -> None:
     booted_bytes = zone_file.read_bytes()
 
     open_editor(implementor, ZONE_CASE)
-    added = reply_to(implementor, "/add", [ZONE_CASE.prompt])
-    released = reply_to(implementor, "/free", [ZONE_CASE.release_marker])
+    added = reply_to(implementor, "/add", [ZONE_CASE.prompt], settle=SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [ZONE_CASE.release_marker], settle=SETTLE_SECONDS)
     assert ZONE_CASE.release_marker in released, released
 
-    assert "A zone file holds one zone, so there is nothing to add it to." in lines_of(added), added
+    assert "A zone file holds one zone, so there is nothing to add it to." in raw_lines(added), added
     assert zone_file.read_bytes() == booted_bytes

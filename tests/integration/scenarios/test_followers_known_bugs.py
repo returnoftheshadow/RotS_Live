@@ -8,7 +8,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import lines_after
 from rots_harness.world_resets import MobReset
 from test_followers import (
     ANY_ACK_MARKER,
@@ -82,12 +84,6 @@ def load_object(implementor: GameSession, vnum: int, short_description: str) -> 
     """Loads an object into the implementor's inventory and asserts the reply names it."""
     created = implementor.command(f"load obj {vnum}")
     assert created.contains(f"You create {short_description}."), created.text
-
-
-def contents_lines(text: str, header: str) -> list:
-    """The lines `look in` lists after header, up to the prompt."""
-    after_header = text.split(header, 1)[1]
-    return [line.strip() for line in after_header.splitlines()[1:] if line.strip() and not line.rstrip().endswith(">")]
 
 
 @pytest.mark.followers
@@ -171,19 +167,18 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     given = implementor.command(f"give bag {CARRIER.name.lower()}")
     assert given.contains(f"You give a leather bag to {CARRIER.name}."), given.text
 
-    carrier.send_line("east")
-    died = carrier.expect([NEW_BODY_MARKER]) + carrier.drain(SETTLE_SECONDS)
+    died = reply_to(carrier, "east", [NEW_BODY_MARKER])
     assert PIT_ROOM_NAME in died, died
     assert implementor.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
 
     corpse = implementor.command("look in corpse").text
-    corpse_contents = contents_lines(corpse, CORPSE_CONTENTS_HEADER)
+    corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
     assert "a leather bag" in corpse_contents, corpse
     assert "a leather cap" not in corpse_contents, corpse
     taken = implementor.command("get bag corpse")
     assert taken.contains("You get a leather bag from"), taken.text
     bag = implementor.command("look in bag").text
-    assert contents_lines(bag, BAG_CONTENTS_HEADER) == ["a leather cap"], bag
+    assert lines_after(bag, BAG_CONTENTS_HEADER) == ["a leather cap"], bag
 
 
 @pytest.mark.followers

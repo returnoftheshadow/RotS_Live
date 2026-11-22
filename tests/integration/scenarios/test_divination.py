@@ -6,7 +6,9 @@ from __future__ import annotations
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import stripped_lines
 from rots_harness.world_resets import MobReset, ObjectReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.divination]
@@ -85,23 +87,15 @@ NO_ENERGY = "You can't summon enough energy to cast the spell."
 UNKNOWN_SPELL = "You don't know this spell."
 # The last line of every report: the object list, whatever it holds.
 OBJECTS_HEADER = "Objects in the room:"
-# Seconds to wait for a cast's outcome, and to keep reading after it.
+# Seconds to wait for a cast's outcome.
 CAST_TIMEOUT = 15.0
-SETTLE_SECONDS = 1.0
-
-
-def stripped_lines(text: str) -> list:
-    """The text's lines, stripped, blank ones dropped."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def divine(seer: GameSession) -> list:
     """Casts divination, repeating it after a lost concentration; returns the report's lines from
     its first line on."""
     while True:
-        seer.send_line("cast 'divination'")
-        reply = seer.expect([OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL], timeout=CAST_TIMEOUT)
-        reply += seer.drain(SETTLE_SECONDS)
+        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL], timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION in reply:
             continue
         lines = stripped_lines(reply)

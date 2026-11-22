@@ -11,6 +11,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
 from test_practice import GO_AWAY_SPEECH, PRACTICED_MARKER, PUPIL, STARTING_SESSIONS, give_sessions
@@ -87,14 +88,11 @@ CHOSEN_LANGUAGE_FORMAT = "You will now use {}."
 SPOKEN_LANGUAGE_PATTERN = re.compile(r"You are using ([a-z ]+)\.")
 # The scarred trainer's own reject message, the URUK WARRIOR row's reject_message (SPECIAL(guild)).
 TRAINER_REJECT_MARKER = f"{TRAINER_LINE_START} snarls 'Get out!'"
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def stat_player(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player` of the character, read to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect(["VUL:"]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {name.lower()}", ["VUL:"])
 
 
 def plain_sessions(pupil: GameSession) -> int:
@@ -122,10 +120,7 @@ def spoken_language(pupil: GameSession) -> str:
 
 def practice_once(pupil: GameSession, skill: str) -> str:
     """Sends `practice <skill>` at the traveller and returns everything the pupil read."""
-    pupil.send_line(f"practice {skill}")
-    return pupil.expect([PRACTICED_MARKER, GO_AWAY_SPEECH, TRAINER_REJECT_MARKER]) + pupil.drain(
-        SETTLE_SECONDS
-    )
+    return reply_to(pupil, f"practice {skill}", [PRACTICED_MARKER, GO_AWAY_SPEECH, TRAINER_REJECT_MARKER])
 
 
 @pytest.mark.practice_sessions

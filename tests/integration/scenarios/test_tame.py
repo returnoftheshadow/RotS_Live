@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.tame]
@@ -182,8 +183,7 @@ def reset_boar_zone(implementor: GameSession) -> None:
 
 def stat_mob(implementor: GameSession, keyword: str) -> str:
     """The implementor's whole `stat mob <keyword>` reply, whose lines can end in `]`."""
-    implementor.send_line(f"stat mob {keyword}")
-    return implementor.expect([STAT_LAST_LINE_MARKER, NO_SUCH_MOB_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat mob {keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_MOB_MARKER])
 
 
 def affect_bits(stat_text: str) -> list:
@@ -207,8 +207,7 @@ def goto(immortal: GameSession, room: int) -> None:
 
 def ranger_level(implementor: GameSession, character: Character) -> int:
     """The character's ranger level from the implementor's `stat player`."""
-    implementor.send_line(f"stat player {character.name.lower()}")
-    stat_text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    stat_text = reply_to(implementor, f"stat player {character.name.lower()}", [STAT_LAST_LINE_MARKER])
     match = RANGER_LEVEL_PATTERN.search(stat_text)
     assert match is not None, stat_text
     return int(match.group(1))
@@ -242,8 +241,7 @@ def tame_boar(tamer: GameSession) -> str:
     attempt is repeated after FAILED_TAME_MARKER, at most MAX_TAME_ATTEMPTS times.
     """
     for _attempt in range(MAX_TAME_ATTEMPTS):
-        tamer.send_line(f"tame {BOAR_KEYWORD}")
-        reply = tamer.expect(TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT) + tamer.drain(SETTLE_SECONDS)
+        reply = reply_to(tamer, f"tame {BOAR_KEYWORD}", TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT)
         if FAILED_TAME_MARKER not in reply:
             assert TAMED_MARKER in reply, reply
             return reply
@@ -261,9 +259,8 @@ def tame_and_walk_to_hub(implementor: GameSession, tamer: GameSession) -> None:
 
 def whistle(tamer: GameSession) -> str:
     """Whistles and returns what the whistler read once the delay ended."""
-    tamer.send_line("whistle")
     outcomes = [WHISTLED_MARKER, WEAK_WHISTLE_MARKER, SHADOW_WHISTLE_MARKER]
-    return tamer.expect(outcomes, timeout=WHISTLE_TIMEOUT) + tamer.drain(SETTLE_SECONDS)
+    return reply_to(tamer, "whistle", outcomes, timeout=WHISTLE_TIMEOUT)
 
 
 def set_tame_on_hardy_orc(implementor: GameSession, tamer: GameSession) -> None:
@@ -276,8 +273,7 @@ def set_tame_on_hardy_orc(implementor: GameSession, tamer: GameSession) -> None:
     """
     goto(implementor, ROOM_WHISTLE_HUB)
     load_mob(implementor, HARDY_ORC_VNUM)
-    tamer.send_line("order boar kill target")
-    ordered = tamer.expect([BOAR_ATTACKS_HARDY_ORC_MARKER, *ORDER_REFUSAL_MARKERS]) + tamer.drain(SETTLE_SECONDS)
+    ordered = reply_to(tamer, "order boar kill target", [BOAR_ATTACKS_HARDY_ORC_MARKER, *ORDER_REFUSAL_MARKERS])
     assert BOAR_ATTACKS_HARDY_ORC_MARKER in ordered, ordered
     fighting = stat_mob(implementor, BOAR_KEYWORD)
     assert "Pos: Fighting, Fighting: a hardy target orc" in fighting, fighting
@@ -372,8 +368,7 @@ def test_tame_refuses_a_target_it_cannot_tame_before_any_roll(server, mob_vnums,
     for vnum in mob_vnums:
         load_mob(implementor, vnum)
     if setup_command is not None:
-        implementor.send_line(setup_command)
-        setup_text = implementor.expect([setup_reply, "No-one by that name here..."]) + implementor.drain(SETTLE_SECONDS)
+        setup_text = reply_to(implementor, setup_command, [setup_reply, "No-one by that name here..."])
         assert setup_reply in setup_text, setup_text
 
     check_tame_inputs(implementor, tamer, TAMER_AT_GATE)
@@ -387,8 +382,7 @@ def test_tame_refuses_a_target_it_cannot_tame_before_any_roll(server, mob_vnums,
     #            = 13 - 14 - 0 = -1, below 0: refused. A boar (level 1) leaves 12.
     assert int(30 / 3 + 100 / 30) - 14 - 0 == -1
 
-    tamer.send_line(f"tame {target}")
-    reply = tamer.expect(TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT) + tamer.drain(SETTLE_SECONDS)
+    reply = reply_to(tamer, f"tame {target}", TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT)
     assert refusal in reply, reply
 
 
@@ -415,8 +409,7 @@ def test_tame_refuses_a_ranger_who_has_not_learned_it(server) -> None:
     #            = 10 - 1 - 0 = 9, not below 0: the knowledge check is reached.
     assert int(30 / 3 + 0 / 30) - 1 - 0 == 9
 
-    novice.send_line(f"tame {BOAR_KEYWORD}")
-    reply = novice.expect(TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT) + novice.drain(SETTLE_SECONDS)
+    reply = reply_to(novice, f"tame {BOAR_KEYWORD}", TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT)
     assert UNSKILLED_MARKER in reply, reply
 
 
@@ -450,8 +443,7 @@ def test_a_tames_level_counts_against_the_rangers_next_tame(server) -> None:
     #            = 13 - 12 - 2 = -1, below 0: refused. Without the boar: 13 - 12 - 0 = 1.
     assert int(30 / 3 + 100 / 30) - 12 - max(2, 1) == -1
 
-    tamer.send_line("tame wolf")
-    reply = tamer.expect(TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT) + tamer.drain(SETTLE_SECONDS)
+    reply = reply_to(tamer, "tame wolf", TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT)
     assert TOO_POWERFUL_MARKER in reply, reply
 
 
@@ -602,8 +594,7 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     assert given.contains(f"You give {PEBBLE[2]} to {TAMER.name}."), given.text
     load_mob(implementor, INNKEEPER_VNUM)
 
-    tamer.send_line("rent")
-    rented = tamer.expect([CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT]) + tamer.drain(SETTLE_SECONDS)
+    rented = reply_to(tamer, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT])
     assert RENTED_MARKER in rented, rented
     assert CHARACTER_MENU_PROMPT in rented, rented
     tamer.close()

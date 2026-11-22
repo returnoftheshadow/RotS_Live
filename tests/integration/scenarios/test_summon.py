@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.summon]
@@ -146,8 +147,7 @@ def zone_map_square(zone_number: int) -> tuple:
 
 def save_inputs(implementor: GameSession, name: str) -> tuple:
     """The mage level, current intelligence and spell penetration stat shows for a character."""
-    implementor.send_line(f"stat player {name.lower()}")
-    text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"stat player {name.lower()}", [STAT_LAST_LINE_MARKER])
     mage_level = MAGE_LEVEL_PATTERN.search(text)
     intelligence = CURRENT_INTELLIGENCE_PATTERN.search(text)
     spell_pen = SPELL_PEN_PATTERN.search(text)
@@ -173,8 +173,7 @@ def cast_summon(caster: GameSession, target_name: str) -> str:
         ARRIVAL_MARKER_FORMAT.format(target_name),
     ]
     while True:
-        caster.send_line(f"cast 'summon' {target_name.lower()}")
-        reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+        reply = reply_to(caster, f"cast 'summon' {target_name.lower()}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
             return reply
 

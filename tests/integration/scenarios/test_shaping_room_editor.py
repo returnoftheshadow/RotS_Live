@@ -7,7 +7,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_room_editor]
 
@@ -76,30 +78,16 @@ MORTAL_IN_DARK_CELL = mortal_in(world.ROOM_DARK_CELL)
 MORTAL_IN_ROOM = mortal_in(ROOM_VNUM)
 
 
-def lines_of(text: str) -> list:
-    """The text's lines without the carriage returns the game sends with each line end."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def editor_step(implementor: GameSession, line: str, outcomes: list) -> str:
-    """Sends one editor line and returns what came back, up to and just after the first outcome.
-
-    Editor prompts end in ':' or ']' mid-field, so command() cannot be used inside the editor.
-    """
-    implementor.send_line(line)
-    return implementor.expect(outcomes) + implementor.drain(SETTLE_SECONDS)
-
-
 def open_room_editor(implementor: GameSession, room_vnum: int = ROOM_VNUM) -> None:
     """Starts shaping a room, the implementor's unless another is named."""
     marker = f"loading room #{room_vnum}"
-    loaded = editor_step(implementor, f"shape room {room_vnum}", [marker, *ROOM_LOAD_FAILURES])
+    loaded = reply_to(implementor, f"shape room {room_vnum}", [marker, *ROOM_LOAD_FAILURES], settle=SETTLE_SECONDS)
     assert marker in loaded, loaded
 
 
 def close_room_editor(implementor: GameSession) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
-    released = editor_step(implementor, "/free", [ROOM_RELEASED_MARKER])
+    released = reply_to(implementor, "/free", [ROOM_RELEASED_MARKER], settle=SETTLE_SECONDS)
     assert ROOM_RELEASED_MARKER in released, released
 
 
@@ -113,9 +101,8 @@ def stat_room_affections(implementor: GameSession) -> list:
 
     stat room has lines ending in ']', so it is read with send_line, expect and drain.
     """
-    implementor.send_line("stat room")
-    text = implementor.expect(["Affections:"]) + implementor.drain(SETTLE_SECONDS)
-    stat_lines = lines_of(text)
+    text = reply_to(implementor, "stat room", ["Affections:"], settle=SETTLE_SECONDS)
+    stat_lines = raw_lines(text)
     heading = next(index for index, line in enumerate(stat_lines) if line.startswith("Affections:"))
     return stat_lines[heading:]
 
@@ -123,18 +110,18 @@ def stat_room_affections(implementor: GameSession) -> list:
 def add_blink_affection(implementor: GameSession) -> None:
     """Adds an affection in the editor, sets it to blink at level 30, and checks the editor's
     list shows it."""
-    added = editor_step(implementor, "/19", [AFFECTION_ADDED, ROOM_PROMPT])
+    added = reply_to(implementor, "/19", [AFFECTION_ADDED, ROOM_PROMPT], settle=SETTLE_SECONDS)
     assert AFFECTION_ADDED in added, added
-    prompt = editor_step(implementor, "/18", [NEW_AFFECTION_VALUES, "Current:", NO_AFFECTIONS_FOUND])
-    assert NEW_AFFECTION_VALUES in lines_of(prompt), prompt
+    prompt = reply_to(implementor, "/18", [NEW_AFFECTION_VALUES, "Current:", NO_AFFECTIONS_FOUND], settle=SETTLE_SECONDS)
+    assert NEW_AFFECTION_VALUES in raw_lines(prompt), prompt
     implementor.send_line(AFFECTION_ANSWER)
-    listed = editor_step(implementor, "/50", ["(18) "])
-    assert AFFECTION_LISTED in lines_of(listed), listed
+    listed = reply_to(implementor, "/50", ["(18) "], settle=SETTLE_SECONDS)
+    assert AFFECTION_LISTED in raw_lines(listed), listed
 
 
 def implement_room(implementor: GameSession) -> None:
     """Runs /implement and checks it reports the room implemented."""
-    implemented = editor_step(implementor, "/implement", [ROOM_IMPLEMENTED, "You may not do that in this zone.", "You have nothing to implement"])
+    implemented = reply_to(implementor, "/implement", [ROOM_IMPLEMENTED, "You may not do that in this zone.", "You have nothing to implement"], settle=SETTLE_SECONDS)
     assert ROOM_IMPLEMENTED in implemented, implemented
 
 
@@ -169,13 +156,13 @@ def test_a_room_affection_removed_in_the_editor_leaves_the_room_on_implement(ser
     implement_room(implementor)
     implemented_affections = stat_room_affections(implementor)
     assert implemented_affections[1].startswith(STAT_AFFECTION_LINE_START), implemented_affections
-    removed = editor_step(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST])
-    removed_again = editor_step(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST])
+    removed = reply_to(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST], settle=SETTLE_SECONDS)
+    removed_again = reply_to(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST], settle=SETTLE_SECONDS)
     implement_room(implementor)
     close_room_editor(implementor)
 
-    assert AFFECTION_REMOVED in lines_of(removed), removed
-    assert NO_AFFECTIONS_EXIST in lines_of(removed_again), removed_again
+    assert AFFECTION_REMOVED in raw_lines(removed), removed
+    assert NO_AFFECTIONS_EXIST in raw_lines(removed_again), removed_again
     affections = stat_room_affections(implementor)
     assert affections[0] == STAT_NO_AFFECTIONS, affections
 
@@ -188,14 +175,14 @@ def test_a_flag_answer_stops_at_the_first_word_that_is_not_a_flag(server) -> Non
     implementor = server.login(IMPLEMENTOR.name)
 
     open_room_editor(implementor)
-    prompt = editor_step(implementor, "/3", [ROOM_FLAGS_PROMPT, ROOM_PROMPT])
-    assert ROOM_FLAGS_PROMPT in lines_of(prompt), prompt
-    answered = editor_step(implementor, MULTI_FLAG_ANSWER, [MULTI_FLAG_STOPPED, ROOM_PROMPT])
-    listed = editor_step(implementor, "/50", ["(3) room flag"])
+    prompt = reply_to(implementor, "/3", [ROOM_FLAGS_PROMPT, ROOM_PROMPT], settle=SETTLE_SECONDS)
+    assert ROOM_FLAGS_PROMPT in raw_lines(prompt), prompt
+    answered = reply_to(implementor, MULTI_FLAG_ANSWER, [MULTI_FLAG_STOPPED, ROOM_PROMPT], settle=SETTLE_SECONDS)
+    listed = reply_to(implementor, "/50", ["(3) room flag"], settle=SETTLE_SECONDS)
     close_room_editor(implementor)
 
-    assert MULTI_FLAG_STOPPED in lines_of(answered), answered
-    assert SHADOWY_FLAGS_LISTED in lines_of(listed), listed
+    assert MULTI_FLAG_STOPPED in raw_lines(answered), answered
+    assert SHADOWY_FLAGS_LISTED in raw_lines(listed), listed
 
 
 @pytest.mark.schedule("affect-hours")
@@ -216,12 +203,11 @@ def test_implementing_a_dark_room_unchanged_leaves_it_dark(server) -> None:
     close_room_editor(implementor)
     implemented_look = look(mortal)
     implementor.command(f"goto {world.ROOM_DARK_CELL}")
-    implementor.send_line("stat room")
-    stat_text = implementor.expect(["Affections:"]) + implementor.drain(SETTLE_SECONDS)
+    stat_text = reply_to(implementor, "stat room", ["Affections:"], settle=SETTLE_SECONDS)
 
     assert booted_look == PITCH_BLACK
     assert implemented_look == PITCH_BLACK
-    assert DARK_FLAGS_LINE in lines_of(stat_text), stat_text
+    assert DARK_FLAGS_LINE in raw_lines(stat_text), stat_text
 
 
 @pytest.mark.schedule("affect-hours")
@@ -234,15 +220,15 @@ def test_an_implemented_affections_room_flags_take_effect_and_leave_with_it(serv
     lit_look = look(mortal)
 
     open_room_editor(implementor)
-    added = editor_step(implementor, "/19", [AFFECTION_ADDED, ROOM_PROMPT])
+    added = reply_to(implementor, "/19", [AFFECTION_ADDED, ROOM_PROMPT], settle=SETTLE_SECONDS)
     assert AFFECTION_ADDED in added, added
-    prompt = editor_step(implementor, "/18", [NEW_AFFECTION_VALUES, "Current:", NO_AFFECTIONS_FOUND])
-    assert NEW_AFFECTION_VALUES in lines_of(prompt), prompt
-    editor_step(implementor, DARKENING_AFFECTION_ANSWER, [ROOM_PROMPT])
+    prompt = reply_to(implementor, "/18", [NEW_AFFECTION_VALUES, "Current:", NO_AFFECTIONS_FOUND], settle=SETTLE_SECONDS)
+    assert NEW_AFFECTION_VALUES in raw_lines(prompt), prompt
+    reply_to(implementor, DARKENING_AFFECTION_ANSWER, [ROOM_PROMPT], settle=SETTLE_SECONDS)
     implement_room(implementor)
     darkened_look = look(mortal)
-    removed = editor_step(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST])
-    assert AFFECTION_REMOVED in lines_of(removed), removed
+    removed = reply_to(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST], settle=SETTLE_SECONDS)
+    assert AFFECTION_REMOVED in raw_lines(removed), removed
     implement_room(implementor)
     close_room_editor(implementor)
     relit_look = look(mortal)

@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
 
@@ -212,8 +213,7 @@ def walk_east(leader: GameSession, follower: GameSession) -> tuple:
 
 def walk_leader_east(leader: GameSession) -> str:
     """Walks the leader east and returns what it read: its new room first, then the rest of the pass."""
-    leader.send_line("east")
-    return leader.expect([DESTINATION_ROOM_NAME]) + leader.drain(SETTLE_SECONDS)
+    return reply_to(leader, "east", [DESTINATION_ROOM_NAME])
 
 
 def gather_in_arena_centre(leader: GameSession, follower: GameSession) -> None:
@@ -250,8 +250,7 @@ def force(implementor: GameSession, keyword: str, command: str) -> str:
 
 def read_points(implementor: GameSession, keyword: str) -> tuple:
     """A mob's current and maximum hit points, stamina and moves, as `stat mob` shows them."""
-    implementor.send_line(f"stat mob {keyword}")
-    text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"stat mob {keyword}", [STAT_LAST_LINE_MARKER])
     points = POINTS_PATTERN.search(text)
     assert points is not None, f"no points line for {keyword}:\n{text}"
     return tuple(int(value) for value in points.groups())
@@ -440,8 +439,7 @@ def test_report_and_group_show_a_mob_with_no_stamina_or_moves(server) -> None:
     joined = member.expect(["You join the group of a stamina-less mob."])
     assert "You join the group of a stamina-less mob." in joined, joined
     member.drain(SETTLE_SECONDS)
-    member.send_line("group")
-    group = member.expect([HEAD_OF_GROUP_MARKER]) + member.drain(SETTLE_SECONDS)
+    group = reply_to(member, "group", [HEAD_OF_GROUP_MARKER])
     assert group.count(STAMINALESS_LEADER_LINE) == 1, group
     force(implementor, "zerostam", "report")
     grouped_report = member.expect(["group-says"]) + member.drain(SETTLE_SECONDS)
@@ -616,8 +614,7 @@ def test_a_rider_whose_mount_can_move_rides_east_and_its_follower_follows(server
     mount_the_cob(implementor, horseman, ROOM_STABLE_YARD)
     follower.drain(SETTLE_SECONDS)
 
-    horseman.send_line("east")
-    ridden = horseman.expect([PADDOCK_ROOM_NAME, *RIDING_REFUSAL_MARKERS]) + horseman.drain(SETTLE_SECONDS)
+    ridden = reply_to(horseman, "east", [PADDOCK_ROOM_NAME, *RIDING_REFUSAL_MARKERS])
     assert PADDOCK_ROOM_NAME in ridden, ridden
     # The follower reads the horseman leave, then follows in the same pass (do_move runs each
     # follower's step before it returns), so the drain collects whatever the follower did.
@@ -660,8 +657,7 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     mount_the_cob(implementor, horseman, ROOM_PADDOCK)
     assert implementor.command(f"goto {ROOM_SINKHOLE}").room_name() == SINKHOLE_ROOM_NAME
 
-    horseman.send_line("east")
-    died = horseman.expect([NEW_BODY_MARKER, *RIDING_REFUSAL_MARKERS]) + horseman.drain(SETTLE_SECONDS)
+    died = reply_to(horseman, "east", [NEW_BODY_MARKER, *RIDING_REFUSAL_MARKERS])
     assert died.count(UNSEATED_BY_DEATH_MARKER) == 1, died
     assert died.count(NEW_BODY_MARKER) == 1, died
     assert died.index(UNSEATED_BY_DEATH_MARKER) < died.index(NEW_BODY_MARKER), died
@@ -682,8 +678,7 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     assert looked.count("corpse") == 2, looked
     cob = implementor.command("where cob").text
     assert "Couldn't find any such thing." in cob, cob
-    implementor.send_line(f"stat player {SINKHOLE_HORSEMAN.name.lower()}")
-    stat_text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    stat_text = reply_to(implementor, f"stat player {SINKHOLE_HORSEMAN.name.lower()}", [STAT_LAST_LINE_MARKER])
     assert re.search(r"HP :\[1/", stat_text), stat_text
 
 
@@ -729,8 +724,7 @@ def test_a_follower_who_walks_into_a_death_room_reads_that_it_stops_following(se
     assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
     leader.drain(SETTLE_SECONDS)
 
-    stray.send_line("east")
-    died = stray.expect([NEW_BODY_MARKER]) + stray.drain(SETTLE_SECONDS)
+    died = reply_to(stray, "east", [NEW_BODY_MARKER])
     stopped = STOP_FOLLOWING_FORMAT.format(LEADER.name)
     assert PIT_ROOM_NAME in died and died.count(stopped) == 1, died
     assert died.index(PIT_ROOM_NAME) < died.index(stopped) < died.index(NEW_BODY_MARKER), died

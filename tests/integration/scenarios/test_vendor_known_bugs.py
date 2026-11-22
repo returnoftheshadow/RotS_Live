@@ -7,7 +7,8 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession, Transcript
+from rots_harness.session import GameSession
+from rots_harness.text_lines import reply_text
 from test_vendor import BUYER, CAP_PRICE_BEADS, WANDERER
 
 pytestmark = [pytest.mark.scenario, pytest.mark.vendor]
@@ -31,11 +32,6 @@ TRADE_LINES = (
     f"  {CAP_PRICE_BEADS} x {CURRENCY_NAME}",
     f"You now have {CAP_NAME}.",
 )
-
-
-def reply_text(reply: Transcript) -> str:
-    """The reply with the carriage returns of the game's line ends removed."""
-    return reply.text.replace("\r", "")
 
 
 def give_object(implementor: GameSession, vnum: int, keyword: str, short_name: str, recipient: Character) -> None:

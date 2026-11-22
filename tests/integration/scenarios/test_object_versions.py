@@ -14,6 +14,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_versions]
@@ -317,8 +318,7 @@ def cast_enchant_weapon(caster: GameSession) -> str:
     """
     outcomes = [CAST_DONE_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, NO_TARGET_MARKER, UNKNOWN_SPELL_MARKER]
     while True:
-        caster.send_line(f"cast 'enchant weapon' {SWORD_KEYWORD}")
-        reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+        reply = reply_to(caster, f"cast 'enchant weapon' {SWORD_KEYWORD}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
             return reply
 
@@ -329,8 +329,7 @@ def stat_object(implementor: GameSession, keyword: str) -> list:
     stat obj looks in the implementor's inventory, then its room, then the whole world
     (get_obj_vis, handler.cpp), so each caller asserts the location line of the copy it meant.
     """
-    implementor.send_line(f"stat obj {keyword}")
-    text = implementor.expect([STAT_LAST_LINE_MARKER, NO_SUCH_OBJECT_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"stat obj {keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_OBJECT_MARKER])
     assert NO_SUCH_OBJECT_MARKER not in text, text
     return [line.strip() for line in text.splitlines()]
 
@@ -349,8 +348,7 @@ def stat_sword(implementor: GameSession, holder: Character) -> list:
 
 def stat_player(implementor: GameSession, name: str) -> str:
     """The implementor's stat player on the named character."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect([STAT_PLAYER_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {name.lower()}", [STAT_PLAYER_LAST_LINE_MARKER])
 
 
 def player_idnum(implementor: GameSession, name: str) -> int:
@@ -371,8 +369,7 @@ def strength_base_and_constant(implementor: GameSession, name: str) -> tuple:
 
 def editor_step(implementor: GameSession, line: str, expected_marker: str, other_outcomes: list) -> str:
     """Sends one line to the object editor and returns what it read, asserting the expected reply."""
-    implementor.send_line(line)
-    reply = implementor.expect([expected_marker, *other_outcomes]) + implementor.drain(SETTLE_SECONDS)
+    reply = reply_to(implementor, line, [expected_marker, *other_outcomes])
     assert expected_marker in reply, f"{line!r}:\n{reply}"
     return reply
 
@@ -436,9 +433,8 @@ def rent_and_log_in_again(server, mortal: GameSession, character: Character) -> 
 
 def ask_innkeeper(mortal: GameSession, command: str) -> str:
     """Sends rent or offer in the inn and returns everything the mortal read in answer."""
-    mortal.send_line(command)
     outcomes = [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT, CANNOT_SEE_RENTER_MARKER, NOT_HERE_MARKER, FIELD_RENT_DISABLED_MARKER]
-    return mortal.expect(outcomes) + mortal.drain(SETTLE_SECONDS)
+    return reply_to(mortal, command, outcomes)
 
 
 def log_text(log_path: Path) -> str:
@@ -843,14 +839,12 @@ def test_a_broken_key_stays_broken_across_a_refresh(server) -> None:
     give_new_object(implementor, KEY_VNUM, KEY_KEYWORD, KEY_SHORT_DESCRIPTION, OWNER)
     lock_outcomes = [NO_PROPER_KEY_MARKER, LOCKED_MARKER, ALREADY_LOCKED_MARKER, NOT_A_CONTAINER_MARKER]
 
-    owner.send_line(f"unlock {CHEST_KEYWORD}")
-    unlocked = owner.expect([KEY_BREAKS_MARKER, NO_PROPER_KEY_MARKER, NOT_LOCKED_MARKER, NOT_CLOSED_MARKER, NOT_A_CONTAINER_MARKER]) + owner.drain(SETTLE_SECONDS)
+    unlocked = reply_to(owner, f"unlock {CHEST_KEYWORD}", [KEY_BREAKS_MARKER, NO_PROPER_KEY_MARKER, NOT_LOCKED_MARKER, NOT_CLOSED_MARKER, NOT_A_CONTAINER_MARKER])
     assert UNLOCKED_MARKER in unlocked, unlocked
     assert KEY_BREAKS_MARKER in unlocked, unlocked
     observed = implementor.expect([KEY_BREAKS_OBSERVED_MARKER]) + implementor.drain(SETTLE_SECONDS)
     assert UNLOCK_OBSERVED_MARKER in observed, observed
-    owner.send_line(f"lock {CHEST_KEYWORD}")
-    refused = owner.expect(lock_outcomes) + owner.drain(SETTLE_SECONDS)
+    refused = reply_to(owner, f"lock {CHEST_KEYWORD}", lock_outcomes)
     assert NO_PROPER_KEY_MARKER in refused, refused
     broken_lines = stat_carried_object(implementor, KEY_KEYWORD, OWNER)
     assert BROKEN_KEY_FLAGS_LINE in broken_lines, broken_lines
@@ -862,8 +856,7 @@ def test_a_broken_key_stays_broken_across_a_refresh(server) -> None:
     refreshed_lines = stat_carried_object(implementor, KEY_KEYWORD, OWNER)
     assert REFRESHED_LINE in refreshed_lines, refreshed_lines
     assert BROKEN_KEY_FLAGS_LINE in refreshed_lines, refreshed_lines
-    owner.send_line(f"lock {CHEST_KEYWORD}")
-    refused_after = owner.expect(lock_outcomes) + owner.drain(SETTLE_SECONDS)
+    refused_after = reply_to(owner, f"lock {CHEST_KEYWORD}", lock_outcomes)
     assert NO_PROPER_KEY_MARKER in refused_after, refused_after
 
 
@@ -945,8 +938,7 @@ def test_a_refresh_keeps_what_is_left_in_a_drink_container(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
     give_new_object(implementor, WATERSKIN_VNUM, WATERSKIN_KEYWORD, WATERSKIN_SHORT_DESCRIPTION, OWNER)
-    owner.send_line(f"sip {WATERSKIN_KEYWORD}")
-    sipped = owner.expect([SIP_MARKER, TOO_DRUNK_MARKER, TOO_FULL_MARKER]) + owner.drain(SETTLE_SECONDS)
+    sipped = reply_to(owner, f"sip {WATERSKIN_KEYWORD}", [SIP_MARKER, TOO_DRUNK_MARKER, TOO_FULL_MARKER])
     assert SIP_MARKER in sipped, sipped
     sipped_lines = stat_carried_object(implementor, WATERSKIN_KEYWORD, OWNER)
     assert SIPPED_WATERSKIN_LINE in sipped_lines, sipped_lines

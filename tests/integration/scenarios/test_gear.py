@@ -15,7 +15,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import assert_in_order, lines_after
 from rots_harness.world_resets import ObjectReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.gear]
@@ -129,23 +131,10 @@ def hand_over(implementor: GameSession, receiver: Character, objects: tuple) -> 
         assert given.contains(GIVE_FORMAT.format(short_description, receiver.name)), given.text
 
 
-def assert_in_order(text: str, lines: list) -> None:
-    """Asserts each line appears exactly once in text, in the order given."""
-    position = -1
-    for line in lines:
-        assert text.count(line) == 1, f"expected {line!r} once:\n{text}"
-        found = text.index(line)
-        assert found > position, f"{line!r} out of order:\n{text}"
-        position = found
-
-
 def inventory_lines(session: GameSession) -> list:
     """The object lines of the session's inventory, in the order the game lists them."""
     listed = session.command("inventory").text
-    assert INVENTORY_HEADER in listed, listed
-    after_header_text = listed.split(INVENTORY_HEADER, 1)[1]
-    after_header = after_header_text.splitlines()
-    return [line.strip() for line in after_header if line.strip() and not line.rstrip().endswith(">")]
+    return lines_after(listed, INVENTORY_HEADER)
 
 
 def where_lines(implementor: GameSession, item: tuple) -> list:
@@ -320,8 +309,7 @@ def test_remove_belt_with_one_hand_free_drops_the_keyring_on_its_hook(server) ->
     assert carrier.command("wear keyring").contains(WEAR_BELT_HOOK_FORMAT.format(KEYRING[2]))
     hand_over(implementor, CARRIER, (COPPER_BEAD,) * 5)
 
-    implementor.send_line(f"stat player {CARRIER.name.lower()}")
-    stat_text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    stat_text = reply_to(implementor, f"stat player {CARRIER.name.lower()}", [STAT_LAST_LINE_MARKER])
     level_match = LEVEL_PATTERN.search(stat_text)
     dexterity_match = CURRENT_DEXTERITY_PATTERN.search(stat_text)
     carried_match = CARRIED_ITEMS_PATTERN.search(stat_text)

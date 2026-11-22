@@ -6,7 +6,9 @@ from __future__ import annotations
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import stripped_lines
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.herald]
@@ -46,11 +48,6 @@ ANNOUNCE_TIMEOUT = 8.0
 SETTLE_SECONDS = 1.0
 
 
-def stripped_lines(text: str) -> list:
-    """The text's lines, stripped, blank ones dropped."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
-
 def set_title(guest: GameSession) -> None:
     """Gives the guest the title the heralds announce."""
     titled = guest.command(f"set title {TITLE}").text
@@ -67,8 +64,7 @@ def test_a_herald_announces_a_newcomer_by_name_and_title_once(server) -> None:
     guest = server.login(GUEST.name)
     set_title(guest)
 
-    guest.send_line("north")
-    arrived = guest.expect([PROUD_SAYS], timeout=ANNOUNCE_TIMEOUT) + guest.drain(SETTLE_SECONDS)
+    arrived = reply_to(guest, "north", [PROUD_SAYS], timeout=ANNOUNCE_TIMEOUT)
     assert HERALDS_HALL_NAME in arrived, arrived
     assert PROUD_ANNOUNCEMENT in stripped_lines(arrived), arrived
 
@@ -91,6 +87,5 @@ def test_a_herald_shows_a_percent_d_in_his_text_as_written(server) -> None:
     guest = server.login(GUEST.name)
     set_title(guest)
 
-    guest.send_line("south")
-    arrived = guest.expect([ODD_SAYS], timeout=ANNOUNCE_TIMEOUT) + guest.drain(SETTLE_SECONDS)
+    arrived = reply_to(guest, "south", [ODD_SAYS], timeout=ANNOUNCE_TIMEOUT)
     assert ODD_ANNOUNCEMENT in stripped_lines(arrived), arrived

@@ -9,7 +9,9 @@ import re
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import raw_lines, stripped_lines
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.text_editor]
@@ -121,35 +123,16 @@ REPLY_TIMEOUT = 8.0
 SETTLE_SECONDS = 0.5
 
 
-def lines_of(text: str) -> list:
-    """The text's lines without the line ends the game sends."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def stripped_lines(text: str) -> list:
-    """The text's lines, stripped, blank ones dropped."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
-
-def reply_to(session: GameSession, line: str, outcomes: list) -> str:
-    """Sends a line and returns what came back, up to and just after the first outcome.
-
-    Inside the text editor the prompt is "] ", so command() cannot be used.
-    """
-    session.send_line(line)
-    return session.expect(outcomes, timeout=REPLY_TIMEOUT) + session.drain(SETTLE_SECONDS)
-
-
 def type_lines(session: GameSession, lines: list) -> None:
     """Types each line into the open editor, waiting for its prompt."""
     for line in lines:
-        reply_to(session, line, [EDITOR_PROMPT])
+        reply_to(session, line, [EDITOR_PROMPT], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
 
 
 def text_after(text: str, header: str) -> list:
     """The lines after the header line, up to the cursor mark or the first blank line after a
     line of text."""
-    all_lines = lines_of(text)
+    all_lines = raw_lines(text)
     assert header in all_lines, text
     following = []
     header_index = all_lines.index(header)
@@ -162,8 +145,7 @@ def text_after(text: str, header: str) -> list:
 
 def coins_of(implementor: GameSession, name: str) -> int:
     """The coins, in copper, the implementor's `stat player` shows the character carrying."""
-    implementor.send_line(f"stat player {name}")
-    reply = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    reply = reply_to(implementor, f"stat player {name}", [STAT_LAST_LINE_MARKER], settle=SETTLE_SECONDS)
     found = COINS_PATTERN.search(reply)
     assert found, reply
     return int(found.group(1))
@@ -178,10 +160,10 @@ def test_a_description_typed_in_the_editor_is_stored_and_read_as_typed(server) -
     writer = server.login(WRITER.name)
     reader = server.login(READER.name)
 
-    opened = reply_to(writer, "set description", [EDITOR_OPENED])
-    assert EDITOR_OPENED in lines_of(opened), opened
+    opened = reply_to(writer, "set description", [EDITOR_OPENED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
+    assert EDITOR_OPENED in raw_lines(opened), opened
     type_lines(writer, DESCRIPTION_LINES)
-    shown = reply_to(writer, "%r", [CURSOR_MARK])
+    shown = reply_to(writer, "%r", [CURSOR_MARK], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     assert text_after(shown, TEXT_SO_FAR) == DESCRIPTION_LINES, shown
     reader.drain(SETTLE_SECONDS)
     writer.send_line("%e")
@@ -203,17 +185,17 @@ def test_replace_in_the_editor_counts_and_shows_the_text(server) -> None:
     Nothing draws."""
     writer = server.login(WRITER.name)
 
-    reply_to(writer, "set description", [EDITOR_OPENED])
+    reply_to(writer, "set description", [EDITOR_OPENED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     type_lines(writer, DESCRIPTION_LINES)
-    replaced = reply_to(writer, f"%s{REPLACE_OLD}~{REPLACE_NEW}", [TEXT_IS, REPLACE_USAGE, NO_PATTERN])
-    unmatched = reply_to(writer, "%sviolet~purple", [TEXT_IS, REPLACE_USAGE, NO_PATTERN])
+    replaced = reply_to(writer, f"%s{REPLACE_OLD}~{REPLACE_NEW}", [TEXT_IS, REPLACE_USAGE, NO_PATTERN], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
+    unmatched = reply_to(writer, "%sviolet~purple", [TEXT_IS, REPLACE_USAGE, NO_PATTERN], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     writer.send_line("%q")
-    looked = reply_to(writer, "look", [POST_OFFICE_NAME, EDITOR_PROMPT])
+    looked = reply_to(writer, "look", [POST_OFFICE_NAME, EDITOR_PROMPT], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
 
     expected_text = [line.replace(REPLACE_OLD, REPLACE_NEW) for line in DESCRIPTION_LINES]
-    assert REPLACED_FORMAT.format(1, "s") in lines_of(replaced), replaced
+    assert REPLACED_FORMAT.format(1, "s") in raw_lines(replaced), replaced
     assert text_after(replaced, TEXT_IS)[:len(expected_text)] == expected_text, replaced
-    assert REPLACED_FORMAT.format(0, "") in lines_of(unmatched), unmatched
+    assert REPLACED_FORMAT.format(0, "") in raw_lines(unmatched), unmatched
     assert text_after(unmatched, TEXT_IS)[:len(expected_text)] == expected_text, unmatched
     assert POST_OFFICE_NAME in looked, looked
 
@@ -226,10 +208,10 @@ def test_replace_adds_no_blank_line_to_the_text(server) -> None:
     line at the cursor. Nothing draws."""
     writer = server.login(WRITER.name)
 
-    reply_to(writer, "set description", [EDITOR_OPENED])
+    reply_to(writer, "set description", [EDITOR_OPENED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     type_lines(writer, DESCRIPTION_LINES)
-    reply_to(writer, f"%s{REPLACE_OLD}~{REPLACE_NEW}", [TEXT_IS, REPLACE_USAGE, NO_PATTERN])
-    shown = reply_to(writer, "%r", [CURSOR_MARK])
+    reply_to(writer, f"%s{REPLACE_OLD}~{REPLACE_NEW}", [TEXT_IS, REPLACE_USAGE, NO_PATTERN], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
+    shown = reply_to(writer, "%r", [CURSOR_MARK], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     writer.send_line("%q")
 
     expected_text = [line.replace(REPLACE_OLD, REPLACE_NEW) for line in DESCRIPTION_LINES]
@@ -244,13 +226,13 @@ def test_replace_without_a_tilde_says_how_and_changes_nothing(server) -> None:
     empty replacement, deleting every match. Nothing draws."""
     writer = server.login(WRITER.name)
 
-    reply_to(writer, "set description", [EDITOR_OPENED])
+    reply_to(writer, "set description", [EDITOR_OPENED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     type_lines(writer, DESCRIPTION_LINES)
-    refused = reply_to(writer, f"%s{REPLACE_OLD}", [REPLACE_USAGE, TEXT_IS, NO_PATTERN])
-    shown = reply_to(writer, "%r", [CURSOR_MARK])
+    refused = reply_to(writer, f"%s{REPLACE_OLD}", [REPLACE_USAGE, TEXT_IS, NO_PATTERN], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
+    shown = reply_to(writer, "%r", [CURSOR_MARK], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     writer.send_line("%q")
 
-    assert REPLACE_USAGE in lines_of(refused), refused
+    assert REPLACE_USAGE in raw_lines(refused), refused
     assert text_after(shown, TEXT_SO_FAR) == DESCRIPTION_LINES, shown
 
 
@@ -266,11 +248,11 @@ def test_a_letter_is_paid_for_kept_and_handed_to_its_reader(server) -> None:
     reader = server.login(READER.name)
     assert coins_of(implementor, WRITER.name) == COINS_BEFORE_STAMP
 
-    opened = reply_to(writer, f"mail {READER.name.lower()}", [WRITE_NOW, NOT_REGISTERED])
+    opened = reply_to(writer, f"mail {READER.name.lower()}", [WRITE_NOW, NOT_REGISTERED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     assert STAMP_TAKEN in stripped_lines(opened), opened
     assert WRITE_NOW in stripped_lines(opened), opened
     type_lines(writer, LETTER_LINES)
-    sent = reply_to(writer, "%e", [MESSAGE_SENT])
+    sent = reply_to(writer, "%e", [MESSAGE_SENT], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     assert MESSAGE_SENT in stripped_lines(sent), sent
     assert coins_of(implementor, WRITER.name) == COINS_AFTER_STAMP
 
@@ -280,8 +262,7 @@ def test_a_letter_is_paid_for_kept_and_handed_to_its_reader(server) -> None:
     assert LETTER_GIVEN in stripped_lines(received), received
     carried = reader.command("inventory").text
     assert LETTER_SHORT in stripped_lines(carried), carried
-    reader.send_line("read letter")
-    letter = reader.expect([LETTER_LINES[-1]]) + reader.drain(SETTLE_SECONDS)
+    letter = reply_to(reader, "read letter", [LETTER_LINES[-1]], settle=SETTLE_SECONDS)
     letter_lines = stripped_lines(letter)
     start = letter_lines.index(WRITTEN_UPON) if WRITTEN_UPON in letter_lines else -1
     assert start >= 0, letter
@@ -306,8 +287,8 @@ def test_mail_to_a_name_nobody_has_is_refused_and_takes_no_stamp(server, recipie
     writer = server.login(WRITER.name)
     server.login(READER.name)
 
-    refused = reply_to(writer, f"mail {recipient}", [NOT_REGISTERED, WRITE_NOW])
-    looked = reply_to(writer, "look", [POST_OFFICE_NAME, EDITOR_PROMPT])
+    refused = reply_to(writer, f"mail {recipient}", [NOT_REGISTERED, WRITE_NOW], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
+    looked = reply_to(writer, "look", [POST_OFFICE_NAME, EDITOR_PROMPT], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
 
     assert NOT_REGISTERED in stripped_lines(refused), refused
     assert WRITE_NOW not in refused, refused
@@ -326,13 +307,13 @@ def test_a_letter_line_that_would_pass_4000_characters_is_refused(server) -> Non
     writer = server.login(WRITER.name)
     server.login(READER.name)
 
-    reply_to(writer, f"mail {READER.name.lower()}", [WRITE_NOW, NOT_REGISTERED])
+    reply_to(writer, f"mail {READER.name.lower()}", [WRITE_NOW, NOT_REGISTERED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     long_lines = [f"{index:02d}" + "x" * (LONG_LINE_LENGTH - 2) for index in range(LONG_LINES_THAT_FIT + 1)]
-    fitting_replies = [reply_to(writer, line, [EDITOR_PROMPT, LIMIT_REFUSED]) for line in long_lines[:-1]]
-    refused = reply_to(writer, long_lines[-1], [LIMIT_REFUSED, EDITOR_PROMPT])
-    shown = reply_to(writer, "%r", [CURSOR_MARK])
+    fitting_replies = [reply_to(writer, line, [EDITOR_PROMPT, LIMIT_REFUSED], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT) for line in long_lines[:-1]]
+    refused = reply_to(writer, long_lines[-1], [LIMIT_REFUSED, EDITOR_PROMPT], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
+    shown = reply_to(writer, "%r", [CURSOR_MARK], settle=SETTLE_SECONDS, timeout=REPLY_TIMEOUT)
     writer.send_line("%q")
 
     assert all(LIMIT_REFUSED not in reply for reply in fitting_replies), fitting_replies
-    assert LIMIT_REFUSED in lines_of(refused), refused
+    assert LIMIT_REFUSED in raw_lines(refused), refused
     assert text_after(shown, TEXT_SO_FAR) == long_lines[:-1], shown

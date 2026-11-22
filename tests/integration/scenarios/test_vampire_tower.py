@@ -8,6 +8,7 @@ import time
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
 
@@ -98,30 +99,21 @@ def goto_the_door(implementor: GameSession) -> None:
     assert DOOR_BLURS not in reply.text, reply.text
 
 
-def editor_step(implementor: GameSession, line: str, outcomes: list) -> str:
-    """Sends one room-editor line and returns what came back, up to and just after the first outcome.
-
-    Editor prompts end in ':' or ']' mid-field, so command() cannot be used inside the editor.
-    """
-    implementor.send_line(line)
-    return implementor.expect(outcomes) + implementor.drain(SETTLE_SECONDS)
-
-
 def remove_the_south_exit_outside_the_door(implementor: GameSession) -> None:
     """Removes room 15345's south exit, the door's outer side, in the live world with the room editor.
 
     /implement replaces the room's exits in the world with the editor's copy (implement_room,
     shaperom.cpp), freeing the one the editor removed; the room's file is left as it was.
     """
-    loaded = editor_step(implementor, f"shape room {ROOM_BEFORE_THE_DOOR}", [ROOM_LOADED, *ROOM_LOAD_FAILURES])
+    loaded = reply_to(implementor, f"shape room {ROOM_BEFORE_THE_DOOR}", [ROOM_LOADED, *ROOM_LOAD_FAILURES])
     assert ROOM_LOADED in loaded, loaded
-    asked = editor_step(implementor, "/7", [WHICH_EXIT_TO_REMOVE])
+    asked = reply_to(implementor, "/7", [WHICH_EXIT_TO_REMOVE])
     assert WHICH_EXIT_TO_REMOVE in asked, asked
-    removed = editor_step(implementor, "s", [SOUTH_EXIT_REMOVED, NO_SUCH_EXIT])
+    removed = reply_to(implementor, "s", [SOUTH_EXIT_REMOVED, NO_SUCH_EXIT])
     assert SOUTH_EXIT_REMOVED in removed, removed
-    implemented = editor_step(implementor, "/implement", [ROOM_IMPLEMENTED, *IMPLEMENT_REFUSALS])
+    implemented = reply_to(implementor, "/implement", [ROOM_IMPLEMENTED, *IMPLEMENT_REFUSALS])
     assert ROOM_IMPLEMENTED in implemented, implemented
-    released = editor_step(implementor, "/free", [ROOM_RELEASED])
+    released = reply_to(implementor, "/free", [ROOM_RELEASED])
     assert ROOM_RELEASED in released, released
 
 

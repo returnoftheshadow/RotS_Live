@@ -20,6 +20,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.skins]
@@ -47,8 +48,7 @@ STEWARD = 1136
 def vstat(implementor: GameSession, vnum: int) -> str:
     """The implementor's vstat of an object prototype; it has lines ending in ']', so read it to
     its last line (do_stat_object, act_wiz.cpp)."""
-    implementor.send_line(f"vstat obj {vnum}")
-    return implementor.expect(["Affections:"]) + implementor.drain(0.5)
+    return reply_to(implementor, f"vstat obj {vnum}", ["Affections:"], settle=0.5)
 
 
 def wait_for_log_line(server, line: str, timeout: float = 8.0) -> str:
@@ -137,8 +137,7 @@ def test_a_script_restyles_a_sword_in_a_carried_bag_and_logs_a_refused_line(serv
     given = implementor.command("give bag testowner")
     assert given.contains("You give"), given.text
 
-    owner.send_line("say hello")
-    heard = owner.expect(["Your sword is engraved."]) + owner.drain(0.5)
+    heard = reply_to(owner, "say hello", ["Your sword is engraved."], settle=0.5)
     assert "Your sword is engraved." in heard, heard
     in_bag = owner.command("look in bag")
     assert "an engraved steel sword" in in_bag.text, in_bag.text

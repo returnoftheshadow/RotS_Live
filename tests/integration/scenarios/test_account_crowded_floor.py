@@ -9,6 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.text_lines import stripped_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.account_menu_crowded_floor]
 
@@ -68,7 +69,7 @@ def test_a_crowded_floor_lists_100_objects_then_a_remainder_line_then_the_people
 
     looked = onlooker.command("look").text
     assert OVERFLOW_MARKER not in looked, looked
-    lines = [line.strip() for line in looked.splitlines() if line.strip()]
+    lines = stripped_lines(looked)
     cap_lines = [index for index, line in enumerate(lines) if line == CAP_FLOOR_LINE]
     assert len(cap_lines) == FLOOR_LIST_LIMIT, looked
     remainder_lines = [index for index, line in enumerate(lines) if line.startswith(REMAINDER_LINE_START)]

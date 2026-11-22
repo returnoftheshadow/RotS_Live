@@ -13,7 +13,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, ProfessionPoints, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import capitalised
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.practice]
@@ -35,7 +37,7 @@ class Guildmaster:
     @property
     def line_start(self) -> str:
         """The short description as act() starts a line with it, capitalised."""
-        return self.short_description[0].upper() + self.short_description[1:]
+        return capitalised(self.short_description)
 
 
 # Program 7, the TRAVELLER (MAGE) row of guildmasters[] (consts.cpp): teaches blink up to 100 and
@@ -364,8 +366,7 @@ def sessions_left(pupil: GameSession, name: str, guildmaster: Guildmaster = TRAV
 
 def practice(pupil: GameSession, arguments: str, command: str = "practice") -> str:
     """Sends `<command> <arguments>` at a guildmaster and returns everything the pupil read."""
-    pupil.send_line(f"{command} {arguments}")
-    return pupil.expect(PRACTICE_OUTCOMES) + pupil.drain(SETTLE_SECONDS)
+    return reply_to(pupil, f"{command} {arguments}", PRACTICE_OUTCOMES)
 
 
 def has_guild_row(listed: str, skill: str) -> bool:
@@ -376,8 +377,7 @@ def has_guild_row(listed: str, skill: str) -> bool:
 
 def stat_player(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player` of the character, read to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect(["VUL:"]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {name.lower()}", ["VUL:"])
 
 
 def ranger_coefficient_and_level(implementor: GameSession, name: str) -> tuple[int, int]:
@@ -1008,8 +1008,7 @@ def test_an_uruk_lhuth_knows_blink_at_10_percent_unpractised_and_again_after_pra
 
     reply = implementor.command(f"load mob {RESETTING_ANGEL_VNUM}")
     assert reply.contains("You create a shining angel."), reply.text
-    pupil.send_line("tell angel pracreset")
-    reset = pupil.expect([PRACRESET_DONE_MARKER]) + pupil.drain(SETTLE_SECONDS)
+    reset = reply_to(pupil, "tell angel pracreset", [PRACRESET_DONE_MARKER])
     assert PRACRESET_DONE_MARKER in reset, reset
     after_reset = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)
     assert guild_row(after_reset, "blink") == (10, 0, "Mastered"), after_reset
@@ -1080,8 +1079,7 @@ def test_a_guildmaster_whose_program_names_no_row_is_only_posing(
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
     bring_guildmaster(implementor, guildmaster)
 
-    pupil.send_line("practice")
-    posing = pupil.expect([POSING_MARKER, PLAIN_SESSIONS_MARKER]) + pupil.drain(SETTLE_SECONDS)
+    posing = reply_to(pupil, "practice", [POSING_MARKER, PLAIN_SESSIONS_MARKER])
     assert POSING_MARKER in posing, posing
     assert GUILD_SESSIONS_PATTERN.search(posing) is None, posing
     requested = practice(pupil, "archery")
@@ -1145,8 +1143,7 @@ def test_a_sitting_pupil_gets_the_plain_list_and_practises_nothing(server) -> No
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
     assert pupil.command("sit").contains("You sit down."), pupil.everything
 
-    pupil.send_line("practice blink")
-    reply = pupil.expect(PRACTICE_OUTCOMES) + pupil.drain(SETTLE_SECONDS)
+    reply = reply_to(pupil, "practice blink", PRACTICE_OUTCOMES)
     plain_sessions = PLAIN_SESSIONS_PATTERN.search(reply)
     assert plain_sessions is not None and int(plain_sessions.group(1)) == STARTING_SESSIONS, reply
     assert TRAVELLER.list_header_format.format(PUPIL.name) not in reply, reply

@@ -11,7 +11,9 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.launcher import GAME_LOG_NAME
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import lines_after, stripped_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.zone_dressing]
 
@@ -66,8 +68,6 @@ STRAY_FLINT_VNUM = 2612
 NOTHING_FOUND_LINE = "Couldn't find any such thing."
 # What the reset logs for the second E row into the head slot (reset_zone, zone.cpp).
 ALREADY_EQUIPPED_SYSERR = "SYSERR: Char is already equipped: a dressed squire, a spare bascinet"
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 # Seconds to wait for a line to reach game.log: the Docker launcher relays the server's stderr
 # apart from the game text, so a line logged before a reply can arrive after it.
 LOG_TIMEOUT_SECONDS = 10.0
@@ -85,16 +85,6 @@ def reset_dressing_zone(implementor: GameSession) -> str:
     reply = implementor.command(f"zreset {DRESSING_ZONE}")
     assert reply.contains(ZONE_RESET_MARKER), reply.text
     return reply.text
-
-
-def section_lines(text: str, heading: str, next_heading: str | None) -> list[str]:
-    """The non-empty lines of text after heading, up to next_heading or the end; fails without heading."""
-    assert heading in text, text
-    section = text.split(heading, 1)[1]
-    if next_heading is not None:
-        assert next_heading in section, text
-        section = section.split(next_heading, 1)[0]
-    return [line.strip() for line in section.splitlines() if line.strip()]
 
 
 def wait_for_log_count(log_path: Path, line: str, count: int) -> str:
@@ -124,20 +114,17 @@ def test_a_zone_reset_dresses_its_mob_from_its_equip_kit_give_and_put_rows(serve
     implementor = server.login(IMPLEMENTOR.name)
     reset_text = reset_dressing_zone(implementor)
     room_text = reset_text.split(ZONE_RESET_REPLY_START, 1)[0]
-    room_lines = [line.strip() for line in room_text.splitlines() if line.strip()]
+    room_lines = stripped_lines(room_text)
     assert room_lines == [SQUIRE_ARRIVES_LINE, *SQUIRE_WEARS_LINES], reset_text
 
-    implementor.send_line(f"look {SQUIRE_KEYWORD}")
-    looked = implementor.expect([INVENTORY_PEEK_HEADING]) + implementor.drain(SETTLE_SECONDS)
-    equipment = section_lines(looked, EQUIPMENT_HEADING, INVENTORY_PEEK_HEADING)
+    looked = reply_to(implementor, f"look {SQUIRE_KEYWORD}", [INVENTORY_PEEK_HEADING])
+    equipment = lines_after(looked, EQUIPMENT_HEADING, INVENTORY_PEEK_HEADING, drop_prompts=False)
     assert equipment == list(SQUIRE_EQUIPMENT_LINES), looked
-    peeked_lines = section_lines(looked, INVENTORY_PEEK_HEADING, None)
-    # The last line is the prompt.
-    inventory = [line for line in peeked_lines if not line.endswith(">")]
+    # The last line is the prompt, which lines_after drops.
+    inventory = lines_after(looked, INVENTORY_PEEK_HEADING)
     assert inventory == list(SQUIRE_INVENTORY_LINES), looked
 
-    implementor.send_line("stat object acorn")
-    acorn = implementor.expect(["Carried by:"]) + implementor.drain(SETTLE_SECONDS)
+    acorn = reply_to(implementor, "stat object acorn", ["Carried by:"])
     assert ACORN_LOCATION_LINE in acorn, acorn
 
 

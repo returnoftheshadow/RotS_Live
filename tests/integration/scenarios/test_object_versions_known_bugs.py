@@ -9,6 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_object_versions import (
     CANNOT_SEE_RENTER_MARKER,
@@ -112,8 +113,7 @@ def give_new_object(implementor: GameSession, vnum: int, keyword: str, short_des
 
 def stat_object(implementor: GameSession, keyword: str) -> list:
     """The lines of the implementor's stat obj on the first object answering to keyword, stripped."""
-    implementor.send_line(f"stat obj {keyword}")
-    text = implementor.expect([STAT_LAST_LINE_MARKER, NO_SUCH_OBJECT_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"stat obj {keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_OBJECT_MARKER])
     assert NO_SUCH_OBJECT_MARKER not in text, text
     return [line.strip() for line in text.splitlines()]
 
@@ -173,8 +173,7 @@ def test_a_sipped_drink_containers_weight_is_kept_across_a_login(server) -> None
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
     give_new_object(implementor, WATERSKIN_VNUM, WATERSKIN_KEYWORD, WATERSKIN_SHORT_DESCRIPTION, OWNER)
-    owner.send_line(f"sip {WATERSKIN_KEYWORD}")
-    sipped = owner.expect([SIP_MARKER, TOO_DRUNK_MARKER, TOO_FULL_MARKER]) + owner.drain(SETTLE_SECONDS)
+    sipped = reply_to(owner, f"sip {WATERSKIN_KEYWORD}", [SIP_MARKER, TOO_DRUNK_MARKER, TOO_FULL_MARKER])
     assert SIP_MARKER in sipped, sipped
     sipped_lines = stat_object(implementor, WATERSKIN_KEYWORD)
     assert any(line.startswith(SIPPED_WATERSKIN_WEIGHT_LINE_START) for line in sipped_lines), sipped_lines

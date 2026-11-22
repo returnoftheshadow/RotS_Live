@@ -13,7 +13,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.session import GameSession, Transcript
+from rots_harness.replies import reply_to, text_seen_before_a_say
+from rots_harness.session import GameSession
+from rots_harness.text_lines import assert_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.bank]
 
@@ -273,34 +275,13 @@ STAFF_OUTCOMES = (
 )
 
 
-def reply_text(reply: Transcript) -> str:
-    """The reply with the carriage returns of the game's line ends removed."""
-    return reply.text.replace("\r", "")
-
-
-def assert_lines(reply: Transcript, lines: tuple) -> None:
-    """Asserts the reply holds lines, consecutively and in order."""
-    block = "\n".join(lines)
-    assert block in reply_text(reply), f"expected:\n{block}\nin:\n{reply.text}"
-
-
 def staff_reply(session: GameSession, line: str) -> str:
     """Sends a staff command and returns its reply, without its carriage returns.
 
     The reply is awaited by its own text, not by a prompt: a multi-line staff reply can hold a
     line ending in `]` or `>`, where command() would stop reading.
     """
-    session.send_line(line)
-    return (session.expect(list(STAFF_OUTCOMES)) + session.drain(0.5)).replace("\r", "")
-
-
-def text_seen_before_a_say(actor: GameSession, actor_character: Character, observer: GameSession) -> str:
-    """What observer has read up to the actor's next `say`.
-
-    The say reaches observer after anything the actor's earlier commands showed the room.
-    """
-    actor.command("say done")
-    return observer.expect([f"{actor_character.name} says '"]).replace("\r", "")
+    return reply_to(session, line, list(STAFF_OUTCOMES), settle=0.5).replace("\r", "")
 
 
 def hand_object(implementor: GameSession, vnum: int, keyword: str, recipient: Character) -> None:
@@ -912,8 +893,7 @@ def test_gameoptions_writes_bank_slots_for_the_next_reboot_only(server) -> None:
     assert BANK_SLOTS_SET_FORMAT.format(5) in staff_reply(implementor, "gameoptions bank_slots 5")
     settings = json.loads((server.lib_dir / BOOT_OPTIONS_FILE).read_text(encoding="utf-8"))
     assert settings["bank_slots"] == 5, settings
-    implementor.send_line("gameoptions")
-    listing = (implementor.expect(["daily_reboot_hour_utc"]) + implementor.drain(0.5)).replace("\r", "")
+    listing = reply_to(implementor, "gameoptions", ["daily_reboot_hour_utc"], settle=0.5).replace("\r", "")
     assert re.search(r"^bank_slots +10 +5 +10 +1-100$", listing, re.MULTILINE), listing
     assert depositor.command("balance").contains(slots_line(0, VAULT_SLOTS))
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_identify import ATTRIBUTES_HEADER, MAGE
 
@@ -44,8 +45,6 @@ LIGHT_SOURCE_FRAGMENT = "light source"
 # Seconds to wait for a cast's outcome: identify's 50 beats at mage level 30 are 25
 # (CASTING_TIME, spells.h), about three seconds; 15 leaves room for a loaded host.
 CAST_TIMEOUT = 15.0
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def identify_relic(server) -> list:
@@ -65,8 +64,7 @@ def identify_relic(server) -> list:
 
     outcomes = [IDENTIFIED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, NO_TARGET_MARKER, UNKNOWN_SPELL_MARKER]
     while True:
-        mage.send_line(f"cast 'identify' {RELIC_KEYWORD}")
-        reply = mage.expect(outcomes, timeout=CAST_TIMEOUT) + mage.drain(SETTLE_SECONDS)
+        reply = reply_to(mage, f"cast 'identify' {RELIC_KEYWORD}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
             assert IDENTIFIED_MARKER in reply, reply
             return [line.strip() for line in reply.splitlines()]

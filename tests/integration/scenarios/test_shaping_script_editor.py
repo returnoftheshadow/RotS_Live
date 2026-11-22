@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_script_editor]
 
@@ -47,20 +49,6 @@ def on_enter_row(number: int, text: str) -> str:
     return f"[{number}] TRIG ON_ENTER        ({text})"
 
 
-def lines_of(text: str) -> list:
-    """The text's lines without the carriage returns the game sends with each line end."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def editor_step(implementor: GameSession, line: str, outcomes: list) -> str:
-    """Sends one editor line and returns what came back, up to and just after the first outcome.
-
-    Editor prompts end in ':' or ']' mid-field, so command() cannot be used inside the editor.
-    """
-    implementor.send_line(line)
-    return implementor.expect(outcomes) + implementor.drain(SETTLE_SECONDS)
-
-
 def prompt(script_number: int) -> str:
     """The script editor's prompt while no field is being answered (prompt_text in consts.cpp)."""
     return f"Script: {script_number}>"
@@ -68,19 +56,19 @@ def prompt(script_number: int) -> str:
 
 def open_script(implementor: GameSession, script_number: int) -> None:
     """Starts shaping a script, with its first row selected."""
-    opened = editor_step(implementor, f"shape script {script_number}", [prompt(script_number), "could not open that file."])
+    opened = reply_to(implementor, f"shape script {script_number}", [prompt(script_number), "could not open that file."], settle=SETTLE_SECONDS)
     assert prompt(script_number) in opened, opened
 
 
 def close_script(implementor: GameSession) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
-    released = editor_step(implementor, "/free", [RELEASED_MARKER])
+    released = reply_to(implementor, "/free", [RELEASED_MARKER], settle=SETTLE_SECONDS)
     assert RELEASED_MARKER in released, released
 
 
 def listed_rows(listing: str) -> list:
     """The row lines of a /50 listing, in order."""
-    return [line for line in lines_of(listing) if line.startswith("[")]
+    return [line for line in raw_lines(listing) if line.startswith("[")]
 
 
 @pytest.mark.schedule("affect-hours")
@@ -91,13 +79,13 @@ def test_a_row_inserted_before_the_first_after_removing_the_first_heads_the_scri
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, ORDERED_SCRIPT)
-    removed = editor_step(implementor, "/9", [ROW_REMOVED, prompt(ORDERED_SCRIPT)])
-    inserted = editor_step(implementor, "/11", [ROW_INSERTED_BEFORE, prompt(ORDERED_SCRIPT)])
-    listing = editor_step(implementor, "/50", [WHOLE_LIST_FOOTER])
+    removed = reply_to(implementor, "/9", [ROW_REMOVED, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
+    inserted = reply_to(implementor, "/11", [ROW_INSERTED_BEFORE, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=SETTLE_SECONDS)
     close_script(implementor)
 
-    assert ROW_REMOVED in lines_of(removed), removed
-    assert ROW_INSERTED_BEFORE in lines_of(inserted), inserted
+    assert ROW_REMOVED in raw_lines(removed), removed
+    assert ROW_INSERTED_BEFORE in raw_lines(inserted), inserted
     assert listed_rows(listing) == [
         f"[1] {NO_COMMAND_TEXT}",
         on_enter_row(2, "second"),
@@ -116,14 +104,14 @@ def test_swapped_rows_are_renumbered_and_saved_in_their_new_order(server) -> Non
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, ORDERED_SCRIPT)
-    switched = editor_step(implementor, "/13", [ROWS_SWITCHED, prompt(ORDERED_SCRIPT)])
-    listing = editor_step(implementor, "/50", [WHOLE_LIST_FOOTER])
-    editor_step(implementor, "/save", ["shapeless indefinity"])
+    switched = reply_to(implementor, "/13", [ROWS_SWITCHED, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=SETTLE_SECONDS)
+    reply_to(implementor, "/save", ["shapeless indefinity"], settle=SETTLE_SECONDS)
     # The game runs one line at a time, so once /51 answers, /save has finished writing.
-    editor_step(implementor, "/51", [f"Script #{ORDERED_SCRIPT}:"])
+    reply_to(implementor, "/51", [f"Script #{ORDERED_SCRIPT}:"], settle=SETTLE_SECONDS)
     close_script(implementor)
 
-    assert ROWS_SWITCHED in lines_of(switched), switched
+    assert ROWS_SWITCHED in raw_lines(switched), switched
     assert listed_rows(listing) == [
         on_enter_row(1, "second"),
         on_enter_row(2, "first"),
@@ -155,11 +143,11 @@ def test_a_section_row_set_with_3_shows_as_a_titled_banner(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, ORDERED_SCRIPT)
-    editor_step(implementor, "/3", ["Enter COMMAND TYPE"])
-    title_prompt = editor_step(implementor, SECTION_TYPE, [SECTION_TITLE_PROMPT, prompt(ORDERED_SCRIPT)])
-    comment_prompt = editor_step(implementor, SECTION_TITLE, [SECTION_COMMENT_PROMPT, prompt(ORDERED_SCRIPT)])
-    editor_step(implementor, SECTION_COMMENT, [prompt(ORDERED_SCRIPT)])
-    listing = editor_step(implementor, "/50", [WHOLE_LIST_FOOTER])
+    reply_to(implementor, "/3", ["Enter COMMAND TYPE"], settle=SETTLE_SECONDS)
+    title_prompt = reply_to(implementor, SECTION_TYPE, [SECTION_TITLE_PROMPT, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
+    comment_prompt = reply_to(implementor, SECTION_TITLE, [SECTION_COMMENT_PROMPT, prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
+    reply_to(implementor, SECTION_COMMENT, [prompt(ORDERED_SCRIPT)], settle=SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=SETTLE_SECONDS)
     close_script(implementor)
 
     assert SECTION_TITLE_PROMPT in title_prompt, title_prompt
@@ -169,7 +157,7 @@ def test_a_section_row_set_with_3_shows_as_a_titled_banner(server) -> None:
     banner_width = LIST_WIDTH - len(label)
     fill = banner_width - len(banner_middle)
     banner = label + "=" * (fill // 2) + banner_middle + "=" * (fill - fill // 2)
-    listing_lines = lines_of(listing)
+    listing_lines = raw_lines(listing)
     assert banner in listing_lines, listing
     first = listing_lines.index(banner)
     assert listing_lines[first + 1].strip() == SECTION_COMMENT, listing
@@ -184,10 +172,10 @@ def test_a_list_range_finds_a_row_numbered_out_of_order(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     open_script(implementor, OUT_OF_ORDER_SCRIPT)
-    editor_step(implementor, "/52", ["Enter list range:"])
-    range_set = editor_step(implementor, "3 3", ["List range set:", "Range not changed.", prompt(OUT_OF_ORDER_SCRIPT)])
-    listing = editor_step(implementor, "/50", ["List range: 3-3"])
+    reply_to(implementor, "/52", ["Enter list range:"], settle=SETTLE_SECONDS)
+    range_set = reply_to(implementor, "3 3", ["List range set:", "Range not changed.", prompt(OUT_OF_ORDER_SCRIPT)], settle=SETTLE_SECONDS)
+    listing = reply_to(implementor, "/50", ["List range: 3-3"], settle=SETTLE_SECONDS)
     close_script(implementor)
 
-    assert "List range set: 3-3." in lines_of(range_set), range_set
+    assert "List range set: 3-3." in raw_lines(range_set), range_set
     assert listed_rows(listing) == [on_enter_row(3, "three")], listing

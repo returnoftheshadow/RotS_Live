@@ -8,13 +8,13 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from test_tame import (
     ACTIVITY_AFFECT_PATTERN,
     BOAR_KEYWORD,
     BOAR_ZONE,
     FLED_MARKER,
     SELF_TAME_MARKER,
-    SETTLE_SECONDS,
     TAME_REPLY_MARKERS,
     TAME_TIMEOUT,
     TAMER,
@@ -66,8 +66,7 @@ def test_tame_on_yourself_answers_with_its_own_joke(server) -> None:
     server.login(IMPLEMENTOR.name)
     tamer = server.login(TAMER_AT_GATE.name)
 
-    tamer.send_line(f"tame {TAMER_AT_GATE.name.lower()}")
-    reply = tamer.expect(TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT) + tamer.drain(SETTLE_SECONDS)
+    reply = reply_to(tamer, f"tame {TAMER_AT_GATE.name.lower()}", TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT)
     assert SELF_TAME_MARKER in reply, reply
 
 

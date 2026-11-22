@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
 
@@ -86,8 +87,7 @@ SETTLE_SECONDS = 1.0
 
 def stat_player(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player` of the character, read to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect(["VUL:"]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {name.lower()}", ["VUL:"])
 
 
 def stat_value(pattern: re.Pattern[str], text: str) -> tuple[int, ...]:
@@ -117,8 +117,7 @@ def plain_row(listed: str, skill: str) -> str | None:
 
 def tell_angel(pupil: GameSession, text: str) -> str:
     """Sends `tell angel <text>` and returns everything the pupil read, its own tell included."""
-    pupil.send_line(f"tell angel {text}")
-    return pupil.expect([TOLD_ANGEL_FORMAT.format(text), NOBODY_MARKER]) + pupil.drain(SETTLE_SECONDS)
+    return reply_to(pupil, f"tell angel {text}", [TOLD_ANGEL_FORMAT.format(text), NOBODY_MARKER])
 
 
 def relog(server, pupil: GameSession) -> GameSession:

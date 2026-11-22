@@ -15,7 +15,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import capitalised
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.scripts]
@@ -108,7 +110,7 @@ def said(short_description: str, line: str) -> str:
 
     act() capitalises the first letter of the line it sends.
     """
-    return f"{short_description[0].upper()}{short_description[1:]} says '{line}'"
+    return f"{capitalised(short_description)} says '{line}'"
 
 
 def death_cry(short_description: str) -> str:
@@ -136,8 +138,7 @@ def give_new_object(implementor: GameSession, vnum: int, keyword: str, mob: Scri
 
 def read_mob_stat(implementor: GameSession, mob: ScriptMob) -> str:
     """The implementor's stat of the mob; several of its lines end in ], so command() would stop early."""
-    implementor.send_line(f"stat mob {mob.keyword}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat mob {mob.keyword}", [STAT_LAST_LINE_MARKER])
 
 
 def stat_value(pattern: re.Pattern, stat: str) -> str:

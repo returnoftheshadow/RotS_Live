@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.session import GameSession
+from rots_harness.text_lines import stripped_lines
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.knocking]
@@ -83,11 +84,6 @@ GATE_TIMEOUT = 15.0
 SETTLE_SECONDS = 1.0
 
 
-def lines_of(text: str) -> list:
-    """The text's lines, stripped, blank ones dropped."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
-
 def wait_for(session: GameSession, marker: str) -> str:
     """What the session reads up to and just after the marker, or any other gatekeeper outcome."""
     return session.expect([marker, *OTHER_OUTCOMES], timeout=GATE_TIMEOUT) + session.drain(SETTLE_SECONDS)
@@ -114,29 +110,29 @@ def test_a_knock_is_heard_on_both_sides_and_the_gatekeeper_opens_then_closes_the
     warden.drain(SETTLE_SECONDS)
 
     knocked = knocker.command("knock door").text
-    assert KNOCKED_MARKER in lines_of(knocked), knocked
+    assert KNOCKED_MARKER in stripped_lines(knocked), knocked
     assert NOTHING_THERE_MARKER not in knocked, knocked
     bystander = implementor.expect([BYSTANDER_KNOCK_MARKER])
-    assert BYSTANDER_KNOCK_MARKER in lines_of(bystander), bystander
+    assert BYSTANDER_KNOCK_MARKER in stripped_lines(bystander), bystander
     far_side = warden.expect([FAR_SIDE_KNOCK_MARKER])
-    assert FAR_SIDE_KNOCK_MARKER in lines_of(far_side), far_side
+    assert FAR_SIDE_KNOCK_MARKER in stripped_lines(far_side), far_side
 
     opened_inside = wait_for(warden, GATE_OPENED_MARKER)
-    assert GATE_OPENED_MARKER in lines_of(opened_inside), opened_inside
+    assert GATE_OPENED_MARKER in stripped_lines(opened_inside), opened_inside
     opened_at = time.monotonic()
     opened_outside = wait_for(knocker, DOOR_OPENED_MARKER)
-    assert DOOR_OPENED_MARKER in lines_of(opened_outside), opened_outside
+    assert DOOR_OPENED_MARKER in stripped_lines(opened_outside), opened_outside
 
     closed_inside = wait_for(warden, GATE_CLOSED_MARKER)
-    assert GATE_CLOSED_MARKER in lines_of(closed_inside), closed_inside
+    assert GATE_CLOSED_MARKER in stripped_lines(closed_inside), closed_inside
     assert time.monotonic() - opened_at >= MINIMUM_SECONDS_OPEN, closed_inside
     closed_outside = wait_for(knocker, DOOR_CLOSED_MARKER)
-    assert DOOR_CLOSED_MARKER in lines_of(closed_outside), closed_outside
+    assert DOOR_CLOSED_MARKER in stripped_lines(closed_outside), closed_outside
 
     looked = knocker.command("look")
     assert looked.room_name() == OUTSIDE_ROOM_NAME, looked.text
     seen = implementor.command("look").text
-    assert any(line.startswith(KNOCKER_LINE_START) for line in lines_of(seen)), seen
+    assert any(line.startswith(KNOCKER_LINE_START) for line in stripped_lines(seen)), seen
 
 
 @pytest.mark.schedule("affect-hours")
@@ -155,13 +151,13 @@ def test_say_open_beside_the_gatekeeper_has_him_open_then_close_the_gate(server)
 
     warden.send_line("say open")
     opened_inside = wait_for(warden, GATE_OPENED_MARKER)
-    assert GATE_OPENED_MARKER in lines_of(opened_inside), opened_inside
+    assert GATE_OPENED_MARKER in stripped_lines(opened_inside), opened_inside
     opened_at = time.monotonic()
     opened_outside = wait_for(knocker, DOOR_OPENED_MARKER)
-    assert DOOR_OPENED_MARKER in lines_of(opened_outside), opened_outside
+    assert DOOR_OPENED_MARKER in stripped_lines(opened_outside), opened_outside
 
     closed_inside = wait_for(warden, GATE_CLOSED_MARKER)
-    assert GATE_CLOSED_MARKER in lines_of(closed_inside), closed_inside
+    assert GATE_CLOSED_MARKER in stripped_lines(closed_inside), closed_inside
     assert time.monotonic() - opened_at >= MINIMUM_SECONDS_OPEN, closed_inside
     closed_outside = wait_for(knocker, DOOR_CLOSED_MARKER)
-    assert DOOR_CLOSED_MARKER in lines_of(closed_outside), closed_outside
+    assert DOOR_CLOSED_MARKER in stripped_lines(closed_outside), closed_outside

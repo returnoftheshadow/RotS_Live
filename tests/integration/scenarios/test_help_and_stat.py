@@ -11,6 +11,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.help_and_stat]
@@ -218,14 +219,12 @@ def read_help_entry(session: GameSession, topic: str, entry_lines: list) -> str:
 
 def read_uruk_help(session: GameSession, topic: str) -> str:
     """Asks for help on topic, which can answer with either uruk entry, and returns the reply."""
-    session.send_line(f"help {topic}")
-    return session.expect([URUK_HAI_LAST_LINE, URUK_LHUTH_LAST_LINE, NO_ENTRY_MARKER]) + session.drain(SETTLE_SECONDS)
+    return reply_to(session, f"help {topic}", [URUK_HAI_LAST_LINE, URUK_LHUTH_LAST_LINE, NO_ENTRY_MARKER])
 
 
 def read_stat(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player <name>`, read up to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {name.lower()}", [STAT_LAST_LINE_MARKER])
 
 
 def flag_names(stat: str, pattern: re.Pattern) -> list:
@@ -243,8 +242,7 @@ def in_bit_order(names: set) -> list:
 
 def set_preference(session: GameSession, keyword: str, state: str, replies: tuple) -> str:
     """Sends `set <keyword> <state>` and returns its reply once one of replies, or a refusal, arrives."""
-    session.send_line(f"set {keyword} {state}")
-    return session.expect(list(replies) + [TOGGLE_OPTIONS_MARKER, SET_ARGUMENTS_MARKER])
+    return reply_to(session, f"set {keyword} {state}", list(replies) + [TOGGLE_OPTIONS_MARKER, SET_ARGUMENTS_MARKER], settle=0)
 
 
 def set_display(session: GameSession, pattern: re.Pattern) -> str:
@@ -277,8 +275,7 @@ def put_board_beside_player(implementor: GameSession) -> None:
 
 def colour_command(session: GameSession, command: str, replies: list) -> str:
     """Sends a colour command and returns its reply once one of replies arrives."""
-    session.send_line(command)
-    return session.expect(replies) + session.drain(SETTLE_SECONDS)
+    return reply_to(session, command, replies)
 
 
 def slot_row(slot: str, colour: str) -> str:
@@ -288,8 +285,7 @@ def slot_row(slot: str, colour: str) -> str:
 
 def read_object_stat(implementor: GameSession, keyword: str) -> str:
     """The implementor's `stat obj <keyword>`, read up to its last line, the affect list."""
-    implementor.send_line(f"stat obj {keyword}")
-    return implementor.expect(["Affections:"]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat obj {keyword}", ["Affections:"])
 
 
 def armour_the_player(implementor: GameSession, player: GameSession) -> int:

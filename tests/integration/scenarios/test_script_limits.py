@@ -12,6 +12,7 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.launcher import GAME_LOG_NAME
+from rots_harness.replies import reply_to
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.script_limits]
@@ -135,8 +136,7 @@ def test_three_mobs_answering_each_other_stop_at_both_limits(server) -> None:
     limits; before it, the first chain overflowed the server's stack. No draw is on the path.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    implementor.send_line(f"force chanter say {HELLO}")
-    forced = implementor.expect([FORCE_DONE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    forced = reply_to(implementor, f"force chanter say {HELLO}", [FORCE_DONE_MARKER])
     assert FORCE_DONE_MARKER in forced, forced
 
     refusals = wait_for_refusals(server.run_dir / GAME_LOG_NAME, 4)

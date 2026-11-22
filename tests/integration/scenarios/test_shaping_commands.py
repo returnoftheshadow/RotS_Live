@@ -10,7 +10,8 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession
+from rots_harness.replies import reply_to
+from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_commands]
 
@@ -39,17 +40,6 @@ SETTLE_SECONDS = 0.5
 def refusal(typed: str) -> str:
     """What shape_disabled (shapemob.cpp) prints for a command typed as typed."""
     return f'"{typed}" has been disabled due to a bug.'
-
-
-def lines_of(text: str) -> list:
-    """The text's lines without the carriage returns the game sends with each line end."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def reply_to(session: GameSession, line: str, outcomes: list) -> str:
-    """Sends a line and returns what came back, up to and just after the first outcome."""
-    session.send_line(line)
-    return session.expect(outcomes) + session.drain(SETTLE_SECONDS)
 
 
 # The disabled commands typed at the game prompt; the reason for each is beside its
@@ -86,7 +76,7 @@ def test_a_disabled_shape_command_refuses_with_what_was_typed(server, typed: str
 
     reply = implementor.command(typed)
 
-    assert refusal(typed) in lines_of(reply.text), reply.text
+    assert refusal(typed) in raw_lines(reply.text), reply.text
     assert "You start shaping" not in reply.text, reply.text
 
 
@@ -102,13 +92,13 @@ def test_a_disabled_editor_command_refuses_with_what_was_typed(server, editor: E
     as typed, and the editor stays open on its record."""
     implementor = server.login(IMPLEMENTOR.name)
 
-    opened = reply_to(implementor, editor.open_line, [editor.prompt, *LOAD_FAILURE_MARKERS])
+    opened = reply_to(implementor, editor.open_line, [editor.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
     assert editor.prompt in opened, opened
-    reply = reply_to(implementor, typed, [editor.prompt, editor.release_marker])
-    released = reply_to(implementor, "/free", [editor.release_marker])
+    reply = reply_to(implementor, typed, [editor.prompt, editor.release_marker], settle=SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [editor.release_marker], settle=SETTLE_SECONDS)
     assert editor.release_marker in released, released
 
-    assert refusal(typed) in lines_of(reply), reply
+    assert refusal(typed) in raw_lines(reply), reply
     assert editor.prompt in reply, reply
 
 
@@ -126,7 +116,7 @@ def test_shape_master_without_a_number_shows_its_usage(server, command: str, kin
 
     reply = implementor.command(f"shape {command}")
 
-    reply_lines = lines_of(reply.text)
+    reply_lines = raw_lines(reply.text)
     assert f"Usage: shape {command} <idnum>" in reply_lines, reply.text
     assert any(line.startswith(f"{kind} master is player #") for line in reply_lines), reply.text
     assert f"{kind} permission set to player" not in reply.text, reply.text
@@ -154,10 +144,10 @@ def test_a_zone_open_to_all_gives_full_permission_from_level_93(server) -> None:
     lower = server.login(LEVEL_92_BUILDER.name)
     god = server.login(LEVEL_93_BUILDER.name)
 
-    lower_opened = reply_to(lower, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS])
-    god_opened = reply_to(god, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS])
+    lower_opened = reply_to(lower, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
+    god_opened = reply_to(god, ROOM_EDITOR.open_line, [ROOM_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
     for builder in (lower, god):
-        released = reply_to(builder, "/free", [ROOM_EDITOR.release_marker])
+        released = reply_to(builder, "/free", [ROOM_EDITOR.release_marker], settle=SETTLE_SECONDS)
         assert ROOM_EDITOR.release_marker in released, released
 
     assert ROOM_EDITOR.prompt in lower_opened and ROOM_EDITOR.prompt in god_opened, lower_opened + god_opened
@@ -185,18 +175,18 @@ def test_recalculate_needs_six_letters_and_sets_a_mobs_numbers_from_its_level(se
     from its level."""
     implementor = server.login(IMPLEMENTOR.name)
 
-    opened = reply_to(implementor, MOB_EDITOR.open_line, [MOB_EDITOR.prompt, *LOAD_FAILURE_MARKERS])
+    opened = reply_to(implementor, MOB_EDITOR.open_line, [MOB_EDITOR.prompt, *LOAD_FAILURE_MARKERS], settle=SETTLE_SECONDS)
     assert MOB_EDITOR.prompt in opened, opened
-    extended = reply_to(implementor, "/simple", ["editing mode."])
+    extended = reply_to(implementor, "/simple", ["editing mode."], settle=SETTLE_SECONDS)
     assert "You switched to extended editing mode." in extended, extended
-    short = reply_to(implementor, "/rec", [UNKNOWN_EDITOR_COMMAND, RECALCULATED])
-    after_short = reply_to(implementor, "/50", ["(42) options"])
-    recalculated = reply_to(implementor, "/recalc", [RECALCULATED, UNKNOWN_EDITOR_COMMAND])
-    after_recalc = reply_to(implementor, "/50", ["(42) options"])
-    released = reply_to(implementor, "/free", [MOB_EDITOR.release_marker])
+    short = reply_to(implementor, "/rec", [UNKNOWN_EDITOR_COMMAND, RECALCULATED], settle=SETTLE_SECONDS)
+    after_short = reply_to(implementor, "/50", ["(42) options"], settle=SETTLE_SECONDS)
+    recalculated = reply_to(implementor, "/recalc", [RECALCULATED, UNKNOWN_EDITOR_COMMAND], settle=SETTLE_SECONDS)
+    after_recalc = reply_to(implementor, "/50", ["(42) options"], settle=SETTLE_SECONDS)
+    released = reply_to(implementor, "/free", [MOB_EDITOR.release_marker], settle=SETTLE_SECONDS)
     assert MOB_EDITOR.release_marker in released, released
 
-    assert UNKNOWN_EDITOR_COMMAND in lines_of(short), short
-    assert all(field in lines_of(after_short) for field in BOOTED_FIELDS), after_short
-    assert RECALCULATED in lines_of(recalculated), recalculated
-    assert all(field in lines_of(after_recalc) for field in RECALCULATED_FIELDS), after_recalc
+    assert UNKNOWN_EDITOR_COMMAND in raw_lines(short), short
+    assert all(field in raw_lines(after_short) for field in BOOTED_FIELDS), after_short
+    assert RECALCULATED in raw_lines(recalculated), recalculated
+    assert all(field in raw_lines(after_recalc) for field in RECALCULATED_FIELDS), after_recalc

@@ -12,6 +12,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.resistances]
@@ -212,8 +213,7 @@ def possessive(character: Character) -> str:
 
 def stat_player(implementor: GameSession, character: Character) -> str:
     """The whole reply to the implementor's `stat player` for the character."""
-    implementor.send_line(f"stat player {character.name.lower()}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    return reply_to(implementor, f"stat player {character.name.lower()}", [STAT_LAST_LINE_MARKER])
 
 
 def cleric_level(implementor: GameSession, character: Character) -> int:
@@ -248,8 +248,7 @@ def cast_protection(caster: GameSession, sphere: str, target: str = "") -> str:
     ]
     line = f"cast 'protection' {sphere} {target}".rstrip()
     while True:
-        caster.send_line(line)
-        reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+        reply = reply_to(caster, line, outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
             return reply
 

@@ -28,7 +28,9 @@ from dataclasses import dataclass
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset, ObjectReset
 
 # Every test here is a scenario of the script_triggers group; each also marks one subgroup.
@@ -270,7 +272,7 @@ def said(mob: TriggerMob, line: str) -> str:
     act() capitalises the first letter of the line it sends.
     """
     short = mob.short_description
-    return f"{short[0].upper()}{short[1:]} says '{line}'"
+    return f"{capitalised(short)} says '{line}'"
 
 
 def death_cry(mob: TriggerMob) -> str:
@@ -280,15 +282,7 @@ def death_cry(mob: TriggerMob) -> str:
 
 def read_stat(implementor: GameSession, target: str) -> str:
     """The implementor's stat of a mob or player; several of its lines end in ], so command() would stop early."""
-    implementor.send_line(f"stat {target}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def stat_number(pattern: re.Pattern, stat: str) -> int:
-    """The first group of the pattern in the stat text, as a number."""
-    match = pattern.search(stat)
-    assert match is not None, stat
-    return int(match.group(1))
+    return reply_to(implementor, f"stat {target}", [STAT_LAST_LINE_MARKER])
 
 
 def join_the_mortal(implementor: GameSession) -> None:
@@ -315,8 +309,8 @@ def missile_always_kills(implementor: GameSession, mob: TriggerMob) -> str:
     stat = read_stat(implementor, f"mob {mob.keyword}")
     hit_points = HIT_POINTS_PATTERN.search(stat)
     assert hit_points is not None and (int(hit_points.group(1)), int(hit_points.group(2))) == (1, 1), stat
-    assert stat_number(SAVING_THROW_PATTERN, stat) == 0, stat
-    assert stat_number(CONSTITUTION_PATTERN, stat) == 10, stat
+    assert first_number(SAVING_THROW_PATTERN, stat) == 0, stat
+    assert first_number(CONSTITUTION_PATTERN, stat) == 10, stat
     return stat
 
 
@@ -338,9 +332,7 @@ def cast_until_it_lands(caster: GameSession, target: TriggerMob, landed_markers:
     failures ends in can_cast_spell's refusal, which fails the test.
     """
     while True:
-        caster.send_line(f"cast 'magic missile' {target.keyword}")
-        text = caster.expect([LOST_CONCENTRATION, NO_ENERGY, *landed_markers], timeout=WAIT_TIMEOUT)
-        text += caster.drain(SETTLE_SECONDS)
+        text = reply_to(caster, f"cast 'magic missile' {target.keyword}", [LOST_CONCENTRATION, NO_ENERGY, *landed_markers], timeout=WAIT_TIMEOUT)
         if any(marker in text for marker in landed_markers):
             return text
         assert NO_ENERGY not in text, text
@@ -621,13 +613,13 @@ def test_a_damage_script_that_returns_false_stops_a_spells_blow(server) -> None:
     caster = server.login(CASTER.name)
     join_the_mortal(implementor)
     before = read_stat(implementor, f"mob {STOIC.keyword}")
-    assert stat_number(HIT_POINTS_PATTERN, before) == 200, before
+    assert first_number(HIT_POINTS_PATTERN, before) == 200, before
 
     refusal = said(STOIC, f"Your blow cannot touch me, {CASTER.name}.")
     cast_until_it_lands(caster, STOIC, [refusal])
 
     after = read_stat(implementor, f"mob {STOIC.keyword}")
-    assert stat_number(HIT_POINTS_PATTERN, after) == 200, after
+    assert first_number(HIT_POINTS_PATTERN, after) == 200, after
     # The blow left the caster fighting the stoic, and a fighter cannot quit.
     assert implementor.command(f"purge {STOIC.keyword}").contains("Ok.")
     let_the_anger_pass(server)
@@ -650,10 +642,10 @@ def test_a_death_script_speaks_and_the_mob_still_dies_paying_experience(server) 
     assert implementor.command(f"give ribbon {MOURNER.keyword}").contains("You give")
     # The inputs EXPECTED_SHARE's working rests on.
     mourner_stat = missile_always_kills(implementor, MOURNER)
-    assert (stat_number(LEVEL_PATTERN, mourner_stat), stat_number(EXPERIENCE_PATTERN, mourner_stat)) == (5, 10000)
+    assert (first_number(LEVEL_PATTERN, mourner_stat), first_number(EXPERIENCE_PATTERN, mourner_stat)) == (5, 10000)
     caster_stat = read_stat(implementor, f"player {CASTER.name}")
-    assert (stat_number(LEVEL_PATTERN, caster_stat), stat_number(ALIGNMENT_PATTERN, caster_stat)) == (10, 0)
-    experience_before = stat_number(EXPERIENCE_PATTERN, caster_stat)
+    assert (first_number(LEVEL_PATTERN, caster_stat), first_number(ALIGNMENT_PATTERN, caster_stat)) == (10, 0)
+    experience_before = first_number(EXPERIENCE_PATTERN, caster_stat)
 
     last_words = said(MOURNER, "My watch is ended.")
     mourner_cry = death_cry(MOURNER)
@@ -665,7 +657,7 @@ def test_a_death_script_speaks_and_the_mob_still_dies_paying_experience(server) 
     assert int(share.group(1)) == EXPECTED_SHARE, killed
 
     caster_stat_after = read_stat(implementor, f"player {CASTER.name}")
-    experience_after = stat_number(EXPERIENCE_PATTERN, caster_stat_after)
+    experience_after = first_number(EXPERIENCE_PATTERN, caster_stat_after)
     assert experience_after - experience_before >= EXPECTED_SHARE
     looked = caster.command("look").text
     assert looked.count("corpse of") == 1, looked
@@ -695,7 +687,7 @@ def test_a_death_script_that_returns_false_keeps_the_mob_alive(server) -> None:
     assert EXPERIENCE_SHARE_PATTERN.search(survived) is None, survived
 
     after = read_stat(implementor, f"mob {STUBBORN.keyword}")
-    assert stat_number(HIT_POINTS_PATTERN, after) == 30, after
+    assert first_number(HIT_POINTS_PATTERN, after) == 30, after
     looked = caster.command("look").text
     assert "corpse of" not in looked, looked
     assert STUBBORN_ROOM_LINE in looked, looked

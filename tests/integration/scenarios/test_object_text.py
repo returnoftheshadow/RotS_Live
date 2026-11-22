@@ -9,7 +9,9 @@ import dataclasses
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import stripped_lines
 from rots_harness.world_resets import ObjectReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_text]
@@ -73,14 +75,6 @@ LOOK_IN_FULL_START = "It's "
 # number it shows after an object made from a prototype.
 CONTENTS_HEADER = "Contents:"
 CASK_WITH_NUMBER = f"{CASK_SHORT} [{CASK_VNUM}]"
-
-# Seconds to keep reading after a marker, for the rest of the text.
-SETTLE_SECONDS = 1.0
-
-
-def stripped_lines(text: str) -> list:
-    """The text's lines, stripped, blank ones dropped."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def go_to_yard(implementor: GameSession) -> None:
@@ -203,8 +197,7 @@ def test_stat_room_shows_no_number_after_a_corpse(server) -> None:
     go_to_yard(implementor)
     slay_a_dummy(implementor)
 
-    implementor.send_line("stat room")
-    stat = implementor.expect([CONTENTS_HEADER]) + implementor.drain(SETTLE_SECONDS)
+    stat = reply_to(implementor, "stat room", [CONTENTS_HEADER])
     contents = " ".join(line for line in stat.splitlines() if CONTENTS_HEADER in line or CORPSE_SHORT in line or CASK_SHORT in line)
     assert CASK_WITH_NUMBER in contents, stat
     assert CORPSE_SHORT in contents, stat

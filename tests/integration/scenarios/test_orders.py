@@ -10,7 +10,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import assert_in_order, capitalised
 
 pytestmark = [pytest.mark.scenario, pytest.mark.orders]
 
@@ -29,7 +31,7 @@ class HallMob:
     @property
     def shown(self) -> str:
         """The short description as act() starts a line with it, capitalised."""
-        return self.short_description[0].upper() + self.short_description[1:]
+        return capitalised(self.short_description)
 
 
 # The three lackeys: charmed from the start (AFF_CHARM in their mob file), so whoever they follow
@@ -101,8 +103,7 @@ def force(implementor: GameSession, mob: HallMob, command: str, marker: str) -> 
     do_force (act_wiz.cpp) answers "Ok." and then runs the command at once, so what the mob's
     command shows the implementor's room arrives with it.
     """
-    implementor.send_line(f"force {mob.keyword} {command}")
-    text = implementor.expect([marker]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"force {mob.keyword} {command}", [marker])
     assert FORCED_MARKER in text, text
     return text
 
@@ -137,23 +138,12 @@ def order_followers(leader: GameSession, command: str) -> str:
     do_order sends "Ok." or the refusal after every follower's command has run, so the whole
     order is read once either arrives.
     """
-    leader.send_line(f"order followers {command}")
-    return leader.expect([ORDER_DONE_MARKER, NOBODY_WILLING_MARKER]) + leader.drain(SETTLE_SECONDS)
+    return reply_to(leader, f"order followers {command}", [ORDER_DONE_MARKER, NOBODY_WILLING_MARKER])
 
 
 def stat_mob(implementor: GameSession, mob: HallMob) -> str:
     """The implementor's whole `stat mob` reply for mob, or the line saying no mob matched."""
-    implementor.send_line(f"stat mob {mob.keyword}")
-    return implementor.expect([STAT_LAST_LINE_MARKER, NO_SUCH_MOB_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def assert_in_order(text: str, lines: list) -> None:
-    """Asserts each line appears exactly once in text, in the order given."""
-    positions = []
-    for line in lines:
-        assert text.count(line) == 1, f"{line!r} should appear once:\n{text}"
-        positions.append(text.index(line))
-    assert positions == sorted(positions), f"expected in this order: {lines}\n{text}"
+    return reply_to(implementor, f"stat mob {mob.keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_MOB_MARKER])
 
 
 @pytest.mark.schedule("affect-hours")

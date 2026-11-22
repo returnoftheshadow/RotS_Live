@@ -9,6 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.identify]
@@ -87,8 +88,6 @@ AFFECTIONS_HEADER = "This item has the following affections:"
 # Seconds to wait for a cast's outcome: identify's 50 beats at mage level 30 are 25
 # (CASTING_TIME, spells.h), about three seconds; 15 leaves room for a loaded host.
 CAST_TIMEOUT = 15.0
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def prepare_mage_with_object(implementor: GameSession, vnum: int, keyword: str, short_description: str) -> None:
@@ -110,8 +109,7 @@ def cast_identify(caster: GameSession, keyword: str, short_description: str) -> 
     identified_marker = IDENTIFIED_MARKER_FORMAT.format(short_description)
     outcomes = [identified_marker, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, NO_TARGET_MARKER, UNKNOWN_SPELL_MARKER]
     while True:
-        caster.send_line(f"cast 'identify' {keyword}")
-        reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+        reply = reply_to(caster, f"cast 'identify' {keyword}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
             assert identified_marker in reply, reply
             return reply

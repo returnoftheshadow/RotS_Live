@@ -10,7 +10,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import assert_in_order, lines_after
 
 pytestmark = [pytest.mark.scenario, pytest.mark.poison]
 
@@ -164,8 +166,7 @@ def stat_hit_constitution_and_resists_nothing(
 ) -> tuple[int, int, bool]:
     """Current hit points and current constitution from a `stat` reply, and whether it shows
     no resistance or vulnerability."""
-    implementor.send_line(stat_command)
-    text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, stat_command, [STAT_LAST_LINE_MARKER])
     hit = CURRENT_HIT_PATTERN.search(text)
     constitution = CURRENT_CONSTITUTION_PATTERN.search(text)
     assert hit and constitution, text
@@ -202,19 +203,7 @@ def corpse_lines(session: GameSession) -> list:
 def corpse_contents(session: GameSession) -> list:
     """The lines `look in corpse` lists after its header, up to the prompt."""
     looked = session.command("look in corpse").text
-    assert CORPSE_CONTENTS_HEADER in looked, looked
-    after_header_text = looked.split(CORPSE_CONTENTS_HEADER, 1)[1]
-    after_header = after_header_text.splitlines()[1:]
-    return [line.strip() for line in after_header if line.strip() and not line.rstrip().endswith(">")]
-
-
-def assert_markers_in_order(text: str, expected_order: list[str]) -> None:
-    """Asserts each marker appears exactly once in text, in the order given."""
-    position = -1
-    for marker in expected_order:
-        assert text.count(marker) == 1, f"{marker!r}:\n{text}"
-        assert text.index(marker) > position, f"{marker!r} out of order:\n{text}"
-        position = text.index(marker)
+    return lines_after(looked, CORPSE_CONTENTS_HEADER)
 
 
 def hand_amulet_to(implementor: GameSession, wearer: Character) -> None:
@@ -246,10 +235,9 @@ def test_a_poisoned_amulet_put_on_with_the_last_hit_points_kills_its_wearer_once
     stat_values = stat_hit_constitution_and_resists_nothing(implementor, f"stat player {LAST_BLOW_WEARER.name.lower()}")
     assert_blow_leaves_zero(*stat_values)
 
-    wearer.send_line("wear amulet")
-    died = wearer.expect([NEW_BODY_MARKER]) + wearer.drain(SETTLE_SECONDS)
+    died = reply_to(wearer, "wear amulet", [NEW_BODY_MARKER])
     expected_order = [WEAR_AMULET_MARKER, STUNNED_MARKER, BODY_FAILED_MARKER, NEW_BODY_MARKER, HUMAN_START_ROOM_NAME]
-    assert_markers_in_order(died, expected_order)
+    assert_in_order(died, expected_order)
     assert DEAD_MARKER not in died, died
     seen = implementor.expect([COLLAPSES_FORMAT.format(LAST_BLOW_WEARER.name)]) + implementor.drain(SETTLE_SECONDS)
     assert seen.count(COLLAPSES_FORMAT.format(LAST_BLOW_WEARER.name)) == 1, seen
@@ -281,10 +269,9 @@ def test_a_poisoned_amulet_taken_off_with_the_last_hit_points_kills_its_wearer_w
     stat_values = stat_hit_constitution_and_resists_nothing(implementor, f"stat player {TWO_BLOW_WEARER.name.lower()}")
     assert_blow_leaves_zero(*stat_values)
 
-    wearer.send_line("remove amulet")
-    died = wearer.expect([REMOVE_AMULET_MARKER]) + wearer.drain(SETTLE_SECONDS)
+    died = reply_to(wearer, "remove amulet", [REMOVE_AMULET_MARKER])
     expected_order = [STUNNED_MARKER, BODY_FAILED_MARKER, NEW_BODY_MARKER, HUMAN_START_ROOM_NAME, REMOVE_AMULET_MARKER]
-    assert_markers_in_order(died, expected_order)
+    assert_in_order(died, expected_order)
     assert DEAD_MARKER not in died, died
     seen = implementor.expect([COLLAPSES_FORMAT.format(TWO_BLOW_WEARER.name)]) + implementor.drain(SETTLE_SECONDS)
     assert seen.count(COLLAPSES_FORMAT.format(TWO_BLOW_WEARER.name)) == 1, seen
@@ -328,7 +315,7 @@ def test_a_mob_made_to_put_on_a_poisoned_amulet_with_the_last_hit_points_dies_on
 
     forced = implementor.command("force porter wear amulet").text + implementor.drain(SETTLE_SECONDS)
     expected_order = [f"A porter wears {AMULET} around his neck.", COLLAPSES_FORMAT.format("A porter")]
-    assert_markers_in_order(forced, expected_order)
+    assert_in_order(forced, expected_order)
     assert "is dead!  R.I.P." not in forced, forced
 
     corpses = corpse_lines(implementor)

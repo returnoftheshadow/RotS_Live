@@ -8,7 +8,9 @@ import re
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import first_number
 
 pytestmark = [pytest.mark.scenario, pytest.mark.affect_ticks]
 
@@ -101,15 +103,7 @@ STAT_SANCTUARY_PATTERN = re.compile(r"SPL: \(\s*-?\d+hr\) sanctuary\s+(-?\d+) to
 
 def stat_text(implementor: GameSession, target: str) -> str:
     """The implementor's stat reply for target, such as "player testsaint" or "mob scarecrow"."""
-    implementor.send_line(f"stat {target}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def stat_number(pattern: re.Pattern, text: str) -> int:
-    """The first group of pattern in a stat reply, as a number."""
-    match = pattern.search(text)
-    assert match is not None, f"no {pattern.pattern!r} line in stat:\n{text}"
-    return int(match.group(1))
+    return reply_to(implementor, f"stat {target}", [STAT_LAST_LINE_MARKER])
 
 
 def stat_affects(text: str) -> tuple:
@@ -131,8 +125,7 @@ def hand_object(implementor: GameSession, vnum: int, keyword: str, recipient: st
 
 def force_scarecrow(implementor: GameSession, command: str, room_marker: str) -> None:
     """Has the scarecrow run command and waits for what the room reads of it, room_marker."""
-    implementor.send_line(f"force scarecrow {command}")
-    reply = implementor.expect([room_marker]) + implementor.drain(SETTLE_SECONDS)
+    reply = reply_to(implementor, f"force scarecrow {command}", [room_marker])
     assert reply.count(FORCED_MARKER) == 1 and reply.count(room_marker) == 1, reply
 
 
@@ -171,8 +164,8 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     force_scarecrow(implementor, "wear sash", SCARECROW_WEARS_MARKER)
 
     scarecrow = stat_text(implementor, "mob scarecrow")
-    hit = stat_number(STAT_HIT_PATTERN, scarecrow)
-    constitution = stat_number(STAT_CON_PATTERN, scarecrow)
+    hit = first_number(STAT_HIT_PATTERN, scarecrow)
+    constitution = first_number(STAT_CON_PATTERN, scarecrow)
     # Scarecrow's tick, a mob's own poison (attacker and victim the scarecrow, so not a player's blow):
     #   hit at the tick = min(hit + regeneration, maximum) <= -52               (HP :[-52/-52])
     #   after the tick  = -52 - POISON_TICK_DAMAGE = -57
@@ -229,7 +222,7 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     assert saint.command("eat bread").contains(EATEN_POISON_MARKER)
 
     before = stat_text(implementor, f"player {SAINT.name.lower()}")
-    strength = stat_number(STAT_SANCTUARY_PATTERN, before)
+    strength = first_number(STAT_SANCTUARY_PATTERN, before)
     # Saint's tick, his own poison as the attacker (check_sanctuary(ch, victim), both the saint):
     #   aff->modifier = aff->modifier - number(0, (-1 * GET_ALIGNMENT(ch)) / 2)
     #                 = -500          - number(0, (-1 * -500) / 2)

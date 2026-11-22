@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.idle_removal]
@@ -114,8 +115,7 @@ def hand_object(implementor: GameSession, vnum: int, keyword: str) -> None:
 
 def idler_stat(implementor: GameSession) -> tuple:
     """The idler's room vnum, current and maximum hit points, idle timer and affect bits, from stat."""
-    implementor.send_line(f"stat player {IDLER.name.lower()}")
-    text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"stat player {IDLER.name.lower()}", [STAT_LAST_LINE_MARKER])
     room = STAT_ROOM_PATTERN.search(text)
     hit = STAT_HIT_PATTERN.search(text)
     timer = STAT_TIMER_PATTERN.search(text)

@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_resistances import (
     ALREADY_PROTECTED_MARKER,
@@ -70,8 +71,6 @@ LEVEL_SET_MARKER_FORMAT = "{}'s level set to {}."
 # Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
 # spells.h); 15 leaves room for a loaded host or emulated i386.
 CAST_TIMEOUT = 15.0
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 # The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
 # the drain collects the rest of the reply.
 STAT_LAST_LINE_MARKER = "VUL:"
@@ -94,8 +93,7 @@ def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyw
 
 def cleric_level(implementor: GameSession, character: Character) -> int:
     """The mystic profession level stat shows for the character."""
-    implementor.send_line(f"stat player {character.name.lower()}")
-    text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    text = reply_to(implementor, f"stat player {character.name.lower()}", [STAT_LAST_LINE_MARKER])
     match = CLERIC_LEVEL_PATTERN.search(text)
     assert match is not None, f"no class levels line for {character.name}:\n{text}"
     return int(match.group(1))
@@ -110,8 +108,7 @@ def cast_protection_fire(caster: GameSession) -> str:
     """
     outcomes = [FIRE_RESISTANT_MARKER, ALREADY_PROTECTED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER]
     while True:
-        caster.send_line("cast 'protection' fire")
-        reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+        reply = reply_to(caster, "cast 'protection' fire", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
             return reply
 

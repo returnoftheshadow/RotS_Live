@@ -8,7 +8,9 @@ from typing import NamedTuple
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_prompts]
 
@@ -93,38 +95,24 @@ FIELD_PROMPT_END = "]"
 SETTLE_SECONDS = 0.5
 
 
-def lines_of(text: str) -> list:
-    """The text's lines without the carriage returns the game sends with each line end."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def reply_to(session: GameSession, line: str, outcomes: list) -> str:
-    """Sends a line and returns what came back, up to and just after the first outcome.
-
-    Editor prompts end in ':' or ']' mid-field, so command() cannot be used inside an editor.
-    """
-    session.send_line(line)
-    return session.expect(outcomes) + session.drain(SETTLE_SECONDS)
-
-
 def open_editor(implementor: GameSession, editor: Editor) -> None:
     """Starts shaping the editor's record and gets it ready for the fields."""
     for line in editor.open_lines:
-        opened = reply_to(implementor, line, [editor.prompt, "could not open that file."])
+        opened = reply_to(implementor, line, [editor.prompt, "could not open that file."], settle=SETTLE_SECONDS)
         assert editor.prompt in opened, opened
 
 
 def close_editor(implementor: GameSession, editor: Editor) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [editor.release_marker])
+    released = reply_to(implementor, "/free", [editor.release_marker], settle=SETTLE_SECONDS)
     assert editor.release_marker in released, released
 
 
 def answer_field(implementor: GameSession, editor: Editor, field_line: str, answer: str) -> str:
     """Opens a field's prompt, answers it, and returns the reply up to the editor prompt."""
-    prompt = reply_to(implementor, field_line, [FIELD_PROMPT_END, editor.prompt])
+    prompt = reply_to(implementor, field_line, [FIELD_PROMPT_END, editor.prompt], settle=SETTLE_SECONDS)
     assert FIELD_PROMPT_END in prompt, prompt
-    return reply_to(implementor, answer, [editor.prompt])
+    return reply_to(implementor, answer, [editor.prompt], settle=SETTLE_SECONDS)
 
 
 def editor_id(editor: Editor) -> str:
@@ -144,12 +132,12 @@ def test_a_number_out_of_its_fields_range_is_refused_and_the_field_kept(server, 
 
     open_editor(implementor, editor)
     replies = [answer_field(implementor, editor, refusal.field_line, refusal.answer) for refusal in refusals]
-    listing = reply_to(implementor, editor.list_line, [editor.prompt])
+    listing = reply_to(implementor, editor.list_line, [editor.prompt], settle=SETTLE_SECONDS)
     close_editor(implementor, editor)
 
-    listing_lines = lines_of(listing)
+    listing_lines = raw_lines(listing)
     for refusal, reply in zip(refusals, replies):
-        assert refusal.refusal in lines_of(reply), reply
+        assert refusal.refusal in raw_lines(reply), reply
         assert refusal.listed in listing_lines, listing
 
 
@@ -164,10 +152,10 @@ def test_a_minus_answer_sets_alignment_negative_but_subtracts_from_damage(server
     open_editor(implementor, MOB_EDITOR)
     answer_field(implementor, MOB_EDITOR, "/7", "-300")
     answer_field(implementor, MOB_EDITOR, "/11", "-1")
-    listing = reply_to(implementor, MOB_EDITOR.list_line, [MOB_EDITOR.prompt])
+    listing = reply_to(implementor, MOB_EDITOR.list_line, [MOB_EDITOR.prompt], settle=SETTLE_SECONDS)
     close_editor(implementor, MOB_EDITOR)
 
-    listing_lines = lines_of(listing)
+    listing_lines = raw_lines(listing)
     assert NEGATIVE_ALIGNMENT_LISTED in listing_lines, listing
     assert SUBTRACTED_DAMAGE_LISTED in listing_lines, listing
 
@@ -184,8 +172,8 @@ def test_q_at_a_name_prompt_is_refused_and_the_name_kept(server, editor: Editor,
 
     open_editor(implementor, editor)
     reply = answer_field(implementor, editor, refusal.field_line, refusal.answer)
-    listing = reply_to(implementor, editor.list_line, [editor.prompt])
+    listing = reply_to(implementor, editor.list_line, [editor.prompt], settle=SETTLE_SECONDS)
     close_editor(implementor, editor)
 
-    assert refusal.refusal in lines_of(reply), reply
-    assert refusal.listed in lines_of(listing), listing
+    assert refusal.refusal in raw_lines(reply), reply
+    assert refusal.listed in raw_lines(listing), listing

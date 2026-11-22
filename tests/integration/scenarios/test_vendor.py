@@ -8,7 +8,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession, Transcript
+from rots_harness.replies import text_seen_before_a_say
+from rots_harness.session import GameSession
+from rots_harness.text_lines import assert_lines, reply_text
 
 pytestmark = [pytest.mark.scenario, pytest.mark.vendor]
 
@@ -106,17 +108,6 @@ STORE_MISSING_LOG_LINE = "MOB ERROR: mobile #1309: store missing - vendor disabl
 SYSERR_MARKER = "SYSERR"
 
 
-def reply_text(reply: Transcript) -> str:
-    """The reply with the carriage returns of the game's line ends removed."""
-    return reply.text.replace("\r", "")
-
-
-def assert_lines(reply: Transcript, lines: tuple) -> None:
-    """Asserts the reply holds lines, consecutively and in order."""
-    block = "\n".join(lines)
-    assert block in reply_text(reply), f"expected:\n{block}\nin:\n{reply.text}"
-
-
 def stock_lines(header: str, rows: tuple) -> tuple:
     """The lines `list` shows: the header, then one numbered row per (name, cost) pair.
 
@@ -147,15 +138,6 @@ def give_beads(implementor: GameSession, room_vnum: int, room_name: str, buyer: 
         assert created.contains(f"You create {CURRENCY_NAME}."), created.text
         given = implementor.command(f"give {CURRENCY_KEYWORD} {buyer.name.lower()}")
         assert given.contains(f"You give {CURRENCY_NAME} to {buyer.name}."), given.text
-
-
-def text_seen_before_a_say(actor: GameSession, actor_character: Character, observer: GameSession) -> str:
-    """What observer has read up to the actor's next `say`.
-
-    The say reaches observer after anything the actor's earlier commands showed the room.
-    """
-    actor.command("say done")
-    return observer.expect([f"{actor_character.name} says '"]).replace("\r", "")
 
 
 def carried_count(buyer: GameSession, item_name: str) -> int:

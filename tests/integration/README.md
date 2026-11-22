@@ -496,6 +496,17 @@ fixture quits every session after the test. The game lets an account have only o
 online unless the account owns a character above level 91, so a test that logs in two
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
 
+`command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
+print mid-reply. Two shared modules hold the helpers scenarios use instead of writing their own:
+
+- `rots_harness/replies.py`: `reply_to(session, line, outcomes)` sends a line and returns what
+  came back up to the first outcome, plus a settle (`SETTLE_SECONDS`, 1.0; pass `settle=` and
+  `timeout=` when the file uses others); `text_seen_before_a_say` reads what an observer saw.
+- `rots_harness/text_lines.py`: `raw_lines` (blank lines kept) and `stripped_lines` (dropped),
+  `lines_after` a header, `reply_text` and `assert_lines` for a `Transcript`,
+  `assert_in_order`, `first_number` for a pattern's group and `capitalised` as `act()` starts a
+  line.
+
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and
 limited like its `wizset` field. Mobs and floor objects the test needs from the start go in the

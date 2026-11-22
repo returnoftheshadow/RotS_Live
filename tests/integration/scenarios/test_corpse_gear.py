@@ -9,7 +9,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.text_lines import first_number, lines_after
 
 pytestmark = [pytest.mark.scenario, pytest.mark.corpse_gear]
 
@@ -80,23 +82,9 @@ def load_object(implementor: GameSession, vnum: int, short_description: str) -> 
     assert created.contains(f"You create {short_description}."), created.text
 
 
-def contents_lines(text: str, header: str) -> list:
-    """The lines `look in` lists after header, up to the prompt."""
-    after_header = text.split(header, 1)[1]
-    return [line.strip() for line in after_header.splitlines()[1:] if line.strip() and not line.rstrip().endswith(">")]
-
-
 def stat(implementor: GameSession, target: str) -> str:
     """The implementor's whole `stat <target>` reply, whose lines can end in `]`."""
-    implementor.send_line(f"stat {target}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def first_number(pattern: re.Pattern, text: str) -> int:
-    """The first group of pattern's first match in text, as a number."""
-    match = pattern.search(text)
-    assert match is not None, text
-    return int(match.group(1))
+    return reply_to(implementor, f"stat {target}", [STAT_LAST_LINE_MARKER])
 
 
 def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
@@ -115,7 +103,7 @@ def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
 def assert_the_corpse_holds_the_cap_outside_the_bag(implementor: GameSession) -> None:
     """Asserts the taster's corpse lists the bag and the cap, and the bag no longer holds the cap."""
     corpse = implementor.command("look in corpse").text
-    corpse_contents = contents_lines(corpse, CORPSE_CONTENTS_HEADER)
+    corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
     assert "a leather bag" in corpse_contents, corpse
     assert "a leather cap" in corpse_contents, corpse
     taken = implementor.command("get bag corpse")
@@ -197,9 +185,7 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
     assert hit_points - 7 < 0
 
     while True:
-        slinger.send_line("cast 'magic missile' taster")
-        outcome = slinger.expect([TASTER_DEAD_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER], timeout=CAST_TIMEOUT)
-        outcome += slinger.drain(SETTLE_SECONDS)
+        outcome = reply_to(slinger, "cast 'magic missile' taster", [TASTER_DEAD_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER], timeout=CAST_TIMEOUT)
         assert NO_ENERGY_MARKER not in outcome, "the mage ran out of mana before a cast held"
         if TASTER_DEAD_MARKER in outcome:
             break

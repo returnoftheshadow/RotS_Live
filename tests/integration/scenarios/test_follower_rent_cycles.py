@@ -10,7 +10,9 @@ from typing import NamedTuple
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
+from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.follower_rent]
@@ -243,11 +245,6 @@ SETTLE_SECONDS = 1.0
 REPLY_TIMEOUT = 10.0
 
 
-def capitalised(name: str) -> str:
-    """name with its first letter upper case, as act() starts a line."""
-    return name[0].upper() + name[1:]
-
-
 def implementor_reply(implementor: GameSession, command: str) -> str:
     """The implementor's whole reply to command."""
     implementor.send_line(command)
@@ -255,13 +252,6 @@ def implementor_reply(implementor: GameSession, command: str) -> str:
     implementor.send_line(f"where {NO_MATCH_KEYWORD}")
     text = implementor.expect([NOTHING_FOUND_MARKER], timeout=REPLY_TIMEOUT)
     return text.rsplit(NOTHING_FOUND_MARKER, 1)[0]
-
-
-def first_number(pattern: re.Pattern, text: str) -> int:
-    """The first group of pattern's first match in text, as a number."""
-    match = pattern.search(text)
-    assert match is not None, text
-    return int(match.group(1))
 
 
 def matched_groups(pattern: re.Pattern, text: str) -> tuple:
@@ -334,16 +324,14 @@ def expected_equipment(recruit: Recruit, *, two_handed: bool) -> list:
 
 def leader_order(leader: GameSession, order: str) -> str:
     """Gives an order and returns what the leader read, ending with its Ok."""
-    leader.send_line(order)
-    reply = leader.expect([ORDER_OK_MARKER, *ORDER_REFUSAL_MARKERS]) + leader.drain(SETTLE_SECONDS)
+    reply = reply_to(leader, order, [ORDER_OK_MARKER, *ORDER_REFUSAL_MARKERS])
     assert not any(refusal in reply for refusal in ORDER_REFUSAL_MARKERS), reply
     return reply
 
 
 def walk(leader: GameSession, direction: str, room_name: str) -> None:
     """Walks the leader one room; every follower's step runs in the same pass."""
-    leader.send_line(direction)
-    arrived = leader.expect([room_name, NO_WAY_MARKER]) + leader.drain(SETTLE_SECONDS)
+    arrived = reply_to(leader, direction, [room_name, NO_WAY_MARKER])
     assert room_name in arrived, arrived
 
 
@@ -397,8 +385,7 @@ def give_leader_armband(implementor: GameSession, leader: GameSession) -> None:
     assert created.contains("You create a red armband."), created.text
     given = implementor.command(f"give armband {LEADER_KEYWORD}")
     assert given.contains(f"You give a red armband to {LEADER.name}."), given.text
-    leader.send_line("wear armband")
-    worn = leader.expect([ARMBAND_WORN_MARKER, "You don't seem to have"]) + leader.drain(SETTLE_SECONDS)
+    worn = reply_to(leader, "wear armband", [ARMBAND_WORN_MARKER, "You don't seem to have"])
     assert ARMBAND_WORN_MARKER in worn, worn
 
 
@@ -457,8 +444,7 @@ def walk_out_and_back(implementor: GameSession, leader: GameSession, gear: Count
 
 def rent(leader: GameSession) -> None:
     """Rents at the innkeeper and asserts the rent ended the leader's play at the character menu."""
-    leader.send_line("rent")
-    reply = leader.expect([CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT]) + leader.drain(SETTLE_SECONDS)
+    reply = reply_to(leader, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT])
     assert RENTED_MARKER in reply and CHARACTER_MENU_PROMPT in reply, reply
     leader.close()
 
@@ -562,8 +548,7 @@ def fight(implementor: GameSession, leader: GameSession) -> None:
     dummy died reads `But nobody is fighting him!`, which the leader does not see.
     """
     check_fight_margins(implementor, leader)
-    leader.send_line("hit dummy")
-    attacked = leader.expect([LEADER_ATTACKS_MARKER, *HIT_REFUSAL_MARKERS]) + leader.drain(SETTLE_SECONDS)
+    attacked = reply_to(leader, "hit dummy", [LEADER_ATTACKS_MARKER, *HIT_REFUSAL_MARKERS])
     assert LEADER_ATTACKS_MARKER in attacked and DUMMY_DEAD_MARKER not in attacked, attacked
     assisted = leader_order(leader, f"order followers assist {LEADER_KEYWORD}")
     assert assisted.count(DUMMY_DEAD_MARKER) == 1, assisted
@@ -582,8 +567,7 @@ def check_anger_and_wait_it_out(server, implementor: GameSession, leader: GameSe
     """Asserts the receptionist refuses the angry leader, then advances the hours its anger lasts."""
     angry = implementor_reply(implementor, f"stat player {LEADER_KEYWORD}")
     assert ANGER_AFFECT_PATTERN.search(angry), angry
-    leader.send_line("rent")
-    refused = leader.expect([INNKEEPER_TELLS_FRAGMENT, CHARACTER_MENU_PROMPT]) + leader.drain(SETTLE_SECONDS)
+    refused = reply_to(leader, "rent", [INNKEEPER_TELLS_FRAGMENT, CHARACTER_MENU_PROMPT])
     assert TOO_ANGRY_MARKER in refused and CHARACTER_MENU_PROMPT not in refused, refused
     server.advance_hours(ANGER_HOURS + 1)
     leader.drain(SETTLE_SECONDS)

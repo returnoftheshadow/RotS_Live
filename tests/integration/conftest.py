@@ -13,6 +13,10 @@ from typing import Callable, Optional
 
 import pytest
 
+# Before any rots_harness import, so a shared helper's failing assert reports its operands as a
+# scenario's own asserts do. Only the modules holding scenario helpers are listed.
+pytest.register_assert_rewrite("rots_harness.replies", "rots_harness.text_lines")
+
 from rots_harness import durations, groups, interrupts
 from rots_harness.characters import CharacterSet
 from rots_harness.world_resets import MobReset, ObjectReset, WorldReset
