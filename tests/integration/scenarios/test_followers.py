@@ -1,6 +1,6 @@
 """Followers and groups: the ACK lines a leader and its follower read when the follower cannot
-follow, followers whose leader dies where it arrives, a follower who dies itself outside a fight,
-and the group, ungroup and report commands."""
+follow, followers whose leader dies where it arrives, a rider whose mount takes the step, a follower
+who dies itself outside a fight, and the group, ungroup and report commands."""
 
 from __future__ import annotations
 
@@ -53,6 +53,18 @@ CAPTAIN = human_warrior("Testcaptain", "male", world.ROOM_ARENA_CENTRE)
 MEMBER = human_warrior("Testmember", "female", world.ROOM_ARENA_CENTRE)
 # A mortal who follows the leader riding the harness pony.
 RIDER = human_warrior("Testrider", "female", world.ROOM_ARENA_CENTRE)
+# Room 2301, the Stable Yard in zone 23, west of the paddock.
+ROOM_STABLE_YARD = 2301
+# Room 2302, the Paddock in zone 23, between the stable yard and the sinkhole.
+ROOM_PADDOCK = 2302
+# Room 2303, the Sinkhole in zone 23: a DEATH room east of the paddock, with no exits.
+ROOM_SINKHOLE = 2303
+# A mortal in the stable yard who rides the stable cob at the head of a follower.
+HORSEMAN = human_warrior("Testhorseman", "male", ROOM_STABLE_YARD)
+# A mortal in the stable yard who follows the horseman on foot.
+YARD_FOLLOWER = human_warrior("Testgroom", "female", ROOM_STABLE_YARD)
+# The horseman in the paddock, beside the sinkhole.
+SINKHOLE_HORSEMAN = human_warrior("Testhorseman", "male", ROOM_PADDOCK)
 
 # The bystander orc (mob 1132): male, no maximum stamina (its mob file's `0 0 50 1` line,
 # load_mobiles in db.cpp) and 50 moves.
@@ -65,6 +77,10 @@ STAMINALESS_VNUM = 1160
 PONY_VNUM = 1161
 # The ring of invisibility (object 1160): worn, it sets AFF_INVISIBLE on the wearer.
 RING_VNUM = 1160
+# The stable cob (mob 2301, mob/23.mob): the harness pony with 100 moves, so it can take steps.
+COB_VNUM = 2301
+# The cob's moves at boot, its file's maximum.
+COB_MOVES = 100
 
 # The room the leader walks to, east of the arena centre.
 DESTINATION_ROOM_NAME = "Arena East"
@@ -94,6 +110,34 @@ LEADER_RIDING_ACK_MARKER_FORMAT = "ACK! {} could not follow riding, you lost her
 FOLLOWER_RIDING_ACK_MARKER = "ACK! You could not follow him riding!"
 # What a riding follower reads after FOLLOWER_RIDING_ACK_MARKER when its mount has too few moves.
 MOUNT_EXHAUSTED_MARKER = "Your mount is too exhausted to move."
+# The start of what a rider reads as it mounts the cob (do_ride, ranger.cpp).
+MOUNTED_COB_MARKER_START = "You mount a stable cob and start riding "
+# What those in the room a mount leaves read (perform_move_mount and show_mount_to_char,
+# act_move.cpp and act_info.cpp); format with the rider as they see it.
+RIDES_EAST_FORMAT = "{} is leaving east, riding on a stable cob."
+# The name look shows for the paddock, where the cob carries its rider.
+PADDOCK_ROOM_NAME = "Paddock"
+# The name look shows for the sinkhole, the death room east of the paddock.
+SINKHOLE_ROOM_NAME = "Sinkhole"
+# Every refusal do_move's riding branch can give the rider (act_move.cpp).
+RIDING_REFUSAL_MARKERS = [
+    "You do not control your mount.",
+    "Your mount cannot swim.",
+    "You are too exhausted to ride.",
+    MOUNT_EXHAUSTED_MARKER,
+    "Your mount would not go there.",
+    "Can not go there mounted.",
+    "You cannot go that way.",
+]
+# What the room reads as a character dies there (death_cry, fight.cpp); format with the name.
+DEATH_CRY_FORMAT = "Your blood freezes as you hear {}'s death cry."
+# What a rider reads as its death unseats it in a room its mount has not reached yet (stop_riding
+# from raw_kill, fight.cpp): a mortal cannot see a mob in another room (CAN_SEE, utility.cpp).
+UNSEATED_BY_DEATH_MARKER = "You stop riding someone."
+# What the sinkhole shows of the rider's and the cob's corpses (get_corpse_desc, fight.cpp): a
+# player's corpse is named by its race.
+RIDER_CORPSE_LINE = "The silent corpse of *a Human* is lying here."
+COB_CORPSE_LINE = "The silent corpse of a stable cob is lying here."
 # What command_interpreter (interpre.cpp) tells a character it is asked to run a command for
 # while a delay is running.
 BUSY_MARKER = "You are busy with something else."
@@ -537,6 +581,110 @@ def test_a_rider_whose_mount_cannot_move_gets_the_riding_ack_lines(server) -> No
     assert left_behind.count(MOUNT_EXHAUSTED_MARKER) == 1, left_behind
     assert leader_text.count(LEADER_RIDING_ACK_MARKER_FORMAT.format(RIDER.name)) == 1, leader_text
     assert rider.command("look").room_name() == "Arena Centre"
+
+
+def mount_the_cob(implementor: GameSession, horseman: GameSession, room: int) -> None:
+    """Brings the implementor to room, where the world places the stable cob, checks the cob's
+    moves and has the horseman mount it."""
+    arrived = implementor.command(f"goto {room}")
+    assert arrived.room_name() is not None, arrived.text
+    moves = read_points(implementor, "cob")[4:]
+    assert moves == (COB_MOVES, COB_MOVES), moves
+    mounted = horseman.command("ride cob")
+    assert mounted.contains(MOUNTED_COB_MARKER_START), mounted.text
+    implementor.drain(SETTLE_SECONDS)
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, HORSEMAN, YARD_FOLLOWER)
+@pytest.mark.world_resets(MobReset(COB_VNUM, ROOM_STABLE_YARD))
+def test_a_rider_whose_mount_can_move_rides_east_and_its_follower_follows(server) -> None:
+    """Legacy pin: a mounted leader rides one room east, and the follower on foot follows.
+
+    do_move's riding branch (act_move.cpp) checks the rider's step and then the mount's
+    (check_simple_move), and perform_move_mount carries the mount and its rider into the new
+    room, which the rider sees. The room left reads the rider leave on its mount. The follower,
+    standing in the room left, then follows (do_move, SCMD_FOLLOW) and reads the room it
+    arrives in. The only draws on the way pick which track slot the step marks, which nobody
+    reads here.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    horseman = server.login(HORSEMAN.name)
+    follower = server.login(YARD_FOLLOWER.name)
+    following = follower.command(f"follow {HORSEMAN.name.lower()}")
+    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(HORSEMAN.name)), following.text
+    mount_the_cob(implementor, horseman, ROOM_STABLE_YARD)
+    follower.drain(SETTLE_SECONDS)
+
+    horseman.send_line("east")
+    ridden = horseman.expect([PADDOCK_ROOM_NAME, *RIDING_REFUSAL_MARKERS]) + horseman.drain(SETTLE_SECONDS)
+    assert PADDOCK_ROOM_NAME in ridden, ridden
+    # The follower reads the horseman leave, then follows in the same pass (do_move runs each
+    # follower's step before it returns), so the drain collects whatever the follower did.
+    followed = follower.expect([RIDES_EAST_FORMAT.format(HORSEMAN.name)]) + follower.drain(SETTLE_SECONDS)
+    assert followed.count(RIDES_EAST_FORMAT.format(HORSEMAN.name)) == 1, followed
+    assert followed.count(FOLLOWED_MARKER_FORMAT.format(HORSEMAN.name)) == 1, followed
+    assert PADDOCK_ROOM_NAME in followed, followed
+    assert ANY_ACK_MARKER not in followed, followed
+    # The implementor reads the same line, with the "(holy protection)" an immortal sees beside
+    # a low-level player's name (show_mount_to_char), and then the follower leave on foot.
+    watched = implementor.drain(SETTLE_SECONDS).splitlines()
+    riding_line_end = RIDES_EAST_FORMAT.format("")
+    riding_lines = [line.strip() for line in watched if riding_line_end in line]
+    assert len(riding_lines) == 1 and riding_lines[0].startswith(HORSEMAN.name), watched
+    assert sum(YARD_FOLLOWER.name in line and "leaves east." in line for line in watched) == 1, watched
+
+    assert horseman.command("look").room_name() == PADDOCK_ROOM_NAME
+    assert follower.command("look").room_name() == PADDOCK_ROOM_NAME
+    cob = implementor.command("where cob").text
+    assert re.search(rf"a stable cob\s+- \[ *{ROOM_PADDOCK}\] {PADDOCK_ROOM_NAME}", cob), cob
+    assert read_points(implementor, "cob")[4] < COB_MOVES
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, SINKHOLE_HORSEMAN)
+@pytest.mark.world_resets(MobReset(COB_VNUM, ROOM_PADDOCK))
+def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -> None:
+    """Legacy pin: riding into a DEATH room kills the rider and then its mount, each leaving a
+    corpse there, and the rider wakes in its start room.
+
+    perform_move_mount (act_move.cpp) moves each rider into the sinkhole and kills it there
+    (raw_kill, fight.cpp) before it can look, then moves and kills the mount. The rider's death
+    unseats it while the cob is still in the paddock, so it reads that it stops riding
+    "someone". The implementor waits in the sinkhole and hears both death cries, rider first.
+    The rider wakes in Human Start with 1 hit point (a death with no killer, raw_kill). The only
+    draws on the way pick which track slot the step marks.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    horseman = server.login(SINKHOLE_HORSEMAN.name)
+    mount_the_cob(implementor, horseman, ROOM_PADDOCK)
+    assert implementor.command(f"goto {ROOM_SINKHOLE}").room_name() == SINKHOLE_ROOM_NAME
+
+    horseman.send_line("east")
+    died = horseman.expect([NEW_BODY_MARKER, *RIDING_REFUSAL_MARKERS]) + horseman.drain(SETTLE_SECONDS)
+    assert died.count(UNSEATED_BY_DEATH_MARKER) == 1, died
+    assert died.count(NEW_BODY_MARKER) == 1, died
+    assert died.index(UNSEATED_BY_DEATH_MARKER) < died.index(NEW_BODY_MARKER), died
+    assert HUMAN_START_ROOM_NAME in died, died
+    assert SINKHOLE_ROOM_NAME not in died, died
+    # Both deaths happen in the pass that runs the step, the rider's first, so the drain after
+    # the rider's death cry collects the cob's.
+    cob_cry = DEATH_CRY_FORMAT.format("a stable cob")
+    rider_cry = DEATH_CRY_FORMAT.format(SINKHOLE_HORSEMAN.name)
+    heard = implementor.expect([rider_cry]) + implementor.drain(SETTLE_SECONDS)
+    assert heard.count(rider_cry) == 1 and heard.count(cob_cry) == 1, heard
+    assert heard.index(rider_cry) < heard.index(cob_cry), heard
+
+    assert horseman.command("look").room_name() == HUMAN_START_ROOM_NAME
+    looked = implementor.command("look").text
+    assert looked.count(RIDER_CORPSE_LINE) == 1, looked
+    assert looked.count(COB_CORPSE_LINE) == 1, looked
+    assert looked.count("corpse") == 2, looked
+    cob = implementor.command("where cob").text
+    assert "Couldn't find any such thing." in cob, cob
+    implementor.send_line(f"stat player {SINKHOLE_HORSEMAN.name.lower()}")
+    stat_text = implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    assert re.search(r"HP :\[1/", stat_text), stat_text
 
 
 # A mortal on the ledge who follows the implementor and walks into the Gallows Pit alone.

@@ -1,0 +1,32 @@
+#2301
+Stable Yard~
+A swept yard before the stables. A paddock lies to the east.
+~
+23 0 0 0
+D1
+~
+~
+0 0 2302 5
+S
+#2302
+Paddock~
+A fenced paddock of trampled grass. The stable yard is west; to the east the ground falls away into a sinkhole.
+~
+23 0 0 0
+D1
+~
+~
+0 0 2303 5
+D3
+~
+~
+0 0 2301 5
+S
+#2303
+Sinkhole~
+A sinkhole with sheer sides, from which nothing climbs out.
+~
+23 2 0 0
+S
+#99999
+$~

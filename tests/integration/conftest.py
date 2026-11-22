@@ -16,7 +16,7 @@ import pytest
 from rots_harness import durations, groups, interrupts
 from rots_harness.characters import CharacterSet
 from rots_harness.world_resets import MobReset, ObjectReset, WorldReset
-from rots_harness.crashmonitor import CrashMonitor
+from rots_harness.crashmonitor import CrashMonitor, ExpectedSyserrs, expected_syserr_fragments
 from rots_harness.dockerlock import DEFAULT_LOCK_DIR, DEFAULT_WAIT_SECONDS, DockerLock, parse_wait_seconds
 from rots_harness.launcher import (
     GAME_LOG_NAME,
@@ -418,6 +418,8 @@ class HarnessServer:
     schedule: str | None = None
     # How many servers the test has booted: 1, and one more for each restart().
     boots: int = 1
+    # The SYSERRs the test's @pytest.mark.expect_syserr(...) names.
+    expected_syserrs: ExpectedSyserrs = field(default_factory=ExpectedSyserrs)
 
     def login(self, name: str) -> GameSession:
         """Logs the named character in and returns its session; the fixture quits it after the test."""
@@ -463,7 +465,7 @@ class HarnessServer:
         set_aside_logs(self.run_dir, self.boots, (GAME_LOG_NAME, OUTPUT_LOG_NAME))
         self.boots += 1
         self.handle = start_on_a_free_port(self.launcher, self.run_dir, self.lib_dir, self.seed, schedule=self.schedule)
-        self.monitor = CrashMonitor(self.handle)
+        self.monitor = CrashMonitor(self.handle, expected=self.expected_syserrs)
         if self.schedule is not None:
             self.time_control = start_time_control(self.launcher, self.handle, self.schedule, self.run_dir)
 
@@ -535,6 +537,15 @@ def world_resets_for(request: pytest.FixtureRequest) -> tuple[WorldReset, ...]:
     return tuple(marker.args)
 
 
+def expected_syserrs_for(request: pytest.FixtureRequest) -> ExpectedSyserrs:
+    """The SYSERRs the test's @pytest.mark.expect_syserr(...) markers name, none without one; fails the test on a malformed marker."""
+    try:
+        fragments = expected_syserr_fragments(marker.args for marker in request.node.iter_markers("expect_syserr"))
+    except ValueError as malformed:
+        pytest.fail(f"{request.node.nodeid}: {malformed}", pytrace=False)
+    return ExpectedSyserrs(fragments)
+
+
 def schedule_for(request: pytest.FixtureRequest) -> Optional[str]:
     """The schedule the test's @pytest.mark.schedule(...) names, or None without one; fails the test on a malformed marker."""
     marker = request.node.get_closest_marker("schedule")
@@ -551,18 +562,20 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
     """A fresh server on a lib holding the test's declared characters and world resets, as a HarnessServer.
 
     After the test it quits every session, stops the server, and fails the test when a session
-    does not quit or the shutdown shows problems; during an interrupted run those problems are
-    listed under the kept run directory instead. The run directory, whose test-id.txt names the
-    test, is deleted unless the lib or server failed to set up after the lib was copied, any
-    test in the session has failed, this server's checks failed, the run was interrupted, or
-    ROTS_IT_KEEP=1. Kept directories are listed at the end of the run. A test marked
-    @pytest.mark.schedule(name) gets the harness binary with that schedule, whose time
-    advance_hours drives.
+    does not quit, the shutdown shows problems, or a fragment the test's
+    @pytest.mark.expect_syserr(...) names matched no SYSERR line of any server the test booted;
+    during an interrupted run those problems are listed under the kept run directory instead.
+    The run directory, whose test-id.txt names the test, is deleted unless the lib or server
+    failed to set up after the lib was copied, any test in the session has failed, this server's
+    checks failed, the run was interrupted, or ROTS_IT_KEEP=1. Kept directories are listed at the
+    end of the run. A test marked @pytest.mark.schedule(name) gets the harness binary with that
+    schedule, whose time advance_hours drives.
     """
     report = request.config.stash[RUN_DIRECTORY_REPORT_KEY]
     character_set = character_set_for(request)
     resets = world_resets_for(request)
     schedule = schedule_for(request)
+    expected_syserrs = expected_syserrs_for(request)
     if schedule is not None:
         harness_launcher.require_program(HARNESS_BINARY_RELATIVE)
     run_dir = RUNS_ROOT / uuid.uuid4().hex[:12]
@@ -585,9 +598,10 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         else:
             shutil.rmtree(run_dir, ignore_errors=True)
         raise
-    monitor = CrashMonitor(handle)
+    monitor = CrashMonitor(handle, expected=expected_syserrs)
     harness_server = HarnessServer(
         handle, lib_dir, run_dir, character_set, monitor, harness_launcher, seed, time_control=time_control, schedule=schedule,
+        expected_syserrs=expected_syserrs,
     )
     try:
         yield harness_server
@@ -608,7 +622,8 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
             harness_launcher.stop(harness_server.handle)
         if harness_server.time_control is not None:
             harness_server.time_control.close()
-        problems = teardown_problems + harness_server.monitor.check_after_stop()
+        # missing() comes last: only once the final stop's log lines are read is a fragment never logged.
+        problems = teardown_problems + harness_server.monitor.check_after_stop() + expected_syserrs.missing()
         interrupted = report.interrupted or interruption is not None
         keep = keep_run_directory(keep_requested(), request.session.testsfailed, harness_server.crash_detected or bool(problems), interrupted)
         if keep:

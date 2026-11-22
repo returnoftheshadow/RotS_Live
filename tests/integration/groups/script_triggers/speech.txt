@@ -1,0 +1,1 @@
+speech: a yell script answering what is said, a yell setting off nothing, a listener that removes itself, and what a script heard repeated after a pause
