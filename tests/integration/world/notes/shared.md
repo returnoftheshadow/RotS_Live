@@ -34,7 +34,7 @@ binds the guild special to, with programs chosen for a scenario rather than the 
 human language) for the reject-message bug pin.
 
 1503 and 1509 are in `mob/15.mob`, so that the mobs of `mob/17.mob` keep the vnums ascending.
-2043 has `mob/guildmaster-uruk.mob` to itself, so that `mob/22.mob` to `mob/26.mob` sort between it
+2043 has `mob/guildmaster-uruk.mob` to itself, so that `mob/22.mob` to `mob/27.mob` sort between it
 and the rest, which are in `mob/guildmasters.mob`.
 
 Each teaches the races in its last field, the `will_teach` mask (`WILL_TEACH`, `utils.h`): 63 (god,

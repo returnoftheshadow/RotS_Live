@@ -93,7 +93,6 @@ void introduce_char(struct descriptor_data*);
 void one_mobile_activity(struct char_data*);
 int update_memory_list(struct char_data*);
 int load_char(char*, struct char_file_u*);
-void load_character(struct char_data* ch);
 void Crash_report_object_refreshes(const struct char_data* ch);
 void msdp_room_update(const char_data* ch);
 void stop_hiding(struct char_data*, char);
@@ -3187,7 +3186,6 @@ void nanny(struct descriptor_data* d, char* arg)
 
     extern long secs_to_unretire(const struct char_data*);
     int load_char(char* name, struct char_file_u* char_element);
-    void load_character(struct char_data * ch); // new function in objsave
 
     switch (STATE(d)) {
     case CON_NME: /* wait for input of name */
@@ -4513,7 +4511,20 @@ void nanny(struct descriptor_data* d, char* arg)
 
             // endnew
             reset_char(d->character);
-            load_character(d->character); // new function in objsave
+            // Only a character with no connection is freed by a login's casts (extract_char).
+            if (!load_character(d->character)) {
+                log("SYSERR: nanny: the character was freed while logging in; "
+                    "closing the connection.");
+                d->character = nullptr;
+                STATE(d) = CON_CLOSE;
+                return;
+            }
+            // extract_char with no room to go to sent the character back to the menu.
+            if (d->character->in_room == NOWHERE) {
+                vmudlog(NRM, "SYSERR: %s left the game while logging in; back to the menu.",
+                    GET_NAME(d->character));
+                return;
+            }
             // Apply before saving, never after: save_char writes the character's PPC back to
             // the account, so saving first would push this character's stale, just-loaded copy
             // over whatever a sibling character last changed. ppc_store_character_to_account
