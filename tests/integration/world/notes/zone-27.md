@@ -24,7 +24,7 @@ not depend on it.
 
 ## Mobs
 
-`mob/27.mob` sorts between `mob/22.mob` and `mob/guildmasters.mob` (3888 on) so that mob vnums
+`mob/27.mob` sorts between `mob/26.mob` and `mob/guildmasters.mob` (3888 on) so that mob vnums
 ascend (`shared.md`). Every recruit, wolf and warg answers to `warhost`, so `where warhost`
 lists them all; nothing else does. All are male, `SENTINEL`, and set no aggression.
 

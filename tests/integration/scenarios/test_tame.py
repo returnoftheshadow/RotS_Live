@@ -1,4 +1,5 @@
-"""Tame and whistle: the zone slot a tame frees, tame's refusals, and the whistle's flee and recall."""
+"""Tame and whistle: the zone slot a tame frees, tame's refusals, the whistle's flee and recall,
+and the gear a tame keeps across its owner's rent."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession
+from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.tame]
 
@@ -537,3 +538,87 @@ def test_whistle_recalls_the_whistlers_tame_from_elsewhere_in_the_zone(server) -
         assert WHISTLED_MARKER in whistle(tamer)
     assert boar_rooms(implementor) == [ROOM_WHISTLE_HUB, ROOM_EAST_SPOKE]
     assert RETURNED_MARKER in hours_text, hours_text
+
+
+# Objects the tame is dressed in and handed (obj/16.obj, obj/11.obj, obj/13.obj): each tuple is
+# the vnum, a keyword and the short description. No zone resets any of them, so `where` by vnum
+# finds every copy in the world.
+TAME_HELM = (1603, "helm", "a leather helm")
+TAME_BAG = (1136, "bag", "a leather bag")
+TAME_BEAD = (1308, "bead", "a copper bead")
+# A grey pebble (object 1701, obj/17.obj) for the tamer to carry: the innkeeper refuses a renter
+# who carries nothing (Crash_offer_rent, objsave.cpp).
+PEBBLE = (1701, "pebble", "a grey pebble")
+# The harness innkeeper (mob 1105): spec_ass.cpp binds the receptionist special to its vnum.
+INNKEEPER_VNUM = 1105
+# What the renter reads as the innkeeper takes the rent (gen_receptionist, objsave.cpp).
+RENTED_MARKER = "The harness innkeeper stores your belongings and helps you into your private chamber."
+# The start of every refusal the innkeeper tells the renter.
+INNKEEPER_TELLS_FRAGMENT = "The harness innkeeper tells you, '"
+
+
+def where_item(implementor: GameSession, item: tuple) -> list:
+    """The lines of the implementor's `where <vnum>` that name the item (perform_immort_where,
+    act_info.cpp, lists mobs with the same vnum too)."""
+    vnum, _keyword, short_description = item
+    reply = implementor.command(f"where {vnum}").text
+    lines = reply.splitlines()
+    return [line.strip() for line in lines if re.match(r"^\s*\d+\. ", line) and short_description in line]
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, TAMER)
+def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carrying_any(server) -> None:
+    """Legacy pin: renting saves a tame with what it wears, and destroys what it carries.
+
+    Crash_rentsave (objsave.cpp) saves each follower in the renter's room with its worn gear
+    only (Crash_follower_save), then takes the followers out of the world (extract_followers):
+    the worn gear and the carried gear are destroyed with them, none left on the floor. The
+    login restores the tame wearing a new copy of its helm (Crash_follower_load). The boar is
+    dressed before it is tamed, because a tame cannot wear anything (do_wear, act_obj2.cpp).
+    The innkeeper is loaded last and only `rent` is typed after it, so its random social
+    (gen_receptionist) never draws before the rent. The tame's success roll is the one draw that
+    can change the outcome, a gating roll that tame_boar repeats.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    tamer = server.login(TAMER.name)
+    goto(implementor, world.ROOM_BOAR_PEN)
+    for item in (TAME_HELM, TAME_BAG, TAME_BEAD):
+        created = implementor.command(f"load obj {item[0]}")
+        assert created.contains(f"You create {item[2]}."), created.text
+    assert implementor.command("put bead bag").contains(f"You put {TAME_BEAD[2]} in {TAME_BAG[2]}.")
+    for item in (TAME_HELM, TAME_BAG):
+        given = implementor.command(f"give {item[1]} {BOAR_KEYWORD}")
+        assert given.contains(f"You give {item[2]} to {BOAR_NAME}."), given.text
+    dressed = implementor.command(f"force {BOAR_KEYWORD} wear helm")
+    assert dressed.contains(f"{BOAR_NAME.capitalize()} wears {TAME_HELM[2]} on"), dressed.text
+    check_tame_chance(implementor, tamer, TAMER)
+    tame_boar(tamer)
+    for item in (TAME_HELM, TAME_BAG, TAME_BEAD):
+        assert len(where_item(implementor, item)) == 1, item
+    created = implementor.command(f"load obj {PEBBLE[0]}")
+    assert created.contains(f"You create {PEBBLE[2]}."), created.text
+    given = implementor.command(f"give {PEBBLE[1]} {TAMER.name.lower()}")
+    assert given.contains(f"You give {PEBBLE[2]} to {TAMER.name}."), given.text
+    load_mob(implementor, INNKEEPER_VNUM)
+
+    tamer.send_line("rent")
+    rented = tamer.expect([CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT]) + tamer.drain(SETTLE_SECONDS)
+    assert RENTED_MARKER in rented, rented
+    assert CHARACTER_MENU_PROMPT in rented, rented
+    tamer.close()
+    assert boar_rooms(implementor) == []
+    for item in (TAME_HELM, TAME_BAG, TAME_BEAD):
+        assert where_item(implementor, item) == [], item
+    floor = implementor.command("look").text
+    for long_description in ("A leather helm lies here.", "A leather bag lies here.", "A copper bead lies here."):
+        assert long_description not in floor, floor
+
+    server.login(TAMER.name)
+    assert boar_rooms(implementor) == [world.ROOM_BOAR_PEN]
+    restored = stat_mob(implementor, BOAR_KEYWORD)
+    assert f"Master is: {TAMER.name}," in restored, restored
+    helms = where_item(implementor, TAME_HELM)
+    assert len(helms) == 1 and f"Carried by {BOAR_NAME}" in helms[0], helms
+    assert where_item(implementor, TAME_BAG) == []
+    assert where_item(implementor, TAME_BEAD) == []

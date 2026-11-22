@@ -1,0 +1,95 @@
+#2400
+gatekeeper stern~
+a stern gatekeeper~
+A stern gatekeeper stands here beside the gate.~
+Program 2 (gatekeeper): a knock on the far side of his gate, or "say open" beside him, has him open it and close it again.
+~
+3
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 2 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2401
+postmaster clerk~
+a postmaster~
+A postmaster stands behind the counter, sorting letters.~
+Program 29 (postmaster): mail, check and receive are answered here.
+~
+3
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 29 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2402
+herald proud~
+a proud herald~
+A proud herald stands here, announcing everyone who comes in.~
+Program 28 (herald): announces each player once, from the text in his second death cry.
+~
+3
+0 0 N
+~
+Make way for %s, %s!~
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 28 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2403
+herald odd~
+an odd herald~
+An odd herald stands here, clearing his throat.~
+Program 28 (herald), with a greeting holding %% and %d as a builder might write them.
+~
+3
+0 0 N
+~
+Hail, %s %s! Tolls are 5%% today and 100%d tomorrow.~
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 28 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#2404
+dummy practice~
+a practice dummy~
+A practice dummy stands here, waiting to be cut down.~
+A humanoid (bodytype 1), so its corpse has a head to take; no special and no script.
+~
+2
+0 0 M
+1 10 0 0
+60 60
+2 0
+0 10 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#99999

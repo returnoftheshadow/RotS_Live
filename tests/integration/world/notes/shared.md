@@ -5,6 +5,8 @@ Files whose fixtures lie outside every zone's own vnums (n * 100 to n * 100 + 99
 them except the pen boar, so a scenario loads them with `load mob` or `load obj`. The catalogue
 lists them (`python -m rots_harness.world_catalogue --category mobs`, from `tests/integration`).
 
+`*.obj` is ignored by git (`.gitignore`), so a new file under `obj/` is added with `git add -f`.
+
 ## Tame animals: `mob/14.mob`
 
 For the `tame` group; zone 18 (`zone-18.md`) resets the pen boar into its pen.
@@ -32,8 +34,8 @@ binds the guild special to, with programs chosen for a scenario rather than the 
 human language) for the reject-message bug pin.
 
 1503 and 1509 are in `mob/15.mob`, so that the mobs of `mob/17.mob` keep the vnums ascending.
-2043 has `mob/guildmaster-uruk.mob` to itself, so that the mobs of `mob/22.mob` sort between it and
-the rest, which are in `mob/guildmasters.mob`.
+2043 has `mob/guildmaster-uruk.mob` to itself, so that `mob/22.mob` to `mob/27.mob` sort between it
+and the rest, which are in `mob/guildmasters.mob`.
 
 Each teaches the races in its last field, the `will_teach` mask (`WILL_TEACH`, `utils.h`): 63 (god,
 human, dwarf, wood elf, hobbit and high elf, not the beorning) for 1503, 1509, 3888, 8500, 10003

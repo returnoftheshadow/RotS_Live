@@ -1,0 +1,1 @@
+object triggers: ON_WEAR refusing and not, ON_PULL refusing and not, ON_EXAMINE_OBJECT, and ON_EAT and ON_DRINK, whose false return is ignored
