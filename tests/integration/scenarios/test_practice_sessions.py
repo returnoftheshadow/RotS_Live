@@ -1,5 +1,7 @@
-"""Practice-session counts: the formula a login and a level change apply, and pracreset from the
-angel and the immortal command."""
+"""Practice-session counts: the formula a login and a level change apply, and pracreset.
+
+Pracreset comes from the angel and from the immortal command.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +12,11 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.immortal_commands import wizset
+from rots_harness.replies import reply_to, settled_expect
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, read_stat
+from rots_harness.text_lines import first_number
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.practice, pytest.mark.practice_sessions]
@@ -27,21 +33,19 @@ PUPIL = Character(
     class_name="mage",
     skills=(("blink", BLINK_SESSIONS_SPENT),),
 )
+# The keyword the implementor names the pupil by.
+PUPIL_KEYWORD = PUPIL.name.lower()
 
-# The traveller (mob/15.mob), a guildmaster who teaches blink up to 100; a test that needs it has
-# the world place it in the arena centre.
-TRAVELLER_VNUM = 1503
+# What the traveller (world.MOB_MYSTERIOUS_TRAVELLER), a guildmaster who teaches blink up to 100,
+# says before its list; a test that needs it has the world place it in the arena centre.
 TRAVELLER_LIST_HEADER = "Hello, Testreset! I can teach you these spells:"
-# The shining angel (mob/11.mob): MOB_SPEC with program 14, the resetter (spec_ass.cpp).
-ANGEL_VNUM = 1170
-# A mob that is not a player and has no special (mob/11.mob), for the command's mob refusal.
-BYSTANDER_VNUM = 1132
 
 # The learning the pupil is stored with for a known session count: wizset's top, above any
 # rolled learning.
 LEARNING = 40
-# The specialization the pupil has before a reset, and its PLRSPEC_FIRE number (structs.h).
+# The specialization the pupil has before a reset.
 FIRE_SPECIALIZATION_NAME = "fire"
+# That specialization's PLRSPEC_FIRE number (structs.h), as stat shows it.
 FIRE_SPECIALIZATION = 1
 # The pupil stored with LEARNING, so its sessions are known from its first login.
 LEARNED_PUPIL = dataclasses.replace(PUPIL, stored=StoredValues(lea=LEARNING))
@@ -56,102 +60,93 @@ PLAIN_ROW_PATTERN_FORMAT = r"^\r?{}\s+\(([A-Za-z ]+)\)"
 GUILD_ROW_PATTERN_FORMAT = r"^\r?{}\s+(\d+)%\s+(\d+)\s+Taught to: "
 # The guildmaster list's session count.
 GUILD_SESSIONS_PATTERN = re.compile(r"You have (\d+) practice sessions left\.")
-# Values in `stat player` (do_stat_character, act_wiz.cpp): learning as current/base/constant,
-# the level, the specialization number and the practice sessions.
-LEARNING_PATTERN = re.compile(r"Lea:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
+# The specialization number in `stat player` (do_stat_character, act_wiz.cpp).
 SPECIALIZATION_PATTERN = re.compile(r"Spec:\((-?\d+)\)")
-STAT_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
 
-# What the pupil reads on a reset (do_pracreset, spec_pro.cpp); format with the resetter's name
-# as act() starts a line with it.
-RESET_MARKER_FORMAT = "{} waves his hand over your brow and you feel yourself a total rookie."
-RESET_DONE_MARKER = "Your practices have been reset"
+# What the pupil reads first on a reset (do_pracreset, spec_pro.cpp); format with the resetter's
+# name as act() starts a line with it.
+RESET_FORMAT = "{} waves his hand over your brow and you feel yourself a total rookie."
+# The last of the two lines the pupil reads on a reset.
+RESET_DONE = "Your practices have been reset"
 # What the implementor reads on a reset.
-RESET_REPORT_MARKER = "You reset his/her learning abilities."
-# The angel's tells (SPECIAL(resetter), spec_pro.cpp).
-ANGEL_ANSWER_MARKER = "A shining angel tells you 'You may ask me for a pracreset and rerolls.'"
-ONLY_LEVEL_SIX_MARKER = "A shining angel tells you 'Only level 6 characters may reroll statistics.'"
+RESET_REPORT_REPLY = "You reset his/her learning abilities."
+# The angel's tell to anything but pracreset and reroll (SPECIAL(resetter), spec_pro.cpp).
+ANGEL_ANSWER = "A shining angel tells you 'You may ask me for a pracreset and rerolls.'"
+# The angel's tell to a reroll above level 6.
+ONLY_LEVEL_SIX = "A shining angel tells you 'Only level 6 characters may reroll statistics.'"
 # What the pupil reads when the tell finds nobody it can see (do_tell, act_comm.cpp).
-NOBODY_MARKER = "Nobody by that name."
+NOBODY_REPLY = "Nobody by that name."
 # The pupil's own tell to the angel, the last line of every answer: SPECIAL(resetter) runs before
 # do_tell (act_comm.cpp) and lets it go on.
 TOLD_ANGEL_FORMAT = "You tell a shining angel '{}'"
-# The immortal command's refusals (do_pracreset).
-NO_SUCH_PERSON_MARKER = "No such person."
-CANNOT_LEARN_MARKER = "This person cannot learn anything, don't bother yourself."
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
-
-
-def stat_player(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player` of the character, read to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect(["VUL:"]) + implementor.drain(SETTLE_SECONDS)
+# The immortal command's refusal of a name nobody has (do_pracreset).
+NO_SUCH_PERSON_REPLY = "No such person."
+# The immortal command's refusal of a mob's name.
+CANNOT_LEARN_REPLY = "This person cannot learn anything, don't bother yourself."
 
 
 def stat_value(pattern: re.Pattern[str], text: str) -> tuple[int, ...]:
-    """The numbers pattern captures in a `stat player` text."""
+    """Return the numbers pattern captures in a `stat player` text."""
     match = pattern.search(text)
     assert match is not None, f"no {pattern.pattern} in:\n{text}"
-    return tuple(int(group) for group in match.groups())
+    groups = match.groups()
+    return tuple(int(group) for group in groups)
 
 
 def plain_list(pupil: GameSession) -> str:
-    """The plain practice list, read away from any guildmaster."""
+    """Return the plain practice list, read away from any guildmaster."""
     reply = pupil.command("practice")
     assert PLAIN_SESSIONS_PATTERN.search(reply.text) is not None, reply.text
     return reply.text
 
 
 def plain_sessions(listed: str) -> int:
-    """The practice sessions the plain practice list reports."""
-    return int(PLAIN_SESSIONS_PATTERN.search(listed).group(1))
+    """Return the practice sessions the plain practice list reports."""
+    return first_number(PLAIN_SESSIONS_PATTERN, listed)
 
 
 def plain_row(listed: str, skill: str) -> str | None:
-    """How well the plain practice list says a skill is known, or None when it is not listed."""
-    row = re.search(PLAIN_ROW_PATTERN_FORMAT.format(re.escape(skill)), listed, re.MULTILINE)
+    """Return how well the plain practice list says a skill is known, or None when unlisted."""
+    escaped_skill = re.escape(skill)
+    pattern = PLAIN_ROW_PATTERN_FORMAT.format(escaped_skill)
+    row = re.search(pattern, listed, re.MULTILINE)
     return None if row is None else row.group(1)
 
 
 def tell_angel(pupil: GameSession, text: str) -> str:
-    """Sends `tell angel <text>` and returns everything the pupil read, its own tell included."""
-    pupil.send_line(f"tell angel {text}")
-    return pupil.expect([TOLD_ANGEL_FORMAT.format(text), NOBODY_MARKER]) + pupil.drain(SETTLE_SECONDS)
-
-
-def relog(server, pupil: GameSession) -> GameSession:
-    """Quits the pupil's session and logs the character in again; returns the new session."""
-    pupil.quit()
-    return server.login(PUPIL.name)
+    """Send `tell angel <text>` and return everything the pupil read, its own tell included."""
+    own_tell = TOLD_ANGEL_FORMAT.format(text)
+    return reply_to(pupil, f"tell angel {text}", [own_tell, NOBODY_REPLY])
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, FIRE_PUPIL)
-@pytest.mark.world_resets(MobReset(ANGEL_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_SHINING_ANGEL, world.ROOM_ARENA_CENTRE))
 def test_telling_the_angel_pracreset_resets_knowledge_sessions_and_specialization(server) -> None:
-    """`tell angel pracreset` empties the skills, refills the sessions, clears the specialization.
+    """Pins that `tell angel pracreset` empties the skills and refills the sessions.
 
-    Long-standing: SPECIAL(resetter) calls do_pracreset (spec_pro.cpp). The pupil reads the angel's two reset
-    lines before its own tell. Blink leaves the plain list, the race's language comes back with
-    recalc_skills, and the sessions are the full count from the current learning. Nothing on the
-    way draws a random number.
+    It also clears the specialization. SPECIAL(resetter) calls do_pracreset (spec_pro.cpp). The
+    pupil reads the angel's two reset lines before its own tell. Blink leaves the plain list, the
+    race's language comes back with recalc_skills, and the sessions are the full count from the
+    current learning. Nothing on the way draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
-    before = stat_player(implementor, PUPIL.name)
-    assert stat_value(SPECIALIZATION_PATTERN, before) == (FIRE_SPECIALIZATION,)
+    before = read_stat(implementor, f"player {PUPIL_KEYWORD}")
+    assert stat_value(SPECIALIZATION_PATTERN, before) == (FIRE_SPECIALIZATION,), before
     level = stat_value(LEVEL_PATTERN, before)[0]
     current_learning = stat_value(LEARNING_PATTERN, before)[0]
-    assert (level, current_learning) == (30, LEARNING)
-    assert plain_row(plain_list(pupil), "blink") is not None
+    assert (level, current_learning) == (30, LEARNING), before
+    listed_before = plain_list(pupil)
+    assert plain_row(listed_before, "blink") is not None, listed_before
 
     reply = tell_angel(pupil, "pracreset")
-    assert RESET_MARKER_FORMAT.format("A shining angel") in reply, reply
-    reset_at = reply.index(RESET_MARKER_FORMAT.format("A shining angel"))
-    told_at = reply.index(TOLD_ANGEL_FORMAT.format("pracreset"))
-    assert reset_at < reply.index(RESET_DONE_MARKER) < told_at, reply
+    angel_reset = RESET_FORMAT.format("A shining angel")
+    assert angel_reset in reply, reply
+    reset_at = reply.index(angel_reset)
+    own_tell = TOLD_ANGEL_FORMAT.format("pracreset")
+    told_at = reply.index(own_tell)
+    assert reset_at < reply.index(RESET_DONE) < told_at, reply
 
     listed = plain_list(pupil)
     assert plain_row(listed, "blink") is None, listed
@@ -161,25 +156,25 @@ def test_telling_the_angel_pracreset_resets_knowledge_sessions_and_specializatio
     #                   = 30 * 3 + 30 * 40 / 5 + 10      (Lev: [30]; Lea current 40, as stored)
     #                   = 90 + 240 + 10 = 340
     assert plain_sessions(listed) == 340, listed
-    after = stat_player(implementor, PUPIL.name)
+    after = read_stat(implementor, f"player {PUPIL_KEYWORD}")
     assert stat_value(SPECIALIZATION_PATTERN, after) == (0,), after
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(PUPIL)
-@pytest.mark.world_resets(MobReset(ANGEL_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_SHINING_ANGEL, world.ROOM_ARENA_CENTRE))
 @pytest.mark.parametrize(
     ("told", "answer"),
-    [("hello", ANGEL_ANSWER_MARKER), ("reroll", ONLY_LEVEL_SIX_MARKER)],
+    [("hello", ANGEL_ANSWER), ("reroll", ONLY_LEVEL_SIX)],
     ids=["anything-else", "reroll-above-level-6"],
 )
 def test_the_angel_answers_anything_but_pracreset_with_a_tell_and_resets_nothing(
     server, told: str, answer: str
 ) -> None:
-    """The angel tells a pupil what it offers, or that only level 6 may reroll (SPECIAL(resetter)).
+    """Pins that the angel tells a pupil what it offers, or that only level 6 may reroll.
 
-    Long-standing. The level-30 pupil keeps blink and its session count. Nothing draws a random
-    number.
+    SPECIAL(resetter) answers so. The level-30 pupil keeps blink and its session count. Nothing
+    draws a random number.
     """
     pupil = server.login(PUPIL.name)
     before = plain_list(pupil)
@@ -187,7 +182,7 @@ def test_the_angel_answers_anything_but_pracreset_with_a_tell_and_resets_nothing
     reply = tell_angel(pupil, told)
     assert answer in reply, reply
     assert reply.index(answer) < reply.index(TOLD_ANGEL_FORMAT.format(told)), reply
-    assert RESET_DONE_MARKER not in reply, reply
+    assert RESET_DONE not in reply, reply
     after = plain_list(pupil)
     assert plain_row(before, "blink") is not None, before
     assert plain_row(after, "blink") == plain_row(before, "blink"), after
@@ -196,27 +191,27 @@ def test_the_angel_answers_anything_but_pracreset_with_a_tell_and_resets_nothing
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
-@pytest.mark.world_resets(MobReset(BYSTANDER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_BYSTANDER_ORC, world.ROOM_ARENA_CENTRE))
 @pytest.mark.parametrize(
     ("argument", "refusal"),
-    [("nobody", NO_SUCH_PERSON_MARKER), ("bystander", CANNOT_LEARN_MARKER)],
+    [("nobody", NO_SUCH_PERSON_REPLY), ("bystander", CANNOT_LEARN_REPLY)],
     ids=["nobody-by-that-name", "a-mob"],
 )
 def test_the_pracreset_command_refuses_a_name_that_is_not_a_player(
     server, argument: str, refusal: str
 ) -> None:
-    """`pracreset` with a name nobody has, or a mob's name, is refused (do_pracreset; long-standing)."""
+    """Pins that do_pracreset refuses a name nobody has, or a mob's name."""
     implementor = server.login(IMPLEMENTOR.name)
 
     reply = implementor.command(f"pracreset {argument}")
     assert reply.contains(refusal), reply.text
-    assert not reply.contains(RESET_REPORT_MARKER), reply.text
+    assert not reply.contains(RESET_REPORT_REPLY), reply.text
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, LEARNED_PUPIL)
 def test_the_pracreset_command_resets_the_named_player(server) -> None:
-    """`pracreset <player>` empties every skill and refills the sessions (do_pracreset; long-standing).
+    """Pins that `pracreset <player>` empties every skill and refills the sessions (do_pracreset).
 
     The implementor reads the report, the pupil the two reset lines naming the implementor.
     Nothing on the way draws a random number.
@@ -224,12 +219,13 @@ def test_the_pracreset_command_resets_the_named_player(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
 
-    reply = implementor.command(f"pracreset {PUPIL.name.lower()}")
-    assert reply.contains(RESET_REPORT_MARKER), reply.text
-    told = pupil.expect([RESET_DONE_MARKER]) + pupil.drain(SETTLE_SECONDS)
-    assert RESET_MARKER_FORMAT.format(IMPLEMENTOR.name) in told, told
-    reset_at = told.index(RESET_MARKER_FORMAT.format(IMPLEMENTOR.name))
-    assert reset_at < told.index(RESET_DONE_MARKER), told
+    reply = implementor.command(f"pracreset {PUPIL_KEYWORD}")
+    assert reply.contains(RESET_REPORT_REPLY), reply.text
+    told = settled_expect(pupil, [RESET_DONE])
+    implementor_reset = RESET_FORMAT.format(IMPLEMENTOR.name)
+    assert implementor_reset in told, told
+    reset_at = told.index(implementor_reset)
+    assert reset_at < told.index(RESET_DONE), told
 
     listed = plain_list(pupil)
     assert plain_row(listed, "blink") is None, listed
@@ -240,42 +236,45 @@ def test_the_pracreset_command_resets_the_named_player(server) -> None:
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
 def test_learning_set_by_an_immortal_changes_the_sessions_only_at_the_next_login(server) -> None:
-    """`wizset ... lea` leaves the session count alone; the next login recounts it by the formula.
+    """Pins that `wizset ... lea` leaves the session count alone until the next login recounts it.
 
-    Long-standing: do_wizset (act_wiz.cpp) only sets the constant; the login recount (interpre.cpp) applies
-    get_max_practice_count. Nothing on the way draws a random number.
+    The next login recounts it by the formula. do_wizset (act_wiz.cpp) only sets the constant; the
+    login recount (interpre.cpp) applies get_max_practice_count. Nothing on the way draws a random
+    number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
-    before = plain_sessions(plain_list(pupil))
+    listed_before = plain_list(pupil)
+    before = plain_sessions(listed_before)
 
-    reply = implementor.command(f"wizset player {PUPIL.name.lower()} lea {LEARNING}")
-    assert reply.contains(f"{PUPIL.name}'s lea set to {LEARNING}."), reply.text
-    learning = stat_value(LEARNING_PATTERN, stat_player(implementor, PUPIL.name))
-    assert learning[1:] == (LEARNING, LEARNING)
-    assert plain_sessions(plain_list(pupil)) == before
+    wizset(implementor, f"player {PUPIL_KEYWORD}", "lea", LEARNING, shown_name=PUPIL.name)
+    learning_stat = read_stat(implementor, f"player {PUPIL_KEYWORD}")
+    learning = stat_value(LEARNING_PATTERN, learning_stat)
+    assert learning[1:] == (LEARNING, LEARNING), learning_stat
+    listed_after_wizset = plain_list(pupil)
+    assert plain_sessions(listed_after_wizset) == before, listed_after_wizset
 
-    pupil = relog(server, pupil)
-    after = stat_player(implementor, PUPIL.name)
-    assert stat_value(LEVEL_PATTERN, after) == (30,)
-    assert stat_value(LEARNING_PATTERN, after)[1] == LEARNING
+    pupil = server.relog(pupil)
+    after = read_stat(implementor, f"player {PUPIL_KEYWORD}")
+    assert stat_value(LEVEL_PATTERN, after) == (30,), after
+    assert stat_value(LEARNING_PATTERN, after)[1] == LEARNING, after
     # get_max_practice_count - get_spent_practice_count (char_utils.cpp):
     #   level * PRACS_PER_LEVEL + level * abilities.lea / LEA_PRAC_FACTOR + 10 - spent
     #   = 30 * 3 + 30 * 40 / 5 + 10 - 3        (Lev: [30]; Lea base 40; 3 blink sessions spent)
     #   = 90 + 240 + 10 - 3 = 337
     # The rolled learning is below 40, so the count before the relog was lower.
-    assert before < 337
-    assert plain_sessions(plain_list(pupil)) == 337
+    assert before < 337, before
+    listed_after_relog = plain_list(pupil)
+    assert plain_sessions(listed_after_relog) == 337, listed_after_relog
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(PUPIL)
-@pytest.mark.world_resets(MobReset(TRAVELLER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_MYSTERIOUS_TRAVELLER, world.ROOM_ARENA_CENTRE))
 def test_a_relog_leaves_knowledge_spent_and_remaining_sessions_unchanged(server) -> None:
-    """A relog after practising keeps the knowledge, sessions spent and sessions left unchanged.
+    """Pins that a relog after practising keeps the knowledge, sessions spent and sessions left.
 
-    Long-standing: the login recount (interpre.cpp) and recalc_skills give back what the
-    traveller listed. A
+    The login recount (interpre.cpp) and recalc_skills give back what the traveller listed. A
     fourth blink session takes blink to 96%, below the traveller's limit of 100, so no cap is
     involved. Practice draws no random number.
     """
@@ -284,13 +283,14 @@ def test_a_relog_leaves_knowledge_spent_and_remaining_sessions_unchanged(server)
     pupil.expect(["You practice it for a while."])
     before = pupil.command("practice")
     assert before.contains(TRAVELLER_LIST_HEADER), before.text
-    blink_before = re.search(GUILD_ROW_PATTERN_FORMAT.format("blink"), before.text, re.MULTILINE)
+    blink_row_pattern = GUILD_ROW_PATTERN_FORMAT.format("blink")
+    blink_before = re.search(blink_row_pattern, before.text, re.MULTILINE)
     assert blink_before is not None and blink_before.groups() == ("96", "4"), before.text
 
-    pupil = relog(server, pupil)
+    pupil = server.relog(pupil)
     after = pupil.command("practice")
     assert after.contains(TRAVELLER_LIST_HEADER), after.text
-    blink_after = re.search(GUILD_ROW_PATTERN_FORMAT.format("blink"), after.text, re.MULTILINE)
+    blink_after = re.search(blink_row_pattern, after.text, re.MULTILINE)
     assert blink_after is not None and blink_after.groups() == ("96", "4"), after.text
     sessions_before = GUILD_SESSIONS_PATTERN.search(before.text)
     sessions_after = GUILD_SESSIONS_PATTERN.search(after.text)
@@ -301,9 +301,9 @@ def test_a_relog_leaves_knowledge_spent_and_remaining_sessions_unchanged(server)
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, LEARNED_PUPIL)
 def test_advancing_down_and_back_up_moves_the_sessions_by_the_formula(server) -> None:
-    """`advance` to a lower level takes each level's sessions off; advancing back recounts them.
+    """Pins that `advance` to a lower level takes each level's sessions off, and back recounts them.
 
-    Long-standing: do_advance (act_wiz.cpp) lowers the sessions by adv * PRACS_PER_LEVEL +
+    do_advance (act_wiz.cpp) lowers the sessions by adv * PRACS_PER_LEVEL +
     adv * base learning / LEA_PRAC_FACTOR; each level gained runs advance_level (profs.cpp),
     whose last step is the recount. The pupil was level 30 before, so the way back up rolls no
     hit points, rerolls no abilities and raises no stat (those need a mini-level above its
@@ -315,22 +315,23 @@ def test_advancing_down_and_back_up_moves_the_sessions_by_the_formula(server) ->
     server.login(PUPIL.name)
     # Recount at login: 30 * 3 + 30 * 40 / 5 + 10 - 3 = 90 + 240 + 10 - 3 = 337
     # (Lev: [30]; Lea base 40; 3 blink sessions spent).
-    assert stat_value(STAT_SESSIONS_PATTERN, stat_player(implementor, PUPIL.name)) == (337,)
+    at_login = read_stat(implementor, f"player {PUPIL_KEYWORD}")
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, at_login) == (337,), at_login
 
-    reply = implementor.command(f"advance {PUPIL.name.lower()} 20")
+    reply = implementor.command(f"advance {PUPIL_KEYWORD} 20")
     assert reply.contains("Ok."), reply.text
-    lowered = stat_player(implementor, PUPIL.name)
-    assert stat_value(LEVEL_PATTERN, lowered) == (20,)
-    assert stat_value(LEARNING_PATTERN, lowered)[1] == LEARNING
+    lowered = read_stat(implementor, f"player {PUPIL_KEYWORD}")
+    assert stat_value(LEVEL_PATTERN, lowered) == (20,), lowered
+    assert stat_value(LEARNING_PATTERN, lowered)[1] == LEARNING, lowered
     # do_advance, adv = 20 - 30 = -10:
     #   spells_to_learn += adv * PRACS_PER_LEVEL + (adv * GET_LEA_BASE) / LEA_PRAC_FACTOR
     #                    = -10 * 3 + (-10 * 40) / 5 = -30 - 80 = -110, so 337 - 110 = 227
-    assert stat_value(STAT_SESSIONS_PATTERN, lowered) == (227,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, lowered) == (227,), lowered
 
-    reply = implementor.command(f"advance {PUPIL.name.lower()} 30")
+    reply = implementor.command(f"advance {PUPIL_KEYWORD} 30")
     assert reply.contains("Ok."), reply.text
-    raised = stat_player(implementor, PUPIL.name)
-    assert stat_value(LEVEL_PATTERN, raised) == (30,)
-    assert stat_value(LEARNING_PATTERN, raised)[1] == LEARNING
+    raised = read_stat(implementor, f"player {PUPIL_KEYWORD}")
+    assert stat_value(LEVEL_PATTERN, raised) == (30,), raised
+    assert stat_value(LEARNING_PATTERN, raised)[1] == LEARNING, raised
     # advance_level's recount at level 30: 30 * 3 + 30 * 40 / 5 + 10 - 3 = 337.
-    assert stat_value(STAT_SESSIONS_PATTERN, raised) == (337,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, raised) == (337,), raised

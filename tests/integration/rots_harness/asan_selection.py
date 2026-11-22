@@ -1,4 +1,4 @@
-"""Chooses and runs the tests of the on-request AddressSanitizer CI run (.github/workflows/asan.yml).
+"""Chooses and runs the tests of the on-request AddressSanitizer CI run, .github/workflows/asan.yml.
 
 Nothing runs unless the pull request's description holds an `@asan-test-` token. HTML comments
 are dropped first, as ci_groups drops them, and tokens are lower case:
@@ -59,7 +59,7 @@ GTEST_FILTER = re.compile(r"[A-Za-z0-9_.*?]+(?::[A-Za-z0-9_.*?]+)*")
 # One character a GoogleTest filter may hold.
 GTEST_FILTER_CHARACTER = re.compile(r"[A-Za-z0-9_.*?:]")
 # The characters GTEST_FILTER_CHARACTER accepts, for messages.
-GTEST_FILTER_CHARACTERS_TEXT = "letters, digits and _ . * ? :"
+GTEST_FILTER_CHARACTERS_DESCRIPTION = "letters, digits and _ . * ? :"
 # Joins the unit filters into one --gtest_filter.
 GTEST_FILTER_SEPARATOR = ":"
 # The folder scenario ids start with, relative to tests/integration.
@@ -86,7 +86,7 @@ TEST_NAME_FILE = "test-id.txt"
 # restart stopped (launcher.set_aside_logs).
 GAME_LOGS_PATTERN = "game*.log"
 # The line AddressSanitizer starts each report with.
-SANITIZER_ERROR_TEXT = "ERROR: AddressSanitizer"
+SANITIZER_ERROR_PART = "ERROR: AddressSanitizer"
 # The artifact the workflow uploads a shard's kept run directories as.
 RUNS_ARTIFACT_FORMAT = "asan-runs-shard-{number}"
 # The most report lines a scenario summary quotes.
@@ -95,16 +95,23 @@ SUMMARY_REPORT_LINE_LIMIT = 20
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[3]
 # The variable naming the webhook event's JSON file on a GitHub runner.
 EVENT_PATH_VARIABLE = "GITHUB_EVENT_PATH"
-# What select writes for the unit tests and the scenarios: none, all, or the chosen ones.
+# The mode select writes for the unit tests or the scenarios when none of them run.
 MODE_NONE = "none"
+# The mode select writes for the unit tests or the scenarios when all of them run.
 MODE_ALL = "all"
+# The unit test mode select writes when only the chosen filters run.
 MODE_FILTERS = "filters"
+# The scenario mode select writes when only the chosen groups and scenarios run.
 MODE_SELECTED = "selected"
-# The variables the select job's outputs reach run-unit, run-scenarios and check-scenarios through.
+# The variable the select job's unit test mode reaches run-unit through.
 UNIT_MODE_VARIABLE = "ASAN_UNIT"
+# The variable the select job's unit test filters reach run-unit through.
 UNIT_FILTERS_VARIABLE = "ASAN_UNIT_FILTERS"
+# The variable the select job's scenario mode reaches run-scenarios and check-scenarios through.
 SCENARIO_MODE_VARIABLE = "ASAN_SCENARIOS"
+# The variable the select job's chosen groups reach run-scenarios and check-scenarios through.
 GROUPS_VARIABLE = "ASAN_GROUPS"
+# The variable the select job's chosen scenario ids reach run-scenarios and check-scenarios through.
 SCENARIO_IDS_VARIABLE = "ASAN_SCENARIO_IDS"
 # The select output each variable carries.
 VARIABLE_OUTPUTS = {
@@ -131,11 +138,17 @@ COLLECT_TIMEOUT_SECONDS = 300
 
 
 class InvalidTokens(ValueError):
-    """The description holds tokens that cannot be used; the message has one line per token, naming it and why."""
+    """The description holds tokens that cannot be used.
+
+    The message has one line per token, naming it and why.
+    """
 
 
 class NothingSelected(RuntimeError):
-    """A token selects no test, or its tests could not be listed; the message names the token and what happened."""
+    """A token selects no test, or its tests could not be listed.
+
+    The message names the token and what happened.
+    """
 
 
 @dataclass(frozen=True)
@@ -166,29 +179,34 @@ class AsanSelection:
     reasons: list[str] = field(default_factory=list)
 
     def unit_mode(self) -> str:
-        """MODE_ALL, MODE_FILTERS or MODE_NONE."""
+        """Return MODE_ALL, MODE_FILTERS or MODE_NONE."""
         if self.run_all:
             return MODE_ALL
         return MODE_FILTERS if self.unit_filters else MODE_NONE
 
     def scenario_mode(self) -> str:
-        """MODE_ALL, MODE_SELECTED or MODE_NONE."""
+        """Return MODE_ALL, MODE_SELECTED or MODE_NONE."""
         if self.run_all:
             return MODE_ALL
         return MODE_SELECTED if self.groups or self.scenario_ids else MODE_NONE
 
     def shard_numbers(self, full_suite_shards: int) -> list[int]:
-        """The scenario shards: 1 to full_suite_shards for every scenario, otherwise one."""
+        """Return the scenario shards: 1 to full_suite_shards for every scenario, otherwise one."""
         return list(range(1, full_suite_shards + 1)) if self.run_all else [1]
 
 
 def echo_safe(text: str) -> str:
-    """text with every character outside ECHO_SAFE_CHARACTER replaced by '?', for echoing description text."""
+    """Return text with every character outside ECHO_SAFE_CHARACTER replaced by '?'.
+
+    Use it to echo description text.
+    """
     return "".join(character if ECHO_SAFE_CHARACTER.fullmatch(character) else "?" for character in text)
 
 
 def read_description(event_path: Path) -> str:
-    """The pull request description in the webhook event file at event_path; empty when it has none.
+    """Return the pull request description in the webhook event file at event_path.
+
+    Empty when it has none.
 
     Raises OSError or ValueError when the file cannot be read as an event.
     """
@@ -201,7 +219,7 @@ def read_description(event_path: Path) -> str:
 
 
 def description_tokens(body: str) -> list[Token]:
-    """The description's tokens outside HTML comments, in order and without repeats."""
+    """Return the description's tokens outside HTML comments, in order and without repeats."""
     tokens: list[Token] = []
     for match in DESCRIPTION_TOKEN.finditer(ci_groups.HTML_COMMENT.sub("", body)):
         token = Token(match.group(0), match.group(1), match.group(2))
@@ -211,7 +229,10 @@ def description_tokens(body: str) -> list[Token]:
 
 
 def capitalised_prefixes(body: str) -> list[str]:
-    """Each token-like word outside HTML comments whose prefix is not written in lower case, in order and without repeats."""
+    """Return each token-like word outside HTML comments whose prefix is not in lower case.
+
+    The words come in order and without repeats.
+    """
     found: list[str] = []
     for match in ANY_CASE_PREFIX.finditer(ci_groups.HTML_COMMENT.sub("", body)):
         if not match.group(0).startswith(TOKEN_PREFIX) and match.group(0) not in found:
@@ -220,21 +241,27 @@ def capitalised_prefixes(body: str) -> list[str]:
 
 
 def run_decision(action: str, tokens: Sequence[Token]) -> tuple[bool, str]:
-    """Whether this pull request event runs the selected tests, and why: every event runs them while the description holds a token."""
+    """Return whether this pull request event runs the selected tests, and why.
+
+    Every event runs them while the description holds a token.
+    """
     if not tokens:
         return False, "the description has no @asan-test token"
     return True, f"the pull request event is {action}, and the description has @asan-test tokens"
 
 
 def with_prose_hint(problem: str, value: str) -> str:
-    """problem, followed by PLAIN_TEXT_HINT when value holds or ends in a character prose wraps a token in."""
+    """Return problem, followed by PLAIN_TEXT_HINT when value looks wrapped in prose.
+
+    The hint follows when value holds or ends in a character prose wraps a token in.
+    """
     if "`" in value or (value and value[-1] in PROSE_CHARACTERS):
         return f"{problem} ({PLAIN_TEXT_HINT})"
     return problem
 
 
 def gtest_filter_problem(value: str) -> Optional[str]:
-    """Why value cannot be a unit token's GoogleTest filter, or None when it can.
+    """Return why value cannot be a unit token's GoogleTest filter, or None when it can.
 
     No test name holds '-', so GoogleTest reads the first one as the start of negative patterns.
     Joined with the other unit tokens' filters, one token's negative part would exclude their
@@ -250,14 +277,19 @@ def gtest_filter_problem(value: str) -> Optional[str]:
         )
     for character in value:
         if not GTEST_FILTER_CHARACTER.fullmatch(character):
-            return with_prose_hint(f"may hold only {GTEST_FILTER_CHARACTERS_TEXT}, not {echo_safe(repr(character))}", value)
+            return with_prose_hint(
+                f"may hold only {GTEST_FILTER_CHARACTERS_DESCRIPTION}, not {echo_safe(repr(character))}", value
+            )
     if not GTEST_FILTER.fullmatch(value):
         return "has an empty pattern beside a ':'"
     return None
 
 
 def scenario_id_problem(value: str, repo_root: Path) -> Optional[str]:
-    """Why value cannot be a scenario token's node id in the checkout at repo_root, or None when it can."""
+    """Return why value cannot be a scenario token's node id, or None when it can.
+
+    The node id is looked up in the checkout at repo_root.
+    """
     if not value:
         return f"needs a scenario id after '=', such as {TOKEN_PREFIX}{SCENARIO_TOKEN}={SCENARIO_ID_FOLDER}test_bank.py"
     if ".." in value:
@@ -280,18 +312,24 @@ def scenario_id_problem(value: str, repo_root: Path) -> Optional[str]:
 
 
 def unknown_groups_text(unknown: Sequence[str], groups: Sequence[str]) -> str:
-    """ci_groups' message for unknown group names, listing this workflow's other token forms."""
-    return ci_groups.unknown_groups_message(unknown, groups, (ALL_TOKEN, f"{UNIT_TOKEN}=<filter>", f"{SCENARIO_TOKEN}=<id>"))
+    """Return ci_groups' unknown-groups message, listing this workflow's other token forms."""
+    return ci_groups.unknown_groups_message(
+        unknown, groups, (ALL_TOKEN, f"{UNIT_TOKEN}=<filter>", f"{SCENARIO_TOKEN}=<id>")
+    )
 
 
 def select_tests(body: str, groups: Sequence[str], repo_root: Path) -> AsanSelection:
-    """The tests the description's tokens ask for; groups lists the registered groups and subgroups.
+    """Return the tests the description's tokens ask for.
+
+    groups lists the registered groups and subgroups.
 
     Every token is checked, even beside @asan-test-all. Raises InvalidTokens listing each token
     that cannot be used, with its text made echo-safe.
     """
     selection = AsanSelection()
-    problems = [f"{echo_safe(text)}: tokens are lower case; write {TOKEN_PREFIX}" for text in capitalised_prefixes(body)]
+    problems = [
+        f"{echo_safe(text)}: tokens are lower case; write {TOKEN_PREFIX}" for text in capitalised_prefixes(body)
+    ]
     unknown: list[str] = []
     for token in description_tokens(body):
         problem: Optional[str] = None
@@ -330,7 +368,7 @@ def select_tests(body: str, groups: Sequence[str], repo_root: Path) -> AsanSelec
 
 
 def output_lines(selection: AsanSelection, run: bool, full_suite_shards: int) -> list[str]:
-    """The select job's outputs, one name=value line each; every list is JSON on one line."""
+    """Return the select job's outputs, one name=value line each; every list is JSON on one line."""
     if not run:
         selection = AsanSelection()
     return [
@@ -345,10 +383,12 @@ def output_lines(selection: AsanSelection, run: bool, full_suite_shards: int) ->
 
 
 def selection_summary(selection: AsanSelection, run: bool, why: str, shard_count: int) -> str:
-    """The select job's summary: whether the run happens and why, and what each token adds."""
+    """Return the select job's summary: whether the run happens, why, and what each token adds."""
     if not run:
         return f"### ASan run: not started\n\n- {why}\n"
-    unit = {MODE_ALL: "every unit test", MODE_FILTERS: "chosen unit tests", MODE_NONE: "no unit tests"}[selection.unit_mode()]
+    unit = {MODE_ALL: "every unit test", MODE_FILTERS: "chosen unit tests", MODE_NONE: "no unit tests"}[
+        selection.unit_mode()
+    ]
     scenarios = {
         MODE_ALL: f"every scenario, split across {shard_count} shards",
         MODE_SELECTED: "chosen scenarios",
@@ -360,17 +400,17 @@ def selection_summary(selection: AsanSelection, run: bool, why: str, shard_count
 
 
 def quoted_lines(lines: Iterable[str]) -> str:
-    """lines as an indented Markdown code block, so text in them renders literally."""
+    """Return lines as an indented Markdown code block, so text in them renders literally."""
     return "".join(f"    {line}\n" for line in lines)
 
 
 def problem_summary(heading: str, message: str) -> str:
-    """A summary quoting message as an indented code block."""
+    """Return a summary quoting message as an indented code block."""
     return f"### {heading}\n\n" + quoted_lines(message.splitlines())
 
 
 def append_summary(path: Optional[Path], text: str) -> None:
-    """Appends text to the summary file at path, when there is one."""
+    """Append text to the summary file at path, when there is one."""
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -379,12 +419,14 @@ def append_summary(path: Optional[Path], text: str) -> None:
 
 
 def registered_groups(repo_root: Path) -> list[str]:
-    """The registered groups and subgroups; raises group_files.GroupFileError or OSError."""
+    """Return the registered groups and subgroups; raise group_files.GroupFileError or OSError."""
     return [group.name for group in group_files.read_groups(repo_root / ci_groups.GROUPS_DIRECTORY)]
 
 
 def collect_node_ids(python: str, group: str, targets: Optional[Sequence[str]]) -> list[str]:
-    """The node ids, relative to tests/integration, that a run of group collects, or targets when given (run_plan.collect_selection).
+    """Return the node ids, relative to tests/integration, that a run of group collects.
+
+    When targets are given, the run collects them instead (run_plan.collect_selection).
 
     No ROTS_IT_SHARD applies. Raises NothingSelected when collection fails or outlives
     COLLECT_TIMEOUT_SECONDS; pytest's output is then on stderr.
@@ -402,7 +444,7 @@ def collect_node_ids(python: str, group: str, targets: Optional[Sequence[str]]) 
 def scenario_token_tests(
     groups: Sequence[str], scenario_ids: Sequence[str], collect: Callable[[str, Optional[Sequence[str]]], list[str]],
 ) -> list[tuple[str, list[str]]]:
-    """Each group and scenario token, as written, with the node ids it selects, in order.
+    """Return each group and scenario token, as written, with the node ids it selects, in order.
 
     collect gives the node ids for a group, or for targets relative to the repository root.
     Raises NothingSelected naming every token that selects no test or cannot be collected.
@@ -410,7 +452,9 @@ def scenario_token_tests(
     selected: list[tuple[str, list[str]]] = []
     problems: list[str] = []
     requests: list[tuple[str, str, Optional[list[str]]]] = [(f"{TOKEN_PREFIX}{name}", name, None) for name in groups]
-    requests += [(f"{TOKEN_PREFIX}{SCENARIO_TOKEN}={node_id}", "", [INTEGRATION_RELATIVE + node_id]) for node_id in scenario_ids]
+    requests += [
+        (f"{TOKEN_PREFIX}{SCENARIO_TOKEN}={node_id}", "", [INTEGRATION_RELATIVE + node_id]) for node_id in scenario_ids
+    ]
     for token_text, group, targets in requests:
         try:
             node_ids = collect(group, targets)
@@ -427,7 +471,7 @@ def scenario_token_tests(
 
 
 def unique_node_ids(token_tests: Iterable[tuple[str, list[str]]]) -> list[str]:
-    """Every node id the tokens select, in order, each once."""
+    """Return every node id the tokens select, in order, each once."""
     node_ids: list[str] = []
     for _, token_node_ids in token_tests:
         for node_id in token_node_ids:
@@ -437,7 +481,7 @@ def unique_node_ids(token_tests: Iterable[tuple[str, list[str]]]) -> list[str]:
 
 
 def names_markdown(names: Sequence[str]) -> list[str]:
-    """Indented list lines for names, the first SUMMARY_NAME_LIMIT of them and a count of the rest."""
+    """Return indented list lines for the first SUMMARY_NAME_LIMIT names and a count of the rest."""
     lines = [f"  - `{name}`" for name in names[:SUMMARY_NAME_LIMIT]]
     if len(names) > SUMMARY_NAME_LIMIT:
         lines.append(f"  - and {len(names) - SUMMARY_NAME_LIMIT} more")
@@ -445,7 +489,7 @@ def names_markdown(names: Sequence[str]) -> list[str]:
 
 
 def token_tests_summary(heading: str, token_tests: Sequence[tuple[str, list[str]]]) -> str:
-    """A summary listing each token's tests."""
+    """Return a summary listing each token's tests."""
     lines = [f"### {heading}", ""]
     for token_text, node_ids in token_tests:
         lines.append(f"- `{token_text}`: {len(node_ids)} {'test' if len(node_ids) == 1 else 'tests'}")
@@ -454,7 +498,7 @@ def token_tests_summary(heading: str, token_tests: Sequence[tuple[str, list[str]
 
 
 def listed_tests(listing: str) -> list[str]:
-    """The full test names (Suite.Test) in GoogleTest's --gtest_list_tests output."""
+    """Return the full test names (Suite.Test) in GoogleTest's --gtest_list_tests output."""
     names: list[str] = []
     suite = ""
     for line in listing.splitlines():
@@ -471,7 +515,9 @@ def listed_tests(listing: str) -> list[str]:
 def unit_filter_tests(
     binary: str, filters: Sequence[str], list_tests: Callable[[list[str]], tuple[int, str]],
 ) -> list[tuple[str, list[str]]]:
-    """Each unit filter with the tests it matches; raises NothingSelected naming every filter that matches none.
+    """Return each unit filter with the tests it matches.
+
+    Raise NothingSelected naming every filter that matches none.
 
     list_tests runs the binary with arguments and returns its exit status and output.
     """
@@ -494,14 +540,20 @@ def unit_filter_tests(
 
 
 def unit_test_command(binary: str, mode: str, filters: Sequence[str]) -> list[str]:
-    """The unit tests binary's command: every test, each named as it runs, or the filters joined into one --gtest_filter."""
+    """Return the unit tests binary's command.
+
+    It runs every test, each named as it runs, or the filters joined into one --gtest_filter.
+    """
     if mode == MODE_ALL:
         return [binary]
     return [binary, f"--gtest_filter={GTEST_FILTER_SEPARATOR.join(filters)}"]
 
 
 def read_string_list(environ: Mapping[str, str], name: str) -> list[str]:
-    """The JSON list of strings in environ[name], empty when unset; raises ValueError naming the variable."""
+    """Return the JSON list of strings in environ[name], empty when unset.
+
+    Raise ValueError naming the variable.
+    """
     text = environ.get(name, "") or "[]"
     try:
         value = json.loads(text)
@@ -513,7 +565,10 @@ def read_string_list(environ: Mapping[str, str], name: str) -> list[str]:
 
 
 def read_mode(environ: Mapping[str, str], name: str, modes: Sequence[str]) -> str:
-    """The mode in environ[name], which must be one of modes; raises ValueError naming the variable."""
+    """Return the mode in environ[name], which must be one of modes.
+
+    Raise ValueError naming the variable.
+    """
     mode = environ.get(name)
     if mode not in modes:
         raise ValueError(f"{name} must be {', '.join(modes)}, not {echo_safe(repr(mode))}")
@@ -521,19 +576,26 @@ def read_mode(environ: Mapping[str, str], name: str, modes: Sequence[str]) -> st
 
 
 def checked_unit_inputs(environ: Mapping[str, str]) -> tuple[str, list[str]]:
-    """The unit mode and filters from the environment, checked again; raises ValueError."""
+    """Return the unit mode and filters from the environment, checked again; raise ValueError."""
     mode = read_mode(environ, UNIT_MODE_VARIABLE, (MODE_NONE, MODE_ALL, MODE_FILTERS))
     filters = read_string_list(environ, UNIT_FILTERS_VARIABLE)
     if mode == MODE_FILTERS and not filters:
         raise ValueError(f"{UNIT_MODE_VARIABLE}={MODE_FILTERS} needs filters in {UNIT_FILTERS_VARIABLE}")
-    problems = [f"{TOKEN_PREFIX}{UNIT_TOKEN}={echo_safe(value)}: {problem}" for value in filters if (problem := gtest_filter_problem(value))]
+    problems = [
+        f"{TOKEN_PREFIX}{UNIT_TOKEN}={echo_safe(value)}: {problem}"
+        for value in filters
+        if (problem := gtest_filter_problem(value))
+    ]
     if problems:
         raise ValueError("\n".join(problems))
     return mode, filters
 
 
 def checked_scenario_inputs(environ: Mapping[str, str], repo_root: Path) -> tuple[str, list[str], list[str]]:
-    """The scenario mode, groups and scenario ids from the environment, checked again; raises ValueError."""
+    """Return the scenario mode, groups and scenario ids from the environment, checked again.
+
+    Raise ValueError.
+    """
     mode = read_mode(environ, SCENARIO_MODE_VARIABLE, (MODE_NONE, MODE_ALL, MODE_SELECTED))
     groups = read_string_list(environ, GROUPS_VARIABLE)
     scenario_ids = read_string_list(environ, SCENARIO_IDS_VARIABLE)
@@ -552,7 +614,9 @@ def checked_scenario_inputs(environ: Mapping[str, str], repo_root: Path) -> tupl
 
 
 def sanitizer_report_lines(runs_root: Path, since: float) -> list[str]:
-    """The SANITIZER_ERROR_TEXT lines of every server log under runs_root changed at or after since, each after its test's id.
+    """Return the SANITIZER_ERROR_PART lines of the recent server logs under runs_root.
+
+    A log counts when it changed at or after since; each line follows its test's id.
 
     Unreadable files are skipped; the lines are made echo-safe.
     """
@@ -564,17 +628,25 @@ def sanitizer_report_lines(runs_root: Path, since: float) -> list[str]:
                 continue
             log_text = log_path.read_bytes().decode("latin-1")
             test_id_path = log_path.parent / TEST_NAME_FILE
-            test_id = test_id_path.read_text(encoding="utf-8", errors="replace").strip() if test_id_path.is_file() else log_path.parent.name
+            test_id = (
+                test_id_path.read_text(encoding="utf-8", errors="replace").strip()
+                if test_id_path.is_file()
+                else log_path.parent.name
+            )
         except OSError:
             continue
         for line in log_text.splitlines():
-            if SANITIZER_ERROR_TEXT in line:
+            if SANITIZER_ERROR_PART in line:
                 lines.append(echo_safe(f"{test_id}: {line.strip()}"))
     return lines
 
 
 def scenario_outcome_summary(status: int, shard_text: str, report_lines: Sequence[str]) -> str:
-    """The run-scenarios outcome: pass or fail with pytest's status, the artifact holding the kept run directories, and the reports."""
+    """Return the run-scenarios outcome.
+
+    It gives pass or fail with pytest's status, the artifact holding the kept run directories, and
+    the reports.
+    """
     if status == 0:
         return "\nThe scenarios passed.\n"
     shard_number = shard_text.split("/", 1)[0] if shard_text else "1"
@@ -595,15 +667,22 @@ def scenario_outcome_summary(status: int, shard_text: str, report_lines: Sequenc
 
 
 def run_captured(command: list[str], working_dir: Path) -> tuple[int, str]:
-    """Runs command in working_dir and returns its exit status and combined output."""
+    """Run command in working_dir and return its exit status and combined output."""
     completed = subprocess.run(
-        command, cwd=working_dir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+        command,
+        cwd=working_dir,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
     )
     return completed.returncode, completed.stdout.decode("latin-1", errors="replace")
 
 
 def command_select(arguments: argparse.Namespace, description: Optional[str]) -> int:
-    """The select command: writes the outputs and the summary, or explains which tokens cannot be used.
+    """Run the select command: write the outputs and the summary.
+
+    Or explain which tokens cannot be used.
 
     description replaces the event file's in tests.
     """
@@ -625,7 +704,9 @@ def command_select(arguments: argparse.Namespace, description: Optional[str]) ->
         selection = select_tests(description, groups, arguments.repo_root)
     except InvalidTokens as invalid:
         print(f"error: the @asan-test tokens cannot be used:\n{invalid}", file=sys.stderr)
-        append_summary(arguments.summary, problem_summary("ASan run: the @asan-test tokens cannot be used", str(invalid)))
+        append_summary(
+            arguments.summary, problem_summary("ASan run: the @asan-test tokens cannot be used", str(invalid))
+        )
         return EXIT_USAGE
     run, why = run_decision(arguments.action, description_tokens(description))
     with arguments.output.open("a", encoding="utf-8") as output:
@@ -638,9 +719,14 @@ def command_select(arguments: argparse.Namespace, description: Optional[str]) ->
 
 
 def command_check_scenarios(
-    arguments: argparse.Namespace, environ: Mapping[str, str], collect: Callable[[str, Optional[Sequence[str]]], list[str]],
+    arguments: argparse.Namespace,
+    environ: Mapping[str, str],
+    collect: Callable[[str, Optional[Sequence[str]]], list[str]],
 ) -> int:
-    """The check-scenarios command: fails unless every group and scenario token selects a test, under @asan-test-all too."""
+    """Run the check-scenarios command.
+
+    It fails unless every group and scenario token selects a test, under @asan-test-all too.
+    """
     try:
         _, groups, scenario_ids = checked_scenario_inputs(environ, arguments.repo_root)
         token_tests = scenario_token_tests(groups, scenario_ids, collect)
@@ -661,7 +747,10 @@ def command_run_unit(
     arguments: argparse.Namespace, environ: Mapping[str, str],
     list_tests: Callable[[list[str]], tuple[int, str]], run_command: Callable[[list[str], bool], int],
 ) -> int:
-    """The run-unit command: checks every filter matches a test, then runs the unit tests once and returns their status."""
+    """Run the run-unit command and return the unit tests' status.
+
+    It checks every filter matches a test, then runs the unit tests once.
+    """
     try:
         mode, filters = checked_unit_inputs(environ)
     except ValueError as error:
@@ -683,7 +772,9 @@ def command_run_unit(
     command = unit_test_command(arguments.binary, mode, filters)
     print("Running: " + " ".join(command), flush=True)
     status = run_command(command, False)
-    append_summary(arguments.summary, f"\nThe unit tests {'passed' if status == 0 else f'failed with exit status {status}'}.\n")
+    append_summary(
+        arguments.summary, f"\nThe unit tests {'passed' if status == 0 else f'failed with exit status {status}'}.\n"
+    )
     return status
 
 
@@ -691,7 +782,10 @@ def command_run_scenarios(
     arguments: argparse.Namespace, environ: Mapping[str, str],
     collect: Callable[[str, Optional[Sequence[str]]], list[str]], run_command: Callable[[list[str], bool], int],
 ) -> int:
-    """The run-scenarios command: runs every scenario in this shard's share, or the chosen ones once checked; returns pytest's status."""
+    """Run the run-scenarios command and return pytest's status.
+
+    It runs every scenario in this shard's share, or the chosen ones once checked.
+    """
     try:
         mode, groups, scenario_ids = checked_scenario_inputs(environ, arguments.repo_root)
     except (ValueError, OSError, group_files.GroupFileError) as error:
@@ -703,7 +797,9 @@ def command_run_scenarios(
     shard_text = environ.get(run_plan.SHARD_VARIABLE, "")
     if mode == MODE_ALL:
         # The select job has checked every group and scenario token beside @asan-test-all.
-        append_summary(arguments.summary, f"### ASan scenarios: every scenario{f', shard {shard_text}' if shard_text else ''}\n")
+        append_summary(
+            arguments.summary, f"### ASan scenarios: every scenario{f', shard {shard_text}' if shard_text else ''}\n"
+        )
         command = run_plan.pytest_run_command(arguments.python, run_plan.run_expression("", []), arguments.jobs)
     else:
         try:
@@ -723,14 +819,16 @@ def command_run_scenarios(
 
 
 def parse_arguments(argv: Optional[list[str]], environ: Mapping[str, str]) -> argparse.Namespace:
-    """The command line; argparse exits with status 2 on a bad one."""
+    """Return the command line; argparse exits with status 2 on a bad one."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-root", type=Path, default=DEFAULT_REPO_ROOT, help="the repository root")
     parser.add_argument("--summary", type=Path, help="the file the markdown summary is appended to")
     commands = parser.add_subparsers(dest="command", required=True)
     select = commands.add_parser("select", help="choose the tests from the pull request's description")
     select.add_argument("--action", required=True, help="the pull_request event's action, for the summary")
-    select.add_argument("--output", type=Path, required=True, help="the file the outputs are appended to, as GITHUB_OUTPUT")
+    select.add_argument(
+        "--output", type=Path, required=True, help="the file the outputs are appended to, as GITHUB_OUTPUT"
+    )
     select.add_argument("--full-suite-shards", type=int, default=1, help="how many shards a run of every scenario uses")
     event_default = environ.get(EVENT_PATH_VARIABLE)
     select.add_argument(
@@ -759,7 +857,9 @@ def main(
     collect: Optional[Callable[[str, Optional[Sequence[str]]], list[str]]] = None,
     run_command: Callable[[list[str], bool], int] = run_plan.run_in_foreground,
 ) -> int:
-    """Runs one command and returns its exit status: 0, EXIT_USAGE, EXIT_NOTHING_SELECTED, or the tests' own status.
+    """Run one command and return its exit status.
+
+    The status is 0, EXIT_USAGE, EXIT_NOTHING_SELECTED, or the tests' own status.
 
     The keyword arguments replace the environment, the event file's description and the
     subprocesses in tests: list_tests runs the unit tests binary to list tests, collect collects

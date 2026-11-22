@@ -1,5 +1,7 @@
-"""The scenario groups, one file each under tests/integration/groups, and the check that a pytest -m
-expression names only registered markers, so a misspelt group stops the run.
+"""The scenario groups, one file each under tests/integration/groups, and the -m marker check.
+
+The check makes sure a pytest -m expression names only registered markers, so a misspelt group stops
+the run.
 
 A group file groups/<group>.txt registers the marker <group>. A large group can be split into
 subgroups, one level deep: groups/<group>/<sub>.txt registers the marker <group>_<sub>, a subgroup
@@ -30,7 +32,10 @@ IGNORED_FOLDER_NAMES = frozenset({"__pycache__"})
 
 
 class GroupFileError(ValueError):
-    """The groups folder does not follow the group file rules; the message names the file or folder and the rule."""
+    """The groups folder does not follow the group file rules.
+
+    The message names the file or folder and the rule.
+    """
 
 
 @dataclass(frozen=True)
@@ -46,7 +51,10 @@ class Group:
 
 
 def registered_marker_names(ini_lines: Iterable[str]) -> list[str]:
-    """Marker names from pytest.ini's markers lines ("name: help" or "name(args): help")."""
+    """Return the marker names from pytest.ini's markers lines.
+
+    The lines read "name: help" or "name(args): help".
+    """
     names = []
     for line in ini_lines:
         match = MARKER_NAME_PATTERN.match(line.strip())
@@ -56,7 +64,7 @@ def registered_marker_names(ini_lines: Iterable[str]) -> list[str]:
 
 
 def unknown_marker_names(expression: str, registered: Iterable[str]) -> list[str]:
-    """Names in a -m expression that no marker registers, in the order they appear."""
+    """Return the names in a -m expression that no marker registers, in the order they appear."""
     known = set(registered)
     unknown = []
     for name in MARKER_NAME_PATTERN.findall(expression):
@@ -66,8 +74,9 @@ def unknown_marker_names(expression: str, registered: Iterable[str]) -> list[str
 
 
 def read_groups(groups_dir: Path) -> list[Group]:
-    """Every group the folder registers, in registration order: each top-level group in name order,
-    followed at once by its subgroups in name order.
+    """Return every group the folder registers, in registration order.
+
+    Each top-level group comes in name order, followed at once by its subgroups in name order.
 
     groups_dir/<name>.txt registers a top-level group, and groups_dir/<name>/<sub>.txt registers
     the subgroup <name>_<sub>. Files with another suffix, hidden folders and __pycache__ are
@@ -85,9 +94,15 @@ def read_groups(groups_dir: Path) -> list[Group]:
             continue
         shown = f"{groups_dir.name}/{folder.name}"
         if folder.suffix == GROUP_FILE_SUFFIX:
-            raise GroupFileError(f"folder {shown} is named like a group file; a subgroup folder takes its group's name without {GROUP_FILE_SUFFIX}")
+            raise GroupFileError(
+                f"folder {shown} is named like a group file; a subgroup "
+                f"folder takes its group's name without {GROUP_FILE_SUFFIX}"
+            )
         if folder.name not in group_file_names:
-            raise GroupFileError(f"folder {shown} has no group file {shown}{GROUP_FILE_SUFFIX}; a subgroup folder sits beside its group's file")
+            raise GroupFileError(
+                f"folder {shown} has no group file {shown}{GROUP_FILE_SUFFIX}; "
+                "a subgroup folder sits beside its group's file"
+            )
         subgroup_files[folder.name] = _subgroup_files(folder)
     groups = []
     registered_by: dict[str, Path] = {}
@@ -105,17 +120,23 @@ def read_groups(groups_dir: Path) -> list[Group]:
 
 
 def _is_ignored_folder(path: Path) -> bool:
-    """Whether path is a hidden or cache folder the reader skips."""
+    """Return whether path is a hidden or cache folder the reader skips."""
     return path.name.startswith(".") or path.name in IGNORED_FOLDER_NAMES
 
 
 def _is_group_file(path: Path) -> bool:
-    """Whether path is a file the reader registers: a regular file with the group file suffix."""
+    """Return whether path is a file the reader registers.
+
+    It must be a regular file with the group file suffix.
+    """
     return path.is_file() and path.suffix == GROUP_FILE_SUFFIX
 
 
 def _subgroup_files(folder: Path) -> list[Path]:
-    """The subgroup files in a group's subfolder, in name order; raises GroupFileError for a folder inside it."""
+    """Return the subgroup files in a group's subfolder, in name order.
+
+    Raise GroupFileError for a folder inside it.
+    """
     paths = []
     for path in sorted(folder.iterdir()):
         if path.is_dir() and not _is_ignored_folder(path):
@@ -126,17 +147,26 @@ def _subgroup_files(folder: Path) -> list[Path]:
 
 
 def _read_group_file(path: Path, name: str, parent: Optional[str]) -> Group:
-    """The group path registers under name; raises GroupFileError unless its stem is a marker name and it holds one non-empty line."""
+    """Return the group path registers under name.
+
+    Raise GroupFileError unless its stem is a marker name and it holds one non-empty line.
+    """
     if MARKER_NAME_PATTERN.fullmatch(path.stem) is None or path.stem in EXPRESSION_KEYWORDS:
-        raise GroupFileError(f"{path}: {path.stem!r} is not a marker name (letters, digits and underscores, not starting with a digit)")
+        raise GroupFileError(
+            f"{path}: {path.stem!r} is not a marker name (letters, digits and underscores, not starting with a digit)"
+        )
     lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if len(lines) != 1:
-        raise GroupFileError(f"{path}: a group file holds its description on one line; found {len(lines)} non-empty lines")
+        raise GroupFileError(
+            f"{path}: a group file holds its description on one line; found {len(lines)} non-empty lines"
+        )
     return Group(name, lines[0], parent)
 
 
 def read_group_descriptions(groups_dir: Path) -> dict[str, str]:
-    """Each registered group's name and one-line description, subgroups included, in read_groups' registration order.
+    """Return each registered group's name and one-line description, subgroups included.
+
+    They come in read_groups' registration order.
 
     Raises what read_groups raises.
     """
@@ -144,7 +174,10 @@ def read_group_descriptions(groups_dir: Path) -> dict[str, str]:
 
 
 def subgroups_by_parent(groups: Iterable[Group]) -> dict[str, list[str]]:
-    """Each group that has subgroups, with its subgroups' names in the order given; a group without subgroups is left out."""
+    """Return each group that has subgroups, with its subgroups' names in the order given.
+
+    A group without subgroups is left out.
+    """
     subgroups: dict[str, list[str]] = {}
     for group in groups:
         if group.parent is not None:
@@ -152,8 +185,12 @@ def subgroups_by_parent(groups: Iterable[Group]) -> dict[str, list[str]]:
     return subgroups
 
 
-def subgroup_marking_problems(tests: Iterable[tuple[str, Iterable[str]]], subgroups: Mapping[str, Sequence[str]]) -> list[str]:
-    """One line per way a test's markers break the subgroup rules, as "<node id>: <what is wrong>", in test order.
+def subgroup_marking_problems(
+    tests: Iterable[tuple[str, Iterable[str]]], subgroups: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """Return one line per way a test's markers break the subgroup rules, in test order.
+
+    Each line reads "<node id>: <what is wrong>".
 
     tests gives each test's node id and marker names; subgroups gives each group that has
     subgroups, with them (subgroups_by_parent). A test marking such a group must mark exactly one of
@@ -167,7 +204,10 @@ def subgroup_marking_problems(tests: Iterable[tuple[str, Iterable[str]]], subgro
             if parent in markers and not marked:
                 problems.append(f"{node_id}: marks {parent} but none of its subgroups ({', '.join(names)})")
             if len(marked) > 1:
-                problems.append(f"{node_id}: marks {len(marked)} subgroups of {parent} ({', '.join(marked)}); a test marks exactly one")
+                problems.append(
+                    f"{node_id}: marks {len(marked)} subgroups of {parent} "
+                    f"({', '.join(marked)}); a test marks exactly one"
+                )
             if parent not in markers:
                 problems.extend(f"{node_id}: marks the subgroup {name} without its group {parent}" for name in marked)
     return problems

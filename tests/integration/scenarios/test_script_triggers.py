@@ -1,5 +1,7 @@
-"""Script triggers as players set them off: each kind of trigger runs when its command is typed,
-binds the characters and objects its script names, and can still refuse what it may refuse.
+"""Script triggers as players set them off.
+
+Each kind of trigger runs when its command is typed, binds the characters and objects its script
+names, and can still refuse what it may refuse.
 
 These are behaviour pins for the trigger dispatch: walking in (ON_ENTER on a mob and on a floor
 object), a guard turning back a walker, a follower and a rider (ON_BEFORE_ENTER), wearing
@@ -17,18 +19,40 @@ resets from running; script waits and casting delays end on the game loop's wait
 runs every pass on every server. Magic missile's damage and a drink's size are drawn, but the stoic
 refuses any blow, any missile kills a one-hit-point mob (missile_always_kills) and the flask
 holds one drink. The casting roll only decides whether the cast happens, with its own message, so
-it is repeated on that message (cast_until_it_lands).
+it is repeated on that message (cast_magic_missile_until_it_lands).
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import pytest
 
+from rots_harness.casting import LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import (
+    DEATH_CRY_FORMAT,
+    DRINK_EMPTY_REPLY,
+    FOLLOWED_FORMAT,
+    FOLLOWER_ACK,
+    GET_FORMAT,
+    NOW_FOLLOWING_FORMAT,
+    PURGED_REPLY,
+    WEAR_HEAD_FORMAT,
+)
+from rots_harness.immortal_commands import give_new_object, goto
+from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import (
+    CONSTITUTION_PATTERN,
+    HIT_POINTS_BEFORE_GAIN_PATTERN,
+    LEVEL_PATTERN,
+    SAVING_THROW_PATTERN,
+    read_stat,
+)
+from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset, ObjectReset
 
 # Every test here is a scenario of the script_triggers group; each also marks one subgroup.
@@ -40,11 +64,11 @@ ROOM_TRIGGER_HALL = 2501
 # The chamber north of the hall, reached through an open arch.
 ROOM_TRIGGER_CHAMBER = 2502
 # The name look shows for the hall.
-TRIGGER_HALL_NAME = "Trigger Hall"
+ROOM_TRIGGER_HALL_NAME = "Trigger Hall"
 # The name look shows for the chamber.
-TRIGGER_CHAMBER_NAME = "Trigger Chamber"
+ROOM_TRIGGER_CHAMBER_NAME = "Trigger Chamber"
 # The name look shows for the closet behind the hatch.
-LEVER_CLOSET_NAME = "Lever Closet"
+ROOM_LEVER_CLOSET_NAME = "Lever Closet"
 
 
 @dataclass(frozen=True)
@@ -111,6 +135,26 @@ BISCUIT_VNUM = 2509
 RIBBON_VNUM = 2510
 # A rusted crank for the same hatch, ON_PULL: sends ch1 CRANK_LINE and returns false.
 CRANK_VNUM = 2511
+# The bell's short description.
+BELL_SHORT_DESCRIPTION = "a small bell"
+# The lantern's short description.
+LANTERN_SHORT_DESCRIPTION = "a paper lantern"
+# The diadem's short description.
+DIADEM_SHORT_DESCRIPTION = "a thorned diadem"
+# The coronet's short description.
+CORONET_SHORT_DESCRIPTION = "a silver coronet"
+# The lever's short description.
+LEVER_SHORT_DESCRIPTION = "an iron lever"
+# The crank's short description.
+CRANK_SHORT_DESCRIPTION = "a rusted crank"
+# The cake's short description.
+CAKE_SHORT_DESCRIPTION = "a honey cake"
+# The flask's short description.
+FLASK_SHORT_DESCRIPTION = "a flask"
+# The biscuit's short description.
+BISCUIT_SHORT_DESCRIPTION = "a dry biscuit"
+# The ribbon's short description.
+RIBBON_SHORT_DESCRIPTION = "a black ribbon"
 
 # What the bell sends whoever walks in; format with that one's name.
 BELL_LINE_FORMAT = "A small bell chimes for {}."
@@ -134,6 +178,26 @@ FLASK_LINE = "The water in the flask is cold."
 BISCUIT_LINE = "The dry biscuit crumbles away."
 # What the warden sends whoever it turns back; format with that one's name.
 WARDEN_LINE_FORMAT = "The warden bars your way, {}."
+# The part of WARDEN_LINE_FORMAT every refusal shares.
+WARDEN_BARS_PART = "bars your way"
+# What the greeter says to whoever walks in; format with that one's name.
+GREETING_FORMAT = "Welcome, {}."
+# What the echoer says to a speaker; format with the speaker's name.
+ECHO_FORMAT = "I hear you, {}."
+# The part of ECHO_FORMAT every echo shares.
+ECHO_PART = "I hear you"
+# What the stoic says to its attacker; format with the attacker's name.
+STOIC_REFUSAL_FORMAT = "Your blow cannot touch me, {}."
+# What the mourner says as it dies.
+MOURNER_LAST_WORDS = "My watch is ended."
+# What the stubborn old man says as it refuses to die.
+STUBBORN_REFUSAL = "Not yet!"
+# What the answerer says when it hears speech.
+ANSWER_LINE = "I heard that."
+# What the parrot says as it starts its pause.
+PARROT_PAUSE_LINE = "Let me think about that."
+# The start of what the parrot says after its pause, before the words it heard.
+PARROT_REPEAT_LINE_START = "You said: "
 # What the vanisher sends its room as it removes itself.
 VANISHER_LINE = "The vanisher fades away."
 # The mourner's line in a room's look, his long description.
@@ -143,38 +207,26 @@ STUBBORN_ROOM_LINE = "A stubborn old man stands here."
 # The ledger's action description, which examine shows once its script has run.
 LEDGER_DESCRIPTION = "Columns of small figures fill the ledger."
 
-# What the wearer reads as a head item goes on (wear_message, act_obj2.cpp); format with the item.
-WEAR_ON_HEAD_FORMAT = "You wear {} on your head."
 # What the puller reads as a lever moves (do_pull, act_move.cpp); format with the lever.
 PULL_FORMAT = "You pull at {}."
 # What do_pull sends the hatch's room as it opens the closed hatch.
 HATCH_OPENS = "The hatch opens slowly."
 # What a walker reads at the closed hatch (do_move, act_move.cpp).
-HATCH_CLOSED = "The hatch seems to be closed."
+HATCH_CLOSED_REPLY = "The hatch seems to be closed."
 # What the eater reads as it eats (do_eat, act_obj2.cpp); format with the food.
 EAT_FORMAT = "You eat {}."
 # What do_eat says when the eater has no such food.
-NOTHING_TO_EAT = "You don't seem to have any."
+NOTHING_TO_EAT_REPLY = "You don't seem to have any."
 # What the drinker reads as it drinks water (do_drink, act_obj2.cpp).
-DRINK_WATER = "You drink the water."
-# What do_drink says for a container with nothing left in it.
-DRINK_EMPTY = "It's empty."
+DRINK_WATER_REPLY = "You drink the water."
 # The start of what a rider reads as it mounts the mule (do_ride, ranger.cpp).
 MOUNTED_START = "You mount a harness mule and start riding "
 # What do_ride says to someone already riding.
-ALREADY_RIDING = "You are riding already."
-# What a follower reads as it starts following (add_follower, handler.cpp); format with the leader.
-NOW_FOLLOWING_FORMAT = "You now follow {}."
-# What a follower reads when it cannot follow (do_move, act_move.cpp): the leader's pronoun.
-FOLLOWER_ACK = "ACK! You could not follow him!"
+ALREADY_RIDING_REPLY = "You are riding already."
+# The part of a corpse's line in a room's look.
+CORPSE_OF_PART = "corpse of"
 # What the leader reads then; format with the follower, whose pronoun ends it.
 LEADER_ACK_FORMAT = "ACK! {} could not follow, you lost her!"
-# What a follower reads when it does follow (do_move); format with the leader.
-FOLLOWED_FORMAT = "You follow {}."
-# What the caster reads when the casting roll fails (do_cast, spell_pa.cpp).
-LOST_CONCENTRATION = "You lost your concentration!"
-# What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY = "You can't summon enough energy to cast the spell."
 # What a killer reads for its share of a kill (group_gain, fight.cpp).
 EXPERIENCE_SHARE_PATTERN = re.compile(r"You receive your share of experience -- (\d+) points\.")
 
@@ -196,31 +248,19 @@ EXPERIENCE_SHARE_PATTERN = re.compile(r"You receive your share of experience -- 
 #                       = 13, so 103
 #                       exp += 2 * 103 / max(1, 10 - 1) = 22, so 125
 EXPECTED_SHARE = 125
-# The stat line with current and maximum hit points (do_stat_character, act_wiz.cpp).
-HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)\+")
-# The stat line with the saving throw that apply_spell_damage (mage.cpp) reads.
-SAVING_THROW_PATTERN = re.compile(r"Saving throws (-?\d+),")
-# The stat line with constitution's current value, which update_pos (fight.cpp) reads.
-CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The stat line with experience, padded to seven places.
+# The stat line with experience, padded to seven places (do_stat_character, act_wiz.cpp).
 EXPERIENCE_PATTERN = re.compile(r"XP: \[\s*(-?\d+)\]")
-# The same stat line's level, padded to two places.
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 # The same stat line's alignment, padded to four places.
 ALIGNMENT_PATTERN = re.compile(r"Align: \[\s*(-?\d+)\]")
-# The stat line before the affect lines; once it arrives the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to wait for a cast or a script's wait to end: magic missile's casting time and the
 # parrot's 20 passes are each under six seconds; the rest leaves room for a loaded host.
-WAIT_TIMEOUT = 15.0
+WAIT_TIMEOUT_SECONDS = 15.0
 # Game hours that outlast the two hours of anger an attack on a mob gives (on_attacked_character).
 ANGER_HOURS = 3
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def human_warrior(name: str, sex: str = "male") -> Character:
-    """A level-20 human warrior in the trigger hall: below the warden's level 50, on the implementor's side."""
+    """Return a level-20 human warrior in the trigger hall, below the warden's level 50."""
     return Character(name=name, race="human", sex=sex, level=20, load_room=ROOM_TRIGGER_HALL, class_name="warrior")
 
 
@@ -265,40 +305,28 @@ CASTER = Character(
 
 
 def said(mob: TriggerMob, line: str) -> str:
-    """What a player in the room reads when the mob says a line (say_to_char, act_comm.cpp).
+    """Return what a player in the room reads when the mob says a line (say_to_char, act_comm.cpp).
 
     act() capitalises the first letter of the line it sends.
     """
     short = mob.short_description
-    return f"{short[0].upper()}{short[1:]} says '{line}'"
+    return f"{capitalised(short)} says '{line}'"
 
 
 def death_cry(mob: TriggerMob) -> str:
-    """What a character in the room reads from raw_kill's death_cry (fight.cpp)."""
-    return f"Your blood freezes as you hear {mob.short_description}'s death cry."
-
-
-def read_stat(implementor: GameSession, target: str) -> str:
-    """The implementor's stat of a mob or player; several of its lines end in ], so command() would stop early."""
-    implementor.send_line(f"stat {target}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def stat_number(pattern: re.Pattern, stat: str) -> int:
-    """The first group of the pattern in the stat text, as a number."""
-    match = pattern.search(stat)
-    assert match is not None, stat
-    return int(match.group(1))
+    """Return what a character in the room reads from raw_kill's death_cry (fight.cpp)."""
+    return DEATH_CRY_FORMAT.format(mob.short_description)
 
 
 def join_the_mortal(implementor: GameSession) -> None:
-    """Brings the implementor to the trigger hall; goto sets off no trigger."""
-    arrived = implementor.command(f"goto {ROOM_TRIGGER_HALL}")
-    assert arrived.room_name() == TRIGGER_HALL_NAME, arrived.text
+    """Bring the implementor to the trigger hall; goto sets off no trigger."""
+    goto(implementor, ROOM_TRIGGER_HALL, ROOM_TRIGGER_HALL_NAME)
 
 
 def missile_always_kills(implementor: GameSession, mob: TriggerMob) -> str:
-    """Checks, from the mob's stat, that any magic missile the caster lands kills it, whatever the missile rolls; returns the stat.
+    """Check from the mob's stat that any magic missile that lands kills it, and return the stat.
+
+    Whatever the missile rolls, it kills.
 
     Margin check, term by term:
       spell_magic_missile (mage.cpp): dam = 12 + number(1, mag_power / 6) >= 13; a saved
@@ -313,15 +341,18 @@ def missile_always_kills(implementor: GameSession, mob: TriggerMob) -> str:
     So die() runs on every missile that lands.
     """
     stat = read_stat(implementor, f"mob {mob.keyword}")
-    hit_points = HIT_POINTS_PATTERN.search(stat)
-    assert hit_points is not None and (int(hit_points.group(1)), int(hit_points.group(2))) == (1, 1), stat
-    assert stat_number(SAVING_THROW_PATTERN, stat) == 0, stat
-    assert stat_number(CONSTITUTION_PATTERN, stat) == 10, stat
+    hit_points = HIT_POINTS_BEFORE_GAIN_PATTERN.search(stat)
+    assert hit_points is not None, stat
+    current_hit = int(hit_points.group(1))
+    maximum_hit = int(hit_points.group(2))
+    assert (current_hit, maximum_hit) == (1, 1), stat
+    assert first_number(SAVING_THROW_PATTERN, stat) == 0, stat
+    assert first_number(CONSTITUTION_PATTERN, stat) == 10, stat
     return stat
 
 
 def let_the_anger_pass(server) -> None:
-    """Runs the game hours that end the caster's anger, so that the caster can quit after the test.
+    """Run the game hours that end the caster's anger, so that the caster can quit after the test.
 
     Attacking a mob gives the attacker two hours of anger (on_attacked_character,
     char_utils_combat.cpp), and do_quit (act_othe.cpp) refuses a mortal who has it. Under
@@ -330,40 +361,43 @@ def let_the_anger_pass(server) -> None:
     server.advance_hours(ANGER_HOURS)
 
 
-def cast_until_it_lands(caster: GameSession, target: TriggerMob, landed_markers: list) -> str:
-    """Casts magic missile at the mob until the cast gets past the casting roll; returns the text of that cast.
+def cast_magic_missile_until_it_lands(caster: GameSession, target: TriggerMob, landed_outcomes: Sequence[str]) -> str:
+    """Cast magic missile at the mob until it gets past the casting roll; return that cast's text.
 
     The roll (do_cast, spell_pa.cpp) fails when number(0, 100) >= 100, once in 101, with its own
     message. Each attempt costs mana, which nothing restores under affect-hours, so a run of
     failures ends in can_cast_spell's refusal, which fails the test.
     """
+    outcomes = [LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY, *landed_outcomes]
     while True:
-        caster.send_line(f"cast 'magic missile' {target.keyword}")
-        text = caster.expect([LOST_CONCENTRATION, NO_ENERGY, *landed_markers], timeout=WAIT_TIMEOUT)
-        text += caster.drain(SETTLE_SECONDS)
-        if any(marker in text for marker in landed_markers):
+        text = reply_to(caster, f"cast 'magic missile' {target.keyword}", outcomes, timeout=WAIT_TIMEOUT_SECONDS)
+        if any(outcome in text for outcome in landed_outcomes):
             return text
-        assert NO_ENERGY not in text, text
-        assert LOST_CONCENTRATION in text, text
+        assert NO_ENERGY_REPLY not in text, text
+        assert LOST_CONCENTRATION_REPLY in text, text
 
 
 @pytest.mark.script_triggers_movement
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(WALKER)
-@pytest.mark.world_resets(MobReset(GREETER.vnum, ROOM_TRIGGER_CHAMBER), ObjectReset(BELL_VNUM, ROOM_TRIGGER_CHAMBER))
+@pytest.mark.world_resets(
+    MobReset(GREETER.vnum, ROOM_TRIGGER_CHAMBER),
+    ObjectReset(BELL_VNUM, ROOM_TRIGGER_CHAMBER),
+)
 def test_a_mob_and_a_floor_object_greet_a_walker_by_name_mob_first(server) -> None:
-    """Walking in sets off the room's mobs' ON_ENTER scripts, then its floor objects', each naming the walker.
+    """Pins a walk-in setting off the mobs' ON_ENTER scripts, then the floor objects', by name.
 
-    trigger_room_event (script.cpp) runs the people's scripts with the walker as ch2, then the
-    contents' with the walker as ch1, after do_move (act_move.cpp) has shown the walker the room.
+    Each script names the walker. trigger_room_event (script.cpp) runs the people's scripts with
+    the walker as ch2, then the contents' with the walker as ch1, after do_move (act_move.cpp)
+    has shown the walker the room.
     """
     walker = server.login(WALKER.name)
 
     moved = walker.command("north").text
-    greeting = said(GREETER, f"Welcome, {WALKER.name}.")
+    greeting = said(GREETER, GREETING_FORMAT.format(WALKER.name))
     chime = BELL_LINE_FORMAT.format(WALKER.name)
-    assert TRIGGER_CHAMBER_NAME in moved and greeting in moved and chime in moved, moved
-    assert moved.index(TRIGGER_CHAMBER_NAME) < moved.index(greeting) < moved.index(chime), moved
+    assert ROOM_TRIGGER_CHAMBER_NAME in moved and greeting in moved and chime in moved, moved
+    assert moved.index(ROOM_TRIGGER_CHAMBER_NAME) < moved.index(greeting) < moved.index(chime), moved
     assert moved.count(greeting) == 1 and moved.count(chime) == 1, moved
 
 
@@ -372,8 +406,9 @@ def test_a_mob_and_a_floor_object_greet_a_walker_by_name_mob_first(server) -> No
 @pytest.mark.characters(IMPLEMENTOR, WALKER)
 @pytest.mark.world_resets(MobReset(WARDEN.vnum, ROOM_TRIGGER_CHAMBER))
 def test_a_guard_turns_back_a_walker_below_its_level_and_lets_an_immortal_in(server) -> None:
-    """A guard's ON_BEFORE_ENTER script that returns false keeps a walker out; one that does not lets the walker in.
+    """Pins a guard's ON_BEFORE_ENTER script turning back a walker and letting an immortal in.
 
+    A script that returns false keeps the walker out; one that does not lets the walker in.
     check_simple_move (act_move.cpp) runs the destination's ON_BEFORE_ENTER scripts before the
     move and gives up on a false return; do_move then sends nothing more. The warden refuses a
     level-20 walker and lets the level-100 implementor in.
@@ -383,13 +418,14 @@ def test_a_guard_turns_back_a_walker_below_its_level_and_lets_an_immortal_in(ser
 
     refused = walker.command("north").text
     assert WARDEN_LINE_FORMAT.format(WALKER.name) in refused, refused
-    assert TRIGGER_CHAMBER_NAME not in refused, refused
-    assert walker.command("look").room_name() == TRIGGER_HALL_NAME
+    assert ROOM_TRIGGER_CHAMBER_NAME not in refused, refused
+    looked = walker.command("look")
+    assert looked.room_name() == ROOM_TRIGGER_HALL_NAME, looked.text
 
     join_the_mortal(implementor)
     admitted = implementor.command("north")
-    assert admitted.room_name() == TRIGGER_CHAMBER_NAME, admitted.text
-    assert "bars your way" not in admitted.text, admitted.text
+    assert admitted.room_name() == ROOM_TRIGGER_CHAMBER_NAME, admitted.text
+    assert WARDEN_BARS_PART not in admitted.text, admitted.text
 
 
 @pytest.mark.script_triggers_movement
@@ -397,7 +433,7 @@ def test_a_guard_turns_back_a_walker_below_its_level_and_lets_an_immortal_in(ser
 @pytest.mark.characters(IMPLEMENTOR, FOLLOWER)
 @pytest.mark.world_resets(MobReset(WARDEN.vnum, ROOM_TRIGGER_CHAMBER))
 def test_a_guard_turns_back_a_follower_while_its_leader_goes_in(server) -> None:
-    """A guard refuses a follower as it refuses a walker, and both sides read the ACK lines.
+    """Pins a guard refusing a follower as it refuses a walker, both sides reading the ACK lines.
 
     The leader passes the warden; each follower then makes the same move (do_move with
     SCMD_FOLLOW, act_move.cpp), whose check_simple_move runs the warden's script for it.
@@ -411,22 +447,26 @@ def test_a_guard_turns_back_a_follower_while_its_leader_goes_in(server) -> None:
 
     implementor.send_line("north")
     followed = FOLLOWED_FORMAT.format(IMPLEMENTOR.name)
-    left_behind = follower.expect([FOLLOWER_ACK, followed]) + follower.drain(SETTLE_SECONDS)
+    left_behind = settled_expect(follower, [FOLLOWER_ACK, followed])
     refusal = WARDEN_LINE_FORMAT.format(FOLLOWER.name)
     assert refusal in left_behind and FOLLOWER_ACK in left_behind, left_behind
     assert left_behind.index(refusal) < left_behind.index(FOLLOWER_ACK), left_behind
     assert followed not in left_behind, left_behind
-    leader_text = implementor.expect([TRIGGER_CHAMBER_NAME]) + implementor.drain(SETTLE_SECONDS)
+    leader_text = settled_expect(implementor, [ROOM_TRIGGER_CHAMBER_NAME])
     assert LEADER_ACK_FORMAT.format(FOLLOWER.name) in leader_text, leader_text
-    assert follower.command("look").room_name() == TRIGGER_HALL_NAME
+    looked = follower.command("look")
+    assert looked.room_name() == ROOM_TRIGGER_HALL_NAME, looked.text
 
 
 @pytest.mark.script_triggers_movement
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(RIDER)
-@pytest.mark.world_resets(MobReset(MULE.vnum, ROOM_TRIGGER_HALL), MobReset(WARDEN.vnum, ROOM_TRIGGER_CHAMBER))
+@pytest.mark.world_resets(
+    MobReset(MULE.vnum, ROOM_TRIGGER_HALL),
+    MobReset(WARDEN.vnum, ROOM_TRIGGER_CHAMBER),
+)
 def test_a_guard_turns_back_a_rider(server) -> None:
-    """A guard refuses a rider as it refuses a walker: the rider and its mount stay where they are.
+    """Pins a guard refusing a rider as it refuses a walker: rider and mount stay where they are.
 
     do_move's riding branch (act_move.cpp) checks the rider's own step with check_simple_move,
     which runs the warden's script for the rider, before the mount's.
@@ -437,23 +477,28 @@ def test_a_guard_turns_back_a_rider(server) -> None:
 
     refused = rider.command("north").text
     assert WARDEN_LINE_FORMAT.format(RIDER.name) in refused, refused
-    assert TRIGGER_CHAMBER_NAME not in refused, refused
-    assert rider.command("look").room_name() == TRIGGER_HALL_NAME
-    assert rider.command(f"ride {MULE.keyword}").contains(ALREADY_RIDING)
+    assert ROOM_TRIGGER_CHAMBER_NAME not in refused, refused
+    looked = rider.command("look")
+    assert looked.room_name() == ROOM_TRIGGER_HALL_NAME, looked.text
+    mounted_again = rider.command(f"ride {MULE.keyword}")
+    assert mounted_again.contains(ALREADY_RIDING_REPLY), mounted_again.text
 
 
 @pytest.mark.script_triggers_movement
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(WALKER)
-@pytest.mark.world_resets(ObjectReset(BELL_VNUM, ROOM_TRIGGER_CHAMBER), ObjectReset(LANTERN_VNUM, ROOM_TRIGGER_CHAMBER))
+@pytest.mark.world_resets(
+    ObjectReset(BELL_VNUM, ROOM_TRIGGER_CHAMBER),
+    ObjectReset(LANTERN_VNUM, ROOM_TRIGGER_CHAMBER),
+)
 def test_a_floor_object_that_removes_itself_as_someone_walks_in_leaves_the_next_one_to_react(server) -> None:
-    """A floor object whose ON_ENTER script removes it leaves the room's next floor object to run its own.
+    """Fix pin (#543): a floor object whose ON_ENTER script removes it leaves the next one to react.
 
-    Fix pin for #543, certain only on an AddressSanitizer build. #543 made the next floor object
-    run its script; before it, the loop over the room's contents (trigger_room_event, script.cpp)
-    read the freed lantern for the next object.
-    The bell is placed first and the lantern after it, and obj_to_room puts each new object at
-    the head of the room's contents, so the lantern's script runs first.
+    The room's next floor object runs its own script. Certain only on an AddressSanitizer build.
+    #543 made the next floor object run its script; before it, the loop over the room's contents
+    (trigger_room_event, script.cpp) read the freed lantern for the next object. The bell is
+    placed first and the lantern after it, and obj_to_room puts each new object at the head of
+    the room's contents, so the lantern's script runs first.
     """
     walker = server.login(WALKER.name)
 
@@ -462,8 +507,8 @@ def test_a_floor_object_that_removes_itself_as_someone_walks_in_leaves_the_next_
     assert LANTERN_LINE in moved and chime in moved, moved
     assert moved.index(LANTERN_LINE) < moved.index(chime), moved
     looked = walker.command("look").text
-    assert "A paper lantern" not in looked, looked
-    assert "A small bell" in looked, looked
+    assert capitalised(LANTERN_SHORT_DESCRIPTION) not in looked, looked
+    assert capitalised(BELL_SHORT_DESCRIPTION) in looked, looked
 
 
 @pytest.mark.script_triggers_objects
@@ -471,19 +516,22 @@ def test_a_floor_object_that_removes_itself_as_someone_walks_in_leaves_the_next_
 @pytest.mark.characters(WEARER)
 @pytest.mark.world_resets(ObjectReset(DIADEM_VNUM, ROOM_TRIGGER_HALL))
 def test_a_wear_script_that_returns_false_keeps_the_item_off(server) -> None:
-    """An ON_WEAR script that returns false leaves the item in the wearer's hands, not worn.
+    """Pins an ON_WEAR script that returns false leaving the item in the wearer's hands, not worn.
 
     perform_wear (act_obj2.cpp) runs the item's script after its own checks and gives up on a
     false return, before the wear message.
     """
     wearer = server.login(WEARER.name)
-    assert wearer.command("get diadem").contains("You get a thorned diadem.")
+    picked_up = wearer.command("get diadem")
+    assert picked_up.contains(GET_FORMAT.format(DIADEM_SHORT_DESCRIPTION)), picked_up.text
 
     refused = wearer.command("wear diadem").text
     assert DIADEM_LINE in refused, refused
-    assert WEAR_ON_HEAD_FORMAT.format("a thorned diadem") not in refused, refused
-    assert "a thorned diadem" not in wearer.command("equipment").text
-    assert wearer.command("inventory").contains("a thorned diadem")
+    assert WEAR_HEAD_FORMAT.format(DIADEM_SHORT_DESCRIPTION) not in refused, refused
+    equipment = wearer.command("equipment").text
+    assert DIADEM_SHORT_DESCRIPTION not in equipment, equipment
+    inventory = wearer.command("inventory")
+    assert inventory.contains(DIADEM_SHORT_DESCRIPTION), inventory.text
 
 
 @pytest.mark.script_triggers_objects
@@ -491,15 +539,17 @@ def test_a_wear_script_that_returns_false_keeps_the_item_off(server) -> None:
 @pytest.mark.characters(WEARER)
 @pytest.mark.world_resets(ObjectReset(CORONET_VNUM, ROOM_TRIGGER_HALL))
 def test_a_wear_script_that_does_not_refuse_lets_the_item_be_worn(server) -> None:
-    """An ON_WEAR script that ends without returning false speaks, and the item is then worn as usual."""
+    """Pins an ON_WEAR script that does not return false speaking, then the item worn as usual."""
     wearer = server.login(WEARER.name)
-    assert wearer.command("get coronet").contains("You get a silver coronet.")
+    picked_up = wearer.command("get coronet")
+    assert picked_up.contains(GET_FORMAT.format(CORONET_SHORT_DESCRIPTION)), picked_up.text
 
     worn = wearer.command("wear coronet").text
-    wear_message = WEAR_ON_HEAD_FORMAT.format("a silver coronet")
+    wear_message = WEAR_HEAD_FORMAT.format(CORONET_SHORT_DESCRIPTION)
     assert CORONET_LINE in worn and wear_message in worn, worn
     assert worn.index(CORONET_LINE) < worn.index(wear_message), worn
-    assert wearer.command("equipment").contains("a silver coronet")
+    equipment = wearer.command("equipment")
+    assert equipment.contains(CORONET_SHORT_DESCRIPTION), equipment.text
 
 
 @pytest.mark.script_triggers_objects
@@ -507,7 +557,7 @@ def test_a_wear_script_that_does_not_refuse_lets_the_item_be_worn(server) -> Non
 @pytest.mark.characters(PULLER)
 @pytest.mark.world_resets(ObjectReset(LEVER_VNUM, ROOM_TRIGGER_HALL))
 def test_a_pull_script_speaks_and_the_lever_still_opens_its_hatch(server) -> None:
-    """A lever's ON_PULL script runs before the pull, and a script that does not refuse lets the lever work.
+    """Pins a lever's ON_PULL script running before the pull, and an unrefused lever working.
 
     do_pull (act_move.cpp) runs the script first, then opens the lever's exit (value 0 room 2501,
     value 1 east) and tells the room.
@@ -515,10 +565,11 @@ def test_a_pull_script_speaks_and_the_lever_still_opens_its_hatch(server) -> Non
     puller = server.login(PULLER.name)
 
     pulled = puller.command("pull lever").text
-    pull_message = PULL_FORMAT.format("an iron lever")
+    pull_message = PULL_FORMAT.format(LEVER_SHORT_DESCRIPTION)
     assert LEVER_LINE in pulled and pull_message in pulled and HATCH_OPENS in pulled, pulled
     assert pulled.index(LEVER_LINE) < pulled.index(pull_message) < pulled.index(HATCH_OPENS), pulled
-    assert puller.command("east").room_name() == LEVER_CLOSET_NAME
+    moved = puller.command("east")
+    assert moved.room_name() == ROOM_LEVER_CLOSET_NAME, moved.text
 
 
 @pytest.mark.script_triggers_objects
@@ -526,13 +577,14 @@ def test_a_pull_script_speaks_and_the_lever_still_opens_its_hatch(server) -> Non
 @pytest.mark.characters(PULLER)
 @pytest.mark.world_resets(ObjectReset(CRANK_VNUM, ROOM_TRIGGER_HALL))
 def test_a_pull_script_that_returns_false_leaves_the_hatch_shut(server) -> None:
-    """A lever whose ON_PULL script returns false is not pulled: its hatch stays shut."""
+    """Pins a lever whose ON_PULL script returns false not being pulled: its hatch stays shut."""
     puller = server.login(PULLER.name)
 
     refused = puller.command("pull crank").text
     assert CRANK_LINE in refused, refused
-    assert PULL_FORMAT.format("a rusted crank") not in refused and HATCH_OPENS not in refused, refused
-    assert puller.command("east").contains(HATCH_CLOSED)
+    assert PULL_FORMAT.format(CRANK_SHORT_DESCRIPTION) not in refused and HATCH_OPENS not in refused, refused
+    blocked = puller.command("east")
+    assert blocked.contains(HATCH_CLOSED_REPLY), blocked.text
 
 
 @pytest.mark.script_triggers_objects
@@ -540,7 +592,7 @@ def test_a_pull_script_that_returns_false_leaves_the_hatch_shut(server) -> None:
 @pytest.mark.characters(READER)
 @pytest.mark.world_resets(ObjectReset(LEDGER_VNUM, ROOM_TRIGGER_HALL))
 def test_an_examine_script_speaks_before_the_description(server) -> None:
-    """An ON_EXAMINE_OBJECT script runs as the object is examined, and its description follows.
+    """Pins an ON_EXAMINE_OBJECT script running as the object is examined, before its description.
 
     show_obj_to_char (act_info.cpp) runs the script, then shows the action description when the
     script did not refuse.
@@ -557,15 +609,20 @@ def test_an_examine_script_speaks_before_the_description(server) -> None:
 @pytest.mark.characters(DINER)
 @pytest.mark.world_resets(ObjectReset(CAKE_VNUM, ROOM_TRIGGER_HALL))
 def test_eating_goes_ahead_when_the_food_script_returns_false(server) -> None:
-    """Food whose ON_EAT script returns false is eaten all the same: do_eat (act_obj2.cpp) ignores the return."""
+    """Pins food whose ON_EAT script returns false being eaten all the same.
+
+    do_eat (act_obj2.cpp) ignores the return.
+    """
     diner = server.login(DINER.name)
-    assert diner.command("get cake").contains("You get a honey cake.")
+    picked_up = diner.command("get cake")
+    assert picked_up.contains(GET_FORMAT.format(CAKE_SHORT_DESCRIPTION)), picked_up.text
 
     eaten = diner.command("eat cake").text
-    eat_message = EAT_FORMAT.format("a honey cake")
+    eat_message = EAT_FORMAT.format(CAKE_SHORT_DESCRIPTION)
     assert eat_message in eaten and CAKE_LINE in eaten, eaten
     assert eaten.index(eat_message) < eaten.index(CAKE_LINE), eaten
-    assert diner.command("eat cake").contains(NOTHING_TO_EAT)
+    eaten_again = diner.command("eat cake")
+    assert eaten_again.contains(NOTHING_TO_EAT_REPLY), eaten_again.text
 
 
 @pytest.mark.script_triggers_objects
@@ -573,17 +630,19 @@ def test_eating_goes_ahead_when_the_food_script_returns_false(server) -> None:
 @pytest.mark.characters(DINER)
 @pytest.mark.world_resets(ObjectReset(FLASK_VNUM, ROOM_TRIGGER_HALL))
 def test_drinking_goes_ahead_when_the_drink_script_returns_false(server) -> None:
-    """A flask whose ON_DRINK script returns false is drunk from all the same: its one drink is gone.
+    """Pins a flask whose ON_DRINK script returns false being drunk from: its one drink is gone.
 
     do_drink (act_obj2.cpp) ignores the return and empties what was drunk after the script.
     """
     diner = server.login(DINER.name)
-    assert diner.command("get flask").contains("You get a flask.")
+    picked_up = diner.command("get flask")
+    assert picked_up.contains(GET_FORMAT.format(FLASK_SHORT_DESCRIPTION)), picked_up.text
 
     drunk = diner.command("drink flask").text
-    assert DRINK_WATER in drunk and FLASK_LINE in drunk, drunk
-    assert drunk.index(DRINK_WATER) < drunk.index(FLASK_LINE), drunk
-    assert diner.command("drink flask").contains(DRINK_EMPTY)
+    assert DRINK_WATER_REPLY in drunk and FLASK_LINE in drunk, drunk
+    assert drunk.index(DRINK_WATER_REPLY) < drunk.index(FLASK_LINE), drunk
+    drunk_again = diner.command("drink flask")
+    assert drunk_again.contains(DRINK_EMPTY_REPLY), drunk_again.text
 
 
 @pytest.mark.script_triggers_objects
@@ -591,19 +650,21 @@ def test_drinking_goes_ahead_when_the_drink_script_returns_false(server) -> None
 @pytest.mark.characters(DINER)
 @pytest.mark.world_resets(ObjectReset(BISCUIT_VNUM, ROOM_TRIGGER_HALL))
 def test_food_whose_eat_script_removes_it_is_eaten_once(server) -> None:
-    """Food whose ON_EAT script removes it is eaten once, and the server carries on.
+    """Fix pin (#543): food whose ON_EAT script removes it is eaten once, and the server goes on.
 
-    Fix pin for #543, certain only on an AddressSanitizer build. #543 made the biscuit go once;
+    Certain only on an AddressSanitizer build. #543 made the biscuit go once;
     before it, do_eat (act_obj2.cpp) extracted the biscuit again after its script had freed it.
     """
     diner = server.login(DINER.name)
-    assert diner.command("get biscuit").contains("You get a dry biscuit.")
+    picked_up = diner.command("get biscuit")
+    assert picked_up.contains(GET_FORMAT.format(BISCUIT_SHORT_DESCRIPTION)), picked_up.text
 
     eaten = diner.command("eat biscuit").text
-    eat_message = EAT_FORMAT.format("a dry biscuit")
+    eat_message = EAT_FORMAT.format(BISCUIT_SHORT_DESCRIPTION)
     assert eat_message in eaten and BISCUIT_LINE in eaten, eaten
     assert eaten.index(eat_message) < eaten.index(BISCUIT_LINE), eaten
-    assert diner.command("eat biscuit").contains(NOTHING_TO_EAT)
+    eaten_again = diner.command("eat biscuit")
+    assert eaten_again.contains(NOTHING_TO_EAT_REPLY), eaten_again.text
 
 
 @pytest.mark.script_triggers_fights
@@ -611,7 +672,7 @@ def test_food_whose_eat_script_removes_it_is_eaten_once(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR, CASTER)
 @pytest.mark.world_resets(MobReset(STOIC.vnum, ROOM_TRIGGER_HALL))
 def test_a_damage_script_that_returns_false_stops_a_spells_blow(server) -> None:
-    """A mob whose ON_DAMAGE script returns false takes nothing from a spell's blow.
+    """Pins a mob whose ON_DAMAGE script returns false taking nothing from a spell's blow.
 
     damage() (fight.cpp) runs the victim's script with the attacker as ch2 before it takes the
     hit points, and returns at once on a false return. Whatever magic missile rolled, the stoic
@@ -621,15 +682,16 @@ def test_a_damage_script_that_returns_false_stops_a_spells_blow(server) -> None:
     caster = server.login(CASTER.name)
     join_the_mortal(implementor)
     before = read_stat(implementor, f"mob {STOIC.keyword}")
-    assert stat_number(HIT_POINTS_PATTERN, before) == 200, before
+    assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, before) == 200, before
 
-    refusal = said(STOIC, f"Your blow cannot touch me, {CASTER.name}.")
-    cast_until_it_lands(caster, STOIC, [refusal])
+    refusal = said(STOIC, STOIC_REFUSAL_FORMAT.format(CASTER.name))
+    cast_magic_missile_until_it_lands(caster, STOIC, [refusal])
 
     after = read_stat(implementor, f"mob {STOIC.keyword}")
-    assert stat_number(HIT_POINTS_PATTERN, after) == 200, after
+    assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, after) == 200, after
     # The blow left the caster fighting the stoic, and a fighter cannot quit.
-    assert implementor.command(f"purge {STOIC.keyword}").contains("Ok.")
+    purged = implementor.command(f"purge {STOIC.keyword}")
+    assert purged.contains(PURGED_REPLY), purged.text
     let_the_anger_pass(server)
 
 
@@ -638,39 +700,42 @@ def test_a_damage_script_that_returns_false_stops_a_spells_blow(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR, CASTER)
 @pytest.mark.world_resets(MobReset(MOURNER.vnum, ROOM_TRIGGER_HALL))
 def test_a_death_script_speaks_and_the_mob_still_dies_paying_experience(server) -> None:
-    """A mob whose ON_DIE script lets the death go ahead speaks, dies, leaves one corpse with its belongings and pays its killer.
+    """Pins a mob whose ON_DIE script lets the death go ahead speaking, dying and paying its killer.
 
-    die() (fight.cpp) runs the script, then group_gain pays the killer its share and raw_kill
-    sends the death cry and makes the corpse. The share is pinned exactly (EXPECTED_SHARE).
+    It leaves one corpse with its belongings. die() (fight.cpp) runs the script, then group_gain
+    pays the killer its share and raw_kill sends the death cry and makes the corpse. The share is
+    pinned exactly (EXPECTED_SHARE).
     """
     implementor = server.login(IMPLEMENTOR.name)
     caster = server.login(CASTER.name)
     join_the_mortal(implementor)
-    assert implementor.command(f"load obj {RIBBON_VNUM}").contains("You create")
-    assert implementor.command(f"give ribbon {MOURNER.keyword}").contains("You give")
+    give_new_object(implementor, RIBBON_VNUM, "ribbon", MOURNER.keyword)
     # The inputs EXPECTED_SHARE's working rests on.
     mourner_stat = missile_always_kills(implementor, MOURNER)
-    assert (stat_number(LEVEL_PATTERN, mourner_stat), stat_number(EXPERIENCE_PATTERN, mourner_stat)) == (5, 10000)
+    mourner_level = first_number(LEVEL_PATTERN, mourner_stat)
+    mourner_experience = first_number(EXPERIENCE_PATTERN, mourner_stat)
+    assert (mourner_level, mourner_experience) == (5, 10000), mourner_stat
     caster_stat = read_stat(implementor, f"player {CASTER.name}")
-    assert (stat_number(LEVEL_PATTERN, caster_stat), stat_number(ALIGNMENT_PATTERN, caster_stat)) == (10, 0)
-    experience_before = stat_number(EXPERIENCE_PATTERN, caster_stat)
+    caster_level = first_number(LEVEL_PATTERN, caster_stat)
+    caster_alignment = first_number(ALIGNMENT_PATTERN, caster_stat)
+    assert (caster_level, caster_alignment) == (10, 0), caster_stat
+    experience_before = first_number(EXPERIENCE_PATTERN, caster_stat)
 
-    last_words = said(MOURNER, "My watch is ended.")
+    last_words = said(MOURNER, MOURNER_LAST_WORDS)
     mourner_cry = death_cry(MOURNER)
-    killed = cast_until_it_lands(caster, MOURNER, [mourner_cry])
+    killed = cast_magic_missile_until_it_lands(caster, MOURNER, [mourner_cry])
     assert last_words in killed, killed
     assert killed.index(last_words) < killed.index(mourner_cry), killed
-    share = EXPERIENCE_SHARE_PATTERN.search(killed)
-    assert share is not None, killed
-    assert int(share.group(1)) == EXPECTED_SHARE, killed
+    assert first_number(EXPERIENCE_SHARE_PATTERN, killed) == EXPECTED_SHARE, killed
 
     caster_stat_after = read_stat(implementor, f"player {CASTER.name}")
-    experience_after = stat_number(EXPERIENCE_PATTERN, caster_stat_after)
-    assert experience_after - experience_before >= EXPECTED_SHARE
+    experience_after = first_number(EXPERIENCE_PATTERN, caster_stat_after)
+    assert experience_after - experience_before >= EXPECTED_SHARE, caster_stat_after
     looked = caster.command("look").text
-    assert looked.count("corpse of") == 1, looked
+    assert looked.count(CORPSE_OF_PART) == 1, looked
     assert MOURNER_ROOM_LINE not in looked, looked
-    assert caster.command("look in corpse").contains("a black ribbon")
+    corpse = caster.command("look in corpse")
+    assert corpse.contains(RIBBON_SHORT_DESCRIPTION), corpse.text
     let_the_anger_pass(server)
 
 
@@ -679,7 +744,7 @@ def test_a_death_script_speaks_and_the_mob_still_dies_paying_experience(server) 
 @pytest.mark.characters(IMPLEMENTOR, CASTER)
 @pytest.mark.world_resets(MobReset(STUBBORN.vnum, ROOM_TRIGGER_HALL))
 def test_a_death_script_that_returns_false_keeps_the_mob_alive(server) -> None:
-    """A mob whose ON_DIE script returns false does not die: no death cry, no corpse, no share of experience.
+    """Pins a mob whose ON_DIE script returns false not dying: no death cry, corpse or share.
 
     die() (fight.cpp) gives up on a false return, ends the fight and keeps the hit points the
     script set.
@@ -689,15 +754,15 @@ def test_a_death_script_that_returns_false_keeps_the_mob_alive(server) -> None:
     join_the_mortal(implementor)
     missile_always_kills(implementor, STUBBORN)
 
-    refusal = said(STUBBORN, "Not yet!")
-    survived = cast_until_it_lands(caster, STUBBORN, [refusal])
+    refusal = said(STUBBORN, STUBBORN_REFUSAL)
+    survived = cast_magic_missile_until_it_lands(caster, STUBBORN, [refusal])
     assert death_cry(STUBBORN) not in survived, survived
     assert EXPERIENCE_SHARE_PATTERN.search(survived) is None, survived
 
     after = read_stat(implementor, f"mob {STUBBORN.keyword}")
-    assert stat_number(HIT_POINTS_PATTERN, after) == 30, after
+    assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, after) == 30, after
     looked = caster.command("look").text
-    assert "corpse of" not in looked, looked
+    assert CORPSE_OF_PART not in looked, looked
     assert STUBBORN_ROOM_LINE in looked, looked
     let_the_anger_pass(server)
 
@@ -707,7 +772,7 @@ def test_a_death_script_that_returns_false_keeps_the_mob_alive(server) -> None:
 @pytest.mark.characters(SPEAKER)
 @pytest.mark.world_resets(MobReset(ECHOER.vnum, ROOM_TRIGGER_HALL))
 def test_a_yell_script_answers_speech_said_in_its_room(server) -> None:
-    """A mob's ON_HEAR_YELL script runs when someone in its room says something, naming the speaker.
+    """Pins a mob's ON_HEAR_YELL script running when someone in its room speaks, naming them.
 
     do_say (act_comm.cpp) sets off ON_HEAR_SAY for each mob in the room, and trigger_char_hear
     (script.cpp) runs a mob's yell script after its say script, for the same speech.
@@ -715,7 +780,7 @@ def test_a_yell_script_answers_speech_said_in_its_room(server) -> None:
     speaker = server.login(SPEAKER.name)
 
     spoken = speaker.command("say Is anyone there?").text
-    assert said(ECHOER, f"I hear you, {SPEAKER.name}.") in spoken, spoken
+    assert said(ECHOER, ECHO_FORMAT.format(SPEAKER.name)) in spoken, spoken
 
 
 @pytest.mark.script_triggers_speech
@@ -723,7 +788,9 @@ def test_a_yell_script_answers_speech_said_in_its_room(server) -> None:
 @pytest.mark.characters(SPEAKER)
 @pytest.mark.world_resets(MobReset(ECHOER.vnum, ROOM_TRIGGER_HALL))
 def test_a_yell_sets_off_no_yell_script(server) -> None:
-    """A yell sets off no mob's script, yell script or not: do_gen_com (act_comm.cpp) calls no trigger.
+    """Pins a yell setting off no mob's script, yell script or not.
+
+    do_gen_com (act_comm.cpp) calls no trigger.
 
     The yell's special procedures run for every room of the zone, and zone 25 has none. The say
     afterwards is the control: the same mob answers it.
@@ -731,19 +798,23 @@ def test_a_yell_sets_off_no_yell_script(server) -> None:
     speaker = server.login(SPEAKER.name)
 
     yelled = speaker.command("yell Is anyone there?").text
-    assert "I hear you" not in yelled, yelled
+    assert ECHO_PART not in yelled, yelled
     spoken = speaker.command("say Is anyone there?").text
-    assert said(ECHOER, f"I hear you, {SPEAKER.name}.") in spoken, spoken
+    assert said(ECHOER, ECHO_FORMAT.format(SPEAKER.name)) in spoken, spoken
 
 
 @pytest.mark.script_triggers_speech
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(SPEAKER)
-@pytest.mark.world_resets(MobReset(VANISHER.vnum, ROOM_TRIGGER_HALL), MobReset(ANSWERER.vnum, ROOM_TRIGGER_HALL))
+@pytest.mark.world_resets(
+    MobReset(VANISHER.vnum, ROOM_TRIGGER_HALL),
+    MobReset(ANSWERER.vnum, ROOM_TRIGGER_HALL),
+)
 def test_a_listener_that_removes_itself_leaves_the_next_listener_to_answer(server) -> None:
-    """A mob whose ON_HEAR_SAY script removes it leaves the room's next listener to hear the same words.
+    """Fix pin (#543): a listener whose ON_HEAR_SAY script removes it leaves the next to answer.
 
-    Fix pin for #543, certain only on an AddressSanitizer build. #543 made the next listener
+    The room's next listener hears the same words. Certain only on an AddressSanitizer build.
+    #543 made the next listener
     hear the words; before it, the loop over the room's people (do_say, act_comm.cpp) read the
     freed vanisher for the next listener. The vanisher is placed first and the answerer after it,
     and char_to_room (handler.cpp) adds each newcomer at the end of the room's people, so the
@@ -752,12 +823,12 @@ def test_a_listener_that_removes_itself_leaves_the_next_listener_to_answer(serve
     speaker = server.login(SPEAKER.name)
 
     spoken = speaker.command("say Hello?").text
-    answer = said(ANSWERER, "I heard that.")
+    answer = said(ANSWERER, ANSWER_LINE)
     assert VANISHER_LINE in spoken and answer in spoken, spoken
     assert spoken.index(VANISHER_LINE) < spoken.index(answer), spoken
     looked = speaker.command("look").text
-    assert "A vanisher" not in looked, looked
-    assert "An answerer" in looked, looked
+    assert capitalised(VANISHER.short_description) not in looked, looked
+    assert capitalised(ANSWERER.short_description) in looked, looked
 
 
 @pytest.mark.script_triggers_speech
@@ -765,21 +836,23 @@ def test_a_listener_that_removes_itself_leaves_the_next_listener_to_answer(serve
 @pytest.mark.characters(SPEAKER)
 @pytest.mark.world_resets(MobReset(PARROT.vnum, ROOM_TRIGGER_HALL))
 def test_a_mob_repeats_what_it_heard_after_a_pause_not_what_was_said_next(server) -> None:
-    """A mob that waits after hearing speech repeats the words it heard, though the speaker said something else meanwhile.
+    """Fix pin (#555): a mob that pauses after hearing speech repeats the words it heard.
 
-    Fix pin for #555. #555 made set_script_text (script.cpp) copy the heard words into the
-    parrot's str1; before it, str1 pointed at the text block the say was parsed into, which the
-    second say's empty target overwrote, so the parrot said "You said: " with nothing after it.
+    It does so though the speaker said something else meanwhile. #555 made set_script_text
+    (script.cpp) copy the heard words into the parrot's str1; before it, str1 pointed at the text
+    block the say was parsed into, which the second say's empty target overwrote, so the parrot
+    said "You said: " with nothing after it.
     The parrot is waiting during the second say, so that say sets off no script.
     """
     speaker = server.login(SPEAKER.name)
 
     spoken = speaker.command("say marigold").text
-    assert said(PARROT, "Let me think about that.") in spoken, spoken
+    assert said(PARROT, PARROT_PAUSE_LINE) in spoken, spoken
     spoken_again = speaker.command("say tulip").text
-    assert "You say 'tulip'" in spoken_again and "A parrot says" not in spoken_again, spoken_again
+    parrot_says = f"{capitalised(PARROT.short_description)} says"
+    assert "You say 'tulip'" in spoken_again and parrot_says not in spoken_again, spoken_again
 
     # The repeat's start without said()'s closing quote, so it matches whatever words follow.
-    repeat_start = said(PARROT, "You said: ")[:-1]
-    repeated = speaker.expect([repeat_start], timeout=WAIT_TIMEOUT) + speaker.drain(SETTLE_SECONDS)
-    assert said(PARROT, "You said: marigold") in repeated, repeated
+    repeat_start = said(PARROT, PARROT_REPEAT_LINE_START)[:-1]
+    repeated = settled_expect(speaker, [repeat_start], timeout=WAIT_TIMEOUT_SECONDS)
+    assert said(PARROT, f"{PARROT_REPEAT_LINE_START}marigold") in repeated, repeated

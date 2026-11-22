@@ -1,4 +1,6 @@
-"""Refreshes tests/integration/shard_durations.json, the per-test seconds CI's shards are balanced by, from CI's JUnit results.
+"""Refreshes tests/integration/shard_durations.json from CI's JUnit results.
+
+The file holds the per-test seconds CI's shards are balanced by.
 
 Download the results of one or more full CI runs first, one folder per run, for example
 `gh run download <run id> --pattern 'integration-results-shard-*' --dir <folder>/<run id>`.
@@ -27,7 +29,8 @@ from typing import Callable, Iterable, Mapping, Optional
 
 from rots_harness import durations, sharding
 
-# tests/integration: the scenario files a JUnit class name is matched against, and the durations file.
+# tests/integration: the scenario files a JUnit class name is matched against, and the durations
+# file.
 INTEGRATION_ROOT = Path(__file__).resolve().parents[1]
 # The JUnit file each CI shard uploads.
 RESULTS_FILE_NAME = "results.xml"
@@ -54,16 +57,22 @@ DECLARED_ENCODING = re.compile(r"""<\?xml[^>]*\bencoding\s*=\s*["']([^"']*)["']"
 MINIMUM_COVERED_SHARE = 0.9
 # The written file's permissions; mkstemp's own let only the owner read it.
 FILE_MODE = 0o644
-# make integration-shard-durations exits with this when it finds no results, refuses them, or cannot write the file.
+# make integration-shard-durations exits with this when it finds no results, refuses them, or cannot
+# write the file.
 EXIT_USAGE = 2
 
 
 class UnusableResults(ValueError):
-    """A results file the tool refuses to read: too large, not plain UTF-8, or holding a DOCTYPE or entity declaration."""
+    """A results file the tool refuses to read.
+
+    It is too large, not plain UTF-8, or holds a DOCTYPE or entity declaration.
+    """
 
 
 def node_id(class_name: str, test_name: str, integration_root: Path) -> Optional[str]:
-    """The pytest node id of a JUnit testcase, or None when no file under integration_root matches its class name.
+    """Return the pytest node id of a JUnit testcase.
+
+    None when no file under integration_root matches its class name.
 
     pytest writes `scenarios/test_bank.py::test_x` as class name `scenarios.test_bank` and name
     `test_x`, and a test class's name after the module's. The longest leading part of the class
@@ -84,10 +93,11 @@ def node_id(class_name: str, test_name: str, integration_root: Path) -> Optional
 
 
 def read_results(results_path: Path) -> ElementTree.Element:
-    """The parsed results file; raises OSError, ElementTree.ParseError, or UnusableResults.
+    """Return the parsed results file; raise OSError, ElementTree.ParseError, or UnusableResults.
 
     UnusableResults is raised for a file too large, one that is not UTF-8 without a byte-order mark
-    (with no NUL byte, and naming no other encoding), or one holding a DOCTYPE or entity declaration.
+    (with no NUL byte, and naming no other encoding), or one holding a DOCTYPE or entity
+    declaration.
     """
     if results_path.stat().st_size > MAX_RESULTS_BYTES:
         raise UnusableResults(f"{results_path} is larger than {MAX_RESULTS_BYTES} bytes")
@@ -111,15 +121,22 @@ def read_results(results_path: Path) -> ElementTree.Element:
 
 
 def case_counts(case: ElementTree.Element) -> bool:
-    """Whether a testcase's time shows how long its test takes: it passed or failed as expected."""
+    """Return whether a testcase's time shows how long its test takes.
+
+    It does when the test passed or failed as expected.
+    """
     if any(case.find(outcome) is not None for outcome in UNFINISHED_OUTCOMES):
         return False
     skipped = case.find(SKIPPED_OUTCOME)
     return skipped is None or skipped.get("type") == EXPECTED_FAILURE_TYPE
 
 
-def finished_case_times(results_path: Path, integration_root: Path, warn: Callable[[str], None]) -> list[tuple[str, float]]:
-    """Each node id and time in a JUnit file whose test passed or failed as expected; raises what read_results raises.
+def finished_case_times(
+    results_path: Path, integration_root: Path, warn: Callable[[str], None]
+) -> list[tuple[str, float]]:
+    """Return each node id and time in a JUnit file whose test passed or failed as expected.
+
+    Raise what read_results raises.
 
     A testcase whose class name matches no scenario file is left out, as is one whose time is not a
     finite number of seconds of at least 0, which warn reports.
@@ -137,14 +154,21 @@ def finished_case_times(results_path: Path, integration_root: Path, warn: Callab
         except ValueError:
             seconds = math.nan
         if not math.isfinite(seconds) or seconds < 0:
-            warn(f"warning: {results_path}: {case_id} has time {time_text!r}, which is not a number of seconds; left out")
+            warn(
+                f"warning: {results_path}: {case_id} has time {time_text!r}, which is not a number of seconds; left out"
+            )
             continue
         times.append((case_id, seconds))
     return times
 
 
-def median_seconds(results_paths: Iterable[Path], integration_root: Path, warn: Callable[[str], None]) -> dict[str, float]:
-    """Each node id's median time across the results files, rounded to SECONDS_DECIMALS; raises what read_results raises."""
+def median_seconds(
+    results_paths: Iterable[Path], integration_root: Path, warn: Callable[[str], None]
+) -> dict[str, float]:
+    """Return each node id's median time across the results files, rounded to SECONDS_DECIMALS.
+
+    Raise what read_results raises.
+    """
     times_by_id: dict[str, list[float]] = {}
     for results_path in results_paths:
         for case_id, seconds in finished_case_times(results_path, integration_root, warn):
@@ -153,9 +177,12 @@ def median_seconds(results_paths: Iterable[Path], integration_root: Path, warn: 
 
 
 def write_seconds(path: Path, seconds: Mapping[str, float]) -> None:
-    """Writes the times as a JSON object sorted by node id, one entry per line, replacing the file; raises OSError.
+    """Write the times as a JSON object sorted by node id, one entry per line, replacing the file.
 
-    The file is written beside path and then moved over it, so an interrupted write never leaves a broken file.
+    Raise OSError.
+
+    The file is written beside path and then moved over it, so an interrupted write never leaves a
+    broken file.
     """
     descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
     try:
@@ -169,20 +196,31 @@ def write_seconds(path: Path, seconds: Mapping[str, float]) -> None:
 
 
 def _warn(line: str) -> None:
-    """Prints a warning line to stderr."""
+    """Print a warning line to stderr."""
     print(line, file=sys.stderr)
 
 
 def main(argv: Optional[list[str]] = None, *, integration_root: Path = INTEGRATION_ROOT) -> int:
-    """Replaces --output with the median times under the folders; returns EXIT_USAGE when there are none, they are refused, or a file cannot be read or written.
+    """Replace --output with the median times under the folders.
+
+    Return EXIT_USAGE when there are none, they are refused, or a file cannot be read or written.
 
     integration_root holds the scenario files the class names are matched against; tests replace it.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     # Read as text, since Path("") would quietly become the current folder.
-    parser.add_argument("folders", nargs="+", help="folders searched for results.xml files, such as one per downloaded run")
-    parser.add_argument("--output", type=Path, default=integration_root / sharding.SHARD_DURATIONS_RELATIVE, help="the durations file to replace")
-    parser.add_argument("--force", action="store_true", help="write the file even when it would cover far fewer tests than now")
+    parser.add_argument(
+        "folders", nargs="+", help="folders searched for results.xml files, such as one per downloaded run"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=integration_root / sharding.SHARD_DURATIONS_RELATIVE,
+        help="the durations file to replace",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="write the file even when it would cover far fewer tests than now"
+    )
     arguments = parser.parse_args(argv)
     results_paths = []
     for folder_text in arguments.folders:
@@ -212,7 +250,10 @@ def main(argv: Optional[list[str]] = None, *, integration_root: Path = INTEGRATI
     except OSError as error:
         print(f"error: {error}", file=sys.stderr)
         return EXIT_USAGE
-    print(f"{len(seconds)} tests from {len(results_paths)} results files, {sum(seconds.values()) / 60:.1f} minutes in all, written to {arguments.output}")
+    print(
+        f"{len(seconds)} tests from {len(results_paths)} results files, {sum(seconds.values()) / 60:.1f} minutes in "
+        f"all, written to {arguments.output}"
+    )
     return 0
 
 

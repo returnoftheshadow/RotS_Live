@@ -485,7 +485,8 @@ MAGE = custom_mage(level=30, load_room=world.ROOM_ARENA_CENTRE)
 def test_the_mage_starts_in_the_arena(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mage = server.login(MAGE.name)
-    assert mage.command("look").room_name() == "Arena Centre"
+    looked = mage.command("look")
+    assert looked.room_name() == world.ROOM_ARENA_CENTRE_NAME, looked.text
 ```
 
 All of a test's characters belong to one harness account, listed in marker order.
@@ -495,6 +496,40 @@ command's output; the
 fixture quits every session after the test. The game lets an account have only one character
 online unless the account owns a character above level 91, so a test that logs in two
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
+
+`command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
+print mid-reply. Shared modules in `rots_harness/` hold the helpers and fixed texts scenarios use
+instead of writing their own, among them:
+
+- `replies.reply_to(session, line, outcomes)` for a reply read up to one of its outcomes;
+- `stat_reading.read_stat(implementor, "player testsaint")` and the stat-line patterns;
+- `immortal_commands.goto`, `load_object`, `give_new_object` and `wizset`, each checking its
+  reply as far as its keyword arguments ask;
+- `game_log.wait_for_log_count(server.handle.log_path, line, count)`;
+- `game_text` for the game's fixed messages and `world` for shared rooms, objects, mobs and
+  their names, such as `world.ROOM_ARENA_CENTRE_NAME`.
+
+The skill's lookup table,
+[`.agents/skills/rots-integration-scenario/shared-helpers.md`](../../.agents/skills/rots-integration-scenario/shared-helpers.md),
+lists every shared helper and constant by what it is for, and the keyword arguments that choose
+how much each checks. `unit/test_scenario_shared_helpers.py` fails when a scenario file defines a
+function named like a shared helper, or a text or vnum equal to a shared constant.
+
+- **A second file moves it.** A helper or constant one scenario file uses stays in that file.
+  When a second scenario file needs it, it moves to the shared module whose docstring covers it
+  (shared-helpers.md, "Where a new shared name goes"), with a unit test, and both files import
+  it.
+- **A shared addition runs every group.** CI treats any edit under `rots_harness/` as a harness
+  change and runs every group, where an edit to one scenario file runs only its own groups, so
+  batch shared additions into one change.
+- **Known-bugs files import from their base file.** `test_<base>_known_bugs.py` imports what it
+  shares with `test_<base>.py` from that file, and imports `rots_harness` names from
+  `rots_harness`, never through the base file. A scenario file another one imports imports no
+  scenario file: CI follows importers one level only (`unit/test_ci_groups.py` checks it).
+- **Names follow one rule.** `*_FORMAT` for a format string, `*_REPLY` for a line answering the
+  reader's own command, `*_START`, `*_END` and `*_PART` for a fragment, `*_SECONDS` for a wait,
+  `*_SHORT_DESCRIPTION` and `ROOM_<X>_NAME` for names; any other fixed line is named for what it
+  is.
 
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and
@@ -515,7 +550,9 @@ The test world's fixtures are listed by `make world-catalogue PYTHON=.venv/bin/p
 (`ZONE=<n>` for one zone, `CATEGORY=rooms` for one table), and explained in one notes file per
 zone, `world/notes/zone-<n>.md`. A new scenario area adds its own zone (its world files, vnums,
 map square and notes file), its own group file, and keeps its room constants in its scenario
-file; `rots_harness/world.py` holds only the rooms two or more scenario files share. `make
+file; `rots_harness/world.py` holds only the rooms, objects and mobs, and their names and short
+descriptions, that two or more scenario files name (`ROOM_*`, `OBJECT_*`, `MOB_*`,
+`ROOM_*_NAME`, `*_SHORT_DESCRIPTION`). `make
 integration-unit` checks the world's files (`unit/test_world_files.py`): index order, ascending
 vnums, zone ranges and map squares, notes files and leftover conflict markers.
 
@@ -533,7 +570,7 @@ booted, before or after a `server.restart()`, or the test fails after the server
 `expected SYSERR never logged: '<fragment>'`. Lines without `SYSERR` never count, and every other
 `SYSERR` line still fails the test. Markers on the module, a class and the test add up; a
 fragment named twice, an empty one or a marker with none is refused. To check how many times a
-line is logged, read `server.run_dir / "game.log"` in the test.
+line is logged, read `server.handle.log_path` with `rots_harness/game_log.py` in the test.
 
 `server.restart()` stops the server the way a service stop does, with SIGTERM while the
 characters are still logged in, and boots a new server on the same lib, so a test can read back

@@ -1,4 +1,6 @@
-"""Runs the scenario groups this checkout's changes reach, chosen by CI's rules plus a local rule for game headers.
+"""Runs the scenario groups this checkout's changes reach.
+
+They are chosen by CI's rules plus a local rule for game headers.
 
 The changed paths are those committed since the merge base with --base, plus uncommitted changes
 to tracked files and untracked files git does not ignore; a rename counts as both its old and its
@@ -30,10 +32,13 @@ from rots_harness import groups as group_files
 DEFAULT_BASE = "origin/release-frodo-next"
 # The folder holding the game's sources.
 GAME_SOURCE_DIRECTORY = "src/"
-# Folders under src/ whose files are not game code: CI's rules cover the harness, and unit tests reach no scenario.
+# Folders under src/ whose files are not game code: CI's rules cover the harness, and unit tests
+# reach no scenario.
 NON_GAME_SOURCE_PREFIXES = ("src/harness/", "src/tests/")
 # Why a changed game source file is listed without adding a group.
-GAME_CODE_NOTE = "a game-code change selects no group; name groups with GROUP= or run every scenario with make integration"
+GAME_CODE_NOTE = (
+    "a game-code change selects no group; name groups with GROUP= or run every scenario with make integration"
+)
 
 
 class GitFailed(RuntimeError):
@@ -41,7 +46,9 @@ class GitFailed(RuntimeError):
 
 
 def resolve_base(base: str, run_git: Callable[[list[str]], str]) -> str:
-    """The full commit id base names; raises GitFailed (through run_git) when it names no commit.
+    """Return the full commit id base names.
+
+    Raise GitFailed (through run_git) when it names no commit.
 
     base is read only as a revision, never as an option, even when it starts with "-".
     """
@@ -49,7 +56,9 @@ def resolve_base(base: str, run_git: Callable[[list[str]], str]) -> str:
 
 
 def changed_paths(base_commit: str, run_git: Callable[[list[str]], str]) -> list[str]:
-    """The repository-relative paths changed since the merge base with base_commit, uncommitted, or untracked, in that order without repeats.
+    """Return the repository-relative paths changed since the merge base with base_commit.
+
+    Uncommitted and untracked paths follow, in that order without repeats.
 
     A rename lists both its old and its new path. run_git runs git at the repository's top level
     with the given arguments and returns its standard output; it raises GitFailed on failure.
@@ -69,12 +78,19 @@ def changed_paths(base_commit: str, run_git: Callable[[list[str]], str]) -> list
 
 
 def _is_game_source(path: str, suffix: str) -> bool:
-    """Whether path is a game source file under src/ with the given suffix."""
-    return path.startswith(GAME_SOURCE_DIRECTORY) and path.endswith(suffix) and not path.startswith(NON_GAME_SOURCE_PREFIXES)
+    """Return whether path is a game source file under src/ with the given suffix."""
+    return (
+        path.startswith(GAME_SOURCE_DIRECTORY)
+        and path.endswith(suffix)
+        and not path.startswith(NON_GAME_SOURCE_PREFIXES)
+    )
 
 
 def _local_every_group_reason(path: str) -> Optional[str]:
-    """Why a change to path runs every group under the local-only rule, or None when it does not."""
+    """Return why a change to path runs every group under the local-only rule.
+
+    None when it does not.
+    """
     if _is_game_source(path, ".h"):
         return f"every group: header {path} changed, and constants and layouts in headers reach any scenario"
     return None
@@ -87,14 +103,16 @@ def select_local_groups(
     subgroups: Optional[Mapping[str, Sequence[str]]] = None,
     scenario_paths: Iterable[str] = (),
 ) -> ci_groups.Selection:
-    """The groups a local run of these changed paths tests.
+    """Return the groups a local run of these changed paths tests.
 
     read_scenario returns a scenario file's source, or None when the file is not in the checkout.
     groups lists the registered groups and subgroups; subgroups gives each group that has
     subgroups, with them; scenario_paths lists every scenario file in the checkout.
     """
     changed_list = list(changed)
-    selection = ci_groups.select_groups("pull_request", "", changed_list, read_scenario, groups, subgroups, scenario_paths)
+    selection = ci_groups.select_groups(
+        "pull_request", "", changed_list, read_scenario, groups, subgroups, scenario_paths
+    )
     if selection.groups is None:
         return selection
     for path in changed_list:
@@ -107,7 +125,7 @@ def select_local_groups(
 
 
 def integration_command(make_program: str, python: str, selection: ci_groups.Selection) -> list[str]:
-    """The make integration command that runs the selection.
+    """Return the make integration command that runs the selection.
 
     GROUP is always given, empty for every group, so a GROUP exported or passed to the parent make
     cannot narrow the run: a command-line variable overrides both.
@@ -116,12 +134,20 @@ def integration_command(make_program: str, python: str, selection: ci_groups.Sel
 
 
 def _git_runner(folder: Path) -> Callable[[list[str]], str]:
-    """Runs git in folder with the given arguments and returns its standard output; raises GitFailed on failure."""
+    """Run git in folder with the given arguments and return its standard output.
+
+    Raise GitFailed on failure.
+    """
 
     def run_git(git_arguments: list[str]) -> str:
         # surrogateescape keeps a file name that is not valid UTF-8 intact through the round trip.
         completed = subprocess.run(
-            ["git", "-C", str(folder), *git_arguments], capture_output=True, text=True, encoding="utf-8", errors="surrogateescape", check=False,
+            ["git", "-C", str(folder), *git_arguments],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
+            check=False,
         )
         if completed.returncode != 0:
             raise GitFailed(f"git {' '.join(git_arguments)} failed: {completed.stderr.strip()}")
@@ -131,12 +157,17 @@ def _git_runner(folder: Path) -> Callable[[list[str]], str]:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """Prints the reasons and the group expression, then runs make integration with it and returns its exit status.
+    """Print the reasons and the group expression, then run make integration with it.
 
-    Returns 0 without running anything under --list-only, and 2 when git fails or a group file cannot be read.
+    Return its exit status.
+
+    Returns 0 without running anything under --list-only, and 2 when git fails or a group file
+    cannot be read.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--base", default=DEFAULT_BASE, help=f"the branch the changes are measured from (default {DEFAULT_BASE})")
+    parser.add_argument(
+        "--base", default=DEFAULT_BASE, help=f"the branch the changes are measured from (default {DEFAULT_BASE})"
+    )
     parser.add_argument("--repo-root", type=Path, default=Path("."), help="a folder inside the repository")
     parser.add_argument("--python", default=sys.executable, help="the Python make integration runs the scenarios with")
     parser.add_argument("--make", default="make", help="the make program that runs make integration")

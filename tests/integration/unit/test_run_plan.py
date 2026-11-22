@@ -42,12 +42,15 @@ def plan(skipped: Optional[list[str]] = None, jobs: int = 1, shard: Optional[Sha
 
 
 def flat_rows(ticked: tuple[bool, ...]) -> list[run_plan.PlanRow]:
-    """One numbered group checkbox per tick, as a plan without subgroups numbers them."""
-    return [run_plan.PlanRow(f"group_{position + 1}", run_plan.RowKind.GROUP, (position,)) for position in range(len(ticked))]
+    """Return one numbered group checkbox per tick, as a plan without subgroups numbers them."""
+    return [
+        run_plan.PlanRow(f"group_{position + 1}", run_plan.RowKind.GROUP, (position,))
+        for position in range(len(ticked))
+    ]
 
 
 def answer(text: str, ticked: tuple[bool, ...]) -> run_plan.AnswerResult:
-    """apply_answer on a plan of len(ticked) groups without subgroups."""
+    """Return apply_answer's result on a plan of len(ticked) groups without subgroups."""
     return run_plan.apply_answer(text, ticked, flat_rows(ticked))
 
 
@@ -56,7 +59,11 @@ def answer(text: str, ticked: tuple[bool, ...]) -> run_plan.AnswerResult:
 
 def test_each_group_counts_every_test_it_marks_and_empty_groups_are_dropped() -> None:
     built = plan()
-    assert [(name, len(built.group_test_ids(name, []))) for name in built.offered_groups] == [("boot", 2), ("poison", 2), ("summon", 1)]
+    assert [(name, len(built.group_test_ids(name, []))) for name in built.offered_groups] == [
+        ("boot", 2),
+        ("poison", 2),
+        ("summon", 1),
+    ]
     assert built.skipped_groups == []
 
 
@@ -92,7 +99,9 @@ def test_a_group_counts_only_the_tests_that_run_with_the_other_groups_left_out()
 
 
 # The groups a test leaves out: every combination of the registered ones.
-EXCLUSION_CHOICES = [list(combination) for count in range(len(GROUPS) + 1) for combination in itertools.combinations(GROUPS, count)]
+EXCLUSION_CHOICES = [
+    list(combination) for count in range(len(GROUPS) + 1) for combination in itertools.combinations(GROUPS, count)
+]
 
 
 @pytest.mark.parametrize("shard", [Shard(number, count) for count in (2, 3) for number in range(1, count + 1)], ids=str)
@@ -112,7 +121,9 @@ def test_a_sharded_plan_balances_the_shards_by_the_committed_times_as_conftest_d
     for number in (1, 2):
         built = run_plan.build_plan(TESTS, GROUPS, [], DURATIONS, 1, Shard(number, 2), shard_seconds=shard_seconds)
         assert set(built.kept_test_ids([])) == sharding.in_shard(ALL_IDS, Shard(number, 2), shard_seconds)
-    assert run_plan.build_plan(TESTS, GROUPS, [], DURATIONS, 1, Shard(1, 2), shard_seconds=shard_seconds).kept_test_ids([]) == [ALL_IDS[0]]
+    assert run_plan.build_plan(TESTS, GROUPS, [], DURATIONS, 1, Shard(1, 2), shard_seconds=shard_seconds).kept_test_ids(
+        []
+    ) == [ALL_IDS[0]]
 
 
 def test_skip_groups_are_split_on_spaces_and_commas_without_repeats() -> None:
@@ -163,7 +174,9 @@ def test_jobs_give_the_workers_the_estimate_divides_by(value: str, workers: int)
 
 def test_the_plan_text_shows_checkboxes_skipped_groups_totals_and_the_footer() -> None:
     built = plan(skipped=["summon"])
-    lines = run_plan.format_plan(built, (True, False), run_plan.RunContext(launcher="local", jobs_text="1", shard="2/8"))
+    lines = run_plan.format_plan(
+        built, (True, False), run_plan.RunContext(launcher="local", jobs_text="1", shard="2/8")
+    )
     text = "\n".join(lines)
     assert "launcher local" in text and "JOBS 1" in text and "shard 2/8" in text
     assert "[x] 1. boot" in text
@@ -176,7 +189,9 @@ def test_the_plan_text_shows_checkboxes_skipped_groups_totals_and_the_footer() -
 
 def test_the_sharded_plan_text_counts_this_shards_tests_and_says_how_unticking_moves_them() -> None:
     built = plan(shard=Shard(2, 2))
-    lines = run_plan.format_plan(built, (True, True, True), run_plan.RunContext(launcher="local", jobs_text="1", shard="2/2"))
+    lines = run_plan.format_plan(
+        built, (True, True, True), run_plan.RunContext(launcher="local", jobs_text="1", shard="2/2")
+    )
     text = "\n".join(lines)
     # The sorted selection is one, two, three, four; shard 2/2 keeps two and four.
     assert "Total: 2 tests" in text
@@ -185,7 +200,9 @@ def test_the_sharded_plan_text_counts_this_shards_tests_and_says_how_unticking_m
 
 
 def test_the_plan_text_counts_the_kept_tests_without_a_recorded_time() -> None:
-    lines = run_plan.format_plan(plan(), (True, True, True), run_plan.RunContext(launcher="docker", jobs_text="1", shard=None))
+    lines = run_plan.format_plan(
+        plan(), (True, True, True), run_plan.RunContext(launcher="docker", jobs_text="1", shard=None)
+    )
     text = "\n".join(lines)
     assert "shard" not in text
     assert "2 tests have no recorded time and count 15 s each" in text
@@ -239,7 +256,9 @@ def test_the_rows_number_a_header_before_its_subgroups() -> None:
 
 
 def test_a_group_none_of_whose_subgroups_has_a_selected_test_is_left_out() -> None:
-    commands_only = [test for test in TREE_TESTS if "shaping_editor" not in test.markers and "summon" not in test.markers]
+    commands_only = [
+        test for test in TREE_TESTS if "shaping_editor" not in test.markers and "summon" not in test.markers
+    ]
     built = run_plan.build_plan(commands_only, TREE_GROUPS, ["shaping_commands"], {}, 1, subgroups=TREE_SUBGROUPS)
     assert built.offered_groups == ["boot"]
     assert [row.name for row in run_plan.plan_rows(built)] == ["boot"]
@@ -282,16 +301,21 @@ def test_a_header_number_unticks_its_subgroups_when_any_is_ticked_and_ticks_them
     assert result.ticked == toggled
 
 
-@pytest.mark.parametrize("typed, ticked", [
-    ("3", (True, False, True, True)),
-    ("1 4", (False, True, False, True)),
-    ("1-3", (False, False, False, True)),
-    ("2-5", (True, False, False, False)),
-    ("4-5", (True, True, False, False)),
-    ("a", (True, True, True, True)),
-    ("n", (False, False, False, False)),
-])
-def test_numbers_and_ranges_count_the_headers_and_a_range_toggles_each_subgroup_once(typed: str, ticked: tuple[bool, ...]) -> None:
+@pytest.mark.parametrize(
+    "typed, ticked",
+    [
+        ("3", (True, False, True, True)),
+        ("1 4", (False, True, False, True)),
+        ("1-3", (False, False, False, True)),
+        ("2-5", (True, False, False, False)),
+        ("4-5", (True, True, False, False)),
+        ("a", (True, True, True, True)),
+        ("n", (False, False, False, False)),
+    ],
+)
+def test_numbers_and_ranges_count_the_headers_and_a_range_toggles_each_subgroup_once(
+    typed: str, ticked: tuple[bool, ...]
+) -> None:
     assert run_plan.apply_answer(typed, (True, True, True, True), tree_rows()).ticked == ticked
 
 
@@ -307,13 +331,18 @@ def test_starting_with_every_subgroup_and_group_unticked_is_refused() -> None:
     assert result.message is not None and "nothing is ticked" in result.message
 
 
-@pytest.mark.parametrize("ticked, unticked", [
-    ((True, True, True, True), []),
-    ((True, False, True, True), ["shaping_commands"]),
-    ((True, False, False, True), ["shaping"]),
-    ((False, False, False, False), ["boot", "shaping", "summon"]),
-])
-def test_the_unticked_groups_name_a_group_whose_offered_subgroups_are_all_unticked(ticked: tuple[bool, ...], unticked: list[str]) -> None:
+@pytest.mark.parametrize(
+    "ticked, unticked",
+    [
+        ((True, True, True, True), []),
+        ((True, False, True, True), ["shaping_commands"]),
+        ((True, False, False, True), ["shaping"]),
+        ((False, False, False, False), ["boot", "shaping", "summon"]),
+    ],
+)
+def test_the_unticked_groups_name_a_group_whose_offered_subgroups_are_all_unticked(
+    ticked: tuple[bool, ...], unticked: list[str]
+) -> None:
     assert run_plan.unticked_groups(tree_plan(), ticked) == unticked
 
 
@@ -353,7 +382,9 @@ def test_a_group_offered_with_one_subgroup_is_a_header_over_it_that_toggles_with
     for typed in ("1", "2"):
         unticked = run_plan.apply_answer(typed, (True,), rows).ticked
         assert unticked == (False,)
-        assert run_plan.format_plan(built, unticked, TREE_CONTEXT)[1].startswith(f"  [ ] 1. {'shaping':<20}  {'2 tests':>9}")
+        assert run_plan.format_plan(built, unticked, TREE_CONTEXT)[1].startswith(
+            f"  [ ] 1. {'shaping':<20}  {'2 tests':>9}"
+        )
         assert run_plan.unticked_groups(built, unticked) == ["shaping"]
         assert run_plan.apply_answer(typed, unticked, rows).ticked == (True,)
     assert run_plan.apply_answer("", (False,), rows).message is not None
@@ -375,7 +406,9 @@ def test_a_skipped_subgroup_and_the_rest_unticked_leave_out_the_whole_group_and_
 
 def test_a_sharded_plan_with_subgroups_counts_this_shards_tests_under_each_header() -> None:
     built = run_plan.build_plan(TREE_TESTS, TREE_GROUPS, [], TREE_DURATIONS, 1, Shard(1, 2), subgroups=TREE_SUBGROUPS)
-    lines = run_plan.format_plan(built, (True, True, True, True), run_plan.RunContext(launcher="local", jobs_text="1", shard="1/2"))
+    lines = run_plan.format_plan(
+        built, (True, True, True, True), run_plan.RunContext(launcher="local", jobs_text="1", shard="1/2")
+    )
     # The sorted selection is one, a, b, c, d; shard 1/2 keeps one, b and d.
     assert lines[1:6] == [
         f"  [x] 1. {'boot':<20}  {'1 test':>9}  {'0.2 min':>8}",
@@ -393,7 +426,7 @@ def test_skip_groups_accepts_a_subgroup() -> None:
 
 
 def write_tree_groups(groups_dir: Path) -> None:
-    """Group files registering TREE_GROUPS."""
+    """Write group files registering TREE_GROUPS."""
     groups_dir.mkdir()
     (groups_dir / "shaping").mkdir()
     for name in TREE_GROUPS:
@@ -408,14 +441,27 @@ def collect_tree_tests(python: str, group: str, environ) -> tuple[Optional[list[
     return TREE_TESTS, 0
 
 
-@pytest.mark.parametrize("arguments, answers, expression, skip_groups", [
-    ([], ["2\n", "y\n"], "scenario and not (shaping)", "SKIP_GROUPS=shaping"),
-    ([], ["3\n", "y\n"], "scenario and not (shaping_commands)", "SKIP_GROUPS=shaping_commands"),
-    (["--skip-groups", "shaping_editor"], ["3\n", "y\n"], "scenario and not (shaping_editor or shaping)", "SKIP_GROUPS='shaping_editor shaping'"),
-])
+@pytest.mark.parametrize(
+    "arguments, answers, expression, skip_groups",
+    [
+        ([], ["2\n", "y\n"], "scenario and not (shaping)", "SKIP_GROUPS=shaping"),
+        ([], ["3\n", "y\n"], "scenario and not (shaping_commands)", "SKIP_GROUPS=shaping_commands"),
+        (
+            ["--skip-groups", "shaping_editor"],
+            ["3\n", "y\n"],
+            "scenario and not (shaping_editor or shaping)",
+            "SKIP_GROUPS='shaping_editor shaping'",
+        ),
+    ],
+)
 def test_at_a_terminal_unticked_subgroups_reach_the_run_and_the_repeat_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
-    arguments: list[str], answers: list[str], expression: str, skip_groups: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+    arguments: list[str],
+    answers: list[str],
+    expression: str,
+    skip_groups: str,
 ) -> None:
     write_tree_groups(tmp_path / "groups")
     monkeypatch.setattr(run_plan, "GROUPS_DIR", tmp_path / "groups")
@@ -432,13 +478,18 @@ def test_at_a_terminal_unticked_subgroups_reach_the_run_and_the_repeat_line(
 # Expressions and commands
 
 
-@pytest.mark.parametrize("group, excluded, expression", [
-    ("", [], "scenario"),
-    ("boot or (poison and not summon)", [], "scenario and (boot or (poison and not summon))"),
-    ("", ["poison", "summon"], "scenario and not (poison or summon)"),
-    ("boot or poison", ["summon"], "scenario and (boot or poison) and not (summon)"),
-])
-def test_the_run_expression_keeps_the_group_and_leaves_out_the_excluded(group: str, excluded: list[str], expression: str) -> None:
+@pytest.mark.parametrize(
+    "group, excluded, expression",
+    [
+        ("", [], "scenario"),
+        ("boot or (poison and not summon)", [], "scenario and (boot or (poison and not summon))"),
+        ("", ["poison", "summon"], "scenario and not (poison or summon)"),
+        ("boot or poison", ["summon"], "scenario and (boot or poison) and not (summon)"),
+    ],
+)
+def test_the_run_expression_keeps_the_group_and_leaves_out_the_excluded(
+    group: str, excluded: list[str], expression: str
+) -> None:
     assert run_plan.run_expression(group, excluded) == expression
 
 
@@ -453,23 +504,53 @@ def test_one_worker_runs_without_xdist(jobs_text: str) -> None:
 
 def test_the_run_command_runs_named_targets_without_an_expression() -> None:
     targets = ["tests/integration/scenarios/test_boot.py::test_a", "tests/integration/scenarios/test_bank.py"]
-    assert run_plan.pytest_run_command("py", None, "4", targets) == ["py", "-m", "pytest", *targets, "-q", "-n", "4", *run_plan.REPORT_ARGUMENTS]
+    assert run_plan.pytest_run_command("py", None, "4", targets) == [
+        "py",
+        "-m",
+        "pytest",
+        *targets,
+        "-q",
+        "-n",
+        "4",
+        *run_plan.REPORT_ARGUMENTS,
+    ]
 
 
 def test_the_collect_command_collects_the_groups_scenarios() -> None:
     assert run_plan.collect_command("py", "boot") == [
-        "py", "-m", "pytest", "tests/integration/scenarios", "-q", "--collect-only", "-p", "rots_harness.collect_report", "-m", "scenario and (boot)",
+        "py",
+        "-m",
+        "pytest",
+        "tests/integration/scenarios",
+        "-q",
+        "--collect-only",
+        "-p",
+        "rots_harness.collect_report",
+        "-m",
+        "scenario and (boot)",
     ]
 
 
 def test_the_collect_command_collects_named_targets_without_an_expression() -> None:
     targets = ["tests/integration/scenarios/test_boot.py::test_a"]
-    assert run_plan.collect_command("py", "", targets) == ["py", "-m", "pytest", *targets, "-q", "--collect-only", "-p", "rots_harness.collect_report"]
+    assert run_plan.collect_command("py", "", targets) == [
+        "py",
+        "-m",
+        "pytest",
+        *targets,
+        "-q",
+        "--collect-only",
+        "-p",
+        "rots_harness.collect_report",
+    ]
 
 
 def test_the_repeat_line_reproduces_the_choice() -> None:
     line = run_plan.repeat_command(".venv/bin/python", "boot or poison", ["summon", "shaping"], "8")
-    assert line == "make integration PYTHON=.venv/bin/python GROUP='boot or poison' JOBS=8 SKIP_GROUPS='summon shaping' CONFIRM=yes"
+    assert line == (
+        "make integration PYTHON=.venv/bin/python GROUP='boot or poison' JOBS=8 "
+        "SKIP_GROUPS='summon shaping' CONFIRM=yes"
+    )
 
 
 def test_the_repeat_line_leaves_out_defaults() -> None:
@@ -545,11 +626,16 @@ def test_a_terminal_asks_even_for_a_short_run() -> None:
 
 
 def test_without_a_terminal_a_short_run_starts() -> None:
-    assert run_plan.decide_gate(confirm=False, interactive=False, estimate_minutes=9.9, threshold_minutes=10) is Gate.RUN
+    assert (
+        run_plan.decide_gate(confirm=False, interactive=False, estimate_minutes=9.9, threshold_minutes=10) is Gate.RUN
+    )
 
 
 def test_without_a_terminal_a_long_run_needs_confirmation() -> None:
-    assert run_plan.decide_gate(confirm=False, interactive=False, estimate_minutes=10, threshold_minutes=10) is Gate.NEEDS_CONFIRMATION
+    assert (
+        run_plan.decide_gate(confirm=False, interactive=False, estimate_minutes=10, threshold_minutes=10)
+        is Gate.NEEDS_CONFIRMATION
+    )
 
 
 def test_the_confirm_threshold_defaults_to_ten_minutes() -> None:
@@ -575,7 +661,10 @@ def test_confirm_accepts_yes_or_nothing() -> None:
 
 
 class ScriptedReader:
-    """Answers read(timeout) from a script: None stands for a timeout. Records each timeout asked for."""
+    """Answers read(timeout) from a script: None stands for a timeout.
+
+    Records each timeout asked for.
+    """
 
     def __init__(self, answers: list[Optional[str]]) -> None:
         # The answers still to give, in order.
@@ -593,7 +682,12 @@ class ScriptedReader:
 def ask(reader, timeout_seconds: float = 300.0, step_seconds: float = 60.0) -> tuple[run_plan.PromptResult, list[str]]:
     written: list[str] = []
     result = run_plan.ask(
-        3, lambda ticked: [f"plan {ticked}"], reader, written.append, timeout_seconds=timeout_seconds, countdown_step_seconds=step_seconds,
+        3,
+        lambda ticked: [f"plan {ticked}"],
+        reader,
+        written.append,
+        timeout_seconds=timeout_seconds,
+        countdown_step_seconds=step_seconds,
         rows=flat_rows((True, True, True)),
     )
     return result, written
@@ -684,16 +778,30 @@ def fail_collection(python: str, group: str, environ) -> tuple[Optional[list[Col
     raise AssertionError("main collected tests")
 
 
-def run_main(arguments: list[str], environ: dict[str, str], runner: FakeRunner, tmp_path: Path, collect=fail_collection, interactive: bool = False) -> int:
+def run_main(
+    arguments: list[str],
+    environ: dict[str, str],
+    runner: FakeRunner,
+    tmp_path: Path,
+    collect=fail_collection,
+    interactive: bool = False,
+) -> int:
     return run_plan.main(
-        arguments, environ=environ, run_command=runner, collect=collect, interactive=interactive, durations_path=tmp_path / "durations.json",
+        arguments,
+        environ=environ,
+        run_command=runner,
+        collect=collect,
+        interactive=interactive,
+        durations_path=tmp_path / "durations.json",
         shard_durations_path=tmp_path / "shard_durations.json",
     )
 
 
 def test_under_ci_main_runs_todays_command_without_collecting(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     runner = FakeRunner(status=3)
-    status = run_main(["--python", "py", "--group", "boot", "--jobs", "8", "--skip-groups", ""], {"CI": "true"}, runner, tmp_path)
+    status = run_main(
+        ["--python", "py", "--group", "boot", "--jobs", "8", "--skip-groups", ""], {"CI": "true"}, runner, tmp_path
+    )
     assert status == 3
     assert runner.commands == [(TODAYS_BOOT_COMMAND, True)]
     assert capsys.readouterr().out == ""
@@ -701,9 +809,16 @@ def test_under_ci_main_runs_todays_command_without_collecting(tmp_path: Path, ca
 
 def test_under_ci_skip_groups_leave_groups_out_without_a_plan(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     runner = FakeRunner()
-    status = run_main(["--python", "py", "--group", "boot or poison", "--jobs", "8", "--skip-groups", "poison,summon"], {"CI": "true"}, runner, tmp_path)
+    status = run_main(
+        ["--python", "py", "--group", "boot or poison", "--jobs", "8", "--skip-groups", "poison,summon"],
+        {"CI": "true"},
+        runner,
+        tmp_path,
+    )
     assert status == 0
-    assert runner.commands == [(run_plan.pytest_run_command("py", "scenario and (boot or poison) and not (poison or summon)", "8"), True)]
+    assert runner.commands == [
+        (run_plan.pytest_run_command("py", "scenario and (boot or poison) and not (poison or summon)", "8"), True)
+    ]
     assert capsys.readouterr().out == ""
 
 
@@ -738,7 +853,9 @@ def collect_boot_tests(python: str, group: str, environ) -> tuple[Optional[list[
 
 def collect_forty_tests(python: str, group: str, environ) -> tuple[Optional[list[CollectedTest]], int]:
     # 40 untimed tests at 15 seconds: 10 minutes on one worker.
-    return [CollectedTest(f"scenarios/test_many.py::test_{index}", frozenset({"scenario", "boot"})) for index in range(40)], 0
+    return [
+        CollectedTest(f"scenarios/test_many.py::test_{index}", frozenset({"scenario", "boot"})) for index in range(40)
+    ], 0
 
 
 def test_without_a_terminal_a_short_run_starts_at_once(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -748,9 +865,14 @@ def test_without_a_terminal_a_short_run_starts_at_once(tmp_path: Path, capsys: p
     assert "[x] 1. boot" in capsys.readouterr().out
 
 
-def test_without_a_terminal_a_long_run_stops_with_its_own_status_and_line(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_without_a_terminal_a_long_run_stops_with_its_own_status_and_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     runner = FakeRunner()
-    assert run_main(["--python", "py"], {}, runner, tmp_path, collect=collect_forty_tests) == run_plan.EXIT_NEEDS_CONFIRMATION
+    assert (
+        run_main(["--python", "py"], {}, runner, tmp_path, collect=collect_forty_tests)
+        == run_plan.EXIT_NEEDS_CONFIRMATION
+    )
     assert runner.commands == []
     lines = capsys.readouterr().out.splitlines()
     marked = [line for line in lines if line.startswith(run_plan.NEEDS_CONFIRMATION_PREFIX)]
@@ -763,7 +885,9 @@ def test_a_run_that_starts_prints_no_confirmation_line(tmp_path: Path, capsys: p
     assert run_plan.NEEDS_CONFIRMATION_PREFIX not in capsys.readouterr().out
 
 
-def test_a_sharded_run_collects_without_the_shard_and_plans_this_shards_tests(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_a_sharded_run_collects_without_the_shard_and_plans_this_shards_tests(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     environments: list[dict] = []
 
     def collect_all(python: str, group: str, environ) -> tuple[Optional[list[CollectedTest]], int]:
@@ -771,21 +895,31 @@ def test_a_sharded_run_collects_without_the_shard_and_plans_this_shards_tests(tm
         return TESTS, 0
 
     environ = {"ROTS_IT_SHARD": "1/3", "OTHER": "kept"}
-    status = run_main(["--python", "py", "--skip-groups", "poison", "--plan-only"], environ, FakeRunner(), tmp_path, collect=collect_all)
+    status = run_main(
+        ["--python", "py", "--skip-groups", "poison", "--plan-only"],
+        environ,
+        FakeRunner(),
+        tmp_path,
+        collect=collect_all,
+    )
     assert status == 0
     assert environments == [{"OTHER": "kept"}]
     # Without poison the sorted selection is test_one and test_four; shard 1/3 keeps test_one.
     assert "Total: 1 test," in capsys.readouterr().out
 
 
-def test_a_sharded_run_plans_the_shard_the_shard_durations_file_balances(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_a_sharded_run_plans_the_shard_the_shard_durations_file_balances(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     # test_four alone takes as long as the other three, so shard 1/2 keeps only it.
     (tmp_path / "shard_durations.json").write_text(f'{{"{ALL_IDS[3]}": 100.0}}', encoding="utf-8")
 
     def collect_all(python: str, group: str, environ) -> tuple[Optional[list[CollectedTest]], int]:
         return TESTS, 0
 
-    status = run_main(["--python", "py", "--plan-only"], {"ROTS_IT_SHARD": "1/2"}, FakeRunner(), tmp_path, collect=collect_all)
+    status = run_main(
+        ["--python", "py", "--plan-only"], {"ROTS_IT_SHARD": "1/2"}, FakeRunner(), tmp_path, collect=collect_all
+    )
     assert status == 0
     assert "Total: 1 test," in capsys.readouterr().out
 
@@ -793,7 +927,10 @@ def test_a_sharded_run_plans_the_shard_the_shard_durations_file_balances(tmp_pat
 @pytest.mark.parametrize("value", ["", "4/3", "two"])
 def test_a_bad_shard_is_a_usage_error(tmp_path: Path, value: str, capsys: pytest.CaptureFixture) -> None:
     runner = FakeRunner()
-    assert run_main(["--python", "py"], {"ROTS_IT_SHARD": value}, runner, tmp_path, collect=collect_boot_tests) == run_plan.EXIT_USAGE
+    assert (
+        run_main(["--python", "py"], {"ROTS_IT_SHARD": value}, runner, tmp_path, collect=collect_boot_tests)
+        == run_plan.EXIT_USAGE
+    )
     assert runner.commands == []
     assert "ROTS_IT_SHARD" in capsys.readouterr().err
 
@@ -839,7 +976,13 @@ def test_ctrl_c_while_collecting_stops_the_collection(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(subprocess.Popen, "communicate", interrupted_communicate)
     environ = {"PYTHONPATH": str(tmp_path), "PATH": os.environ.get("PATH", "")}
-    status = run_plan.main(["--python", sys.executable], environ=environ, run_command=FakeRunner(), interactive=False, durations_path=tmp_path / "durations.json")
+    status = run_plan.main(
+        ["--python", sys.executable],
+        environ=environ,
+        run_command=FakeRunner(),
+        interactive=False,
+        durations_path=tmp_path / "durations.json",
+    )
     assert status == run_plan.EXIT_CANCELLED
     assert (tmp_path / "started").exists()
     time.sleep(SURVIVAL_SECONDS)
@@ -853,17 +996,29 @@ def test_a_higher_threshold_lets_the_long_run_start(tmp_path: Path) -> None:
     assert len(runner.commands) == 1
 
 
-def test_confirm_yes_runs_the_long_run_without_the_skipped_groups_and_prints_the_repeat_line(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_confirm_yes_runs_the_long_run_without_the_skipped_groups_and_prints_the_repeat_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     runner = FakeRunner()
-    status = run_main(["--python", "py", "--confirm", "yes", "--skip-groups", "poison"], {}, runner, tmp_path, collect=collect_forty_tests)
+    status = run_main(
+        ["--python", "py", "--confirm", "yes", "--skip-groups", "poison"],
+        {},
+        runner,
+        tmp_path,
+        collect=collect_forty_tests,
+    )
     assert status == 0
-    assert [command for command, _ in runner.commands] == [run_plan.pytest_run_command("py", "scenario and not (poison)", "")]
+    assert [command for command, _ in runner.commands] == [
+        run_plan.pytest_run_command("py", "scenario and not (poison)", "")
+    ]
     assert "Repeat: make integration PYTHON=py SKIP_GROUPS=poison CONFIRM=yes" in capsys.readouterr().out
 
 
 def test_plan_only_prints_the_plan_and_runs_nothing(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     runner = FakeRunner()
-    assert run_main(["--python", "py", "--plan-only"], {"CI": "true"}, runner, tmp_path, collect=collect_forty_tests) == 0
+    assert (
+        run_main(["--python", "py", "--plan-only"], {"CI": "true"}, runner, tmp_path, collect=collect_forty_tests) == 0
+    )
     assert runner.commands == []
     assert "Total: 40 tests, about 10 min" in capsys.readouterr().out
 
@@ -888,7 +1043,9 @@ def test_an_empty_selection_runs_pytest_at_once(tmp_path: Path) -> None:
     assert len(runner.commands) == 1
 
 
-def test_at_a_terminal_an_unticked_group_is_left_out_and_the_repeat_line_printed(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_at_a_terminal_an_unticked_group_is_left_out_and_the_repeat_line_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     runner = FakeRunner()
 
     def collect_all(python: str, group: str, environ) -> tuple[Optional[list[CollectedTest]], int]:
@@ -907,7 +1064,12 @@ def test_at_a_terminal_an_unticked_group_is_left_out_and_the_repeat_line_printed
 def test_at_a_terminal_cancel_runs_nothing_and_returns_its_own_status(tmp_path: Path) -> None:
     runner = FakeRunner()
     status = run_plan.main(
-        ["--python", "py"], environ={}, run_command=runner, collect=collect_boot_tests, interactive=True, reader=ScriptedReader(["q\n"]),
+        ["--python", "py"],
+        environ={},
+        run_command=runner,
+        collect=collect_boot_tests,
+        interactive=True,
+        reader=ScriptedReader(["q\n"]),
         durations_path=tmp_path / "durations.json",
     )
     assert status == run_plan.EXIT_CANCELLED
@@ -931,7 +1093,11 @@ def test_main_estimates_from_the_durations_file(tmp_path: Path, capsys: pytest.C
     durations_path = tmp_path / "durations.json"
     durations_path.write_text('{"scenarios/test_many.py::test_0": 1200}', encoding="utf-8")
     status = run_plan.main(
-        ["--python", "py", "--plan-only"], environ={}, run_command=FakeRunner(), collect=collect_forty_tests, interactive=False,
+        ["--python", "py", "--plan-only"],
+        environ={},
+        run_command=FakeRunner(),
+        collect=collect_forty_tests,
+        interactive=False,
         durations_path=durations_path,
     )
     assert status == 0
@@ -946,7 +1112,12 @@ def test_ctrl_c_at_the_prompt_cancels(tmp_path: Path) -> None:
 
     runner = FakeRunner()
     status = run_plan.main(
-        ["--python", "py"], environ={}, run_command=runner, collect=collect_boot_tests, interactive=True, reader=InterruptedReader([]),
+        ["--python", "py"],
+        environ={},
+        run_command=runner,
+        collect=collect_boot_tests,
+        interactive=True,
+        reader=InterruptedReader([]),
         durations_path=tmp_path / "durations.json",
     )
     assert status == run_plan.EXIT_CANCELLED

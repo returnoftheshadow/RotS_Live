@@ -27,7 +27,7 @@ OBJECT_VNUM = 1130
 
 @pytest.fixture
 def world_copy(tmp_path: Path) -> Path:
-    """A copy of the committed test world that a test may change."""
+    """Return a copy of the committed test world that a test may change."""
     copied = tmp_path / "world"
     shutil.copytree(WORLD_DIR, copied)
     return copied
@@ -37,7 +37,10 @@ def test_a_mob_reset_is_an_m_row_in_the_zone_that_owns_its_room(world_copy: Path
     rows_before = read_zone(world_copy / "zon" / "13.zon").resets
     write_world_resets(world_copy, [MobReset(ORC_VNUM, world.ROOM_TRADE_HALL)])
     rows_after = read_zone(world_copy / "zon" / "13.zon").resets
-    assert rows_after == [*rows_before, ResetRow("M", (0, ORC_VNUM, world.ROOM_TRADE_HALL, 0, 100, 100, 1, 1), RESET_COMMENT)]
+    assert rows_after == [
+        *rows_before,
+        ResetRow("M", (0, ORC_VNUM, world.ROOM_TRADE_HALL, 0, 100, 100, 1, 1), RESET_COMMENT),
+    ]
     assert (world_copy / "zon" / "11.zon").read_bytes() == (WORLD_DIR / "zon" / "11.zon").read_bytes()
 
 
@@ -53,7 +56,11 @@ def test_an_object_reset_is_an_o_row_and_repeats_raise_the_floor_count(world_cop
 
 def test_the_zone_still_ends_with_its_closing_s(world_copy: Path) -> None:
     write_world_resets(world_copy, [MobReset(ORC_VNUM, world.ROOM_ARENA_CENTRE)])
-    assert (world_copy / "zon" / "11.zon").read_text(encoding="latin-1").endswith(f"M 0 {ORC_VNUM} {world.ROOM_ARENA_CENTRE} 0 100 100 1 1 {RESET_COMMENT}\nS\n")
+    assert (
+        (world_copy / "zon" / "11.zon")
+        .read_text(encoding="latin-1")
+        .endswith(f"M 0 {ORC_VNUM} {world.ROOM_ARENA_CENTRE} 0 100 100 1 1 {RESET_COMMENT}\nS\n")
+    )
 
 
 @pytest.mark.parametrize(
@@ -64,7 +71,9 @@ def test_the_zone_still_ends_with_its_closing_s(world_copy: Path) -> None:
         (ObjectReset(1199, world.ROOM_ARENA_CENTRE), "no object 1199"),
     ],
 )
-def test_a_reset_naming_a_vnum_the_world_lacks_is_refused_before_any_file_changes(world_copy: Path, reset: MobReset | ObjectReset, named: str) -> None:
+def test_a_reset_naming_a_vnum_the_world_lacks_is_refused_before_any_file_changes(
+    world_copy: Path, reset: MobReset | ObjectReset, named: str
+) -> None:
     with pytest.raises(WorldResetError, match=named):
         write_world_resets(world_copy, [MobReset(ORC_VNUM, world.ROOM_ARENA_CENTRE), reset])
     assert (world_copy / "zon" / "11.zon").read_bytes() == (WORLD_DIR / "zon" / "11.zon").read_bytes()

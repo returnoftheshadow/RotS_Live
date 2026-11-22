@@ -12,7 +12,9 @@ from rots_harness.sharding import MINIMUM_SPLIT_SECONDS, SHARD_DURATIONS_RELATIV
 INTEGRATION_ROOT = Path(__file__).resolve().parents[1]
 
 # Node ids shaped like the scenarios', in no particular order.
-NODE_IDS = [f"scenarios/test_{module}.py::test_case_{case}" for module in ("summon", "boot", "poison") for case in range(7)]
+NODE_IDS = [
+    f"scenarios/test_{module}.py::test_case_{case}" for module in ("summon", "boot", "poison") for case in range(7)
+]
 
 
 def test_a_shard_value_names_its_number_and_count() -> None:
@@ -23,7 +25,10 @@ def test_a_single_shard_is_allowed() -> None:
     assert parse_shard("1/1") == Shard(number=1, count=1)
 
 
-@pytest.mark.parametrize("value", ["", "2", "2/", "/4", "a/4", "2/b", "2/4/1", " 2/4", "2/4 ", "+2/4", "-1/4", "2.0/4", "0/4", "5/4", "1/0", "0/0"])
+@pytest.mark.parametrize(
+    "value",
+    ["", "2", "2/", "/4", "a/4", "2/b", "2/4/1", " 2/4", "2/4 ", "+2/4", "-1/4", "2.0/4", "0/4", "5/4", "1/0", "0/0"],
+)
 def test_a_malformed_shard_value_is_refused(value: str) -> None:
     with pytest.raises(ValueError):
         parse_shard(value)
@@ -62,7 +67,8 @@ def test_no_tests_gives_an_empty_share() -> None:
     assert in_shard([], Shard(1, 4)) == set()
 
 
-# Seconds for most of NODE_IDS, every third one left out, as a durations file missing new tests would be.
+# Seconds for most of NODE_IDS, every third one left out, as a durations file missing new tests
+# would be.
 RECORDED_SECONDS = {node_id: float((index * 37) % 90) for index, node_id in enumerate(NODE_IDS) if index % 3}
 
 
@@ -85,8 +91,8 @@ def test_a_test_with_no_recorded_time_lands_in_exactly_one_shard() -> None:
 
 
 def test_a_test_with_no_recorded_time_counts_the_default_seconds() -> None:
-    # The new test counts as long as the recorded one, so each takes a shard and a short test joins it;
-    # counted as nothing, the new test would have joined the short ones.
+    # The new test counts as long as the recorded one, so each takes a shard and a short test joins
+    # it; counted as nothing, the new test would have joined the short ones.
     recorded = {"long": DEFAULT_TEST_SECONDS, "short_a": 1.0, "short_b": 1.0}
     assert in_shard(["long", "new", "short_a", "short_b"], Shard(1, 2), recorded) == {"long", "short_a"}
     assert in_shard(["long", "new", "short_a", "short_b"], Shard(2, 2), recorded) == {"new", "short_b"}
@@ -103,7 +109,9 @@ def test_the_balanced_split_does_not_depend_on_collection_order() -> None:
     shuffled = list(NODE_IDS)
     random.Random(11).shuffle(shuffled)
     for number in range(1, 6):
-        assert in_shard(shuffled, Shard(number, 5), RECORDED_SECONDS) == in_shard(NODE_IDS, Shard(number, 5), RECORDED_SECONDS)
+        assert in_shard(shuffled, Shard(number, 5), RECORDED_SECONDS) == in_shard(
+            NODE_IDS, Shard(number, 5), RECORDED_SECONDS
+        )
 
 
 def test_equal_recorded_times_take_turns_in_sorted_order() -> None:

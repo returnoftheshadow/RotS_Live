@@ -25,7 +25,9 @@ def test_docker_launcher_maps_run_dir_into_the_container_and_publishes_a_random_
     repo_root = tmp_path
     run_dir = repo_root / "build" / "integration" / "abc123"
     docker = launcher.DockerComposeLauncher(repo_root=repo_root, binary_relative="bin/ageland")
-    command = docker.server_command(run_dir=run_dir, lib_dir=run_dir / "lib", port=4321, container_name="rots-it-abc123", seed=7)
+    command = docker.server_command(
+        run_dir=run_dir, lib_dir=run_dir / "lib", port=4321, container_name="rots-it-abc123", seed=7
+    )
     assert command[:5] == ["docker", "compose", "run", "--rm", "-T"]
     assert "--name" in command and command[command.index("--name") + 1] == "rots-it-abc123"
     assert "-p" in command and command[command.index("-p") + 1] == "127.0.0.1::4321"
@@ -46,10 +48,18 @@ def test_container_path_refuses_a_path_outside_the_repo(tmp_path: Path) -> None:
 
 def test_docker_tool_command_runs_the_program_in_the_mapped_directory(tmp_path: Path) -> None:
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path)
-    command = docker.tool_command("bin/rotstool", ["fixtures", "write", "--lib", "lib", "spec.json"], tmp_path / "build" / "integration" / "libs" / "k1", "rots-it-tool1")
+    command = docker.tool_command(
+        "bin/rotstool",
+        ["fixtures", "write", "--lib", "lib", "spec.json"],
+        tmp_path / "build" / "integration" / "libs" / "k1",
+        "rots-it-tool1",
+    )
     assert command[:5] == ["docker", "compose", "run", "--rm", "-T"]
     assert "-p" not in command
-    assert command[-1] == "ulimit -c 0; cd /rots/build/integration/libs/k1 && exec /rots/bin/rotstool fixtures write --lib lib spec.json"
+    assert command[-1] == (
+        "ulimit -c 0; cd /rots/build/integration/libs/k1 && exec /rots/bin/rotstool fixtures write "
+        "--lib lib spec.json"
+    )
 
 
 def test_local_run_to_completion_returns_status_and_combined_output(tmp_path: Path) -> None:
@@ -65,7 +75,10 @@ def test_local_run_to_completion_returns_status_and_combined_output(tmp_path: Pa
 def test_require_program_names_the_build_command_when_missing(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError) as missing:
         launcher.LocalProcessLauncher(repo_root=tmp_path).require_program("bin/rotstool")
-    assert str(missing.value) == "bin/rotstool is missing; build it first: make configure && cmake --build build --target ageland ageland_harness rotstool"
+    assert str(missing.value) == (
+        "bin/rotstool is missing; build it first: make configure && cmake --build build --target ageland "
+        "ageland_harness rotstool"
+    )
 
 
 def test_docker_require_program_names_the_build_command_inside_the_container(tmp_path: Path) -> None:
@@ -73,7 +86,8 @@ def test_docker_require_program_names_the_build_command_inside_the_container(tmp
         launcher.DockerComposeLauncher(repo_root=tmp_path).require_program("bin/ageland")
     assert str(missing.value) == (
         "bin/ageland is missing; build it first: "
-        "docker compose run --rm -T rots bash -lc 'make configure && cmake --build build --target ageland ageland_harness rotstool'"
+        "docker compose run --rm -T rots bash -lc 'make configure && cmake --build build --target ageland "
+        "ageland_harness rotstool'"
     )
 
 
@@ -398,7 +412,12 @@ class ExitedProcess:
 
 def test_local_stop_closes_the_server_standard_input(tmp_path: Path) -> None:
     exited_process = ExitedProcess()
-    handle = launcher.ServerHandle(launcher.LOOPBACK, 4321, tmp_path / "game.log", exited_process)  # type: ignore[arg-type]
+    handle = launcher.ServerHandle(
+        launcher.LOOPBACK,
+        4321,
+        tmp_path / "game.log",
+        exited_process,  # type: ignore[arg-type]
+    )
 
     launcher.LocalProcessLauncher(repo_root=tmp_path).stop(handle)
 
@@ -408,14 +427,21 @@ def test_local_stop_closes_the_server_standard_input(tmp_path: Path) -> None:
 def test_docker_stop_closes_the_server_standard_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "", ""))
     exited_process = ExitedProcess()
-    handle = launcher.ServerHandle(launcher.LOOPBACK, 4321, tmp_path / "game.log", exited_process, "rots-it-stop")  # type: ignore[arg-type]
+    handle = launcher.ServerHandle(
+        launcher.LOOPBACK,
+        4321,
+        tmp_path / "game.log",
+        exited_process,  # type: ignore[arg-type]
+        "rots-it-stop",
+    )
 
     launcher.DockerComposeLauncher(repo_root=tmp_path).stop(handle)
 
     assert exited_process.stdin.closed
 
 
-# A stand-in for ageland's listener: argv is the port, then a directory for the files the test reads.
+# A stand-in for ageland's listener: argv is the port, then a directory for the files the test
+# reads.
 FAKE_SERVER_PREAMBLE = """
 import socket
 import sys
@@ -471,7 +497,7 @@ sys.exit(3)
 
 
 class FakeServers:
-    """Starts fake server scripts with this test's Python and kills any still running at teardown."""
+    """Starts fake server scripts with this test's Python, killing any still running at teardown."""
 
     def __init__(self, work_dir: Path) -> None:
         # Holds each script, its log and the evidence files it writes.
@@ -480,23 +506,29 @@ class FakeServers:
         self._processes: List[subprocess.Popen] = []
 
     def start(self, source: str, port: int) -> subprocess.Popen:
-        """Runs source as a script with port and the evidence directory as arguments, logging to fake.log."""
+        """Run source as a script with port and the evidence directory as arguments.
+
+        It logs to fake.log.
+        """
         script = self._work_dir / f"fake_server_{len(self._processes)}.py"
         script.write_text(source, encoding="utf-8")
         with self.log_path.open("ab") as log_file:
             process = subprocess.Popen(
-                [sys.executable, str(script), str(port), str(self._work_dir)], stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT,
+                [sys.executable, str(script), str(port), str(self._work_dir)],
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
             )
         self._processes.append(process)
         return process
 
     @property
     def log_path(self) -> Path:
-        """The log every fake server writes to."""
+        """Return the log every fake server writes to."""
         return self._work_dir / "fake.log"
 
     def kill_all(self) -> None:
-        """Kills every started process that is still running."""
+        """Kill every started process that is still running."""
         for process in self._processes:
             if process.poll() is None:
                 process.kill()
@@ -505,7 +537,7 @@ class FakeServers:
 
 @pytest.fixture
 def fake_servers(tmp_path: Path) -> Iterator[FakeServers]:
-    """Fake servers for one test, all killed when it ends, whatever its outcome."""
+    """Yield fake servers for one test, all killed when it ends, whatever its outcome."""
     servers = FakeServers(tmp_path)
     try:
         yield servers
@@ -598,7 +630,10 @@ class FakeComposeClient:
 
 
 def recording_docker(events: list, failing_command: Optional[str] = None, failure: Optional[BaseException] = None):
-    """A subprocess.run stand-in that records each docker argv; failing_command fails with failure or status 1."""
+    """Return a subprocess.run stand-in that records each docker argv.
+
+    failing_command fails with failure or status 1.
+    """
 
     def fake_run(argv: List[str], **kwargs: object) -> subprocess.CompletedProcess:
         events.append(("run", argv))
@@ -611,11 +646,19 @@ def recording_docker(events: list, failing_command: Optional[str] = None, failur
     return fake_run
 
 
-def test_docker_stop_stops_the_container_then_waits_for_the_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_docker_stop_stops_the_container_then_waits_for_the_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     monkeypatch.setattr(launcher.subprocess, "run", recording_docker(events))
     client = FakeComposeClient(events)
-    handle = launcher.ServerHandle(launcher.LOOPBACK, 4321, tmp_path / "game.log", client, "rots-it-stop")  # type: ignore[arg-type]
+    handle = launcher.ServerHandle(
+        launcher.LOOPBACK,
+        4321,
+        tmp_path / "game.log",
+        client,  # type: ignore[arg-type]
+        "rots-it-stop",
+    )
 
     launcher.DockerComposeLauncher(repo_root=tmp_path).stop(handle)
 
@@ -623,11 +666,19 @@ def test_docker_stop_stops_the_container_then_waits_for_the_client(tmp_path: Pat
     assert client.stdin.closed
 
 
-def test_docker_stop_kills_a_client_that_outlives_the_wait_and_removes_the_container(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_docker_stop_kills_a_client_that_outlives_the_wait_and_removes_the_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     monkeypatch.setattr(launcher.subprocess, "run", recording_docker(events))
     client = FakeComposeClient(events, waits_out_the_first_wait=True)
-    handle = launcher.ServerHandle(launcher.LOOPBACK, 4321, tmp_path / "game.log", client, "rots-it-stop")  # type: ignore[arg-type]
+    handle = launcher.ServerHandle(
+        launcher.LOOPBACK,
+        4321,
+        tmp_path / "game.log",
+        client,  # type: ignore[arg-type]
+        "rots-it-stop",
+    )
 
     launcher.DockerComposeLauncher(repo_root=tmp_path).stop(handle)
 
@@ -649,11 +700,20 @@ def test_docker_stop_removes_the_container_when_docker_stop_fails(
     events: list = []
     monkeypatch.setattr(launcher.subprocess, "run", recording_docker(events, failing_command="stop", failure=failure))
     client = FakeComposeClient(events)
-    handle = launcher.ServerHandle(launcher.LOOPBACK, 4321, tmp_path / "game.log", client, "rots-it-stop")  # type: ignore[arg-type]
+    handle = launcher.ServerHandle(
+        launcher.LOOPBACK,
+        4321,
+        tmp_path / "game.log",
+        client,  # type: ignore[arg-type]
+        "rots-it-stop",
+    )
 
     launcher.DockerComposeLauncher(repo_root=tmp_path).stop(handle)
 
-    assert events[:2] == [("run", ["docker", "stop", "-t", "5", "rots-it-stop"]), ("run", ["docker", "rm", "-f", "rots-it-stop"])]
+    assert events[:2] == [
+        ("run", ["docker", "stop", "-t", "5", "rots-it-stop"]),
+        ("run", ["docker", "rm", "-f", "rots-it-stop"]),
+    ]
     assert client.stdin.closed
 
 
@@ -662,7 +722,9 @@ def test_docker_stop_removes_the_container_when_docker_stop_fails(
     [None, subprocess.TimeoutExpired(cmd="docker", timeout=15), FileNotFoundError("docker")],
     ids=["non-zero-exit", "timeout", "docker-missing"],
 )
-def test_a_failed_docker_rm_is_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Optional[BaseException]) -> None:
+def test_a_failed_docker_rm_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Optional[BaseException]
+) -> None:
     events: list = []
     monkeypatch.setattr(launcher.subprocess, "run", recording_docker(events, failing_command="rm", failure=failure))
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path)
@@ -682,7 +744,13 @@ def test_docker_reads_the_published_port_from_docker_port(tmp_path: Path, monkey
     monkeypatch.setattr(launcher.subprocess, "run", fake_port_query)
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path)
 
-    host_port = docker._wait_for_published_port("rots-it-port", 4321, FakeComposeClient([]), tmp_path / "game.log", time.monotonic() + 5.0)  # type: ignore[arg-type]
+    host_port = docker._wait_for_published_port(
+        "rots-it-port",
+        4321,
+        FakeComposeClient([]),  # type: ignore[arg-type]
+        tmp_path / "game.log",
+        time.monotonic() + 5.0,
+    )
 
     assert host_port == 49153
     assert recorded_argv == [["docker", "port", "rots-it-port", "4321/tcp"]]
@@ -720,7 +788,10 @@ def test_run_to_completion_gives_the_program_no_standard_input(
 
 
 def write_program_with_a_missing_interpreter(repo_root: Path, program_relative: str) -> Path:
-    """An executable script whose interpreter does not exist, as an i386 binary looks without its loader."""
+    """Return an executable script whose interpreter does not exist.
+
+    That is how an i386 binary looks without its loader.
+    """
     program = repo_root / program_relative
     program.parent.mkdir(parents=True, exist_ok=True)
     program.write_text("#!/nonexistent/i386-loader\n", encoding="utf-8")
@@ -756,7 +827,9 @@ def test_local_run_to_completion_in_a_missing_directory_is_not_blamed_on_the_hos
     program.chmod(0o700)
 
     with pytest.raises(FileNotFoundError):
-        launcher.LocalProcessLauncher(repo_root=tmp_path).run_to_completion("bin/tool", [], tmp_path / "missing", timeout=10)
+        launcher.LocalProcessLauncher(repo_root=tmp_path).run_to_completion(
+            "bin/tool", [], tmp_path / "missing", timeout=10
+        )
 
 
 @pytest.mark.parametrize("launcher_class", [launcher.LocalProcessLauncher, launcher.DockerComposeLauncher])
@@ -770,7 +843,9 @@ def test_docker_server_script_quotes_every_path(tmp_path: Path) -> None:
     run_dir = tmp_path / "build" / "integration" / "run dir"
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/age land")
 
-    command = docker.server_command(run_dir=run_dir, lib_dir=run_dir / "lib", port=4321, container_name="rots-it-q", seed=7)
+    command = docker.server_command(
+        run_dir=run_dir, lib_dir=run_dir / "lib", port=4321, container_name="rots-it-q", seed=7
+    )
 
     assert shlex.split(command[-1]) == [
         "ulimit", "-c", "0;", "cd", "/rots/build/integration/run dir", "&&",
@@ -781,7 +856,9 @@ def test_docker_server_script_quotes_every_path(tmp_path: Path) -> None:
 def test_docker_tool_script_quotes_every_path(tmp_path: Path) -> None:
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path)
 
-    command = docker.tool_command("bin/rots tool", ["fixtures", "write"], tmp_path / "build" / "work dir", "rots-it-tool-q")
+    command = docker.tool_command(
+        "bin/rots tool", ["fixtures", "write"], tmp_path / "build" / "work dir", "rots-it-tool-q"
+    )
 
     assert shlex.split(command[-1]) == [
         "ulimit", "-c", "0;", "cd", "/rots/build/work dir", "&&", "exec", "/rots/bin/rots tool", "fixtures", "write",
@@ -815,12 +892,21 @@ def test_docker_start_gives_both_waits_one_startup_deadline(tmp_path: Path, monk
     port_wait_deadlines: List[float] = []
     login_wait_timeouts: List[float] = []
 
-    def slow_port_wait(container_name: str, container_port: int, process: object, log_path: Path, deadline: float) -> int:
+    def slow_port_wait(
+        container_name: str, container_port: int, process: object, log_path: Path, deadline: float
+    ) -> int:
         port_wait_deadlines.append(deadline)
         clock.now += 200.0
         return 49153
 
-    def recording_login_wait(host: str, port: int, timeout_seconds: float, process: object, log_path: Path, time_allowed: Optional[str] = None) -> None:
+    def recording_login_wait(
+        host: str,
+        port: int,
+        timeout_seconds: float,
+        process: object,
+        log_path: Path,
+        time_allowed: Optional[str] = None,
+    ) -> None:
         login_wait_timeouts.append(timeout_seconds)
 
     monkeypatch.setattr(docker, "_wait_for_published_port", slow_port_wait)
@@ -835,7 +921,9 @@ def test_docker_start_gives_both_waits_one_startup_deadline(tmp_path: Path, monk
 
 @pytest.mark.parametrize("launcher_class", [launcher.LocalProcessLauncher, launcher.DockerComposeLauncher])
 @pytest.mark.parametrize("binary_relative", ["", ".", "bin/.."])
-def test_launchers_refuse_a_binary_that_names_the_repo_root(tmp_path: Path, launcher_class: type, binary_relative: str) -> None:
+def test_launchers_refuse_a_binary_that_names_the_repo_root(
+    tmp_path: Path, launcher_class: type, binary_relative: str
+) -> None:
     with pytest.raises(ValueError, match="must name a file"):
         launcher_class(repo_root=tmp_path, binary_relative=binary_relative)
 
@@ -857,7 +945,10 @@ def test_local_run_to_completion_explains_a_program_in_a_format_this_host_cannot
     with pytest.raises(RuntimeError) as raised:
         launcher.LocalProcessLauncher(repo_root=tmp_path).run_to_completion("bin/rotstool", [], tmp_path, timeout=10)
 
-    assert str(raised.value) == f"cannot execute {program}: this host cannot run the i386 binaries; set ROTS_IT_LAUNCHER=docker"
+    assert (
+        str(raised.value)
+        == f"cannot execute {program}: this host cannot run the i386 binaries; set ROTS_IT_LAUNCHER=docker"
+    )
 
 
 def test_a_docker_start_whose_port_wait_spent_the_budget_names_the_whole_startup_timeout(
@@ -875,7 +966,9 @@ def test_a_docker_start_whose_port_wait_spent_the_budget_names_the_whole_startup
     run_dir.mkdir()
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path, startup_timeout=300.0)
 
-    def port_wait_using_the_whole_budget(container_name: str, container_port: int, process: object, log_path: Path, deadline: float) -> int:
+    def port_wait_using_the_whole_budget(
+        container_name: str, container_port: int, process: object, log_path: Path, deadline: float
+    ) -> int:
         clock.now = deadline
         return 49153
 
@@ -914,15 +1007,35 @@ def test_local_launcher_builds_the_harness_binary_command_for_a_schedule(tmp_pat
     local = launcher.LocalProcessLauncher(repo_root=tmp_path, binary_relative="bin/ageland")
     lib_dir = tmp_path / "run" / "lib"
     command = local.command(lib_dir=lib_dir, port=4321, seed=7, schedule="affect-hours")
-    assert command == [str(tmp_path / "bin" / "ageland_harness"), "--schedule", "affect-hours", "--random-seed", "7", "-d", str(lib_dir), "4321"]
+    assert command == [
+        str(tmp_path / "bin" / "ageland_harness"),
+        "--schedule",
+        "affect-hours",
+        "--random-seed",
+        "7",
+        "-d",
+        str(lib_dir),
+        "4321",
+    ]
 
 
 def test_docker_launcher_runs_the_harness_binary_for_a_schedule(tmp_path: Path) -> None:
     run_dir = tmp_path / "build" / "integration" / "abc123"
     docker = launcher.DockerComposeLauncher(repo_root=tmp_path, binary_relative="bin/ageland")
-    command = docker.server_command(run_dir=run_dir, lib_dir=run_dir / "lib", port=4321, container_name="rots-it-abc123", seed=7, schedule="affect-hours")
+    command = docker.server_command(
+        run_dir=run_dir,
+        lib_dir=run_dir / "lib",
+        port=4321,
+        container_name="rots-it-abc123",
+        seed=7,
+        schedule="affect-hours",
+    )
     assert "-i" not in command
-    assert "exec /rots/bin/ageland_harness --schedule affect-hours --random-seed 7 -d /rots/build/integration/abc123/lib 4321" in command[-1]
+    assert (
+        "exec /rots/bin/ageland_harness --schedule affect-hours "
+        "--random-seed 7 -d /rots/build/integration/abc123/lib 4321"
+        in command[-1]
+    )
 
 
 def test_the_build_command_builds_the_harness_binary() -> None:
@@ -931,7 +1044,9 @@ def test_the_build_command_builds_the_harness_binary() -> None:
 
 @pytest.mark.parametrize("launcher_class", [launcher.LocalProcessLauncher, launcher.DockerComposeLauncher])
 @pytest.mark.parametrize("schedule", ["affect-hours", None])
-def test_start_pipes_stdout_only_with_a_schedule_and_always_logs_stderr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, launcher_class: type, schedule: Optional[str]) -> None:
+def test_start_pipes_stdout_only_with_a_schedule_and_always_logs_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, launcher_class: type, schedule: Optional[str]
+) -> None:
     recorded_kwargs: list[dict] = []
 
     class StopAfterRecording(Exception):
@@ -1005,10 +1120,17 @@ class HarnessServerProcess:
 
 
 class LoggingClock(FakeClock):
-    """A FakeClock that records each sleep and logs the input-closed line on the sleep numbered line_on_sleep."""
+    """A FakeClock that records each sleep and logs the input-closed line on one sleep.
+
+    The line is logged on the sleep numbered line_on_sleep.
+    """
 
     def __init__(
-        self, events: list, log_path: Path, line_on_sleep: Optional[int] = None, interrupt_on_sleep: Optional[int] = None,
+        self,
+        events: list,
+        log_path: Path,
+        line_on_sleep: Optional[int] = None,
+        interrupt_on_sleep: Optional[int] = None,
         split_at: Optional[int] = None,
     ) -> None:
         super().__init__(now=1000.0)
@@ -1045,14 +1167,28 @@ class LoggingClock(FakeClock):
                 log_file.write(parts[self.sleeps].encode("ascii"))
 
 
-def harness_handle(tmp_path: Path, process: HarnessServerProcess, container_name: Optional[str] = None) -> launcher.ServerHandle:
-    """A handle on process for a server started with a schedule, whose game.log already holds boot output."""
+def harness_handle(
+    tmp_path: Path, process: HarnessServerProcess, container_name: Optional[str] = None
+) -> launcher.ServerHandle:
+    """Return a handle on process for a server started with a schedule.
+
+    Its game.log already holds boot output.
+    """
     log_path = tmp_path / "game.log"
     log_path.write_bytes(b"Booting the world.\n")
-    return launcher.ServerHandle(launcher.LOOPBACK, 4321, log_path, process, container_name, has_control_channel=True)  # type: ignore[arg-type]
+    return launcher.ServerHandle(
+        launcher.LOOPBACK,
+        4321,
+        log_path,
+        process,  # type: ignore[arg-type]
+        container_name,
+        has_control_channel=True,
+    )
 
 
-def test_close_control_channel_closes_stdin_then_waits_for_the_input_closed_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_control_channel_closes_stdin_then_waits_for_the_input_closed_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     log_path = tmp_path / "game.log"
     log_path.write_bytes(b"Booting the world.\n")
@@ -1065,7 +1201,9 @@ def test_close_control_channel_closes_stdin_then_waits_for_the_input_closed_line
     assert events == ["close stdin", "sleep", "sleep", "sleep"]
 
 
-def test_local_stop_terminates_a_harness_server_once_it_logs_that_its_input_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_local_stop_terminates_a_harness_server_once_it_logs_that_its_input_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     process = HarnessServerProcess(events)
     handle = harness_handle(tmp_path, process)
@@ -1076,7 +1214,9 @@ def test_local_stop_terminates_a_harness_server_once_it_logs_that_its_input_clos
     assert events == ["close stdin", "sleep", "sleep", "terminate", "wait"]
 
 
-def test_docker_stop_stops_a_harness_container_once_it_logs_that_its_input_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_docker_stop_stops_a_harness_container_once_it_logs_that_its_input_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     process = HarnessServerProcess(events)
     handle = harness_handle(tmp_path, process, "rots-it-stop")
@@ -1088,7 +1228,9 @@ def test_docker_stop_stops_a_harness_container_once_it_logs_that_its_input_close
     assert events[:4] == ["close stdin", "sleep", "sleep", ("run", ["docker", "stop", "-t", "5", "rots-it-stop"])]
 
 
-def test_a_stop_goes_ahead_after_the_timeout_when_the_line_never_arrives(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stop_goes_ahead_after_the_timeout_when_the_line_never_arrives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     process = HarnessServerProcess(events)
     handle = harness_handle(tmp_path, process)
@@ -1101,7 +1243,11 @@ def test_a_stop_goes_ahead_after_the_timeout_when_the_line_never_arrives(tmp_pat
     assert set(events[1:-2]) == {"sleep"}
     assert events[-2:] == ["terminate", "wait"]
     waited = clock.now - 1000.0
-    assert launcher.INPUT_CLOSED_WAIT_SECONDS <= waited < launcher.INPUT_CLOSED_WAIT_SECONDS + 2 * launcher.INPUT_CLOSED_POLL_SECONDS
+    assert (
+        launcher.INPUT_CLOSED_WAIT_SECONDS
+        <= waited
+        < launcher.INPUT_CLOSED_WAIT_SECONDS + 2 * launcher.INPUT_CLOSED_POLL_SECONDS
+    )
 
 
 def test_close_control_channel_honours_a_shorter_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1110,13 +1256,19 @@ def test_close_control_channel_honours_a_shorter_timeout(tmp_path: Path, monkeyp
     clock = LoggingClock(events, log_path)
     monkeypatch.setattr(launcher, "time", clock)
 
-    saw_line = launcher.close_control_channel(HarnessServerProcess(events), log_path, timeout_seconds=0.2)  # type: ignore[arg-type]
+    saw_line = launcher.close_control_channel(
+        HarnessServerProcess(events),  # type: ignore[arg-type]
+        log_path,
+        timeout_seconds=0.2,
+    )
 
     assert not saw_line
     assert 0.2 <= clock.now - 1000.0 < 0.2 + 2 * launcher.INPUT_CLOSED_POLL_SECONDS
 
 
-def test_a_stop_does_not_wait_for_a_server_that_has_already_exited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stop_does_not_wait_for_a_server_that_has_already_exited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     process = HarnessServerProcess(events, exited=True)
     handle = harness_handle(tmp_path, process)
@@ -1128,12 +1280,17 @@ def test_a_stop_does_not_wait_for_a_server_that_has_already_exited(tmp_path: Pat
     assert events == ["close stdin"]
 
 
-def test_close_control_channel_does_not_wait_without_a_stdin_pipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_control_channel_does_not_wait_without_a_stdin_pipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     log_path = tmp_path / "game.log"
     monkeypatch.setattr(launcher, "time", LoggingClock(events, log_path))
 
-    saw_line = launcher.close_control_channel(HarnessServerProcess(events, has_stdin=False), log_path)  # type: ignore[arg-type]
+    saw_line = launcher.close_control_channel(
+        HarnessServerProcess(events, has_stdin=False),  # type: ignore[arg-type]
+        log_path,
+    )
 
     assert not saw_line
     assert events == []
@@ -1177,7 +1334,9 @@ time.sleep(30)
 """
 
 
-def test_close_control_channel_ignores_a_line_already_in_the_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_control_channel_ignores_a_line_already_in_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     log_path = tmp_path / "game.log"
     log_path.write_bytes(f"Tue Oct 13 11:00:00 2026 :: {launcher.INPUT_CLOSED_LOG_LINE}\n".encode("ascii"))
@@ -1190,7 +1349,9 @@ def test_close_control_channel_ignores_a_line_already_in_the_log(tmp_path: Path,
     assert clock.now - 1000.0 >= launcher.INPUT_CLOSED_WAIT_SECONDS
 
 
-def test_close_control_channel_finds_a_line_split_across_two_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_control_channel_finds_a_line_split_across_two_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list = []
     log_path = tmp_path / "game.log"
     log_path.write_bytes(b"Booting the world.\n")
@@ -1240,7 +1401,7 @@ class ScriptServerLauncher(launcher.LocalProcessLauncher):
 
 
 def start_script_server(tmp_path: Path, source: str) -> launcher.ServerHandle:
-    """Starts source as the server through ScriptServerLauncher in a fresh run directory."""
+    """Start source as the server through ScriptServerLauncher in a fresh run directory."""
     (tmp_path / "bin").mkdir()
     (tmp_path / "bin" / "ageland").write_text("", encoding="utf-8")
     script = tmp_path / "server.py"
@@ -1265,17 +1426,27 @@ def test_a_local_server_that_exits_for_another_reason_raises_a_plain_runtime_err
 
 
 class ScriptedStartLauncher:
-    """A launcher whose start raises the given failures in turn, then returns a handle; it records each port."""
+    """A launcher whose start raises the given failures in turn, then returns a handle.
+
+    It records each port.
+    """
 
     def __init__(self, tmp_path: Path, failures: list[BaseException]) -> None:
         # Raised by successive starts before any start succeeds.
         self._failures = list(failures)
         # The handle a start returns once the failures run out.
-        self.handle = launcher.ServerHandle(launcher.LOOPBACK, 0, tmp_path / "game.log", ExitedProcess())  # type: ignore[arg-type]
+        self.handle = launcher.ServerHandle(
+            launcher.LOOPBACK,
+            0,
+            tmp_path / "game.log",
+            ExitedProcess(),  # type: ignore[arg-type]
+        )
         # The port each start was given, in order.
         self.ports: list[int] = []
 
-    def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int, schedule: Optional[str] = None) -> launcher.ServerHandle:
+    def start(
+        self, run_dir: Path, lib_dir: Path, port: int, seed: int, schedule: Optional[str] = None
+    ) -> launcher.ServerHandle:
         self.ports.append(port)
         if self._failures:
             raise self._failures.pop(0)
@@ -1283,7 +1454,7 @@ class ScriptedStartLauncher:
 
 
 def numbered_ports(first: int = 5001) -> Callable[[], int]:
-    """A port allocator returning first, first + 1 and so on."""
+    """Return a port allocator returning first, first + 1 and so on."""
     next_port = [first]
 
     def allocate() -> int:
@@ -1297,17 +1468,31 @@ def numbered_ports(first: int = 5001) -> Callable[[], int]:
 def test_a_start_whose_port_was_taken_runs_again_on_a_new_port(tmp_path: Path) -> None:
     scripted = ScriptedStartLauncher(tmp_path, [launcher.PortInUse("port taken")])
 
-    handle = launcher.start_on_a_free_port(scripted, tmp_path, tmp_path / "lib", seed=1, allocate_port=numbered_ports())  # type: ignore[arg-type]
+    handle = launcher.start_on_a_free_port(
+        scripted,  # type: ignore[arg-type]
+        tmp_path,
+        tmp_path / "lib",
+        seed=1,
+        allocate_port=numbered_ports(),
+    )
 
     assert handle is scripted.handle
     assert scripted.ports == [5001, 5002]
 
 
 def test_a_start_gives_up_once_every_attempt_found_its_port_taken(tmp_path: Path) -> None:
-    scripted = ScriptedStartLauncher(tmp_path, [launcher.PortInUse(f"port taken {attempt}") for attempt in range(launcher.PORT_ATTEMPTS)])
+    scripted = ScriptedStartLauncher(
+        tmp_path, [launcher.PortInUse(f"port taken {attempt}") for attempt in range(launcher.PORT_ATTEMPTS)]
+    )
 
     with pytest.raises(launcher.PortInUse, match=f"port taken {launcher.PORT_ATTEMPTS - 1}"):
-        launcher.start_on_a_free_port(scripted, tmp_path, tmp_path / "lib", seed=1, allocate_port=numbered_ports())  # type: ignore[arg-type]
+        launcher.start_on_a_free_port(
+            scripted,  # type: ignore[arg-type]
+            tmp_path,
+            tmp_path / "lib",
+            seed=1,
+            allocate_port=numbered_ports(),
+        )
 
     assert len(scripted.ports) == launcher.PORT_ATTEMPTS == 3
 
@@ -1316,7 +1501,13 @@ def test_any_other_start_failure_is_not_retried(tmp_path: Path) -> None:
     scripted = ScriptedStartLauncher(tmp_path, [RuntimeError("server exited with status 3 before it was ready")])
 
     with pytest.raises(RuntimeError, match="status 3"):
-        launcher.start_on_a_free_port(scripted, tmp_path, tmp_path / "lib", seed=1, allocate_port=numbered_ports())  # type: ignore[arg-type]
+        launcher.start_on_a_free_port(
+            scripted,  # type: ignore[arg-type]
+            tmp_path,
+            tmp_path / "lib",
+            seed=1,
+            allocate_port=numbered_ports(),
+        )
 
     assert scripted.ports == [5001]
 
@@ -1329,7 +1520,13 @@ def test_a_start_on_a_free_port_passes_the_schedule_and_seed_through(tmp_path: P
             recorded.append((seed, schedule))
             return "handle"
 
-    launcher.start_on_a_free_port(RecordingLauncher(), tmp_path, tmp_path / "lib", seed=9, schedule="affect-hours")  # type: ignore[arg-type]
+    launcher.start_on_a_free_port(
+        RecordingLauncher(),  # type: ignore[arg-type]
+        tmp_path,
+        tmp_path / "lib",
+        seed=9,
+        schedule="affect-hours",
+    )
 
     assert recorded == [(9, "affect-hours")]
 
@@ -1354,7 +1551,9 @@ class FakeConnection:
         pass
 
 
-def test_ready_retries_a_refused_connection_after_the_short_refused_pause(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ready_retries_a_refused_connection_after_the_short_refused_pause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     attempts: list[int] = []
 
     def refuse_twice(_address: tuple[str, int], timeout: float) -> FakeConnection:
@@ -1368,7 +1567,13 @@ def test_ready_retries_a_refused_connection_after_the_short_refused_pause(tmp_pa
     monkeypatch.setattr(launcher, "_receives_login_prompt", lambda *_arguments: True)
     monkeypatch.setattr(launcher.time, "sleep", pauses.append)
 
-    launcher.wait_for_login_prompt(launcher.LOOPBACK, 1, 10.0, RunningProcess(), tmp_path / "game.log")  # type: ignore[arg-type]
+    launcher.wait_for_login_prompt(
+        launcher.LOOPBACK,
+        1,
+        10.0,
+        RunningProcess(),  # type: ignore[arg-type]
+        tmp_path / "game.log",
+    )
 
     assert len(attempts) == 3
     assert pauses == [launcher.REFUSED_RETRY_SECONDS, launcher.REFUSED_RETRY_SECONDS]
@@ -1384,15 +1589,24 @@ NEW_TIME = OLD_TIME + 200
 
 
 def write_dated(path: Path, modified: float) -> None:
-    """Creates path, with its folders, and dates its modification time."""
+    """Create path, with its folders, and date its modification time."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("x", encoding="utf-8")
     os.utime(path, (modified, modified))
 
 
 def write_built_repo(repo_root: Path) -> None:
-    """A repository whose three programs were built at BUILD_TIME from sources dated OLD_TIME."""
-    for source in ("src/comm.cpp", "src/structs.h", "src/main.cpp", "src/harness/main.cpp", "src/tools/rotstool/main.cpp"):
+    """Write a repository whose three programs were built at BUILD_TIME from older sources.
+
+    The sources are dated OLD_TIME.
+    """
+    for source in (
+        "src/comm.cpp",
+        "src/structs.h",
+        "src/main.cpp",
+        "src/harness/main.cpp",
+        "src/tools/rotstool/main.cpp",
+    ):
         write_dated(repo_root / source, OLD_TIME)
     for program in ("bin/ageland", launcher.HARNESS_BINARY_RELATIVE, "bin/rotstool"):
         write_dated(repo_root / program, BUILD_TIME)
@@ -1400,7 +1614,7 @@ def write_built_repo(repo_root: Path) -> None:
 
 @pytest.fixture
 def stale_check_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Runs the test without ROTS_IT_ALLOW_STALE, whatever the host sets."""
+    """Run the test without ROTS_IT_ALLOW_STALE, whatever the host sets."""
     monkeypatch.delenv(launcher.ALLOW_STALE_VARIABLE, raising=False)
 
 
@@ -1415,7 +1629,9 @@ def test_require_program_accepts_a_program_newer_than_its_sources(tmp_path: Path
 @pytest.mark.usefixtures("stale_check_enabled")
 @pytest.mark.parametrize("launcher_class", [launcher.LocalProcessLauncher, launcher.DockerComposeLauncher])
 @pytest.mark.parametrize("source", ["src/comm.cpp", "src/structs.h", "src/mob_progs/mob_prog.cpp"])
-def test_require_program_refuses_a_program_older_than_a_source_and_names_both(tmp_path: Path, launcher_class: type, source: str) -> None:
+def test_require_program_refuses_a_program_older_than_a_source_and_names_both(
+    tmp_path: Path, launcher_class: type, source: str
+) -> None:
     write_built_repo(tmp_path)
     write_dated(tmp_path / source, NEW_TIME)
     program_launcher = launcher_class(repo_root=tmp_path)
@@ -1465,7 +1681,9 @@ def test_require_program_still_reports_a_missing_program_first(tmp_path: Path) -
 
 
 @pytest.mark.usefixtures("stale_check_enabled")
-@pytest.mark.parametrize("program, stale", [("bin/ageland", True), (launcher.HARNESS_BINARY_RELATIVE, False), ("bin/rotstool", False)])
+@pytest.mark.parametrize(
+    "program, stale", [("bin/ageland", True), (launcher.HARNESS_BINARY_RELATIVE, False), ("bin/rotstool", False)]
+)
 def test_the_servers_main_file_counts_only_for_the_server(tmp_path: Path, program: str, stale: bool) -> None:
     write_built_repo(tmp_path)
     write_dated(tmp_path / "src/main.cpp", NEW_TIME)
@@ -1501,7 +1719,10 @@ def test_a_worker_is_given_a_free_port_from_its_own_band(monkeypatch: pytest.Mon
 
 
 def held_port_band(monkeypatch: pytest.MonkeyPatch, size: int) -> list:
-    """Points worker gw0's band at size system-chosen consecutive ports and returns listening sockets holding all but the last; skips when they are not free."""
+    """Point worker gw0's band at size system-chosen consecutive ports, holding all but the last.
+
+    Return the listening sockets that hold them; skip when the ports are not free.
+    """
     with launcher.socket.socket(launcher.socket.AF_INET, launcher.socket.SOCK_STREAM) as probe:
         probe.bind((launcher.LOOPBACK, 0))
         base = probe.getsockname()[1]
@@ -1542,7 +1763,8 @@ def test_a_worker_whose_whole_band_is_in_use_gets_an_error(monkeypatch: pytest.M
             holder.close()
 
 
-# Listens on the port given and sends the login prompt to every connection, as another run's server would.
+# Listens on the port given and sends the login prompt to every connection, as another run's server
+# would.
 OTHER_SERVER = """
 import socket
 import sys
@@ -1591,7 +1813,7 @@ while True:
 
 
 def start_script_server_on(tmp_path: Path, source: str, port: int) -> launcher.ServerHandle:
-    """Starts source as the server on port through ScriptServerLauncher in a fresh run directory."""
+    """Start source as the server on port through ScriptServerLauncher in a fresh run directory."""
     (tmp_path / "bin").mkdir(exist_ok=True)
     (tmp_path / "bin" / "ageland").write_text("", encoding="utf-8")
     script = tmp_path / "server.py"
@@ -1602,16 +1824,23 @@ def start_script_server_on(tmp_path: Path, source: str, port: int) -> launcher.S
 
 
 def start_other_server(tmp_path: Path) -> tuple[subprocess.Popen, int]:
-    """Runs OTHER_SERVER on a free port and returns it once it listens."""
+    """Run OTHER_SERVER on a free port and return it once it listens."""
     port = launcher.allocate_free_port()
     script = tmp_path / "other_server.py"
     script.write_text(OTHER_SERVER, encoding="utf-8")
-    process = subprocess.Popen([sys.executable, str(script), str(port)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    process = subprocess.Popen(
+        [sys.executable, str(script), str(port)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
     assert process.stdout is not None and process.stdout.readline().strip() == b"listening"
     return process, port
 
 
-def test_a_prompt_from_another_process_on_the_port_is_not_taken_for_a_server_that_then_fails_to_bind(tmp_path: Path) -> None:
+def test_a_prompt_from_another_process_on_the_port_is_not_taken_for_a_server_that_then_fails_to_bind(
+    tmp_path: Path,
+) -> None:
     other, port = start_other_server(tmp_path)
     try:
         with pytest.raises(launcher.PortInUse):

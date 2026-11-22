@@ -8,7 +8,11 @@ import pytest
 from rots_harness import shard_coverage
 
 # Three selected tests, as the selection command lists them.
-SELECTED = ["scenarios/test_boot.py::test_one", "scenarios/test_boot.py::test_two", "scenarios/test_bank.py::test_three"]
+SELECTED = [
+    "scenarios/test_boot.py::test_one",
+    "scenarios/test_boot.py::test_two",
+    "scenarios/test_bank.py::test_three",
+]
 
 
 def test_every_selected_test_once_across_the_shards_has_no_problems() -> None:
@@ -20,7 +24,9 @@ def test_an_empty_shard_with_results_is_not_a_problem() -> None:
 
 
 def test_a_test_no_shard_ran_is_a_problem() -> None:
-    assert shard_coverage.coverage_problems(SELECTED, {1: SELECTED[:1], 2: SELECTED[2:]}, 2) == [f"never ran: {SELECTED[1]}"]
+    assert shard_coverage.coverage_problems(SELECTED, {1: SELECTED[:1], 2: SELECTED[2:]}, 2) == [
+        f"never ran: {SELECTED[1]}"
+    ]
 
 
 def test_a_test_two_shards_ran_is_a_problem() -> None:
@@ -64,7 +70,7 @@ def test_a_fully_timed_selection_asks_for_no_refresh() -> None:
 
 
 def results_xml(cases: list[tuple[str, str]]) -> str:
-    """A results.xml holding a passing testcase per class and test name."""
+    """Return a results.xml holding a passing testcase per class and test name."""
     body = "".join(f'<testcase classname="{class_name}" name="{name}" time="1.0" />' for class_name, name in cases)
     return f'<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">{body}</testsuite></testsuites>'
 
@@ -79,7 +85,19 @@ def run_check(tmp_path: Path, selected: list[str], shards: str) -> tuple[int, st
     selection = tmp_path / "selection.json"
     selection.write_text(json.dumps(selected), encoding="utf-8")
     summary = tmp_path / "summary.md"
-    status = shard_coverage.main(["check", "--selection", str(selection), "--results", str(tmp_path / "results"), "--shards", shards, "--summary", str(summary)])
+    status = shard_coverage.main(
+        [
+            "check",
+            "--selection",
+            str(selection),
+            "--results",
+            str(tmp_path / "results"),
+            "--shards",
+            shards,
+            "--summary",
+            str(summary),
+        ]
+    )
     return status, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
 

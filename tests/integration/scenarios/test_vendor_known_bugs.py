@@ -1,74 +1,33 @@
-"""Known bugs in buying and selling, each pinned as a strict xfail of the correct behaviour: the
-pin fails the run once the bug is fixed, so the fix also removes the xfail."""
+"""Known bugs in buying and selling, each pinned as a strict xfail of the correct behaviour.
+
+The pin fails the run once the bug is fixed, so the fix also removes the xfail.
+"""
 
 from __future__ import annotations
 
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession, Transcript
+from rots_harness.characters import IMPLEMENTOR
+from rots_harness.game_text import NOT_HERE_REPLY
+from rots_harness.immortal_commands import give_new_object, goto
+from rots_harness.text_lines import reply_text
+from test_vendor import BUYER, CAP_PRICE_BEADS, WANDERER, give_beads, trade_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.vendor]
 
-# A level-20 human warrior in the trade hall: a mortal the trader serves.
-BUYER = Character(
-    name="Testbuyer",
-    race="human",
-    sex="male",
-    level=20,
-    load_room=world.ROOM_TRADE_HALL,
-    class_name="warrior",
-)
-# A level-20 human warrior in the arena's west end, where no keeper of any kind stands.
-WANDERER = Character(
-    name="Testwanderer",
-    race="human",
-    sex="male",
-    level=20,
-    load_room=world.ROOM_ARENA_WEST,
-    class_name="warrior",
-)
-
-# The copper bead, the currency of the trader's price line `price 1137 1308x2`
-# (tests/integration/world/mob/13.mob and obj/13.obj).
-CURRENCY_VNUM = 1308
-CURRENCY_KEYWORD = "bead"
-CURRENCY_NAME = "a copper bead"
-CAP_PRICE_BEADS = 2
-# The leather cap (tests/integration/world/obj/11.obj), whose keywords are "cap leather".
-CAP_VNUM = 1137
-CAP_NAME = "a leather cap"
 # The three-letter abbreviation of the cap's keyword `leather`.
 CAP_ABBREVIATION = "lea"
 
-# What the old shop commands answer where no shopkeeper serves them (do_not_here, act_othe.cpp).
-NOT_HERE_MARKER = "Sorry, but you can't do that here!"
 # What the buyer reads when the trade completes (vendor_buy, shopkeeper.cpp).
-TRADE_LINES = (
-    "You hand over:",
-    f"  {CAP_PRICE_BEADS} x {CURRENCY_NAME}",
-    f"You now have {CAP_NAME}.",
-)
-
-
-def reply_text(reply: Transcript) -> str:
-    """The reply with the carriage returns of the game's line ends removed."""
-    return reply.text.replace("\r", "")
-
-
-def give_object(implementor: GameSession, vnum: int, keyword: str, short_name: str, recipient: Character) -> None:
-    """Loads an object into the implementor's inventory and gives it to recipient in its room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(f"You create {short_name}."), created.text
-    given = implementor.command(f"give {keyword} {recipient.name.lower()}")
-    assert given.contains(f"You give {short_name} to {recipient.name}."), given.text
+TRADE_LINES = trade_lines(CAP_PRICE_BEADS, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
 
 
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
-    reason="`sell` where no shopkeeper serves it should answer 'Sorry, but you can't do that here!' as buy, value and list do",
+    reason="`sell` where no shopkeeper serves it should answer 'Sorry, but you can't do that here!' as buy, "
+    "value and list do",
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, WANDERER)
@@ -83,12 +42,18 @@ def test_sell_with_no_keeper_in_the_room_is_not_for_here(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     wanderer = server.login(WANDERER.name)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_WEST}")
-    assert arrived.room_name() == "Arena West", arrived.text
-    give_object(implementor, CAP_VNUM, "cap", CAP_NAME, WANDERER)
+    goto(implementor, world.ROOM_ARENA_WEST, world.ROOM_ARENA_WEST_NAME)
+    give_new_object(
+        implementor,
+        world.OBJECT_LEATHER_CAP,
+        "cap",
+        WANDERER.name.lower(),
+        shown_recipient=WANDERER.name,
+        short_description=world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION,
+    )
 
     reply = wanderer.command("sell cap")
-    assert reply.contains(NOT_HERE_MARKER), reply.text
+    assert reply.contains(NOT_HERE_REPLY), reply.text
 
 
 @pytest.mark.xfail(
@@ -111,10 +76,7 @@ def test_a_vendor_sells_by_an_abbreviated_keyword(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    arrived = implementor.command(f"goto {world.ROOM_TRADE_HALL}")
-    assert arrived.room_name() == "Trade Hall", arrived.text
-    for bead_number in range(CAP_PRICE_BEADS):
-        give_object(implementor, CURRENCY_VNUM, CURRENCY_KEYWORD, CURRENCY_NAME, BUYER)
+    give_beads(implementor, world.ROOM_TRADE_HALL, world.ROOM_TRADE_HALL_NAME, BUYER, CAP_PRICE_BEADS)
 
     reply = buyer.command(f"buy {CAP_ABBREVIATION}")
     block = "\n".join(TRADE_LINES)

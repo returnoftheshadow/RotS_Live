@@ -1,5 +1,8 @@
-"""Reads the test world's files (tests/integration/world): each category's world files, the order
-its index lists them in, their record vnums, and each zone's header and reset rows."""
+"""Reads the test world's files (tests/integration/world).
+
+It reads each category's world files, the order its index lists them in, their record vnums, and
+each zone's header and reset rows.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +11,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-# The world categories, each a folder of world files with an index; the harness copies each into a lib.
+# The world categories, each a folder of world files with an index; the harness copies each into a
+# lib.
 WORLD_CATEGORIES = ("wld", "mob", "obj", "zon", "shp", "scr", "mdl")
 # The category whose files are zones, one per file.
 ZONE_CATEGORY = "zon"
-# The file in each category folder that lists the folder's world files in boot order (index_boot, db.cpp).
+# The file in each category folder that lists the folder's world files in boot order (index_boot,
+# db.cpp).
 INDEX_FILE_NAME = "index"
 # The line that ends an index.
 INDEX_END = "$"
@@ -20,7 +25,8 @@ INDEX_END = "$"
 NON_WORLD_FILE_NAMES = frozenset({INDEX_FILE_NAME, ".gitkeep", "README"})
 # World files are read byte for byte by the server; latin-1 decodes any byte.
 WORLD_ENCODING = "latin-1"
-# A record line as count_hash_records (db.cpp) counts one: a '#' after leading whitespace, then the vnum.
+# A record line as count_hash_records (db.cpp) counts one: a '#' after leading whitespace, then the
+# vnum.
 RECORD_LINE = re.compile(r"^[ \t]*#(\d+)", re.MULTILINE)
 # A number as %d reads one.
 NUMBER_PATTERN = re.compile(r"[-+]?\d+")
@@ -51,7 +57,10 @@ class ResetRow:
     comment: str
 
     def summary(self) -> str:
-        """A short line: mob or object and room for M and O rows, otherwise the letter and numbers."""
+        """Return a short line for the row.
+
+        The line gives mob or object and room for M and O rows, otherwise the letter and numbers.
+        """
         if self.command == RESET_SECTION_COMMAND:
             return f"section {self.comment}"
         if self.command in ("M", "O") and len(self.numbers) >= 3:
@@ -72,7 +81,8 @@ class Zone:
     name: str
     # The zone's map square (x, y), from its "<symbol> <x> <y> <level>" line.
     map_square: tuple[int, int]
-    # The highest room vnum the zone holds; the zone before it in the index ends just below its rooms.
+    # The highest room vnum the zone holds; the zone before it in the index ends just below its
+    # rooms.
     top: int
     # The zone's reset rows, in file order, without the closing S.
     resets: list[ResetRow] = field(default_factory=list)
@@ -83,27 +93,35 @@ class WorldFileError(ValueError):
 
 
 def read_world_text(path: Path) -> str:
-    """A world file's text, decoded as latin-1 so every byte survives."""
+    """Return a world file's text, decoded as latin-1 so every byte survives."""
     return path.read_text(encoding=WORLD_ENCODING)
 
 
 def record_vnums(text: str) -> list[int]:
-    """Every record vnum in a world file's text, in file order, the closing #99999 included."""
+    """Return every record vnum in a world file's text in file order, closing #99999 included."""
     return [int(match.group(1)) for match in RECORD_LINE.finditer(text)]
 
 
 def fixture_vnums(text: str) -> list[int]:
-    """The record vnums of a world file's fixtures, in file order, without the closing #99999."""
+    """Return the record vnums of a world file's fixtures, in file order.
+
+    The closing #99999 is left out.
+    """
     return [vnum for vnum in record_vnums(text) if vnum < END_OF_FILE_VNUM]
 
 
 def world_files(category_dir: Path) -> list[Path]:
-    """The world files directly in a category folder, in name order; backup folders are not entered."""
+    """Return the world files directly in a category folder, in name order.
+
+    Backup folders are not entered.
+    """
     return sorted(path for path in category_dir.iterdir() if path.is_file() and path.name not in NON_WORLD_FILE_NAMES)
 
 
 def index_order(category_dir: Path) -> list[str]:
-    """The world files' names in the order their index must list them: by first vnum, then by name.
+    """Return the world files' names in the order their index must list them.
+
+    They go by first vnum, then by name.
 
     A zone file's first vnum is its zone number, so zones follow their numbers. A file with no
     record comes last.
@@ -117,12 +135,12 @@ def index_order(category_dir: Path) -> list[str]:
 
 
 def index_text(names: list[str]) -> str:
-    """An index's text listing names, one per line, then the closing $."""
+    """Return an index's text listing names, one per line, then the closing $."""
     return "".join(f"{name}\n" for name in [*names, INDEX_END])
 
 
 def read_index(category_dir: Path) -> list[str]:
-    """The file names a category's index lists before its closing $."""
+    """Return the file names a category's index lists before its closing $."""
     names = []
     for line in read_world_text(category_dir / INDEX_FILE_NAME).splitlines():
         name = line.strip()
@@ -134,35 +152,41 @@ def read_index(category_dir: Path) -> list[str]:
 
 
 def indexed_files(world_dir: Path, category: str) -> list[Path]:
-    """The files a category's index lists, in index order."""
+    """Return the files a category's index lists, in index order."""
     category_dir = world_dir / category
     return [category_dir / name for name in read_index(category_dir)]
 
 
 class TextCursor:
-    """Reads a world file the way db.cpp's loaders do: whole lines, ~-terminated strings and numbers."""
+    """Reads a world file the way db.cpp's loaders do.
+
+    It reads whole lines, ~-terminated strings and numbers.
+    """
 
     def __init__(self, text: str, context: str) -> None:
-        self._text = text  # the whole file
-        self._position = 0  # the index of the next unread character
-        self._context = context  # names the file in errors
+        # The whole file.
+        self._text = text
+        # The index of the next unread character.
+        self._position = 0
+        # Names the file in errors.
+        self._context = context
 
     def at_end(self) -> bool:
-        """Whether only whitespace is left."""
+        """Return whether only whitespace is left."""
         return not self._text[self._position:].strip()
 
     def skip_whitespace(self) -> None:
-        """Moves past spaces and line ends, as a leading space in a scanf format does."""
+        """Move past spaces and line ends, as a leading space in a scanf format does."""
         while self._position < len(self._text) and self._text[self._position].isspace():
             self._position += 1
 
     def peek_character(self) -> str:
-        """The next character after whitespace, without reading it; empty at the end."""
+        """Return the next character after whitespace, without reading it; empty at the end."""
         self.skip_whitespace()
         return self._text[self._position:self._position + 1]
 
     def read_line(self) -> str:
-        """The rest of the current line, without its line end."""
+        """Return the rest of the current line, without its line end."""
         end = self._text.find("\n", self._position)
         end = len(self._text) if end < 0 else end
         line = self._text[self._position:end]
@@ -170,7 +194,9 @@ class TextCursor:
         return line.rstrip("\r")
 
     def read_string(self) -> str:
-        """A string as fread_string reads one: whole lines until one whose last non-space character is ~.
+        """Return a string as fread_string reads one.
+
+        It reads whole lines until one whose last non-space character is ~.
 
         Leading whitespace and blank lines are skipped first, as the loaders' scanf formats and
         fread_string's own blank-line skip do.
@@ -188,7 +214,7 @@ class TextCursor:
             lines.append(line)
 
     def read_word(self) -> str:
-        """The next run of non-space characters, as %s reads it."""
+        """Return the next run of non-space characters, as %s reads it."""
         self.skip_whitespace()
         start = self._position
         while self._position < len(self._text) and not self._text[self._position].isspace():
@@ -196,19 +222,27 @@ class TextCursor:
         return self._text[start:self._position]
 
     def read_int(self, default: Optional[int] = None) -> int:
-        """The next number, as %d reads it; default when the next text is not a number, which stays unread."""
+        """Return the next number, as %d reads it.
+
+        Return default when the next text is not a number, which stays unread.
+        """
         self.skip_whitespace()
         match = NUMBER_PATTERN.match(self._text, self._position)
         if match is None:
             if default is not None:
                 return default
-            raise WorldFileError(f"{self._context}: expected a number at {self._text[self._position:self._position + 20]!r}")
+            raise WorldFileError(
+                f"{self._context}: expected a number at {self._text[self._position:self._position + 20]!r}"
+            )
         self._position = match.end()
         return int(match.group(0))
 
 
 def read_zone(path: Path) -> Zone:
-    """A zone file's header and reset rows; raises WorldFileError when the layout is not load_zones'."""
+    """Return a zone file's header and reset rows.
+
+    Raise WorldFileError when the layout is not load_zones'.
+    """
     cursor = TextCursor(read_world_text(path), str(path))
     header = cursor.read_word()
     if not re.fullmatch(r"#\d+", header):
@@ -242,7 +276,7 @@ def read_zone(path: Path) -> Zone:
 
 
 def parse_reset_row(command: str, rest: str) -> ResetRow:
-    """A reset row from its command letter and the rest of its line."""
+    """Return a reset row from its command letter and the rest of its line."""
     if command == RESET_SECTION_COMMAND:
         return ResetRow(command, (), rest.strip())
     count = 6
@@ -261,13 +295,16 @@ def parse_reset_row(command: str, rest: str) -> ResetRow:
 
 
 def read_zones(world_dir: Path) -> list[Zone]:
-    """The zones the zone index lists, in index order."""
+    """Return the zones the zone index lists, in index order."""
     return [read_zone(path) for path in indexed_files(world_dir, ZONE_CATEGORY)]
 
 
 def zone_blocks(zones: list[Zone]) -> dict[int, tuple[int, int]]:
-    """Each zone's own vnums: n * 100 to n * 100 + 99, the vnums the shaping editors keep in its
-    files, cut to its room range (a zone whose top is lower ends there)."""
+    """Return each zone's own vnums, cut to its room range.
+
+    They are n * 100 to n * 100 + 99, the vnums the shaping editors keep in its files; a zone whose
+    top is lower ends there.
+    """
     blocks = {}
     for zone_number, (low, high) in zone_vnum_ranges(zones).items():
         block_low = zone_number * VNUMS_PER_ZONE_NUMBER
@@ -276,8 +313,10 @@ def zone_blocks(zones: list[Zone]) -> dict[int, tuple[int, int]]:
 
 
 def zone_vnum_ranges(zones: list[Zone]) -> dict[int, tuple[int, int]]:
-    """Each zone's vnum range as load_rooms (db.cpp) assigns rooms: from just above the previous
-    zone's top (0 for the first zone) to its own top, in index order."""
+    """Return each zone's vnum range as load_rooms (db.cpp) assigns rooms, in index order.
+
+    A range runs from just above the previous zone's top (0 for the first zone) to its own top.
+    """
     ranges = {}
     previous_top = -1
     for zone in zones:

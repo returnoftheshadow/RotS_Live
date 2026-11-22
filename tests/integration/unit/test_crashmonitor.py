@@ -21,14 +21,14 @@ class FakeProcess:
 
 
 def make_handle(tmp_path: Path, returncode: int | None = None) -> ServerHandle:
-    """A handle over an empty log file and a fake process with the given exit status."""
+    """Return a handle over an empty log file and a fake process with the given exit status."""
     log_path = tmp_path / "game.log"
     log_path.write_text("", encoding="latin-1")
     return ServerHandle("127.0.0.1", 1, log_path, FakeProcess(returncode))  # type: ignore[arg-type]
 
 
 def append_log(handle: ServerHandle, text: str) -> None:
-    """Appends text to the handle's log."""
+    """Append text to the handle's log."""
     with handle.log_path.open("a", encoding="latin-1") as log_file:
         log_file.write(text)
 
@@ -187,7 +187,9 @@ def test_an_unterminated_last_line_is_checked_after_stop(tmp_path: Path) -> None
 def test_exit_status_zero_without_the_shutdown_notice_is_reported(tmp_path: Path) -> None:
     handle = make_handle(tmp_path, returncode=0)
     append_log(handle, "Sep 24 :: Boot db -- DONE.\n")
-    assert CrashMonitor(handle).check_after_stop() == ["server exited with status 0 without logging the shutdown notice"]
+    assert CrashMonitor(handle).check_after_stop() == [
+        "server exited with status 0 without logging the shutdown notice"
+    ]
 
 
 def test_the_shutdown_notice_seen_by_an_earlier_check_still_counts_after_stop(tmp_path: Path) -> None:
@@ -199,7 +201,9 @@ def test_the_shutdown_notice_seen_by_an_earlier_check_still_counts_after_stop(tm
     assert monitor.check_after_stop() == []
 
 
-@pytest.mark.parametrize("marker", ["AddressSanitizer", "LeakSanitizer", "UndefinedBehaviorSanitizer", "runtime error:"])
+@pytest.mark.parametrize(
+    "marker", ["AddressSanitizer", "LeakSanitizer", "UndefinedBehaviorSanitizer", "runtime error:"]
+)
 def test_each_sanitizer_marker_is_a_crash_marker_on_its_own(tmp_path: Path, marker: str) -> None:
     handle = make_handle(tmp_path)
     append_log(handle, f"Sep 24 :: {marker} found something\n")
@@ -223,7 +227,9 @@ def test_no_expect_syserr_marker_gives_no_fragment() -> None:
         ([("same",), ("same",)], "twice"),
     ],
 )
-def test_a_malformed_expect_syserr_marker_is_refused(marker_arguments: list[tuple[object, ...]], complaint: str) -> None:
+def test_a_malformed_expect_syserr_marker_is_refused(
+    marker_arguments: list[tuple[object, ...]], complaint: str
+) -> None:
     with pytest.raises(ValueError, match=complaint):
         expected_syserr_fragments(marker_arguments)
 
@@ -264,13 +270,17 @@ def test_an_expected_fragment_in_a_crash_marker_line_is_still_a_crash(tmp_path: 
     handle = make_handle(tmp_path)
     expected = ExpectedSyserrs(("SYSERR",))
     append_log(handle, "==1==ERROR: AddressSanitizer: SYSERR in the report\n")
-    assert CrashMonitor(handle, expected=expected).check() == ["crash marker in log: ==1==ERROR: AddressSanitizer: SYSERR in the report"]
+    assert CrashMonitor(handle, expected=expected).check() == [
+        "crash marker in log: ==1==ERROR: AddressSanitizer: SYSERR in the report"
+    ]
 
 
 def test_an_expected_syserr_logged_during_the_stop_counts(tmp_path: Path) -> None:
     handle = make_handle(tmp_path, returncode=0)
     expected = ExpectedSyserrs(("while saving",))
-    append_log(handle, "Sep 24 :: Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...\nSep 24 :: SYSERR: while saving")
+    append_log(
+        handle, "Sep 24 :: Received SIGHUP, SIGINT, or SIGTERM.  Shutting down...\nSep 24 :: SYSERR: while saving"
+    )
     assert CrashMonitor(handle, expected=expected).check_after_stop() == []
     assert expected.missing() == []
 

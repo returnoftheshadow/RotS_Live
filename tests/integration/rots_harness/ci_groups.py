@@ -1,4 +1,4 @@
-"""Chooses the scenario groups a CI run tests, from the pull request's description and changed files.
+"""Chooses the scenario groups a CI run tests from the pull request's description and changed files.
 
 `boot` always runs. A description token `@integration-test-<group>` adds that group or subgroup,
 and `@integration-test-all` runs every group. A changed scenario file adds the groups it marks, and
@@ -31,17 +31,22 @@ from typing import Callable, Iterable, Mapping, Optional, Sequence, TextIO
 from rots_harness import groups as group_files
 from rots_harness import libbuilder
 
+# The group every CI run tests, whatever changed.
 ALWAYS_RUN_GROUP = "boot"
+# The group name a description token gives to run every group.
 ALL_GROUPS_TOKEN = "all"
 # A token in the description; the name stops at the first character a marker name cannot hold.
 DESCRIPTION_TOKEN = re.compile(r"(?<![\w-])@integration-test-([A-Za-z0-9_]+)")
 # HTML comments are dropped first, so a pull request template can show the syntax.
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+# A pytest marker in a scenario file's source; group 1 is the marker's name.
 SCENARIO_MARKER = re.compile(r"pytest\.mark\.([A-Za-z_][A-Za-z0-9_]*)")
+# The repository-relative scenarios folder.
 SCENARIO_DIRECTORY = "tests/integration/scenarios/"
 # The scenario files whose changes select groups; another file in the folder is a shared helper.
 SCENARIO_FILE_PATTERN = "test_*.py"
-# The scenarios folder's name, as a package-qualified import names it (from scenarios import test_x).
+# The scenarios folder's name, as a package-qualified import names it (from scenarios import
+# test_x).
 SCENARIO_PACKAGE = "scenarios"
 # One <group>.txt per group and <group>/<sub>.txt per subgroup; a change to one adds only its group
 # or subgroup, so it is not a harness path.
@@ -58,6 +63,7 @@ WORLD_NOTES_DIRECTORY = "tests/integration/world/notes/"
 # Harness modules only the ASan workflow runs; no scenario or harness module imports them
 # (unit/test_asan_selection.py checks), so a change to one runs no group.
 ASAN_ONLY_HARNESS_FILES = frozenset({"tests/integration/rots_harness/asan_selection.py"})
+# Single files whose change can affect any scenario, so every group runs.
 HARNESS_FILES = frozenset({
     "tests/integration/conftest.py",
     "tests/integration/pytest.ini",
@@ -80,7 +86,10 @@ REASON_ENCODING_ERRORS = "backslashreplace"
 
 
 class UnknownGroups(ValueError):
-    """The description names groups no group file registers; the message lists the valid ones, subgroups included."""
+    """The description names groups no group file registers.
+
+    The message lists the valid ones, subgroups included.
+    """
 
 
 @dataclass
@@ -93,17 +102,23 @@ class Selection:
     reasons: list[str] = field(default_factory=list)
 
     def expression(self) -> str:
-        """The GROUP value for make integration; empty runs every scenario."""
+        """Return the GROUP value for make integration; empty runs every scenario."""
         return "" if self.groups is None else " or ".join(self.groups)
 
     def shard_numbers(self, full_suite_shards: int) -> list[int]:
-        """The CI shards to run: 1 to full_suite_shards for every group, and only shard 1 otherwise,
-        since a few groups do not repay building the server once per shard."""
+        """Return the CI shards to run.
+
+        1 to full_suite_shards for every group, and only shard 1 otherwise, since a few groups do
+        not repay building the server once per shard.
+        """
         return list(range(1, full_suite_shards + 1)) if self.groups is None else [1]
 
 
 def changed_group_file(path: str) -> Optional[str]:
-    """The group or subgroup a changed path's group file names, or None when the path is not a group or subgroup file."""
+    """Return the group or subgroup a changed path's group file names.
+
+    None when the path is not a group or subgroup file.
+    """
     if not (path.startswith(GROUPS_DIRECTORY) and path.endswith(group_files.GROUP_FILE_SUFFIX)):
         return None
     parts = path[len(GROUPS_DIRECTORY): -len(group_files.GROUP_FILE_SUFFIX)].split("/")
@@ -112,9 +127,14 @@ def changed_group_file(path: str) -> Optional[str]:
     return "_".join(parts)
 
 
-def unknown_groups_message(unknown: Sequence[str], groups: Sequence[str], alternatives: Sequence[str] = (ALL_GROUPS_TOKEN,)) -> str:
-    """The message for description tokens naming groups no group file registers: the unknown names,
-    then the registered groups and subgroups, and the other token forms in alternatives."""
+def unknown_groups_message(
+    unknown: Sequence[str], groups: Sequence[str], alternatives: Sequence[str] = (ALL_GROUPS_TOKEN,)
+) -> str:
+    """Return the message for description tokens naming groups no group file registers.
+
+    It gives the unknown names, then the registered groups and subgroups, and the other token forms
+    in alternatives.
+    """
     return (
         f"the description names unknown integration groups: {', '.join(unknown)}; "
         f"registered groups: {', '.join(groups)} (or {', '.join(alternatives)})"
@@ -122,7 +142,10 @@ def unknown_groups_message(unknown: Sequence[str], groups: Sequence[str], altern
 
 
 def description_tokens(body: str) -> list[str]:
-    """The group names the description's tokens give, in order and without repeats, outside HTML comments."""
+    """Return the group names the description's tokens give, outside HTML comments.
+
+    The names come in order and without repeats.
+    """
     names = []
     for name in DESCRIPTION_TOKEN.findall(HTML_COMMENT.sub("", body)):
         if name not in names:
@@ -130,8 +153,12 @@ def description_tokens(body: str) -> list[str]:
     return names
 
 
-def scenario_groups(source: str, groups: Iterable[str], subgroups: Optional[Mapping[str, Sequence[str]]] = None) -> list[str]:
-    """The groups and subgroups a scenario file's source marks, in order, leaving out a group whose subgroups it also marks.
+def scenario_groups(
+    source: str, groups: Iterable[str], subgroups: Optional[Mapping[str, Sequence[str]]] = None
+) -> list[str]:
+    """Return the groups and subgroups a scenario file's source marks, in order.
+
+    A group whose subgroups the file also marks is left out.
 
     subgroups gives each group that has subgroups, with them. Every test of such a group marks one
     of its subgroups, so the subgroups the file marks cover the group's tests in it.
@@ -146,7 +173,9 @@ def scenario_groups(source: str, groups: Iterable[str], subgroups: Optional[Mapp
 
 
 def imported_module_names(source: str) -> Optional[set[str]]:
-    """The last part of every module name a source imports, anywhere in it, or None when it does not parse.
+    """Return the last part of every module name a source imports, anywhere in it.
+
+    None when the source does not parse.
 
     from scenarios import test_x and from . import test_x name the modules they import, so their
     imported names are given instead of the package.
@@ -168,8 +197,12 @@ def imported_module_names(source: str) -> Optional[set[str]]:
     return names
 
 
-def importer_reasons(path: str, scenario_paths: Iterable[str], read_scenario: Callable[[str], Optional[str]]) -> list[tuple[str, str]]:
-    """Each other scenario file that imports the scenario file at path, with why it counts, in the order given.
+def importer_reasons(
+    path: str, scenario_paths: Iterable[str], read_scenario: Callable[[str], Optional[str]]
+) -> list[tuple[str, str]]:
+    """Return each other scenario file that imports the scenario file at path.
+
+    Each comes with why it counts, in the order given.
 
     A file that does not parse counts, since it may import path. Its own importers are not followed.
     """
@@ -190,13 +223,16 @@ def importer_reasons(path: str, scenario_paths: Iterable[str], read_scenario: Ca
 
 
 def scenario_file_paths(repo_root: Path) -> list[str]:
-    """The repository-relative paths of the scenario files in repo_root's scenarios folder, sorted; none when it is missing."""
+    """Return the repository-relative paths of the scenario files in repo_root, sorted.
+
+    They are the files in its scenarios folder; none when the folder is missing.
+    """
     folder = repo_root / SCENARIO_DIRECTORY
     return sorted(f"{SCENARIO_DIRECTORY}{path.name}" for path in folder.glob(SCENARIO_FILE_PATTERN) if path.is_file())
 
 
 def is_harness_path(path: str) -> bool:
-    """Whether a change to this repository path can affect every scenario."""
+    """Return whether a change to this repository path can affect every scenario."""
     if path.startswith(WORLD_NOTES_DIRECTORY) or path in ASAN_ONLY_HARNESS_FILES:
         return False
     if path in HARNESS_FILES or path.startswith(HARNESS_PATH_PREFIXES):
@@ -206,7 +242,7 @@ def is_harness_path(path: str) -> bool:
 
 
 def every_group_reason(path: str) -> Optional[str]:
-    """Why a change to this repository path runs every group, or None when it does not."""
+    """Return why a change to this repository path runs every group, or None when it does not."""
     if is_harness_path(path):
         return f"every group: harness file {path} changed"
     if path == BUILD_FILE:
@@ -217,12 +253,14 @@ def every_group_reason(path: str) -> Optional[str]:
 
 
 def read_changed_paths(listing: str) -> list[str]:
-    """The paths in a NUL-separated listing, each kept whole; an empty listing holds none."""
+    """Return the paths in a NUL-separated listing, each kept whole; an empty listing holds none."""
     return [path for path in listing.split(CHANGED_PATH_SEPARATOR) if path]
 
 
 def escape_unencodable_output(stream: TextIO) -> None:
-    """Makes stream write a character its encoding cannot hold as a backslash escape instead of raising.
+    """Make stream write a character its encoding cannot hold as a backslash escape.
+
+    The escape replaces the error the stream would raise.
 
     A stream without reconfigure, such as one a caller substituted, is left as it is.
     """
@@ -240,7 +278,7 @@ def select_groups(
     subgroups: Optional[Mapping[str, Sequence[str]]] = None,
     scenario_paths: Iterable[str] = (),
 ) -> Selection:
-    """The groups a CI run tests.
+    """Return the groups a CI run tests.
 
     read_scenario returns a scenario file's source, or None when the file is not in the checkout.
     groups lists the registered groups and subgroups; a changed group file adds its group only
@@ -294,7 +332,7 @@ def select_groups(
 
 
 def summary_markdown(selection: Selection, shard_count: int = 1) -> str:
-    """The job summary: what runs, why, and across how many shards."""
+    """Return the job summary: what runs, why, and across how many shards."""
     ran = "every group" if selection.groups is None else ", ".join(f"`{name}`" for name in selection.groups)
     lines = [f"### Integration groups: {ran}", ""]
     lines.extend(f"- {reason}" for reason in selection.reasons)
@@ -304,13 +342,17 @@ def summary_markdown(selection: Selection, shard_count: int = 1) -> str:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """Writes `group=<expression>` and `shards=<JSON list>` to --output and the summary to --summary.
+    """Write `group=<expression>` and `shards=<JSON list>` to --output and the summary to --summary.
 
     Returns 2 when the description names an unknown group or a group file cannot be read.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--event", required=True, help="the GitHub event name: pull_request or push")
-    parser.add_argument("--changed-files", type=Path, help="a file of NUL-separated changed paths, as git diff --name-only -z prints them")
+    parser.add_argument(
+        "--changed-files",
+        type=Path,
+        help="a file of NUL-separated changed paths, as git diff --name-only -z prints them",
+    )
     parser.add_argument("--repo-root", type=Path, default=Path("../.."), help="the repository root")
     parser.add_argument("--output", type=Path, required=True, help="the file that receives group=<expression>")
     parser.add_argument("--summary", type=Path, help="the file that receives the markdown summary")
@@ -338,7 +380,13 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     try:
         selection = select_groups(
-            arguments.event, os.environ.get("PR_BODY", ""), changed, read_scenario, groups, subgroups, scenario_file_paths(repo_root),
+            arguments.event,
+            os.environ.get("PR_BODY", ""),
+            changed,
+            read_scenario,
+            groups,
+            subgroups,
+            scenario_file_paths(repo_root),
         )
     except UnknownGroups as unknown:
         print(f"error: {unknown}", file=sys.stderr)

@@ -42,14 +42,20 @@ class FakeSession:
 
 def test_the_check_passes_tests_that_follow_the_rules_and_leaves_the_session_running() -> None:
     session = FakeSession()
-    items = [FakeItem("test_a.py::test_one", ("scenario", "shaping", "shaping_commands")), FakeItem("test_b.py::test_two", ("boot",))]
+    items = [
+        FakeItem("test_a.py::test_one", ("scenario", "shaping", "shaping_commands")),
+        FakeItem("test_b.py::test_two", ("boot",)),
+    ]
     conftest.SubgroupMarkingCheck(SUBGROUPS).pytest_collection_modifyitems(session=session, items=items)
     assert session.shouldstop is False
 
 
 def test_the_check_stops_the_run_naming_each_test_that_breaks_the_rules() -> None:
     session = FakeSession()
-    items = [FakeItem("test_a.py::test_one", ("scenario", "shaping")), FakeItem("test_a.py::test_two", ("shaping_commands",))]
+    items = [
+        FakeItem("test_a.py::test_one", ("scenario", "shaping")),
+        FakeItem("test_a.py::test_two", ("shaping_commands",)),
+    ]
     with pytest.raises(pytest.UsageError) as raised:
         conftest.SubgroupMarkingCheck(SUBGROUPS).pytest_collection_modifyitems(session=session, items=items)
     message = str(raised.value)

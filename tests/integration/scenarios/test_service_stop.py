@@ -1,4 +1,4 @@
-"""A service stop: what SIGTERM saves for the players still logged in, read back by the next boot."""
+"""A service stop: what SIGTERM saves for players still logged in, read back at the next boot."""
 
 from __future__ import annotations
 
@@ -9,64 +9,31 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession
+from rots_harness.immortal_commands import give_new_object, goto
+from rots_harness.saved_files import CARRIED_WEAR_POSITION, HEAD_WEAR_POSITION, account_file, saved_wear_positions
 
 pytestmark = [pytest.mark.scenario, pytest.mark.service_stop]
 
 # A mortal who starts in the middle of the arena and walks to its western end.
-WAYFARER = Character(name="Wayfarer", race="human", sex="male", level=10, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior")
-# Zone 11's leather cap, head armour, which the wayfarer wears.
-CAP_VNUM = 1137
-# How the game names the cap in equipment and messages.
-CAP_NAME = "a leather cap"
-# Zone 11's leather bag, which the wayfarer carries.
-BAG_VNUM = 1136
-# How the game names the bag in the inventory.
-BAG_NAME = "a leather bag"
-# The wear position a saved object records for the head (WEAR_HEAD, src/structs.h).
-HEAD_WEAR_POSITION = 6
-# The wear position a saved object records when it is carried rather than worn (MAX_WEAR).
-CARRIED_WEAR_POSITION = 22
-
-
-def account_file(lib_dir: Path, character: Character, kind: str) -> Path:
-    """The character's <name>.<kind>.json in the harness account's folder."""
-    file_name = f"{character.name.lower()}.{kind}.json"
-    matches = (lib_dir / "accounts").glob(f"*/*/{file_name}")
-    paths = sorted(matches)
-    assert len(paths) == 1, paths
-    return paths[0]
+WAYFARER = Character(
+    name="Wayfarer", race="human", sex="male", level=10, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior"
+)
+# The keyword the implementor gives the wayfarer things by.
+WAYFARER_KEYWORD = WAYFARER.name.lower()
 
 
 def saved_load_room(lib_dir: Path, character: Character) -> int:
-    """The room the character's saved file brings them back to."""
-    character_path = account_file(lib_dir, character, "character")
+    """Return the room the character's saved file brings them back to."""
+    character_path = account_file(lib_dir, character.name, "character")
     saved_text = character_path.read_text(encoding="utf-8")
     saved = json.loads(saved_text)
     return saved["state"]["load_room"]
 
 
-def saved_wear_positions(lib_dir: Path, character: Character) -> dict[int, int]:
-    """Each object vnum in the character's saved objects file, with the wear position it was saved at."""
-    objects_path = account_file(lib_dir, character, "objects")
-    saved_text = objects_path.read_text(encoding="utf-8")
-    saved = json.loads(saved_text)
-    return {entry["item_number"]: entry["wear_pos"] for entry in saved["objects"]}
-
-
-def hand_object(implementor: GameSession, vnum: int, keyword: str, recipient: Character) -> None:
-    """Loads an object into the implementor's inventory and gives it to recipient, in the same room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    recipient_keyword = recipient.name.lower()
-    given = implementor.command(f"give {keyword} {recipient_keyword}")
-    assert given.contains(f"to {recipient.name}."), given.text
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, WAYFARER)
 def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry(server) -> None:
-    """Pins what a service stop saves for a player still logged in (#535).
+    """Pins what a service stop saves for a player still logged in.
 
     The wayfarer is given a cap to wear and a bag to carry and walks from the arena's centre to
     its western end; then the server is stopped as a service stop stops it, with SIGTERM and the
@@ -77,25 +44,31 @@ def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry
     """
     implementor = server.login(IMPLEMENTOR.name)
     wayfarer = server.login(WAYFARER.name)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.room_name() == "Arena Centre", arrived.text
-    hand_object(implementor, CAP_VNUM, "cap", WAYFARER)
-    hand_object(implementor, BAG_VNUM, "bag", WAYFARER)
+    goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME)
+    give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WAYFARER_KEYWORD, shown_recipient=WAYFARER.name)
+    give_new_object(implementor, world.OBJECT_LEATHER_BAG, "bag", WAYFARER_KEYWORD, shown_recipient=WAYFARER.name)
     worn = wayfarer.command("wear cap")
-    assert worn.contains(CAP_NAME), worn.text
+    assert worn.contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION), worn.text
     walked = wayfarer.command("west")
-    assert walked.room_name() == "Arena West", walked.text
+    assert walked.room_name() == world.ROOM_ARENA_WEST_NAME, walked.text
 
-    # The entry save stores a room-table index, not a vnum (#493); it only must not be the west room yet.
-    assert saved_load_room(server.lib_dir, WAYFARER) != world.ROOM_ARENA_WEST
-    before = saved_wear_positions(server.lib_dir, WAYFARER)
-    assert CAP_VNUM not in before and BAG_VNUM not in before, before
+    # The entry save stores a room-table index, not a vnum; it only must not be the west room yet.
+    load_room_before = saved_load_room(server.lib_dir, WAYFARER)
+    assert load_room_before != world.ROOM_ARENA_WEST, load_room_before
+    before = saved_wear_positions(server.lib_dir, WAYFARER.name)
+    assert world.OBJECT_LEATHER_CAP not in before and world.OBJECT_LEATHER_BAG not in before, before
 
     server.restart()
 
-    assert saved_load_room(server.lib_dir, WAYFARER) == world.ROOM_ARENA_WEST
-    assert saved_wear_positions(server.lib_dir, WAYFARER) == {CAP_VNUM: HEAD_WEAR_POSITION, BAG_VNUM: CARRIED_WEAR_POSITION}
+    load_room_after = saved_load_room(server.lib_dir, WAYFARER)
+    assert load_room_after == world.ROOM_ARENA_WEST, load_room_after
+    after = saved_wear_positions(server.lib_dir, WAYFARER.name)
+    expected_positions = {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
+    assert after == expected_positions, after
     returned = server.login(WAYFARER.name)
-    assert returned.command("look").room_name() == "Arena West"
-    assert returned.command("equipment").contains(CAP_NAME)
-    assert returned.command("inventory").contains(BAG_NAME)
+    looked = returned.command("look")
+    assert looked.room_name() == world.ROOM_ARENA_WEST_NAME, looked.text
+    equipment = returned.command("equipment")
+    assert equipment.contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION), equipment.text
+    inventory = returned.command("inventory")
+    assert inventory.contains(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION), inventory.text
