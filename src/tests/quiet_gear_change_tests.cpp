@@ -57,8 +57,9 @@ constexpr int MOUNT_VNUM = 9902;
 constexpr int FOLLOWER_PROTOTYPE = 0;
 constexpr int MOUNT_PROTOTYPE = 1;
 constexpr int MOB_PROTOTYPE_COUNT = 2;
-// A follower's constitution: low enough that it dies at 0 hit points, as a player does.
-constexpr int FOLLOWER_CONSTITUTION = 1;
+// A constitution low enough that its owner dies at 0 hit points, as a player with none does
+// (update_pos: dead at hit points <= -constitution / 2). Every follower prototype has it.
+constexpr int FRAIL_CONSTITUTION = 1;
 // A follower prototype's level, and its abilities other than constitution: an ordinary mob's.
 constexpr int FOLLOWER_LEVEL = 10;
 constexpr int FOLLOWER_ABILITY = 18;
@@ -361,7 +362,7 @@ protected:
         prototype.abilities.intel = FOLLOWER_ABILITY;
         prototype.abilities.wil = FOLLOWER_ABILITY;
         prototype.abilities.lea = FOLLOWER_ABILITY;
-        prototype.abilities.con = FOLLOWER_CONSTITUTION;
+        prototype.abilities.con = FRAIL_CONSTITUTION;
         prototype.abilities.hit = MOB_HIT_POINTS;
         prototype.tmpabilities.hit = MOB_HIT_POINTS;
         prototype.specials.position = POSITION_STANDING;
@@ -374,6 +375,18 @@ protected:
         // read_mobile draws a mob's hit points between these two.
         m_mob_prototypes[FOLLOWER_PROTOTYPE].abilities.hit = hit_points;
         m_mob_prototypes[FOLLOWER_PROTOTYPE].tmpabilities.hit = hit_points;
+    }
+
+    // Leaves <doomed> one hit point from death: at LOW_HIT_POINTS and FRAIL_CONSTITUTION, a blow of
+    // 1 kills. The smallest earthquake a test casts still deals 1: number(1, 30) plus
+    // get_mage_caster_level (at least 18 / 5 = 3, every caster having intelligence 18) is at least
+    // 4, halved for a crack and again for a save; with no saving throw of the victim's own,
+    // apply_spell_damage keeps it all.
+    static void leave_one_hit_point_from_death(char_data* doomed)
+    {
+        doomed->tmpabilities.con = FRAIL_CONSTITUTION;
+        doomed->tmpabilities.hit = LOW_HIT_POINTS;
+        doomed->specials2.saving_throw = 0;
     }
 
     // Makes the player's hit points, as the gear's affects work them out at login, many times
@@ -871,7 +884,7 @@ TEST_F(QuietGearChangeTest, AFollowersSpellThatKillsTheLeaderEndsTheCasting)
     objects_json::FollowerData second_follower = make_follower_record({ earthquake_ring });
     rented.followers.push_back(std::move(second_follower));
     ASSERT_TRUE(rent_out_player(rented));
-    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+    leave_one_hit_point_from_death(&m_player);
 
     ASSERT_TRUE(load_character(&m_player));
 
@@ -906,7 +919,7 @@ TEST_F(QuietGearChangeTest, ALeaderKilledByALaterFollowerReleasesTheOneAlreadyFo
     objects_json::FollowerData later_follower = make_follower_record({ earthquake_ring });
     rented.followers.push_back(std::move(later_follower));
     ASSERT_TRUE(rent_out_player(rented));
-    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+    leave_one_hit_point_from_death(&m_player);
 
     ASSERT_TRUE(load_character(&m_player));
 
@@ -936,7 +949,7 @@ TEST_F(QuietGearChangeTest, AFollowersPoisonBlowIsNotDealtOnceTheLeaderHasDied)
         = make_follower_record({ earthquake_ring, poisonous_ring });
     rented.followers.push_back(std::move(follower));
     ASSERT_TRUE(rent_out_player(rented));
-    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+    leave_one_hit_point_from_death(&m_player);
 
     ASSERT_TRUE(load_character(&m_player));
 
@@ -1222,6 +1235,7 @@ TEST_F(QuietGearChangeTest, ARentersFollowerWhoseGearShakesTheEarthKillsAnotherI
     char_data* caster = nullptr;
     char_data* second = nullptr;
     give_area_spell_followers(&m_player, SPELL_EARTHQUAKE, LOW_HIT_POINTS, caster, second);
+    leave_one_hit_point_from_death(second);
 
     EXPECT_TRUE(Crash_rentsave(&m_player, 0));
 
@@ -1248,7 +1262,7 @@ TEST_F(QuietGearChangeTest, ARentersFollowerWhoseGearShakesTheEarthKillsTheRente
     world[SECOND_ROOM].description = start_room_text;
     r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
     put_player_on_the_character_list();
-    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+    leave_one_hit_point_from_death(&m_player);
     char_data* caster = nullptr;
     char_data* second = nullptr;
     give_area_spell_followers(&m_player, SPELL_EARTHQUAKE, PLAYER_HIT_POINTS, caster, second);
@@ -1271,7 +1285,7 @@ TEST_F(QuietGearChangeTest, ARentersFollowerWhoseGearShakesTheEarthKillsTheRente
 TEST_F(QuietGearChangeTest, ALinklessRenterTheQuakeOfAFollowersGearKillsIsLetGo)
 {
     char_data* renter = make_linkless_player("Renter");
-    renter->tmpabilities.hit = LOW_HIT_POINTS;
+    leave_one_hit_point_from_death(renter);
     char_data* caster = nullptr;
     char_data* second = nullptr;
     give_area_spell_followers(renter, SPELL_EARTHQUAKE, PLAYER_HIT_POINTS, caster, second);
@@ -1344,7 +1358,7 @@ TEST_F(QuietGearChangeTest, ARentersPlayerFollowerAheadOfTheNpcFollowersIsPassed
 TEST_F(QuietGearChangeTest, ARentersFollowersFollowerWhoseGearShakesTheEarthKillsASiblingIsLetGo)
 {
     char_data* frail_sibling = make_mob("frail", 0);
-    frail_sibling->tmpabilities.hit = LOW_HIT_POINTS;
+    leave_one_hit_point_from_death(frail_sibling);
     add_follower(frail_sibling, &m_player, FOLLOW_MOVE);
     char_data* sturdy_sibling = make_mob("sturdy", 0);
     add_follower(sturdy_sibling, &m_player, FOLLOW_MOVE);
@@ -1353,6 +1367,7 @@ TEST_F(QuietGearChangeTest, ARentersFollowersFollowerWhoseGearShakesTheEarthKill
     char_data* caster = nullptr;
     char_data* led_second = nullptr;
     give_area_spell_followers(leader, SPELL_EARTHQUAKE, LOW_HIT_POINTS, caster, led_second);
+    leave_one_hit_point_from_death(led_second);
     ASSERT_EQ(leader, m_player.followers->follower);
 
     EXPECT_TRUE(Crash_rentsave(&m_player, 0));
