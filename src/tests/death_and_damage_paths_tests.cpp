@@ -19,6 +19,7 @@
 #include <string>
 
 ACMD(do_wear);
+ACMD(do_say);
 ACMD(do_wield);
 ACMD(do_remove);
 ACMD(do_cleave);
@@ -61,6 +62,25 @@ constexpr int VAMPIRE_TOWER_VNUM = 15379;
 constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
 // A roll that number(from, to) turns into its lowest result.
 constexpr double LOWEST_ROLL = 0.0;
+// Thuringwethil's human form, which the Vampire Huntress becomes in her tower, and the first item
+// that form puts on there.
+constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
+constexpr int HUMAN_FORM_FIRST_ITEM_VNUM = 6338;
+// Hit points of a Vampire Huntress fleeing a fight: her human form gets three times as many, fewer
+// than the poison deals.
+constexpr int HUNTRESS_HIT_POINTS_HER_HUMAN_FORM_CANNOT_SURVIVE = 1;
+// The cell the Vampire Huntress takes a prisoner of the player's race to.
+constexpr int CELL_FOR_HUMANS_VNUM = 15398;
+// The rolls of number(0, 2) on which the Vampire Huntress, coming upon a player, carries them off
+// or attacks them.
+constexpr double ABDUCTION_ROLL = 0.5;
+constexpr double ATTACK_ROLL = 0.9;
+// The to-hit roll of number(1, 35) that always lands a blow.
+constexpr double SURE_HIT_ROLL = 0.999;
+// How long a script's pause lasts: long enough that only the Huntress's own next delay ends it.
+constexpr int SCRIPT_PAUSE_PULSES = 5;
+// A door's key number when it has no keyhole.
+constexpr int NO_KEYHOLE = -1;
 // A regeneration that drains far more hit points than a mob has in one fast update.
 constexpr int DRAINING_REGENERATION = -10 * MOB_HIT_POINTS;
 // How long a room spell the tests cast lasts, in hours, and how hard the blaze burns.
@@ -121,11 +141,17 @@ protected:
         m_saved_top_of_mobt = top_of_mobt;
         mob_proto = &m_risen_ghoul_prototype;
         top_of_mobt = 0;
+        m_saved_sunlight = weather_info.sunlight;
+        m_saved_second_room_name = world[SECOND_ROOM].name;
+        m_saved_second_room_description = world[SECOND_ROOM].description;
     }
 
     void TearDown() override
     {
         world[0].room_flags = m_saved_room_flags;
+        weather_info.sunlight = m_saved_sunlight;
+        world[SECOND_ROOM].name = m_saved_second_room_name;
+        world[SECOND_ROOM].description = m_saved_second_room_description;
         ScriptedRoomFixture::TearDown();
         mob_index = m_saved_mob_index;
         mob_proto = m_saved_mob_proto;
@@ -254,6 +280,63 @@ protected:
         zone_table[0].cmdno = RESET_COMMAND_COUNT;
     }
 
+    // Makes mob table entry 0 Thuringwethil's human form, as read_mobile copies it: standing, with
+    // the risen ghoul's keywords and proficiencies.
+    void make_mob_table_her_human_form()
+    {
+        m_mob_index[1].virt = THURINGWETHIL_HUMAN_VNUM;
+        char_data& prototype = m_risen_ghoul_prototype;
+        prototype.nr = 0;
+        prototype.specials2.act = MOB_ISNPC;
+        prototype.player.name = m_risen_ghoul_keywords;
+        prototype.player.short_descr = m_risen_ghoul_keywords;
+        prototype.profs = &m_risen_ghoul_proficiencies;
+        prototype.specials.position = POSITION_STANDING;
+    }
+
+    // Makes the bag's prototype the first item the Huntress's human form puts on: a ring that
+    // poisons its wearer. The bag is the last test prototype, so its new vnum keeps the object
+    // table in order.
+    void make_her_first_item_a_poisonous_ring()
+    {
+        obj_data& prototype = prototype_for(BAG_VNUM);
+        prototype.obj_flags.type_flag = ITEM_WORN;
+        prototype.obj_flags.wear_flags = ITEM_TAKE | ITEM_WEAR_FINGER;
+        prototype.obj_flags.value[0] = 0;
+        prototype.affected[0].location = APPLY_BITVECTOR;
+        prototype.affected[0].modifier = POISON_BIT_POSITION;
+        obj_index[real_number_of(BAG_VNUM)].virt = HUMAN_FORM_FIRST_ITEM_VNUM;
+    }
+
+    // Makes room 0 Thuringwethil's tower, where the Vampire Huntress flies at sunrise and comes
+    // upon the player, and SECOND_ROOM the cell she carries a human prisoner off to. The cell's
+    // north door leads up to the tower, and the tower's south exit is that door's far side.
+    // Returns the Huntress, waiting in the cell.
+    char_data* ready_huntress_at_sunrise()
+    {
+        link_second_room();
+        world[0].number = VAMPIRE_TOWER_VNUM;
+        world[SECOND_ROOM].number = CELL_FOR_HUMANS_VNUM;
+        world[SECOND_ROOM].name = m_cell_text;
+        world[SECOND_ROOM].description = m_cell_text;
+        m_cell_door = room_direction_data {};
+        m_cell_door.keyword = m_cell_door_keyword;
+        m_cell_door.general_description = m_cell_door_keyword;
+        m_cell_door.key = NO_KEYHOLE;
+        m_cell_door.to_room = 0;
+        m_cell_door.exit_info = EX_ISDOOR;
+        world[SECOND_ROOM].dir_option[NORTH] = &m_cell_door;
+
+        weather_info.sunlight = SUN_RISE;
+        return make_mob("huntress", 0, SECOND_ROOM);
+    }
+
+    // Whether <door> is closed and locked.
+    static bool is_closed_and_locked(const room_direction_data* door)
+    {
+        return IS_SET(door->exit_info, EX_CLOSED) && IS_SET(door->exit_info, EX_LOCKED);
+    }
+
     /* A writable empty argument for the commands. */
     static char* empty_argument()
     {
@@ -281,6 +364,17 @@ protected:
     static constexpr int RESET_COMMAND_COUNT = 3;
     // Zone 0's commands, written by install_ring_then_stone_reset.
     reset_com m_reset_commands[RESET_COMMAND_COUNT] {};
+    // The sunlight SetUp found, put back by TearDown.
+    int m_saved_sunlight = 0;
+    // SECOND_ROOM's name and description as SetUp found them, put back by TearDown.
+    char* m_saved_second_room_name = nullptr;
+    char* m_saved_second_room_description = nullptr;
+    // The cell's name and description, set by ready_huntress_at_sunrise.
+    char m_cell_text[8] = "A cell";
+    // The keyword and description of the cell's north door.
+    char m_cell_door_keyword[9] = "irondoor";
+    // The cell's north door, set by ready_huntress_at_sunrise.
+    room_direction_data m_cell_door {};
 };
 
 } // namespace
@@ -1057,4 +1151,123 @@ TEST_F(DeathAndDamagePathsTest, AHealedThuringwethilHerGearRemovesIsLetGo)
     EXPECT_FALSE(is_in_object_list(ring));
     EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
     EXPECT_EQ(nullptr, world[SECOND_ROOM].contents);
+}
+
+// The Vampire Huntress, badly hurt, becomes a woman in her tower, and her human form dies of the
+// poison of the first ring she puts on there: the form is let go, and walks nowhere.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressHumanFormThePoisonOfHerNewGearKillsIsLetGo)
+{
+    link_second_room();
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    make_mob_table_her_human_form();
+    make_her_first_item_a_poisonous_ring();
+    char_data* huntress = make_mob("huntress", 0);
+    huntress->specials.position = POSITION_FIGHTING;
+    huntress->tmpabilities.hit = HUNTRESS_HIT_POINTS_HER_HUMAN_FORM_CANNOT_SURVIVE;
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(huntress));
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+    const obj_data* body = world[SECOND_ROOM].contents;
+    ASSERT_NE(nullptr, body);
+    EXPECT_TRUE(is_corpse(body));
+    EXPECT_EQ(nullptr, body->next_content);
+}
+
+// ---- the Vampire Huntress carrying a prisoner off ----
+
+// She carries the player off to their cell and slams the cell's door shut from both sides.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressLocksHerPrisonersCellFromBothSides)
+{
+    char_data* huntress = ready_huntress_at_sunrise();
+    push_test_random_value(ABDUCTION_ROLL);
+    char no_argument[1] = "";
+
+    vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr);
+
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+    EXPECT_EQ(0, huntress->in_room);
+    EXPECT_TRUE(is_closed_and_locked(world[SECOND_ROOM].dir_option[NORTH]));
+    EXPECT_TRUE(is_closed_and_locked(world[0].dir_option[SOUTH]));
+    EXPECT_TRUE(output_has("The iron door slams shut.")) << output();
+}
+
+// The cell has no north door: that is logged, and the prisoner is left in the cell as before.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressPrisonersCellWithNoDoorIsLogged)
+{
+    char_data* huntress = ready_huntress_at_sunrise();
+    world[SECOND_ROOM].dir_option[NORTH] = nullptr;
+    push_test_random_value(ABDUCTION_ROLL);
+    char no_argument[1] = "";
+
+    testing::internal::CaptureStderr();
+    vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+    EXPECT_EQ(0, huntress->in_room);
+    EXPECT_NE(std::string::npos, logged.find("vampire_huntress: room 15398 has no north exit"))
+        << logged;
+    EXPECT_FALSE(output_has("The iron door slams shut.")) << output();
+}
+
+// The cell's door has no far side in the tower: that is logged, and the cell's side is still
+// closed and locked.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressCellDoorWithNoFarSideIsLogged)
+{
+    char_data* huntress = ready_huntress_at_sunrise();
+    world[0].dir_option[SOUTH] = nullptr;
+    push_test_random_value(ABDUCTION_ROLL);
+    char no_argument[1] = "";
+
+    testing::internal::CaptureStderr();
+    vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+    EXPECT_TRUE(is_closed_and_locked(world[SECOND_ROOM].dir_option[NORTH]));
+    EXPECT_NE(std::string::npos, logged.find("vampire_huntress: room 15379 has no south exit"))
+        << logged;
+}
+
+// The Huntress's script paused when she heard the player; carrying the player off starts her own
+// delay, which ends the pause, and the rest of her script removes her: she is let go there.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerResumedScriptRemovesAsSheCarriesThePlayerOffIsLetGo)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { SCRIPT_PAUSE_PULSES } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* huntress = ready_huntress_at_sunrise();
+    char_from_room(huntress);
+    char_to_room(huntress, 0);
+    huntress->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, huntress->delay.cmd);
+    push_test_random_value(ABDUCTION_ROLL);
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(huntress));
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+}
+
+// The Huntress attacks the player with a weapon whose damage script removes its wielder: she is
+// let go there.
+TEST_F(DeathAndDamagePathsTest, AVampireHuntressHerWeaponsDamageScriptRemovesAsSheAttacksIsLetGo)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* huntress = ready_huntress_at_sunrise();
+    ASSERT_TRUE(equip_char(huntress, make_object(SWORD_VNUM, SCRIPT_VNUM), WIELD));
+    GET_ENERGY(huntress) = ENE_TO_HIT;
+    push_test_random_value(ATTACK_ROLL);
+    push_test_random_value(SURE_HIT_ROLL);
+    char no_argument[1] = "";
+
+    EXPECT_EQ(1, vampire_huntress(huntress, huntress, 0, no_argument, SPECIAL_SELF, nullptr));
+
+    EXPECT_FALSE(is_in_game(huntress));
+    EXPECT_EQ(0, m_player.in_room);
 }

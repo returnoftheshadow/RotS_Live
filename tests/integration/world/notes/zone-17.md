@@ -57,6 +57,8 @@ say, so two of them answer each other until the server's stack overflows.
 | 1731 | `clerk first` | given anything, skips a false IF whose block ends with a nested IF / BEGIN / ... / END (`Nested body.`), then has an else branch saying `Outer else.` and a last row saying `After.` |
 | 1732 | `clerk second` | given anything, skips a false IF whose block holds a nested IF / BEGIN / ... / END_ELSE_BEGIN / ... / END (`Nested then.`, `Nested else.`) and a row saying `Outer tail.`, then has an else branch saying `Outer else.` and a last row saying `After.` |
 | 1733 | `copyist careless` | script 1715 with 0 in `LOAD_OBJ_X`'s first parameter |
+| 1734 | `summoner hapless` | given anything, loads mob 1799, which is left undefined, into ch3 (`LOAD_MOB`; reported, at boot too), teleports ch3, which stays unset, to 1101, then says `Still here.` |
+| 1735 | `summoner steady` | given anything, loads the porter (mob 1722) into ch3 (`LOAD_MOB`), teleports ch3 to 1101, then says `Still here.` |
 | 1740 | `pilgrim fading` | hearing speech, says `I must be going.`, waits four passes, says `Farewell, all.` and removes himself (`EXTRACT_CHAR` ch1); what he carries falls to the floor |
 | 1741 | `steward` | hearing speech containing `dusk`, sends the room `The steward bows.`, waits four passes and sends `The steward straightens up.`; he never speaks, so he may share a room with the pilgrim, whose lines lack `dusk` |
 
@@ -73,4 +75,5 @@ say, so two of them answer each other until the server's stack overflows.
 mob, which the 1700s mobs run. Script 1720 belongs to no mob and never runs: each of its lines
 names something missing (mob, object and room vnum 1799, which is left undefined, slot 22 and -1,
 direction 6 and 7), so the boot check writes twelve `SCRIPT ERROR: script #1720, ...` lines to
-every test's `game.log`, and the valet's and dresser's scripts add one line each.
+every test's `game.log`, and the valet's, dresser's and hapless summoner's scripts add one line
+each.
