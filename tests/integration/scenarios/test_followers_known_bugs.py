@@ -1,6 +1,8 @@
-"""Known bugs in following, grouping, reporting, riding and teleporting, each pinned as a strict
-xfail of the correct behaviour: the pin fails the run once the bug is fixed, so it can become a
-plain test."""
+"""Known bugs in following, grouping, reporting, riding and teleporting.
+
+Each is pinned as a strict xfail of the correct behaviour: the pin fails the run once the bug is
+fixed, so it can become a plain test.
+"""
 
 from __future__ import annotations
 
@@ -8,27 +10,35 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, immortal
-from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, TELEPORTED_END
-from rots_harness.immortal_commands import give_new_object, goto, load_object, set_holylight, wizset
-from rots_harness.replies import reply_to
+from rots_harness.game_text import (
+    CORPSE_CONTENTS_HEADER,
+    FORCED_REPLY,
+    NEW_BODY_MESSAGE,
+    PUT_FORMAT,
+    TELEPORTED_END,
+)
+from rots_harness.immortal_commands import GIVEN_FORMAT, goto, load_object, set_holylight, wizset
+from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
 from rots_harness.text_lines import lines_after
 from rots_harness.world_resets import MobReset
 from test_followers import (
-    ANY_ACK_MARKER,
-    ANY_FOLLOWED_MARKER,
+    ACK_START,
     CAPTAIN,
+    EXHAUSTED_MESSAGE,
+    FOLLOWED_START,
     FOLLOWER,
-    FOLLOWER_RIDING_ACK_MARKER,
+    FOLLOWER_RIDING_ACK,
     LEADER,
     LEAVES_YOUR_GROUP_FORMAT,
     MEMBER,
-    PIT_ROOM_NAME,
     PONY_VNUM,
     RIDER,
-    RING_VNUM,
+    ROOM_GALLOWS_APPROACH_NAME,
+    ROOM_GALLOWS_PIT_NAME,
     gather_in_arena_centre,
     group_the_member,
     human_warrior,
+    put_on_the_ring,
     ride_after_the_leader,
     walk_east,
 )
@@ -42,23 +52,21 @@ OUTSIDER = human_warrior("Testoutsider", "female", world.ROOM_ARENA_CENTRE)
 # A level-93 immortal (LEVEL_GOD, structs.h), the lowest level with teleport, in Immortal Start.
 GOD = immortal("Testgod", 93)
 
-# What a follower without the moves for the step reads (do_move).
-EXHAUSTED_MARKER = "You are too exhausted to move."
 # What `look in bag` prints before a carried bag's contents (show_obj_contents, act_info.cpp).
 BAG_CONTENTS_HEADER = "bag (carried) :"
 # The bystander orc's report as do_report's format string ("I am %s, my stamina is %s, and I am
 # %s.") writes it, at full health with no stamina and full moves (act_othe.cpp).
-BYSTANDER_REPORT_AS_WRITTEN = "A bystander orc says 'I am healthy, my stamina is empty, and I am energetic.'"
+BYSTANDER_REPORT_AS_WRITTEN = (
+    "A bystander orc says 'I am healthy, my stamina is empty, and I am energetic.'"
+)
 # What do_ungroup tells a leader who names someone outside its group (act_othe.cpp).
-NOT_IN_YOUR_GROUP_MARKER = "That person is not in your group!"
+NOT_IN_YOUR_GROUP_REPLY = "That person is not in your group!"
 # The word every group line has in common, for asserting a character read none of them.
 GROUP_WORD = "group"
 # What a rider reads as it mounts the male pony, with the pony's pronoun (do_ride, ranger.cpp).
-MOUNTED_MARKER = "You mount a harness pony and start riding him."
+MOUNTED_REPLY = "You mount a harness pony and start riding him."
 # What the room reads as the rider mounts the male pony; format with the rider's name.
-ROOM_MOUNTED_MARKER_FORMAT = "{} mounts a harness pony and starts riding him."
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
+ROOM_MOUNTED_FORMAT = "{} mounts a harness pony and starts riding him."
 
 
 @pytest.mark.followers
@@ -70,7 +78,7 @@ SETTLE_SECONDS = 1.0
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, CAPTAIN, MEMBER, OUTSIDER)
 def test_ungroup_refuses_a_character_outside_the_group(server) -> None:
-    """Bug: do_ungroup (act_othe.cpp:602) tests `group->contains(ch)`, the leader, not the named character.
+    """Bug: do_ungroup (act_othe.cpp:602) tests `group->contains(ch)`, the leader, not the target.
 
     The leader is always in its own group, so `ungroup <outsider>` tells the outsider "You have
     been kicked out of Testcaptain's group!" and "You leave the group of Testcaptain.", tells the
@@ -85,10 +93,12 @@ def test_ungroup_refuses_a_character_outside_the_group(server) -> None:
     outsider.drain(SETTLE_SECONDS)
 
     refused = captain.command(f"ungroup {OUTSIDER.name.lower()}")
-    assert refused.contains(NOT_IN_YOUR_GROUP_MARKER), refused.text
+    assert refused.contains(NOT_IN_YOUR_GROUP_REPLY), refused.text
     assert LEAVES_YOUR_GROUP_FORMAT.format(OUTSIDER.name) not in refused.text, refused.text
-    assert GROUP_WORD not in outsider.drain(SETTLE_SECONDS)
-    assert GROUP_WORD not in member.drain(SETTLE_SECONDS)
+    outsider_text = outsider.drain(SETTLE_SECONDS)
+    assert GROUP_WORD not in outsider_text, outsider_text
+    member_text = member.drain(SETTLE_SECONDS)
+    assert GROUP_WORD not in member_text, member_text
 
 
 @pytest.mark.followers
@@ -109,9 +119,9 @@ def test_report_keeps_the_capital_i_its_format_string_writes(server) -> None:
     bystander orc reports at full health. Nothing draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
+    goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME)
     report = implementor.command("force bystander report")
-    assert report.contains("Ok."), report.text
+    assert report.contains(FORCED_REPLY), report.text
     assert BYSTANDER_REPORT_AS_WRITTEN in report.text, report.text
 
 
@@ -119,12 +129,15 @@ def test_report_keeps_the_capital_i_its_format_string_writes(server) -> None:
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
-    reason="a death-room death should leave a cap inside the bag it was in, as any death but a player kill or poison does",
+    reason=(
+        "a death-room death should leave a cap inside the bag it was in, as any death but a player kill or"
+        " poison does"
+    ),
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, CARRIER)
 def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
-    """Bug: make_physical_corpse (fight.cpp:753) tests `!IS_NPC(killer)`, which is true for a NULL killer.
+    """Bug: make_physical_corpse (fight.cpp:753) tests `!IS_NPC(killer)`, true for a NULL killer.
 
     do_move (act_move.cpp:935) kills a character who walks into a DEATH room with raw_kill(ch,
     NULL, 0). raw_kill (fight.cpp:924) treats a NULL killer as no player kill, but
@@ -135,16 +148,21 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     carrier = server.login(CARRIER.name)
-    goto(implementor, world.ROOM_GALLOWS_APPROACH, "Gallows Approach")
+    goto(implementor, world.ROOM_GALLOWS_APPROACH, ROOM_GALLOWS_APPROACH_NAME)
     load_object(implementor, world.OBJECT_LEATHER_BAG, world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
     load_object(implementor, world.OBJECT_LEATHER_CAP, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
-    assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
+    put = implementor.command("put cap bag")
+    put_reply = PUT_FORMAT.format(
+        world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION, world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION
+    )
+    assert put.contains(put_reply), put.text
     given = implementor.command(f"give bag {CARRIER.name.lower()}")
-    assert given.contains(f"You give a leather bag to {CARRIER.name}."), given.text
+    given_reply = GIVEN_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION, CARRIER.name)
+    assert given.contains(given_reply), given.text
 
     died = reply_to(carrier, "east", [NEW_BODY_MESSAGE])
-    assert PIT_ROOM_NAME in died, died
-    goto(implementor, world.ROOM_GALLOWS_PIT, PIT_ROOM_NAME)
+    assert ROOM_GALLOWS_PIT_NAME in died, died
+    goto(implementor, world.ROOM_GALLOWS_PIT, ROOM_GALLOWS_PIT_NAME)
 
     corpse = implementor.command("look in corpse").text
     corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
@@ -160,31 +178,34 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
-    reason="a leader who cannot see a follower should read no ACK line when the follower's own step fails, as when it never tries",
+    reason=(
+        "a leader who cannot see a follower should read no ACK line when the follower's own step fails, as"
+        " when it never tries"
+    ),
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(LEADER, FOLLOWER)
 def test_a_follower_without_moves_the_leader_cannot_see_leaves_the_leader_no_ack_line(server) -> None:
-    """Bug: do_move (act_move.cpp:803) sends the leader's ACK line for a failed step with hide_invisible FALSE.
+    """Bug: do_move (act_move.cpp:803) sends the leader's ACK line for a failed step, not hidden.
 
-    When the follower tries the step and check_simple_move fails, the leader who cannot see it
-    reads "ACK! someone could not follow, you lost her!". The loop for a follower that never
-    tries the step (act_move.cpp:1062) and the riding branch (act_move.cpp:950) both hide it.
-    Correct: no ACK line for the leader. The leader is the implementor with holylight off; the
-    ring's AFF_INVISIBLE hides the follower. The moves are set before the ring goes on: wizset
-    cannot find a player the implementor cannot see. Nothing on the way draws an outcome.
+    It passes hide_invisible FALSE. When the follower tries the step and check_simple_move fails,
+    the leader who cannot see it reads "ACK! someone could not follow, you lost her!". The loop for
+    a follower that never tries the step (act_move.cpp:1062) and the riding branch
+    (act_move.cpp:950) both hide it. Correct: no ACK line for the leader. The leader is the
+    implementor with holylight off; the ring's AFF_INVISIBLE hides the follower. The moves are set
+    before the ring goes on: wizset cannot find a player the implementor cannot see. Nothing on the
+    way draws an outcome.
     """
     leader = server.login(LEADER.name)
     follower = server.login(FOLLOWER.name)
     gather_in_arena_centre(leader, follower)
     set_holylight(leader, "off")
     wizset(leader, f"player {FOLLOWER.name.lower()}", "move", 0, shown_name=FOLLOWER.name)
-    give_new_object(leader, RING_VNUM, "ring", FOLLOWER.name.lower(), shown_recipient=FOLLOWER.name, short_description="a ring of invisibility")
-    assert follower.command("wear ring").contains("You slide a ring of invisibility on to your"), follower.everything
+    put_on_the_ring(leader, follower)
 
     left_behind, leader_text = walk_east(leader, follower)
-    assert EXHAUSTED_MARKER in left_behind, left_behind
-    assert ANY_ACK_MARKER not in leader_text, leader_text
+    assert EXHAUSTED_MESSAGE in left_behind, left_behind
+    assert ACK_START not in leader_text, leader_text
 
 
 @pytest.mark.followers
@@ -197,7 +218,7 @@ def test_a_follower_without_moves_the_leader_cannot_see_leaves_the_leader_no_ack
 @pytest.mark.characters(LEADER, RIDER)
 @pytest.mark.world_resets(MobReset(PONY_VNUM, world.ROOM_ARENA_CENTRE))
 def test_a_rider_whose_mount_cannot_move_is_not_told_it_follows(server) -> None:
-    """Bug: do_move's riding branch (act_move.cpp:953) sends "You follow $N." before the mount's check.
+    """Bug: do_move's riding branch (act_move.cpp:953) sends "You follow $N." before the mount's.
 
     The rider's own check_simple_move passes, so it reads "You follow Testimm."; only then does
     the mount's check (act_move.cpp:983-990) fail and send "ACK! You could not follow him
@@ -208,8 +229,8 @@ def test_a_rider_whose_mount_cannot_move_is_not_told_it_follows(server) -> None:
     ride_after_the_leader(leader, rider)
 
     left_behind, _ = walk_east(leader, rider)
-    assert FOLLOWER_RIDING_ACK_MARKER in left_behind, left_behind
-    assert ANY_FOLLOWED_MARKER not in left_behind, left_behind
+    assert FOLLOWER_RIDING_ACK in left_behind, left_behind
+    assert FOLLOWED_START not in left_behind, left_behind
 
 
 @pytest.mark.followers
@@ -222,7 +243,7 @@ def test_a_rider_whose_mount_cannot_move_is_not_told_it_follows(server) -> None:
 @pytest.mark.characters(LEADER, RIDER)
 @pytest.mark.world_resets(MobReset(PONY_VNUM, world.ROOM_ARENA_CENTRE))
 def test_mounting_names_the_mount_by_its_own_pronoun(server) -> None:
-    """Bug: do_ride (ranger.cpp:185-186) writes `$m`, the rider's pronoun, where the mount's `$M` is meant.
+    """Bug: do_ride (ranger.cpp:185-186) writes `$m`, the rider's pronoun, for the mount's `$M`.
 
     "You mount $N and start riding $m." and "$n mounts $N and starts riding $m." take `$m` from
     the actor, so the female rider reads "You mount a harness pony and start riding her." and the
@@ -230,20 +251,23 @@ def test_mounting_names_the_mount_by_its_own_pronoun(server) -> None:
     """
     leader = server.login(LEADER.name)
     rider = server.login(RIDER.name)
-    goto(leader, world.ROOM_ARENA_CENTRE, "Arena Centre", exact=False)
+    goto(leader, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME, exact=False)
     rider.drain(SETTLE_SECONDS)
 
     mounted = rider.command("ride pony")
-    assert mounted.contains(MOUNTED_MARKER), mounted.text
-    seen = leader.expect([" mounts a harness pony"]) + leader.drain(SETTLE_SECONDS)
-    assert ROOM_MOUNTED_MARKER_FORMAT.format(RIDER.name) in seen, seen
+    assert mounted.contains(MOUNTED_REPLY), mounted.text
+    seen = settled_expect(leader, [" mounts a harness pony"])
+    assert ROOM_MOUNTED_FORMAT.format(RIDER.name) in seen, seen
 
 
 @pytest.mark.wizlevels
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
-    reason="a lower-level immortal should not teleport a higher-level one, as transfer, force, wizset and snoop refuse (intent unconfirmed)",
+    reason=(
+        "a lower-level immortal should not teleport a higher-level one, as transfer, force, wizset and snoop"
+        " refuse (intent unconfirmed)"
+    ),
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, GOD)
@@ -261,5 +285,7 @@ def test_a_level_93_immortal_cannot_teleport_the_implementor(server) -> None:
     implementor.drain(SETTLE_SECONDS)
 
     god.command(f"teleport {IMPLEMENTOR.name.lower()} {world.ROOM_ARENA_EAST}")
-    assert TELEPORTED_END not in implementor.drain(SETTLE_SECONDS)
-    assert implementor.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME
+    teleported = implementor.drain(SETTLE_SECONDS)
+    assert TELEPORTED_END not in teleported, teleported
+    looked = implementor.command("look")
+    assert looked.room_name() == world.ROOM_IMMORTAL_START_NAME, looked.text

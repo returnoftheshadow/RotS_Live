@@ -1,5 +1,7 @@
-"""The hourly poison tick: a mob it kills, the characters after it in the same pass, and a
-sanctuary it breaks."""
+"""The hourly poison tick and what it does within one affect pass.
+
+Pins a mob it kills, the characters after it in the same pass, and a sanctuary it breaks.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import DEATH_CRY_FORMAT, EATEN_POISON_REPLY, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
 from rots_harness.immortal_commands import give_new_object, goto, load_mob
-from rots_harness.replies import reply_to
+from rots_harness.replies import SETTLE_SECONDS, reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import AFFECT_BITS_PATTERN, CONSTITUTION_PATTERN, HIT_POINTS_PATTERN, read_stat
 from rots_harness.text_lines import first_number
@@ -21,7 +23,7 @@ pytestmark = [pytest.mark.scenario, pytest.mark.affect_ticks]
 # Room 2101 in zone 21, where the poisoned are watched.
 ROOM_SICK_WARD = 2101
 # How look names the sick ward.
-SICK_WARD_NAME = "Sick Ward"
+ROOM_SICK_WARD_NAME = "Sick Ward"
 # A level-20 human warrior in the sick ward, hungry enough to eat (above 20 is too full): a
 # mortal, since immortals are not poisoned by food.
 TASTER = Character(
@@ -52,32 +54,38 @@ SANCTUARY_WAND_VNUM = 2103
 # The damage of a poison tick (affect_update_person, limits.cpp).
 POISON_TICK_DAMAGE = 5
 
+# The straw scarecrow's short description (world.MOB_STRAW_SCARECROW).
+SCARECROW_SHORT_DESCRIPTION = "a straw scarecrow"
+# The draining grey sash's short description (world.OBJECT_GREY_SASH).
+SASH_SHORT_DESCRIPTION = "a draining grey sash"
+# What the saint reads as he holds the wand of sanctuary (wear_message, act_obj2.cpp).
+WAND_HELD_REPLY = "You grab an ivory wand of sanctuary."
 # What the room reads when the scarecrow eats the bread.
-SCARECROW_COUGHS_MARKER = "A straw scarecrow coughs and utters some strange sounds."
+SCARECROW_COUGHS = "A straw scarecrow coughs and utters some strange sounds."
 # What the room reads when the scarecrow puts the sash on.
-SCARECROW_WEARS_MARKER = "A straw scarecrow wears a draining grey sash about his body."
+SCARECROW_WEARS_SASH = "A straw scarecrow wears a draining grey sash about his body."
 # What the room reads on the scarecrow's poison tick (lib/misc/messages).
-SCARECROW_WRITHES_MARKER = "A straw scarecrow writhes in pain as the poison takes hold."
+SCARECROW_WRITHES = "A straw scarecrow writhes in pain as the poison takes hold."
 # What the room reads when the scarecrow dies (damage, fight.cpp).
-SCARECROW_DEAD_MARKER = IS_DEAD_FORMAT.format("A straw scarecrow")
+SCARECROW_IS_DEAD = IS_DEAD_FORMAT.format("A straw scarecrow")
 # What the room reads of the scarecrow's death cry (death_cry, fight.cpp).
-SCARECROW_DEATH_CRY_MARKER = DEATH_CRY_FORMAT.format("a straw scarecrow")
+SCARECROW_DEATH_CRY = DEATH_CRY_FORMAT.format(SCARECROW_SHORT_DESCRIPTION)
 # How look shows the scarecrow's corpse after a poison death (get_corpse_desc, fight.cpp).
-SCARECROW_CORPSE_MARKER = "The rancid corpse of a straw scarecrow is lying here."
+SCARECROW_CORPSE = "The rancid corpse of a straw scarecrow is lying here."
+# The start of how look shows the scarecrow while it lives.
+SCARECROW_STANDS_START = "A straw scarecrow stands here"
 # What the room reads on the taster's poison tick.
-TASTER_WRITHES_MARKER = "Testtaster writhes in pain as the poison takes hold."
+TASTER_WRITHES = f"{TASTER.name} writhes in pain as the poison takes hold."
 # What the room reads on the saint's poison tick.
-SAINT_WRITHES_MARKER = "Testsaint writhes in pain as the poison takes hold."
+SAINT_WRITHES = f"{SAINT.name} writhes in pain as the poison takes hold."
 # What the saint reads when the wand's spell takes (spell_sanctuary, mystic.cpp).
-SANCTUARY_MARKER = "You are surrounded by a bright aura."
+SANCTUARY_REPLY = "You are surrounded by a bright aura."
 # What the saint reads when his own poison breaks his sanctuary (check_sanctuary, fight.cpp).
-SANCTUARY_BROKEN_MARKER = "Your sanctuary is broken!"
+SANCTUARY_BROKEN = "Your sanctuary is broken!"
 # What the room reads then.
-SAINT_SANCTUARY_BROKEN_MARKER = "Testsaint's sanctuary is broken!"
-# What the room reads when a sanctuary holds against a blow.
-AURA_FLICKERS_MARKER = "aura flickers."
-# Seconds to keep reading after an acknowledgement, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
+SAINT_SANCTUARY_BROKEN = f"{SAINT.name}'s sanctuary is broken!"
+# The end of what the room reads when a sanctuary holds against a blow.
+AURA_FLICKERS_END = "aura flickers."
 
 # One stat line per affect, in the order of the character's affect list: hours left and name.
 STAT_SPELL_PATTERN = re.compile(r"SPL: \(\s*(-?\d+)hr\) (\w+)")
@@ -85,17 +93,18 @@ STAT_SPELL_PATTERN = re.compile(r"SPL: \(\s*(-?\d+)hr\) (\w+)")
 STAT_SANCTUARY_PATTERN = re.compile(r"SPL: \(\s*-?\d+hr\) sanctuary\s+(-?\d+) to NONE")
 
 
-def stat_affects(text: str) -> tuple:
-    """The affect bits and the (hours, spell) affect lines of a stat reply."""
+def stat_affects(text: str) -> tuple[str, tuple[tuple[int, str], ...]]:
+    """Return the affect bits and the (hours, spell) affect lines of a stat reply."""
     affects = AFFECT_BITS_PATTERN.search(text)
     assert affects is not None, f"no AFF line in stat:\n{text}"
     spell_lines = STAT_SPELL_PATTERN.findall(text)
     spells = tuple((int(hours), name) for hours, name in spell_lines)
-    return affects.group(1).strip(), spells
+    bits_text = affects.group(1)
+    return bits_text.strip(), spells
 
 
 def force_scarecrow(implementor: GameSession, command: str, room_marker: str) -> None:
-    """Has the scarecrow run command and waits for what the room reads of it, room_marker."""
+    """Have the scarecrow run command and wait for what the room reads of it, room_marker."""
     reply = reply_to(implementor, f"force scarecrow {command}", [room_marker])
     assert reply.count(FORCED_REPLY) == 1 and reply.count(room_marker) == 1, reply
 
@@ -114,51 +123,53 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     """
     implementor = server.login(IMPLEMENTOR.name)
     taster = server.login(TASTER.name)
-    goto(implementor, ROOM_SICK_WARD, SICK_WARD_NAME)
+    goto(implementor, ROOM_SICK_WARD, ROOM_SICK_WARD_NAME)
 
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", TASTER.name.lower())
-    assert taster.command("eat bread").contains(EATEN_POISON_REPLY)
-    load_mob(implementor, world.MOB_STRAW_SCARECROW, "a straw scarecrow")
+    eaten = taster.command("eat bread")
+    assert eaten.contains(EATEN_POISON_REPLY), eaten.text
+    load_mob(implementor, world.MOB_STRAW_SCARECROW, SCARECROW_SHORT_DESCRIPTION)
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", "scarecrow")
-    force_scarecrow(implementor, "eat bread", SCARECROW_COUGHS_MARKER)
+    force_scarecrow(implementor, "eat bread", SCARECROW_COUGHS)
     give_new_object(implementor, world.OBJECT_GREY_SASH, "sash", "scarecrow")
-    force_scarecrow(implementor, "wear sash", SCARECROW_WEARS_MARKER)
+    force_scarecrow(implementor, "wear sash", SCARECROW_WEARS_SASH)
 
     scarecrow = read_stat(implementor, "mob scarecrow")
     hit = first_number(HIT_POINTS_PATTERN, scarecrow)
     constitution = first_number(CONSTITUTION_PATTERN, scarecrow)
-    # Scarecrow's tick, a mob's own poison (attacker and victim the scarecrow, so not a player's blow):
+    # Scarecrow's tick, a mob's own poison (attacker and victim the scarecrow, so not a player's
+    # blow):
     #   hit at the tick = min(hit + regeneration, maximum) <= -52               (HP :[-52/-52])
     #   after the tick  = -52 - POISON_TICK_DAMAGE = -57
     #   update_pos      : -57 <= -Con / 2 = -10 / 2 = -5                        (Con: [10/10/10])
     #                   = POSITION_DEAD, and damage calls die.
-    assert (hit, constitution) == (-52, 10)
-    assert hit - POISON_TICK_DAMAGE <= -(constitution // 2)
-    assert stat_affects(scarecrow) == ("POISON.", ((5, "poison"),))
+    assert (hit, constitution) == (-52, 10), scarecrow
+    assert hit - POISON_TICK_DAMAGE <= -(constitution // 2), scarecrow
+    assert stat_affects(scarecrow) == ("POISON.", ((5, "poison"),)), scarecrow
 
     first_hour = server.text_after_hours(implementor)
-    for marker in (SCARECROW_WRITHES_MARKER, SCARECROW_DEAD_MARKER, SCARECROW_DEATH_CRY_MARKER, TASTER_WRITHES_MARKER):
-        assert first_hour.count(marker) == 1, f"{marker!r}:\n{first_hour}"
-    assert first_hour.index(SCARECROW_DEATH_CRY_MARKER) < first_hour.index(TASTER_WRITHES_MARKER), first_hour
+    for line in (SCARECROW_WRITHES, SCARECROW_IS_DEAD, SCARECROW_DEATH_CRY, TASTER_WRITHES):
+        assert first_hour.count(line) == 1, f"{line!r}:\n{first_hour}"
+    assert first_hour.index(SCARECROW_DEATH_CRY) < first_hour.index(TASTER_WRITHES), first_hour
     taster_hour = taster.drain(SETTLE_SECONDS)
     assert taster_hour.count(POISON_TICK) == 1, taster_hour
-    assert taster_hour.count(SCARECROW_DEAD_MARKER) == 1, taster_hour
+    assert taster_hour.count(SCARECROW_IS_DEAD) == 1, taster_hour
 
     ward = implementor.command("look")
-    assert ward.contains(SCARECROW_CORPSE_MARKER), ward.text
-    assert "A straw scarecrow stands here" not in ward.text, ward.text
+    assert ward.contains(SCARECROW_CORPSE), ward.text
+    assert SCARECROW_STANDS_START not in ward.text, ward.text
     corpse = implementor.command("look in corpse")
-    assert corpse.contains("a draining grey sash"), corpse.text
+    assert corpse.contains(SASH_SHORT_DESCRIPTION), corpse.text
 
     second_hour = server.text_after_hours(implementor)
-    assert second_hour.count(TASTER_WRITHES_MARKER) == 1, second_hour
-    assert SCARECROW_WRITHES_MARKER not in second_hour, second_hour
+    assert second_hour.count(TASTER_WRITHES) == 1, second_hour
+    assert SCARECROW_WRITHES not in second_hour, second_hour
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, SAINT)
 def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(server) -> None:
-    """Pins a poison tick that breaks the poisoned character's sanctuary in the same pass.
+    """Fix pin (#561): a poison tick breaks the poisoned character's sanctuary in the same pass.
 
     The saint points the wand of sanctuary at himself, then eats tainted bread. His affect list
     is then poison, then sanctuary (affect_to_char adds at the head). In the next hour the poison
@@ -172,14 +183,16 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     """
     implementor = server.login(IMPLEMENTOR.name)
     saint = server.login(SAINT.name)
-    goto(implementor, ROOM_SICK_WARD, SICK_WARD_NAME)
+    goto(implementor, ROOM_SICK_WARD, ROOM_SICK_WARD_NAME)
 
     give_new_object(implementor, SANCTUARY_WAND_VNUM, "wand", SAINT.name.lower())
-    assert saint.command("hold wand").contains("You grab an ivory wand of sanctuary.")
+    held = saint.command("hold wand")
+    assert held.contains(WAND_HELD_REPLY), held.text
     used = saint.command(f"use wand {SAINT.name.lower()}")
-    assert used.contains(SANCTUARY_MARKER), used.text
+    assert used.contains(SANCTUARY_REPLY), used.text
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", SAINT.name.lower())
-    assert saint.command("eat bread").contains(EATEN_POISON_REPLY)
+    eaten = saint.command("eat bread")
+    assert eaten.contains(EATEN_POISON_REPLY), eaten.text
 
     before = read_stat(implementor, f"player {SAINT.name.lower()}")
     strength = first_number(STAT_SANCTUARY_PATTERN, before)
@@ -188,20 +201,20 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     #                 = -500          - number(0, (-1 * -500) / 2)
     #                   (SPL: sanctuary -500 to NONE; Align: [-500], stored)
     #                 = -500 - (0 to 250) <= -500, below 0: the sanctuary breaks whatever is drawn.
-    assert strength == SAINT_ALIGNMENT
-    assert stat_affects(before) == ("SANCT POISON.", ((5, "poison"), (9, "sanctuary")))
+    assert strength == SAINT_ALIGNMENT, before
+    assert stat_affects(before) == ("SANCT POISON.", ((5, "poison"), (9, "sanctuary"))), before
 
     first_hour = server.text_after_hours(saint)
-    assert first_hour.count(SANCTUARY_BROKEN_MARKER) == 1, first_hour
+    assert first_hour.count(SANCTUARY_BROKEN) == 1, first_hour
     assert first_hour.count(POISON_TICK) == 1, first_hour
-    assert first_hour.index(SANCTUARY_BROKEN_MARKER) < first_hour.index(POISON_TICK), first_hour
+    assert first_hour.index(SANCTUARY_BROKEN) < first_hour.index(POISON_TICK), first_hour
     ward = implementor.drain(SETTLE_SECONDS)
-    assert ward.count(SAINT_SANCTUARY_BROKEN_MARKER) == 1, ward
-    assert ward.count(SAINT_WRITHES_MARKER) == 1, ward
-    assert AURA_FLICKERS_MARKER not in ward, ward
+    assert ward.count(SAINT_SANCTUARY_BROKEN) == 1, ward
+    assert ward.count(SAINT_WRITHES) == 1, ward
+    assert AURA_FLICKERS_END not in ward, ward
     after = read_stat(implementor, f"player {SAINT.name.lower()}")
-    assert stat_affects(after) == ("POISON.", ((4, "poison"),))
+    assert stat_affects(after) == ("POISON.", ((4, "poison"),)), after
 
     second_hour = server.text_after_hours(saint)
     assert second_hour.count(POISON_TICK) == 1, second_hour
-    assert SANCTUARY_BROKEN_MARKER not in second_hour, second_hour
+    assert SANCTUARY_BROKEN not in second_hour, second_hour

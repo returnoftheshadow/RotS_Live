@@ -1,6 +1,8 @@
-"""A zone reset that dresses its mob: what the squire of zone 26 wears, carries and holds in his
-satchel once its M, E, K, G and P rows run through the implementor's `zreset`, and the E row for
-a wear slot he has already filled, which makes no item."""
+"""A zone reset that dresses its mob: the squire of zone 26 and its M, E, K, G and P rows.
+
+What the squire wears, carries and holds in his satchel once the rows run through the
+implementor's `zreset`, and the E row for a wear slot he has already filled, which makes no item.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +26,7 @@ DRESSING_ZONE = 26
 ROOM_DRESSING_HALL = 2601
 # What the implementor reads once zreset has run every row (do_zreset, act_wiz.cpp), after the
 # zone's real index.
-ZONE_RESET_MARKER = ": Harness dressing hall."
+ZONE_RESET_REPLY_END = ": Harness dressing hall."
 # How that reply starts; the room's lines come before it.
 ZONE_RESET_REPLY_START = "Reset zone "
 # The keyword that finds the squire, mob 2600, and nothing else in the world.
@@ -65,21 +67,16 @@ SPARE_BASCINET_VNUM = 2611
 STRAY_FLINT_VNUM = 2612
 # What the reset logs for the second E row into the head slot (reset_zone, zone.cpp).
 ALREADY_EQUIPPED_SYSERR = "SYSERR: Char is already equipped: a dressed squire, a spare bascinet"
-# Seconds to wait for a line to reach game.log: the Docker launcher relays the server's stderr
-# apart from the game text, so a line logged before a reply can arrive after it.
-LOG_TIMEOUT_SECONDS = 10.0
-# Seconds between two reads of game.log while waiting for a line.
-LOG_POLL_SECONDS = 0.2
 
 
 def reset_dressing_zone(implementor: GameSession) -> str:
-    """Brings the implementor to the Dressing Hall, resets zone 26, and returns what it read.
+    """Bring the implementor to the Dressing Hall, reset zone 26, and return what it read.
 
     reset_zone runs inside the command, so the room's lines arrive before zreset's own reply.
     """
     goto(implementor, ROOM_DRESSING_HALL, "Dressing Hall")
     reply = implementor.command(f"zreset {DRESSING_ZONE}")
-    assert reply.contains(ZONE_RESET_MARKER), reply.text
+    assert reply.contains(ZONE_RESET_REPLY_END), reply.text
     return reply.text
 
 
@@ -87,7 +84,7 @@ def reset_dressing_zone(implementor: GameSession) -> str:
 @pytest.mark.expect_syserr(ALREADY_EQUIPPED_SYSERR)
 @pytest.mark.characters(IMPLEMENTOR)
 def test_a_zone_reset_dresses_its_mob_from_its_equip_kit_give_and_put_rows(server) -> None:
-    """Behaviour pin: zone 26's rows dress the squire as builders wrote them.
+    """Pins that zone 26's rows dress the squire as builders wrote them.
 
     The E row's sallet is worn on his head, the K row's sabatons and tabard are worn and its
     whetstone carried, the G row's satchel carried, and the P row after it puts the acorn in the
@@ -130,4 +127,5 @@ def test_a_reset_row_for_a_wear_slot_its_mob_has_filled_makes_no_item(server) ->
     for vnum in (SPARE_BASCINET_VNUM, STRAY_FLINT_VNUM):
         where = implementor.command(f"where {vnum}")
         assert where.contains(NOTHING_FOUND_REPLY), where.text
-    wait_for_log_count(server.handle.log_path, ALREADY_EQUIPPED_SYSERR, 1, exact=True, timeout=LOG_TIMEOUT_SECONDS, poll=LOG_POLL_SECONDS)
+
+    wait_for_log_count(server.handle.log_path, ALREADY_EQUIPPED_SYSERR, 1, exact=True)

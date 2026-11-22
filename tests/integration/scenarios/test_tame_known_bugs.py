@@ -9,17 +9,17 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
+from rots_harness.stat_reading import affect_bits
 from test_tame import (
     ACTIVITY_AFFECT_PATTERN,
+    BOAR_FLEES,
     BOAR_KEYWORD,
     BOAR_ZONE,
-    FLED_MARKER,
-    SELF_TAME_MARKER,
-    TAME_REPLY_MARKERS,
-    TAME_TIMEOUT,
+    SELF_TAME_REPLY,
+    TAME_REPLIES,
+    TAME_TIMEOUT_SECONDS,
     TAMER,
     TAMER_AT_GATE,
-    affect_bits,
     boar_rooms,
     check_tame_chance,
     goto_anywhere,
@@ -47,16 +47,18 @@ WARDEN = Character(
 
 # The whole reply `zreset 18` should give: the zone's number, as the implementor typed it and as
 # the log line beside it prints it.
-ZONE_RESET_BY_NUMBER_MARKER = "Reset zone 18: Harness boar pen."
+ZONE_RESET_BY_NUMBER_REPLY = "Reset zone 18: Harness boar pen."
 # A mob's current and maximum moves in `stat mob` (do_stat_character, act_wiz.cpp).
 MOVE_PATTERN = re.compile(r"Move :\[(-?\d+)/(-?\d+)\+")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="`tame <own name>` answers \"Aren't we funny today...\"")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="`tame <own name>` answers \"Aren't we funny today...\""
+)
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, TAMER_AT_GATE)
 def test_tame_on_yourself_answers_with_its_own_joke(server) -> None:
-    """Bug pin: `tame <own name>` never reaches do_tame's answer for taming yourself.
+    """Bug: `tame <own name>` never reaches do_tame's answer for taming yourself.
 
     do_tame (ranger.cpp:1554-1557) answers "Aren't we funny today..." when victim == ch, but the
     animals-only check before it (ranger.cpp:1524-1527) refuses every player, the tamer
@@ -66,18 +68,20 @@ def test_tame_on_yourself_answers_with_its_own_joke(server) -> None:
     server.login(IMPLEMENTOR.name)
     tamer = server.login(TAMER_AT_GATE.name)
 
-    reply = reply_to(tamer, f"tame {TAMER_AT_GATE.name.lower()}", TAME_REPLY_MARKERS, timeout=TAME_TIMEOUT)
-    assert SELF_TAME_MARKER in reply, reply
+    reply = reply_to(tamer, f"tame {TAMER_AT_GATE.name.lower()}", TAME_REPLIES, timeout=TAME_TIMEOUT_SECONDS)
+    assert SELF_TAME_REPLY in reply, reply
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="a tame that flees on a whistle is recalled only by the next whistle")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="a tame that flees on a whistle is recalled only by the next whistle"
+)
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, TAMER)
 def test_a_tame_that_flees_on_a_whistle_is_not_recalled_by_the_same_whistle(server) -> None:
-    """Bug pin: a whistle recalls the fighting tame it has just made flee.
+    """Bug: a whistle recalls the fighting tame it has just made flee.
 
     do_whistle (ranger.cpp:1687) walks the zone's rooms in ascending index and makes a fighting
-    tame flee (ranger.cpp:1706-1711), leaving the recall for the next whistle (#273). When the
+    tame flee (ranger.cpp:1706-1711), leaving the recall for the next whistle. When the
     tame flees into a room the walk has not reached yet, the walk finds it there, standing, and
     applies the recall (ranger.cpp:1717-1727): the activity affect, which sets HUNT, sends it
     straight back to its master. Every spoke comes after the hub in the world, so every flee here
@@ -92,18 +96,20 @@ def test_a_tame_that_flees_on_a_whistle_is_not_recalled_by_the_same_whistle(serv
     tame_and_walk_to_hub(implementor, tamer)
     set_tame_on_hardy_orc(implementor, tamer)
     whistled = whistle(tamer)
-    assert FLED_MARKER in whistled, whistled
+    assert BOAR_FLEES in whistled, whistled
 
     fled = stat_mob(implementor, BOAR_KEYWORD)
     assert not ACTIVITY_AFFECT_PATTERN.search(fled), fled
     assert "HUNT" not in affect_bits(fled), fled
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="a tame restored at login keeps the maximum moves it had when saved")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="a tame restored at login keeps the maximum moves it had when saved"
+)
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, WARDEN)
 def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
-    """Bug pin: a tame restored at its owner's login has 50 maximum moves fewer than when saved.
+    """Bug: a tame restored at its owner's login has 50 maximum moves fewer than when saved.
 
     do_tame (ranger.cpp:1636) adds 50 to the tame's maximum moves, and stop_follower
     (handler.cpp:1077-1080) takes 50 off whenever a tame is released. Crash_follower_load's
@@ -118,7 +124,8 @@ def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     warden = server.login(WARDEN.name)
 
-    wild_move = MOVE_PATTERN.search(stat_mob(implementor, BOAR_KEYWORD))
+    wild_stat = stat_mob(implementor, BOAR_KEYWORD)
+    wild_move = MOVE_PATTERN.search(wild_stat)
     check_tame_chance(implementor, warden, WARDEN)
     goto_anywhere(warden, world.ROOM_BOAR_PEN)
     tame_boar(warden)
@@ -131,10 +138,12 @@ def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
     goto_anywhere(implementor, world.ROOM_BOAR_PEN)
     purged = implementor.command(f"purge {BOAR_KEYWORD}")
     assert purged.contains("Ok."), purged.text
-    assert boar_rooms(implementor) == []
+    rooms = boar_rooms(implementor)
+    assert rooms == [], rooms
 
     server.login(WARDEN.name)
-    assert len(boar_rooms(implementor)) == 1
+    rooms = boar_rooms(implementor)
+    assert len(rooms) == 1, rooms
     restored = stat_mob(implementor, BOAR_KEYWORD)
     assert f"Master is: {WARDEN.name}," in restored, restored
     restored_move = MOVE_PATTERN.search(restored)
@@ -142,11 +151,15 @@ def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
     assert int(restored_move.group(2)) == int(tamed_move.group(2)), restored
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="an immortal's quit takes its saved tame out of the world, so its login brings back the only copy")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="an immortal's quit takes its saved tame out of the world, so its login brings back the only copy",
+)
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, WARDEN)
 def test_an_immortals_quit_leaves_no_copy_of_its_tame_behind(server) -> None:
-    """Bug pin: an immortal who quits with a tame and logs in again has duplicated it.
+    """Bug: an immortal who quits with a tame and logs in again has duplicated it.
 
     do_quit (act_othe.cpp:112) saves an immortal's followers with Crash_crashsave and then
     extracts the immortal (act_othe.cpp:119), whose die_follower (handler.cpp:1991) releases the
@@ -162,14 +175,17 @@ def test_an_immortals_quit_leaves_no_copy_of_its_tame_behind(server) -> None:
     goto_anywhere(warden, world.ROOM_BOAR_PEN)
     tame_boar(warden)
     server.relog(warden)
-    assert len(boar_rooms(implementor)) == 1
+    rooms = boar_rooms(implementor)
+    assert len(rooms) == 1, rooms
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="`zreset 18` answers with zone 18, the number the implementor typed")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="`zreset 18` answers with zone 18, the number the implementor typed"
+)
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_zreset_names_the_zone_by_its_number(server) -> None:
-    """Bug pin: `zreset 18` answers with the zone's place in the zone table, not its number.
+    """Bug: `zreset 18` answers with the zone's place in the zone table, not its number.
 
     do_zreset (act_wiz.cpp:2138) finds the zone by its number but prints the loop index, its
     place in the zone table (2 for zone 18 in the test world), while the log line beside it
@@ -178,4 +194,4 @@ def test_zreset_names_the_zone_by_its_number(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
 
     reply = implementor.command(f"zreset {BOAR_ZONE}")
-    assert reply.contains(ZONE_RESET_BY_NUMBER_MARKER), reply.text
+    assert reply.contains(ZONE_RESET_BY_NUMBER_REPLY), reply.text

@@ -1,6 +1,8 @@
-"""Strict xfails of the correct behaviour for bugs found beside the help_and_stat pins: help's
-prefix search, a board swallowing `color`, the AFF line, set's incognito display, two toggle
-replies, an object affect label and stat's absorb. Each passes, and so fails the run, once fixed."""
+"""Strict xfails of the correct behaviour for bugs found beside the help_and_stat pins.
+
+Help's prefix search, a board swallowing `color`, the AFF line, set's incognito display, two toggle
+replies, an object affect label and stat's absorb. Each passes, and so fails the run, once fixed.
+"""
 
 from __future__ import annotations
 
@@ -10,23 +12,27 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
-from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
-from rots_harness.session import GameSession
+from rots_harness.immortal_commands import load_object, wizset
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
+from rots_harness.text_lines import first_number
 from test_help_and_stat import (
     CHAT_OFF_REPLY,
     COLOURS_LIST_HEADER,
     COLOURS_OFF_REPLY,
     INCOGNITO_ON_REPLY,
-    INFO_ABSORB_PATTERN,
     MAIL_NO_ADDRESSEE_REPLY,
     MAIL_NO_SUCH_PERSON_REPLY,
+    MOB_SLOT_SET_REPLY,
     OBJECT_AFFECT_LINE_PATTERN,
     PLAYER,
+    PLAYER_KEYWORD,
     URUK_HAI_KEYWORD_LINE,
     URUK_LHUTH_KEYWORD_LINE,
+    armour_the_player,
     colour_command,
+    put_board_beside_player,
     read_uruk_help,
+    set_display,
     set_preference,
 )
 
@@ -44,43 +50,30 @@ ADVANCED_TOGGLES = (
 # The `set` line for incognito (do_toggle, act_info.cpp); ONOFF pads ON to three characters.
 INCOGNITO_MODE_PATTERN = re.compile(r"Incognito Mode: (ON|OFF)")
 
-# AFF_HALLUCINATE (bit 31) as the signed value wizset's affected field takes, and its name in
-# affected_bits (consts.cpp).
+# AFF_HALLUCINATE (bit 31) as the signed value wizset's affected field takes.
 HALLUCINATE_BIT_VALUE = -2147483648
+# AFF_HALLUCINATE's name in affected_bits (consts.cpp).
 HALLUCINATE_NAME = "HALLU"
-
-# The harness token (object 1130), a board: spec_ass.cpp assigns gen_board to its vnum.
-BOARD_TOKEN_VNUM = 1130
-# What do_color answers once it sets the mob slot to red (color.cpp).
-MOB_SLOT_SET_REPLY = "You colour mob red."
 
 # The label apply_types (consts.cpp) gives location 6 today, where the stone girdle
 # (world.OBJECT_STONE_GIRDLE) has its one affect, +3 APPLY_LEA.
 STALE_LEARNING_LABEL = "SEX"
 
 
-def incognito_display(session: GameSession) -> str:
-    """The value `set` shows for Incognito Mode."""
-    display = session.command("set")
-    value = INCOGNITO_MODE_PATTERN.search(display.text)
-    assert value is not None, display.text
-    return value.group(1)
-
-
-def join_player(implementor: GameSession) -> None:
-    """The implementor goes to the player in the arena centre."""
-    goto(implementor, PLAYER.name.lower(), world.ROOM_ARENA_CENTRE_NAME)
-
-
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="help uruk should show the URUK-HAI URUK entry, whose keywords include URUK exactly")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="help uruk should show the URUK-HAI URUK entry, whose keywords include URUK exactly",
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_help_uruk_shows_the_uruk_hai_entry(server) -> None:
-    """Bug: `help uruk` shows the uruk-lhuth entry, though the uruk-hai entry has URUK as an exact keyword.
+    """Bug: `help uruk` shows the uruk-lhuth entry, not the uruk-hai entry.
 
-    do_help (act_info.cpp:2083) binary-searches the sorted keyword index and stops at the first
-    entry whose keyword starts with the topic. URUK, URUK-HAI and URUK-LHUTH all start with
-    "uruk", and the search lands on URUK-LHUTH (lib/text/help_tbl:296) rather than the URUK-HAI
-    URUK entry (help_tbl:278). The control, `help uruk-hai`, is in test_help_and_stat.py.
+    The uruk-hai entry has URUK as an exact keyword. do_help (act_info.cpp:2083) binary-searches the
+    sorted keyword index and stops at the first entry whose keyword starts with the topic. URUK,
+    URUK-HAI and URUK-LHUTH all start with "uruk", and the search lands on URUK-LHUTH
+    (lib/text/help_tbl:296) rather than the URUK-HAI URUK entry (help_tbl:278). The control, `help
+    uruk-hai`, is in test_help_and_stat.py.
     """
     player = server.login(PLAYER.name)
 
@@ -89,7 +82,11 @@ def test_help_uruk_shows_the_uruk_hai_entry(server) -> None:
     assert URUK_LHUTH_KEYWORD_LINE not in entry, entry
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="color should list and set colours with a board in the room, as colour does")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="color should list and set colours with a board in the room, as colour does",
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_color_works_beside_a_board(server) -> None:
     """Bug: with a board in the room, `color` is taken as a mail letter.
@@ -102,10 +99,7 @@ def test_color_works_beside_a_board(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
-    join_player(implementor)
-    load_object(implementor, BOARD_TOKEN_VNUM, "a harness token")
-    dropped = implementor.command("drop token")
-    assert dropped.contains("You drop a harness token."), dropped.text
+    put_board_beside_player(implementor)
 
     listed = colour_command(player, "color", [COLOURS_OFF_REPLY, COLOURS_LIST_HEADER, MAIL_NO_ADDRESSEE_REPLY])
     assert COLOURS_OFF_REPLY in listed, listed
@@ -113,7 +107,9 @@ def test_color_works_beside_a_board(server) -> None:
     assert MOB_SLOT_SET_REPLY in slot_set, slot_set
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="stat should name AFF_HALLUCINATE as HALLU. on the AFF line itself")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="stat should name AFF_HALLUCINATE as HALLU. on the AFF line itself"
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_stat_names_hallucinate_on_one_aff_line(server) -> None:
     """Bug: stat prints a line break between HALLU and the AFF line's closing period.
@@ -126,12 +122,14 @@ def test_stat_names_hallucinate_on_one_aff_line(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    wizset(implementor, f"player {PLAYER.name.lower()}", "affected", HALLUCINATE_BIT_VALUE, shown_name=PLAYER.name)
-    stat = read_stat(implementor, f"player {PLAYER.name.lower()}")
+    wizset(implementor, f"player {PLAYER_KEYWORD}", "affected", HALLUCINATE_BIT_VALUE, shown_name=PLAYER.name)
+    stat = read_stat(implementor, f"player {PLAYER_KEYWORD}")
     assert re.search(rf"AFF:[^\r\n]*{HALLUCINATE_NAME}\.", stat), stat
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="after set chat off, set should still show Incognito Mode: OFF")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="after set chat off, set should still show Incognito Mode: OFF"
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_turning_chat_off_leaves_incognito_off_in_set(server) -> None:
     """Bug: `set chat off` makes `set` show Incognito Mode: ON.
@@ -146,10 +144,13 @@ def test_turning_chat_off_leaves_incognito_off_in_set(server) -> None:
 
     chat_off = set_preference(player, "chat", "off", (CHAT_OFF_REPLY,))
     assert CHAT_OFF_REPLY in chat_off, chat_off
-    assert incognito_display(player) == "OFF"
+    incognito_mode = set_display(player, INCOGNITO_MODE_PATTERN)
+    assert incognito_mode == "OFF", incognito_mode
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="after set incognito on, set should show Incognito Mode: ON")
+@pytest.mark.xfail(
+    strict=True, raises=AssertionError, reason="after set incognito on, set should show Incognito Mode: ON"
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_turning_incognito_on_shows_it_on_in_set(server) -> None:
     """Bug: `set incognito on` sets PLR_INCOGNITO, but `set` still shows Incognito Mode: OFF.
@@ -162,10 +163,15 @@ def test_turning_incognito_on_shows_it_on_in_set(server) -> None:
 
     incognito_on = set_preference(player, "incognito", "on", (INCOGNITO_ON_REPLY,))
     assert INCOGNITO_ON_REPLY in incognito_on, incognito_on
-    assert incognito_display(player) == "ON"
+    incognito_mode = set_display(player, INCOGNITO_MODE_PATTERN)
+    assert incognito_mode == "ON", incognito_mode
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="turning advancedview or advancedprompt off should say \"... is now off.\" like every other preference")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="turning advancedview or advancedprompt off should say \"... is now off.\" like every other preference",
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_turning_the_advanced_preferences_off_says_they_are_now_off(server) -> None:
     """Bug: `set advancedview off` and `set advancedprompt off` reply with the status text.
@@ -184,7 +190,11 @@ def test_turning_the_advanced_preferences_off_says_they_are_now_off(server) -> N
         assert off_reply in turned_off, turned_off
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="stat obj should not label a location-6 (APPLY_LEA, learning) affect SEX; LEA is the likely label")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="stat obj should not label a location-6 (APPLY_LEA, learning) affect SEX; LEA is the likely label",
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_stat_obj_does_not_label_a_learning_affect_sex(server) -> None:
     """Bug: stat obj calls the girdle's learning affect "+3 to SEX".
@@ -198,30 +208,29 @@ def test_stat_obj_does_not_label_a_learning_affect_sex(server) -> None:
     server.login(PLAYER.name)
 
     load_object(implementor, world.OBJECT_STONE_GIRDLE, world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION)
-    affect_line = OBJECT_AFFECT_LINE_PATTERN.search(read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE))
-    assert affect_line is not None
+    stat = read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE)
+    affect_line = OBJECT_AFFECT_LINE_PATTERN.search(stat)
+    assert affect_line is not None, stat
     assert STALE_LEARNING_LABEL not in affect_line.group(1).split(), affect_line.group(0)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="stat player should show the statted player's own absorb, the figure its info shows")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="stat player should show the statted player's own absorb, the figure its info shows",
+)
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
 def test_stat_shows_the_statted_characters_absorb(server) -> None:
-    """Bug: stat player shows the viewer's absorb, so an unarmoured immortal sees 0 for an armoured player.
+    """Bug: stat player shows the viewer's absorb, not the statted player's.
 
-    do_stat_character (act_wiz.cpp:881) passes ch, the immortal reading stat, to
-    get_percent_absorb, where every other figure on the line reads k, the character statted.
-    The control (info shows the armoured player's non-zero absorb) is in test_help_and_stat.py.
+    An unarmoured immortal sees 0 for an armoured player. do_stat_character (act_wiz.cpp:881) passes
+    ch, the immortal reading stat, to get_percent_absorb, where every other figure on the line reads
+    k, the character statted. The control (info shows the armoured player's non-zero absorb) is in
+    test_help_and_stat.py.
     """
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
-    join_player(implementor)
-    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description=world.OBJECT_CHAIN_SHIRT_SHORT_DESCRIPTION)
-    worn = player.command("wear shirt")
-    assert worn.contains("You wear a chain shirt on your body."), worn.text
-    info = player.command("info")
-    player_absorb = INFO_ABSORB_PATTERN.search(info.text)
-    assert player_absorb is not None, info.text
+    player_absorb = armour_the_player(implementor, player)
 
-    stat_absorb = STAT_ABSORB_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
-    assert stat_absorb is not None
-    assert int(stat_absorb.group(1)) == int(player_absorb.group(1))
+    stat = read_stat(implementor, f"player {PLAYER_KEYWORD}")
+    assert first_number(STAT_ABSORB_PATTERN, stat) == player_absorb, stat

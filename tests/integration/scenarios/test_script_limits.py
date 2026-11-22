@@ -1,6 +1,8 @@
-"""Runaway scripts: mobs whose speech scripts answer each other in one room stop at the script
-limits (MAX_SCRIPT_NESTING and MAX_SCRIPT_RUNS_PER_EVENT, script.h), each limit logging one
-SYSERR per event, instead of crashing the server."""
+"""Runaway scripts: mobs whose speech scripts answer each other in one room stop at the limits.
+
+The limits are MAX_SCRIPT_NESTING and MAX_SCRIPT_RUNS_PER_EVENT (script.h); each logs one SYSERR
+per event, instead of crashing the server.
+"""
 
 from __future__ import annotations
 
@@ -11,10 +13,10 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_log import read_game_log
+from rots_harness.game_log import LOG_POLL_SECONDS, LOG_TIMEOUT_SECONDS, read_game_log
 from rots_harness.game_text import FORCED_REPLY, OUTPUT_OVERFLOW
 from rots_harness.immortal_commands import goto
-from rots_harness.replies import reply_to
+from rots_harness.replies import SETTLE_SECONDS, reply_to
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.script_limits]
@@ -22,9 +24,13 @@ pytestmark = [pytest.mark.scenario, pytest.mark.script_limits]
 # Room 2602, the Echo Room in zone 26: a room of its own for the echo and the mirror, two mobs
 # that each say "Hi." whenever they hear anything said (script 2600, world/notes/zone-26.md).
 ROOM_ECHO = 2602
+# The name look shows for ROOM_ECHO.
+ROOM_ECHO_NAME = "Echo Room"
 # Room 2603, the Chanting Room in zone 26: a room of its own for three chanters running the same
 # script.
 ROOM_CHANTING = 2603
+# The name look and goto show for ROOM_CHANTING.
+ROOM_CHANTING_NAME = "Chanting Room"
 # Mob 2601, the echo, one of the two mobs in the Echo Room.
 ECHO_VNUM = 2601
 # Mob 2602, the mirror, the other one.
@@ -43,38 +49,49 @@ ANSWER = "Hi."
 ECHO_SAYS_LINE = f"An echo says '{ANSWER}'"
 # What a listener reads as the mirror answers.
 MIRROR_SAYS_LINE = f"A mirror says '{ANSWER}'"
+# The echo's line in a look at its room.
+ECHO_IN_ROOM_LINE = "An echo hangs in the air here."
+# The mirror's line in a look at its room.
+MIRROR_IN_ROOM_LINE = "A mirror stands here, listening."
+# Each chanter's line in a look at its room.
+CHANTER_IN_ROOM_LINE = "A chanter stands here, listening."
 # The refusal at the nesting limit (running_script_frame::refusal_reason and report_refused_run,
 # script.cpp), as far as it is the same for every refused run.
-NESTING_REFUSAL = f"too many scripts are running inside one another (limits {MAX_SCRIPT_NESTING} deep, {MAX_SCRIPT_RUNS_PER_EVENT} runs;"
+NESTING_REFUSAL_PART = (
+    f"too many scripts are running inside one another (limits {MAX_SCRIPT_NESTING} deep,"
+    f" {MAX_SCRIPT_RUNS_PER_EVENT} runs;"
+)
 # The refusal at the limit on runs in one event, likewise.
-RUNS_REFUSAL = f"too many scripts have run for one event (limits {MAX_SCRIPT_NESTING} deep, {MAX_SCRIPT_RUNS_PER_EVENT} runs;"
+RUNS_REFUSAL_PART = (
+    f"too many scripts have run for one event (limits {MAX_SCRIPT_NESTING} deep,"
+    f" {MAX_SCRIPT_RUNS_PER_EVENT} runs;"
+)
 # A whole refusal line: the refused script is the echo script, and ch1 is the mob it was to run
 # for; group 1 is the refusal, group 2 that mob's name.
-REFUSAL_LINE_PATTERN = re.compile(r"SYSERR: report_refused_run: script #2600 not run: (too many [^(]+\(limits [^;]+;) ch1 ([a-z ]+), ob1 none\)")
+REFUSAL_LINE_PATTERN = re.compile(
+    r"SYSERR: report_refused_run: script #2600 not run: (too many [^(]+\(limits [^;]+;) ch1 ([a-z ]+), ob1 none\)"
+)
 # The mortal who speaks in the Echo Room: a level-10 human warrior standing there from the start.
-SPEAKER = Character(name="Testspeaker", race="human", sex="male", level=10, load_room=ROOM_ECHO, class_name="warrior")
+SPEAKER = Character(
+    name="Testspeaker", race="human", sex="male", level=10, load_room=ROOM_ECHO, class_name="warrior"
+)
 # The word the speaker says, and the forced chanter too: any word sets the scripts off.
 HELLO = "hello"
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
-# Seconds to wait for the refusals to reach game.log: the Docker launcher relays the server's
-# stderr apart from the game text, so a line logged before a reply can arrive after it.
-LOG_TIMEOUT_SECONDS = 10.0
-# Seconds between two reads of game.log while waiting.
-LOG_POLL_SECONDS = 0.2
 
 
 def refusals_in(log_path: Path) -> tuple[list[tuple[str, str]], str]:
-    """Every refusal line game.log holds, as (refusal, mob name) in log order, and the log itself."""
+    """Return every refusal in game.log as (refusal, mob name) in log order, and the log itself."""
     log_text = read_game_log(log_path)
     matches = REFUSAL_LINE_PATTERN.finditer(log_text)
     return [(match.group(1), match.group(2)) for match in matches], log_text
 
 
 def wait_for_refusals(log_path: Path, count: int) -> list[tuple[str, str]]:
-    """Waits until game.log holds count refusal lines, then a little longer for any more, and
-    returns each as (refusal, mob name) in log order; fails with the log's tail unless exactly
-    count arrived and every report_refused_run line is one of them."""
+    """Wait until game.log holds count refusal lines, then a little longer, and return them.
+
+    Each is returned as (refusal, mob name) in log order. Fails with the log's tail unless exactly
+    count arrived and every report_refused_run line is one of them.
+    """
     deadline = time.monotonic() + LOG_TIMEOUT_SECONDS
     refusals, log_text = refusals_in(log_path)
     while len(refusals) < count and time.monotonic() < deadline:
@@ -88,7 +105,7 @@ def wait_for_refusals(log_path: Path, count: int) -> list[tuple[str, str]]:
 
 
 @pytest.mark.schedule("affect-hours")
-@pytest.mark.expect_syserr(NESTING_REFUSAL)
+@pytest.mark.expect_syserr(NESTING_REFUSAL_PART)
 @pytest.mark.world_resets(MobReset(ECHO_VNUM, ROOM_ECHO), MobReset(MIRROR_VNUM, ROOM_ECHO))
 @pytest.mark.characters(SPEAKER)
 def test_two_mobs_answering_each_other_stop_at_the_nesting_limit(server) -> None:
@@ -109,24 +126,24 @@ def test_two_mobs_answering_each_other_stop_at_the_nesting_limit(server) -> None
     assert answers.count(MIRROR_SAYS_LINE) == MAX_SCRIPT_NESTING, answers[-1500:]
 
     refusals = wait_for_refusals(server.handle.log_path, 2)
-    assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL, NESTING_REFUSAL], refusals
+    assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL_PART, NESTING_REFUSAL_PART], refusals
     assert sorted(name for _, name in refusals) == ["a mirror", "an echo"], refusals
 
     looked = speaker.command("look")
-    assert looked.room_name() == "Echo Room", looked.text
-    assert looked.contains("An echo hangs in the air here."), looked.text
-    assert looked.contains("A mirror stands here, listening."), looked.text
+    assert looked.room_name() == ROOM_ECHO_NAME, looked.text
+    assert looked.contains(ECHO_IN_ROOM_LINE), looked.text
+    assert looked.contains(MIRROR_IN_ROOM_LINE), looked.text
 
 
 @pytest.mark.schedule("affect-hours")
-@pytest.mark.expect_syserr(NESTING_REFUSAL, RUNS_REFUSAL)
+@pytest.mark.expect_syserr(NESTING_REFUSAL_PART, RUNS_REFUSAL_PART)
 @pytest.mark.world_resets(*(MobReset(CHANTER_VNUM, ROOM_CHANTING) for _ in range(CHANTER_COUNT)))
 @pytest.mark.characters(IMPLEMENTOR)
 def test_three_mobs_answering_each_other_stop_at_both_limits(server) -> None:
-    """Fix pin (#555): three chanters answering each other stop at the nesting limit and then at
-    the limit on runs in one event, each logged once per event.
+    """Fix pin (#555): three chanters answering each other stop at the nesting limit, then the runs.
 
-    The implementor, elsewhere, forces one chanter to speak; the other two hear it, two events.
+    Each limit is logged once per event; the second is the limit on runs in one event. The
+    implementor, elsewhere, forces one chanter to speak; the other two hear it, two events.
     In each, every answer sets off both other chanters' scripts, so the runs branch: the first
     chain reaches MAX_SCRIPT_NESTING and logs its refusal once, and the branches after it reach
     MAX_SCRIPT_RUNS_PER_EVENT and log that refusal once, after which every run of the event is
@@ -138,7 +155,7 @@ def test_three_mobs_answering_each_other_stop_at_both_limits(server) -> None:
     assert FORCED_REPLY in forced, forced
 
     refusals = wait_for_refusals(server.handle.log_path, 4)
-    assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL, RUNS_REFUSAL] * 2, refusals
+    assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL_PART, RUNS_REFUSAL_PART] * 2, refusals
 
-    arrived = goto(implementor, ROOM_CHANTING, "Chanting Room")
-    assert arrived.text.count("A chanter stands here, listening.") == CHANTER_COUNT, arrived.text
+    arrived = goto(implementor, ROOM_CHANTING, ROOM_CHANTING_NAME)
+    assert arrived.text.count(CHANTER_IN_ROOM_LINE) == CHANTER_COUNT, arrived.text

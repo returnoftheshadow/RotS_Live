@@ -1,6 +1,8 @@
-"""Resistance bugs: a strength-0 resist item left behind by a level change, pinned as a strict
-xfail of the correct behaviour, and a weak protection lowering a flag-only resistance, fixed
-for issue #452 and kept here as its regression test."""
+"""Resistance bugs: a strength-0 resist item a level change leaves behind, and a weak protection.
+
+The first is pinned as a strict xfail of the correct behaviour. The second, a weak protection that
+leaves a flag-only resistance as it is, is the fix pin for #452.
+"""
 
 from __future__ import annotations
 
@@ -13,17 +15,17 @@ from rots_harness.game_text import STOP_USING_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto, wizset
 from rots_harness.session import GameSession
 from test_resistances import (
-    ALREADY_PROTECTED_MARKER,
+    ALREADY_PROTECTED_REPLY,
+    FIRE_RESISTANT,
     FLAG_RESIST_ITEM_KEYWORD,
     FLAG_RESIST_ITEM_VNUM,
-    FLAG_RESIST_ITEM_WORN_MARKER,
+    FLAG_RESIST_ITEM_WORN_REPLY,
     FLAG_RESIST_PERCENT,
-    NOT_AFFECTED_MARKER,
-    RESIST_LEVEL_BONUS,
-    RESIST_LEVEL_CAP,
+    NOT_AFFECTED_REPLY,
     WEARER,
     affections,
     cleric_level,
+    resist_percent,
     resistance_line,
 )
 
@@ -49,31 +51,28 @@ NOVICE = Character(
 # A wrist item whose `A 27 161` has a strength of 0, which affect_modify's APPLY_SPELL decode
 # (handler.cpp) replaces with the wearer's level.
 LEVEL_ITEM_VNUM = 1404
+# The keyword the level item answers to.
 LEVEL_ITEM_KEYWORD = "bracelet"
-LEVEL_ITEM_SHORT = "a kindling bracelet"
-LEVEL_ITEM_WORN_MARKER = "You put a kindling bracelet on around your right wrist."
+# The level item's short description.
+LEVEL_ITEM_SHORT_DESCRIPTION = "a kindling bracelet"
+# What wearing the level item prints (wear_message, act_obj2.cpp).
+LEVEL_ITEM_WORN_REPLY = "You put a kindling bracelet on around your right wrist."
 # The level the implementor gives the wearer after it puts on the level item.
 RAISED_LEVEL = 25
 
-# What the protected character, or the wearer of a resist item, reads (spell_protection and
-# do_resist_spell, mystic.cpp).
-FIRE_RESISTANT_MARKER = "You feel resistant to fire!"
-
 
 def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyword: str) -> None:
-    """Moves the implementor to the recipient in the arena centre and gives it a new item."""
+    """Move the implementor to the recipient in the arena centre and give it a new item."""
     goto(implementor, recipient.name.lower(), world.ROOM_ARENA_CENTRE_NAME)
     give_new_object(implementor, vnum, keyword, recipient.name.lower())
 
 
 def cast_protection_fire(caster: GameSession) -> str:
-    """Casts protection from fire on the caster; returns what the caster read after.
+    """Cast protection from fire on the caster and return what the caster read after.
 
-    A lost concentration is the one roll that can stop the cast, so the cast is repeated after
-    it. Each loss costs spirit, and nothing regenerates spirit between requests under
-    affect-hours, so the repeats end at NO_ENERGY_REPLY at the latest.
+    Repeats the cast past a lost concentration (cast_until_it_lands).
     """
-    outcomes = [FIRE_RESISTANT_MARKER, ALREADY_PROTECTED_MARKER, NO_ENERGY_REPLY]
+    outcomes = [FIRE_RESISTANT, ALREADY_PROTECTED_REPLY, NO_ENERGY_REPLY]
     return cast_until_it_lands(caster, "cast 'protection' fire", outcomes)
 
 
@@ -86,7 +85,7 @@ def cast_protection_fire(caster: GameSession) -> str:
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, WEARER)
 def test_removing_a_level_strength_item_after_a_level_change_leaves_no_resistance(server) -> None:
-    """Bug: a strength-0 resist item outlives its removal after a level change (PR #315 code).
+    """Bug: a strength-0 resist item outlives its removal after a level change.
 
     The item's strength falls back to the wearer's level when it goes on (affect_modify,
     handler.cpp:461-464): 20 here. Removal in do_resist_spell (mystic.cpp:1825-1827) compares
@@ -98,33 +97,36 @@ def test_removing_a_level_strength_item_after_a_level_change_leaves_no_resistanc
     wearer = server.login(WEARER.name)
     hand_item_to(implementor, WEARER, LEVEL_ITEM_VNUM, LEVEL_ITEM_KEYWORD)
     worn = wearer.command(f"wear {LEVEL_ITEM_KEYWORD}")
-    assert worn.contains(LEVEL_ITEM_WORN_MARKER) and worn.contains(FIRE_RESISTANT_MARKER), worn.text
-    assert resistance_line("fire", WEARER.level) in affections(wearer)
+    assert worn.contains(LEVEL_ITEM_WORN_REPLY) and worn.contains(FIRE_RESISTANT), worn.text
+    shown = affections(wearer)
+    assert resistance_line("fire", WEARER.level) in shown, shown
 
     wizset(implementor, f"player {WEARER.name.lower()}", "level", RAISED_LEVEL, shown_name=WEARER.name)
 
     removed = wearer.command(f"remove {LEVEL_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_FORMAT.format(LEVEL_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(LEVEL_ITEM_SHORT_DESCRIPTION)), removed.text
     shown = affections(wearer)
-    assert NOT_AFFECTED_MARKER in shown, shown
+    assert NOT_AFFECTED_REPLY in shown, shown
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, NOVICE)
 def test_a_weak_protection_does_not_lower_a_flag_only_fire_resistance(server) -> None:
-    """A weak protection does not lower a flag-only fire resistance (issue #452).
+    """Fix pin (#452): a weak protection does not lower a flag-only fire resistance.
 
     effective_resist_magnitude (fight.cpp) weighs the ring's flag at the flat 33% against the
-    largest affect strength, and the higher wins; damage() and sprintbit_resistances both read
-    it. Before the fix, any strength replaced the flag, so the novice's 20% protection showed
-    and applied as 20%. The one draw that can stop the cast is the concentration roll in do_cast,
-    which cast_protection_fire repeats.
+    largest affect strength, and damage() and sprintbit_resistances both read it. #452 made the
+    higher of the two win; before it, any strength replaced the flag, so the novice's 20% protection
+    showed and applied as 20%. The one draw that can stop the cast is the concentration roll in
+    do_cast, which cast_protection_fire repeats.
     """
     implementor = server.login(IMPLEMENTOR.name)
     novice = server.login(NOVICE.name)
     hand_item_to(implementor, NOVICE, FLAG_RESIST_ITEM_VNUM, FLAG_RESIST_ITEM_KEYWORD)
-    assert novice.command(f"wear {FLAG_RESIST_ITEM_KEYWORD}").contains(FLAG_RESIST_ITEM_WORN_MARKER)
-    assert resistance_line("fire", FLAG_RESIST_PERCENT) in affections(novice)
+    worn = novice.command(f"wear {FLAG_RESIST_ITEM_KEYWORD}")
+    assert worn.contains(FLAG_RESIST_ITEM_WORN_REPLY), worn.text
+    shown = affections(novice)
+    assert resistance_line("fire", FLAG_RESIST_PERCENT) in shown, shown
 
     # Testnovice (level-10 mystic):
     #   effect_modifier = cast_resist_magnitude(get_prof_level(PROF_CLERIC, caster))  (mystic.cpp)
@@ -132,10 +134,11 @@ def test_a_weak_protection_does_not_lower_a_flag_only_fire_resistance(server) ->
     #                   = 20, below the flat 33%
     level = cleric_level(implementor, NOVICE)
     assert level == NOVICE.level, level
-    assert min(level, RESIST_LEVEL_CAP) + RESIST_LEVEL_BONUS == 20
+    expected_percent = resist_percent(level)
+    assert expected_percent == 20, expected_percent
 
     reply = cast_protection_fire(novice)
-    assert FIRE_RESISTANT_MARKER in reply, reply
+    assert FIRE_RESISTANT in reply, reply
 
     shown = affections(novice)
     assert resistance_line("fire", FLAG_RESIST_PERCENT) in shown, shown

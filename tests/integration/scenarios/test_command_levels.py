@@ -1,5 +1,7 @@
-"""Immortal command levels: teleport needs level 93 and refuses malformed requests, and shutdown
-needs level 96."""
+"""Immortal command levels: teleport needs level 93 and shutdown needs level 96.
+
+Teleport also refuses malformed requests before it moves anyone.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from rots_harness.game_text import (
     UNRECOGNIZED_COMMAND_REPLY,
 )
 from rots_harness.immortal_commands import goto
+from rots_harness.replies import SETTLE_SECONDS, settled_expect
 
 pytestmark = [pytest.mark.scenario, pytest.mark.wizlevels]
 
@@ -39,30 +42,30 @@ MORTAL = Character(
 )
 
 # What the room the character leaves reads (do_teleport); format with the character's name.
-DISAPPEARS_MARKER_FORMAT = "{} disappears in a puff of smoke."
+DISAPPEARS_FORMAT = "{} disappears in a puff of smoke."
 # What the room the character arrives in reads (do_teleport); format with the character's name.
-ARRIVES_MARKER_FORMAT = "{} arrives from a puff of smoke."
-# do_teleport's refusals, in the order it checks: no argument, no character by the name
-# (NO_ONE_AROUND_REPLY), the speaker itself, and no destination.
-NO_ARGUMENT_MARKER = "Who do you wish to teleport?"
-SELF_MARKER = "Use 'goto' to teleport yourself."
-NO_DESTINATION_MARKER = "Where do you wish to send this person?"
+ARRIVES_FORMAT = "{} arrives from a puff of smoke."
+# do_teleport's first refusal, to no argument; it then refuses no character by the name
+# (NO_ONE_AROUND_REPLY), the speaker itself and no destination, in that order.
+NO_ARGUMENT_REPLY = "Who do you wish to teleport?"
+# do_teleport's refusal when the speaker names itself.
+SELF_REPLY = "Use 'goto' to teleport yourself."
+# do_teleport's refusal when no destination follows the name.
+NO_DESTINATION_REPLY = "Where do you wish to send this person?"
 # A name no character in the test has.
 UNKNOWN_NAME = "nobodyhere"
 # What do_shutdown (act_wiz.cpp) answers an argument that is none of its options: it shuts
 # nothing down.
-UNKNOWN_OPTION_MARKER = "Unknown shutdown option."
+UNKNOWN_OPTION_REPLY = "Unknown shutdown option."
 # An argument do_shutdown does not know. Sent instead of a bare `shutdown`, which shuts the
 # server down if the level gate ever lets it through.
 HARMLESS_SHUTDOWN_ARGUMENT = "foo"
-# Seconds to keep reading after a reply, for text that might still arrive.
-SETTLE_SECONDS = 1.0
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, GOD, LESSER_GOD, MORTAL)
 def test_teleport_needs_level_93(server) -> None:
-    """Pins #268: a level-92 immortal does not have teleport, and a level-93 one teleports a mortal.
+    """Pins teleport's level: a level-92 immortal does not have it, and a level-93 one teleports.
 
     command_interpreter (interpre.cpp) drops a command whose table row is above the speaker's
     level, so the level-92 immortal reads "Unrecognized command." and the mortal stays put; the
@@ -76,35 +79,38 @@ def test_teleport_needs_level_93(server) -> None:
     lesser_god = server.login(LESSER_GOD.name)
     god = server.login(GOD.name)
     mortal = server.login(MORTAL.name)
-    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
+    goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME)
     mortal.drain(SETTLE_SECONDS)
     teleport_command = f"teleport {MORTAL.name.lower()} {world.ROOM_ARENA_EAST}"
 
     refused = lesser_god.command(teleport_command)
     assert refused.contains(UNRECOGNIZED_COMMAND_REPLY), refused.text
-    assert TELEPORTED_END not in mortal.drain(SETTLE_SECONDS)
-    assert DISAPPEARS_MARKER_FORMAT.format(MORTAL.name) not in implementor.drain(SETTLE_SECONDS)
-    assert mortal.command("look").room_name() == "Arena Centre"
+    mortal_read = mortal.drain(SETTLE_SECONDS)
+    assert TELEPORTED_END not in mortal_read, mortal_read
+    implementor_read = implementor.drain(SETTLE_SECONDS)
+    assert DISAPPEARS_FORMAT.format(MORTAL.name) not in implementor_read, implementor_read
+    looked = mortal.command("look")
+    assert looked.room_name() == world.ROOM_ARENA_CENTRE_NAME, looked.text
 
     granted = god.command(teleport_command)
     assert not granted.contains(UNRECOGNIZED_COMMAND_REPLY), granted.text
     teleported_marker = TELEPORTED_FORMAT.format(GOD.name)
-    teleported = mortal.expect([teleported_marker]) + mortal.drain(SETTLE_SECONDS)
+    teleported = settled_expect(mortal, [teleported_marker])
     assert world.ROOM_ARENA_EAST_NAME in teleported, teleported
     vanished = implementor.drain(SETTLE_SECONDS)
-    assert vanished.count(DISAPPEARS_MARKER_FORMAT.format(MORTAL.name)) == 1, vanished
+    assert vanished.count(DISAPPEARS_FORMAT.format(MORTAL.name)) == 1, vanished
 
     god.command(f"teleport {MORTAL.name.lower()} {world.ROOM_ARENA_CENTRE}")
-    returned = mortal.expect([teleported_marker]) + mortal.drain(SETTLE_SECONDS)
-    assert "Arena Centre" in returned, returned
+    returned = settled_expect(mortal, [teleported_marker])
+    assert world.ROOM_ARENA_CENTRE_NAME in returned, returned
     arrived = implementor.drain(SETTLE_SECONDS)
-    assert arrived.count(ARRIVES_MARKER_FORMAT.format(MORTAL.name)) == 1, arrived
+    assert arrived.count(ARRIVES_FORMAT.format(MORTAL.name)) == 1, arrived
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, GOD, MORTAL)
 def test_teleport_refuses_a_missing_target_itself_and_a_missing_destination(server) -> None:
-    """Pins do_teleport's refusals: no argument, an unknown name, the speaker itself, no destination.
+    """Pins do_teleport's refusals: no argument, an unknown name, the speaker, no destination.
 
     do_teleport (act_wiz.cpp) checks them in that order before it moves anyone, so the mortal
     named in the last request stays where it was. No draw is on any path.
@@ -115,27 +121,30 @@ def test_teleport_refuses_a_missing_target_itself_and_a_missing_destination(serv
     mortal.drain(SETTLE_SECONDS)
 
     requests = [
-        ("teleport", NO_ARGUMENT_MARKER),
+        ("teleport", NO_ARGUMENT_REPLY),
         (f"teleport {UNKNOWN_NAME} {world.ROOM_ARENA_EAST}", NO_ONE_AROUND_REPLY),
-        (f"teleport {GOD.name.lower()} {world.ROOM_ARENA_EAST}", SELF_MARKER),
-        (f"teleport {MORTAL.name.lower()}", NO_DESTINATION_MARKER),
+        (f"teleport {GOD.name.lower()} {world.ROOM_ARENA_EAST}", SELF_REPLY),
+        (f"teleport {MORTAL.name.lower()}", NO_DESTINATION_REPLY),
     ]
     for request, refusal in requests:
         reply = god.command(request)
         assert reply.contains(refusal), f"{request}:\n{reply.text}"
-    assert god.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME
-    assert TELEPORTED_END not in mortal.drain(SETTLE_SECONDS)
-    assert mortal.command("look").room_name() == "Arena Centre"
+
+    god_looked = god.command("look")
+    assert god_looked.room_name() == world.ROOM_IMMORTAL_START_NAME, god_looked.text
+    mortal_read = mortal.drain(SETTLE_SECONDS)
+    assert TELEPORTED_END not in mortal_read, mortal_read
+    mortal_looked = mortal.command("look")
+    assert mortal_looked.room_name() == world.ROOM_ARENA_CENTRE_NAME, mortal_looked.text
 
 
 @pytest.mark.characters(IMPLEMENTOR, AREA_GOD, SHUTDOWN_GOD)
 def test_shutdown_is_refused_at_level_95_and_reached_at_96(server) -> None:
-    """Pins #358 and #359: a level-95 immortal does not have shutdown; level 96 and the implementor do.
+    """Pins shutdown's level: a level-95 immortal does not have it; level 96 and the implementor do.
 
-    Shutdown's row is LEVEL_GRGOD - 1 (96) in the repository (#359 left the level-93 row to a
-    test-port deploy edit), so the level-95 immortal reads "Unrecognized command." and the
-    server keeps answering. The level-96 immortal's and the implementor's `shutdown foo` reach
-    do_shutdown, which answers an unknown option without shutting anything down. None of the
+    Shutdown's row is LEVEL_GRGOD - 1 (96), so the level-95 immortal reads "Unrecognized command."
+    and the server keeps answering. The level-96 immortal's and the implementor's `shutdown foo`
+    reach do_shutdown, which answers an unknown option without shutting anything down. None of the
     commands is a real shutdown: the server exiting would fail the test.
     """
     implementor = server.login(IMPLEMENTOR.name)
@@ -145,11 +154,13 @@ def test_shutdown_is_refused_at_level_95_and_reached_at_96(server) -> None:
 
     refused = area_god.command(shutdown_command)
     assert refused.contains(UNRECOGNIZED_COMMAND_REPLY), refused.text
-    assert UNKNOWN_OPTION_MARKER not in refused.text, refused.text
-    assert area_god.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME
+    assert UNKNOWN_OPTION_REPLY not in refused.text, refused.text
+    looked = area_god.command("look")
+    assert looked.room_name() == world.ROOM_IMMORTAL_START_NAME, looked.text
 
     for session in (shutdown_god, implementor):
         answered = session.command(shutdown_command)
-        assert answered.contains(UNKNOWN_OPTION_MARKER), answered.text
+        assert answered.contains(UNKNOWN_OPTION_REPLY), answered.text
         assert not answered.contains(UNRECOGNIZED_COMMAND_REPLY), answered.text
-        assert session.command("look").room_name() == world.ROOM_IMMORTAL_START_NAME
+        looked = session.command("look")
+        assert looked.room_name() == world.ROOM_IMMORTAL_START_NAME, looked.text

@@ -1,5 +1,7 @@
-"""Wands and staves: a wand's spell on its own user and on an object, its charges, and a staff
-with none left."""
+"""Wands and staves, used until their charges run out.
+
+A wand's spell on its own user and on an object, its charges, and a staff with none left.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +26,8 @@ WIELDER = Character(
     load_room=ROOM_WAND_ROOM,
     class_name="warrior",
 )
+# The keyword the implementor and the wielder name the wielder by.
+WIELDER_KEYWORD = WIELDER.name.lower()
 
 # Zone 21's birch wand of insight, with 2 charges.
 INSIGHT_WAND_VNUM = 2101
@@ -32,45 +36,56 @@ ENCHANTING_WAND_VNUM = 2102
 # Zone 21's ash staff of insight, with no charge left.
 EMPTY_STAFF_VNUM = 2104
 
+# What the wielder reads as he holds the insight wand (wear_message, act_obj2.cpp).
+GRAB_INSIGHT_WAND_REPLY = "You grab a birch wand of insight."
+# What the wielder reads as he holds the enchanting wand.
+GRAB_ENCHANTING_WAND_REPLY = "You grab an oak wand of enchanting."
+# What the wielder reads as he holds the staff.
+GRAB_STAFF_REPLY = "You grab an ash staff of insight."
+
 # What the user reads when pointing the insight wand at himself (do_use, act_othe.cpp).
-POINT_INSIGHT_MARKER = "You point a birch wand of insight at Testwielder."
+POINT_INSIGHT_REPLY = "You point a birch wand of insight at Testwielder."
 # What the room reads then.
-ROOM_POINT_INSIGHT_MARKER = "Testwielder points a birch wand of insight at Testwielder."
+WIELDER_POINTS_INSIGHT = "Testwielder points a birch wand of insight at Testwielder."
 # What the user reads when insight takes (spell_insight, mystic.cpp).
-INSIGHT_MARKER = "The world seems to gain a few edges for you."
+INSIGHT_REPLY = "The world seems to gain a few edges for you."
 # What the user reads when insight finds him already insightful.
-INSIGHT_ALREADY_MARKER = "He has insight already."
+INSIGHT_ALREADY_REPLY = "He has insight already."
 # What the user reads when pointing the enchanting wand at the sword.
-POINT_ENCHANTING_MARKER = "You point an oak wand of enchanting at a plain steel sword."
+POINT_ENCHANTING_REPLY = "You point an oak wand of enchanting at a plain steel sword."
 # What the room reads then.
-ROOM_POINT_ENCHANTING_MARKER = "Testwielder points an oak wand of enchanting at a plain steel sword."
+WIELDER_POINTS_ENCHANTING = "Testwielder points an oak wand of enchanting at a plain steel sword."
 # What a caster of alignment 0 reads when enchant weapon takes (spell_enchant_weapon, mystic.cpp).
-GLOWS_MARKER = "A plain steel sword glows yellow."
+SWORD_GLOWS_REPLY = "A plain steel sword glows yellow."
 # What the user reads when a wand has no charge left.
-WAND_POWERLESS_MARKER = "The wand seems powerless."
+WAND_POWERLESS_REPLY = "The wand seems powerless."
 # What the user reads when tapping the staff.
-TAP_MARKER = "You tap an ash staff of insight three times on the ground."
+TAP_REPLY = "You tap an ash staff of insight three times on the ground."
 # What the room reads then.
-ROOM_TAP_MARKER = "Testwielder taps an ash staff of insight three times on the ground."
+WIELDER_TAPS = "Testwielder taps an ash staff of insight three times on the ground."
 # What the user reads when a staff has no charge left.
-STAFF_POWERLESS_MARKER = "The staff seems powerless."
+STAFF_POWERLESS_REPLY = "The staff seems powerless."
 # What do_use answers when a staff or a wand whose spell needs a victim has none.
-NOTHING_HAPPENS_MARKER = "Nothing seems to happen."
+NOTHING_HAPPENS_REPLY = "Nothing seems to happen."
 # The stat line of insight's affect (do_stat_character, act_wiz.cpp).
-INSIGHT_AFFECT_MARKER = "insight               +50 to PERCEPTION"
+INSIGHT_AFFECT_LINE = "insight               +50 to PERCEPTION"
 # The stat line of the enchanted sword's affect (do_stat_object, act_wiz.cpp).
-ENCHANTED_AFFECT_MARKER = "Affections: +6 to OB"
+ENCHANTED_AFFECT_LINE = "Affections: +6 to OB"
 
 
 def hand_object(implementor: GameSession, vnum: int, keyword: str) -> None:
-    """Loads an object into the implementor's inventory and gives it to the wielder, in the same room,
-    checking that the give reply names the wielder."""
-    give_new_object(implementor, vnum, keyword, WIELDER.name.lower(), shown_recipient=WIELDER.name)
+    """Load an object into the implementor's inventory and give it to the wielder in the same room.
+
+    Checks that the give reply names the wielder.
+    """
+    give_new_object(implementor, vnum, keyword, WIELDER_KEYWORD, shown_recipient=WIELDER.name)
 
 
-def meet_the_wielder(server) -> tuple:
-    """Logs in the implementor and the wielder and brings the implementor to the wand room; returns
-    (implementor, wielder)."""
+def meet_the_wielder(server) -> tuple[GameSession, GameSession]:
+    """Log in the implementor and the wielder and bring the implementor to the wand room.
+
+    Returns (implementor, wielder).
+    """
     implementor = server.login(IMPLEMENTOR.name)
     wielder = server.login(WIELDER.name)
     goto(implementor, ROOM_WAND_ROOM, "Wand Room")
@@ -89,19 +104,21 @@ def test_a_wand_of_insight_pointed_at_its_user_gives_insight_once_and_then_runs_
     """
     implementor, wielder = meet_the_wielder(server)
     hand_object(implementor, INSIGHT_WAND_VNUM, "wand")
-    assert wielder.command("hold wand").contains("You grab a birch wand of insight.")
+    held = wielder.command("hold wand")
+    assert held.contains(GRAB_INSIGHT_WAND_REPLY), held.text
 
-    outcomes = [INSIGHT_MARKER, INSIGHT_ALREADY_MARKER, WAND_POWERLESS_MARKER, NOTHING_HAPPENS_MARKER]
-    expected = (INSIGHT_MARKER, INSIGHT_ALREADY_MARKER, WAND_POWERLESS_MARKER)
+    outcomes = [INSIGHT_REPLY, INSIGHT_ALREADY_REPLY, WAND_POWERLESS_REPLY, NOTHING_HAPPENS_REPLY]
+    expected = (INSIGHT_REPLY, INSIGHT_ALREADY_REPLY, WAND_POWERLESS_REPLY)
     for expected_outcome in expected:
-        reply = wielder.command(f"use wand {WIELDER.name.lower()}").text
-        assert reply.count(POINT_INSIGHT_MARKER) == 1, reply
+        used = wielder.command(f"use wand {WIELDER_KEYWORD}")
+        reply = used.text
+        assert reply.count(POINT_INSIGHT_REPLY) == 1, reply
         assert [outcome for outcome in outcomes if outcome in reply] == [expected_outcome], reply
-        room = implementor.expect([ROOM_POINT_INSIGHT_MARKER])
-        assert room.count(ROOM_POINT_INSIGHT_MARKER) == 1, room
+        room = implementor.expect([WIELDER_POINTS_INSIGHT])
+        assert room.count(WIELDER_POINTS_INSIGHT) == 1, room
 
-    stat = read_stat(implementor, f"player {WIELDER.name.lower()}")
-    assert stat.count(INSIGHT_AFFECT_MARKER) == 1, stat
+    stat = read_stat(implementor, f"player {WIELDER_KEYWORD}")
+    assert stat.count(INSIGHT_AFFECT_LINE) == 1, stat
 
 
 @pytest.mark.schedule("affect-hours")
@@ -116,18 +133,20 @@ def test_a_wand_of_enchanting_pointed_at_a_sword_enchants_it_and_then_runs_out(s
     implementor, wielder = meet_the_wielder(server)
     hand_object(implementor, ENCHANTING_WAND_VNUM, "wand")
     hand_object(implementor, world.OBJECT_PLAIN_STEEL_SWORD, "sword")
-    assert wielder.command("hold wand").contains("You grab an oak wand of enchanting.")
+    held = wielder.command("hold wand")
+    assert held.contains(GRAB_ENCHANTING_WAND_REPLY), held.text
 
-    outcomes = [GLOWS_MARKER, WAND_POWERLESS_MARKER, NOTHING_HAPPENS_MARKER]
-    for expected_outcome in (GLOWS_MARKER, WAND_POWERLESS_MARKER):
-        reply = wielder.command("use wand sword").text
-        assert reply.count(POINT_ENCHANTING_MARKER) == 1, reply
+    outcomes = [SWORD_GLOWS_REPLY, WAND_POWERLESS_REPLY, NOTHING_HAPPENS_REPLY]
+    for expected_outcome in (SWORD_GLOWS_REPLY, WAND_POWERLESS_REPLY):
+        used = wielder.command("use wand sword")
+        reply = used.text
+        assert reply.count(POINT_ENCHANTING_REPLY) == 1, reply
         assert [outcome for outcome in outcomes if outcome in reply] == [expected_outcome], reply
-        room = implementor.expect([ROOM_POINT_ENCHANTING_MARKER])
-        assert room.count(ROOM_POINT_ENCHANTING_MARKER) == 1, room
+        room = implementor.expect([WIELDER_POINTS_ENCHANTING])
+        assert room.count(WIELDER_POINTS_ENCHANTING) == 1, room
 
-    stat = read_stat(implementor, "obj sword", last_line=ENCHANTED_AFFECT_MARKER)
-    assert stat.count(ENCHANTED_AFFECT_MARKER) == 1, stat
+    stat = read_stat(implementor, "obj sword", last_line=ENCHANTED_AFFECT_LINE)
+    assert stat.count(ENCHANTED_AFFECT_LINE) == 1, stat
 
 
 @pytest.mark.schedule("affect-hours")
@@ -142,11 +161,13 @@ def test_a_staff_with_no_charge_left_is_tapped_and_seems_powerless(server) -> No
     """
     implementor, wielder = meet_the_wielder(server)
     hand_object(implementor, EMPTY_STAFF_VNUM, "staff")
-    assert wielder.command("hold staff").contains("You grab an ash staff of insight.")
+    held = wielder.command("hold staff")
+    assert held.contains(GRAB_STAFF_REPLY), held.text
 
-    reply = wielder.command("use staff").text
-    assert reply.count(TAP_MARKER) == 1, reply
-    assert reply.count(STAFF_POWERLESS_MARKER) == 1, reply
-    assert NOTHING_HAPPENS_MARKER not in reply, reply
-    room = implementor.expect([ROOM_TAP_MARKER])
-    assert room.count(ROOM_TAP_MARKER) == 1, room
+    used = wielder.command("use staff")
+    reply = used.text
+    assert reply.count(TAP_REPLY) == 1, reply
+    assert reply.count(STAFF_POWERLESS_REPLY) == 1, reply
+    assert NOTHING_HAPPENS_REPLY not in reply, reply
+    room = implementor.expect([WIELDER_TAPS])
+    assert room.count(WIELDER_TAPS) == 1, room

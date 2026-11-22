@@ -1,5 +1,7 @@
-"""Gear pins: wear all, remove all and give all visit every item once, in order; a belt takes
-what hangs on it off with it; and a purged mob's gear leaves the world with it.
+"""Gear pins: wear all, remove all and give all, belts and their hooks, and purged gear.
+
+Wear all, remove all and give all visit every item once, in order; a belt takes what hangs on it
+off with it; and a purged mob's gear leaves the world with it.
 
 Every test here is a legacy pin on behaviour players see today: each becomes a strict xfail if
 that behaviour is ever changed on purpose. No step on these paths draws a random number: wear,
@@ -10,16 +12,18 @@ activity and zone resets from running at all.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import INVENTORY_HEADER, STOP_USING_FORMAT, WEAR_HEAD_FORMAT
+from rots_harness.game_text import INVENTORY_HEADER, PUT_FORMAT, STOP_USING_FORMAT, WEAR_HEAD_FORMAT
 from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, goto, load_mob, load_object, where_lines
+from rots_harness.replies import SETTLE_SECONDS, settled_expect
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEVEL_PATTERN, read_stat
-from rots_harness.text_lines import assert_in_order, lines_after
+from rots_harness.text_lines import assert_in_order, first_number, lines_after
 from rots_harness.world_resets import ObjectReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.gear]
@@ -58,69 +62,106 @@ CARRIER = Character(
 
 # Test-world objects (obj/11.obj, obj/13.obj, obj/16.obj, obj/19.obj): each tuple is the vnum,
 # a keyword that names only it among the objects a test hands over, and its short description.
-CURSED_RING = (world.OBJECT_CURSED_RING, "ring", world.OBJECT_CURSED_RING_SHORT_DESCRIPTION)  # worn on a finger; NODROP, so it cannot be given
-BELT = (world.OBJECT_LEATHER_BELT, "belt", "a leather belt")  # worn about the waist; gives the belt hooks
-LEATHER_CAP = (world.OBJECT_LEATHER_CAP, "cap", world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)  # worn on the head
-BAG = (world.OBJECT_LEATHER_BAG, "bag", world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)  # a container, with no wear slot and not wieldable
-IRON_CAP = (world.OBJECT_IRON_CAP, "cap", world.OBJECT_IRON_CAP_SHORT_DESCRIPTION)  # worn on the head, so it finds the slot taken
-KEYRING = (world.OBJECT_BRASS_KEYRING, "keyring", world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION)  # hangs on a belt hook
-CHAIN_SHIRT = (world.OBJECT_CHAIN_SHIRT, "shirt", world.OBJECT_CHAIN_SHIRT_SHORT_DESCRIPTION)  # worn on the body
-COPPER_BEAD = (world.OBJECT_COPPER_BEAD, "bead", world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION)  # carried, never worn
-LEATHER_HELM = (world.OBJECT_LEATHER_HELM, "helm", world.OBJECT_LEATHER_HELM_SHORT_DESCRIPTION)  # worn on the head; no zone resets one
+# The cursed ring: worn on a finger; NODROP, so it cannot be given.
+CURSED_RING = (world.OBJECT_CURSED_RING, "ring", world.OBJECT_CURSED_RING_SHORT_DESCRIPTION)
+# The leather belt: worn about the waist; gives the belt hooks.
+BELT = (world.OBJECT_LEATHER_BELT, "belt", "a leather belt")
+# The leather cap: worn on the head.
+LEATHER_CAP = (world.OBJECT_LEATHER_CAP, "cap", world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
+# The leather bag: a container, with no wear slot and not wieldable.
+BAG = (world.OBJECT_LEATHER_BAG, "bag", world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
+# The iron cap: worn on the head, so it finds the slot taken.
+IRON_CAP = (world.OBJECT_IRON_CAP, "cap", world.OBJECT_IRON_CAP_SHORT_DESCRIPTION)
+# The brass keyring: hangs on a belt hook.
+KEYRING = (world.OBJECT_BRASS_KEYRING, "keyring", world.OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION)
+# The chain shirt: worn on the body.
+CHAIN_SHIRT = (world.OBJECT_CHAIN_SHIRT, "shirt", world.OBJECT_CHAIN_SHIRT_SHORT_DESCRIPTION)
+# The copper bead: carried, never worn.
+COPPER_BEAD = (world.OBJECT_COPPER_BEAD, "bead", world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION)
+# The leather helm: worn on the head; no zone resets one.
+LEATHER_HELM = (world.OBJECT_LEATHER_HELM, "helm", world.OBJECT_LEATHER_HELM_SHORT_DESCRIPTION)
+# The porter's short description (world.MOB_PORTER).
+PORTER_SHORT_DESCRIPTION = "a porter"
 
-# What get and wear print (do_get in act_obj1.cpp, wear_message in act_obj2.cpp); each is
-# formatted with an object's short description.
+# The start every "No-one by that name ..." answer shares, goto's among them (do_goto,
+# act_wiz.cpp).
+NO_ONE_BY_THAT_NAME_START = "No-one by that name"
+# What get prints (do_get, act_obj1.cpp); format with an object's short description.
 GET_FORMAT = "You get {}."
+# What wear prints for a finger (wear_message, act_obj2.cpp); format with the short description.
 WEAR_FINGER_FORMAT = "You slide {} on to your right ring finger."
+# What wear prints for the waist (wear_message); format with the short description.
 WEAR_WAIST_FORMAT = "You wear {} around your waist."
+# What wear prints for a belt hook (wear_message); format with the short description.
 WEAR_BELT_HOOK_FORMAT = "You fasten {} on your belt."
+# What wear prints for the body (wear_message); format with the short description.
 WEAR_BODY_FORMAT = "You wear {} on your body."
 # What wear all prints for an item whose head slot is already taken (perform_wear).
-HEAD_TAKEN_MARKER = "You're already wearing something on your head."
+HEAD_TAKEN_REPLY = "You're already wearing something on your head."
 # What wear all prints when nothing carried can be worn (do_wear).
-NOTHING_WEARABLE_MARKER = "You don't seem to have anything wearable."
+NOTHING_WEARABLE_REPLY = "You don't seem to have anything wearable."
 # What remove all prints when nothing is worn (do_remove).
-NOTHING_WORN_MARKER = "You're not using anything."
+NOTHING_WORN_REPLY = "You're not using anything."
 # What the room reads as the wearer takes an item off (take_off_item); format with the name and
 # the short description.
-ROOM_STOP_USING_FORMAT = "{} stops using {}."
+STOPS_USING_FORMAT = "{} stops using {}."
 # What the receiver reads for each item given (perform_give, act_obj1.cpp); format with the
 # giver's name and the short description.
 RECEIVED_FORMAT = "{} gives you {}."
 # What the giver reads for an item it cannot let go of (perform_give).
 CANNOT_LET_GO_FORMAT = "You can't let go of {}!!  Yeech!"
-# What the giver reads when the receiver's hands are full (perform_give).
-HANDS_FULL_MARKER = "seems to have"
+# The part of what the giver reads when the receiver's hands are full (perform_give).
+HANDS_FULL_PART = "seems to have"
 # What the wearer reads when a belt item falls as the belt comes off (take_off_item).
 FALLS_FORMAT = "You can't carry that much; {} falls to the ground."
+# The part every line about an item falling to the floor shares (take_off_item).
+FALLS_PART = "falls to the ground"
 # What the room reads as the keyring falls (take_off_item; act() capitalises the line).
-ROOM_KEYRING_FALLS_MARKER = "A brass keyring falls to the ground."
+KEYRING_FALLS = "A brass keyring falls to the ground."
+# How look shows the keyring on the floor.
+KEYRING_LIES_HERE = "A brass keyring lies here."
 # What remove prints when the wearer's hands cannot take the item itself (perform_remove).
 CANNOT_CARRY_FORMAT = "{}: you can't carry that many items!"
+# What the implementor reads as the porter puts the helm on (wear_message, act_obj2.cpp).
+PORTER_WEARS_HELM = f"A porter wears {LEATHER_HELM[2]} on his head."
 # What the implementor reads as it purges a mob (do_purge, act_wiz.cpp).
-PURGED_MARKER = "Ok."
-# The stat lines the full-hands margin rests on (do_stat_character, act_wiz.cpp).
+PURGED_REPLY = "Ok."
+# How look shows the purged things, had any of them been left behind in the room.
+LEFT_BEHIND_LINES = (
+    "A leather helm lies here.",
+    "A leather bag lies here.",
+    "A copper bead lies here.",
+    "A porter stands here",
+)
+# The current dexterity on stat's Dex line, one stat line the full-hands margin rests on
+# (do_stat_character, act_wiz.cpp).
 CURRENT_DEXTERITY_PATTERN = re.compile(r"Dex:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")
+# The items carried on stat's Carried line, the other stat line the full-hands margin rests on.
 CARRIED_ITEMS_PATTERN = re.compile(r"Carried: weight: -?\d+, items: (\d+);")
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
-def hand_over(implementor: GameSession, receiver: Character, objects: tuple) -> None:
-    """The implementor goes to the receiver, then creates and gives it each object in turn.
+def hand_over(implementor: GameSession, receiver: Character, objects: Sequence[tuple[int, str, str]]) -> None:
+    """Bring the implementor to the receiver, then create and give it each object in turn.
 
     One object at a time, so each keyword names the only object the implementor holds, and the
     receiver's inventory lists them last given first (obj_to_char, handler.cpp, puts a new item
     at the head).
     """
-    arrived = implementor.command(f"goto {receiver.name.lower()}")
-    assert not arrived.contains("No-one by that name"), arrived.text
+    arrived = goto(implementor, receiver.name.lower())
+    assert not arrived.contains(NO_ONE_BY_THAT_NAME_START), arrived.text
     for vnum, keyword, short_description in objects:
-        give_new_object(implementor, vnum, keyword, receiver.name.lower(), shown_recipient=receiver.name, short_description=short_description)
+        give_new_object(
+            implementor,
+            vnum,
+            keyword,
+            receiver.name.lower(),
+            shown_recipient=receiver.name,
+            short_description=short_description,
+        )
 
 
-def inventory_lines(session: GameSession) -> list:
-    """The object lines of the session's inventory, in the order the game lists them."""
+def inventory_lines(session: GameSession) -> list[str]:
+    """Return the object lines of the session's inventory, in the order the game lists them."""
     listed = session.command("inventory").text
     return lines_after(listed, INVENTORY_HEADER)
 
@@ -144,21 +185,24 @@ def test_wear_all_puts_on_each_carried_item_in_inventory_order_and_passes_over_t
     hand_over(implementor, WEARER, (CHAIN_SHIRT, KEYRING, IRON_CAP, BAG, LEATHER_CAP, BELT))
     picked_up = wearer.command(f"get {CURSED_RING[1]}")
     assert picked_up.contains(GET_FORMAT.format(CURSED_RING[2])), picked_up.text
-    assert inventory_lines(wearer) == [
+    carried = inventory_lines(wearer)
+    assert carried == [
         CURSED_RING[2], BELT[2], LEATHER_CAP[2], BAG[2], IRON_CAP[2], KEYRING[2], CHAIN_SHIRT[2],
-    ]
+    ], carried
 
-    worn = wearer.command("wear all").text + wearer.drain(SETTLE_SECONDS)
+    wear_reply = wearer.command("wear all")
+    worn = wear_reply.text + wearer.drain(SETTLE_SECONDS)
     assert_in_order(worn, [
         WEAR_FINGER_FORMAT.format(CURSED_RING[2]),
         WEAR_WAIST_FORMAT.format(BELT[2]),
         WEAR_HEAD_FORMAT.format(LEATHER_CAP[2]),
-        HEAD_TAKEN_MARKER,
+        HEAD_TAKEN_REPLY,
         WEAR_BELT_HOOK_FORMAT.format(KEYRING[2]),
         WEAR_BODY_FORMAT.format(CHAIN_SHIRT[2]),
     ])
-    assert NOTHING_WEARABLE_MARKER not in worn, worn
-    assert inventory_lines(wearer) == [BAG[2], IRON_CAP[2]]
+    assert NOTHING_WEARABLE_REPLY not in worn, worn
+    left_over = inventory_lines(wearer)
+    assert left_over == [BAG[2], IRON_CAP[2]], left_over
 
 
 @pytest.mark.schedule("affect-hours")
@@ -179,7 +223,7 @@ def test_remove_all_takes_off_each_worn_item_in_slot_order_and_the_keyring_after
     hand_over(implementor, WEARER, (CHAIN_SHIRT, KEYRING, LEATHER_CAP, BELT))
     picked_up = wearer.command(f"get {CURSED_RING[1]}")
     assert picked_up.contains(GET_FORMAT.format(CURSED_RING[2])), picked_up.text
-    for keyword, marker in (
+    for keyword, worn_line in (
         (CURSED_RING[1], WEAR_FINGER_FORMAT.format(CURSED_RING[2])),
         (BELT[1], WEAR_WAIST_FORMAT.format(BELT[2])),
         (LEATHER_CAP[1], WEAR_HEAD_FORMAT.format(LEATHER_CAP[2])),
@@ -187,17 +231,20 @@ def test_remove_all_takes_off_each_worn_item_in_slot_order_and_the_keyring_after
         (CHAIN_SHIRT[1], WEAR_BODY_FORMAT.format(CHAIN_SHIRT[2])),
     ):
         worn = wearer.command(f"wear {keyword}")
-        assert worn.contains(marker), worn.text
-    assert inventory_lines(wearer) == []
+        assert worn.contains(worn_line), worn.text
+    carried = inventory_lines(wearer)
+    assert carried == [], carried
     taker.drain(SETTLE_SECONDS)
 
-    removed = wearer.command("remove all").text + wearer.drain(SETTLE_SECONDS)
+    remove_reply = wearer.command("remove all")
+    removed = remove_reply.text + wearer.drain(SETTLE_SECONDS)
     order = [CURSED_RING, CHAIN_SHIRT, LEATHER_CAP, BELT, KEYRING]
     assert_in_order(removed, [STOP_USING_FORMAT.format(item[2]) for item in order])
-    assert NOTHING_WORN_MARKER not in removed, removed
-    watched = taker.expect([ROOM_STOP_USING_FORMAT.format(WEARER.name, KEYRING[2])]) + taker.drain(SETTLE_SECONDS)
-    assert_in_order(watched, [ROOM_STOP_USING_FORMAT.format(WEARER.name, item[2]) for item in order])
-    assert inventory_lines(wearer) == [item[2] for item in reversed(order)]
+    assert NOTHING_WORN_REPLY not in removed, removed
+    watched = settled_expect(taker, [STOPS_USING_FORMAT.format(WEARER.name, KEYRING[2])])
+    assert_in_order(watched, [STOPS_USING_FORMAT.format(WEARER.name, item[2]) for item in order])
+    carried = inventory_lines(wearer)
+    assert carried == [item[2] for item in reversed(order)], carried
 
 
 @pytest.mark.schedule("affect-hours")
@@ -220,10 +267,12 @@ def test_give_all_hands_over_each_carried_item_in_order_and_keeps_one_it_cannot_
     assert picked_up.contains(GET_FORMAT.format(CURSED_RING[2])), picked_up.text
     hand_over(implementor, WEARER, (LEATHER_CAP, BELT, KEYRING))
     order = [KEYRING, BELT, LEATHER_CAP, CURSED_RING, BAG, IRON_CAP]
-    assert inventory_lines(wearer) == [item[2] for item in order]
+    carried = inventory_lines(wearer)
+    assert carried == [item[2] for item in order], carried
     taker.drain(SETTLE_SECONDS)
 
-    given = wearer.command(f"give all {TAKER.name.lower()}").text + wearer.drain(SETTLE_SECONDS)
+    give_reply = wearer.command(f"give all {TAKER.name.lower()}")
+    given = give_reply.text + wearer.drain(SETTLE_SECONDS)
     assert_in_order(given, [
         GIVEN_FORMAT.format(KEYRING[2], TAKER.name),
         GIVEN_FORMAT.format(BELT[2], TAKER.name),
@@ -232,12 +281,14 @@ def test_give_all_hands_over_each_carried_item_in_order_and_keeps_one_it_cannot_
         GIVEN_FORMAT.format(BAG[2], TAKER.name),
         GIVEN_FORMAT.format(IRON_CAP[2], TAKER.name),
     ])
-    assert HANDS_FULL_MARKER not in given, given
-    received = taker.expect([RECEIVED_FORMAT.format(WEARER.name, IRON_CAP[2])]) + taker.drain(SETTLE_SECONDS)
+    assert HANDS_FULL_PART not in given, given
+    received = settled_expect(taker, [RECEIVED_FORMAT.format(WEARER.name, IRON_CAP[2])])
     given_order = [KEYRING, BELT, LEATHER_CAP, BAG, IRON_CAP]
     assert_in_order(received, [RECEIVED_FORMAT.format(WEARER.name, item[2]) for item in given_order])
-    assert inventory_lines(wearer) == [CURSED_RING[2]]
-    assert inventory_lines(taker) == [item[2] for item in reversed(given_order)]
+    kept = inventory_lines(wearer)
+    assert kept == [CURSED_RING[2]], kept
+    taken = inventory_lines(taker)
+    assert taken == [item[2] for item in reversed(given_order)], taken
 
 
 @pytest.mark.schedule("affect-hours")
@@ -253,19 +304,23 @@ def test_remove_belt_takes_the_keyring_on_its_hook_off_after_it(server) -> None:
     wearer = server.login(WEARER.name)
     taker = server.login(TAKER.name)
     hand_over(implementor, WEARER, (KEYRING, BELT))
-    assert wearer.command("wear belt").contains(WEAR_WAIST_FORMAT.format(BELT[2]))
-    assert wearer.command("wear keyring").contains(WEAR_BELT_HOOK_FORMAT.format(KEYRING[2]))
+    belt_worn = wearer.command("wear belt")
+    assert belt_worn.contains(WEAR_WAIST_FORMAT.format(BELT[2])), belt_worn.text
+    keyring_worn = wearer.command("wear keyring")
+    assert keyring_worn.contains(WEAR_BELT_HOOK_FORMAT.format(KEYRING[2])), keyring_worn.text
     taker.drain(SETTLE_SECONDS)
 
-    removed = wearer.command("remove belt").text + wearer.drain(SETTLE_SECONDS)
+    remove_reply = wearer.command("remove belt")
+    removed = remove_reply.text + wearer.drain(SETTLE_SECONDS)
     assert_in_order(removed, [STOP_USING_FORMAT.format(BELT[2]), STOP_USING_FORMAT.format(KEYRING[2])])
-    assert "falls to the ground" not in removed, removed
-    watched = taker.expect([ROOM_STOP_USING_FORMAT.format(WEARER.name, KEYRING[2])]) + taker.drain(SETTLE_SECONDS)
+    assert FALLS_PART not in removed, removed
+    watched = settled_expect(taker, [STOPS_USING_FORMAT.format(WEARER.name, KEYRING[2])])
     assert_in_order(watched, [
-        ROOM_STOP_USING_FORMAT.format(WEARER.name, BELT[2]),
-        ROOM_STOP_USING_FORMAT.format(WEARER.name, KEYRING[2]),
+        STOPS_USING_FORMAT.format(WEARER.name, BELT[2]),
+        STOPS_USING_FORMAT.format(WEARER.name, KEYRING[2]),
     ])
-    assert inventory_lines(wearer) == [KEYRING[2], BELT[2]]
+    carried = inventory_lines(wearer)
+    assert carried == [KEYRING[2], BELT[2]], carried
 
 
 @pytest.mark.schedule("affect-hours")
@@ -281,18 +336,16 @@ def test_remove_belt_with_one_hand_free_drops_the_keyring_on_its_hook(server) ->
     carrier = server.login(CARRIER.name)
     taker = server.login(TAKER.name)
     hand_over(implementor, CARRIER, (KEYRING, BELT))
-    assert carrier.command("wear belt").contains(WEAR_WAIST_FORMAT.format(BELT[2]))
-    assert carrier.command("wear keyring").contains(WEAR_BELT_HOOK_FORMAT.format(KEYRING[2]))
+    belt_worn = carrier.command("wear belt")
+    assert belt_worn.contains(WEAR_WAIST_FORMAT.format(BELT[2])), belt_worn.text
+    keyring_worn = carrier.command("wear keyring")
+    assert keyring_worn.contains(WEAR_BELT_HOOK_FORMAT.format(KEYRING[2])), keyring_worn.text
     hand_over(implementor, CARRIER, (COPPER_BEAD,) * 5)
 
     stat_text = read_stat(implementor, f"player {CARRIER.name.lower()}")
-    level_match = LEVEL_PATTERN.search(stat_text)
-    dexterity_match = CURRENT_DEXTERITY_PATTERN.search(stat_text)
-    carried_match = CARRIED_ITEMS_PATTERN.search(stat_text)
-    assert level_match and dexterity_match and carried_match, stat_text
-    level = int(level_match.group(1))
-    dexterity = int(dexterity_match.group(1))
-    carried = int(carried_match.group(1))
+    level = first_number(LEVEL_PATTERN, stat_text)
+    dexterity = first_number(CURRENT_DEXTERITY_PATTERN, stat_text)
+    carried = first_number(CARRIED_ITEMS_PATTERN, stat_text)
     # Margin check, Testcarrier (level 2, current dexterity 1, five beads carried; worn items do
     # not count, equip_char in handler.cpp):
     #   CAN_CARRY_N(ch) = 5 + GET_DEX(ch) / 2 + GET_LEVEL(ch) / 2      (utils.h)
@@ -304,25 +357,27 @@ def test_remove_belt_with_one_hand_free_drops_the_keyring_on_its_hook(server) ->
     #              = 6 >= 6 = true: the keyring falls
     # In the control above (Testwearer, level 20, nothing carried) the keyring's check is
     # 1 >= 5 + GET_DEX / 2 + 10, false for any dexterity.
-    assert (level, dexterity, carried) == (2, 1, 5)
+    assert (level, dexterity, carried) == (2, 1, 5), stat_text
     can_carry = 5 + dexterity // 2 + level // 2
-    assert can_carry == 6
-    assert carried < can_carry
-    assert carried + 1 >= can_carry
+    assert can_carry == 6, stat_text
+    assert carried < can_carry, stat_text
+    assert carried + 1 >= can_carry, stat_text
     taker.drain(SETTLE_SECONDS)
 
-    removed = carrier.command("remove belt").text + carrier.drain(SETTLE_SECONDS)
+    remove_reply = carrier.command("remove belt")
+    removed = remove_reply.text + carrier.drain(SETTLE_SECONDS)
     assert_in_order(removed, [STOP_USING_FORMAT.format(BELT[2]), FALLS_FORMAT.format(KEYRING[2])])
     assert STOP_USING_FORMAT.format(KEYRING[2]) not in removed, removed
     assert CANNOT_CARRY_FORMAT.format(BELT[2]) not in removed, removed
-    watched = taker.expect([ROOM_KEYRING_FALLS_MARKER]) + taker.drain(SETTLE_SECONDS)
+    watched = settled_expect(taker, [KEYRING_FALLS])
     assert_in_order(watched, [
-        ROOM_STOP_USING_FORMAT.format(CARRIER.name, BELT[2]),
-        ROOM_KEYRING_FALLS_MARKER,
+        STOPS_USING_FORMAT.format(CARRIER.name, BELT[2]),
+        KEYRING_FALLS,
     ])
-    assert KEYRING[2] not in inventory_lines(carrier)
+    carried_after = inventory_lines(carrier)
+    assert KEYRING[2] not in carried_after, carried_after
     looked = carrier.command("look").text
-    assert "A brass keyring lies here." in looked, looked
+    assert KEYRING_LIES_HERE in looked, looked
 
 
 @pytest.mark.schedule("affect-hours")
@@ -338,21 +393,30 @@ def test_purge_destroys_what_a_mob_wears_and_carries_and_leaves_nothing_behind(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     goto(implementor, world.ROOM_ARENA_WEST, world.ROOM_ARENA_WEST_NAME, exact=False)
-    load_mob(implementor, world.MOB_PORTER, "a porter")
-    give_new_object(implementor, LEATHER_HELM[0], "helm", "porter", shown_recipient="a porter", short_description=LEATHER_HELM[2])
+    load_mob(implementor, world.MOB_PORTER, PORTER_SHORT_DESCRIPTION)
+    give_new_object(
+        implementor,
+        LEATHER_HELM[0],
+        "helm",
+        "porter",
+        shown_recipient=PORTER_SHORT_DESCRIPTION,
+        short_description=LEATHER_HELM[2],
+    )
     dressed = implementor.command("force porter wear helm")
-    assert dressed.contains(f"A porter wears {LEATHER_HELM[2]} on his head."), dressed.text
+    assert dressed.contains(PORTER_WEARS_HELM), dressed.text
     load_object(implementor, BAG[0], BAG[2])
     load_object(implementor, COPPER_BEAD[0], COPPER_BEAD[2])
-    assert implementor.command("put bead bag").contains(f"You put {COPPER_BEAD[2]} in {BAG[2]}.")
-    assert implementor.command("give bag porter").contains(GIVEN_FORMAT.format(BAG[2], "a porter"))
+    put = implementor.command("put bead bag")
+    assert put.contains(PUT_FORMAT.format(COPPER_BEAD[2], BAG[2])), put.text
+    given = implementor.command("give bag porter")
+    assert given.contains(GIVEN_FORMAT.format(BAG[2], PORTER_SHORT_DESCRIPTION)), given.text
     for item in (LEATHER_HELM, BAG, COPPER_BEAD):
         assert len(where_lines(implementor, item[0], item[2])) == 1, item
 
     purged = implementor.command("purge porter")
-    assert purged.contains(PURGED_MARKER), purged.text
+    assert purged.contains(PURGED_REPLY), purged.text
     for item in (LEATHER_HELM, BAG, COPPER_BEAD):
         assert where_lines(implementor, item[0], item[2]) == [], item
     looked = implementor.command("look").text
-    for long_description in ("A leather helm lies here.", "A leather bag lies here.", "A copper bead lies here.", "A porter stands here"):
+    for long_description in LEFT_BEHIND_LINES:
         assert long_description not in looked, looked

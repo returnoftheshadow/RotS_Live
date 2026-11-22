@@ -1,5 +1,7 @@
-"""Follower rent cycles: an orc leader's geared, mounted recruits and led wargs come back as they
-left through rent, login, a fight and a service stop."""
+"""Follower rent cycles: an orc leader's warband through rent, login, a fight and a service stop.
+
+The leader's geared, mounted recruits and led wargs come back as they left.
+"""
 
 from __future__ import annotations
 
@@ -21,14 +23,14 @@ from rots_harness.game_text import (
     RENTED_REPLY,
 )
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object
-from rots_harness.replies import reply_to
+from rots_harness.replies import SETTLE_SECONDS, reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 from rots_harness.stat_reading import (
-    AFFECT_BITS_AT_LINE_START_PATTERN,
     ANGER_AFFECT_PATTERN,
     CONSTITUTION_PATTERN,
     HIT_POINTS_BEFORE_GAIN_PATTERN,
     NO_SUCH_MOB_REPLY,
+    affect_bits,
 )
 from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset
@@ -36,17 +38,17 @@ from rots_harness.world_resets import MobReset
 pytestmark = [pytest.mark.scenario, pytest.mark.follower_rent]
 
 # The inn, east to the yard, where the innkeeper stands and the leader rents.
-ROOM_INN = 2700
+ROOM_WARBAND_INN = 2700
 # The yard, between the inn (west) and the track (east): the leader's load room.
 ROOM_YARD = 2701
 # The track, west to the yard, where the dummy is killed.
 ROOM_TRACK = 2702
 # The inn's name, which the leader reads first as it walks in.
-INN_NAME = "Warband Inn"
+ROOM_WARBAND_INN_NAME = "Warband Inn"
 # The yard's name, as above.
-YARD_NAME = "Warband Yard"
+ROOM_YARD_NAME = "Warband Yard"
 # The track's name, as above.
-TRACK_NAME = "Warband Track"
+ROOM_TRACK_NAME = "Warband Track"
 
 # A level-48 orc warrior in the yard. Hunger and thirst are off so the advanced hours send no
 # hunger lines.
@@ -99,9 +101,15 @@ class Warg(NamedTuple):
 
 # The three recruits, each with its own weapon and wolf.
 RECRUITS = (
-    Recruit(2700, "gashface", "a gash-faced recruit", 2715, "cleaver", "a jagged cleaver", 2703, "dun", "a dun wolf"),
-    Recruit(2701, "squinteye", "a squint-eyed recruit", 2716, "waraxe", "a notched waraxe", 2704, "ashen", "an ashen wolf"),
-    Recruit(2702, "broadback", "a broad-backed recruit", 2717, "greataxe", "a black greataxe", 2705, "sable", "a sable wolf"),
+    Recruit(
+        2700, "gashface", "a gash-faced recruit", 2715, "cleaver", "a jagged cleaver", 2703, "dun", "a dun wolf"
+    ),
+    Recruit(
+        2701, "squinteye", "a squint-eyed recruit", 2716, "waraxe", "a notched waraxe", 2704, "ashen", "an ashen wolf"
+    ),
+    Recruit(
+        2702, "broadback", "a broad-backed recruit", 2717, "greataxe", "a black greataxe", 2705, "sable", "a sable wolf"
+    ),
 )
 # The two wargs.
 WARGS = (Warg(2706, "tawny", "a tawny warg"), Warg(2707, "brindled", "a brindled warg"))
@@ -109,10 +117,12 @@ WARGS = (Warg(2706, "tawny", "a tawny warg"), Warg(2707, "brindled", "a brindled
 ARMOUR_VNUMS = range(2700, 2715)
 # The leader's armband (2718), so rent has something to store (zone-27.md).
 ARMBAND_VNUM = 2718
+# ARMBAND_VNUM's short description.
+ARMBAND_SHORT_DESCRIPTION = "a red armband"
 # The practice dummy, the fight's target.
 DUMMY_VNUM = 2708
 # The dummy's short description.
-DUMMY_NAME = "a practice dummy"
+DUMMY_SHORT_DESCRIPTION = "a practice dummy"
 # The keyword every recruit, wolf and warg answers to, and nothing else.
 WARBAND_KEYWORD = "warhost"
 # The keyword every zone-27 object answers to, and nothing else.
@@ -159,25 +169,29 @@ BOTH_HANDS_FORMAT = "{} takes his weapon with both hands."
 MOUNTS_FORMAT = "{} mounts {} and starts riding him."
 # What the leader reads as a recruit assists it (do_assist, act_offe.cpp).
 ASSISTS_FORMAT = "{} assists you!"
+# ASSISTS_FORMAT's fixed ending, for a check that does not name the recruit.
+ASSISTS_END = "assists you!"
 # What the leader reads as a recruit strikes the dummy (do_hit, act_offe.cpp).
 ATTACKS_DUMMY_FORMAT = "{} attacks a practice dummy!"
 # What the leader reads as it strikes the dummy (do_hit).
-LEADER_ATTACKS_MARKER = "You attack a practice dummy!"
+LEADER_ATTACKS_REPLY = "You attack a practice dummy!"
 # What the room reads as the dummy dies.
-DUMMY_DEAD_MARKER = IS_DEAD_FORMAT.format("A practice dummy")
+DUMMY_IS_DEAD = IS_DEAD_FORMAT.format("A practice dummy")
 # What the leader reads as it wears the armband (wear_message, act_obj2.cpp).
-ARMBAND_WORN_MARKER = "You wear a red armband on your arms."
+ARMBAND_WORN_REPLY = "You wear a red armband on your arms."
+# The start of what wear answers when the leader carries no armband (do_wear, act_obj2.cpp).
+NO_ARMBAND_START = "You don't seem to have"
 # The end of a successful order (do_order, act_offe.cpp).
-ORDER_OK_MARKER = "Ok."
+ORDER_DONE_REPLY = "Ok."
 # do_order's refusals.
-ORDER_REFUSAL_MARKERS = [
+ORDER_REFUSALS = [
     "Order who to do what?",
     "That person isn't here.",
     "has an indifferent look.",
     NOBODY_WILLING_REPLY,
 ]
 # do_recruit's refusals.
-RECRUIT_REFUSAL_MARKERS = [
+RECRUIT_REFUSALS = [
     "You can't recruit.",
     "Recruit who?",
     "doesn't want to be recruited.",
@@ -188,16 +202,21 @@ RECRUIT_REFUSAL_MARKERS = [
     "Sorry, following in circles is not allowed.",
 ]
 # do_lead's refusals.
-LEAD_REFUSAL_MARKERS = ["There is nobody by that name.", "You can not lead this.", "is already following", "doesn't want you to lead"]
+LEAD_REFUSALS = [
+    "There is nobody by that name.",
+    "You can not lead this.",
+    "is already following",
+    "doesn't want you to lead",
+]
 # do_hit's refusals.
-HIT_REFUSAL_MARKERS = ["They aren't here.", "A peaceful feeling overwhelms you", FIGHT_ONGOING_REPLY]
+HIT_REFUSALS = ["They aren't here.", "A peaceful feeling overwhelms you", FIGHT_ONGOING_REPLY]
 # What a parried, dodged or evaded blow shows its attacker's room (do_parry, do_dodge, do_evade).
-MISSED_BLOW_MARKERS = ["deflects", "dodges", "is not where", "distracts"]
+MISSED_BLOWS = ["deflects", "dodges", "is not where", "distracts"]
 # What a walker reads when the way is shut (do_move, act_move.cpp).
-NO_WAY_MARKER = "You cannot go that way."
+NO_WAY_REPLY = "You cannot go that way."
 
 # What an angry renter reads from a receptionist of race 1 (gen_receptionist).
-TOO_ANGRY_MARKER = "The harness innkeeper tells you, 'You're too angry.  Come back when you've cooled down.'"
+TOO_ANGRY_REPLY = INNKEEPER_TELLS_START + "You're too angry.  Come back when you've cooled down.'"
 # The game hours of anger the leader's blow gives (on_attacked_character, char_utils_combat.cpp).
 ANGER_HOURS = 2
 
@@ -227,7 +246,7 @@ ENERGY_PATTERN = re.compile(r"ENERGY: (-?\d+),")
 # The `stat` damage field (points.damage).
 DAMAGE_PATTERN = re.compile(r", damage: (-?\d+),")
 # The `stat` current strength.
-STRENGTH_PATTERN = re.compile(r"Str:\[(-?\d+)/")
+CURRENT_STRENGTH_PATTERN = re.compile(r"Str:\[(-?\d+)/")
 # The `stat` resistances and vulnerabilities.
 RESISTANCES_PATTERN = re.compile(r"RES: (.*?) VUL: (.*?)\s*$", re.MULTILINE)
 # The `stat obj` weapon damage, in tenths (get_weapon_damage, utility.cpp).
@@ -237,133 +256,131 @@ NATURAL_ATTACK_PATTERN = re.compile(r"^\s*natural attacks\s", re.MULTILINE)
 # The `practice` line of find weakness (SKILL_EXTRA_DAMAGE).
 FIND_WEAKNESS_PATTERN = re.compile(r"^\s*find weakness\s", re.MULTILINE)
 
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 # Seconds to wait for a long reply (`where` lists about fifty lines).
-REPLY_TIMEOUT = 10.0
+REPLY_TIMEOUT_SECONDS = 10.0
 
 
 def implementor_reply(implementor: GameSession, command: str) -> str:
-    """The implementor's whole reply to command."""
+    """Return the implementor's whole reply to command."""
     implementor.send_line(command)
-    # `stat` and `where` lines can end like a prompt, so a `where` that matches nothing marks the end.
+    # `stat` and `where` lines can end like a prompt, so a `where` that matches nothing marks the
+    # end.
     implementor.send_line(f"where {NO_MATCH_KEYWORD}")
-    text = implementor.expect([NOTHING_FOUND_REPLY], timeout=REPLY_TIMEOUT)
+    text = implementor.expect([NOTHING_FOUND_REPLY], timeout=REPLY_TIMEOUT_SECONDS)
     return text.rsplit(NOTHING_FOUND_REPLY, 1)[0]
 
 
-def matched_groups(pattern: re.Pattern, text: str) -> tuple:
-    """The groups of pattern's first match in text."""
+def matched_groups(pattern: re.Pattern[str], text: str) -> tuple[str, ...]:
+    """Return the groups of pattern's first match in text; asserts there is one."""
     match = pattern.search(text)
     assert match is not None, text
     return match.groups()
 
 
-def affect_bits(stat_text: str) -> list:
-    """The affect bit names on a `stat` reply's AFF line."""
-    match = AFFECT_BITS_AT_LINE_START_PATTERN.search(stat_text)
-    assert match is not None, stat_text
-    return [name.rstrip(".") for name in match.group(1).split()]
-
-
-def master_and_followers(stat_text: str) -> tuple:
-    """A `stat` reply's master and its followers' names, the followers as a Counter."""
+def master_and_followers(stat_text: str) -> tuple[str, Counter[str]]:
+    """Return a `stat` reply's master and its followers' names, the followers as a Counter."""
     match = MASTER_PATTERN.search(stat_text)
     assert match is not None, stat_text
-    followers = [name.strip() for name in match.group(2).split(",") if name.strip()]
+    follower_names = match.group(2).split(",")
+    followers = [name.strip() for name in follower_names if name.strip()]
     return match.group(1), Counter(followers)
 
 
-def where_entries(implementor: GameSession, keyword: str) -> list:
-    """Every `where <keyword>` entry: (name, room vnum, the room's name or the holder line)."""
+def where_entries(implementor: GameSession, keyword: str) -> list[tuple[str, int, str]]:
+    """Return every `where <keyword>` entry as (name, room vnum, the room's name or holder line)."""
     reply = implementor_reply(implementor, f"where {keyword}")
-    return [(name, int(room), place) for name, room, place in WHERE_LINE_PATTERN.findall(reply)]
+    found = WHERE_LINE_PATTERN.findall(reply)
+    return [(name, int(room), place) for name, room, place in found]
 
 
-def warband_census(implementor: GameSession) -> Counter:
-    """How many of each recruit, wolf and warg is in each room, as (name, room vnum) counts."""
+def warband_census(implementor: GameSession) -> Counter[tuple[str, int]]:
+    """Return how many of each recruit, wolf and warg is in each room, by (name, room vnum)."""
     entries = where_entries(implementor, WARBAND_KEYWORD)
-    return Counter((name, room) for name, room, _place in entries)
+    return Counter((name, room) for name, room, _ in entries)
 
 
-def gear_census(implementor: GameSession) -> Counter:
-    """How many copies of each zone-27 object each holder has, as (name, room vnum, place)
-    counts; place is `>> Carried by <holder>`, or the room's name for an object on the floor."""
+def gear_census(implementor: GameSession) -> Counter[tuple[str, int, str]]:
+    """Return how many copies of each zone-27 object each holder has, by (name, room vnum, place).
+
+    place is `>> Carried by <holder>`, or the room's name for an object on the floor.
+    """
     entries = where_entries(implementor, GEAR_KEYWORD)
     return Counter(entries)
 
 
-def expected_warband(room: int) -> Counter:
-    """The warband census with every recruit, wolf and warg once in room."""
+def expected_warband(room: int) -> Counter[tuple[str, int]]:
+    """Return the warband census with every recruit, wolf and warg once in room."""
     recruit_names = [recruit.name for recruit in RECRUITS]
     wolf_names = [recruit.mount_name for recruit in RECRUITS]
     warg_names = [warg.name for warg in WARGS]
     return Counter((name, room) for name in recruit_names + wolf_names + warg_names)
 
 
-def gear_in(gear: Counter, room: int) -> Counter:
-    """gear, every copy moved to room."""
-    return Counter({(name, room, place): count for (name, _room, place), count in gear.items()})
+def gear_in(gear: Counter[tuple[str, int, str]], room: int) -> Counter[tuple[str, int, str]]:
+    """Return gear with every copy moved to room."""
+    return Counter({(name, room, place): count for (name, _, place), count in gear.items()})
 
 
-def equipment(implementor: GameSession, keyword: str) -> list:
-    """The (slot label, item) lines of `look <keyword>`, in the order the game lists them."""
+def equipment(implementor: GameSession, keyword: str) -> list[tuple[str, str]]:
+    """Return the (slot label, item) lines of `look <keyword>`, in the order the game lists them."""
     reply = implementor_reply(implementor, f"look {keyword}")
     assert EQUIPMENT_HEADER in reply, reply
     worn_text = reply.split(EQUIPMENT_HEADER, 1)[1]
     return EQUIPMENT_LINE_PATTERN.findall(worn_text)
 
 
-def expected_equipment(recruit: Recruit, *, two_handed: bool) -> list:
-    """The equipment `look` lists for a recruit dressed as the setup dresses it."""
+def expected_equipment(recruit: Recruit, *, two_handed: bool) -> list[tuple[str, str]]:
+    """Return the equipment `look` lists for a recruit dressed as the setup dresses it."""
     label = TWO_HANDED_LABEL if two_handed else ONE_HANDED_LABEL
     return [*ARMOUR_BEFORE_WIELD, (label, recruit.weapon_name), *ARMOUR_AFTER_WIELD]
 
 
 def leader_order(leader: GameSession, order: str) -> str:
-    """Gives an order and returns what the leader read, ending with its Ok."""
-    reply = reply_to(leader, order, [ORDER_OK_MARKER, *ORDER_REFUSAL_MARKERS])
-    assert not any(refusal in reply for refusal in ORDER_REFUSAL_MARKERS), reply
+    """Give an order and return what the leader read, ending with its Ok."""
+    reply = reply_to(leader, order, [ORDER_DONE_REPLY, *ORDER_REFUSALS])
+    assert not any(refusal in reply for refusal in ORDER_REFUSALS), reply
     return reply
 
 
 def walk(leader: GameSession, direction: str, room_name: str) -> None:
-    """Walks the leader one room; every follower's step runs in the same pass."""
-    arrived = reply_to(leader, direction, [room_name, NO_WAY_MARKER])
+    """Walk the leader one room; every follower's step runs in the same pass."""
+    arrived = reply_to(leader, direction, [room_name, NO_WAY_REPLY])
     assert room_name in arrived, arrived
 
 
 def load_warband(implementor: GameSession) -> None:
-    """Loads the recruits, wolves and wargs into the implementor's room, the yard."""
-    mob_vnums = [recruit.vnum for recruit in RECRUITS] + [recruit.mount_vnum for recruit in RECRUITS] + [warg.vnum for warg in WARGS]
+    """Load the recruits, wolves and wargs into the implementor's room, the yard."""
+    recruit_vnums = [recruit.vnum for recruit in RECRUITS]
+    mount_vnums = [recruit.mount_vnum for recruit in RECRUITS]
+    warg_vnums = [warg.vnum for warg in WARGS]
+    mob_vnums = recruit_vnums + mount_vnums + warg_vnums
     for vnum in mob_vnums:
         load_mob(implementor, vnum)
 
 
 def recruit_and_lead(leader: GameSession) -> None:
-    """The leader recruits the three recruits and leads the two wargs; asserts each joins."""
+    """Have the leader recruit the three recruits and lead the two wargs; assert each joins."""
     for recruit in RECRUITS:
-        leader.send_line(f"recruit {recruit.keyword}")
         recruit_name = capitalised(recruit.name)
         joined = JOINS_COMPANY_FORMAT.format(recruit_name)
         following = STARTS_FOLLOWING_FORMAT.format(recruit_name)
-        reply = leader.expect([joined, *RECRUIT_REFUSAL_MARKERS]) + leader.drain(SETTLE_SECONDS)
+        reply = reply_to(leader, f"recruit {recruit.keyword}", [joined, *RECRUIT_REFUSALS])
         assert joined in reply and following in reply, reply
 
     for warg in WARGS:
-        leader.send_line(f"lead {warg.keyword}")
         led = LEADS_FORMAT.format(warg.name)
         warg_name = capitalised(warg.name)
         following = STARTS_FOLLOWING_FORMAT.format(warg_name)
-        reply = leader.expect([led, *LEAD_REFUSAL_MARKERS]) + leader.drain(SETTLE_SECONDS)
+        reply = reply_to(leader, f"lead {warg.keyword}", [led, *LEAD_REFUSALS])
         assert led in reply and following in reply, reply
 
 
 def dress_and_mount(implementor: GameSession, leader: GameSession) -> None:
-    """Gives each recruit its gear; the leader orders it to wield, wear all and ride its wolf."""
+    """Give each recruit its gear; have the leader order it to wield, wear all and ride its wolf."""
     for recruit in RECRUITS:
         for vnum in (*ARMOUR_VNUMS, recruit.weapon_vnum):
             load_object(implementor, vnum)
+
         given = implementor.command(f"give all {recruit.keyword}")
         assert given.text.count(f"to {recruit.name}.") == len(ARMOUR_VNUMS) + 1, given.text
         recruit_name = capitalised(recruit.name)
@@ -376,14 +393,21 @@ def dress_and_mount(implementor: GameSession, leader: GameSession) -> None:
 
 
 def give_leader_armband(implementor: GameSession, leader: GameSession) -> None:
-    """Hands the leader its armband to wear."""
-    give_new_object(implementor, ARMBAND_VNUM, "armband", LEADER_KEYWORD, shown_recipient=LEADER.name, short_description="a red armband")
-    worn = reply_to(leader, "wear armband", [ARMBAND_WORN_MARKER, "You don't seem to have"])
-    assert ARMBAND_WORN_MARKER in worn, worn
+    """Hand the leader its armband and have it wear the armband."""
+    give_new_object(
+        implementor,
+        ARMBAND_VNUM,
+        "armband",
+        LEADER_KEYWORD,
+        shown_recipient=LEADER.name,
+        short_description=ARMBAND_SHORT_DESCRIPTION,
+    )
+    worn = reply_to(leader, "wear armband", [ARMBAND_WORN_REPLY, NO_ARMBAND_START])
+    assert ARMBAND_WORN_REPLY in worn, worn
 
 
 def check_warband(implementor: GameSession, room: int, gear: Counter, *, riding: bool, two_handed: bool) -> None:
-    """Asserts the leader stands in room with every follower once and every item as gear has it.
+    """Assert the leader stands in room with every follower once and every item as gear has it.
 
     Each recruit follows the leader, carries nothing and wears its setup's gear in its setup's
     slots; it rides its wolf, or the wolf follows it. Each warg follows the leader.
@@ -395,7 +419,8 @@ def check_warband(implementor: GameSession, room: int, gear: Counter, *, riding:
 
     census = warband_census(implementor)
     assert census == expected_warband(room), f"not one of each band mob in {room}: {census}"
-    assert gear_census(implementor) == gear
+    held_gear = gear_census(implementor)
+    assert held_gear == gear, held_gear
 
     room_look = implementor_reply(implementor, "look")
     for recruit in RECRUITS:
@@ -404,12 +429,14 @@ def check_warband(implementor: GameSession, room: int, gear: Counter, *, riding:
         assert master_and_followers(recruit_stat) == (LEADER.name, mount_followers), recruit_stat
         assert matched_groups(ITEMS_PATTERN, recruit_stat) == ("0", str(len(ARMOUR_VNUMS) + 1)), recruit_stat
         assert ("TWO-HANDED" in affect_bits(recruit_stat)) == two_handed, recruit_stat
-        assert equipment(implementor, recruit.keyword) == expected_equipment(recruit, two_handed=two_handed)
+        worn = equipment(implementor, recruit.keyword)
+        assert worn == expected_equipment(recruit, two_handed=two_handed), worn
 
         mount_stat = implementor_reply(implementor, f"stat mob {recruit.mount_keyword}")
         mount_master = "<none>" if riding else recruit.name
         assert master_and_followers(mount_stat) == (mount_master, Counter()), mount_stat
-        riding_line = f"{capitalised(recruit.name)} is riding on {recruit.mount_name}."
+        rider_name = capitalised(recruit.name)
+        riding_line = f"{rider_name} is riding on {recruit.mount_name}."
         assert (riding_line in room_look) == riding, room_look
 
     for warg in WARGS:
@@ -418,32 +445,34 @@ def check_warband(implementor: GameSession, room: int, gear: Counter, *, riding:
 
 
 def check_room_of_everyone(implementor: GameSession, room: int, gear: Counter) -> None:
-    """Asserts every recruit, wolf, warg and item has walked into room with the leader."""
+    """Assert every recruit, wolf, warg and item has walked into room with the leader."""
     leader_stat = implementor_reply(implementor, f"stat player {LEADER_KEYWORD}")
     assert first_number(IN_ROOM_PATTERN, leader_stat) == room, leader_stat
-    assert warband_census(implementor) == expected_warband(room)
-    assert gear_census(implementor) == gear_in(gear, room)
+    census = warband_census(implementor)
+    assert census == expected_warband(room), census
+    held_gear = gear_census(implementor)
+    assert held_gear == gear_in(gear, room), held_gear
 
 
 def walk_out_and_back(implementor: GameSession, leader: GameSession, gear: Counter) -> None:
-    """Walks the leader from the inn to the track and back, checking that everyone followed."""
-    walk(leader, "east", YARD_NAME)
-    walk(leader, "east", TRACK_NAME)
+    """Walk the leader from the inn to the track and back, checking that everyone followed."""
+    walk(leader, "east", ROOM_YARD_NAME)
+    walk(leader, "east", ROOM_TRACK_NAME)
     check_room_of_everyone(implementor, ROOM_TRACK, gear)
-    walk(leader, "west", YARD_NAME)
-    walk(leader, "west", INN_NAME)
-    check_room_of_everyone(implementor, ROOM_INN, gear)
+    walk(leader, "west", ROOM_YARD_NAME)
+    walk(leader, "west", ROOM_WARBAND_INN_NAME)
+    check_room_of_everyone(implementor, ROOM_WARBAND_INN, gear)
 
 
 def rent(leader: GameSession) -> None:
-    """Rents at the innkeeper and asserts the rent ended the leader's play at the character menu."""
+    """Rent at the innkeeper and assert the rent ended the leader's play at the character menu."""
     reply = reply_to(leader, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_START])
     assert RENTED_REPLY in reply and CHARACTER_MENU_PROMPT in reply, reply
     leader.close()
 
 
 def log_leader_in(server) -> GameSession:
-    """Logs the leader in again and asserts it read every follower come back with it."""
+    """Log the leader in again, assert it read every follower come back with it, and return it."""
     leader = server.login(LEADER.name)
     arrival = leader.everything
     for recruit in RECRUITS:
@@ -452,11 +481,12 @@ def log_leader_in(server) -> GameSession:
 
     for warg in WARGS:
         assert STARTS_FOLLOWING_FORMAT.format(capitalised(warg.name)) in arrival, arrival
+
     return leader
 
 
 def mount_and_two_hand(leader: GameSession) -> None:
-    """Orders every recruit to ride the wolf that follows it and to hold its weapon two-handed.
+    """Order every recruit to ride the wolf that follows it and to hold its weapon two-handed.
 
     do_ride with no argument (ranger.cpp) takes the rider's first MOB_MOUNT follower in its room;
     the wargs are not charmed, so `order followers` passes them over (do_order, act_offe.cpp).
@@ -468,26 +498,31 @@ def mount_and_two_hand(leader: GameSession) -> None:
         assert BOTH_HANDS_FORMAT.format(capitalised(recruit.name)) in two_handed, two_handed
 
 
-def stat_values(text: str, *patterns: re.Pattern) -> tuple:
-    """The first number of each pattern in a `stat` reply, in order."""
+def stat_values(text: str, *patterns: re.Pattern[str]) -> tuple[int, ...]:
+    """Return the first number of each pattern in a `stat` reply, in order."""
     return tuple(first_number(pattern, text) for pattern in patterns)
 
 
 def check_fight_margins(implementor: GameSession, leader: GameSession) -> None:
-    """Asserts the numbers that make the fight's outcome independent of every roll."""
+    """Assert the numbers that make the fight's outcome independent of every roll."""
     leader_stat = implementor_reply(implementor, f"stat player {LEADER_KEYWORD}")
-    assert stat_values(leader_stat, REAL_OB_PATTERN, STRENGTH_PATTERN, DAMAGE_PATTERN, ENERGY_PATTERN) == (78, 18, 0, 1200), leader_stat
+    leader_values = stat_values(leader_stat, REAL_OB_PATTERN, CURRENT_STRENGTH_PATTERN, DAMAGE_PATTERN, ENERGY_PATTERN)
+    assert leader_values == (78, 18, 0, 1200), leader_stat
     assert "TWO-HANDED" not in affect_bits(leader_stat), leader_stat
     assert matched_groups(ITEMS_PATTERN, leader_stat) == ("0", "1"), leader_stat
     practice = leader.command("practice").text
     assert not NATURAL_ATTACK_PATTERN.search(practice) and not FIND_WEAKNESS_PATTERN.search(practice), practice
     for recruit in RECRUITS:
         recruit_stat = implementor_reply(implementor, f"stat mob {recruit.keyword}")
-        assert stat_values(recruit_stat, REAL_OB_PATTERN, STRENGTH_PATTERN, DAMAGE_PATTERN, ENERGY_PATTERN) == (49, 18, 20, 1200), recruit_stat
+        recruit_values = stat_values(
+            recruit_stat, REAL_OB_PATTERN, CURRENT_STRENGTH_PATTERN, DAMAGE_PATTERN, ENERGY_PATTERN
+        )
+        assert recruit_values == (49, 18, 20, 1200), recruit_stat
         assert "TWO-HANDED" in affect_bits(recruit_stat), recruit_stat
         weapon_stat = implementor_reply(implementor, f"stat obj {recruit.weapon_keyword}")
         assert f"Carried by: {recruit.name}," in weapon_stat, weapon_stat
         assert first_number(WEAPON_DAMAGE_PATTERN, weapon_stat) == 54, weapon_stat
+
     dummy_stat = implementor_reply(implementor, "stat mob dummy")
     assert matched_groups(HIT_POINTS_BEFORE_GAIN_PATTERN, dummy_stat) == ("75", "75"), dummy_stat
     assert stat_values(dummy_stat, DODGE_PATTERN, PARRY_PATTERN, CONSTITUTION_PATTERN) == (0, 0, 2), dummy_stat
@@ -524,44 +559,53 @@ def check_fight_margins(implementor: GameSession, leader: GameSession) -> None:
     #   past the -Con / 2 = -2 / 2 = -1 at which update_pos makes a mob dead: the third recruit's
     #   blow kills at the latest, and an earlier one may.
     # No product overflows a 32-bit int: the recruit's largest OB is 49 + (55 + 12) + 35 = 151,
-    #   - 151 / 8 = 133, - 40, + 100 = 193, + 10 * (7 - 2) = 243 against a dummy left at 0 hit points
-    #   (incapacitated), and 227 * 343 * (10000 + 100 * 100 + 2 * 133 * 18) = 1930018468, below
-    #   2147483647.
-    assert 20 * (78 + 74 + 35 - (78 + 74 + 35) // 8 - 40 + 100 + 100) * (20000 + 133 * 18) // 13300000 == 10
-    assert 20 * (80 - 80 // 8 - 40 + 100) * (10000 + 133 * 18) // 13300000 == 2
-    assert (54 // 2 + 20 * 10) * (51 - 51 // 8 - 40 + 100) * (10000 + 2 * 133 * 18) // 13300000 == 26
-    assert 75 - 2 - 3 * 26 <= -(2 // 2)
-    assert (54 // 2 + 20 * 10) * (151 - 151 // 8 - 40 + 100 + 50 + 100) * (20000 + 2 * 133 * 18) < 2**31 - 1
+    #   - 151 / 8 = 133, - 40, + 100 = 193, + 10 * (7 - 2) = 243 against a dummy left at 0 hit
+    #   points (incapacitated), and 227 * 343 * (10000 + 100 * 100 + 2 * 133 * 18) = 1930018468,
+    #   below 2147483647.
+    assert 20 * (78 + 74 + 35 - (78 + 74 + 35) // 8 - 40 + 100 + 100) * (20000 + 133 * 18) // 13300000 == 10, (
+        "the leader's largest blow"
+    )
+    assert 20 * (80 - 80 // 8 - 40 + 100) * (10000 + 133 * 18) // 13300000 == 2, "the leader's smallest blow"
+    assert (54 // 2 + 20 * 10) * (51 - 51 // 8 - 40 + 100) * (10000 + 2 * 133 * 18) // 13300000 == 26, (
+        "a recruit's smallest blow"
+    )
+    assert 75 - 2 - 3 * 26 <= -(2 // 2), "the blows leave the dummy alive"
+    assert (54 // 2 + 20 * 10) * (151 - 151 // 8 - 40 + 100 + 50 + 100) * (20000 + 2 * 133 * 18) < 2**31 - 1, (
+        "a recruit's largest product overflows"
+    )
 
 
 def fight(implementor: GameSession, leader: GameSession) -> None:
-    """The leader attacks the dummy and orders its followers to assist; asserts it dies.
+    """Have the leader attack the dummy and order its followers to assist; assert the dummy dies.
 
     do_assist (act_offe.cpp) hits whoever the leader fights. A recruit whose turn comes after the
     dummy died reads `But nobody is fighting him!`, which the leader does not see.
     """
     check_fight_margins(implementor, leader)
-    attacked = reply_to(leader, "hit dummy", [LEADER_ATTACKS_MARKER, *HIT_REFUSAL_MARKERS])
-    assert LEADER_ATTACKS_MARKER in attacked and DUMMY_DEAD_MARKER not in attacked, attacked
+    attacked = reply_to(leader, "hit dummy", [LEADER_ATTACKS_REPLY, *HIT_REFUSALS])
+    assert LEADER_ATTACKS_REPLY in attacked and DUMMY_IS_DEAD not in attacked, attacked
     assisted = leader_order(leader, f"order followers assist {LEADER_KEYWORD}")
-    assert assisted.count(DUMMY_DEAD_MARKER) == 1, assisted
-    before_death, after_death = assisted.split(DUMMY_DEAD_MARKER)
-    assisting = [recruit for recruit in RECRUITS if ASSISTS_FORMAT.format(capitalised(recruit.name)) in before_death]
+    assert assisted.count(DUMMY_IS_DEAD) == 1, assisted
+    before_death, after_death = assisted.split(DUMMY_IS_DEAD)
+    assisting = [
+        recruit for recruit in RECRUITS if ASSISTS_FORMAT.format(capitalised(recruit.name)) in before_death
+    ]
     assert assisting, assisted
     for recruit in assisting:
         assert ATTACKS_DUMMY_FORMAT.format(capitalised(recruit.name)) in before_death, assisted
-    assert not any(missed in assisted for missed in MISSED_BLOW_MARKERS), assisted
-    assert "assists you!" not in after_death, assisted
+
+    assert not any(missed in assisted for missed in MISSED_BLOWS), assisted
+    assert ASSISTS_END not in after_death, assisted
     gone = implementor_reply(implementor, "stat mob dummy")
     assert NO_SUCH_MOB_REPLY in gone, gone
 
 
 def check_anger_and_wait_it_out(server, implementor: GameSession, leader: GameSession) -> None:
-    """Asserts the receptionist refuses the angry leader, then advances the hours its anger lasts."""
+    """Assert the receptionist refuses the angry leader, then advance the hours its anger lasts."""
     angry = implementor_reply(implementor, f"stat player {LEADER_KEYWORD}")
     assert ANGER_AFFECT_PATTERN.search(angry), angry
     refused = reply_to(leader, "rent", [INNKEEPER_TELLS_START, CHARACTER_MENU_PROMPT])
-    assert TOO_ANGRY_MARKER in refused and CHARACTER_MENU_PROMPT not in refused, refused
+    assert TOO_ANGRY_REPLY in refused and CHARACTER_MENU_PROMPT not in refused, refused
     server.advance_hours(ANGER_HOURS + 1)
     leader.drain(SETTLE_SECONDS)
     implementor.drain(SETTLE_SECONDS)
@@ -571,25 +615,24 @@ def check_anger_and_wait_it_out(server, implementor: GameSession, leader: GameSe
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, LEADER)
-@pytest.mark.world_resets(MobReset(world.MOB_INNKEEPER, ROOM_INN))
+@pytest.mark.world_resets(MobReset(world.MOB_INNKEEPER, ROOM_WARBAND_INN))
 def test_a_mounted_geared_warband_comes_back_through_rent_a_fight_and_a_service_stop(server) -> None:
-    """Pins that an orc leader's followers come back as they left, through three rents and a
-    service stop.
+    """Fix pin (#570): an orc leader's followers come back as they left, through rents and a stop.
 
-    The leader leads two wargs and recruits three orcs, each in fifteen items, wielding its own
-    weapon two-handed and riding its own wolf. After each login every follower is back once,
-    the recruits in the same gear, each wolf following its recruit unridden and no weapon held
-    two-handed: neither is saved. Before the last rent the band kills a dummy and the server is
-    stopped and booted again; the leader's anger makes the innkeeper refuse it until the hours
-    pass. The wolves' part is a fix pin: #570 made rent take out the wolf a recruit rides when
-    its save records it; before it, the wolf stayed in the inn and login brought a second. Under
-    affect-hours only the scenario's commands draw: recruiting, leading, riding and renting draw
-    nothing, a recruit's step ahead of its leader draws only the order of the arrival lines, and
-    the fight cannot turn on a roll (check_fight_margins).
+    There are three rents and a service stop. The leader leads two wargs and recruits three orcs,
+    each in fifteen items, wielding its own weapon two-handed and riding its own wolf. After each
+    login every follower is back once, the recruits in the same gear, each wolf following its
+    recruit unridden and no weapon held two-handed: neither is saved. Before the last rent the band
+    kills a dummy and the server is stopped and booted again; the leader's anger makes the innkeeper
+    refuse it until the hours pass. #570 made rent take out the wolf a recruit rides when its save
+    records it; before it, the wolf stayed in the inn and login brought a second. Under affect-hours
+    only the scenario's commands draw: recruiting, leading, riding and renting draw nothing, a
+    recruit's step ahead of its leader draws only the order of the arrival lines, and the fight
+    cannot turn on a roll (check_fight_margins).
     """
     implementor = server.login(IMPLEMENTOR.name)
     leader = server.login(LEADER.name)
-    goto(implementor, ROOM_YARD, YARD_NAME)
+    goto(implementor, ROOM_YARD, ROOM_YARD_NAME)
 
     load_warband(implementor)
     recruit_and_lead(leader)
@@ -597,52 +640,54 @@ def test_a_mounted_geared_warband_comes_back_through_rent_a_fight_and_a_service_
     give_leader_armband(implementor, leader)
 
     for recruit in RECRUITS:
-        assert equipment(implementor, recruit.keyword) == expected_equipment(recruit, two_handed=True)
+        worn = equipment(implementor, recruit.keyword)
+        assert worn == expected_equipment(recruit, two_handed=True), worn
+
     setup_gear = gear_census(implementor)
-    gear = gear_in(setup_gear, ROOM_INN)
+    gear = gear_in(setup_gear, ROOM_WARBAND_INN)
     assert sum(gear.values()) == len(RECRUITS) * (len(ARMOUR_VNUMS) + 1) + 1, gear
-    assert all(place.startswith(CARRIED_BY_PREFIX) for _name, _room, place in gear), gear
+    assert all(place.startswith(CARRIED_BY_PREFIX) for _, _, place in gear), gear
     check_room_of_everyone(implementor, ROOM_YARD, gear)
 
     # Cycle 1: from the yard to the track and back to the inn, mounted and two-handed; rent.
-    walk(leader, "east", TRACK_NAME)
+    walk(leader, "east", ROOM_TRACK_NAME)
     check_room_of_everyone(implementor, ROOM_TRACK, gear)
-    walk(leader, "west", YARD_NAME)
-    walk(leader, "west", INN_NAME)
-    goto(implementor, ROOM_INN, INN_NAME, exact=False)
-    check_warband(implementor, ROOM_INN, gear, riding=True, two_handed=True)
+    walk(leader, "west", ROOM_YARD_NAME)
+    walk(leader, "west", ROOM_WARBAND_INN_NAME)
+    goto(implementor, ROOM_WARBAND_INN, ROOM_WARBAND_INN_NAME, exact=False)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=True, two_handed=True)
     rent(leader)
     leader = log_leader_in(server)
-    check_warband(implementor, ROOM_INN, gear, riding=False, two_handed=False)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=False, two_handed=False)
 
     # Cycle 2: mount and two-hand again, walk out and back, rent.
     mount_and_two_hand(leader)
-    check_warband(implementor, ROOM_INN, gear, riding=True, two_handed=True)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=True, two_handed=True)
     walk_out_and_back(implementor, leader, gear)
     rent(leader)
     leader = log_leader_in(server)
-    check_warband(implementor, ROOM_INN, gear, riding=False, two_handed=False)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=False, two_handed=False)
 
     # Cycle 3: mount and two-hand, fight on the track, come back and stop the server.
     mount_and_two_hand(leader)
-    goto(implementor, ROOM_TRACK, TRACK_NAME, exact=False)
-    load_mob(implementor, DUMMY_VNUM, DUMMY_NAME)
-    walk(leader, "east", YARD_NAME)
-    walk(leader, "east", TRACK_NAME)
+    goto(implementor, ROOM_TRACK, ROOM_TRACK_NAME, exact=False)
+    load_mob(implementor, DUMMY_VNUM, DUMMY_SHORT_DESCRIPTION)
+    walk(leader, "east", ROOM_YARD_NAME)
+    walk(leader, "east", ROOM_TRACK_NAME)
     fight(implementor, leader)
-    walk(leader, "west", YARD_NAME)
-    walk(leader, "west", INN_NAME)
-    goto(implementor, ROOM_INN, INN_NAME, exact=False)
-    check_warband(implementor, ROOM_INN, gear, riding=True, two_handed=True)
+    walk(leader, "west", ROOM_YARD_NAME)
+    walk(leader, "west", ROOM_WARBAND_INN_NAME)
+    goto(implementor, ROOM_WARBAND_INN, ROOM_WARBAND_INN_NAME, exact=False)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=True, two_handed=True)
 
     server.restart()
     implementor = server.login(IMPLEMENTOR.name)
     leader = log_leader_in(server)
-    goto(implementor, ROOM_INN, INN_NAME, exact=False)
-    check_warband(implementor, ROOM_INN, gear, riding=False, two_handed=False)
+    goto(implementor, ROOM_WARBAND_INN, ROOM_WARBAND_INN_NAME, exact=False)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=False, two_handed=False)
 
     # The last rent, with each wolf following its recruit.
     check_anger_and_wait_it_out(server, implementor, leader)
     rent(leader)
     leader = log_leader_in(server)
-    check_warband(implementor, ROOM_INN, gear, riding=False, two_handed=False)
+    check_warband(implementor, ROOM_WARBAND_INN, gear, riding=False, two_handed=False)

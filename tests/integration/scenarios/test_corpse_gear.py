@@ -1,5 +1,8 @@
-"""Corpse gear: a death to poison or to a player gathers the wearable gear in the dead one's bags
-into the top of its corpse."""
+"""Corpse gear: what a death gathers into the top of the dead one's corpse.
+
+A death to poison or to a player gathers the wearable gear in the dead one's bags into the top of
+its corpse.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +11,9 @@ import pytest
 from rots_harness import world
 from rots_harness.casting import LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import CORPSE_CONTENTS_HEADER, IS_DEAD_FORMAT
-from rots_harness.immortal_commands import goto, load_mob, load_object
-from rots_harness.replies import reply_to
+from rots_harness.game_text import CORPSE_CONTENTS_HEADER, FORCED_REPLY, IS_DEAD_FORMAT, PUT_FORMAT
+from rots_harness.immortal_commands import GIVEN_FORMAT, GIVEN_START, goto, load_mob, load_object
+from rots_harness.replies import SETTLE_SECONDS, reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import (
     ANGER_AFFECT_PATTERN,
@@ -27,6 +30,10 @@ pytestmark = [pytest.mark.scenario, pytest.mark.corpse_gear]
 # The frail taster (mob 2205, tests/integration/world/mob/22.mob): one hit point, constitution 2,
 # no script, no resistances.
 TASTER_VNUM = 2205
+# The frail taster's short description.
+TASTER_SHORT_DESCRIPTION = "a frail taster"
+# The tainted bread's short description (world.OBJECT_TAINTED_BREAD).
+BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
 # The damage each poison tick deals (affect_update, limits.cpp).
 POISON_TICK_DAMAGE = 5
 
@@ -43,38 +50,45 @@ SLINGER = Character(
 )
 
 # What the room reads as the taster dies.
-TASTER_DEAD_MARKER = IS_DEAD_FORMAT.format("A frail taster")
-# What `look in bag` prints before a carried bag's contents (show_obj_contents, act_info.cpp).
-BAG_CONTENTS_HEADER = "bag (carried) :"
+TASTER_IS_DEAD = IS_DEAD_FORMAT.format("A frail taster")
+# What putting the cap in the bag answers.
+CAP_PUT_REPLY = PUT_FORMAT.format(
+    world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION,
+    world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION,
+)
+# What giving the bag to the taster answers.
+BAG_GIVEN_REPLY = GIVEN_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION, TASTER_SHORT_DESCRIPTION)
+# The start of what getting the bag out of the corpse answers (perform_get_from_container,
+# act_obj1.cpp).
+BAG_TAKEN_START = f"You get {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION} from"
 # Seconds to wait for a cast's outcome: magic missile's casting delay at mage level 30 is a few
 # seconds (CASTING_TIME, spells.h); 20 leaves room for a loaded host.
-CAST_TIMEOUT = 20.0
+CAST_TIMEOUT_SECONDS = 20.0
 # The game hours of anger a player's blow at a mob gives (on_attacked_character,
 # char_utils_combat.cpp).
 ANGER_HOURS = 2
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
-    """Brings the implementor to the Order Hall, loads the taster and gives it a bag with a cap in it."""
+    """Bring the implementor to the Order Hall, load the taster and give it a bag holding a cap."""
     goto(implementor, world.ROOM_ORDER_HALL, world.ROOM_ORDER_HALL_NAME)
-    load_mob(implementor, TASTER_VNUM, "a frail taster")
+    load_mob(implementor, TASTER_VNUM, TASTER_SHORT_DESCRIPTION)
     load_object(implementor, world.OBJECT_LEATHER_BAG, world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
     load_object(implementor, world.OBJECT_LEATHER_CAP, world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
-    assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
+    put = implementor.command("put cap bag")
+    assert put.contains(CAP_PUT_REPLY), implementor.everything
     given = implementor.command("give bag taster")
-    assert given.contains("You give a leather bag to a frail taster."), given.text
+    assert given.contains(BAG_GIVEN_REPLY), given.text
 
 
 def assert_the_corpse_holds_the_cap_outside_the_bag(implementor: GameSession) -> None:
-    """Asserts the taster's corpse lists the bag and the cap, and the bag no longer holds the cap."""
+    """Assert the taster's corpse lists the bag and the cap, and the bag does not hold the cap."""
     corpse = implementor.command("look in corpse").text
     corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
     assert world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION in corpse_contents, corpse
     assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION in corpse_contents, corpse
     taken = implementor.command("get bag corpse")
-    assert taken.contains("You get a leather bag from"), taken.text
+    assert taken.contains(BAG_TAKEN_START), taken.text
     bag = implementor.command("look in bag").text
     assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in bag, bag
 
@@ -92,10 +106,11 @@ def test_a_mob_that_dies_of_poison_has_its_bagged_cap_gathered_into_its_corpse(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     hand_the_taster_a_bagged_cap(implementor)
-    load_object(implementor, world.OBJECT_TAINTED_BREAD, "a piece of tainted bread")
-    assert implementor.command("give bread taster").contains("You give"), implementor.everything
+    load_object(implementor, world.OBJECT_TAINTED_BREAD, BREAD_SHORT_DESCRIPTION)
+    bread_given = implementor.command("give bread taster")
+    assert bread_given.contains(GIVEN_START), implementor.everything
     eaten = implementor.command("force taster eat bread")
-    assert eaten.contains("Ok."), eaten.text
+    assert eaten.contains(FORCED_REPLY), eaten.text
 
     taster = read_stat(implementor, "mob taster")
     hit_points = first_number(HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, taster)
@@ -108,10 +123,10 @@ def test_a_mob_that_dies_of_poison_has_its_bagged_cap_gathered_into_its_corpse(s
     #     (dam: damage(i, i, 5, SPELL_POISON, 0) in affect_update; check_resistances is 0 for
     #      RES <NONE> VUL <NONE>, and no shield)
     #   = -4 <= -1: POSITION_DEAD.
-    assert hit_points - POISON_TICK_DAMAGE <= -(constitution // 2)
+    assert hit_points - POISON_TICK_DAMAGE <= -(constitution // 2), taster
 
-    died = server.text_after_hours(implementor, expected_marker=TASTER_DEAD_MARKER)
-    assert TASTER_DEAD_MARKER in died, died
+    died = server.text_after_hours(implementor, expected_marker=TASTER_IS_DEAD)
+    assert TASTER_IS_DEAD in died, died
     assert_the_corpse_holds_the_cap_outside_the_bag(implementor)
 
 
@@ -136,7 +151,7 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
     saving_throw = first_number(SAVING_THROW_PATTERN, taster)
     slinger_stat = read_stat(implementor, f"player {SLINGER.name.lower()}")
     mage_level = first_number(MAGE_LEVEL_PATTERN, slinger_stat)
-    assert (hit_points, saving_throw, mage_level) == (1, 0, 30)
+    assert (hit_points, saving_throw, mage_level) == (1, 0, 30), taster + slinger_stat
     # The least damage the missile can deal (spell_magic_missile and apply_spell_damage, mage.cpp):
     #   dam = 12 + number(1, mag_power / 6)          >= 13  (mag_power is at least Mag:30)
     #   saved: dam >> 1                              >= 13 >> 1 = 6
@@ -147,13 +162,14 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
     #     (damage, fight.cpp: no resistance, vulnerability or shield on the taster)
     # A player's blow then drives GET_HIT(victim) = 1 - 7 = -6, below 0, to -20 or lower:
     #   -20 <= -GET_CON(victim) / 2 = -1: POSITION_DEAD.
-    assert int((13 >> 1) * (2.0 - 20.0 / (20.0 - (saving_throw - mage_level / 5.0)))) == 7
-    assert hit_points - 7 < 0
+    assert int((13 >> 1) * (2.0 - 20.0 / (20.0 - (saving_throw - mage_level / 5.0)))) == 7, slinger_stat
+    assert hit_points - 7 < 0, taster
 
+    cast_outcomes = [TASTER_IS_DEAD, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY]
     while True:
-        outcome = reply_to(slinger, "cast 'magic missile' taster", [TASTER_DEAD_MARKER, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY], timeout=CAST_TIMEOUT)
+        outcome = reply_to(slinger, "cast 'magic missile' taster", cast_outcomes, timeout=CAST_TIMEOUT_SECONDS)
         assert NO_ENERGY_REPLY not in outcome, "the mage ran out of mana before a cast held"
-        if TASTER_DEAD_MARKER in outcome:
+        if TASTER_IS_DEAD in outcome:
             break
     implementor.drain(SETTLE_SECONDS)
     assert_the_corpse_holds_the_cap_outside_the_bag(implementor)
