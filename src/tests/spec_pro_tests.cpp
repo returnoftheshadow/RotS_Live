@@ -7,13 +7,17 @@
 #include "test_cleanup.h"
 
 #include <memory>
+#include <string>
 
 SPECIAL(ar_tarthalon);
 SPECIAL(ghoul);
 SPECIAL(vampire_killer);
+SPECIAL(vampire_doorkeep);
 SPECIAL(wolf_summoner);
 SPECIAL(reciter);
 SPECIAL(herald);
+SPECIAL(vampire_huntress);
+SPECIAL(thuringwethil);
 
 extern struct char_data* mob_proto;
 extern struct index_data* mob_index;
@@ -58,6 +62,15 @@ constexpr int WIGHT_ROUTE_EAST_VNUM = 8482;
 // The two cells of Thuringwethil's dungeon, which the vampire killer watches.
 constexpr int LOWER_CELL_VNUM = 15398;
 constexpr int UPPER_CELL_VNUM = 15399;
+// The two rooms on the vampire killer's route from which he goes south through a cell's door:
+// from the first when the prisoner is in the lower cell, from the second when in the upper.
+constexpr int FIRST_CELL_DOOR_ROOM_VNUM = 15396;
+constexpr int SECOND_CELL_DOOR_ROOM_VNUM = 15397;
+// The room past room SECOND_ROOM, for a test that needs three.
+constexpr int THIRD_ROOM = 2;
+// The two rooms of Thuringwethil's tower whose shared door the vampire doorkeeper keeps.
+constexpr int DOORKEEPERS_NORTH_ROOM_VNUM = 15345;
+constexpr int DOORKEEPERS_SOUTH_ROOM_VNUM = 15355;
 
 // The wolf summoner (3948) and the helper it summons, the next vnum.
 constexpr int SUMMONER_VNUM = 3948;
@@ -68,6 +81,16 @@ constexpr int RISEN_GHOUL_VNUM = 15300;
 
 // Enough movement points for any step.
 constexpr int PLENTY_OF_MOVES = 100;
+
+// Thuringwethil's bat form (the Vampire Huntress) and her human form, and the tower room both fly
+// back to.
+constexpr int THURINGWETHIL_BAT_VNUM = 15301;
+constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
+constexpr int VAMPIRE_TOWER_VNUM = 15379;
+// The most hit points Thuringwethil can have and still be beaten.
+constexpr int THURINGWETHIL_BEATEN_HIT_POINTS = 500;
+// Hit points of a Vampire Huntress badly enough hurt to flee (below a fifth of MOB_HIT_POINTS).
+constexpr int FLEEING_HUNTRESS_HIT_POINTS = 50;
 
 // A poem the reciter must only read: it lives in read-only memory, so a write into it faults.
 const char READ_ONLY_POEM[] = "First line\n\rSecond line\n\r";
@@ -86,6 +109,15 @@ protected:
         m_saved_top_of_mobt = top_of_mobt;
         m_saved_extra_descriptions[0] = world[0].ex_description;
         m_saved_extra_descriptions[1] = world[SECOND_ROOM].ex_description;
+        room_data& third_room = world[THIRD_ROOM];
+        m_saved_third_room.number = third_room.number;
+        m_saved_third_room.zone = third_room.zone;
+        m_saved_third_room.light = third_room.light;
+        m_saved_third_room.people = third_room.people;
+        m_saved_third_room.contents = third_room.contents;
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            m_saved_third_room.exits[direction] = third_room.dir_option[direction];
+        }
     }
 
     void TearDown() override
@@ -94,6 +126,15 @@ protected:
         ScriptedRoomFixture::TearDown();
         world[0].ex_description = m_saved_extra_descriptions[0];
         world[SECOND_ROOM].ex_description = m_saved_extra_descriptions[1];
+        room_data& third_room = world[THIRD_ROOM];
+        third_room.number = m_saved_third_room.number;
+        third_room.zone = m_saved_third_room.zone;
+        third_room.light = m_saved_third_room.light;
+        third_room.people = m_saved_third_room.people;
+        third_room.contents = m_saved_third_room.contents;
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            third_room.dir_option[direction] = m_saved_third_room.exits[direction];
+        }
         mob_proto = m_saved_mob_proto;
         mob_index = m_saved_mob_index;
         top_of_mobt = m_saved_top_of_mobt;
@@ -200,6 +241,22 @@ protected:
         return scroll;
     }
 
+    // Brings room THIRD_ROOM into the world after SECOND_ROOM, lit, numbered <virtual_number>
+    // and with no exits; TearDown puts back what it held.
+    static void add_third_room(int virtual_number)
+    {
+        top_of_world = THIRD_ROOM;
+        room_data& third_room = world[THIRD_ROOM];
+        third_room.number = virtual_number;
+        third_room.zone = 0;
+        third_room.light = 1;
+        third_room.people = nullptr;
+        third_room.contents = nullptr;
+        for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            third_room.dir_option[direction] = nullptr;
+        }
+    }
+
     // Runs special procedure <procedure> for <host> on its own turn.
     static int run_own_turn(special_func procedure, char_data* host)
     {
@@ -256,6 +313,23 @@ private:
     index_data* m_saved_mob_index = nullptr;
     int m_saved_top_of_mobt = 0;
     extra_descr_data* m_saved_extra_descriptions[2] { };
+    // The fields of a room that add_third_room changes, as they were before it.
+    struct SavedRoom {
+        // The room's vnum.
+        int number = 0;
+        // The room's zone.
+        int zone = 0;
+        // The room's light count.
+        byte light = 0;
+        // Who was in the room.
+        char_data* people = nullptr;
+        // What lay in the room.
+        obj_data* contents = nullptr;
+        // The room's exits, one per direction.
+        room_direction_data* exits[NUM_OF_DIRS] {};
+    };
+    // What room THIRD_ROOM held before the test, put back by TearDown.
+    SavedRoom m_saved_third_room;
 };
 
 } // namespace
@@ -360,7 +434,65 @@ TEST_F(SpecialProcTest, WhatADismissedGhoulCarriedFallsToTheGround)
     EXPECT_EQ(0, bread->in_room);
 }
 
+// The summoning ghoul and the ghoul it dismisses each carry something: what the dismissed one
+// carried falls to the ground, and the summoner keeps its own.
+TEST_F(SpecialProcTest, ADismissedGhoulsBelongingsFallAndTheSummonerKeepsItsOwn)
+{
+    char_data* summoner = make_mob("ghoul", 0);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    obj_to_char(stone, summoner);
+    char_data* risen = make_risen_ghoul();
+    add_follower(risen, summoner, FOLLOW_MOVE);
+    obj_data* bread = make_object(BREAD_VNUM, 0);
+    obj_to_char(bread, risen);
+    push_test_random_value(LOWEST_ROLL); // the idle follower is dismissed
+
+    run_own_turn(ghoul, summoner);
+
+    EXPECT_FALSE(is_in_game(risen));
+    EXPECT_EQ(stone, summoner->carrying);
+    EXPECT_EQ(nullptr, stone->next_content);
+    EXPECT_EQ(0, bread->in_room);
+}
+
+// A fighting ghoul calls for help, but the mob table has no risen ghoul: that is logged, and
+// nothing rises.
+TEST_F(SpecialProcTest, AGhoulWithNoRisenGhoulInTheTableRaisesNothing)
+{
+    install_mob_table({ SUMMONER_VNUM });
+    char_data* summoner = make_mob("ghoul", 0);
+    summoner->specials.position = POSITION_FIGHTING;
+    const int characters_before = count_characters();
+    push_test_random_value(LOWEST_ROLL); // it calls for help
+
+    testing::internal::CaptureStderr();
+    run_own_turn(ghoul, summoner);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(characters_before, count_characters());
+    EXPECT_EQ(0, count_followers(summoner));
+    EXPECT_NE(std::string::npos, logged.find("ghoul: the risen ghoul does not exist!")) << logged;
+}
+
 // ---- the vampire killer ----
+
+// Nobody is in either cell, so he would leave the upper cell by its north door, but the cell has
+// no north exit: that is logged, and he stays.
+TEST_F(SpecialProcTest, TheVampireKillerInACellWithNoNorthExitLogsAndStays)
+{
+    world[0].number = LOWER_CELL_VNUM;
+    world[SECOND_ROOM].number = UPPER_CELL_VNUM;
+    char_from_room(&m_player);
+    char_data* killer = make_walker("killer", SECOND_ROOM);
+
+    testing::internal::CaptureStderr();
+    run_own_turn(vampire_killer, killer);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(SECOND_ROOM, killer->in_room);
+    EXPECT_NE(std::string::npos, logged.find("vampire_killer: his cell has no north exit"))
+        << logged;
+}
 
 // Nobody is in either cell, so he leaves the upper cell through its closed door.
 TEST_F(SpecialProcTest, TheVampireKillerInAnEmptyCellLeavesThroughItsDoor)
@@ -397,6 +529,71 @@ TEST_F(SpecialProcTest, TheVampireKillerOffHisRouteTakesNoStep)
     run_own_turn(vampire_killer, killer);
 
     EXPECT_EQ(0, killer->in_room);
+}
+
+// <killer> stands in room 0, numbered <door_room_vnum>, and <prisoner> waits in the cell he goes
+// to through its south door (room <prisoner_room>), but room 0 has no south exit: that is
+// logged, and he takes no step.
+static void expect_killer_at_a_missing_cell_door_logs(
+    int door_room_vnum, int prisoner_room, char_data& prisoner, char_data* killer)
+{
+    char_from_room(&prisoner);
+    char_to_room(&prisoner, prisoner_room);
+    push_test_random_value(LOWEST_ROLL); // he goes after the prisoner
+
+    testing::internal::CaptureStderr();
+    char no_argument[1] = "";
+    vampire_killer(killer, killer, 0, no_argument, SPECIAL_SELF, nullptr);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, killer->in_room);
+    const std::string expected
+        = "vampire_killer: room " + std::to_string(door_room_vnum) + " has no south exit";
+    EXPECT_NE(std::string::npos, logged.find(expected)) << logged;
+}
+
+TEST_F(SpecialProcTest, TheVampireKillerAtTheFirstCellDoorRoomWithNoDoorIsLogged)
+{
+    world[0].number = FIRST_CELL_DOOR_ROOM_VNUM;
+    world[0].dir_option[SOUTH] = nullptr;
+    world[SECOND_ROOM].number = LOWER_CELL_VNUM;
+    add_third_room(UPPER_CELL_VNUM);
+    char_data* killer = make_walker("killer");
+
+    expect_killer_at_a_missing_cell_door_logs(
+        FIRST_CELL_DOOR_ROOM_VNUM, SECOND_ROOM, m_player, killer);
+}
+
+TEST_F(SpecialProcTest, TheVampireKillerAtTheSecondCellDoorRoomWithNoDoorIsLogged)
+{
+    world[0].number = SECOND_CELL_DOOR_ROOM_VNUM;
+    world[0].dir_option[SOUTH] = nullptr;
+    world[SECOND_ROOM].number = LOWER_CELL_VNUM;
+    add_third_room(UPPER_CELL_VNUM);
+    char_data* killer = make_walker("killer");
+
+    expect_killer_at_a_missing_cell_door_logs(
+        SECOND_CELL_DOOR_ROOM_VNUM, THIRD_ROOM, m_player, killer);
+}
+
+// ---- the vampire doorkeeper ----
+
+// The door the doorkeeper keeps has no north side in the room south of it: that is logged, and
+// the side there is is left alone.
+TEST_F(SpecialProcTest, TheVampireDoorkeepersDoorMissingASideIsLogged)
+{
+    world[0].number = DOORKEEPERS_NORTH_ROOM_VNUM;
+    world[SECOND_ROOM].number = DOORKEEPERS_SOUTH_ROOM_VNUM;
+    char_data* doorkeeper = make_mob("doorkeeper", 0);
+
+    testing::internal::CaptureStderr();
+    run_own_turn(vampire_doorkeep, doorkeeper);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(0, world[0].dir_option[SOUTH]->exit_info);
+    EXPECT_NE(std::string::npos,
+        logged.find("vampire_doorkeep: the door between rooms 15345 and 15355 is missing a side"))
+        << logged;
 }
 
 // ---- the wolf summoner ----
@@ -551,4 +748,84 @@ TEST_F(SpecialProcTest, TheHeraldKeepsAStrayPercentSignAsWritten)
     run_set_off_by(herald, herald_mob, &m_player);
 
     EXPECT_TRUE(output_has("Hail Tester, the Brave! I am 100% sure.")) << output();
+}
+
+// ---- Thuringwethil changing form ----
+
+// The Vampire Huntress, badly hurt, flies to her tower to become a woman there, but the mob
+// table has no human form: she stays in the tower as the bat, and nothing is read before the
+// table.
+TEST_F(SpecialProcTest, AFleeingVampireHuntressWithNoHumanFormStaysABat)
+{
+    install_mob_table({ THURINGWETHIL_BAT_VNUM });
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    char_data* huntress = make_mob("huntress", 0);
+    huntress->specials.position = POSITION_FIGHTING;
+    huntress->tmpabilities.hit = FLEEING_HUNTRESS_HIT_POINTS;
+    const int characters_before = count_characters();
+
+    testing::internal::CaptureStderr();
+    const int handled = run_own_turn(vampire_huntress, huntress);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(1, handled);
+    ASSERT_TRUE(is_in_game(huntress));
+    EXPECT_EQ(SECOND_ROOM, huntress->in_room);
+    EXPECT_EQ(characters_before, count_characters());
+    EXPECT_NE(std::string::npos,
+        logged.find("vampire_huntress: her human form, mob 15302, does not exist!"))
+        << logged;
+}
+
+// Thuringwethil, healed, melts away to become the bat again, but the mob table has no bat form:
+// she leaves, and no bat is made from before the table.
+TEST_F(SpecialProcTest, AHealedThuringwethilWithNoBatFormLeavesNothingBehind)
+{
+    install_mob_table({ THURINGWETHIL_HUMAN_VNUM });
+    world[SECOND_ROOM].number = VAMPIRE_TOWER_VNUM;
+    char_data* vampire = make_mob("thuringwethil", 0);
+    vampire->abilities.hit = 2 * THURINGWETHIL_BEATEN_HIT_POINTS;
+    vampire->tmpabilities.hit = 2 * THURINGWETHIL_BEATEN_HIT_POINTS;
+    const int characters_before = count_characters();
+
+    testing::internal::CaptureStderr();
+    const int handled = run_own_turn(thuringwethil, vampire);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(1, handled);
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_EQ(characters_before - 1, count_characters());
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+    EXPECT_NE(
+        std::string::npos, logged.find("thuringwethil: her bat form, mob 15301, does not exist!"))
+        << logged;
+}
+
+// ---- the herald, continued ----
+
+// A newcomer with no title is announced with nothing where the title goes.
+TEST_F(SpecialProcTest, TheHeraldAnnouncesANewcomerWithNoTitleByNameAlone)
+{
+    char announcement[] = "Hail %s, %s!";
+    char_data* herald_mob = make_mob("herald", 0);
+    herald_mob->player.death_cry2 = announcement;
+    m_player.player.title = nullptr;
+
+    run_set_off_by(herald, herald_mob, &m_player);
+
+    EXPECT_TRUE(output_has("Hail Tester, !")) << output();
+}
+
+// Only the first two "%s" are filled in; a third is kept as written.
+TEST_F(SpecialProcTest, TheHeraldKeepsAThirdPlaceholderAsWritten)
+{
+    char announcement[] = "Hail %s, %s! Beware %s.";
+    char title[] = "the Brave";
+    char_data* herald_mob = make_mob("herald", 0);
+    herald_mob->player.death_cry2 = announcement;
+    m_player.player.title = title;
+
+    run_set_off_by(herald, herald_mob, &m_player);
+
+    EXPECT_TRUE(output_has("Hail Tester, the Brave! Beware %s.")) << output();
 }

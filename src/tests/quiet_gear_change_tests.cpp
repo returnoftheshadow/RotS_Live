@@ -21,7 +21,7 @@
 ACMD(do_wear);
 ACMD(do_quit);
 ACMD(do_purge);
-void Crash_rentsave(struct char_data* character, int cost);
+bool Crash_rentsave(struct char_data* character, int cost);
 void load_character(struct char_data* character);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 bool is_corpse(const obj_data* container);
@@ -251,6 +251,44 @@ protected:
         return ring;
     }
 
+    // A player character in room 0 with no connection, as one is while linkless, made on the heap
+    // so that the game can free it, as it frees a linkless player who dies. TearDown extracts it
+    // if it is still in the game.
+    char_data* make_linkless_player(const char* name)
+    {
+        char_data* player = owned_character().release();
+        player->player.name = str_dup(name);
+        player->player.race = RACE_HUMAN;
+        player->player.level = 10;
+        player->abilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
+        player->abilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
+        player->tmpabilities.str = PLAYER_STRENGTH_AND_DEXTERITY;
+        player->tmpabilities.dex = PLAYER_STRENGTH_AND_DEXTERITY;
+        player->abilities.hit = PLAYER_HIT_POINTS;
+        player->tmpabilities.hit = PLAYER_HIT_POINTS;
+        player->specials.position = POSITION_STANDING;
+        player->next = character_list;
+        character_list = player;
+        register_pc_char(player);
+        char_to_room(player, 0);
+        return player;
+    }
+
+    // Gives <renter> two NPC followers: first in its list one whose ring casts <spell_number> as
+    // it comes off, then one with <second_hit_points>. The spell is cast by the first follower
+    // as the rent strips it, while the second still follows.
+    void give_area_spell_followers(char_data* renter, int spell_number, int second_hit_points,
+        char_data*& out_caster, char_data*& out_second)
+    {
+        out_second = make_mob("second", 0);
+        out_second->tmpabilities.hit = second_hit_points;
+        add_follower(out_second, renter, FOLLOW_MOVE);
+        out_caster = make_mob("caster", 0);
+        put_on_ring_casting(out_caster, spell_number);
+        add_follower(out_caster, renter, FOLLOW_MOVE);
+        EXPECT_EQ(out_caster, renter->followers->follower);
+    }
+
     /* The path of the player's object file, as the game names it. */
     std::filesystem::path player_object_file() const
     {
@@ -449,12 +487,166 @@ TEST_F(QuietGearChangeTest, ARentersFollowerItsPoisonousRingKillsIsLetGo)
     follower->tmpabilities.hit = LOW_HIT_POINTS;
     add_follower(follower, &m_player, FOLLOW_MOVE);
 
-    Crash_rentsave(&m_player, 0);
+    EXPECT_TRUE(Crash_rentsave(&m_player, 0));
 
     EXPECT_FALSE(is_in_game(follower));
     EXPECT_EQ(nullptr, m_player.followers);
     EXPECT_EQ(1, count_corpses_in_room());
     EXPECT_FALSE(is_in_object_list(ring));
+    objects_json::ObjectSaveData saved;
+    ASSERT_TRUE(read_player_object_file(saved));
+    EXPECT_EQ(RENT_RENTED, saved.rent.rentcode);
+}
+
+// The first follower's ring shakes the earth as it comes off, and the quake kills the second
+// follower, whose follow record goes with it: the rent removes both and saves.
+TEST_F(QuietGearChangeTest, ARentersFollowerWhoseGearShakesTheEarthKillsAnotherIsLetGo)
+{
+    char_data* caster = nullptr;
+    char_data* second = nullptr;
+    give_area_spell_followers(&m_player, SPELL_EARTHQUAKE, LOW_HIT_POINTS, caster, second);
+
+    EXPECT_TRUE(Crash_rentsave(&m_player, 0));
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_FALSE(is_in_game(second));
+    EXPECT_EQ(nullptr, m_player.followers);
+    EXPECT_EQ(1, count_corpses_in_room());
+    objects_json::ObjectSaveData saved;
+    ASSERT_TRUE(read_player_object_file(saved));
+    EXPECT_EQ(RENT_RENTED, saved.rent.rentcode);
+}
+
+// The quake from the first follower's ring kills the renter, which frees every follow record
+// and lets the second follower go: the renter comes back to life where a dead player starts, the
+// first follower is still removed, and the second, no longer a follower, stays.
+TEST_F(QuietGearChangeTest, ARentersFollowerWhoseGearShakesTheEarthKillsTheRenterIsLetGo)
+{
+    // A dead player starts in another room, out of the quake's reach.
+    link_second_room();
+    char start_room_text[] = "Start";
+    char* const saved_start_room_name = world[SECOND_ROOM].name;
+    char* const saved_start_room_description = world[SECOND_ROOM].description;
+    world[SECOND_ROOM].name = start_room_text;
+    world[SECOND_ROOM].description = start_room_text;
+    r_mortal_start_room[RACE_HUMAN] = SECOND_ROOM;
+    put_player_on_the_character_list();
+    m_player.tmpabilities.hit = LOW_HIT_POINTS;
+    char_data* caster = nullptr;
+    char_data* second = nullptr;
+    give_area_spell_followers(&m_player, SPELL_EARTHQUAKE, PLAYER_HIT_POINTS, caster, second);
+
+    const bool renter_stays = Crash_rentsave(&m_player, 0);
+
+    world[SECOND_ROOM].name = saved_start_room_name;
+    world[SECOND_ROOM].description = saved_start_room_description;
+    EXPECT_TRUE(renter_stays);
+    EXPECT_FALSE(is_in_game(caster));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(nullptr, second->master);
+    EXPECT_EQ(nullptr, m_player.followers);
+    EXPECT_EQ(SECOND_ROOM, m_player.in_room);
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+// The same quake kills a renter with no connection, whom the death frees: the rent stops there
+// and says so.
+TEST_F(QuietGearChangeTest, ALinklessRenterTheQuakeOfAFollowersGearKillsIsLetGo)
+{
+    char_data* renter = make_linkless_player("Renter");
+    renter->tmpabilities.hit = LOW_HIT_POINTS;
+    char_data* caster = nullptr;
+    char_data* second = nullptr;
+    give_area_spell_followers(renter, SPELL_EARTHQUAKE, PLAYER_HIT_POINTS, caster, second);
+
+    EXPECT_FALSE(Crash_rentsave(renter, 0));
+
+    EXPECT_FALSE(is_in_game(renter));
+    EXPECT_FALSE(is_in_game(caster));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(nullptr, second->master);
+}
+
+// A renter with no connection too hurt to survive their own poisonous ring dies of it as the rent
+// takes it off, and is freed: the rent stops there and says so.
+TEST_F(QuietGearChangeTest, ALinklessRenterTheirOwnPoisonousRingKillsIsLetGo)
+{
+    char_data* renter = make_linkless_player("Renter");
+    obj_data* ring = make_poisonous_ring();
+    obj_to_char(ring, renter);
+    run_command_as(renter, do_wear, "ring");
+    ASSERT_EQ(ring, renter->equipment[WEAR_FINGER_R]);
+    renter->tmpabilities.hit = LOW_HIT_POINTS;
+
+    EXPECT_FALSE(Crash_rentsave(renter, 0));
+
+    EXPECT_FALSE(is_in_game(renter));
+    EXPECT_FALSE(is_in_object_list(ring));
+    EXPECT_EQ(1, count_corpses_in_room());
+}
+
+// A player follows the renter ahead of two NPC followers, the first of whose ring shakes the
+// earth as it comes off. The walk passes over the player every time it starts again: both NPC
+// followers are removed, and the player still follows, wearing their ring and unhurt.
+TEST_F(QuietGearChangeTest, ARentersPlayerFollowerAheadOfTheNpcFollowersIsPassedOver)
+{
+    char_data* caster = nullptr;
+    char_data* second = nullptr;
+    give_area_spell_followers(&m_player, SPELL_EARTHQUAKE, PLAYER_HIT_POINTS, caster, second);
+    char_data* companion = make_linkless_player("Companion");
+    obj_data* companion_ring = make_object(RING_VNUM, 0);
+    equip_char(companion, companion_ring, WEAR_FINGER_R);
+    add_follower(companion, &m_player, FOLLOW_MOVE);
+    // The player waits in the next room, out of the quake's reach.
+    link_second_room();
+    char_from_room(companion);
+    char_to_room(companion, SECOND_ROOM);
+    const int companion_hit_points = companion->tmpabilities.hit;
+    ASSERT_EQ(companion, m_player.followers->follower);
+
+    EXPECT_TRUE(Crash_rentsave(&m_player, 0));
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_FALSE(is_in_game(second));
+    ASSERT_TRUE(is_in_game(companion));
+    EXPECT_EQ(&m_player, companion->master);
+    EXPECT_EQ(companion_ring, companion->equipment[WEAR_FINGER_R]);
+    EXPECT_EQ(companion_hit_points, companion->tmpabilities.hit);
+    ASSERT_NE(nullptr, m_player.followers);
+    EXPECT_EQ(companion, m_player.followers->follower);
+    EXPECT_EQ(nullptr, m_player.followers->next);
+    objects_json::ObjectSaveData saved;
+    ASSERT_TRUE(read_player_object_file(saved));
+    EXPECT_EQ(RENT_RENTED, saved.rent.rentcode);
+}
+
+// The renter's first follower leads two of its own, the first of whose ring shakes the earth as
+// the rent strips it. The quake kills the leader's other follower and a frail follower of the
+// renter's further down the list: the rent removes every follower, the leader's and the
+// renter's, and saves.
+TEST_F(QuietGearChangeTest, ARentersFollowersFollowerWhoseGearShakesTheEarthKillsASiblingIsLetGo)
+{
+    char_data* frail_sibling = make_mob("frail", 0);
+    frail_sibling->tmpabilities.hit = LOW_HIT_POINTS;
+    add_follower(frail_sibling, &m_player, FOLLOW_MOVE);
+    char_data* sturdy_sibling = make_mob("sturdy", 0);
+    add_follower(sturdy_sibling, &m_player, FOLLOW_MOVE);
+    char_data* leader = make_mob("leader", 0);
+    add_follower(leader, &m_player, FOLLOW_MOVE);
+    char_data* caster = nullptr;
+    char_data* led_second = nullptr;
+    give_area_spell_followers(leader, SPELL_EARTHQUAKE, LOW_HIT_POINTS, caster, led_second);
+    ASSERT_EQ(leader, m_player.followers->follower);
+
+    EXPECT_TRUE(Crash_rentsave(&m_player, 0));
+
+    EXPECT_FALSE(is_in_game(caster));
+    EXPECT_FALSE(is_in_game(led_second));
+    EXPECT_FALSE(is_in_game(leader));
+    EXPECT_FALSE(is_in_game(frail_sibling));
+    EXPECT_FALSE(is_in_game(sturdy_sibling));
+    EXPECT_EQ(nullptr, m_player.followers);
+    EXPECT_EQ(2, count_corpses_in_room());
     objects_json::ObjectSaveData saved;
     ASSERT_TRUE(read_player_object_file(saved));
     EXPECT_EQ(RENT_RENTED, saved.rent.rentcode);

@@ -847,23 +847,6 @@ static bool speak_and_stay(char_data* host, const char* words, Speech speech)
     return !speaker_watch.freed();
 }
 
-// Destroys everything <wearer> has equipped. Taking an item off can kill or remove the wearer
-// (gear poison, an item spell): true if it is still there.
-static bool destroy_equipment_and_stay(char_data* wearer)
-{
-    freed_watch wearer_watch(wearer);
-    for (int position = 0; position < MAX_WEAR; ++position) {
-        if (wearer->equipment[position]) {
-            obj_data* removed = unequip_char(wearer, position);
-            extract_obj(removed);
-            if (wearer_watch.freed()) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 /*
  * This function is not highly commented, except for its
  * differences from gatekeeper2.  If you'd like commentary,
@@ -2457,12 +2440,9 @@ bool ranger_rehide(char_data* host, const ranger_config& opts)
             return false;
         /* do_hide's wind-up; the cover comes when it ends, so until then the
          * mob keeps the cover it snuck in with, and a broken one gives none. */
-        // Ending the host's own delay can remove it (the rest of a paused script): then it is
-        // handled, and nothing is to use the host.
-        if (!WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
-                AFF_WAITING | AFF_WAITWHEEL)) {
-            return true;
-        }
+        // The host has no delay (checked on entry), so this one runs no script that could free it.
+        (void)WAIT_STATE_BRIEF(host, skills[SKILL_HIDE].beats - 1, -1, RANGER_HIDE_WINDUP, 30,
+            AFF_WAITING | AFF_WAITWHEEL);
         return host->delay.wait_value > 0;
     }
     if (GET_HIDING(host))
@@ -3425,7 +3405,7 @@ SPECIAL(ghoul)
             if (mob && !mob->followers) {
                 act("$n seems to fade away into the ground.", TRUE, host, 0, 0, TO_ROOM);
                 // What it carries falls to the ground (extract_char).
-                if (destroy_equipment_and_stay(mob)) {
+                if (extract_worn_gear(mob)) {
                     extract_char(mob);
                 }
             }
@@ -3521,6 +3501,29 @@ SPECIAL(dragon)
     return 0;
 }
 
+// Thuringwethil's two forms: the Vampire Huntress, the bat that hunts her zone, and the woman
+// she becomes in her tower to heal.
+constexpr int THURINGWETHIL_BAT_VNUM = 15301;
+constexpr int THURINGWETHIL_HUMAN_VNUM = 15302;
+
+// Closes and locks the iron door out of room <room> in <direction>, and tells the room it slams
+// shut. Returns the room the door leads to, which is NOWHERE when the room has no exit that way
+// (logged) or the exit leads nowhere.
+static int slam_iron_door(int room, int direction)
+{
+    room_direction_data* door = world[room].dir_option[direction];
+    if (!door) {
+        vmudlog(BRF, "vampire_huntress: room %d has no %s exit", world[room].number,
+            dirs[direction]);
+        return NOWHERE;
+    }
+
+    SET_BIT(door->exit_info, EX_CLOSED);
+    SET_BIT(door->exit_info, EX_LOCKED);
+    send_to_room("The iron door slams shut.\n\r\n", room);
+    return door->to_room;
+}
+
 SPECIAL(vampire_huntress)
 { // Thuringwethil - in bat form she hunts through her zone
     struct char_data *victim, *mob; // quite quickly.  If she comes across a PC she will either
@@ -3528,7 +3531,6 @@ SPECIAL(vampire_huntress)
     int to_room, tmpno; // them back to the dungeons of her tower.
     struct affected_type af{};
     obj_data* obj;
-    room_data* room;
     // If she is too badly hurt in a fight, she will flee back to
     // her tower and change into human form and regenerate.  Once
     if (host->in_room == NOWHERE) // healed she will once again assume bat form and hunt her
@@ -3684,14 +3686,11 @@ SPECIAL(vampire_huntress)
                     act("$n seems to fall through the roof to land painfully on the floor.", FALSE,
                         victim, 0, 0, TO_ROOM);
                     GET_POS(victim) = POSITION_RESTING;
-                    room = &world[victim->in_room];
-                    SET_BIT(room->dir_option[0]->exit_info, EX_CLOSED);
-                    SET_BIT(room->dir_option[0]->exit_info, EX_LOCKED);
-                    send_to_room("The iron door slams shut.\n\r\n", real_room(room->number));
-                    room = &world[room->dir_option[0]->to_room];
-                    SET_BIT(room->dir_option[2]->exit_info, EX_CLOSED);
-                    SET_BIT(room->dir_option[2]->exit_info, EX_LOCKED);
-                    send_to_room("The iron door slams shut.\n\r\n", real_room(room->number));
+                    // The cell's door north, then the same door from the corridor's side.
+                    const int corridor = slam_iron_door(victim->in_room, NORTH);
+                    if (corridor != NOWHERE) {
+                        slam_iron_door(corridor, SOUTH);
+                    }
                     do_look(victim, "", wtl, 0, 0);
                     // Ending the bat's own delay, or its blow, can remove it (a script).
                     if (!WAIT_STATE_FULL(host, 200, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
@@ -3712,15 +3711,17 @@ SPECIAL(vampire_huntress)
         act("$n flaps her great wings, and flies away.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        if (!destroy_equipment_and_stay(host)) {
+        if (!extract_worn_gear(host)) {
             return 1;
         }
-        for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
-            obj = host->carrying;
-            obj_from_char(host->carrying);
-            extract_obj(obj);
+        extract_carried_objects(host);
+        const int human_form_number = real_mobile(THURINGWETHIL_HUMAN_VNUM);
+        if (human_form_number < 0) {
+            vmudlog(BRF, "vampire_huntress: her human form, mob %d, does not exist!",
+                THURINGWETHIL_HUMAN_VNUM);
+            return 1;
         }
-        mob = read_mobile(real_mobile(15302), REAL);
+        mob = read_mobile(human_form_number, REAL);
         GET_HIT(mob) = GET_HIT(host) * 3;
         extract_char(host); // Gives a [room_data..] error presumably when it returns - strange...
         char_to_room(mob, real_room(15379));
@@ -3732,7 +3733,12 @@ SPECIAL(vampire_huntress)
             obj_to_char(obj, mob);
         if ((obj = read_object(6510, VIRT)))
             obj_to_char(obj, mob);
+        // Putting the gear on can kill or remove her new form (an item's poison or spell).
+        freed_watch human_form_watch(mob);
         do_wear(mob, "all", 0, 0, 0);
+        if (human_form_watch.freed()) {
+            return 1;
+        }
         tmpwtl.subcmd = 0;
         tmpwtl.cmd = 6;
         if (CAN_GO(mob, tmpwtl.cmd - 1))
@@ -3753,7 +3759,6 @@ SPECIAL(thuringwethil)
 {
     struct char_data *victim, *tmpch;
     obj_data* obj;
-    int tmpno;
     waiting_type tmpwtl;
 
     for (obj = world[host->in_room].contents; obj; obj = obj->next_content)
@@ -3790,16 +3795,18 @@ SPECIAL(thuringwethil)
         act("$n melts away into the shadows.", FALSE, host, 0, 0, TO_ROOM);
         char_from_room(host);
         char_to_room(host, real_room(15379));
-        if (!destroy_equipment_and_stay(host)) {
+        if (!extract_worn_gear(host)) {
             return 1;
         }
-        for (tmpno = 0; (tmpno < 1000) && host->carrying; tmpno++) {
-            obj = host->carrying;
-            obj_from_char(host->carrying);
-            extract_obj(obj);
-        }
+        extract_carried_objects(host);
         extract_char(host); // strange... extract works here with no room_data errors
-        victim = read_mobile(real_mobile(15301), REAL);
+        const int bat_form_number = real_mobile(THURINGWETHIL_BAT_VNUM);
+        if (bat_form_number < 0) {
+            vmudlog(BRF, "thuringwethil: her bat form, mob %d, does not exist!",
+                THURINGWETHIL_BAT_VNUM);
+            return 1;
+        }
+        victim = read_mobile(bat_form_number, REAL);
         char_to_room(victim, real_room(15379));
         /*    tmpwtl.cmd = 6;
           tmpwtl.subcmd = 0;
@@ -3835,6 +3842,14 @@ SPECIAL(vampire_doorkeep)
                 act("A huge wolf suddenly appears, charges at $n and vanishes!", FALSE, victim, 0,
                     0, TO_ROOM);
         }
+
+    // The door is room 15345's south exit and room 15355's north exit.
+    if (!room->dir_option[SOUTH] || !room2->dir_option[NORTH]) {
+        mudlog("vampire_doorkeep: the door between rooms 15345 and 15355 is missing a side", BRF,
+            LEVEL_GOD, TRUE);
+        return 0;
+    }
+
     if (close_it)
         if (!IS_SET(room->dir_option[2]->exit_info, EX_CLOSED)) {
             SET_BIT(room->dir_option[2]->exit_info, EX_CLOSED);
@@ -3954,11 +3969,15 @@ SPECIAL(vampire_killer)
                 tmpwtl.cmd = 2;
             else {
                 room = &world[real_room(15396)];
-                if (IS_SET(room->dir_option[2]->exit_info, EX_CLOSED)) {
+                const room_direction_data* cell_door = room->dir_option[SOUTH];
+                if (!cell_door) {
+                    vmudlog(BRF, "vampire_killer: room %d has no south exit", room->number);
+                } else if (IS_SET(cell_door->exit_info, EX_CLOSED)) {
                     do_unlock(host, "irondoor", 0, 0, 0);
                     do_open(host, "irondoor", 0, 0, 0);
-                } else
+                } else {
                     tmpwtl.cmd = 3;
+                }
             }
             break;
         }
@@ -3967,11 +3986,15 @@ SPECIAL(vampire_killer)
                 tmpwtl.cmd = 4;
             else {
                 room = &world[real_room(15397)];
-                if (IS_SET(room->dir_option[2]->exit_info, EX_CLOSED)) {
+                const room_direction_data* cell_door = room->dir_option[SOUTH];
+                if (!cell_door) {
+                    vmudlog(BRF, "vampire_killer: room %d has no south exit", room->number);
+                } else if (IS_SET(cell_door->exit_info, EX_CLOSED)) {
                     do_unlock(host, "irondoor", 0, 0, 0);
                     do_open(host, "irondoor", 0, 0, 0);
-                } else
+                } else {
                     tmpwtl.cmd = 3;
+                }
             }
             break;
         }
