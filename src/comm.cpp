@@ -2865,9 +2865,10 @@ void process_waiting_list()
             /* here is the block calling actual procedures */
             complete_delay(waiter);
             if (waiter_watch.freed()) {
-                /* extract_char took the waiter off the list and freed it, delay included. If
-                 * the one after it went too, the rest of the list waits for the next pulse. */
-                if (in_waiting_list(following)) {
+                // extract_char took the waiter off the list and freed it, delay included. A waiter
+                // that was last ends the pass; if the one after it went too, the rest of the list
+                // waits for the next pulse.
+                if (following == nullptr || in_waiting_list(following)) {
                     next_waiter = following;
                 } else {
                     vmudlog(NRM,

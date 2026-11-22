@@ -57,6 +57,8 @@ say, so two of them answer each other until the server's stack overflows.
 | 1731 | `clerk first` | given anything, skips a false IF whose block ends with a nested IF / BEGIN / ... / END (`Nested body.`), then has an else branch saying `Outer else.` and a last row saying `After.` |
 | 1732 | `clerk second` | given anything, skips a false IF whose block holds a nested IF / BEGIN / ... / END_ELSE_BEGIN / ... / END (`Nested then.`, `Nested else.`) and a row saying `Outer tail.`, then has an else branch saying `Outer else.` and a last row saying `After.` |
 | 1733 | `copyist careless` | script 1715 with 0 in `LOAD_OBJ_X`'s first parameter |
+| 1740 | `pilgrim fading` | hearing speech, says `I must be going.`, waits four passes, says `Farewell, all.` and removes himself (`EXTRACT_CHAR` ch1); what he carries falls to the floor |
+| 1741 | `steward` | hearing speech containing `dusk`, sends the room `The steward bows.`, waits four passes and sends `The steward straightens up.`; he never speaks, so he may share a room with the pilgrim, whose lines lack `dusk` |
 
 ## Objects
 

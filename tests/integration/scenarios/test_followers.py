@@ -1,5 +1,6 @@
 """Followers and groups: the ACK lines a leader and its follower read when the follower cannot
-follow, followers whose leader dies where it arrives, and the group, ungroup and report commands."""
+follow, followers whose leader dies where it arrives, a follower who dies itself outside a fight,
+and the group, ungroup and report commands."""
 
 from __future__ import annotations
 
@@ -536,3 +537,98 @@ def test_a_rider_whose_mount_cannot_move_gets_the_riding_ack_lines(server) -> No
     assert left_behind.count(MOUNT_EXHAUSTED_MARKER) == 1, left_behind
     assert leader_text.count(LEADER_RIDING_ACK_MARKER_FORMAT.format(RIDER.name)) == 1, leader_text
     assert rider.command("look").room_name() == "Arena Centre"
+
+
+# A mortal on the ledge who follows the implementor and walks into the Gallows Pit alone.
+STRAY = human_warrior("Teststray", "female", world.ROOM_GALLOWS_APPROACH)
+# What a dying follower reads as it stops following its leader (stop_follower, handler.cpp);
+# format with the leader.
+STOP_FOLLOWING_FORMAT = "You stop following {}."
+# What the leader reads as the follower stops following it; format with the follower.
+STOPS_FOLLOWING_YOU_FORMAT = "{} stops following you."
+# What the slain member reads from do_slay (act_offe.cpp), which calls raw_kill outside any fight.
+SLAIN_MARKER = "chops you to pieces!"
+# What every corpse's line in a room look holds (get_corpse_desc, fight.cpp). Its name for the
+# dead is the race's star name.
+CORPSE_IN_ROOM_MARKER = "corpse of "
+
+
+def corpses_in_look(look_text: str) -> int:
+    """How many of the room look's lines are a corpse.
+
+    A corpse's line names the race, not the dead, so a test counts a death's corpse only in a room
+    that holds no other corpse.
+    """
+    return sum(1 for line in look_text.splitlines() if CORPSE_IN_ROOM_MARKER in line)
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(LEADER, STRAY)
+def test_a_follower_who_walks_into_a_death_room_reads_that_it_stops_following(server) -> None:
+    """A follower dying outside a fight reads that it stops following its leader, before it wakes.
+
+    raw_kill (fight.cpp) marks the dying dead only while the corpse takes their gear, then puts
+    back the standing position they died in, so extract_char's die_follower (handler.cpp) sends
+    the follower its own line: act() drops a TO_CHAR line to anyone not awake (comm.cpp). The
+    leader, in the room before the pit, reads that the follower stops following. The follower
+    leaves one corpse in the pit and wakes in Human Start. Nothing on the way draws an outcome.
+    """
+    leader = server.login(LEADER.name)
+    stray = server.login(STRAY.name)
+    arrived = leader.command(f"goto {world.ROOM_GALLOWS_APPROACH}")
+    assert arrived.room_name() == "Gallows Approach", arrived.text
+    following = stray.command(f"follow {LEADER.name.lower()}")
+    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
+    leader.drain(SETTLE_SECONDS)
+
+    stray.send_line("east")
+    died = stray.expect([NEW_BODY_MARKER]) + stray.drain(SETTLE_SECONDS)
+    stopped = STOP_FOLLOWING_FORMAT.format(LEADER.name)
+    assert PIT_ROOM_NAME in died and died.count(stopped) == 1, died
+    assert died.index(PIT_ROOM_NAME) < died.index(stopped) < died.index(NEW_BODY_MARKER), died
+    stops_following = STOPS_FOLLOWING_YOU_FORMAT.format(STRAY.name)
+    told = leader.expect([stops_following]) + leader.drain(SETTLE_SECONDS)
+    assert told.count(stops_following) == 1, told
+
+    assert stray.command("look").room_name() == HUMAN_START_ROOM_NAME
+    assert leader.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
+    pit = leader.command("look").text
+    assert corpses_in_look(pit) == 1, pit
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, CAPTAIN, MEMBER)
+def test_a_slain_group_member_reads_that_it_stops_following_and_leaves_the_group(server) -> None:
+    """A grouped follower the implementor slays reads that it leaves its leader and the group.
+
+    do_slay (act_offe.cpp) calls raw_kill outside any fight, so the member is standing again
+    when extract_char's die_follower (handler.cpp) stops it following the captain and takes it
+    out of his group: the member reads both lines before it wakes in Human Start, and the
+    captain reads that it stops following him and leaves his group, which disbands. One corpse
+    stays in the arena centre. Nothing on the way draws an outcome.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    captain = server.login(CAPTAIN.name)
+    member = server.login(MEMBER.name)
+    following = member.command(f"follow {CAPTAIN.name.lower()}")
+    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(CAPTAIN.name)), following.text
+    group_the_member(captain, member)
+    arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
+    assert arrived.contains("Arena Centre"), arrived.text
+    captain.drain(SETTLE_SECONDS)
+    member.drain(SETTLE_SECONDS)
+
+    slain = implementor.command(f"slay {MEMBER.name.lower()}")
+    assert slain.contains("You chop her to pieces!"), slain.text
+    died = member.expect([NEW_BODY_MARKER]) + member.drain(SETTLE_SECONDS)
+    stopped = STOP_FOLLOWING_FORMAT.format(CAPTAIN.name)
+    left = YOU_LEAVE_GROUP_FORMAT.format(CAPTAIN.name)
+    assert SLAIN_MARKER in died and died.count(stopped) == 1 and died.count(left) == 1, died
+    assert died.index(SLAIN_MARKER) < died.index(stopped) < died.index(left) < died.index(NEW_BODY_MARKER), died
+    told = captain.expect([DISBANDED_MARKER]) + captain.drain(SETTLE_SECONDS)
+    assert told.count(STOPS_FOLLOWING_YOU_FORMAT.format(MEMBER.name)) == 1, told
+    assert told.count(LEAVES_YOUR_GROUP_FORMAT.format(MEMBER.name)) == 1, told
+
+    assert member.command("look").room_name() == HUMAN_START_ROOM_NAME
+    arena = implementor.command("look").text
+    assert corpses_in_look(arena) == 1, arena
