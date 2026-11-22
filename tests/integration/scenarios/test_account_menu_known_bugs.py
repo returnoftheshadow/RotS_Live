@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 from rots_harness.session import ACCOUNT_MENU_PROMPT, LOGIN_PASSWORD_PROMPT, GameSession
+from test_account_menu import FREE_NEW_NAME, ROLEPLAY_QUESTION_FORMAT, new_name_answer
 
 pytestmark = [pytest.mark.scenario, pytest.mark.account_menu]
 
@@ -19,9 +20,6 @@ pytestmark = [pytest.mark.scenario, pytest.mark.account_menu]
 ACCOUNT_MENU_NEW_CHARACTER = "4"
 # The prompt for a new character's name (CON_ACCTMENU and CON_ACCTNEWCHAR in nanny, interpre.cpp).
 NEW_CHARACTER_NAME_PROMPT = "New character name:"
-# The end of the question a free name gets; format the full question with the name (CON_ACCTNEWCHAR).
-ROLEPLAY_QUESTION_END = "a suitable name for roleplay in Middle-earth (Y/N)?"
-ROLEPLAY_QUESTION_FORMAT = "Is {} a suitable name for roleplay in Middle-earth (Y/N)?"
 # A word fill_word refuses as a name (fill[], interpre.cpp); it passes every check before the
 # confirmation.
 FILL_WORD_NAME = "The"
@@ -29,8 +27,6 @@ FILL_WORD_NAME = "The"
 ILLEGAL_NAME_REPLY = "Illegal name, please try another:"
 # What CON_NMECNF prints when it accepts the name (nanny, interpre.cpp).
 NEW_CHARACTER_ACCEPTED = "New character."
-# A free name for a new character: letters only, unused in every test world.
-FREE_NEW_NAME = "Thorin"
 
 # A level-20 human warrior whose name is also a keyword of mob 1132, the bystander orc; it plays
 # in Arena West, away from the implementor.
@@ -69,12 +65,6 @@ def playing_connection(server, character: Character) -> Iterator[GameSession]:
         yield connection
     finally:
         connection.close()
-
-
-def new_name_answer(connection: GameSession, name: str) -> str:
-    """Sends name at the new character name prompt and returns the reply up to the next prompt."""
-    connection.send_line(name)
-    return connection.expect([NEW_CHARACTER_NAME_PROMPT, ROLEPLAY_QUESTION_END, ACCOUNT_MENU_PROMPT, LOGIN_EMAIL_PROMPT])
 
 
 def closes_within(connection: GameSession, seconds: float) -> bool:

@@ -11,6 +11,19 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.session import GameSession
+from test_resistances import (
+    ALREADY_PROTECTED_MARKER,
+    FLAG_RESIST_ITEM_KEYWORD,
+    FLAG_RESIST_ITEM_VNUM,
+    FLAG_RESIST_ITEM_WORN_MARKER,
+    FLAG_RESIST_PERCENT,
+    NOT_AFFECTED_MARKER,
+    RESIST_LEVEL_BONUS,
+    RESIST_LEVEL_CAP,
+    WEARER,
+    affections,
+    resistance_line,
+)
 
 pytestmark = [pytest.mark.scenario, pytest.mark.resistances, pytest.mark.resistances_worn]
 
@@ -30,25 +43,7 @@ NOVICE = Character(
     skills=(("protection", 10),),
     stored=StoredValues(spirit=NOVICE_SPIRIT),
 )
-# A level-20 human warrior in the arena centre who wears the level item.
-WEARER = Character(
-    name="Testwearer",
-    race="human",
-    sex="male",
-    level=20,
-    load_room=world.ROOM_ARENA_CENTRE,
-    class_name="warrior",
-)
 
-# The highest mystic level cast_resist_magnitude (mystic.cpp) counts; it adds ten to the level.
-RESIST_LEVEL_CAP = 30
-RESIST_LEVEL_BONUS = 10
-
-# A finger item whose `A 30 1` (APPLY_RESIST, RESIST_FIRE) sets the fire resistance bit with no
-# affect behind it (tests/integration/world/obj/14.obj).
-FLAG_RESIST_ITEM_VNUM = 1402
-FLAG_RESIST_ITEM_KEYWORD = "ring"
-FLAG_RESIST_ITEM_WORN_MARKER = "You slide an ember ring on to your right ring finger."
 # A wrist item whose `A 27 161` has a strength of 0, which affect_modify's APPLY_SPELL decode
 # (handler.cpp) replaces with the wearer's level.
 LEVEL_ITEM_VNUM = 1404
@@ -58,26 +53,14 @@ LEVEL_ITEM_WORN_MARKER = "You put a kindling bracelet on around your right wrist
 # The level the implementor gives the wearer after it puts on the level item.
 RAISED_LEVEL = 25
 
-# The strength affections shows for a resistance bit with no affect behind it (the
-# default_percent do_affections passes to sprintbit_resistances, act_info.cpp).
-FLAG_RESIST_PERCENT = 33
-
 # What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp): number(0, 100)
 # >= 100 still happens once in 101 casts at full knowledge.
 LOST_CONCENTRATION_MARKER = "You lost your concentration!"
 # What the caster reads when its spirit no longer covers a cast (can_cast_spell, spell_pa.cpp).
 NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
-# What a caster already protected reads on a second cast (spell_protection, mystic.cpp).
-ALREADY_PROTECTED_MARKER = "You have protection already."
 # What the protected character, or the wearer of a resist item, reads (spell_protection and
 # do_resist_spell, mystic.cpp).
 FIRE_RESISTANT_MARKER = "You feel resistant to fire!"
-# What affections prints for a character with no affect or resistance (do_affections,
-# act_info.cpp).
-NOT_AFFECTED_MARKER = "You are not affected by anything."
-# One resistance line in affections (sprintbit_resistances, utility.cpp); format with the
-# element and the strength in percent.
-RESISTANCE_LINE_FORMAT = "   {} ({}%)"
 # What the wearer reads on taking an item off (perform_remove, act_obj2.cpp); format with the
 # item's short description.
 STOP_USING_MARKER_FORMAT = "You stop using {}."
@@ -97,16 +80,6 @@ ARENA_CENTRE_NAME = "Arena Centre"
 
 # The stat line with the profession levels (do_stat_character, act_wiz.cpp).
 CLERIC_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:(\d+) ")
-
-
-def affections(session: GameSession) -> str:
-    """What the character's affections command prints."""
-    return session.command("affections").text
-
-
-def resistance_line(element: str, percent: int) -> str:
-    """One resistance line as affections prints it."""
-    return RESISTANCE_LINE_FORMAT.format(element, percent)
 
 
 def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyword: str) -> None:

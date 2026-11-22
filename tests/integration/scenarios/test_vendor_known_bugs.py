@@ -8,34 +8,15 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.session import GameSession, Transcript
+from test_vendor import BUYER, CAP_PRICE_BEADS, WANDERER
 
 pytestmark = [pytest.mark.scenario, pytest.mark.vendor]
-
-# A level-20 human warrior in the trade hall: a mortal the trader serves.
-BUYER = Character(
-    name="Testbuyer",
-    race="human",
-    sex="male",
-    level=20,
-    load_room=world.ROOM_TRADE_HALL,
-    class_name="warrior",
-)
-# A level-20 human warrior in the arena's west end, where no keeper of any kind stands.
-WANDERER = Character(
-    name="Testwanderer",
-    race="human",
-    sex="male",
-    level=20,
-    load_room=world.ROOM_ARENA_WEST,
-    class_name="warrior",
-)
 
 # The copper bead, the currency of the trader's price line `price 1137 1308x2`
 # (tests/integration/world/mob/13.mob and obj/13.obj).
 CURRENCY_VNUM = 1308
 CURRENCY_KEYWORD = "bead"
 CURRENCY_NAME = "a copper bead"
-CAP_PRICE_BEADS = 2
 # The leather cap (tests/integration/world/obj/11.obj), whose keywords are "cap leather".
 CAP_VNUM = 1137
 CAP_NAME = "a leather cap"

@@ -10,29 +10,32 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
+from test_followers import (
+    ANY_ACK_MARKER,
+    ANY_FOLLOWED_MARKER,
+    CAPTAIN,
+    FOLLOWER,
+    FOLLOWER_RIDING_ACK_MARKER,
+    LEADER,
+    LEAVES_YOUR_GROUP_FORMAT,
+    MEMBER,
+    PIT_ROOM_NAME,
+    PONY_VNUM,
+    RIDER,
+    RING_VNUM,
+    gather_in_arena_centre,
+    group_the_member,
+    human_warrior,
+    ride_after_the_leader,
+    walk_east,
+)
 
 pytestmark = [pytest.mark.scenario]
 
-
-def human_warrior(name: str, sex: str, load_room: int) -> Character:
-    """A level-10 human warrior: a mortal on the implementor's side, so names match across them."""
-    return Character(name=name, race="human", sex=sex, level=10, load_room=load_room, class_name="warrior")
-
-
-# The leader of the follower pins: the implementor, male, so a follower's lines name him "him".
-LEADER = IMPLEMENTOR
-# A follower in the arena centre; female, so the leader's line reads "her".
-FOLLOWER = human_warrior("Testtrailer", "female", world.ROOM_ARENA_CENTRE)
 # A mortal on the ledge who walks into the Gallows Pit carrying a bag with a cap in it.
 CARRIER = human_warrior("Testcarrier", "female", world.ROOM_GALLOWS_APPROACH)
-# A mortal leader in the arena centre.
-CAPTAIN = human_warrior("Testcaptain", "male", world.ROOM_ARENA_CENTRE)
-# A mortal the captain groups.
-MEMBER = human_warrior("Testmember", "female", world.ROOM_ARENA_CENTRE)
 # A mortal in the captain's room who is in no group.
 OUTSIDER = human_warrior("Testoutsider", "female", world.ROOM_ARENA_CENTRE)
-# A female mortal who follows the leader riding the male harness pony.
-RIDER = human_warrior("Testrider", "female", world.ROOM_ARENA_CENTRE)
 # A level-93 immortal (LEVEL_GOD, structs.h), the lowest level with teleport, in Immortal Start.
 GOD = Character(
     name="Testgod",
@@ -45,31 +48,13 @@ GOD = Character(
 
 # The bystander orc (mob 1132).
 BYSTANDER_VNUM = 1132
-# The harness pony (mob 1161): a male MOB_MOUNT with no moves.
-PONY_VNUM = 1161
 # The leather bag (object 1136), a container.
 BAG_VNUM = 1136
 # The leather cap (object 1137), head armour.
 CAP_VNUM = 1137
-# The ring of invisibility (object 1160): worn, it sets AFF_INVISIBLE on the wearer.
-RING_VNUM = 1160
 
-# The room the leader walks to, east of the arena centre.
-DESTINATION_ROOM_NAME = "Arena East"
-# The name of the DEATH room east of the Gallows Approach.
-PIT_ROOM_NAME = "Gallows Pit"
-# The end of what the follower reads as the leader walks east (do_move, act_move.cpp).
-LEADER_LEAVES_MARKER = "leaves east."
-# The start of every ACK line, the leader's and the follower's (do_move).
-ANY_ACK_MARKER = "ACK!"
-# The start of "You follow $N." (do_move), whoever the leader is.
-ANY_FOLLOWED_MARKER = "You follow "
-# What a riding follower reads when its mount cannot take the step (do_move's riding branch).
-FOLLOWER_RIDING_ACK_MARKER = "ACK! You could not follow him riding!"
 # What a follower without the moves for the step reads (do_move).
 EXHAUSTED_MARKER = "You are too exhausted to move."
-# What the follower reads when it starts following (add_follower, handler.cpp); format with the leader.
-NOW_FOLLOWING_MARKER_FORMAT = "You now follow {}."
 # What a player reads after dying, before it looks at its start room (extract_char, handler.cpp).
 NEW_BODY_MARKER = "Your spirit found a new body to wear."
 # What `look in corpse` prints before the corpse's contents (do_look, act_info.cpp).
@@ -79,41 +64,18 @@ BAG_CONTENTS_HEADER = "bag (carried) :"
 # The bystander orc's report as do_report's format string ("I am %s, my stamina is %s, and I am
 # %s.") writes it, at full health with no stamina and full moves (act_othe.cpp).
 BYSTANDER_REPORT_AS_WRITTEN = "A bystander orc says 'I am healthy, my stamina is empty, and I am energetic.'"
-# What the leader reads when a character joins its group (add_character_to_group, act_othe.cpp).
-JOINS_YOUR_GROUP_FORMAT = "{} joins your group."
-# What the leader reads when a member leaves (remove_character_from_group); format with the name.
-LEAVES_YOUR_GROUP_FORMAT = "{} leaves your group."
 # What do_ungroup tells a leader who names someone outside its group (act_othe.cpp).
 NOT_IN_YOUR_GROUP_MARKER = "That person is not in your group!"
 # The word every group line has in common, for asserting a character read none of them.
 GROUP_WORD = "group"
 # What a rider reads as it mounts the male pony, with the pony's pronoun (do_ride, ranger.cpp).
 MOUNTED_MARKER = "You mount a harness pony and start riding him."
-# The start of what a rider reads as it mounts the pony, whatever the pronoun.
-MOUNTED_MARKER_START = "You mount a harness pony and start riding "
 # What the room reads as the rider mounts the male pony; format with the rider's name.
 ROOM_MOUNTED_MARKER_FORMAT = "{} mounts a harness pony and starts riding him."
 # The end of what the teleported character reads (do_teleport, act_wiz.cpp).
 ANY_TELEPORTED_MARKER = "has teleported you!"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
-
-
-def walk_east(leader: GameSession, follower: GameSession) -> tuple:
-    """Walks the leader east; returns what the follower and then the leader read in that pass."""
-    leader.send_line("east")
-    follower_text = follower.expect([LEADER_LEAVES_MARKER]) + follower.drain(SETTLE_SECONDS)
-    leader_text = leader.expect([DESTINATION_ROOM_NAME]) + leader.drain(SETTLE_SECONDS)
-    return follower_text, leader_text
-
-
-def gather_in_arena_centre(leader: GameSession, follower: GameSession) -> None:
-    """Brings the leader to the arena centre and has the follower follow it."""
-    arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains("Arena Centre"), arrived.text
-    following = follower.command(f"follow {LEADER.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
-    leader.drain(SETTLE_SECONDS)
 
 
 def load_object(implementor: GameSession, vnum: int, short_description: str) -> None:
@@ -126,27 +88,6 @@ def contents_lines(text: str, header: str) -> list:
     """The lines `look in` lists after header, up to the prompt."""
     after_header = text.split(header, 1)[1]
     return [line.strip() for line in after_header.splitlines()[1:] if line.strip() and not line.rstrip().endswith(">")]
-
-
-def group_the_member(captain: GameSession, member: GameSession) -> None:
-    """Has the captain group the member, and asserts what each reads."""
-    grouped = captain.command(f"group {MEMBER.name.lower()}")
-    assert grouped.contains(JOINS_YOUR_GROUP_FORMAT.format(MEMBER.name)), grouped.text
-    joined = member.expect([f"You join the group of {CAPTAIN.name}."])
-    assert f"You join the group of {CAPTAIN.name}." in joined, joined
-    member.drain(SETTLE_SECONDS)
-
-
-def ride_after_the_leader(leader: GameSession, rider: GameSession) -> None:
-    """Brings the leader to the arena centre, where the world places the harness pony, and has the
-    rider follow the leader and mount the pony."""
-    arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains("Arena Centre"), arrived.text
-    following = rider.command(f"follow {LEADER.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
-    mounted = rider.command("ride pony")
-    assert mounted.contains(MOUNTED_MARKER_START), mounted.text
-    leader.drain(SETTLE_SECONDS)
 
 
 @pytest.mark.followers

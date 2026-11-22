@@ -5,28 +5,11 @@ from __future__ import annotations
 
 import pytest
 
-from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.characters import IMPLEMENTOR
 from rots_harness.session import GameSession
+from test_identify import ATTRIBUTES_HEADER, MAGE
 
 pytestmark = [pytest.mark.scenario, pytest.mark.identify]
-
-# The base and current mana the mage is stored with: a fresh level-30 mage has less than
-# identify's 70 (USE_MANA, spells.h), and a lost concentration costs half of it (do_cast).
-MAGE_MAXIMUM_MANA = 500
-# A level-30 human mage in the implementors' room who knows identify fully. Identify is a
-# level-18 mage spell that targets an object the caster carries (skills[] in consts.cpp).
-MAGE = Character(
-    name="Testsage",
-    race="human",
-    sex="female",
-    level=30,
-    load_room=world.ROOM_IMMORTAL_START,
-    class_name="mage",
-    skills=(("identify", 100),),
-    mana=MAGE_MAXIMUM_MANA,
-    stored=StoredValues(maxstamina=MAGE_MAXIMUM_MANA),
-)
 
 # The relic (tests/integration/world/obj/16.obj): wear flags TAKE and THROW (bit 15), and every
 # extra flag from bit 0 to 28 but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE). Its
@@ -50,9 +33,8 @@ NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 NO_TARGET_MARKER = "You don't have that."
 # What the caster reads when it does not know the spell (can_cast_spell).
 UNKNOWN_SPELL_MARKER = "You don't know this spell."
-# The header of identify's attribute list (sprintbit, utility.cpp), and the wear sentence's start
-# for an object of type other (do_identify_object, item_messages[12]).
-ATTRIBUTES_HEADER = "This item has the following attributes:"
+# The start of identify's wear sentence for an object of type other (do_identify_object,
+# item_messages[12], act_info.cpp).
 WEAR_SENTENCE_START = "This item can be"
 # Text that marks a placeholder rather than a description.
 ERROR_FRAGMENT = "ERROR"

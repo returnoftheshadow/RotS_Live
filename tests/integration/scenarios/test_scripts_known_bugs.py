@@ -6,38 +6,17 @@ parameter the script editor calls unused."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pytest
 
-from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.session import GameSession
-from rots_harness.world_resets import MobReset
+from test_scripts import LISTENER, LISTENER_LINE, WANDERER, ScriptMob, placed, said
 
 pytestmark = [pytest.mark.scenario, pytest.mark.scripts]
-
-
-@dataclass(frozen=True)
-class ScriptMob:
-    """A test-world mob that runs a script (tests/integration/world/mob/17.mob, scr/17.scr)."""
-
-    # The mob's virtual number, which is also its script's number.
-    vnum: int
-    # The keyword that finds this mob and no other in the room.
-    keyword: str
-    # The mob's short description.
-    short_description: str
-
 
 # The crier (mob 1730): hearing speech, says "First.", waits four passes, says "Second." and
 # waits four passes again as the script's last row.
 CRIER = ScriptMob(vnum=1730, keyword="crier", short_description="a crier")
-# The wanderer (mob 1723), which teleports himself to room 1201 when he hears speech, and the
-# listener (mob 1724), which answers it.
-WANDERER = ScriptMob(vnum=1723, keyword="wanderer", short_description="a wanderer")
-LISTENER = ScriptMob(vnum=1724, keyword="listener", short_description="a listener")
-LISTENER_LINE = "I heard that."
 # The clerks (mobs 1731 and 1732), whose ON_RECEIVE scripts open with an IF that is false
 # (int1 = 1, int2 = 0, IF int1 == int2), then an outer else branch saying "Outer else." and a
 # last row saying "After.". The first clerk's block ends with a nested IF / BEGIN / ... / END;
@@ -61,19 +40,6 @@ WAIT_TIMEOUT = 10.0
 # Seconds to keep listening after the crier's second line: long enough for three more of its
 # one-second waits to end.
 REPEAT_WINDOW_SECONDS = 3.5
-
-
-def said(short_description: str, line: str) -> str:
-    """What the implementor reads when a mob says a line (say_to_char, act_comm.cpp).
-
-    act() capitalises the first letter of the line it sends.
-    """
-    return f"{short_description[0].upper()}{short_description[1:]} says '{line}'"
-
-
-def placed(*mobs: ScriptMob) -> pytest.MarkDecorator:
-    """The world_resets marker that places each mob in the implementors' room at boot, in order."""
-    return pytest.mark.world_resets(*(MobReset(mob.vnum, world.ROOM_IMMORTAL_START) for mob in mobs))
 
 
 def give_new_object(implementor: GameSession, vnum: int, keyword: str, mob: ScriptMob) -> str:

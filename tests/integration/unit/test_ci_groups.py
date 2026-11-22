@@ -166,6 +166,8 @@ TAME_SCENARIO = "tests/integration/scenarios/test_tame.py"
 IMPORTER_SCENARIO = "tests/integration/scenarios/test_importer.py"
 # The registered groups the import tests choose from.
 IMPORT_GROUPS = ["boot", "poison", "shaping", "shaping_commands", "shaping_zone_editor", "summon", "tame"]
+# The root of this checkout, whose scenarios folder the no-chains test reads.
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def select_with_importers(changed: tuple[str, ...], sources: dict[str, str]) -> ci_groups.Selection:
@@ -236,6 +238,28 @@ def test_an_importers_own_imports_are_not_followed() -> None:
         second: "from test_importer import TAMER\npytestmark = [pytest.mark.scenario, pytest.mark.poison]\n",
     }
     assert select_with_importers((TAME_SCENARIO,), sources).groups == ["boot", "tame", "summon"]
+
+
+def read_real_scenario(path: str) -> str:
+    """The text of a repository-relative scenario path in this checkout."""
+    return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def test_a_scenario_file_other_scenarios_import_imports_no_scenario_file() -> None:
+    # CI follows importers one level only, so a change to a file that an imported file imports
+    # would not run the groups of the file at the top of the chain.
+    scenario_paths = ci_groups.scenario_file_paths(REPO_ROOT)
+    assert scenario_paths, REPO_ROOT
+    scenario_modules = {Path(path).stem for path in scenario_paths}
+    chains = []
+    for path in scenario_paths:
+        if not ci_groups.importer_reasons(path, scenario_paths, read_real_scenario):
+            continue
+        imported = ci_groups.imported_module_names(read_real_scenario(path))
+        assert imported is not None, f"{path} does not parse"
+        imported_scenarios = sorted(imported & scenario_modules)
+        chains.extend(f"{Path(path).name} imports {module}.py" for module in imported_scenarios)
+    assert chains == []
 
 
 def test_scenario_file_paths_lists_the_test_files_in_the_scenarios_folder(tmp_path: Path) -> None:

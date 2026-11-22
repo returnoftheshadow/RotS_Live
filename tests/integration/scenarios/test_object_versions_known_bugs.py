@@ -10,6 +10,19 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.session import GameSession
+from test_object_versions import (
+    CANNOT_SEE_RENTER_MARKER,
+    INNKEEPER_IN_ROOM_LINE,
+    NOTHING_TO_STORE_MARKER,
+    OFFER_QUOTE_MARKER,
+    SIP_MARKER,
+    SIPPER_DRUNKENNESS,
+    SIPPER_THIRST,
+    TOO_FULL_MARKER,
+    WATERSKIN_KEYWORD,
+    WATERSKIN_SHORT_DESCRIPTION,
+    WATERSKIN_VNUM,
+)
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_versions]
 
@@ -35,15 +48,12 @@ OWNER = Character(
 )
 
 # The fixtures these pins use (tests/integration/world/obj/16.obj), each with its keyword and
-# short description: the plain sword; a waterskin holding 10 of its 20 drinks, weighing 30; and
-# a relic whose extra flags are every bit from 0 to 28 but 5 (INVISIBLE), 7 (NODROP) and 13
-# (the retired !DONATE), among them 15, WILLPOWER.
+# short description: the plain sword, and a relic whose extra flags are every bit from 0 to 28
+# but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE), among them 15, WILLPOWER. The
+# waterskin (test_object_versions.py) holds 10 of its 20 drinks and weighs 30.
 PLAIN_SWORD_VNUM = 1601
 SWORD_KEYWORD = "sword"
 SWORD_SHORT_DESCRIPTION = "a plain sword"
-WATERSKIN_VNUM = 1608
-WATERSKIN_KEYWORD = "waterskin"
-WATERSKIN_SHORT_DESCRIPTION = "a waterskin"
 RELIC_VNUM = 1609
 RELIC_KEYWORD = "relic"
 RELIC_SHORT_DESCRIPTION = "a strange relic"
@@ -51,11 +61,6 @@ RELIC_SHORT_DESCRIPTION = "a strange relic"
 # (do_drink, act_obj2.cpp, takes the drink's amount off the weight).
 SIPPED_WATERSKIN_WEIGHT_LINE_START = "Weight: 29,"
 SIPPED_WATERSKIN_CONTENTS_FRAGMENT = "Contains: 9,"
-# Thirst and drunkenness the owner is stored with before it sips: an immortal's conditions
-# otherwise read 255 (advance_level, profs.cpp), and do_drink refuses a drinker more than 10
-# drunk, or more than 23 thirsty.
-SIPPER_THIRST = 10
-SIPPER_DRUNKENNESS = 0
 # The mortal's gold for the offer: none at all.
 OFFER_GOLD = 0
 # The owner who sips from the waterskin.
@@ -74,10 +79,8 @@ PURGED_MARKER = "Ok."
 PURGE_REFUSED_MARKER = "Fuuuuuuuuu!"
 NO_ONE_TO_PURGE_MARKER = "I don't know anyone or anything by that name."
 INVENTORY_HEADER = "You are carrying:"
-# What sip answers (do_drink, act_obj2.cpp): the taste, or the refusals for a drunk or full drinker.
-SIP_MARKER = "It tastes like water."
+# What sip answers a drinker too drunk to drink (do_drink, act_obj2.cpp).
 TOO_DRUNK_MARKER = "You can't seem to get close enough to your mouth."
-TOO_FULL_MARKER = "Your stomach can't contain anymore!"
 # The extra flag stat obj lists for bit 15 (extra_bits[], consts.cpp).
 WILLPOWER_FLAG = " WILLPOWER "
 EXTRA_FLAGS_LINE_START = "Extra flags   :"
@@ -85,18 +88,15 @@ EXTRA_FLAGS_LINE_START = "Extra flags   :"
 # The stat obj reply's last line, and its answer when nothing matches (do_stat_object, do_wizstat).
 STAT_LAST_LINE_MARKER = "Affections:"
 NO_SUCH_OBJECT_MARKER = "No such object around."
-# The teleport reply the mortal reads (do_teleport, act_wiz.cpp), the implementor's reply when the
-# name matches no one, and the inn the mortal lands in.
+# The teleport reply the mortal reads (do_teleport, act_wiz.cpp), and the implementor's reply when
+# the name matches no one.
 TELEPORTED_MARKER = f"{IMPLEMENTOR.name} has teleported you!"
 NO_ONE_MARKER = "No-one by that name around."
-INNKEEPER_IN_ROOM_LINE = "The harness innkeeper stands behind the counter, ready to rent you a room."
-# The offer's answers (Crash_offer_rent, objsave.cpp): the quote for the carried sword, the
-# lifetime line, the refusal for too little gold, and the refusals the code can reach here.
-OFFER_QUOTE_MARKER = "The harness innkeeper tells you, 'It will cost you 6 silver and 88 copper for the first day.'"
+# The offer's answers (Crash_offer_rent, objsave.cpp) for a renter with gold for a lifetime of
+# rent and for one with too little gold.
 LIFETIME_OF_RENT_MARKER = "The harness innkeeper tells you, 'You have enough gold for a lifetime of rent.'"
 NOT_ENOUGH_MONEY_MARKER = "The harness innkeeper tells you, 'You haven't enough money to rent.'"
-NOTHING_TO_STORE_MARKER = "The harness innkeeper tells you, 'But you are not carrying anything!  Just quit!'"
-CANNOT_SEE_RENTER_MARKER = "The harness innkeeper says, 'I don't deal with people I can't see!'"
+# What offer answers with no receptionist in the room (do_not_here, act_othe.cpp).
 NOT_HERE_MARKER = "Sorry, but you can't do that here!"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0

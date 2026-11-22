@@ -3,7 +3,6 @@ have, so a fix shows up as a failure to remove the mark."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import NamedTuple
 
@@ -12,6 +11,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.session import GameSession
+from test_shaping_saving import file_text, record
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping]
 
@@ -87,11 +87,6 @@ def give_zone_an_outside_owner(implementor: GameSession, save: bool) -> None:
     free_editor(implementor, ZONE_RELEASED)
 
 
-def file_text(path: Path) -> str:
-    """A world file's text; the editors end lines with "\\n\\r", which read_text would double."""
-    return path.read_bytes().decode("latin-1")
-
-
 @pytest.mark.shaping_script_editor
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="a builder without permission over the zone cannot /implement a script in it")
 @pytest.mark.schedule("affect-hours")
@@ -156,13 +151,6 @@ def extra_description_keywords(room_record: str) -> list:
     return [record_lines[index + 1].rstrip("~") for index, line in enumerate(record_lines) if line == "E"]
 
 
-def room_record(text: str, vnum: int) -> str:
-    """The room #vnum in a world file's text, up to the next record's '#'."""
-    found = re.search(rf"#{vnum}(?!\d)(.*?)(?=#\d)", text, re.S)
-    assert found, text
-    return found.group(0)
-
-
 @pytest.mark.shaping_room_editor
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="/save of a room with no edit keeps its extra descriptions in file order")
 @pytest.mark.schedule("affect-hours")
@@ -174,7 +162,7 @@ def test_saving_a_room_unedited_keeps_its_extra_descriptions_in_order(server) ->
     """
     implementor = server.login(IMPLEMENTOR.name)
     room_file = server.lib_dir / "world" / "wld" / "11.wld"
-    booted_keywords = extra_description_keywords(room_record(file_text(room_file), world.ROOM_SIGNPOST))
+    booted_keywords = extra_description_keywords(record(file_text(room_file), world.ROOM_SIGNPOST))
 
     reply_to(implementor, f"shape room {world.ROOM_SIGNPOST}", [SIGNPOST_PROMPT])
     reply_to(implementor, "/save", [EDITOR_COMMAND_MARKER])
@@ -183,7 +171,7 @@ def test_saving_a_room_unedited_keeps_its_extra_descriptions_in_order(server) ->
     free_editor(implementor, ROOM_RELEASED)
 
     assert booted_keywords == SIGNPOST_KEYWORDS_IN_FILE_ORDER
-    saved_keywords = extra_description_keywords(room_record(file_text(room_file), world.ROOM_SIGNPOST))
+    saved_keywords = extra_description_keywords(record(file_text(room_file), world.ROOM_SIGNPOST))
     assert saved_keywords == SIGNPOST_KEYWORDS_IN_FILE_ORDER, saved_keywords
 
 

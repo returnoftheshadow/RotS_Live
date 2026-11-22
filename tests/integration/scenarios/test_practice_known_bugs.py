@@ -13,6 +13,17 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
+from test_practice import GO_AWAY_SPEECH, PRACTICED_MARKER, PUPIL, STARTING_SESSIONS, give_sessions
+from test_practice_sessions import (
+    ANGEL_VNUM,
+    LEARNING,
+    PLAIN_SESSIONS_PATTERN,
+    RESET_DONE_MARKER,
+    RESET_REPORT_MARKER,
+    TRAVELLER_VNUM,
+    stat_value,
+    tell_angel,
+)
 
 pytestmark = [pytest.mark.scenario, pytest.mark.practice]
 
@@ -28,15 +39,6 @@ RESET_PUPIL = Character(
     class_name="mage",
     skills=(("blink", BLINK_SESSIONS_SPENT),),
 )
-# A level-30 human mage in the arena centre who has practiced nothing.
-PUPIL = Character(
-    name="Testpupil",
-    race="human",
-    sex="female",
-    level=30,
-    load_room=world.ROOM_ARENA_CENTRE,
-    class_name="mage",
-)
 # A level-6 human mage: the only level the angel rerolls.
 REROLL_PUPIL = Character(
     name="Testroller",
@@ -47,32 +49,23 @@ REROLL_PUPIL = Character(
     class_name="mage",
 )
 
-# The traveller (mob/guildmasters.mob), a guildmaster who teaches blink up to 100 to humans.
-TRAVELLER_VNUM = 1503
+# What load mob answers for the traveller (do_load, act_wiz.cpp), a guildmaster who teaches
+# blink up to 100 to humans.
 TRAVELLER_CREATED_MARKER = "You create a mysterious traveller."
 # The scarred trainer (mob/guildmasters.mob), program 9, the URUK WARRIOR row, whose reject
 # message is "$n snarls 'Get out!'"; it teaches only uruk-hai (will_teach 2048).
 TRAINER_VNUM = 4608
 TRAINER_LINE_START = "A scarred trainer"
-# The shining angel (mob/11.mob): MOB_SPEC with program 14, the resetter (spec_ass.cpp).
-ANGEL_VNUM = 1170
 # The iron circlet (obj/11.obj): head armour whose one affect is APPLY_STR +2.
 CIRCLET_VNUM = 1171
 CIRCLET_CREATED_MARKER = "You create an iron circlet."
 CIRCLET_STRENGTH_BONUS = 2
 
-# The learning the implementor gives the pupil for a known session count: wizset's top, above
-# any rolled learning.
-LEARNING = 40
 # Learning that is not a multiple of LEA_PRAC_FACTOR (5), so a level's share has a fraction.
 FRACTIONAL_LEARNING = 37
 # The reset pupil stored with FRACTIONAL_LEARNING.
 FRACTIONAL_PUPIL = dataclasses.replace(RESET_PUPIL, stored=StoredValues(lea=FRACTIONAL_LEARNING))
-# The practice sessions the implementor gives a pupil before practicing.
-STARTING_SESSIONS = 20
 
-# The first line of the plain practice list (do_practice, spec_pro.cpp); it has no full stop.
-PLAIN_SESSIONS_PATTERN = re.compile(r"You have (-?\d+) practice sessions left\r?\n")
 # Values in `stat player` (do_stat_character, act_wiz.cpp): learning and strength as
 # current/base/constant, the level and the practice sessions.
 LEARNING_PATTERN = re.compile(r"Lea:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
@@ -80,16 +73,8 @@ STRENGTH_PATTERN = re.compile(r"Str:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
 LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 STAT_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
 
-# What the pupil reads on a reset (do_pracreset, spec_pro.cpp).
-RESET_DONE_MARKER = "Your practices have been reset"
-# What the implementor reads on a reset.
-RESET_REPORT_MARKER = "You reset his/her learning abilities."
 # The immortal command's refusal without a name (do_pracreset).
 WHOM_MARKER = "Whom do you want to reset?"
-# What the pupil reads when the tell finds nobody it can see (do_tell, act_comm.cpp).
-NOBODY_MARKER = "Nobody by that name."
-# The pupil's own tell to the angel, the last line of every answer (SPECIAL(resetter) runs first).
-TOLD_ANGEL_FORMAT = "You tell a shining angel '{}'"
 # The reroll count after each angel reroll (SPECIAL(resetter)).
 REROLLS_LEFT_PATTERN = re.compile(r"You have (\d+) reroll attempts left\.")
 # The angel's refusal once the rerolls are used up.
@@ -100,33 +85,16 @@ OWN_LEARNING_PATTERN = re.compile(r"Lea:\s*(\d+)/\s*(\d+)\.")
 # What `set language <name>` and a bare `set language` reply (do_language, act_othe.cpp).
 CHOSEN_LANGUAGE_FORMAT = "You will now use {}."
 SPOKEN_LANGUAGE_PATTERN = re.compile(r"You are using ([a-z ]+)\.")
-# What the pupil reads on the first session of a practice command at the traveller.
-PRACTICED_MARKER = "You practice it for a while."
-# What a guildmaster says to a race outside its will_teach mask (SPECIAL(guild), do_say), and
-# the scarred trainer's own reject message, the URUK WARRIOR row's reject_message.
-GO_AWAY_SPEECH = "says 'Go away, I won't teach you anything!'"
+# The scarred trainer's own reject message, the URUK WARRIOR row's reject_message (SPECIAL(guild)).
 TRAINER_REJECT_MARKER = f"{TRAINER_LINE_START} snarls 'Get out!'"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
-
-
-def give_sessions(implementor: GameSession, name: str, sessions: int) -> None:
-    """Sets the character's practice sessions to exactly sessions."""
-    reply = implementor.command(f"wizset player {name.lower()} practices {sessions}")
-    assert reply.contains(f"{name}'s practices set to {sessions}."), reply.text
 
 
 def stat_player(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player` of the character, read to its last line."""
     implementor.send_line(f"stat player {name.lower()}")
     return implementor.expect(["VUL:"]) + implementor.drain(SETTLE_SECONDS)
-
-
-def stat_value(pattern: re.Pattern[str], text: str) -> tuple[int, ...]:
-    """The numbers pattern captures in a `stat player` text."""
-    match = pattern.search(text)
-    assert match is not None, f"no {pattern.pattern} in:\n{text}"
-    return tuple(int(group) for group in match.groups())
 
 
 def plain_sessions(pupil: GameSession) -> int:
@@ -142,12 +110,6 @@ def load_mob(implementor: GameSession, vnum: int, created_marker: str) -> None:
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
     reply = implementor.command(f"load mob {vnum}")
     assert reply.contains(created_marker), reply.text
-
-
-def tell_angel(pupil: GameSession, text: str) -> str:
-    """Sends `tell angel <text>` and returns everything the pupil read, its own tell included."""
-    pupil.send_line(f"tell angel {text}")
-    return pupil.expect([TOLD_ANGEL_FORMAT.format(text), NOBODY_MARKER]) + pupil.drain(SETTLE_SECONDS)
 
 
 def spoken_language(pupil: GameSession) -> str:

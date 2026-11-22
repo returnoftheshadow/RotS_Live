@@ -8,37 +8,32 @@ import re
 
 import pytest
 
-from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.characters import IMPLEMENTOR
 from rots_harness.session import GameSession
-
-pytestmark = [pytest.mark.scenario, pytest.mark.help_and_stat]
-
-# A level-12 human warrior in the arena centre: the player who reads help, sets its preferences
-# and colours, and whose stat the implementor reads.
-PLAYER = Character(
-    name="Testreader",
-    race="human",
-    sex="female",
-    level=12,
-    load_room=world.ROOM_ARENA_CENTRE,
-    class_name="warrior",
+from test_help_and_stat import (
+    CHAIN_SHIRT_VNUM,
+    CHAT_OFF_REPLY,
+    COLOURS_LIST_HEADER,
+    COLOURS_OFF_REPLY,
+    INCOGNITO_ON_REPLY,
+    INFO_ABSORB_PATTERN,
+    MAIL_NO_ADDRESSEE_REPLY,
+    MAIL_NO_SUCH_PERSON_REPLY,
+    PLAYER,
+    URUK_HAI_KEYWORD_LINE,
+    URUK_LHUTH_KEYWORD_LINE,
+    colour_command,
+    read_uruk_help,
+    set_preference,
 )
 
-# The uruk-hai entry's keyword line and its last line, and the uruk-lhuth entry's (lib/text/help_tbl).
-URUK_HAI_KEYWORD_LINE = "URUK-HAI URUK"
-URUK_HAI_LAST_LINE = "bonus to the bash skill."
-URUK_LHUTH_KEYWORD_LINE = 'LHUTH "URUK-LHUTH"'
-URUK_LHUTH_LAST_LINE = "Uruk-lhuth. See: MAN SPELL LHUTH"
-# The start of what do_help answers when no keyword matches.
-NO_ENTRY_MARKER = "There is no entry for"
+pytestmark = [pytest.mark.scenario, pytest.mark.help_and_stat]
 
 # The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
 # the drain collects the rest of the reply.
 STAT_LAST_LINE_MARKER = "VUL:"
-# The absorb figure on stat's OB line and in info (do_info, act_info.cpp).
+# The absorb figure on stat's OB line (do_stat_character, act_wiz.cpp).
 STAT_ABSORB_PATTERN = re.compile(r"absorb (-?\d+)")
-INFO_ABSORB_PATTERN = re.compile(r"Your armour absorbs about (-?\d+)% damage")
 
 # The advanced view and advanced prompt toggles: keyword, on reply, the off reply every other
 # preference's pattern gives, and the status text tog_messages (act_othe.cpp) gives instead.
@@ -46,13 +41,8 @@ ADVANCED_TOGGLES = (
     ("advancedview", "Advanced view is now on.", "Advanced view is now off.", "Advanced view is off."),
     ("advancedprompt", "Advanced prompt is now on.", "Advanced prompt is now off.", "Advanced prompt is off."),
 )
-# What do_gen_tog answers an argument that is not on, off or toggle, and do_set an unknown keyword.
-TOGGLE_OPTIONS_MARKER = "Options are on | off | toggle."
-SET_ARGUMENTS_MARKER = "Possible arguments are:"
 # The `set` line for incognito (do_toggle, act_info.cpp); ONOFF pads ON to three characters.
 INCOGNITO_MODE_PATTERN = re.compile(r"Incognito Mode: (ON|OFF)")
-CHAT_OFF_REPLY = "You are now deaf to chat."
-INCOGNITO_ON_REPLY = "Incognito mode is now on."
 
 # AFF_HALLUCINATE (bit 31) as the signed value wizset's affected field takes, and its name in
 # affected_bits (consts.cpp).
@@ -61,12 +51,7 @@ HALLUCINATE_NAME = "HALLU"
 
 # The harness token (object 1130), a board: spec_ass.cpp assigns gen_board to its vnum.
 BOARD_TOKEN_VNUM = 1130
-# What the colour commands answer with colours off and do_color's list header (color.cpp), and
-# what the mail board answers a letter with no addressee and one to nobody (boards.cpp).
-COLOURS_OFF_REPLY = "Your colours are turned off."
-COLOURS_LIST_HEADER = "Your colours are:"
-MAIL_NO_ADDRESSEE_REPLY = "Send the letter to whom?"
-MAIL_NO_SUCH_PERSON_REPLY = "No such person."
+# What do_color answers once it sets the mob slot to red (color.cpp).
 MOB_SLOT_SET_REPLY = "You colour mob red."
 
 # The test world's stone girdle (object 1185), with one affect of +3 on location 6, APPLY_LEA.
@@ -74,30 +59,16 @@ GIRDLE_VNUM = 1185
 OBJECT_AFFECT_LINE_PATTERN = re.compile(r"Affections:([^\r\n]*)")
 # The label apply_types (consts.cpp) gives location 6 today.
 STALE_LEARNING_LABEL = "SEX"
-# The test world's chain shirt (object 1186): body armour that gives its wearer a non-zero absorb.
-CHAIN_SHIRT_VNUM = 1186
 # The name of the player's room, world.ROOM_ARENA_CENTRE, as goto shows it.
 ARENA_CENTRE_NAME = "Arena Centre"
 # Seconds to keep reading after a reply, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
 
-def read_uruk_help(session: GameSession, topic: str) -> str:
-    """Asks for help on topic, which can answer with either uruk entry, and returns the reply."""
-    session.send_line(f"help {topic}")
-    return session.expect([URUK_HAI_LAST_LINE, URUK_LHUTH_LAST_LINE, NO_ENTRY_MARKER]) + session.drain(SETTLE_SECONDS)
-
-
 def read_stat(implementor: GameSession, name: str) -> str:
     """The implementor's `stat player <name>`, read up to its last line."""
     implementor.send_line(f"stat player {name.lower()}")
     return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def set_preference(session: GameSession, keyword: str, state: str, replies: tuple) -> str:
-    """Sends `set <keyword> <state>` and returns its reply once one of replies, or a refusal, arrives."""
-    session.send_line(f"set {keyword} {state}")
-    return session.expect(list(replies) + [TOGGLE_OPTIONS_MARKER, SET_ARGUMENTS_MARKER])
 
 
 def incognito_display(session: GameSession) -> str:
@@ -112,12 +83,6 @@ def join_player(implementor: GameSession) -> None:
     """The implementor goes to the player in the arena centre."""
     arrived = implementor.command(f"goto {PLAYER.name.lower()}")
     assert arrived.room_name() == ARENA_CENTRE_NAME, arrived.text
-
-
-def colour_command(session: GameSession, command: str, replies: list) -> str:
-    """Sends a colour command and returns its reply once one of replies arrives."""
-    session.send_line(command)
-    return session.expect(replies) + session.drain(SETTLE_SECONDS)
 
 
 def read_object_stat(implementor: GameSession, keyword: str) -> str:
