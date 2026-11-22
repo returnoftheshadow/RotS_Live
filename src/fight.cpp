@@ -955,8 +955,9 @@ static void raw_kill_by(char_data* dead_man, const char_data* killer, CorpseGear
         affect_remove(dead_man, dead_man->affected);
     }
     death_cry(dead_man);
-    /* Mark them dead before the corpse takes their gear. Taking off an item can poison its
-     * wearer or cast its spell, and nothing may hurt or kill someone who is already dying. */
+    // Dead while the corpse takes their gear: removing an item can poison or cast on its wearer,
+    // and nothing may harm someone already dying.
+    const sh_int position_at_death = GET_POS(dead_man);
     GET_POS(dead_man) = POSITION_DEAD;
     if (killer_watch.freed()) {
         killer = nullptr;
@@ -967,6 +968,9 @@ static void raw_kill_by(char_data* dead_man, const char_data* killer, CorpseGear
     if (killer_watch.freed()) {
         killer = nullptr;
     }
+    // Back in the position they died in, one who died awake reads that they leave their leader
+    // and group.
+    GET_POS(dead_man) = position_at_death;
 
     // Let big brother know that the player died.
     game_rules::big_brother& bb_instance = game_rules::big_brother::instance();

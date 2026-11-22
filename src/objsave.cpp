@@ -1418,23 +1418,36 @@ static void extract_held_followers(std::vector<held_follower>& followers, size_t
     }
 }
 
-void extract_followers(const struct char_data* ch)
+// Removes <ch>'s NPC followers from the game as a rent does, destroying their gear, what they
+// carry and their own NPC followers. Taking gear off can kill <ch>: returns false when <ch> was
+// freed, and the caller must not touch it again.
+[[nodiscard]] static bool extract_followers(const struct char_data* ch)
 {
-    struct follow_type *k, *next_fol;
-
-    for (k = ch->followers; k; k = next_fol) {
-        next_fol = k->next;
-        if (!IS_NPC(k->follower))
-            continue;
-        // A follower freed while stripped takes its follow record <k> with it.
-        char_data* follower = k->follower;
-        if (!extract_worn_gear(follower)) {
+    freed_watch leader_watch(ch);
+    const follow_type* following = ch->followers;
+    while (following) {
+        char_data* follower = following->follower;
+        if (!IS_NPC(follower)) {
+            following = following->next;
             continue;
         }
-        extract_carried_objects(follower);
-        extract_followers(follower);
-        extract_char(follower);
+
+        // Every path takes <follower> out of the game, so the walk ends.
+        if (extract_worn_gear(follower)) {
+            extract_carried_objects(follower);
+            if (extract_followers(follower)) {
+                extract_char(follower);
+            }
+        }
+
+        if (leader_watch.freed()) {
+            return false;
+        }
+
+        // The gear's spell can have freed any follow record, so the walk starts again.
+        following = ch->followers;
     }
+    return true;
 }
 
 int Crash_alias_load(struct char_data* ch, FILE* fp)
@@ -1748,7 +1761,11 @@ void Crash_idlesave(struct char_data* ch)
     Crash_extract_objs(ch->carrying);
 }
 
-void Crash_rentsave(struct char_data* ch, int cost)
+// Saves <ch>'s rent, then destroys what it wears and carries and removes its NPC followers.
+// Taking the renter's or a follower's gear off can kill the renter (an item's poison or spell),
+// and a renter with no connection is then freed. Returns false when the renter was freed: the
+// caller must not touch it again.
+[[nodiscard]] bool Crash_rentsave(struct char_data* ch, int cost)
 {
     char buf[MAX_INPUT_LENGTH];
     struct rent_info rent;
@@ -1757,12 +1774,19 @@ void Crash_rentsave(struct char_data* ch, int cost)
     FILE* fp;
 
     if (IS_NPC(ch))
-        return;
+        return true;
 
-    if (!Crash_get_filename(GET_NAME(ch), buf))
-        return;
-    if (!(fp = fopen(buf, "w+b")))
-        return;
+    if (!Crash_get_filename(GET_NAME(ch), buf)) {
+        snprintf(buf1, sizeof(buf1), "SYSERR: no rent file name for %s.", GET_NAME(ch));
+        log(buf1);
+        return true;
+    }
+    if (!(fp = fopen(buf, "w+b"))) {
+        snprintf(buf1, sizeof(buf1), "SYSERR: unable to open rent file '%s' for %s: %s", buf,
+            GET_NAME(ch), strerror(errno));
+        log(buf1);
+        return true;
+    }
 
     Crash_extract_norents(ch->carrying);
 
@@ -1776,26 +1800,36 @@ void Crash_rentsave(struct char_data* ch, int cost)
     rent.gold = GET_GOLD(ch);
     if (!Crash_write_rentcode(ch, fp, &rent)) {
         fclose(fp);
-        return;
+        return true;
     }
     if (!Crash_save(ch->carrying, ch, MAX_WEAR, fp)) {
         fclose(fp);
-        return;
+        return true;
     }
+    freed_watch renter_watch(ch);
     for (j = 0; j < MAX_WEAR; j++)
         if (ch->equipment[j]) {
             tmpobj = unequip_char(ch, j);
+            if (renter_watch.freed()) {
+                Crash_extract_objs(tmpobj);
+                fclose(fp);
+                return false;
+            }
             Crash_save(tmpobj, ch, j, fp);
             Crash_extract_objs(tmpobj);
             ch->equipment[j] = 0;
         }
     Crash_alias_save(ch, fp);
     Crash_follower_save(ch, fp);
-    extract_followers(ch);
+    const bool renter_stays = extract_followers(ch);
     fclose(fp);
+    if (!renter_stays) {
+        return false;
+    }
     refresh_account_backed_object_file(ch);
 
     Crash_extract_objs(ch->carrying);
+    return true;
 }
 
 /* ************************************************************************
@@ -2169,7 +2203,9 @@ int gen_receptionist(struct char_data* ch, int cmd, const char* arg, int mode)
                 remove_fame_war_bonuses(ch, aff);
                 affect_remove(ch, aff);
             }
-            Crash_rentsave(ch, cost);
+            if (!Crash_rentsave(ch, cost)) {
+                return TRUE;
+            }
             sprintf(buf, "%s has rented (%d/day, %d tot.)", GET_NAME(ch),
                 cost, GET_GOLD(ch));
         }
@@ -2230,7 +2266,9 @@ ACMD(do_rent)
         FALSE, ch, 0, 0, TO_CHAR);
     act("$n sets a small camp and rents in it.", FALSE, ch, 0, 0, TO_ROOM);
 
-    Crash_rentsave(ch, 0);
+    if (!Crash_rentsave(ch, 0)) {
+        return;
+    }
     sprintf(buf, "%s has field-rented (%d total gold)", GET_NAME(ch),
         GET_GOLD(ch));
 

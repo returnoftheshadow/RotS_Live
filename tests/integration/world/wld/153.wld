@@ -1,0 +1,22 @@
+#15345
+Before the Tower Door~
+A tall black tower rises to the south. Its door stands in a narrow arch.
+~
+153 0 0 0
+D2
+~
+door~
+1 0 15355 5
+S
+#15355
+Inside the Tower Door~
+A cold hall inside the tower. The door north leads back out.
+~
+153 0 0 0
+D0
+~
+gate~
+1 0 15345 5
+S
+#99999
+$~
