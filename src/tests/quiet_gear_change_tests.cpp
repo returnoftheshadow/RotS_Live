@@ -58,7 +58,7 @@ constexpr int FOLLOWER_PROTOTYPE = 0;
 constexpr int MOUNT_PROTOTYPE = 1;
 constexpr int MOB_PROTOTYPE_COUNT = 2;
 // A constitution low enough that its owner dies at 0 hit points, as a player with none does
-// (update_pos: dead at hit points <= -constitution / 2). Every follower prototype has it.
+// (update_pos: dead at hit points <= -constitution / 2).
 constexpr int FRAIL_CONSTITUTION = 1;
 // A follower prototype's level, and its abilities other than constitution: an ordinary mob's.
 constexpr int FOLLOWER_LEVEL = 10;
@@ -377,15 +377,13 @@ protected:
         m_mob_prototypes[FOLLOWER_PROTOTYPE].tmpabilities.hit = hit_points;
     }
 
-    // Leaves <doomed> one hit point from death: at LOW_HIT_POINTS and FRAIL_CONSTITUTION, a blow of
-    // 1 kills. The smallest earthquake a test casts still deals 1: number(1, 30) plus
-    // get_mage_caster_level (at least 18 / 5 = 3, every caster having intelligence 18) is at least
-    // 4, halved for a crack and again for a save; with no saving throw of the victim's own,
-    // apply_spell_damage keeps it all.
+    // Leaves <doomed> one hit point from death with no saving throw of its own, so any blow of
+    // at least 1, the smallest earthquake a test casts among them, kills it.
     static void leave_one_hit_point_from_death(char_data* doomed)
     {
         doomed->tmpabilities.con = FRAIL_CONSTITUTION;
         doomed->tmpabilities.hit = LOW_HIT_POINTS;
+        // A saving throw of the victim's own would let apply_spell_damage cut a quake's 1 to 0.
         doomed->specials2.saving_throw = 0;
     }
 
