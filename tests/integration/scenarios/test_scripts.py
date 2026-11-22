@@ -15,6 +15,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import DEATH_CRY_FORMAT
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CONSTITUTION_PATTERN, read_stat
 from rots_harness.text_lines import capitalised
@@ -57,18 +58,16 @@ SMITHS = [
     pytest.param(LABELLED_SMITH, id="labelled", marks=placed(LABELLED_SMITH)),
 ]
 
-# The star token, a grey pebble (tests/integration/world/obj/17.obj) and the leather cap
-# (obj/11.obj), a piece of head armour.
+# The star token and a grey pebble (tests/integration/world/obj/17.obj).
 STAR_TOKEN_VNUM = 1700
 PEBBLE_VNUM = 1701
-LEATHER_CAP_VNUM = 1137
 # The weary foreman (mob 1702), whose script 1702 says a line when anyone speaks, waits four
 # passes (DO_WAIT), says a last line and ends.
 WEARY_FOREMAN = ScriptMob(vnum=1702, keyword="weary", short_description="a weary foreman")
 # The patient foreman (mob 1721): script 1702 with a wait of 400 passes, 100 seconds.
 PATIENT_FOREMAN = ScriptMob(vnum=1721, keyword="patient", short_description="a patient foreman")
 # A mob without a script, for an implementor to force.
-PORTER = ScriptMob(vnum=1722, keyword="porter", short_description="a porter")
+PORTER = ScriptMob(vnum=world.MOB_PORTER, keyword="porter", short_description="a porter")
 
 # What the smiths say (DO_SAY rows of scripts 1700 and 1701), in script order: the nested
 # guard's body, which only a mob giver reaches; the reward inside the star token's block; the
@@ -111,7 +110,7 @@ def said(short_description: str, line: str) -> str:
 
 def death_cry(short_description: str) -> str:
     """What a character in the room reads from raw_kill's death_cry (fight.cpp)."""
-    return f"Your blood freezes as you hear {short_description}'s death cry."
+    return DEATH_CRY_FORMAT.format(short_description)
 
 
 def load_mob(implementor: GameSession, mob: ScriptMob) -> None:
@@ -669,7 +668,7 @@ def test_do_wear_wears_an_object_the_mob_carries(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, LEATHER_CAP_VNUM, "cap", HATTER)
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", HATTER)
     assert "A hatter wears a leather cap on his head." in reply, reply
 
 
@@ -690,7 +689,7 @@ def test_load_obj_x_copies_the_given_object(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, LEATHER_CAP_VNUM, "cap", SCRIBE)
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", SCRIBE)
     assert "A scribe gives you a leather cap." in reply, reply
 
 

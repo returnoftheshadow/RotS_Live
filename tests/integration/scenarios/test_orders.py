@@ -10,9 +10,10 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import FORCED_REPLY
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.stat_reading import read_stat
+from rots_harness.stat_reading import NO_SUCH_MOB_REPLY, read_stat
 from rots_harness.text_lines import assert_in_order, capitalised
 
 pytestmark = [pytest.mark.scenario, pytest.mark.orders]
@@ -60,8 +61,6 @@ ORDER_HALL_NAME = "Order Hall"
 ISSUES_AN_ORDER_FORMAT = "{} issues an order."
 # What the leader reads once at least one follower was ordered (do_order).
 ORDER_DONE_MARKER = "Ok."
-# What force answers before it runs the command (do_force, act_wiz.cpp).
-FORCED_MARKER = "Ok."
 # What the leader reads when no follower in the room is charmed (do_order).
 NOBODY_WILLING_MARKER = "Nobody here is willing to carry out your orders!"
 # What a listener reads as a mob speaks (say_to_char, act_comm.cpp); format with the speaker as
@@ -80,8 +79,6 @@ SITS_DOWN_FORMAT = "{} sits down."
 # The `stat mob` line naming a mob's master (do_stat_character, act_wiz.cpp); format with the
 # master's name, or "<none>".
 MASTER_IS_FORMAT = "Master is: {},"
-# What `stat mob` prints when no mob matches (do_wizstat, act_wiz.cpp).
-NO_SUCH_MOB_MARKER = "No such mobile around."
 # The words the followers are ordered to say. "hello" sets off no script but the warden's.
 HELLO = "hello"
 # The words that set off the lackey captain's script.
@@ -103,7 +100,7 @@ def force(implementor: GameSession, mob: HallMob, command: str, marker: str) -> 
     command shows the implementor's room arrives with it.
     """
     text = reply_to(implementor, f"force {mob.keyword} {command}", [marker])
-    assert FORCED_MARKER in text, text
+    assert FORCED_REPLY in text, text
     return text
 
 
@@ -142,7 +139,7 @@ def order_followers(leader: GameSession, command: str) -> str:
 
 def stat_mob(implementor: GameSession, mob: HallMob) -> str:
     """The implementor's whole `stat mob` reply for mob, or the line saying no mob matched."""
-    return read_stat(implementor, f"mob {mob.keyword}", other_outcomes=[NO_SUCH_MOB_MARKER])
+    return read_stat(implementor, f"mob {mob.keyword}", other_outcomes=[NO_SUCH_MOB_REPLY])
 
 
 @pytest.mark.schedule("affect-hours")
@@ -208,7 +205,7 @@ def test_an_order_goes_on_past_a_follower_it_removes(server) -> None:
     seen = implementor.expect([elm_says_hello]) + implementor.drain(SETTLE_SECONDS)
     assert REALIZES_A_JERK_FORMAT.format(YEW.shown, LEADER.name) in seen, seen
 
-    assert NO_SUCH_MOB_MARKER in stat_mob(implementor, YEW)
+    assert NO_SUCH_MOB_REPLY in stat_mob(implementor, YEW)
     for follower in (ASH, ELM):
         stat = stat_mob(implementor, follower)
         assert MASTER_IS_FORMAT.format(LEADER.name) in stat, stat
@@ -270,7 +267,7 @@ def test_an_order_that_removes_its_leader_ends_there(server) -> None:
     assert_in_order(ordered, expected)
     assert SAYS_FORMAT.format(ELM.shown, FAREWELL) not in ordered, ordered
 
-    assert NO_SUCH_MOB_MARKER in stat_mob(implementor, CAPTAIN)
+    assert NO_SUCH_MOB_REPLY in stat_mob(implementor, CAPTAIN)
     for follower in (ASH, ELM):
         stat = stat_mob(implementor, follower)
         assert MASTER_IS_FORMAT.format("<none>") in stat, stat

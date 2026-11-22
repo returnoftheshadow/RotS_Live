@@ -8,6 +8,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, TELEPORTED_BY_ANYONE
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.text_lines import lines_after
@@ -48,20 +49,9 @@ GOD = Character(
     class_name="warrior",
 )
 
-# The bystander orc (mob 1132).
-BYSTANDER_VNUM = 1132
-# The leather bag (object 1136), a container.
-BAG_VNUM = 1136
-# The leather cap (object 1137), head armour.
-CAP_VNUM = 1137
-
 # What a follower without the moves for the step reads (do_move).
 EXHAUSTED_MARKER = "You are too exhausted to move."
-# What a player reads after dying, before it looks at its start room (extract_char, handler.cpp).
-NEW_BODY_MARKER = "Your spirit found a new body to wear."
-# What `look in corpse` prints before the corpse's contents (do_look, act_info.cpp).
-CORPSE_CONTENTS_HEADER = "corpse (here) :"
-# What `look in bag` prints before a carried bag's contents.
+# What `look in bag` prints before a carried bag's contents (show_obj_contents, act_info.cpp).
 BAG_CONTENTS_HEADER = "bag (carried) :"
 # The bystander orc's report as do_report's format string ("I am %s, my stamina is %s, and I am
 # %s.") writes it, at full health with no stamina and full moves (act_othe.cpp).
@@ -74,8 +64,6 @@ GROUP_WORD = "group"
 MOUNTED_MARKER = "You mount a harness pony and start riding him."
 # What the room reads as the rider mounts the male pony; format with the rider's name.
 ROOM_MOUNTED_MARKER_FORMAT = "{} mounts a harness pony and starts riding him."
-# The end of what the teleported character reads (do_teleport, act_wiz.cpp).
-ANY_TELEPORTED_MARKER = "has teleported you!"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -124,7 +112,7 @@ def test_ungroup_refuses_a_character_outside_the_group(server) -> None:
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
-@pytest.mark.world_resets(MobReset(BYSTANDER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_BYSTANDER_ORC, world.ROOM_ARENA_CENTRE))
 def test_report_keeps_the_capital_i_its_format_string_writes(server) -> None:
     """Bug: do_report (act_othe.cpp:646-647) lower-cases every character after the first.
 
@@ -161,13 +149,13 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     carrier = server.login(CARRIER.name)
     assert implementor.command(f"goto {world.ROOM_GALLOWS_APPROACH}").room_name() == "Gallows Approach"
-    load_object(implementor, BAG_VNUM, "a leather bag")
-    load_object(implementor, CAP_VNUM, "a leather cap")
+    load_object(implementor, world.OBJECT_LEATHER_BAG, "a leather bag")
+    load_object(implementor, world.OBJECT_LEATHER_CAP, "a leather cap")
     assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
     given = implementor.command(f"give bag {CARRIER.name.lower()}")
     assert given.contains(f"You give a leather bag to {CARRIER.name}."), given.text
 
-    died = reply_to(carrier, "east", [NEW_BODY_MARKER])
+    died = reply_to(carrier, "east", [NEW_BODY_MESSAGE])
     assert PIT_ROOM_NAME in died, died
     assert implementor.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
 
@@ -291,5 +279,5 @@ def test_a_level_93_immortal_cannot_teleport_the_implementor(server) -> None:
     implementor.drain(SETTLE_SECONDS)
 
     god.command(f"teleport {IMPLEMENTOR.name.lower()} {world.ROOM_ARENA_EAST}")
-    assert ANY_TELEPORTED_MARKER not in implementor.drain(SETTLE_SECONDS)
+    assert TELEPORTED_BY_ANYONE not in implementor.drain(SETTLE_SECONDS)
     assert implementor.command("look").room_name() == "Immortal Start"

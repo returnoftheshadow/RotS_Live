@@ -45,7 +45,7 @@ class Guildmaster:
 # cure self up to 80, fireball and cone of cold, but not magic missile. It teaches the races in
 # its will_teach mask, 63: god, human, dwarf, wood elf, hobbit and high elf, not the beorning.
 TRAVELLER = Guildmaster(
-    1503, "traveller", "a mysterious traveller", "Hello, {}! I can teach you these spells:"
+    world.MOB_MYSTERIOUS_TRAVELLER, "traveller", "a mysterious traveller", "Hello, {}! I can teach you these spells:"
 )
 # Scorther, program 16, the LAKETOWN MAGE row: teaches blink and cure self up to 60, magic
 # missile and identify, but not fireball. Same will_teach mask.
@@ -222,8 +222,6 @@ OVERSPENT_PUPIL = Character(
     stored=StoredValues(lea=0),
 )
 
-# The shining angel (mob/11.mob): MOB_SPEC with program 14, the resetter (spec_ass.cpp).
-RESETTING_ANGEL_VNUM = 1170
 # The last of the two lines a pupil reads on a pracreset (do_pracreset, spec_pro.cpp).
 PRACRESET_DONE_MARKER = "Your practices have been reset"
 
@@ -997,7 +995,7 @@ def test_an_uruk_lhuth_knows_blink_at_10_percent_unpractised_and_again_after_pra
     practised = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)
     assert guild_row(practised, "blink") == (36, 1, "Mastered"), practised
 
-    reply = implementor.command(f"load mob {RESETTING_ANGEL_VNUM}")
+    reply = implementor.command(f"load mob {world.MOB_SHINING_ANGEL}")
     assert reply.contains("You create a shining angel."), reply.text
     reset = reply_to(pupil, "tell angel pracreset", [PRACRESET_DONE_MARKER])
     assert PRACRESET_DONE_MARKER in reset, reset

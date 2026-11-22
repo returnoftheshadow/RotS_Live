@@ -19,6 +19,9 @@ CHARACTER_STAT_LAST_LINE = "VUL:"
 # The last line of an object's or a room's stat, which lists their affections (do_stat_object,
 # do_stat_room, act_wiz.cpp). A room's affections follow it on lines of their own.
 OBJECT_STAT_LAST_LINE = "Affections:"
+# What `stat mob` answers when the implementor sees no mob by the name (do_wizstat, act_wiz.cpp),
+# for read_stat's other_outcomes.
+NO_SUCH_MOB_REPLY = "No such mobile around."
 
 # The hit point line's current and maximum hit points (do_stat_character, act_wiz.cpp).
 HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)")
@@ -61,7 +64,7 @@ def read_stat(
     """The implementor's reply to `stat <target>`, such as target "player testsaint", "mob boar" or "obj sword".
 
     Reads up to the first of last_line and other_outcomes, then settle seconds more (reply_to).
-    other_outcomes are answers the caller tells apart, such as "No such mobile around."; the
+    other_outcomes are answers the caller tells apart, such as NO_SUCH_MOB_REPLY; the
     reply is returned whichever arrives, and nothing in it is asserted. Fails with
     SessionTimeout when none arrives within expect's default timeout.
     """

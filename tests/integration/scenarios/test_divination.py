@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import UNKNOWN_SPELL_REPLY
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.text_lines import stripped_lines
@@ -18,9 +20,9 @@ pytestmark = [pytest.mark.scenario, pytest.mark.divination]
 ROOM_SEERS_ROOM = 2408
 ROOM_CLUTTERED_ROOM = 2409
 CLUTTERED_ROOM_NAME = "Cluttered Room"
-# What the seer's room holds from boot: the practice dummy (mob/24.mob) and a flask (obj/24.obj).
+# What the seer's room holds from boot: the practice dummy (mob/24.mob) and a flask
+# (world.OBJECT_FLASK).
 DUMMY_VNUM = 2404
-FLASK_VNUM = 2400
 
 # The base and current mana the seer is stored with, enough for many casts; a lost concentration
 # costs half of the spell's mana (do_cast, spell_pa.cpp).
@@ -64,10 +66,9 @@ CLUTTERED_ROOM_HEADER = [
     "Objects in the room:",
 ]
 
-# The leather cap (obj/11.obj), dropped by the implementor until the cluttered room's object list
-# passes divination's limit of 999 characters (DIVINATION_LIST_LIMIT, spells.h): each cap adds
-# "a leather cap, " (15 characters), so 80 make 22 + 80 * 15 = 1222 with the header.
-CAP_VNUM = 1137
+# Leather caps (world.OBJECT_LEATHER_CAP), dropped by the implementor until the cluttered room's
+# object list passes divination's limit of 999 characters (DIVINATION_LIST_LIMIT, spells.h): each
+# cap adds "a leather cap, " (15 characters), so 80 make 22 + 80 * 15 = 1222 with the header.
 CAPS_DROPPED = 80
 CAP_ENTRY = "a leather cap"
 CAP_CREATED = "You create a leather cap."
@@ -83,8 +84,6 @@ LIST_LIMIT = 999
 # at full knowledge, so a cast is repeated after a loss until the mana runs out.
 LOST_CONCENTRATION = "You lost your concentration!"
 NO_ENERGY = "You can't summon enough energy to cast the spell."
-# What the caster reads when she does not know the spell (can_cast_spell, spell_pa.cpp).
-UNKNOWN_SPELL = "You don't know this spell."
 # The last line of every report: the object list, whatever it holds.
 OBJECTS_HEADER = "Objects in the room:"
 # Seconds to wait for a cast's outcome.
@@ -95,7 +94,7 @@ def divine(seer: GameSession) -> list:
     """Casts divination, repeating it after a lost concentration; returns the report's lines from
     its first line on."""
     while True:
-        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL], timeout=CAST_TIMEOUT)
+        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL_REPLY], timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION in reply:
             continue
         lines = stripped_lines(reply)
@@ -104,7 +103,7 @@ def divine(seer: GameSession) -> list:
 
 
 @pytest.mark.schedule("affect-hours")
-@pytest.mark.world_resets(MobReset(DUMMY_VNUM, ROOM_SEERS_ROOM), ObjectReset(FLASK_VNUM, ROOM_SEERS_ROOM))
+@pytest.mark.world_resets(MobReset(DUMMY_VNUM, ROOM_SEERS_ROOM), ObjectReset(world.OBJECT_FLASK, ROOM_SEERS_ROOM))
 @pytest.mark.characters(SEER)
 def test_divination_reports_the_room_its_exits_and_who_and_what_is_there(server) -> None:
     """In the seer's room divination reports the room's number, sector and flags, its two exits with
@@ -128,7 +127,7 @@ def test_divination_cuts_a_crowded_object_list_short_with_and_more(server) -> No
     went = implementor.command(f"goto {ROOM_CLUTTERED_ROOM}")
     assert went.room_name() == CLUTTERED_ROOM_NAME, went.text
     for _cap in range(CAPS_DROPPED):
-        implementor.send_line(f"load obj {CAP_VNUM}")
+        implementor.send_line(f"load obj {world.OBJECT_LEATHER_CAP}")
         implementor.expect([CAP_CREATED])
     implementor.command("drop all")
     implementor.command(f"goto {ROOM_SEERS_ROOM}")

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import FORCED_REPLY
 from rots_harness.launcher import GAME_LOG_NAME
 from rots_harness.replies import reply_to
 from rots_harness.world_resets import MobReset
@@ -53,8 +54,6 @@ RUNS_REFUSAL = f"too many scripts have run for one event (limits {MAX_SCRIPT_NES
 REFUSAL_LINE_PATTERN = re.compile(r"SYSERR: report_refused_run: script #2600 not run: (too many [^(]+\(limits [^;]+;) ch1 ([a-z ]+), ob1 none\)")
 # The mortal who speaks in the Echo Room: a level-10 human warrior standing there from the start.
 SPEAKER = Character(name="Testspeaker", race="human", sex="male", level=10, load_room=ROOM_ECHO, class_name="warrior")
-# What the implementor reads as `force` runs its command (do_force, act_wiz.cpp).
-FORCE_DONE_MARKER = "Ok."
 # The word the speaker says, and the forced chanter too: any word sets the scripts off.
 HELLO = "hello"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
@@ -136,8 +135,8 @@ def test_three_mobs_answering_each_other_stop_at_both_limits(server) -> None:
     limits; before it, the first chain overflowed the server's stack. No draw is on the path.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    forced = reply_to(implementor, f"force chanter say {HELLO}", [FORCE_DONE_MARKER])
-    assert FORCE_DONE_MARKER in forced, forced
+    forced = reply_to(implementor, f"force chanter say {HELLO}", [FORCED_REPLY])
+    assert FORCED_REPLY in forced, forced
 
     refusals = wait_for_refusals(server.run_dir / GAME_LOG_NAME, 4)
     assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL, RUNS_REFUSAL] * 2, refusals

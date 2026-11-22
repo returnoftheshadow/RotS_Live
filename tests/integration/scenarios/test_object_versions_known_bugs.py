@@ -9,9 +9,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import DROP_FORMAT, NO_ONE_AROUND_REPLY, NOT_HERE_REPLY, TELEPORTED_FORMAT
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from test_object_versions import (
     CANNOT_SEE_RENTER_MARKER,
     INNKEEPER_IN_ROOM_LINE,
@@ -24,6 +24,7 @@ from test_object_versions import (
     WATERSKIN_KEYWORD,
     WATERSKIN_SHORT_DESCRIPTION,
     WATERSKIN_VNUM,
+    stat_object,
 )
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_versions]
@@ -49,14 +50,12 @@ OWNER = Character(
     class_name="mystic",
 )
 
-# The fixtures these pins use (tests/integration/world/obj/16.obj), each with its keyword and
-# short description: the plain sword, and a relic whose extra flags are every bit from 0 to 28
-# but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE), among them 15, WILLPOWER. The
-# waterskin (test_object_versions.py) holds 10 of its 20 drinks and weighs 30.
-PLAIN_SWORD_VNUM = 1601
+# The keyword and short description of each fixture these pins use: the plain sword
+# (world.OBJECT_PLAIN_SWORD), and the strange relic (world.OBJECT_STRANGE_RELIC), whose extra flags
+# are every bit from 0 to 28 but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE), among them
+# 15, WILLPOWER. The waterskin (test_object_versions.py) holds 10 of its 20 drinks and weighs 30.
 SWORD_KEYWORD = "sword"
 SWORD_SHORT_DESCRIPTION = "a plain sword"
-RELIC_VNUM = 1609
 RELIC_KEYWORD = "relic"
 RELIC_SHORT_DESCRIPTION = "a strange relic"
 # The waterskin's weight after one sip: the prototype's 30, less the 1 drink the sip took
@@ -70,11 +69,10 @@ SIPPING_OWNER = dataclasses.replace(OWNER, stored=StoredValues(drunk=SIPPER_DRUN
 # The mortal mystic with no gold.
 PENNILESS_MYSTIC = dataclasses.replace(MORTAL_MYSTIC, stored=StoredValues(gold=OFFER_GOLD))
 
-# What the implementor reads when a load, a give or a drop goes through (do_load, act_wiz.cpp;
-# give and drop, act_obj1.cpp).
+# What the implementor reads when a load or a give goes through (do_load, act_wiz.cpp; give,
+# act_obj1.cpp).
 CREATED_MARKER_FORMAT = "You create {}."
 GIVEN_MARKER_FORMAT = "You give {} to {}."
-DROPPED_MARKER_FORMAT = "You drop {}."
 # What the implementor reads when the purge goes through (do_purge, act_wiz.cpp), and its inventory
 # header (do_inventory, act_info.cpp).
 PURGED_MARKER = "Ok."
@@ -87,18 +85,12 @@ TOO_DRUNK_MARKER = "You can't seem to get close enough to your mouth."
 WILLPOWER_FLAG = " WILLPOWER "
 EXTRA_FLAGS_LINE_START = "Extra flags   :"
 
-# What stat obj answers when nothing matches (do_wizstat, act_wiz.cpp).
-NO_SUCH_OBJECT_MARKER = "No such object around."
-# The teleport reply the mortal reads (do_teleport, act_wiz.cpp), and the implementor's reply when
-# the name matches no one.
-TELEPORTED_MARKER = f"{IMPLEMENTOR.name} has teleported you!"
-NO_ONE_MARKER = "No-one by that name around."
+# What the mortal reads when the implementor teleports it.
+TELEPORTED_MARKER = TELEPORTED_FORMAT.format(IMPLEMENTOR.name)
 # The offer's answers (Crash_offer_rent, objsave.cpp) for a renter with gold for a lifetime of
 # rent and for one with too little gold.
 LIFETIME_OF_RENT_MARKER = "The harness innkeeper tells you, 'You have enough gold for a lifetime of rent.'"
 NOT_ENOUGH_MONEY_MARKER = "The harness innkeeper tells you, 'You haven't enough money to rent.'"
-# What offer answers with no receptionist in the room (do_not_here, act_othe.cpp).
-NOT_HERE_MARKER = "Sorry, but you can't do that here!"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -110,12 +102,6 @@ def give_new_object(implementor: GameSession, vnum: int, keyword: str, short_des
     given = implementor.command(f"give {keyword} {receiver.name.lower()}")
     assert given.contains(GIVEN_MARKER_FORMAT.format(short_description, receiver.name)), given.text
 
-
-def stat_object(implementor: GameSession, keyword: str) -> list:
-    """The lines of the implementor's stat obj on the first object answering to keyword, stripped."""
-    text = read_stat(implementor, f"obj {keyword}", last_line=OBJECT_STAT_LAST_LINE, other_outcomes=[NO_SUCH_OBJECT_MARKER])
-    assert NO_SUCH_OBJECT_MARKER not in text, text
-    return [line.strip() for line in text.splitlines()]
 
 
 def extra_flags_line(stat_lines: list) -> str:
@@ -141,7 +127,7 @@ def test_purging_a_player_leaves_the_purgers_inventory_alone(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    created = implementor.command(f"load obj {PLAIN_SWORD_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_PLAIN_SWORD}")
     assert created.contains(CREATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION)), created.text
 
     purged = implementor.command(f"purge {MORTAL_MYSTIC.name.lower()}")
@@ -200,13 +186,13 @@ def test_a_builder_set_willpower_flag_survives_a_drop(server) -> None:
     loaded and should still have it on the floor. Nothing on this path draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    created = implementor.command(f"load obj {RELIC_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_STRANGE_RELIC}")
     assert created.contains(CREATED_MARKER_FORMAT.format(RELIC_SHORT_DESCRIPTION)), created.text
     loaded_flags = extra_flags_line(stat_object(implementor, RELIC_KEYWORD))
     assert WILLPOWER_FLAG in loaded_flags, loaded_flags
 
     dropped = implementor.command(f"drop {RELIC_KEYWORD}")
-    assert dropped.contains(DROPPED_MARKER_FORMAT.format(RELIC_SHORT_DESCRIPTION)), dropped.text
+    assert dropped.contains(DROP_FORMAT.format(RELIC_SHORT_DESCRIPTION)), dropped.text
     dropped_flags = extra_flags_line(stat_object(implementor, RELIC_KEYWORD))
     assert WILLPOWER_FLAG in dropped_flags, dropped_flags
 
@@ -227,13 +213,13 @@ def test_an_offer_to_a_mortal_without_gold_does_not_promise_a_lifetime_of_rent(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    give_new_object(implementor, PLAIN_SWORD_VNUM, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION, MORTAL_MYSTIC)
+    give_new_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION, MORTAL_MYSTIC)
     teleport = implementor.command(f"teleport {MORTAL_MYSTIC.name.lower()} {world.ROOM_INN}")
-    assert not teleport.contains(NO_ONE_MARKER), teleport.text
+    assert not teleport.contains(NO_ONE_AROUND_REPLY), teleport.text
     arrival = mystic.expect([TELEPORTED_MARKER]) + mystic.drain(SETTLE_SECONDS)
     assert INNKEEPER_IN_ROOM_LINE in arrival, arrival
 
     mystic.send_line("offer")
-    outcomes = [LIFETIME_OF_RENT_MARKER, NOT_ENOUGH_MONEY_MARKER, OFFER_QUOTE_MARKER, NOTHING_TO_STORE_MARKER, CANNOT_SEE_RENTER_MARKER, NOT_HERE_MARKER]
+    outcomes = [LIFETIME_OF_RENT_MARKER, NOT_ENOUGH_MONEY_MARKER, OFFER_QUOTE_MARKER, NOTHING_TO_STORE_MARKER, CANNOT_SEE_RENTER_MARKER, NOT_HERE_REPLY]
     reply = mystic.expect(outcomes) + mystic.drain(SETTLE_SECONDS)
     assert not (OFFER_QUOTE_MARKER in reply and LIFETIME_OF_RENT_MARKER in reply), reply

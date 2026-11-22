@@ -17,12 +17,10 @@ from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_
 from rots_harness.world_resets import MobReset
 from test_practice import GO_AWAY_SPEECH, PRACTICED_MARKER, PUPIL, STARTING_SESSIONS, give_sessions
 from test_practice_sessions import (
-    ANGEL_VNUM,
     LEARNING,
     PLAIN_SESSIONS_PATTERN,
     RESET_DONE_MARKER,
     RESET_REPORT_MARKER,
-    TRAVELLER_VNUM,
     stat_value,
     tell_angel,
 )
@@ -237,7 +235,7 @@ def test_a_chosen_spoken_language_survives_the_next_skill_recount(server, recoun
         pupil = server.login(PUPIL.name)
     else:
         give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-        load_mob(implementor, TRAVELLER_VNUM, TRAVELLER_CREATED_MARKER)
+        load_mob(implementor, world.MOB_MYSTERIOUS_TRAVELLER, TRAVELLER_CREATED_MARKER)
         assert PRACTICED_MARKER in practice_once(pupil, "blink")
     assert spoken_language(pupil) == "orcish language"
 
@@ -245,7 +243,7 @@ def test_a_chosen_spoken_language_survives_the_next_skill_recount(server, recoun
 @pytest.mark.practice_sessions
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, REROLL_PUPIL)
-@pytest.mark.world_resets(MobReset(ANGEL_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_SHINING_ANGEL, world.ROOM_ARENA_CENTRE))
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
@@ -317,7 +315,7 @@ def test_a_race_the_guildmaster_will_not_teach_reads_its_own_reject_message(serv
 @pytest.mark.practice_abilities
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
-@pytest.mark.world_resets(MobReset(TRAVELLER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_MYSTERIOUS_TRAVELLER, world.ROOM_ARENA_CENTRE))
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,

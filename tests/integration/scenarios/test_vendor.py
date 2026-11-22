@@ -8,6 +8,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import NOT_HERE_REPLY
 from rots_harness.replies import text_seen_before_a_say
 from rots_harness.session import GameSession
 from rots_harness.text_lines import assert_lines, reply_text
@@ -78,9 +79,9 @@ ODD_INGOT_PRICE_BEADS = 1
 ODD_LIST_HEADER = "Step right up!"
 # The list header a trader shows without a list= option (VENDOR_DEFAULT_LIST_MESSAGE, shopkeeper.h).
 DEFAULT_LIST_HEADER = "What would you like to trade?"
-# The virtual numbers of the trader (mob/13.mob) and the leather cap, as the trade log names them.
+# The trader's virtual number (mob/13.mob), as the trade log names it, and the leather cap's is
+# world.OBJECT_LEATHER_CAP.
 TRADER_VNUM = 1302
-LEATHER_CAP_VNUM = 1137
 
 # The trader's tells (vendor_list, vendor_buy and SPECIAL(barter_vendor), shopkeeper.cpp), and its
 # refusal of an attack (keeper_protection, shopkeeper.cpp).
@@ -96,8 +97,6 @@ NOT_STOCKED_MARKER = TRADER_TELL_FORMAT.format("I don't have that. Try 'list'.")
 FIGHT_ONGOING_MARKER = "You do the best you can!"
 # What a buyer reads when the item would take it past its carrying weight (vendor_buy).
 TOO_HEAVY_MARKER = "You can't carry that much weight."
-# What the old shop commands answer where no shopkeeper serves them (do_not_here, act_othe.cpp).
-NOT_HERE_MARKER = "Sorry, but you can't do that here!"
 # What the room hears from a trader its options disable (SPECIAL(barter_vendor)), and the boot
 # log line naming the missing store= option (parse_vendor_options, vendor_problem_line in
 # mob_options.cpp).
@@ -201,7 +200,7 @@ def test_a_vendor_trades_a_fresh_copy_for_the_priced_beads_and_logs_the_trade(se
     assert_lines(buyer.command("list"), still_listed)
 
     trade_log_line = (
-        f"VENDOR: {BUYER.name} buys {LEATHER_CAP_NAME} ({LEATHER_CAP_VNUM}) from mobile #{TRADER_VNUM}, "
+        f"VENDOR: {BUYER.name} buys {LEATHER_CAP_NAME} ({world.OBJECT_LEATHER_CAP}) from mobile #{TRADER_VNUM}, "
         f"paid {cost_text(CAP_PRICE_BEADS)} ({CURRENCY_VNUM})"
     )
     game_log = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
@@ -380,4 +379,4 @@ def test_shop_commands_with_no_keeper_in_the_room_are_not_for_here(server) -> No
 
     for command in ("buy cap", "value cap", "list"):
         reply = wanderer.command(command)
-        assert reply.contains(NOT_HERE_MARKER), f"{command}: {reply.text}"
+        assert reply.contains(NOT_HERE_REPLY), f"{command}: {reply.text}"

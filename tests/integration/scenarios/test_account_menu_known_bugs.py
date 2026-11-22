@@ -31,9 +31,8 @@ NEW_CHARACTER_ACCEPTED = "New character."
 # A level-20 human warrior whose name is also a keyword of mob 1132, the bystander orc; it plays
 # in Arena West, away from the implementor.
 BYSTANDER = Character(name="Bystander", race="human", sex="male", level=20, load_room=world.ROOM_ARENA_WEST, class_name="warrior")
-# The bystander orc (tests/integration/world/mob/11.mob), keywords `bystander orc`.
-BYSTANDER_ORC_VNUM = 1132
-# What `load mob 1132` prints (do_load, act_wiz.cpp), and the orc's line in a room.
+# What `load mob` prints for the bystander orc, whose keywords are `bystander orc` (do_load,
+# act_wiz.cpp), and the orc's line in a room.
 BYSTANDER_ORC_CREATED = "You create a bystander orc."
 BYSTANDER_ORC_IN_ROOM = "A bystander orc loiters here, involved in nothing."
 # The password do_delete requires after the character's name (act_wiz.cpp).
@@ -123,7 +122,7 @@ def test_delete_disconnects_the_named_player_and_leaves_a_mob_of_the_same_keywor
     (save_char, db.cpp:3487-3496). Correct: the player is disconnected and the orc stays."""
     implementor = server.login(IMPLEMENTOR.name)
     with playing_connection(server, BYSTANDER) as bystander:
-        loaded = implementor.command(f"load mob {BYSTANDER_ORC_VNUM}")
+        loaded = implementor.command(f"load mob {world.MOB_BYSTANDER_ORC}")
         assert BYSTANDER_ORC_CREATED in loaded.text, loaded.text
         before = implementor.command("look")
         assert BYSTANDER_ORC_IN_ROOM in before.text, before.text

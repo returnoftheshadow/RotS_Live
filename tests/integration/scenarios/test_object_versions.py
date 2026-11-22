@@ -14,8 +14,17 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import (
+    DROP_FORMAT,
+    NO_ONE_AROUND_REPLY,
+    NOT_HERE_REPLY,
+    STOP_USING_FORMAT,
+    TARGET_NOT_CARRIED_REPLY,
+    TELEPORTED_FORMAT,
+    UNKNOWN_SPELL_REPLY,
+)
 from rots_harness.replies import reply_to
-from rots_harness.session import GameSession
+from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, STRENGTH_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_versions]
@@ -45,17 +54,15 @@ OWNER = Character(
     skills=(("enchant_weapon", 100),),
 )
 
-# The plain sword's virtual number (tests/integration/world/obj/16.obj): a weapon without the
-# MAGIC flag or affects of its own, so enchant weapon takes on it (object_takes_enchant).
-PLAIN_SWORD_VNUM = 1601
-# The keyword the sword answers to, and its short description.
+# The keyword and short description of the plain sword (world.OBJECT_PLAIN_SWORD): a weapon
+# without the MAGIC flag or affects of its own, so enchant weapon takes on it
+# (object_takes_enchant).
 SWORD_KEYWORD = "sword"
 SWORD_SHORT_DESCRIPTION = "a plain sword"
 # The other fixtures of obj/16.obj these scenarios use, each with its keyword and short description:
-# head armour without affects; a BREAKABLE key; the chest it locks (values `100 13 1604`: closed and
-# locked, key 1604); a trinket whose rent per day is -2; a token with the NORENT flag; and a
-# waterskin holding 10 of its 20 drinks of water.
-HELM_VNUM = 1603
+# the leather helm (world.OBJECT_LEATHER_HELM); a BREAKABLE key; the chest it locks
+# (values `100 13 1604`: closed and locked, key 1604); a trinket whose rent per day is -2; a token
+# with the NORENT flag; and a waterskin holding 10 of its 20 drinks of water.
 HELM_KEYWORD = "helm"
 HELM_SHORT_DESCRIPTION = "a leather helm"
 KEY_VNUM = 1604
@@ -73,8 +80,8 @@ TOKEN_SHORT_DESCRIPTION = "a pewter token"
 WATERSKIN_VNUM = 1608
 WATERSKIN_KEYWORD = "waterskin"
 WATERSKIN_SHORT_DESCRIPTION = "a waterskin"
-# The test world's leather bag (obj/11.obj), a container that can hold the token.
-BAG_VNUM = 1136
+# The keyword and short description of the leather bag (world.OBJECT_LEATHER_BAG), a container
+# that can hold the token.
 BAG_KEYWORD = "bag"
 BAG_SHORT_DESCRIPTION = "a leather bag"
 
@@ -125,10 +132,6 @@ CAST_DONE_MARKER = "Ok."
 LOST_CONCENTRATION_MARKER = "You lost your concentration!"
 # What the caster reads when its spirit no longer covers a cast (can_cast_spell, spell_pa.cpp).
 NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
-# What the caster reads when it does not carry the target (report_wrong_target, interpre.cpp).
-NO_TARGET_MARKER = "You don't have that."
-# What the caster reads when it does not know the spell (can_cast_spell).
-UNKNOWN_SPELL_MARKER = "You don't know this spell."
 # What enchant weapon prints for a weapon that has an affect but not the MAGIC flag
 # (spell_enchant_weapon, mystic.cpp).
 TOO_MUCH_MAGIC_MARKER = "There is too much magic in it already."
@@ -139,11 +142,10 @@ GLOW_FRAGMENT = " glows "
 # (Crash_tell_object_refresh, objsave.cpp).
 UPDATED_MARKER_FORMAT = "Your item, {}, has been updated."
 UPDATED_FRAGMENT = "has been updated."
-# What the implementor reads when a load, a give or a drop goes through (do_load, act_wiz.cpp;
-# give and drop, act_obj1.cpp).
+# What the implementor reads when a load, a give or a put goes through (do_load, act_wiz.cpp;
+# give and put, act_obj1.cpp).
 CREATED_MARKER_FORMAT = "You create {}."
 GIVEN_MARKER_FORMAT = "You give {} to {}."
-DROPPED_MARKER_FORMAT = "You drop {}."
 PUT_MARKER_FORMAT = "You put {} in {}."
 
 # The stat obj lines this file pins (do_stat_object, act_wiz.cpp).
@@ -208,10 +210,8 @@ DONE_SWORD_RECORD = [
     "1 0 4 0 1",
 ]
 
-# What the mortal reads when the implementor teleports it (do_teleport, act_wiz.cpp), and what
-# the implementor reads when the name matches no one.
-TELEPORTED_MARKER = f"{IMPLEMENTOR.name} has teleported you!"
-NO_ONE_MARKER = "No-one by that name around."
+# What the mortal reads when the implementor teleports it.
+TELEPORTED_MARKER = TELEPORTED_FORMAT.format(IMPLEMENTOR.name)
 # The inn's name and its innkeeper's long description (tests/integration/world: wld/16.wld,
 # mob/11.mob), which a character in the inn reads in the room.
 INN_ROOM_NAME = "Harness Inn"
@@ -227,13 +227,9 @@ CANNOT_STORE_MARKER_FORMAT = "The harness innkeeper tells you, 'You cannot store
 INNKEEPER_TELLS_FRAGMENT = "The harness innkeeper tells you, '"
 OFFER_QUOTE_MARKER = "The harness innkeeper tells you, 'It will cost you 6 silver and 88 copper for the first day.'"
 OFFER_QUOTE_FRAGMENT = "It will cost you"
-# What rent and offer answer with no receptionist in the room (do_rent, objsave.cpp; do_not_here,
-# act_othe.cpp).
+# What rent answers with no receptionist in the room (do_rent, objsave.cpp); offer answers
+# NOT_HERE_REPLY.
 FIELD_RENT_DISABLED_MARKER = "Field-rent is disabled. You have to go to an inn now."
-NOT_HERE_MARKER = "Sorry, but you can't do that here!"
-# The character menu's prompt (show_character_menu_impl, interpre.cpp): rent ends the character's
-# play there, leaving the connection open.
-CHARACTER_MENU_PROMPT = "Make your choice:"
 
 # What the lock and unlock commands answer for the chest (do_lock, do_unlock and check_break_key,
 # act_move.cpp), to the actor and to the room.
@@ -249,7 +245,7 @@ ALREADY_LOCKED_MARKER = "It is locked already."
 LOCKED_MARKER = "*Cluck*"
 # What wear and remove answer for the helm (act_obj2.cpp).
 WORN_MARKER = "You wear a leather helm on your head."
-REMOVED_MARKER = "You stop using a leather helm."
+REMOVED_MARKER = STOP_USING_FORMAT.format(HELM_SHORT_DESCRIPTION)
 # What sip answers (do_drink, act_obj2.cpp): the taste, or the refusals for a drunk or full drinker.
 SIP_MARKER = "It tastes like water."
 TOO_DRUNK_MARKER = "You can't seem to get close enough to your mouth."
@@ -301,7 +297,7 @@ def give_new_object(implementor: GameSession, vnum: int, keyword: str, short_des
 
 def give_plain_sword(implementor: GameSession, receiver: Character) -> None:
     """Loads a plain sword and hands it to receiver, who stands in the implementor's room."""
-    give_new_object(implementor, PLAIN_SWORD_VNUM, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION, receiver)
+    give_new_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION, receiver)
 
 
 def cast_enchant_weapon(caster: GameSession) -> str:
@@ -311,7 +307,7 @@ def cast_enchant_weapon(caster: GameSession) -> str:
     it. Each loss costs spirit and nothing restores it between requests under affect-hours, so
     the repeats end at NO_ENERGY_MARKER at the latest.
     """
-    outcomes = [CAST_DONE_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, NO_TARGET_MARKER, UNKNOWN_SPELL_MARKER]
+    outcomes = [CAST_DONE_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
     while True:
         reply = reply_to(caster, f"cast 'enchant weapon' {SWORD_KEYWORD}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
@@ -402,7 +398,7 @@ def send_to_inn(implementor: GameSession, mortal: GameSession, character: Charac
     every other command typed there, and on a 0 the innkeeper performs a social (gen_receptionist).
     """
     teleport = implementor.command(f"teleport {character.name.lower()} {world.ROOM_INN}")
-    assert not teleport.contains(NO_ONE_MARKER), teleport.text
+    assert not teleport.contains(NO_ONE_AROUND_REPLY), teleport.text
     arrival = mortal.expect([TELEPORTED_MARKER]) + mortal.drain(SETTLE_SECONDS)
     assert INN_ROOM_NAME in arrival, arrival
     assert INNKEEPER_IN_ROOM_LINE in arrival, arrival
@@ -423,7 +419,7 @@ def rent_and_log_in_again(server, mortal: GameSession, character: Character) -> 
 
 def ask_innkeeper(mortal: GameSession, command: str) -> str:
     """Sends rent or offer in the inn and returns everything the mortal read in answer."""
-    outcomes = [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT, CANNOT_SEE_RENTER_MARKER, NOT_HERE_MARKER, FIELD_RENT_DISABLED_MARKER]
+    outcomes = [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT, CANNOT_SEE_RENTER_MARKER, NOT_HERE_REPLY, FIELD_RENT_DISABLED_MARKER]
     return reply_to(mortal, command, outcomes)
 
 
@@ -461,7 +457,7 @@ def test_stat_shows_no_version_and_no_enchants_on_a_plain_copy(server) -> None:
     version is 0, and the recorded enchants, `none` for a plain copy.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    load_object(implementor, PLAIN_SWORD_VNUM, SWORD_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_SHORT_DESCRIPTION)
 
     stat_lines = stat_sword(implementor, IMPLEMENTOR)
     assert UNVERSIONED_LINE in stat_lines, stat_lines
@@ -543,8 +539,8 @@ def test_a_bump_saved_with_done_writes_the_version_to_the_world_file(server) -> 
     (replace_object, shapeobj.cpp); the test world provides that folder.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    open_object_editor(implementor, PLAIN_SWORD_VNUM)
-    bump_version(implementor, PLAIN_SWORD_VNUM)
+    open_object_editor(implementor, world.OBJECT_PLAIN_SWORD)
+    bump_version(implementor, world.OBJECT_PLAIN_SWORD)
     try:
         editor_step(implementor, "/done", RELEASED_MARKER, [NOT_SAVED_MARKER, NO_BACKUP_FILE_MARKER, NOT_AUTHORIZED_MARKER])
     except AssertionError:
@@ -558,7 +554,7 @@ def test_a_bump_saved_with_done_writes_the_version_to_the_world_file(server) -> 
     record_start = file_lines.index(DONE_SWORD_RECORD[0])
     assert file_lines[record_start:record_start + len(DONE_SWORD_RECORD)] == DONE_SWORD_RECORD, world_file_text
 
-    load_object(implementor, PLAIN_SWORD_VNUM, SWORD_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_SHORT_DESCRIPTION)
     stat_lines = stat_sword(implementor, IMPLEMENTOR)
     assert REFRESHED_LINE in stat_lines, stat_lines
 
@@ -589,7 +585,7 @@ def test_a_version_bump_refreshes_the_owners_copy_at_the_next_login_and_keeps_it
     assert UNVERSIONED_LINE in enchanted_lines, enchanted_lines
     assert ENCHANT_LINE_FORMAT.format("good") in enchanted_lines, enchanted_lines
 
-    shape_prototype(implementor, PLAIN_SWORD_VNUM)
+    shape_prototype(implementor, world.OBJECT_PLAIN_SWORD)
     online_lines = stat_sword(implementor, OWNER)
     assert BUMPED_BEFORE_LOGIN_LINE in online_lines, online_lines
 
@@ -601,7 +597,7 @@ def test_a_version_bump_refreshes_the_owners_copy_at_the_next_login_and_keeps_it
     assert ENCHANT_LINE_FORMAT.format("good") in refreshed_lines, refreshed_lines
     assert ENCHANT_AFFECTIONS_LINE in refreshed_lines, refreshed_lines
     assert GOOD_ENCHANT_FLAGS_LINE in refreshed_lines, refreshed_lines
-    refresh_line = REFRESH_LOG_FORMAT.format(PLAIN_SWORD_VNUM, owner_idnum) + ENCHANT_NOTE_FORMAT.format("kept")
+    refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, owner_idnum) + ENCHANT_NOTE_FORMAT.format("kept")
     wait_for_log_line(server.run_dir / "game.log", refresh_line)
 
 
@@ -620,9 +616,9 @@ def test_a_second_login_after_a_refresh_refreshes_nothing(server) -> None:
     owner = server.login(OWNER.name)
     give_plain_sword(implementor, OWNER)
     owner_idnum = player_idnum(implementor, OWNER.name)
-    shape_prototype(implementor, PLAIN_SWORD_VNUM)
+    shape_prototype(implementor, world.OBJECT_PLAIN_SWORD)
     log_path = server.run_dir / "game.log"
-    refresh_line = REFRESH_LOG_FORMAT.format(PLAIN_SWORD_VNUM, owner_idnum)
+    refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, owner_idnum)
 
     owner = quit_and_log_in_again(server, owner, OWNER)
     assert UPDATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
@@ -669,7 +665,7 @@ def test_a_version_bump_refreshes_a_mortals_rented_copy_when_it_returns_and_keep
     reply = cast_enchant_weapon(mystic)
     assert GLOW_MARKER_FORMAT.format("blue") in reply, reply
 
-    shape_prototype(implementor, PLAIN_SWORD_VNUM)
+    shape_prototype(implementor, world.OBJECT_PLAIN_SWORD)
     online_lines = stat_sword(implementor, MORTAL_MYSTIC)
     assert BUMPED_BEFORE_LOGIN_LINE in online_lines, online_lines
 
@@ -685,7 +681,7 @@ def test_a_version_bump_refreshes_a_mortals_rented_copy_when_it_returns_and_keep
     assert REFRESHED_LINE in refreshed_lines, refreshed_lines
     assert ENCHANT_LINE_FORMAT.format("good") in refreshed_lines, refreshed_lines
     assert ENCHANT_AFFECTIONS_LINE in refreshed_lines, refreshed_lines
-    refresh_line = REFRESH_LOG_FORMAT.format(PLAIN_SWORD_VNUM, mystic_idnum) + ENCHANT_NOTE_FORMAT.format("kept")
+    refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, mystic_idnum) + ENCHANT_NOTE_FORMAT.format("kept")
     wait_for_log_line(log_path, refresh_line)
 
 
@@ -758,7 +754,7 @@ def test_the_innkeeper_refuses_an_unrentable_item_inside_a_container(server) -> 
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    load_object(implementor, BAG_VNUM, BAG_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_LEATHER_BAG, BAG_SHORT_DESCRIPTION)
     load_object(implementor, TOKEN_VNUM, TOKEN_SHORT_DESCRIPTION)
     put = implementor.command(f"put {TOKEN_KEYWORD} {BAG_KEYWORD}")
     assert put.contains(PUT_MARKER_FORMAT.format(TOKEN_SHORT_DESCRIPTION, BAG_SHORT_DESCRIPTION)), put.text
@@ -825,7 +821,7 @@ def test_a_broken_key_stays_broken_across_a_refresh(server) -> None:
     owner = server.login(OWNER.name)
     load_object(implementor, CHEST_VNUM, CHEST_SHORT_DESCRIPTION)
     dropped = implementor.command(f"drop {CHEST_KEYWORD}")
-    assert dropped.contains(DROPPED_MARKER_FORMAT.format(CHEST_SHORT_DESCRIPTION)), dropped.text
+    assert dropped.contains(DROP_FORMAT.format(CHEST_SHORT_DESCRIPTION)), dropped.text
     give_new_object(implementor, KEY_VNUM, KEY_KEYWORD, KEY_SHORT_DESCRIPTION, OWNER)
     lock_outcomes = [NO_PROPER_KEY_MARKER, LOCKED_MARKER, ALREADY_LOCKED_MARKER, NOT_A_CONTAINER_MARKER]
 
@@ -864,12 +860,12 @@ def test_a_refreshed_worn_item_gives_its_wearer_the_new_prototypes_affect(server
     """
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
-    give_new_object(implementor, HELM_VNUM, HELM_KEYWORD, HELM_SHORT_DESCRIPTION, OWNER)
+    give_new_object(implementor, world.OBJECT_LEATHER_HELM, HELM_KEYWORD, HELM_SHORT_DESCRIPTION, OWNER)
     worn = owner.command(f"wear {HELM_KEYWORD}")
     assert worn.contains(WORN_MARKER), worn.text
     assert strength_base_and_constant(implementor, OWNER.name) == (WEARER_STRENGTH, WEARER_STRENGTH)
 
-    shape_prototype(implementor, HELM_VNUM, give_strength_affect=True)
+    shape_prototype(implementor, world.OBJECT_LEATHER_HELM, give_strength_affect=True)
     owner = quit_and_log_in_again(server, owner, OWNER)
     assert UPDATED_MARKER_FORMAT.format(HELM_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
     assert strength_base_and_constant(implementor, OWNER.name) == (WEARER_STRENGTH + 1, WEARER_STRENGTH)
@@ -894,9 +890,9 @@ def test_turning_the_version_off_stamps_new_copies_and_refreshes_no_saved_copy(s
     owner = server.login(OWNER.name)
     give_plain_sword(implementor, OWNER)
 
-    open_object_editor(implementor, PLAIN_SWORD_VNUM)
+    open_object_editor(implementor, world.OBJECT_PLAIN_SWORD)
     try:
-        bump_version(implementor, PLAIN_SWORD_VNUM)
+        bump_version(implementor, world.OBJECT_PLAIN_SWORD)
         editor_step(implementor, "/22", VERSION_ON_PROMPT, [VERSION_PROMPT])
         editor_step(implementor, "o", VERSION_OFF_MARKER, [VERSION_UNCHANGED_MARKER])
         editor_step(implementor, "/implement", IMPLEMENTED_MARKER, [NOTHING_TO_IMPLEMENT_MARKER, NOT_AUTHORIZED_MARKER])
@@ -909,7 +905,7 @@ def test_turning_the_version_off_stamps_new_copies_and_refreshes_no_saved_copy(s
     owner_lines = stat_sword(implementor, OWNER)
     assert TURNED_OFF_UNREFRESHED_LINE in owner_lines, owner_lines
 
-    load_object(implementor, PLAIN_SWORD_VNUM, SWORD_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_SHORT_DESCRIPTION)
     new_copy_lines = stat_sword(implementor, IMPLEMENTOR)
     assert MADE_WHILE_OFF_LINE in new_copy_lines, new_copy_lines
 
@@ -965,7 +961,7 @@ def test_a_version_bump_to_a_prototype_that_cannot_take_the_enchant_drops_it(ser
     reply = cast_enchant_weapon(owner)
     assert GLOW_MARKER_FORMAT.format("blue") in reply, reply
 
-    shape_prototype(implementor, PLAIN_SWORD_VNUM, give_strength_affect=True)
+    shape_prototype(implementor, world.OBJECT_PLAIN_SWORD, give_strength_affect=True)
     owner = quit_and_log_in_again(server, owner, OWNER)
     assert UPDATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
 
@@ -974,5 +970,5 @@ def test_a_version_bump_to_a_prototype_that_cannot_take_the_enchant_drops_it(ser
     assert NO_ENCHANTS_LINE in refreshed_lines, refreshed_lines
     assert STRENGTH_AFFECTIONS_LINE in refreshed_lines, refreshed_lines
     assert NO_FLAGS_LINE in refreshed_lines, refreshed_lines
-    refresh_line = REFRESH_LOG_FORMAT.format(PLAIN_SWORD_VNUM, owner_idnum) + ENCHANT_NOTE_FORMAT.format("dropped")
+    refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, owner_idnum) + ENCHANT_NOTE_FORMAT.format("dropped")
     wait_for_log_line(server.run_dir / "game.log", refresh_line)

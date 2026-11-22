@@ -18,9 +18,7 @@ ONLOOKER = Character(
     name="Testonlooker", race="human", sex="male", level=20, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior"
 )
 
-# The leather cap (tests/integration/world/obj/11.obj): a plain object with no special procedure.
-CAP_VNUM = 1137
-# What `load obj` prints for each cap (do_load, act_wiz.cpp); it creates one object per command.
+# What `load obj` prints for each leather cap (do_load, act_wiz.cpp); it creates one object per command.
 CAP_CREATED = "You create a leather cap."
 # What `load obj` prints for a vnum the world lacks (do_load).
 NO_SUCH_OBJECT = "There is no object with that number."
@@ -59,7 +57,7 @@ def test_a_crowded_floor_lists_100_objects_then_a_remainder_line_then_the_people
     implementor = server.login(IMPLEMENTOR.name)
     onlooker = server.login(ONLOOKER.name)
     for _cap in range(caps_dropped):
-        implementor.send_line(f"load obj {CAP_VNUM}")
+        implementor.send_line(f"load obj {world.OBJECT_LEATHER_CAP}")
         loaded = implementor.expect([CAP_CREATED, NO_SUCH_OBJECT])
         assert CAP_CREATED in loaded, loaded
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")

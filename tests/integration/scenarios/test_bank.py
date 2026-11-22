@@ -13,6 +13,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import UNRECOGNIZED_COMMAND_REPLY
 from rots_harness.replies import reply_to, text_seen_before_a_say
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CHARACTER_STAT_LAST_LINE
@@ -120,11 +121,9 @@ STRANDED_CUSTOMER = Character(
     class_name="warrior",
 )
 
-# Objects of the test world (tests/integration/world/obj/11.obj and 13.obj), with the keyword
-# each is handed over by and its short description.
-CAP_VNUM = 1137
+# The short descriptions of world.OBJECT_LEATHER_CAP and world.OBJECT_LEATHER_BAG, and the iron
+# cap of the test world (tests/integration/world/obj/13.obj) with its short description.
 CAP_NAME = "a leather cap"
-BAG_VNUM = 1136
 BAG_NAME = "a leather bag"
 IRON_CAP_VNUM = 1304
 IRON_CAP_NAME = "an iron cap"
@@ -178,8 +177,6 @@ BAD_FEE_LOG_LINE = "MOB ERROR: mobile #1308, options line 1: bad fee - banker di
 SYSERR_MARKER = "SYSERR"
 # What the attacker reads when a fight with its target has started (do_hit, act_offe.cpp).
 FIGHT_ONGOING_MARKER = "You do the best you can!"
-# What a character reads for a command above its level (command_interpreter, interpre.cpp).
-UNRECOGNIZED_MARKER = "Unrecognized command."
 # The implementor's reply to `invis` with no argument (do_invis, act_wiz.cpp).
 INVISIBLE_MARKER = f"Your invisibility level is {IMPLEMENTOR.level}."
 
@@ -259,7 +256,7 @@ STAFF_OUTCOMES = (
     " must be ",
     NO_SUCH_SETTING_MARKER,
     GAMEOPTIONS_USAGE_MARKER,
-    UNRECOGNIZED_MARKER,
+    UNRECOGNIZED_COMMAND_REPLY,
     "Account: ",
     "Return to your own body first.",
     "You have no connection.",
@@ -303,7 +300,7 @@ def go_to_bank_hall(implementor: GameSession) -> None:
 def give_cap_in_bank_hall(implementor: GameSession, recipient: Character) -> None:
     """Brings the implementor to the bank hall and gives recipient a leather cap there."""
     go_to_bank_hall(implementor)
-    hand_object(implementor, CAP_VNUM, "cap", recipient)
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", recipient)
 
 
 def set_gold(implementor: GameSession, character: Character, copper: int) -> None:
@@ -436,7 +433,7 @@ def test_a_deposited_item_is_written_to_the_accounts_vault_file(server) -> None:
     vault = json.loads(vault_path.read_text(encoding="utf-8"))
     assert (vault["version"], vault["coins"], len(vault["slots"])) == (1, 0, 1), vault
     stored_objects = vault["slots"][0]["objects"]
-    assert [(stored["item_number"], stored["wear_pos"]) for stored in stored_objects] == [(CAP_VNUM, 0)], vault
+    assert [(stored["item_number"], stored["wear_pos"]) for stored in stored_objects] == [(world.OBJECT_LEATHER_CAP, 0)], vault
 
 
 @pytest.mark.bank_deposits
@@ -457,11 +454,11 @@ def test_a_deposit_and_a_withdrawal_save_the_characters_objects_file(server) -> 
     assert depositor.command("deposit cap").contains(DEPOSITED_CAP_MARKER)
     objects_files = sorted(server.lib_dir.rglob(objects_file_name))
     assert len(objects_files) == 1, objects_files
-    assert CAP_VNUM not in stored_vnums(objects_files[0])
+    assert world.OBJECT_LEATHER_CAP not in stored_vnums(objects_files[0])
 
     assert depositor.command("withdraw 1").contains(WITHDRAWN_CAP_MARKER)
-    assert CAP_VNUM in stored_vnums(objects_files[0])
-    assert CAP_VNUM not in stored_vnums(account_folder(server.lib_dir) / LIGHT_VAULT_FILE_NAME)
+    assert world.OBJECT_LEATHER_CAP in stored_vnums(objects_files[0])
+    assert world.OBJECT_LEATHER_CAP not in stored_vnums(account_folder(server.lib_dir) / LIGHT_VAULT_FILE_NAME)
 
 
 @pytest.mark.bank_refusals
@@ -632,7 +629,7 @@ def test_a_banker_refuses_a_key_loose_or_inside_a_bag(server) -> None:
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
     hand_object(implementor, KEY_VNUM, "key", DEPOSITOR)
-    hand_object(implementor, BAG_VNUM, "bag", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", DEPOSITOR)
 
     assert depositor.command("deposit key").contains(CANNOT_KEEP_MARKER)
     assert depositor.command("put key bag").contains(f"You put {KEY_NAME} in {BAG_NAME}.")
@@ -655,7 +652,7 @@ def test_a_banker_refuses_a_cursed_item_inside_a_bag_or_loose(server) -> None:
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
     assert implementor.command(f"load obj {CURSED_RING_VNUM}").contains("You create")
-    assert implementor.command(f"load obj {BAG_VNUM}").contains("You create")
+    assert implementor.command(f"load obj {world.OBJECT_LEATHER_BAG}").contains("You create")
     assert implementor.command("put ring bag").contains(f"You put {CURSED_RING_NAME} in {BAG_NAME}.")
     given = implementor.command(f"give bag {DEPOSITOR.name.lower()}")
     assert given.contains(f"to {DEPOSITOR.name}."), given.text
@@ -682,18 +679,18 @@ def test_a_vault_takes_its_tenth_item_and_refuses_the_eleventh(server) -> None:
     account_name = account_record(server.lib_dir)["account_name"]
     go_to_bank_hall(implementor)
     for put_number in range(VAULT_SLOTS - 1):
-        assert implementor.command(f"load obj {CAP_VNUM}").contains("You create")
+        assert implementor.command(f"load obj {world.OBJECT_LEATHER_CAP}").contains("You create")
         reply = staff_reply(implementor, f"vault put {account_name} 1 cap")
         assert VAULT_PUT_FORMAT.format(CAP_NAME) in reply, reply
-    hand_object(implementor, CAP_VNUM, "cap", DEPOSITOR)
-    hand_object(implementor, CAP_VNUM, "cap", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
 
     assert depositor.command("deposit cap").contains(DEPOSITED_CAP_MARKER)
     assert depositor.command("balance").contains(slots_line(VAULT_SLOTS))
     assert depositor.command("deposit cap").contains(VAULT_FULL_MARKER)
     assert depositor.command("inventory").contains(CAP_NAME)
 
-    assert implementor.command(f"load obj {CAP_VNUM}").contains("You create")
+    assert implementor.command(f"load obj {world.OBJECT_LEATHER_CAP}").contains("You create")
     assert STAFF_VAULT_FULL_MARKER in staff_reply(implementor, f"vault put {account_name} 1 cap")
 
 
@@ -736,9 +733,9 @@ def test_a_withdrawal_finds_its_slot_by_number_keyword_or_abbreviation_and_renum
     implementor = server.login(IMPLEMENTOR.name)
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
-    hand_object(implementor, BAG_VNUM, "bag", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", DEPOSITOR)
     hand_object(implementor, IRON_CAP_VNUM, "cap", DEPOSITOR)
-    hand_object(implementor, CAP_VNUM, "cap", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
     empty_bag_row = f"{BAG_NAME} (sealed, 0 inside)"
 
     assert depositor.command("deposit lea").contains(DEPOSITED_CAP_MARKER)
@@ -766,15 +763,16 @@ def test_a_deposited_bag_keeps_its_contents_and_lists_as_sealed(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
-    hand_object(implementor, CAP_VNUM, "cap", DEPOSITOR)
-    hand_object(implementor, BAG_VNUM, "bag", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
+    hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", DEPOSITOR)
     assert depositor.command("put cap bag").contains(f"You put {CAP_NAME} in {BAG_NAME}.")
 
     assert depositor.command("deposit bag").contains(DEPOSITED_FORMAT.format(BAG_NAME))
     assert_lines(depositor.command("balance"), balance_lines("0 copper", (f"{BAG_NAME} (sealed, 1 inside)",)))
     vault = json.loads((account_folder(server.lib_dir) / LIGHT_VAULT_FILE_NAME).read_text(encoding="utf-8"))
     stored_objects = vault["slots"][0]["objects"]
-    assert [(stored["item_number"], stored["wear_pos"]) for stored in stored_objects] == [(BAG_VNUM, 0), (CAP_VNUM, 1)]
+    expected_objects = [(world.OBJECT_LEATHER_BAG, 0), (world.OBJECT_LEATHER_CAP, 1)]
+    assert [(stored["item_number"], stored["wear_pos"]) for stored in stored_objects] == expected_objects
 
 
 @pytest.mark.bank_staff
@@ -792,11 +790,11 @@ def test_vault_and_gameoptions_need_their_command_levels(server) -> None:
     greater_god = server.login(GREATER_GOD.name)
     elder_god = server.login(ELDER_GOD.name)
 
-    assert lesser_god.command(f"vault {LESSER_GOD.name.lower()}").contains(UNRECOGNIZED_MARKER)
+    assert lesser_god.command(f"vault {LESSER_GOD.name.lower()}").contains(UNRECOGNIZED_COMMAND_REPLY)
     assert "Account: " in staff_reply(greater_god, f"vault {GREATER_GOD.name.lower()}")
-    assert elder_god.command("gameoptions").contains(UNRECOGNIZED_MARKER)
+    assert elder_god.command("gameoptions").contains(UNRECOGNIZED_COMMAND_REPLY)
     implementor.send_line("gameoptions")
-    implementor.expect(["bank_slots", UNRECOGNIZED_MARKER])
+    implementor.expect(["bank_slots", UNRECOGNIZED_COMMAND_REPLY])
 
 
 @pytest.mark.bank_staff

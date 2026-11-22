@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import DEATH_CRY_FORMAT, NEW_BODY_MESSAGE, NOW_FOLLOWING_FORMAT
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -68,12 +69,10 @@ YARD_FOLLOWER = human_warrior("Testgroom", "female", ROOM_STABLE_YARD)
 # The horseman in the paddock, beside the sinkhole.
 SINKHOLE_HORSEMAN = human_warrior("Testhorseman", "male", ROOM_PADDOCK)
 
-# The bystander orc (mob 1132): male, no maximum stamina (its mob file's `0 0 50 1` line,
-# load_mobiles in db.cpp) and 50 moves.
-BYSTANDER_VNUM = 1132
 # The pet orc (mob 1134), whose MOB_PET flag without MOB_ORC_FRIEND makes do_report refuse it.
 PET_VNUM = 1134
-# The stamina-less mob (mob 1160): the bystander with no maximum moves either (`0 0 0 1`).
+# The stamina-less mob (mob 1160): the bystander orc (world.MOB_BYSTANDER_ORC) with no maximum
+# moves either (`0 0 0 1`).
 STAMINALESS_VNUM = 1160
 # The harness pony (mob 1161): a MOB_MOUNT with no moves, so it can never take a step.
 PONY_VNUM = 1161
@@ -86,8 +85,6 @@ COB_MOVES = 100
 
 # The room the leader walks to, east of the arena centre.
 DESTINATION_ROOM_NAME = "Arena East"
-# Where a human mortal's spirit wakes after death (r_mortal_start_room, raw_kill in fight.cpp).
-HUMAN_START_ROOM_NAME = "Human Start"
 # The end of what the follower reads as the leader walks east (do_move, act_move.cpp), sent
 # before any of the follower's outcomes.
 LEADER_LEAVES_MARKER = "leaves east."
@@ -131,8 +128,6 @@ RIDING_REFUSAL_MARKERS = [
     "Can not go there mounted.",
     "You cannot go that way.",
 ]
-# What the room reads as a character dies there (death_cry, fight.cpp); format with the name.
-DEATH_CRY_FORMAT = "Your blood freezes as you hear {}'s death cry."
 # What a rider reads as its death unseats it in a room its mount has not reached yet (stop_riding
 # from raw_kill, fight.cpp): a mortal cannot see a mob in another room (CAN_SEE, utility.cpp).
 UNSEATED_BY_DEATH_MARKER = "You stop riding someone."
@@ -146,14 +141,9 @@ BUSY_MARKER = "You are busy with something else."
 # What a follower without the moves for the step reads (do_move, res_flag 3 from
 # check_simple_move).
 EXHAUSTED_MARKER = "You are too exhausted to move."
-# What the follower reads when it starts following (add_follower, handler.cpp); format with the
-# leader as the follower sees it.
-NOW_FOLLOWING_MARKER_FORMAT = "You now follow {}."
 # What a mortal follower reads when its mob leader dies in another room (stop_follower,
 # handler.cpp): CAN_SEE (utility.cpp) hides a mob in another room from a mortal.
 STOP_FOLLOWING_UNSEEN_MARKER = "You stop following someone."
-# What a player reads after dying, before it looks at its start room (extract_char, handler.cpp).
-NEW_BODY_MARKER = "Your spirit found a new body to wear."
 # The name of the room a follower sees as it walks into the pit (do_look on arrival).
 PIT_ROOM_NAME = "Gallows Pit"
 # What the caster reads when the casting delay starts (do_cast, spell_pa.cpp).
@@ -220,7 +210,7 @@ def gather_in_arena_centre(leader: GameSession, follower: GameSession) -> None:
     arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
     assert arrived.contains("Arena Centre"), arrived.text
     following = follower.command(f"follow {LEADER.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
+    assert following.contains(NOW_FOLLOWING_FORMAT.format(LEADER.name)), following.text
     leader.drain(SETTLE_SECONDS)
 
 
@@ -349,13 +339,13 @@ def follow_the_bystander(implementor: GameSession, followers: list, room: int) -
     assert arrived.room_name() is not None, arrived.text
     for follower in followers:
         following = follower.command("follow bystander")
-        assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format("a bystander orc")), following.text
+        assert following.contains(NOW_FOLLOWING_FORMAT.format("a bystander orc")), following.text
     implementor.drain(SETTLE_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, *PIT_FOLLOWERS)
-@pytest.mark.world_resets(MobReset(BYSTANDER_VNUM, world.ROOM_GALLOWS_APPROACH))
+@pytest.mark.world_resets(MobReset(world.MOB_BYSTANDER_ORC, world.ROOM_GALLOWS_APPROACH))
 def test_every_follower_walks_in_after_a_leader_that_dies_where_it_arrives(server) -> None:
     """Pins #389: when the leader is removed where it arrives, every follower still takes the step.
 
@@ -376,16 +366,16 @@ def test_every_follower_walks_in_after_a_leader_that_dies_where_it_arrives(serve
         text = follower.expect([STOP_FOLLOWING_UNSEEN_MARKER]) + follower.drain(SETTLE_SECONDS)
         assert text.count(STOP_FOLLOWING_UNSEEN_MARKER) == 1, f"{character.name}:\n{text}"
         assert PIT_ROOM_NAME in text, f"{character.name}:\n{text}"
-        assert text.count(NEW_BODY_MARKER) == 1, f"{character.name}:\n{text}"
+        assert text.count(NEW_BODY_MESSAGE) == 1, f"{character.name}:\n{text}"
         assert ANY_FOLLOWED_MARKER not in text, f"{character.name}:\n{text}"
         assert ANY_ACK_MARKER not in text, f"{character.name}:\n{text}"
     for follower in followers:
-        assert follower.command("look").room_name() == HUMAN_START_ROOM_NAME
+        assert follower.command("look").room_name() == world.ROOM_HUMAN_START_NAME
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, *ARENA_FOLLOWERS)
-@pytest.mark.world_resets(MobReset(BYSTANDER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_BYSTANDER_ORC, world.ROOM_ARENA_CENTRE))
 def test_every_follower_follows_a_mob_leader_that_survives_the_step(server) -> None:
     """Control for the Gallows Pit pin: the same three followers follow the same orc east and live.
 
@@ -401,7 +391,7 @@ def test_every_follower_follows_a_mob_leader_that_survives_the_step(server) -> N
     for follower, character in zip(followers, ARENA_FOLLOWERS):
         text = follower.expect([DESTINATION_ROOM_NAME]) + follower.drain(SETTLE_SECONDS)
         assert text.count(FOLLOWED_MARKER_FORMAT.format("someone")) == 1, f"{character.name}:\n{text}"
-        assert NEW_BODY_MARKER not in text, f"{character.name}:\n{text}"
+        assert NEW_BODY_MESSAGE not in text, f"{character.name}:\n{text}"
         assert ANY_ACK_MARKER not in text, f"{character.name}:\n{text}"
     for follower in followers:
         assert follower.command("look").room_name() == DESTINATION_ROOM_NAME
@@ -423,7 +413,7 @@ def test_report_and_group_show_a_mob_with_no_stamina_or_moves(server) -> None:
     member = server.login(MEMBER.name)
     assert implementor.command(f"goto {world.ROOM_ARENA_CENTRE}").room_name() == "Arena Centre"
 
-    load_mob(implementor, BYSTANDER_VNUM, "a bystander orc")
+    load_mob(implementor, world.MOB_BYSTANDER_ORC, "a bystander orc")
     assert read_points(implementor, "bystander") == (60, 60, 0, 0, 50, 50)
     report = force(implementor, "bystander", "report")
     assert BYSTANDER_REPORT_PATTERN.search(report), report
@@ -521,7 +511,7 @@ def test_a_sitting_follower_the_leader_cannot_see_leaves_the_leader_no_ack_line(
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, CAPTAIN)
-@pytest.mark.world_resets(MobReset(BYSTANDER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_BYSTANDER_ORC, world.ROOM_ARENA_CENTRE))
 def test_a_sitting_mob_follower_left_behind_gives_its_leader_an_ack_line(server) -> None:
     """Pins #389's ACK line for a mob follower that is not standing, read by a mortal and an immortal leader.
 
@@ -553,7 +543,7 @@ def ride_after_the_leader(leader: GameSession, rider: GameSession) -> None:
     arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
     assert arrived.contains("Arena Centre"), arrived.text
     following = rider.command(f"follow {LEADER.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
+    assert following.contains(NOW_FOLLOWING_FORMAT.format(LEADER.name)), following.text
     mounted = rider.command("ride pony")
     assert mounted.contains(MOUNTED_MARKER_START), mounted.text
     leader.drain(SETTLE_SECONDS)
@@ -609,7 +599,7 @@ def test_a_rider_whose_mount_can_move_rides_east_and_its_follower_follows(server
     horseman = server.login(HORSEMAN.name)
     follower = server.login(YARD_FOLLOWER.name)
     following = follower.command(f"follow {HORSEMAN.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(HORSEMAN.name)), following.text
+    assert following.contains(NOW_FOLLOWING_FORMAT.format(HORSEMAN.name)), following.text
     mount_the_cob(implementor, horseman, ROOM_STABLE_YARD)
     follower.drain(SETTLE_SECONDS)
 
@@ -656,11 +646,11 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     mount_the_cob(implementor, horseman, ROOM_PADDOCK)
     assert implementor.command(f"goto {ROOM_SINKHOLE}").room_name() == SINKHOLE_ROOM_NAME
 
-    died = reply_to(horseman, "east", [NEW_BODY_MARKER, *RIDING_REFUSAL_MARKERS])
+    died = reply_to(horseman, "east", [NEW_BODY_MESSAGE, *RIDING_REFUSAL_MARKERS])
     assert died.count(UNSEATED_BY_DEATH_MARKER) == 1, died
-    assert died.count(NEW_BODY_MARKER) == 1, died
-    assert died.index(UNSEATED_BY_DEATH_MARKER) < died.index(NEW_BODY_MARKER), died
-    assert HUMAN_START_ROOM_NAME in died, died
+    assert died.count(NEW_BODY_MESSAGE) == 1, died
+    assert died.index(UNSEATED_BY_DEATH_MARKER) < died.index(NEW_BODY_MESSAGE), died
+    assert world.ROOM_HUMAN_START_NAME in died, died
     assert SINKHOLE_ROOM_NAME not in died, died
     # Both deaths happen in the pass that runs the step, the rider's first, so the drain after
     # the rider's death cry collects the cob's.
@@ -670,7 +660,7 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     assert heard.count(rider_cry) == 1 and heard.count(cob_cry) == 1, heard
     assert heard.index(rider_cry) < heard.index(cob_cry), heard
 
-    assert horseman.command("look").room_name() == HUMAN_START_ROOM_NAME
+    assert horseman.command("look").room_name() == world.ROOM_HUMAN_START_NAME
     looked = implementor.command("look").text
     assert looked.count(RIDER_CORPSE_LINE) == 1, looked
     assert looked.count(COB_CORPSE_LINE) == 1, looked
@@ -720,18 +710,18 @@ def test_a_follower_who_walks_into_a_death_room_reads_that_it_stops_following(se
     arrived = leader.command(f"goto {world.ROOM_GALLOWS_APPROACH}")
     assert arrived.room_name() == "Gallows Approach", arrived.text
     following = stray.command(f"follow {LEADER.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(LEADER.name)), following.text
+    assert following.contains(NOW_FOLLOWING_FORMAT.format(LEADER.name)), following.text
     leader.drain(SETTLE_SECONDS)
 
-    died = reply_to(stray, "east", [NEW_BODY_MARKER])
+    died = reply_to(stray, "east", [NEW_BODY_MESSAGE])
     stopped = STOP_FOLLOWING_FORMAT.format(LEADER.name)
     assert PIT_ROOM_NAME in died and died.count(stopped) == 1, died
-    assert died.index(PIT_ROOM_NAME) < died.index(stopped) < died.index(NEW_BODY_MARKER), died
+    assert died.index(PIT_ROOM_NAME) < died.index(stopped) < died.index(NEW_BODY_MESSAGE), died
     stops_following = STOPS_FOLLOWING_YOU_FORMAT.format(STRAY.name)
     told = leader.expect([stops_following]) + leader.drain(SETTLE_SECONDS)
     assert told.count(stops_following) == 1, told
 
-    assert stray.command("look").room_name() == HUMAN_START_ROOM_NAME
+    assert stray.command("look").room_name() == world.ROOM_HUMAN_START_NAME
     assert leader.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
     pit = leader.command("look").text
     assert corpses_in_look(pit) == 1, pit
@@ -752,7 +742,7 @@ def test_a_slain_group_member_reads_that_it_stops_following_and_leaves_the_group
     captain = server.login(CAPTAIN.name)
     member = server.login(MEMBER.name)
     following = member.command(f"follow {CAPTAIN.name.lower()}")
-    assert following.contains(NOW_FOLLOWING_MARKER_FORMAT.format(CAPTAIN.name)), following.text
+    assert following.contains(NOW_FOLLOWING_FORMAT.format(CAPTAIN.name)), following.text
     group_the_member(captain, member)
     arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
     assert arrived.contains("Arena Centre"), arrived.text
@@ -761,15 +751,15 @@ def test_a_slain_group_member_reads_that_it_stops_following_and_leaves_the_group
 
     slain = implementor.command(f"slay {MEMBER.name.lower()}")
     assert slain.contains("You chop her to pieces!"), slain.text
-    died = member.expect([NEW_BODY_MARKER]) + member.drain(SETTLE_SECONDS)
+    died = member.expect([NEW_BODY_MESSAGE]) + member.drain(SETTLE_SECONDS)
     stopped = STOP_FOLLOWING_FORMAT.format(CAPTAIN.name)
     left = YOU_LEAVE_GROUP_FORMAT.format(CAPTAIN.name)
     assert SLAIN_MARKER in died and died.count(stopped) == 1 and died.count(left) == 1, died
-    assert died.index(SLAIN_MARKER) < died.index(stopped) < died.index(left) < died.index(NEW_BODY_MARKER), died
+    assert died.index(SLAIN_MARKER) < died.index(stopped) < died.index(left) < died.index(NEW_BODY_MESSAGE), died
     told = captain.expect([DISBANDED_MARKER]) + captain.drain(SETTLE_SECONDS)
     assert told.count(STOPS_FOLLOWING_YOU_FORMAT.format(MEMBER.name)) == 1, told
     assert told.count(LEAVES_YOUR_GROUP_FORMAT.format(MEMBER.name)) == 1, told
 
-    assert member.command("look").room_name() == HUMAN_START_ROOM_NAME
+    assert member.command("look").room_name() == world.ROOM_HUMAN_START_NAME
     arena = implementor.command("look").text
     assert corpses_in_look(arena) == 1, arena

@@ -28,6 +28,7 @@ from dataclasses import dataclass
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import DEATH_CRY_FORMAT, NOW_FOLLOWING_FORMAT
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import (
@@ -172,8 +173,6 @@ DRINK_EMPTY = "It's empty."
 MOUNTED_START = "You mount a harness mule and start riding "
 # What do_ride says to someone already riding.
 ALREADY_RIDING = "You are riding already."
-# What a follower reads as it starts following (add_follower, handler.cpp); format with the leader.
-NOW_FOLLOWING_FORMAT = "You now follow {}."
 # What a follower reads when it cannot follow (do_move, act_move.cpp): the leader's pronoun.
 FOLLOWER_ACK = "ACK! You could not follow him!"
 # What the leader reads then; format with the follower, whose pronoun ends it.
@@ -274,7 +273,7 @@ def said(mob: TriggerMob, line: str) -> str:
 
 def death_cry(mob: TriggerMob) -> str:
     """What a character in the room reads from raw_kill's death_cry (fight.cpp)."""
-    return f"Your blood freezes as you hear {mob.short_description}'s death cry."
+    return DEATH_CRY_FORMAT.format(mob.short_description)
 
 
 def join_the_mortal(implementor: GameSession) -> None:

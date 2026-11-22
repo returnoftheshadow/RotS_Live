@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.session import GameSession
 from test_scripts import LISTENER, LISTENER_LINE, WANDERER, ScriptMob, placed, said
@@ -31,9 +32,8 @@ SKIPPED_LINES = ("Nested body.", "Nested then.", "Nested else.", "Outer tail.")
 # The careless copyist (mob 1733): the scribe's script (1715: copy the given object with
 # LOAD_OBJ_X, take the copy, give it back) with 0 in LOAD_OBJ_X's first parameter.
 CARELESS_COPYIST = ScriptMob(vnum=1733, keyword="careless", short_description="a careless copyist")
-# A grey pebble (tests/integration/world/obj/17.obj) and the leather cap (obj/11.obj).
+# A grey pebble (tests/integration/world/obj/17.obj).
 PEBBLE_VNUM = 1701
-LEATHER_CAP_VNUM = 1137
 # Seconds to wait for the crier's second line: four passes are one second (OPT_USEC, comm.cpp);
 # the rest leaves room for a loaded host.
 WAIT_TIMEOUT = 10.0
@@ -161,5 +161,5 @@ def test_load_obj_x_copies_with_0_in_its_unused_parameter(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, LEATHER_CAP_VNUM, "cap", CARELESS_COPYIST)
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", CARELESS_COPYIST)
     assert "A careless copyist gives you a leather cap." in reply, reply

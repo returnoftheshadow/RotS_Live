@@ -13,6 +13,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, Character
+from rots_harness.game_text import QUIT_DROP_REPLY
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
@@ -22,6 +23,7 @@ from rots_harness.session import (
     CHARACTER_MENU_PROMPT,
     ENTER_GAME_MARKER,
     LOGIN_PASSWORD_PROMPT,
+    ONE_CHARACTER_ONLINE_MARKER,
     GameSession,
     LoginRefused,
 )
@@ -48,14 +50,12 @@ HOLDER_AT_LOWEST_UNRESTRICTED_LEVEL = Character(
 ACCOUNT_MENU_NEW_CHARACTER = "4"
 # What the one-character rule prints; format with the playing character's name
 # (active_account_session_restriction_message_for_session, interpre.cpp).
-ALREADY_CONNECTED_FORMAT = "You are already connected as {}."
+ALREADY_CONNECTED_FORMAT = ONE_CHARACTER_ONLINE_MARKER + " {}."
 # The account menu's line for one active character; format with its name, level and state
 # (append_active_account_session_status, interpre.cpp).
 ACTIVE_CHARACTER_FORMAT = "Active character: {} (level {}, {})"
 # The prompt for a new character's name (CON_ACCTMENU in nanny, interpre.cpp).
 NEW_CHARACTER_NAME_PROMPT = "New character name:"
-# What a mortal reads when it quits to the character menu (do_quit, act_othe.cpp).
-MORTAL_QUIT_MARKER = "As you quit, all your posessions drop to the ground!"
 # What selecting a linkless character prints (CON_SLCT in nanny, interpre.cpp).
 RECONNECTING_MARKER = "Reconnecting."
 # What selecting a character another connection plays prints to each connection (CON_SLCT).
@@ -148,7 +148,7 @@ def test_quitting_to_the_character_menu_frees_the_account_for_another_character(
     with playing_connection(server, ALPHA) as alpha:
         alpha.send_line("quit")
         quit_reply = alpha.expect([CHARACTER_MENU_PROMPT])
-        assert MORTAL_QUIT_MARKER in quit_reply, quit_reply
+        assert QUIT_DROP_REPLY in quit_reply, quit_reply
         server.login(BETA.name)
         alpha.send_line(CHARACTER_MENU_ENTER)
         refused = alpha.expect([ACCOUNT_MENU_PROMPT, CHARACTER_MENU_PROMPT, ENTER_GAME_MARKER])

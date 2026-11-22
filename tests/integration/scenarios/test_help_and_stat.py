@@ -171,18 +171,12 @@ DEFAULT_SLOT_COLOURS = (
 # The start of the colour list's last row, the mob slot's.
 LAST_SLOT_ROW_START = f"{'mob':>11}: fg "
 
-# The test world's stone girdle (object 1185): extra flags WILLPOWER, DWARF and STAY_ZONE, wear
+# The stone girdle (world.OBJECT_STONE_GIRDLE): extra flags WILLPOWER, DWARF and STAY_ZONE, wear
 # flags TAKE and WAIST, and one affect of +3 on location 6, APPLY_LEA (structs.h).
-GIRDLE_VNUM = 1185
 GIRDLE_WEAR_LINE = "Can be worn on:  TAKE WAIST."
 GIRDLE_EXTRA_FLAGS_LINE = "Extra flags   :  WILLPOWER DWARF STAY_ZONE."
 OBJECT_AFFECT_LINE_PATTERN = re.compile(r"Affections:([^\r\n]*)")
 GIRDLE_AFFECT_PREFIX = " +3 to "
-# The test world's chain shirt (object 1186): body armour whose value[1] gives its wearer a
-# non-zero absorb (get_percent_absorb, act_info.cpp).
-CHAIN_SHIRT_VNUM = 1186
-# The name of the player's room, world.ROOM_ARENA_CENTRE, as goto shows it.
-ARENA_CENTRE_NAME = "Arena Centre"
 # Seconds to keep reading after a reply, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -254,7 +248,7 @@ def wizset(implementor: GameSession, field_and_value: str) -> str:
 def join_player(implementor: GameSession) -> None:
     """The implementor goes to the player in the arena centre."""
     arrived = implementor.command(f"goto {PLAYER.name.lower()}")
-    assert arrived.room_name() == ARENA_CENTRE_NAME, arrived.text
+    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
 
 
 def put_board_beside_player(implementor: GameSession) -> None:
@@ -279,7 +273,7 @@ def slot_row(slot: str, colour: str) -> str:
 def armour_the_player(implementor: GameSession, player: GameSession) -> int:
     """Gives the player the chain shirt to wear and returns the absorb its own info shows."""
     join_player(implementor)
-    created = implementor.command(f"load obj {CHAIN_SHIRT_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_CHAIN_SHIRT}")
     assert created.contains("You create a chain shirt."), created.text
     given = implementor.command(f"give shirt {PLAYER.name.lower()}")
     assert given.contains("You give a chain shirt to"), given.text
@@ -556,7 +550,7 @@ def test_stat_obj_names_wear_and_extra_flags(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    created = implementor.command(f"load obj {GIRDLE_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_STONE_GIRDLE}")
     assert created.contains("You create a stone girdle."), created.text
     stat = read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE)
     assert GIRDLE_WEAR_LINE in stat, stat

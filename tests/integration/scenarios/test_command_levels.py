@@ -7,6 +7,12 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import (
+    NO_ONE_AROUND_REPLY,
+    TELEPORTED_BY_ANYONE,
+    TELEPORTED_FORMAT,
+    UNRECOGNIZED_COMMAND_REPLY,
+)
 
 pytestmark = [pytest.mark.scenario, pytest.mark.wizlevels]
 
@@ -43,21 +49,13 @@ MORTAL = Character(
     class_name="warrior",
 )
 
-# What command_interpreter (interpre.cpp) answers when the speaker's level is below the
-# command's row, and no social has the word.
-UNRECOGNIZED_MARKER = "Unrecognized command."
-# What the teleported character reads (do_teleport, act_wiz.cpp); format with the immortal's name.
-TELEPORTED_MARKER_FORMAT = "{} has teleported you!"
-# The end of TELEPORTED_MARKER_FORMAT, whoever teleported.
-ANY_TELEPORTED_MARKER = "has teleported you!"
 # What the room the character leaves reads (do_teleport); format with the character's name.
 DISAPPEARS_MARKER_FORMAT = "{} disappears in a puff of smoke."
 # What the room the character arrives in reads (do_teleport); format with the character's name.
 ARRIVES_MARKER_FORMAT = "{} arrives from a puff of smoke."
-# do_teleport's refusals, in the order it checks: no argument, no character by the name, the
-# speaker itself, and no destination.
+# do_teleport's refusals, in the order it checks: no argument, no character by the name
+# (NO_ONE_AROUND_REPLY), the speaker itself, and no destination.
 NO_ARGUMENT_MARKER = "Who do you wish to teleport?"
-NO_SUCH_CHARACTER_MARKER = "No-one by that name around."
 SELF_MARKER = "Use 'goto' to teleport yourself."
 NO_DESTINATION_MARKER = "Where do you wish to send this person?"
 # A name no character in the test has.
@@ -94,14 +92,14 @@ def test_teleport_needs_level_93(server) -> None:
     teleport_command = f"teleport {MORTAL.name.lower()} {world.ROOM_ARENA_EAST}"
 
     refused = lesser_god.command(teleport_command)
-    assert refused.contains(UNRECOGNIZED_MARKER), refused.text
-    assert ANY_TELEPORTED_MARKER not in mortal.drain(SETTLE_SECONDS)
+    assert refused.contains(UNRECOGNIZED_COMMAND_REPLY), refused.text
+    assert TELEPORTED_BY_ANYONE not in mortal.drain(SETTLE_SECONDS)
     assert DISAPPEARS_MARKER_FORMAT.format(MORTAL.name) not in implementor.drain(SETTLE_SECONDS)
     assert mortal.command("look").room_name() == "Arena Centre"
 
     granted = god.command(teleport_command)
-    assert not granted.contains(UNRECOGNIZED_MARKER), granted.text
-    teleported_marker = TELEPORTED_MARKER_FORMAT.format(GOD.name)
+    assert not granted.contains(UNRECOGNIZED_COMMAND_REPLY), granted.text
+    teleported_marker = TELEPORTED_FORMAT.format(GOD.name)
     teleported = mortal.expect([teleported_marker]) + mortal.drain(SETTLE_SECONDS)
     assert "Arena East" in teleported, teleported
     vanished = implementor.drain(SETTLE_SECONDS)
@@ -129,7 +127,7 @@ def test_teleport_refuses_a_missing_target_itself_and_a_missing_destination(serv
 
     requests = [
         ("teleport", NO_ARGUMENT_MARKER),
-        (f"teleport {UNKNOWN_NAME} {world.ROOM_ARENA_EAST}", NO_SUCH_CHARACTER_MARKER),
+        (f"teleport {UNKNOWN_NAME} {world.ROOM_ARENA_EAST}", NO_ONE_AROUND_REPLY),
         (f"teleport {GOD.name.lower()} {world.ROOM_ARENA_EAST}", SELF_MARKER),
         (f"teleport {MORTAL.name.lower()}", NO_DESTINATION_MARKER),
     ]
@@ -137,7 +135,7 @@ def test_teleport_refuses_a_missing_target_itself_and_a_missing_destination(serv
         reply = god.command(request)
         assert reply.contains(refusal), f"{request}:\n{reply.text}"
     assert god.command("look").room_name() == "Immortal Start"
-    assert ANY_TELEPORTED_MARKER not in mortal.drain(SETTLE_SECONDS)
+    assert TELEPORTED_BY_ANYONE not in mortal.drain(SETTLE_SECONDS)
     assert mortal.command("look").room_name() == "Arena Centre"
 
 
@@ -157,12 +155,12 @@ def test_shutdown_is_refused_at_level_95_and_reached_at_96(server) -> None:
     shutdown_command = f"shutdown {HARMLESS_SHUTDOWN_ARGUMENT}"
 
     refused = area_god.command(shutdown_command)
-    assert refused.contains(UNRECOGNIZED_MARKER), refused.text
+    assert refused.contains(UNRECOGNIZED_COMMAND_REPLY), refused.text
     assert UNKNOWN_OPTION_MARKER not in refused.text, refused.text
     assert area_god.command("look").room_name() == "Immortal Start"
 
     for session in (shutdown_god, implementor):
         answered = session.command(shutdown_command)
         assert answered.contains(UNKNOWN_OPTION_MARKER), answered.text
-        assert not answered.contains(UNRECOGNIZED_MARKER), answered.text
+        assert not answered.contains(UNRECOGNIZED_COMMAND_REPLY), answered.text
         assert session.command("look").room_name() == "Immortal Start"

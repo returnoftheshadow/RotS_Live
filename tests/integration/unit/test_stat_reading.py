@@ -22,6 +22,7 @@ from rots_harness.stat_reading import (
     LEARNING_PATTERN,
     LEVEL_PATTERN,
     MAGE_LEVEL_PATTERN,
+    NO_SUCH_MOB_REPLY,
     OBJECT_STAT_LAST_LINE,
     PRACTICE_SESSIONS_PATTERN,
     SAVING_THROW_PATTERN,
@@ -136,6 +137,11 @@ def test_the_last_line_markers_start_the_games_format_strings(marker: str, forma
     source = ACT_WIZ_SOURCE.read_text(encoding="latin-1")
     assert format_text in source, f"no {format_text} in {ACT_WIZ_SOURCE}"
     assert marker in format_text
+
+
+def test_the_no_such_mob_reply_is_what_stat_mob_sends() -> None:
+    source = ACT_WIZ_SOURCE.read_text(encoding="latin-1")
+    assert f'"{NO_SUCH_MOB_REPLY}\\n\\r"' in source, f"no {NO_SUCH_MOB_REPLY} in {ACT_WIZ_SOURCE}"
 
 
 @pytest.mark.parametrize(

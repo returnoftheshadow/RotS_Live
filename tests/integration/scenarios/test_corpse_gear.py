@@ -7,6 +7,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import CORPSE_CONTENTS_HEADER, IS_DEAD_FORMAT
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import (
@@ -24,13 +25,6 @@ pytestmark = [pytest.mark.scenario, pytest.mark.corpse_gear]
 # The frail taster (mob 2205, tests/integration/world/mob/22.mob): one hit point, constitution 2,
 # no script, no resistances.
 TASTER_VNUM = 2205
-# The leather bag (object 1136), a container.
-BAG_VNUM = 1136
-# The leather cap (object 1137), head armour: wearable, so a gathering corpse lifts it out of
-# the bag.
-CAP_VNUM = 1137
-# The tainted bread (object 1139): eaten, it poisons anyone below immortal level.
-TAINTED_BREAD_VNUM = 1139
 # How look names the Order Hall.
 ORDER_HALL_NAME = "Order Hall"
 # The damage each poison tick deals (affect_update, limits.cpp).
@@ -48,13 +42,9 @@ SLINGER = Character(
     skills=(("magic_missile", 100),),
 )
 
-# What the room reads as a mob dies (damage, fight.cpp); format with the mob.
-IS_DEAD_FORMAT = "{} is dead!  R.I.P."
 # What the room reads as the taster dies.
 TASTER_DEAD_MARKER = IS_DEAD_FORMAT.format("A frail taster")
-# What `look in corpse` prints before the corpse's contents (do_look, act_info.cpp).
-CORPSE_CONTENTS_HEADER = "corpse (here) :"
-# What `look in bag` prints before a carried bag's contents.
+# What `look in bag` prints before a carried bag's contents (show_obj_contents, act_info.cpp).
 BAG_CONTENTS_HEADER = "bag (carried) :"
 # What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp).
 LOST_CONCENTRATION_MARKER = "You lost your concentration!"
@@ -82,8 +72,8 @@ def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
     assert arrived.room_name() == ORDER_HALL_NAME, arrived.text
     created = implementor.command(f"load mob {TASTER_VNUM}")
     assert created.contains("You create a frail taster."), created.text
-    load_object(implementor, BAG_VNUM, "a leather bag")
-    load_object(implementor, CAP_VNUM, "a leather cap")
+    load_object(implementor, world.OBJECT_LEATHER_BAG, "a leather bag")
+    load_object(implementor, world.OBJECT_LEATHER_CAP, "a leather cap")
     assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
     given = implementor.command("give bag taster")
     assert given.contains("You give a leather bag to a frail taster."), given.text
@@ -114,7 +104,7 @@ def test_a_mob_that_dies_of_poison_has_its_bagged_cap_gathered_into_its_corpse(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     hand_the_taster_a_bagged_cap(implementor)
-    load_object(implementor, TAINTED_BREAD_VNUM, "a piece of tainted bread")
+    load_object(implementor, world.OBJECT_TAINTED_BREAD, "a piece of tainted bread")
     assert implementor.command("give bread taster").contains("You give"), implementor.everything
     eaten = implementor.command("force taster eat bread")
     assert eaten.contains("Ok."), eaten.text

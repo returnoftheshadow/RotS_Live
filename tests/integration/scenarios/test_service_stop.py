@@ -15,13 +15,11 @@ pytestmark = [pytest.mark.scenario, pytest.mark.service_stop]
 
 # A mortal who starts in the middle of the arena and walks to its western end.
 WAYFARER = Character(name="Wayfarer", race="human", sex="male", level=10, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior")
-# Zone 11's leather cap, head armour, which the wayfarer wears.
-CAP_VNUM = 1137
-# How the game names the cap in equipment and messages.
+# How the game names the leather cap (world.OBJECT_LEATHER_CAP), which the wayfarer wears, in
+# equipment and messages.
 CAP_NAME = "a leather cap"
-# Zone 11's leather bag, which the wayfarer carries.
-BAG_VNUM = 1136
-# How the game names the bag in the inventory.
+# How the game names the leather bag (world.OBJECT_LEATHER_BAG), which the wayfarer carries, in
+# the inventory.
 BAG_NAME = "a leather bag"
 # The wear position a saved object records for the head (WEAR_HEAD, src/structs.h).
 HEAD_WEAR_POSITION = 6
@@ -79,8 +77,8 @@ def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry
     wayfarer = server.login(WAYFARER.name)
     arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
     assert arrived.room_name() == "Arena Centre", arrived.text
-    hand_object(implementor, CAP_VNUM, "cap", WAYFARER)
-    hand_object(implementor, BAG_VNUM, "bag", WAYFARER)
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WAYFARER)
+    hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", WAYFARER)
     worn = wayfarer.command("wear cap")
     assert worn.contains(CAP_NAME), worn.text
     walked = wayfarer.command("west")
@@ -89,12 +87,12 @@ def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry
     # The entry save stores a room-table index, not a vnum (#493); it only must not be the west room yet.
     assert saved_load_room(server.lib_dir, WAYFARER) != world.ROOM_ARENA_WEST
     before = saved_wear_positions(server.lib_dir, WAYFARER)
-    assert CAP_VNUM not in before and BAG_VNUM not in before, before
+    assert world.OBJECT_LEATHER_CAP not in before and world.OBJECT_LEATHER_BAG not in before, before
 
     server.restart()
 
     assert saved_load_room(server.lib_dir, WAYFARER) == world.ROOM_ARENA_WEST
-    assert saved_wear_positions(server.lib_dir, WAYFARER) == {CAP_VNUM: HEAD_WEAR_POSITION, BAG_VNUM: CARRIED_WEAR_POSITION}
+    assert saved_wear_positions(server.lib_dir, WAYFARER) == {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
     returned = server.login(WAYFARER.name)
     assert returned.command("look").room_name() == "Arena West"
     assert returned.command("equipment").contains(CAP_NAME)

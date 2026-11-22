@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import DEATH_CRY_FORMAT, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import AFFECT_BITS_PATTERN, HIT_POINTS_PATTERN, read_stat
 
@@ -20,8 +22,6 @@ ROOM_IDLE_HALL = 2100
 IDLE_HALL_NAME = "Idle Hall"
 # Room 1102, the human idle room (mortal_idle_room, consts.cpp), where the void pull puts the idler.
 ROOM_MORTAL_IDLE = 1102
-# How look names the human start room (mortal_start_room, consts.cpp), where a dead human wakes.
-HUMAN_START_NAME = "Human Start"
 # A level-10 human warrior with constitution 0, so its maximum hit points come from its level and
 # class alone (recalc_abilities, profs.cpp), whatever the seed rolled, and update_pos
 # (fight.cpp) counts it dead at 0 hit points or fewer. No hunger or thirst, so neither changes
@@ -38,12 +38,6 @@ IDLER = Character(
 # The idler's maximum hit points: 10 + level 10 + the class term, its constitution adding nothing.
 IDLER_MAXIMUM_HIT = 74
 
-# Zone 11's leather cap, head armour, which the idler wears from the start.
-CAP_VNUM = 1137
-# Zone 11's leather bag, which the idler carries.
-BAG_VNUM = 1136
-# Zone 11's sickly amulet, worn on the neck, whose APPLY_BITVECTOR poisons the wearer.
-AMULET_VNUM = 1138
 # Zone 21's draining grey sash, worn about the body: maximum hit points -72.
 SASH_VNUM = 2100
 # The maximum hit points the sash takes away.
@@ -69,12 +63,10 @@ LOST_LINK_MARKER = "Testidler has lost his link."
 VOID_MARKER = "Testidler disappears into the void."
 # What the room reads when the amulet's poison blow hurts the idler (lib/misc/messages).
 WRITHES_MARKER = "Testidler writhes in pain as the poison takes hold."
-# What the idler reads on a poison blow.
-POISON_BLOW_MARKER = "You writhe in pain as poison courses through your veins."
-# What the room reads when the idler dies (damage, fight.cpp).
-DEAD_MARKER = "Testidler is dead!  R.I.P."
-# What the room reads of the dying idler's cry (death_cry, fight.cpp).
-DEATH_CRY_MARKER = "Your blood freezes as you hear Testidler's death cry."
+# What the room reads when the idler dies.
+DEAD_MARKER = IS_DEAD_FORMAT.format("Testidler")
+# What the room reads of the dying idler's cry.
+DEATH_CRY_MARKER = DEATH_CRY_FORMAT.format("Testidler")
 # How look shows a human's corpse after a poison death (get_corpse_desc, fight.cpp).
 CORPSE_MARKER = "The rancid corpse of *a Human* is lying here."
 # What the idler reads at its first command after logging back in: the AFK flag the idle hours
@@ -82,8 +74,6 @@ CORPSE_MARKER = "The rancid corpse of *a Human* is lying here."
 BACK_FROM_AFK_MARKER = "You return to your keyboard."
 # What stat player answers for a character no longer in the game (do_stat, act_info.cpp).
 NO_SUCH_PLAYER_MARKER = "No such player around."
-# What force answers once it has run the command (do_force, act_wiz.cpp).
-FORCED_MARKER = "Ok."
 # What the server logs when check_idling removes the idler.
 IDLE_REMOVAL_LOG = "Testidler force-rented and extracted (idle)."
 # What the server logs when the idler dies of its own gear's poison (die, fight.cpp).
@@ -122,7 +112,7 @@ def force_idler(implementor: GameSession, command: str) -> None:
     """Has the link-dead idler run command, which sends nothing from the idler's connection and so
     leaves its idle timer as it was."""
     forced = implementor.command(f"force {IDLER.name.lower()} {command}")
-    assert forced.contains(FORCED_MARKER), forced.text
+    assert forced.contains(FORCED_REPLY), forced.text
 
 
 def saved_wear_positions(lib_dir: Path) -> dict[int, int]:
@@ -150,9 +140,9 @@ def idle_the_idler_for_28_hours(server, implementor: GameSession, idler: GameSes
     """
     arrived = implementor.command(f"goto {ROOM_IDLE_HALL}")
     assert arrived.room_name() == IDLE_HALL_NAME, arrived.text
-    hand_object(implementor, CAP_VNUM, "cap")
-    hand_object(implementor, BAG_VNUM, "bag")
-    hand_object(implementor, AMULET_VNUM, "amulet")
+    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap")
+    hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag")
+    hand_object(implementor, world.OBJECT_SICKLY_AMULET, "amulet")
     if with_sash:
         hand_object(implementor, SASH_VNUM, "sash")
     worn = idler.command("wear cap")
@@ -211,11 +201,13 @@ def test_an_idler_whose_gear_poisons_them_as_it_comes_off_is_removed_and_returns
     assert server_log_count(server, IDLE_REMOVAL_LOG) == 1
     assert server_log_count(server, "killed by") == 0
     assert saved_wear_positions(server.lib_dir) == {
-        AMULET_VNUM: NECK_WEAR_POSITION, CAP_VNUM: HEAD_WEAR_POSITION, BAG_VNUM: CARRIED_WEAR_POSITION,
+        world.OBJECT_SICKLY_AMULET: NECK_WEAR_POSITION,
+        world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION,
+        world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION,
     }
 
     returned = server.login(IDLER.name)
-    assert returned.everything.count(POISON_BLOW_MARKER) == 1, returned.everything
+    assert returned.everything.count(POISON_TICK) == 1, returned.everything
     assert returned.command("look").contains(BACK_FROM_AFK_MARKER)
     assert returned.command("look").room_name() == IDLE_HALL_NAME
     equipment = returned.command("equipment")
@@ -276,7 +268,7 @@ def test_an_idler_whose_gear_kills_them_as_it_comes_off_dies_once_and_the_server
 
     returned = server.login(IDLER.name)
     assert returned.command("look").contains(BACK_FROM_AFK_MARKER)
-    assert returned.command("look").room_name() == HUMAN_START_NAME
+    assert returned.command("look").room_name() == world.ROOM_HUMAN_START_NAME
     equipment = returned.command("equipment")
     assert equipment.contains("Nothing."), equipment.text
     score = returned.command("score")

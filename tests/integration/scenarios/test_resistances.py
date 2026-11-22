@@ -12,6 +12,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import STOP_USING_FORMAT, UNRECOGNIZED_COMMAND_REPLY
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
@@ -91,8 +92,8 @@ FLAG_RESIST_ITEM_WORN_MARKER = "You slide an ember ring on to your right ring fi
 VULNERABILITY_ITEM_VNUM = 1403
 VULNERABILITY_ITEM_KEYWORD = "band"
 VULNERABILITY_ITEM_WORN_MARKER = "You slide a tinder band on to your right ring finger."
-# The poison amulet in obj/11.obj, whose wearing deals poison damage (equip_char, handler.cpp).
-POISON_AMULET_VNUM = 1138
+# The keyword of the sickly amulet (world.OBJECT_SICKLY_AMULET), whose wearing deals poison damage
+# (equip_char, handler.cpp).
 POISON_AMULET_KEYWORD = "amulet"
 
 # The strength affections shows for a resistance bit with no affect behind it, and for any
@@ -162,11 +163,6 @@ RESISTANCE_LINE_FORMAT = "   {} ({}%)"
 # out (duration -1) and reads "permanent".
 PROTECTION_AFFECT_PATTERN = re.compile(r"protection +\(long\)")
 ITEM_RESIST_AFFECT_PATTERN = re.compile(r"resist fire +\(permanent\)")
-# What the wearer reads on taking an item off (perform_remove, act_obj2.cpp); format with the
-# item's short description.
-STOP_USING_MARKER_FORMAT = "You stop using {}."
-# What a command above the speaker's level prints (command_interpreter, interpre.cpp).
-UNRECOGNIZED_MARKER = "Unrecognized command."
 # What debug prints as it turns the flag on and off (do_debug, act_wiz.cpp).
 DEBUG_ON_MARKER = "Debug flag on."
 DEBUG_OFF_MARKER = "Debug flag off."
@@ -186,8 +182,6 @@ HUNGER_SET_MARKER_FORMAT = "{}'s hunger set to 10."
 CAST_TIMEOUT = 15.0
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
-# The room every character in this file starts in, as look names it.
-ARENA_CENTRE_NAME = "Arena Centre"
 
 # The resistance bits stat prints (do_stat_character, act_wiz.cpp): "RES:  FIRE. VUL: ...".
 STAT_RESISTANCES_PATTERN = re.compile(r"RES: (.*?) VUL:")
@@ -252,7 +246,7 @@ def affections(session: GameSession) -> str:
 def goto_character(implementor: GameSession, character: Character) -> None:
     """Moves the implementor to the character, who is in the arena centre."""
     arrived = implementor.command(f"goto {character.name.lower()}")
-    assert arrived.room_name() == ARENA_CENTRE_NAME, arrived.text
+    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
 
 
 def give_items(implementor: GameSession, recipient: Character, items: tuple[tuple[int, str], ...]) -> None:
@@ -649,7 +643,7 @@ def test_an_immortal_wearing_a_resist_item_has_it_once_after_quit_and_login(serv
     assert len(ITEM_RESIST_AFFECT_PATTERN.findall(shown)) == 1, shown
 
     removed = again.command(f"remove {STRONG_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_MARKER_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
     assert NOT_AFFECTED_MARKER in affections(again)
 
 
@@ -689,7 +683,7 @@ def test_protection_and_worn_fire_items_coexist_and_the_strongest_applies(server
     assert not PROTECTION_AFFECT_PATTERN.search(shown), shown
 
     removed = wearer.command(f"remove {STRONG_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_MARKER_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
     shown = affections(wearer)
     assert resistance_line("fire", WEAK_ITEM_PERCENT) in shown, shown
     assert fire_lines(shown) == 1, shown
@@ -739,7 +733,7 @@ def test_removing_the_stronger_fire_item_falls_back_quietly_to_the_weaker(server
     assert wearer.command(f"wear {STRONG_ITEM_KEYWORD}").contains(FIRE_RESISTANT_MARKER)
 
     removed = wearer.command(f"remove {STRONG_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_MARKER_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
     assert not removed.contains(FIRE_RESISTANT_MARKER), removed.text
 
     shown = affections(wearer)
@@ -762,7 +756,7 @@ def test_removing_the_weaker_fire_item_changes_nothing(server) -> None:
     assert wearer.command(f"wear {STRONG_ITEM_KEYWORD}").contains(FIRE_RESISTANT_MARKER)
 
     removed = wearer.command(f"remove {WEAK_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_MARKER_FORMAT.format(WEAK_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(WEAK_ITEM_SHORT)), removed.text
     assert not removed.contains(FIRE_RESISTANT_MARKER), removed.text
 
     shown = affections(wearer)
@@ -783,7 +777,7 @@ def test_removing_the_only_fire_item_leaves_no_resistance(server) -> None:
     assert wearer.command(f"wear {STRONG_ITEM_KEYWORD}").contains(FIRE_RESISTANT_MARKER)
 
     removed = wearer.command(f"remove {STRONG_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_MARKER_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(STRONG_ITEM_SHORT)), removed.text
     assert not removed.contains(FIRE_RESISTANT_MARKER), removed.text
 
     shown = affections(wearer)
@@ -864,7 +858,7 @@ def test_debug_is_an_immortal_command_that_toggles(server) -> None:
     wearer = server.login(WEARER.name)
 
     refused = wearer.command("debug")
-    assert refused.contains(UNRECOGNIZED_MARKER), refused.text
+    assert refused.contains(UNRECOGNIZED_COMMAND_REPLY), refused.text
     assert implementor.command("debug").contains(DEBUG_ON_MARKER)
     assert implementor.command("debug").contains(DEBUG_OFF_MARKER)
 
@@ -902,7 +896,7 @@ def test_debug_traces_the_poison_damage_of_putting_on_the_poison_amulet(server) 
     """
     implementor = server.login(IMPLEMENTOR.name)
     assert implementor.command("debug").contains(DEBUG_ON_MARKER)
-    assert implementor.command(f"load obj {POISON_AMULET_VNUM}").contains("You create")
+    assert implementor.command(f"load obj {world.OBJECT_SICKLY_AMULET}").contains("You create")
 
     worn = implementor.command(f"wear {POISON_AMULET_KEYWORD}").text
     assert worn.count(POISON_DAMAGE_DEBUG_LINE) == 1, worn

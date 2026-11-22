@@ -12,7 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
-from rots_harness.stat_reading import AFFECT_BITS_AT_LINE_START_PATTERN, read_stat
+from rots_harness.stat_reading import AFFECT_BITS_AT_LINE_START_PATTERN, NO_SUCH_MOB_REPLY, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.tame]
 
@@ -64,8 +64,6 @@ BEAR_VNUM = 1451
 WOLF_VNUM = 1452
 # A watchful owl (mob 1453): an animal with perception 10.
 OWL_VNUM = 1453
-# A straw scarecrow (mob 1454): perception 0, but bodytype 1, not an animal.
-SCARECROW_VNUM = 1454
 # A target orc (mob 1130, 30 hit points), which the boar is set on in the pen gate.
 TARGET_ORC_VNUM = 1130
 # A hardy target orc (mob 1135, 900 hit points), which the tame fights in the whistle hub.
@@ -147,8 +145,6 @@ ORDER_REFUSAL_MARKERS = ["That person isn't here.", "has an indifferent look.", 
 # Seconds to wait for the whistle's outcome: whistle's 6 beats are 6 passes, a second and a half.
 WHISTLE_TIMEOUT = 8.0
 
-# What `stat mob` prints when no mob matches (do_wizstat, act_wiz.cpp).
-NO_SUCH_MOB_MARKER = "No such mobile around."
 # The tamer's ranger level, which tame's level check and success chance read.
 RANGER_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:\d+ Ran:(\d+) ")
 # A practice line for tame at full knowledge (do_practice and how_good, spec_pro.cpp): how_good
@@ -179,7 +175,7 @@ def reset_boar_zone(implementor: GameSession) -> None:
 
 def stat_mob(implementor: GameSession, keyword: str) -> str:
     """The implementor's whole `stat mob <keyword>` reply, whose lines can end in `]`."""
-    return read_stat(implementor, f"mob {keyword}", other_outcomes=[NO_SUCH_MOB_MARKER])
+    return read_stat(implementor, f"mob {keyword}", other_outcomes=[NO_SUCH_MOB_REPLY])
 
 
 def affect_bits(stat_text: str) -> list:
@@ -323,7 +319,7 @@ def test_a_tamed_animal_frees_its_zone_slot_once_so_resets_keep_one_wild_copy(se
 # reply it reads, the keyword the tamer tames, and the refusal the tamer reads.
 REFUSAL_CASES = [
     pytest.param((), None, None, IMPLEMENTOR.name.lower(), ANIMALS_ONLY_MARKER, id="a_player"),
-    pytest.param((SCARECROW_VNUM,), None, None, "scarecrow", ANIMALS_ONLY_MARKER, id="a_creature_that_is_not_an_animal"),
+    pytest.param((world.MOB_STRAW_SCARECROW,), None, None, "scarecrow", ANIMALS_ONLY_MARKER, id="a_creature_that_is_not_an_animal"),
     pytest.param((OWL_VNUM,), None, None, "owl", ANIMALS_ONLY_MARKER, id="an_animal_with_perception"),
     pytest.param(
         (BOAR_VNUM, TARGET_ORC_VNUM), "force boar kill orc", BOAR_ATTACKS_TARGET_ORC_MARKER, BOAR_KEYWORD, ENRAGED_MARKER,
@@ -531,14 +527,12 @@ def test_whistle_recalls_the_whistlers_tame_from_elsewhere_in_the_zone(server) -
 # Objects the tame is dressed in and handed (obj/16.obj, obj/11.obj, obj/13.obj): each tuple is
 # the vnum, a keyword and the short description. No zone resets any of them, so `where` by vnum
 # finds every copy in the world.
-TAME_HELM = (1603, "helm", "a leather helm")
-TAME_BAG = (1136, "bag", "a leather bag")
-TAME_BEAD = (1308, "bead", "a copper bead")
+TAME_HELM = (world.OBJECT_LEATHER_HELM, "helm", "a leather helm")
+TAME_BAG = (world.OBJECT_LEATHER_BAG, "bag", "a leather bag")
+TAME_BEAD = (world.OBJECT_COPPER_BEAD, "bead", "a copper bead")
 # A grey pebble (object 1701, obj/17.obj) for the tamer to carry: the innkeeper refuses a renter
 # who carries nothing (Crash_offer_rent, objsave.cpp).
 PEBBLE = (1701, "pebble", "a grey pebble")
-# The harness innkeeper (mob 1105): spec_ass.cpp binds the receptionist special to its vnum.
-INNKEEPER_VNUM = 1105
 # What the renter reads as the innkeeper takes the rent (gen_receptionist, objsave.cpp).
 RENTED_MARKER = "The harness innkeeper stores your belongings and helps you into your private chamber."
 # The start of every refusal the innkeeper tells the renter.
@@ -588,7 +582,7 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     assert created.contains(f"You create {PEBBLE[2]}."), created.text
     given = implementor.command(f"give {PEBBLE[1]} {TAMER.name.lower()}")
     assert given.contains(f"You give {PEBBLE[2]} to {TAMER.name}."), given.text
-    load_mob(implementor, INNKEEPER_VNUM)
+    load_mob(implementor, world.MOB_INNKEEPER)
 
     rented = reply_to(tamer, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT])
     assert RENTED_MARKER in rented, rented

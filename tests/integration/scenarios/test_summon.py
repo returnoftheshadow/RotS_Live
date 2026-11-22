@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import QUIT_DROP_REPLY, TELEPORTED_BY_ANYONE
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import MAGE_LEVEL_PATTERN, read_stat
@@ -67,11 +68,9 @@ DISTANT_DWARF = Character(
     class_name="warrior",
     stored=StoredValues(int=VICTIM_INTELLIGENCE),
 )
-# The stone girdle (object 1185, obj/11.obj): worn about the waist, STAY_ZONE.
-GIRDLE_VNUM = 1185
+# The short descriptions of the stone girdle (world.OBJECT_STONE_GIRDLE), worn about the waist,
+# and the dwarven stone (world.OBJECT_DWARVEN_STONE), carried; both are STAY_ZONE.
 GIRDLE = "a stone girdle"
-# The dwarven stone (object 1602, obj/16.obj): carried, STAY_ZONE.
-STONE_VNUM = 1602
 STONE = "a dwarven stone"
 
 # The caster's mage level: a single-class mage's mage level is its overall level, up to 30.
@@ -106,14 +105,10 @@ SUMMONED_MARKER_FORMAT = "{} summons you!"
 # What the caster reads when the target left the game while the spell was cast (do_cast,
 # spell_pa.cpp, for a TAR_CHAR_WORLD target in no room).
 LEFT_THE_WORLD_MARKER = "Your victim has left the world."
-# What a mortal reads as it quits (do_quit, act_othe.cpp).
-QUIT_MARKER = "As you quit, all your posessions drop to the ground!"
 # What a summoned character reads for each stay-zone item it carries as it leaves its zone
 # (prohibit_item_stay_zone_move, act_move.cpp); format with the short description. A worn one
 # comes off with no line.
 DROP_FORMAT = "You drop {}."
-# What a character reads when the implementor teleports it (do_teleport, act_wiz.cpp).
-TELEPORTED_MARKER = "has teleported you!"
 # What look prints instead of the room for a character who cannot see (do_look, act_info.cpp).
 DARK_ROOM_LOOK = "It is pitch black..."
 # Seconds to wait for a cast's outcome: summon's 36 beats at mage level 30 are 18 passes, four
@@ -216,7 +211,7 @@ def test_a_mage_cannot_summon_a_player_standing_in_a_dark_room(server) -> None:
     assert victim.command("look").room_name() == DARK_ROOM_LOOK
 
     implementor.command(f"teleport {DARK_VICTIM.name.lower()} {world.ROOM_ARENA_WEST}")
-    victim.expect([TELEPORTED_MARKER])
+    victim.expect([TELEPORTED_BY_ANYONE])
     victim.drain(SETTLE_SECONDS)
 
     # Control case, Testlost in Arena West (1130, lit, zone 11), caster in Arena Centre (zone 11):
@@ -334,7 +329,8 @@ def test_summon_across_zones_leaves_the_targets_stay_zone_gear_in_the_room_it_le
     caster = server.login(CASTER.name)
     victim = server.login(DISTANT_DWARF.name)
     implementor.command(f"goto {ROOM_DISTANT_CELL}")
-    for vnum, keyword, short_description in ((GIRDLE_VNUM, "girdle", GIRDLE), (STONE_VNUM, "stone", STONE)):
+    stay_zone_items = ((world.OBJECT_STONE_GIRDLE, "girdle", GIRDLE), (world.OBJECT_DWARVEN_STONE, "stone", STONE))
+    for vnum, keyword, short_description in stay_zone_items:
         created = implementor.command(f"load obj {vnum}")
         assert created.contains(f"You create {short_description}."), created.text
         given = implementor.command(f"give {keyword} {DISTANT_DWARF.name.lower()}")
@@ -404,8 +400,8 @@ def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits
     started = caster.expect([CONCENTRATE_MARKER, NOBODY_MARKER, NO_ENERGY_MARKER])
     assert CONCENTRATE_MARKER in started, started
     victim.send_line("quit")
-    quit_text = victim.expect([QUIT_MARKER])
-    assert QUIT_MARKER in quit_text, quit_text
+    quit_text = victim.expect([QUIT_DROP_REPLY])
+    assert QUIT_DROP_REPLY in quit_text, quit_text
 
     outcomes = [
         LEFT_THE_WORLD_MARKER,

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -29,8 +30,6 @@ INSIGHT_WAND_VNUM = 2101
 ENCHANTING_WAND_VNUM = 2102
 # Zone 21's ash staff of insight, with no charge left.
 EMPTY_STAFF_VNUM = 2104
-# Zone 11's plain steel sword, a weapon with no affects: one enchant weapon takes.
-SWORD_VNUM = 1140
 
 # What the user reads when pointing the insight wand at himself (do_use, act_othe.cpp).
 POINT_INSIGHT_MARKER = "You point a birch wand of insight at Testwielder."
@@ -118,7 +117,7 @@ def test_a_wand_of_enchanting_pointed_at_a_sword_enchants_it_and_then_runs_out(s
     """
     implementor, wielder = meet_the_wielder(server)
     hand_object(implementor, ENCHANTING_WAND_VNUM, "wand")
-    hand_object(implementor, SWORD_VNUM, "sword")
+    hand_object(implementor, world.OBJECT_PLAIN_STEEL_SWORD, "sword")
     assert wielder.command("hold wand").contains("You grab an oak wand of enchanting.")
 
     outcomes = [GLOWS_MARKER, WAND_POWERLESS_MARKER, NOTHING_HAPPENS_MARKER]

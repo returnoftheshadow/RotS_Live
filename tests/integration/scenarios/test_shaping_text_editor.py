@@ -22,8 +22,6 @@ MORTAL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="warrior",
 )
-# The mortal's room, as look names it.
-ROOM_NAME = "Arena Centre"
 # The prompt while a text is being written (comm.cpp).
 EDITOR_PROMPT = "] "
 # The opening lines every text editor shows before the line about %f (string_add_commands,
@@ -94,13 +92,13 @@ def test_a_mortals_description_editor_lists_its_commands_and_q_leaves_it(server)
     opened = reply_to(mortal, "set description", [GENERAL_HELP_LINE], settle=SETTLE_SECONDS)
     mortal.send_line("%q")
     # Still in the editor, look would only add a line to the text and get the editor's prompt.
-    looked = reply_to(mortal, "look", [ROOM_NAME, EDITOR_PROMPT], settle=SETTLE_SECONDS)
+    looked = reply_to(mortal, "look", [world.ROOM_ARENA_CENTRE_NAME, EDITOR_PROMPT], settle=SETTLE_SECONDS)
 
     opened_lines = raw_lines(opened)
     start = opened_lines.index(COMMAND_LIST_HEAD[0]) if COMMAND_LIST_HEAD[0] in opened_lines else -1
     expected = COMMAND_LIST_HEAD + [FORMAT_LINE, GENERAL_HELP_LINE]
     assert start >= 0 and opened_lines[start:start + len(expected)] == expected, opened
-    assert ROOM_NAME in looked, looked
+    assert world.ROOM_ARENA_CENTRE_NAME in looked, looked
 
 
 @pytest.mark.schedule("affect-hours")

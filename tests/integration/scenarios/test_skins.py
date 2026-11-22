@@ -40,8 +40,6 @@ BASE = 1140
 SKIN_OWNS_COST = 1141
 SKIN = 1142
 ORPHAN = 1143
-CAP = 1137
-BAG = 1136
 STEWARD = 1136
 
 
@@ -115,8 +113,8 @@ def test_restyle_changes_a_wielded_sword_in_place_and_refuses_another_family(ser
     equipment = owner.command("equipment")
     assert "<wielded>" in equipment.text and "an engraved steel sword" in equipment.text, equipment.text
 
-    refused = implementor.command(f"restyle testowner sword {CAP}")
-    assert refused.contains(f"Obj {CAP} is not a look of obj {SKIN_OWNS_COST}."), refused.text
+    refused = implementor.command(f"restyle testowner sword {world.OBJECT_LEATHER_CAP}")
+    assert refused.contains(f"Obj {world.OBJECT_LEATHER_CAP} is not a look of obj {SKIN_OWNS_COST}."), refused.text
     still = owner.command("equipment")
     assert "an engraved steel sword" in still.text, still.text
 
@@ -128,7 +126,7 @@ def test_a_script_restyles_a_sword_in_a_carried_bag_and_logs_a_refused_line(serv
     owner = server.login(OWNER.name)
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
     assert implementor.command(f"load mob {STEWARD}").contains("You create"), "the steward"
-    created = implementor.command(f"load obj {BAG}")
+    created = implementor.command(f"load obj {world.OBJECT_LEATHER_BAG}")
     assert created.contains("You create"), created.text
     created = implementor.command(f"load obj {BASE}")
     assert created.contains("You create"), created.text
@@ -142,4 +140,4 @@ def test_a_script_restyles_a_sword_in_a_carried_bag_and_logs_a_refused_line(serv
     in_bag = owner.command("look in bag")
     assert "an engraved steel sword" in in_bag.text, in_bag.text
 
-    wait_for_log_line(server, f"SCRIPT ERROR: script #1101, line 4 (restyle obj): obj {SKIN_OWNS_COST} -> {CAP} not same family")
+    wait_for_log_line(server, f"SCRIPT ERROR: script #1101, line 4 (restyle obj): obj {SKIN_OWNS_COST} -> {world.OBJECT_LEATHER_CAP} not same family")

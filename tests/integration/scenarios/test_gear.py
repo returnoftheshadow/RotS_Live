@@ -15,6 +15,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import STOP_USING_FORMAT
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEVEL_PATTERN, read_stat
 from rots_harness.text_lines import assert_in_order, lines_after
@@ -58,25 +59,22 @@ CARRIER = Character(
 # a keyword that names only it among the objects a test hands over, and its short description.
 CURSED_RING = (1307, "ring", "a cursed ring")  # worn on a finger; NODROP, so it cannot be given
 BELT = (1902, "belt", "a leather belt")  # worn about the waist; gives the belt hooks
-LEATHER_CAP = (1137, "cap", "a leather cap")  # worn on the head
-BAG = (1136, "bag", "a leather bag")  # a container, with no wear slot and not wieldable
+LEATHER_CAP = (world.OBJECT_LEATHER_CAP, "cap", "a leather cap")  # worn on the head
+BAG = (world.OBJECT_LEATHER_BAG, "bag", "a leather bag")  # a container, with no wear slot and not wieldable
 IRON_CAP = (1304, "cap", "an iron cap")  # worn on the head, so it finds the slot taken
 KEYRING = (1901, "keyring", "a brass keyring")  # hangs on a belt hook
-CHAIN_SHIRT = (1186, "shirt", "a chain shirt")  # worn on the body
-COPPER_BEAD = (1308, "bead", "a copper bead")  # carried, never worn
-LEATHER_HELM = (1603, "helm", "a leather helm")  # worn on the head; no zone resets one
-# The porter (mob 1722, mob/17.mob): no script and no special, for the implementor to force.
-PORTER_VNUM = 1722
+CHAIN_SHIRT = (world.OBJECT_CHAIN_SHIRT, "shirt", "a chain shirt")  # worn on the body
+COPPER_BEAD = (world.OBJECT_COPPER_BEAD, "bead", "a copper bead")  # carried, never worn
+LEATHER_HELM = (world.OBJECT_LEATHER_HELM, "helm", "a leather helm")  # worn on the head; no zone resets one
 
-# What get, wear and remove print (do_get in act_obj1.cpp, wear_message and take_off_item in
-# act_obj2.cpp); each is formatted with an object's short description.
+# What get and wear print (do_get in act_obj1.cpp, wear_message in act_obj2.cpp); each is
+# formatted with an object's short description.
 GET_FORMAT = "You get {}."
 WEAR_FINGER_FORMAT = "You slide {} on to your right ring finger."
 WEAR_WAIST_FORMAT = "You wear {} around your waist."
 WEAR_HEAD_FORMAT = "You wear {} on your head."
 WEAR_BELT_HOOK_FORMAT = "You fasten {} on your belt."
 WEAR_BODY_FORMAT = "You wear {} on your body."
-STOP_USING_FORMAT = "You stop using {}."
 # What wear all prints for an item whose head slot is already taken (perform_wear).
 HEAD_TAKEN_MARKER = "You're already wearing something on your head."
 # What wear all prints when nothing carried can be worn (do_wear).
@@ -360,7 +358,7 @@ def test_purge_destroys_what_a_mob_wears_and_carries_and_leaves_nothing_behind(s
     implementor = server.login(IMPLEMENTOR.name)
     arrived = implementor.command(f"goto {world.ROOM_ARENA_WEST}")
     assert arrived.contains("Arena West"), arrived.text
-    assert implementor.command(f"load mob {PORTER_VNUM}").contains("You create a porter.")
+    assert implementor.command(f"load mob {world.MOB_PORTER}").contains("You create a porter.")
     assert implementor.command(f"load obj {LEATHER_HELM[0]}").contains(f"You create {LEATHER_HELM[2]}.")
     assert implementor.command("give helm porter").contains(GIVE_FORMAT.format(LEATHER_HELM[2], "a porter"))
     dressed = implementor.command("force porter wear helm")

@@ -30,14 +30,9 @@ PUPIL = Character(
     skills=(("blink", BLINK_SESSIONS_SPENT),),
 )
 
-# The traveller (mob/15.mob), a guildmaster who teaches blink up to 100; a test that needs it has
-# the world place it in the arena centre.
-TRAVELLER_VNUM = 1503
+# What the traveller (world.MOB_MYSTERIOUS_TRAVELLER), a guildmaster who teaches blink up to 100,
+# says before its list; a test that needs it has the world place it in the arena centre.
 TRAVELLER_LIST_HEADER = "Hello, Testreset! I can teach you these spells:"
-# The shining angel (mob/11.mob): MOB_SPEC with program 14, the resetter (spec_ass.cpp).
-ANGEL_VNUM = 1170
-# A mob that is not a player and has no special (mob/11.mob), for the command's mob refusal.
-BYSTANDER_VNUM = 1132
 
 # The learning the pupil is stored with for a known session count: wizset's top, above any
 # rolled learning.
@@ -120,7 +115,7 @@ def relog(server, pupil: GameSession) -> GameSession:
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, FIRE_PUPIL)
-@pytest.mark.world_resets(MobReset(ANGEL_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_SHINING_ANGEL, world.ROOM_ARENA_CENTRE))
 def test_telling_the_angel_pracreset_resets_knowledge_sessions_and_specialization(server) -> None:
     """`tell angel pracreset` empties the skills, refills the sessions, clears the specialization.
 
@@ -158,7 +153,7 @@ def test_telling_the_angel_pracreset_resets_knowledge_sessions_and_specializatio
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(PUPIL)
-@pytest.mark.world_resets(MobReset(ANGEL_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_SHINING_ANGEL, world.ROOM_ARENA_CENTRE))
 @pytest.mark.parametrize(
     ("told", "answer"),
     [("hello", ANGEL_ANSWER_MARKER), ("reroll", ONLY_LEVEL_SIX_MARKER)],
@@ -187,7 +182,7 @@ def test_the_angel_answers_anything_but_pracreset_with_a_tell_and_resets_nothing
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
-@pytest.mark.world_resets(MobReset(BYSTANDER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_BYSTANDER_ORC, world.ROOM_ARENA_CENTRE))
 @pytest.mark.parametrize(
     ("argument", "refusal"),
     [("nobody", NO_SUCH_PERSON_MARKER), ("bystander", CANNOT_LEARN_MARKER)],
@@ -261,7 +256,7 @@ def test_learning_set_by_an_immortal_changes_the_sessions_only_at_the_next_login
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(PUPIL)
-@pytest.mark.world_resets(MobReset(TRAVELLER_VNUM, world.ROOM_ARENA_CENTRE))
+@pytest.mark.world_resets(MobReset(world.MOB_MYSTERIOUS_TRAVELLER, world.ROOM_ARENA_CENTRE))
 def test_a_relog_leaves_knowledge_spent_and_remaining_sessions_unchanged(server) -> None:
     """A relog after practising keeps the knowledge, sessions spent and sessions left unchanged.
 

@@ -7,6 +7,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import NOT_HERE_REPLY
 from rots_harness.session import GameSession
 from rots_harness.text_lines import reply_text
 from test_vendor import BUYER, CAP_PRICE_BEADS, WANDERER
@@ -18,14 +19,12 @@ pytestmark = [pytest.mark.scenario, pytest.mark.vendor]
 CURRENCY_VNUM = 1308
 CURRENCY_KEYWORD = "bead"
 CURRENCY_NAME = "a copper bead"
-# The leather cap (tests/integration/world/obj/11.obj), whose keywords are "cap leather".
-CAP_VNUM = 1137
+# The short description of the leather cap (world.OBJECT_LEATHER_CAP), whose keywords are
+# "cap leather".
 CAP_NAME = "a leather cap"
 # The three-letter abbreviation of the cap's keyword `leather`.
 CAP_ABBREVIATION = "lea"
 
-# What the old shop commands answer where no shopkeeper serves them (do_not_here, act_othe.cpp).
-NOT_HERE_MARKER = "Sorry, but you can't do that here!"
 # What the buyer reads when the trade completes (vendor_buy, shopkeeper.cpp).
 TRADE_LINES = (
     "You hand over:",
@@ -62,10 +61,10 @@ def test_sell_with_no_keeper_in_the_room_is_not_for_here(server) -> None:
     wanderer = server.login(WANDERER.name)
     arrived = implementor.command(f"goto {world.ROOM_ARENA_WEST}")
     assert arrived.room_name() == "Arena West", arrived.text
-    give_object(implementor, CAP_VNUM, "cap", CAP_NAME, WANDERER)
+    give_object(implementor, world.OBJECT_LEATHER_CAP, "cap", CAP_NAME, WANDERER)
 
     reply = wanderer.command("sell cap")
-    assert reply.contains(NOT_HERE_MARKER), reply.text
+    assert reply.contains(NOT_HERE_REPLY), reply.text
 
 
 @pytest.mark.xfail(

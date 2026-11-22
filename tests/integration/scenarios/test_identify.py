@@ -9,6 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
@@ -31,21 +32,17 @@ MAGE = Character(
     stored=StoredValues(maxstamina=MAGE_MAXIMUM_MANA),
 )
 
-# The objects identified, each with its keyword and short description (tests/integration/world):
-# the dwarven stone (obj/16.obj), whose extra flags are DWARF (bit 18) and STAY_ZONE (bit 28) and
-# nothing else; the plain sword (obj/16.obj), a slashing weapon with OB 5, parry 2 and bulk 2;
-# the tainted bread (obj/11.obj), food that fills 2 and is poisoned; and the sickly amulet
-# (obj/11.obj), the one object with an affect.
-DWARVEN_STONE_VNUM = 1602
+# The keyword and short description of each object identified: the dwarven stone
+# (world.OBJECT_DWARVEN_STONE), whose extra flags are DWARF (bit 18) and STAY_ZONE (bit 28) and
+# nothing else; the plain sword (world.OBJECT_PLAIN_SWORD), a slashing weapon with OB 5, parry 2
+# and bulk 2; the tainted bread (world.OBJECT_TAINTED_BREAD), food that fills 2 and is poisoned;
+# and the sickly amulet (world.OBJECT_SICKLY_AMULET), the one object with an affect.
 STONE_KEYWORD = "stone"
 STONE_SHORT_DESCRIPTION = "a dwarven stone"
-PLAIN_SWORD_VNUM = 1601
 SWORD_KEYWORD = "sword"
 SWORD_SHORT_DESCRIPTION = "a plain sword"
-BREAD_VNUM = 1139
 BREAD_KEYWORD = "bread"
 BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
-AMULET_VNUM = 1138
 AMULET_KEYWORD = "amulet"
 AMULET_SHORT_DESCRIPTION = "a sickly amulet"
 
@@ -59,10 +56,6 @@ IDENTIFIED_MARKER_FORMAT = "You feel certain the object you have is {}."
 LOST_CONCENTRATION_MARKER = "You lost your concentration!"
 # What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
 NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
-# What the caster reads when it does not carry the target (report_wrong_target, interpre.cpp).
-NO_TARGET_MARKER = "You don't have that."
-# What the caster reads when it does not know the spell (can_cast_spell).
-UNKNOWN_SPELL_MARKER = "You don't know this spell."
 # The header of identify's attribute list and the lines the stone's two flags print, in bit
 # order (sprintbit, utility.cpp, with extra_messages[], act_info.cpp).
 ATTRIBUTES_HEADER = "This item has the following attributes:"
@@ -107,7 +100,7 @@ def cast_identify(caster: GameSession, keyword: str, short_description: str) -> 
     the repeats end at NO_ENERGY_MARKER at the latest.
     """
     identified_marker = IDENTIFIED_MARKER_FORMAT.format(short_description)
-    outcomes = [identified_marker, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, NO_TARGET_MARKER, UNKNOWN_SPELL_MARKER]
+    outcomes = [identified_marker, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
     while True:
         reply = reply_to(caster, f"cast 'identify' {keyword}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:
@@ -146,7 +139,7 @@ def test_identify_lists_race_restriction_and_stay_zone_lines_without_a_lone_full
     concentration roll in do_cast, which cast_identify repeats; the affect-hours schedule keeps
     everything else from drawing.
     """
-    reply = identify_new_object(server, DWARVEN_STONE_VNUM, STONE_KEYWORD, STONE_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_DWARVEN_STONE, STONE_KEYWORD, STONE_SHORT_DESCRIPTION)
     assert attribute_lines(reply) == EXPECTED_ATTRIBUTE_LINES, reply
     assert "." not in [line.strip() for line in reply.splitlines()], reply
 
@@ -161,7 +154,7 @@ def test_identify_describes_a_weapon_with_its_type_and_aligned_stat_rows(server)
     The one draw that can stop the cast is the concentration roll in do_cast, which
     cast_identify repeats; the affect-hours schedule keeps everything else from drawing.
     """
-    reply = identify_new_object(server, PLAIN_SWORD_VNUM, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION)
     lines = [line.strip() for line in reply.splitlines()]
     assert WEAPON_SENTENCE in lines, reply
     sentence_index = lines.index(WEAPON_SENTENCE)
@@ -180,7 +173,7 @@ def test_identify_starts_the_food_sentence_with_a_capital(server) -> None:
     The one draw that can stop the cast is the concentration roll in do_cast, which
     cast_identify repeats; the affect-hours schedule keeps everything else from drawing.
     """
-    reply = identify_new_object(server, BREAD_VNUM, BREAD_KEYWORD, BREAD_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_TAINTED_BREAD, BREAD_KEYWORD, BREAD_SHORT_DESCRIPTION)
     lines = [line.strip() for line in reply.splitlines()]
     assert FOOD_SENTENCE_LINES[0] in lines, reply
     sentence_index = lines.index(FOOD_SENTENCE_LINES[0])
@@ -196,7 +189,7 @@ def test_identify_heads_the_affection_list_with_a_colon_and_no_leading_space(ser
     The one draw that can stop the cast is the concentration roll in do_cast, which
     cast_identify repeats; the affect-hours schedule keeps everything else from drawing.
     """
-    reply = identify_new_object(server, AMULET_VNUM, AMULET_KEYWORD, AMULET_SHORT_DESCRIPTION)
+    reply = identify_new_object(server, world.OBJECT_SICKLY_AMULET, AMULET_KEYWORD, AMULET_SHORT_DESCRIPTION)
     raw_lines = reply.splitlines()
     stripped_lines = [line.strip() for line in raw_lines]
     assert AFFECTIONS_HEADER in stripped_lines, reply

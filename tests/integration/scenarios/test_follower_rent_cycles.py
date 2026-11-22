@@ -9,7 +9,9 @@ from typing import NamedTuple
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import IS_DEAD_FORMAT
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 from rots_harness.stat_reading import (
@@ -17,6 +19,7 @@ from rots_harness.stat_reading import (
     ANGER_AFFECT_PATTERN,
     CONSTITUTION_PATTERN,
     HIT_POINTS_BEFORE_GAIN_PATTERN,
+    NO_SUCH_MOB_REPLY,
 )
 from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset
@@ -35,8 +38,6 @@ INN_NAME = "Warband Inn"
 YARD_NAME = "Warband Yard"
 # The track's name, as above.
 TRACK_NAME = "Warband Track"
-# The harness innkeeper (mob/11.mob), bound to the receptionist special by its vnum.
-INNKEEPER_VNUM = 1105
 
 # A level-48 orc warrior in the yard. Hunger and thirst are off so the advanced hours send no
 # hunger lines.
@@ -157,8 +158,8 @@ ASSISTS_FORMAT = "{} assists you!"
 ATTACKS_DUMMY_FORMAT = "{} attacks a practice dummy!"
 # What the leader reads as it strikes the dummy (do_hit).
 LEADER_ATTACKS_MARKER = "You attack a practice dummy!"
-# What the room reads as the dummy dies (damage, fight.cpp).
-DUMMY_DEAD_MARKER = "A practice dummy is dead!  R.I.P."
+# What the room reads as the dummy dies.
+DUMMY_DEAD_MARKER = IS_DEAD_FORMAT.format("A practice dummy")
 # What the leader reads as it wears the armband (wear_message, act_obj2.cpp).
 ARMBAND_WORN_MARKER = "You wear a red armband on your arms."
 # The end of a successful order (do_order, act_offe.cpp).
@@ -234,8 +235,6 @@ WEAPON_DAMAGE_PATTERN = re.compile(r"Damage: (-?\d+)/10")
 NATURAL_ATTACK_PATTERN = re.compile(r"^\s*natural attacks\s", re.MULTILINE)
 # The `practice` line of find weakness (SKILL_EXTRA_DAMAGE).
 FIND_WEAKNESS_PATTERN = re.compile(r"^\s*find weakness\s", re.MULTILINE)
-# What `stat mob` answers when no mob matches (do_wizstat, act_wiz.cpp).
-NO_SUCH_MOB_MARKER = "No such mobile around."
 
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
@@ -558,7 +557,7 @@ def fight(implementor: GameSession, leader: GameSession) -> None:
     assert not any(missed in assisted for missed in MISSED_BLOW_MARKERS), assisted
     assert "assists you!" not in after_death, assisted
     gone = implementor_reply(implementor, "stat mob dummy")
-    assert NO_SUCH_MOB_MARKER in gone, gone
+    assert NO_SUCH_MOB_REPLY in gone, gone
 
 
 def check_anger_and_wait_it_out(server, implementor: GameSession, leader: GameSession) -> None:
@@ -576,7 +575,7 @@ def check_anger_and_wait_it_out(server, implementor: GameSession, leader: GameSe
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, LEADER)
-@pytest.mark.world_resets(MobReset(INNKEEPER_VNUM, ROOM_INN))
+@pytest.mark.world_resets(MobReset(world.MOB_INNKEEPER, ROOM_INN))
 def test_a_mounted_geared_warband_comes_back_through_rent_a_fight_and_a_service_stop(server) -> None:
     """Pins that an orc leader's followers come back as they left, through three rents and a
     service stop.

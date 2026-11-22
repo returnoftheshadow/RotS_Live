@@ -8,9 +8,9 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import STOP_USING_FORMAT
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
-from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
 from test_resistances import (
     ALREADY_PROTECTED_MARKER,
     FLAG_RESIST_ITEM_KEYWORD,
@@ -22,6 +22,7 @@ from test_resistances import (
     RESIST_LEVEL_CAP,
     WEARER,
     affections,
+    cleric_level,
     resistance_line,
 )
 
@@ -61,35 +62,23 @@ NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # What the protected character, or the wearer of a resist item, reads (spell_protection and
 # do_resist_spell, mystic.cpp).
 FIRE_RESISTANT_MARKER = "You feel resistant to fire!"
-# What the wearer reads on taking an item off (perform_remove, act_obj2.cpp); format with the
-# item's short description.
-STOP_USING_MARKER_FORMAT = "You stop using {}."
 # What the implementor reads when wizset sets the level (do_wizset, act_wiz.cpp); format with
 # the name and the level.
 LEVEL_SET_MARKER_FORMAT = "{}'s level set to {}."
 # Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
 # spells.h); 15 leaves room for a loaded host or emulated i386.
 CAST_TIMEOUT = 15.0
-# The room every character in this file starts in, as look names it.
-ARENA_CENTRE_NAME = "Arena Centre"
 
 
 def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyword: str) -> None:
     """Moves the implementor to the recipient in the arena centre and gives it a new item."""
     arrived = implementor.command(f"goto {recipient.name.lower()}")
-    assert arrived.room_name() == ARENA_CENTRE_NAME, arrived.text
+    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
     loaded = implementor.command(f"load obj {vnum}")
     assert loaded.contains("You create"), loaded.text
     given = implementor.command(f"give {keyword} {recipient.name.lower()}")
     assert given.contains("You give"), given.text
 
-
-def cleric_level(implementor: GameSession, character: Character) -> int:
-    """The mystic profession level stat shows for the character."""
-    text = read_stat(implementor, f"player {character.name.lower()}")
-    match = CLERIC_LEVEL_PATTERN.search(text)
-    assert match is not None, f"no class levels line for {character.name}:\n{text}"
-    return int(match.group(1))
 
 
 def cast_protection_fire(caster: GameSession) -> str:
@@ -134,7 +123,7 @@ def test_removing_a_level_strength_item_after_a_level_change_leaves_no_resistanc
     assert raised.contains(LEVEL_SET_MARKER_FORMAT.format(WEARER.name, RAISED_LEVEL)), raised.text
 
     removed = wearer.command(f"remove {LEVEL_ITEM_KEYWORD}")
-    assert removed.contains(STOP_USING_MARKER_FORMAT.format(LEVEL_ITEM_SHORT)), removed.text
+    assert removed.contains(STOP_USING_FORMAT.format(LEVEL_ITEM_SHORT)), removed.text
     shown = affections(wearer)
     assert NOT_AFFECTED_MARKER in shown, shown
 

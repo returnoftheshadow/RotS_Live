@@ -14,6 +14,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
+from rots_harness.game_text import QUIT_DROP_REPLY
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
@@ -73,8 +74,6 @@ GOODBYE_MARKER = "Goodbye."
 INVALID_CREDENTIALS_MARKER = "Invalid account credentials."
 # The line every account menu opens with (show_account_menu, interpre.cpp).
 ACCOUNT_MENU_HEADER = f"Account: {HARNESS_EMAIL}"
-# What a mortal reads when it quits to the character menu (do_quit, act_othe.cpp).
-MORTAL_QUIT_MARKER = "As you quit, all your posessions drop to the ground!"
 # The reset menu shown instead of the password prompt after the last wrong password
 # (show_account_reset_menu, interpre.cpp).
 RESET_MENU_LINES = (
@@ -375,7 +374,7 @@ def test_a_character_quits_back_through_both_menus_and_logs_out(server) -> None:
     with playing_connection(server, LEAVER) as connection:
         connection.send_line("quit")
         quit_reply = connection.expect([CHARACTER_MENU_PROMPT, ACCOUNT_MENU_PROMPT])
-        assert MORTAL_QUIT_MARKER in quit_reply and CHARACTER_MENU_PROMPT in quit_reply, quit_reply
+        assert QUIT_DROP_REPLY in quit_reply and CHARACTER_MENU_PROMPT in quit_reply, quit_reply
         connection.send_line(CHARACTER_MENU_BACK)
         account_menu = connection.expect([ACCOUNT_MENU_PROMPT, CHARACTER_MENU_PROMPT])
         assert ACCOUNT_MENU_HEADER in account_menu and ACCOUNT_MENU_PROMPT in account_menu, account_menu

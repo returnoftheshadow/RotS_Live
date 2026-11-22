@@ -34,7 +34,7 @@ true in all of them but none is ever sunlit.
 | 1138 | Gallows Approach | `world.ROOM_GALLOWS_APPROACH` | its one exit leads east into the Gallows Pit |
 | 1151 | Retirement Home | | |
 | 1152 | Lost and Found | | where a character with a bad load room arrives |
-| 1160 | Human Start | | |
+| 1160 | Human Start | `world.ROOM_HUMAN_START` | where a dead human mortal wakes |
 | 1170 | Wood-elf Start | | |
 | 1180 | Signpost Room | `world.ROOM_SIGNPOST` | two extra descriptions, below |
 | 1184 | Beorning Start | | |

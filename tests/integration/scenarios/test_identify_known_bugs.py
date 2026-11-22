@@ -5,18 +5,20 @@ from __future__ import annotations
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_identify import ATTRIBUTES_HEADER, MAGE
 
 pytestmark = [pytest.mark.scenario, pytest.mark.identify]
 
-# The relic (tests/integration/world/obj/16.obj): wear flags TAKE and THROW (bit 15), and every
-# extra flag from bit 0 to 28 but 5 (INVISIBLE), 7 (NODROP) and 13 (the retired !DONATE). Its
-# WILLPOWER (bit 15) is gone by the time the mage holds it: the give clears it (obj_from_char,
-# handler.cpp), which test_object_versions_known_bugs.py pins. NOINVIS (bit 14) stays.
-RELIC_VNUM = 1609
+# The keyword and short description of the strange relic (world.OBJECT_STRANGE_RELIC): wear
+# flags TAKE and THROW (bit 15), and every extra flag from bit 0 to 28 but 5 (INVISIBLE), 7
+# (NODROP) and 13 (the retired !DONATE). Its WILLPOWER (bit 15) is gone by the time the mage
+# holds it: the give clears it (obj_from_char, handler.cpp), which
+# test_object_versions_known_bugs.py pins. NOINVIS (bit 14) stays.
 RELIC_KEYWORD = "relic"
 RELIC_SHORT_DESCRIPTION = "a strange relic"
 
@@ -30,10 +32,6 @@ IDENTIFIED_MARKER = f"You feel certain the object you have is {RELIC_SHORT_DESCR
 LOST_CONCENTRATION_MARKER = "You lost your concentration!"
 # What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
 NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
-# What the caster reads when it does not carry the target (report_wrong_target, interpre.cpp).
-NO_TARGET_MARKER = "You don't have that."
-# What the caster reads when it does not know the spell (can_cast_spell).
-UNKNOWN_SPELL_MARKER = "You don't know this spell."
 # The start of identify's wear sentence for an object of type other (do_identify_object,
 # item_messages[12], act_info.cpp).
 WEAR_SENTENCE_START = "This item can be"
@@ -57,12 +55,12 @@ def identify_relic(server) -> list:
     implementor = server.login(IMPLEMENTOR.name)
     mage: GameSession = server.login(MAGE.name)
     mage_keyword = MAGE.name.lower()
-    created = implementor.command(f"load obj {RELIC_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_STRANGE_RELIC}")
     assert created.contains(CREATED_MARKER), created.text
     given = implementor.command(f"give {RELIC_KEYWORD} {mage_keyword}")
     assert given.contains(GIVEN_MARKER), given.text
 
-    outcomes = [IDENTIFIED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, NO_TARGET_MARKER, UNKNOWN_SPELL_MARKER]
+    outcomes = [IDENTIFIED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
     while True:
         reply = reply_to(mage, f"cast 'identify' {RELIC_KEYWORD}", outcomes, timeout=CAST_TIMEOUT)
         if LOST_CONCENTRATION_MARKER not in reply:

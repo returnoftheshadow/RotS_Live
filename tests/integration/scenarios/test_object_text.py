@@ -8,6 +8,7 @@ import dataclasses
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, StoredValues
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -25,14 +26,13 @@ DUMMY_YARD_NAME = "Dummy Yard"
 DUMMY_VNUM = 2404
 DUMMY_KEYWORD = "dummy"
 DUMMY_CREATED = "You create a practice dummy."
-# The plain steel sword (obj/11.obj): a slashing weapon (value[3] 3), which behead needs.
-SWORD_VNUM = 1140
+# The keyword of the plain steel sword (world.OBJECT_PLAIN_STEEL_SWORD), a slashing weapon, which
+# behead needs.
 SWORD_KEYWORD = "sword"
-# The flask (obj/24.obj, an empty drink container holding 20) and the cask of ale (a fountain of
-# 1000 drinks of ale, liquid 3, placed on the yard's floor), with the cask's vnum as stat room
-# shows it. The cask's keywords are "cask oak", so "ale" on the floor finds nothing: do_drink
-# looks on the floor when the inventory has no match.
-FLASK_VNUM = 2400
+# The flask (world.OBJECT_FLASK, an empty drink container holding 20) and the cask of ale (a
+# fountain of 1000 drinks of ale, liquid 3, placed on the yard's floor), with the cask's vnum as
+# stat room shows it. The cask's keywords are "cask oak", so "ale" on the floor finds nothing:
+# do_drink looks on the floor when the inventory has no match.
 CASK_VNUM = 2401
 CASK_SHORT = "a cask of ale"
 
@@ -119,7 +119,7 @@ def test_a_slain_mobs_corpse_and_its_head_read_as_before(server) -> None:
     assert CORPSE_LINE in floor_lines(implementor)
     unarmed = implementor.command("behead corpse").text
     assert NEED_WEAPON in stripped_lines(unarmed), unarmed
-    assert implementor.command(f"load obj {SWORD_VNUM}").contains("You create")
+    assert implementor.command(f"load obj {world.OBJECT_PLAIN_STEEL_SWORD}").contains("You create")
     assert implementor.command(f"wield {SWORD_KEYWORD}").contains("You wield")
     beheaded = implementor.command("behead corpse").text
     assert BEHEADED_MARKER in stripped_lines(beheaded), beheaded
@@ -164,7 +164,7 @@ def test_a_filled_flask_answers_to_its_liquid_and_its_twin_does_not(server) -> N
     implementor = server.login(SOBER_IMPLEMENTOR.name)
     go_to_yard(implementor)
     for _flask in range(2):
-        assert implementor.command(f"load obj {FLASK_VNUM}").contains("You create a flask.")
+        assert implementor.command(f"load obj {world.OBJECT_FLASK}").contains("You create a flask.")
 
     poured = implementor.command("pour cask flask").text
     assert POURED in stripped_lines(poured), poured

@@ -497,7 +497,7 @@ online unless the account owns a character above level 91, so a test that logs i
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
 
 `command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
-print mid-reply. Three shared modules hold the helpers scenarios use instead of writing their own:
+print mid-reply. Four shared modules hold the helpers and text scenarios use instead of writing their own:
 
 - `rots_harness/replies.py`: `reply_to(session, line, outcomes)` sends a line and returns what
   came back up to the first outcome, plus a settle (`SETTLE_SECONDS`, 1.0; pass `settle=` and
@@ -509,9 +509,13 @@ print mid-reply. Three shared modules hold the helpers scenarios use instead of 
 - `rots_harness/stat_reading.py`: `read_stat(implementor, "player testsaint")` sends `stat` and
   reads to the character stat's last line (`CHARACTER_STAT_LAST_LINE`); pass
   `last_line=OBJECT_STAT_LAST_LINE` for `stat obj` or `stat room`, `other_outcomes=` for a
-  refusal such as "No such mobile around." and `settle=` as for `reply_to`. It also holds the
+  refusal such as `NO_SUCH_MOB_REPLY` and `settle=` as for `reply_to`. It also holds the
   stat-line patterns two or more scenario files read, such as `HIT_POINTS_PATTERN`,
   `CONSTITUTION_PATTERN` and `LEVEL_PATTERN`, for `first_number`.
+- `rots_harness/game_text.py`: fixed game text that two or more scenario files assert and no
+  shared helper waits for, such as `FORCED_REPLY`, `POISON_TICK` and `DEATH_CRY_FORMAT` (fill a
+  `*_FORMAT` with `str.format`). A text one file asserts stays in that file, as does one another
+  function prints in the same words.
 
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and
@@ -532,7 +536,8 @@ The test world's fixtures are listed by `make world-catalogue PYTHON=.venv/bin/p
 (`ZONE=<n>` for one zone, `CATEGORY=rooms` for one table), and explained in one notes file per
 zone, `world/notes/zone-<n>.md`. A new scenario area adds its own zone (its world files, vnums,
 map square and notes file), its own group file, and keeps its room constants in its scenario
-file; `rots_harness/world.py` holds only the rooms two or more scenario files share. `make
+file; `rots_harness/world.py` holds only the rooms, objects, mobs and room names that two or
+more scenario files name (`ROOM_*`, `OBJECT_*`, `MOB_*`, `ROOM_*_NAME`). `make
 integration-unit` checks the world's files (`unit/test_world_files.py`): index order, ascending
 vnums, zone ranges and map squares, notes files and leftover conflict markers.
 

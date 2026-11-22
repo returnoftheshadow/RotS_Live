@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.session import GameSession
 
@@ -35,14 +36,10 @@ MORTAL = Character(
     class_name="warrior",
 )
 
-# Test-world objects: keyring fixtures in obj/19.obj, bag and bread in obj/11.obj, and the
-# innkeeper in mob/11.mob.
+# The keyring fixtures of the test world, in obj/19.obj.
 KEY_VNUM = 1900  # an iron harness key; opens the Key Hall door
 KEYRING_VNUM = 1901  # a brass keyring (ITEM_KEYRING), wearable on a belt hook or held
 BELT_VNUM = 1902  # a leather belt, worn about the waist; gives the belt hooks
-BAG_VNUM = 1136  # a leather bag, a plain container
-BREAD_VNUM = 1139  # tainted bread, something that is not a key
-INNKEEPER_VNUM = 1105  # the receptionist special is bound to mob 1105 (spec_ass.cpp)
 
 KEY = "an iron harness key"
 KEYRING = "a brass keyring"
@@ -106,7 +103,7 @@ def test_a_key_on_a_belt_keyring_unlocks_and_locks_a_door_but_one_in_a_bag_does_
     mortal = server.login(MORTAL.name)
     hand_over(
         implementor,
-        (BELT_VNUM, KEYRING_VNUM, BAG_VNUM, KEY_VNUM),
+        (BELT_VNUM, KEYRING_VNUM, world.OBJECT_LEATHER_BAG, KEY_VNUM),
         ("belt", "keyring", "bag", "key"),
     )
     wear_belt_keyring(mortal)
@@ -148,7 +145,7 @@ def test_a_key_on_a_held_keyring_unlocks_a_door(server) -> None:
 def test_only_keys_go_on_a_keyring(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (KEYRING_VNUM, BREAD_VNUM), ("keyring", "bread"))
+    hand_over(implementor, (KEYRING_VNUM, world.OBJECT_TAINTED_BREAD), ("keyring", "bread"))
 
     refused = mortal.command("put bread keyring")
     assert refused.contains("Only keys can go on a keyring."), refused.text
@@ -180,7 +177,7 @@ def test_put_does_not_reach_a_held_bag(server) -> None:
     eating triggers by holding it. Only belt-worn keyrings got the new worn lookup."""
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    hand_over(implementor, (BAG_VNUM, KEY_VNUM), ("bag", "key"))
+    hand_over(implementor, (world.OBJECT_LEATHER_BAG, KEY_VNUM), ("bag", "key"))
 
     held = mortal.command("hold bag")
     assert held.contains(BAG), held.text
@@ -199,7 +196,7 @@ def test_rent_is_refused_while_a_key_is_on_a_belt_keyring(server) -> None:
     wear_belt_keyring(mortal)
     put = mortal.command("put key keyr")
     assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
-    assert implementor.command(f"load mob {INNKEEPER_VNUM}").contains("You create"), "no innkeeper"
+    assert implementor.command(f"load mob {world.MOB_INNKEEPER}").contains("You create"), "no innkeeper"
 
     # Both outcomes are listed, so a rent that goes through fails on the assertion at once
     # (gen_receptionist, objsave.cpp) instead of waiting for a prompt the menu never sends.

@@ -8,11 +8,11 @@ import re
 
 import pytest
 
+from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from test_help_and_stat import (
-    CHAIN_SHIRT_VNUM,
     CHAT_OFF_REPLY,
     COLOURS_LIST_HEADER,
     COLOURS_OFF_REPLY,
@@ -20,6 +20,7 @@ from test_help_and_stat import (
     INFO_ABSORB_PATTERN,
     MAIL_NO_ADDRESSEE_REPLY,
     MAIL_NO_SUCH_PERSON_REPLY,
+    OBJECT_AFFECT_LINE_PATTERN,
     PLAYER,
     URUK_HAI_KEYWORD_LINE,
     URUK_LHUTH_KEYWORD_LINE,
@@ -52,13 +53,9 @@ BOARD_TOKEN_VNUM = 1130
 # What do_color answers once it sets the mob slot to red (color.cpp).
 MOB_SLOT_SET_REPLY = "You colour mob red."
 
-# The test world's stone girdle (object 1185), with one affect of +3 on location 6, APPLY_LEA.
-GIRDLE_VNUM = 1185
-OBJECT_AFFECT_LINE_PATTERN = re.compile(r"Affections:([^\r\n]*)")
-# The label apply_types (consts.cpp) gives location 6 today.
+# The label apply_types (consts.cpp) gives location 6 today, where the stone girdle
+# (world.OBJECT_STONE_GIRDLE) has its one affect, +3 APPLY_LEA.
 STALE_LEARNING_LABEL = "SEX"
-# The name of the player's room, world.ROOM_ARENA_CENTRE, as goto shows it.
-ARENA_CENTRE_NAME = "Arena Centre"
 
 
 def incognito_display(session: GameSession) -> str:
@@ -72,7 +69,7 @@ def incognito_display(session: GameSession) -> str:
 def join_player(implementor: GameSession) -> None:
     """The implementor goes to the player in the arena centre."""
     arrived = implementor.command(f"goto {PLAYER.name.lower()}")
-    assert arrived.room_name() == ARENA_CENTRE_NAME, arrived.text
+    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="help uruk should show the URUK-HAI URUK entry, whose keywords include URUK exactly")
@@ -202,7 +199,7 @@ def test_stat_obj_does_not_label_a_learning_affect_sex(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    created = implementor.command(f"load obj {GIRDLE_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_STONE_GIRDLE}")
     assert created.contains("You create a stone girdle."), created.text
     affect_line = OBJECT_AFFECT_LINE_PATTERN.search(read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE))
     assert affect_line is not None
@@ -221,7 +218,7 @@ def test_stat_shows_the_statted_characters_absorb(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
     join_player(implementor)
-    created = implementor.command(f"load obj {CHAIN_SHIRT_VNUM}")
+    created = implementor.command(f"load obj {world.OBJECT_CHAIN_SHIRT}")
     assert created.contains("You create a chain shirt."), created.text
     given = implementor.command(f"give shirt {PLAYER.name.lower()}")
     assert given.contains("You give a chain shirt to"), given.text
