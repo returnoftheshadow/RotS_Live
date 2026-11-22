@@ -32,6 +32,15 @@ CONCENTRATE_REPLY = "You start to concentrate."
 FIGHT_ONGOING_REPLY = "You do the best you can!"
 # What order answers when no follower in the room obeys (do_order, act_offe.cpp).
 NOBODY_WILLING_REPLY = "Nobody here is willing to carry out your orders!"
+# What order answers once at least one follower took the order, after the ordered commands have
+# run (do_order, act_offe.cpp).
+ORDER_DONE_REPLY = "Ok."
+# What purge answers once it has destroyed the named mob or object (do_purge, act_wiz.cpp).
+PURGED_REPLY = "Ok."
+# What sit answers a standing character (do_sit, act_move.cpp).
+SIT_DOWN_REPLY = "You sit down."
+# What stand answers a sitting character (do_stand, act_move.cpp).
+STAND_UP_REPLY = "You stand up."
 # What eating poisoned food answers (do_eat, act_obj2.cpp).
 EATEN_POISON_REPLY = "Oops, that tasted rather strange!"
 # What drinking from an empty drink container answers (do_drink, act_obj2.cpp).
@@ -85,8 +94,17 @@ STOP_USING_FORMAT = "You stop using {}."
 # What the wearer reads as it puts an item on its head (wear_message, act_obj2.cpp); format with
 # the item's short description.
 WEAR_HEAD_FORMAT = "You wear {} on your head."
+# What the wearer reads as it puts an item around its waist (wear_message, act_obj2.cpp); format
+# with the item's short description.
+WEAR_WAIST_FORMAT = "You wear {} around your waist."
 # What drop answers (perform_drop, act_obj1.cpp); format with the object's short description.
 DROP_FORMAT = "You drop {}."
+# What get answers for an object on the floor (perform_get_from_room, act_obj1.cpp); format with
+# the object's short description.
+GET_FORMAT = "You get {}."
+# The start of what get answers for an object in a container (perform_get_from_container,
+# act_obj1.cpp), before the container; format with the object's short description.
+GET_FROM_START_FORMAT = "You get {} from"
 # What put answers for a container that is not a keyring (perform_put, act_obj1.cpp); format with
 # the object's and the container's short descriptions.
 PUT_FORMAT = "You put {} in {}."

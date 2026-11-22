@@ -13,6 +13,7 @@ from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.shaping import (
     COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_COMMAND_PART,
     EDITOR_SETTLE_SECONDS,
     ORDERED_SCRIPT,
     SCRIPT_FILE_RELATIVE,
@@ -110,7 +111,7 @@ def test_swapped_rows_are_renumbered_and_saved_in_their_new_order(server) -> Non
     switch_outcomes = [ROWS_SWITCHED_START, prompt(ORDERED_SCRIPT)]
     switched = reply_to(implementor, "/13", switch_outcomes, settle=EDITOR_SETTLE_SECONDS)
     listing = reply_to(implementor, "/50", [WHOLE_LIST_FOOTER], settle=EDITOR_SETTLE_SECONDS)
-    reply_to(implementor, "/save", ["shapeless indefinity"], settle=EDITOR_SETTLE_SECONDS)
+    reply_to(implementor, "/save", [EDITOR_COMMAND_PART], settle=EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once /51 answers, /save has finished writing.
     reply_to(implementor, "/51", [f"Script #{ORDERED_SCRIPT}:"], settle=EDITOR_SETTLE_SECONDS)
     release_editor(implementor, SCRIPT_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)

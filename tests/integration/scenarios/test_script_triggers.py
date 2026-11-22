@@ -37,7 +37,9 @@ from rots_harness.game_text import (
     DRINK_EMPTY_REPLY,
     FOLLOWED_FORMAT,
     FOLLOWER_ACK,
+    GET_FORMAT,
     NOW_FOLLOWING_FORMAT,
+    PURGED_REPLY,
     WEAR_HEAD_FORMAT,
 )
 from rots_harness.immortal_commands import give_new_object, goto
@@ -211,8 +213,6 @@ PULL_FORMAT = "You pull at {}."
 HATCH_OPENS = "The hatch opens slowly."
 # What a walker reads at the closed hatch (do_move, act_move.cpp).
 HATCH_CLOSED_REPLY = "The hatch seems to be closed."
-# What get answers (do_get, act_obj1.cpp); format with the object's short description.
-GET_FORMAT = "You get {}."
 # What the eater reads as it eats (do_eat, act_obj2.cpp); format with the food.
 EAT_FORMAT = "You eat {}."
 # What do_eat says when the eater has no such food.
@@ -223,8 +223,6 @@ DRINK_WATER_REPLY = "You drink the water."
 MOUNTED_START = "You mount a harness mule and start riding "
 # What do_ride says to someone already riding.
 ALREADY_RIDING_REPLY = "You are riding already."
-# What purge answers (do_purge, act_wiz.cpp).
-PURGED_REPLY = "Ok."
 # The part of a corpse's line in a room's look.
 CORPSE_OF_PART = "corpse of"
 # What the leader reads then; format with the follower, whose pronoun ends it.

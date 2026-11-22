@@ -18,6 +18,7 @@ from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.shaping import (
     COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_COMMAND_PART,
     EDITOR_SETTLE_SECONDS,
     SECTION_COMMENT_PROMPT_START,
     SECTION_TITLE_PROMPT_START,
@@ -432,7 +433,7 @@ def test_saving_a_zone_writes_its_section_row_to_the_zone_file(server) -> None:
 
     open_zone_editor(implementor)
     add_section_row(implementor)
-    save_reply = reply_to(implementor, "/save", ["shapeless indefinity"], settle=EDITOR_SETTLE_SECONDS)
+    save_reply = reply_to(implementor, "/save", [EDITOR_COMMAND_PART], settle=EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once /1 answers, /save has finished writing.
     synced = reply_to(implementor, "/1", ["Curr:"], settle=EDITOR_SETTLE_SECONDS)
     release_editor(implementor, ZONE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)

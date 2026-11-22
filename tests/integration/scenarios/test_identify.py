@@ -45,8 +45,6 @@ SWORD_KEYWORD = "sword"
 # The keyword of the tainted bread (world.OBJECT_TAINTED_BREAD), food that fills 2 and is
 # poisoned.
 BREAD_KEYWORD = "bread"
-# The tainted bread's short description.
-BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
 # The keyword of the sickly amulet (world.OBJECT_SICKLY_AMULET), the one object with an affect.
 AMULET_KEYWORD = "amulet"
 
@@ -183,7 +181,9 @@ def test_identify_starts_the_food_sentence_with_a_capital(server) -> None:
     The one draw that can stop the cast is the concentration roll in do_cast, which
     cast_identify repeats; the affect-hours schedule keeps everything else from drawing.
     """
-    reply = identify_new_object(server, world.OBJECT_TAINTED_BREAD, BREAD_KEYWORD, BREAD_SHORT_DESCRIPTION)
+    reply = identify_new_object(
+        server, world.OBJECT_TAINTED_BREAD, BREAD_KEYWORD, world.OBJECT_TAINTED_BREAD_SHORT_DESCRIPTION
+    )
     reply_lines = reply.splitlines()
     lines = [line.strip() for line in reply_lines]
     assert FOOD_SENTENCE_LINES[0] in lines, reply

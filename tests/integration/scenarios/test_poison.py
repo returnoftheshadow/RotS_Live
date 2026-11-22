@@ -306,7 +306,7 @@ def test_a_poisoned_amulet_taken_off_with_the_last_hit_points_kills_its_wearer_w
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_a_mob_made_to_put_on_a_poisoned_amulet_with_the_last_hit_points_dies_once(server) -> None:
-    """Fix pin (#539, #547): a mob the amulet kills as it goes on dies once, and its corpse holds it.
+    """Fix pin (#539, #547): a mob the amulet kills as it goes on dies once and its corpse holds it.
 
     The porter, forced to wear the amulet at exactly its blow, is stunned at 0 hit points and the
     collapse kills it (deal_gear_poison_blow, handler.cpp; raw_kill frees a mob). The one corpse
@@ -317,13 +317,13 @@ def test_a_mob_made_to_put_on_a_poisoned_amulet_with_the_last_hit_points_dies_on
     """
     implementor = server.login(IMPLEMENTOR.name)
     goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME, exact=False)
-    load_mob(implementor, world.MOB_PORTER, "a porter")
+    load_mob(implementor, world.MOB_PORTER, world.MOB_PORTER_SHORT_DESCRIPTION)
     give_new_object(
         implementor,
         world.OBJECT_SICKLY_AMULET,
         "amulet",
         "porter",
-        shown_recipient="a porter",
+        shown_recipient=world.MOB_PORTER_SHORT_DESCRIPTION,
         short_description=world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION,
     )
     wizset(implementor, "mob porter", "hit", GEAR_POISON_BLOW)

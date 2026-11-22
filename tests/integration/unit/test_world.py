@@ -16,6 +16,7 @@ from rots_harness.world_files import indexed_files
 
 # Each object constant and the short description its fixture holds.
 OBJECT_SHORT_DESCRIPTIONS = [
+    (world.OBJECT_HARNESS_TOKEN, "a harness token"),
     (world.OBJECT_LEATHER_BAG, "a leather bag"),
     (world.OBJECT_LEATHER_CAP, "a leather cap"),
     (world.OBJECT_SICKLY_AMULET, "a sickly amulet"),

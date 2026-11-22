@@ -71,6 +71,9 @@ ROOM_IMPLEMENTED_REPLY = "Room implemented."
 # What the zone editor's /implement prints when every command loads (implement_zone,
 # shapezon.cpp).
 ZONE_IMPLEMENTED_REPLY = "The zone was implemented."
+# The middle of the line every editor command but a field number prints first (the extra_coms_*
+# functions of shape*.cpp).
+EDITOR_COMMAND_PART = "shapeless indefinity"
 
 # The start of the first prompt that follows a new SECTION row in the zone and script editors
 # (shape_section_prompt, shapemob.cpp).

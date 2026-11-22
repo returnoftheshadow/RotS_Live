@@ -20,6 +20,7 @@ from rots_harness.game_text import (
     NOBODY_WILLING_REPLY,
     NOTHING_FOUND_REPLY,
     NOW_FOLLOWS_FORMAT,
+    ORDER_DONE_REPLY,
     RENTED_REPLY,
 )
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object
@@ -181,8 +182,6 @@ DUMMY_IS_DEAD = IS_DEAD_FORMAT.format("A practice dummy")
 ARMBAND_WORN_REPLY = "You wear a red armband on your arms."
 # The start of what wear answers when the leader carries no armband (do_wear, act_obj2.cpp).
 NO_ARMBAND_START = "You don't seem to have"
-# The end of a successful order (do_order, act_offe.cpp).
-ORDER_DONE_REPLY = "Ok."
 # do_order's refusals.
 ORDER_REFUSALS = [
     "Order who to do what?",

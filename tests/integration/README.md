@@ -485,7 +485,8 @@ MAGE = custom_mage(level=30, load_room=world.ROOM_ARENA_CENTRE)
 def test_the_mage_starts_in_the_arena(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mage = server.login(MAGE.name)
-    assert mage.command("look").room_name() == "Arena Centre"
+    looked = mage.command("look")
+    assert looked.room_name() == world.ROOM_ARENA_CENTRE_NAME, looked.text
 ```
 
 All of a test's characters belong to one harness account, listed in marker order.
@@ -497,55 +498,38 @@ online unless the account owns a character above level 91, so a test that logs i
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
 
 `command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
-print mid-reply. These shared modules hold the helpers and text scenarios use instead of writing their own:
+print mid-reply. Shared modules in `rots_harness/` hold the helpers and fixed texts scenarios use
+instead of writing their own, among them:
 
-- `rots_harness/replies.py`: `reply_to(session, line, outcomes)` sends a line and returns what
-  came back up to the first outcome, plus a settle (`SETTLE_SECONDS`, 1.0; pass `settle=` and
-  `timeout=` when the file uses others); `text_seen_before_a_say` reads what an observer saw.
-- `rots_harness/text_lines.py`: `raw_lines` (blank lines kept) and `stripped_lines` (dropped),
-  `lines_after` a header, `reply_text` and `assert_lines` for a `Transcript`,
-  `assert_in_order`, `first_number` for a pattern's group and `capitalised` as `act()` starts a
-  line.
-- `rots_harness/stat_reading.py`: `read_stat(implementor, "player testsaint")` sends `stat` and
-  reads to the character stat's last line (`CHARACTER_STAT_LAST_LINE`); pass
-  `last_line=OBJECT_STAT_LAST_LINE` for `stat obj` or `stat room`, `other_outcomes=` for a
-  refusal such as `NO_SUCH_MOB_REPLY` and `settle=` as for `reply_to`. It also holds the
-  stat-line patterns two or more scenario files read, such as `HIT_POINTS_PATTERN`,
-  `CONSTITUTION_PATTERN` and `LEVEL_PATTERN`, for `first_number`.
-- `rots_harness/game_text.py`: fixed game text that two or more scenario files assert and no
-  shared helper waits for, such as `FORCED_REPLY`, `POISON_TICK` and `DEATH_CRY_FORMAT` (fill a
-  `*_FORMAT` with `str.format`). A text one file asserts stays in that file, as does one another
-  function prints in the same words.
-- `rots_harness/immortal_commands.py`: an implementor's set-up commands, each checked against
-  its reply: `goto(implementor, room_vnum, "Arena Centre")` (`exact=False` for a substring),
-  `load_object` and `load_mob` (pass the short description to check `CREATED_FORMAT` in full),
-  `give_new_object(implementor, vnum, keyword, recipient_keyword)` (`shown_recipient=` and
-  `short_description=` make the give check stronger), `wizset(implementor, "player testpupil",
-  "lea", 40, shown_name="Testpupil")`, `where_lines`, `set_syslog` and `set_holylight`. Each
-  asserts only what its docstring says; pass only the arguments for the check the test means.
-- `rots_harness/game_log.py`: reading game.log while the server runs, at `server.handle.log_path`:
-  `read_game_log`, `count_in_log`, `log_lines_holding`, `wait_for_log_count(log_path, line,
-  count)` for a line that may reach the log after the reply (`exact=True` also fails on more;
-  pass the file's own `timeout=` and `poll=`, and `describe=` for extra failure detail), and
-  `logged_messages` and `count_logged` for mudlog's messages.
-- `rots_harness/casting.py`: `cast_until_it_lands(caster, "cast 'identify' stone", outcomes)`
-  repeats a cast after `LOST_CONCENTRATION_REPLY` and returns the first other reply; list `NO_ENERGY_REPLY`
-  among the outcomes and check the returned text yourself. Pass `timeout=` when the spell takes
-  longer than `CAST_TIMEOUT_SECONDS` (15.0).
-- `rots_harness/accounts.py`: `account_connection(server.handle, server.run_dir, label)` and
-  `playing_connection(server.handle, server.run_dir, character)` open a connection the fixture
-  does not manage, closed when the `with` block ends; `closes_within(connection, seconds)`; and
-  the account-menu text several account files share, such as `NEW_CHARACTER_NAME_PROMPT`.
-- `rots_harness/saved_files.py`: what the server saved under the lib's accounts folder:
-  `stored_account(server.lib_dir)`, `account_file(server.lib_dir, character.name, "objects")`,
-  `saved_wear_positions` and the wear-position constants.
-- `rots_harness/shaping.py`: the shaping editors' prompts and release markers on the records two
-  or more shaping files open, such as `MOBILE_PROMPT` and `ZONE_RELEASED_REPLY`.
+- `replies.reply_to(session, line, outcomes)` for a reply read up to one of its outcomes;
+- `stat_reading.read_stat(implementor, "player testsaint")` and the stat-line patterns;
+- `immortal_commands.goto`, `load_object`, `give_new_object` and `wizset`, each checking its
+  reply as far as its keyword arguments ask;
+- `game_log.wait_for_log_count(server.handle.log_path, line, count)`;
+- `game_text` for the game's fixed messages and `world` for shared rooms, objects, mobs and
+  their names, such as `world.ROOM_ARENA_CENTRE_NAME`.
 
-`rots_harness.characters.immortal(name, level)` declares an immortal test character in the
-immortal start room. `server.relog(session)` quits a character and logs it in again, returning
-the new session, and `server.text_after_hours(session, hours, expected_marker)` advances game
-hours and returns what the session read, beside `server.advance_hours`.
+The skill's lookup table,
+[`.agents/skills/rots-integration-scenario/shared-helpers.md`](../../.agents/skills/rots-integration-scenario/shared-helpers.md),
+lists every shared helper and constant by what it is for, and the keyword arguments that choose
+how much each checks. `unit/test_scenario_shared_helpers.py` fails when a scenario file defines a
+function named like a shared helper, or a text or vnum equal to a shared constant.
+
+- **A second file moves it.** A helper or constant one scenario file uses stays in that file.
+  When a second scenario file needs it, it moves to the shared module whose docstring covers it
+  (shared-helpers.md, "Where a new shared name goes"), with a unit test, and both files import
+  it.
+- **A shared addition runs every group.** CI treats any edit under `rots_harness/` as a harness
+  change and runs every group, where an edit to one scenario file runs only its own groups, so
+  batch shared additions into one change.
+- **Known-bugs files import from their base file.** `test_<base>_known_bugs.py` imports what it
+  shares with `test_<base>.py` from that file, and imports `rots_harness` names from
+  `rots_harness`, never through the base file. A scenario file another one imports imports no
+  scenario file: CI follows importers one level only (`unit/test_ci_groups.py` checks it).
+- **Names follow one rule.** `*_FORMAT` for a format string, `*_REPLY` for a line answering the
+  reader's own command, `*_START`, `*_END` and `*_PART` for a fragment, `*_SECONDS` for a wait,
+  `*_SHORT_DESCRIPTION` and `ROOM_<X>_NAME` for names; any other fixed line is named for what it
+  is.
 
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and
@@ -566,8 +550,9 @@ The test world's fixtures are listed by `make world-catalogue PYTHON=.venv/bin/p
 (`ZONE=<n>` for one zone, `CATEGORY=rooms` for one table), and explained in one notes file per
 zone, `world/notes/zone-<n>.md`. A new scenario area adds its own zone (its world files, vnums,
 map square and notes file), its own group file, and keeps its room constants in its scenario
-file; `rots_harness/world.py` holds only the rooms, objects, mobs and room names that two or
-more scenario files name (`ROOM_*`, `OBJECT_*`, `MOB_*`, `ROOM_*_NAME`). `make
+file; `rots_harness/world.py` holds only the rooms, objects and mobs, and their names and short
+descriptions, that two or more scenario files name (`ROOM_*`, `OBJECT_*`, `MOB_*`,
+`ROOM_*_NAME`, `*_SHORT_DESCRIPTION`). `make
 integration-unit` checks the world's files (`unit/test_world_files.py`): index order, ascending
 vnums, zone ranges and map squares, notes files and leftover conflict markers.
 

@@ -3,8 +3,9 @@
 A fixture is here when two or more scenario files, or the harness itself, name it. The world is
 tests/integration/world.
 
-A room's name is ROOM_<X>_NAME, and an object's short description and keyword are
-OBJECT_<X>_SHORT_DESCRIPTION and OBJECT_<X>_KEYWORD, beside the vnum constant they belong to.
+A room's name is ROOM_<X>_NAME, a short description is OBJECT_<X>_SHORT_DESCRIPTION or
+MOB_<X>_SHORT_DESCRIPTION, and an object's keyword is OBJECT_<X>_KEYWORD, each beside the vnum
+constant it belongs to.
 """
 
 from __future__ import annotations
@@ -58,6 +59,11 @@ ROOM_TRADE_HALL_NAME = "Trade Hall"
 # The name look and goto show for ROOM_ORDER_HALL (wld/22.wld).
 ROOM_ORDER_HALL_NAME = "Order Hall"
 
+# Object 1130 in obj/11.obj, the harness token: a board, since spec_ass.cpp assigns gen_board to
+# its vnum. Mob 1130 and room 1130 share its number.
+OBJECT_HARNESS_TOKEN = 1130
+# OBJECT_HARNESS_TOKEN's short description.
+OBJECT_HARNESS_TOKEN_SHORT_DESCRIPTION = "a harness token"
 # Object 1136 in obj/11.obj, the leather bag: a plain container, with no wear slot and not
 # wieldable.
 OBJECT_LEATHER_BAG = 1136
@@ -75,6 +81,8 @@ OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION = "a sickly amulet"
 # Object 1139 in obj/11.obj, the tainted bread: food that fills 2 and poisons anyone below
 # immortal level who eats it.
 OBJECT_TAINTED_BREAD = 1139
+# OBJECT_TAINTED_BREAD's short description.
+OBJECT_TAINTED_BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
 # Object 1140 in obj/11.obj, the plain steel sword: a slashing weapon (value[3] 3) with no affects,
 # and the base of the test world's skin family.
 OBJECT_PLAIN_STEEL_SWORD = 1140
@@ -129,8 +137,12 @@ OBJECT_BRASS_KEYRING = 1901
 OBJECT_BRASS_KEYRING_SHORT_DESCRIPTION = "a brass keyring"
 # Object 1902 in obj/19.obj, the leather belt: worn about the waist, which gives the belt hooks.
 OBJECT_LEATHER_BELT = 1902
+# OBJECT_LEATHER_BELT's short description.
+OBJECT_LEATHER_BELT_SHORT_DESCRIPTION = "a leather belt"
 # Object 2100 in obj/21.obj, the draining grey sash: worn about the body, maximum hit points -72.
 OBJECT_GREY_SASH = 2100
+# OBJECT_GREY_SASH's short description.
+OBJECT_GREY_SASH_SHORT_DESCRIPTION = "a draining grey sash"
 # Object 2400 in obj/24.obj, the flask: an empty drink container holding 20.
 OBJECT_FLASK = 2400
 
@@ -140,6 +152,8 @@ MOB_INNKEEPER = 1105
 # Mob 1132 in mob/11.mob, the bystander orc: male, involved in nothing, with no maximum stamina
 # and 50 moves (its `0 0 50 1` line, load_mobiles in db.cpp).
 MOB_BYSTANDER_ORC = 1132
+# MOB_BYSTANDER_ORC's short description.
+MOB_BYSTANDER_ORC_SHORT_DESCRIPTION = "a bystander orc"
 # Mob 1170 in mob/11.mob, the shining angel: the resetter special (spec_ass.cpp), which resets a
 # player's practice when told "pracreset".
 MOB_SHINING_ANGEL = 1170
@@ -151,5 +165,9 @@ MOB_STRAW_SCARECROW = 1454
 MOB_MYSTERIOUS_TRAVELLER = 1503
 # Mob 1722 in mob/17.mob, the porter: no script and no special, for an implementor to force.
 MOB_PORTER = 1722
+# MOB_PORTER's short description.
+MOB_PORTER_SHORT_DESCRIPTION = "a porter"
 # Mob 2404 in mob/24.mob, the practice dummy: level 1, which a test slays or targets.
 MOB_PRACTICE_DUMMY = 2404
+# MOB_PRACTICE_DUMMY's short description.
+MOB_PRACTICE_DUMMY_SHORT_DESCRIPTION = "a practice dummy"

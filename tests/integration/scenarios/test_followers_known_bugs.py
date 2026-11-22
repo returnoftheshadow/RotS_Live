@@ -13,6 +13,7 @@ from rots_harness.characters import IMPLEMENTOR, immortal
 from rots_harness.game_text import (
     CORPSE_CONTENTS_HEADER,
     FORCED_REPLY,
+    GET_FROM_START_FORMAT,
     NEW_BODY_MESSAGE,
     PUT_FORMAT,
     TELEPORTED_END,
@@ -169,7 +170,7 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     assert world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION in corpse_contents, corpse
     assert world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION not in corpse_contents, corpse
     taken = implementor.command("get bag corpse")
-    assert taken.contains("You get a leather bag from"), taken.text
+    assert taken.contains(GET_FROM_START_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)), taken.text
     bag = implementor.command("look in bag").text
     assert lines_after(bag, BAG_CONTENTS_HEADER) == [world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION], bag
 

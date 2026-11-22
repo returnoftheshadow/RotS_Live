@@ -14,7 +14,7 @@ import pytest
 from rots_harness import world
 from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import CONCENTRATE_REPLY, QUIT_DROP_REPLY, TELEPORTED_END
+from rots_harness.game_text import CONCENTRATE_REPLY, QUIT_DROP_REPLY, TELEPORTED_END, WEAR_WAIST_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto, set_holylight
 from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
 from rots_harness.session import GameSession
@@ -108,8 +108,8 @@ LEFT_THE_WORLD_REPLY = "Your victim has left the world."
 STAY_ZONE_DROP_FORMAT = "You drop {}."
 # What the room left behind reads as the dwarf's stone drops (prohibit_item_stay_zone_move).
 DWARF_DROPS_STONE = f"{DISTANT_DWARF.name} drops {world.OBJECT_DWARVEN_STONE_SHORT_DESCRIPTION}."
-# What wearing the girdle answers (wear_message, act_obj2.cpp).
-GIRDLE_WORN_REPLY = f"You wear {world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION} around your waist."
+# What wearing the girdle answers.
+GIRDLE_WORN_REPLY = WEAR_WAIST_FORMAT.format(world.OBJECT_STONE_GIRDLE_SHORT_DESCRIPTION)
 # How look shows the girdle on the floor.
 GIRDLE_LIES_HERE = "A stone girdle lies here."
 # How look shows the stone on the floor.

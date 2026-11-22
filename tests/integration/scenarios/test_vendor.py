@@ -13,7 +13,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_log import log_lines_holding, read_game_log
-from rots_harness.game_text import FIGHT_ONGOING_REPLY, NOT_HERE_REPLY
+from rots_harness.game_text import FIGHT_ONGOING_REPLY, GET_FORMAT, NOT_HERE_REPLY
 from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.replies import text_seen_before_a_say
 from rots_harness.session import GameSession
@@ -255,7 +255,7 @@ def test_a_vendor_with_an_empty_store_has_nothing_to_sell(server) -> None:
     buyer = server.login(BUYER.name)
     goto(implementor, ROOM_STORE_ROOM, ROOM_STORE_ROOM_NAME)
     taken = implementor.command("get cap")
-    assert taken.contains(f"You get {world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION}."), taken.text
+    assert taken.contains(GET_FORMAT.format(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)), taken.text
 
     listed = buyer.command("list")
     assert listed.contains(NOTHING_TO_SELL_REPLY), listed.text

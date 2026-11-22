@@ -56,8 +56,6 @@ POISON_TICK_DAMAGE = 5
 
 # The straw scarecrow's short description (world.MOB_STRAW_SCARECROW).
 SCARECROW_SHORT_DESCRIPTION = "a straw scarecrow"
-# The draining grey sash's short description (world.OBJECT_GREY_SASH).
-SASH_SHORT_DESCRIPTION = "a draining grey sash"
 # What the saint reads as he holds the wand of sanctuary (wear_message, act_obj2.cpp).
 WAND_HELD_REPLY = "You grab an ivory wand of sanctuary."
 # What the room reads when the scarecrow eats the bread.
@@ -159,7 +157,7 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     assert ward.contains(SCARECROW_CORPSE), ward.text
     assert SCARECROW_STANDS_START not in ward.text, ward.text
     corpse = implementor.command("look in corpse")
-    assert corpse.contains(SASH_SHORT_DESCRIPTION), corpse.text
+    assert corpse.contains(world.OBJECT_GREY_SASH_SHORT_DESCRIPTION), corpse.text
 
     second_hour = server.text_after_hours(implementor)
     assert second_hour.count(TASTER_WRITHES) == 1, second_hour

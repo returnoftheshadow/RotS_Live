@@ -55,7 +55,7 @@ SEERS_ROOM_REPORT = [
     "east: to Store Cupboard (#2410)",
     "door 'hatch', key 'None'.",
     "Living beings in the room:",
-    f"a practice dummy, {SEER.name}.",
+    f"{world.MOB_PRACTICE_DUMMY_SHORT_DESCRIPTION}, {SEER.name}.",
     "Objects in the room:",
     "a flask.",
 ]

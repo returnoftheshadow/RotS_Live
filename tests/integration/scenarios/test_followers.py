@@ -24,6 +24,8 @@ from rots_harness.game_text import (
     NEW_BODY_MESSAGE,
     NOTHING_FOUND_REPLY,
     NOW_FOLLOWING_FORMAT,
+    SIT_DOWN_REPLY,
+    STAND_UP_REPLY,
 )
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, set_holylight, wizset
 from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
@@ -261,7 +263,7 @@ def test_a_sitting_follower_left_behind_gets_ack_lines_and_a_standing_one_follow
     follower = server.login(FOLLOWER.name)
     gather_in_arena_centre(leader, follower)
 
-    assert follower.command("sit").contains("You sit down."), follower.everything
+    assert follower.command("sit").contains(SIT_DOWN_REPLY), follower.everything
     left_behind, leader_text = walk_east(leader, follower)
     assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
     leader_ack = LEADER_ACK_FORMAT.format(FOLLOWER.name, "her")
@@ -272,7 +274,7 @@ def test_a_sitting_follower_left_behind_gets_ack_lines_and_a_standing_one_follow
     # Control: the leader comes back, the follower stands, and the same step east is taken.
     returned = leader.command("west")
     assert returned.room_name() == world.ROOM_ARENA_CENTRE_NAME, returned.text
-    assert follower.command("stand").contains("You stand up."), follower.everything
+    assert follower.command("stand").contains(STAND_UP_REPLY), follower.everything
     followed, leader_text = walk_east(leader, follower)
     assert FOLLOWED_FORMAT.format(LEADER.name) in followed, followed
     assert FOLLOWER_ACK not in followed, followed
@@ -344,7 +346,8 @@ def follow_the_bystander(implementor: GameSession, followers: Sequence[GameSessi
     assert arrived.room_name() is not None, arrived.text
     for follower in followers:
         following = follower.command("follow bystander")
-        assert following.contains(NOW_FOLLOWING_FORMAT.format("a bystander orc")), following.text
+        now_following = NOW_FOLLOWING_FORMAT.format(world.MOB_BYSTANDER_ORC_SHORT_DESCRIPTION)
+        assert following.contains(now_following), following.text
     implementor.drain(SETTLE_SECONDS)
 
 
@@ -422,7 +425,7 @@ def test_report_and_group_show_a_mob_with_no_stamina_or_moves(server) -> None:
     member = server.login(MEMBER.name)
     goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME)
 
-    load_mob(implementor, world.MOB_BYSTANDER_ORC, "a bystander orc")
+    load_mob(implementor, world.MOB_BYSTANDER_ORC, world.MOB_BYSTANDER_ORC_SHORT_DESCRIPTION)
     bystander_points = read_points(implementor, "bystander")
     assert bystander_points == (60, 60, 0, 0, 50, 50), bystander_points
     report = force(implementor, "bystander", "report")
@@ -504,7 +507,7 @@ def test_a_sitting_follower_the_leader_cannot_see_leaves_the_leader_no_ack_line(
     follower = server.login(FOLLOWER.name)
     gather_in_arena_centre(leader, follower)
     set_holylight(leader, "off")
-    assert follower.command("sit").contains("You sit down."), follower.everything
+    assert follower.command("sit").contains(SIT_DOWN_REPLY), follower.everything
 
     left_behind, leader_text = walk_east(leader, follower)
     assert left_behind.count(FOLLOWER_ACK) == 1, left_behind
@@ -546,7 +549,7 @@ def test_a_sitting_mob_follower_left_behind_gives_its_leader_an_ack_line(server)
     force(implementor, "bystander", f"follow {IMPLEMENTOR.name.lower()}")
     force(implementor, "bystander", "sit")
     implementor_text = walk_leader_east(implementor)
-    implementor_ack = LEADER_ACK_FORMAT.format("a bystander orc", "him")
+    implementor_ack = LEADER_ACK_FORMAT.format(world.MOB_BYSTANDER_ORC_SHORT_DESCRIPTION, "him")
     assert implementor_text.count(implementor_ack) == 1, implementor_text
 
 

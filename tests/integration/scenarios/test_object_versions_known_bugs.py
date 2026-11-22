@@ -12,7 +12,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import DROP_FORMAT, INVENTORY_HEADER, NOT_HERE_REPLY, NO_ONE_AROUND_REPLY
+from rots_harness.game_text import DROP_FORMAT, INVENTORY_HEADER, NOT_HERE_REPLY, NO_ONE_AROUND_REPLY, PURGED_REPLY
 from rots_harness.immortal_commands import load_object
 from rots_harness.replies import reply_to, settled_expect
 from test_object_versions import (
@@ -72,8 +72,6 @@ SIPPING_OWNER = dataclasses.replace(OWNER, stored=StoredValues(drunk=SIPPER_DRUN
 # The mortal mystic with no gold.
 PENNILESS_MYSTIC = dataclasses.replace(MORTAL_MYSTIC, stored=StoredValues(gold=OFFER_GOLD))
 
-# What the implementor reads when the purge goes through (do_purge, act_wiz.cpp).
-PURGED_REPLY = "Ok."
 # What purge answers when it refuses (do_purge, act_wiz.cpp).
 PURGE_REFUSED_REPLY = "Fuuuuuuuuu!"
 # What purge answers when nothing in the room has the name (do_purge, act_wiz.cpp).

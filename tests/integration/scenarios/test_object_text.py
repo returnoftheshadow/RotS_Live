@@ -30,8 +30,6 @@ ROOM_DUMMY_YARD_NAME = "Dummy Yard"
 # corpse has a head (load_scalp, act_obj1.cpp, gives none for bodytype 0); no gold, so its corpse
 # holds no coins.
 DUMMY_KEYWORD = "dummy"
-# The practice dummy's short description.
-DUMMY_SHORT_DESCRIPTION = "a practice dummy"
 # The keyword of the plain steel sword (world.OBJECT_PLAIN_STEEL_SWORD), a slashing weapon, which
 # behead needs.
 SWORD_KEYWORD = "sword"
@@ -102,7 +100,7 @@ def go_to_yard(implementor: GameSession) -> None:
 
 def slay_a_dummy(implementor: GameSession) -> None:
     """Load a practice dummy beside the implementor and slay it."""
-    load_mob(implementor, world.MOB_PRACTICE_DUMMY, DUMMY_SHORT_DESCRIPTION)
+    load_mob(implementor, world.MOB_PRACTICE_DUMMY, world.MOB_PRACTICE_DUMMY_SHORT_DESCRIPTION)
     slain = implementor.command(f"slay {DUMMY_KEYWORD}")
     assert slain.contains("You chop"), slain.text
 

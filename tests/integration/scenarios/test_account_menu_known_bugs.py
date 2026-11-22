@@ -35,9 +35,6 @@ NEW_CHARACTER_ACCEPTED_REPLY = "New character."
 BYSTANDER = Character(
     name="Bystander", race="human", sex="male", level=20, load_room=world.ROOM_ARENA_WEST, class_name="warrior"
 )
-# The bystander orc's short description, which `load mob` names (do_load, act_wiz.cpp); its
-# keywords are `bystander orc`.
-BYSTANDER_ORC_SHORT_DESCRIPTION = "a bystander orc"
 # The bystander orc's line in a room.
 BYSTANDER_ORC_IN_ROOM = "A bystander orc loiters here, involved in nothing."
 # The password do_delete requires after the character's name (act_wiz.cpp).
@@ -101,7 +98,7 @@ def test_delete_disconnects_the_named_player_and_leaves_a_mob_of_the_same_keywor
     """
     implementor = server.login(IMPLEMENTOR.name)
     with playing_connection(server.handle, server.run_dir, BYSTANDER) as bystander:
-        load_mob(implementor, world.MOB_BYSTANDER_ORC, BYSTANDER_ORC_SHORT_DESCRIPTION)
+        load_mob(implementor, world.MOB_BYSTANDER_ORC, world.MOB_BYSTANDER_ORC_SHORT_DESCRIPTION)
         before = implementor.command("look")
         assert BYSTANDER_ORC_IN_ROOM in before.text, before.text
 

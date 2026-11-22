@@ -76,7 +76,7 @@ WEARY_FOREMAN = ScriptMob(vnum=1702, keyword="weary", short_description="a weary
 # The patient foreman (mob 1721): script 1702 with a wait of 400 passes, 100 seconds.
 PATIENT_FOREMAN = ScriptMob(vnum=1721, keyword="patient", short_description="a patient foreman")
 # A mob without a script, for an implementor to force.
-PORTER = ScriptMob(vnum=world.MOB_PORTER, keyword="porter", short_description="a porter")
+PORTER = ScriptMob(vnum=world.MOB_PORTER, keyword="porter", short_description=world.MOB_PORTER_SHORT_DESCRIPTION)
 
 # What the smiths say (DO_SAY rows of scripts 1700 and 1701), in script order. First the nested
 # guard's body, which only a mob giver reaches.

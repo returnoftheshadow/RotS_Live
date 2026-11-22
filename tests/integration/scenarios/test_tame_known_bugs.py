@@ -8,6 +8,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import PURGED_REPLY
 from rots_harness.replies import reply_to
 from rots_harness.stat_reading import affect_bits
 from test_tame import (
@@ -137,7 +138,7 @@ def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
     warden.quit()
     goto_anywhere(implementor, world.ROOM_BOAR_PEN)
     purged = implementor.command(f"purge {BOAR_KEYWORD}")
-    assert purged.contains("Ok."), purged.text
+    assert purged.contains(PURGED_REPLY), purged.text
     rooms = boar_rooms(implementor)
     assert rooms == [], rooms
 

@@ -34,9 +34,6 @@ NOT_SAVED_LINES = ["Not saved - still shaping. Fix the problem and /done again,"
 MOB_BACKUP_FAILURE_REPLY = "ERROR: Could not open backup file"
 # What an editor command gets once its editor has been released (shape_center, shapemob.cpp).
 NOT_SHAPING_REPLY = "Use 'shape <mob|obj|room|script> <number>' to start shaping."
-# The middle of the line every editor command but a field number prints first (extra_coms_* in
-# shape*.cpp).
-EDITOR_COMMAND_PART = "shapeless indefinity"
 
 
 class Watch(NamedTuple):
@@ -135,7 +132,7 @@ OBJECT_CASE = EditorCase(
     file_relative=Path("world") / "obj" / "11.obj",
     backup_dir_relative=Path("world") / "obj" / "oldobjs",
     edit_line="/2",
-    old_text="a harness token",
+    old_text=world.OBJECT_HARNESS_TOKEN_SHORT_DESCRIPTION,
     new_text="a renamed token",
     list_line="/50",
     shown_prefix="(2) reference description :",
@@ -284,7 +281,7 @@ def test_save_rewrites_the_record_and_keeps_the_old_file_as_the_backup(server, c
 
     open_editor(implementor, case)
     edit_text_field(implementor, case)
-    saved = reply_to(implementor, "/save", [EDITOR_COMMAND_PART], settle=shaping.EDITOR_SETTLE_SECONDS)
+    saved = reply_to(implementor, "/save", [shaping.EDITOR_COMMAND_PART], settle=shaping.EDITOR_SETTLE_SECONDS)
     # The game runs one line at a time, so once the listing answers, /save has finished writing.
     synced = reply_to(implementor, case.list_line, [case.prompt], settle=shaping.EDITOR_SETTLE_SECONDS)
     shaping.release_editor(implementor, case.release_marker, settle=shaping.EDITOR_SETTLE_SECONDS)

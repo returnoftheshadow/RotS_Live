@@ -16,6 +16,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, ProfessionPoints, StoredValues
+from rots_harness.game_text import PURGED_REPLY, SIT_DOWN_REPLY, STAND_UP_REPLY
 from rots_harness.immortal_commands import goto, load_mob, wizset
 from rots_harness.replies import reply_to, settled_expect
 from rots_harness.session import GameSession
@@ -344,7 +345,7 @@ def bring_guildmaster(implementor: GameSession, guildmaster: Guildmaster = TRAVE
 def dismiss_guildmaster(implementor: GameSession, guildmaster: Guildmaster) -> None:
     """Purge the guildmaster from the implementor's room, so the next one loaded answers alone."""
     reply = implementor.command(f"purge {guildmaster.keyword}")
-    assert reply.contains("Ok."), reply.text
+    assert reply.contains(PURGED_REPLY), reply.text
 
 
 def guild_list(pupil: GameSession, name: str, guildmaster: Guildmaster = TRAVELLER) -> str:
@@ -1170,7 +1171,7 @@ def test_a_sitting_pupil_gets_the_plain_list_and_practises_nothing(server) -> No
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
     sat = pupil.command("sit")
-    assert sat.contains("You sit down."), pupil.everything
+    assert sat.contains(SIT_DOWN_REPLY), pupil.everything
 
     reply = reply_to(pupil, "practice blink", PRACTICE_OUTCOMES)
     assert first_number(PLAIN_SESSIONS_PATTERN, reply) == STARTING_SESSIONS, reply
@@ -1178,7 +1179,7 @@ def test_a_sitting_pupil_gets_the_plain_list_and_practises_nothing(server) -> No
     assert PRACTICED_REPLY not in reply, reply
 
     stood = pupil.command("stand")
-    assert stood.contains("You stand up."), pupil.everything
+    assert stood.contains(STAND_UP_REPLY), pupil.everything
     left = sessions_left(pupil, PUPIL.name)
     assert left == STARTING_SESSIONS, left
 

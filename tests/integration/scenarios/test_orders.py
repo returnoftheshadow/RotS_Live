@@ -13,7 +13,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import FORCED_REPLY, NOBODY_WILLING_REPLY, NOW_FOLLOWS_FORMAT
+from rots_harness.game_text import FORCED_REPLY, NOBODY_WILLING_REPLY, NOW_FOLLOWS_FORMAT, ORDER_DONE_REPLY
 from rots_harness.immortal_commands import goto, load_mob
 from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
 from rots_harness.session import GameSession
@@ -65,8 +65,6 @@ LEADER = Character(
 # What the room reads as the leader orders its followers (do_order, act_offe.cpp); format with the
 # leader as the room sees it.
 ISSUES_AN_ORDER_FORMAT = "{} issues an order."
-# What the leader reads once at least one follower was ordered (do_order).
-ORDER_DONE_REPLY = "Ok."
 # What a listener reads as a mob speaks (say_to_char, act_comm.cpp); format with the speaker as
 # the listener sees it and the words.
 SAYS_FORMAT = "{} says '{}'"

@@ -17,6 +17,7 @@ from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.shaping import (
     COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_COMMAND_PART,
     EDITOR_SETTLE_SECONDS,
     MOBILE_PROMPT,
     MOBILE_RELEASED_REPLY,
@@ -40,7 +41,7 @@ from rots_harness.shaping import (
 )
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from rots_harness.text_lines import raw_lines
-from test_shaping_saving import EDITOR_COMMAND_PART, NOT_SHAPING_REPLY, file_text, record
+from test_shaping_saving import NOT_SHAPING_REPLY, file_text, record
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping]
 

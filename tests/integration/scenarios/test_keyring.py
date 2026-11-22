@@ -19,7 +19,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import PUT_FORMAT
+from rots_harness.game_text import PUT_FORMAT, WEAR_WAIST_FORMAT
 from rots_harness.immortal_commands import GIVEN_START, goto, load_mob, load_object
 from rots_harness.session import GameSession
 
@@ -52,7 +52,7 @@ BELT_KEYRING_AND_KEY_VNUMS = (world.OBJECT_LEATHER_BELT, world.OBJECT_BRASS_KEYR
 BELT_KEYRING_AND_KEY_KEYWORDS = ("belt", "keyring", "key")
 
 # What wearing the belt answers: the waist message (do_wear, act_obj2.cpp).
-WEAR_BELT_REPLY = "You wear a leather belt around your waist."
+WEAR_BELT_REPLY = WEAR_WAIST_FORMAT.format(world.OBJECT_LEATHER_BELT_SHORT_DESCRIPTION)
 # What wearing the keyring answers: the belt-hook message.
 WEAR_KEYRING_REPLY = "You fasten a brass keyring on your belt."
 # What holding the keyring answers (do_grab, act_obj2.cpp: "You grab $p.").
@@ -168,7 +168,7 @@ def test_only_keys_go_on_a_keyring(server) -> None:
     refused = mortal.command("put bread keyring")
     assert refused.contains("Only keys can go on a keyring."), refused.text
     carried = mortal.command("inventory")
-    assert carried.contains("a piece of tainted bread"), carried.text
+    assert carried.contains(world.OBJECT_TAINTED_BREAD_SHORT_DESCRIPTION), carried.text
 
 
 @pytest.mark.schedule("affect-hours")

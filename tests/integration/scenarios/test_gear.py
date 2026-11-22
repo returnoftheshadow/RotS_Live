@@ -18,7 +18,15 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.game_text import INVENTORY_HEADER, PUT_FORMAT, STOP_USING_FORMAT, WEAR_HEAD_FORMAT
+from rots_harness.game_text import (
+    GET_FORMAT,
+    INVENTORY_HEADER,
+    PURGED_REPLY,
+    PUT_FORMAT,
+    STOP_USING_FORMAT,
+    WEAR_HEAD_FORMAT,
+    WEAR_WAIST_FORMAT,
+)
 from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, goto, load_mob, load_object, where_lines
 from rots_harness.replies import SETTLE_SECONDS, settled_expect
 from rots_harness.session import GameSession
@@ -65,7 +73,7 @@ CARRIER = Character(
 # The cursed ring: worn on a finger; NODROP, so it cannot be given.
 CURSED_RING = (world.OBJECT_CURSED_RING, "ring", world.OBJECT_CURSED_RING_SHORT_DESCRIPTION)
 # The leather belt: worn about the waist; gives the belt hooks.
-BELT = (world.OBJECT_LEATHER_BELT, "belt", "a leather belt")
+BELT = (world.OBJECT_LEATHER_BELT, "belt", world.OBJECT_LEATHER_BELT_SHORT_DESCRIPTION)
 # The leather cap: worn on the head.
 LEATHER_CAP = (world.OBJECT_LEATHER_CAP, "cap", world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION)
 # The leather bag: a container, with no wear slot and not wieldable.
@@ -80,18 +88,12 @@ CHAIN_SHIRT = (world.OBJECT_CHAIN_SHIRT, "shirt", world.OBJECT_CHAIN_SHIRT_SHORT
 COPPER_BEAD = (world.OBJECT_COPPER_BEAD, "bead", world.OBJECT_COPPER_BEAD_SHORT_DESCRIPTION)
 # The leather helm: worn on the head; no zone resets one.
 LEATHER_HELM = (world.OBJECT_LEATHER_HELM, "helm", world.OBJECT_LEATHER_HELM_SHORT_DESCRIPTION)
-# The porter's short description (world.MOB_PORTER).
-PORTER_SHORT_DESCRIPTION = "a porter"
 
 # The start every "No-one by that name ..." answer shares, goto's among them (do_goto,
 # act_wiz.cpp).
 NO_ONE_BY_THAT_NAME_START = "No-one by that name"
-# What get prints (do_get, act_obj1.cpp); format with an object's short description.
-GET_FORMAT = "You get {}."
 # What wear prints for a finger (wear_message, act_obj2.cpp); format with the short description.
 WEAR_FINGER_FORMAT = "You slide {} on to your right ring finger."
-# What wear prints for the waist (wear_message); format with the short description.
-WEAR_WAIST_FORMAT = "You wear {} around your waist."
 # What wear prints for a belt hook (wear_message); format with the short description.
 WEAR_BELT_HOOK_FORMAT = "You fasten {} on your belt."
 # What wear prints for the body (wear_message); format with the short description.
@@ -124,8 +126,6 @@ KEYRING_LIES_HERE = "A brass keyring lies here."
 CANNOT_CARRY_FORMAT = "{}: you can't carry that many items!"
 # What the implementor reads as the porter puts the helm on (wear_message, act_obj2.cpp).
 PORTER_WEARS_HELM = f"A porter wears {LEATHER_HELM[2]} on his head."
-# What the implementor reads as it purges a mob (do_purge, act_wiz.cpp).
-PURGED_REPLY = "Ok."
 # How look shows the purged things, had any of them been left behind in the room.
 LEFT_BEHIND_LINES = (
     "A leather helm lies here.",
@@ -393,13 +393,13 @@ def test_purge_destroys_what_a_mob_wears_and_carries_and_leaves_nothing_behind(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     goto(implementor, world.ROOM_ARENA_WEST, world.ROOM_ARENA_WEST_NAME, exact=False)
-    load_mob(implementor, world.MOB_PORTER, PORTER_SHORT_DESCRIPTION)
+    load_mob(implementor, world.MOB_PORTER, world.MOB_PORTER_SHORT_DESCRIPTION)
     give_new_object(
         implementor,
         LEATHER_HELM[0],
         "helm",
         "porter",
-        shown_recipient=PORTER_SHORT_DESCRIPTION,
+        shown_recipient=world.MOB_PORTER_SHORT_DESCRIPTION,
         short_description=LEATHER_HELM[2],
     )
     dressed = implementor.command("force porter wear helm")
@@ -409,7 +409,7 @@ def test_purge_destroys_what_a_mob_wears_and_carries_and_leaves_nothing_behind(s
     put = implementor.command("put bead bag")
     assert put.contains(PUT_FORMAT.format(COPPER_BEAD[2], BAG[2])), put.text
     given = implementor.command("give bag porter")
-    assert given.contains(GIVEN_FORMAT.format(BAG[2], PORTER_SHORT_DESCRIPTION)), given.text
+    assert given.contains(GIVEN_FORMAT.format(BAG[2], world.MOB_PORTER_SHORT_DESCRIPTION)), given.text
     for item in (LEATHER_HELM, BAG, COPPER_BEAD):
         assert len(where_lines(implementor, item[0], item[2])) == 1, item
 

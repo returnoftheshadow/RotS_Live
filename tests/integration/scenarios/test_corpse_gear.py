@@ -11,7 +11,13 @@ import pytest
 from rots_harness import world
 from rots_harness.casting import LOST_CONCENTRATION_REPLY, NO_ENERGY_REPLY
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import CORPSE_CONTENTS_HEADER, FORCED_REPLY, IS_DEAD_FORMAT, PUT_FORMAT
+from rots_harness.game_text import (
+    CORPSE_CONTENTS_HEADER,
+    FORCED_REPLY,
+    GET_FROM_START_FORMAT,
+    IS_DEAD_FORMAT,
+    PUT_FORMAT,
+)
 from rots_harness.immortal_commands import GIVEN_FORMAT, GIVEN_START, goto, load_mob, load_object
 from rots_harness.replies import SETTLE_SECONDS, reply_to
 from rots_harness.session import GameSession
@@ -32,8 +38,6 @@ pytestmark = [pytest.mark.scenario, pytest.mark.corpse_gear]
 TASTER_VNUM = 2205
 # The frail taster's short description.
 TASTER_SHORT_DESCRIPTION = "a frail taster"
-# The tainted bread's short description (world.OBJECT_TAINTED_BREAD).
-BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
 # The damage each poison tick deals (affect_update, limits.cpp).
 POISON_TICK_DAMAGE = 5
 
@@ -58,9 +62,8 @@ CAP_PUT_REPLY = PUT_FORMAT.format(
 )
 # What giving the bag to the taster answers.
 BAG_GIVEN_REPLY = GIVEN_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION, TASTER_SHORT_DESCRIPTION)
-# The start of what getting the bag out of the corpse answers (perform_get_from_container,
-# act_obj1.cpp).
-BAG_TAKEN_START = f"You get {world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION} from"
+# The start of what getting the bag out of the corpse answers.
+BAG_TAKEN_START = GET_FROM_START_FORMAT.format(world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
 # Seconds to wait for a cast's outcome: magic missile's casting delay at mage level 30 is a few
 # seconds (CASTING_TIME, spells.h); 20 leaves room for a loaded host.
 CAST_TIMEOUT_SECONDS = 20.0
@@ -106,7 +109,7 @@ def test_a_mob_that_dies_of_poison_has_its_bagged_cap_gathered_into_its_corpse(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     hand_the_taster_a_bagged_cap(implementor)
-    load_object(implementor, world.OBJECT_TAINTED_BREAD, BREAD_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_TAINTED_BREAD, world.OBJECT_TAINTED_BREAD_SHORT_DESCRIPTION)
     bread_given = implementor.command("give bread taster")
     assert bread_given.contains(GIVEN_START), implementor.everything
     eaten = implementor.command("force taster eat bread")

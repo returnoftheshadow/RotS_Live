@@ -12,7 +12,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.game_text import INNKEEPER_TELLS_START, PUT_FORMAT, RENTED_REPLY
+from rots_harness.game_text import INNKEEPER_TELLS_START, PURGED_REPLY, PUT_FORMAT, RENTED_REPLY
 from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, load_mob, load_object, where_lines
 from rots_harness.replies import reply_to, settled_expect
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
@@ -281,7 +281,7 @@ def set_tame_on_hardy_orc(implementor: GameSession, tamer: GameSession) -> None:
 
 
 @pytest.mark.parametrize(
-    "removal_command, removal_reply", [("purge", "Ok."), ("slay", "You chop")], ids=["purged", "slain"]
+    "removal_command, removal_reply", [("purge", PURGED_REPLY), ("slay", "You chop")], ids=["purged", "slain"]
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, TAMER)

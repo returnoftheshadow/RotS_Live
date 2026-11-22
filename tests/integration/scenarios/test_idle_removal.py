@@ -53,8 +53,6 @@ NECK_WEAR_POSITION = 3
 HOURS_BEFORE_REMOVAL = 28
 # The poison blow gear deals as it goes on or comes off (unequip_char, handler.cpp).
 GEAR_POISON_DAMAGE = 5
-# The draining grey sash's short description (world.OBJECT_GREY_SASH).
-SASH_SHORT_DESCRIPTION = "a draining grey sash"
 
 # What the room reads when the idler's connection closes (close_socket, comm.cpp).
 IDLER_LOST_LINK = f"{IDLER.name} has lost his link."
@@ -256,7 +254,7 @@ def test_an_idler_whose_gear_kills_them_as_it_comes_off_dies_once_and_the_server
     assert hall.contains(HUMAN_CORPSE), hall.text
     corpse = implementor.command("look in corpse")
     assert corpse.contains(world.OBJECT_LEATHER_CAP_SHORT_DESCRIPTION), corpse.text
-    assert corpse.contains(SASH_SHORT_DESCRIPTION), corpse.text
+    assert corpse.contains(world.OBJECT_GREY_SASH_SHORT_DESCRIPTION), corpse.text
     assert world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION not in corpse.text, corpse.text
     assert world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION not in corpse.text, corpse.text
     gone = implementor.command(f"stat player {IDLER.name.lower()}")

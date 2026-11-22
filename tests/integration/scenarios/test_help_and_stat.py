@@ -162,10 +162,6 @@ DETECT_MAGIC_BIT_VALUE = 16
 # AFF_DETECT_MAGIC's name in affected_bits (consts.cpp).
 DETECT_MAGIC_NAME = "DET-MAGIC"
 
-# The harness token (object 1130), a board: spec_ass.cpp assigns gen_board to its vnum.
-BOARD_TOKEN_VNUM = 1130
-# BOARD_TOKEN_VNUM's short description.
-BOARD_TOKEN_SHORT_DESCRIPTION = "a harness token"
 # What the colour commands answer with colours off (color.cpp).
 COLOURS_OFF_REPLY = "Your colours are turned off."
 # What the mail board answers a letter with no addressee (boards.cpp).
@@ -304,9 +300,9 @@ def join_player(implementor: GameSession) -> None:
 def put_board_beside_player(implementor: GameSession) -> None:
     """Bring the implementor to the player and have it drop a harness token, a board, there."""
     join_player(implementor)
-    load_object(implementor, BOARD_TOKEN_VNUM, BOARD_TOKEN_SHORT_DESCRIPTION)
+    load_object(implementor, world.OBJECT_HARNESS_TOKEN, world.OBJECT_HARNESS_TOKEN_SHORT_DESCRIPTION)
     dropped = implementor.command("drop token")
-    assert dropped.contains(DROP_FORMAT.format(BOARD_TOKEN_SHORT_DESCRIPTION)), dropped.text
+    assert dropped.contains(DROP_FORMAT.format(world.OBJECT_HARNESS_TOKEN_SHORT_DESCRIPTION)), dropped.text
 
 
 def colour_command(session: GameSession, command: str, replies: Sequence[str]) -> str:
