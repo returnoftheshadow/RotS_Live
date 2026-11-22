@@ -28,6 +28,7 @@
 ACMD(do_wear);
 ACMD(do_quit);
 ACMD(do_purge);
+ACMD(do_ride);
 bool Crash_rentsave(struct char_data* character, int cost);
 void raw_kill(char_data* dead_man, const char_data* killer, int attack_type);
 bool is_corpse(const obj_data* container);
@@ -1380,6 +1381,33 @@ TEST_F(QuietGearChangeTest, ARentersFollowersFollowerWhoseGearShakesTheEarthKill
     objects_json::ObjectSaveData saved;
     ASSERT_TRUE(read_player_object_file(saved));
     EXPECT_EQ(RENT_RENTED, saved.rent.rentcode);
+}
+
+// A renter's follower rides a mount: the rent takes both out of the game, and the object file
+// saves the mount with the follower, so that a login brings back that one mount.
+TEST_F(QuietGearChangeTest, ARentersFollowersRiddenMountGoesWithItAndIsSavedWithIt)
+{
+    char_data* follower = make_mob("follower", 0);
+    // do_ride takes only a rider of bodytype 1.
+    follower->player.bodytype = 1;
+    add_follower(follower, &m_player, FOLLOW_MOVE);
+    char_data* mount = read_mobile(MOUNT_PROTOTYPE, REAL);
+    ASSERT_NE(nullptr, mount);
+    SET_BIT(MOB_FLAGS(mount), MOB_MOUNT);
+    char_to_room(mount, 0);
+    run_command_as(follower, do_ride, "mount");
+    ASSERT_TRUE(IS_RIDING(follower));
+    ASSERT_EQ(mount, follower->mount_data.mount);
+
+    EXPECT_TRUE(Crash_rentsave(&m_player, 0));
+
+    EXPECT_FALSE(is_in_game(follower));
+    EXPECT_FALSE(is_in_game(mount));
+    EXPECT_EQ(nullptr, m_player.followers);
+    objects_json::ObjectSaveData saved;
+    ASSERT_TRUE(read_player_object_file(saved));
+    ASSERT_EQ(1u, saved.followers.size());
+    EXPECT_EQ(MOUNT_VNUM, saved.followers[0].mount_vnum);
 }
 
 /* ---- removal from the game ---- */

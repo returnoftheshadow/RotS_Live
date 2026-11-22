@@ -1126,6 +1126,34 @@ int Crash_obj2store(const obj_data* obj, const char_data* ch,
 int Crash_save(const struct obj_data* obj, const struct char_data* ch, int pos, FILE* fp);
 void Crash_restore_weight(const struct obj_data* obj);
 
+// The mob saved as <follower>'s mount, which login brings back to follow it: its first follower
+// when that is an NPC, otherwise the mount it rides as first rider. Null when neither.
+static const char_data* recorded_mount(const char_data* follower)
+{
+    const follow_type* first_following = follower->followers;
+    if (first_following && IS_NPC(first_following->follower)) {
+        return first_following->follower;
+    }
+
+    if (IS_RIDING(follower) && follower->mount_data.mount->mount_data.rider == follower) {
+        return follower->mount_data.mount;
+    }
+    return nullptr;
+}
+
+// The NPC mount <follower> rides when it is the one saved as its mount; null otherwise.
+static char_data* recorded_ridden_mount(const char_data* follower)
+{
+    if (!IS_RIDING(follower)) {
+        return nullptr;
+    }
+    char_data* mount = follower->mount_data.mount;
+    if (recorded_mount(follower) != mount || !IS_NPC(mount)) {
+        return nullptr;
+    }
+    return mount;
+}
+
 void Crash_follower_save(const struct char_data* ch, FILE* fp)
 {
     extern struct index_data* mob_index;
@@ -1144,12 +1172,10 @@ void Crash_follower_save(const struct char_data* ch, FILE* fp)
             continue;
         fol_elem.fol_vnum = mob_index[k->follower->nr].virt;
         fol_elem.mount_vnum = 0;
-        if (IS_RIDING(k->follower))
-            if ((k->follower->mount_data.mount)->mount_data.rider == k->follower)
-                fol_elem.mount_vnum = mob_index[k->follower->mount_data.mount->nr].virt;
-        if (k->follower->followers)
-            if (IS_NPC(k->follower->followers->follower))
-                fol_elem.mount_vnum = mob_index[k->follower->followers->follower->nr].virt;
+        const char_data* saved_mount = recorded_mount(k->follower);
+        if (saved_mount) {
+            fol_elem.mount_vnum = mob_index[saved_mount->nr].virt;
+        }
         fol_elem.wimpy = k->follower->specials2.wimp_level;
         fol_elem.exp = k->follower->points.exp;
         if (MOB_FLAGGED(k->follower, MOB_ORC_FRIEND))
@@ -1418,9 +1444,28 @@ static void extract_held_followers(std::vector<held_follower>& followers, size_t
     }
 }
 
-// Removes <ch>'s NPC followers from the game as a rent does, destroying their gear, what they
-// carry and their own NPC followers. Taking gear off can kill <ch>: returns false when <ch> was
-// freed, and the caller must not touch it again.
+[[nodiscard]] static bool extract_followers(const struct char_data* ch);
+
+// Removes <npc> from the game as a rent does, with its gear, what it carries, its own NPC
+// followers and its recorded_ridden_mount. Taking gear off can free anyone.
+static void extract_rented_npc(char_data* npc)
+{
+    char_data* ridden_mount = recorded_ridden_mount(npc);
+    const freed_watch mount_watch(ridden_mount);
+    if (extract_worn_gear(npc)) {
+        extract_carried_objects(npc);
+        if (extract_followers(npc)) {
+            extract_char(npc);
+        }
+    }
+
+    if (ridden_mount != nullptr && !mount_watch.freed()) {
+        extract_rented_npc(ridden_mount);
+    }
+}
+
+// Removes <ch>'s NPC followers from the game as a rent does (extract_rented_npc). Taking gear off
+// can kill <ch>: returns false when <ch> was freed, and the caller must not touch it again.
 [[nodiscard]] static bool extract_followers(const struct char_data* ch)
 {
     freed_watch leader_watch(ch);
@@ -1433,12 +1478,7 @@ static void extract_held_followers(std::vector<held_follower>& followers, size_t
         }
 
         // Every path takes <follower> out of the game, so the walk ends.
-        if (extract_worn_gear(follower)) {
-            extract_carried_objects(follower);
-            if (extract_followers(follower)) {
-                extract_char(follower);
-            }
-        }
+        extract_rented_npc(follower);
 
         if (leader_watch.freed()) {
             return false;
