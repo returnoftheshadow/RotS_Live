@@ -6,8 +6,8 @@ from __future__ import annotations
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.wands]
 
@@ -60,8 +60,6 @@ NOTHING_HAPPENS_MARKER = "Nothing seems to happen."
 INSIGHT_AFFECT_MARKER = "insight               +50 to PERCEPTION"
 # The stat line of the enchanted sword's affect (do_stat_object, act_wiz.cpp).
 ENCHANTED_AFFECT_MARKER = "Affections: +6 to OB"
-# The stat line just before the affect lines (do_stat_character).
-STAT_LAST_LINE_MARKER = "VUL:"
 
 
 def hand_object(implementor: GameSession, vnum: int, keyword: str) -> None:
@@ -105,7 +103,7 @@ def test_a_wand_of_insight_pointed_at_its_user_gives_insight_once_and_then_runs_
         room = implementor.expect([ROOM_POINT_INSIGHT_MARKER])
         assert room.count(ROOM_POINT_INSIGHT_MARKER) == 1, room
 
-    stat = reply_to(implementor, f"stat player {WIELDER.name.lower()}", [STAT_LAST_LINE_MARKER])
+    stat = read_stat(implementor, f"player {WIELDER.name.lower()}")
     assert stat.count(INSIGHT_AFFECT_MARKER) == 1, stat
 
 
@@ -131,7 +129,7 @@ def test_a_wand_of_enchanting_pointed_at_a_sword_enchants_it_and_then_runs_out(s
         room = implementor.expect([ROOM_POINT_ENCHANTING_MARKER])
         assert room.count(ROOM_POINT_ENCHANTING_MARKER) == 1, room
 
-    stat = reply_to(implementor, "stat obj sword", [ENCHANTED_AFFECT_MARKER])
+    stat = read_stat(implementor, "obj sword", last_line=ENCHANTED_AFFECT_MARKER)
     assert stat.count(ENCHANTED_AFFECT_MARKER) == 1, stat
 
 

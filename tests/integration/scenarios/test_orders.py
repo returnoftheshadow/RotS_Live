@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import read_stat
 from rots_harness.text_lines import assert_in_order, capitalised
 
 pytestmark = [pytest.mark.scenario, pytest.mark.orders]
@@ -79,8 +80,6 @@ SITS_DOWN_FORMAT = "{} sits down."
 # The `stat mob` line naming a mob's master (do_stat_character, act_wiz.cpp); format with the
 # master's name, or "<none>".
 MASTER_IS_FORMAT = "Master is: {},"
-# The stat line just before the affect lines: once it arrives, the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # What `stat mob` prints when no mob matches (do_wizstat, act_wiz.cpp).
 NO_SUCH_MOB_MARKER = "No such mobile around."
 # The words the followers are ordered to say. "hello" sets off no script but the warden's.
@@ -143,7 +142,7 @@ def order_followers(leader: GameSession, command: str) -> str:
 
 def stat_mob(implementor: GameSession, mob: HallMob) -> str:
     """The implementor's whole `stat mob` reply for mob, or the line saying no mob matched."""
-    return reply_to(implementor, f"stat mob {mob.keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_MOB_MARKER])
+    return read_stat(implementor, f"mob {mob.keyword}", other_outcomes=[NO_SUCH_MOB_MARKER])
 
 
 @pytest.mark.schedule("affect-hours")

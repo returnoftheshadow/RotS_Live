@@ -3,14 +3,20 @@ into the top of its corpse."""
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import (
+    ANGER_AFFECT_PATTERN,
+    CONSTITUTION_PATTERN,
+    HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN,
+    MAGE_LEVEL_PATTERN,
+    SAVING_THROW_PATTERN,
+    read_stat,
+)
 from rots_harness.text_lines import first_number, lines_after
 
 pytestmark = [pytest.mark.scenario, pytest.mark.corpse_gear]
@@ -57,21 +63,9 @@ NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # Seconds to wait for a cast's outcome: magic missile's casting delay at mage level 30 is a few
 # seconds (CASTING_TIME, spells.h); 20 leaves room for a loaded host.
 CAST_TIMEOUT = 20.0
-# The stat line just before the affect lines: once it arrives, the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
-# A stat line's current hit points (do_stat_character, act_wiz.cpp).
-HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(\d+)\+")
-# A stat line's current constitution; `\s*` covers the space the format string puts after "Con:".
-CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The `stat mob` line of a mob's saving throw field.
-SAVING_THROW_PATTERN = re.compile(r"Saving throws (-?\d+),")
-# The `stat player` line of a character's profession levels.
-MAGE_LEVEL_PATTERN = re.compile(r"Class levels: Mag:(\d+) ")
 # The game hours of anger a player's blow at a mob gives (on_attacked_character,
 # char_utils_combat.cpp).
 ANGER_HOURS = 2
-# The anger affect's row in `stat player` (do_stat_character, act_wiz.cpp).
-ANGER_AFFECT_PATTERN = re.compile(r"^\s*SPL: \(\s*-?\d+hr\) anger", re.MULTILINE)
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -80,11 +74,6 @@ def load_object(implementor: GameSession, vnum: int, short_description: str) -> 
     """Loads an object into the implementor's inventory and asserts the reply names it."""
     created = implementor.command(f"load obj {vnum}")
     assert created.contains(f"You create {short_description}."), created.text
-
-
-def stat(implementor: GameSession, target: str) -> str:
-    """The implementor's whole `stat <target>` reply, whose lines can end in `]`."""
-    return reply_to(implementor, f"stat {target}", [STAT_LAST_LINE_MARKER])
 
 
 def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
@@ -130,8 +119,8 @@ def test_a_mob_that_dies_of_poison_has_its_bagged_cap_gathered_into_its_corpse(s
     eaten = implementor.command("force taster eat bread")
     assert eaten.contains("Ok."), eaten.text
 
-    taster = stat(implementor, "mob taster")
-    hit_points = first_number(HIT_POINTS_PATTERN, taster)
+    taster = read_stat(implementor, "mob taster")
+    hit_points = first_number(HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, taster)
     constitution = first_number(CONSTITUTION_PATTERN, taster)
     assert (hit_points, constitution) == (1, 2), taster
     # The poison tick kills (damage and update_pos, fight.cpp; the attacker is the taster, a mob,
@@ -165,10 +154,10 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
     slinger = server.login(SLINGER.name)
     hand_the_taster_a_bagged_cap(implementor)
 
-    taster = stat(implementor, "mob taster")
-    hit_points = first_number(HIT_POINTS_PATTERN, taster)
+    taster = read_stat(implementor, "mob taster")
+    hit_points = first_number(HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, taster)
     saving_throw = first_number(SAVING_THROW_PATTERN, taster)
-    slinger_stat = stat(implementor, f"player {SLINGER.name.lower()}")
+    slinger_stat = read_stat(implementor, f"player {SLINGER.name.lower()}")
     mage_level = first_number(MAGE_LEVEL_PATTERN, slinger_stat)
     assert (hit_points, saving_throw, mage_level) == (1, 0, 30)
     # The least damage the missile can deal (spell_magic_missile and apply_spell_damage, mage.cpp):
@@ -194,10 +183,10 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
 
     # The blow gave the mage anger (on_attacked_character, char_utils_combat.cpp) for 2 hours, and
     # do_quit (act_othe.cpp) refuses anyone angry, so the test's own quit waits for it to pass.
-    angry = stat(implementor, f"player {SLINGER.name.lower()}")
+    angry = read_stat(implementor, f"player {SLINGER.name.lower()}")
     assert ANGER_AFFECT_PATTERN.search(angry), angry
     server.advance_hours(ANGER_HOURS + 1)
     slinger.drain(SETTLE_SECONDS)
     implementor.drain(SETTLE_SECONDS)
-    calm = stat(implementor, f"player {SLINGER.name.lower()}")
+    calm = read_stat(implementor, f"player {SLINGER.name.lower()}")
     assert not ANGER_AFFECT_PATTERN.search(calm), calm

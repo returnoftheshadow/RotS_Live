@@ -14,6 +14,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.resistances]
 
@@ -185,15 +186,10 @@ HUNGER_SET_MARKER_FORMAT = "{}'s hunger set to 10."
 CAST_TIMEOUT = 15.0
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
-# the drain collects the rest of the reply.
-STAT_LAST_LINE_MARKER = "VUL:"
 # The room every character in this file starts in, as look names it.
 ARENA_CENTRE_NAME = "Arena Centre"
 
-# The stat line with the profession levels (do_stat_character, act_wiz.cpp).
-CLERIC_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:(\d+) ")
-# The resistance bits stat prints (do_stat_character): "RES:  FIRE. VUL: ...".
+# The resistance bits stat prints (do_stat_character, act_wiz.cpp): "RES:  FIRE. VUL: ...".
 STAT_RESISTANCES_PATTERN = re.compile(r"RES: (.*?) VUL:")
 # One affect line in stat (do_stat_character); the name is padded to 21 characters.
 STAT_AFFECT_PATTERN = re.compile(r"SPL: \(\s*-?\d+hr\) (\S+(?: \S+)*)\s+[+-]\d+ to ")
@@ -211,14 +207,9 @@ def possessive(character: Character) -> str:
     return POSSESSIVE_PRONOUNS[character.sex]
 
 
-def stat_player(implementor: GameSession, character: Character) -> str:
-    """The whole reply to the implementor's `stat player` for the character."""
-    return reply_to(implementor, f"stat player {character.name.lower()}", [STAT_LAST_LINE_MARKER])
-
-
 def cleric_level(implementor: GameSession, character: Character) -> int:
     """The mystic profession level stat shows for the character."""
-    text = stat_player(implementor, character)
+    text = read_stat(implementor, f"player {character.name.lower()}")
     match = CLERIC_LEVEL_PATTERN.search(text)
     assert match is not None, f"no class levels line for {character.name}:\n{text}"
     return int(match.group(1))
@@ -682,7 +673,7 @@ def test_protection_and_worn_fire_items_coexist_and_the_strongest_applies(server
     assert resistance_line("fire", 30) in shown, shown
     assert fire_lines(shown) == 1, shown
     assert ITEM_RESIST_AFFECT_PATTERN.search(shown) and PROTECTION_AFFECT_PATTERN.search(shown), shown
-    stat_text = stat_player(implementor, WEARER)
+    stat_text = read_stat(implementor, f"player {WEARER.name.lower()}")
     resistances = STAT_RESISTANCES_PATTERN.search(stat_text)
     assert resistances is not None and "FIRE" in resistances.group(1), stat_text
     assert sorted(STAT_AFFECT_PATTERN.findall(stat_text)) == ["protection", "resist fire"], stat_text

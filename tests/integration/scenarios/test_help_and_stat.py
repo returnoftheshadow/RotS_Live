@@ -13,6 +13,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.help_and_stat]
 
@@ -63,11 +64,8 @@ PAGE_LINES = 22
 # The start of what do_help answers when no keyword matches.
 NO_ENTRY_MARKER = "There is no entry for"
 
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
-# the drain collects the rest of the reply.
-STAT_LAST_LINE_MARKER = "VUL:"
 # The stat lines with the player flags, the preference flags and the affect bits
-# (do_stat_character): names separated by spaces, then the period sprintbit adds.
+# (do_stat_character, act_wiz.cpp): names separated by spaces, then the period sprintbit adds.
 PLAYER_FLAG_LINE_PATTERN = re.compile(r"PLR: ([^\r\n]*)")
 PREFERENCE_LINE_PATTERN = re.compile(r"PRF: ([^\r\n]*)")
 AFFECT_LINE_PATTERN = re.compile(r"AFF: ([^\r\n]*)")
@@ -222,11 +220,6 @@ def read_uruk_help(session: GameSession, topic: str) -> str:
     return reply_to(session, f"help {topic}", [URUK_HAI_LAST_LINE, URUK_LHUTH_LAST_LINE, NO_ENTRY_MARKER])
 
 
-def read_stat(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player <name>`, read up to its last line."""
-    return reply_to(implementor, f"stat player {name.lower()}", [STAT_LAST_LINE_MARKER])
-
-
 def flag_names(stat: str, pattern: re.Pattern) -> list:
     """The flag names on one stat line, in the order stat prints them; empty for <NONE>."""
     line = pattern.search(stat)
@@ -281,11 +274,6 @@ def colour_command(session: GameSession, command: str, replies: list) -> str:
 def slot_row(slot: str, colour: str) -> str:
     """One row of the colour list (show_color_slot_summary, color.cpp) for an ANSI foreground."""
     return f"{slot:>11}: fg ansi {colour} bg default"
-
-
-def read_object_stat(implementor: GameSession, keyword: str) -> str:
-    """The implementor's `stat obj <keyword>`, read up to its last line, the affect list."""
-    return reply_to(implementor, f"stat obj {keyword}", ["Affections:"])
 
 
 def armour_the_player(implementor: GameSession, player: GameSession) -> int:
@@ -373,13 +361,13 @@ def test_stat_names_the_advanced_prompt_preference(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
 
-    before = flag_names(read_stat(implementor, PLAYER.name), PREFERENCE_LINE_PATTERN)
+    before = flag_names(read_stat(implementor, f"player {PLAYER.name.lower()}"), PREFERENCE_LINE_PATTERN)
     assert before == DEFAULT_PREFERENCE_NAMES, before
 
     turned_on = set_preference(player, "advancedprompt", "on", ("Advanced prompt is now on.",))
     assert "Advanced prompt is now on." in turned_on, turned_on
 
-    stat = read_stat(implementor, PLAYER.name)
+    stat = read_stat(implementor, f"player {PLAYER.name.lower()}")
     assert SPRINTBIT_ERROR_MARKER not in stat, stat
     after = flag_names(stat, PREFERENCE_LINE_PATTERN)
     assert set(after) - set(before) == {ADVANCED_PROMPT_FLAG_NAME}, after
@@ -403,7 +391,7 @@ def test_every_preference_set_turns_on_and_off_shows_in_stat_in_bit_order(server
     for keyword, _, on_reply, _ in PREFERENCE_TOGGLES:
         reply = set_preference(player, keyword, "on", (on_reply,))
         assert on_reply in reply, reply
-    all_on = flag_names(read_stat(implementor, PLAYER.name), PREFERENCE_LINE_PATTERN)
+    all_on = flag_names(read_stat(implementor, f"player {PLAYER.name.lower()}"), PREFERENCE_LINE_PATTERN)
     toggled_names = {name for _, name, _, _ in PREFERENCE_TOGGLES}
     assert all_on == in_bit_order(set(DEFAULT_PREFERENCE_NAMES) | toggled_names), all_on
 
@@ -416,7 +404,7 @@ def test_every_preference_set_turns_on_and_off_shows_in_stat_in_bit_order(server
         reply = set_preference(player, keyword, "off", (off_reply,) + ADVANCED_OFF_REPLIES_TODAY)
         if keyword not in ADVANCED_KEYWORDS:
             assert off_reply in reply, reply
-    all_off = flag_names(read_stat(implementor, PLAYER.name), PREFERENCE_LINE_PATTERN)
+    all_off = flag_names(read_stat(implementor, f"player {PLAYER.name.lower()}"), PREFERENCE_LINE_PATTERN)
     assert all_off == in_bit_order(set(DEFAULT_PREFERENCE_NAMES) - toggled_names), all_off
 
 
@@ -436,7 +424,7 @@ def test_set_shows_the_chat_channel_and_stat_shows_incognito(server) -> None:
 
     incognito_on = set_preference(player, "incognito", "on", (INCOGNITO_ON_REPLY,))
     assert INCOGNITO_ON_REPLY in incognito_on, incognito_on
-    assert INCOGNITO_FLAG_NAME in flag_names(read_stat(implementor, PLAYER.name), PLAYER_FLAG_LINE_PATTERN)
+    assert INCOGNITO_FLAG_NAME in flag_names(read_stat(implementor, f"player {PLAYER.name.lower()}"), PLAYER_FLAG_LINE_PATTERN)
 
 
 @pytest.mark.characters(IMPLEMENTOR, PLAYER)
@@ -454,12 +442,12 @@ def test_wizset_matches_field_names_in_any_case(server) -> None:
     gold = wizset(implementor, "GOLD 100")
     assert UNKNOWN_FIELD_MARKER not in gold, gold
     assert f"{PLAYER.name}'s gold set to 100." in gold, gold
-    coins = COINS_PATTERN.search(read_stat(implementor, PLAYER.name))
+    coins = COINS_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert coins is not None and int(coins.group(1)) == 100
 
     mixed_case = wizset(implementor, "GoLd 7")
     assert f"{PLAYER.name}'s gold set to 7." in mixed_case, mixed_case
-    coins = COINS_PATTERN.search(read_stat(implementor, PLAYER.name))
+    coins = COINS_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert coins is not None and int(coins.group(1)) == 7
 
     offence = wizset(implementor, "ob 5")
@@ -482,7 +470,7 @@ def test_stat_shows_an_affect_bit_on_one_aff_line(server) -> None:
 
     reply = wizset(implementor, f"affected {DETECT_MAGIC_BIT_VALUE}")
     assert f"{PLAYER.name}'s affected set to {DETECT_MAGIC_BIT_VALUE}." in reply, reply
-    affect_line = AFFECT_LINE_PATTERN.search(read_stat(implementor, PLAYER.name))
+    affect_line = AFFECT_LINE_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert affect_line is not None
     assert affect_line.group(1) == f" {DETECT_MAGIC_NAME}.", affect_line.group(0)
 
@@ -570,7 +558,7 @@ def test_stat_obj_names_wear_and_extra_flags(server) -> None:
 
     created = implementor.command(f"load obj {GIRDLE_VNUM}")
     assert created.contains("You create a stone girdle."), created.text
-    stat = read_object_stat(implementor, "girdle")
+    stat = read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE)
     assert GIRDLE_WEAR_LINE in stat, stat
     assert GIRDLE_EXTRA_FLAGS_LINE in stat, stat
     affect_line = OBJECT_AFFECT_LINE_PATTERN.search(stat)

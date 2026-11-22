@@ -9,6 +9,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_room_editor]
@@ -101,7 +102,7 @@ def stat_room_affections(implementor: GameSession) -> list:
 
     stat room has lines ending in ']', so it is read with send_line, expect and drain.
     """
-    text = reply_to(implementor, "stat room", ["Affections:"], settle=SETTLE_SECONDS)
+    text = read_stat(implementor, "room", last_line=OBJECT_STAT_LAST_LINE, settle=SETTLE_SECONDS)
     stat_lines = raw_lines(text)
     heading = next(index for index, line in enumerate(stat_lines) if line.startswith("Affections:"))
     return stat_lines[heading:]
@@ -203,7 +204,7 @@ def test_implementing_a_dark_room_unchanged_leaves_it_dark(server) -> None:
     close_room_editor(implementor)
     implemented_look = look(mortal)
     implementor.command(f"goto {world.ROOM_DARK_CELL}")
-    stat_text = reply_to(implementor, "stat room", ["Affections:"], settle=SETTLE_SECONDS)
+    stat_text = read_stat(implementor, "room", last_line=OBJECT_STAT_LAST_LINE, settle=SETTLE_SECONDS)
 
     assert booted_look == PITCH_BLACK
     assert implemented_look == PITCH_BLACK

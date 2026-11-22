@@ -11,6 +11,7 @@ import pytest
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import read_stat
 from rots_harness.text_lines import raw_lines, stripped_lines
 from rots_harness.world_resets import MobReset
 
@@ -90,8 +91,6 @@ NO_MAIL_WAITING = f"{POSTMASTER} tells you, 'Sorry, you don't have any mail wait
 LETTER_GIVEN = f"{POSTMASTER} gives you a letter."
 # What the sender reads once the letter is saved (string_add, modify.cpp).
 MESSAGE_SENT = "Message sent!"
-# The last line `stat player` prints before the affect lines (do_stat_character, act_wiz.cpp).
-STAT_LAST_LINE_MARKER = "VUL:"
 # The letter's object (postmaster_receive_mail) as the inventory lists it.
 LETTER_SHORT = "a letter"
 # What reading a note prints before its text (show_obj_to_char, act_info.cpp), and the letter's
@@ -145,7 +144,7 @@ def text_after(text: str, header: str) -> list:
 
 def coins_of(implementor: GameSession, name: str) -> int:
     """The coins, in copper, the implementor's `stat player` shows the character carrying."""
-    reply = reply_to(implementor, f"stat player {name}", [STAT_LAST_LINE_MARKER], settle=SETTLE_SECONDS)
+    reply = read_stat(implementor, f"player {name}", settle=SETTLE_SECONDS)
     found = COINS_PATTERN.search(reply)
     assert found, reply
     return int(found.group(1))

@@ -12,6 +12,12 @@ import pytest
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
+from rots_harness.stat_reading import (
+    AFFECT_BITS_AT_LINE_START_PATTERN,
+    ANGER_AFFECT_PATTERN,
+    CONSTITUTION_PATTERN,
+    HIT_POINTS_BEFORE_GAIN_PATTERN,
+)
 from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset
 
@@ -192,8 +198,6 @@ TOO_ANGRY_MARKER = "The harness innkeeper tells you, 'You're too angry.  Come ba
 INNKEEPER_TELLS_FRAGMENT = "The harness innkeeper tells you, '"
 # The game hours of anger the leader's blow gives (on_attacked_character, char_utils_combat.cpp).
 ANGER_HOURS = 2
-# The anger affect's line in `stat player` (do_stat_character, act_wiz.cpp).
-ANGER_AFFECT_PATTERN = re.compile(r"^\s*SPL: \(\s*-?\d+hr\) anger", re.MULTILINE)
 
 # One line of the immortal `where <keyword>` (perform_immort_where, act_info.cpp): name, room
 # vnum, and the room's name or `>> Carried by <holder>`.
@@ -210,8 +214,6 @@ IN_ROOM_PATTERN = re.compile(r"In room \[\s*(-?\d+)\]")
 MASTER_PATTERN = re.compile(r"Master is: (.*?), Followers are:(.*?)\n\s*Delay command", re.DOTALL)
 # The `stat` inventory and equipment counts.
 ITEMS_PATTERN = re.compile(r"Items in: inventory: (\d+), eq: (\d+)")
-# The `stat` affect bits.
-AFFECT_BITS_PATTERN = re.compile(r"^\s*AFF: (.*)$", re.MULTILINE)
 # The `stat` real OB (get_real_OB), the first `OB:` number.
 REAL_OB_PATTERN = re.compile(r"OB: (-?\d+)\(")
 # The `stat` real dodge (get_real_dodge).
@@ -224,10 +226,6 @@ ENERGY_PATTERN = re.compile(r"ENERGY: (-?\d+),")
 DAMAGE_PATTERN = re.compile(r", damage: (-?\d+),")
 # The `stat` current strength.
 STRENGTH_PATTERN = re.compile(r"Str:\[(-?\d+)/")
-# The `stat` current constitution; `\s*` covers the space after "Con:".
-CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The `stat` current and maximum hit points.
-HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)\+")
 # The `stat` resistances and vulnerabilities.
 RESISTANCES_PATTERN = re.compile(r"RES: (.*?) VUL: (.*?)\s*$", re.MULTILINE)
 # The `stat obj` weapon damage, in tenths (get_weapon_damage, utility.cpp).
@@ -263,7 +261,7 @@ def matched_groups(pattern: re.Pattern, text: str) -> tuple:
 
 def affect_bits(stat_text: str) -> list:
     """The affect bit names on a `stat` reply's AFF line."""
-    match = AFFECT_BITS_PATTERN.search(stat_text)
+    match = AFFECT_BITS_AT_LINE_START_PATTERN.search(stat_text)
     assert match is not None, stat_text
     return [name.rstrip(".") for name in match.group(1).split()]
 
@@ -496,7 +494,7 @@ def check_fight_margins(implementor: GameSession, leader: GameSession) -> None:
         assert f"Carried by: {recruit.name}," in weapon_stat, weapon_stat
         assert first_number(WEAPON_DAMAGE_PATTERN, weapon_stat) == 54, weapon_stat
     dummy_stat = implementor_reply(implementor, "stat mob dummy")
-    assert matched_groups(HIT_POINTS_PATTERN, dummy_stat) == ("75", "75"), dummy_stat
+    assert matched_groups(HIT_POINTS_BEFORE_GAIN_PATTERN, dummy_stat) == ("75", "75"), dummy_stat
     assert stat_values(dummy_stat, DODGE_PATTERN, PARRY_PATTERN, CONSTITUTION_PATTERN) == (0, 0, 2), dummy_stat
     assert "Pos: Standing," in dummy_stat and affect_bits(dummy_stat) == ["<NONE>"], dummy_stat
     assert matched_groups(RESISTANCES_PATTERN, dummy_stat) == ("<NONE>", "<NONE>"), dummy_stat

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import AFFECT_BITS_PATTERN, HIT_POINTS_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.idle_removal]
 
@@ -88,19 +88,13 @@ FORCED_MARKER = "Ok."
 IDLE_REMOVAL_LOG = "Testidler force-rented and extracted (idle)."
 # What the server logs when the idler dies of its own gear's poison (die, fight.cpp).
 DEATH_LOG = "Testidler killed by Testidler at Idle Hall"
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp).
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to keep reading after an acknowledgement, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
 # The stat line with the room vnum (do_stat_character, act_wiz.cpp).
 STAT_ROOM_PATTERN = re.compile(r"In room \[\s*(\d+)\]")
-# The stat line with current and maximum hit points.
-STAT_HIT_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)")
 # The stat line with the idle timer, in game hours.
 STAT_TIMER_PATTERN = re.compile(r"Idle Timer \(in tics\) \[(\d+)\]")
-# The stat line with the affect bits, such as `POISON.`, or <NONE>.
-STAT_AFFECTS_PATTERN = re.compile(r"AFF: (.*)")
 # The score line with current and maximum hit points.
 SCORE_HIT_PATTERN = re.compile(r"You have (-?\d+)/(\d+) hit,")
 
@@ -115,11 +109,11 @@ def hand_object(implementor: GameSession, vnum: int, keyword: str) -> None:
 
 def idler_stat(implementor: GameSession) -> tuple:
     """The idler's room vnum, current and maximum hit points, idle timer and affect bits, from stat."""
-    text = reply_to(implementor, f"stat player {IDLER.name.lower()}", [STAT_LAST_LINE_MARKER])
+    text = read_stat(implementor, f"player {IDLER.name.lower()}")
     room = STAT_ROOM_PATTERN.search(text)
-    hit = STAT_HIT_PATTERN.search(text)
+    hit = HIT_POINTS_PATTERN.search(text)
     timer = STAT_TIMER_PATTERN.search(text)
-    affects = STAT_AFFECTS_PATTERN.search(text)
+    affects = AFFECT_BITS_PATTERN.search(text)
     assert room and hit and timer and affects, f"stat lines missing for {IDLER.name}:\n{text}"
     return int(room.group(1)), int(hit.group(1)), int(hit.group(2)), int(timer.group(1)), affects.group(1).strip()
 

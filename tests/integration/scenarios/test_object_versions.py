@@ -16,6 +16,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, STRENGTH_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_versions]
 
@@ -145,9 +146,7 @@ GIVEN_MARKER_FORMAT = "You give {} to {}."
 DROPPED_MARKER_FORMAT = "You drop {}."
 PUT_MARKER_FORMAT = "You put {} in {}."
 
-# The stat obj lines this file pins (do_stat_object, act_wiz.cpp); the last line of the reply is
-# the affections line.
-STAT_LAST_LINE_MARKER = "Affections:"
+# The stat obj lines this file pins (do_stat_object, act_wiz.cpp).
 NO_SUCH_OBJECT_MARKER = "No such object around."
 UNVERSIONED_LINE = "Version: prototype none, this copy none"
 BUMPED_BEFORE_LOGIN_LINE = "Version: prototype 1 (on), this copy none"
@@ -268,10 +267,6 @@ RENT_LOG_FORMAT = "{} has rented (0/day, 0 tot.)"
 UNRENT_LOG_FORMAT = "{} un-renting and entering game."
 # The stat player line with the character's idnum (do_stat_character, act_wiz.cpp).
 IDNUM_PATTERN = re.compile(r"IDNum: \[\s*(\d+)\]")
-# The strength numbers of stat player: current, base and constant.
-STRENGTH_PATTERN = re.compile(r"Str:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-# The stat player line just before the affect lines: once it arrives, the drain collects the rest.
-STAT_PLAYER_LAST_LINE_MARKER = "VUL:"
 
 # Seconds to wait for a cast's outcome: enchant weapon's 72 beats at mystic level 30 are 36
 # (CASTING_TIME, spells.h), four and a half seconds; 15 leaves room for a loaded host.
@@ -329,7 +324,7 @@ def stat_object(implementor: GameSession, keyword: str) -> list:
     stat obj looks in the implementor's inventory, then its room, then the whole world
     (get_obj_vis, handler.cpp), so each caller asserts the location line of the copy it meant.
     """
-    text = reply_to(implementor, f"stat obj {keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_OBJECT_MARKER])
+    text = read_stat(implementor, f"obj {keyword}", last_line=OBJECT_STAT_LAST_LINE, other_outcomes=[NO_SUCH_OBJECT_MARKER])
     assert NO_SUCH_OBJECT_MARKER not in text, text
     return [line.strip() for line in text.splitlines()]
 
@@ -346,14 +341,9 @@ def stat_sword(implementor: GameSession, holder: Character) -> list:
     return stat_carried_object(implementor, SWORD_KEYWORD, holder)
 
 
-def stat_player(implementor: GameSession, name: str) -> str:
-    """The implementor's stat player on the named character."""
-    return reply_to(implementor, f"stat player {name.lower()}", [STAT_PLAYER_LAST_LINE_MARKER])
-
-
 def player_idnum(implementor: GameSession, name: str) -> int:
     """The character's idnum, from stat player."""
-    text = stat_player(implementor, name)
+    text = read_stat(implementor, f"player {name.lower()}")
     match = IDNUM_PATTERN.search(text)
     assert match is not None, f"no IDNum in stat player {name}:\n{text}"
     return int(match.group(1))
@@ -361,7 +351,7 @@ def player_idnum(implementor: GameSession, name: str) -> int:
 
 def strength_base_and_constant(implementor: GameSession, name: str) -> tuple:
     """The character's base and constant strength, from stat player."""
-    text = stat_player(implementor, name)
+    text = read_stat(implementor, f"player {name.lower()}")
     match = STRENGTH_PATTERN.search(text)
     assert match is not None, f"no Str in stat player {name}:\n{text}"
     return int(match.group(2)), int(match.group(3))

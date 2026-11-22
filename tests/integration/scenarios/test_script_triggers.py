@@ -30,6 +30,13 @@ import pytest
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import (
+    CONSTITUTION_PATTERN,
+    HIT_POINTS_BEFORE_GAIN_PATTERN,
+    LEVEL_PATTERN,
+    SAVING_THROW_PATTERN,
+    read_stat,
+)
 from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset, ObjectReset
 
@@ -198,20 +205,10 @@ EXPERIENCE_SHARE_PATTERN = re.compile(r"You receive your share of experience -- 
 #                       = 13, so 103
 #                       exp += 2 * 103 / max(1, 10 - 1) = 22, so 125
 EXPECTED_SHARE = 125
-# The stat line with current and maximum hit points (do_stat_character, act_wiz.cpp).
-HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)\+")
-# The stat line with the saving throw that apply_spell_damage (mage.cpp) reads.
-SAVING_THROW_PATTERN = re.compile(r"Saving throws (-?\d+),")
-# The stat line with constitution's current value, which update_pos (fight.cpp) reads.
-CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The stat line with experience, padded to seven places.
+# The stat line with experience, padded to seven places (do_stat_character, act_wiz.cpp).
 EXPERIENCE_PATTERN = re.compile(r"XP: \[\s*(-?\d+)\]")
-# The same stat line's level, padded to two places.
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 # The same stat line's alignment, padded to four places.
 ALIGNMENT_PATTERN = re.compile(r"Align: \[\s*(-?\d+)\]")
-# The stat line before the affect lines; once it arrives the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to wait for a cast or a script's wait to end: magic missile's casting time and the
 # parrot's 20 passes are each under six seconds; the rest leaves room for a loaded host.
 WAIT_TIMEOUT = 15.0
@@ -280,11 +277,6 @@ def death_cry(mob: TriggerMob) -> str:
     return f"Your blood freezes as you hear {mob.short_description}'s death cry."
 
 
-def read_stat(implementor: GameSession, target: str) -> str:
-    """The implementor's stat of a mob or player; several of its lines end in ], so command() would stop early."""
-    return reply_to(implementor, f"stat {target}", [STAT_LAST_LINE_MARKER])
-
-
 def join_the_mortal(implementor: GameSession) -> None:
     """Brings the implementor to the trigger hall; goto sets off no trigger."""
     arrived = implementor.command(f"goto {ROOM_TRIGGER_HALL}")
@@ -307,7 +299,7 @@ def missile_always_kills(implementor: GameSession, mob: TriggerMob) -> str:
     So die() runs on every missile that lands.
     """
     stat = read_stat(implementor, f"mob {mob.keyword}")
-    hit_points = HIT_POINTS_PATTERN.search(stat)
+    hit_points = HIT_POINTS_BEFORE_GAIN_PATTERN.search(stat)
     assert hit_points is not None and (int(hit_points.group(1)), int(hit_points.group(2))) == (1, 1), stat
     assert first_number(SAVING_THROW_PATTERN, stat) == 0, stat
     assert first_number(CONSTITUTION_PATTERN, stat) == 10, stat
@@ -613,13 +605,13 @@ def test_a_damage_script_that_returns_false_stops_a_spells_blow(server) -> None:
     caster = server.login(CASTER.name)
     join_the_mortal(implementor)
     before = read_stat(implementor, f"mob {STOIC.keyword}")
-    assert first_number(HIT_POINTS_PATTERN, before) == 200, before
+    assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, before) == 200, before
 
     refusal = said(STOIC, f"Your blow cannot touch me, {CASTER.name}.")
     cast_until_it_lands(caster, STOIC, [refusal])
 
     after = read_stat(implementor, f"mob {STOIC.keyword}")
-    assert first_number(HIT_POINTS_PATTERN, after) == 200, after
+    assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, after) == 200, after
     # The blow left the caster fighting the stoic, and a fighter cannot quit.
     assert implementor.command(f"purge {STOIC.keyword}").contains("Ok.")
     let_the_anger_pass(server)
@@ -687,7 +679,7 @@ def test_a_death_script_that_returns_false_keeps_the_mob_alive(server) -> None:
     assert EXPERIENCE_SHARE_PATTERN.search(survived) is None, survived
 
     after = read_stat(implementor, f"mob {STUBBORN.keyword}")
-    assert first_number(HIT_POINTS_PATTERN, after) == 30, after
+    assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, after) == 30, after
     looked = caster.command("look").text
     assert "corpse of" not in looked, looked
     assert STUBBORN_ROOM_LINE in looked, looked

@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, read_stat
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.practice, pytest.mark.practice_sessions]
@@ -57,12 +58,8 @@ PLAIN_ROW_PATTERN_FORMAT = r"^\r?{}\s+\(([A-Za-z ]+)\)"
 GUILD_ROW_PATTERN_FORMAT = r"^\r?{}\s+(\d+)%\s+(\d+)\s+Taught to: "
 # The guildmaster list's session count.
 GUILD_SESSIONS_PATTERN = re.compile(r"You have (\d+) practice sessions left\.")
-# Values in `stat player` (do_stat_character, act_wiz.cpp): learning as current/base/constant,
-# the level, the specialization number and the practice sessions.
-LEARNING_PATTERN = re.compile(r"Lea:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
+# The specialization number in `stat player` (do_stat_character, act_wiz.cpp).
 SPECIALIZATION_PATTERN = re.compile(r"Spec:\((-?\d+)\)")
-STAT_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
 
 # What the pupil reads on a reset (do_pracreset, spec_pro.cpp); format with the resetter's name
 # as act() starts a line with it.
@@ -83,11 +80,6 @@ NO_SUCH_PERSON_MARKER = "No such person."
 CANNOT_LEARN_MARKER = "This person cannot learn anything, don't bother yourself."
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
-
-
-def stat_player(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player` of the character, read to its last line."""
-    return reply_to(implementor, f"stat player {name.lower()}", ["VUL:"])
 
 
 def stat_value(pattern: re.Pattern[str], text: str) -> tuple[int, ...]:
@@ -139,7 +131,7 @@ def test_telling_the_angel_pracreset_resets_knowledge_sessions_and_specializatio
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
-    before = stat_player(implementor, PUPIL.name)
+    before = read_stat(implementor, f"player {PUPIL.name.lower()}")
     assert stat_value(SPECIALIZATION_PATTERN, before) == (FIRE_SPECIALIZATION,)
     level = stat_value(LEVEL_PATTERN, before)[0]
     current_learning = stat_value(LEARNING_PATTERN, before)[0]
@@ -160,7 +152,7 @@ def test_telling_the_angel_pracreset_resets_knowledge_sessions_and_specializatio
     #                   = 30 * 3 + 30 * 40 / 5 + 10      (Lev: [30]; Lea current 40, as stored)
     #                   = 90 + 240 + 10 = 340
     assert plain_sessions(listed) == 340, listed
-    after = stat_player(implementor, PUPIL.name)
+    after = read_stat(implementor, f"player {PUPIL.name.lower()}")
     assert stat_value(SPECIALIZATION_PATTERN, after) == (0,), after
 
 
@@ -250,12 +242,12 @@ def test_learning_set_by_an_immortal_changes_the_sessions_only_at_the_next_login
 
     reply = implementor.command(f"wizset player {PUPIL.name.lower()} lea {LEARNING}")
     assert reply.contains(f"{PUPIL.name}'s lea set to {LEARNING}."), reply.text
-    learning = stat_value(LEARNING_PATTERN, stat_player(implementor, PUPIL.name))
+    learning = stat_value(LEARNING_PATTERN, read_stat(implementor, f"player {PUPIL.name.lower()}"))
     assert learning[1:] == (LEARNING, LEARNING)
     assert plain_sessions(plain_list(pupil)) == before
 
     pupil = relog(server, pupil)
-    after = stat_player(implementor, PUPIL.name)
+    after = read_stat(implementor, f"player {PUPIL.name.lower()}")
     assert stat_value(LEVEL_PATTERN, after) == (30,)
     assert stat_value(LEARNING_PATTERN, after)[1] == LEARNING
     # get_max_practice_count - get_spent_practice_count (char_utils.cpp):
@@ -314,22 +306,22 @@ def test_advancing_down_and_back_up_moves_the_sessions_by_the_formula(server) ->
     server.login(PUPIL.name)
     # Recount at login: 30 * 3 + 30 * 40 / 5 + 10 - 3 = 90 + 240 + 10 - 3 = 337
     # (Lev: [30]; Lea base 40; 3 blink sessions spent).
-    assert stat_value(STAT_SESSIONS_PATTERN, stat_player(implementor, PUPIL.name)) == (337,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, read_stat(implementor, f"player {PUPIL.name.lower()}")) == (337,)
 
     reply = implementor.command(f"advance {PUPIL.name.lower()} 20")
     assert reply.contains("Ok."), reply.text
-    lowered = stat_player(implementor, PUPIL.name)
+    lowered = read_stat(implementor, f"player {PUPIL.name.lower()}")
     assert stat_value(LEVEL_PATTERN, lowered) == (20,)
     assert stat_value(LEARNING_PATTERN, lowered)[1] == LEARNING
     # do_advance, adv = 20 - 30 = -10:
     #   spells_to_learn += adv * PRACS_PER_LEVEL + (adv * GET_LEA_BASE) / LEA_PRAC_FACTOR
     #                    = -10 * 3 + (-10 * 40) / 5 = -30 - 80 = -110, so 337 - 110 = 227
-    assert stat_value(STAT_SESSIONS_PATTERN, lowered) == (227,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, lowered) == (227,)
 
     reply = implementor.command(f"advance {PUPIL.name.lower()} 30")
     assert reply.contains("Ok."), reply.text
-    raised = stat_player(implementor, PUPIL.name)
+    raised = read_stat(implementor, f"player {PUPIL.name.lower()}")
     assert stat_value(LEVEL_PATTERN, raised) == (30,)
     assert stat_value(LEARNING_PATTERN, raised)[1] == LEARNING
     # advance_level's recount at level 30: 30 * 3 + 30 * 40 / 5 + 10 - 3 = 337.
-    assert stat_value(STAT_SESSIONS_PATTERN, raised) == (337,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, raised) == (337,)

@@ -10,6 +10,7 @@ import pytest
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import AFFECT_BITS_PATTERN, CONSTITUTION_PATTERN, HIT_POINTS_PATTERN, read_stat
 from rots_harness.text_lines import first_number
 
 pytestmark = [pytest.mark.scenario, pytest.mark.affect_ticks]
@@ -84,31 +85,18 @@ SAINT_SANCTUARY_BROKEN_MARKER = "Testsaint's sanctuary is broken!"
 AURA_FLICKERS_MARKER = "aura flickers."
 # What force answers once it has run the command (do_force, act_wiz.cpp).
 FORCED_MARKER = "Ok."
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp).
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to keep reading after an acknowledgement, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
-# The stat line with current and maximum hit points.
-STAT_HIT_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)")
-# The stat line with current constitution.
-STAT_CON_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The stat line with the affect bits.
-STAT_AFFECTS_PATTERN = re.compile(r"AFF: (.*)")
 # One stat line per affect, in the order of the character's affect list: hours left and name.
 STAT_SPELL_PATTERN = re.compile(r"SPL: \(\s*(-?\d+)hr\) (\w+)")
 # The sanctuary affect's stat line, whose modifier is the strength check_sanctuary wears down.
 STAT_SANCTUARY_PATTERN = re.compile(r"SPL: \(\s*-?\d+hr\) sanctuary\s+(-?\d+) to NONE")
 
 
-def stat_text(implementor: GameSession, target: str) -> str:
-    """The implementor's stat reply for target, such as "player testsaint" or "mob scarecrow"."""
-    return reply_to(implementor, f"stat {target}", [STAT_LAST_LINE_MARKER])
-
-
 def stat_affects(text: str) -> tuple:
     """The affect bits and the (hours, spell) affect lines of a stat reply."""
-    affects = STAT_AFFECTS_PATTERN.search(text)
+    affects = AFFECT_BITS_PATTERN.search(text)
     assert affects is not None, f"no AFF line in stat:\n{text}"
     spell_lines = STAT_SPELL_PATTERN.findall(text)
     spells = tuple((int(hours), name) for hours, name in spell_lines)
@@ -163,9 +151,9 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     hand_object(implementor, SASH_VNUM, "sash", "scarecrow")
     force_scarecrow(implementor, "wear sash", SCARECROW_WEARS_MARKER)
 
-    scarecrow = stat_text(implementor, "mob scarecrow")
-    hit = first_number(STAT_HIT_PATTERN, scarecrow)
-    constitution = first_number(STAT_CON_PATTERN, scarecrow)
+    scarecrow = read_stat(implementor, "mob scarecrow")
+    hit = first_number(HIT_POINTS_PATTERN, scarecrow)
+    constitution = first_number(CONSTITUTION_PATTERN, scarecrow)
     # Scarecrow's tick, a mob's own poison (attacker and victim the scarecrow, so not a player's blow):
     #   hit at the tick = min(hit + regeneration, maximum) <= -52               (HP :[-52/-52])
     #   after the tick  = -52 - POISON_TICK_DAMAGE = -57
@@ -221,7 +209,7 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     hand_object(implementor, TAINTED_BREAD_VNUM, "bread", SAINT.name.lower())
     assert saint.command("eat bread").contains(EATEN_POISON_MARKER)
 
-    before = stat_text(implementor, f"player {SAINT.name.lower()}")
+    before = read_stat(implementor, f"player {SAINT.name.lower()}")
     strength = first_number(STAT_SANCTUARY_PATTERN, before)
     # Saint's tick, his own poison as the attacker (check_sanctuary(ch, victim), both the saint):
     #   aff->modifier = aff->modifier - number(0, (-1 * GET_ALIGNMENT(ch)) / 2)
@@ -239,7 +227,7 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     assert ward.count(SAINT_SANCTUARY_BROKEN_MARKER) == 1, ward
     assert ward.count(SAINT_WRITHES_MARKER) == 1, ward
     assert AURA_FLICKERS_MARKER not in ward, ward
-    after = stat_text(implementor, f"player {SAINT.name.lower()}")
+    after = read_stat(implementor, f"player {SAINT.name.lower()}")
     assert stat_affects(after) == ("POISON.", ((4, "poison"),))
 
     second_hour = text_after_an_hour(server, saint)

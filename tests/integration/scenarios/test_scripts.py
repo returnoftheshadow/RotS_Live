@@ -15,8 +15,8 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import CONSTITUTION_PATTERN, read_stat
 from rots_harness.text_lines import capitalised
 from rots_harness.world_resets import MobReset
 
@@ -86,13 +86,9 @@ SLAY_MARKER = "You chop him to pieces!  Ah!  The blood!"
 DELAY_LINE_PATTERN = re.compile(r"Delay command:(-?\d+) delay_value:(-?\d+)")
 # The command number a script's wait leaves as the delay command (CMD_SCRIPT, interpre.h).
 SCRIPT_DELAY_COMMAND = 9999
-# The stat lines with a character's current hit points, maximum and hourly gain, its position,
-# and its constitution's current value.
+# The stat lines with a character's current hit points, maximum and hourly gain, and its position.
 HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)\+(-?\d+)\(")
 POSITION_PATTERN = re.compile(r"Pos: ([A-Za-z ]+), Fighting:")
-CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The stat line after the delay line's block; once it arrives the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to wait for a foreman's last line: four passes are one second (OPT_USEC, comm.cpp);
 # the rest leaves room for a loaded host. Also the wait for a line to reach game.log.
 WAIT_TIMEOUT = 10.0
@@ -134,11 +130,6 @@ def give_new_object(implementor: GameSession, vnum: int, keyword: str, mob: Scri
     reply = implementor.command(f"give {keyword} {mob.keyword}")
     assert reply.contains("You give"), reply.text
     return reply.text
-
-
-def read_mob_stat(implementor: GameSession, mob: ScriptMob) -> str:
-    """The implementor's stat of the mob; several of its lines end in ], so command() would stop early."""
-    return reply_to(implementor, f"stat mob {mob.keyword}", [STAT_LAST_LINE_MARKER])
 
 
 def stat_value(pattern: re.Pattern, stat: str) -> str:
@@ -271,7 +262,7 @@ def test_a_finished_script_leaves_no_script_delay_on_its_mob(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     finish_the_foremans_script(implementor)
 
-    stat = read_mob_stat(implementor, WEARY_FOREMAN)
+    stat = read_stat(implementor, f"mob {WEARY_FOREMAN.keyword}")
     delay = DELAY_LINE_PATTERN.search(stat)
     assert delay is not None, stat
     assert (int(delay.group(1)), int(delay.group(2))) == (0, 0), stat
@@ -291,7 +282,7 @@ def test_a_waiting_script_shows_its_delay_on_its_mob(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     start_the_patient_foremans_wait(implementor)
 
-    stat = read_mob_stat(implementor, PATIENT_FOREMAN)
+    stat = read_stat(implementor, f"mob {PATIENT_FOREMAN.keyword}")
     delay = DELAY_LINE_PATTERN.search(stat)
     assert delay is not None, stat
     assert int(delay.group(1)) == SCRIPT_DELAY_COMMAND, stat
@@ -731,7 +722,7 @@ def test_a_script_hit_write_above_the_limit_is_clamped_and_reads_healthy(server)
     implementor = server.login(IMPLEMENTOR.name)
     give_new_object(implementor, PEBBLE_VNUM, "pebble", HALE)
 
-    stat = read_mob_stat(implementor, HALE)
+    stat = read_stat(implementor, f"mob {HALE.keyword}")
     assert int(stat_value(HIT_POINTS_PATTERN, stat)) == SCRIPT_HIT_LIMIT, stat
     looked = implementor.command(f"look {HALE.keyword}").text
     assert "A hale wrestler looks healthy." in looked, looked
@@ -755,7 +746,7 @@ def test_a_script_hit_write_of_zero_stuns_and_a_later_write_stands_the_mob_up(se
     implementor = server.login(IMPLEMENTOR.name)
     give_new_object(implementor, PEBBLE_VNUM, "pebble", DAZED)
 
-    stat = read_mob_stat(implementor, DAZED)
+    stat = read_stat(implementor, f"mob {DAZED.keyword}")
     # update_pos (fight.cpp) for the dazed wrestler, with hit 0 and Con from stat:
     #   GET_HIT > 0                  : 0 > 0                      is false
     #   GET_HIT <= -GET_CON / 2      : 0 <= -10 / 2 = -5          is false
@@ -769,7 +760,7 @@ def test_a_script_hit_write_of_zero_stuns_and_a_later_write_stands_the_mob_up(se
     assert "A dazed wrestler is lying here, stunned." in looked, looked
 
     implementor.command("say Wake up.")
-    stat = read_mob_stat(implementor, DAZED)
+    stat = read_stat(implementor, f"mob {DAZED.keyword}")
     assert int(stat_value(HIT_POINTS_PATTERN, stat)) == 50, stat
     assert stat_value(POSITION_PATTERN, stat) == "Standing", stat
 
@@ -793,7 +784,7 @@ def test_a_script_hit_write_far_below_zero_leaves_the_mob_dead_until_the_hourly_
     implementor = server.login(IMPLEMENTOR.name)
     give_new_object(implementor, PEBBLE_VNUM, "pebble", DOOMED)
 
-    stat = read_mob_stat(implementor, DOOMED)
+    stat = read_stat(implementor, f"mob {DOOMED.keyword}")
     hit_match = HIT_POINTS_PATTERN.search(stat)
     assert hit_match is not None, stat
     hit, hourly_gain = int(hit_match.group(1)), int(hit_match.group(3))

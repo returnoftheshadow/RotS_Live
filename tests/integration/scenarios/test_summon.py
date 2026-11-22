@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import MAGE_LEVEL_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.summon]
 
@@ -115,9 +116,6 @@ DROP_FORMAT = "You drop {}."
 TELEPORTED_MARKER = "has teleported you!"
 # What look prints instead of the room for a character who cannot see (do_look, act_info.cpp).
 DARK_ROOM_LOOK = "It is pitch black..."
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
-# the drain collects the rest of the reply.
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to wait for a cast's outcome: summon's 36 beats at mage level 30 are 18 passes, four
 # and a half seconds (CASTING_TIME, spells.h); 15 leaves room for a loaded host or emulated i386.
 CAST_TIMEOUT = 15.0
@@ -125,7 +123,6 @@ CAST_TIMEOUT = 15.0
 SETTLE_SECONDS = 1.0
 
 # The stat lines new_saves_spell's inputs come from (do_stat_character, act_wiz.cpp).
-MAGE_LEVEL_PATTERN = re.compile(r"Class levels: Mag:(\d+) ")
 CURRENT_INTELLIGENCE_PATTERN = re.compile(r"Int:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")
 SPELL_PEN_PATTERN = re.compile(r"Spell_Pen: (-?\d+),")
 # A zone file's map line, `<symbol> <x> <y> <level>` (load_zones, zone.cpp).
@@ -147,7 +144,7 @@ def zone_map_square(zone_number: int) -> tuple:
 
 def save_inputs(implementor: GameSession, name: str) -> tuple:
     """The mage level, current intelligence and spell penetration stat shows for a character."""
-    text = reply_to(implementor, f"stat player {name.lower()}", [STAT_LAST_LINE_MARKER])
+    text = read_stat(implementor, f"player {name.lower()}")
     mage_level = MAGE_LEVEL_PATTERN.search(text)
     intelligence = CURRENT_INTELLIGENCE_PATTERN.search(text)
     spell_pen = SPELL_PEN_PATTERN.search(text)

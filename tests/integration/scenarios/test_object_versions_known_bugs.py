@@ -11,6 +11,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from test_object_versions import (
     CANNOT_SEE_RENTER_MARKER,
     INNKEEPER_IN_ROOM_LINE,
@@ -86,8 +87,7 @@ TOO_DRUNK_MARKER = "You can't seem to get close enough to your mouth."
 WILLPOWER_FLAG = " WILLPOWER "
 EXTRA_FLAGS_LINE_START = "Extra flags   :"
 
-# The stat obj reply's last line, and its answer when nothing matches (do_stat_object, do_wizstat).
-STAT_LAST_LINE_MARKER = "Affections:"
+# What stat obj answers when nothing matches (do_wizstat, act_wiz.cpp).
 NO_SUCH_OBJECT_MARKER = "No such object around."
 # The teleport reply the mortal reads (do_teleport, act_wiz.cpp), and the implementor's reply when
 # the name matches no one.
@@ -113,7 +113,7 @@ def give_new_object(implementor: GameSession, vnum: int, keyword: str, short_des
 
 def stat_object(implementor: GameSession, keyword: str) -> list:
     """The lines of the implementor's stat obj on the first object answering to keyword, stripped."""
-    text = reply_to(implementor, f"stat obj {keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_OBJECT_MARKER])
+    text = read_stat(implementor, f"obj {keyword}", last_line=OBJECT_STAT_LAST_LINE, other_outcomes=[NO_SUCH_OBJECT_MARKER])
     assert NO_SUCH_OBJECT_MARKER not in text, text
     return [line.strip() for line in text.splitlines()]
 

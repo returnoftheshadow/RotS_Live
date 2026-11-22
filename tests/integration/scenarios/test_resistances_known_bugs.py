@@ -4,14 +4,13 @@ for issue #452 and kept here as its regression test."""
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
 from test_resistances import (
     ALREADY_PROTECTED_MARKER,
     FLAG_RESIST_ITEM_KEYWORD,
@@ -71,14 +70,8 @@ LEVEL_SET_MARKER_FORMAT = "{}'s level set to {}."
 # Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
 # spells.h); 15 leaves room for a loaded host or emulated i386.
 CAST_TIMEOUT = 15.0
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
-# the drain collects the rest of the reply.
-STAT_LAST_LINE_MARKER = "VUL:"
 # The room every character in this file starts in, as look names it.
 ARENA_CENTRE_NAME = "Arena Centre"
-
-# The stat line with the profession levels (do_stat_character, act_wiz.cpp).
-CLERIC_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:(\d+) ")
 
 
 def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyword: str) -> None:
@@ -93,7 +86,7 @@ def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyw
 
 def cleric_level(implementor: GameSession, character: Character) -> int:
     """The mystic profession level stat shows for the character."""
-    text = reply_to(implementor, f"stat player {character.name.lower()}", [STAT_LAST_LINE_MARKER])
+    text = read_stat(implementor, f"player {character.name.lower()}")
     match = CLERIC_LEVEL_PATTERN.search(text)
     assert match is not None, f"no class levels line for {character.name}:\n{text}"
     return int(match.group(1))

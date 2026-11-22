@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import read_stat
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.followers]
@@ -172,8 +173,6 @@ SETTLE_SECONDS = 1.0
 # The stat line of a mob's points: current, maximum and gain of hit points, stamina and moves
 # (do_stat_character, act_wiz.cpp). Stamina is the game's word for mana.
 POINTS_PATTERN = re.compile(r"HP :\[(\d+)/(\d+)\+\d+\(\d+\)\]\s+Stamina :\[(\d+)/(\d+)\+\d+\(\d+\)\]\s+Move :\[(\d+)/(\d+)\+")
-# The stat line just before the affect lines: once it arrives, the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # What a room reads when the bystander orc reports outside a group (do_report through do_say,
 # act_othe.cpp). do_report lower-cases every letter after the first, so the second "I" reads "i"
 # today (a known bug); either case passes here.
@@ -250,7 +249,7 @@ def force(implementor: GameSession, keyword: str, command: str) -> str:
 
 def read_points(implementor: GameSession, keyword: str) -> tuple:
     """A mob's current and maximum hit points, stamina and moves, as `stat mob` shows them."""
-    text = reply_to(implementor, f"stat mob {keyword}", [STAT_LAST_LINE_MARKER])
+    text = read_stat(implementor, f"mob {keyword}")
     points = POINTS_PATTERN.search(text)
     assert points is not None, f"no points line for {keyword}:\n{text}"
     return tuple(int(value) for value in points.groups())
@@ -678,7 +677,7 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     assert looked.count("corpse") == 2, looked
     cob = implementor.command("where cob").text
     assert "Couldn't find any such thing." in cob, cob
-    stat_text = reply_to(implementor, f"stat player {SINKHOLE_HORSEMAN.name.lower()}", [STAT_LAST_LINE_MARKER])
+    stat_text = read_stat(implementor, f"player {SINKHOLE_HORSEMAN.name.lower()}")
     assert re.search(r"HP :\[1/", stat_text), stat_text
 
 

@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from rots_harness.text_lines import raw_lines
 from test_shaping_saving import file_text, record
 
@@ -166,7 +167,7 @@ def test_saving_a_room_unedited_keeps_its_extra_descriptions_in_order(server) ->
 def look_and_stat_extra_descriptions(implementor: GameSession) -> tuple:
     """What `look sign` shows in the signpost room, and stat room's Extra descs line."""
     looked = implementor.command("look sign").text
-    stat_text = reply_to(implementor, "stat room", ["Affections:"], settle=SETTLE_SECONDS)
+    stat_text = read_stat(implementor, "room", last_line=OBJECT_STAT_LAST_LINE, settle=SETTLE_SECONDS)
     extra_descs = next((line for line in raw_lines(stat_text) if line.startswith("Extra descs:")), "")
     return looked, extra_descs.rstrip()
 

@@ -13,6 +13,7 @@ from rots_harness.characters import IMPLEMENTOR
 from rots_harness.launcher import GAME_LOG_NAME
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import read_stat
 from rots_harness.text_lines import lines_after, stripped_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.zone_dressing]
@@ -124,7 +125,7 @@ def test_a_zone_reset_dresses_its_mob_from_its_equip_kit_give_and_put_rows(serve
     inventory = lines_after(looked, INVENTORY_PEEK_HEADING)
     assert inventory == list(SQUIRE_INVENTORY_LINES), looked
 
-    acorn = reply_to(implementor, "stat object acorn", ["Carried by:"])
+    acorn = read_stat(implementor, "object acorn", last_line="Carried by:")
     assert ACORN_LOCATION_LINE in acorn, acorn
 
 

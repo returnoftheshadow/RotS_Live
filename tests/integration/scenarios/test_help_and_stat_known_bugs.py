@@ -9,8 +9,8 @@ import re
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from test_help_and_stat import (
     CHAIN_SHIRT_VNUM,
     CHAT_OFF_REPLY,
@@ -30,9 +30,6 @@ from test_help_and_stat import (
 
 pytestmark = [pytest.mark.scenario, pytest.mark.help_and_stat]
 
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp): once it arrives,
-# the drain collects the rest of the reply.
-STAT_LAST_LINE_MARKER = "VUL:"
 # The absorb figure on stat's OB line (do_stat_character, act_wiz.cpp).
 STAT_ABSORB_PATTERN = re.compile(r"absorb (-?\d+)")
 
@@ -64,11 +61,6 @@ STALE_LEARNING_LABEL = "SEX"
 ARENA_CENTRE_NAME = "Arena Centre"
 
 
-def read_stat(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player <name>`, read up to its last line."""
-    return reply_to(implementor, f"stat player {name.lower()}", [STAT_LAST_LINE_MARKER])
-
-
 def incognito_display(session: GameSession) -> str:
     """The value `set` shows for Incognito Mode."""
     display = session.command("set")
@@ -81,11 +73,6 @@ def join_player(implementor: GameSession) -> None:
     """The implementor goes to the player in the arena centre."""
     arrived = implementor.command(f"goto {PLAYER.name.lower()}")
     assert arrived.room_name() == ARENA_CENTRE_NAME, arrived.text
-
-
-def read_object_stat(implementor: GameSession, keyword: str) -> str:
-    """The implementor's `stat obj <keyword>`, read up to its last line, the affect list."""
-    return reply_to(implementor, f"stat obj {keyword}", ["Affections:"])
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="help uruk should show the URUK-HAI URUK entry, whose keywords include URUK exactly")
@@ -145,7 +132,7 @@ def test_stat_names_hallucinate_on_one_aff_line(server) -> None:
 
     reply = implementor.command(f"wizset player {PLAYER.name.lower()} affected {HALLUCINATE_BIT_VALUE}")
     assert reply.contains(f"{PLAYER.name}'s affected set to {HALLUCINATE_BIT_VALUE}."), reply.text
-    stat = read_stat(implementor, PLAYER.name)
+    stat = read_stat(implementor, f"player {PLAYER.name.lower()}")
     assert re.search(rf"AFF:[^\r\n]*{HALLUCINATE_NAME}\.", stat), stat
 
 
@@ -217,7 +204,7 @@ def test_stat_obj_does_not_label_a_learning_affect_sex(server) -> None:
 
     created = implementor.command(f"load obj {GIRDLE_VNUM}")
     assert created.contains("You create a stone girdle."), created.text
-    affect_line = OBJECT_AFFECT_LINE_PATTERN.search(read_object_stat(implementor, "girdle"))
+    affect_line = OBJECT_AFFECT_LINE_PATTERN.search(read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE))
     assert affect_line is not None
     assert STALE_LEARNING_LABEL not in affect_line.group(1).split(), affect_line.group(0)
 
@@ -244,6 +231,6 @@ def test_stat_shows_the_statted_characters_absorb(server) -> None:
     player_absorb = INFO_ABSORB_PATTERN.search(info.text)
     assert player_absorb is not None, info.text
 
-    stat_absorb = STAT_ABSORB_PATTERN.search(read_stat(implementor, PLAYER.name))
+    stat_absorb = STAT_ABSORB_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert stat_absorb is not None
     assert int(stat_absorb.group(1)) == int(player_absorb.group(1))

@@ -15,6 +15,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to, text_seen_before_a_say
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import CHARACTER_STAT_LAST_LINE
 from rots_harness.text_lines import assert_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.bank]
@@ -181,8 +182,6 @@ FIGHT_ONGOING_MARKER = "You do the best you can!"
 UNRECOGNIZED_MARKER = "Unrecognized command."
 # The implementor's reply to `invis` with no argument (do_invis, act_wiz.cpp).
 INVISIBLE_MARKER = f"Your invisibility level is {IMPLEMENTOR.level}."
-# The last line `stat file` prints before the affect lines (do_stat_character, act_wiz.cpp).
-STAT_LAST_LINE_MARKER = "VUL:"
 
 # The balance header, then its coin and slot lines (banker_balance and format_bank_balance,
 # banker.cpp). No fee is configured, so the item table has no fee column.
@@ -524,7 +523,7 @@ def test_a_banker_refuses_will_kill_and_blind_before_and_after_a_stat_file(serve
     assert depositor.command("will banker").contains(NO_ATTACKS_MARKER)
 
     implementor.send_line(f"stat file {DEPOSITOR.name.lower()}")
-    implementor.expect([STAT_LAST_LINE_MARKER, "There is no such player.", "Sorry, you can't do that."])
+    implementor.expect([CHARACTER_STAT_LAST_LINE, "There is no such player.", "Sorry, you can't do that."])
     implementor.drain(1.0)
 
     for command in ("will banker", "kill banker", "blind banker"):

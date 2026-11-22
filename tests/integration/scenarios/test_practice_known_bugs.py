@@ -13,6 +13,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, STRENGTH_PATTERN, read_stat
 from rots_harness.world_resets import MobReset
 from test_practice import GO_AWAY_SPEECH, PRACTICED_MARKER, PUPIL, STARTING_SESSIONS, give_sessions
 from test_practice_sessions import (
@@ -67,13 +68,6 @@ FRACTIONAL_LEARNING = 37
 # The reset pupil stored with FRACTIONAL_LEARNING.
 FRACTIONAL_PUPIL = dataclasses.replace(RESET_PUPIL, stored=StoredValues(lea=FRACTIONAL_LEARNING))
 
-# Values in `stat player` (do_stat_character, act_wiz.cpp): learning and strength as
-# current/base/constant, the level and the practice sessions.
-LEARNING_PATTERN = re.compile(r"Lea:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-STRENGTH_PATTERN = re.compile(r"Str:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
-STAT_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
-
 # The immortal command's refusal without a name (do_pracreset).
 WHOM_MARKER = "Whom do you want to reset?"
 # The reroll count after each angel reroll (SPECIAL(resetter)).
@@ -88,11 +82,6 @@ CHOSEN_LANGUAGE_FORMAT = "You will now use {}."
 SPOKEN_LANGUAGE_PATTERN = re.compile(r"You are using ([a-z ]+)\.")
 # The scarred trainer's own reject message, the URUK WARRIOR row's reject_message (SPECIAL(guild)).
 TRAINER_REJECT_MARKER = f"{TRAINER_LINE_START} snarls 'Get out!'"
-
-
-def stat_player(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player` of the character, read to its last line."""
-    return reply_to(implementor, f"stat player {name.lower()}", ["VUL:"])
 
 
 def plain_sessions(pupil: GameSession) -> int:
@@ -144,7 +133,7 @@ def test_pracreset_leaves_the_session_count_the_next_login_computes(server) -> N
     pupil = server.login(RESET_PUPIL.name)
     reply = implementor.command(f"wizset player {RESET_PUPIL.name.lower()} lea {LEARNING}")
     assert reply.contains(f"{RESET_PUPIL.name}'s lea set to {LEARNING}."), reply.text
-    before = stat_player(implementor, RESET_PUPIL.name)
+    before = read_stat(implementor, f"player {RESET_PUPIL.name.lower()}")
     current_learning, base_learning, constant_learning = stat_value(LEARNING_PATTERN, before)
     assert (base_learning, constant_learning) == (LEARNING, LEARNING)
     assert current_learning < LEARNING
@@ -208,16 +197,16 @@ def test_advancing_down_leaves_the_count_the_login_recount_gives(server) -> None
     server.login(RESET_PUPIL.name)
     # Recount at login: 30 * 3 + 30 * 37 / 5 + 10 - 3 = 90 + 222 + 10 - 3 = 319
     # (Lev: [30]; Lea base 37; 3 blink sessions spent).
-    assert stat_value(STAT_SESSIONS_PATTERN, stat_player(implementor, RESET_PUPIL.name)) == (319,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, read_stat(implementor, f"player {RESET_PUPIL.name.lower()}")) == (319,)
 
     reply = implementor.command(f"advance {RESET_PUPIL.name.lower()} 27")
     assert reply.contains("Ok."), reply.text
-    lowered = stat_player(implementor, RESET_PUPIL.name)
+    lowered = read_stat(implementor, f"player {RESET_PUPIL.name.lower()}")
     assert stat_value(LEVEL_PATTERN, lowered) == (27,)
     assert stat_value(LEARNING_PATTERN, lowered)[1] == FRACTIONAL_LEARNING
     # The recount at level 27: 27 * 3 + 27 * 37 / 5 + 10 - 3 = 81 + 199 + 10 - 3 = 287.
     # do_advance today, adv = -3: 319 + (-3 * 3) + (-3 * 37) / 5 = 319 - 9 - 22 = 288.
-    assert stat_value(STAT_SESSIONS_PATTERN, lowered) == (287,)
+    assert stat_value(PRACTICE_SESSIONS_PATTERN, lowered) == (287,)
 
 
 @pytest.mark.practice_sessions
@@ -274,7 +263,7 @@ def test_the_angels_reroll_recounts_the_sessions_from_the_new_learning(server) -
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(REROLL_PUPIL.name)
-    before = stat_player(implementor, REROLL_PUPIL.name)
+    before = read_stat(implementor, f"player {REROLL_PUPIL.name.lower()}")
     assert stat_value(LEVEL_PATTERN, before) == (6,)
     original_learning = stat_value(LEARNING_PATTERN, before)[1]
     # The login recount: 6 * 3 + 6 * learning / 5 + 10 - 0 (Lev: [6]; nothing spent).
@@ -290,7 +279,7 @@ def test_the_angels_reroll_recounts_the_sessions_from_the_new_learning(server) -
         rerolled_learning = int(own_learning.group(2))
         if rerolled_learning == original_learning:
             assert int(rerolls_left.group(1)) > 0, f"the rerolls ran out with learning unchanged:\n{reply}"
-    assert stat_value(LEARNING_PATTERN, stat_player(implementor, REROLL_PUPIL.name))[1] == rerolled_learning
+    assert stat_value(LEARNING_PATTERN, read_stat(implementor, f"player {REROLL_PUPIL.name.lower()}"))[1] == rerolled_learning
 
     # update_available_practice_sessions, as the immortal's reroll applies it:
     #   6 * PRACS_PER_LEVEL + 6 * rerolled base learning / LEA_PRAC_FACTOR + 10 - 0 spent
@@ -351,10 +340,10 @@ def test_a_practice_session_keeps_the_strength_worn_gear_adds(server) -> None:
     assert reply.contains("You give"), reply.text
     reply = pupil.command("wear circlet")
     assert reply.contains("You wear an iron circlet on your head."), reply.text
-    worn = stat_value(STRENGTH_PATTERN, stat_player(implementor, PUPIL.name))
+    worn = stat_value(STRENGTH_PATTERN, read_stat(implementor, f"player {PUPIL.name.lower()}"))
     assert worn[1] == worn[2] + CIRCLET_STRENGTH_BONUS, worn
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
 
     assert PRACTICED_MARKER in practice_once(pupil, "blink")
-    practised = stat_value(STRENGTH_PATTERN, stat_player(implementor, PUPIL.name))
+    practised = stat_value(STRENGTH_PATTERN, read_stat(implementor, f"player {PUPIL.name.lower()}"))
     assert practised[1] == practised[2] + CIRCLET_STRENGTH_BONUS, practised

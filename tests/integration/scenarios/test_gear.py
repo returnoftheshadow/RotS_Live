@@ -15,8 +15,8 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import LEVEL_PATTERN, read_stat
 from rots_harness.text_lines import assert_in_order, lines_after
 from rots_harness.world_resets import ObjectReset
 
@@ -106,11 +106,8 @@ PURGED_MARKER = "Ok."
 # The line inventory prints before the carried objects (do_inventory, act_info.cpp).
 INVENTORY_HEADER = "You are carrying:"
 # The stat lines the full-hands margin rests on (do_stat_character, act_wiz.cpp).
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 CURRENT_DEXTERITY_PATTERN = re.compile(r"Dex:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")
 CARRIED_ITEMS_PATTERN = re.compile(r"Carried: weight: -?\d+, items: (\d+);")
-# The stat line just before the affect lines: once it arrives, the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -309,7 +306,7 @@ def test_remove_belt_with_one_hand_free_drops_the_keyring_on_its_hook(server) ->
     assert carrier.command("wear keyring").contains(WEAR_BELT_HOOK_FORMAT.format(KEYRING[2]))
     hand_over(implementor, CARRIER, (COPPER_BEAD,) * 5)
 
-    stat_text = reply_to(implementor, f"stat player {CARRIER.name.lower()}", [STAT_LAST_LINE_MARKER])
+    stat_text = read_stat(implementor, f"player {CARRIER.name.lower()}")
     level_match = LEVEL_PATTERN.search(stat_text)
     dexterity_match = CURRENT_DEXTERITY_PATTERN.search(stat_text)
     carried_match = CARRIED_ITEMS_PATTERN.search(stat_text)

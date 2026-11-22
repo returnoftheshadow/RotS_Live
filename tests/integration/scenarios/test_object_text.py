@@ -9,8 +9,8 @@ import dataclasses
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, StoredValues
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import read_stat
 from rots_harness.text_lines import stripped_lines
 from rots_harness.world_resets import ObjectReset
 
@@ -197,7 +197,7 @@ def test_stat_room_shows_no_number_after_a_corpse(server) -> None:
     go_to_yard(implementor)
     slay_a_dummy(implementor)
 
-    stat = reply_to(implementor, "stat room", [CONTENTS_HEADER])
+    stat = read_stat(implementor, "room", last_line=CONTENTS_HEADER)
     contents = " ".join(line for line in stat.splitlines() if CONTENTS_HEADER in line or CORPSE_SHORT in line or CASK_SHORT in line)
     assert CASK_WITH_NUMBER in contents, stat
     assert CORPSE_SHORT in contents, stat

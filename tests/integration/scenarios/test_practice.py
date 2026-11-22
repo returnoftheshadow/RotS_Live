@@ -15,6 +15,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, ProfessionPoints, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, read_stat
 from rots_harness.text_lines import capitalised
 from rots_harness.world_resets import MobReset
 
@@ -250,11 +251,6 @@ PLAIN_SPELL_ROW_PATTERN_FORMAT = r"^\r?{}\s+\(([A-Za-z ]+)\)\s+\(\s*\d+ time,\s+
 # The professions' coefficients and levels in `stat player` (do_stat_character, act_wiz.cpp).
 COEFFICIENTS_PATTERN = re.compile(r"Class coofs : Mag:(\d+) Cle:(\d+) Ran:(\d+) War:(\d+)")
 CLASS_LEVELS_PATTERN = re.compile(r"Class levels: Mag:(\d+) Cle:(\d+) Ran:(\d+) War:(\d+)")
-# The practice sessions in `stat player`.
-STAT_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
-# Learning in `stat player`, as current/base/constant, and the level.
-LEARNING_PATTERN = re.compile(r"Lea:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 
 # What the pupil reads on the first session of a practice command (guildmasters[]).
 PRACTICED_MARKER = "You practice it for a while."
@@ -375,14 +371,9 @@ def has_guild_row(listed: str, skill: str) -> bool:
     return re.search(pattern, listed, re.MULTILINE) is not None
 
 
-def stat_player(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player` of the character, read to its last line."""
-    return reply_to(implementor, f"stat player {name.lower()}", ["VUL:"])
-
-
 def ranger_coefficient_and_level(implementor: GameSession, name: str) -> tuple[int, int]:
     """The character's ranger coefficient and ranger level, from `stat player`."""
-    text = stat_player(implementor, name)
+    text = read_stat(implementor, f"player {name.lower()}")
     coefficients = COEFFICIENTS_PATTERN.search(text)
     levels = CLASS_LEVELS_PATTERN.search(text)
     assert coefficients is not None and levels is not None, text
@@ -391,7 +382,7 @@ def ranger_coefficient_and_level(implementor: GameSession, name: str) -> tuple[i
 
 def mage_coefficient_and_level(implementor: GameSession, name: str) -> tuple[int, int]:
     """The character's mage coefficient and mage level, from `stat player`."""
-    text = stat_player(implementor, name)
+    text = read_stat(implementor, f"player {name.lower()}")
     coefficients = COEFFICIENTS_PATTERN.search(text)
     levels = CLASS_LEVELS_PATTERN.search(text)
     assert coefficients is not None and levels is not None, text
@@ -676,7 +667,7 @@ def test_a_race_outside_the_guildmasters_mask_is_sent_away(server) -> None:
     reply = practice(pupil, "blink")
     assert f"{TRAVELLER.line_start} {GO_AWAY_SPEECH}" in reply, reply
     assert PRACTICED_MARKER not in reply, reply
-    stat_sessions = STAT_SESSIONS_PATTERN.search(stat_player(implementor, BEORNING_PUPIL.name))
+    stat_sessions = PRACTICE_SESSIONS_PATTERN.search(read_stat(implementor, f"player {BEORNING_PUPIL.name.lower()}"))
     assert stat_sessions is not None and int(stat_sessions.group(1)) == STARTING_SESSIONS
 
 
@@ -692,7 +683,7 @@ def test_a_spell_above_the_pupils_mage_level_is_not_taught(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(NOVICE_PUPIL.name)
-    levels = CLASS_LEVELS_PATTERN.search(stat_player(implementor, NOVICE_PUPIL.name))
+    levels = CLASS_LEVELS_PATTERN.search(read_stat(implementor, f"player {NOVICE_PUPIL.name.lower()}"))
     assert levels is not None and int(levels.group(1)) == 8
     give_sessions(implementor, NOVICE_PUPIL.name, STARTING_SESSIONS)
 
@@ -1107,7 +1098,7 @@ def test_more_sessions_spent_than_the_formula_gives_leaves_a_negative_count(serv
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(OVERSPENT_PUPIL.name)
     name = OVERSPENT_PUPIL.name
-    after_relog = stat_player(implementor, name)
+    after_relog = read_stat(implementor, f"player {name.lower()}")
     level = LEVEL_PATTERN.search(after_relog)
     assert level is not None and int(level.group(1)) == 30, after_relog
     learning = LEARNING_PATTERN.search(after_relog)

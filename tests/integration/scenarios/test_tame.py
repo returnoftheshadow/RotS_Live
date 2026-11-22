@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
+from rots_harness.stat_reading import AFFECT_BITS_AT_LINE_START_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.tame]
 
@@ -146,8 +147,6 @@ ORDER_REFUSAL_MARKERS = ["That person isn't here.", "has an indifferent look.", 
 # Seconds to wait for the whistle's outcome: whistle's 6 beats are 6 passes, a second and a half.
 WHISTLE_TIMEOUT = 8.0
 
-# The stat line just before the affect lines (do_stat_character, act_wiz.cpp).
-STAT_LAST_LINE_MARKER = "VUL:"
 # What `stat mob` prints when no mob matches (do_wizstat, act_wiz.cpp).
 NO_SUCH_MOB_MARKER = "No such mobile around."
 # The tamer's ranger level, which tame's level check and success chance read.
@@ -157,9 +156,6 @@ RANGER_LEVEL_PATTERN = re.compile(r"Class levels: Mag:\d+ Cle:\d+ Ran:(\d+) ")
 TAME_MASTERED_PATTERN = re.compile(r"^\s*tame\s+\(Mastered\)", re.MULTILINE)
 # Any practice line for tame (do_practice lists only skills with knowledge above 0).
 TAME_PRACTICE_PATTERN = re.compile(r"^\s*tame\s", re.MULTILINE)
-# A mob's affect bits in `stat mob`: sprintbit (utility.cpp) puts a space before each name and a
-# full stop after the last.
-AFFECT_BITS_PATTERN = re.compile(r"^\s*AFF: (.*)$", re.MULTILINE)
 # The tame affect row in `stat mob`: duration -1 shows as 0 hours, and it sets CHARM.
 TAME_AFFECT_PATTERN = re.compile(r"^\s*SPL: \(\s*0hr\) tame\s+sets\s+CHARM\.", re.MULTILINE)
 # The whistle's recall affect row in `stat mob` (SPELL_ACTIVITY, which sets HUNT).
@@ -183,12 +179,12 @@ def reset_boar_zone(implementor: GameSession) -> None:
 
 def stat_mob(implementor: GameSession, keyword: str) -> str:
     """The implementor's whole `stat mob <keyword>` reply, whose lines can end in `]`."""
-    return reply_to(implementor, f"stat mob {keyword}", [STAT_LAST_LINE_MARKER, NO_SUCH_MOB_MARKER])
+    return read_stat(implementor, f"mob {keyword}", other_outcomes=[NO_SUCH_MOB_MARKER])
 
 
 def affect_bits(stat_text: str) -> list:
     """The affect bit names on a `stat` reply's AFF line."""
-    match = AFFECT_BITS_PATTERN.search(stat_text)
+    match = AFFECT_BITS_AT_LINE_START_PATTERN.search(stat_text)
     assert match is not None, stat_text
     return [name.rstrip(".") for name in match.group(1).split()]
 
@@ -207,7 +203,7 @@ def goto(immortal: GameSession, room: int) -> None:
 
 def ranger_level(implementor: GameSession, character: Character) -> int:
     """The character's ranger level from the implementor's `stat player`."""
-    stat_text = reply_to(implementor, f"stat player {character.name.lower()}", [STAT_LAST_LINE_MARKER])
+    stat_text = read_stat(implementor, f"player {character.name.lower()}")
     match = RANGER_LEVEL_PATTERN.search(stat_text)
     assert match is not None, stat_text
     return int(match.group(1))

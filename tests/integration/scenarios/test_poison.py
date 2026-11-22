@@ -12,6 +12,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, read_stat
 from rots_harness.text_lines import assert_in_order, lines_after
 
 pytestmark = [pytest.mark.scenario, pytest.mark.poison]
@@ -154,20 +155,17 @@ CORPSE_LINE_MARKER = "corpse of"
 # What `look in corpse` prints before the corpse's contents (do_look, act_info.cpp).
 CORPSE_CONTENTS_HEADER = "corpse (here) :"
 # The stat lines the stunned-band margin rests on (do_stat_character, act_wiz.cpp).
-CURRENT_HIT_PATTERN = re.compile(r"HP :\[(-?\d+)/(\d+)\+")
 CURRENT_CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")
 NO_RESISTANCES_LINE = "RES: <NONE> VUL: <NONE>"
-# The stat line just before the affect lines: once it arrives, the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 
 
 def stat_hit_constitution_and_resists_nothing(
-    implementor: GameSession, stat_command: str
+    implementor: GameSession, target: str
 ) -> tuple[int, int, bool]:
-    """Current hit points and current constitution from a `stat` reply, and whether it shows
-    no resistance or vulnerability."""
-    text = reply_to(implementor, stat_command, [STAT_LAST_LINE_MARKER])
-    hit = CURRENT_HIT_PATTERN.search(text)
+    """Current hit points and current constitution from the reply to `stat <target>`, and whether
+    it shows no resistance or vulnerability."""
+    text = read_stat(implementor, target)
+    hit = HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN.search(text)
     constitution = CURRENT_CONSTITUTION_PATTERN.search(text)
     assert hit and constitution, text
     return int(hit.group(1)), int(constitution.group(1)), NO_RESISTANCES_LINE in text
@@ -232,7 +230,7 @@ def test_a_poisoned_amulet_put_on_with_the_last_hit_points_kills_its_wearer_once
     implementor = server.login(IMPLEMENTOR.name)
     wearer = server.login(LAST_BLOW_WEARER.name)
     hand_amulet_to(implementor, LAST_BLOW_WEARER)
-    stat_values = stat_hit_constitution_and_resists_nothing(implementor, f"stat player {LAST_BLOW_WEARER.name.lower()}")
+    stat_values = stat_hit_constitution_and_resists_nothing(implementor, f"player {LAST_BLOW_WEARER.name.lower()}")
     assert_blow_leaves_zero(*stat_values)
 
     died = reply_to(wearer, "wear amulet", [NEW_BODY_MARKER])
@@ -245,7 +243,7 @@ def test_a_poisoned_amulet_put_on_with_the_last_hit_points_kills_its_wearer_once
     corpses = corpse_lines(implementor)
     assert len(corpses) == 1, corpses
     assert corpse_contents(implementor) == [AMULET]
-    assert stat_hit_constitution_and_resists_nothing(implementor, f"stat player {LAST_BLOW_WEARER.name.lower()}")[0] == 1
+    assert stat_hit_constitution_and_resists_nothing(implementor, f"player {LAST_BLOW_WEARER.name.lower()}")[0] == 1
 
 
 @pytest.mark.schedule("affect-hours")
@@ -266,7 +264,7 @@ def test_a_poisoned_amulet_taken_off_with_the_last_hit_points_kills_its_wearer_w
     worn = wearer.command("wear amulet")
     assert worn.contains(WEAR_AMULET_MARKER), worn.text
     assert BODY_FAILED_MARKER not in worn.text, worn.text
-    stat_values = stat_hit_constitution_and_resists_nothing(implementor, f"stat player {TWO_BLOW_WEARER.name.lower()}")
+    stat_values = stat_hit_constitution_and_resists_nothing(implementor, f"player {TWO_BLOW_WEARER.name.lower()}")
     assert_blow_leaves_zero(*stat_values)
 
     died = reply_to(wearer, "remove amulet", [REMOVE_AMULET_MARKER])
@@ -282,7 +280,7 @@ def test_a_poisoned_amulet_taken_off_with_the_last_hit_points_kills_its_wearer_w
     corpses = corpse_lines(implementor)
     assert len(corpses) == 1, corpses
     assert corpse_contents(implementor) == []
-    assert stat_hit_constitution_and_resists_nothing(implementor, f"stat player {TWO_BLOW_WEARER.name.lower()}")[0] == 1
+    assert stat_hit_constitution_and_resists_nothing(implementor, f"player {TWO_BLOW_WEARER.name.lower()}")[0] == 1
 
 
 @pytest.mark.schedule("affect-hours")
@@ -307,7 +305,7 @@ def test_a_mob_made_to_put_on_a_poisoned_amulet_with_the_last_hit_points_dies_on
     assert given.contains(f"You give {AMULET} to a porter."), given.text
     set_hit = implementor.command(f"wizset mob porter hit {GEAR_POISON_BLOW}")
     assert set_hit.contains(f"hit set to {GEAR_POISON_BLOW}."), set_hit.text
-    hit, constitution, resists_nothing = stat_hit_constitution_and_resists_nothing(implementor, "stat mob porter")
+    hit, constitution, resists_nothing = stat_hit_constitution_and_resists_nothing(implementor, "mob porter")
     # The porter's constitution is its own (mob/17.mob), not WEARER_CONSTITUTION: read and assert
     # it, so the stunned band in assert_blow_leaves_zero holds for it too.
     assert constitution >= 4, constitution
