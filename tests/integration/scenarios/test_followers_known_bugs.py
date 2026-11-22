@@ -13,9 +13,6 @@ from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario]
 
-# Room 1137, a DEATH room in zone 11 with no exits: whoever walks in dies (do_move, act_move.cpp).
-ROOM_GALLOWS_PIT = 1137
-
 
 def human_warrior(name: str, sex: str, load_room: int) -> Character:
     """A level-10 human warrior: a mortal on the implementor's side, so names match across them."""
@@ -236,7 +233,7 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     carrier.send_line("east")
     died = carrier.expect([NEW_BODY_MARKER]) + carrier.drain(SETTLE_SECONDS)
     assert PIT_ROOM_NAME in died, died
-    assert implementor.command(f"goto {ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
+    assert implementor.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
 
     corpse = implementor.command("look in corpse").text
     corpse_contents = contents_lines(corpse, CORPSE_CONTENTS_HEADER)
