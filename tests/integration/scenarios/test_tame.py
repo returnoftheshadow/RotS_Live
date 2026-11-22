@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import give_new_object, load_mob, load_object, where_lines
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 from rots_harness.stat_reading import AFFECT_BITS_AT_LINE_START_PATTERN, NO_SUCH_MOB_REPLY, read_stat
@@ -185,13 +186,7 @@ def affect_bits(stat_text: str) -> list:
     return [name.rstrip(".") for name in match.group(1).split()]
 
 
-def load_mob(implementor: GameSession, vnum: int) -> None:
-    """Loads one copy of mob vnum into the implementor's room."""
-    reply = implementor.command(f"load mob {vnum}")
-    assert reply.contains("You create"), reply.text
-
-
-def goto(immortal: GameSession, room: int) -> None:
+def goto_anywhere(immortal: GameSession, room: int) -> None:
     """Moves an immortal to room and checks the command was accepted."""
     reply = immortal.command(f"goto {room}")
     assert not reply.contains("No room exists with that number.") and not reply.contains("Huh?!"), reply.text
@@ -263,7 +258,7 @@ def set_tame_on_hardy_orc(implementor: GameSession, tamer: GameSession) -> None:
     a hit calls damage(), which sets them. The boar's damage cannot floor the orc's 900 hit
     points, and the affect-hours schedule runs no combat rounds after it.
     """
-    goto(implementor, ROOM_WHISTLE_HUB)
+    goto_anywhere(implementor, ROOM_WHISTLE_HUB)
     load_mob(implementor, HARDY_ORC_VNUM)
     ordered = reply_to(tamer, "order boar kill target", [BOAR_ATTACKS_HARDY_ORC_MARKER, *ORDER_REFUSAL_MARKERS])
     assert BOAR_ATTACKS_HARDY_ORC_MARKER in ordered, ordered
@@ -305,7 +300,7 @@ def test_a_tamed_animal_frees_its_zone_slot_once_so_resets_keep_one_wild_copy(se
     reset_boar_zone(implementor)
     assert boar_rooms(implementor) == [world.ROOM_BOAR_PEN, ROOM_PEN_GATE]
 
-    goto(implementor, ROOM_PEN_GATE)
+    goto_anywhere(implementor, ROOM_PEN_GATE)
     removed = implementor.command(f"{removal_command} {BOAR_KEYWORD}")
     assert removed.contains(removal_reply), removed.text
     assert boar_rooms(implementor) == [world.ROOM_BOAR_PEN]
@@ -356,7 +351,7 @@ def test_tame_refuses_a_target_it_cannot_tame_before_any_roll(server, mob_vnums,
     implementor = server.login(IMPLEMENTOR.name)
     tamer = server.login(TAMER_AT_GATE.name)
 
-    goto(implementor, ROOM_PEN_GATE)
+    goto_anywhere(implementor, ROOM_PEN_GATE)
     for vnum in mob_vnums:
         load_mob(implementor, vnum)
     if setup_command is not None:
@@ -389,7 +384,7 @@ def test_tame_refuses_a_ranger_who_has_not_learned_it(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     novice = server.login(NOVICE.name)
 
-    goto(implementor, ROOM_PEN_GATE)
+    goto_anywhere(implementor, ROOM_PEN_GATE)
     load_mob(implementor, BOAR_VNUM)
     assert ranger_level(implementor, NOVICE) == 30
     practice = novice.command("practice")
@@ -424,7 +419,7 @@ def test_a_tames_level_counts_against_the_rangers_next_tame(server) -> None:
     # The tame took 60 of the tamer's moves, and do_tame refuses a tamer below 60 first.
     restored = implementor.command(f"restore {TAMER.name.lower()}")
     assert restored.contains("Done."), restored.text
-    goto(implementor, world.ROOM_BOAR_PEN)
+    goto_anywhere(implementor, world.ROOM_BOAR_PEN)
     load_mob(implementor, WOLF_VNUM)
 
     # The level cap for the wolf, with the boar tamed (do_tame, ranger.cpp):
@@ -490,10 +485,10 @@ def test_whistle_recalls_the_whistlers_tame_from_elsewhere_in_the_zone(server) -
     tame_and_walk_to_hub(implementor, tamer)
     # A tame will not walk away from its master (do_move, act_move.cpp), so the implementor
     # carries it to the north spoke.
-    goto(implementor, ROOM_NORTH_SPOKE)
+    goto_anywhere(implementor, ROOM_NORTH_SPOKE)
     transferred = implementor.command(f"transfer {BOAR_KEYWORD}")
     assert transferred.contains("A pen boar arrives from a puff of smoke."), transferred.text
-    goto(implementor, ROOM_EAST_SPOKE)
+    goto_anywhere(implementor, ROOM_EAST_SPOKE)
     load_mob(implementor, BOAR_VNUM)
     assert boar_rooms(implementor) == [ROOM_NORTH_SPOKE, ROOM_EAST_SPOKE]
 
@@ -507,7 +502,7 @@ def test_whistle_recalls_the_whistlers_tame_from_elsewhere_in_the_zone(server) -
     assert not ACTIVITY_AFFECT_PATTERN.search(wild), wild
     assert "HUNT" not in affect_bits(wild), wild
 
-    goto(implementor, ROOM_NORTH_SPOKE)
+    goto_anywhere(implementor, ROOM_NORTH_SPOKE)
     recalled = stat_mob(implementor, BOAR_KEYWORD)
     assert f"Master is: {TAMER.name}," in recalled, recalled
     assert ACTIVITY_AFFECT_PATTERN.search(recalled), recalled
@@ -539,15 +534,6 @@ RENTED_MARKER = "The harness innkeeper stores your belongings and helps you into
 INNKEEPER_TELLS_FRAGMENT = "The harness innkeeper tells you, '"
 
 
-def where_item(implementor: GameSession, item: tuple) -> list:
-    """The lines of the implementor's `where <vnum>` that name the item (perform_immort_where,
-    act_info.cpp, lists mobs with the same vnum too)."""
-    vnum, _keyword, short_description = item
-    reply = implementor.command(f"where {vnum}").text
-    lines = reply.splitlines()
-    return [line.strip() for line in lines if re.match(r"^\s*\d+\. ", line) and short_description in line]
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, TAMER)
 def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carrying_any(server) -> None:
@@ -564,10 +550,9 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     """
     implementor = server.login(IMPLEMENTOR.name)
     tamer = server.login(TAMER.name)
-    goto(implementor, world.ROOM_BOAR_PEN)
+    goto_anywhere(implementor, world.ROOM_BOAR_PEN)
     for item in (TAME_HELM, TAME_BAG, TAME_BEAD):
-        created = implementor.command(f"load obj {item[0]}")
-        assert created.contains(f"You create {item[2]}."), created.text
+        load_object(implementor, item[0], item[2])
     assert implementor.command("put bead bag").contains(f"You put {TAME_BEAD[2]} in {TAME_BAG[2]}.")
     for item in (TAME_HELM, TAME_BAG):
         given = implementor.command(f"give {item[1]} {BOAR_KEYWORD}")
@@ -577,11 +562,8 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     check_tame_chance(implementor, tamer, TAMER)
     tame_boar(tamer)
     for item in (TAME_HELM, TAME_BAG, TAME_BEAD):
-        assert len(where_item(implementor, item)) == 1, item
-    created = implementor.command(f"load obj {PEBBLE[0]}")
-    assert created.contains(f"You create {PEBBLE[2]}."), created.text
-    given = implementor.command(f"give {PEBBLE[1]} {TAMER.name.lower()}")
-    assert given.contains(f"You give {PEBBLE[2]} to {TAMER.name}."), given.text
+        assert len(where_lines(implementor, item[0], item[2])) == 1, item
+    give_new_object(implementor, PEBBLE[0], PEBBLE[1], TAMER.name.lower(), shown_recipient=TAMER.name, short_description=PEBBLE[2])
     load_mob(implementor, world.MOB_INNKEEPER)
 
     rented = reply_to(tamer, "rent", [CHARACTER_MENU_PROMPT, INNKEEPER_TELLS_FRAGMENT])
@@ -590,7 +572,7 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     tamer.close()
     assert boar_rooms(implementor) == []
     for item in (TAME_HELM, TAME_BAG, TAME_BEAD):
-        assert where_item(implementor, item) == [], item
+        assert where_lines(implementor, item[0], item[2]) == [], item
     floor = implementor.command("look").text
     for long_description in ("A leather helm lies here.", "A leather bag lies here.", "A copper bead lies here."):
         assert long_description not in floor, floor
@@ -599,7 +581,7 @@ def test_a_tame_comes_back_after_its_owners_rent_wearing_its_gear_but_not_carryi
     assert boar_rooms(implementor) == [world.ROOM_BOAR_PEN]
     restored = stat_mob(implementor, BOAR_KEYWORD)
     assert f"Master is: {TAMER.name}," in restored, restored
-    helms = where_item(implementor, TAME_HELM)
+    helms = where_lines(implementor, TAME_HELM[0], TAME_HELM[2])
     assert len(helms) == 1 and f"Carried by {BOAR_NAME}" in helms[0], helms
-    assert where_item(implementor, TAME_BAG) == []
-    assert where_item(implementor, TAME_BEAD) == []
+    assert where_lines(implementor, TAME_BAG[0], TAME_BAG[2]) == []
+    assert where_lines(implementor, TAME_BEAD[0], TAME_BEAD[2]) == []

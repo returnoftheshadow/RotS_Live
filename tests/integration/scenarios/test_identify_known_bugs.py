@@ -8,6 +8,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
+from rots_harness.immortal_commands import give_new_object
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_identify import ATTRIBUTES_HEADER, MAGE
@@ -22,9 +23,6 @@ pytestmark = [pytest.mark.scenario, pytest.mark.identify]
 RELIC_KEYWORD = "relic"
 RELIC_SHORT_DESCRIPTION = "a strange relic"
 
-# What the implementor reads when the load and the give go through (do_load, act_wiz.cpp; give).
-CREATED_MARKER = f"You create {RELIC_SHORT_DESCRIPTION}."
-GIVEN_MARKER = f"You give {RELIC_SHORT_DESCRIPTION} to {MAGE.name}."
 # The first line identify prints (do_identify_object, act_info.cpp).
 IDENTIFIED_MARKER = f"You feel certain the object you have is {RELIC_SHORT_DESCRIPTION}."
 # What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp):
@@ -55,10 +53,7 @@ def identify_relic(server) -> list:
     implementor = server.login(IMPLEMENTOR.name)
     mage: GameSession = server.login(MAGE.name)
     mage_keyword = MAGE.name.lower()
-    created = implementor.command(f"load obj {world.OBJECT_STRANGE_RELIC}")
-    assert created.contains(CREATED_MARKER), created.text
-    given = implementor.command(f"give {RELIC_KEYWORD} {mage_keyword}")
-    assert given.contains(GIVEN_MARKER), given.text
+    give_new_object(implementor, world.OBJECT_STRANGE_RELIC, RELIC_KEYWORD, mage_keyword, shown_recipient=MAGE.name, short_description=RELIC_SHORT_DESCRIPTION)
 
     outcomes = [IDENTIFIED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
     while True:

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.immortal_commands import set_syslog
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.text_lines import raw_lines
@@ -66,8 +67,6 @@ IMPLEMENTED_WITH_ONE_DISABLED = (
 # What /implement prints instead when it cannot run.
 NOT_ALLOWED_TO_IMPLEMENT_MARKER = "You are not allowed to implement this zone."
 NO_SUCH_ZONE_MARKER = "It seems there is no such zone in the world"
-# What syslog prints as it changes the builder's log level (do_syslog).
-SYSLOG_NORMAL_MARKER = "Your syslog is now normal."
 # A K row that kits the last mob with only the missing object; -1 marks the unused slots.
 KIT_ROW_NUMBERS = f"0 {MISSING_VNUM} -1 -1 -1 -1 -1 -1"
 # An M row loading the missing mob into the arena centre at full chance and normal xp.
@@ -236,8 +235,7 @@ def test_a_builder_whose_syslog_shows_zone_errors_reads_each_one_once(server) ->
     """Pins #312: with syslog at normal the ZONE ERROR line reaches the builder through the log,
     in mudlog's brackets, and is not sent a second time (mudlog_reaches, utility.cpp)."""
     implementor = server.login(IMPLEMENTOR.name)
-    syslog = implementor.command("syslog normal")
-    assert syslog.contains(SYSLOG_NORMAL_MARKER), syslog.text
+    set_syslog(implementor, "normal")
 
     open_zone_editor(implementor)
     numbers_prompt = insert_row_after_the_last(implementor, "K")
@@ -470,8 +468,7 @@ def test_a_reset_reports_a_kit_row_whose_object_is_missing_each_time_it_runs(ser
     reset loads one and reports the row. The row is implemented, never saved.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    syslog = implementor.command("syslog normal")
-    assert syslog.contains(SYSLOG_NORMAL_MARKER), syslog.text
+    set_syslog(implementor, "normal")
 
     open_zone_editor(implementor)
     numbers_prompt = insert_row_after_the_last(implementor, "K")

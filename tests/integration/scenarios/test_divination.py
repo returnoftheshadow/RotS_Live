@@ -8,6 +8,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import UNKNOWN_SPELL_REPLY
+from rots_harness.immortal_commands import goto
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.text_lines import stripped_lines
@@ -124,8 +125,7 @@ def test_divination_cuts_a_crowded_object_list_short_with_and_more(server) -> No
     buffer. The concentration roll is the one draw; a lost cast is repeated."""
     implementor = server.login(IMPLEMENTOR.name)
     seer = server.login(SEER.name)
-    went = implementor.command(f"goto {ROOM_CLUTTERED_ROOM}")
-    assert went.room_name() == CLUTTERED_ROOM_NAME, went.text
+    goto(implementor, ROOM_CLUTTERED_ROOM, CLUTTERED_ROOM_NAME)
     for _cap in range(CAPS_DROPPED):
         implementor.send_line(f"load obj {world.OBJECT_LEATHER_CAP}")
         implementor.expect([CAP_CREATED])

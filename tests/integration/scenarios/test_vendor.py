@@ -9,6 +9,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import NOT_HERE_REPLY
+from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.replies import text_seen_before_a_say
 from rots_harness.session import GameSession
 from rots_harness.text_lines import assert_lines, reply_text
@@ -130,13 +131,9 @@ def trade_lines(beads: int, item_name: str) -> tuple:
 
 def give_beads(implementor: GameSession, room_vnum: int, room_name: str, buyer: Character, count: int) -> None:
     """Brings the implementor to room_vnum and gives the buyer count copper beads there."""
-    arrived = implementor.command(f"goto {room_vnum}")
-    assert arrived.room_name() == room_name, arrived.text
+    goto(implementor, room_vnum, room_name)
     for bead_number in range(count):
-        created = implementor.command(f"load obj {CURRENCY_VNUM}")
-        assert created.contains(f"You create {CURRENCY_NAME}."), created.text
-        given = implementor.command(f"give {CURRENCY_KEYWORD} {buyer.name.lower()}")
-        assert given.contains(f"You give {CURRENCY_NAME} to {buyer.name}."), given.text
+        give_new_object(implementor, CURRENCY_VNUM, CURRENCY_KEYWORD, buyer.name.lower(), shown_recipient=buyer.name, short_description=CURRENCY_NAME)
 
 
 def carried_count(buyer: GameSession, item_name: str) -> int:
@@ -218,8 +215,7 @@ def test_a_vendor_with_an_empty_store_has_nothing_to_sell(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    arrived = implementor.command(f"goto {ROOM_STORE_ROOM}")
-    assert arrived.room_name() == "Store Room", arrived.text
+    goto(implementor, ROOM_STORE_ROOM, "Store Room")
     assert implementor.command("get cap").contains(f"You get {LEATHER_CAP_NAME}.")
 
     assert buyer.command("list").contains(NOTHING_TO_SELL_MARKER)

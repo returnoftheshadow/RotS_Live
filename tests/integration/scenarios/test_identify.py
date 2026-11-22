@@ -10,6 +10,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
+from rots_harness.immortal_commands import give_new_object
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
@@ -46,9 +47,6 @@ BREAD_SHORT_DESCRIPTION = "a piece of tainted bread"
 AMULET_KEYWORD = "amulet"
 AMULET_SHORT_DESCRIPTION = "a sickly amulet"
 
-# What the implementor reads when the load and the give go through (do_load, act_wiz.cpp; give).
-CREATED_MARKER_FORMAT = "You create {}."
-GIVEN_MARKER_FORMAT = "You give {} to {}."
 # The first line identify prints (do_identify_object, act_info.cpp).
 IDENTIFIED_MARKER_FORMAT = "You feel certain the object you have is {}."
 # What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp):
@@ -85,11 +83,7 @@ CAST_TIMEOUT = 15.0
 
 def prepare_mage_with_object(implementor: GameSession, vnum: int, keyword: str, short_description: str) -> None:
     """Loads the object and hands it to the mage."""
-    mage_keyword = MAGE.name.lower()
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(CREATED_MARKER_FORMAT.format(short_description)), created.text
-    given = implementor.command(f"give {keyword} {mage_keyword}")
-    assert given.contains(GIVEN_MARKER_FORMAT.format(short_description, MAGE.name)), given.text
+    give_new_object(implementor, vnum, keyword, MAGE.name.lower(), shown_recipient=MAGE.name, short_description=short_description)
 
 
 def cast_identify(caster: GameSession, keyword: str, short_description: str) -> str:

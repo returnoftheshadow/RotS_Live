@@ -13,6 +13,7 @@ from rots_harness.game_text import (
     TELEPORTED_FORMAT,
     UNRECOGNIZED_COMMAND_REPLY,
 )
+from rots_harness.immortal_commands import goto
 
 pytestmark = [pytest.mark.scenario, pytest.mark.wizlevels]
 
@@ -87,7 +88,7 @@ def test_teleport_needs_level_93(server) -> None:
     lesser_god = server.login(LESSER_GOD.name)
     god = server.login(GOD.name)
     mortal = server.login(MORTAL.name)
-    assert implementor.command(f"goto {world.ROOM_ARENA_CENTRE}").room_name() == "Arena Centre"
+    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
     mortal.drain(SETTLE_SECONDS)
     teleport_command = f"teleport {MORTAL.name.lower()} {world.ROOM_ARENA_EAST}"
 

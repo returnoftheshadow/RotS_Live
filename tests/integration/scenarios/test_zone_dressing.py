@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.immortal_commands import goto
 from rots_harness.launcher import GAME_LOG_NAME
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -81,8 +82,7 @@ def reset_dressing_zone(implementor: GameSession) -> str:
 
     reset_zone runs inside the command, so the room's lines arrive before zreset's own reply.
     """
-    arrived = implementor.command(f"goto {ROOM_DRESSING_HALL}")
-    assert arrived.room_name() == "Dressing Hall", arrived.text
+    goto(implementor, ROOM_DRESSING_HALL, "Dressing Hall")
     reply = implementor.command(f"zreset {DRESSING_ZONE}")
     assert reply.contains(ZONE_RESET_MARKER), reply.text
     return reply.text

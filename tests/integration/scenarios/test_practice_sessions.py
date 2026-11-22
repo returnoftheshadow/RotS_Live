@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.immortal_commands import wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, read_stat
@@ -235,8 +236,7 @@ def test_learning_set_by_an_immortal_changes_the_sessions_only_at_the_next_login
     pupil = server.login(PUPIL.name)
     before = plain_sessions(plain_list(pupil))
 
-    reply = implementor.command(f"wizset player {PUPIL.name.lower()} lea {LEARNING}")
-    assert reply.contains(f"{PUPIL.name}'s lea set to {LEARNING}."), reply.text
+    wizset(implementor, f"player {PUPIL.name.lower()}", "lea", LEARNING, shown_name=PUPIL.name)
     learning = stat_value(LEARNING_PATTERN, read_stat(implementor, f"player {PUPIL.name.lower()}"))
     assert learning[1:] == (LEARNING, LEARNING)
     assert plain_sessions(plain_list(pupil)) == before

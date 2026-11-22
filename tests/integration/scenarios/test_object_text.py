@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, StoredValues
+from rots_harness.immortal_commands import goto, load_mob, load_object, wizset
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
 from rots_harness.text_lines import stripped_lines
@@ -25,7 +26,7 @@ DUMMY_YARD_NAME = "Dummy Yard"
 # (load_scalp, act_obj1.cpp, gives none for bodytype 0); no gold, so its corpse holds no coins.
 DUMMY_VNUM = 2404
 DUMMY_KEYWORD = "dummy"
-DUMMY_CREATED = "You create a practice dummy."
+DUMMY_SHORT_DESCRIPTION = "a practice dummy"
 # The keyword of the plain steel sword (world.OBJECT_PLAIN_STEEL_SWORD), a slashing weapon, which
 # behead needs.
 SWORD_KEYWORD = "sword"
@@ -79,14 +80,12 @@ CASK_WITH_NUMBER = f"{CASK_SHORT} [{CASK_VNUM}]"
 
 def go_to_yard(implementor: GameSession) -> None:
     """Moves the implementor to the dummy yard."""
-    went = implementor.command(f"goto {ROOM_DUMMY_YARD}")
-    assert went.room_name() == DUMMY_YARD_NAME, went.text
+    goto(implementor, ROOM_DUMMY_YARD, DUMMY_YARD_NAME)
 
 
 def slay_a_dummy(implementor: GameSession) -> None:
     """Loads a practice dummy beside the implementor and slays it."""
-    created = implementor.command(f"load mob {DUMMY_VNUM}")
-    assert created.contains(DUMMY_CREATED), created.text
+    load_mob(implementor, DUMMY_VNUM, DUMMY_SHORT_DESCRIPTION)
     slain = implementor.command(f"slay {DUMMY_KEYWORD}")
     assert slain.contains("You chop"), slain.text
 
@@ -119,7 +118,7 @@ def test_a_slain_mobs_corpse_and_its_head_read_as_before(server) -> None:
     assert CORPSE_LINE in floor_lines(implementor)
     unarmed = implementor.command("behead corpse").text
     assert NEED_WEAPON in stripped_lines(unarmed), unarmed
-    assert implementor.command(f"load obj {world.OBJECT_PLAIN_STEEL_SWORD}").contains("You create")
+    load_object(implementor, world.OBJECT_PLAIN_STEEL_SWORD)
     assert implementor.command(f"wield {SWORD_KEYWORD}").contains("You wield")
     beheaded = implementor.command("behead corpse").text
     assert BEHEADED_MARKER in stripped_lines(beheaded), beheaded
@@ -143,8 +142,7 @@ def test_dropped_coins_lie_as_a_small_pile_and_look_counts_them(server) -> None:
     them reads `There are 5 copper coins.` Nothing draws."""
     implementor = server.login(IMPLEMENTOR.name)
     go_to_yard(implementor)
-    given = implementor.command(f"wizset player {IMPLEMENTOR.name.lower()} gold {COINS_DROPPED}")
-    assert given.contains(f"gold set to {COINS_DROPPED}."), given.text
+    wizset(implementor, f"player {IMPLEMENTOR.name.lower()}", "gold", COINS_DROPPED)
 
     dropped = implementor.command(f"drop {COINS_DROPPED} copper").text
     assert "You drop some money." in stripped_lines(dropped), dropped
@@ -164,7 +162,7 @@ def test_a_filled_flask_answers_to_its_liquid_and_its_twin_does_not(server) -> N
     implementor = server.login(SOBER_IMPLEMENTOR.name)
     go_to_yard(implementor)
     for _flask in range(2):
-        assert implementor.command(f"load obj {world.OBJECT_FLASK}").contains("You create a flask.")
+        load_object(implementor, world.OBJECT_FLASK, "a flask")
 
     poured = implementor.command("pour cask flask").text
     assert POURED in stripped_lines(poured), poured

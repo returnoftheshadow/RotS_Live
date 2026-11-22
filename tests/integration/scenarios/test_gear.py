@@ -16,6 +16,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT
+from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, goto, load_mob, load_object, where_lines
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEVEL_PATTERN, read_stat
 from rots_harness.text_lines import assert_in_order, lines_after
@@ -84,11 +85,9 @@ NOTHING_WORN_MARKER = "You're not using anything."
 # What the room reads as the wearer takes an item off (take_off_item); format with the name and
 # the short description.
 ROOM_STOP_USING_FORMAT = "{} stops using {}."
-# What the giver reads for each item given (perform_give, act_obj1.cpp); format with the short
-# description and the receiver's name.
-GIVE_FORMAT = "You give {} to {}."
-# What the receiver reads for each item; format with the giver's name and the short description.
-GIVEN_FORMAT = "{} gives you {}."
+# What the receiver reads for each item given (perform_give, act_obj1.cpp); format with the
+# giver's name and the short description.
+RECEIVED_FORMAT = "{} gives you {}."
 # What the giver reads for an item it cannot let go of (perform_give).
 CANNOT_LET_GO_FORMAT = "You can't let go of {}!!  Yeech!"
 # What the giver reads when the receiver's hands are full (perform_give).
@@ -120,28 +119,13 @@ def hand_over(implementor: GameSession, receiver: Character, objects: tuple) -> 
     arrived = implementor.command(f"goto {receiver.name.lower()}")
     assert not arrived.contains("No-one by that name"), arrived.text
     for vnum, keyword, short_description in objects:
-        created = implementor.command(f"load obj {vnum}")
-        assert created.contains(f"You create {short_description}."), created.text
-        given = implementor.command(f"give {keyword} {receiver.name.lower()}")
-        assert given.contains(GIVE_FORMAT.format(short_description, receiver.name)), given.text
+        give_new_object(implementor, vnum, keyword, receiver.name.lower(), shown_recipient=receiver.name, short_description=short_description)
 
 
 def inventory_lines(session: GameSession) -> list:
     """The object lines of the session's inventory, in the order the game lists them."""
     listed = session.command("inventory").text
     return lines_after(listed, INVENTORY_HEADER)
-
-
-def where_lines(implementor: GameSession, item: tuple) -> list:
-    """The lines of the implementor's `where <vnum>` naming the item, or [] for none.
-
-    `where` by number lists the mobs with that vnum as well as the objects
-    (perform_immort_where, act_info.cpp), so only the lines naming the item count.
-    """
-    vnum, _keyword, short_description = item
-    reply = implementor.command(f"where {vnum}").text
-    lines = reply.splitlines()
-    return [line.strip() for line in lines if re.match(r"^\s*\d+\. ", line) and short_description in line]
 
 
 @pytest.mark.schedule("affect-hours")
@@ -244,17 +228,17 @@ def test_give_all_hands_over_each_carried_item_in_order_and_keeps_one_it_cannot_
 
     given = wearer.command(f"give all {TAKER.name.lower()}").text + wearer.drain(SETTLE_SECONDS)
     assert_in_order(given, [
-        GIVE_FORMAT.format(KEYRING[2], TAKER.name),
-        GIVE_FORMAT.format(BELT[2], TAKER.name),
-        GIVE_FORMAT.format(LEATHER_CAP[2], TAKER.name),
+        GIVEN_FORMAT.format(KEYRING[2], TAKER.name),
+        GIVEN_FORMAT.format(BELT[2], TAKER.name),
+        GIVEN_FORMAT.format(LEATHER_CAP[2], TAKER.name),
         CANNOT_LET_GO_FORMAT.format(CURSED_RING[2]),
-        GIVE_FORMAT.format(BAG[2], TAKER.name),
-        GIVE_FORMAT.format(IRON_CAP[2], TAKER.name),
+        GIVEN_FORMAT.format(BAG[2], TAKER.name),
+        GIVEN_FORMAT.format(IRON_CAP[2], TAKER.name),
     ])
     assert HANDS_FULL_MARKER not in given, given
-    received = taker.expect([GIVEN_FORMAT.format(WEARER.name, IRON_CAP[2])]) + taker.drain(SETTLE_SECONDS)
+    received = taker.expect([RECEIVED_FORMAT.format(WEARER.name, IRON_CAP[2])]) + taker.drain(SETTLE_SECONDS)
     given_order = [KEYRING, BELT, LEATHER_CAP, BAG, IRON_CAP]
-    assert_in_order(received, [GIVEN_FORMAT.format(WEARER.name, item[2]) for item in given_order])
+    assert_in_order(received, [RECEIVED_FORMAT.format(WEARER.name, item[2]) for item in given_order])
     assert inventory_lines(wearer) == [CURSED_RING[2]]
     assert inventory_lines(taker) == [item[2] for item in reversed(given_order)]
 
@@ -356,24 +340,22 @@ def test_purge_destroys_what_a_mob_wears_and_carries_and_leaves_nothing_behind(s
     is reset anywhere, so `where` by vnum finds every copy in the world.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_WEST}")
-    assert arrived.contains("Arena West"), arrived.text
-    assert implementor.command(f"load mob {world.MOB_PORTER}").contains("You create a porter.")
-    assert implementor.command(f"load obj {LEATHER_HELM[0]}").contains(f"You create {LEATHER_HELM[2]}.")
-    assert implementor.command("give helm porter").contains(GIVE_FORMAT.format(LEATHER_HELM[2], "a porter"))
+    goto(implementor, world.ROOM_ARENA_WEST, "Arena West", exact=False)
+    load_mob(implementor, world.MOB_PORTER, "a porter")
+    give_new_object(implementor, LEATHER_HELM[0], "helm", "porter", shown_recipient="a porter", short_description=LEATHER_HELM[2])
     dressed = implementor.command("force porter wear helm")
     assert dressed.contains(f"A porter wears {LEATHER_HELM[2]} on his head."), dressed.text
-    assert implementor.command(f"load obj {BAG[0]}").contains(f"You create {BAG[2]}.")
-    assert implementor.command(f"load obj {COPPER_BEAD[0]}").contains(f"You create {COPPER_BEAD[2]}.")
+    load_object(implementor, BAG[0], BAG[2])
+    load_object(implementor, COPPER_BEAD[0], COPPER_BEAD[2])
     assert implementor.command("put bead bag").contains(f"You put {COPPER_BEAD[2]} in {BAG[2]}.")
-    assert implementor.command("give bag porter").contains(GIVE_FORMAT.format(BAG[2], "a porter"))
+    assert implementor.command("give bag porter").contains(GIVEN_FORMAT.format(BAG[2], "a porter"))
     for item in (LEATHER_HELM, BAG, COPPER_BEAD):
-        assert len(where_lines(implementor, item)) == 1, item
+        assert len(where_lines(implementor, item[0], item[2])) == 1, item
 
     purged = implementor.command("purge porter")
     assert purged.contains(PURGED_MARKER), purged.text
     for item in (LEATHER_HELM, BAG, COPPER_BEAD):
-        assert where_lines(implementor, item) == [], item
+        assert where_lines(implementor, item[0], item[2]) == [], item
     looked = implementor.command("look").text
     for long_description in ("A leather helm lies here.", "A leather bag lies here.", "A copper bead lies here.", "A porter stands here"):
         assert long_description not in looked, looked

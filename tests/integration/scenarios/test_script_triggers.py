@@ -29,6 +29,7 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import DEATH_CRY_FORMAT, NOW_FOLLOWING_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import (
@@ -278,8 +279,7 @@ def death_cry(mob: TriggerMob) -> str:
 
 def join_the_mortal(implementor: GameSession) -> None:
     """Brings the implementor to the trigger hall; goto sets off no trigger."""
-    arrived = implementor.command(f"goto {ROOM_TRIGGER_HALL}")
-    assert arrived.room_name() == TRIGGER_HALL_NAME, arrived.text
+    goto(implementor, ROOM_TRIGGER_HALL, TRIGGER_HALL_NAME)
 
 
 def missile_always_kills(implementor: GameSession, mob: TriggerMob) -> str:
@@ -629,8 +629,7 @@ def test_a_death_script_speaks_and_the_mob_still_dies_paying_experience(server) 
     implementor = server.login(IMPLEMENTOR.name)
     caster = server.login(CASTER.name)
     join_the_mortal(implementor)
-    assert implementor.command(f"load obj {RIBBON_VNUM}").contains("You create")
-    assert implementor.command(f"give ribbon {MOURNER.keyword}").contains("You give")
+    give_new_object(implementor, RIBBON_VNUM, "ribbon", MOURNER.keyword)
     # The inputs EXPECTED_SHARE's working rests on.
     mourner_stat = missile_always_kills(implementor, MOURNER)
     assert (first_number(LEVEL_PATTERN, mourner_stat), first_number(EXPERIENCE_PATTERN, mourner_stat)) == (5, 10000)

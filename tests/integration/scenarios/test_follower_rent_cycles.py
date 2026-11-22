@@ -12,6 +12,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import IS_DEAD_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 from rots_harness.stat_reading import (
@@ -336,8 +337,7 @@ def load_warband(implementor: GameSession) -> None:
     """Loads the recruits, wolves and wargs into the implementor's room, the yard."""
     mob_vnums = [recruit.vnum for recruit in RECRUITS] + [recruit.mount_vnum for recruit in RECRUITS] + [warg.vnum for warg in WARGS]
     for vnum in mob_vnums:
-        created = implementor.command(f"load mob {vnum}")
-        assert created.contains("You create"), created.text
+        load_mob(implementor, vnum)
 
 
 def recruit_and_lead(leader: GameSession) -> None:
@@ -363,8 +363,7 @@ def dress_and_mount(implementor: GameSession, leader: GameSession) -> None:
     """Gives each recruit its gear; the leader orders it to wield, wear all and ride its wolf."""
     for recruit in RECRUITS:
         for vnum in (*ARMOUR_VNUMS, recruit.weapon_vnum):
-            created = implementor.command(f"load obj {vnum}")
-            assert created.contains("You create"), created.text
+            load_object(implementor, vnum)
         given = implementor.command(f"give all {recruit.keyword}")
         assert given.text.count(f"to {recruit.name}.") == len(ARMOUR_VNUMS) + 1, given.text
         recruit_name = capitalised(recruit.name)
@@ -378,10 +377,7 @@ def dress_and_mount(implementor: GameSession, leader: GameSession) -> None:
 
 def give_leader_armband(implementor: GameSession, leader: GameSession) -> None:
     """Hands the leader its armband to wear."""
-    created = implementor.command(f"load obj {ARMBAND_VNUM}")
-    assert created.contains("You create a red armband."), created.text
-    given = implementor.command(f"give armband {LEADER_KEYWORD}")
-    assert given.contains(f"You give a red armband to {LEADER.name}."), given.text
+    give_new_object(implementor, ARMBAND_VNUM, "armband", LEADER_KEYWORD, shown_recipient=LEADER.name, short_description="a red armband")
     worn = reply_to(leader, "wear armband", [ARMBAND_WORN_MARKER, "You don't seem to have"])
     assert ARMBAND_WORN_MARKER in worn, worn
 
@@ -593,8 +589,7 @@ def test_a_mounted_geared_warband_comes_back_through_rent_a_fight_and_a_service_
     """
     implementor = server.login(IMPLEMENTOR.name)
     leader = server.login(LEADER.name)
-    arrived = implementor.command(f"goto {ROOM_YARD}")
-    assert arrived.room_name() == YARD_NAME, arrived.text
+    goto(implementor, ROOM_YARD, YARD_NAME)
 
     load_warband(implementor)
     recruit_and_lead(leader)
@@ -614,8 +609,7 @@ def test_a_mounted_geared_warband_comes_back_through_rent_a_fight_and_a_service_
     check_room_of_everyone(implementor, ROOM_TRACK, gear)
     walk(leader, "west", YARD_NAME)
     walk(leader, "west", INN_NAME)
-    arrived = implementor.command(f"goto {ROOM_INN}")
-    assert arrived.contains(INN_NAME), arrived.text
+    goto(implementor, ROOM_INN, INN_NAME, exact=False)
     check_warband(implementor, ROOM_INN, gear, riding=True, two_handed=True)
     rent(leader)
     leader = log_leader_in(server)
@@ -631,24 +625,20 @@ def test_a_mounted_geared_warband_comes_back_through_rent_a_fight_and_a_service_
 
     # Cycle 3: mount and two-hand, fight on the track, come back and stop the server.
     mount_and_two_hand(leader)
-    arrived = implementor.command(f"goto {ROOM_TRACK}")
-    assert arrived.contains(TRACK_NAME), arrived.text
-    created = implementor.command(f"load mob {DUMMY_VNUM}")
-    assert created.contains(f"You create {DUMMY_NAME}."), created.text
+    goto(implementor, ROOM_TRACK, TRACK_NAME, exact=False)
+    load_mob(implementor, DUMMY_VNUM, DUMMY_NAME)
     walk(leader, "east", YARD_NAME)
     walk(leader, "east", TRACK_NAME)
     fight(implementor, leader)
     walk(leader, "west", YARD_NAME)
     walk(leader, "west", INN_NAME)
-    arrived = implementor.command(f"goto {ROOM_INN}")
-    assert arrived.contains(INN_NAME), arrived.text
+    goto(implementor, ROOM_INN, INN_NAME, exact=False)
     check_warband(implementor, ROOM_INN, gear, riding=True, two_handed=True)
 
     server.restart()
     implementor = server.login(IMPLEMENTOR.name)
     leader = log_leader_in(server)
-    arrived = implementor.command(f"goto {ROOM_INN}")
-    assert arrived.contains(INN_NAME), arrived.text
+    goto(implementor, ROOM_INN, INN_NAME, exact=False)
     check_warband(implementor, ROOM_INN, gear, riding=False, two_handed=False)
 
     # The last rent, with each wolf following its recruit.

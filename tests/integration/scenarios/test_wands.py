@@ -7,6 +7,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
 
@@ -62,11 +63,9 @@ ENCHANTED_AFFECT_MARKER = "Affections: +6 to OB"
 
 
 def hand_object(implementor: GameSession, vnum: int, keyword: str) -> None:
-    """Loads an object into the implementor's inventory and gives it to the wielder, in the same room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    given = implementor.command(f"give {keyword} {WIELDER.name.lower()}")
-    assert given.contains(f"to {WIELDER.name}."), given.text
+    """Loads an object into the implementor's inventory and gives it to the wielder, in the same room,
+    checking that the give reply names the wielder."""
+    give_new_object(implementor, vnum, keyword, WIELDER.name.lower(), shown_recipient=WIELDER.name)
 
 
 def meet_the_wielder(server) -> tuple:
@@ -74,8 +73,7 @@ def meet_the_wielder(server) -> tuple:
     (implementor, wielder)."""
     implementor = server.login(IMPLEMENTOR.name)
     wielder = server.login(WIELDER.name)
-    arrived = implementor.command(f"goto {ROOM_WAND_ROOM}")
-    assert arrived.room_name() == "Wand Room", arrived.text
+    goto(implementor, ROOM_WAND_ROOM, "Wand Room")
     return implementor, wielder
 
 

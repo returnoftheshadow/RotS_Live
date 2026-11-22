@@ -22,7 +22,7 @@ from test_tame import (
     affect_bits,
     boar_rooms,
     check_tame_chance,
-    goto,
+    goto_anywhere,
     set_tame_on_hardy_orc,
     stat_mob,
     tame_and_walk_to_hub,
@@ -120,7 +120,7 @@ def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
 
     wild_move = MOVE_PATTERN.search(stat_mob(implementor, BOAR_KEYWORD))
     check_tame_chance(implementor, warden, WARDEN)
-    goto(warden, world.ROOM_BOAR_PEN)
+    goto_anywhere(warden, world.ROOM_BOAR_PEN)
     tame_boar(warden)
     tamed_stat = stat_mob(implementor, BOAR_KEYWORD)
     tamed_move = MOVE_PATTERN.search(tamed_stat)
@@ -128,7 +128,7 @@ def test_a_tame_restored_at_login_keeps_its_tamed_maximum_moves(server) -> None:
     assert int(tamed_move.group(2)) == int(wild_move.group(2)) + 50, tamed_stat
 
     warden.quit()
-    goto(implementor, world.ROOM_BOAR_PEN)
+    goto_anywhere(implementor, world.ROOM_BOAR_PEN)
     purged = implementor.command(f"purge {BOAR_KEYWORD}")
     assert purged.contains("Ok."), purged.text
     assert boar_rooms(implementor) == []
@@ -159,7 +159,7 @@ def test_an_immortals_quit_leaves_no_copy_of_its_tame_behind(server) -> None:
     warden = server.login(WARDEN.name)
 
     check_tame_chance(implementor, warden, WARDEN)
-    goto(warden, world.ROOM_BOAR_PEN)
+    goto_anywhere(warden, world.ROOM_BOAR_PEN)
     tame_boar(warden)
     warden.quit()
     server.login(WARDEN.name)

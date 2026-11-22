@@ -13,6 +13,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT, UNRECOGNIZED_COMMAND_REPLY
+from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
@@ -174,9 +175,6 @@ RESIST_DEBUG_LINE = f"::RESIST::apply type 161 modifier 1 eff_mod {STRONG_ITEM_P
 # The debug line damage() (fight.cpp) prints for the 5 poison damage the amulet deals on
 # wearing: SPELL_POISON is attack type 43 and matches no resistance.
 POISON_DAMAGE_DEBUG_LINE = "::DAMAGE:: attacktype 43 resist_type 0 check 0 dam 5"
-# What the implementor reads when wizset sets the hunger (do_wizset, act_wiz.cpp), which also
-# saves the character it changed.
-HUNGER_SET_MARKER_FORMAT = "{}'s hunger set to 10."
 # Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
 # spells.h); 15 leaves room for a loaded host or emulated i386.
 CAST_TIMEOUT = 15.0
@@ -245,17 +243,13 @@ def affections(session: GameSession) -> str:
 
 def goto_character(implementor: GameSession, character: Character) -> None:
     """Moves the implementor to the character, who is in the arena centre."""
-    arrived = implementor.command(f"goto {character.name.lower()}")
-    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
+    goto(implementor, character.name.lower(), world.ROOM_ARENA_CENTRE_NAME)
 
 
 def give_items(implementor: GameSession, recipient: Character, items: tuple[tuple[int, str], ...]) -> None:
     """Loads each (vnum, keyword) item and gives it to the recipient, in the implementor's room."""
     for vnum, keyword in items:
-        loaded = implementor.command(f"load obj {vnum}")
-        assert loaded.contains("You create"), loaded.text
-        given = implementor.command(f"give {keyword} {recipient.name.lower()}")
-        assert given.contains("You give"), given.text
+        give_new_object(implementor, vnum, keyword, recipient.name.lower())
 
 
 def protect_from_dark(server, caster: Character = MYSTIC) -> tuple:
@@ -603,8 +597,7 @@ def test_a_save_keeps_the_protection_and_drops_the_worn_items_resistance(server)
     shown = affections(wearer)
     assert ITEM_RESIST_AFFECT_PATTERN.search(shown) and PROTECTION_AFFECT_PATTERN.search(shown), shown
 
-    saved = implementor.command(f"wizset player {WEARER.name.lower()} hunger 10")
-    assert saved.contains(HUNGER_SET_MARKER_FORMAT.format(WEARER.name)), saved.text
+    wizset(implementor, f"player {WEARER.name.lower()}", "hunger", 10, shown_name=WEARER.name)
 
     character_files = list(server.lib_dir.glob(f"accounts/*/*/{WEARER.name.lower()}.character.json"))
     assert len(character_files) == 1, character_files
@@ -632,7 +625,7 @@ def test_an_immortal_wearing_a_resist_item_has_it_once_after_quit_and_login(serv
     Wearing, quitting and removing draw nothing.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    assert implementor.command(f"load obj {STRONG_ITEM_VNUM}").contains("You create")
+    load_object(implementor, STRONG_ITEM_VNUM)
     assert implementor.command(f"wear {STRONG_ITEM_KEYWORD}").contains(FIRE_RESISTANT_MARKER)
 
     implementor.quit()
@@ -873,7 +866,7 @@ def test_debug_traces_an_item_resistance_once_on_wearing_and_removing(server) ->
     """
     implementor = server.login(IMPLEMENTOR.name)
     assert implementor.command("debug").contains(DEBUG_ON_MARKER)
-    assert implementor.command(f"load obj {STRONG_ITEM_VNUM}").contains("You create")
+    load_object(implementor, STRONG_ITEM_VNUM)
 
     worn = implementor.command(f"wear {STRONG_ITEM_KEYWORD}").text
     assert worn.count(APPLY_SPELL_DEBUG_LINE) == 1, worn
@@ -896,7 +889,7 @@ def test_debug_traces_the_poison_damage_of_putting_on_the_poison_amulet(server) 
     """
     implementor = server.login(IMPLEMENTOR.name)
     assert implementor.command("debug").contains(DEBUG_ON_MARKER)
-    assert implementor.command(f"load obj {world.OBJECT_SICKLY_AMULET}").contains("You create")
+    load_object(implementor, world.OBJECT_SICKLY_AMULET)
 
     worn = implementor.command(f"wear {POISON_AMULET_KEYWORD}").text
     assert worn.count(POISON_DAMAGE_DEBUG_LINE) == 1, worn

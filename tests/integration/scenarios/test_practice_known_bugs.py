@@ -11,6 +11,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.immortal_commands import load_mob, load_object, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, STRENGTH_PATTERN, read_stat
@@ -49,16 +50,16 @@ REROLL_PUPIL = Character(
     class_name="mage",
 )
 
-# What load mob answers for the traveller (do_load, act_wiz.cpp), a guildmaster who teaches
-# blink up to 100 to humans.
-TRAVELLER_CREATED_MARKER = "You create a mysterious traveller."
+# The traveller's short description, which load mob names (do_load, act_wiz.cpp): a guildmaster
+# who teaches blink up to 100 to humans.
+TRAVELLER_SHORT_DESCRIPTION = "a mysterious traveller"
 # The scarred trainer (mob/guildmasters.mob), program 9, the URUK WARRIOR row, whose reject
 # message is "$n snarls 'Get out!'"; it teaches only uruk-hai (will_teach 2048).
 TRAINER_VNUM = 4608
 TRAINER_LINE_START = "A scarred trainer"
 # The iron circlet (obj/11.obj): head armour whose one affect is APPLY_STR +2.
 CIRCLET_VNUM = 1171
-CIRCLET_CREATED_MARKER = "You create an iron circlet."
+CIRCLET_SHORT_DESCRIPTION = "an iron circlet"
 CIRCLET_STRENGTH_BONUS = 2
 
 # Learning that is not a multiple of LEA_PRAC_FACTOR (5), so a level's share has a fraction.
@@ -90,11 +91,10 @@ def plain_sessions(pupil: GameSession) -> int:
     return int(sessions.group(1))
 
 
-def load_mob(implementor: GameSession, vnum: int, created_marker: str) -> None:
-    """Moves the implementor to the arena centre and loads the mob there."""
+def bring_mob(implementor: GameSession, vnum: int, short_description: str) -> None:
+    """Moves the implementor to the arena centre and loads the mob there, checking load names it."""
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    reply = implementor.command(f"load mob {vnum}")
-    assert reply.contains(created_marker), reply.text
+    load_mob(implementor, vnum, short_description)
 
 
 def spoken_language(pupil: GameSession) -> str:
@@ -129,8 +129,7 @@ def test_pracreset_leaves_the_session_count_the_next_login_computes(server) -> N
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(RESET_PUPIL.name)
-    reply = implementor.command(f"wizset player {RESET_PUPIL.name.lower()} lea {LEARNING}")
-    assert reply.contains(f"{RESET_PUPIL.name}'s lea set to {LEARNING}."), reply.text
+    wizset(implementor, f"player {RESET_PUPIL.name.lower()}", "lea", LEARNING, shown_name=RESET_PUPIL.name)
     before = read_stat(implementor, f"player {RESET_PUPIL.name.lower()}")
     current_learning, base_learning, constant_learning = stat_value(LEARNING_PATTERN, before)
     assert (base_learning, constant_learning) == (LEARNING, LEARNING)
@@ -235,7 +234,7 @@ def test_a_chosen_spoken_language_survives_the_next_skill_recount(server, recoun
         pupil = server.login(PUPIL.name)
     else:
         give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-        load_mob(implementor, world.MOB_MYSTERIOUS_TRAVELLER, TRAVELLER_CREATED_MARKER)
+        bring_mob(implementor, world.MOB_MYSTERIOUS_TRAVELLER, TRAVELLER_SHORT_DESCRIPTION)
         assert PRACTICED_MARKER in practice_once(pupil, "blink")
     assert spoken_language(pupil) == "orcish language"
 
@@ -332,8 +331,7 @@ def test_a_practice_session_keeps_the_strength_worn_gear_adds(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    reply = implementor.command(f"load obj {CIRCLET_VNUM}")
-    assert reply.contains(CIRCLET_CREATED_MARKER), reply.text
+    load_object(implementor, CIRCLET_VNUM, CIRCLET_SHORT_DESCRIPTION)
     reply = implementor.command(f"give circlet {PUPIL.name.lower()}")
     assert reply.contains("You give"), reply.text
     reply = pupil.command("wear circlet")

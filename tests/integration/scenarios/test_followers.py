@@ -11,6 +11,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import DEATH_CRY_FORMAT, NEW_BODY_MESSAGE, NOW_FOLLOWING_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto, load_mob, set_holylight, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -207,23 +208,10 @@ def walk_leader_east(leader: GameSession) -> str:
 
 def gather_in_arena_centre(leader: GameSession, follower: GameSession) -> None:
     """Brings the leader to the arena centre and has the follower follow it."""
-    arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains("Arena Centre"), arrived.text
+    goto(leader, world.ROOM_ARENA_CENTRE, "Arena Centre", exact=False)
     following = follower.command(f"follow {LEADER.name.lower()}")
     assert following.contains(NOW_FOLLOWING_FORMAT.format(LEADER.name)), following.text
     leader.drain(SETTLE_SECONDS)
-
-
-def load_mob(implementor: GameSession, vnum: int, short_description: str) -> None:
-    """Loads a mob into the implementor's room and asserts the reply names it."""
-    created = implementor.command(f"load mob {vnum}")
-    assert created.contains(f"You create {short_description}."), created.text
-
-
-def load_object(implementor: GameSession, vnum: int, short_description: str) -> None:
-    """Loads an object into the implementor's inventory and asserts the reply names it."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(f"You create {short_description}."), created.text
 
 
 def force(implementor: GameSession, keyword: str, command: str) -> str:
@@ -320,8 +308,7 @@ def test_a_follower_without_moves_left_behind_gets_ack_lines(server) -> None:
     follower = server.login(FOLLOWER.name)
     gather_in_arena_centre(leader, follower)
 
-    exhausted = leader.command(f"wizset player {FOLLOWER.name.lower()} move 0")
-    assert exhausted.contains(f"{FOLLOWER.name}'s move set to 0."), exhausted.text
+    wizset(leader, f"player {FOLLOWER.name.lower()}", "move", 0, shown_name=FOLLOWER.name)
     left_behind, leader_text = walk_east(leader, follower)
     assert EXHAUSTED_MARKER in left_behind, left_behind
     assert left_behind.count(FOLLOWER_ACK_MARKER) == 1, left_behind
@@ -411,7 +398,7 @@ def test_report_and_group_show_a_mob_with_no_stamina_or_moves(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     member = server.login(MEMBER.name)
-    assert implementor.command(f"goto {world.ROOM_ARENA_CENTRE}").room_name() == "Arena Centre"
+    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
 
     load_mob(implementor, world.MOB_BYSTANDER_ORC, "a bystander orc")
     assert read_points(implementor, "bystander") == (60, 60, 0, 0, 50, 50)
@@ -466,17 +453,9 @@ def test_ungroup_names_a_member_out_of_the_group(server) -> None:
     assert captain.command("group").contains("But you are not the member of a group!"), captain.everything
 
 
-def turn_holylight_off(leader: GameSession) -> None:
-    """Turns the implementor's holylight off, so it cannot see an invisible character."""
-    holylight = leader.command("set holylight off")
-    assert holylight.contains("Holylight mode is now off."), holylight.text
-
-
 def put_on_the_ring(leader: GameSession, follower: GameSession) -> None:
     """Hands the follower the ring of invisibility and has it put the ring on."""
-    load_object(leader, RING_VNUM, "a ring of invisibility")
-    given = leader.command(f"give ring {FOLLOWER.name.lower()}")
-    assert given.contains(f"You give a ring of invisibility to {FOLLOWER.name}."), given.text
+    give_new_object(leader, RING_VNUM, "ring", FOLLOWER.name.lower(), shown_recipient=FOLLOWER.name, short_description="a ring of invisibility")
     worn = follower.command("wear ring")
     assert worn.contains("You slide a ring of invisibility on to your"), worn.text
 
@@ -495,7 +474,7 @@ def test_a_sitting_follower_the_leader_cannot_see_leaves_the_leader_no_ack_line(
     leader = server.login(LEADER.name)
     follower = server.login(FOLLOWER.name)
     gather_in_arena_centre(leader, follower)
-    turn_holylight_off(leader)
+    set_holylight(leader, "off")
     assert follower.command("sit").contains("You sit down."), follower.everything
 
     left_behind, leader_text = walk_east(leader, follower)
@@ -522,7 +501,7 @@ def test_a_sitting_mob_follower_left_behind_gives_its_leader_an_ack_line(server)
     """
     implementor = server.login(IMPLEMENTOR.name)
     captain = server.login(CAPTAIN.name)
-    assert implementor.command(f"goto {world.ROOM_ARENA_CENTRE}").room_name() == "Arena Centre"
+    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
 
     force(implementor, "bystander", f"follow {CAPTAIN.name.lower()}")
     assert "A bystander orc sits down." in force(implementor, "bystander", "sit")
@@ -540,8 +519,7 @@ def test_a_sitting_mob_follower_left_behind_gives_its_leader_an_ack_line(server)
 def ride_after_the_leader(leader: GameSession, rider: GameSession) -> None:
     """Brings the leader to the arena centre, where the world places the harness pony, and has the
     rider follow the leader and mount the pony."""
-    arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains("Arena Centre"), arrived.text
+    goto(leader, world.ROOM_ARENA_CENTRE, "Arena Centre", exact=False)
     following = rider.command(f"follow {LEADER.name.lower()}")
     assert following.contains(NOW_FOLLOWING_FORMAT.format(LEADER.name)), following.text
     mounted = rider.command("ride pony")
@@ -644,7 +622,7 @@ def test_a_rider_who_rides_into_a_death_room_dies_there_with_its_mount(server) -
     implementor = server.login(IMPLEMENTOR.name)
     horseman = server.login(SINKHOLE_HORSEMAN.name)
     mount_the_cob(implementor, horseman, ROOM_PADDOCK)
-    assert implementor.command(f"goto {ROOM_SINKHOLE}").room_name() == SINKHOLE_ROOM_NAME
+    goto(implementor, ROOM_SINKHOLE, SINKHOLE_ROOM_NAME)
 
     died = reply_to(horseman, "east", [NEW_BODY_MESSAGE, *RIDING_REFUSAL_MARKERS])
     assert died.count(UNSEATED_BY_DEATH_MARKER) == 1, died
@@ -707,8 +685,7 @@ def test_a_follower_who_walks_into_a_death_room_reads_that_it_stops_following(se
     """
     leader = server.login(LEADER.name)
     stray = server.login(STRAY.name)
-    arrived = leader.command(f"goto {world.ROOM_GALLOWS_APPROACH}")
-    assert arrived.room_name() == "Gallows Approach", arrived.text
+    goto(leader, world.ROOM_GALLOWS_APPROACH, "Gallows Approach")
     following = stray.command(f"follow {LEADER.name.lower()}")
     assert following.contains(NOW_FOLLOWING_FORMAT.format(LEADER.name)), following.text
     leader.drain(SETTLE_SECONDS)
@@ -722,7 +699,7 @@ def test_a_follower_who_walks_into_a_death_room_reads_that_it_stops_following(se
     assert told.count(stops_following) == 1, told
 
     assert stray.command("look").room_name() == world.ROOM_HUMAN_START_NAME
-    assert leader.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
+    goto(leader, world.ROOM_GALLOWS_PIT, PIT_ROOM_NAME)
     pit = leader.command("look").text
     assert corpses_in_look(pit) == 1, pit
 
@@ -744,8 +721,7 @@ def test_a_slain_group_member_reads_that_it_stops_following_and_leaves_the_group
     following = member.command(f"follow {CAPTAIN.name.lower()}")
     assert following.contains(NOW_FOLLOWING_FORMAT.format(CAPTAIN.name)), following.text
     group_the_member(captain, member)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains("Arena Centre"), arrived.text
+    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre", exact=False)
     captain.drain(SETTLE_SECONDS)
     member.drain(SETTLE_SECONDS)
 

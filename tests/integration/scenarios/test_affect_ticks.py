@@ -10,6 +10,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import DEATH_CRY_FORMAT, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
+from rots_harness.immortal_commands import give_new_object, goto, load_mob
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import AFFECT_BITS_PATTERN, CONSTITUTION_PATTERN, HIT_POINTS_PATTERN, read_stat
@@ -97,14 +98,6 @@ def stat_affects(text: str) -> tuple:
     return affects.group(1).strip(), spells
 
 
-def hand_object(implementor: GameSession, vnum: int, keyword: str, recipient: str) -> None:
-    """Loads an object into the implementor's inventory and gives it to recipient, in the same room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    given = implementor.command(f"give {keyword} {recipient}")
-    assert given.contains("You give"), given.text
-
-
 def force_scarecrow(implementor: GameSession, command: str, room_marker: str) -> None:
     """Has the scarecrow run command and waits for what the room reads of it, room_marker."""
     reply = reply_to(implementor, f"force scarecrow {command}", [room_marker])
@@ -134,15 +127,14 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     """
     implementor = server.login(IMPLEMENTOR.name)
     taster = server.login(TASTER.name)
-    arrived = implementor.command(f"goto {ROOM_SICK_WARD}")
-    assert arrived.room_name() == SICK_WARD_NAME, arrived.text
+    goto(implementor, ROOM_SICK_WARD, SICK_WARD_NAME)
 
-    hand_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", TASTER.name.lower())
+    give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", TASTER.name.lower())
     assert taster.command("eat bread").contains(EATEN_POISON_MARKER)
-    assert implementor.command(f"load mob {world.MOB_STRAW_SCARECROW}").contains("You create a straw scarecrow.")
-    hand_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", "scarecrow")
+    load_mob(implementor, world.MOB_STRAW_SCARECROW, "a straw scarecrow")
+    give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", "scarecrow")
     force_scarecrow(implementor, "eat bread", SCARECROW_COUGHS_MARKER)
-    hand_object(implementor, SASH_VNUM, "sash", "scarecrow")
+    give_new_object(implementor, SASH_VNUM, "sash", "scarecrow")
     force_scarecrow(implementor, "wear sash", SCARECROW_WEARS_MARKER)
 
     scarecrow = read_stat(implementor, "mob scarecrow")
@@ -193,14 +185,13 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     """
     implementor = server.login(IMPLEMENTOR.name)
     saint = server.login(SAINT.name)
-    arrived = implementor.command(f"goto {ROOM_SICK_WARD}")
-    assert arrived.room_name() == SICK_WARD_NAME, arrived.text
+    goto(implementor, ROOM_SICK_WARD, SICK_WARD_NAME)
 
-    hand_object(implementor, SANCTUARY_WAND_VNUM, "wand", SAINT.name.lower())
+    give_new_object(implementor, SANCTUARY_WAND_VNUM, "wand", SAINT.name.lower())
     assert saint.command("hold wand").contains("You grab an ivory wand of sanctuary.")
     used = saint.command(f"use wand {SAINT.name.lower()}")
     assert used.contains(SANCTUARY_MARKER), used.text
-    hand_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", SAINT.name.lower())
+    give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", SAINT.name.lower())
     assert saint.command("eat bread").contains(EATEN_POISON_MARKER)
 
     before = read_stat(implementor, f"player {SAINT.name.lower()}")

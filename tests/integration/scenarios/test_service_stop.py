@@ -9,7 +9,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
-from rots_harness.session import GameSession
+from rots_harness.immortal_commands import give_new_object, goto
 
 pytestmark = [pytest.mark.scenario, pytest.mark.service_stop]
 
@@ -52,15 +52,6 @@ def saved_wear_positions(lib_dir: Path, character: Character) -> dict[int, int]:
     return {entry["item_number"]: entry["wear_pos"] for entry in saved["objects"]}
 
 
-def hand_object(implementor: GameSession, vnum: int, keyword: str, recipient: Character) -> None:
-    """Loads an object into the implementor's inventory and gives it to recipient, in the same room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    recipient_keyword = recipient.name.lower()
-    given = implementor.command(f"give {keyword} {recipient_keyword}")
-    assert given.contains(f"to {recipient.name}."), given.text
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, WAYFARER)
 def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry(server) -> None:
@@ -75,10 +66,9 @@ def test_a_service_stop_saves_where_a_player_stands_and_what_they_wear_and_carry
     """
     implementor = server.login(IMPLEMENTOR.name)
     wayfarer = server.login(WAYFARER.name)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.room_name() == "Arena Centre", arrived.text
-    hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WAYFARER)
-    hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag", WAYFARER)
+    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
+    give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WAYFARER.name.lower(), shown_recipient=WAYFARER.name)
+    give_new_object(implementor, world.OBJECT_LEATHER_BAG, "bag", WAYFARER.name.lower(), shown_recipient=WAYFARER.name)
     worn = wayfarer.command("wear cap")
     assert worn.contains(CAP_NAME), worn.text
     walked = wayfarer.command("west")

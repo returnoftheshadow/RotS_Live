@@ -9,6 +9,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_resistances import (
@@ -62,9 +63,6 @@ NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # What the protected character, or the wearer of a resist item, reads (spell_protection and
 # do_resist_spell, mystic.cpp).
 FIRE_RESISTANT_MARKER = "You feel resistant to fire!"
-# What the implementor reads when wizset sets the level (do_wizset, act_wiz.cpp); format with
-# the name and the level.
-LEVEL_SET_MARKER_FORMAT = "{}'s level set to {}."
 # Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
 # spells.h); 15 leaves room for a loaded host or emulated i386.
 CAST_TIMEOUT = 15.0
@@ -72,12 +70,8 @@ CAST_TIMEOUT = 15.0
 
 def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyword: str) -> None:
     """Moves the implementor to the recipient in the arena centre and gives it a new item."""
-    arrived = implementor.command(f"goto {recipient.name.lower()}")
-    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
-    loaded = implementor.command(f"load obj {vnum}")
-    assert loaded.contains("You create"), loaded.text
-    given = implementor.command(f"give {keyword} {recipient.name.lower()}")
-    assert given.contains("You give"), given.text
+    goto(implementor, recipient.name.lower(), world.ROOM_ARENA_CENTRE_NAME)
+    give_new_object(implementor, vnum, keyword, recipient.name.lower())
 
 
 
@@ -119,8 +113,7 @@ def test_removing_a_level_strength_item_after_a_level_change_leaves_no_resistanc
     assert worn.contains(LEVEL_ITEM_WORN_MARKER) and worn.contains(FIRE_RESISTANT_MARKER), worn.text
     assert resistance_line("fire", WEARER.level) in affections(wearer)
 
-    raised = implementor.command(f"wizset player {WEARER.name.lower()} level {RAISED_LEVEL}")
-    assert raised.contains(LEVEL_SET_MARKER_FORMAT.format(WEARER.name, RAISED_LEVEL)), raised.text
+    wizset(implementor, f"player {WEARER.name.lower()}", "level", RAISED_LEVEL, shown_name=WEARER.name)
 
     removed = wearer.command(f"remove {LEVEL_ITEM_KEYWORD}")
     assert removed.contains(STOP_USING_FORMAT.format(LEVEL_ITEM_SHORT)), removed.text

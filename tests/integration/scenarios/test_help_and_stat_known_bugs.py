@@ -10,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from test_help_and_stat import (
@@ -68,8 +69,7 @@ def incognito_display(session: GameSession) -> str:
 
 def join_player(implementor: GameSession) -> None:
     """The implementor goes to the player in the arena centre."""
-    arrived = implementor.command(f"goto {PLAYER.name.lower()}")
-    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
+    goto(implementor, PLAYER.name.lower(), world.ROOM_ARENA_CENTRE_NAME)
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="help uruk should show the URUK-HAI URUK entry, whose keywords include URUK exactly")
@@ -103,8 +103,7 @@ def test_color_works_beside_a_board(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
     join_player(implementor)
-    created = implementor.command(f"load obj {BOARD_TOKEN_VNUM}")
-    assert created.contains("You create a harness token."), created.text
+    load_object(implementor, BOARD_TOKEN_VNUM, "a harness token")
     dropped = implementor.command("drop token")
     assert dropped.contains("You drop a harness token."), dropped.text
 
@@ -127,8 +126,7 @@ def test_stat_names_hallucinate_on_one_aff_line(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    reply = implementor.command(f"wizset player {PLAYER.name.lower()} affected {HALLUCINATE_BIT_VALUE}")
-    assert reply.contains(f"{PLAYER.name}'s affected set to {HALLUCINATE_BIT_VALUE}."), reply.text
+    wizset(implementor, f"player {PLAYER.name.lower()}", "affected", HALLUCINATE_BIT_VALUE, shown_name=PLAYER.name)
     stat = read_stat(implementor, f"player {PLAYER.name.lower()}")
     assert re.search(rf"AFF:[^\r\n]*{HALLUCINATE_NAME}\.", stat), stat
 
@@ -199,8 +197,7 @@ def test_stat_obj_does_not_label_a_learning_affect_sex(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    created = implementor.command(f"load obj {world.OBJECT_STONE_GIRDLE}")
-    assert created.contains("You create a stone girdle."), created.text
+    load_object(implementor, world.OBJECT_STONE_GIRDLE, "a stone girdle")
     affect_line = OBJECT_AFFECT_LINE_PATTERN.search(read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE))
     assert affect_line is not None
     assert STALE_LEARNING_LABEL not in affect_line.group(1).split(), affect_line.group(0)
@@ -218,10 +215,7 @@ def test_stat_shows_the_statted_characters_absorb(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     player = server.login(PLAYER.name)
     join_player(implementor)
-    created = implementor.command(f"load obj {world.OBJECT_CHAIN_SHIRT}")
-    assert created.contains("You create a chain shirt."), created.text
-    given = implementor.command(f"give shirt {PLAYER.name.lower()}")
-    assert given.contains("You give a chain shirt to"), given.text
+    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description="a chain shirt")
     worn = player.command("wear shirt")
     assert worn.contains("You wear a chain shirt on your body."), worn.text
     info = player.command("info")

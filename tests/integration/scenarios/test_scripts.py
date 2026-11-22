@@ -16,6 +16,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import DEATH_CRY_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object, set_syslog
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CONSTITUTION_PATTERN, read_stat
 from rots_harness.text_lines import capitalised
@@ -113,24 +114,6 @@ def death_cry(short_description: str) -> str:
     return DEATH_CRY_FORMAT.format(short_description)
 
 
-def load_mob(implementor: GameSession, mob: ScriptMob) -> None:
-    """Loads a mob into the implementor's room and checks the game's reply."""
-    reply = implementor.command(f"load mob {mob.vnum}")
-    assert reply.contains(f"You create {mob.short_description}."), reply.text
-
-
-def give_new_object(implementor: GameSession, vnum: int, keyword: str, mob: ScriptMob) -> str:
-    """Loads an object and gives it to the mob; returns the give's reply.
-
-    The ON_RECEIVE trigger runs inside the give (perform_give, act_obj1.cpp), so everything the
-    mob's script says arrives in the reply, before its prompt.
-    """
-    assert implementor.command(f"load obj {vnum}").contains("You create")
-    reply = implementor.command(f"give {keyword} {mob.keyword}")
-    assert reply.contains("You give"), reply.text
-    return reply.text
-
-
 def stat_value(pattern: re.Pattern, stat: str) -> str:
     """The first group of the pattern in the stat text."""
     match = pattern.search(stat)
@@ -193,7 +176,7 @@ def test_a_false_if_skips_its_whole_block_with_the_nested_block_inside(server, s
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", smith)
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", smith.keyword)
     assert said(smith.short_description, FINAL_LINE) in reply, reply
     assert said(smith.short_description, NOT_A_TOKEN_LINE) in reply, reply
     assert REWARD_LINE not in reply, reply
@@ -215,7 +198,7 @@ def test_a_true_if_runs_its_block_past_the_skipped_nested_guard(server, smith: S
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, STAR_TOKEN_VNUM, "token", smith)
+    reply = give_new_object(implementor, STAR_TOKEN_VNUM, "token", smith.keyword)
     reward = said(smith.short_description, REWARD_LINE)
     final = said(smith.short_description, FINAL_LINE)
     assert reward in reply and final in reply, reply
@@ -238,7 +221,7 @@ def test_a_true_nested_guard_halts_the_script_for_a_mob_giver(server) -> None:
     block. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, STAR_TOKEN_VNUM, "token", PORTER)
+    give_new_object(implementor, STAR_TOKEN_VNUM, "token", PORTER.keyword)
 
     reply = implementor.command(f"force {PORTER.keyword} give token {PLAIN_SMITH.keyword}").text
     assert "A porter gives a star token to a plain smith." in reply, reply
@@ -365,9 +348,7 @@ def test_a_waiting_mob_that_removes_itself_last_on_the_waiting_list_logs_nothing
     (handler.cpp) puts what the mob carried on the floor. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    assert implementor.command(f"load obj {PEBBLE_VNUM}").contains("You create")
-    given = implementor.command(f"give pebble {FADING_PILGRIM.keyword}")
-    assert given.contains("You give"), given.text
+    give_new_object(implementor, PEBBLE_VNUM, "pebble", FADING_PILGRIM.keyword)
     before = implementor.command("look").text
     assert PILGRIM_IN_ROOM in before and PEBBLE_ON_FLOOR not in before, before
 
@@ -509,7 +490,7 @@ def test_a_script_line_that_would_crash_is_reported_and_skipped(server, case: Re
     still_here = said(case.mob.short_description, STILL_HERE_LINE)
 
     for gives in (1, 2):
-        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", case.mob)
+        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", case.mob.keyword)
         assert still_here in reply, reply
         assert count_logged(server, case.report, case.boot_reports + gives) == case.boot_reports + gives
 
@@ -526,10 +507,9 @@ def test_a_script_report_reaches_an_immortal_with_syslog_on_and_no_mortal(server
     """
     implementor = server.login(IMPLEMENTOR.name)
     watcher = server.login(ROOM_WATCHER.name)
-    syslog = implementor.command("syslog normal")
-    assert syslog.contains("Your syslog is now normal."), syslog.text
-    load_mob(implementor, SURVEYOR_LINE.mob)
-    assert implementor.command(f"load obj {PEBBLE_VNUM}").contains("You create")
+    set_syslog(implementor, "normal")
+    load_mob(implementor, SURVEYOR_LINE.mob.vnum, SURVEYOR_LINE.mob.short_description)
+    load_object(implementor, PEBBLE_VNUM)
     watcher.drain(SETTLE_SECONDS)
 
     # The report line ends in "]", which command() would take for the prompt.
@@ -562,7 +542,7 @@ def test_assign_eq_on_an_unset_character_finds_no_object(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", APPRAISER)
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", APPRAISER.keyword)
     assert said(APPRAISER.short_description, "Nothing.") in reply, reply
     assert "Phantom." not in reply, reply
     assert said(APPRAISER.short_description, STILL_HERE_LINE) in reply, reply
@@ -587,7 +567,7 @@ def test_skipping_a_false_if_whose_nested_block_never_ends_ends_the_script(serve
     implementor = server.login(IMPLEMENTOR.name)
 
     for give_number in (1, 2):
-        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", MUMBLER)
+        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", MUMBLER.keyword)
         assert reply.count(said(MUMBLER.short_description, STILL_HERE_LINE)) == 1, (give_number, reply)
         assert "Never said." not in reply, (give_number, reply)
 
@@ -668,7 +648,7 @@ def test_do_wear_wears_an_object_the_mob_carries(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", HATTER)
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", HATTER.keyword)
     assert "A hatter wears a leather cap on his head." in reply, reply
 
 
@@ -689,7 +669,7 @@ def test_load_obj_x_copies_the_given_object(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", SCRIBE)
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", SCRIBE.keyword)
     assert "A scribe gives you a leather cap." in reply, reply
 
 
@@ -719,7 +699,7 @@ def test_a_script_hit_write_above_the_limit_is_clamped_and_reads_healthy(server)
     number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", HALE)
+    give_new_object(implementor, PEBBLE_VNUM, "pebble", HALE.keyword)
 
     stat = read_stat(implementor, f"mob {HALE.keyword}")
     assert int(stat_value(HIT_POINTS_PATTERN, stat)) == SCRIPT_HIT_LIMIT, stat
@@ -743,7 +723,7 @@ def test_a_script_hit_write_of_zero_stuns_and_a_later_write_stands_the_mob_up(se
     stunned, incapacitated or dead. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", DAZED)
+    give_new_object(implementor, PEBBLE_VNUM, "pebble", DAZED.keyword)
 
     stat = read_stat(implementor, f"mob {DAZED.keyword}")
     # update_pos (fight.cpp) for the dazed wrestler, with hit 0 and Con from stat:
@@ -781,7 +761,7 @@ def test_a_script_hit_write_far_below_zero_leaves_the_mob_dead_until_the_hourly_
     hour's regeneration is bounded below.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", DOOMED)
+    give_new_object(implementor, PEBBLE_VNUM, "pebble", DOOMED.keyword)
 
     stat = read_stat(implementor, f"mob {DOOMED.keyword}")
     hit_match = HIT_POINTS_PATTERN.search(stat)
@@ -828,7 +808,7 @@ def test_a_script_division_by_zero_gives_zero_and_is_logged(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", ACCOUNTANT)
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", ACCOUNTANT.keyword)
     assert said(ACCOUNTANT.short_description, "Quotient zero.") in reply, reply
     assert "Quotient not zero." not in reply, reply
     assert count_logged(server, "Script #1719 tried to divide by 0.", 1) == 1
@@ -861,11 +841,11 @@ def test_a_script_opens_and_locks_a_north_door_from_both_sides(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     watcher = server.login(GATE_WATCHER.name)
-    assert implementor.command(f"goto {ROOM_GATEHOUSE_YARD}").contains("Gatehouse Yard")
-    load_mob(implementor, GATEKEEPER)
+    goto(implementor, ROOM_GATEHOUSE_YARD, "Gatehouse Yard", exact=False)
+    load_mob(implementor, GATEKEEPER.vnum, GATEKEEPER.short_description)
     watcher.drain(SETTLE_SECONDS)
 
-    opened = give_new_object(implementor, PEBBLE_VNUM, "pebble", GATEKEEPER)
+    opened = give_new_object(implementor, PEBBLE_VNUM, "pebble", GATEKEEPER.keyword)
     assert "Door opens quietly." in opened, opened
     watched = watcher.expect(["Gate opens quietly."]) + watcher.drain(SETTLE_SECONDS)
     assert watched.count("Gate opens quietly.") == 1, watched
@@ -969,7 +949,7 @@ def test_a_script_load_mob_of_a_mob_that_exists_loads_it_and_the_script_goes_on(
     before = implementor.command("look").text
     assert PORTER_STANDS_HERE not in before, before
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", STEADY_SUMMONER)
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", STEADY_SUMMONER.keyword)
     assert said(STEADY_SUMMONER.short_description, STILL_HERE_LINE) in reply, reply
     after = implementor.command("look").text
     assert after.count(PORTER_STANDS_HERE) == 1, after

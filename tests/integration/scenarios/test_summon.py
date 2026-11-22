@@ -11,6 +11,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import QUIT_DROP_REPLY, TELEPORTED_BY_ANYONE
+from rots_harness.immortal_commands import give_new_object, set_holylight
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import MAGE_LEVEL_PATTERN, read_stat
@@ -175,8 +176,7 @@ def setup_caster_and_victim(implementor: GameSession, victim: Character) -> tupl
 
     Holylight lets the implementor stat a character standing in the dark cell.
     """
-    holylight = implementor.command("set holylight on")
-    assert holylight.contains("Holylight mode is now on."), holylight.text
+    set_holylight(implementor, "on")
     return save_inputs(implementor, CASTER.name), save_inputs(implementor, victim.name)
 
 
@@ -331,10 +331,7 @@ def test_summon_across_zones_leaves_the_targets_stay_zone_gear_in_the_room_it_le
     implementor.command(f"goto {ROOM_DISTANT_CELL}")
     stay_zone_items = ((world.OBJECT_STONE_GIRDLE, "girdle", GIRDLE), (world.OBJECT_DWARVEN_STONE, "stone", STONE))
     for vnum, keyword, short_description in stay_zone_items:
-        created = implementor.command(f"load obj {vnum}")
-        assert created.contains(f"You create {short_description}."), created.text
-        given = implementor.command(f"give {keyword} {DISTANT_DWARF.name.lower()}")
-        assert given.contains(f"You give {short_description} to {DISTANT_DWARF.name}."), given.text
+        give_new_object(implementor, vnum, keyword, DISTANT_DWARF.name.lower(), shown_recipient=DISTANT_DWARF.name, short_description=short_description)
     worn = victim.command("wear girdle")
     assert worn.contains(f"You wear {GIRDLE} around your waist."), worn.text
     caster_inputs, victim_inputs = setup_caster_and_victim(implementor, DISTANT_DWARF)

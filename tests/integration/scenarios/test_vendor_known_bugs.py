@@ -6,9 +6,9 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.characters import IMPLEMENTOR
 from rots_harness.game_text import NOT_HERE_REPLY
-from rots_harness.session import GameSession
+from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.text_lines import reply_text
 from test_vendor import BUYER, CAP_PRICE_BEADS, WANDERER
 
@@ -33,14 +33,6 @@ TRADE_LINES = (
 )
 
 
-def give_object(implementor: GameSession, vnum: int, keyword: str, short_name: str, recipient: Character) -> None:
-    """Loads an object into the implementor's inventory and gives it to recipient in its room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(f"You create {short_name}."), created.text
-    given = implementor.command(f"give {keyword} {recipient.name.lower()}")
-    assert given.contains(f"You give {short_name} to {recipient.name}."), given.text
-
-
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
@@ -59,9 +51,8 @@ def test_sell_with_no_keeper_in_the_room_is_not_for_here(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     wanderer = server.login(WANDERER.name)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_WEST}")
-    assert arrived.room_name() == "Arena West", arrived.text
-    give_object(implementor, world.OBJECT_LEATHER_CAP, "cap", CAP_NAME, WANDERER)
+    goto(implementor, world.ROOM_ARENA_WEST, "Arena West")
+    give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", WANDERER.name.lower(), shown_recipient=WANDERER.name, short_description=CAP_NAME)
 
     reply = wanderer.command("sell cap")
     assert reply.contains(NOT_HERE_REPLY), reply.text
@@ -87,10 +78,9 @@ def test_a_vendor_sells_by_an_abbreviated_keyword(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     buyer = server.login(BUYER.name)
-    arrived = implementor.command(f"goto {world.ROOM_TRADE_HALL}")
-    assert arrived.room_name() == "Trade Hall", arrived.text
+    goto(implementor, world.ROOM_TRADE_HALL, "Trade Hall")
     for bead_number in range(CAP_PRICE_BEADS):
-        give_object(implementor, CURRENCY_VNUM, CURRENCY_KEYWORD, CURRENCY_NAME, BUYER)
+        give_new_object(implementor, CURRENCY_VNUM, CURRENCY_KEYWORD, BUYER.name.lower(), shown_recipient=BUYER.name, short_description=CURRENCY_NAME)
 
     reply = buyer.command(f"buy {CAP_ABBREVIATION}")
     block = "\n".join(TRADE_LINES)

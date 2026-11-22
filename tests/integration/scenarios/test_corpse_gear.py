@@ -8,6 +8,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import CORPSE_CONTENTS_HEADER, IS_DEAD_FORMAT
+from rots_harness.immortal_commands import goto, load_mob, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import (
@@ -60,18 +61,10 @@ ANGER_HOURS = 2
 SETTLE_SECONDS = 1.0
 
 
-def load_object(implementor: GameSession, vnum: int, short_description: str) -> None:
-    """Loads an object into the implementor's inventory and asserts the reply names it."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(f"You create {short_description}."), created.text
-
-
 def hand_the_taster_a_bagged_cap(implementor: GameSession) -> None:
     """Brings the implementor to the Order Hall, loads the taster and gives it a bag with a cap in it."""
-    arrived = implementor.command(f"goto {world.ROOM_ORDER_HALL}")
-    assert arrived.room_name() == ORDER_HALL_NAME, arrived.text
-    created = implementor.command(f"load mob {TASTER_VNUM}")
-    assert created.contains("You create a frail taster."), created.text
+    goto(implementor, world.ROOM_ORDER_HALL, ORDER_HALL_NAME)
+    load_mob(implementor, TASTER_VNUM, "a frail taster")
     load_object(implementor, world.OBJECT_LEATHER_BAG, "a leather bag")
     load_object(implementor, world.OBJECT_LEATHER_CAP, "a leather cap")
     assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything

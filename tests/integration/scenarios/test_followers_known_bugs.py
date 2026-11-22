@@ -9,8 +9,8 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, TELEPORTED_BY_ANYONE
+from rots_harness.immortal_commands import give_new_object, goto, load_object, set_holylight, wizset
 from rots_harness.replies import reply_to
-from rots_harness.session import GameSession
 from rots_harness.text_lines import lines_after
 from rots_harness.world_resets import MobReset
 from test_followers import (
@@ -68,12 +68,6 @@ ROOM_MOUNTED_MARKER_FORMAT = "{} mounts a harness pony and starts riding him."
 SETTLE_SECONDS = 1.0
 
 
-def load_object(implementor: GameSession, vnum: int, short_description: str) -> None:
-    """Loads an object into the implementor's inventory and asserts the reply names it."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(f"You create {short_description}."), created.text
-
-
 @pytest.mark.followers
 @pytest.mark.xfail(
     strict=True,
@@ -122,7 +116,7 @@ def test_report_keeps_the_capital_i_its_format_string_writes(server) -> None:
     bystander orc reports at full health. Nothing draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    assert implementor.command(f"goto {world.ROOM_ARENA_CENTRE}").room_name() == "Arena Centre"
+    goto(implementor, world.ROOM_ARENA_CENTRE, "Arena Centre")
     report = implementor.command("force bystander report")
     assert report.contains("Ok."), report.text
     assert BYSTANDER_REPORT_AS_WRITTEN in report.text, report.text
@@ -148,7 +142,7 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     carrier = server.login(CARRIER.name)
-    assert implementor.command(f"goto {world.ROOM_GALLOWS_APPROACH}").room_name() == "Gallows Approach"
+    goto(implementor, world.ROOM_GALLOWS_APPROACH, "Gallows Approach")
     load_object(implementor, world.OBJECT_LEATHER_BAG, "a leather bag")
     load_object(implementor, world.OBJECT_LEATHER_CAP, "a leather cap")
     assert implementor.command("put cap bag").contains("You put a leather cap in a leather bag."), implementor.everything
@@ -157,7 +151,7 @@ def test_a_death_room_death_leaves_a_bagged_cap_in_its_bag(server) -> None:
 
     died = reply_to(carrier, "east", [NEW_BODY_MESSAGE])
     assert PIT_ROOM_NAME in died, died
-    assert implementor.command(f"goto {world.ROOM_GALLOWS_PIT}").room_name() == PIT_ROOM_NAME
+    goto(implementor, world.ROOM_GALLOWS_PIT, PIT_ROOM_NAME)
 
     corpse = implementor.command("look in corpse").text
     corpse_contents = lines_after(corpse, CORPSE_CONTENTS_HEADER)
@@ -190,13 +184,9 @@ def test_a_follower_without_moves_the_leader_cannot_see_leaves_the_leader_no_ack
     leader = server.login(LEADER.name)
     follower = server.login(FOLLOWER.name)
     gather_in_arena_centre(leader, follower)
-    holylight = leader.command("set holylight off")
-    assert holylight.contains("Holylight mode is now off."), holylight.text
-    exhausted = leader.command(f"wizset player {FOLLOWER.name.lower()} move 0")
-    assert exhausted.contains(f"{FOLLOWER.name}'s move set to 0."), exhausted.text
-    load_object(leader, RING_VNUM, "a ring of invisibility")
-    given = leader.command(f"give ring {FOLLOWER.name.lower()}")
-    assert given.contains(f"You give a ring of invisibility to {FOLLOWER.name}."), given.text
+    set_holylight(leader, "off")
+    wizset(leader, f"player {FOLLOWER.name.lower()}", "move", 0, shown_name=FOLLOWER.name)
+    give_new_object(leader, RING_VNUM, "ring", FOLLOWER.name.lower(), shown_recipient=FOLLOWER.name, short_description="a ring of invisibility")
     assert follower.command("wear ring").contains("You slide a ring of invisibility on to your"), follower.everything
 
     left_behind, leader_text = walk_east(leader, follower)
@@ -247,8 +237,7 @@ def test_mounting_names_the_mount_by_its_own_pronoun(server) -> None:
     """
     leader = server.login(LEADER.name)
     rider = server.login(RIDER.name)
-    arrived = leader.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains("Arena Centre"), arrived.text
+    goto(leader, world.ROOM_ARENA_CENTRE, "Arena Centre", exact=False)
     rider.drain(SETTLE_SECONDS)
 
     mounted = rider.command("ride pony")

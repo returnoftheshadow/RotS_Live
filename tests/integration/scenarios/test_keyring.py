@@ -18,6 +18,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import goto, load_mob, load_object
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.keyring]
@@ -61,9 +62,9 @@ RENT_TAKEN = "stores your belongings and helps you into your private chamber."
 
 def hand_over(implementor: GameSession, vnums: tuple[int, ...], keywords: tuple[str, ...]) -> None:
     """The implementor goes to the mortal, creates each object and gives it to the mortal."""
-    assert implementor.command(f"goto {MORTAL.name.lower()}").room_name() == "Key Hall"
+    goto(implementor, MORTAL.name.lower(), "Key Hall")
     for vnum in vnums:
-        assert implementor.command(f"load obj {vnum}").contains("You create"), vnum
+        load_object(implementor, vnum)
     for keyword in keywords:
         given = implementor.command(f"give {keyword} {MORTAL.name.lower()}")
         assert given.contains("You give"), given.text
@@ -196,7 +197,7 @@ def test_rent_is_refused_while_a_key_is_on_a_belt_keyring(server) -> None:
     wear_belt_keyring(mortal)
     put = mortal.command("put key keyr")
     assert put.contains(f"You put {KEY} on {KEYRING}."), put.text
-    assert implementor.command(f"load mob {world.MOB_INNKEEPER}").contains("You create"), "no innkeeper"
+    load_mob(implementor, world.MOB_INNKEEPER)
 
     # Both outcomes are listed, so a rent that goes through fails on the assertion at once
     # (gen_receptionist, objsave.cpp) instead of waiting for a prompt the menu never sends.

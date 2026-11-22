@@ -12,6 +12,7 @@ import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import FORCED_REPLY
+from rots_harness.immortal_commands import goto
 from rots_harness.launcher import GAME_LOG_NAME
 from rots_harness.replies import reply_to
 from rots_harness.world_resets import MobReset
@@ -141,6 +142,5 @@ def test_three_mobs_answering_each_other_stop_at_both_limits(server) -> None:
     refusals = wait_for_refusals(server.run_dir / GAME_LOG_NAME, 4)
     assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL, RUNS_REFUSAL] * 2, refusals
 
-    arrived = implementor.command(f"goto {ROOM_CHANTING}")
-    assert arrived.room_name() == "Chanting Room", arrived.text
+    arrived = goto(implementor, ROOM_CHANTING, "Chanting Room")
     assert arrived.text.count("A chanter stands here, listening.") == CHANTER_COUNT, arrived.text

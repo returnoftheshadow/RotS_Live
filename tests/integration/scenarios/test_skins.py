@@ -20,6 +20,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import give_new_object, load_mob, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
@@ -63,13 +64,6 @@ def wait_for_log_line(server, line: str, timeout: float = 8.0) -> str:
         time.sleep(0.2)
 
 
-def give_to_owner(implementor: GameSession, vnum: int, keyword: str) -> None:
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    given = implementor.command(f"give {keyword} testowner")
-    assert given.contains("You give"), given.text
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_boot_reads_skins_from_the_world_file_and_demotes_one_without_a_base(server) -> None:
@@ -98,7 +92,7 @@ def test_restyle_changes_a_wielded_sword_in_place_and_refuses_another_family(ser
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    give_to_owner(implementor, BASE, "sword")
+    give_new_object(implementor, BASE, "sword", "testowner")
     wielded = owner.command("wield sword")
     assert wielded.contains("You wield a plain steel sword."), wielded.text
 
@@ -125,11 +119,9 @@ def test_a_script_restyles_a_sword_in_a_carried_bag_and_logs_a_refused_line(serv
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert implementor.command(f"load mob {STEWARD}").contains("You create"), "the steward"
-    created = implementor.command(f"load obj {world.OBJECT_LEATHER_BAG}")
-    assert created.contains("You create"), created.text
-    created = implementor.command(f"load obj {BASE}")
-    assert created.contains("You create"), created.text
+    load_mob(implementor, STEWARD)
+    load_object(implementor, world.OBJECT_LEATHER_BAG)
+    load_object(implementor, BASE)
     put = implementor.command("put sword bag")
     assert put.contains("You put a plain steel sword in a leather bag."), put.text
     given = implementor.command("give bag testowner")

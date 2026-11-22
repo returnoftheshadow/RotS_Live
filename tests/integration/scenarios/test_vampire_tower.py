@@ -8,6 +8,7 @@ import time
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import goto, set_syslog
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.world_resets import MobReset
@@ -88,14 +89,12 @@ def count_logged(server, message: str, expected_count: int) -> int:
 
 def turn_off_syslog(implementor: GameSession) -> None:
     """Turns the implementor's syslog off, so no '[ ... ]' log line can end a reply early."""
-    reply = implementor.command("syslog off")
-    assert reply.contains("Your syslog is now off."), reply.text
+    set_syslog(implementor, "off")
 
 
 def goto_the_door(implementor: GameSession) -> None:
     """Moves the implementor outside the door. goto asks no procedure in either room."""
-    reply = implementor.command(f"goto {ROOM_BEFORE_THE_DOOR}")
-    assert reply.contains(BEFORE_THE_DOOR_NAME), reply.text
+    reply = goto(implementor, ROOM_BEFORE_THE_DOOR, BEFORE_THE_DOOR_NAME, exact=False)
     assert DOOR_BLURS not in reply.text, reply.text
 
 

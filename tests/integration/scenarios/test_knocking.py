@@ -9,6 +9,7 @@ import time
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import goto
 from rots_harness.session import GameSession
 from rots_harness.text_lines import stripped_lines
 from rots_harness.world_resets import MobReset
@@ -104,8 +105,7 @@ def test_a_knock_is_heard_on_both_sides_and_the_gatekeeper_opens_then_closes_the
     implementor = server.login(IMPLEMENTOR.name)
     knocker = server.login(KNOCKER.name)
     warden = server.login(WARDEN.name)
-    went = implementor.command(f"goto {ROOM_OUTSIDE_THE_GATE}")
-    assert went.room_name() == OUTSIDE_ROOM_NAME, went.text
+    goto(implementor, ROOM_OUTSIDE_THE_GATE, OUTSIDE_ROOM_NAME)
     implementor.drain(SETTLE_SECONDS)
     warden.drain(SETTLE_SECONDS)
 

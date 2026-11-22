@@ -14,6 +14,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import UNRECOGNIZED_COMMAND_REPLY
+from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
 from rots_harness.replies import reply_to, text_seen_before_a_say
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CHARACTER_STAT_LAST_LINE
@@ -281,20 +282,17 @@ def staff_reply(session: GameSession, line: str) -> str:
 
 
 def hand_object(implementor: GameSession, vnum: int, keyword: str, recipient: Character) -> None:
-    """Loads an object into the implementor's inventory and gives it to recipient.
+    """Loads an object into the implementor's inventory and gives it to recipient, checking that
+    the give reply names the recipient.
 
     The implementor must stand in the recipient's room.
     """
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    given = implementor.command(f"give {keyword} {recipient.name.lower()}")
-    assert given.contains(f"to {recipient.name}."), given.text
+    give_new_object(implementor, vnum, keyword, recipient.name.lower(), shown_recipient=recipient.name)
 
 
 def go_to_bank_hall(implementor: GameSession) -> None:
     """Brings the implementor to the bank hall."""
-    arrived = implementor.command(f"goto {ROOM_BANK_HALL}")
-    assert arrived.room_name() == "Bank Hall", arrived.text
+    goto(implementor, ROOM_BANK_HALL, "Bank Hall")
 
 
 def give_cap_in_bank_hall(implementor: GameSession, recipient: Character) -> None:
@@ -305,8 +303,7 @@ def give_cap_in_bank_hall(implementor: GameSession, recipient: Character) -> Non
 
 def set_gold(implementor: GameSession, character: Character, copper: int) -> None:
     """Sets a character's purse with wizset and checks the reply."""
-    reply = implementor.command(f"wizset player {character.name.lower()} gold {copper}")
-    assert reply.contains(f"gold set to {copper}."), reply.text
+    wizset(implementor, f"player {character.name.lower()}", "gold", copper)
 
 
 def account_folder(lib_dir: Path) -> Path:
@@ -651,8 +648,8 @@ def test_a_banker_refuses_a_cursed_item_inside_a_bag_or_loose(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     depositor = server.login(DEPOSITOR.name)
     go_to_bank_hall(implementor)
-    assert implementor.command(f"load obj {CURSED_RING_VNUM}").contains("You create")
-    assert implementor.command(f"load obj {world.OBJECT_LEATHER_BAG}").contains("You create")
+    load_object(implementor, CURSED_RING_VNUM)
+    load_object(implementor, world.OBJECT_LEATHER_BAG)
     assert implementor.command("put ring bag").contains(f"You put {CURSED_RING_NAME} in {BAG_NAME}.")
     given = implementor.command(f"give bag {DEPOSITOR.name.lower()}")
     assert given.contains(f"to {DEPOSITOR.name}."), given.text
@@ -679,7 +676,7 @@ def test_a_vault_takes_its_tenth_item_and_refuses_the_eleventh(server) -> None:
     account_name = account_record(server.lib_dir)["account_name"]
     go_to_bank_hall(implementor)
     for put_number in range(VAULT_SLOTS - 1):
-        assert implementor.command(f"load obj {world.OBJECT_LEATHER_CAP}").contains("You create")
+        load_object(implementor, world.OBJECT_LEATHER_CAP)
         reply = staff_reply(implementor, f"vault put {account_name} 1 cap")
         assert VAULT_PUT_FORMAT.format(CAP_NAME) in reply, reply
     hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap", DEPOSITOR)
@@ -690,7 +687,7 @@ def test_a_vault_takes_its_tenth_item_and_refuses_the_eleventh(server) -> None:
     assert depositor.command("deposit cap").contains(VAULT_FULL_MARKER)
     assert depositor.command("inventory").contains(CAP_NAME)
 
-    assert implementor.command(f"load obj {world.OBJECT_LEATHER_CAP}").contains("You create")
+    load_object(implementor, world.OBJECT_LEATHER_CAP)
     assert STAFF_VAULT_FULL_MARKER in staff_reply(implementor, f"vault put {account_name} 1 cap")
 
 

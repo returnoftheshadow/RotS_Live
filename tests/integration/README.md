@@ -497,7 +497,7 @@ online unless the account owns a character above level 91, so a test that logs i
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
 
 `command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
-print mid-reply. Four shared modules hold the helpers and text scenarios use instead of writing their own:
+print mid-reply. Five shared modules hold the helpers and text scenarios use instead of writing their own:
 
 - `rots_harness/replies.py`: `reply_to(session, line, outcomes)` sends a line and returns what
   came back up to the first outcome, plus a settle (`SETTLE_SECONDS`, 1.0; pass `settle=` and
@@ -516,6 +516,13 @@ print mid-reply. Four shared modules hold the helpers and text scenarios use ins
   shared helper waits for, such as `FORCED_REPLY`, `POISON_TICK` and `DEATH_CRY_FORMAT` (fill a
   `*_FORMAT` with `str.format`). A text one file asserts stays in that file, as does one another
   function prints in the same words.
+- `rots_harness/immortal_commands.py`: an implementor's set-up commands, each checked against
+  its reply: `goto(implementor, room_vnum, "Arena Centre")` (`exact=False` for a substring),
+  `load_object` and `load_mob` (pass the short description to check `CREATED_FORMAT` in full),
+  `give_new_object(implementor, vnum, keyword, recipient_keyword)` (`shown_recipient=` and
+  `short_description=` make the give check stronger), `wizset(implementor, "player testpupil",
+  "lea", 40, shown_name="Testpupil")`, `where_lines`, `set_syslog` and `set_holylight`. Each
+  asserts only what its docstring says; pass only the arguments for the check the test means.
 
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and

@@ -11,6 +11,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, POISON_TICK, STOP_USING_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto, load_mob, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, read_stat
@@ -73,11 +74,9 @@ def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server
         f"expected full hit points before eating, got {current_hit}/{maximum_hit}"
     )
 
-    set_hunger = implementor.command(f"wizset {mortal_keyword} hunger {HUNGER_BEFORE_EATING}")
-    assert set_hunger.contains(f"hunger set to {HUNGER_BEFORE_EATING}."), set_hunger.text
+    wizset(implementor, mortal_keyword, "hunger", HUNGER_BEFORE_EATING)
     implementor.command(f"goto {mortal_keyword}")
-    assert implementor.command(f"load obj {world.OBJECT_TAINTED_BREAD}").contains("You create")
-    assert implementor.command(f"give bread {mortal_keyword}").contains("You give")
+    give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", mortal_keyword)
     assert mortal.command("eat bread").contains(EATEN_POISON_MARKER)
 
     first_hour = text_after_an_hour(server, mortal, POISON_TICK)
@@ -193,12 +192,8 @@ def corpse_contents(session: GameSession) -> list:
 
 def hand_amulet_to(implementor: GameSession, wearer: Character) -> None:
     """The implementor goes to the wearer, creates the amulet and gives it."""
-    arrived = implementor.command(f"goto {wearer.name.lower()}")
-    assert arrived.contains(world.ROOM_ARENA_CENTRE_NAME), arrived.text
-    created = implementor.command(f"load obj {world.OBJECT_SICKLY_AMULET}")
-    assert created.contains(f"You create {AMULET}."), created.text
-    given = implementor.command(f"give amulet {wearer.name.lower()}")
-    assert given.contains(f"You give {AMULET} to {wearer.name}."), given.text
+    goto(implementor, wearer.name.lower(), world.ROOM_ARENA_CENTRE_NAME, exact=False)
+    give_new_object(implementor, world.OBJECT_SICKLY_AMULET, "amulet", wearer.name.lower(), shown_recipient=wearer.name, short_description=AMULET)
 
 
 @pytest.mark.schedule("affect-hours")
@@ -283,15 +278,10 @@ def test_a_mob_made_to_put_on_a_poisoned_amulet_with_the_last_hit_points_dies_on
     (assert_blow_leaves_zero, with the porter's own constitution read from stat).
     """
     implementor = server.login(IMPLEMENTOR.name)
-    arrived = implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert arrived.contains(world.ROOM_ARENA_CENTRE_NAME), arrived.text
-    assert implementor.command(f"load mob {world.MOB_PORTER}").contains("You create a porter.")
-    created = implementor.command(f"load obj {world.OBJECT_SICKLY_AMULET}")
-    assert created.contains(f"You create {AMULET}."), created.text
-    given = implementor.command("give amulet porter")
-    assert given.contains(f"You give {AMULET} to a porter."), given.text
-    set_hit = implementor.command(f"wizset mob porter hit {GEAR_POISON_BLOW}")
-    assert set_hit.contains(f"hit set to {GEAR_POISON_BLOW}."), set_hit.text
+    goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME, exact=False)
+    load_mob(implementor, world.MOB_PORTER, "a porter")
+    give_new_object(implementor, world.OBJECT_SICKLY_AMULET, "amulet", "porter", shown_recipient="a porter", short_description=AMULET)
+    wizset(implementor, "mob porter", "hit", GEAR_POISON_BLOW)
     hit, constitution, resists_nothing = stat_hit_constitution_and_resists_nothing(implementor, "mob porter")
     # The porter's constitution is its own (mob/17.mob), not WEARER_CONSTITUTION: read and assert
     # it, so the stunned band in assert_blow_leaves_zero holds for it too.

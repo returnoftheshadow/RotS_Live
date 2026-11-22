@@ -11,6 +11,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import DEATH_CRY_FORMAT, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
+from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import AFFECT_BITS_PATTERN, HIT_POINTS_PATTERN, read_stat
 
@@ -90,11 +91,9 @@ SCORE_HIT_PATTERN = re.compile(r"You have (-?\d+)/(\d+) hit,")
 
 
 def hand_object(implementor: GameSession, vnum: int, keyword: str) -> None:
-    """Loads an object into the implementor's inventory and gives it to the idler, in the same room."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    given = implementor.command(f"give {keyword} {IDLER.name.lower()}")
-    assert given.contains(f"to {IDLER.name}."), given.text
+    """Loads an object into the implementor's inventory and gives it to the idler, in the same room,
+    checking that the give reply names the idler."""
+    give_new_object(implementor, vnum, keyword, IDLER.name.lower(), shown_recipient=IDLER.name)
 
 
 def idler_stat(implementor: GameSession) -> tuple:
@@ -138,8 +137,7 @@ def idle_the_idler_for_28_hours(server, implementor: GameSession, idler: GameSes
     28 hours, the void pull; and that the idler is then in the void, link-dead, with an idle timer
     of 28 and full hit points.
     """
-    arrived = implementor.command(f"goto {ROOM_IDLE_HALL}")
-    assert arrived.room_name() == IDLE_HALL_NAME, arrived.text
+    goto(implementor, ROOM_IDLE_HALL, IDLE_HALL_NAME)
     hand_object(implementor, world.OBJECT_LEATHER_CAP, "cap")
     hand_object(implementor, world.OBJECT_LEATHER_BAG, "bag")
     hand_object(implementor, world.OBJECT_SICKLY_AMULET, "amulet")

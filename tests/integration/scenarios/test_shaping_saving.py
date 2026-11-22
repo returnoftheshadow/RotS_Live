@@ -13,6 +13,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import goto
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.text_lines import raw_lines
@@ -205,8 +206,7 @@ def test_a_done_that_cannot_back_up_the_file_keeps_shaping_and_changes_nothing(s
     """
     implementor = server.login(IMPLEMENTOR.name)
     watcher = server.login(WATCHER.name)
-    went = watcher.command(f"goto {world.ROOM_SIGNPOST}")
-    assert went.room_name() == ROOM_CASE.old_text, went.text
+    goto(watcher, world.ROOM_SIGNPOST, ROOM_CASE.old_text)
     backup_dir = server.lib_dir / case.backup_dir_relative
     world_file = server.lib_dir / case.file_relative
     shutil.rmtree(backup_dir)

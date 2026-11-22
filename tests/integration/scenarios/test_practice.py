@@ -13,6 +13,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, ProfessionPoints, StoredValues
+from rots_harness.immortal_commands import load_mob, wizset
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, read_stat
@@ -310,8 +311,7 @@ SETTLE_SECONDS = 1.0
 
 def give_sessions(implementor: GameSession, name: str, sessions: int) -> None:
     """Sets the character's practice sessions to exactly sessions."""
-    reply = implementor.command(f"wizset player {name.lower()} practices {sessions}")
-    assert reply.contains(f"{name}'s practices set to {sessions}."), reply.text
+    wizset(implementor, f"player {name.lower()}", "practices", sessions, shown_name=name)
 
 
 def guildmaster_reset(guildmaster: Guildmaster = TRAVELLER) -> MobReset:
@@ -322,8 +322,7 @@ def guildmaster_reset(guildmaster: Guildmaster = TRAVELLER) -> MobReset:
 def bring_guildmaster(implementor: GameSession, guildmaster: Guildmaster = TRAVELLER) -> None:
     """Moves the implementor to the arena centre and loads the guildmaster there."""
     implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    reply = implementor.command(f"load mob {guildmaster.vnum}")
-    assert reply.contains(f"You create {guildmaster.short_description}."), reply.text
+    load_mob(implementor, guildmaster.vnum, guildmaster.short_description)
 
 
 def dismiss_guildmaster(implementor: GameSession, guildmaster: Guildmaster) -> None:
@@ -719,8 +718,7 @@ def test_a_specialization_skill_is_taught_only_to_a_pupil_with_that_specializati
     assert sessions_left(pupil, RANGER_PUPIL.name, ARODEN) == STARTING_SESSIONS
 
     name = RANGER_PUPIL.name
-    reply = implementor.command(f"wizset player {name.lower()} specialization {STEALTH_SPECIALIZATION}")
-    assert reply.contains(f"{name}'s specialization set to {STEALTH_SPECIALIZATION}."), reply.text
+    wizset(implementor, f"player {name.lower()}", "specialization", STEALTH_SPECIALIZATION, shown_name=name)
     specialized_list = guild_list(pupil, RANGER_PUPIL.name, ARODEN)
     assert guild_row(specialized_list, "stalking") == (0, 0, "Mastered"), specialized_list
     taught = practice(pupil, "stalking")
@@ -995,8 +993,7 @@ def test_an_uruk_lhuth_knows_blink_at_10_percent_unpractised_and_again_after_pra
     practised = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)
     assert guild_row(practised, "blink") == (36, 1, "Mastered"), practised
 
-    reply = implementor.command(f"load mob {world.MOB_SHINING_ANGEL}")
-    assert reply.contains("You create a shining angel."), reply.text
+    load_mob(implementor, world.MOB_SHINING_ANGEL, "a shining angel")
     reset = reply_to(pupil, "tell angel pracreset", [PRACRESET_DONE_MARKER])
     assert PRACRESET_DONE_MARKER in reset, reset
     after_reset = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)

@@ -10,7 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR
-from rots_harness.session import GameSession
+from rots_harness.immortal_commands import give_new_object
 from test_scripts import LISTENER, LISTENER_LINE, WANDERER, ScriptMob, placed, said
 
 pytestmark = [pytest.mark.scenario, pytest.mark.scripts]
@@ -40,14 +40,6 @@ WAIT_TIMEOUT = 10.0
 # Seconds to keep listening after the crier's second line: long enough for three more of its
 # one-second waits to end.
 REPEAT_WINDOW_SECONDS = 3.5
-
-
-def give_new_object(implementor: GameSession, vnum: int, keyword: str, mob: ScriptMob) -> str:
-    """Loads an object and gives it to the mob; returns the give's reply, which holds what its ON_RECEIVE script did."""
-    assert implementor.command(f"load obj {vnum}").contains("You create")
-    reply = implementor.command(f"give {keyword} {mob.keyword}")
-    assert reply.contains("You give"), reply.text
-    return reply.text
 
 
 @pytest.mark.scripts_delays
@@ -112,7 +104,7 @@ def test_a_false_if_ending_in_a_nested_block_without_an_else_runs_its_else_branc
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", FIRST_CLERK)
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", FIRST_CLERK.keyword)
     outer_else = said(FIRST_CLERK.short_description, OUTER_ELSE_LINE)
     after = said(FIRST_CLERK.short_description, AFTER_LINE)
     assert outer_else in reply and after in reply, reply
@@ -137,7 +129,7 @@ def test_a_false_if_skips_a_nested_block_with_a_non_empty_else_branch(server) ->
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", SECOND_CLERK)
+    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", SECOND_CLERK.keyword)
     outer_else = said(SECOND_CLERK.short_description, OUTER_ELSE_LINE)
     after = said(SECOND_CLERK.short_description, AFTER_LINE)
     assert outer_else in reply and after in reply, reply
@@ -161,5 +153,5 @@ def test_load_obj_x_copies_with_0_in_its_unused_parameter(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", CARELESS_COPYIST)
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", CARELESS_COPYIST.keyword)
     assert "A careless copyist gives you a leather cap." in reply, reply

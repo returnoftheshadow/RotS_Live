@@ -23,6 +23,7 @@ from rots_harness.game_text import (
     TELEPORTED_FORMAT,
     UNKNOWN_SPELL_REPLY,
 )
+from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, STRENGTH_PATTERN, read_stat
@@ -142,10 +143,7 @@ GLOW_FRAGMENT = " glows "
 # (Crash_tell_object_refresh, objsave.cpp).
 UPDATED_MARKER_FORMAT = "Your item, {}, has been updated."
 UPDATED_FRAGMENT = "has been updated."
-# What the implementor reads when a load, a give or a put goes through (do_load, act_wiz.cpp;
-# give and put, act_obj1.cpp).
-CREATED_MARKER_FORMAT = "You create {}."
-GIVEN_MARKER_FORMAT = "You give {} to {}."
+# What the implementor reads when a put goes through (perform_put, act_obj1.cpp).
 PUT_MARKER_FORMAT = "You put {} in {}."
 
 # The stat obj lines this file pins (do_stat_object, act_wiz.cpp).
@@ -277,27 +275,21 @@ LOG_TIMEOUT = 15.0
 LOG_POLL_SECONDS = 0.25
 
 
-def load_object(implementor: GameSession, vnum: int, short_description: str) -> None:
-    """Loads an object into the implementor's inventory and asserts the load's reply."""
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains(CREATED_MARKER_FORMAT.format(short_description)), created.text
-
-
 def give_object(implementor: GameSession, keyword: str, short_description: str, receiver: Character) -> None:
     """Hands an object the implementor carries to receiver, who stands in the implementor's room."""
     given = implementor.command(f"give {keyword} {receiver.name.lower()}")
-    assert given.contains(GIVEN_MARKER_FORMAT.format(short_description, receiver.name)), given.text
+    assert given.contains(GIVEN_FORMAT.format(short_description, receiver.name)), given.text
 
 
-def give_new_object(implementor: GameSession, vnum: int, keyword: str, short_description: str, receiver: Character) -> None:
-    """Loads an object and hands it to receiver, who stands in the implementor's room."""
-    load_object(implementor, vnum, short_description)
-    give_object(implementor, keyword, short_description, receiver)
+def hand_new_object(implementor: GameSession, vnum: int, keyword: str, short_description: str, receiver: Character) -> None:
+    """Loads an object and hands it to receiver, who stands in the implementor's room, checking
+    both replies in full."""
+    give_new_object(implementor, vnum, keyword, receiver.name.lower(), shown_recipient=receiver.name, short_description=short_description)
 
 
 def give_plain_sword(implementor: GameSession, receiver: Character) -> None:
     """Loads a plain sword and hands it to receiver, who stands in the implementor's room."""
-    give_new_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION, receiver)
+    hand_new_object(implementor, world.OBJECT_PLAIN_SWORD, SWORD_KEYWORD, SWORD_SHORT_DESCRIPTION, receiver)
 
 
 def cast_enchant_weapon(caster: GameSession) -> str:
@@ -733,7 +725,7 @@ def test_the_innkeeper_refuses_to_store_an_unrentable_item_and_the_mortal_keeps_
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    give_new_object(implementor, vnum, keyword, short_description, MORTAL_MYSTIC)
+    hand_new_object(implementor, vnum, keyword, short_description, MORTAL_MYSTIC)
     send_to_inn(implementor, mystic, MORTAL_MYSTIC)
 
     reply = ask_innkeeper(mystic, "rent")
@@ -780,7 +772,7 @@ def test_an_offer_gives_the_same_refusal_and_no_quote(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     mystic = server.login(MORTAL_MYSTIC.name)
-    give_new_object(implementor, KEY_VNUM, KEY_KEYWORD, KEY_SHORT_DESCRIPTION, MORTAL_MYSTIC)
+    hand_new_object(implementor, KEY_VNUM, KEY_KEYWORD, KEY_SHORT_DESCRIPTION, MORTAL_MYSTIC)
     send_to_inn(implementor, mystic, MORTAL_MYSTIC)
 
     reply = ask_innkeeper(mystic, "offer")
@@ -822,7 +814,7 @@ def test_a_broken_key_stays_broken_across_a_refresh(server) -> None:
     load_object(implementor, CHEST_VNUM, CHEST_SHORT_DESCRIPTION)
     dropped = implementor.command(f"drop {CHEST_KEYWORD}")
     assert dropped.contains(DROP_FORMAT.format(CHEST_SHORT_DESCRIPTION)), dropped.text
-    give_new_object(implementor, KEY_VNUM, KEY_KEYWORD, KEY_SHORT_DESCRIPTION, OWNER)
+    hand_new_object(implementor, KEY_VNUM, KEY_KEYWORD, KEY_SHORT_DESCRIPTION, OWNER)
     lock_outcomes = [NO_PROPER_KEY_MARKER, LOCKED_MARKER, ALREADY_LOCKED_MARKER, NOT_A_CONTAINER_MARKER]
 
     unlocked = reply_to(owner, f"unlock {CHEST_KEYWORD}", [KEY_BREAKS_MARKER, NO_PROPER_KEY_MARKER, NOT_LOCKED_MARKER, NOT_CLOSED_MARKER, NOT_A_CONTAINER_MARKER])
@@ -860,7 +852,7 @@ def test_a_refreshed_worn_item_gives_its_wearer_the_new_prototypes_affect(server
     """
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
-    give_new_object(implementor, world.OBJECT_LEATHER_HELM, HELM_KEYWORD, HELM_SHORT_DESCRIPTION, OWNER)
+    hand_new_object(implementor, world.OBJECT_LEATHER_HELM, HELM_KEYWORD, HELM_SHORT_DESCRIPTION, OWNER)
     worn = owner.command(f"wear {HELM_KEYWORD}")
     assert worn.contains(WORN_MARKER), worn.text
     assert strength_base_and_constant(implementor, OWNER.name) == (WEARER_STRENGTH, WEARER_STRENGTH)
@@ -923,7 +915,7 @@ def test_a_refresh_keeps_what_is_left_in_a_drink_container(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
-    give_new_object(implementor, WATERSKIN_VNUM, WATERSKIN_KEYWORD, WATERSKIN_SHORT_DESCRIPTION, OWNER)
+    hand_new_object(implementor, WATERSKIN_VNUM, WATERSKIN_KEYWORD, WATERSKIN_SHORT_DESCRIPTION, OWNER)
     sipped = reply_to(owner, f"sip {WATERSKIN_KEYWORD}", [SIP_MARKER, TOO_DRUNK_MARKER, TOO_FULL_MARKER])
     assert SIP_MARKER in sipped, sipped
     sipped_lines = stat_carried_object(implementor, WATERSKIN_KEYWORD, OWNER)

@@ -11,6 +11,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import FORCED_REPLY
+from rots_harness.immortal_commands import goto, load_mob
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import NO_SUCH_MOB_REPLY, read_stat
@@ -87,12 +88,6 @@ FAREWELL = "farewell"
 SETTLE_SECONDS = 1.0
 
 
-def load_mob(implementor: GameSession, mob: HallMob) -> None:
-    """Loads one copy of mob into the implementor's room and asserts the reply names it."""
-    created = implementor.command(f"load mob {mob.vnum}")
-    assert created.contains(f"You create {mob.short_description}."), created.text
-
-
 def force(implementor: GameSession, mob: HallMob, command: str, marker: str) -> str:
     """Forces mob to run command and returns what the implementor read up to marker and after.
 
@@ -118,10 +113,9 @@ def gather_followers(implementor: GameSession, leader: GameSession, followers: l
     do_order walks that list from the head, so the followers are made to follow in reverse:
     the order then reaches them in the order given here.
     """
-    arrived = implementor.command(f"goto {world.ROOM_ORDER_HALL}")
-    assert arrived.room_name() == ORDER_HALL_NAME, arrived.text
+    goto(implementor, world.ROOM_ORDER_HALL, ORDER_HALL_NAME)
     for follower in followers:
-        load_mob(implementor, follower)
+        load_mob(implementor, follower.vnum, follower.short_description)
 
     for follower in reversed(followers):
         follow(implementor, follower, LEADER.name.lower(), LEADER.name)
@@ -189,7 +183,7 @@ def test_an_order_goes_on_past_a_follower_it_removes(server) -> None:
     leader = server.login(LEADER.name)
     followers = [ASH, YEW, ELM]
     gather_followers(implementor, leader, followers)
-    load_mob(implementor, WARDEN)
+    load_mob(implementor, WARDEN.vnum, WARDEN.short_description)
     implementor.drain(SETTLE_SECONDS)
 
     said = order_followers(leader, f"say {HELLO}")
@@ -248,10 +242,9 @@ def test_an_order_that_removes_its_leader_ends_there(server) -> None:
     The elm lackey never says farewell either way. Nothing on the path draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    arrived = implementor.command(f"goto {world.ROOM_ORDER_HALL}")
-    assert arrived.room_name() == ORDER_HALL_NAME, arrived.text
+    goto(implementor, world.ROOM_ORDER_HALL, ORDER_HALL_NAME)
     for mob in (CAPTAIN, ASH, ELM):
-        load_mob(implementor, mob)
+        load_mob(implementor, mob.vnum, mob.short_description)
 
     for follower in (ELM, ASH):
         follow(implementor, follower, CAPTAIN.keyword, CAPTAIN.short_description)

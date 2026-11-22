@@ -11,6 +11,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.immortal_commands import give_new_object, goto, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
@@ -240,22 +241,20 @@ def set_display(session: GameSession, pattern: re.Pattern) -> str:
     return value.group(1)
 
 
-def wizset(implementor: GameSession, field_and_value: str) -> str:
+def send_wizset(implementor: GameSession, field_and_value: str) -> str:
     """Sends `wizset player testreader <field_and_value>` and returns the reply."""
     return implementor.command(f"wizset player {PLAYER.name.lower()} {field_and_value}").text
 
 
 def join_player(implementor: GameSession) -> None:
     """The implementor goes to the player in the arena centre."""
-    arrived = implementor.command(f"goto {PLAYER.name.lower()}")
-    assert arrived.room_name() == world.ROOM_ARENA_CENTRE_NAME, arrived.text
+    goto(implementor, PLAYER.name.lower(), world.ROOM_ARENA_CENTRE_NAME)
 
 
 def put_board_beside_player(implementor: GameSession) -> None:
     """The implementor joins the player and drops a harness token, a board, in its room."""
     join_player(implementor)
-    created = implementor.command(f"load obj {BOARD_TOKEN_VNUM}")
-    assert created.contains("You create a harness token."), created.text
+    load_object(implementor, BOARD_TOKEN_VNUM, "a harness token")
     dropped = implementor.command("drop token")
     assert dropped.contains("You drop a harness token."), dropped.text
 
@@ -273,10 +272,7 @@ def slot_row(slot: str, colour: str) -> str:
 def armour_the_player(implementor: GameSession, player: GameSession) -> int:
     """Gives the player the chain shirt to wear and returns the absorb its own info shows."""
     join_player(implementor)
-    created = implementor.command(f"load obj {world.OBJECT_CHAIN_SHIRT}")
-    assert created.contains("You create a chain shirt."), created.text
-    given = implementor.command(f"give shirt {PLAYER.name.lower()}")
-    assert given.contains("You give a chain shirt to"), given.text
+    give_new_object(implementor, world.OBJECT_CHAIN_SHIRT, "shirt", PLAYER.name.lower(), short_description="a chain shirt")
     worn = player.command("wear shirt")
     assert worn.contains("You wear a chain shirt on your body."), worn.text
     info = player.command("info")
@@ -433,22 +429,22 @@ def test_wizset_matches_field_names_in_any_case(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    gold = wizset(implementor, "GOLD 100")
+    gold = send_wizset(implementor, "GOLD 100")
     assert UNKNOWN_FIELD_MARKER not in gold, gold
     assert f"{PLAYER.name}'s gold set to 100." in gold, gold
     coins = COINS_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert coins is not None and int(coins.group(1)) == 100
 
-    mixed_case = wizset(implementor, "GoLd 7")
+    mixed_case = send_wizset(implementor, "GoLd 7")
     assert f"{PLAYER.name}'s gold set to 7." in mixed_case, mixed_case
     coins = COINS_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert coins is not None and int(coins.group(1)) == 7
 
-    offence = wizset(implementor, "ob 5")
+    offence = send_wizset(implementor, "ob 5")
     assert UNKNOWN_FIELD_MARKER not in offence, offence
     assert f"{PLAYER.name}'s OB set to 5." in offence, offence
 
-    unknown = wizset(implementor, "ZZZ 5")
+    unknown = send_wizset(implementor, "ZZZ 5")
     assert UNKNOWN_FIELD_MARKER in unknown, unknown
 
 
@@ -462,7 +458,7 @@ def test_stat_shows_an_affect_bit_on_one_aff_line(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    reply = wizset(implementor, f"affected {DETECT_MAGIC_BIT_VALUE}")
+    reply = send_wizset(implementor, f"affected {DETECT_MAGIC_BIT_VALUE}")
     assert f"{PLAYER.name}'s affected set to {DETECT_MAGIC_BIT_VALUE}." in reply, reply
     affect_line = AFFECT_LINE_PATTERN.search(read_stat(implementor, f"player {PLAYER.name.lower()}"))
     assert affect_line is not None
@@ -550,8 +546,7 @@ def test_stat_obj_names_wear_and_extra_flags(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     server.login(PLAYER.name)
 
-    created = implementor.command(f"load obj {world.OBJECT_STONE_GIRDLE}")
-    assert created.contains("You create a stone girdle."), created.text
+    load_object(implementor, world.OBJECT_STONE_GIRDLE, "a stone girdle")
     stat = read_stat(implementor, "obj girdle", last_line=OBJECT_STAT_LAST_LINE)
     assert GIRDLE_WEAR_LINE in stat, stat
     assert GIRDLE_EXTRA_FLAGS_LINE in stat, stat
