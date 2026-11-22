@@ -19,6 +19,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -121,6 +122,10 @@ combat_result_struct damage_stat(char_data* killer, char_data* caster, int stat_
 
 ASPELL(spell_curse)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_CURSE)) {
+        return;
+    }
+
     const int DAMAGE_TABLE_SIZE = 7;
     const int NUM_STATS = 6;
 
@@ -178,6 +183,9 @@ ASPELL(spell_curse)
 
     int actual_count = 0;
     int stat_index = 0;
+    // damage_stat can free either of them; see its comment in clerics.cpp.
+    freed_watch caster_watch(caster);
+    freed_watch victim_watch(victim);
 
     while (stat_index < NUM_STATS && !victim_died && caster->points.spirit > 0) {
         int stat_damage = damage_table[stat_index];
@@ -186,10 +194,18 @@ ASPELL(spell_curse)
             caster->points.spirit = std::max(caster->points.spirit, 0);
 
             combat_result_struct curse_result = damage_stat(caster, victim, stat_index, stat_damage);
+            if (caster_watch.freed()) {
+                return;
+            }
             victim_flees |= curse_result.wants_to_flee;
             victim_died |= curse_result.will_die;
 
             actual_count += stat_damage;
+            // A removed victim is not cursed further and does not flee.
+            if (victim_watch.freed()) {
+                victim_flees = false;
+                break;
+            }
         }
 
         ++stat_index;
@@ -198,6 +214,10 @@ ASPELL(spell_curse)
     // Only flee after the curse has completed attacking all of its stats.
     if (!victim_died && victim_flees) {
         do_flee(victim, "", NULL, 0, 0);
+        // A self-curse flees the caster, and the flight can remove it.
+        if (caster_watch.freed()) {
+            return;
+        }
     }
 
     set_mental_delay(caster, actual_count * PULSE_MENTAL_FIGHT);
@@ -207,6 +227,10 @@ int restore_stat(char_data* caster, int stat_num, int amount);
 
 ASPELL(spell_revive)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_REVIVE)) {
+        return;
+    }
+
     int i, i2, num, count, actual_count, stat_dam, stat_dam2;
     int revive_table[7];
 
@@ -321,6 +345,10 @@ ASPELL(spell_mind_block)
 
 ASPELL(spell_insight)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_INSIGHT)) {
+        return;
+    }
+
     affected_type af{};
     affected_type* afptr;
     int my_duration;
@@ -374,6 +402,10 @@ ASPELL(spell_insight)
 
 ASPELL(spell_pragmatism)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_PRAGMATISM)) {
+        return;
+    }
+
     affected_type af{};
     affected_type* afptr;
     int my_duration;
@@ -1454,6 +1486,10 @@ ASPELL(spell_enchant_weapon)
 
 ASPELL(spell_death_ward)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_DEATH_WARD)) {
+        return;
+    }
+
     affected_type af{};
 
     if ((type == SPELL_TYPE_ANTI) || is_object) {

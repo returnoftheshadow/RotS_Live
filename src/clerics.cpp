@@ -7,6 +7,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -172,7 +173,15 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
         guard.targ1.set_character(victim);
         guard.targ2.ptr.other = NULL;
         guard.targ2.type = TARGET_NONE;
-        if (special(ch, 0, "", SPECIAL_DAMAGE, &guard)) {
+        // The keeper's procedure could remove either of them, whatever it returns.
+        freed_watch attacker_watch(ch);
+        freed_watch keeper_watch(victim);
+        const int refused = special(ch, 0, "", SPECIAL_DAMAGE, &guard);
+        if (attacker_watch.freed() || keeper_watch.freed()) {
+            return;
+        }
+
+        if (refused) {
             if (ch->specials.fighting == victim) /* else it would be refused again every round */
                 stop_fighting(ch);
             return;
@@ -181,7 +190,13 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
 
     if (!ch->specials.fighting && IS_MENTAL(ch)) {
         set_fighting(ch, victim);
-        WAIT_STATE(ch, 2); /* HVORFOR DET?? */
+        // Ending ch's own delay runs the rest of a paused script, which can remove either.
+        freed_watch attacker_watch(ch);
+        freed_watch victim_watch(victim);
+        (void)WAIT_STATE(ch, 2); // HVORFOR DET??
+        if (attacker_watch.freed() || victim_watch.freed()) {
+            return;
+        }
     }
 
     set_mental_delay(ch, PULSE_MENTAL_FIGHT);
@@ -222,6 +237,9 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
         damg++;
 
     combat_result_struct damage_result;
+    // damage_stat can free either of them; see its comment.
+    freed_watch attacker_watch(ch);
+    freed_watch victim_watch(victim);
 
     /* Successful hit */
     if (damg) {
@@ -258,8 +276,20 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
         sprintf(buf, "$n forces $s Will against $N's %s!", stat_word[tmp]);
         act(buf, TRUE, ch, 0, victim, TO_NOTVICT);
 
+        // Experience uses the victim's level before the hit, which can remove a mob it kills.
+        const int victim_level = GET_LEVEL(victim);
         damage_result = damage_stat(ch, victim, tmp, damg);
-        gain_exp(ch, (1 + GET_LEVEL(victim)) * std::min(20 + GET_LEVEL(ch) * 2, damg * 5) / (1 + GET_LEVEL(ch)));
+        if (attacker_watch.freed()) {
+            return;
+        }
+
+        const int hit_experience
+            = (1 + victim_level) * std::min(20 + GET_LEVEL(ch) * 2, damg * 5) / (1 + GET_LEVEL(ch));
+        gain_exp(ch, hit_experience);
+        if (victim_watch.freed()) {
+            return;
+        }
+
         if (!damage_result.will_die) {
             if (IS_AFFECTED(victim, AFF_WAITWHEEL) && victim->delay.priority <= 40) {
                 if (battle_mage_handler.does_mental_attack_interrupt_spell()) {
@@ -268,7 +298,12 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
             }
 
             if (damage_result.wants_to_flee) {
+                freed_watch fleeing_watch(victim);
                 do_flee(victim, "", NULL, 0, 0);
+                // Fleeing can remove the victim (a script where it arrives, a death room).
+                if (fleeing_watch.freed()) {
+                    return;
+                }
             }
 
             if (victim->delay.cmd == CMD_PREPARE && (victim->delay.targ1.type == TARGET_IGNORE)) {
@@ -290,10 +325,18 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
 
             char_data* damage_source = ch->specials.fighting ? ch->specials.fighting : ch;
             damage_result = damage_stat(damage_source, ch, number(0, 6), 2);
+            if (attacker_watch.freed()) {
+                return;
+            }
+
             if (!damage_result.will_die) {
                 check_break_prep(ch);
                 if (damage_result.wants_to_flee) {
+                    freed_watch fleeing_watch(ch);
                     do_flee(ch, "", NULL, 0, 0);
+                    if (fleeing_watch.freed()) {
+                        return;
+                    }
                 }
             }
 
@@ -302,6 +345,10 @@ void do_mental(struct char_data* ch, char* argument, struct waiting_type* wtl, i
             act("$n tries $s Will against your mind, but you resist!", FALSE, ch, NULL, victim, TO_VICT);
             act("$n tries $s Will against $N's mind, but $E resists!", TRUE, ch, NULL, victim, TO_NOTVICT);
         }
+    }
+
+    if (victim_watch.freed()) {
+        return;
     }
 
     if (!damage_result.will_die) {
@@ -327,6 +374,10 @@ bool is_stat_critical(const char_data* victim)
         || stats.dex < MIN_SAFE_STAT || stats.con < MIN_SAFE_STAT || stats.lea < MIN_SAFE_STAT;
 }
 
+// Drains <amount> from <victim>'s stat <stat_num> as <killer>'s mental attack, killing it at
+// zero. Either can be freed on return: a death removes a mob, and the victim's procedure, asked
+// first, can remove either of them (Thuringwethil leaves at 500 hit points), so a caller that
+// goes on to use them keeps a freed_watch on each.
 combat_result_struct damage_stat(struct char_data* killer, struct char_data* victim, int stat_num, int amount)
 {
     combat_result_struct combat_results;
@@ -336,7 +387,14 @@ combat_result_struct damage_stat(struct char_data* killer, struct char_data* vic
         wait_data.targ1.set_character(victim);
         wait_data.targ2.ptr.other = NULL;
         wait_data.targ2.type = TARGET_NONE;
+        // No stat is damaged once the procedure has removed either of them.
+        freed_watch killer_watch(killer);
+        freed_watch victim_watch(victim);
         int special_index = special(killer, 0, "", SPECIAL_DAMAGE, &wait_data);
+        if (killer_watch.freed() || victim_watch.freed()) {
+            return combat_results;
+        }
+
         if (special_index) {
             if (killer->specials.fighting == victim) {
                 stop_fighting(killer);
@@ -530,9 +588,21 @@ ACMD(do_concentrate)
             }
 
             bool victim_flees = false;
+            freed_watch attacker_watch(ch);
+            freed_watch victim_watch(victim);
             for (i = 0; i < 6; i++) {
                 if (stat_damage[i]) {
                     combat_result_struct combat_result = damage_stat(ch, victim, i, stat_damage[i]);
+                    if (attacker_watch.freed()) {
+                        return;
+                    }
+
+                    // A removed victim has nothing left to hit and does not flee.
+                    if (victim_watch.freed()) {
+                        victim_flees = false;
+                        break;
+                    }
+
                     if (combat_result.will_die) {
                         break;
                     } else {
@@ -543,6 +613,10 @@ ACMD(do_concentrate)
 
             if (victim_flees) {
                 do_flee(victim, "", NULL, 0, 0);
+                // The flight can set off a procedure or script that removes the attacker.
+                if (attacker_watch.freed()) {
+                    return;
+                }
             }
         } else {
             send_to_char("You release your concentration.\n\r", ch);
@@ -558,8 +632,11 @@ ACMD(do_concentrate)
         set_mental_delay(ch, -1 - GET_MENTAL_DELAY(ch));
         ch->delay.targ1.type = TARGET_NONE;
         ch->delay.targ2.type = TARGET_NONE;
-        WAIT_STATE_BRIEF(ch, -1, CMD_CONCENTRATE, -1, 50,
-            AFF_CONCENTRATION | AFF_WAITING | AFF_WAITWHEEL);
+        // Ending ch's own delay can remove it (the rest of a paused script).
+        if (!WAIT_STATE_BRIEF(ch, -1, CMD_CONCENTRATE, -1, 50,
+                AFF_CONCENTRATION | AFF_WAITING | AFF_WAITWHEEL)) {
+            return;
+        }
         send_to_char("You start focusing your mind.\n\r", ch);
         act("$n starts concentrating.", FALSE, ch, 0, 0, TO_ROOM);
     }

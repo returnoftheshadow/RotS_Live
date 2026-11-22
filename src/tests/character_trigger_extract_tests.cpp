@@ -1071,6 +1071,50 @@ TEST_F(CharacterTriggerTest, AProgramDelayOnAPausedMobRunsTheRestOfItsScriptAtOn
     EXPECT_EQ(1, count_in_output("The mob fades."));
 }
 
+// The level of the mage that casts its prepared spell, high enough for the spell.
+constexpr int PREPARED_MAGE_LEVEL = 80;
+// A finished preparation's delay, as do_prepare leaves it: no pulses left, at its priority.
+constexpr int FINISHED_PREPARATION_PULSES = -1;
+constexpr int FINISHED_PREPARATION_PRIORITY = 20;
+// The lowest roll: every concentration roll of a cast passes it, and number() turns it into its
+// lowest result, so a scavenger scavenges that turn.
+constexpr double LOWEST_ROLL = 0.0;
+
+// A mob casts its prepared spell at itself, and the blow sets off its own damage script, which
+// pauses. The short wait after a prepared spell ends that pause, the rest of the script removes the
+// mob, and the cast ends with it.
+TEST_F(CharacterTriggerTest, APreparedSpellEndsWhenItsAfterWaitRunsTheCastersScriptToItsRemoval)
+{
+    install_script(ON_DAMAGE, pause_then_remove_body());
+    char_data* mage = make_mob("mage", SCRIPT_VNUM);
+    mage->player.level = PREPARED_MAGE_LEVEL;
+    // A finished preparation, as do_prepare leaves it.
+    ASSERT_TRUE(WAIT_STATE_BRIEF(mage, FINISHED_PREPARATION_PULSES, CMD_PREPARE,
+        SPELL_MAGIC_MISSILE, FINISHED_PREPARATION_PRIORITY, 0));
+    mage->delay.targ1.ch_num = SPELL_MAGIC_MISSILE;
+    // More lowest rolls than the cast makes, so that its concentration roll always passes.
+    const int lowest_rolls = 32;
+    for (int roll = 0; roll < lowest_rolls; ++roll) {
+        push_test_random_value(LOWEST_ROLL);
+    }
+
+    waiting_type program_cast {};
+    program_cast.cmd = CMD_CAST;
+    program_cast.targ1.type = TARGET_OTHER;
+    program_cast.targ1.ch_num = SPELL_MAGIC_MISSILE;
+    program_cast.targ2.type = TARGET_CHAR;
+    program_cast.targ2.choice = TAR_CHAR_ROOM;
+    program_cast.targ2.ptr.ch = mage;
+    program_cast.targ2.ch_num = GET_ABS_NUM(mage);
+    char no_argument[] = "";
+
+    do_cast(mage, no_argument, &program_cast, CMD_CAST, 0);
+
+    EXPECT_EQ(1, count_in_output("The mob fades.")) << output();
+    EXPECT_FALSE(is_in_game(mage));
+    EXPECT_EQ(nullptr, waiting_list);
+}
+
 // A paused mob that is killed runs the rest of its script first, as it always has; the rest
 // removes it, so there is nobody left to make a corpse of.
 TEST_F(CharacterTriggerTest, APausedMobThatIsKilledFinishesItsScriptFirst)
@@ -1326,6 +1370,53 @@ TEST_F(CharacterTriggerTest, AnEventRunsNoMoreThanItsShareOfScripts)
     const size_t first = logged.find(refusal);
     ASSERT_NE(std::string::npos, first) << logged.substr(0, LOGGED_TEXT_SHOWN);
     EXPECT_EQ(std::string::npos, logged.find(refusal, first + 1)) << "one SYSERR for the event";
+}
+
+// ---- scavenging (ON_WEAR of what a scavenger takes) ----
+
+// A worth above anything else the scavenger finds: it picks out the item.
+constexpr int MOST_VALUABLE_COST = 50;
+
+// A scavenger takes a ring from a bag and puts it on; the ring's script moves the most valuable
+// item in the room, which the scavenger had picked out, into the scavenger's hands. The scavenger
+// does not then pick it up from the floor it has left.
+TEST_F(CharacterTriggerTest, AScavengerLeavesAnItemAScriptMovedOutOfTheRoom)
+{
+    install_script(ON_WEAR,
+        { { SCRIPT_ASSIGN_ROOM, nullptr,
+              { STONE_VNUM, SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1_ROOM, SCRIPT_PARAM_INT1 } },
+            { SCRIPT_OBJ_FROM_ROOM, nullptr, { SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1_ROOM } },
+            { SCRIPT_OBJ_TO_CHAR, nullptr, { SCRIPT_PARAM_OB2, SCRIPT_PARAM_CH1 } } });
+    char_data* scavenger = make_mob("scavenger", 0);
+    SET_BIT(MOB_FLAGS(scavenger), MOB_SCAVENGER | MOB_SENTINEL);
+    obj_data* bag = make_object(BAG_VNUM, 0);
+    obj_to_room(bag, 0);
+    obj_to_obj(make_scripted(RING_VNUM), bag);
+    obj_data* stone = make_object(STONE_VNUM, 0);
+    stone->obj_flags.cost = MOST_VALUABLE_COST;
+    obj_to_room(stone, 0);
+    ASSERT_EQ(stone, world[0].contents) << "looked at before the bag";
+    // Mob activity is for mobs made from a prototype.
+    index_data prototype_index[1] {};
+    index_data* saved_mob_index = mob_index;
+    const int saved_top_of_mobt = top_of_mobt;
+    mob_index = prototype_index;
+    top_of_mobt = 0;
+    const int made_number = scavenger->nr;
+    scavenger->nr = 0;
+    push_test_random_value(LOWEST_ROLL);
+
+    one_mobile_activity(scavenger);
+
+    scavenger->nr = made_number; // as make_mob left it, so that its strings are freed with it
+    mob_index = saved_mob_index;
+    top_of_mobt = saved_top_of_mobt;
+
+    EXPECT_NE(nullptr, scavenger->equipment[WEAR_FINGER_R]) << "it took the ring and wore it";
+    EXPECT_EQ(scavenger, stone->carried_by);
+    EXPECT_EQ(bag, world[0].contents);
+    EXPECT_EQ(nullptr, bag->next_content);
+    EXPECT_FALSE(output_has("gets a grey stone")) << output();
 }
 
 // ---- a zone reset that gives a mob another script (A 12) ----

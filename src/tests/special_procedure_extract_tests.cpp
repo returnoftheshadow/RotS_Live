@@ -789,11 +789,161 @@ TEST_F(SpecialProcedureTest, ARiderWhoseDeathRemovesTheMountLeavesThePassengerBe
     EXPECT_EQ(0, passenger->in_room);
 }
 
-// ---- the dragon's breath ----
-
 // Rolls that number(from, to) turns into its lowest and its highest result.
 constexpr double LOWEST_ROLL = 0.0;
 constexpr double HIGHEST_ROLL = 0.999;
+
+// ---- mob turns ----
+
+TEST_F(SpecialProcedureTest, AMobWhoseOwnProcedureRemovesItEndsItsTurn)
+{
+    char_data* vanishing = make_mob_with("vanishing", remove_own_mob);
+
+    one_mobile_activity(vanishing);
+
+    EXPECT_FALSE(is_in_game(vanishing));
+}
+
+TEST_F(SpecialProcedureTest, EveryMobTakesItsTurnWhenNoneIsRemoved)
+{
+    char_data* first = make_mob_with("first", record_offer);
+    char_data* second = make_mob_with("second", record_offer);
+    SET_BIT(MOB_FLAGS(first), MOB_SENTINEL);
+    SET_BIT(MOB_FLAGS(second), MOB_SENTINEL);
+    push_test_random_value(LOWEST_ROLL); // the first in the list takes its turn
+    push_test_random_value(LOWEST_ROLL); // and so does the second
+
+    mobile_activity();
+
+    EXPECT_TRUE(was_offered(first));
+    EXPECT_TRUE(was_offered(second));
+}
+
+// The first mob in the list removes the one after it and then itself: the pass ends there, and
+// says so in the log.
+TEST_F(SpecialProcedureTest, AMobActivityPassEndsWhenATurnRemovesTheNextMobToo)
+{
+    char_data* next = make_mob_with("next", record_offer);
+    char_data* remover = make_mob_with("remover", remove_marked_then_self);
+    ASSERT_EQ(remover, character_list);
+    ASSERT_EQ(next, remover->next);
+    record.character_to_remove = next;
+    push_test_random_value(LOWEST_ROLL); // the remover takes its turn
+
+    testing::internal::CaptureStderr();
+    mobile_activity();
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_FALSE(is_in_game(remover));
+    EXPECT_FALSE(is_in_game(next));
+    EXPECT_NE(std::string::npos,
+        logged.find("SYSERR: mobile_activity: the next character was freed; the rest wait for the "
+                    "next pass."))
+        << logged;
+}
+
+// How long the paused scripts wait: only a delay that ends the pause early resumes them.
+constexpr int PAUSE_PULSES = 5;
+
+// Returns the specs of script SCRIPT_VNUM, which pauses on hearing anything and then says
+// <word>, and of script OTHER_SCRIPT_VNUM, which runs <reaction> when it hears <heard>. The rest
+// of a paused script names nobody but its mob, so it reaches others through what it says.
+static std::vector<script_spec> pause_then_say_scripts(const char* word, const char* heard,
+    const std::vector<body_line>& reaction)
+{
+    std::vector<body_line> listener = { { SCRIPT_IF_STR_CONTAINS, heard, { SCRIPT_PARAM_STR1 } },
+        { SCRIPT_BEGIN, nullptr, {} } };
+    listener.insert(listener.end(), reaction.begin(), reaction.end());
+    listener.push_back({ SCRIPT_END, nullptr, {} });
+    return { { SCRIPT_VNUM,
+                 { { ON_HEAR_SAY,
+                     { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+                         { SCRIPT_DO_SAY, word, { SCRIPT_PARAM_CH1 } } } } } },
+        { OTHER_SCRIPT_VNUM, { { ON_HEAR_SAY, listener } } } };
+}
+
+// The bodyguard rescues its master, which ends the master's pause: the rest of its script makes
+// the master's foe vanish, and the bodyguard does not then go after it.
+TEST_F(SpecialProcedureTest, ABodyguardWhoseRescueRemovesTheMastersFoeLetsItGo)
+{
+    install_scripts(pause_then_say_scripts(
+        "vanish", "VANISH", { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } }));
+    char_data* master = make_mob_with("master", nullptr);
+    master->specials.script_number = SCRIPT_VNUM;
+    char_data* foe = make_mob_with("foe", nullptr);
+    foe->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* bodyguard = make_mob_with("bodyguard", nullptr);
+    SET_BIT(MOB_FLAGS(bodyguard), MOB_BODYGUARD | MOB_SENTINEL);
+    add_follower(bodyguard, master, FOLLOW_MOVE);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, master->delay.cmd);
+    start_fight(master, foe);
+    push_test_random_value(LOWEST_ROLL); // the rescue succeeds (a mob knows it at 80)
+
+    one_mobile_activity(bodyguard);
+
+    EXPECT_FALSE(is_in_game(foe));
+    ASSERT_TRUE(is_in_game(bodyguard));
+    EXPECT_EQ(nullptr, bodyguard->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, ABodyguardRescuesEachFollowerInTrouble)
+{
+    char_data* bodyguard = make_mob_with("bodyguard", nullptr);
+    SET_BIT(MOB_FLAGS(bodyguard), MOB_BODYGUARD | MOB_SENTINEL);
+    char_data* first = make_mob_with("first", nullptr);
+    char_data* second = make_mob_with("second", nullptr);
+    add_follower(first, bodyguard, FOLLOW_MOVE);
+    add_follower(second, bodyguard, FOLLOW_MOVE);
+    char_data* first_foe = make_mob_with("foe", nullptr);
+    char_data* second_foe = make_mob_with("enemy", nullptr);
+    start_fight(first, first_foe);
+    start_fight(second, second_foe);
+    push_test_random_value(LOWEST_ROLL); // the first rescue succeeds
+    push_test_random_value(LOWEST_ROLL); // and so does the second
+
+    one_mobile_activity(bodyguard);
+
+    EXPECT_EQ(bodyguard, first_foe->specials.fighting);
+    EXPECT_EQ(bodyguard, second_foe->specials.fighting);
+}
+
+// The bodyguard rescues a follower, which ends the follower's pause: the rest of its script
+// makes a stranger take the follower on and then vanish, so that the follower follows nobody.
+// The rescues end there: the follower's place in the bodyguard's list is gone. Before the rescue
+// another mob that followed someone was removed, so a place in the list that has gone leads on
+// to one naming a removed mob.
+TEST_F(SpecialProcedureTest, ABodyguardStopsRescuingOnceTheRescuedStopsFollowingIt)
+{
+    install_scripts(pause_then_say_scripts("leave", "LEAVE",
+        { { SCRIPT_DO_FOLLOW, nullptr, { SCRIPT_PARAM_CH2, SCRIPT_PARAM_CH1 } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } }));
+    char_data* bodyguard = make_mob_with("bodyguard", nullptr);
+    SET_BIT(MOB_FLAGS(bodyguard), MOB_BODYGUARD | MOB_SENTINEL);
+    char_data* follower = make_mob_with("follower", nullptr);
+    follower->specials.script_number = SCRIPT_VNUM;
+    add_follower(follower, bodyguard, FOLLOW_MOVE);
+    char_data* stranger = make_mob_with("stranger", nullptr);
+    stranger->specials.script_number = OTHER_SCRIPT_VNUM;
+    char_data* foe = make_mob_with("foe", nullptr);
+    char_data* stray = make_mob_with("stray", nullptr);
+    add_follower(stray, foe, FOLLOW_MOVE);
+    extract_char(stray);
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, follower->delay.cmd);
+    start_fight(follower, foe);
+    push_test_random_value(LOWEST_ROLL); // the rescue succeeds
+
+    one_mobile_activity(bodyguard);
+
+    EXPECT_FALSE(is_in_game(stranger));
+    ASSERT_TRUE(is_in_game(follower));
+    EXPECT_EQ(nullptr, follower->master);
+    EXPECT_EQ(nullptr, bodyguard->followers);
+    EXPECT_EQ(bodyguard, foe->specials.fighting) << "the rescue itself went ahead";
+}
+
+// ---- the dragon's breath ----
 
 // Makes <breather> a fighting dragon whose breath comes this turn, with the player standing aside
 // (a player burnt to death would be saved to disk).
@@ -865,6 +1015,23 @@ TEST_F(SpecialProcedureTest, TheBreathEndsWithADragonAVictimRemoves)
 
     EXPECT_FALSE(is_in_game(breather));
     EXPECT_FALSE(is_hurt(second));
+}
+
+// The dragon breathes on its own turn, and its victim's damage script removes it: the turn ends
+// there. AddressSanitizer is what protects this test: the turn would go on to read the freed
+// dragon's delay.
+TEST_F(SpecialProcedureTest, ADragonItsBreathsVictimRemovesEndsItsTurn)
+{
+    install_script(ON_DAMAGE, { { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH2 } } });
+    char_data* breather = make_mob_with("dragon", dragon);
+    char_data* victim = make_mob_with("victim", nullptr);
+    victim->specials.script_number = SCRIPT_VNUM;
+    ready_to_breathe(m_player, breather);
+
+    one_mobile_activity(breather);
+
+    EXPECT_FALSE(is_in_game(breather));
+    EXPECT_TRUE(is_in_game(victim));
 }
 
 // ---- procedures that speak ----
@@ -1073,6 +1240,23 @@ TEST_F(SpecialProcedureTest, ArTarthalonCallsTheOneHeSummonsWhoComes)
 
 // ---- the ranger mob's hiding ----
 
+// Someone comes into a ranger's room as it waits out a script's pause; the hide it starts ends
+// the pause, and the rest of the script removes it: it does not then go on to track or wander.
+TEST_F(SpecialProcedureTest, ARangerWhoseHidingRemovesItIsLetGo)
+{
+    install_script(ON_HEAR_SAY,
+        { { SCRIPT_DO_WAIT, nullptr, { PAUSE_PULSES } },
+            { SCRIPT_EXTRACT_CHAR, nullptr, { SCRIPT_PARAM_CH1 } } });
+    char_data* ranger = make_mob_with("ranger", nullptr);
+    ranger->specials.script_number = SCRIPT_VNUM;
+    run_command(do_say, "hello");
+    ASSERT_EQ(CMD_SCRIPT, ranger->delay.cmd);
+
+    EXPECT_EQ(0, mob_ranger(ranger, &m_player, 0, empty_argument(), SPECIAL_ENTER, nullptr));
+
+    EXPECT_FALSE(is_in_game(ranger));
+}
+
 // Someone comes into a standing ranger's room: it starts to hide, and then wanders off.
 TEST_F(SpecialProcedureTest, ARangerSomeoneComesUponHidesAndWanders)
 {
@@ -1083,6 +1267,38 @@ TEST_F(SpecialProcedureTest, ARangerSomeoneComesUponHidesAndWanders)
 
     EXPECT_EQ(CMD_HIDE, ranger->delay.cmd);
     EXPECT_EQ(SECOND_ROOM, ranger->in_room);
+}
+
+// ---- commands that go on after offering themselves ----
+
+TEST_F(SpecialProcedureTest, AFleeWhoseProcedureRemovesTheFleerGoesNoFurther)
+{
+    char_data* fleer = make_mob_with("fleer", nullptr);
+    char_data* foe = make_mob_with("foe", nullptr);
+    make_mob_with("guard", remove_actor_fleeing);
+    start_fight(fleer, foe);
+
+    do_flee(fleer, empty_argument(), nullptr, FLEE_COMMAND, 0);
+
+    EXPECT_FALSE(is_in_game(fleer));
+    ASSERT_TRUE(is_in_game(foe));
+    EXPECT_EQ(nullptr, foe->specials.fighting);
+    EXPECT_EQ(nullptr, world[SECOND_ROOM].people);
+}
+
+TEST_F(SpecialProcedureTest, AFleeNoProcedureTakesGetsAway)
+{
+    char_data* fleer = make_mob_with("fleer", nullptr);
+    char_data* foe = make_mob_with("foe", nullptr);
+    make_mob_with("bystander", record_offer);
+    start_fight(fleer, foe);
+
+    do_flee(fleer, empty_argument(), nullptr, FLEE_COMMAND, 0);
+
+    ASSERT_TRUE(is_in_game(fleer));
+    EXPECT_EQ(SECOND_ROOM, fleer->in_room);
+    EXPECT_EQ(nullptr, fleer->specials.fighting);
+    EXPECT_EQ(nullptr, foe->specials.fighting);
 }
 
 /* Makes room 0's way north a door called "door". */
@@ -1244,4 +1460,328 @@ TEST_F(SpecialProcedureTest, ACommandAtARoomBringsTheOneGivingItBack)
     EXPECT_TRUE(was_offered(bystander)) << "the command was given there";
     ASSERT_TRUE(is_in_game(immortal));
     EXPECT_EQ(0, immortal->in_room);
+}
+
+// Makes <follower> a charmed follower of <leader>, as taming leaves it.
+static void charm_into_following(char_data* follower, char_data* leader)
+{
+    add_follower(follower, leader, FOLLOW_MOVE);
+    SET_BIT(follower->specials.affected_by, AFF_CHARM);
+}
+
+// The first follower ordered is removed as it starts to speak; the next is still ordered.
+TEST_F(SpecialProcedureTest, OrderedFollowersGoOnPastOneTheOrderRemoves)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_marked_character);
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, &m_player);
+    charm_into_following(first, &m_player);
+    ASSERT_EQ(first, m_player.followers->follower) << "the first is ordered first";
+    record.character_to_remove = first;
+
+    run_command(do_order, "followers say hello");
+
+    EXPECT_FALSE(is_in_game(first));
+    EXPECT_EQ(1, count_in_output("says 'hello'")) << "the second spoke: " << output();
+    EXPECT_TRUE(output_has("Ok.")) << output();
+}
+
+TEST_F(SpecialProcedureTest, OrderedFollowersAllCarryOutTheOrder)
+{
+    assign_command_pointers();
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, &m_player);
+    charm_into_following(first, &m_player);
+
+    run_command(do_order, "followers say hello");
+
+    EXPECT_EQ(2, count_in_output("says 'hello'")) << output();
+    EXPECT_TRUE(output_has("Ok.")) << output();
+}
+
+// As the first follower speaks, the leader is removed: the orders end there.
+TEST_F(SpecialProcedureTest, AnOrderThatRemovesTheLeaderEndsTheOrders)
+{
+    assign_command_pointers();
+    make_mob_with("guard", remove_marked_character);
+    char_data* leader = make_player_character("leader");
+    char_data* second = make_mob_with("second", nullptr);
+    char_data* first = make_mob_with("first", nullptr);
+    charm_into_following(second, leader);
+    charm_into_following(first, leader);
+    record.character_to_remove = leader;
+    char argument[] = "followers say hello";
+
+    do_order(leader, argument, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(leader));
+    ASSERT_TRUE(is_in_game(second));
+    EXPECT_EQ(nullptr, second->master);
+    EXPECT_EQ(1, count_in_output("says 'hello'")) << "only the first spoke: " << output();
+}
+
+// ---- mental attacks ----
+
+// damage_stat's stat number for strength, the first stat a mental attack drains.
+constexpr int STRENGTH_STAT = 0;
+// What a test's direct stat damage drains, and a strength that one drained point kills.
+constexpr int ONE_STAT_POINT = 1;
+// Full perception (GET_PERCEPTION), which always reaches a mind as open as the victim's.
+constexpr int FULL_PERCEPTION = 100;
+// An attacker's willpower when it adds nothing to the attack.
+constexpr int NO_WILLPOWER = 0;
+// A released concentration's stat roll (number(0, 5)) that lands on intelligence, the second.
+constexpr double INTELLIGENCE_ROLL = 0.2;
+// Thuringwethil's level in the experience test, and the level the fixture gives its player and
+// mobs.
+constexpr int VAMPIRE_LEVEL = 20;
+constexpr int FIXTURE_LEVEL = 10;
+// A mental hit's damage when both rolls of the Will land, as with no save.
+constexpr int TWO_HITS_OF_WILL = 2;
+// A mini level far enough off that a hit's experience earns none.
+constexpr int DISTANT_MINI_LEVEL = 1000;
+// The power a released concentration has stored, in points (each PULSE_MENTAL_FIGHT of
+// mental delay below zero).
+constexpr int STORED_POWER = 4;
+// do_concentrate's subcommand that releases a concentration.
+constexpr int RELEASE_SUBCOMMAND = -1;
+
+// The experience do_mental gives for a hit of <damage> by an attacker of <attacker_level> on a
+// victim of <victim_level>.
+constexpr int mental_hit_experience(int victim_level, int attacker_level, int damage)
+{
+    return (1 + victim_level) * std::min(20 + attacker_level * 2, damage * 5)
+        / (1 + attacker_level);
+}
+
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* vampire = make_beaten_thuringwethil();
+
+    const combat_result_struct result
+        = damage_stat(attacker, vampire, STRENGTH_STAT, ONE_STAT_POINT);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_FALSE(result.will_die);
+    EXPECT_FALSE(result.wants_to_flee);
+    ASSERT_TRUE(is_in_game(attacker));
+    EXPECT_EQ(nullptr, attacker->specials.fighting);
+}
+
+// A procedure that removes its own mob and lets the damage go on.
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAVictimThatRemovedItselfAndLetItGoOn)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* victim = make_mob_with("victim", remove_own_mob);
+
+    const combat_result_struct result
+        = damage_stat(attacker, victim, STRENGTH_STAT, ONE_STAT_POINT);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_FALSE(result.will_die);
+    ASSERT_TRUE(is_in_game(attacker));
+    EXPECT_EQ(nullptr, attacker->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, StatDamageStopsAtAnAttackerTheVictimsProcedureRemoved)
+{
+    char_data* attacker = make_mob_with("attacker", nullptr);
+    char_data* victim = make_mob_with("victim", remove_attacker);
+    const int strength_before = victim->tmpabilities.str;
+
+    damage_stat(attacker, victim, STRENGTH_STAT, ONE_STAT_POINT);
+
+    EXPECT_FALSE(is_in_game(attacker));
+    EXPECT_EQ(strength_before, victim->tmpabilities.str) << "no stat damaged";
+}
+
+// Readies <attacker> to press its Will on <victim>: already fighting it, and with no willpower
+// of its own the victim never saves. Queues the perception roll and a hit on strength.
+static void ready_mental_hit_on_strength(char_data* attacker, char_data* victim)
+{
+    set_fighting(attacker, victim);
+    attacker->specials2.perception = FULL_PERCEPTION;
+    attacker->points.willpower = NO_WILLPOWER;
+    push_test_random_value(LOWEST_ROLL); // the perception roll is reached
+    push_test_random_value(LOWEST_ROLL); // the hit lands on strength
+}
+
+// Thuringwethil leaves as the hit asks her procedure; the experience for the hit is still what
+// her level gives.
+TEST_F(SpecialProcedureTest, AMentalHitOnAVictimItsProcedureRemovesStillGivesItsExperience)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    vampire->player.level = VAMPIRE_LEVEL;
+    m_player.specials2.mini_level = DISTANT_MINI_LEVEL;
+    m_player.points.exp = 0;
+    ready_mental_hit_on_strength(&m_player, vampire);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    EXPECT_EQ(mental_hit_experience(VAMPIRE_LEVEL, FIXTURE_LEVEL, TWO_HITS_OF_WILL),
+        m_player.points.exp);
+}
+
+TEST_F(SpecialProcedureTest, AMentalHitThatKillsAMobLeavesItAlone)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    victim->tmpabilities.str = ONE_STAT_POINT;
+    ready_mental_hit_on_strength(&m_player, victim);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(victim));
+    EXPECT_EQ(nullptr, m_player.specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, AMentalHitThatLandsGivesItsExperienceAndAFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    m_player.specials2.mini_level = DISTANT_MINI_LEVEL;
+    m_player.points.exp = 0;
+    ready_mental_hit_on_strength(&m_player, victim);
+
+    do_mental(&m_player, empty_argument(), nullptr, 0, 0);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(&m_player, victim->specials.fighting);
+    EXPECT_EQ(mental_hit_experience(FIXTURE_LEVEL, FIXTURE_LEVEL, TWO_HITS_OF_WILL),
+        m_player.points.exp);
+    EXPECT_TRUE(output_has("You force your Will against")) << output();
+}
+
+// A released concentration hits strength and then intelligence; Thuringwethil leaves at the
+// first.
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, vampire);
+    mystic->points.willpower = NO_WILLPOWER;
+    mystic->specials.mental_delay = -STORED_POWER * PULSE_MENTAL_FIGHT;
+    push_test_random_value(LOWEST_ROLL); // no more power from the release roll
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(LOWEST_ROLL); // strength
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(INTELLIGENCE_ROLL);
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, RELEASE_SUBCOMMAND);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    ASSERT_TRUE(is_in_game(mystic));
+    EXPECT_EQ(nullptr, mystic->specials.fighting);
+}
+
+TEST_F(SpecialProcedureTest, ReleasedConcentrationHitsAndDrawsTheVictimIntoTheFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = NO_WILLPOWER;
+    mystic->specials.mental_delay = -STORED_POWER * PULSE_MENTAL_FIGHT;
+    push_test_random_value(LOWEST_ROLL); // no more power from the release roll
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(LOWEST_ROLL); // strength
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(INTELLIGENCE_ROLL);
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, RELEASE_SUBCOMMAND);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+// The spirit a cursing mystic starts with, far more than a curse spends.
+constexpr int PLENTY_OF_SPIRIT = 100;
+// More rolls than one curse draws after its first stat.
+constexpr int CURSE_DRAWS = 20;
+// A curse roll that lands on intelligence (number(0, 9) at 0.15 is 1) and spends little spirit.
+constexpr double CURSE_INTELLIGENCE_ROLL = 0.15;
+
+// The curse hits strength first and then intelligence; Thuringwethil leaves at the first.
+TEST_F(SpecialProcedureTest, ACurseStopsAtAVictimItsProcedureRemoved)
+{
+    char_data* vampire = make_beaten_thuringwethil();
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    mystic->points.spirit = PLENTY_OF_SPIRIT;
+    push_test_random_value(LOWEST_ROLL); // the first stat is strength
+    for (int draw = 0; draw < CURSE_DRAWS; ++draw) {
+        push_test_random_value(CURSE_INTELLIGENCE_ROLL); // every other stat is intelligence
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, vampire, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(vampire));
+    ASSERT_TRUE(is_in_game(mystic));
+}
+
+TEST_F(SpecialProcedureTest, ACurseHitsAndDrawsTheVictimIntoTheFight)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    mystic->points.spirit = PLENTY_OF_SPIRIT;
+    push_test_random_value(LOWEST_ROLL); // the first stat is strength
+    for (int draw = 0; draw < CURSE_DRAWS; ++draw) {
+        push_test_random_value(CURSE_INTELLIGENCE_ROLL); // every other stat is intelligence
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, victim, nullptr, 0, 0);
+
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(mystic, victim->specials.fighting);
+}
+
+// A wimpy mystic cursing itself into a critical stat flees, and a guard where it arrives removes
+// it; the curse then leaves the caster alone.
+TEST_F(SpecialProcedureTest, ASelfCurseStopsAtACasterItsFlightRemoved)
+{
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    open_to_mental_attack(mystic);
+    make_critical_on_strength_loss(mystic);
+    mystic->points.spirit = PLENTY_OF_SPIRIT;
+    make_mob_with("guard", remove_marked_arriving, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(LOWEST_ROLL); // the first stat is strength
+    for (int draw = 0; draw < CURSE_DRAWS; ++draw) {
+        push_test_random_value(CURSE_INTELLIGENCE_ROLL); // intelligence; the flight goes north
+    }
+
+    spell_curse(mystic, empty_argument(), SPELL_TYPE_SPELL, mystic, nullptr, 0, 0);
+
+    EXPECT_FALSE(is_in_game(mystic));
+}
+
+// The victim of a released concentration flees, and a guard where it arrives removes the
+// attacker; the attack then leaves the attacker alone.
+TEST_F(SpecialProcedureTest, ReleasedConcentrationStopsAtAnAttackerTheFlightRemoved)
+{
+    char_data* victim = make_mob_with("victim", nullptr);
+    open_to_mental_attack(victim);
+    make_critical_on_strength_loss(victim);
+    char_data* mystic = make_mob_with("mystic", nullptr);
+    set_fighting(mystic, victim);
+    mystic->points.willpower = NO_WILLPOWER;
+    mystic->specials.mental_delay = -STORED_POWER * PULSE_MENTAL_FIGHT;
+    make_mob_with("guard", remove_marked_character, SECOND_ROOM);
+    record.character_to_remove = mystic;
+    push_test_random_value(LOWEST_ROLL); // no more power from the release roll
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(LOWEST_ROLL); // strength
+    push_test_random_value(LOWEST_ROLL); // no save
+    push_test_random_value(INTELLIGENCE_ROLL);
+
+    do_concentrate(mystic, empty_argument(), nullptr, 0, RELEASE_SUBCOMMAND);
+
+    EXPECT_FALSE(is_in_game(mystic));
+    ASSERT_TRUE(is_in_game(victim));
+    EXPECT_EQ(SECOND_ROOM, victim->in_room);
 }

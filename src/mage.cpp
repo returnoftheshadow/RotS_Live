@@ -12,6 +12,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "platdef.h"
@@ -800,7 +801,11 @@ ASPELL(spell_summon)
     to_room = caster->in_room;
 
     if (different_zone(was_in, to_room)) {
-        prohibit_item_stay_zone_move(victim, was_in);
+        // Taking its gear off can kill or remove the victim: there is then nobody to summon.
+        const bool victim_remains = prohibit_item_stay_zone_move(victim, was_in);
+        if (!victim_remains) {
+            return;
+        }
     }
 
     ch_x = zone_table[world[caster->in_room].zone].x;
@@ -951,7 +956,12 @@ ASPELL(spell_blink)
         if (caster != victim)
             send_to_char("You relocated your victim.\n\r", caster);
         if (different_zone(was_in, room)) {
-            prohibit_item_stay_zone_move(caster, was_in);
+            // Taking the caster's gear off can kill or remove the caster, and the victim with it
+            // when they are one.
+            const bool caster_remains = prohibit_item_stay_zone_move(caster, was_in);
+            if (!caster_remains) {
+                return;
+            }
         }
         send_to_char("The world spinned around you, and changed.\n\r", victim);
         act("$n disappeared in a flash of light.\n\r", TRUE, victim, 0, 0, TO_ROOM);
@@ -1133,7 +1143,11 @@ ASPELL(spell_relocate)
 
     if (tmp <= top_of_world) {
         if (different_zone(was_in, tmp)) {
-            prohibit_item_stay_zone_move(caster, was_in);
+            // Taking its gear off can kill or remove the caster: nobody is then left to move.
+            const bool caster_remains = prohibit_item_stay_zone_move(caster, was_in);
+            if (!caster_remains) {
+                return;
+            }
         }
         stop_riding(caster);
         act("$n screams a shrill wail of pain, and suddenly disappears.\n\r",
@@ -1335,6 +1349,10 @@ int get_save_bonus(const char_data& caster, const char_data& victim, game_types:
 
 ASPELL(spell_magic_missile)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_MAGIC_MISSILE)) {
+        return;
+    }
+
     int mag_power = get_magic_power(caster);
     int dam = 12 + number(1, mag_power / 6);
 
@@ -1371,6 +1389,10 @@ void apply_chilled_effect(const char_data* caster, char_data* victim)
  */
 ASPELL(spell_chill_ray)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_CHILL_RAY)) {
+        return;
+    }
+
     int mag_power = get_magic_power(caster);
     int dam = 20 + number(1, mag_power) / 2;
 
@@ -1416,6 +1438,10 @@ ASPELL(spell_chill_ray)
 
 ASPELL(spell_lightning_bolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LIGHTNING_BOLT)) {
+        return;
+    }
+
     int dam = 25 + number(0, get_magic_power(caster)) / 2;
 
     if (OUTSIDE(caster) || (utils::get_specialization(*caster) == game_types::PS_Lightning)) {
@@ -1450,6 +1476,10 @@ ASPELL(spell_lightning_bolt)
 
 ASPELL(spell_dark_bolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_DARK_BOLT)) {
+        return;
+    }
+
     int dam = 25 + number(0, get_magic_power(caster)) / 2;
     if (!SUN_PENALTY(caster)) {
         dam += 4 + number(0, get_magic_power(caster)) / 4;
@@ -1482,6 +1512,10 @@ ASPELL(spell_dark_bolt)
 
 ASPELL(spell_firebolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_FIREBOLT)) {
+        return;
+    }
+
     int dam = number(1, 65) + number(1, get_magic_power(caster)) / 4 + number(1, get_magic_power(caster)) / 4 + number(1, get_magic_power(caster)) / 8 + number(1, get_magic_power(caster)) / 8 + number(1, get_magic_power(caster)) / 16 + number(1, get_magic_power(caster)) / 16;
 
     // Fire spec mages get a minimum damage value on firebolt.
@@ -1639,9 +1673,13 @@ ASPELL(spell_earthquake)
     if (crack_chance)
         dam_value /= 2;
 
+    // Any hit or fall can remove the caster: a death, a damage script.
+    freed_watch caster_watch(caster);
+
     for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N withstands the vibrating earth.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -1649,6 +1687,15 @@ ASPELL(spell_earthquake)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_EARTHQUAKE, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
+            }
+
+            if (caster_watch.freed()) {
+                return;
+            }
+
+            // The tremor stops where the hit removed the next one in the room.
+            if (next_watch.freed()) {
+                break;
             }
         }
         //  return;
@@ -1703,12 +1750,18 @@ ASPELL(spell_earthquake)
                 act("$n falls in.", TRUE, tmpch, 0, 0, TO_ROOM);
                 tmpch->specials.position = POSITION_SITTING;
 
+                freed_watch next_watch(tmpch_next);
                 if (new_saves_spell(caster, tmpch, 0)) {
                     act("$N manages to land on his feet!", FALSE, caster, 0, tmpch, TO_CHAR);
                     act("You manage to land on your feet!", FALSE, caster, 0, tmpch, TO_VICT);
                     apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
                 } else {
                     apply_spell_damage(caster, tmpch, dam_value * 2, SPELL_EARTHQUAKE, 0);
+                }
+
+                // Nobody else falls once a fall removed the caster or the next one in the room.
+                if (caster_watch.freed() || next_watch.freed()) {
+                    return;
                 }
             }
         }
@@ -1728,6 +1781,10 @@ ASPELL(spell_earthquake)
 
 ASPELL(spell_lightning_strike)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LIGHTNING_STRIKE)) {
+        return;
+    }
+
     int dam = 40 + number(0, get_magic_power(caster)) + number(0, get_magic_power(caster)) / 2;
 
     if (!OUTSIDE(caster)) {
@@ -1766,6 +1823,10 @@ ASPELL(spell_lightning_strike)
 
 ASPELL(spell_searing_darkness)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_SEARING_DARKNESS)) {
+        return;
+    }
+
     game_types::player_specs caster_spec = utils::get_specialization(*caster);
 
     int darkness_damage = 15 + number(0, get_magic_power(caster)) / 2;
@@ -1834,7 +1895,18 @@ ASPELL(spell_fireball)
         fireball_damage = fireball_damage / 3;
     }
 
+    // A fireball that slips out of an orc's control burns the caster even from a staff.
+    if (spell_lacks_victim(caster, victim, SPELL_FIREBALL)) {
+        return;
+    }
+
     bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
+
+    // Any hit can remove the caster or the victim: a death, a damage script.
+    freed_watch caster_watch(caster);
+    freed_watch victim_watch(victim);
+    // Asked before the hit, for the splash to use if the hit removes the victim.
+    const bool victim_was_friendly = is_fire_spec && is_friendly_taget(caster, victim);
 
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
     bool saved = new_saves_spell(caster, victim, save_bonus);
@@ -1846,15 +1918,26 @@ ASPELL(spell_fireball)
         apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
     }
 
+    // A removed caster has no room left to splash.
+    if (caster_watch.freed()) {
+        return;
+    }
+
     char_data* next_character = nullptr;
     for (char_data* potential_victim = world[caster->in_room].people; potential_victim; potential_victim = next_character) {
         next_character = potential_victim->next_in_room;
         if (potential_victim == caster || potential_victim == victim)
             continue;
 
-        /* Fire specialization mages won't hit friendly targets. */
-        if (is_fire_spec && is_friendly_taget(caster, victim))
+        // Fire specialization mages won't hit friendly targets.
+        bool victim_is_friendly = victim_was_friendly;
+        if (!victim_watch.freed()) {
+            victim_is_friendly = is_fire_spec && is_friendly_taget(caster, victim);
+        }
+
+        if (victim_is_friendly) {
             continue;
+        }
 
         double random_roll = number();
         // target_number and damage are higher if the victim is fighting with the caster
@@ -1875,7 +1958,12 @@ ASPELL(spell_fireball)
                 splash_damage = splash_damage >> 1;
             }
 
+            freed_watch next_watch(next_character);
             apply_spell_damage(caster, potential_victim, splash_damage, SPELL_FIREBALL2, 0);
+            // The splash stops where the hit removed the caster or the next one in the room.
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
+            }
         }
     }
 }
@@ -1900,6 +1988,10 @@ ASPELL(spell_fireball)
  */
 ASPELL(spell_word_of_pain)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_WORD_OF_PAIN)) {
+        return;
+    }
+
     int dam = 12 + number(1, get_magic_power(caster) / 6);
 
     bool saved = new_saves_spell(caster, victim, 0);
@@ -1920,6 +2012,10 @@ ASPELL(spell_word_of_pain)
  */
 ASPELL(spell_leach)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LEACH)) {
+        return;
+    }
+
     int mag_power = get_magic_power(caster);
     int dam = 18 + number(1, mag_power / 4);
 
@@ -2033,6 +2129,10 @@ ASPELL(spell_word_of_shock)
  */
 ASPELL(spell_black_arrow)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_BLACK_ARROW)) {
+        return;
+    }
+
     int dam = 13 + number(1, get_magic_power(caster)) / 2 + number(1, get_magic_power(caster)) / 2;
 
     if (!SUN_PENALTY(caster) || utils::get_specialization(*caster) == game_types::PS_Darkness) {
@@ -2061,7 +2161,13 @@ ASPELL(spell_black_arrow)
         affect_join(victim, &af, FALSE, FALSE);
 
         send_to_char("The vile magic poisons you!\n\r", victim);
+        // The poison's blow can remove either of them; the arrow then strikes nobody.
+        freed_watch caster_watch(caster);
+        freed_watch target_watch(victim);
         apply_spell_damage(caster, victim, min_poison_dam, SPELL_POISON, 0);
+        if (caster_watch.freed() || target_watch.freed()) {
+            return;
+        }
     }
 
     apply_spell_damage(caster, victim, dam, SPELL_BLACK_ARROW, 0);
@@ -2074,6 +2180,10 @@ ASPELL(spell_black_arrow)
  */
 ASPELL(spell_word_of_agony)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_WORD_OF_AGONY)) {
+        return;
+    }
+
     int dam = 20 + number(1, get_magic_power(caster)) / 2 + number(1, get_magic_power(caster)) / 2;
 
     bool saved = new_saves_spell(caster, victim, -2);
@@ -2099,10 +2209,13 @@ ASPELL(spell_shout_of_pain)
 
     int dam_value = number(1, 50) + get_magic_power(caster) / 2;
 
+    // As for earthquake.
+    freed_watch caster_watch(caster);
     char_data* tmpch_next = NULL;
     for (char_data* tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N seems to resist some of the agony.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -2110,6 +2223,10 @@ ASPELL(spell_shout_of_pain)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_SHOUT_OF_PAIN, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_SHOUT_OF_PAIN, 0);
+            }
+
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
             }
         }
     }
@@ -2124,6 +2241,10 @@ ASPELL(spell_shout_of_pain)
  */
 ASPELL(spell_spear_of_darkness)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_SPEAR_OF_DARKNESS)) {
+        return;
+    }
+
     int dam = 0;
     if (SUN_PENALTY(caster)) {
         send_to_char("Your spell is weakened by the intensity of light.\n\r", caster);
@@ -2177,7 +2298,8 @@ ASPELL(spell_blaze)
         act("$n breathes out a cloud of fire!", TRUE, caster, 0, 0, TO_ROOM);
         send_to_char("You breathe out fire.\n\r", caster);
 
-        /* Damage everyone in the room */
+        // Damage everyone in the room, stopping once a hit removes the caster or the next occupant.
+        freed_watch caster_watch(caster);
         for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
             tmpch_next = tmpch->next_in_room;
 
@@ -2194,7 +2316,15 @@ ASPELL(spell_blaze)
                 dam = dam >> 1;
             }
 
+            freed_watch next_watch(tmpch_next);
             apply_spell_damage(caster ? caster : tmpch, tmpch, dam, SPELL_BLAZE, 0);
+            if (caster_watch.freed()) {
+                return;
+            }
+
+            if (next_watch.freed()) {
+                break;
+            }
         }
 
         /*

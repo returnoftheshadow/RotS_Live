@@ -11,7 +11,6 @@
 #include <utility>
 
 void get_corpse_desc(object_text::fields& out_text, const char_data* ch, int attacktype);
-obj_data* make_physical_corpse(char_data* character, const char_data* killer, int attack_type);
 
 using namespace scripted_room;
 
@@ -343,7 +342,8 @@ TEST_F(CorpseTextTest, ACorpseOfAMobWithNoNameSaysSo)
 /* A corpse made in a death has a text of its own, holding its name and those words. */
 TEST_F(CorpseTextTest, ACorpseHasATextOfItsOwn)
 {
-    obj_data* const corpse = make_physical_corpse(&m_player, &m_player, CLEANLY_SLAIN_ATTACK);
+    obj_data* const corpse
+        = make_physical_corpse(&m_player, CorpseGear::GATHERED, CLEANLY_SLAIN_ATTACK);
 
     ASSERT_NE(corpse, nullptr);
     EXPECT_STREQ(corpse->name, "corpse");
