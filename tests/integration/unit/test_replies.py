@@ -15,7 +15,10 @@ DRAINED_TEXT = "HP:Healthy > "
 
 
 def answering_session() -> RecordingSession:
-    """Return a fake session whose first expect answers EXPECTED_TEXT and whose drains answer DRAINED_TEXT."""
+    """Return a fake session whose first expect answers EXPECTED_TEXT.
+
+    Its drains answer DRAINED_TEXT.
+    """
     return RecordingSession([EXPECTED_TEXT], DRAINED_TEXT)
 
 
@@ -30,7 +33,11 @@ def test_reply_to_sends_waits_with_expects_default_and_settles_one_second() -> N
 def test_reply_to_passes_a_given_timeout_and_settle() -> None:
     session = answering_session()
     reply_to(session, "cast 'blink'", ["You blink."], settle=0.5, timeout=15.0)
-    assert session.calls == [("send_line", "cast 'blink'"), ("expect", ["You blink."], {"timeout": 15.0}), ("drain", 0.5)]
+    assert session.calls == [
+        ("send_line", "cast 'blink'"),
+        ("expect", ["You blink."], {"timeout": 15.0}),
+        ("drain", 0.5),
+    ]
 
 
 def test_reply_to_with_settle_zero_returns_at_the_outcome() -> None:

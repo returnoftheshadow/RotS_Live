@@ -1,4 +1,7 @@
-"""Unit tests for rots_harness.immortal_commands, against a fake session answering with canned replies."""
+"""Unit tests for rots_harness.immortal_commands.
+
+They run against a fake session answering with canned replies.
+"""
 
 from __future__ import annotations
 
@@ -98,16 +101,22 @@ def test_load_mob_sends_load_mob_and_checks_as_load_object_does() -> None:
 
 
 def test_give_new_object_loads_gives_and_returns_the_give_replys_text() -> None:
-    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(
+        command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY}
+    )
     given = give_new_object(session, 1137, "cap", "testwearer")
     assert session.commands == ["load obj 1137", "give cap testwearer"]
     assert given == CAP_GIVEN_REPLY
 
 
 def test_give_new_object_without_options_checks_only_you_create_and_you_give() -> None:
-    session = RecordingSession(command_replies={"load obj 1137": "You create x.", "give cap testwearer": "You give x to y."})
+    session = RecordingSession(
+        command_replies={"load obj 1137": "You create x.", "give cap testwearer": "You give x to y."}
+    )
     give_new_object(session, 1137, "cap", "testwearer")
-    failing = RecordingSession(command_replies={"load obj 1137": "You create x.", "give cap testwearer": "Testwearer refuses."})
+    failing = RecordingSession(
+        command_replies={"load obj 1137": "You create x.", "give cap testwearer": "Testwearer refuses."}
+    )
     with pytest.raises(AssertionError, match="no 'You give' in the reply to give"):
         give_new_object(failing, 1137, "cap", "testwearer")
 
@@ -120,16 +129,25 @@ def test_give_new_object_fails_on_the_load_before_it_gives() -> None:
 
 
 def test_give_new_object_with_a_shown_recipient_checks_the_recipient() -> None:
-    session = RecordingSession(command_replies={"load obj 1137": "You create x.", "give cap testwearer": "You give x to Testwearer."})
+    session = RecordingSession(
+        command_replies={"load obj 1137": "You create x.", "give cap testwearer": "You give x to Testwearer."}
+    )
     give_new_object(session, 1137, "cap", "testwearer", shown_recipient="Testwearer")
     with pytest.raises(AssertionError, match="no 'to Testtaker.' in the reply to give"):
         give_new_object(session, 1137, "cap", "testwearer", shown_recipient="Testtaker")
 
 
 def test_give_new_object_with_a_short_description_checks_both_replies_up_to_the_recipient() -> None:
-    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(
+        command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY}
+    )
     give_new_object(session, 1137, "cap", "testwearer", short_description="a leather cap")
-    wrong_give = RecordingSession(command_replies={"load obj 1137": "You create a leather bag.", "give cap testwearer": "You give a leather cap to Testwearer."})
+    wrong_give = RecordingSession(
+        command_replies={
+            "load obj 1137": "You create a leather bag.",
+            "give cap testwearer": "You give a leather cap to Testwearer.",
+        }
+    )
     with pytest.raises(AssertionError, match="no 'You create a leather bag.'"):
         give_new_object(session, 1137, "cap", "testwearer", short_description="a leather bag")
 
@@ -138,10 +156,14 @@ def test_give_new_object_with_a_short_description_checks_both_replies_up_to_the_
 
 
 def test_give_new_object_with_both_options_checks_the_whole_give_reply() -> None:
-    session = RecordingSession(command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY})
+    session = RecordingSession(
+        command_replies={"load obj 1137": CAP_CREATED_REPLY, "give cap testwearer": CAP_GIVEN_REPLY}
+    )
     give_new_object(session, 1137, "cap", "testwearer", shown_recipient="Testwearer", short_description="a leather cap")
     with pytest.raises(AssertionError, match="no 'You give a leather cap to a porter.' in the reply to give"):
-        give_new_object(session, 1137, "cap", "testwearer", shown_recipient="a porter", short_description="a leather cap")
+        give_new_object(
+            session, 1137, "cap", "testwearer", shown_recipient="a porter", short_description="a leather cap"
+        )
 
 
 def test_wizset_sends_the_target_field_and_value_and_returns_the_reply() -> None:
@@ -209,7 +231,9 @@ def test_a_timeout_passes_through() -> None:
         ("act_othe.cpp", '"Holylight mode is now off.\\n\\r"', HOLYLIGHT_SET_FORMAT),
     ],
 )
-def test_each_reply_format_matches_the_games_format_string(source_file: str, format_text: str, reply_format: str) -> None:
+def test_each_reply_format_matches_the_games_format_string(
+    source_file: str, format_text: str, reply_format: str
+) -> None:
     source = (SOURCE_DIR / source_file).read_text(encoding="latin-1")
     assert format_text in source, f"no {format_text} in {source_file}"
     fixed_start = reply_format.split("{}")[0]

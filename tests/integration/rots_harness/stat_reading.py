@@ -58,7 +58,9 @@ def read_stat(
     *,
     settle: float = SETTLE_SECONDS,
 ) -> str:
-    """The implementor's reply to `stat <target>`, such as target "player testsaint", "mob boar" or "obj sword".
+    """Return the implementor's reply to `stat <target>`.
+
+    target is such as "player testsaint", "mob boar" or "obj sword".
 
     Reads up to the first of last_line and other_outcomes, then settle seconds more (reply_to).
     other_outcomes are answers the caller tells apart, such as NO_SUCH_MOB_REPLY; the

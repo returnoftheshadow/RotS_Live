@@ -1,4 +1,7 @@
-"""Drives a harness server's game time over its standard streams: one request line in, one prefixed reply line out."""
+"""Drives a harness server's game time over its standard streams.
+
+One request line goes in, one prefixed reply line comes out.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,8 @@ from typing import BinaryIO, Optional, TextIO
 
 from rots_harness.session import SessionTimeout
 
-# The text that starts every reply line the harness binary writes; other stdout lines are ordinary output.
+# The text that starts every reply line the harness binary writes; other stdout lines are ordinary
+# output.
 REPLY_PREFIX = "harness: "
 # The run-directory file that receives the server's ordinary stdout lines.
 OUTPUT_LOG_NAME = "stdout.log"
@@ -21,18 +25,27 @@ DEFAULT_HOUR_TIMEOUT_SECONDS = 10.0
 
 
 class TimeControlError(AssertionError):
-    """The server refused a time request, acknowledged a different one, or stopped writing; the message quotes what it sent."""
+    """The server refused a time request, acknowledged a different one, or stopped writing.
+
+    The message quotes what it sent.
+    """
 
 
 def schedule_name_from_marker(args: tuple) -> str:
-    """The schedule name a @pytest.mark.schedule(...) marker gives; raises ValueError unless it is exactly one non-empty string."""
+    """Return the schedule name a @pytest.mark.schedule(...) marker gives.
+
+    Raise ValueError unless it is exactly one non-empty string.
+    """
     if len(args) != 1 or not isinstance(args[0], str) or not args[0]:
         raise ValueError(f"@pytest.mark.schedule takes one schedule name, not {args!r}")
     return args[0]
 
 
 def parse_hour_timeout(value: Optional[str]) -> float:
-    """Seconds allowed per game hour that value gives, or the default for None; raises ValueError unless positive and finite."""
+    """Return the seconds allowed per game hour that value gives, or the default for None.
+
+    Raises ValueError unless positive and finite.
+    """
     if value is None:
         return DEFAULT_HOUR_TIMEOUT_SECONDS
     try:
@@ -55,7 +68,7 @@ class TimeControl:
     """
 
     def __init__(self, requests: BinaryIO, replies: BinaryIO, output_log: Path) -> None:
-        """Starts reading replies; requests is the server's stdin and replies its stdout.
+        """Start reading replies; requests is the server's stdin and replies its stdout.
 
         Raises OSError when output_log cannot be opened for appending.
         """
@@ -73,7 +86,7 @@ class TimeControl:
         self._reader.start()
 
     def _read_output(self, replies: BinaryIO, log_file: TextIO) -> None:
-        """The reader thread: queues each reply's text and logs other lines until replies ends.
+        """Run the reader thread: queue each reply's text and log other lines until replies ends.
 
         Strips carriage returns and newlines from both ends of every line. Records a read or log
         failure for _next_reply, always queues the end marker last and closes log_file; never
@@ -95,7 +108,7 @@ class TimeControl:
             self._replies.put(None)
 
     def _next_reply(self, timeout: float, awaited: str) -> str:
-        """The next reply's text without its prefix; awaited names it in error messages.
+        """Return the next reply's text without its prefix; awaited names it in error messages.
 
         Raises SessionTimeout when no reply arrives within timeout seconds, and TimeControlError
         when the server's output has ended or the reader failed before a reply.
@@ -114,14 +127,17 @@ class TimeControl:
         return reply
 
     def wait_ready(self, schedule_name: str, timeout: float) -> None:
-        """Waits for the server's ready line and checks it names schedule_name; raises TimeControlError or SessionTimeout."""
+        """Wait for the server's ready line and check it names schedule_name.
+
+        Raise TimeControlError or SessionTimeout.
+        """
         reply = self._next_reply(timeout, "ready line")
         expected = f"ready schedule={schedule_name} hours=0"
         if reply != expected:
             raise TimeControlError(f"expected {expected!r}, the server sent {reply!r}")
 
     def advance_hours(self, hours: int, timeout: float) -> None:
-        """Asks the server to run hours game hours and returns once it acknowledges them.
+        """Ask the server to run hours game hours and return once it acknowledges them.
 
         Raises ValueError for fewer than 1 hour, TimeControlError on a refusal, a different
         acknowledgement or a closed pipe, and SessionTimeout when no reply arrives in time.
@@ -141,5 +157,8 @@ class TimeControl:
             raise TimeControlError(f"expected the acknowledgement of {request!r}, the server sent {reply!r}")
 
     def close(self, timeout: float = 5.0) -> None:
-        """Waits up to timeout for the reader to finish, which it does once the server's stdout ends. Never raises."""
+        """Wait up to timeout for the reader to finish, which it does once the server's stdout ends.
+
+        Never raises.
+        """
         self._reader.join(timeout)

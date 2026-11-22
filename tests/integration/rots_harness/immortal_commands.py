@@ -36,8 +36,10 @@ HOLYLIGHT_SET_FORMAT = "Holylight mode is now {}."
 WHERE_ROW_PATTERN = re.compile(r"^\s*\d+\. ")
 
 
-def goto(implementor: GameSession, destination: int | str, room_name: str | None = None, *, exact: bool = True) -> Transcript:
-    """Sends `goto <destination>`, a room vnum or a character's keyword, and returns the reply.
+def goto(
+    implementor: GameSession, destination: int | str, room_name: str | None = None, *, exact: bool = True
+) -> Transcript:
+    """Send `goto <destination>`, a room vnum or a character's keyword, and return the reply.
 
     With room_name, asserts the room arrived at: the reply's room_name() equals room_name, or,
     when exact is False, the reply's text contains room_name anywhere. Without it, asserts
@@ -56,7 +58,7 @@ def goto(implementor: GameSession, destination: int | str, room_name: str | None
 
 
 def load_object(implementor: GameSession, vnum: int, short_description: str | None = None) -> Transcript:
-    """Sends `load obj <vnum>` and returns the reply.
+    """Send `load obj <vnum>` and return the reply.
 
     Asserts the reply holds CREATED_FORMAT filled with short_description, or only "You create"
     without it.
@@ -65,7 +67,7 @@ def load_object(implementor: GameSession, vnum: int, short_description: str | No
 
 
 def load_mob(implementor: GameSession, vnum: int, short_description: str | None = None) -> Transcript:
-    """Sends `load mob <vnum>` and returns the reply.
+    """Send `load mob <vnum>` and return the reply.
 
     Asserts the reply holds CREATED_FORMAT filled with short_description, or only "You create"
     without it.
@@ -82,7 +84,7 @@ def give_new_object(
     shown_recipient: str | None = None,
     short_description: str | None = None,
 ) -> str:
-    """Loads object vnum, gives it by keyword to recipient_keyword and returns the give reply's text.
+    """Load object vnum, give it by keyword to recipient_keyword and return the give reply's text.
 
     The load reply is checked as load_object checks it. The give reply always holds "You give";
     with shown_recipient (the name the reply shows, such as "Testwearer" or "a porter") it also
@@ -106,8 +108,12 @@ def give_new_object(
     return given.text
 
 
-def wizset(implementor: GameSession, target: str, field: str, value: int | str, *, shown_name: str | None = None) -> str:
-    """Sends `wizset <target> <field> <value>`, such as target "player testpupil", and returns the reply's text.
+def wizset(
+    implementor: GameSession, target: str, field: str, value: int | str, *, shown_name: str | None = None
+) -> str:
+    """Send `wizset <target> <field> <value>` and return the reply's text.
+
+    target is such as "player testpupil".
 
     Asserts the reply holds "<shown_name>'s <field> set to <value>.", or only "<field> set to
     <value>." without shown_name. field must be a number field, which wizset answers with
@@ -123,7 +129,9 @@ def wizset(implementor: GameSession, target: str, field: str, value: int | str, 
 
 
 def where_lines(implementor: GameSession, vnum: int, short_description: str) -> list[str]:
-    """The numbered lines of the implementor's `where <vnum>` that name short_description, stripped.
+    """Return the numbered lines of the implementor's `where <vnum>` naming short_description.
+
+    The lines are stripped.
 
     `where` by number lists the mobs with that vnum as well as the objects (perform_immort_where,
     act_info.cpp), so only the lines naming short_description count. Asserts nothing; an empty
@@ -135,7 +143,10 @@ def where_lines(implementor: GameSession, vnum: int, short_description: str) -> 
 
 
 def set_syslog(implementor: GameSession, level: str) -> Transcript:
-    """Sends `syslog <level>` and returns the reply; asserts it holds SYSLOG_SET_FORMAT filled with level."""
+    """Send `syslog <level>` and return the reply.
+
+    Assert it holds SYSLOG_SET_FORMAT filled with level.
+    """
     reply = implementor.command(f"syslog {level}")
     expected = SYSLOG_SET_FORMAT.format(level)
     assert reply.contains(expected), f"no {expected!r} in the reply to syslog:\n{reply.text}"
@@ -143,7 +154,10 @@ def set_syslog(implementor: GameSession, level: str) -> Transcript:
 
 
 def set_holylight(implementor: GameSession, setting: str) -> Transcript:
-    """Sends `set holylight <setting>`, "on" or "off", and returns the reply; asserts it holds HOLYLIGHT_SET_FORMAT filled with setting."""
+    """Send `set holylight <setting>`, "on" or "off", and return the reply.
+
+    Assert it holds HOLYLIGHT_SET_FORMAT filled with setting.
+    """
     reply = implementor.command(f"set holylight {setting}")
     expected = HOLYLIGHT_SET_FORMAT.format(setting)
     assert reply.contains(expected), f"no {expected!r} in the reply to set holylight:\n{reply.text}"
@@ -151,10 +165,12 @@ def set_holylight(implementor: GameSession, setting: str) -> Transcript:
 
 
 def _load(implementor: GameSession, kind: str, vnum: int, short_description: str | None) -> Transcript:
-    """Sends `load <kind> <vnum>` and returns the reply, checked as load_object documents."""
+    """Send `load <kind> <vnum>` and return the reply, checked as load_object documents."""
     created = implementor.command(f"load {kind} {vnum}")
     if short_description is None:
-        assert created.contains(CREATED_START), f"no {CREATED_START!r} in the reply to load {kind} {vnum}:\n{created.text}"
+        assert created.contains(
+            CREATED_START
+        ), f"no {CREATED_START!r} in the reply to load {kind} {vnum}:\n{created.text}"
     else:
         expected = CREATED_FORMAT.format(short_description)
         assert created.contains(expected), f"no {expected!r} in the reply to load {kind} {vnum}:\n{created.text}"

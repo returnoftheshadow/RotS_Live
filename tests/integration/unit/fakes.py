@@ -1,5 +1,7 @@
-"""Fake game connections the harness's unit tests share: a session that records its calls, and a
-socket that stands in for the server."""
+"""Fake game connections the harness's unit tests share.
+
+They are a session that records its calls, and a socket that stands in for the server.
+"""
 
 from __future__ import annotations
 

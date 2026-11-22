@@ -32,7 +32,7 @@ THIRD_RESULTS = """<?xml version="1.0" encoding="utf-8"?><testsuites name="pytes
 
 @pytest.fixture
 def integration_root(tmp_path: Path) -> Path:
-    """A tests/integration folder holding only scenarios/test_bank.py."""
+    """Return a tests/integration folder holding only scenarios/test_bank.py."""
     root = tmp_path / "integration"
     (root / "scenarios").mkdir(parents=True)
     (root / "scenarios" / "test_bank.py").write_text("", encoding="utf-8")
@@ -40,18 +40,24 @@ def integration_root(tmp_path: Path) -> Path:
 
 
 def write_run(folder: Path, shard: int, content: str) -> None:
-    """Writes one shard's results.xml as gh run download lays it out."""
+    """Write one shard's results.xml as gh run download lays it out."""
     shard_folder = folder / f"integration-results-shard-{shard}"
     shard_folder.mkdir(parents=True)
     (shard_folder / shard_durations.RESULTS_FILE_NAME).write_text(content, encoding="utf-8")
 
 
 def test_a_module_level_test_gets_its_node_id(integration_root: Path) -> None:
-    assert shard_durations.node_id("scenarios.test_bank", "test_a_gift[a.b]", integration_root) == "scenarios/test_bank.py::test_a_gift[a.b]"
+    assert (
+        shard_durations.node_id("scenarios.test_bank", "test_a_gift[a.b]", integration_root)
+        == "scenarios/test_bank.py::test_a_gift[a.b]"
+    )
 
 
 def test_a_class_test_gets_its_class_in_the_node_id(integration_root: Path) -> None:
-    assert shard_durations.node_id("scenarios.test_bank.TestTellers", "test_a_deposit", integration_root) == "scenarios/test_bank.py::TestTellers::test_a_deposit"
+    assert (
+        shard_durations.node_id("scenarios.test_bank.TestTellers", "test_a_deposit", integration_root)
+        == "scenarios/test_bank.py::TestTellers::test_a_deposit"
+    )
 
 
 def test_a_class_name_matching_no_file_has_no_node_id(integration_root: Path) -> None:
@@ -83,28 +89,43 @@ def test_the_file_lists_one_test_per_line_sorted_by_node_id(integration_root: Pa
     assert len(entries) == len(json.loads(output.read_text(encoding="utf-8")))
 
 
-def test_a_folder_with_no_results_changes_nothing(integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_a_folder_with_no_results_changes_nothing(
+    integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     output = tmp_path / "shard_durations.json"
     output.write_text("{}\n", encoding="utf-8")
     (tmp_path / "empty").mkdir()
-    assert shard_durations.main([str(tmp_path / "empty"), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert (
+        shard_durations.main([str(tmp_path / "empty"), "--output", str(output)], integration_root=integration_root)
+        == shard_durations.EXIT_USAGE
+    )
     assert output.read_text(encoding="utf-8") == "{}\n"
     assert "no results.xml" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("folder", ["", "missing"])
-def test_an_empty_or_missing_folder_is_a_usage_error(integration_root: Path, tmp_path: Path, folder: str, capsys: pytest.CaptureFixture) -> None:
+def test_an_empty_or_missing_folder_is_a_usage_error(
+    integration_root: Path, tmp_path: Path, folder: str, capsys: pytest.CaptureFixture
+) -> None:
     argument = folder and str(tmp_path / folder)
     output = tmp_path / "shard_durations.json"
-    assert shard_durations.main([argument, "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert (
+        shard_durations.main([argument, "--output", str(output)], integration_root=integration_root)
+        == shard_durations.EXIT_USAGE
+    )
     assert not output.exists()
     assert "not a folder" in capsys.readouterr().err
 
 
-def test_an_unreadable_results_file_is_a_usage_error(integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_an_unreadable_results_file_is_a_usage_error(
+    integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     write_run(tmp_path / "results", 1, "<testsuites>")
     output = tmp_path / "shard_durations.json"
-    assert shard_durations.main([str(tmp_path / "results"), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert (
+        shard_durations.main([str(tmp_path / "results"), "--output", str(output)], integration_root=integration_root)
+        == shard_durations.EXIT_USAGE
+    )
     assert not output.exists()
     assert "error:" in capsys.readouterr().err
 
@@ -121,16 +142,23 @@ ODD_RESULTS = """<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest 
 
 
 def refresh(integration_root: Path, tmp_path: Path, content: str, *extra_arguments: str) -> tuple[int, Path]:
-    """Runs the tool on one shard holding content, writing tmp_path/shard_durations.json; returns its status and the file."""
+    """Run the tool on one shard holding content, writing tmp_path/shard_durations.json.
+
+    Return its status and the file.
+    """
     results = tmp_path / "results"
     if not results.exists():
         write_run(results, 1, content)
     output = tmp_path / "shard_durations.json"
-    status = shard_durations.main([str(results), "--output", str(output), *extra_arguments], integration_root=integration_root)
+    status = shard_durations.main(
+        [str(results), "--output", str(output), *extra_arguments], integration_root=integration_root
+    )
     return status, output
 
 
-def test_a_plain_skip_and_unusable_times_are_left_out_with_a_warning(integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_a_plain_skip_and_unusable_times_are_left_out_with_a_warning(
+    integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     status, output = refresh(integration_root, tmp_path, ODD_RESULTS)
     assert status == 0
     assert durations.read_durations(output) == {"scenarios/test_bank.py::test_a_deposit": 10.0}
@@ -141,7 +169,9 @@ def test_a_plain_skip_and_unusable_times_are_left_out_with_a_warning(integration
 
 
 @pytest.mark.parametrize("markup", ['<!DOCTYPE lol [<!ENTITY a "aaaa">]>', '<!ENTITY a "aaaa">'])
-def test_a_results_file_with_a_doctype_or_entity_is_refused(integration_root: Path, tmp_path: Path, markup: str, capsys: pytest.CaptureFixture) -> None:
+def test_a_results_file_with_a_doctype_or_entity_is_refused(
+    integration_root: Path, tmp_path: Path, markup: str, capsys: pytest.CaptureFixture
+) -> None:
     content = FIRST_RESULTS.replace("<testsuites", markup + "<testsuites", 1)
     status, output = refresh(integration_root, tmp_path, content)
     assert status == shard_durations.EXIT_USAGE
@@ -149,14 +179,18 @@ def test_a_results_file_with_a_doctype_or_entity_is_refused(integration_root: Pa
     assert "error:" in capsys.readouterr().err
 
 
-def test_a_results_file_over_the_size_cap_is_refused(integration_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_results_file_over_the_size_cap_is_refused(
+    integration_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(shard_durations, "MAX_RESULTS_BYTES", 100)
     status, output = refresh(integration_root, tmp_path, FIRST_RESULTS)
     assert status == shard_durations.EXIT_USAGE
     assert not output.exists()
 
 
-@pytest.mark.parametrize("class_name", ["..integration.scenarios.test_bank", ".scenarios.test_bank", "scenarios..test_bank"])
+@pytest.mark.parametrize(
+    "class_name", ["..integration.scenarios.test_bank", ".scenarios.test_bank", "scenarios..test_bank"]
+)
 def test_a_class_name_with_an_empty_part_has_no_node_id(integration_root: Path, class_name: str) -> None:
     assert shard_durations.node_id(class_name, "test_a_deposit", integration_root) is None
 
@@ -170,7 +204,9 @@ def test_a_module_outside_the_integration_folder_never_matches(integration_root:
     assert shard_durations.node_id("linked.test_secret", "test_x", integration_root) is None
 
 
-def test_a_refresh_covering_far_fewer_tests_is_refused_unless_forced(integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_a_refresh_covering_far_fewer_tests_is_refused_unless_forced(
+    integration_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
     output = tmp_path / "shard_durations.json"
     existing = {f"scenarios/test_bank.py::test_{index}": 5.0 for index in range(10)}
     output.write_text(json.dumps(existing), encoding="utf-8")
@@ -197,7 +233,7 @@ DOCTYPE_RESULTS = """<?xml version="1.0" encoding="{encoding}"?>
 
 
 def write_results_bytes(tmp_path: Path, content: bytes) -> Path:
-    """Writes one shard's results.xml as raw bytes and returns the results folder."""
+    """Write one shard's results.xml as raw bytes and return the results folder."""
     shard_folder = tmp_path / "results" / "integration-results-shard-1"
     shard_folder.mkdir(parents=True)
     (shard_folder / shard_durations.RESULTS_FILE_NAME).write_bytes(content)
@@ -206,29 +242,51 @@ def write_results_bytes(tmp_path: Path, content: bytes) -> Path:
 
 @pytest.mark.parametrize(
     ("encoding", "content_encoding"),
-    [("UTF-16", "utf-16"), ("UTF-16", "utf-16-le"), ("UTF-16", "utf-16-be"), ("UTF-32", "utf-32"), ("UTF-8", "utf-8-sig")],
+    [
+        ("UTF-16", "utf-16"),
+        ("UTF-16", "utf-16-le"),
+        ("UTF-16", "utf-16-be"),
+        ("UTF-32", "utf-32"),
+        ("UTF-8", "utf-8-sig"),
+    ],
     ids=["utf-16 with mark", "utf-16-le without mark", "utf-16-be without mark", "utf-32", "utf-8 with mark"],
 )
 def test_a_doctype_in_a_file_not_plain_utf8_is_refused(
-    integration_root: Path, tmp_path: Path, encoding: str, content_encoding: str, capsys: pytest.CaptureFixture,
+    integration_root: Path,
+    tmp_path: Path,
+    encoding: str,
+    content_encoding: str,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     results = write_results_bytes(tmp_path, DOCTYPE_RESULTS.format(encoding=encoding).encode(content_encoding))
     output = tmp_path / "shard_durations.json"
-    assert shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert (
+        shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root)
+        == shard_durations.EXIT_USAGE
+    )
     assert not output.exists()
     assert "UTF-8" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("content", [b"<testsuites>\xff</testsuites>", b'<?xml version="1.0" encoding="latin-1"?><testsuites/>'], ids=["invalid utf-8", "other encoding declared"])
+@pytest.mark.parametrize(
+    "content",
+    [b"<testsuites>\xff</testsuites>", b'<?xml version="1.0" encoding="latin-1"?><testsuites/>'],
+    ids=["invalid utf-8", "other encoding declared"],
+)
 def test_a_file_that_is_not_utf8_is_refused(integration_root: Path, tmp_path: Path, content: bytes) -> None:
     results = write_results_bytes(tmp_path, content)
     output = tmp_path / "shard_durations.json"
-    assert shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root) == shard_durations.EXIT_USAGE
+    assert (
+        shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root)
+        == shard_durations.EXIT_USAGE
+    )
     assert not output.exists()
 
 
 def test_a_declared_utf8_file_is_read(integration_root: Path, tmp_path: Path) -> None:
-    results = write_results_bytes(tmp_path, FIRST_RESULTS.replace('encoding="utf-8"', 'encoding="UTF-8"').encode("utf-8"))
+    results = write_results_bytes(
+        tmp_path, FIRST_RESULTS.replace('encoding="utf-8"', 'encoding="UTF-8"').encode("utf-8")
+    )
     output = tmp_path / "shard_durations.json"
     assert shard_durations.main([str(results), "--output", str(output)], integration_root=integration_root) == 0
     assert len(durations.read_durations(output)) == 3

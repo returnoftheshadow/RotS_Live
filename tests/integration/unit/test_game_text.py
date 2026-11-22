@@ -27,7 +27,7 @@ FILLED_IN_PARTS = {
 
 
 def game_texts() -> list[tuple[str, str]]:
-    """Every string constant of game_text, by name."""
+    """Return every string constant of game_text, by name."""
     bindings = vars(game_text).items()
     return [(name, value) for name, value in bindings if name.isupper() and isinstance(value, str)]
 
@@ -47,7 +47,7 @@ def fixed_pieces(name: str, text: str) -> list[str]:
 
 @cache
 def source_text() -> str:
-    """The game's source files, without its unit tests, and its combat message file, joined."""
+    """Return the game's sources, without its unit tests, and its combat message file, joined."""
     every_path = SOURCE_DIR.rglob("*")
     sorted_paths = sorted(every_path)
     paths = [

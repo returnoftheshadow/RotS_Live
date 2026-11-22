@@ -1,4 +1,7 @@
-"""Splits a run's collected tests into numbered shards, so parallel jobs each run one share of about equal time."""
+"""Splits a run's collected tests into numbered shards of about equal time.
+
+Parallel jobs each run one share.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +34,7 @@ class Shard:
 
 
 def parse_shard(value: str) -> Shard:
-    """The shard a 'k/N' value names, such as '2/4'; raises ValueError unless 1 <= k <= N."""
+    """Return the shard a 'k/N' value names, such as '2/4'; raise ValueError unless 1 <= k <= N."""
     match = SHARD_PATTERN.fullmatch(value)
     if match is None:
         raise ValueError(f"expected k/N with whole numbers, such as 2/4, not {value!r}")
@@ -43,13 +46,13 @@ def parse_shard(value: str) -> Shard:
 
 
 def in_shard(node_ids: Iterable[str], shard: Shard, recorded_seconds: Optional[Mapping[str, float]] = None) -> set[str]:
-    """The node ids the shard keeps, from shares of about equal recorded seconds.
+    """Return the node ids the shard keeps, from shares of about equal recorded seconds.
 
-    Every id lands in exactly one of the count shards, and the shares depend only on the set of
-    ids and recorded_seconds, never on their order, so every shard and every pytest-xdist worker
-    of the same selection agrees on which shard owns each test. A test with no recorded time
-    counts DEFAULT_TEST_SECONDS, and every test at least MINIMUM_SPLIT_SECONDS. With no recorded times at all, the shards take turns in sorted
-    node id order, starting at shard 1.
+    Every id lands in exactly one of the count shards, and the shares depend only on the set of ids
+    and recorded_seconds, never on their order, so every shard and every pytest-xdist worker of the
+    same selection agrees on which shard owns each test. A test with no recorded time counts
+    DEFAULT_TEST_SECONDS, and every test at least MINIMUM_SPLIT_SECONDS. With no recorded times at
+    all, the shards take turns in sorted node id order, starting at shard 1.
     """
     seconds = recorded_seconds or {}
     unique_ids = set(node_ids)

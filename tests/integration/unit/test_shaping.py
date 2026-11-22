@@ -17,7 +17,7 @@ INTEGRATION_ROOT = Path(__file__).resolve().parents[1]
 
 
 def source_text(file_name: str) -> str:
-    """The text of one of the game's source files."""
+    """Return the text of one of the game's source files."""
     return (REPOSITORY_ROOT / "src" / file_name).read_text(encoding="latin-1")
 
 

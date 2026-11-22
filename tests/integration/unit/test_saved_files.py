@@ -21,13 +21,15 @@ from rots_harness.saved_files import (
 )
 
 # The character whose saved files the tests write.
-WEARER = Character(name="Testwearer", race="human", sex="male", level=20, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior")
+WEARER = Character(
+    name="Testwearer", race="human", sex="male", level=20, load_room=world.ROOM_ARENA_CENTRE, class_name="warrior"
+)
 # Where the repository keeps the game's headers.
 SOURCE_DIRECTORY = Path(__file__).resolve().parents[3] / "src"
 
 
 def write_json(path: Path, record: dict) -> None:
-    """Writes record to path as JSON, making its folders."""
+    """Write record to path as JSON, making its folders."""
     path.parent.mkdir(parents=True, exist_ok=True)
     record_text = json.dumps(record)
     path.write_text(record_text, encoding="utf-8")
@@ -64,7 +66,10 @@ def test_saved_wear_positions_map_each_vnum_to_its_wear_position(tmp_path: Path)
         {"item_number": world.OBJECT_LEATHER_BAG, "wear_pos": CARRIED_WEAR_POSITION},
     ]
     write_json(tmp_path / HARNESS_ACCOUNT_FOLDER / "testwearer.objects.json", {"objects": objects})
-    assert saved_wear_positions(tmp_path, WEARER.name) == {world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION, world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION}
+    assert saved_wear_positions(tmp_path, WEARER.name) == {
+        world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION,
+        world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION,
+    }
 
 
 def test_the_wear_positions_are_the_headers() -> None:

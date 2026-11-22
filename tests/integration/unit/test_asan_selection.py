@@ -25,7 +25,10 @@ WORKFLOW_PATH = REAL_REPO_ROOT / ".github/workflows/asan.yml"
 
 @pytest.fixture
 def repo_root(tmp_path: Path) -> Path:
-    """A repository with a group file per name in GROUPS (shaping_commands as a subgroup) and the SCENARIO_FILES."""
+    """Return a repository with a group file per name in GROUPS and the SCENARIO_FILES.
+
+    shaping_commands is a subgroup.
+    """
     root = tmp_path / "repo"
     groups_dir = root / ci_groups.GROUPS_DIRECTORY
     (groups_dir / "shaping").mkdir(parents=True)
@@ -56,7 +59,9 @@ def test_each_token_form_is_read_with_its_name_and_value() -> None:
         asan_selection.Token("@asan-test-all", "all", None),
         asan_selection.Token("@asan-test-poison", "poison", None),
         asan_selection.Token("@asan-test-unit=Bank.*", "unit", "Bank.*"),
-        asan_selection.Token("@asan-test-scenario=scenarios/test_bank.py::test_a", "scenario", "scenarios/test_bank.py::test_a"),
+        asan_selection.Token(
+            "@asan-test-scenario=scenarios/test_bank.py::test_a", "scenario", "scenarios/test_bank.py::test_a"
+        ),
     ]
 
 
@@ -66,10 +71,23 @@ def test_tokens_inside_html_comments_are_ignored() -> None:
 
 
 def test_a_repeated_token_is_read_once() -> None:
-    assert texts("@asan-test-unit=A.*\n@asan-test-unit=A.*\n@asan-test-unit=B.*") == ["@asan-test-unit=A.*", "@asan-test-unit=B.*"]
+    assert texts("@asan-test-unit=A.*\n@asan-test-unit=A.*\n@asan-test-unit=B.*") == [
+        "@asan-test-unit=A.*",
+        "@asan-test-unit=B.*",
+    ]
 
 
-@pytest.mark.parametrize("text", ["foo@asan-test-poison", "x-@asan-test-poison", "@asan-test-<group>", "asan-test-poison", "@asan-test-", "@integration-test-poison"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "foo@asan-test-poison",
+        "x-@asan-test-poison",
+        "@asan-test-<group>",
+        "asan-test-poison",
+        "@asan-test-",
+        "@integration-test-poison",
+    ],
+)
 def test_text_that_is_not_a_token_is_ignored(text: str) -> None:
     assert texts(text) == []
 
@@ -91,7 +109,10 @@ def test_integration_tokens_are_not_asan_tokens() -> None:
 
 def test_read_description_reads_the_pull_requests_body(tmp_path: Path) -> None:
     event = tmp_path / "event.json"
-    event.write_text(json.dumps({"action": "edited", "pull_request": {"body": "@asan-test-poison\n\U0001F600" * 3}}), encoding="utf-8")
+    event.write_text(
+        json.dumps({"action": "edited", "pull_request": {"body": "@asan-test-poison\n\U0001f600" * 3}}),
+        encoding="utf-8",
+    )
     assert asan_selection.read_description(event) == "@asan-test-poison\n\U0001F600" * 3
 
 
@@ -119,10 +140,16 @@ def test_all_runs_every_unit_test_and_every_scenario_sharded(repo_root: Path) ->
 
 
 def test_all_wins_over_every_other_token_but_keeps_them_for_their_checks(repo_root: Path) -> None:
-    selection = select("@asan-test-poison @asan-test-unit=Foo.* @asan-test-all @asan-test-scenario=scenarios/test_bank.py", repo_root)
+    selection = select(
+        "@asan-test-poison @asan-test-unit=Foo.* @asan-test-all @asan-test-scenario=scenarios/test_bank.py", repo_root
+    )
     assert selection.unit_mode() == "all"
     assert selection.scenario_mode() == "all"
-    assert (selection.unit_filters, selection.groups, selection.scenario_ids) == (["Foo.*"], ["poison"], ["scenarios/test_bank.py"])
+    assert (selection.unit_filters, selection.groups, selection.scenario_ids) == (
+        ["Foo.*"],
+        ["poison"],
+        ["scenarios/test_bank.py"],
+    )
     assert selection.reasons[-1] == "@asan-test-all covers every other token, which must still select tests"
 
 
@@ -142,15 +169,23 @@ def test_unit_tokens_run_only_unit_tests(repo_root: Path) -> None:
 
 
 def test_scenario_tokens_run_only_scenarios(repo_root: Path) -> None:
-    selection = select("@asan-test-scenario=scenarios/test_bank.py @asan-test-scenario=scenarios/test_poison.py::test_ticks", repo_root)
+    selection = select(
+        "@asan-test-scenario=scenarios/test_bank.py @asan-test-scenario=scenarios/test_poison.py::test_ticks", repo_root
+    )
     assert selection.scenario_ids == ["scenarios/test_bank.py", "scenarios/test_poison.py::test_ticks"]
     assert selection.unit_mode() == "none"
     assert selection.scenario_mode() == "selected"
 
 
 def test_tokens_combine_and_each_gives_a_reason(repo_root: Path) -> None:
-    selection = select("@asan-test-unit=Bank.* @asan-test-poison @asan-test-scenario=scenarios/test_bank.py::test_a", repo_root)
-    assert (selection.unit_filters, selection.groups, selection.scenario_ids) == (["Bank.*"], ["poison"], ["scenarios/test_bank.py::test_a"])
+    selection = select(
+        "@asan-test-unit=Bank.* @asan-test-poison @asan-test-scenario=scenarios/test_bank.py::test_a", repo_root
+    )
+    assert (selection.unit_filters, selection.groups, selection.scenario_ids) == (
+        ["Bank.*"],
+        ["poison"],
+        ["scenarios/test_bank.py::test_a"],
+    )
     assert selection.reasons == [
         "`@asan-test-unit=Bank.*`: the unit tests matching `Bank.*`",
         "`@asan-test-poison`: the integration group `poison`",
@@ -257,7 +292,8 @@ def test_a_scenario_token_without_a_value_is_refused(repo_root: Path) -> None:
 
 def test_an_unknown_group_stops_the_run_and_lists_the_registered_ones(repo_root: Path) -> None:
     expected = (
-        r"^the description names unknown integration groups: posion, shaping_comands; registered groups: bank, boot, poison, "
+        r"^the description names unknown integration groups: posion, shaping_comands; registered groups: bank, boot, "
+        r"poison, "
         r"shaping, shaping_commands \(or all, unit=<filter>, scenario=<id>\)$"
     )
     with pytest.raises(asan_selection.InvalidTokens, match=expected):
@@ -265,7 +301,9 @@ def test_an_unknown_group_stops_the_run_and_lists_the_registered_ones(repo_root:
 
 
 def test_an_unknown_group_in_capitals_adds_the_lower_case_hint(repo_root: Path) -> None:
-    with pytest.raises(asan_selection.InvalidTokens, match=r"unknown integration groups: Poison; .*; tokens are lower case$"):
+    with pytest.raises(
+        asan_selection.InvalidTokens, match=r"unknown integration groups: Poison; .*; tokens are lower case$"
+    ):
         select("@asan-test-Poison", repo_root)
 
 
@@ -277,9 +315,16 @@ def test_only_unit_and_scenario_take_a_value(repo_root: Path, token: str) -> Non
 
 def test_every_unusable_token_is_listed_even_beside_all(repo_root: Path) -> None:
     with pytest.raises(asan_selection.InvalidTokens) as invalid:
-        select("@asan-test-all @asan-test-unit=-Foo @asan-test-scenario=scenarios/test_gone.py @asan-test-posion", repo_root)
+        select(
+            "@asan-test-all @asan-test-unit=-Foo @asan-test-scenario=scenarios/test_gone.py @asan-test-posion",
+            repo_root,
+        )
     lines = str(invalid.value).splitlines()
-    assert [line.split(":")[0] for line in lines] == ["@asan-test-unit=-Foo", "@asan-test-scenario=scenarios/test_gone.py", "the description names unknown integration groups"]
+    assert [line.split(":")[0] for line in lines] == [
+        "@asan-test-unit=-Foo",
+        "@asan-test-scenario=scenarios/test_gone.py",
+        "the description names unknown integration groups",
+    ]
 
 
 # Echoing description text safely.
@@ -308,7 +353,9 @@ def test_an_invalid_token_is_echoed_without_controls_or_a_workflow_command(repo_
     assert not any(line.startswith(("::", "##")) for line in message.splitlines())
 
 
-def test_select_prints_an_invalid_token_safely(repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_select_prints_an_invalid_token_safely(
+    repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     status, _, summary = run_select(repo_root, tmp_path, "@asan-test-unit=##[error]x‮")
     assert status == 2
     error = capsys.readouterr().err
@@ -336,11 +383,28 @@ def test_a_description_without_tokens_runs_nothing(action: str) -> None:
 # The select command.
 
 
-def run_select(repo_root: Path, tmp_path: Path, description: Optional[str], action: str = "opened", event: Optional[Path] = None) -> tuple[int, str, str]:
-    """Runs select over repo_root with description (or the event file); returns its status, the output file's text and the summary's."""
+def run_select(
+    repo_root: Path, tmp_path: Path, description: Optional[str], action: str = "opened", event: Optional[Path] = None
+) -> tuple[int, str, str]:
+    """Run select over repo_root with description (or the event file).
+
+    Return its status, the output file's text and the summary's.
+    """
     output = tmp_path / "output"
     summary = tmp_path / "summary.md"
-    argv = ["--repo-root", str(repo_root), "--summary", str(summary), "select", "--action", action, "--output", str(output), "--full-suite-shards", "8"]
+    argv = [
+        "--repo-root",
+        str(repo_root),
+        "--summary",
+        str(summary),
+        "select",
+        "--action",
+        action,
+        "--output",
+        str(output),
+        "--full-suite-shards",
+        "8",
+    ]
     if event is not None:
         argv += ["--event", str(event)]
     status = asan_selection.main(argv, environ={}, description=description)
@@ -356,7 +420,9 @@ def test_select_writes_every_output_on_one_line_each(repo_root: Path, tmp_path: 
         "run=true\nunit=filters\nunit_filters=[\"Bank.*\"]\nscenarios=selected\ngroups=[\"poison\"]\n"
         "scenario_ids=[\"scenarios/test_bank.py::test_a\"]\nshards=[1]\n"
     )
-    assert summary.startswith("### ASan run: chosen unit tests; chosen scenarios\n\n- Why: the pull request event is opened")
+    assert summary.startswith(
+        "### ASan run: chosen unit tests; chosen scenarios\n\n- Why: the pull request event is opened"
+    )
 
 
 def test_select_reads_the_description_from_the_event_file(repo_root: Path, tmp_path: Path) -> None:
@@ -372,13 +438,16 @@ def test_select_reads_the_event_file_github_event_path_names(repo_root: Path, tm
     event.write_text(json.dumps({"pull_request": {"body": "@asan-test-bank"}}), encoding="utf-8")
     output = tmp_path / "output"
     status = asan_selection.main(
-        ["--repo-root", str(repo_root), "select", "--action", "edited", "--output", str(output)], environ={"GITHUB_EVENT_PATH": str(event)},
+        ["--repo-root", str(repo_root), "select", "--action", "edited", "--output", str(output)],
+        environ={"GITHUB_EVENT_PATH": str(event)},
     )
     assert status == 0
     assert "groups=[\"bank\"]\n" in output.read_text(encoding="utf-8")
 
 
-def test_select_fails_with_status_2_without_an_event_file(repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_select_fails_with_status_2_without_an_event_file(
+    repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     status, output, _ = run_select(repo_root, tmp_path, None)
     assert status == 2
     assert output == ""
@@ -415,7 +484,9 @@ def test_select_fails_with_status_2_on_an_unusable_token_and_writes_no_output(
     assert "\n    @asan-test-unit=Foo;rm: may hold only" in summary
 
 
-def test_select_fails_with_status_2_on_an_unreadable_group_file(repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_select_fails_with_status_2_on_an_unreadable_group_file(
+    repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (repo_root / ci_groups.GROUPS_DIRECTORY / "bad-name.txt").write_text("a group\n", encoding="utf-8")
     status, output, _ = run_select(repo_root, tmp_path, "@asan-test-poison")
     assert status == 2
@@ -430,7 +501,11 @@ GTEST_LISTING = "BankTest.\n  KeepsCoins\n  KeepsItems\nVault/Typed.  # TypePara
 
 
 def test_listed_tests_reads_the_full_names() -> None:
-    assert asan_selection.listed_tests(GTEST_LISTING) == ["BankTest.KeepsCoins", "BankTest.KeepsItems", "Vault/Typed.Opens"]
+    assert asan_selection.listed_tests(GTEST_LISTING) == [
+        "BankTest.KeepsCoins",
+        "BankTest.KeepsItems",
+        "Vault/Typed.Opens",
+    ]
 
 
 def test_listed_tests_reads_an_empty_listing_as_no_tests() -> None:
@@ -483,7 +558,9 @@ def test_run_unit_checks_each_filter_then_runs_them_joined_once(tmp_path: Path) 
     assert summary.endswith("\nThe unit tests passed.\n")
 
 
-def test_run_unit_fails_without_running_when_a_filter_matches_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_unit_fails_without_running_when_a_filter_matches_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     # GoogleTest itself would pass a run of zero tests.
     binary = FakeUnitBinary({"Bank*": "BankTest.\n  KeepsCoins\n"})
     environ = {"ASAN_UNIT": "filters", "ASAN_UNIT_FILTERS": json.dumps(["Bank*", "Bnak*"])}
@@ -492,14 +569,18 @@ def test_run_unit_fails_without_running_when_a_filter_matches_nothing(tmp_path: 
     assert "@asan-test-unit=Bnak*: matches no unit test\n" in capsys.readouterr().err + "\n"
 
 
-def test_a_filter_ending_in_a_full_stop_that_matches_nothing_gets_the_plain_text_hint(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_filter_ending_in_a_full_stop_that_matches_nothing_gets_the_plain_text_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     binary = FakeUnitBinary({})
     environ = {"ASAN_UNIT": "filters", "ASAN_UNIT_FILTERS": json.dumps(["Bank.Opens."])}
     assert run_unit(binary, environ, tmp_path) == asan_selection.EXIT_NOTHING_SELECTED
     assert asan_selection.PLAIN_TEXT_HINT in capsys.readouterr().err
 
 
-def test_run_unit_fails_when_the_binary_cannot_list_its_tests(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_unit_fails_when_the_binary_cannot_list_its_tests(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     binary = FakeUnitBinary({"Bank*": "ERROR: AddressSanitizer: heap-use-after-free\n"}, list_status=23)
     environ = {"ASAN_UNIT": "filters", "ASAN_UNIT_FILTERS": json.dumps(["Bank*"])}
     assert run_unit(binary, environ, tmp_path) == asan_selection.EXIT_NOTHING_SELECTED
@@ -511,7 +592,9 @@ def test_run_unit_returns_the_tests_status(tmp_path: Path) -> None:
     binary = FakeUnitBinary({"Bank*": "BankTest.\n  KeepsCoins\n"}, run_status=23)
     environ = {"ASAN_UNIT": "filters", "ASAN_UNIT_FILTERS": json.dumps(["Bank*"])}
     assert run_unit(binary, environ, tmp_path) == 23
-    assert (tmp_path / "summary.md").read_text(encoding="utf-8").endswith("\nThe unit tests failed with exit status 23.\n")
+    assert (
+        (tmp_path / "summary.md").read_text(encoding="utf-8").endswith("\nThe unit tests failed with exit status 23.\n")
+    )
 
 
 def test_run_unit_for_all_runs_every_test_named_as_it_runs(tmp_path: Path) -> None:
@@ -560,7 +643,8 @@ class FakeCollector:
     """Collects node ids per group or targets from a table and records every command it runs."""
 
     def __init__(self, collected: dict[tuple[str, ...], list[str]], run_status: int = 0) -> None:
-        # The node ids each group (as a one-item tuple) or target tuple collects; one missing from the table collects none.
+        # The node ids each group (as a one-item tuple) or target tuple collects; one missing from
+        # the table collects none.
         self.collected = collected
         # The status a run returns.
         self.run_status = run_status
@@ -588,8 +672,20 @@ COLLECTED = {
 
 def run_scenarios(collector: FakeCollector, environ: dict[str, str], repo_root: Path, tmp_path: Path) -> int:
     return asan_selection.main(
-        ["--repo-root", str(repo_root), "--summary", str(tmp_path / "summary.md"), "run-scenarios", "--python", "py", "--jobs", "4"],
-        environ=environ, collect=collector.collect, run_command=collector.run,
+        [
+            "--repo-root",
+            str(repo_root),
+            "--summary",
+            str(tmp_path / "summary.md"),
+            "run-scenarios",
+            "--python",
+            "py",
+            "--jobs",
+            "4",
+        ],
+        environ=environ,
+        collect=collector.collect,
+        run_command=collector.run,
     )
 
 
@@ -601,20 +697,33 @@ def test_run_scenarios_runs_every_selected_test_once(repo_root: Path, tmp_path: 
         "ASAN_SCENARIO_IDS": json.dumps(["scenarios/test_bank.py", "scenarios/test_poison.py::test_ticks"]),
     }
     assert run_scenarios(collector, environ, repo_root, tmp_path) == 0
-    assert collector.ran == [[
-        "py", "-m", "pytest",
-        "tests/integration/scenarios/test_poison.py::test_ticks", "tests/integration/scenarios/test_poison.py::test_wears_off",
-        "tests/integration/scenarios/test_bank.py::test_a", "tests/integration/scenarios/test_bank.py::test_b",
-        "-q", "-n", "4", *run_plan.REPORT_ARGUMENTS,
-    ]]
+    assert collector.ran == [
+        [
+            "py",
+            "-m",
+            "pytest",
+            "tests/integration/scenarios/test_poison.py::test_ticks",
+            "tests/integration/scenarios/test_poison.py::test_wears_off",
+            "tests/integration/scenarios/test_bank.py::test_a",
+            "tests/integration/scenarios/test_bank.py::test_b",
+            "-q",
+            "-n",
+            "4",
+            *run_plan.REPORT_ARGUMENTS,
+        ]
+    ]
     summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
     assert "- `@asan-test-poison`: 2 tests\n" in summary
-    assert "- `@asan-test-scenario=scenarios/test_poison.py::test_ticks`: 1 test\n  - `scenarios/test_poison.py::test_ticks`\n" in summary
+    assert (
+        "- `@asan-test-scenario=scenarios/test_poison.py::test_ticks`: 1 test\n  - "
+        "`scenarios/test_poison.py::test_ticks`\n"
+        in summary
+    )
     assert summary.endswith("\nThe scenarios passed.\n")
 
 
 def write_run(repo_root: Path, name: str, test_id: str, log: str) -> None:
-    """A kept run directory under repo_root holding test_id's test-id.txt and game.log."""
+    """Write a kept run directory under repo_root holding test_id's test-id.txt and game.log."""
     run_dir = repo_root / asan_selection.RUNS_RELATIVE / name
     run_dir.mkdir(parents=True)
     (run_dir / "test-id.txt").write_text(test_id + "\n", encoding="utf-8")
@@ -623,19 +732,43 @@ def write_run(repo_root: Path, name: str, test_id: str, log: str) -> None:
 
 def test_run_scenarios_reports_a_failure_with_its_artifact_and_sanitizer_lines(repo_root: Path, tmp_path: Path) -> None:
     def failing_run(command: list[str], keep_stdin: bool) -> int:
-        write_run(repo_root, "abc", "scenarios/test_bank.py::test_a", "Boot db -- BEGIN.\n==36==ERROR: AddressSanitizer: stack-buffer-underflow on address 0x407fc56e\n")
+        write_run(
+            repo_root,
+            "abc",
+            "scenarios/test_bank.py::test_a",
+            "Boot db -- BEGIN.\n==36==ERROR: AddressSanitizer: stack-buffer-underflow on address 0x407fc56e\n",
+        )
         write_run(repo_root, "def", "scenarios/test_bank.py::test_b", "Entering game loop.\n")
         return 1
 
     environ = {"ASAN_SCENARIOS": "all", "ROTS_IT_SHARD": "3/8"}
     status = asan_selection.main(
-        ["--repo-root", str(repo_root), "--summary", str(tmp_path / "summary.md"), "run-scenarios", "--python", "py", "--jobs", "4"],
-        environ=environ, run_command=failing_run,
+        [
+            "--repo-root",
+            str(repo_root),
+            "--summary",
+            str(tmp_path / "summary.md"),
+            "run-scenarios",
+            "--python",
+            "py",
+            "--jobs",
+            "4",
+        ],
+        environ=environ,
+        run_command=failing_run,
     )
     assert status == 1
     summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
-    assert "The scenarios failed with pytest exit status 1. Their kept run directories are in the `asan-runs-shard-3` artifact." in summary
-    assert "\n    scenarios/test_bank.py::test_a: ==36==ERROR: AddressSanitizer: stack-buffer-underflow on address 0x407fc56e\n" in summary
+    assert (
+        "The scenarios failed with pytest exit status 1. Their kept "
+        "run directories are in the `asan-runs-shard-3` artifact."
+        in summary
+    )
+    assert (
+        "\n    scenarios/test_bank.py::test_a: ==36==ERROR: "
+        "AddressSanitizer: stack-buffer-underflow on address 0x407fc56e\n"
+        in summary
+    )
     assert "test_bank.py::test_b" not in summary
 
 
@@ -651,12 +784,15 @@ def test_sanitizer_report_lines_read_the_log_a_restart_set_aside(repo_root: Path
     set_aside = repo_root / asan_selection.RUNS_RELATIVE / "abc" / "game.boot-1.log"
     set_aside.write_text("==36==ERROR: AddressSanitizer: heap-use-after-free on address 0x407fc56e\n", encoding="utf-8")
     assert asan_selection.sanitizer_report_lines(repo_root / asan_selection.RUNS_RELATIVE, 0.0) == [
-        "scenarios/test_service_stop.py::test_a: ==36==ERROR: AddressSanitizer: heap-use-after-free on address 0x407fc56e",
+        "scenarios/test_service_stop.py::test_a: ==36==ERROR: "
+        "AddressSanitizer: heap-use-after-free on address 0x407fc56e",
     ]
 
 
 def test_a_failure_without_reports_says_so() -> None:
-    assert asan_selection.scenario_outcome_summary(1, "", []).endswith("`asan-runs-shard-1` artifact.\nNo server log holds an AddressSanitizer report.\n")
+    assert asan_selection.scenario_outcome_summary(1, "", []).endswith(
+        "`asan-runs-shard-1` artifact.\nNo server log holds an AddressSanitizer report.\n"
+    )
 
 
 def test_run_scenarios_returns_pytests_status(repo_root: Path, tmp_path: Path) -> None:
@@ -665,12 +801,22 @@ def test_run_scenarios_returns_pytests_status(repo_root: Path, tmp_path: Path) -
     assert run_scenarios(collector, environ, repo_root, tmp_path) == 1
 
 
-@pytest.mark.parametrize("scenario_id, reason", [
-    ("scenarios/test_poison.py", "@asan-test-scenario=scenarios/test_poison.py: selects no test"),
-    ("scenarios/test_bank.py::test_typo", "@asan-test-scenario=scenarios/test_bank.py::test_typo: pytest could not collect it (exit status 4)"),
-])
+@pytest.mark.parametrize(
+    "scenario_id, reason",
+    [
+        ("scenarios/test_poison.py", "@asan-test-scenario=scenarios/test_poison.py: selects no test"),
+        (
+            "scenarios/test_bank.py::test_typo",
+            "@asan-test-scenario=scenarios/test_bank.py::test_typo: pytest could not collect it (exit status 4)",
+        ),
+    ],
+)
 def test_run_scenarios_fails_without_running_when_a_token_selects_nothing(
-    repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], scenario_id: str, reason: str,
+    repo_root: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    scenario_id: str,
+    reason: str,
 ) -> None:
     collector = FakeCollector(COLLECTED)
     environ = {"ASAN_SCENARIOS": "selected", "ASAN_SCENARIO_IDS": json.dumps(["scenarios/test_bank.py", scenario_id])}
@@ -679,7 +825,9 @@ def test_run_scenarios_fails_without_running_when_a_token_selects_nothing(
     assert reason in capsys.readouterr().err
 
 
-def test_run_scenarios_fails_when_a_group_selects_nothing(repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_scenarios_fails_when_a_group_selects_nothing(
+    repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     collector = FakeCollector(COLLECTED)
     environ = {"ASAN_SCENARIOS": "selected", "ASAN_GROUPS": json.dumps(["bank"])}
     assert run_scenarios(collector, environ, repo_root, tmp_path) == asan_selection.EXIT_NOTHING_SELECTED
@@ -690,7 +838,9 @@ def test_run_scenarios_for_all_runs_make_integrations_ci_command(repo_root: Path
     collector = FakeCollector({})
     assert run_scenarios(collector, {"ASAN_SCENARIOS": "all", "ROTS_IT_SHARD": "3/8"}, repo_root, tmp_path) == 0
     assert collector.ran == [run_plan.pytest_run_command("py", "scenario", "4")]
-    assert (tmp_path / "summary.md").read_text(encoding="utf-8") == "### ASan scenarios: every scenario, shard 3/8\n\nThe scenarios passed.\n"
+    assert (tmp_path / "summary.md").read_text(
+        encoding="utf-8"
+    ) == "### ASan scenarios: every scenario, shard 3/8\n\nThe scenarios passed.\n"
 
 
 def test_run_scenarios_with_one_job_runs_without_workers(repo_root: Path, tmp_path: Path) -> None:
@@ -728,7 +878,11 @@ def check_scenarios(collector: FakeCollector, environ: dict[str, str], repo_root
 @pytest.mark.parametrize("mode", ["selected", "all"])
 def test_check_scenarios_lists_each_tokens_tests(repo_root: Path, tmp_path: Path, mode: str) -> None:
     collector = FakeCollector(COLLECTED)
-    environ = {"ASAN_SCENARIOS": mode, "ASAN_GROUPS": json.dumps(["poison"]), "ASAN_SCENARIO_IDS": json.dumps(["scenarios/test_bank.py"])}
+    environ = {
+        "ASAN_SCENARIOS": mode,
+        "ASAN_GROUPS": json.dumps(["poison"]),
+        "ASAN_SCENARIO_IDS": json.dumps(["scenarios/test_bank.py"]),
+    }
     assert check_scenarios(collector, environ, repo_root, tmp_path) == 0
     assert collector.ran == []
     summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
@@ -742,9 +896,14 @@ def test_check_scenarios_fails_when_a_token_selects_nothing(repo_root: Path, tmp
     assert check_scenarios(collector, environ, repo_root, tmp_path) == asan_selection.EXIT_NOTHING_SELECTED
 
 
-def test_check_scenarios_needs_the_scenario_mode(repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_scenarios_needs_the_scenario_mode(
+    repo_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     collector = FakeCollector(COLLECTED)
-    assert check_scenarios(collector, {"ASAN_SCENARIO_IDS": json.dumps(["scenarios/test_bank.py"])}, repo_root, tmp_path) == asan_selection.EXIT_USAGE
+    assert (
+        check_scenarios(collector, {"ASAN_SCENARIO_IDS": json.dumps(["scenarios/test_bank.py"])}, repo_root, tmp_path)
+        == asan_selection.EXIT_USAGE
+    )
     assert "ASAN_SCENARIOS must be none, all, selected" in capsys.readouterr().err
 
 
@@ -761,7 +920,10 @@ def test_a_collection_that_takes_too_long_names_the_token(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(run_plan, "collect_selection", slow_collection)
     collect = lambda group, targets: asan_selection.collect_node_ids("py", group, targets)
-    with pytest.raises(asan_selection.NothingSelected, match=r"^@asan-test-scenario=scenarios/test_bank.py: collecting it took longer than 300 seconds$"):
+    with pytest.raises(
+        asan_selection.NothingSelected,
+        match=r"^@asan-test-scenario=scenarios/test_bank.py: collecting it took longer than 300 seconds$",
+    ):
         asan_selection.scenario_token_tests([], ["scenarios/test_bank.py"], collect)
 
 
@@ -776,7 +938,9 @@ def test_collect_node_ids_lists_a_real_scenario_files_tests() -> None:
 
 def test_collect_node_ids_reports_a_test_that_does_not_exist() -> None:
     with pytest.raises(asan_selection.NothingSelected, match=r"exit status 4"):
-        asan_selection.collect_node_ids(sys.executable, "", ["tests/integration/scenarios/test_bank.py::test_no_such_test"])
+        asan_selection.collect_node_ids(
+            sys.executable, "", ["tests/integration/scenarios/test_bank.py::test_no_such_test"]
+        )
 
 
 def test_collect_node_ids_selects_a_group_by_its_marker() -> None:
@@ -788,7 +952,11 @@ def test_collect_node_ids_selects_a_group_by_its_marker() -> None:
 def test_the_real_scenario_ids_in_the_shard_times_pass_the_id_check() -> None:
     # Every committed test id without a space must be writable as a token.
     recorded = json.loads((REAL_REPO_ROOT / "tests/integration/shard_durations.json").read_text(encoding="utf-8"))
-    refused = [node_id for node_id in recorded if " " not in node_id and asan_selection.scenario_id_problem(node_id, REAL_REPO_ROOT)]
+    refused = [
+        node_id
+        for node_id in recorded
+        if " " not in node_id and asan_selection.scenario_id_problem(node_id, REAL_REPO_ROOT)
+    ]
     assert refused == []
 
 
@@ -798,16 +966,23 @@ def test_no_registered_group_is_named_like_a_token_form() -> None:
 
 
 def test_no_scenario_harness_module_or_conftest_imports_the_asan_selector() -> None:
-    # ci_groups exempts asan_selection.py from the every-group rule because nothing a scenario runs reaches it.
+    # ci_groups exempts asan_selection.py from the every-group rule because nothing a scenario runs
+    # reaches it.
     integration = REAL_REPO_ROOT / "tests/integration"
-    sources = [*integration.glob("rots_harness/*.py"), *integration.glob("**/conftest.py"), *integration.glob("scenarios/*.py")]
-    importers = [path.name for path in sources if path.name != "asan_selection.py" and "asan_selection" in imported_names(path)]
+    sources = [
+        *integration.glob("rots_harness/*.py"),
+        *integration.glob("**/conftest.py"),
+        *integration.glob("scenarios/*.py"),
+    ]
+    importers = [
+        path.name for path in sources if path.name != "asan_selection.py" and "asan_selection" in imported_names(path)
+    ]
     assert importers == []
     assert ci_groups.ASAN_ONLY_HARNESS_FILES == frozenset({"tests/integration/rots_harness/asan_selection.py"})
 
 
 def imported_names(path: Path) -> set[str]:
-    """Every part of every module name, and every name, the Python source at path imports."""
+    """Return every part of every module name, and every name, the Python source at path imports."""
     names: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -826,16 +1001,18 @@ def workflow_text() -> str:
 
 
 def job_text(name: str) -> str:
-    """The lines of one job in the workflow, from its key to the next job's."""
+    """Return the lines of one job in the workflow, from its key to the next job's."""
     match = re.search(rf"^  {name}:\n(.*?)(?=^  [a-z_]+:\n|\Z)", workflow_text(), re.M | re.S)
     assert match is not None, f"the workflow has no job {name}"
     return match.group(1)
 
 
 def steps_running(command: str) -> list[str]:
-    """The text of every workflow step whose command runs the selector's command."""
+    """Return the text of every workflow step whose command runs the selector's command."""
     steps = re.split(r"^      - name: ", workflow_text(), flags=re.M)
-    return [step for step in steps if re.search(rf"rots_harness\.asan_selection\b.*?\s{re.escape(command)}\s", step, re.S)]
+    return [
+        step for step in steps if re.search(rf"rots_harness\.asan_selection\b.*?\s{re.escape(command)}\s", step, re.S)
+    ]
 
 
 def output_names() -> list[str]:
@@ -862,7 +1039,9 @@ def test_every_step_running_a_command_passes_the_variables_it_reads(command: str
     for step in steps:
         for variable in asan_selection.COMMAND_VARIABLES[command]:
             output = asan_selection.VARIABLE_OUTPUTS[variable]
-            assert re.search(rf"^ +{variable}: \$\{{\{{ (?:steps|needs)\.select\.outputs\.{output} \}}\}}$", step, re.M), (command, variable)
+            assert re.search(
+                rf"^ +{variable}: \$\{{\{{ (?:steps|needs)\.select\.outputs\.{output} \}}\}}$", step, re.M
+            ), (command, variable)
             if "docker run" in step:
                 assert re.search(rf"--env {variable}(?=\s)", step), (command, variable)
 

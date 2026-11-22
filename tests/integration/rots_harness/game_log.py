@@ -22,7 +22,10 @@ _MESSAGE_SEPARATOR = " :: "
 
 
 def read_game_log(log_path: Path) -> str:
-    """What game.log holds so far, decoded as latin-1 so no byte fails; empty before it exists."""
+    """Return what game.log holds so far, decoded as latin-1 so no byte fails.
+
+    Empty before it exists.
+    """
     if not log_path.exists():
         return ""
 
@@ -30,13 +33,16 @@ def read_game_log(log_path: Path) -> str:
 
 
 def count_in_log(log_path: Path, line: str) -> int:
-    """How many times game.log holds line so far, anywhere in its text; nothing is waited for."""
+    """Return how many times game.log holds line so far, anywhere in its text.
+
+    Nothing is waited for.
+    """
     text = read_game_log(log_path)
     return text.count(line)
 
 
 def log_lines_holding(log_path: Path, marker: str) -> list[str]:
-    """The lines of game.log so far that contain marker, in log order; nothing is waited for."""
+    """Return the lines of game.log so far that contain marker, in log order, without waiting."""
     text = read_game_log(log_path)
     lines = text.splitlines()
     return [log_line for log_line in lines if marker in log_line]
@@ -52,7 +58,7 @@ def wait_for_log_count(
     poll: float = LOG_POLL_SECONDS,
     describe: Callable[[str], str] | None = None,
 ) -> str:
-    """Waits until game.log holds line at least count times and returns the log's text.
+    """Wait until game.log holds line at least count times and return the log's text.
 
     Re-reads the log every poll seconds. Fails with AssertionError, naming the line and the
     count seen, when the log does not hold count within timeout; with exact, it also fails when
@@ -85,7 +91,9 @@ def wait_for_log_count(
 
 
 def logged_messages(log_path: Path) -> list[str]:
-    """The messages mudlog wrote to game.log so far, each line being '<type>, <time> :: <message>'.
+    """Return the messages mudlog wrote to game.log so far.
+
+    Each line reads '<type>, <time> :: <message>'.
 
     Lines without the separator, such as the boot's own output, are left out.
     """
@@ -102,7 +110,7 @@ def count_logged(
     timeout: float = LOG_TIMEOUT_SECONDS,
     poll: float = LOG_POLL_SECONDS,
 ) -> int:
-    """How many of logged_messages equal message, once expected_count do or timeout passes.
+    """Return how many of logged_messages equal message, once expected_count do or timeout passes.
 
     Nothing is asserted: the caller compares the count it gets, which may be below
     expected_count after a timeout or above it.

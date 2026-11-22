@@ -14,13 +14,34 @@ EMPTY_SHARD = "999/999"
 
 
 def run_boot_scenarios(shard: str, extra_arguments: list[str]) -> subprocess.CompletedProcess:
-    """Runs the boot scenarios in a separate pytest under the shard; nothing starts a server when the share is empty."""
+    """Run the boot scenarios in a separate pytest under the shard.
+
+    Nothing starts a server when the share is empty.
+    """
     environment = {name: value for name, value in os.environ.items() if not name.startswith(("PYTEST_", "ROTS_IT_"))}
     environment["ROTS_IT_LAUNCHER"] = "local"
     environment["ROTS_IT_SHARD"] = shard
-    command = [sys.executable, "-m", "pytest", "scenarios", "-q", "-p", "no:cacheprovider", "-m", "scenario and boot", *extra_arguments]
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "scenarios",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "scenario and boot",
+        *extra_arguments,
+    ]
     return subprocess.run(
-        command, cwd=INTEGRATION_ROOT, env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120, check=False,
+        command,
+        cwd=INTEGRATION_ROOT,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
     )
 
 

@@ -9,7 +9,7 @@ from rots_harness.session import Transcript
 
 
 def raw_lines(text: str) -> list[str]:
-    """text's lines split at each newline, each without the carriage return the game sends with it.
+    """Return text's lines split at each newline, each without the carriage return sent with it.
 
     Blank lines are kept, and other whitespace is left alone, so a caller can check spacing.
     """
@@ -18,24 +18,27 @@ def raw_lines(text: str) -> list[str]:
 
 
 def stripped_lines(text: str) -> list[str]:
-    """text's non-blank lines, each stripped of surrounding whitespace."""
+    """Return text's non-blank lines, each stripped of surrounding whitespace."""
     all_lines = text.splitlines()
     return [line.strip() for line in all_lines if line.strip()]
 
 
 def reply_text(reply: Transcript) -> str:
-    """The reply's text with the carriage returns of the game's line ends removed."""
+    """Return the reply's text with the carriage returns of the game's line ends removed."""
     return reply.text.replace("\r", "")
 
 
 def assert_lines(reply: Transcript, lines: Sequence[str]) -> None:
-    """Asserts the reply holds lines consecutively and in order, once its carriage returns are removed."""
+    """Assert the reply holds lines consecutively and in order.
+
+    The check runs once its carriage returns are removed.
+    """
     block = "\n".join(lines)
     assert block in reply_text(reply), f"expected:\n{block}\nin:\n{reply.text}"
 
 
 def lines_after(text: str, header: str, until: str | None = None, *, drop_prompts: bool = True) -> list[str]:
-    """The stripped, non-blank lines after the line holding header's first occurrence.
+    """Return the stripped, non-blank lines after the line holding header's first occurrence.
 
     The rest of the header's own line is dropped. With until, the lines stop before the first
     later line holding it, which is dropped too. drop_prompts drops lines ending in ">" (a game
@@ -59,7 +62,7 @@ def lines_after(text: str, header: str, until: str | None = None, *, drop_prompt
 
 
 def assert_in_order(text: str, lines: Sequence[str]) -> None:
-    """Asserts each of lines appears exactly once in text, each starting after the one before.
+    """Assert each of lines appears exactly once in text, each starting after the one before.
 
     Two lines found at the same place (one a prefix of the other) fail as out of order.
     """
@@ -72,7 +75,10 @@ def assert_in_order(text: str, lines: Sequence[str]) -> None:
 
 
 def first_number(pattern: re.Pattern, text: str) -> int:
-    """pattern's first group in its first match in text, as a number; fails naming the pattern when it does not match."""
+    """Return pattern's first group in its first match in text, as a number.
+
+    Fails naming the pattern when it does not match.
+    """
     match = pattern.search(text)
     assert match is not None, f"no {pattern.pattern!r} in:\n{text}"
     number_text = match.group(1)
@@ -80,7 +86,7 @@ def first_number(pattern: re.Pattern, text: str) -> int:
 
 
 def capitalised(text: str) -> str:
-    """text with its first letter upper case and the rest unchanged, as act() starts a line.
+    """Return text with its first letter upper case and the rest unchanged, as act() starts a line.
 
     Unlike str.capitalize, later letters are not lowered. text must not be empty.
     """

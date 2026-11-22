@@ -39,7 +39,7 @@ UNREADABLE_ROW_PART = "[ ?? ???]"
 
 @contextlib.contextmanager
 def account_connection(handle: ServerHandle, transcript_dir: Path, label: str) -> Iterator[GameSession]:
-    """A connection at the account email prompt, closed when the block ends.
+    """Yield a connection at the account email prompt, closed when the block ends.
 
     Waits for the email prompt before the block starts, failing with SessionTimeout when it does
     not come. label names its transcript in transcript_dir.
@@ -54,7 +54,7 @@ def account_connection(handle: ServerHandle, transcript_dir: Path, label: str) -
 
 @contextlib.contextmanager
 def playing_connection(handle: ServerHandle, transcript_dir: Path, character: Character) -> Iterator[GameSession]:
-    """A connection logged in as character with GameSession.login, closed when the block ends.
+    """Yield a connection logged in as character with GameSession.login, closed when the block ends.
 
     LoginRefused and transport errors from the login pass through. The server fixture does not
     quit it, so a block that ends without quitting leaves the character linkless.
@@ -68,7 +68,9 @@ def playing_connection(handle: ServerHandle, transcript_dir: Path, character: Ch
 
 
 def closes_within(connection: GameSession, seconds: float) -> bool:
-    """Whether the server closes the connection within seconds; text read meanwhile is discarded.
+    """Return whether the server closes the connection within seconds.
+
+    Text read meanwhile is discarded.
 
     Reads for the whole of seconds when the connection stays open. Nothing is asserted.
     """

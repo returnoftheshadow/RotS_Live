@@ -81,12 +81,21 @@ def test_harness_sessions_in_different_checkouts_hold_the_lock_at_the_same_time(
 
 @pytest.mark.parametrize(
     "resources",
-    ["build:slot-4/build", "build:slot-1/build-jammy", "port:1024", "game:slot-1", "timing", "build:slot-4/build-jammy port:1024 game:slot-4"],
+    [
+        "build:slot-4/build",
+        "build:slot-1/build-jammy",
+        "port:1024",
+        "game:slot-1",
+        "timing",
+        "build:slot-4/build-jammy port:1024 game:slot-4",
+    ],
 )
 def test_a_lock_on_other_resources_does_not_make_acquire_wait(tmp_path: Path, resources: str) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
-    (lock_dir / "other-job.lock").write_text(f"session: other\nrepo: {tmp_path / 'slot-1'}\nresources: {resources}\n", encoding="utf-8")
+    (lock_dir / "other-job.lock").write_text(
+        f"session: other\nrepo: {tmp_path / 'slot-1'}\nresources: {resources}\n", encoding="utf-8"
+    )
     lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path / "slot-1", wait_seconds=0)
     lock.acquire(purpose="unit test")
     assert lock.path is not None and lock.path.exists()
@@ -107,7 +116,9 @@ def test_a_lock_naming_this_build_tree_makes_acquire_wait(tmp_path: Path, resour
 def test_an_old_style_lock_holds_only_its_own_checkout(tmp_path: Path) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
-    (lock_dir / "old-style.lock").write_text(f"session: other\nrepo: {tmp_path / 'slot-2'}\nresources:\n", encoding="utf-8")
+    (lock_dir / "old-style.lock").write_text(
+        f"session: other\nrepo: {tmp_path / 'slot-2'}\nresources:\n", encoding="utf-8"
+    )
     elsewhere = dockerlock.DockerLock(lock_dir, repo_root=tmp_path / "slot-1", wait_seconds=0)
     elsewhere.acquire(purpose="another checkout")
     assert elsewhere.path is not None
@@ -128,7 +139,9 @@ def test_an_unreadable_lock_makes_acquire_wait(tmp_path: Path) -> None:
     assert lock.path is None
 
 
-def test_a_lock_removed_while_the_directory_is_read_does_not_make_acquire_wait(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lock_removed_while_the_directory_is_read_does_not_make_acquire_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
     vanishing = lock_dir / "finished-job.lock"
@@ -200,7 +213,15 @@ def test_the_lock_waits_for_the_holder_and_then_takes_it(tmp_path: Path) -> None
         if clock.now >= 10:
             holder.unlink(missing_ok=True)
 
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=60, poll_seconds=5, clock=clock, sleep=sleep_then_release, report=reports.append)
+    lock = dockerlock.DockerLock(
+        lock_dir,
+        repo_root=tmp_path,
+        wait_seconds=60,
+        poll_seconds=5,
+        clock=clock,
+        sleep=sleep_then_release,
+        report=reports.append,
+    )
     lock.acquire(purpose="unit test")
     assert lock.path is not None and lock.path.exists()
     assert clock.now == 10
@@ -213,7 +234,15 @@ def test_the_lock_gives_up_after_the_wait_and_names_the_holder(tmp_path: Path) -
     lock_dir.mkdir()
     (lock_dir / "other-session.lock").write_text("session: other\n", encoding="utf-8")
     clock = FakeClock()
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=30, poll_seconds=5, clock=clock, sleep=clock.sleep, report=lambda _message: None)
+    lock = dockerlock.DockerLock(
+        lock_dir,
+        repo_root=tmp_path,
+        wait_seconds=30,
+        poll_seconds=5,
+        clock=clock,
+        sleep=clock.sleep,
+        report=lambda _message: None,
+    )
     with pytest.raises(dockerlock.DockerLockHeld, match="other-session.lock"):
         lock.acquire(purpose="unit test")
     assert clock.now >= 30
@@ -232,7 +261,9 @@ def test_a_dead_harness_holder_is_removed_and_the_lock_taken(tmp_path: Path) -> 
         checked_pids.append(pid)
         return False
 
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=0, report=reports.append, process_is_running=nothing_is_running)
+    lock = dockerlock.DockerLock(
+        lock_dir, repo_root=tmp_path, wait_seconds=0, report=reports.append, process_is_running=nothing_is_running
+    )
     lock.acquire(purpose="unit test")
     assert lock.path is not None and lock.path.exists()
     assert not dead_holder.exists()
@@ -256,10 +287,22 @@ def test_a_live_harness_holder_makes_acquire_wait(tmp_path: Path) -> None:
         lock.acquire(purpose="unit test")
     assert clock.now >= 30
     assert live_holder.exists()
-    assert len(reports) == 1 and reports[0].startswith("waiting up to 30s for the Docker lock") and live_holder.name in reports[0]
+    assert (
+        len(reports) == 1
+        and reports[0].startswith("waiting up to 30s for the Docker lock")
+        and live_holder.name in reports[0]
+    )
 
 
-@pytest.mark.parametrize("lock_name", ["claude-session-31337.lock", "slot-4-424242.lock", "harness-it-99.lock.lock", "my-harness-it-424242-0123abcd.lock"])
+@pytest.mark.parametrize(
+    "lock_name",
+    [
+        "claude-session-31337.lock",
+        "slot-4-424242.lock",
+        "harness-it-99.lock.lock",
+        "my-harness-it-424242-0123abcd.lock",
+    ],
+)
 def test_a_lock_not_named_by_the_harness_is_never_removed(tmp_path: Path, lock_name: str) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
@@ -270,19 +313,34 @@ def test_a_lock_not_named_by_the_harness_is_never_removed(tmp_path: Path, lock_n
         checked_pids.append(pid)
         return False
 
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=0, report=lambda _message: None, process_is_running=nothing_is_running)
+    lock = dockerlock.DockerLock(
+        lock_dir,
+        repo_root=tmp_path,
+        wait_seconds=0,
+        report=lambda _message: None,
+        process_is_running=nothing_is_running,
+    )
     with pytest.raises(dockerlock.DockerLockHeld, match=lock_name):
         lock.acquire(purpose="unit test")
     assert sorted(path.name for path in lock_dir.iterdir()) == [lock_name]
     assert checked_pids == []
 
 
-@pytest.mark.parametrize("lock_name", ["harness-it-session.lock", "harness-it-abc-0123abcd.lock", "harness-it--0123abcd.lock", "harness-it-424242.lock"])
+@pytest.mark.parametrize(
+    "lock_name",
+    ["harness-it-session.lock", "harness-it-abc-0123abcd.lock", "harness-it--0123abcd.lock", "harness-it-424242.lock"],
+)
 def test_a_harness_lock_without_a_parsable_pid_is_left_alone(tmp_path: Path, lock_name: str) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
     (lock_dir / lock_name).write_text("session: harness-it\n", encoding="utf-8")
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=0, report=lambda _message: None, process_is_running=lambda _pid: False)
+    lock = dockerlock.DockerLock(
+        lock_dir,
+        repo_root=tmp_path,
+        wait_seconds=0,
+        report=lambda _message: None,
+        process_is_running=lambda _pid: False,
+    )
     with pytest.raises(dockerlock.DockerLockHeld, match=lock_name):
         lock.acquire(purpose="unit test")
     assert sorted(path.name for path in lock_dir.iterdir()) == [lock_name]
@@ -298,7 +356,13 @@ def test_a_dead_holder_already_removed_by_someone_else_is_not_an_error(tmp_path:
         dead_holder.unlink()
         return False
 
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=0, report=lambda _message: None, process_is_running=removed_while_checking)
+    lock = dockerlock.DockerLock(
+        lock_dir,
+        repo_root=tmp_path,
+        wait_seconds=0,
+        report=lambda _message: None,
+        process_is_running=removed_while_checking,
+    )
     lock.acquire(purpose="unit test")
     assert lock.path is not None and lock.path.exists()
     lock.release()
@@ -323,7 +387,9 @@ def test_process_is_running_counts_a_pid_too_large_to_signal_as_running() -> Non
     assert dockerlock.process_is_running(10 ** 30)
 
 
-def test_a_dead_holder_that_cannot_be_removed_is_waited_for_like_a_live_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_dead_holder_that_cannot_be_removed_is_waited_for_like_a_live_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
     undeletable = lock_dir / "harness-it-424242-0123abcd.lock"
@@ -348,7 +414,8 @@ def test_a_dead_holder_that_cannot_be_removed_is_waited_for_like_a_live_one(tmp_
     assert clock.now >= 30
     assert undeletable.exists()
     assert [report for report in reports if report.startswith("cannot remove")] == [
-        f"cannot remove stale Docker lock {undeletable.name} (process 424242 is no longer running): [Errno 13] Permission denied: '{undeletable}'"
+        f"cannot remove stale Docker lock {undeletable.name} (process 424242 is no longer running): [Errno 13] "
+        f"Permission denied: '{undeletable}'"
     ]
     assert len([report for report in reports if report.startswith("waiting up to")]) == 1
 
@@ -369,7 +436,13 @@ def test_a_harness_lock_name_with_text_after_it_is_never_removed(tmp_path: Path)
     lock_dir.mkdir()
     lock_name = "harness-it-123-abcd.lock.lock"
     (lock_dir / lock_name).write_text("session: other\n", encoding="utf-8")
-    lock = dockerlock.DockerLock(lock_dir, repo_root=tmp_path, wait_seconds=0, report=lambda _message: None, process_is_running=lambda _pid: False)
+    lock = dockerlock.DockerLock(
+        lock_dir,
+        repo_root=tmp_path,
+        wait_seconds=0,
+        report=lambda _message: None,
+        process_is_running=lambda _pid: False,
+    )
     with pytest.raises(dockerlock.DockerLockHeld, match=lock_name):
         lock.acquire(purpose="unit test")
     assert sorted(path.name for path in lock_dir.iterdir()) == [lock_name]

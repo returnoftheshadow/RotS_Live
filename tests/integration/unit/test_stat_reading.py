@@ -47,7 +47,8 @@ CHARACTER_STAT_TEXT = "\n\r".join(
         "Created: [Sun Nov 22], Last Logon: [Sun Nov 22], Played [0h 0m], Age [17]",
         "Hometown: [2], Speaks: [0/0/0], (pracs left:[190])",
         "Str:[14/14/12] Int:[16/16/16] Wil:[16/16/16] Dex:[14/14/14] Con: [13/13/13] Lea:[15/15/15]",
-        "HP :[213/213+20(0)]  Stamina :[68/124+28(0)]  Move :[114/125+22(0)] Spirit:[9/0+0]   Consts(hit/stamina/move): 68/40/80",
+        "HP :[213/213+20(0)]  Stamina :[68/124+28(0)]  Move :[114/125+22(0)] Spirit:[9/0+0]   "
+        "Consts(hit/stamina/move): 68/40/80",
         "Encumbrance 0, Leg_encu 0, Perception 60, Willpower 31,",
         "Coins: [      235]",
         " OB: 72(0), parry: 31(0), dodge: 20(0), c_parry 0,  Saving throws 0,",
@@ -77,7 +78,10 @@ DRAINED_TEXT = "\n\rS:Surging> "
 
 
 def answering_session() -> RecordingSession:
-    """Return a fake session whose first expect answers EXPECTED_TEXT and whose drains answer DRAINED_TEXT."""
+    """Return a fake session whose first expect answers EXPECTED_TEXT.
+
+    Its drains answer DRAINED_TEXT.
+    """
     return RecordingSession([EXPECTED_TEXT], DRAINED_TEXT)
 
 
@@ -90,7 +94,9 @@ def test_read_stat_sends_stat_waits_for_the_character_stats_last_line_and_settle
 
 def test_read_stat_waits_for_a_given_last_line_or_another_outcome_and_settles_as_given() -> None:
     session = answering_session()
-    read_stat(session, "obj sword", last_line=OBJECT_STAT_LAST_LINE, other_outcomes=["No such object around."], settle=0.5)
+    read_stat(
+        session, "obj sword", last_line=OBJECT_STAT_LAST_LINE, other_outcomes=["No such object around."], settle=0.5
+    )
     assert session.calls == [
         ("send_line", "stat obj sword"),
         ("expect", ["Affections:", "No such object around."], {}),
@@ -107,7 +113,11 @@ def test_read_stat_lets_a_timeout_through() -> None:
 
 @pytest.mark.parametrize(
     "marker, format_text",
-    [(CHARACTER_STAT_LAST_LINE, '"VUL: %s%s%s\\n\\r"'), (OBJECT_STAT_LAST_LINE, '"\\n\\rAffections:"'), (OBJECT_STAT_LAST_LINE, '"Affections: None.\\n\\r"')],
+    [
+        (CHARACTER_STAT_LAST_LINE, '"VUL: %s%s%s\\n\\r"'),
+        (OBJECT_STAT_LAST_LINE, '"\\n\\rAffections:"'),
+        (OBJECT_STAT_LAST_LINE, '"Affections: None.\\n\\r"'),
+    ],
 )
 def test_the_last_line_markers_start_the_games_format_strings(marker: str, format_text: str) -> None:
     source = ACT_WIZ_SOURCE.read_text(encoding="latin-1")

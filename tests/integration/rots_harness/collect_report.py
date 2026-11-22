@@ -1,4 +1,4 @@
-"""A pytest plugin, loaded with -p, that writes each collected test's node id and marker names as JSON.
+"""A pytest plugin, loaded with -p, writing each collected test's node id and marker names as JSON.
 
 The run plan collects the selection with it before a run. The file is written only when the
 ROTS_IT_COLLECT_REPORT environment variable names it.
@@ -27,21 +27,23 @@ class CollectedTest:
 
 
 def write_report(path: Path, tests: Iterable[CollectedTest]) -> None:
-    """Writes the tests to path as a JSON list, in order; raises OSError."""
+    """Write the tests to path as a JSON list, in order; raise OSError."""
     entries = [{"node_id": test.node_id, "markers": sorted(test.markers)} for test in tests]
     path.write_text(json.dumps(entries), encoding="utf-8")
 
 
 def read_report(path: Path) -> list[CollectedTest]:
-    """The tests write_report wrote to path, in order; raises OSError or ValueError."""
+    """Return the tests write_report wrote to path, in order; raise OSError or ValueError."""
     entries = json.loads(path.read_text(encoding="utf-8"))
     return [CollectedTest(entry["node_id"], frozenset(entry["markers"])) for entry in entries]
 
 
 def pytest_collection_finish(session) -> None:
-    """Writes the tests left after deselection, sharding included, to the file ROTS_IT_COLLECT_REPORT names."""
+    """Write the tests left after deselection and sharding to ROTS_IT_COLLECT_REPORT's file."""
     path = os.environ.get(REPORT_PATH_VARIABLE)
     if not path:
         return
-    tests = [CollectedTest(item.nodeid, frozenset(marker.name for marker in item.iter_markers())) for item in session.items]
+    tests = [
+        CollectedTest(item.nodeid, frozenset(marker.name for marker in item.iter_markers())) for item in session.items
+    ]
     write_report(Path(path), tests)

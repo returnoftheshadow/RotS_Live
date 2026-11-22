@@ -65,7 +65,7 @@ NAME_SUFFIX = "_NAME"
 
 
 def records_by_vnum(category: str, reader: Callable[[Path], list]) -> dict:
-    """Every record of one world category, by vnum, read from the committed test world."""
+    """Return every record of one world category, by vnum, read from the committed test world."""
     records = {}
     paths = indexed_files(world_catalogue.DEFAULT_WORLD_DIR, category)
     for path in paths:
@@ -76,15 +76,20 @@ def records_by_vnum(category: str, reader: Callable[[Path], list]) -> dict:
 
 
 def world_constants(prefix: str) -> set[str]:
-    """The names of world.py's integer constants that start with prefix."""
+    """Return the names of world.py's integer constants that start with prefix."""
     bindings = vars(world).items()
     return {name for name, value in bindings if name.startswith(prefix) and isinstance(value, int)}
 
 
 def world_texts(suffix: str) -> dict[str, str]:
-    """Return world.py's string constants whose names end in suffix, by the vnum constant they belong to."""
+    """Return world.py's string constants whose names end in suffix.
+
+    They are keyed by the vnum constant they belong to.
+    """
     bindings = vars(world).items()
-    return {name.removesuffix(suffix): value for name, value in bindings if name.endswith(suffix) and isinstance(value, str)}
+    return {
+        name.removesuffix(suffix): value for name, value in bindings if name.endswith(suffix) and isinstance(value, str)
+    }
 
 
 def test_every_room_constant_is_a_room_of_the_test_world() -> None:
@@ -148,5 +153,7 @@ def test_each_short_description_constant_is_its_fixtures() -> None:
 def test_each_keyword_constant_is_one_of_its_objects_keywords() -> None:
     objects = records_by_vnum("obj", world_catalogue.read_objects)
     keywords = world_texts(KEYWORD_SUFFIX)
-    wrong = sorted(name for name, keyword in keywords.items() if keyword not in objects[getattr(world, name)].keywords.split())
+    wrong = sorted(
+        name for name, keyword in keywords.items() if keyword not in objects[getattr(world, name)].keywords.split()
+    )
     assert not wrong, f"these keywords are not their objects': {wrong}"

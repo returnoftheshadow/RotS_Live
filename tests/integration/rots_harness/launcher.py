@@ -1,4 +1,7 @@
-"""Runs the repo's i386 programs in one execution environment: the server until stopped, a tool to completion."""
+"""Runs the repo's i386 programs in one execution environment.
+
+The server runs until stopped, a tool to completion.
+"""
 
 from __future__ import annotations
 
@@ -18,8 +21,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Callable, Iterable, Iterator, Optional
 
+# The address the harness's servers listen on and the harness connects to.
 LOOPBACK = "127.0.0.1"
+# The folder, relative to the repository root, a compose run uses for its temporary files.
 INTEGRATION_TMP_RELATIVE = "build/integration/tmp"
+# The command that builds every program the harness runs.
 BUILD_COMMAND = "make configure && cmake --build build --target ageland ageland_harness rotstool"
 # The test build of the server that a scenario with @pytest.mark.schedule(...) runs.
 HARNESS_BINARY_RELATIVE = "bin/ageland_harness"
@@ -49,15 +55,15 @@ INPUT_CLOSED_WAIT_SECONDS = 5.0
 INPUT_CLOSED_POLL_SECONDS = 0.05
 # What the server logs before it exits when another process holds its port: init_socket in
 # src/comm.cpp reports the failed bind with perror.
-PORT_IN_USE_LOG_TEXT = "bind: Address already in use"
+PORT_IN_USE_LOG_LINE = "bind: Address already in use"
 # How many ports start_on_a_free_port tries before it gives up on a port taken each time.
 PORT_ATTEMPTS = 3
 # What the server logs once it has bound its port and booted the world, before it can send any
 # login prompt (run_the_game in src/comm.cpp). A prompt read while the local server's own log
 # lacks it came from another process listening on the same port.
-GAME_LOOP_LOG_TEXT = "Entering game loop."
+GAME_LOOP_LOG_LINE = "Entering game loop."
 # Seconds the local launcher waits, after reading the login prompt, for its own server's log to
-# hold GAME_LOOP_LOG_TEXT; the server logs it before it sends a prompt, so this only bounds a
+# hold GAME_LOOP_LOG_LINE; the server logs it before it sends a prompt, so this only bounds a
 # prompt from another process.
 OWN_SERVER_CONFIRM_SECONDS = 5.0
 # The server's output in its run directory.
@@ -65,7 +71,8 @@ GAME_LOG_NAME = "game.log"
 # What set_aside_logs renames a stopped server's log to: game.log from the first boot becomes
 # game.boot-1.log.
 SET_ASIDE_LOG_FORMAT = "{stem}.boot-{boot}{suffix}"
-# The variable pytest-xdist sets in each worker to its name, gw0, gw1 and so on; unset outside a worker.
+# The variable pytest-xdist sets in each worker to its name, gw0, gw1 and so on; unset outside a
+# worker.
 XDIST_WORKER_VARIABLE = "PYTEST_XDIST_WORKER"
 # A pytest-xdist worker name and its number.
 XDIST_WORKER_PATTERN = re.compile(r"gw([0-9]+)")
@@ -76,7 +83,8 @@ XDIST_WORKER_PATTERN = re.compile(r"gw([0-9]+)")
 WORKER_PORT_BASE = 20000
 # How many ports each worker's band holds.
 WORKER_PORT_BAND_SIZE = 400
-# How many bands fit below the ephemeral ranges; worker numbers past it wrap round to the first bands.
+# How many bands fit below the ephemeral ranges; worker numbers past it wrap round to the first
+# bands.
 WORKER_PORT_BANDS = 30
 # Picks where in its band a worker starts looking, so a band's lowest ports are not always tried
 # first; its own generator, so the harness never moves a scenario's random state.
@@ -87,36 +95,42 @@ ALLOW_STALE_VARIABLE = "ROTS_IT_ALLOW_STALE"
 SOURCE_DIRECTORY_RELATIVE = "src"
 # The suffixes of the source files whose changes make a program stale.
 SOURCE_SUFFIXES = (".cpp", ".h")
-# The unit tests' folder under SOURCE_DIRECTORY_RELATIVE; no program the harness runs is built from it.
+# The unit tests' folder under SOURCE_DIRECTORY_RELATIVE; no program the harness runs is built from
+# it.
 UNIT_TEST_SOURCES_RELATIVE = "tests"
-# Folders and files under SOURCE_DIRECTORY_RELATIVE built into one program only, mapped to that program;
-# every other program ignores them. Each program has its own main.cpp.
+# Folders and files under SOURCE_DIRECTORY_RELATIVE built into one program only, mapped to that
+# program; every other program ignores them. Each program has its own main.cpp.
 PROGRAM_ONLY_SOURCES = {"harness": HARNESS_BINARY_RELATIVE, "tools/rotstool": "bin/rotstool", "main.cpp": "bin/ageland"}
 
 
 class PortInUse(RuntimeError):
-    """The local server exited before it was ready because another process held the port it was given."""
+    """The local server exited before it was ready because another process held its port."""
 
 
 @dataclass
 class ServerHandle:
     """A running server: where to connect, where its output goes, and the process to stop."""
 
+    # The address to connect to.
     host: str
+    # The port to connect to.
     port: int
+    # The server's game.log.
     log_path: Path
+    # The server process, or the compose run wrapping it.
     process: subprocess.Popen
+    # The compose run's container name; None for a local server.
     container_name: Optional[str] = None
     # Whether the server is the harness binary, which reads time requests on its stdin pipe; a
     # stop closes that pipe and lets the reader finish before signalling the server.
     has_control_channel: bool = False
 
     def is_alive(self) -> bool:
-        """Whether the server process (or the compose run wrapping it) is still running."""
+        """Return whether the server process (or the compose run wrapping it) is still running."""
         return self.process.poll() is None
 
     def exit_status(self) -> int | None:
-        """The process's exit status, or None while it runs."""
+        """Return the process's exit status, or None while it runs."""
         return self.process.poll()
 
 
@@ -124,12 +138,17 @@ class ServerHandle:
 class ToolResult:
     """How a program run to completion ended: its exit status and its combined output."""
 
+    # The program's exit status.
     exit_status: int
+    # Its standard output and standard error together.
     output: str
 
 
 def worker_port_band(worker_name: Optional[str]) -> Optional[range]:
-    """The ports a pytest-xdist worker named worker_name (gw0, gw1, ...) gives its servers, or None outside a worker or for another name."""
+    """Return the ports a pytest-xdist worker named worker_name (gw0, gw1, ...) gives its servers.
+
+    None outside a worker or for another name.
+    """
     if worker_name is None:
         return None
     match = XDIST_WORKER_PATTERN.fullmatch(worker_name)
@@ -140,7 +159,7 @@ def worker_port_band(worker_name: Optional[str]) -> Optional[range]:
 
 
 def _port_is_free(port: int) -> bool:
-    """Whether a loopback TCP socket can bind port now."""
+    """Return whether a loopback TCP socket can bind port now."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         try:
             probe.bind((LOOPBACK, port))
@@ -150,7 +169,10 @@ def _port_is_free(port: int) -> bool:
 
 
 def set_aside_logs(run_dir: Path, boot: int, log_names: Iterable[str]) -> list[Path]:
-    """Renames each of log_names in run_dir that exists after SET_ASIDE_LOG_FORMAT, numbered boot, and returns the new paths."""
+    """Rename each of log_names in run_dir after SET_ASIDE_LOG_FORMAT and return the new paths.
+
+    Only names that exist are renamed; the new names are numbered boot.
+    """
     set_aside: list[Path] = []
     for log_name in log_names:
         log_path = run_dir / log_name
@@ -163,7 +185,7 @@ def set_aside_logs(run_dir: Path, boot: int, log_names: Iterable[str]) -> list[P
 
 
 def allocate_free_port() -> int:
-    """A loopback TCP port that was free when probed; another process may take it afterwards.
+    """Return a loopback TCP port that was free when probed; another process may take it afterwards.
 
     In a pytest-xdist worker the port comes from the worker's own band (worker_port_band), so the
     run's other workers never get it; elsewhere the system picks one. Raises RuntimeError when no
@@ -183,7 +205,9 @@ def allocate_free_port() -> int:
 
 
 def confirm_own_server(process: subprocess.Popen, log_path: Path, timeout_seconds: Optional[float] = None) -> None:
-    """Returns once process is running and its log holds GAME_LOOP_LOG_TEXT, proving the login prompt read came from it.
+    """Return once process is running and its log holds GAME_LOOP_LOG_LINE.
+
+    That proves the login prompt read came from it.
 
     Raises RuntimeError with the log tail when the process exits first, as a server does when
     another process holds its port, or when the line does not appear within timeout_seconds
@@ -191,7 +215,7 @@ def confirm_own_server(process: subprocess.Popen, log_path: Path, timeout_second
     """
     if timeout_seconds is None:
         timeout_seconds = OWN_SERVER_CONFIRM_SECONDS
-    line = GAME_LOOP_LOG_TEXT.encode("ascii")
+    line = GAME_LOOP_LOG_LINE.encode("ascii")
     deadline = time.monotonic() + timeout_seconds
     while True:
         _raise_if_exited(process, log_path)
@@ -199,14 +223,14 @@ def confirm_own_server(process: subprocess.Popen, log_path: Path, timeout_second
             return
         if time.monotonic() >= deadline:
             raise RuntimeError(
-                f"a login prompt arrived, but this server never logged {GAME_LOOP_LOG_TEXT!r}, so another process "
+                f"a login prompt arrived, but this server never logged {GAME_LOOP_LOG_LINE!r}, so another process "
                 f"answered on its port; log tail:\n{read_log_tail(log_path)}"
             )
         time.sleep(INPUT_CLOSED_POLL_SECONDS)
 
 
 def read_log_tail(log_path: Path, max_bytes: int = LOG_TAIL_BYTES) -> str:
-    """The last max_bytes of the log as text, or an empty string when the log does not exist."""
+    """Return the last max_bytes of the log as text, or an empty string when there is no log."""
     if not log_path.exists():
         return ""
     data = log_path.read_bytes()
@@ -214,17 +238,29 @@ def read_log_tail(log_path: Path, max_bytes: int = LOG_TAIL_BYTES) -> str:
 
 
 def check_repo_relative(relative_path: str) -> None:
-    """Raises ValueError unless relative_path is relative and names something below the repository root, not the root itself."""
+    """Raise ValueError unless relative_path is relative and names something below the root.
+
+    The root is the repository root, and relative_path must not name the root itself.
+    """
     # normpath turns an empty path into ".", so the root check covers it too.
     normalized = os.path.normpath(relative_path)
-    if os.path.isabs(relative_path) or normalized in (os.curdir, os.pardir) or normalized.startswith(os.pardir + os.sep):
-        raise ValueError(f"{relative_path!r} must name a file by a path relative to the repository root that stays inside it")
+    if (
+        os.path.isabs(relative_path)
+        or normalized in (os.curdir, os.pardir)
+        or normalized.startswith(os.pardir + os.sep)
+    ):
+        raise ValueError(
+            f"{relative_path!r} must name a file by a path relative to the repository root that stays inside it"
+        )
 
 
 def newest_source(source_root: Path, program_relative: str) -> Optional[tuple[Path, float]]:
-    """The newest .cpp or .h file under source_root that program_relative is built from, with its modification time.
+    """Return the newest .cpp or .h file under source_root that program_relative is built from.
 
-    Skips the unit tests and the folders and files built only into another program; None when no source is found.
+    It comes with its modification time.
+
+    Skips the unit tests and the folders and files built only into another program; None when no
+    source is found.
     """
     excluded = {UNIT_TEST_SOURCES_RELATIVE}
     excluded.update(folder for folder, owner in PROGRAM_ONLY_SOURCES.items() if owner != program_relative)
@@ -249,9 +285,14 @@ def newest_source(source_root: Path, program_relative: str) -> Optional[tuple[Pa
 
 
 def wait_for_login_prompt(
-    host: str, port: int, timeout_seconds: float, process: subprocess.Popen, log_path: Path, time_allowed: Optional[str] = None,
+    host: str,
+    port: int,
+    timeout_seconds: float,
+    process: subprocess.Popen,
+    log_path: Path,
+    time_allowed: Optional[str] = None,
 ) -> None:
-    """Returns once a connection to host:port receives the server's login prompt.
+    """Return once a connection to host:port receives the server's login prompt.
 
     A refused connection, or one closed before the prompt arrives (as a Docker port proxy does
     while nothing listens behind it), is retried. Raises RuntimeError with the log tail when the
@@ -276,17 +317,27 @@ def wait_for_login_prompt(
     _raise_if_exited(process, log_path)
     if time_allowed is None:
         time_allowed = f"within {timeout_seconds}s"
-    raise RuntimeError(f"the server on {host}:{port} did not send its login prompt {time_allowed}; log tail:\n{read_log_tail(log_path)}")
+    raise RuntimeError(
+        f"the server on {host}:{port} did not send its login prompt {time_allowed}; log "
+        f"tail:\n{read_log_tail(log_path)}"
+    )
 
 
 def _raise_if_exited(process: subprocess.Popen, log_path: Path) -> None:
-    """Raises RuntimeError with the log tail when the process has exited."""
+    """Raise RuntimeError with the log tail when the process has exited."""
     if process.poll() is not None:
-        raise RuntimeError(f"server exited with status {process.returncode} before it was ready; log tail:\n{read_log_tail(log_path)}")
+        raise RuntimeError(
+            f"server exited with status {process.returncode} before it was ready; log tail:\n{read_log_tail(log_path)}"
+        )
 
 
-def _receives_login_prompt(connection: socket.socket, deadline: float, process: subprocess.Popen, log_path: Path) -> bool:
-    """Reads until the login prompt arrives (True), or the connection closes or the deadline passes (False)."""
+def _receives_login_prompt(
+    connection: socket.socket, deadline: float, process: subprocess.Popen, log_path: Path
+) -> bool:
+    """Read until the login prompt arrives, or the connection closes or the deadline passes.
+
+    Return True for the prompt, False otherwise.
+    """
     prompt = LOGIN_EMAIL_PROMPT.encode("ascii")
     connection.settimeout(READY_RETRY_SECONDS)
     received = b""
@@ -311,7 +362,10 @@ def _receives_login_prompt(connection: socket.socket, deadline: float, process: 
 
 @contextmanager
 def _explaining_unexecutable(program_path: Path) -> Iterator[None]:
-    """Turns the exec error for an existing program this host cannot execute into a RuntimeError saying so."""
+    """Turn the exec error for an existing program this host cannot execute into a RuntimeError.
+
+    The RuntimeError says the host cannot execute it.
+    """
     try:
         yield
     except OSError as failure:
@@ -327,19 +381,24 @@ def _explaining_unexecutable(program_path: Path) -> Iterator[None]:
             ) from failure
         if failure.errno == errno.ENOEXEC:
             # A host that cannot load i386 Linux programs at all, such as a Mac.
-            raise RuntimeError(f"cannot execute {program_path}: this host cannot run the i386 binaries; set ROTS_IT_LAUNCHER=docker") from failure
+            raise RuntimeError(
+                f"cannot execute {program_path}: this host cannot run the i386 binaries; set ROTS_IT_LAUNCHER=docker"
+            ) from failure
         raise
 
 
 def _output_streams(log_file: BinaryIO, schedule: Optional[str]) -> dict[str, Any]:
-    """Popen's stdout and stderr: a stdout pipe and stderr in log_file with a schedule, both in log_file without."""
+    """Return Popen's stdout and stderr.
+
+    With a schedule, a stdout pipe and stderr in log_file; without one, both in log_file.
+    """
     if schedule is not None:
         return {"stdout": subprocess.PIPE, "stderr": log_file}
     return {"stdout": log_file, "stderr": subprocess.STDOUT}
 
 
 def close_standard_input(process: subprocess.Popen) -> None:
-    """Closes the process's stdin pipe, if it has one; never raises."""
+    """Close the process's stdin pipe, if it has one; never raises."""
     if process.stdin is None:
         return
     try:
@@ -349,8 +408,12 @@ def close_standard_input(process: subprocess.Popen) -> None:
         pass
 
 
-def close_control_channel(process: subprocess.Popen, log_path: Path, timeout_seconds: float = INPUT_CLOSED_WAIT_SECONDS) -> bool:
-    """Closes the harness server's stdin, then waits up to timeout_seconds for log_path to hold INPUT_CLOSED_LOG_LINE.
+def close_control_channel(
+    process: subprocess.Popen, log_path: Path, timeout_seconds: float = INPUT_CLOSED_WAIT_SECONDS
+) -> bool:
+    """Close the harness server's stdin, then wait for log_path to hold INPUT_CLOSED_LOG_LINE.
+
+    The wait lasts up to timeout_seconds.
 
     True once the line is logged. False when the timeout passes or the process exits first, and
     False without waiting when there is no open stdin pipe to close. Never raises; a Ctrl-C during
@@ -379,7 +442,7 @@ def close_control_channel(process: subprocess.Popen, log_path: Path, timeout_sec
 
 
 def _file_size(path: Path) -> int:
-    """The file's size in bytes, or 0 when it cannot be read."""
+    """Return the file's size in bytes, or 0 when it cannot be read."""
     try:
         return path.stat().st_size
     except OSError:
@@ -387,7 +450,7 @@ def _file_size(path: Path) -> int:
 
 
 def _read_from(path: Path, offset: int) -> bytes:
-    """The file's bytes from offset to its current end, or no bytes when it cannot be read."""
+    """Return the file's bytes from offset to its current end; no bytes when it cannot be read."""
     try:
         with path.open("rb") as file:
             file.seek(offset)
@@ -397,7 +460,7 @@ def _read_from(path: Path, offset: int) -> bytes:
 
 
 def terminate_process(process: subprocess.Popen) -> None:
-    """Terminates the process, escalating to a kill, and closes its stdin pipe.
+    """Terminate the process, escalating to a kill, and close its stdin pipe.
 
     Never raises; warns on stderr if the process survives the kill.
     """
@@ -426,7 +489,9 @@ class ServerLauncher:
     _repo_root: Path
 
     def start(self, run_dir: Path, lib_dir: Path, port: int, seed: int, schedule: Optional[str] = None) -> ServerHandle:
-        """Starts the server on lib_dir, logging to run_dir/game.log, and returns once it sends its login prompt.
+        """Start the server on lib_dir, logging to run_dir/game.log.
+
+        Return once it sends its login prompt.
 
         With a schedule it runs the harness binary with --schedule, with stdin and stdout as pipes
         for TimeControl and stderr in game.log. Raises RuntimeError, after stopping whatever it
@@ -436,26 +501,30 @@ class ServerLauncher:
         raise NotImplementedError
 
     def stop(self, handle: ServerHandle) -> None:
-        """Stops the server behind handle and closes its stdin pipe.
+        """Stop the server behind handle and close its stdin pipe.
 
         Does not signal a server that has already exited. A harness server first gets
         close_control_channel, so its stop can come up to INPUT_CLOSED_WAIT_SECONDS later.
         """
         raise NotImplementedError
 
-    def run_to_completion(self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float) -> ToolResult:
-        """Runs the repo's program in working_dir and returns its status and combined output.
+    def run_to_completion(
+        self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float
+    ) -> ToolResult:
+        """Run the repo's program in working_dir and return its status and combined output.
 
         Raises subprocess.TimeoutExpired, after stopping the program, when it outlives timeout.
         """
         raise NotImplementedError
 
     def build_hint(self) -> str:
-        """The command that builds the programs where this launcher runs them."""
+        """Return the command that builds the programs where this launcher runs them."""
         return BUILD_COMMAND
 
     def require_program(self, program_relative: str) -> None:
-        """Raises RuntimeError naming build_hint() when the repo's program is missing, is not a file, or is stale.
+        """Raise RuntimeError naming build_hint() when the repo's program is not ready to run.
+
+        That is when it is missing, is not a file, or is stale.
 
         A program is stale when it is older than the newest source it is built from (newest_source).
         Setting ROTS_IT_ALLOW_STALE=1 skips that check.
@@ -474,7 +543,8 @@ class ServerLauncher:
         source_relative = source_path.relative_to(self._repo_root).as_posix()
         modified_text = datetime.fromtimestamp(source_modified).isoformat(sep=" ", timespec="seconds")
         raise RuntimeError(
-            f"{program_relative} is older than {source_relative} (modified {modified_text}); rebuild it: {self.build_hint()}, "
+            f"{program_relative} is older than {source_relative} "
+            f"(modified {modified_text}); rebuild it: {self.build_hint()}, "
             f"or set {ALLOW_STALE_VARIABLE}=1 to run it as it is"
         )
 
@@ -483,9 +553,10 @@ class LocalProcessLauncher(ServerLauncher):
     """Runs the programs directly on a host that can execute the i386 binaries (Linux, CI)."""
 
     def __init__(self, repo_root: Path, binary_relative: str = "bin/ageland", startup_timeout: float = 60.0) -> None:
-        """Prepares a launcher for the server at repo_root/binary_relative; starts nothing.
+        """Prepare a launcher for the server at repo_root/binary_relative; start nothing.
 
-        Raises ValueError when binary_relative is absolute, leaves the repo root or names the root itself.
+        Raises ValueError when binary_relative is absolute, leaves the repo root or names the root
+        itself.
         """
         check_repo_relative(binary_relative)
         # The checkout whose bin/ holds the programs.
@@ -496,7 +567,10 @@ class LocalProcessLauncher(ServerLauncher):
         self._startup_timeout = startup_timeout
 
     def command(self, lib_dir: Path, port: int, seed: int, schedule: Optional[str] = None) -> list[str]:
-        """The server's argument vector for lib_dir, port and random seed; the harness binary's with a schedule."""
+        """Return the server's argument vector for lib_dir, port and random seed.
+
+        The harness binary's with a schedule.
+        """
         if schedule is not None:
             return [
                 str(self._repo_root / HARNESS_BINARY_RELATIVE), "--schedule", schedule,
@@ -505,7 +579,7 @@ class LocalProcessLauncher(ServerLauncher):
         return [str(self._repo_root / self._binary_relative), "--random-seed", str(seed), "-d", str(lib_dir), str(port)]
 
     def environment(self) -> dict[str, str]:
-        """PATH, HOME and whichever sanitizer variables the host sets; nothing else."""
+        """Return PATH, HOME and whichever sanitizer variables the host sets; nothing else."""
         server_environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
         for name in SANITIZER_ENVIRONMENT_VARIABLES:
             if name in os.environ:
@@ -536,7 +610,7 @@ class LocalProcessLauncher(ServerLauncher):
         except RuntimeError as failure:
             # The port was free when allocate_free_port probed it, but every local server shares
             # the host's ports, so another process can take it before this server binds it.
-            port_taken = process.poll() is not None and PORT_IN_USE_LOG_TEXT in read_log_tail(log_path)
+            port_taken = process.poll() is not None and PORT_IN_USE_LOG_LINE in read_log_tail(log_path)
             terminate_process(process)
             if port_taken:
                 raise PortInUse(f"port {port} was taken before the server could listen on it: {failure}") from failure
@@ -556,8 +630,12 @@ class LocalProcessLauncher(ServerLauncher):
         finally:
             terminate_process(handle.process)
 
-    def run_to_completion(self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float) -> ToolResult:
-        """See ServerLauncher.run_to_completion; also fails with the build command when the program is missing.
+    def run_to_completion(
+        self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float
+    ) -> ToolResult:
+        """See ServerLauncher.run_to_completion.
+
+        Also fails with the build command when the program is missing.
 
         Raises RuntimeError naming the i386 runtime when this host cannot execute the program.
         """
@@ -573,17 +651,26 @@ class LocalProcessLauncher(ServerLauncher):
 
 
 class DockerComposeLauncher(ServerLauncher):
-    """Runs the programs through `docker compose run` on hosts that cannot execute i386 binaries (macOS).
+    """Runs the programs through `docker compose run` on hosts that cannot execute i386 binaries.
+
+    macOS is such a host.
 
     Every container gets a unique name and a random loopback port, so the compose service's fixed
     container name and host port 1024 are never used. Everything a container reads or writes
     must live under the repo root, which the service mounts at /rots.
     """
 
-    def __init__(self, repo_root: Path, binary_relative: str = "bin/ageland", service: str = "rots", startup_timeout: float = 300.0) -> None:
-        """Prepares a launcher for the compose service in repo_root; starts nothing.
+    def __init__(
+        self,
+        repo_root: Path,
+        binary_relative: str = "bin/ageland",
+        service: str = "rots",
+        startup_timeout: float = 300.0,
+    ) -> None:
+        """Prepare a launcher for the compose service in repo_root; start nothing.
 
-        Raises ValueError when binary_relative is absolute, leaves the repo root or names the root itself.
+        Raises ValueError when binary_relative is absolute, leaves the repo root or names the root
+        itself.
         """
         check_repo_relative(binary_relative)
         # The checkout holding docker-compose.yml, mounted at /rots inside the container.
@@ -597,15 +684,17 @@ class DockerComposeLauncher(ServerLauncher):
         self._startup_timeout = startup_timeout
 
     def container_path(self, host_path: Path) -> str:
-        """The path the container sees for host_path; the repo root is mounted at /rots."""
+        """Return the path the container sees for host_path; the repo root is mounted at /rots."""
         try:
             relative = host_path.resolve().relative_to(self._repo_root.resolve())
         except ValueError as outside:
-            raise ValueError(f"{host_path} is outside the repository at {self._repo_root}; the container cannot see it") from outside
+            raise ValueError(
+                f"{host_path} is outside the repository at {self._repo_root}; the container cannot see it"
+            ) from outside
         return "/rots/" + relative.as_posix()
 
     def build_hint(self) -> str:
-        """The build command run inside the compose service, where the i386 toolchain is."""
+        """Return the build command run inside the compose service, where the i386 toolchain is."""
         return f"docker compose run --rm -T {self._service} bash -lc {shlex.quote(BUILD_COMMAND)}"
 
     def _run_prefix(self, container_name: str) -> list[str]:
@@ -618,7 +707,9 @@ class DockerComposeLauncher(ServerLauncher):
     def server_command(
         self, run_dir: Path, lib_dir: Path, port: int, container_name: str, seed: int, schedule: Optional[str] = None,
     ) -> list[str]:
-        """The compose command that runs the server in run_dir and publishes port on a random loopback port.
+        """Return the compose command that runs the server in run_dir.
+
+        It publishes port on a random loopback port.
 
         With a schedule it runs the harness binary with --schedule.
         """
@@ -632,8 +723,13 @@ class DockerComposeLauncher(ServerLauncher):
         script = f"ulimit -c 0; cd {working_dir} && exec {program} --random-seed {seed} -d {lib} {port}"
         return [*self._run_prefix(container_name), "-p", f"{LOOPBACK}::{port}", self._service, "bash", "-lc", script]
 
-    def tool_command(self, program_relative: str, arguments: list[str], working_dir: Path, container_name: str) -> list[str]:
-        """The compose command that runs the repo's program in working_dir, publishing no port."""
+    def tool_command(
+        self, program_relative: str, arguments: list[str], working_dir: Path, container_name: str
+    ) -> list[str]:
+        """Return the compose command that runs the repo's program in working_dir.
+
+        It publishes no port.
+        """
         container_dir = shlex.quote(self.container_path(working_dir))
         program = shlex.quote(f"/rots/{program_relative}")
         script = f"ulimit -c 0; cd {container_dir} && exec {program} {shlex.join(arguments)}"
@@ -648,7 +744,10 @@ class DockerComposeLauncher(ServerLauncher):
         return environment
 
     def _stop_container(self, container_name: str) -> bool:
-        """Runs docker stop on the container; True when docker reports it stopped. Never raises."""
+        """Run docker stop on the container and return True when docker reports it stopped.
+
+        Never raises.
+        """
         try:
             result = subprocess.run(["docker", "stop", "-t", "5", container_name], capture_output=True, timeout=15)
         except (subprocess.TimeoutExpired, OSError):
@@ -656,7 +755,7 @@ class DockerComposeLauncher(ServerLauncher):
         return result.returncode == 0
 
     def _remove_container(self, container_name: str) -> None:
-        """Force-removes the container, ignoring every failure.
+        """Force-remove the container, ignoring every failure.
 
         Compose applies --rm from its client, so a container whose client was killed, or that
         docker stop could not stop, is left behind unless removed here.
@@ -683,12 +782,22 @@ class DockerComposeLauncher(ServerLauncher):
             with log_path.open("wb") as log_file:
                 process = subprocess.Popen(
                     self.server_command(run_dir, lib_dir, port, container_name, seed, schedule),
-                    cwd=self._repo_root, env=self._docker_environment(), stdin=subprocess.PIPE, **_output_streams(log_file, schedule),
+                    cwd=self._repo_root,
+                    env=self._docker_environment(),
+                    stdin=subprocess.PIPE,
+                    **_output_streams(log_file, schedule),
                 )
             host_port = self._wait_for_published_port(container_name, port, process, log_path, deadline)
-            handle = ServerHandle(LOOPBACK, host_port, log_path, process, container_name, has_control_channel=schedule is not None)
-            time_allowed = f"within the {self._startup_timeout}s startup timeout, part of which the wait for the published port used"
-            wait_for_login_prompt(LOOPBACK, host_port, max(0.0, deadline - time.monotonic()), process, log_path, time_allowed)
+            handle = ServerHandle(
+                LOOPBACK, host_port, log_path, process, container_name, has_control_channel=schedule is not None
+            )
+            time_allowed = (
+                f"within the {self._startup_timeout}s startup timeout, part of which the wait for the "
+                "published port used"
+            )
+            wait_for_login_prompt(
+                LOOPBACK, host_port, max(0.0, deadline - time.monotonic()), process, log_path, time_allowed
+            )
             return handle
         except BaseException:
             # BaseException so a Ctrl-C during the waits also stops the container: the fixture
@@ -700,20 +809,34 @@ class DockerComposeLauncher(ServerLauncher):
                 terminate_process(process)
             raise
 
-    def _wait_for_published_port(self, container_name: str, container_port: int, process: subprocess.Popen, log_path: Path, deadline: float) -> int:
-        """The host port Docker published for container_port; raises RuntimeError if compose exits or the monotonic deadline passes."""
+    def _wait_for_published_port(
+        self, container_name: str, container_port: int, process: subprocess.Popen, log_path: Path, deadline: float
+    ) -> int:
+        """Return the host port Docker published for container_port.
+
+        Raise RuntimeError if compose exits or the monotonic deadline passes.
+        """
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RuntimeError(f"docker compose run exited with {process.returncode}; log tail:\n{read_log_tail(log_path)}")
+                raise RuntimeError(
+                    f"docker compose run exited with {process.returncode}; log tail:\n{read_log_tail(log_path)}"
+                )
             try:
-                result = subprocess.run(["docker", "port", container_name, f"{container_port}/tcp"], capture_output=True, text=True, timeout=10)
+                result = subprocess.run(
+                    ["docker", "port", container_name, f"{container_port}/tcp"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
             except subprocess.TimeoutExpired:
                 time.sleep(1.0)
                 continue
             if result.returncode == 0 and ":" in result.stdout:
                 return int(result.stdout.strip().rsplit(":", 1)[1])
             time.sleep(1.0)
-        raise RuntimeError(f"container {container_name} never published port {container_port}; log tail:\n{read_log_tail(log_path)}")
+        raise RuntimeError(
+            f"container {container_name} never published port {container_port}; log tail:\n{read_log_tail(log_path)}"
+        )
 
     def stop(self, handle: ServerHandle) -> None:
         """See ServerLauncher.stop; stops the container, then waits for (or kills) the compose run.
@@ -727,7 +850,7 @@ class DockerComposeLauncher(ServerLauncher):
             self._stop_container_and_client(handle)
 
     def _stop_container_and_client(self, handle: ServerHandle) -> None:
-        """Stops the container, waits for (or kills) the compose run, and closes its stdin pipe."""
+        """Stop the container, wait for (or kill) the compose run, and close its stdin pipe."""
         if handle.container_name and not self._stop_container(handle.container_name):
             self._remove_container(handle.container_name)
         if handle.is_alive():
@@ -743,8 +866,13 @@ class DockerComposeLauncher(ServerLauncher):
                     self._remove_container(handle.container_name)
         close_standard_input(handle.process)
 
-    def run_to_completion(self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float) -> ToolResult:
-        """See ServerLauncher.run_to_completion; also fails with the build command when the program is missing."""
+    def run_to_completion(
+        self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float
+    ) -> ToolResult:
+        """See ServerLauncher.run_to_completion.
+
+        Also fails with the build command when the program is missing.
+        """
         self.require_program(program_relative)
         (self._repo_root / INTEGRATION_TMP_RELATIVE).mkdir(parents=True, exist_ok=True)
         container_name = f"rots-it-tool-{uuid.uuid4().hex[:12]}"
@@ -755,8 +883,8 @@ class DockerComposeLauncher(ServerLauncher):
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout,
             )
         except BaseException:
-            # A timeout or a Ctrl-C kills only the compose client; the container keeps running
-            # until stopped here, and stays until removed here because its --rm died with the client.
+            # A timeout or a Ctrl-C kills only the compose client; the container keeps running until
+            # stopped here, and stays until removed here because its --rm died with the client.
             self._stop_container(container_name)
             self._remove_container(container_name)
             raise
@@ -767,7 +895,9 @@ def start_on_a_free_port(
     server_launcher: ServerLauncher, run_dir: Path, lib_dir: Path, seed: int, schedule: Optional[str] = None,
     attempts: int = PORT_ATTEMPTS, allocate_port: Callable[[], int] = allocate_free_port,
 ) -> ServerHandle:
-    """Starts the server through server_launcher, as ServerLauncher.start does, on a port from allocate_port.
+    """Start the server through server_launcher, as ServerLauncher.start does.
+
+    The port comes from allocate_port.
 
     When start raises PortInUse, starts again on a newly allocated port, up to attempts starts in
     all, and raises the last PortInUse when every one found its port taken. Any other failure

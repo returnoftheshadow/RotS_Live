@@ -1,4 +1,7 @@
-"""Reports crashes, unexpected SYSERR lines and expected SYSERR lines never logged, from a server's log and process state."""
+"""Reports a server's crash evidence from its log and process state.
+
+The evidence is crashes, unexpected SYSERR lines and expected SYSERR lines never logged.
+"""
 
 from __future__ import annotations
 
@@ -10,16 +13,18 @@ from rots_harness.launcher import ServerHandle
 # SYSERR fragments a harness boot is known to print; a clean boot prints none.
 # Add an entry only with the reason it is harmless.
 DEFAULT_ALLOWED: tuple[str, ...] = ()
-# Lines that sanitizer runtimes write when they find an error.
-SANITIZER_MARKERS = ("AddressSanitizer", "LeakSanitizer", "UndefinedBehaviorSanitizer", "runtime error:")
+# Parts of the lines sanitizer runtimes write when they find an error.
+SANITIZER_PARTS = ("AddressSanitizer", "LeakSanitizer", "UndefinedBehaviorSanitizer", "runtime error:")
 # sigsegv_handler() in comm.cpp prints this ahead of its backtrace.
-SIGNAL_MARKER = "Error: signal"
+SIGNAL_ERROR_PART = "Error: signal"
 # The game loop logs this when SIGHUP, SIGINT or SIGTERM stops the server; it is not a crash.
 SHUTDOWN_SIGNAL_LINE = "Received SIGHUP, SIGINT, or SIGTERM"
 
 
 def expected_syserr_fragments(marker_arguments: Iterable[tuple[object, ...]]) -> tuple[str, ...]:
-    """The SYSERR fragments a test's @pytest.mark.expect_syserr(...) markers name, in order, each once.
+    """Return the SYSERR fragments a test's @pytest.mark.expect_syserr(...) markers name.
+
+    They come in order, each once.
 
     marker_arguments holds each marker's positional arguments. Raises ValueError for a marker with
     no fragment, a fragment that is not a non-empty string, or a fragment named twice.
@@ -50,14 +55,19 @@ class ExpectedSyserrs:
         self._seen: set[str] = set()
 
     def record(self, line: str) -> bool:
-        """Marks every fragment line contains as seen; returns whether line contained any."""
+        """Mark every fragment line contains as seen; return whether line contained any."""
         contained = {fragment for fragment in self._fragments if fragment in line}
         self._seen |= contained
         return bool(contained)
 
     def missing(self) -> list[str]:
-        """One problem per expected fragment that no SYSERR line has contained, in marker order."""
-        return [f"expected SYSERR never logged: {fragment!r}" for fragment in self._fragments if fragment not in self._seen]
+        """Return one problem per expected fragment no SYSERR line has contained.
+
+        The problems come in marker order.
+        """
+        return [
+            f"expected SYSERR never logged: {fragment!r}" for fragment in self._fragments if fragment not in self._seen
+        ]
 
 
 class CrashMonitor:
@@ -83,7 +93,10 @@ class CrashMonitor:
         self._shutdown_notice_seen = False
 
     def check(self) -> list[str]:
-        """Problems since the last check: crash markers, unexpected SYSERRs, and a process exit."""
+        """Return the problems since the last check.
+
+        They are crash markers, unexpected SYSERRs, and a process exit.
+        """
         problems = self._log_problems()
         status = self._handle.exit_status()
         if status is not None and not self._exit_reported:
@@ -92,7 +105,7 @@ class CrashMonitor:
         return problems
 
     def check_after_stop(self) -> list[str]:
-        """Problems once the launcher has stopped the server.
+        """Return the problems once the launcher has stopped the server.
 
         Reports crash markers and unexpected SYSERRs written since the last check, including an
         unterminated last line (the shutdown notice is expected), a process that has not exited,
@@ -114,15 +127,20 @@ class CrashMonitor:
             problems.append("server exited with status 0 without logging the shutdown notice")
         return problems
 
-    def _log_problems(self, ignore_line: Optional[Callable[[str], bool]] = None, include_unterminated: bool = False) -> list[str]:
-        """Problems in the log lines written since the last read, skipping lines ignore_line accepts."""
+    def _log_problems(
+        self, ignore_line: Optional[Callable[[str], bool]] = None, include_unterminated: bool = False
+    ) -> list[str]:
+        """Return the problems in the log lines written since the last read.
+
+        Lines ignore_line accepts are skipped.
+        """
         problems: list[str] = []
         for line in self._new_lines(include_unterminated):
             if SHUTDOWN_SIGNAL_LINE in line:
                 self._shutdown_notice_seen = True
             if ignore_line is not None and ignore_line(line):
                 continue
-            if any(marker in line for marker in SANITIZER_MARKERS) or SIGNAL_MARKER in line:
+            if any(part in line for part in SANITIZER_PARTS) or SIGNAL_ERROR_PART in line:
                 problems.append(f"crash marker in log: {line.strip()}")
             elif "SYSERR" in line:
                 # Recorded first, so a line that is also on the allow-list still counts as seen.
@@ -132,7 +150,9 @@ class CrashMonitor:
         return problems
 
     def _new_lines(self, include_unterminated: bool) -> list[str]:
-        """The complete log lines written since the last read; none while the log does not exist.
+        """Return the complete log lines written since the last read.
+
+        None while the log does not exist.
 
         A line still missing its newline is left for the next read, unless include_unterminated
         asks for it now because the server has stopped writing.

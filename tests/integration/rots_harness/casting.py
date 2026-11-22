@@ -31,7 +31,7 @@ def cast_until_it_lands(
     timeout: float = CAST_TIMEOUT_SECONDS,
     settle: float = SETTLE_SECONDS,
 ) -> str:
-    """Sends line until its reply holds no LOST_CONCENTRATION_REPLY, and returns that reply.
+    """Send line until its reply holds no LOST_CONCENTRATION_REPLY, and return that reply.
 
     Each attempt is reply_to(caster, line, [LOST_CONCENTRATION_REPLY, *outcomes], settle=settle,
     timeout=timeout). Each attempt costs spirit or mana, which nothing restores between requests

@@ -1,5 +1,7 @@
-"""The test world's rooms, objects and mobs, and their names, that two or more scenario files, or
-the harness itself, name (tests/integration/world).
+"""The test world's rooms, objects and mobs, and their names, that scenarios share.
+
+A fixture is here when two or more scenario files, or the harness itself, name it. The world is
+tests/integration/world.
 
 A room's name is ROOM_<X>_NAME, and an object's short description and keyword are
 OBJECT_<X>_SHORT_DESCRIPTION and OBJECT_<X>_KEYWORD, beside the vnum constant they belong to.
@@ -13,7 +15,8 @@ ROOM_IMMORTAL_START = 1101
 ROOM_ARENA_WEST = 1130
 # Room 1131, the middle of the arena in zone 11.
 ROOM_ARENA_CENTRE = 1131
-# Room 1132, the eastern end of the arena in zone 11, east of the centre; zone 11 resets the target orc (mob 1130) here.
+# Room 1132, the eastern end of the arena in zone 11, east of the centre; zone 11 resets the target
+# orc (mob 1130) here.
 ROOM_ARENA_EAST = 1132
 # Room 1133, the arena's one DARK room, north of the centre in zone 11.
 ROOM_DARK_CELL = 1133
@@ -55,7 +58,8 @@ ROOM_TRADE_HALL_NAME = "Trade Hall"
 # The name look and goto show for ROOM_ORDER_HALL (wld/22.wld).
 ROOM_ORDER_HALL_NAME = "Order Hall"
 
-# Object 1136 in obj/11.obj, the leather bag: a plain container, with no wear slot and not wieldable.
+# Object 1136 in obj/11.obj, the leather bag: a plain container, with no wear slot and not
+# wieldable.
 OBJECT_LEATHER_BAG = 1136
 # OBJECT_LEATHER_BAG's short description.
 OBJECT_LEATHER_BAG_SHORT_DESCRIPTION = "a leather bag"

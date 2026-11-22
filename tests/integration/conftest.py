@@ -40,7 +40,13 @@ from rots_harness.launcher import (
     set_aside_logs,
     start_on_a_free_port,
 )
-from rots_harness.libbuilder import ROTSTOOL_RELATIVE, LibTemplateBuilder, RunLibProvider, discard_session_templates, session_templates_dir
+from rots_harness.libbuilder import (
+    ROTSTOOL_RELATIVE,
+    LibTemplateBuilder,
+    RunLibProvider,
+    discard_session_templates,
+    session_templates_dir,
+)
 from rots_harness.replies import SETTLE_SECONDS
 from rots_harness.retention import RunDirectoryReport, keep_run_directory
 from rots_harness.session import GameSession, end_sessions
@@ -68,7 +74,8 @@ TEST_NAME_FILE = "test-id.txt"
 RESTORE_SIGNAL_HANDLERS_KEY = pytest.StashKey[Callable[[], None]]()
 # Seconds added to every advance_hours wait for the reply to travel.
 HOUR_TIMEOUT_MARGIN_SECONDS = 10.0
-# Seconds the server fixture waits for a harness server's ready line once its login prompt has arrived.
+# Seconds the server fixture waits for a harness server's ready line once its login prompt has
+# arrived.
 READY_TIMEOUT_SECONDS = 30.0
 
 
@@ -90,7 +97,8 @@ KEPT_RUN_DIRECTORIES_WORKER_OUTPUT = "rots_it_kept_run_directories"
 # Where the controller keeps every pytest-xdist worker it starts, so pytest_sessionfinish can list
 # each worker's kept run directories.
 WORKER_NODES_KEY = pytest.StashKey[list]()
-# Where the controller keeps the Docker lock it holds while the tests run; absent while it holds none.
+# Where the controller keeps the Docker lock it holds while the tests run; absent while it holds
+# none.
 DOCKER_LOCK_KEY = pytest.StashKey[DockerLock]()
 # Each test's last recorded time, which the run plan estimates a run from.
 DURATIONS_FILE = REPO_ROOT / durations.DURATIONS_RELATIVE
@@ -102,9 +110,10 @@ SUBGROUP_CHECK_PLUGIN_NAME = "rots_it_subgroup_marking_check"
 
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config: pytest.Config) -> None:
-    """Registers a marker per group and subgroup file and the subgroup marking check, then stops the
-    run with a usage error for a bad group file, an unregistered marker in -m or a bad ROTS_IT_*
-    variable.
+    """Register a marker per group and subgroup file and the subgroup marking check.
+
+    Then stop the run with a usage error for a bad group file, an unregistered marker in -m or a bad
+    ROTS_IT_* variable.
 
     Runs after the built-in plugins have registered their markers, so -m may name them. When
     the checks pass, makes SIGTERM and SIGHUP interrupt the run like Ctrl-C, so the Docker lock
@@ -118,7 +127,9 @@ def pytest_configure(config: pytest.Config) -> None:
     registered = groups.registered_marker_names(config.getini("markers"))
     unknown = groups.unknown_marker_names(expression, registered)
     if unknown:
-        raise pytest.UsageError(f"unknown group or marker {', '.join(unknown)} in -m {expression!r}; registered: {', '.join(registered)}")
+        raise pytest.UsageError(
+            f"unknown group or marker {', '.join(unknown)} in -m {expression!r}; registered: {', '.join(registered)}"
+        )
     validate_environment()
     config.stash[RESTORE_SIGNAL_HANDLERS_KEY] = interrupts.install_interrupt_handlers()
     report = RunDirectoryReport()
@@ -133,20 +144,28 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def is_worker(config: pytest.Config) -> bool:
-    """Whether this process is a pytest-xdist worker; the process the run started in is the controller, with or without workers."""
+    """Return whether this process is a pytest-xdist worker.
+
+    The process the run started in is the controller, with or without workers.
+    """
     return hasattr(config, "workerinput")
 
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_configure_node(node) -> None:
-    """Gives a pytest-xdist worker the controller's session id, and keeps the worker so its kept run directories are listed."""
+    """Give a pytest-xdist worker the controller's session id, and keep the worker.
+
+    The worker is kept so its kept run directories are listed.
+    """
     node.workerinput[SESSION_ID_WORKER_INPUT] = node.config.stash[SESSION_ID_KEY]
     node.config.stash[WORKER_NODES_KEY].append(node)
 
 
 def register_group_markers(config: pytest.Config) -> dict[str, list[str]]:
-    """Registers each group and subgroup file's marker, so --strict-markers and -m accept the group,
-    and returns each group that has subgroups, with them (groups.subgroups_by_parent).
+    """Register each group and subgroup file's marker, and return each group's subgroups.
+
+    Registering lets --strict-markers and -m accept the group. The return gives each group that has
+    subgroups, with them (groups.subgroups_by_parent).
 
     Raises pytest.UsageError for a group file the harness cannot read, or one named like a
     marker pytest.ini or pytest itself already registers.
@@ -158,13 +177,19 @@ def register_group_markers(config: pytest.Config) -> dict[str, list[str]]:
     registered = set(groups.registered_marker_names(config.getini("markers")))
     for group in group_list:
         if group.name in registered:
-            raise pytest.UsageError(f"the group file for {group.name} in {GROUPS_DIR} names the marker {group.name}, which is already registered")
+            raise pytest.UsageError(
+                f"the group file for {group.name} in {GROUPS_DIR} names "
+                f"the marker {group.name}, which is already registered"
+            )
         config.addinivalue_line("markers", f"{group.name}: {group.description}")
     return groups.subgroups_by_parent(group_list)
 
 
 class SubgroupMarkingCheck:
-    """Stops the run when a collected test breaks the subgroup marking rules (groups.subgroup_marking_problems)."""
+    """Stops the run when a collected test breaks the subgroup marking rules.
+
+    groups.subgroup_marking_problems states the rules.
+    """
 
     def __init__(self, subgroups: dict[str, list[str]]) -> None:
         # Each group that has subgroups, with them, as the group files register them.
@@ -172,7 +197,9 @@ class SubgroupMarkingCheck:
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_collection_modifyitems(self, session: pytest.Session, items: list[pytest.Item]) -> None:
-        """Raises pytest.UsageError naming each collected test that breaks the rules and what is wrong.
+        """Raise pytest.UsageError naming each collected test that breaks the rules.
+
+        Each test is named with what is wrong.
 
         tryfirst, so neither -m and -k nor the shard (this file's pytest_collection_modifyitems) has
         deselected anything yet: every collected test is checked, whatever the run selects.
@@ -181,14 +208,14 @@ class SubgroupMarkingCheck:
         problems = groups.subgroup_marking_problems(tests, self._subgroups)
         if problems:
             message = "scenarios break the subgroup marking rules:\n" + "\n".join(problems)
-            # A pytest-xdist worker hands shouldstop to the controller, which stops the run with this
-            # message; without it the controller reports only a crashed worker.
+            # A pytest-xdist worker hands shouldstop to the controller, which stops the run with
+            # this message; without it the controller reports only a crashed worker.
             session.shouldstop = message
             raise pytest.UsageError(message)
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
-    """Puts back the signal handlers pytest_configure replaced.
+    """Put back the signal handlers pytest_configure replaced.
 
     In the controller, prints the kept run directories to stderr when no terminal summary listed
     them; a pytest-xdist worker never prints them, since the controller lists them.
@@ -204,7 +231,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 
 def validate_environment() -> None:
-    """Raises pytest.UsageError naming the first ROTS_IT_* variable whose value the harness cannot use."""
+    """Raise pytest.UsageError naming the first ROTS_IT_* variable whose value is unusable."""
     launcher_mode()
     session_seed()
     lock_wait_seconds()
@@ -215,7 +242,9 @@ def validate_environment() -> None:
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Keeps only this run's share of the selected tests when ROTS_IT_SHARD is set, deselecting the rest.
+    """Keep only this run's share of the selected tests when ROTS_IT_SHARD is set.
+
+    The rest are deselected.
 
     trylast, so the -m and -k deselection has already run and the shards split only the selection.
     The shares are balanced by SHARD_DURATIONS_FILE (sharding.in_shard).
@@ -234,7 +263,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtestloop(session: pytest.Session):
-    """In the controller, takes the Docker lock before any test runs when controller_needs_docker_lock says so.
+    """Take the Docker lock in the controller before any test runs.
+
+    It does so only when controller_needs_docker_lock says so.
 
     pytest_sessionfinish releases it. Stops the run before any test when the lock cannot be taken.
     """
@@ -244,7 +275,9 @@ def pytest_runtestloop(session: pytest.Session):
 
 
 def controller_needs_docker_lock(session: pytest.Session) -> bool:
-    """Whether the controller holds the Docker lock while the tests run: only for the Docker launcher, and never for --collect-only.
+    """Return whether the controller holds the Docker lock while the tests run.
+
+    It does only for the Docker launcher, and never for --collect-only.
 
     It is needed when the run may start a server: always when pytest-xdist workers run the
     tests, since the controller then collects none, and otherwise when a selected test uses the
@@ -267,7 +300,9 @@ def controller_needs_docker_lock(session: pytest.Session) -> bool:
 
 
 def take_docker_lock(config: pytest.Config) -> None:
-    """Takes the Docker lock on this checkout's build tree and keeps it in the stash for pytest_sessionfinish to release.
+    """Take the Docker lock on this checkout's build tree and keep it in the stash.
+
+    pytest_sessionfinish releases it from there.
 
     Waits up to ROTS_IT_LOCK_WAIT while another job holds the tree, then stops the run with
     pytest.exit, as it does at once when the lock directory is missing.
@@ -277,13 +312,17 @@ def take_docker_lock(config: pytest.Config) -> None:
     try:
         lock.acquire(purpose="integration test session")
     except RuntimeError as failure:
-        pytest.exit(f"cannot take the Docker lock: {type(failure).__name__}: {failure}", returncode=pytest.ExitCode.INTERRUPTED)
+        pytest.exit(
+            f"cannot take the Docker lock: {type(failure).__name__}: {failure}", returncode=pytest.ExitCode.INTERRUPTED
+        )
     config.stash[DOCKER_LOCK_KEY] = lock
 
 
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Turns "no tests ran" into success for a shard whose share of a non-empty selection is empty, with or without pytest-xdist workers, then ends this process's part of the session.
+    """Turn "no tests ran" into success for a shard with an empty share of a non-empty selection.
+
+    This holds with or without pytest-xdist workers. Then end this process's part of the session.
 
     A pytest-xdist worker hands its kept run directories, and whether the shard left it nothing, to
     the controller. The controller adds every worker's run directories to its own report, releases
@@ -316,9 +355,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 
 def terminal_line_writer(config: pytest.Config) -> Callable[[str], None]:
-    """A function that writes one line to the terminal at once, even while pytest captures output.
+    """Return a function that writes one line to the terminal at once.
 
-    Falls back to stderr when the capture or terminal plugin is absent (for example under -p no:terminal).
+    It writes even while pytest captures output.
+
+    Falls back to stderr when the capture or terminal plugin is absent (for example under -p
+    no:terminal).
     """
     capture_manager = config.pluginmanager.get_plugin("capturemanager")
     terminal_reporter = config.pluginmanager.get_plugin("terminalreporter")
@@ -335,7 +377,10 @@ def terminal_line_writer(config: pytest.Config) -> Callable[[str], None]:
 
 
 def launcher_mode() -> str:
-    """'local' or 'docker' from ROTS_IT_LAUNCHER, defaulting to local on Linux and Docker elsewhere."""
+    """Return 'local' or 'docker' from ROTS_IT_LAUNCHER.
+
+    It defaults to local on Linux and Docker elsewhere.
+    """
     mode = os.environ.get("ROTS_IT_LAUNCHER") or ("local" if platform.system() == "Linux" else "docker")
     if mode not in ("local", "docker"):
         raise pytest.UsageError(f"ROTS_IT_LAUNCHER must be 'local' or 'docker', not {mode!r}")
@@ -343,12 +388,15 @@ def launcher_mode() -> str:
 
 
 def keep_requested() -> bool:
-    """Whether ROTS_IT_KEEP=1 asks to keep every run directory and template."""
+    """Return whether ROTS_IT_KEEP=1 asks to keep every run directory and template."""
     return os.environ.get("ROTS_IT_KEEP") == "1"
 
 
 def session_seed() -> int:
-    """The random seed for rotstool and every server, from ROTS_IT_SEED or the default; raises pytest.UsageError."""
+    """Return the random seed for rotstool and every server, from ROTS_IT_SEED or the default.
+
+    Raise pytest.UsageError.
+    """
     value = os.environ.get("ROTS_IT_SEED")
     if value is None:
         return DEFAULT_SEED
@@ -359,44 +407,66 @@ def session_seed() -> int:
 
 
 def shard() -> Optional[Shard]:
-    """The share of the selected tests ROTS_IT_SHARD (k/N) asks this run to keep, or None to run them all; raises pytest.UsageError."""
+    """Return the share of the selected tests ROTS_IT_SHARD (k/N) asks this run to keep.
+
+    None runs them all. Raises pytest.UsageError.
+    """
     value = os.environ.get("ROTS_IT_SHARD")
     if value is None:
         return None
     try:
         return parse_shard(value)
     except ValueError:
-        raise pytest.UsageError(f"ROTS_IT_SHARD must be k/N with whole numbers and 1 <= k <= N, such as 2/4, not {value!r}") from None
+        raise pytest.UsageError(
+            f"ROTS_IT_SHARD must be k/N with whole numbers and 1 <= k <= N, such as 2/4, not {value!r}"
+        ) from None
 
 
 def lock_wait_seconds() -> float:
-    """Seconds to wait for the Docker lock, from ROTS_IT_LOCK_WAIT or the default; raises pytest.UsageError."""
+    """Return the seconds to wait for the Docker lock, from ROTS_IT_LOCK_WAIT or the default.
+
+    Raises pytest.UsageError.
+    """
     value = os.environ.get("ROTS_IT_LOCK_WAIT")
     if value is None:
         return DEFAULT_WAIT_SECONDS
     try:
         return parse_wait_seconds(value)
     except ValueError:
-        raise pytest.UsageError(f"ROTS_IT_LOCK_WAIT must be a finite number of seconds of at least 0, not {value!r}") from None
+        raise pytest.UsageError(
+            f"ROTS_IT_LOCK_WAIT must be a finite number of seconds of at least 0, not {value!r}"
+        ) from None
 
 
 def binary_relative() -> str:
-    """The server binary from ROTS_IT_BINARY or the default; raises pytest.UsageError unless it names a path below the repo root."""
+    """Return the server binary from ROTS_IT_BINARY or the default.
+
+    Raise pytest.UsageError unless it names a path below the repo root.
+    """
     value = os.environ.get("ROTS_IT_BINARY", DEFAULT_BINARY_RELATIVE)
     try:
         check_repo_relative(value)
     except ValueError:
-        raise pytest.UsageError(f"ROTS_IT_BINARY must name a file relative to the repository root and inside it, not {value!r}") from None
+        raise pytest.UsageError(
+            f"ROTS_IT_BINARY must name a file relative to the repository root and inside it, not {value!r}"
+        ) from None
     return value
 
 
 def hour_timeout_seconds() -> float:
-    """Seconds advance_hours allows per game hour, from ROTS_IT_HOUR_TIMEOUT or the default; raises pytest.UsageError."""
+    """Return the seconds advance_hours allows per game hour.
+
+    The value is ROTS_IT_HOUR_TIMEOUT's, or the default.
+
+    Raises pytest.UsageError.
+    """
     value = os.environ.get("ROTS_IT_HOUR_TIMEOUT")
     try:
         return parse_hour_timeout(value)
     except ValueError:
-        raise pytest.UsageError(f"ROTS_IT_HOUR_TIMEOUT must be a positive, finite number of seconds, not {value!r}") from None
+        raise pytest.UsageError(
+            f"ROTS_IT_HOUR_TIMEOUT must be a positive, finite number of seconds, not {value!r}"
+        ) from None
 
 
 @dataclass
@@ -426,7 +496,8 @@ class HarnessServer:
     interrupted_problems: list[str] = field(default_factory=list)
     # Drives game time on a server started with @pytest.mark.schedule(...); None otherwise.
     time_control: Optional[TimeControl] = None
-    # The schedule the test's @pytest.mark.schedule(...) names, which restart() starts the new server with; None without one.
+    # The schedule the test's @pytest.mark.schedule(...) names, which restart() starts the new
+    # server with; None without one.
     schedule: str | None = None
     # How many servers the test has booted: 1, and one more for each restart().
     boots: int = 1
@@ -434,9 +505,11 @@ class HarnessServer:
     expected_syserrs: ExpectedSyserrs = field(default_factory=ExpectedSyserrs)
 
     def login(self, name: str) -> GameSession:
-        """Logs the named character in and returns its session; the fixture quits it after the test."""
+        """Log the named character in and return its session; the fixture quits it at teardown."""
         character = self.character_set.character(name)
-        game_session = GameSession(self.handle, character.name, self.character_set.email, self.character_set.password, self.run_dir)
+        game_session = GameSession(
+            self.handle, character.name, self.character_set.email, self.character_set.password, self.run_dir
+        )
         try:
             game_session.login()
         except BaseException:
@@ -446,9 +519,10 @@ class HarnessServer:
         return game_session
 
     def advance_hours(self, hours: int) -> None:
-        """Runs hours game hours on a harness server and returns once the server acknowledges them.
+        """Run hours game hours on a harness server and return once the server acknowledges them.
 
-        Fails the test when the test has no @pytest.mark.schedule(...), since a plain server's time cannot be driven.
+        Fails the test when the test has no @pytest.mark.schedule(...), since a plain server's time
+        cannot be driven.
         """
         if self.time_control is None:
             pytest.fail("advance_hours needs @pytest.mark.schedule(...) on the test", pytrace=False)
@@ -487,7 +561,9 @@ class HarnessServer:
         return self.login(session.character_name)
 
     def restart(self) -> None:
-        """Stops the server with every session still logged in, as a service stop does, then boots a new server on the same lib.
+        """Stop the server with every session still logged in, as a service stop does.
+
+        Then boot a new server on the same lib.
 
         The sessions are closed rather than quit, so whatever the characters hold is saved by the
         stop. The stop is checked as the fixture checks its stop after the test, and a problem
@@ -514,10 +590,15 @@ class HarnessServer:
             self.time_control = start_time_control(self.launcher, self.handle, self.schedule, self.run_dir)
 
 
-def start_time_control(server_launcher: ServerLauncher, handle: ServerHandle, schedule: str, run_dir: Path) -> TimeControl:
-    """The TimeControl of a harness server started with schedule, once it has written its ready line.
+def start_time_control(
+    server_launcher: ServerLauncher, handle: ServerHandle, schedule: str, run_dir: Path
+) -> TimeControl:
+    """Return the TimeControl of a harness server started with schedule.
 
-    Any failure, including the constructor's OSError for an output log it cannot open, stops the server.
+    It is returned once the server has written its ready line.
+
+    Any failure, including the constructor's OSError for an output log it cannot open, stops the
+    server.
     """
     time_control = None
     try:
@@ -532,7 +613,10 @@ def start_time_control(server_launcher: ServerLauncher, handle: ServerHandle, sc
 
 
 def selected_launcher() -> ServerLauncher:
-    """The launcher ROTS_IT_LAUNCHER selects, running ROTS_IT_BINARY (default bin/ageland); checks no program."""
+    """Return the launcher ROTS_IT_LAUNCHER selects, running ROTS_IT_BINARY (default bin/ageland).
+
+    It checks no program.
+    """
     if launcher_mode() == "local":
         return LocalProcessLauncher(REPO_ROOT, binary_relative())
     return DockerComposeLauncher(REPO_ROOT, binary_relative())
@@ -540,7 +624,7 @@ def selected_launcher() -> ServerLauncher:
 
 @pytest.fixture(scope="session")
 def harness_launcher() -> ServerLauncher:
-    """The launcher selected_launcher returns.
+    """Return the launcher selected_launcher returns.
 
     Raises RuntimeError with that launcher's build command when the server or rotstool is missing,
     or older than the sources it is built from (ServerLauncher.require_program).
@@ -553,36 +637,53 @@ def harness_launcher() -> ServerLauncher:
 
 @pytest.fixture(scope="session")
 def lib_provider(pytestconfig: pytest.Config, harness_launcher: ServerLauncher) -> RunLibProvider:
-    """Builds each character set's template at most once in the session's template folder, which every worker shares.
+    """Build each character set's template at most once in the session's template folder.
+
+    Every worker shares that folder.
 
     The controller deletes the folder at the end of the session unless ROTS_IT_KEEP=1.
     """
     builder = LibTemplateBuilder(REPO_ROOT, INTEGRATION_ROOT / "world", harness_launcher)
-    return RunLibProvider(builder, session_templates_dir(TEMPLATES_ROOT, pytestconfig.stash[SESSION_ID_KEY]), session_seed())
+    return RunLibProvider(
+        builder, session_templates_dir(TEMPLATES_ROOT, pytestconfig.stash[SESSION_ID_KEY]), session_seed()
+    )
 
 
 def character_set_for(request: pytest.FixtureRequest) -> CharacterSet:
-    """The characters the test's @pytest.mark.characters(...) declares; fails the test when it has none."""
+    """Return the characters the test's @pytest.mark.characters(...) declares.
+
+    Fail the test when it has none.
+    """
     marker = request.node.get_closest_marker("characters")
     if marker is None or not marker.args:
-        pytest.fail(f"{request.node.nodeid} uses the server fixture without @pytest.mark.characters(...)", pytrace=False)
+        pytest.fail(
+            f"{request.node.nodeid} uses the server fixture without @pytest.mark.characters(...)", pytrace=False
+        )
     return CharacterSet(tuple(marker.args))
 
 
 def world_resets_for(request: pytest.FixtureRequest) -> tuple[WorldReset, ...]:
-    """The mobs and objects the test's @pytest.mark.world_resets(...) places at boot, or none without the
-    marker; fails the test when an argument is not a MobReset or ObjectReset."""
+    """Return the mobs and objects the test's @pytest.mark.world_resets(...) places at boot.
+
+    None without the marker. Fails the test when an argument is not a MobReset or ObjectReset.
+    """
     marker = request.node.get_closest_marker("world_resets")
     if marker is None:
         return ()
     for argument in marker.args:
         if not isinstance(argument, (MobReset, ObjectReset)):
-            pytest.fail(f"{request.node.nodeid}: world_resets takes MobReset and ObjectReset values, not {argument!r}", pytrace=False)
+            pytest.fail(
+                f"{request.node.nodeid}: world_resets takes MobReset and ObjectReset values, not {argument!r}",
+                pytrace=False,
+            )
     return tuple(marker.args)
 
 
 def expected_syserrs_for(request: pytest.FixtureRequest) -> ExpectedSyserrs:
-    """The SYSERRs the test's @pytest.mark.expect_syserr(...) markers name, none without one; fails the test on a malformed marker."""
+    """Return the SYSERRs the test's @pytest.mark.expect_syserr(...) markers name, none without one.
+
+    Fail the test on a malformed marker.
+    """
     try:
         fragments = expected_syserr_fragments(marker.args for marker in request.node.iter_markers("expect_syserr"))
     except ValueError as malformed:
@@ -591,7 +692,10 @@ def expected_syserrs_for(request: pytest.FixtureRequest) -> ExpectedSyserrs:
 
 
 def schedule_for(request: pytest.FixtureRequest) -> Optional[str]:
-    """The schedule the test's @pytest.mark.schedule(...) names, or None without one; fails the test on a malformed marker."""
+    """Return the schedule the test's @pytest.mark.schedule(...) names, or None without one.
+
+    Fail the test on a malformed marker.
+    """
     marker = request.node.get_closest_marker("schedule")
     if marker is None:
         return None
@@ -603,7 +707,7 @@ def schedule_for(request: pytest.FixtureRequest) -> Optional[str]:
 
 @pytest.fixture
 def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib_provider: RunLibProvider):
-    """A fresh server on a lib holding the test's declared characters and world resets, as a HarnessServer.
+    """Yield a fresh HarnessServer on a lib holding the test's declared characters and world resets.
 
     After the test it quits every session, stops the server, and fails the test when a session
     does not quit, the shutdown shows problems, or a fragment the test's
@@ -644,7 +748,15 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         raise
     monitor = CrashMonitor(handle, expected=expected_syserrs)
     harness_server = HarnessServer(
-        handle, lib_dir, run_dir, character_set, monitor, harness_launcher, seed, time_control=time_control, schedule=schedule,
+        handle,
+        lib_dir,
+        run_dir,
+        character_set,
+        monitor,
+        harness_launcher,
+        seed,
+        time_control=time_control,
+        schedule=schedule,
         expected_syserrs=expected_syserrs,
     )
     try:
@@ -666,10 +778,13 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
             harness_launcher.stop(harness_server.handle)
         if harness_server.time_control is not None:
             harness_server.time_control.close()
-        # missing() comes last: only once the final stop's log lines are read is a fragment never logged.
+        # missing() comes last: only once the final stop's log lines are read is a fragment never
+        # logged.
         problems = teardown_problems + harness_server.monitor.check_after_stop() + expected_syserrs.missing()
         interrupted = report.interrupted or interruption is not None
-        keep = keep_run_directory(keep_requested(), request.session.testsfailed, harness_server.crash_detected or bool(problems), interrupted)
+        keep = keep_run_directory(
+            keep_requested(), request.session.testsfailed, harness_server.crash_detected or bool(problems), interrupted
+        )
         if keep:
             notes = harness_server.interrupted_problems + problems if interrupted else []
             report.record_kept(run_dir, request.node.nodeid, notes)
@@ -685,7 +800,9 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
 
 @pytest.fixture(autouse=True)
 def fail_on_server_crash(request: pytest.FixtureRequest):
-    """Fails a test that uses the server fixture when the server shows crash evidence by the end of the test.
+    """Fail a test that uses the server fixture when the server shows crash evidence.
+
+    Evidence shown by the end of the test counts.
 
     During an interrupted run the evidence is listed with the kept run directory instead.
     """

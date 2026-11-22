@@ -23,7 +23,7 @@ def reply_to(
     settle: float = SETTLE_SECONDS,
     timeout: float | None = None,
 ) -> str:
-    """Sends line and returns what came back, up to the first of outcomes and settle seconds after it.
+    """Send line and return what came back, up to the first of outcomes and settle seconds after it.
 
     Unlike GameSession.command, unread text is not discarded first: an outcome already waiting
     matches at once, and the returned text starts with whatever was unread before the line.

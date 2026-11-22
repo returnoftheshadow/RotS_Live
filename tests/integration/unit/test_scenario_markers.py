@@ -8,7 +8,7 @@ SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 
 
 def is_xfail_marker(node: ast.AST) -> bool:
-    """True for the expression pytest.mark.xfail."""
+    """Return True for the expression pytest.mark.xfail."""
     return (
         isinstance(node, ast.Attribute)
         and node.attr == "xfail"
@@ -20,8 +20,11 @@ def is_xfail_marker(node: ast.AST) -> bool:
 
 
 def xfail_problems(source: str, file_name: str) -> list[str]:
-    """Each pytest.mark.xfail in source that is not strict or does not limit its failure to
-    raises=AssertionError, as "<file>:<line>: <what is missing>"."""
+    """Return each pytest.mark.xfail in source that is not strict or catches too much.
+
+    It catches too much when it does not limit its failure to raises=AssertionError. Each reads
+    "<file>:<line>: <what is missing>".
+    """
     problems = []
     called = set()
     tree = ast.parse(source)
@@ -42,10 +45,12 @@ def xfail_problems(source: str, file_name: str) -> list[str]:
 
 
 def test_every_scenario_xfail_is_strict_and_fails_only_on_an_assertion() -> None:
-    """A pin's xfail passes only when the pin's assertion fails: a crash, a missing fixture file or
-    a typo raises something else and fails the run instead of hiding as the expected failure. The
-    harness's own timeouts (SessionTimeout, LoginRefused) are AssertionErrors, so a pin may still
-    fail by waiting for text that never comes."""
+    """Pins that a pin's xfail passes only when the pin's assertion fails.
+
+    A crash, a missing fixture file or a typo raises something else and fails the run instead of
+    hiding as the expected failure. The harness's own timeouts (SessionTimeout, LoginRefused) are
+    AssertionErrors, so a pin may still fail by waiting for text that never comes.
+    """
     problems = []
     for path in sorted(SCENARIOS_DIR.glob("*.py")):
         problems.extend(xfail_problems(path.read_text(encoding="utf-8"), path.name))

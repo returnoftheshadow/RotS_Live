@@ -58,16 +58,18 @@ ALPHA = Character(name="Testalpha", race="human", sex="male", level=20, load_roo
 
 
 def connect_to(monkeypatch: pytest.MonkeyPatch, fake_socket: FakeSocket) -> None:
-    """Makes every new GameSession connect to fake_socket."""
+    """Make every new GameSession connect to fake_socket."""
     monkeypatch.setattr(session.socket, "create_connection", lambda _address, timeout: fake_socket)
 
 
 def handle_in(tmp_path: Path) -> ServerHandle:
-    """A handle for a server that is never contacted, with its log in tmp_path."""
+    """Return a handle for a server that is never contacted, with its log in tmp_path."""
     return ServerHandle("127.0.0.1", 1, tmp_path / "game.log", None)  # type: ignore[arg-type]
 
 
-def test_account_connection_waits_for_the_email_prompt_and_closes_after_the_block(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_account_connection_waits_for_the_email_prompt_and_closes_after_the_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     fake_socket = FakeSocket({}, GREETING)
     connect_to(monkeypatch, fake_socket)
     handle = handle_in(tmp_path)
@@ -89,7 +91,9 @@ def test_account_connection_closes_when_the_block_fails(monkeypatch: pytest.Monk
     assert fake_socket.closed
 
 
-def test_playing_connection_logs_the_character_in_and_closes_without_quitting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_playing_connection_logs_the_character_in_and_closes_without_quitting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     fake_socket = FakeSocket(LOGIN_REPLIES, GREETING)
     connect_to(monkeypatch, fake_socket)
     handle = handle_in(tmp_path)
@@ -107,7 +111,9 @@ def test_closes_within_is_true_once_the_server_closes(monkeypatch: pytest.Monkey
         assert closes_within(connection, 1.0)
 
 
-def test_closes_within_is_false_while_the_connection_stays_open(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_closes_within_is_false_while_the_connection_stays_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     fake_socket = FakeSocket({}, GREETING)
     connect_to(monkeypatch, fake_socket)
     handle = handle_in(tmp_path)

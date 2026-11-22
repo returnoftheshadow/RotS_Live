@@ -1,5 +1,8 @@
-"""Unit tests for conftest.py's register_assert_rewrite list: every rots_harness module a scenario
-reaches that uses assert is on it, so its failures report their operands."""
+"""Unit tests for conftest.py's register_assert_rewrite list.
+
+Every rots_harness module a scenario reaches that uses assert is on it, so its failures report their
+operands.
+"""
 
 from __future__ import annotations
 

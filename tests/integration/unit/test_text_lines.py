@@ -21,7 +21,10 @@ from rots_harness.text_lines import (
 # A `look in corpse` reply: the header line ends in a space, two objects, a blank line, a prompt.
 CORPSE_REPLY = "corpse (here) : \r\n  a gold amulet\r\n\r\n  a leather cap  \r\nHP:Healthy > "
 # A `look <mob>` reply with an equipment section followed by an inventory section.
-LOOK_REPLY = "\n\rA squire is using:\n\r<worn on head> a sallet\n\r\n\rYou attempt to peek at the inventory:\n\ran acorn\n\rHP:Healthy > "
+LOOK_REPLY = (
+    "\n\rA squire is using:\n\r<worn on head> a sallet\n\r\n\r"
+    "You attempt to peek at the inventory:\n\ran acorn\n\rHP:Healthy > "
+)
 
 
 def test_raw_lines_drop_carriage_returns_and_keep_blanks_and_spacing() -> None:
@@ -56,7 +59,11 @@ def test_lines_after_drops_the_rest_of_the_header_line() -> None:
 
 
 def test_lines_after_keeps_prompts_when_asked() -> None:
-    assert lines_after(CORPSE_REPLY, "corpse (here) :", drop_prompts=False) == ["a gold amulet", "a leather cap", "HP:Healthy >"]
+    assert lines_after(CORPSE_REPLY, "corpse (here) :", drop_prompts=False) == [
+        "a gold amulet",
+        "a leather cap",
+        "HP:Healthy >",
+    ]
 
 
 def test_lines_after_stops_before_the_until_line() -> None:

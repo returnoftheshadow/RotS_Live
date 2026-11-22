@@ -1,4 +1,6 @@
-"""Checks that a sharded CI run ran every selected scenario exactly once, and reports the selection's missing shard times.
+"""Checks that a sharded CI run ran every selected scenario exactly once.
+
+It also reports the selection's missing shard times.
 
 `selection` collects the scenarios a run of GROUP selects, without any shard, as make integration
 selects them under CI=true. It writes their node ids as a JSON list, and says in the summary how
@@ -37,8 +39,12 @@ EXIT_COVERAGE_FAILED = 1
 EXIT_USAGE = 2
 
 
-def coverage_problems(selected: Sequence[str], shard_runs: Mapping[int, Optional[Sequence[str]]], shard_count: int) -> list[str]:
-    """One line per problem in a sharded run, or none when every selected test ran exactly once.
+def coverage_problems(
+    selected: Sequence[str], shard_runs: Mapping[int, Optional[Sequence[str]]], shard_count: int
+) -> list[str]:
+    """Return one line per problem in a sharded run.
+
+    None when every selected test ran exactly once.
 
     shard_runs gives each shard number's node ids as its results list them, or None when its
     results are missing; a shard from 1 to shard_count that it leaves out counts as missing. A node
@@ -59,13 +65,18 @@ def coverage_problems(selected: Sequence[str], shard_runs: Mapping[int, Optional
     repeated = sorted(node_id for node_id, count in runs.items() if count > 1)
     unselected = sorted(node_id for node_id in runs if node_id not in selected_set)
     problems.extend(_listed("never ran", never))
-    problems.extend(_listed("ran in more than one shard", [f"{node_id} ({runs[node_id]} shards)" for node_id in repeated]))
+    problems.extend(
+        _listed("ran in more than one shard", [f"{node_id} ({runs[node_id]} shards)" for node_id in repeated])
+    )
     problems.extend(_listed("ran but was not selected", unselected))
     return problems
 
 
 def _listed(what: str, node_ids: Sequence[str]) -> list[str]:
-    """One line per node id up to LISTED_IDS, each saying what happened, then how many more there are."""
+    """Return one line per node id up to LISTED_IDS, each saying what happened.
+
+    A last line says how many more there are.
+    """
     lines = [f"{what}: {node_id}" for node_id in node_ids[:LISTED_IDS]]
     if len(node_ids) > LISTED_IDS:
         lines.append(f"{what}: and {len(node_ids) - LISTED_IDS} more")
@@ -73,26 +84,35 @@ def _listed(what: str, node_ids: Sequence[str]) -> list[str]:
 
 
 def results_node_ids(results_path: Path, integration_root: Path) -> list[str]:
-    """The node id of every testcase in a results file, whatever its outcome; raises OSError, ElementTree.ParseError or shard_durations.UnusableResults.
+    """Return the node id of every testcase in a results file, whatever its outcome.
 
-    A testcase whose class name names no scenario file is listed by its class and test name, so it still counts as a test that ran.
+    Raise OSError, ElementTree.ParseError or shard_durations.UnusableResults.
+
+    A testcase whose class name names no scenario file is listed by its class and test name, so it
+    still counts as a test that ran.
     """
     node_ids = []
     for case in shard_durations.read_results(results_path).iter("testcase"):
         class_name = case.get("classname", "")
         test_name = case.get("name", "")
-        node_ids.append(shard_durations.node_id(class_name, test_name, integration_root) or f"{class_name}::{test_name}")
+        node_ids.append(
+            shard_durations.node_id(class_name, test_name, integration_root) or f"{class_name}::{test_name}"
+        )
     return node_ids
 
 
 def timing_report(selected: Sequence[str], recorded: Mapping[str, float]) -> list[str]:
-    """Summary lines on how the committed shard times cover the selection: the selected tests without one, and the entries naming no selected test."""
+    """Return summary lines on how the committed shard times cover the selection.
+
+    They list the selected tests without one, and the entries naming no selected test.
+    """
     untimed = [node_id for node_id in selected if node_id not in recorded]
     selected_set = set(selected)
     stale = sorted(node_id for node_id in recorded if node_id not in selected_set)
     lines = [
         f"{len(selected)} selected tests; {len(untimed)} have no time in {sharding.SHARD_DURATIONS_RELATIVE} "
-        f"and count {durations.DEFAULT_TEST_SECONDS:g} s in the shard split; {len(stale)} of its entries name no selected test.",
+        f"and count {durations.DEFAULT_TEST_SECONDS:g} s in the shard "
+        f"split; {len(stale)} of its entries name no selected test.",
     ]
     if untimed or stale:
         lines.append("Refresh it with make integration-shard-durations (integration README, Continuous integration).")
@@ -102,7 +122,7 @@ def timing_report(selected: Sequence[str], recorded: Mapping[str, float]) -> lis
 
 
 def _append(path: Optional[Path], lines: Sequence[str]) -> None:
-    """Prints the lines and appends them to the summary file when one is given."""
+    """Print the lines and append them to the summary file when one is given."""
     text = "\n".join(lines) + "\n"
     print(text, end="")
     if path is not None:
@@ -111,7 +131,10 @@ def _append(path: Optional[Path], lines: Sequence[str]) -> None:
 
 
 def run_selection(arguments: argparse.Namespace) -> int:
-    """Writes the selection's node ids to --output and the timing report to the summary; returns pytest's status when collection fails."""
+    """Write the selection's node ids to --output and the timing report to the summary.
+
+    Return pytest's status when collection fails.
+    """
     environment = {name: value for name, value in os.environ.items() if name != run_plan.SHARD_VARIABLE}
     tests, status = run_plan.collect_selection(arguments.python, arguments.group, environment)
     if tests is None:
@@ -124,7 +147,10 @@ def run_selection(arguments: argparse.Namespace) -> int:
 
 
 def run_check(arguments: argparse.Namespace) -> int:
-    """Checks every shard's results against the selection; returns EXIT_COVERAGE_FAILED with the problems listed."""
+    """Check every shard's results against the selection.
+
+    Return EXIT_COVERAGE_FAILED with the problems listed.
+    """
     try:
         selected = json.loads(arguments.selection.read_text(encoding="utf-8"))
         shard_numbers = json.loads(arguments.shards)
@@ -134,7 +160,11 @@ def run_check(arguments: argparse.Namespace) -> int:
     if not (isinstance(selected, list) and all(isinstance(node_id, str) for node_id in selected)):
         print(f"error: {arguments.selection} is not a JSON list of node ids", file=sys.stderr)
         return EXIT_USAGE
-    if not (isinstance(shard_numbers, list) and shard_numbers and all(isinstance(number, int) and not isinstance(number, bool) for number in shard_numbers)):
+    if not (
+        isinstance(shard_numbers, list)
+        and shard_numbers
+        and all(isinstance(number, int) and not isinstance(number, bool) for number in shard_numbers)
+    ):
         print(f"error: --shards must be a JSON list of shard numbers, not {arguments.shards!r}", file=sys.stderr)
         return EXIT_USAGE
     shard_count = len(shard_numbers)
@@ -153,23 +183,43 @@ def run_check(arguments: argparse.Namespace) -> int:
     if problems:
         _append(arguments.summary, ["### Shard coverage: failed", "", *(f"- {problem}" for problem in problems)])
         return EXIT_COVERAGE_FAILED
-    _append(arguments.summary, ["### Shard coverage", "", f"Each of the {len(selected)} selected tests ran exactly once across {shard_count} shards."])
+    _append(
+        arguments.summary,
+        [
+            "### Shard coverage",
+            "",
+            f"Each of the {len(selected)} selected tests ran exactly once across {shard_count} shards.",
+        ],
+    )
     return 0
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """Runs the selection or check command; see the module description for each one's statuses."""
+    """Run the selection or check command; see the module description for each one's statuses."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    selection = commands.add_parser("selection", help="collect the selection's node ids and report its missing shard times")
+    selection = commands.add_parser(
+        "selection", help="collect the selection's node ids and report its missing shard times"
+    )
     selection.add_argument("--python", required=True, help="the Python whose pytest collects the scenarios")
-    selection.add_argument("--group", default="", help="GROUP: a group or -m expression of groups; empty selects every scenario")
-    selection.add_argument("--output", type=Path, required=True, help="the file that receives the node ids as a JSON list")
+    selection.add_argument(
+        "--group", default="", help="GROUP: a group or -m expression of groups; empty selects every scenario"
+    )
+    selection.add_argument(
+        "--output", type=Path, required=True, help="the file that receives the node ids as a JSON list"
+    )
     selection.add_argument("--summary", type=Path, help="the file the timing report is appended to")
     check = commands.add_parser("check", help="check that every selected test ran exactly once across the shards")
     check.add_argument("--selection", type=Path, required=True, help="the JSON list of node ids selection wrote")
-    check.add_argument("--results", type=Path, required=True, help="the folder holding one integration-results-shard-<k> folder per shard")
-    check.add_argument("--shards", required=True, help="the shard numbers as a JSON list, as the select job's shards output gives them")
+    check.add_argument(
+        "--results",
+        type=Path,
+        required=True,
+        help="the folder holding one integration-results-shard-<k> folder per shard",
+    )
+    check.add_argument(
+        "--shards", required=True, help="the shard numbers as a JSON list, as the select job's shards output gives them"
+    )
     check.add_argument("--summary", type=Path, help="the file the result is appended to")
     arguments = parser.parse_args(argv)
     if arguments.command == "selection":

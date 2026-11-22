@@ -45,13 +45,20 @@ def test_a_report_round_trips(tmp_path: Path) -> None:
     assert collect_report.read_report(path) == tests
 
 
-def test_collection_finish_writes_each_kept_item_and_its_marker_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_collection_finish_writes_each_kept_item_and_its_marker_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "report.json"
     monkeypatch.setenv(collect_report.REPORT_PATH_VARIABLE, str(path))
-    session = FakeSession([
-        FakeItem("a.py::one", [FakeMarker("characters"), FakeMarker("scenario"), FakeMarker("boot"), FakeMarker("scenario")]),
-        FakeItem("b.py::two", [FakeMarker("poison")]),
-    ])
+    session = FakeSession(
+        [
+            FakeItem(
+                "a.py::one",
+                [FakeMarker("characters"), FakeMarker("scenario"), FakeMarker("boot"), FakeMarker("scenario")],
+            ),
+            FakeItem("b.py::two", [FakeMarker("poison")]),
+        ]
+    )
     collect_report.pytest_collection_finish(session)
     assert collect_report.read_report(path) == [
         CollectedTest("a.py::one", frozenset({"characters", "scenario", "boot"})),
@@ -59,7 +66,9 @@ def test_collection_finish_writes_each_kept_item_and_its_marker_names(tmp_path: 
     ]
 
 
-def test_collection_finish_without_a_report_path_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_collection_finish_without_a_report_path_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv(collect_report.REPORT_PATH_VARIABLE, raising=False)
     collect_report.pytest_collection_finish(FakeSession([FakeItem("a.py::one")]))
     assert list(tmp_path.iterdir()) == []
