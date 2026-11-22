@@ -340,6 +340,93 @@ def test_slaying_a_mob_mid_wait_runs_the_rest_of_its_script_before_it_dies(serve
     assert reply.index(SLAY_MARKER) < reply.index(last_line) < reply.index(cry), reply
 
 
+# The fading pilgrim (mob 1740), whose script 1740 says a line when anyone speaks, waits four
+# passes, says a second line and removes him from the game (EXTRACT_CHAR ch1).
+FADING_PILGRIM = ScriptMob(vnum=1740, keyword="pilgrim", short_description="a fading pilgrim")
+# The steward (mob 1741), whose script 1741 never speaks: on speech containing "dusk" it bows,
+# waits four passes and straightens up; other speech, the pilgrim's included, it ignores.
+STEWARD = ScriptMob(vnum=1741, keyword="steward", short_description="a steward")
+# What the pilgrim says before and after his wait.
+PILGRIM_FIRST_LINE = "I must be going."
+PILGRIM_LAST_LINE = "Farewell, all."
+# What the implementor says: it contains "dusk", so the steward answers it.
+DUSK_SPEECH = "say Dusk is falling."
+# What the steward's script sends the room before and after its wait (SEND_TO_ROOM).
+STEWARD_BOW_LINE = "The steward bows."
+STEWARD_RISE_LINE = "The steward straightens up."
+# The room lines (do_look, act_info.cpp) of the pilgrim and of the pebble lying on the floor.
+PILGRIM_IN_ROOM = "A fading pilgrim leans on his staff here."
+PEBBLE_ON_FLOOR = "A grey pebble lies here."
+# The steward's room line, which a look shows while it is still in the game.
+STEWARD_IN_ROOM = "A steward stands here, attending the pilgrim."
+
+
+@pytest.mark.scripts_delays
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+@placed(FADING_PILGRIM)
+def test_a_waiting_mob_that_removes_itself_last_on_the_waiting_list_logs_nothing(server) -> None:
+    """The only waiter logs nothing as its script removes it; it says both lines and drops its gear.
+
+    The pilgrim is the only waiter, so the waiting list's pass (process_waiting_list, comm.cpp)
+    finds no waiter after the one the script freed, which is the end of the list: the server logs
+    no SYSERR, and the harness fails the test on any SYSERR line in game.log. extract_char
+    (handler.cpp) puts what the mob carried on the floor. Nothing here draws a random number.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    assert implementor.command(f"load obj {PEBBLE_VNUM}").contains("You create")
+    given = implementor.command(f"give pebble {FADING_PILGRIM.keyword}")
+    assert given.contains("You give"), given.text
+    before = implementor.command("look").text
+    assert PILGRIM_IN_ROOM in before and PEBBLE_ON_FLOOR not in before, before
+
+    spoken = implementor.command(DUSK_SPEECH).text
+    first_line = said(FADING_PILGRIM.short_description, PILGRIM_FIRST_LINE)
+    last_line = said(FADING_PILGRIM.short_description, PILGRIM_LAST_LINE)
+    assert first_line in spoken and last_line not in spoken, spoken
+    finished = implementor.expect([last_line], timeout=WAIT_TIMEOUT)
+    finished += implementor.drain(SETTLE_SECONDS)
+    assert finished.count(last_line) == 1, finished
+
+    after = implementor.command("look").text
+    assert PILGRIM_IN_ROOM not in after, after
+    assert PEBBLE_ON_FLOOR in after, after
+
+
+@pytest.mark.scripts_delays
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+@placed(FADING_PILGRIM, STEWARD)
+def test_a_mob_waiting_behind_one_that_removes_itself_still_finishes_its_script(server) -> None:
+    """The waiter after a mob whose resumed script removes it still runs the rest of its script.
+
+    do_say (act_comm.cpp) runs the mobs' hearing scripts in room order, the pilgrim (placed
+    first) before the steward. The pilgrim's first line, which the steward hears inside the say,
+    lacks "dusk"; the pilgrim then pauses, and the steward, hearing the implementor, bows and
+    pauses after him. Both waits last four passes, so on the pass where the pilgrim's script
+    removes him the waiting list goes on to the steward, who straightens up after the pilgrim's
+    last line. The steward never speaks, so the two mobs cannot answer each other. Nothing here
+    draws a random number.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+
+    spoken = implementor.command(DUSK_SPEECH).text
+    first_line = said(FADING_PILGRIM.short_description, PILGRIM_FIRST_LINE)
+    last_line = said(FADING_PILGRIM.short_description, PILGRIM_LAST_LINE)
+    assert first_line in spoken and STEWARD_BOW_LINE in spoken, spoken
+    assert spoken.index(first_line) < spoken.index(STEWARD_BOW_LINE), spoken
+    assert last_line not in spoken and STEWARD_RISE_LINE not in spoken, spoken
+    # The steward's line comes on the same pass as the pilgrim's, so the settle reads it.
+    finished = implementor.expect([last_line], timeout=WAIT_TIMEOUT)
+    finished += implementor.drain(SETTLE_SECONDS)
+    assert finished.count(last_line) == 1 and finished.count(STEWARD_RISE_LINE) == 1, finished
+    assert finished.index(last_line) < finished.index(STEWARD_RISE_LINE), finished
+
+    after = implementor.command("look").text
+    assert PILGRIM_IN_ROOM not in after, after
+    assert STEWARD_IN_ROOM in after, after
+
+
 @dataclass(frozen=True)
 class ReportedLine:
     """A mob whose ON_RECEIVE script reaches a line that would crash; the game reports and skips it."""
