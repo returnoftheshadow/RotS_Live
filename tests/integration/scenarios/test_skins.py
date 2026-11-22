@@ -14,12 +14,11 @@ commands.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import wait_for_log_count
 from rots_harness.immortal_commands import give_new_object, load_mob, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -42,26 +41,18 @@ SKIN_OWNS_COST = 1141
 SKIN = 1142
 ORPHAN = 1143
 STEWARD = 1136
+# Seconds to wait for a line to reach game.log: under the Docker launcher the server's log
+# reaches game.log apart from the game text, so a line logged before a reply can still be on its
+# way when the reply arrives.
+LOG_TIMEOUT_SECONDS = 8.0
+# Seconds between two reads of game.log while waiting for a line.
+LOG_POLL_SECONDS = 0.2
 
 
 def vstat(implementor: GameSession, vnum: int) -> str:
     """The implementor's vstat of an object prototype; it has lines ending in ']', so read it to
     its last line (do_stat_object, act_wiz.cpp)."""
     return reply_to(implementor, f"vstat obj {vnum}", ["Affections:"], settle=0.5)
-
-
-def wait_for_log_line(server, line: str, timeout: float = 8.0) -> str:
-    """Re-reads game.log until it holds line, or raises after timeout seconds. Under the Docker
-    launcher the server's log reaches game.log apart from the game text, so a line logged
-    before a reply can still be on its way when the reply arrives."""
-    deadline = time.monotonic() + timeout
-    while True:
-        game_log = (server.run_dir / "game.log").read_text(errors="replace")
-        if line in game_log:
-            return game_log
-        if time.monotonic() >= deadline:
-            raise AssertionError(f"{line!r} not in game.log within {timeout}s:\n{game_log[-2000:]}")
-        time.sleep(0.2)
 
 
 @pytest.mark.schedule("affect-hours")
@@ -83,7 +74,8 @@ def test_boot_reads_skins_from_the_world_file_and_demotes_one_without_a_base(ser
 
     orphan = vstat(implementor, ORPHAN)
     assert "Skin of" not in orphan, orphan
-    wait_for_log_line(server, f"OBJ ERROR: object #{ORPHAN}: base obj 1199 not found - loaded as plain object")
+    orphan_log_line = f"OBJ ERROR: object #{ORPHAN}: base obj 1199 not found - loaded as plain object"
+    wait_for_log_count(server.handle.log_path, orphan_log_line, 1, timeout=LOG_TIMEOUT_SECONDS, poll=LOG_POLL_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
@@ -132,4 +124,5 @@ def test_a_script_restyles_a_sword_in_a_carried_bag_and_logs_a_refused_line(serv
     in_bag = owner.command("look in bag")
     assert "an engraved steel sword" in in_bag.text, in_bag.text
 
-    wait_for_log_line(server, f"SCRIPT ERROR: script #1101, line 4 (restyle obj): obj {SKIN_OWNS_COST} -> {world.OBJECT_LEATHER_CAP} not same family")
+    refusal_log_line = f"SCRIPT ERROR: script #1101, line 4 (restyle obj): obj {SKIN_OWNS_COST} -> {world.OBJECT_LEATHER_CAP} not same family"
+    wait_for_log_count(server.handle.log_path, refusal_log_line, 1, timeout=LOG_TIMEOUT_SECONDS, poll=LOG_POLL_SECONDS)

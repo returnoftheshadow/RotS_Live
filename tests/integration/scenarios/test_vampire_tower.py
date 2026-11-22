@@ -3,14 +3,14 @@ sides once, and with a side of the door missing it logs that and the game goes o
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import count_logged, logged_messages
 from rots_harness.immortal_commands import goto, set_syslog
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import ROOM_RELEASED
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.vampire_tower]
@@ -47,7 +47,7 @@ VISITOR = Character(
 )
 
 # The room editor's replies (shaperom.cpp): loading the room, or failing to; asking which exit
-# to remove and removing it; implementing the room; and releasing it.
+# to remove and removing it; and implementing the room.
 ROOM_LOADED = f"loading room #{ROOM_BEFORE_THE_DOOR}"
 ROOM_LOAD_FAILURES = ["could not open that file.", "no room here."]
 WHICH_EXIT_TO_REMOVE = "Enter exit to remove (n e s w u d):"
@@ -55,7 +55,6 @@ SOUTH_EXIT_REMOVED = "Exit SOUTH removed."
 NO_SUCH_EXIT = "This exit did not exist already."
 ROOM_IMPLEMENTED = "Room implemented."
 IMPLEMENT_REFUSALS = ["You may not do that in this zone.", "You have nothing to implement"]
-ROOM_RELEASED = "You released the room and stopped shaping."
 
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
@@ -67,24 +66,6 @@ LOG_POLL_SECONDS = 0.1
 def doorwarden_at_the_door() -> pytest.MarkDecorator:
     """The world_resets marker that places the doorwarden outside the door at boot."""
     return pytest.mark.world_resets(MobReset(DOORWARDEN_VNUM, ROOM_BEFORE_THE_DOOR))
-
-
-def log_messages(server) -> list:
-    """The messages mudlog wrote to game.log, each line being '<type>, <time> :: <message>' (utility.cpp)."""
-    text = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
-    return [line.split(" :: ", 1)[1] for line in text.splitlines() if " :: " in line]
-
-
-def count_logged(server, message: str, expected_count: int) -> int:
-    """How many times game.log holds the message, once it holds it expected_count times or LOG_TIMEOUT passes.
-
-    The server writes its log before it sends the reply that caused it; the Docker launcher
-    relays the log through compose, so the line can reach the file a little later.
-    """
-    deadline = time.monotonic() + LOG_TIMEOUT
-    while log_messages(server).count(message) < expected_count and time.monotonic() < deadline:
-        time.sleep(LOG_POLL_SECONDS)
-    return log_messages(server).count(message)
 
 
 def turn_off_syslog(implementor: GameSession) -> None:
@@ -148,7 +129,7 @@ def test_the_door_guard_closes_its_open_door_on_both_sides_once(server) -> None:
     assert BEFORE_THE_DOOR_NAME in again and DOOR_BLURS not in again, again
     watched = visitor.drain(SETTLE_SECONDS)
     assert DOOR_BLURS not in watched, watched
-    assert MISSING_SIDE_LOG not in log_messages(server), log_messages(server)
+    assert MISSING_SIDE_LOG not in logged_messages(server.handle.log_path), logged_messages(server.handle.log_path)
 
 
 @pytest.mark.schedule("affect-hours")
@@ -174,10 +155,10 @@ def test_the_door_guard_with_a_side_of_its_door_missing_logs_it_and_the_game_goe
 
     looked = implementor.command("look").text
     assert BEFORE_THE_DOOR_NAME in looked and DOOR_BLURS not in looked, looked
-    assert count_logged(server, MISSING_SIDE_LOG, 1) == 1, log_messages(server)
+    assert count_logged(server.handle.log_path, MISSING_SIDE_LOG, 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS) == 1, logged_messages(server.handle.log_path)
     watched = visitor.drain(SETTLE_SECONDS)
     assert DOOR_BLURS not in watched, watched
 
     walked = visitor.command("north")
     assert walked.contains(BEFORE_THE_DOOR_NAME), walked.text
-    assert count_logged(server, MISSING_SIDE_LOG, 2) == 2, log_messages(server)
+    assert count_logged(server.handle.log_path, MISSING_SIDE_LOG, 2, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS) == 2, logged_messages(server.handle.log_path)

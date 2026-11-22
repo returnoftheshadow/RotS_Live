@@ -4,14 +4,11 @@ a wear slot he has already filled, which makes no item."""
 
 from __future__ import annotations
 
-import time
-from pathlib import Path
-
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR
+from rots_harness.game_log import wait_for_log_count
 from rots_harness.immortal_commands import goto
-from rots_harness.launcher import GAME_LOG_NAME
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -88,17 +85,6 @@ def reset_dressing_zone(implementor: GameSession) -> str:
     return reply.text
 
 
-def wait_for_log_count(log_path: Path, line: str, count: int) -> str:
-    """Waits until game.log holds line at least count times and returns the log; fails naming the line."""
-    deadline = time.monotonic() + LOG_TIMEOUT_SECONDS
-    while True:
-        text = log_path.read_text(encoding="latin-1")
-        if text.count(line) >= count or time.monotonic() >= deadline:
-            assert text.count(line) == count, f"game.log has {text.count(line)} of {count} {line!r}:\n{text[-2000:]}"
-            return text
-        time.sleep(LOG_POLL_SECONDS)
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.expect_syserr(ALREADY_EQUIPPED_SYSERR)
 @pytest.mark.characters(IMPLEMENTOR)
@@ -146,4 +132,4 @@ def test_a_reset_row_for_a_wear_slot_its_mob_has_filled_makes_no_item(server) ->
     for vnum in (SPARE_BASCINET_VNUM, STRAY_FLINT_VNUM):
         where = implementor.command(f"where {vnum}")
         assert where.contains(NOTHING_FOUND_LINE), where.text
-    wait_for_log_count(server.run_dir / GAME_LOG_NAME, ALREADY_EQUIPPED_SYSERR, 1)
+    wait_for_log_count(server.handle.log_path, ALREADY_EQUIPPED_SYSERR, 1, exact=True, timeout=LOG_TIMEOUT_SECONDS, poll=LOG_POLL_SECONDS)

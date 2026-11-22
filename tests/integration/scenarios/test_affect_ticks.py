@@ -104,15 +104,6 @@ def force_scarecrow(implementor: GameSession, command: str, room_marker: str) ->
     assert reply.count(FORCED_REPLY) == 1 and reply.count(room_marker) == 1, reply
 
 
-def text_after_an_hour(server, session: GameSession) -> str:
-    """Advances one game hour and returns what the session read during it.
-
-    advance_hours returns once the server has run the hour, so a short drain collects its text.
-    """
-    server.advance_hours(1)
-    return session.drain(SETTLE_SECONDS)
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, TASTER)
 def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_mortal_still_ticks(server) -> None:
@@ -149,7 +140,7 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     assert hit - POISON_TICK_DAMAGE <= -(constitution // 2)
     assert stat_affects(scarecrow) == ("POISON.", ((5, "poison"),))
 
-    first_hour = text_after_an_hour(server, implementor)
+    first_hour = server.text_after_hours(implementor)
     for marker in (SCARECROW_WRITHES_MARKER, SCARECROW_DEAD_MARKER, SCARECROW_DEATH_CRY_MARKER, TASTER_WRITHES_MARKER):
         assert first_hour.count(marker) == 1, f"{marker!r}:\n{first_hour}"
     assert first_hour.index(SCARECROW_DEATH_CRY_MARKER) < first_hour.index(TASTER_WRITHES_MARKER), first_hour
@@ -163,7 +154,7 @@ def test_a_poison_tick_that_kills_a_mob_leaves_its_corpse_and_the_next_poisoned_
     corpse = implementor.command("look in corpse")
     assert corpse.contains("a draining grey sash"), corpse.text
 
-    second_hour = text_after_an_hour(server, implementor)
+    second_hour = server.text_after_hours(implementor)
     assert second_hour.count(TASTER_WRITHES_MARKER) == 1, second_hour
     assert SCARECROW_WRITHES_MARKER not in second_hour, second_hour
 
@@ -204,7 +195,7 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     assert strength == SAINT_ALIGNMENT
     assert stat_affects(before) == ("SANCT POISON.", ((5, "poison"), (9, "sanctuary")))
 
-    first_hour = text_after_an_hour(server, saint)
+    first_hour = server.text_after_hours(saint)
     assert first_hour.count(SANCTUARY_BROKEN_MARKER) == 1, first_hour
     assert first_hour.count(POISON_TICK) == 1, first_hour
     assert first_hour.index(SANCTUARY_BROKEN_MARKER) < first_hour.index(POISON_TICK), first_hour
@@ -215,6 +206,6 @@ def test_a_poison_tick_breaks_its_victims_own_sanctuary_and_still_poisons_him(se
     after = read_stat(implementor, f"player {SAINT.name.lower()}")
     assert stat_affects(after) == ("POISON.", ((4, "poison"),))
 
-    second_hour = text_after_an_hour(server, saint)
+    second_hour = server.text_after_hours(saint)
     assert second_hour.count(POISON_TICK) == 1, second_hour
     assert SANCTUARY_BROKEN_MARKER not in second_hour, second_hour

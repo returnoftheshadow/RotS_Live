@@ -108,12 +108,6 @@ def tell_angel(pupil: GameSession, text: str) -> str:
     return reply_to(pupil, f"tell angel {text}", [TOLD_ANGEL_FORMAT.format(text), NOBODY_MARKER])
 
 
-def relog(server, pupil: GameSession) -> GameSession:
-    """Quits the pupil's session and logs the character in again; returns the new session."""
-    pupil.quit()
-    return server.login(PUPIL.name)
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, FIRE_PUPIL)
 @pytest.mark.world_resets(MobReset(world.MOB_SHINING_ANGEL, world.ROOM_ARENA_CENTRE))
@@ -241,7 +235,7 @@ def test_learning_set_by_an_immortal_changes_the_sessions_only_at_the_next_login
     assert learning[1:] == (LEARNING, LEARNING)
     assert plain_sessions(plain_list(pupil)) == before
 
-    pupil = relog(server, pupil)
+    pupil = server.relog(pupil)
     after = read_stat(implementor, f"player {PUPIL.name.lower()}")
     assert stat_value(LEVEL_PATTERN, after) == (30,)
     assert stat_value(LEARNING_PATTERN, after)[1] == LEARNING
@@ -273,7 +267,7 @@ def test_a_relog_leaves_knowledge_spent_and_remaining_sessions_unchanged(server)
     blink_before = re.search(GUILD_ROW_PATTERN_FORMAT.format("blink"), before.text, re.MULTILINE)
     assert blink_before is not None and blink_before.groups() == ("96", "4"), before.text
 
-    pupil = relog(server, pupil)
+    pupil = server.relog(pupil)
     after = pupil.command("practice")
     assert after.contains(TRAVELLER_LIST_HEADER), after.text
     blink_after = re.search(GUILD_ROW_PATTERN_FORMAT.format("blink"), after.text, re.MULTILINE)

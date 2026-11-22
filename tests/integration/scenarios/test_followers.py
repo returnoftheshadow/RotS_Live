@@ -9,6 +9,7 @@ import re
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import LOST_CONCENTRATION, NO_ENERGY
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import DEATH_CRY_FORMAT, NEW_BODY_MESSAGE, NOW_FOLLOWING_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, set_holylight, wizset
@@ -149,11 +150,9 @@ STOP_FOLLOWING_UNSEEN_MARKER = "You stop following someone."
 PIT_ROOM_NAME = "Gallows Pit"
 # What the caster reads when the casting delay starts (do_cast, spell_pa.cpp).
 CONCENTRATE_MARKER = "You start to concentrate."
-# What the caster reads when its mana does not cover the cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # The outcomes of cure self when the delay ends: the concentration roll fails (do_cast), or the
 # spell runs on a caster at full hit points or below them (spell_cure_self, mage.cpp).
-CAST_OUTCOME_MARKERS = ["You lost your concentration!", "You are already healthy.", "You feel better."]
+CAST_OUTCOME_MARKERS = [LOST_CONCENTRATION, "You are already healthy.", "You feel better."]
 # Seconds to wait for the cast's outcome: cure self's 36 beats at mage level 10 are
 # 36 * 30 / (30 + 10) = 27 passes, under seven seconds (CASTING_TIME, spells.h); 20 leaves room
 # for a loaded host.
@@ -281,7 +280,7 @@ def test_a_follower_in_a_casting_delay_gets_the_ack_line_instead_of_busy(server)
     gather_in_arena_centre(leader, follower)
 
     follower.send_line("cast 'cure self'")
-    started = follower.expect([CONCENTRATE_MARKER, NO_ENERGY_MARKER])
+    started = follower.expect([CONCENTRATE_MARKER, NO_ENERGY])
     assert CONCENTRATE_MARKER in started, started
     left_behind, leader_text = walk_east(leader, follower)
     assert BUSY_MARKER not in left_behind, left_behind

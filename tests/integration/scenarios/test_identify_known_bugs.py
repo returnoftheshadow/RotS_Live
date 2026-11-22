@@ -6,10 +6,10 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import NO_ENERGY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
 from rots_harness.immortal_commands import give_new_object
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_identify import ATTRIBUTES_HEADER, MAGE
 
@@ -25,11 +25,6 @@ RELIC_SHORT_DESCRIPTION = "a strange relic"
 
 # The first line identify prints (do_identify_object, act_info.cpp).
 IDENTIFIED_MARKER = f"You feel certain the object you have is {RELIC_SHORT_DESCRIPTION}."
-# What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp):
-# number(0, 100) >= 100 still happens once in 101 casts at full knowledge.
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
-# What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # The start of identify's wear sentence for an object of type other (do_identify_object,
 # item_messages[12], act_info.cpp).
 WEAR_SENTENCE_START = "This item can be"
@@ -38,29 +33,23 @@ ERROR_FRAGMENT = "ERROR"
 # What wear_messages[15] says today for the THROW bit.
 LIGHT_SOURCE_FRAGMENT = "light source"
 
-# Seconds to wait for a cast's outcome: identify's 50 beats at mage level 30 are 25
-# (CASTING_TIME, spells.h), about three seconds; 15 leaves room for a loaded host.
-CAST_TIMEOUT = 15.0
-
 
 def identify_relic(server) -> list:
     """Hands the mage the relic, casts identify on it and returns the reply's lines, stripped.
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs mana and nothing restores mana between requests under affect-hours, so
-    the repeats end at NO_ENERGY_MARKER at the latest.
+    the repeats end at NO_ENERGY at the latest.
     """
     implementor = server.login(IMPLEMENTOR.name)
     mage: GameSession = server.login(MAGE.name)
     mage_keyword = MAGE.name.lower()
     give_new_object(implementor, world.OBJECT_STRANGE_RELIC, RELIC_KEYWORD, mage_keyword, shown_recipient=MAGE.name, short_description=RELIC_SHORT_DESCRIPTION)
 
-    outcomes = [IDENTIFIED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
-    while True:
-        reply = reply_to(mage, f"cast 'identify' {RELIC_KEYWORD}", outcomes, timeout=CAST_TIMEOUT)
-        if LOST_CONCENTRATION_MARKER not in reply:
-            assert IDENTIFIED_MARKER in reply, reply
-            return [line.strip() for line in reply.splitlines()]
+    outcomes = [IDENTIFIED_MARKER, NO_ENERGY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
+    reply = cast_until_it_lands(mage, f"cast 'identify' {RELIC_KEYWORD}", outcomes)
+    assert IDENTIFIED_MARKER in reply, reply
+    return [line.strip() for line in reply.splitlines()]
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="identify should describe the NOINVIS and WILLPOWER flags; today extra_messages[] prints 'ERROR: Please report' for them")

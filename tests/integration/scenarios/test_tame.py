@@ -510,8 +510,7 @@ def test_whistle_recalls_the_whistlers_tame_from_elsewhere_in_the_zone(server) -
 
     hours_text = ""
     for _whistle in range(3):
-        server.advance_hours(1)
-        hours_text += tamer.drain(SETTLE_SECONDS)
+        hours_text += server.text_after_hours(tamer)
         if boar_rooms(implementor) == [ROOM_WHISTLE_HUB, ROOM_EAST_SPOKE]:
             break
         assert WHISTLED_MARKER in whistle(tamer)

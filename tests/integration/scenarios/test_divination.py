@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION, NO_ENERGY
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import UNKNOWN_SPELL_REPLY
 from rots_harness.immortal_commands import goto
@@ -80,22 +81,15 @@ LIST_CUT = "and more."
 CAPS_KEPT = 64
 LIST_LIMIT = 999
 
-# What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp), and when her
-# mana no longer covers a cast (can_cast_spell): number(0, 100) >= 100 still loses one cast in 101
-# at full knowledge, so a cast is repeated after a loss until the mana runs out.
-LOST_CONCENTRATION = "You lost your concentration!"
-NO_ENERGY = "You can't summon enough energy to cast the spell."
 # The last line of every report: the object list, whatever it holds.
 OBJECTS_HEADER = "Objects in the room:"
-# Seconds to wait for a cast's outcome.
-CAST_TIMEOUT = 15.0
 
 
 def divine(seer: GameSession) -> list:
     """Casts divination, repeating it after a lost concentration; returns the report's lines from
     its first line on."""
     while True:
-        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL_REPLY], timeout=CAST_TIMEOUT)
+        reply = reply_to(seer, "cast 'divination'", [OBJECTS_HEADER, LOST_CONCENTRATION, NO_ENERGY, UNKNOWN_SPELL_REPLY], timeout=CAST_TIMEOUT_SECONDS)
         if LOST_CONCENTRATION in reply:
             continue
         lines = stripped_lines(reply)

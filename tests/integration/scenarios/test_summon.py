@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import CAST_TIMEOUT_SECONDS, LOST_CONCENTRATION, NO_ENERGY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import QUIT_DROP_REPLY, TELEPORTED_BY_ANYONE
 from rots_harness.immortal_commands import give_new_object, set_holylight
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import MAGE_LEVEL_PATTERN, read_stat
 
@@ -84,13 +84,8 @@ ZONE_DIRECTORY = Path(__file__).resolve().parents[1] / "world" / "zon"
 NOBODY_MARKER = "Nobody by that name."
 # What the caster reads when the casting delay starts (do_cast, spell_pa.cpp).
 CONCENTRATE_MARKER = "You start to concentrate."
-# What the caster reads when the concentration roll fails (do_cast): number(0, 100) >= 100 still
-# happens once in 101 casts at full knowledge.
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
 # What the caster reads when the victim saves or summon refuses the target (spell_summon).
 FAILED_MARKER = "You failed."
-# What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # The start of what the caster reads when do_cast's big_brother check protects the target
 # (spell_pa.cpp; a writing or AFK target, big_brother.cpp).
 PROTECTED_TARGET_MARKER = "You feel the Gods looking down upon you"
@@ -112,9 +107,6 @@ LEFT_THE_WORLD_MARKER = "Your victim has left the world."
 DROP_FORMAT = "You drop {}."
 # What look prints instead of the room for a character who cannot see (do_look, act_info.cpp).
 DARK_ROOM_LOOK = "It is pitch black..."
-# Seconds to wait for a cast's outcome: summon's 36 beats at mage level 30 are 18 passes, four
-# and a half seconds (CASTING_TIME, spells.h); 15 leaves room for a loaded host or emulated i386.
-CAST_TIMEOUT = 15.0
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -153,22 +145,18 @@ def cast_summon(caster: GameSession, target_name: str) -> str:
 
     A lost concentration is the one roll left that can stop the cast, so the cast is repeated
     after it. Each loss costs mana, and nothing regenerates mana between requests under
-    affect-hours, which every test here uses, so the repeats end at NO_ENERGY_MARKER at the latest.
+    affect-hours, which every test here uses, so the repeats end at NO_ENERGY at the latest.
     """
     outcomes = [
         NOBODY_MARKER,
         FAILED_MARKER,
-        LOST_CONCENTRATION_MARKER,
-        NO_ENERGY_MARKER,
+        NO_ENERGY,
         PROTECTED_TARGET_MARKER,
         RECENT_PK_MARKER,
         UNSEEN_ARRIVAL_MARKER,
         ARRIVAL_MARKER_FORMAT.format(target_name),
     ]
-    while True:
-        reply = reply_to(caster, f"cast 'summon' {target_name.lower()}", outcomes, timeout=CAST_TIMEOUT)
-        if LOST_CONCENTRATION_MARKER not in reply:
-            return reply
+    return cast_until_it_lands(caster, f"cast 'summon' {target_name.lower()}", outcomes)
 
 
 def setup_caster_and_victim(implementor: GameSession, victim: Character) -> tuple:
@@ -386,7 +374,7 @@ def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits
     "Your victim has left the world." #534 made the cast stop there; before it, spell_summon ran
     on a target in no room and pulled it out of the menu. The check comes before the
     concentration roll, so nothing draws. Summon's 36 beats at mage level 30 are about four and a half seconds
-    (CAST_TIMEOUT), and the quit is a single pass. The target's connection stays open until
+    (CAST_TIMEOUT_SECONDS), and the quit is a single pass. The target's connection stays open until
     the cast ends: closing it would free the character.
     """
     server.login(IMPLEMENTOR.name)
@@ -394,7 +382,7 @@ def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits
     victim = server.login(DISTANT_VICTIM.name)
 
     caster.send_line(f"cast 'summon' {DISTANT_VICTIM.name.lower()}")
-    started = caster.expect([CONCENTRATE_MARKER, NOBODY_MARKER, NO_ENERGY_MARKER])
+    started = caster.expect([CONCENTRATE_MARKER, NOBODY_MARKER, NO_ENERGY])
     assert CONCENTRATE_MARKER in started, started
     victim.send_line("quit")
     quit_text = victim.expect([QUIT_DROP_REPLY])
@@ -404,12 +392,12 @@ def test_summon_tells_the_caster_its_target_left_the_world_when_the_target_quits
         LEFT_THE_WORLD_MARKER,
         NOBODY_MARKER,
         FAILED_MARKER,
-        LOST_CONCENTRATION_MARKER,
+        LOST_CONCENTRATION,
         PROTECTED_TARGET_MARKER,
         UNSEEN_ARRIVAL_MARKER,
         ARRIVAL_MARKER_FORMAT.format(DISTANT_VICTIM.name),
     ]
-    reply = caster.expect(outcomes, timeout=CAST_TIMEOUT) + caster.drain(SETTLE_SECONDS)
+    reply = caster.expect(outcomes, timeout=CAST_TIMEOUT_SECONDS) + caster.drain(SETTLE_SECONDS)
     assert LEFT_THE_WORLD_MARKER in reply, reply
     assert ARRIVAL_MARKER_FORMAT.format(DISTANT_VICTIM.name) not in reply, reply
     menu = victim.drain(SETTLE_SECONDS)

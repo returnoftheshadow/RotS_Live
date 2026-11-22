@@ -4,16 +4,15 @@ characters."""
 
 from __future__ import annotations
 
-import contextlib
-import json
 import re
-from typing import Iterator
 
 import pytest
 
 from rots_harness import world
+from rots_harness.accounts import INVALID_CREDENTIALS_MARKER, SHORT_PASSWORD_REFUSAL, account_connection
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
-from rots_harness.launcher import LOGIN_EMAIL_PROMPT
+from rots_harness.game_log import log_lines_holding
+from rots_harness.saved_files import HARNESS_ACCOUNT_FOLDER, stored_account
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
     ACCOUNT_MENU_PROMPT,
@@ -45,11 +44,6 @@ DELETE_REFUSALS = (
 )
 # A name no player in the test has.
 UNKNOWN_PLAYER = "nosuch"
-# The harness account's folder in the lib, accounts/<letter range>/<email>, as rotstool writes it
-# for the server's account layer (account_management.cpp).
-ACCOUNT_FOLDER = f"accounts/F-J/{HARNESS_EMAIL}"
-# The account's record in that folder (account_file_path_from_email, account_management.cpp).
-ACCOUNT_FILE = f"{ACCOUNT_FOLDER}/account.json"
 # The folder delete_player_character_by_index copies a linked character's file into (db.cpp).
 ARCHIVE_FOLDER = "players/ZZZ"
 # The start of the character list line of `account show`
@@ -76,10 +70,9 @@ ACCOUNT_COMMAND_REFUSALS = (
     ("account errors 0", "Usage: account errors [rows]"),
     (f"account block {HARNESS_EMAIL}", "Usage: account block <email-or-account> <reason>"),
 )
-# A password `account passwd` refuses for its length, and the refusal (is_valid_password,
+# A password `account passwd` refuses for its length (is_valid_password,
 # account_management_identity.cpp).
 SHORT_PASSWORD = "short"
-SHORT_PASSWORD_REFUSAL = "Passwords must be at least 8 characters long."
 # What `account addchar` prints for a character the account already links (add_character_to_account).
 ALREADY_LINKED_REFUSAL = "Character is already linked to this account."
 # The replies to `account block` and `account unblock` (do_account).
@@ -87,9 +80,6 @@ ACCOUNT_BLOCKED_REPLY = "Account blocked."
 ACCOUNT_UNBLOCKED_REPLY = "Account unblocked."
 # The reason given for the block.
 BLOCK_REASON = "scenario"
-# What a blocked account's correct password prints, the same as a wrong one (CON_ACCTPWD in nanny,
-# interpre.cpp; authenticate_account).
-INVALID_CREDENTIALS_MARKER = "Invalid account credentials."
 # A character with no file in players/, so `account migratechar` fails and records the failure.
 UNMIGRATABLE_NAME = "Nosuchchar"
 # The `account errors` header after one recorded failure (do_account).
@@ -115,20 +105,6 @@ CAN_HEAR_TELLS = "You can hear tells."
 DEAF_TO_TELLS = "You are deaf to tells."
 
 
-@contextlib.contextmanager
-def account_connection(server, label: str) -> Iterator[GameSession]:
-    """A connection at the account email prompt, closed when the block ends.
-
-    It plays no character, so the server fixture does not quit it; label names its transcript.
-    """
-    connection = GameSession(server.handle, label, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.expect([LOGIN_EMAIL_PROMPT])
-        yield connection
-    finally:
-        connection.close()
-
-
 def password_reply(connection: GameSession) -> str:
     """Sends the harness email and its correct password; returns the reply up to the next prompt."""
     connection.send_line(HARNESS_EMAIL)
@@ -145,11 +121,6 @@ def account_show_characters(implementor: GameSession) -> str:
     return lines[0]
 
 
-def stored_account(server) -> dict:
-    """The harness account's record as the server last wrote it."""
-    return json.loads((server.lib_dir / ACCOUNT_FILE).read_text(encoding="utf-8"))
-
-
 @pytest.mark.characters(IMPLEMENTOR, VICTIM)
 def test_deleting_a_linked_character_unlinks_it_and_archives_its_file(server) -> None:
     """Pins #282: `delete` takes a linked character off its account (account show, the record's
@@ -157,7 +128,7 @@ def test_deleting_a_linked_character_unlinks_it_and_archives_its_file(server) ->
     keeping a copy of its file in players/ZZZ."""
     implementor = server.login(IMPLEMENTOR.name)
     victim_key = VICTIM.name.lower()
-    account_folder = server.lib_dir / ACCOUNT_FOLDER
+    account_folder = server.lib_dir / HARNESS_ACCOUNT_FOLDER
     victim_files = [account_folder / f"{victim_key}.{kind}.json" for kind in CHARACTER_FILE_KINDS]
     for victim_file in victim_files:
         assert victim_file.is_file(), f"missing before the delete: {victim_file}"
@@ -170,13 +141,13 @@ def test_deleting_a_linked_character_unlinks_it_and_archives_its_file(server) ->
 
     after = account_show_characters(implementor)
     assert after == f"Characters (1): {IMPLEMENTOR.name.lower()}", after
-    linked_names = [link["character_name"] for link in stored_account(server)["character_links"]]
+    linked_names = [link["character_name"] for link in stored_account(server.lib_dir)["character_links"]]
     assert linked_names == [IMPLEMENTOR.name.lower()], linked_names
     left_in_account = sorted(entry.name for entry in account_folder.iterdir() if entry.name.startswith(victim_key))
     assert left_in_account == [], left_in_account
     archived = sorted(entry.name for entry in (server.lib_dir / ARCHIVE_FOLDER).iterdir())
     assert archived == [victim_key], archived
-    with account_connection(server, "afterdelete") as connection:
+    with account_connection(server.handle, server.run_dir, "afterdelete") as connection:
         assert ACCOUNT_MENU_PROMPT in password_reply(connection)
         connection.send_line(ACCOUNT_MENU_PLAY)
         roster = connection.expect([CHARACTER_CHOICE_PROMPT])
@@ -197,7 +168,7 @@ def test_delete_refuses_an_unknown_player_and_a_wrong_password_and_changes_nothi
     assert DELETE_WRONG_PASSWORD_REFUSAL in wrong_password.text, wrong_password.text
     assert account_show_characters(implementor) == f"Characters (2): {IMPLEMENTOR.name.lower()}, {victim_key}"
     for kind in CHARACTER_FILE_KINDS:
-        assert (server.lib_dir / ACCOUNT_FOLDER / f"{victim_key}.{kind}.json").is_file(), kind
+        assert (server.lib_dir / HARNESS_ACCOUNT_FOLDER / f"{victim_key}.{kind}.json").is_file(), kind
 
 
 @pytest.mark.characters(IMPLEMENTOR)
@@ -224,7 +195,7 @@ def test_account_usage_mistakes_are_refused_with_their_usage_line(server) -> Non
     for command, refusal in ACCOUNT_COMMAND_REFUSALS:
         reply = implementor.command(command)
         assert refusal in reply.text, f"{command!r}: {reply.text}"
-    assert stored_account(server)["blocked"] is False
+    assert stored_account(server.lib_dir)["blocked"] is False
 
 
 @pytest.mark.characters(IMPLEMENTOR)
@@ -232,10 +203,10 @@ def test_account_passwd_refuses_a_short_password_and_keeps_the_old_one(server) -
     """Pins #297: `account passwd` with a password under eight characters says why and leaves the
     stored password as it was."""
     implementor = server.login(IMPLEMENTOR.name)
-    password_hash = stored_account(server)["password_hash"]
+    password_hash = stored_account(server.lib_dir)["password_hash"]
     reply = implementor.command(f"account passwd {HARNESS_EMAIL} {SHORT_PASSWORD}")
     assert SHORT_PASSWORD_REFUSAL in reply.text, reply.text
-    assert stored_account(server)["password_hash"] == password_hash
+    assert stored_account(server.lib_dir)["password_hash"] == password_hash
 
 
 @pytest.mark.characters(IMPLEMENTOR)
@@ -254,12 +225,12 @@ def test_a_blocked_account_cannot_sign_in_until_it_is_unblocked(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     blocked = implementor.command(f"account block {HARNESS_EMAIL} {BLOCK_REASON}")
     assert ACCOUNT_BLOCKED_REPLY in blocked.text, blocked.text
-    with account_connection(server, "blockedlogin") as connection:
+    with account_connection(server.handle, server.run_dir, "blockedlogin") as connection:
         refused = password_reply(connection)
         assert INVALID_CREDENTIALS_MARKER in refused and ACCOUNT_MENU_PROMPT not in refused, refused
     unblocked = implementor.command(f"account unblock {HARNESS_EMAIL}")
     assert ACCOUNT_UNBLOCKED_REPLY in unblocked.text, unblocked.text
-    with account_connection(server, "unblockedlogin") as connection:
+    with account_connection(server.handle, server.run_dir, "unblockedlogin") as connection:
         admitted = password_reply(connection)
         assert ACCOUNT_MENU_PROMPT in admitted and INVALID_CREDENTIALS_MARKER not in admitted, admitted
 
@@ -283,7 +254,7 @@ def test_a_failed_migration_is_listed_by_account_errors_and_a_repeat_is_counted_
     assert ONE_ACCOUNT_ERROR_HEADER in second_report, second_report
     repeated_rows = ACCOUNT_ERROR_ROW_PATTERN.findall(second_report.replace("\r", ""))
     assert [repeat for repeat, _reason in repeated_rows] == [" x2"], second_report
-    log_lines = [line for line in server.handle.log_path.read_text(encoding="latin-1").splitlines() if ACCOUNT_ERROR_LOG_LINE in line]
+    log_lines = log_lines_holding(server.handle.log_path, ACCOUNT_ERROR_LOG_LINE)
     assert len(log_lines) == 1, log_lines
 
 

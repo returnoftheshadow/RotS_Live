@@ -4,6 +4,7 @@ already in the file."""
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import shutil
 from pathlib import Path
@@ -11,8 +12,8 @@ from typing import NamedTuple, Optional
 
 import pytest
 
-from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness import shaping, world
+from rots_harness.characters import IMPLEMENTOR
 from rots_harness.immortal_commands import goto
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -23,14 +24,7 @@ pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_sav
 # A second implementor, who reads the live game from the signpost room while the first one shapes.
 # Implementors enter the game in the immortal start room whatever their load room, so the
 # scenario sends it to the signpost room.
-WATCHER = Character(
-    name="Testwatch",
-    race="human",
-    sex="male",
-    level=100,
-    load_room=world.ROOM_IMMORTAL_START,
-    class_name="warrior",
-)
+WATCHER = dataclasses.replace(IMPLEMENTOR, name="Testwatch")
 
 # The two lines every editor's /done prints when its save fails (extra_coms_* in shape*.cpp).
 NOT_SAVED_LINES = ["Not saved - still shaping. Fix the problem and /done again,", "or /free to discard."]
@@ -72,10 +66,10 @@ class EditorCase(NamedTuple):
 
 
 ZONE_CASE = EditorCase(
-    open_line="shape zone 11",
-    prompt="Zone: 11>",
-    release_marker="You released your job and stop shaping.",
-    file_relative=Path("world") / "zon" / "11.zon",
+    open_line=f"shape zone {shaping.ZONE_NUMBER}",
+    prompt=shaping.ZONE_PROMPT,
+    release_marker=shaping.ZONE_RELEASED,
+    file_relative=shaping.ZONE_FILE_RELATIVE,
     backup_dir_relative=Path("world") / "zon" / "oldzons",
     edit_line="/20",
     old_text="Harness arena",
@@ -89,7 +83,7 @@ ZONE_CASE = EditorCase(
 ROOM_CASE = EditorCase(
     open_line=f"shape room {world.ROOM_SIGNPOST}",
     prompt=f"Shaping: {world.ROOM_SIGNPOST}>",
-    release_marker="You released the room and stopped shaping.",
+    release_marker=shaping.ROOM_RELEASED,
     file_relative=Path("world") / "wld" / "11.wld",
     backup_dir_relative=Path("world") / "wld" / "oldroms",
     edit_line="/1",
@@ -102,9 +96,9 @@ ROOM_CASE = EditorCase(
     live_prefix="",
 )
 MOB_CASE = EditorCase(
-    open_line="shape mob 1130",
-    prompt="Mobile: 1130>",
-    release_marker="You released the mobile and stopped shaping.",
+    open_line=f"shape mob {shaping.SHAPED_RECORD}",
+    prompt=shaping.MOBILE_PROMPT,
+    release_marker=shaping.MOBILE_RELEASED,
     file_relative=Path("world") / "mob" / "11.mob",
     backup_dir_relative=Path("world") / "mob" / "oldmobs",
     edit_line="/2",
@@ -117,9 +111,9 @@ MOB_CASE = EditorCase(
     live_prefix="You create ",
 )
 OBJECT_CASE = EditorCase(
-    open_line="shape object 1130",
-    prompt="Object: 1130>",
-    release_marker="You released an object and stopped shaping.",
+    open_line=f"shape object {shaping.SHAPED_RECORD}",
+    prompt=shaping.OBJECT_PROMPT,
+    release_marker=shaping.OBJECT_RELEASED,
     file_relative=Path("world") / "obj" / "11.obj",
     backup_dir_relative=Path("world") / "obj" / "oldobjs",
     edit_line="/2",
@@ -132,9 +126,9 @@ OBJECT_CASE = EditorCase(
     live_prefix="You create ",
 )
 SCRIPT_CASE = EditorCase(
-    open_line="shape script 1100",
-    prompt="Script: 1100>",
-    release_marker="You released the script and stopped shaping.",
+    open_line=f"shape script {shaping.SHAPED_SCRIPT}",
+    prompt=shaping.SCRIPT_PROMPT,
+    release_marker=shaping.SCRIPT_RELEASED,
     file_relative=Path("world") / "scr" / "11.scr",
     backup_dir_relative=Path("world") / "scr" / "oldscrs",
     edit_line="/20",
@@ -145,9 +139,9 @@ SCRIPT_CASE = EditorCase(
     backup_failure=BACKUP_FAILURE,
     # The script editor copies the script the game runs, so opening it shows the live name.
     watch=(
-        Watch("shape script 1100", ("Script: 1100>",)),
+        Watch(f"shape script {shaping.SHAPED_SCRIPT}", (shaping.SCRIPT_PROMPT,)),
         Watch("/51", ("Script #1100:",)),
-        Watch("/free", ("You released the script and stopped shaping.",)),
+        Watch("/free", (shaping.SCRIPT_RELEASED,)),
     ),
     live_prefix="Script #1100: ",
 )

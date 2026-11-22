@@ -9,6 +9,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import MOBILE_PROMPT, MOBILE_RELEASED, SHAPED_RECORD
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_prompts]
@@ -54,10 +55,6 @@ NOTHING_TO_FORMAT = "What are you trying to format?"
 # The start of what %f prints once it has formatted a text.
 FORMATTED_MARKER = "Your text is formatted."
 
-# The mob the implementor opens, its editor prompt, and what /free prints (shapemob.cpp).
-MOB_VNUM = 1130
-MOB_PROMPT = f"Mobile: {MOB_VNUM}>"
-MOB_RELEASED_MARKER = "You released the mobile and stopped shaping."
 # What /simple prints when it leaves simple mode, where field 42 does not exist.
 EXTENDED_MODE_MARKER = "You switched to extended editing mode."
 # What /42 prints before it opens the text editor on the mob options.
@@ -68,18 +65,18 @@ SETTLE_SECONDS = 0.5
 
 def open_mob_options(implementor: GameSession) -> str:
     """Opens mob 1130's options in the text editor; returns what the editor printed."""
-    opened = reply_to(implementor, f"shape mob {MOB_VNUM}", [MOB_PROMPT, "could not open that file.", "No such mob"], settle=SETTLE_SECONDS)
-    assert MOB_PROMPT in opened, opened
+    opened = reply_to(implementor, f"shape mob {SHAPED_RECORD}", [MOBILE_PROMPT, "could not open that file.", "No such mob"], settle=SETTLE_SECONDS)
+    assert MOBILE_PROMPT in opened, opened
     extended = reply_to(implementor, "/simple", ["editing mode."], settle=SETTLE_SECONDS)
     assert EXTENDED_MODE_MARKER in extended, extended
-    return reply_to(implementor, "/42", [OPTIONS_FIELD_MARKER, MOB_PROMPT], settle=SETTLE_SECONDS)
+    return reply_to(implementor, "/42", [OPTIONS_FIELD_MARKER, MOBILE_PROMPT], settle=SETTLE_SECONDS)
 
 
 def close_mob_editor(implementor: GameSession) -> None:
     """Abandons the options text and leaves the editor, so the session can quit."""
     implementor.send_line("%q")
-    released = reply_to(implementor, "/free", [MOB_RELEASED_MARKER], settle=SETTLE_SECONDS)
-    assert MOB_RELEASED_MARKER in released, released
+    released = reply_to(implementor, "/free", [MOBILE_RELEASED], settle=SETTLE_SECONDS)
+    assert MOBILE_RELEASED in released, released
 
 
 @pytest.mark.schedule("affect-hours")

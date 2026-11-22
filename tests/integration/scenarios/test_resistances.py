@@ -11,10 +11,11 @@ import re
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import NO_ENERGY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT, UNRECOGNIZED_COMMAND_REPLY
 from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
-from rots_harness.replies import reply_to
+from rots_harness.saved_files import account_file
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import CLERIC_LEVEL_PATTERN, read_stat
 
@@ -102,11 +103,6 @@ POISON_AMULET_KEYWORD = "amulet"
 FLAG_RESIST_PERCENT = 33
 VULNERABILITY_PERCENT = 50
 
-# What the caster reads when the concentration roll fails (do_cast): number(0, 100) >= 100 still
-# happens once in 101 casts at full knowledge.
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
-# What the caster reads when its spirit no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # What the caster reads after paying for a cast, before the spell runs (do_cast).
 CAST_PAID_MARKER = "Ok."
 # What the protected character reads (spell_protection, mystic.cpp, and do_resist_spell for an
@@ -175,9 +171,6 @@ RESIST_DEBUG_LINE = f"::RESIST::apply type 161 modifier 1 eff_mod {STRONG_ITEM_P
 # The debug line damage() (fight.cpp) prints for the 5 poison damage the amulet deals on
 # wearing: SPELL_POISON is attack type 43 and matches no resistance.
 POISON_DAMAGE_DEBUG_LINE = "::DAMAGE:: attacktype 43 resist_type 0 check 0 dam 5"
-# Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
-# spells.h); 15 leaves room for a loaded host or emulated i386.
-CAST_TIMEOUT = 15.0
 # Seconds to keep reading after an outcome, for text already sent to arrive.
 SETTLE_SECONDS = 1.0
 
@@ -217,7 +210,7 @@ def cast_protection(caster: GameSession, sphere: str, target: str = "") -> str:
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs spirit, and nothing regenerates spirit between requests under
-    affect-hours, which every test here uses, so the repeats end at NO_ENERGY_MARKER at the latest.
+    affect-hours, which every test here uses, so the repeats end at NO_ENERGY at the latest.
     """
     outcomes = [
         RESISTANT_MARKER_START,
@@ -226,14 +219,10 @@ def cast_protection(caster: GameSession, sphere: str, target: str = "") -> str:
         OTHER_ALREADY_PROTECTED_END,
         NOBODY_MARKER,
         WRONG_SPHERE_START,
-        LOST_CONCENTRATION_MARKER,
-        NO_ENERGY_MARKER,
+        NO_ENERGY,
     ]
     line = f"cast 'protection' {sphere} {target}".rstrip()
-    while True:
-        reply = reply_to(caster, line, outcomes, timeout=CAST_TIMEOUT)
-        if LOST_CONCENTRATION_MARKER not in reply:
-            return reply
+    return cast_until_it_lands(caster, line, outcomes)
 
 
 def affections(session: GameSession) -> str:
@@ -569,8 +558,7 @@ def test_a_mystic_keeps_its_protection_and_strength_across_quit_and_login(server
     mystic, reply = protect_from_dark(server)
     assert DARK_PROTECTION_MARKER in reply, reply
 
-    mystic.quit()
-    again = server.login(MYSTIC.name)
+    again = server.relog(mystic)
 
     shown = affections(again)
     assert resistance_line("dark", 30) in shown, shown
@@ -599,9 +587,8 @@ def test_a_save_keeps_the_protection_and_drops_the_worn_items_resistance(server)
 
     wizset(implementor, f"player {WEARER.name.lower()}", "hunger", 10, shown_name=WEARER.name)
 
-    character_files = list(server.lib_dir.glob(f"accounts/*/*/{WEARER.name.lower()}.character.json"))
-    assert len(character_files) == 1, character_files
-    affects = json.loads(character_files[0].read_text(encoding="utf-8"))["affects"]
+    character_file = account_file(server.lib_dir, WEARER, "character")
+    affects = json.loads(character_file.read_text(encoding="utf-8"))["affects"]
     protections = [affect for affect in affects if affect["type"] == PROTECTION_AFFECT_TYPE]
     assert len(protections) == 1, affects
     protection = protections[0]
@@ -628,8 +615,7 @@ def test_an_immortal_wearing_a_resist_item_has_it_once_after_quit_and_login(serv
     load_object(implementor, STRONG_ITEM_VNUM)
     assert implementor.command(f"wear {STRONG_ITEM_KEYWORD}").contains(FIRE_RESISTANT_MARKER)
 
-    implementor.quit()
-    again = server.login(IMPLEMENTOR.name)
+    again = server.relog(implementor)
 
     shown = affections(again)
     assert resistance_line("fire", STRONG_ITEM_PERCENT) in shown, shown

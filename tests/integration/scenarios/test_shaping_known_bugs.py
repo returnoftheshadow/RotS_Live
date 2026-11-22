@@ -9,9 +9,24 @@ from typing import NamedTuple
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.characters import IMPLEMENTOR, immortal
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import (
+    MOBILE_PROMPT,
+    MOBILE_RELEASED,
+    OBJECT_PROMPT,
+    OBJECT_RELEASED,
+    ROOM_RELEASED,
+    SCRIPT_PROMPT,
+    SCRIPT_RELEASED,
+    SHAPED_RECORD,
+    SHAPED_SCRIPT,
+    ZONE_FILE_RELATIVE,
+    ZONE_NUMBER,
+    ZONE_PROMPT,
+    ZONE_RELEASED,
+)
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from rots_harness.text_lines import raw_lines
 from test_shaping_saving import file_text, record
@@ -20,20 +35,13 @@ pytestmark = [pytest.mark.scenario, pytest.mark.shaping]
 
 # A level-93 immortal: high enough to shape anything (LEVEL_GOD, structs.h), too low to own every
 # zone (LEVEL_GRGOD is 97), so an owned zone gives it limited permission.
-BUILDER = Character(name="Testbuild", race="human", sex="male", level=93, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
+BUILDER = immortal("Testbuild", 93)
 # An idnum no test character has, made the owner of zone 11 so it is no longer open to all.
 OUTSIDE_OWNER = 99999
-# The zone the editors work in, and its file relative to the lib.
-ZONE_NUMBER = 11
-ZONE_FILE_RELATIVE = Path("world") / "zon" / f"{ZONE_NUMBER}.zon"
-# The editors' prompts while no field is being answered (prompt_text in consts.cpp).
-ZONE_PROMPT = f"Zone: {ZONE_NUMBER}>"
+# The room editor's prompt on the signpost room while no field is being answered (prompt_text in
+# consts.cpp).
 SIGNPOST_PROMPT = f"Shaping: {world.ROOM_SIGNPOST}>"
-# What /free prints in the zone, room and script editors, and what a / line gets once the
-# shaper is no longer shaping (shape_center, shapemob.cpp).
-ZONE_RELEASED = "You released your job and stop shaping."
-ROOM_RELEASED = "You released the room and stopped shaping."
-SCRIPT_RELEASED = "You released the script and stopped shaping."
+# What a / line gets once the shaper is no longer shaping (shape_center, shapemob.cpp).
 NOT_SHAPING = "Use 'shape <mob|obj|room|script> <number>' to start shaping."
 # What the zone editor prints on load and on implement (load_zone, implement_zone).
 ZONE_LOADED_MARKER = "Zone loaded"
@@ -93,13 +101,13 @@ def test_a_builder_without_permission_cannot_implement_a_script(server) -> None:
     builder = server.login(BUILDER.name)
     give_zone_an_outside_owner(implementor, save=False)
 
-    opened = reply_to(builder, "shape script 1100", ["Script: 1100>"], settle=SETTLE_SECONDS)
+    opened = reply_to(builder, f"shape script {SHAPED_SCRIPT}", [SCRIPT_PROMPT], settle=SETTLE_SECONDS)
     assert "Limited permission only." in opened, opened
     reply_to(builder, "/20", ["Enter line SCRIPT NAME"], settle=SETTLE_SECONDS)
-    reply_to(builder, "hacked", ["Script: 1100>"], settle=SETTLE_SECONDS)
+    reply_to(builder, "hacked", [SCRIPT_PROMPT], settle=SETTLE_SECONDS)
     reply_to(builder, "/implement", [EDITOR_COMMAND_MARKER], settle=SETTLE_SECONDS)
     free_editor(builder, SCRIPT_RELEASED)
-    reply_to(implementor, "shape script 1100", ["Script: 1100>"], settle=SETTLE_SECONDS)
+    reply_to(implementor, f"shape script {SHAPED_SCRIPT}", [SCRIPT_PROMPT], settle=SETTLE_SECONDS)
     shown = reply_to(implementor, "/51", ["Script #1100:"], settle=SETTLE_SECONDS)
     free_editor(implementor, SCRIPT_RELEASED)
 
@@ -224,9 +232,9 @@ class RecordEditor(NamedTuple):
 
 RECORD_EDITORS = [
     RecordEditor(f"shape room {world.ROOM_SIGNPOST}", SIGNPOST_PROMPT, ROOM_RELEASED, Path("world") / "wld" / "11.wld", "#1184"),
-    RecordEditor("shape mob 1130", "Mobile: 1130>", "You released the mobile and stopped shaping.", Path("world") / "mob" / "11.mob", "#1131"),
-    RecordEditor("shape object 1130", "Object: 1130>", "You released an object and stopped shaping.", Path("world") / "obj" / "11.obj", "#1136"),
-    RecordEditor("shape script 1100", "Script: 1100>", SCRIPT_RELEASED, Path("world") / "scr" / "11.scr", "#1180"),
+    RecordEditor(f"shape mob {SHAPED_RECORD}", MOBILE_PROMPT, MOBILE_RELEASED, Path("world") / "mob" / "11.mob", "#1131"),
+    RecordEditor(f"shape object {SHAPED_RECORD}", OBJECT_PROMPT, OBJECT_RELEASED, Path("world") / "obj" / "11.obj", "#1136"),
+    RecordEditor(f"shape script {SHAPED_SCRIPT}", SCRIPT_PROMPT, SCRIPT_RELEASED, Path("world") / "scr" / "11.scr", "#1180"),
 ]
 
 

@@ -146,8 +146,7 @@ def test_pracreset_leaves_the_session_count_the_next_login_computes(server) -> N
     # pracreset today gives 30 * 3 + 30 * current / 5 + 10, from the rolled current learning.
     assert plain_sessions(pupil) == 340
 
-    pupil.quit()
-    pupil = server.login(RESET_PUPIL.name)
+    pupil = server.relog(pupil)
     assert plain_sessions(pupil) == 340
 
 
@@ -230,8 +229,7 @@ def test_a_chosen_spoken_language_survives_the_next_skill_recount(server, recoun
     assert spoken_language(pupil) == "orcish language"
 
     if recount == "relog":
-        pupil.quit()
-        pupil = server.login(PUPIL.name)
+        pupil = server.relog(pupil)
     else:
         give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
         bring_mob(implementor, world.MOB_MYSTERIOUS_TRAVELLER, TRAVELLER_SHORT_DESCRIPTION)

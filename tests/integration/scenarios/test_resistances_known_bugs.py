@@ -7,10 +7,10 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import NO_ENERGY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import STOP_USING_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto, wizset
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 from test_resistances import (
     ALREADY_PROTECTED_MARKER,
@@ -55,17 +55,9 @@ LEVEL_ITEM_WORN_MARKER = "You put a kindling bracelet on around your right wrist
 # The level the implementor gives the wearer after it puts on the level item.
 RAISED_LEVEL = 25
 
-# What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp): number(0, 100)
-# >= 100 still happens once in 101 casts at full knowledge.
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
-# What the caster reads when its spirit no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # What the protected character, or the wearer of a resist item, reads (spell_protection and
 # do_resist_spell, mystic.cpp).
 FIRE_RESISTANT_MARKER = "You feel resistant to fire!"
-# Seconds to wait for a cast's outcome: protection's 21 beats take a few seconds (CASTING_TIME,
-# spells.h); 15 leaves room for a loaded host or emulated i386.
-CAST_TIMEOUT = 15.0
 
 
 def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyword: str) -> None:
@@ -74,19 +66,15 @@ def hand_item_to(implementor: GameSession, recipient: Character, vnum: int, keyw
     give_new_object(implementor, vnum, keyword, recipient.name.lower())
 
 
-
 def cast_protection_fire(caster: GameSession) -> str:
     """Casts protection from fire on the caster; returns what the caster read after.
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs spirit, and nothing regenerates spirit between requests under
-    affect-hours, so the repeats end at NO_ENERGY_MARKER at the latest.
+    affect-hours, so the repeats end at NO_ENERGY at the latest.
     """
-    outcomes = [FIRE_RESISTANT_MARKER, ALREADY_PROTECTED_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER]
-    while True:
-        reply = reply_to(caster, "cast 'protection' fire", outcomes, timeout=CAST_TIMEOUT)
-        if LOST_CONCENTRATION_MARKER not in reply:
-            return reply
+    outcomes = [FIRE_RESISTANT_MARKER, ALREADY_PROTECTED_MARKER, NO_ENERGY]
+    return cast_until_it_lands(caster, "cast 'protection' fire", outcomes)
 
 
 @pytest.mark.xfail(

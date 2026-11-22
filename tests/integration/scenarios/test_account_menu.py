@@ -4,18 +4,27 @@ roster's selection, sort and filter keys."""
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
 import time
-from typing import Iterator
 
 import pytest
 
 from rots_harness import world
+from rots_harness.accounts import (
+    ACCOUNT_MENU_NEW_CHARACTER,
+    INVALID_CREDENTIALS_MARKER,
+    NEW_CHARACTER_NAME_PROMPT,
+    SHORT_PASSWORD_REFUSAL,
+    account_connection,
+    closes_within,
+    playing_connection,
+)
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
+from rots_harness.game_log import log_lines_holding, read_game_log
 from rots_harness.game_text import QUIT_DROP_REPLY
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
+from rots_harness.saved_files import HARNESS_ACCOUNT_FILE, stored_account
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
     ACCOUNT_MENU_PROMPT,
@@ -45,8 +54,6 @@ SHORT_PASSWORD = "Short1"
 MISMATCHED_PASSWORD = "Newpass88x"
 # The account menu's log-out choice (show_account_menu, interpre.cpp).
 ACCOUNT_MENU_LOG_OUT = "0"
-# The account menu's create-a-new-character choice (show_account_menu, interpre.cpp).
-ACCOUNT_MENU_NEW_CHARACTER = "4"
 # The character menu's back-to-the-account-menu choice (show_character_menu_impl, interpre.cpp).
 CHARACTER_MENU_BACK = "0"
 # The reset menu's reset choice (CON_ACCTPWDFAIL in nanny, interpre.cpp).
@@ -64,14 +71,8 @@ RESET_RESEND_COOLDOWN_SECONDS = 60
 # for the server clock's whole seconds.
 RESET_REQUESTS_TIME_ALLOWED = RESET_RESEND_COOLDOWN_SECONDS - 5
 
-# The harness account's record in the lib, as rotstool writes it (account_file_path_from_email,
-# account_management.cpp).
-ACCOUNT_FILE = f"accounts/F-J/{HARNESS_EMAIL}/account.json"
-
 # What account log-out prints before the connection closes (CON_ACCTMENU in nanny, interpre.cpp).
 GOODBYE_MARKER = "Goodbye."
-# What every wrong account password prints (CON_ACCTPWD in nanny, interpre.cpp).
-INVALID_CREDENTIALS_MARKER = "Invalid account credentials."
 # The line every account menu opens with (show_account_menu, interpre.cpp).
 ACCOUNT_MENU_HEADER = f"Account: {HARNESS_EMAIL}"
 # The reset menu shown instead of the password prompt after the last wrong password
@@ -95,8 +96,6 @@ TOO_MANY_RESET_CODES_LINES = ("Too many invalid reset codes.", "Please reconnect
 # The prompts after a correct reset code (CON_ACCTFORGOTCODE and CON_ACCTFORGOTNEW in nanny).
 NEW_PASSWORD_PROMPT = "New account password:"
 RETYPE_PASSWORD_PROMPT = "Retype the new password:"
-# What is_valid_password says of a password under eight characters (account_management_identity.cpp).
-SHORT_PASSWORD_REFUSAL = "Passwords must be at least 8 characters long."
 # What a retyped password that differs prints (CON_ACCTFORGOTCNF in nanny).
 PASSWORD_MISMATCH_REFUSAL = "Passwords don't match... start over."
 # What a completed reset prints before the connection closes (CON_ACCTFORGOTCNF).
@@ -120,8 +119,6 @@ FAILED_LOGIN_PLURAL_WORD = "ATTEMPTS"
 # The words every failed-login notice contains, whatever the count.
 FAILED_LOGIN_NOTICE_WORDS = "SINCE YOUR LAST SUCCESSFUL LOGIN."
 
-# The prompt for a new character's name (CON_ACCTMENU and CON_ACCTNEWCHAR in nanny, interpre.cpp).
-NEW_CHARACTER_NAME_PROMPT = "New character name:"
 # What a name another account (or this one) already links prints (CON_ACCTNEWCHAR in nanny).
 NAME_ALREADY_LINKED_REFUSAL = "That character name is already linked to an account."
 # What a name with anything but letters prints (CON_ACCTNEWCHAR, _parse_name in interpre.cpp).
@@ -214,31 +211,6 @@ ACCOUNT_SHOW_CHARACTERS_PREFIX = "Characters ("
 CHARACTER_FILE_KINDS = ("character", "objects", "exploits")
 
 
-@contextlib.contextmanager
-def account_connection(server, label: str) -> Iterator[GameSession]:
-    """A connection at the account email prompt, closed when the block ends.
-
-    It plays no character, so the server fixture does not quit it; label names its transcript.
-    """
-    connection = GameSession(server.handle, label, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.expect([LOGIN_EMAIL_PROMPT])
-        yield connection
-    finally:
-        connection.close()
-
-
-@contextlib.contextmanager
-def playing_connection(server, character: Character) -> Iterator[GameSession]:
-    """A connection playing character, closed when the block ends; the server fixture does not quit it."""
-    connection = GameSession(server.handle, character.name, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.login()
-        yield connection
-    finally:
-        connection.close()
-
-
 def answer_password(connection: GameSession, password: str) -> str:
     """Sends password at the password prompt; returns the reply up to the next prompt."""
     connection.send_line(password)
@@ -308,15 +280,6 @@ def start_new_character(connection: GameSession) -> None:
     connection.expect([NEW_CHARACTER_NAME_PROMPT])
 
 
-def closes_within(connection: GameSession, seconds: float) -> bool:
-    """Whether the server closes the connection within seconds; text read meanwhile is discarded."""
-    try:
-        connection.drain(seconds)
-    except ConnectionError:
-        return True
-    return False
-
-
 def exhaust_passwords(connection: GameSession) -> list:
     """Enters the harness email, then wrong passwords until the attempts run out; returns each reply."""
     enter_email(connection)
@@ -334,17 +297,6 @@ def request_reset(connection: GameSession) -> str:
     return requested
 
 
-def stored_account(server) -> dict:
-    """The harness account's record as the server last wrote it."""
-    return json.loads((server.lib_dir / ACCOUNT_FILE).read_text(encoding="utf-8"))
-
-
-def game_log_lines(server, marker: str) -> list:
-    """The lines of the server's game.log so far that contain marker."""
-    log_text = server.handle.log_path.read_text(encoding="latin-1")
-    return [line for line in log_text.splitlines() if marker in line]
-
-
 def account_show_characters(implementor: GameSession) -> str:
     """The character list line `account show` prints for the harness account."""
     reply = implementor.command(f"account show {HARNESS_EMAIL}").text
@@ -357,7 +309,7 @@ def account_show_characters(implementor: GameSession) -> str:
 @pytest.mark.characters(IMPLEMENTOR)
 def test_logging_out_of_the_account_menu_says_goodbye_and_closes_the_connection(server) -> None:
     """Pins #279: the account menu's 0 prints Goodbye. and then the server closes the connection."""
-    with account_connection(server, "logout") as connection:
+    with account_connection(server.handle, server.run_dir, "logout") as connection:
         sign_in(connection)
         connection.send_line(ACCOUNT_MENU_LOG_OUT)
         farewell = connection.expect([GOODBYE_MARKER, ACCOUNT_MENU_PROMPT])
@@ -371,26 +323,26 @@ def test_a_character_quits_back_through_both_menus_and_logs_out(server) -> None:
     """Pins #279: quitting a character leaves the connection at the character menu, whose 0 returns
     to the account menu, whose 0 says Goodbye., logs the account out in game.log and closes the
     connection."""
-    with playing_connection(server, LEAVER) as connection:
+    with playing_connection(server.handle, server.run_dir, LEAVER) as connection:
         connection.send_line("quit")
         quit_reply = connection.expect([CHARACTER_MENU_PROMPT, ACCOUNT_MENU_PROMPT])
         assert QUIT_DROP_REPLY in quit_reply and CHARACTER_MENU_PROMPT in quit_reply, quit_reply
         connection.send_line(CHARACTER_MENU_BACK)
         account_menu = connection.expect([ACCOUNT_MENU_PROMPT, CHARACTER_MENU_PROMPT])
         assert ACCOUNT_MENU_HEADER in account_menu and ACCOUNT_MENU_PROMPT in account_menu, account_menu
-        assert game_log_lines(server, ACCOUNT_LOGOUT_LOG_LINE) == [], "logged out before the account menu's 0"
+        assert log_lines_holding(server.handle.log_path, ACCOUNT_LOGOUT_LOG_LINE) == [], "logged out before the account menu's 0"
         connection.send_line(ACCOUNT_MENU_LOG_OUT)
         farewell = connection.expect([GOODBYE_MARKER, ACCOUNT_MENU_PROMPT])
         assert GOODBYE_MARKER in farewell, farewell
         assert closes_within(connection, CLOSE_SECONDS), f"the connection stayed open after {GOODBYE_MARKER!r}"
-    assert len(game_log_lines(server, ACCOUNT_LOGOUT_LOG_LINE)) == 1, server.handle.log_path.read_text(encoding="latin-1")
+    assert len(log_lines_holding(server.handle.log_path, ACCOUNT_LOGOUT_LOG_LINE)) == 1, read_game_log(server.handle.log_path)
 
 
 @pytest.mark.account_menu_passwords
 @pytest.mark.characters(IMPLEMENTOR)
 def test_the_fifth_wrong_password_opens_the_reset_menu(server) -> None:
     """Pins #284: the first four wrong passwords prompt again; the fifth shows the reset menu instead."""
-    with account_connection(server, "resetmenu") as connection:
+    with account_connection(server.handle, server.run_dir, "resetmenu") as connection:
         replies = exhaust_passwords(connection)
         for earlier_reply in replies[:-1]:
             assert INVALID_CREDENTIALS_MARKER in earlier_reply, earlier_reply
@@ -411,7 +363,7 @@ def test_five_wrong_reset_codes_end_the_reset_and_close_the_connection(server) -
     The request's reply is the same whether or not a code was sent; the harness's server has no
     mail program, so none is.
     """
-    with account_connection(server, "resetcode") as connection:
+    with account_connection(server.handle, server.run_dir, "resetcode") as connection:
         request_reset(connection)
         for _attempt in range(ATTEMPTS_ALLOWED - 1):
             connection.send_line(WRONG_RESET_CODE)
@@ -427,7 +379,7 @@ def test_five_wrong_reset_codes_end_the_reset_and_close_the_connection(server) -
 
 def spend_reset_code(server, label: str) -> None:
     """Requests a reset code on a new connection, then enters wrong codes until the connection closes."""
-    with account_connection(server, label) as connection:
+    with account_connection(server.handle, server.run_dir, label) as connection:
         request_reset(connection)
         for _attempt in range(ATTEMPTS_ALLOWED):
             connection.send_line(WRONG_RESET_CODE)
@@ -441,7 +393,7 @@ def test_five_wrong_reset_codes_clear_the_stored_code_but_keep_when_it_was_sent(
     """Pins #284: the account record keeps the spent attempts and when the code was sent, clears the
     code and its expiry, and counts the five wrong passwords before it."""
     spend_reset_code(server, "spentcode")
-    account = stored_account(server)
+    account = stored_account(server.lib_dir)
     spent_fields = {
         field_name: account[field_name]
         for field_name in ("password_reset_attempt_count", "password_reset_code_hash", "password_reset_code_expires_at", "failed_login_count")
@@ -467,19 +419,19 @@ def test_a_second_reset_request_within_a_minute_sends_no_new_code(server) -> Non
     """
     first_request_started = time.monotonic()
     spend_reset_code(server, "cooldownfirst")
-    first_sent_at = stored_account(server)["password_reset_code_sent_at"]
-    with account_connection(server, "cooldownsecond") as connection:
+    first_sent_at = stored_account(server.lib_dir)["password_reset_code_sent_at"]
+    with account_connection(server.handle, server.run_dir, "cooldownsecond") as connection:
         request_reset(connection)
         elapsed = time.monotonic() - first_request_started
         if elapsed >= RESET_REQUESTS_TIME_ALLOWED:
             pytest.fail(f"the two reset requests took {elapsed:.0f}s; they must fall inside the {RESET_RESEND_COOLDOWN_SECONDS}s cooldown")
-    account = stored_account(server)
+    account = stored_account(server.lib_dir)
     assert account["password_reset_code_sent_at"] == first_sent_at, account
     assert account["failed_login_count"] == 2 * ATTEMPTS_ALLOWED, account
-    request_lines = [line for line in server.handle.log_path.read_text(encoding="latin-1").splitlines() if any(marker in line for marker in RESET_REQUEST_LOG_LINES)]
+    request_lines = [line for line in read_game_log(server.handle.log_path).splitlines() if any(marker in line for marker in RESET_REQUEST_LOG_LINES)]
     assert len(request_lines) == 2 and RESET_REQUEST_LOG_LINES[0] in request_lines[1], request_lines
 
-    with account_connection(server, "cooldownlogin") as connection:
+    with account_connection(server.handle, server.run_dir, "cooldownlogin") as connection:
         login = sign_in(connection)
         assert FAILED_LOGIN_NOTICE_FORMAT.format(2 * ATTEMPTS_ALLOWED) in login, login
 
@@ -492,7 +444,7 @@ def open_reset_with_known_code(server, connection: GameSession) -> None:
     checks; the account's password is then the code.
     """
     request_reset(connection)
-    account_path = server.lib_dir / ACCOUNT_FILE
+    account_path = server.lib_dir / HARNESS_ACCOUNT_FILE
     record = account_path.read_text(encoding="utf-8")
     account = json.loads(record)
     assert account["password_reset_code_hash"] and account["password_reset_code_expires_at"] > 0, account
@@ -506,7 +458,7 @@ def open_reset_with_known_code(server, connection: GameSession) -> None:
 def test_a_correct_reset_code_sets_a_new_password_and_the_old_one_stops_working(server) -> None:
     """Pins #284: a correct reset code asks for a new password twice, says it was updated and closes
     the connection; afterwards the old password is refused and the new one signs in."""
-    with account_connection(server, "resetdone") as connection:
+    with account_connection(server.handle, server.run_dir, "resetdone") as connection:
         open_reset_with_known_code(server, connection)
         connection.send_line(HARNESS_PASSWORD)
         code_accepted = connection.expect([NEW_PASSWORD_PROMPT, RESET_CODE_PROMPT, TOO_MANY_RESET_CODES_LINES[1]])
@@ -518,9 +470,9 @@ def test_a_correct_reset_code_sets_a_new_password_and_the_old_one_stops_working(
         for updated_line in PASSWORD_UPDATED_LINES:
             assert updated_line in updated, updated
         assert closes_within(connection, CLOSE_SECONDS), "the connection stayed open after the password was updated"
-    assert stored_account(server)["password_reset_by"] == "forgot-password"
+    assert stored_account(server.lib_dir)["password_reset_by"] == "forgot-password"
 
-    with account_connection(server, "resetlogin") as connection:
+    with account_connection(server.handle, server.run_dir, "resetlogin") as connection:
         enter_email(connection)
         old_password = answer_password(connection, HARNESS_PASSWORD)
         assert INVALID_CREDENTIALS_MARKER in old_password and LOGIN_PASSWORD_PROMPT in old_password, old_password
@@ -533,7 +485,7 @@ def test_a_correct_reset_code_sets_a_new_password_and_the_old_one_stops_working(
 def test_a_reset_refuses_a_short_new_password_and_a_mismatched_retype(server) -> None:
     """Pins #284: after a correct reset code, a password under eight characters and a retype that
     differs each say why and ask for the new password again; nothing is changed."""
-    with account_connection(server, "resetrefused") as connection:
+    with account_connection(server.handle, server.run_dir, "resetrefused") as connection:
         open_reset_with_known_code(server, connection)
         connection.send_line(HARNESS_PASSWORD)
         connection.expect([NEW_PASSWORD_PROMPT])
@@ -546,7 +498,7 @@ def test_a_reset_refuses_a_short_new_password_and_a_mismatched_retype(server) ->
         mismatch = connection.expect([NEW_PASSWORD_PROMPT, PASSWORD_UPDATED_LINES[1]])
         assert PASSWORD_MISMATCH_REFUSAL in mismatch and NEW_PASSWORD_PROMPT in mismatch, mismatch
         assert PASSWORD_UPDATED_LINES[0] not in mismatch, mismatch
-    assert stored_account(server)["password_reset_by"] == ""
+    assert stored_account(server.lib_dir)["password_reset_by"] == ""
 
 
 @pytest.mark.account_menu_passwords
@@ -558,7 +510,7 @@ def test_failed_logins_are_reported_at_the_next_successful_login(server) -> None
     launchers, so only the count line is asserted.
     """
     failed_attempts = 2
-    with account_connection(server, "notice") as connection:
+    with account_connection(server.handle, server.run_dir, "notice") as connection:
         enter_email(connection)
         for _attempt in range(failed_attempts):
             reply = answer_password(connection, WRONG_PASSWORD)
@@ -572,7 +524,7 @@ def test_failed_logins_are_reported_at_the_next_successful_login(server) -> None
 @pytest.mark.characters(IMPLEMENTOR)
 def test_one_failed_login_is_reported_in_the_singular(server) -> None:
     """Pins #284: after a single wrong password the notice says ATTEMPT, not ATTEMPTS."""
-    with account_connection(server, "noticesingular") as connection:
+    with account_connection(server.handle, server.run_dir, "noticesingular") as connection:
         enter_email(connection)
         wrong = answer_password(connection, WRONG_PASSWORD)
         assert INVALID_CREDENTIALS_MARKER in wrong, wrong
@@ -585,7 +537,7 @@ def test_one_failed_login_is_reported_in_the_singular(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR)
 def test_the_failed_login_notice_is_shown_only_once(server) -> None:
     """Pins #284: the login that shows the failed-login notice clears the count; the next shows none."""
-    with account_connection(server, "noticefirst") as connection:
+    with account_connection(server.handle, server.run_dir, "noticefirst") as connection:
         enter_email(connection)
         wrong = answer_password(connection, WRONG_PASSWORD)
         assert INVALID_CREDENTIALS_MARKER in wrong, wrong
@@ -593,7 +545,7 @@ def test_the_failed_login_notice_is_shown_only_once(server) -> None:
         assert FAILED_LOGIN_NOTICE_WORDS in first_login, first_login
         connection.send_line(ACCOUNT_MENU_LOG_OUT)
         connection.expect([GOODBYE_MARKER])
-    with account_connection(server, "noticesecond") as connection:
+    with account_connection(server.handle, server.run_dir, "noticesecond") as connection:
         second_login = sign_in(connection)
         assert FAILED_LOGIN_NOTICE_WORDS not in second_login, second_login
 
@@ -603,7 +555,7 @@ def test_the_failed_login_notice_is_shown_only_once(server) -> None:
 def test_a_new_character_name_already_linked_or_not_all_letters_is_refused(server) -> None:
     """Pins the account menu's new character prompt: a linked name and a name with a digit are each
     refused with their reason, and the name prompt comes back."""
-    with account_connection(server, "newnamerefused") as connection:
+    with account_connection(server.handle, server.run_dir, "newnamerefused") as connection:
         start_new_character(connection)
         linked = new_name_answer(connection, IMPLEMENTOR.name)
         assert NAME_ALREADY_LINKED_REFUSAL in linked and NEW_CHARACTER_NAME_PROMPT in linked, linked
@@ -616,7 +568,7 @@ def test_a_new_character_name_already_linked_or_not_all_letters_is_refused(serve
 def test_a_free_new_character_name_is_offered_for_confirmation_and_no_returns_to_the_account_menu(server) -> None:
     """Pins the account menu's new character prompt: a free name gets the roleplay question, and
     answering no returns to the account menu."""
-    with account_connection(server, "newnamefree") as connection:
+    with account_connection(server.handle, server.run_dir, "newnamefree") as connection:
         start_new_character(connection)
         question = new_name_answer(connection, FREE_NEW_NAME)
         assert ROLEPLAY_QUESTION_FORMAT.format(FREE_NEW_NAME) in question, question
@@ -634,14 +586,14 @@ def test_renaming_a_playing_character_moves_its_account_files_and_frees_the_old_
     then treats the old name as free and the new one as linked."""
     implementor = server.login(IMPLEMENTOR.name)
     server.login(RENAMEE.name)
-    account_folder = (server.lib_dir / ACCOUNT_FILE).parent
+    account_folder = (server.lib_dir / HARNESS_ACCOUNT_FILE).parent
     renamed = implementor.command(f"wizset player {RENAMEE.name.lower()} name {RENAMED_TO}")
     assert RENAME_DONE_REPLY in renamed.text, renamed.text
     assert account_show_characters(implementor) == f"Characters (2): {IMPLEMENTOR.name.lower()}, {RENAMED_TO.lower()}"
     character_files = sorted(entry.name for entry in account_folder.iterdir() if entry.name.startswith((f"{RENAMEE.name.lower()}.", f"{RENAMED_TO.lower()}.")))
     assert character_files == sorted(f"{RENAMED_TO.lower()}.{kind}.json" for kind in CHARACTER_FILE_KINDS), character_files
 
-    with account_connection(server, "renamedmenu") as connection:
+    with account_connection(server.handle, server.run_dir, "renamedmenu") as connection:
         start_new_character(connection)
         new_name = new_name_answer(connection, RENAMED_TO)
         assert NAME_ALREADY_LINKED_REFUSAL in new_name, new_name
@@ -656,7 +608,7 @@ def test_renaming_a_character_to_a_taken_name_is_refused_and_changes_nothing(ser
     account and its files keep the old name."""
     implementor = server.login(IMPLEMENTOR.name)
     server.login(RENAMEE.name)
-    account_folder = (server.lib_dir / ACCOUNT_FILE).parent
+    account_folder = (server.lib_dir / HARNESS_ACCOUNT_FILE).parent
     refused = implementor.command(f"wizset player {RENAMEE.name.lower()} name {IMPLEMENTOR.name}")
     assert RENAME_TAKEN_REFUSAL in refused.text and RENAME_DONE_REPLY not in refused.text, refused.text
     assert account_show_characters(implementor) == f"Characters (2): {IMPLEMENTOR.name.lower()}, {RENAMEE.name.lower()}"
@@ -668,7 +620,7 @@ def test_renaming_a_character_to_a_taken_name_is_refused_and_changes_nothing(ser
 @pytest.mark.characters(*ROSTER)
 def test_the_roster_selects_a_character_by_its_full_name_in_any_case(server) -> None:
     """Pins #285: a linked character's full name selects it at the roster, whatever the letters' case."""
-    with account_connection(server, "byname") as connection:
+    with account_connection(server.handle, server.run_dir, "byname") as connection:
         open_roster(connection)
         reply = roster_answer(connection, "aSWIN")
         assert CHARACTER_MENU_PROMPT in reply and ROSTER_SELECTION_ERROR not in reply, reply
@@ -680,7 +632,7 @@ def test_the_roster_selects_a_character_by_its_full_name_in_any_case(server) -> 
 @pytest.mark.characters(*ROSTER)
 def test_the_roster_rejects_the_start_of_a_name(server) -> None:
     """Pins #285: selecting by name needs the whole name; its first letters select nobody."""
-    with account_connection(server, "prefix") as connection:
+    with account_connection(server.handle, server.run_dir, "prefix") as connection:
         open_roster(connection)
         reply = roster_answer(connection, "Asw")
         assert ROSTER_SELECTION_ERROR in reply and CHARACTER_CHOICE_PROMPT in reply, reply
@@ -706,7 +658,7 @@ def test_a_sort_key_reorders_the_roster(server, sort_key: str, expected_names: l
     Race order follows the game's race numbers (human 1, wood elf 3, uruk-hai 11, orc 13), in
     link order between equals. The side key has its own test, with its headers.
     """
-    with account_connection(server, f"sort{sort_key}") as connection:
+    with account_connection(server.handle, server.run_dir, f"sort{sort_key}") as connection:
         first_rendering = open_roster(connection)
         assert roster_names(first_rendering) == LINK_ORDER, first_rendering
         assert_rows_numbered_from_one(first_rendering)
@@ -720,7 +672,7 @@ def test_a_sort_key_reorders_the_roster(server, sort_key: str, expected_names: l
 def test_the_side_sort_lists_good_then_evil_under_their_headers(server) -> None:
     """Pins #291 and #296: the side key lists Good, then Evil, A-Z within each, under -- Good -- and
     -- Evil -- headers that never say Lights or Darks; row numbers run on across the headers."""
-    with account_connection(server, "sideheaders") as connection:
+    with account_connection(server.handle, server.run_dir, "sideheaders") as connection:
         open_roster(connection)
         rendering = roster_answer(connection, "S")
         assert GOOD_SECTION_HEADER in rendering and EVIL_SECTION_HEADER in rendering, rendering
@@ -749,7 +701,7 @@ def test_a_filter_key_shows_only_that_class_and_counts_them(
 ) -> None:
     """Pins #291: a filter key, in either case, lists only the characters whose strongest profession
     it names, numbered from 1, and a footer counts them against the whole roster."""
-    with account_connection(server, f"filter{filter_key}") as connection:
+    with account_connection(server.handle, server.run_dir, f"filter{filter_key}") as connection:
         open_roster(connection)
         filtered = roster_answer(connection, filter_key)
         assert roster_names(filtered) == expected_names, filtered
@@ -763,7 +715,7 @@ def test_a_filter_key_shows_only_that_class_and_counts_them(
 def test_a_filter_after_a_sort_lists_that_class_in_the_sorted_order(server) -> None:
     """Pins #291: a filter keeps the active sort; under the race sort the warriors show uruk before
     orc, renumbered from 1, with the filter's footer."""
-    with account_connection(server, "sortthenfilter") as connection:
+    with account_connection(server.handle, server.run_dir, "sortthenfilter") as connection:
         open_roster(connection)
         roster_answer(connection, "C")
         filtered = roster_answer(connection, "W")
@@ -777,7 +729,7 @@ def test_a_filter_after_a_sort_lists_that_class_in_the_sorted_order(server) -> N
 def test_a_number_under_a_filter_selects_the_row_shown_with_that_number(server) -> None:
     """Pins #291: with the warrior filter on, 2 selects the second warrior shown, not the account's
     second character."""
-    with account_connection(server, "filterednumber") as connection:
+    with account_connection(server.handle, server.run_dir, "filterednumber") as connection:
         open_roster(connection)
         filtered = roster_answer(connection, "W")
         assert roster_names(filtered) == ["Grishak", "Mordak"], filtered
@@ -792,7 +744,7 @@ def test_a_number_under_a_filter_selects_the_row_shown_with_that_number(server) 
 def test_a_name_the_filter_hides_still_selects_its_character(server) -> None:
     """Pins #291: a filter narrows the list but not the names it accepts; the mage, hidden by the
     warrior filter, is selected by name."""
-    with account_connection(server, "filteredname") as connection:
+    with account_connection(server.handle, server.run_dir, "filteredname") as connection:
         open_roster(connection)
         filtered = roster_answer(connection, "W")
         assert ROSTER_MAGE.name not in roster_names(filtered), filtered
@@ -807,7 +759,7 @@ def test_a_name_the_filter_hides_still_selects_its_character(server) -> None:
 def test_a_filter_that_matches_nobody_says_so(server) -> None:
     """Pins #291: on an account whose only character is a warrior, the ranger filter lists no row and
     says no linked character matches."""
-    with account_connection(server, "filternobody") as connection:
+    with account_connection(server.handle, server.run_dir, "filternobody") as connection:
         open_roster(connection)
         filtered = roster_answer(connection, "R")
         assert NO_FILTER_MATCH_MARKER in filtered, filtered
@@ -818,7 +770,7 @@ def test_a_filter_that_matches_nobody_says_so(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR)
 def test_a_one_character_roster_counts_one_character(server) -> None:
     """Pins #291: the footer of a one-character roster is in the singular."""
-    with account_connection(server, "onecharacter") as connection:
+    with account_connection(server.handle, server.run_dir, "onecharacter") as connection:
         rendering = open_roster(connection)
         assert roster_names(rendering) == [IMPLEMENTOR.name], rendering
         assert ONE_CHARACTER_FOOTER in rendering and "1 characters" not in rendering, rendering
@@ -828,7 +780,7 @@ def test_a_one_character_roster_counts_one_character(server) -> None:
 @pytest.mark.characters(*ROSTER)
 def test_pressing_a_filter_key_again_clears_the_filter(server) -> None:
     """Pins #291: the active filter's own key clears it and brings every character back."""
-    with account_connection(server, "clearfilter") as connection:
+    with account_connection(server.handle, server.run_dir, "clearfilter") as connection:
         open_roster(connection)
         filtered = roster_answer(connection, "W")
         assert roster_names(filtered) == ["Grishak", "Mordak"], filtered
@@ -842,16 +794,16 @@ def test_pressing_a_filter_key_again_clears_the_filter(server) -> None:
 def test_the_roster_keeps_its_sort_in_the_next_session(server) -> None:
     """Pins #291: a sort chosen before leaving the roster is stored on the account and is the order
     the account's next session shows first."""
-    with account_connection(server, "sortfirst") as connection:
+    with account_connection(server.handle, server.run_dir, "sortfirst") as connection:
         open_roster(connection)
         level_sorted = roster_answer(connection, "L")
         assert roster_names(level_sorted) == LEVEL_ORDER, level_sorted
         back_at_menu = roster_answer(connection, "0")
         assert ACCOUNT_MENU_PROMPT in back_at_menu, back_at_menu
-        assert stored_account(server)["roster_sort"] == "level"
+        assert stored_account(server.lib_dir)["roster_sort"] == "level"
         connection.send_line(ACCOUNT_MENU_LOG_OUT)
         connection.expect([GOODBYE_MARKER])
-    with account_connection(server, "sortsecond") as connection:
+    with account_connection(server.handle, server.run_dir, "sortsecond") as connection:
         rendering = open_roster(connection)
         assert roster_names(rendering) == LEVEL_ORDER, rendering
 
@@ -861,17 +813,17 @@ def test_the_roster_keeps_its_sort_in_the_next_session(server) -> None:
 def test_a_sort_chosen_before_selecting_a_character_is_kept_in_the_next_session(server) -> None:
     """Pins #291: selecting a character is the other way off the roster that stores a changed sort;
     it survives playing and quitting that character, and the next session shows it first."""
-    with account_connection(server, "sortselect") as connection:
+    with account_connection(server.handle, server.run_dir, "sortselect") as connection:
         open_roster(connection)
         level_sorted = roster_answer(connection, "L")
         assert roster_names(level_sorted) == LEVEL_ORDER, level_sorted
         selected = roster_answer(connection, "1")
         assert CHARACTER_MENU_PROMPT in selected, selected
-        assert stored_account(server)["roster_sort"] == "level"
+        assert stored_account(server.lib_dir)["roster_sort"] == "level"
         assert enter_selected_character(connection) == "Arena East"
         connection.quit()
-    assert stored_account(server)["roster_sort"] == "level"
-    with account_connection(server, "sortselectnext") as connection:
+    assert stored_account(server.lib_dir)["roster_sort"] == "level"
+    with account_connection(server.handle, server.run_dir, "sortselectnext") as connection:
         rendering = open_roster(connection)
         assert roster_names(rendering) == LEVEL_ORDER, rendering
 
@@ -892,7 +844,7 @@ def test_a_linked_character_without_a_file_is_listed_last_as_unreadable_and_neve
     link_ghost(server)
     ghost_row = f"3) {UNREADABLE_ROW_COLUMNS} {GHOST_NAME}"
     readable_names = [IMPLEMENTOR.name, SURVIVOR.name]
-    with account_connection(server, "ghostrows") as connection:
+    with account_connection(server.handle, server.run_dir, "ghostrows") as connection:
         linked_order = open_roster(connection)
         assert roster_names(linked_order) == [*readable_names, GHOST_NAME] and ghost_row in linked_order, linked_order
         for sort_key in ("A", "L"):
@@ -913,7 +865,7 @@ def test_selecting_a_linked_character_without_a_file_is_refused_and_the_roster_s
     """Pins #285: selecting a linked character with no file says it is not ready and shows the roster
     again, from which a real character is then selected and played."""
     link_ghost(server)
-    with account_connection(server, "ghostselect") as connection:
+    with account_connection(server.handle, server.run_dir, "ghostselect") as connection:
         open_roster(connection)
         refused = roster_answer(connection, GHOST_NAME)
         assert NOT_READY_REFUSAL in refused and CHARACTER_CHOICE_PROMPT in refused, refused

@@ -16,7 +16,11 @@ import pytest
 # Before any rots_harness import, so a shared helper's failing assert reports its operands as a
 # scenario's own asserts do. Only the modules holding scenario helpers are listed.
 pytest.register_assert_rewrite(
-    "rots_harness.immortal_commands", "rots_harness.replies", "rots_harness.stat_reading", "rots_harness.text_lines"
+    "rots_harness.immortal_commands",
+    "rots_harness.replies",
+    "rots_harness.saved_files",
+    "rots_harness.stat_reading",
+    "rots_harness.text_lines",
 )
 
 from rots_harness import durations, groups, interrupts
@@ -36,6 +40,7 @@ from rots_harness.launcher import (
     start_on_a_free_port,
 )
 from rots_harness.libbuilder import ROTSTOOL_RELATIVE, LibTemplateBuilder, RunLibProvider, discard_session_templates, session_templates_dir
+from rots_harness.replies import SETTLE_SECONDS
 from rots_harness.retention import RunDirectoryReport, keep_run_directory
 from rots_harness.session import GameSession, end_sessions
 from rots_harness.sharding import SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
@@ -447,6 +452,29 @@ class HarnessServer:
         if self.time_control is None:
             pytest.fail("advance_hours needs @pytest.mark.schedule(...) on the test", pytrace=False)
         self.time_control.advance_hours(hours, hours * hour_timeout_seconds() + HOUR_TIMEOUT_MARGIN_SECONDS)
+
+    def text_after_hours(self, session: GameSession, hours: int = 1, expected_marker: str = "", settle: float = SETTLE_SECONDS) -> str:
+        """Advances hours game hours and returns what session read during them.
+
+        advance_hours returns once the server has run the hours, so reading settle seconds more
+        collects their text. With expected_marker, the text is first read up to it, failing with
+        SessionTimeout when it does not arrive within expect's default timeout. Nothing else is
+        checked; the caller asserts on the text.
+        """
+        self.advance_hours(hours)
+        if expected_marker:
+            return session.expect([expected_marker]) + session.drain(settle)
+
+        return session.drain(settle)
+
+    def relog(self, session: GameSession) -> GameSession:
+        """Quits session's character and logs it in again with login; returns the new session.
+
+        The quit session is closed, so the fixture skips it at teardown and quits the new one.
+        Callers rebind their name to the new session. QuitRefused and LoginRefused pass through.
+        """
+        session.quit()
+        return self.login(session.character_name)
 
     def restart(self) -> None:
         """Stops the server with every session still logged in, as a service stop does, then boots a new server on the same lib.

@@ -17,7 +17,7 @@ resets from running; script waits and casting delays end on the game loop's wait
 runs every pass on every server. Magic missile's damage and a drink's size are drawn, but the stoic
 refuses any blow, any missile kills a one-hit-point mob (missile_always_kills) and the flask
 holds one drink. The casting roll only decides whether the cast happens, with its own message, so
-it is repeated on that message (cast_until_it_lands).
+it is repeated on that message (cast_magic_missile_until_it_lands).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from rots_harness.casting import LOST_CONCENTRATION, NO_ENERGY
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import DEATH_CRY_FORMAT, NOW_FOLLOWING_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto
@@ -180,10 +181,6 @@ FOLLOWER_ACK = "ACK! You could not follow him!"
 LEADER_ACK_FORMAT = "ACK! {} could not follow, you lost her!"
 # What a follower reads when it does follow (do_move); format with the leader.
 FOLLOWED_FORMAT = "You follow {}."
-# What the caster reads when the casting roll fails (do_cast, spell_pa.cpp).
-LOST_CONCENTRATION = "You lost your concentration!"
-# What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY = "You can't summon enough energy to cast the spell."
 # What a killer reads for its share of a kill (group_gain, fight.cpp).
 EXPERIENCE_SHARE_PATTERN = re.compile(r"You receive your share of experience -- (\d+) points\.")
 
@@ -315,7 +312,7 @@ def let_the_anger_pass(server) -> None:
     server.advance_hours(ANGER_HOURS)
 
 
-def cast_until_it_lands(caster: GameSession, target: TriggerMob, landed_markers: list) -> str:
+def cast_magic_missile_until_it_lands(caster: GameSession, target: TriggerMob, landed_markers: list) -> str:
     """Casts magic missile at the mob until the cast gets past the casting roll; returns the text of that cast.
 
     The roll (do_cast, spell_pa.cpp) fails when number(0, 100) >= 100, once in 101, with its own
@@ -607,7 +604,7 @@ def test_a_damage_script_that_returns_false_stops_a_spells_blow(server) -> None:
     assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, before) == 200, before
 
     refusal = said(STOIC, f"Your blow cannot touch me, {CASTER.name}.")
-    cast_until_it_lands(caster, STOIC, [refusal])
+    cast_magic_missile_until_it_lands(caster, STOIC, [refusal])
 
     after = read_stat(implementor, f"mob {STOIC.keyword}")
     assert first_number(HIT_POINTS_BEFORE_GAIN_PATTERN, after) == 200, after
@@ -639,7 +636,7 @@ def test_a_death_script_speaks_and_the_mob_still_dies_paying_experience(server) 
 
     last_words = said(MOURNER, "My watch is ended.")
     mourner_cry = death_cry(MOURNER)
-    killed = cast_until_it_lands(caster, MOURNER, [mourner_cry])
+    killed = cast_magic_missile_until_it_lands(caster, MOURNER, [mourner_cry])
     assert last_words in killed, killed
     assert killed.index(last_words) < killed.index(mourner_cry), killed
     share = EXPERIENCE_SHARE_PATTERN.search(killed)
@@ -672,7 +669,7 @@ def test_a_death_script_that_returns_false_keeps_the_mob_alive(server) -> None:
     missile_always_kills(implementor, STUBBORN)
 
     refusal = said(STUBBORN, "Not yet!")
-    survived = cast_until_it_lands(caster, STUBBORN, [refusal])
+    survived = cast_magic_missile_until_it_lands(caster, STUBBORN, [refusal])
     assert death_cry(STUBBORN) not in survived, survived
     assert EXPERIENCE_SHARE_PATTERN.search(survived) is None, survived
 

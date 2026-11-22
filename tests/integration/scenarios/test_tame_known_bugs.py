@@ -161,8 +161,7 @@ def test_an_immortals_quit_leaves_no_copy_of_its_tame_behind(server) -> None:
     check_tame_chance(implementor, warden, WARDEN)
     goto_anywhere(warden, world.ROOM_BOAR_PEN)
     tame_boar(warden)
-    warden.quit()
-    server.login(WARDEN.name)
+    server.relog(warden)
     assert len(boar_rooms(implementor)) == 1
 
 

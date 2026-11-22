@@ -8,6 +8,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import log_lines_holding, read_game_log
 from rots_harness.game_text import NOT_HERE_REPLY
 from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.replies import text_seen_before_a_say
@@ -200,7 +201,7 @@ def test_a_vendor_trades_a_fresh_copy_for_the_priced_beads_and_logs_the_trade(se
         f"VENDOR: {BUYER.name} buys {LEATHER_CAP_NAME} ({world.OBJECT_LEATHER_CAP}) from mobile #{TRADER_VNUM}, "
         f"paid {cost_text(CAP_PRICE_BEADS)} ({CURRENCY_VNUM})"
     )
-    game_log = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
+    game_log = read_game_log(server.handle.log_path)
     assert trade_log_line in game_log, game_log[-3000:]
 
 
@@ -355,9 +356,8 @@ def test_a_vendor_without_a_store_option_is_logged_at_boot_and_does_not_trade(se
     """
     buyer = server.login(STRANDED_BUYER.name)
 
-    boot_log = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
-    problem_lines = [line for line in boot_log.splitlines() if STORE_MISSING_LOG_LINE in line]
-    assert len(problem_lines) == 1, boot_log[-3000:]
+    problem_lines = log_lines_holding(server.handle.log_path, STORE_MISSING_LOG_LINE)
+    assert len(problem_lines) == 1, read_game_log(server.handle.log_path)[-3000:]
     assert SYSERR_MARKER not in problem_lines[0], problem_lines[0]
 
     assert buyer.command("list").contains(NOT_TRADING_MARKER)

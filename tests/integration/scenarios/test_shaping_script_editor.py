@@ -10,6 +10,7 @@ import pytest
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import SCRIPT_RELEASED, SECTION_COMMENT_PROMPT, SECTION_TITLE_PROMPT
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_script_editor]
@@ -21,8 +22,6 @@ ORDERED_SCRIPT = 1180
 OUT_OF_ORDER_SCRIPT = 1181
 # The script file /save rewrites, relative to the lib (SHAPE_SCRIPT_DIR, protos.h).
 SCRIPT_FILE_RELATIVE = Path("world") / "scr" / "11.scr"
-# What /free prints (extra_coms_script).
-RELEASED_MARKER = "You released the script and stopped shaping."
 # What /9, /11 and /13 print (shape_center_script).
 ROW_REMOVED = "Command removed."
 ROW_INSERTED_BEFORE = "New command added before current, and selected."
@@ -35,11 +34,8 @@ WHOLE_LIST_FOOTER = "List range: all (/52 to change)."
 SECTION_TITLE = "Greeting"
 SECTION_COMMENT = "what a visitor hears"
 LIST_WIDTH = 78
-# The type name /3 takes for a section, and its title and comment prompts' first words
-# (shape_section_prompt, shapemob.cpp).
+# The type name /3 takes for a section.
 SECTION_TYPE = "SECTION"
-SECTION_TITLE_PROMPT = "Enter section TITLE"
-SECTION_COMMENT_PROMPT = "Enter section COMMENT"
 # Seconds to keep reading after a marker, for the rest of the reply.
 SETTLE_SECONDS = 0.5
 
@@ -62,8 +58,8 @@ def open_script(implementor: GameSession, script_number: int) -> None:
 
 def close_script(implementor: GameSession) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [RELEASED_MARKER], settle=SETTLE_SECONDS)
-    assert RELEASED_MARKER in released, released
+    released = reply_to(implementor, "/free", [SCRIPT_RELEASED], settle=SETTLE_SECONDS)
+    assert SCRIPT_RELEASED in released, released
 
 
 def listed_rows(listing: str) -> list:

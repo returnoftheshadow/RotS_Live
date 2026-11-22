@@ -7,7 +7,6 @@ check reports every line that names something missing."""
 from __future__ import annotations
 
 import re
-import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -15,6 +14,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import count_logged, logged_messages
 from rots_harness.game_text import DEATH_CRY_FORMAT
 from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object, set_syslog
 from rots_harness.session import GameSession
@@ -119,24 +119,6 @@ def stat_value(pattern: re.Pattern, stat: str) -> str:
     match = pattern.search(stat)
     assert match is not None, stat
     return match.group(1)
-
-
-def log_messages(server) -> list:
-    """The messages mudlog wrote to game.log, each line being '<type>, <time> :: <message>' (utility.cpp)."""
-    text = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
-    return [line.split(" :: ", 1)[1] for line in text.splitlines() if " :: " in line]
-
-
-def count_logged(server, message: str, expected_count: int) -> int:
-    """How many times game.log holds the message, once it holds it expected_count times or WAIT_TIMEOUT passes.
-
-    The server writes its log before it sends the reply that caused it; the Docker launcher
-    relays the log through compose, so the line can reach the file a little later.
-    """
-    deadline = time.monotonic() + WAIT_TIMEOUT
-    while log_messages(server).count(message) < expected_count and time.monotonic() < deadline:
-        time.sleep(LOG_POLL_SECONDS)
-    return log_messages(server).count(message)
 
 
 def finish_the_foremans_script(implementor: GameSession) -> None:
@@ -492,7 +474,7 @@ def test_a_script_line_that_would_crash_is_reported_and_skipped(server, case: Re
     for gives in (1, 2):
         reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", case.mob.keyword)
         assert still_here in reply, reply
-        assert count_logged(server, case.report, case.boot_reports + gives) == case.boot_reports + gives
+        assert count_logged(server.handle.log_path, case.report, case.boot_reports + gives, timeout=WAIT_TIMEOUT, poll=LOG_POLL_SECONDS) == case.boot_reports + gives
 
 
 @pytest.mark.scripts_reports
@@ -629,7 +611,7 @@ def test_a_script_line_on_an_unset_variable_is_skipped(server, case: UnsetVariab
     reply = implementor.command("say Hello there.").text
     assert reply.count(said(case.mob.short_description, STILL_HERE_LINE)) == 1, reply
     if case.log_message is not None:
-        assert count_logged(server, case.log_message, 1) == 1
+        assert count_logged(server.handle.log_path, case.log_message, 1, timeout=WAIT_TIMEOUT, poll=LOG_POLL_SECONDS) == 1
 
 
 # The hatter (mob 1714), whose script wears an object it carries.
@@ -784,8 +766,7 @@ def test_a_script_hit_write_far_below_zero_leaves_the_mob_dead_until_the_hourly_
     assert "A doomed wrestler is lying here, dead." in looked, looked
 
     # advance_hours returns once the hour has run; the drain collects what the hour sent.
-    server.advance_hours(1)
-    hour = implementor.drain(SETTLE_SECONDS)
+    hour = server.text_after_hours(implementor)
     assert hour.count(death_cry(DOOMED.short_description)) == 1, hour
     looked = implementor.command("look").text
     assert "A doomed wrestler" not in looked, looked
@@ -811,7 +792,7 @@ def test_a_script_division_by_zero_gives_zero_and_is_logged(server) -> None:
     reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", ACCOUNTANT.keyword)
     assert said(ACCOUNTANT.short_description, "Quotient zero.") in reply, reply
     assert "Quotient not zero." not in reply, reply
-    assert count_logged(server, "Script #1719 tried to divide by 0.", 1) == 1
+    assert count_logged(server.handle.log_path, "Script #1719 tried to divide by 0.", 1, timeout=WAIT_TIMEOUT, poll=LOG_POLL_SECONDS) == 1
 
 
 # The gatekeeper (mob 1703), whose script opens the door north of his room when given anything
@@ -896,8 +877,8 @@ def test_the_boot_check_reports_every_script_line_naming_something_missing(serve
     server.login(IMPLEMENTOR.name)
 
     for report in BOOT_REPORTS:
-        assert count_logged(server, report, 1) == 1, report
-    script_reports = [message for message in log_messages(server) if message.startswith("SCRIPT ERROR: script #1720,")]
+        assert count_logged(server.handle.log_path, report, 1, timeout=WAIT_TIMEOUT, poll=LOG_POLL_SECONDS) == 1, report
+    script_reports = [message for message in logged_messages(server.handle.log_path) if message.startswith("SCRIPT ERROR: script #1720,")]
     assert script_reports == BOOT_REPORTS, script_reports
 
 
@@ -953,5 +934,5 @@ def test_a_script_load_mob_of_a_mob_that_exists_loads_it_and_the_script_goes_on(
     assert said(STEADY_SUMMONER.short_description, STILL_HERE_LINE) in reply, reply
     after = implementor.command("look").text
     assert after.count(PORTER_STANDS_HERE) == 1, after
-    reports = [message for message in log_messages(server) if message.startswith("SCRIPT ERROR: script #1735,")]
+    reports = [message for message in logged_messages(server.handle.log_path) if message.startswith("SCRIPT ERROR: script #1735,")]
     assert reports == [], reports

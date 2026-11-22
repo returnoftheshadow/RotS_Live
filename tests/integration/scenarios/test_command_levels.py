@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.characters import IMPLEMENTOR, Character, immortal
 from rots_harness.game_text import (
     NO_ONE_AROUND_REPLY,
     TELEPORTED_BY_ANYONE,
@@ -16,18 +16,6 @@ from rots_harness.game_text import (
 from rots_harness.immortal_commands import goto
 
 pytestmark = [pytest.mark.scenario, pytest.mark.wizlevels]
-
-
-def immortal(name: str, level: int) -> Character:
-    """A human warrior immortal of the given level; immortals log in to Immortal Start."""
-    return Character(
-        name=name,
-        race="human",
-        sex="male",
-        level=level,
-        load_room=world.ROOM_IMMORTAL_START,
-        class_name="warrior",
-    )
 
 
 # A level-93 immortal (LEVEL_GOD, structs.h): the lowest level teleport's row in the command

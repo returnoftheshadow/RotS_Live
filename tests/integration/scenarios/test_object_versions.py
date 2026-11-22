@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import time
 from pathlib import Path
 
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import NO_ENERGY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_log import wait_for_log_count
 from rots_harness.game_text import (
     DROP_FORMAT,
     NO_ONE_AROUND_REPLY,
@@ -26,6 +27,7 @@ from rots_harness.game_text import (
 from rots_harness.immortal_commands import GIVEN_FORMAT, give_new_object, load_object
 from rots_harness.replies import reply_to
 from rots_harness.session import CHARACTER_MENU_PROMPT, GameSession
+from rots_harness.shaping import OBJECT_RELEASED
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, STRENGTH_PATTERN, read_stat
 
 pytestmark = [pytest.mark.scenario, pytest.mark.object_versions]
@@ -128,11 +130,6 @@ SIPPING_OWNER = dataclasses.replace(OWNER, stored=StoredValues(drunk=SIPPER_DRUN
 
 # What the caster reads when the spell goes off (do_cast).
 CAST_DONE_MARKER = "Ok."
-# What the caster reads when the concentration roll fails (do_cast): number(0, 100) >= 100 still
-# happens once in 101 casts at full knowledge.
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
-# What the caster reads when its spirit no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # What enchant weapon prints for a weapon that has an affect but not the MAGIC flag
 # (spell_enchant_weapon, mystic.cpp).
 TOO_MUCH_MAGIC_MARKER = "There is too much magic in it already."
@@ -188,7 +185,6 @@ AFFECTS_DROPPED_MARKER = "No affections were set. Dropped."
 IMPLEMENTED_MARKER = "Object implemented"
 NOTHING_TO_IMPLEMENT_MARKER = "You have nothing to implement"
 NOT_AUTHORIZED_MARKER = "You're not authorized to do this."
-RELEASED_MARKER = "You released an object and stopped shaping."
 # What /done answers when the world file cannot be written (extra_coms_obj, replace_object).
 NOT_SAVED_MARKER = "Not saved - still shaping."
 NO_BACKUP_FILE_MARKER = "could not open backup file"
@@ -262,9 +258,6 @@ UNRENT_LOG_FORMAT = "{} un-renting and entering game."
 # The stat player line with the character's idnum (do_stat_character, act_wiz.cpp).
 IDNUM_PATTERN = re.compile(r"IDNum: \[\s*(\d+)\]")
 
-# Seconds to wait for a cast's outcome: enchant weapon's 72 beats at mystic level 30 are 36
-# (CASTING_TIME, spells.h), four and a half seconds; 15 leaves room for a loaded host.
-CAST_TIMEOUT = 15.0
 # How much of a login's text a failed assertion quotes.
 QUOTED_TEXT_LENGTH = 600
 # Seconds to keep reading after an outcome, for text already sent to arrive.
@@ -297,13 +290,10 @@ def cast_enchant_weapon(caster: GameSession) -> str:
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs spirit and nothing restores it between requests under affect-hours, so
-    the repeats end at NO_ENERGY_MARKER at the latest.
+    the repeats end at NO_ENERGY at the latest.
     """
-    outcomes = [CAST_DONE_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
-    while True:
-        reply = reply_to(caster, f"cast 'enchant weapon' {SWORD_KEYWORD}", outcomes, timeout=CAST_TIMEOUT)
-        if LOST_CONCENTRATION_MARKER not in reply:
-            return reply
+    outcomes = [CAST_DONE_MARKER, NO_ENERGY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
+    return cast_until_it_lands(caster, f"cast 'enchant weapon' {SWORD_KEYWORD}", outcomes)
 
 
 def stat_object(implementor: GameSession, keyword: str) -> list:
@@ -374,13 +364,7 @@ def shape_prototype(implementor: GameSession, vnum: int, give_strength_affect: b
         bump_version(implementor, vnum)
         editor_step(implementor, "/implement", IMPLEMENTED_MARKER, [NOTHING_TO_IMPLEMENT_MARKER, NOT_AUTHORIZED_MARKER])
     finally:
-        editor_step(implementor, "/free", RELEASED_MARKER, [])
-
-
-def quit_and_log_in_again(server, session: GameSession, character: Character) -> GameSession:
-    """Quits the character and logs it in again on a new connection; returns the new session."""
-    session.quit()
-    return server.login(character.name)
+        editor_step(implementor, "/free", OBJECT_RELEASED, [])
 
 
 def send_to_inn(implementor: GameSession, mortal: GameSession, character: Character) -> None:
@@ -415,28 +399,10 @@ def ask_innkeeper(mortal: GameSession, command: str) -> str:
     return reply_to(mortal, command, outcomes)
 
 
-def log_text(log_path: Path) -> str:
-    """What game.log holds so far."""
-    return log_path.read_text(encoding="latin-1", errors="replace") if log_path.exists() else ""
-
-
-def wait_for_log_count(log_path: Path, line: str, count: int) -> str:
-    """Waits until game.log holds line at least count times and returns the log; fails the test
-    naming the line when it does not within LOG_TIMEOUT."""
-    deadline = time.monotonic() + LOG_TIMEOUT
-    while True:
-        text = log_text(log_path)
-        if text.count(line) >= count:
-            return text
-        if time.monotonic() >= deadline:
-            refreshes = [log_line for log_line in text.splitlines() if REFRESH_LOG_FRAGMENT in log_line]
-            raise AssertionError(f"game.log has {text.count(line)} of {count} {line!r} within {LOG_TIMEOUT}s; refresh lines: {refreshes!r}")
-        time.sleep(LOG_POLL_SECONDS)
-
-
-def wait_for_log_line(log_path: Path, line: str) -> None:
-    """Waits until game.log holds line; fails the test naming the line when it never arrives."""
-    wait_for_log_count(log_path, line, 1)
+def describe_refresh_lines(log_text: str) -> str:
+    """The refresh lines log_text holds, for a failed wait's message."""
+    refreshes = [log_line for log_line in log_text.splitlines() if REFRESH_LOG_FRAGMENT in log_line]
+    return f"refresh lines: {refreshes!r}"
 
 
 @pytest.mark.object_versions_enchant
@@ -534,9 +500,9 @@ def test_a_bump_saved_with_done_writes_the_version_to_the_world_file(server) -> 
     open_object_editor(implementor, world.OBJECT_PLAIN_SWORD)
     bump_version(implementor, world.OBJECT_PLAIN_SWORD)
     try:
-        editor_step(implementor, "/done", RELEASED_MARKER, [NOT_SAVED_MARKER, NO_BACKUP_FILE_MARKER, NOT_AUTHORIZED_MARKER])
+        editor_step(implementor, "/done", OBJECT_RELEASED, [NOT_SAVED_MARKER, NO_BACKUP_FILE_MARKER, NOT_AUTHORIZED_MARKER])
     except AssertionError:
-        editor_step(implementor, "/free", RELEASED_MARKER, [])
+        editor_step(implementor, "/free", OBJECT_RELEASED, [])
         raise
 
     # write_object ends each line with "\n\r".
@@ -581,7 +547,7 @@ def test_a_version_bump_refreshes_the_owners_copy_at_the_next_login_and_keeps_it
     online_lines = stat_sword(implementor, OWNER)
     assert BUMPED_BEFORE_LOGIN_LINE in online_lines, online_lines
 
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     assert UPDATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
 
     refreshed_lines = stat_sword(implementor, OWNER)
@@ -590,7 +556,7 @@ def test_a_version_bump_refreshes_the_owners_copy_at_the_next_login_and_keeps_it
     assert ENCHANT_AFFECTIONS_LINE in refreshed_lines, refreshed_lines
     assert GOOD_ENCHANT_FLAGS_LINE in refreshed_lines, refreshed_lines
     refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, owner_idnum) + ENCHANT_NOTE_FORMAT.format("kept")
-    wait_for_log_line(server.run_dir / "game.log", refresh_line)
+    wait_for_log_count(server.handle.log_path, refresh_line, 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)
 
 
 @pytest.mark.object_versions_refresh
@@ -609,21 +575,21 @@ def test_a_second_login_after_a_refresh_refreshes_nothing(server) -> None:
     give_plain_sword(implementor, OWNER)
     owner_idnum = player_idnum(implementor, OWNER.name)
     shape_prototype(implementor, world.OBJECT_PLAIN_SWORD)
-    log_path = server.run_dir / "game.log"
+    log_path = server.handle.log_path
     refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, owner_idnum)
 
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     assert UPDATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
-    wait_for_log_line(log_path, refresh_line)
+    wait_for_log_count(log_path, refresh_line, 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)
 
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     second_login_text = owner.everything + owner.drain(SETTLE_SECONDS)
     assert UPDATED_FRAGMENT not in second_login_text, second_login_text[-QUOTED_TEXT_LENGTH:]
     second_login_lines = stat_sword(implementor, OWNER)
     assert REFRESHED_LINE in second_login_lines, second_login_lines
 
     owner.quit()
-    final_log = wait_for_log_count(log_path, QUIT_LOG_FORMAT.format(OWNER.name), 3)
+    final_log = wait_for_log_count(log_path, QUIT_LOG_FORMAT.format(OWNER.name), 3, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)
     refresh_lines = [line for line in final_log.splitlines() if REFRESH_LOG_FRAGMENT in line]
     assert len(refresh_lines) == 1, refresh_lines
     assert refresh_lines[0].endswith(refresh_line), refresh_lines
@@ -652,7 +618,7 @@ def test_a_version_bump_refreshes_a_mortals_rented_copy_when_it_returns_and_keep
     mystic = server.login(MORTAL_MYSTIC.name)
     give_plain_sword(implementor, MORTAL_MYSTIC)
     mystic_idnum = player_idnum(implementor, MORTAL_MYSTIC.name)
-    log_path = server.run_dir / "game.log"
+    log_path = server.handle.log_path
 
     reply = cast_enchant_weapon(mystic)
     assert GLOW_MARKER_FORMAT.format("blue") in reply, reply
@@ -666,15 +632,15 @@ def test_a_version_bump_refreshes_a_mortals_rented_copy_when_it_returns_and_keep
     returned_text = mystic.everything
     assert UPDATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION) in returned_text, returned_text[-QUOTED_TEXT_LENGTH:]
     assert INN_ROOM_NAME in returned_text, returned_text[-QUOTED_TEXT_LENGTH:]
-    wait_for_log_line(log_path, RENT_LOG_FORMAT.format(MORTAL_MYSTIC.name))
-    wait_for_log_line(log_path, UNRENT_LOG_FORMAT.format(MORTAL_MYSTIC.name))
+    wait_for_log_count(log_path, RENT_LOG_FORMAT.format(MORTAL_MYSTIC.name), 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)
+    wait_for_log_count(log_path, UNRENT_LOG_FORMAT.format(MORTAL_MYSTIC.name), 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)
 
     refreshed_lines = stat_sword(implementor, MORTAL_MYSTIC)
     assert REFRESHED_LINE in refreshed_lines, refreshed_lines
     assert ENCHANT_LINE_FORMAT.format("good") in refreshed_lines, refreshed_lines
     assert ENCHANT_AFFECTIONS_LINE in refreshed_lines, refreshed_lines
     refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, mystic_idnum) + ENCHANT_NOTE_FORMAT.format("kept")
-    wait_for_log_line(log_path, refresh_line)
+    wait_for_log_count(log_path, refresh_line, 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)
 
 
 @pytest.mark.object_versions_rent
@@ -828,7 +794,7 @@ def test_a_broken_key_stays_broken_across_a_refresh(server) -> None:
     assert BROKEN_KEY_FLAGS_LINE in broken_lines, broken_lines
 
     shape_prototype(implementor, KEY_VNUM)
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     assert UPDATED_MARKER_FORMAT.format(KEY_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
 
     refreshed_lines = stat_carried_object(implementor, KEY_KEYWORD, OWNER)
@@ -858,7 +824,7 @@ def test_a_refreshed_worn_item_gives_its_wearer_the_new_prototypes_affect(server
     assert strength_base_and_constant(implementor, OWNER.name) == (WEARER_STRENGTH, WEARER_STRENGTH)
 
     shape_prototype(implementor, world.OBJECT_LEATHER_HELM, give_strength_affect=True)
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     assert UPDATED_MARKER_FORMAT.format(HELM_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
     assert strength_base_and_constant(implementor, OWNER.name) == (WEARER_STRENGTH + 1, WEARER_STRENGTH)
 
@@ -889,9 +855,9 @@ def test_turning_the_version_off_stamps_new_copies_and_refreshes_no_saved_copy(s
         editor_step(implementor, "o", VERSION_OFF_MARKER, [VERSION_UNCHANGED_MARKER])
         editor_step(implementor, "/implement", IMPLEMENTED_MARKER, [NOTHING_TO_IMPLEMENT_MARKER, NOT_AUTHORIZED_MARKER])
     finally:
-        editor_step(implementor, "/free", RELEASED_MARKER, [])
+        editor_step(implementor, "/free", OBJECT_RELEASED, [])
 
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     login_text = owner.everything + owner.drain(SETTLE_SECONDS)
     assert UPDATED_FRAGMENT not in login_text, login_text[-QUOTED_TEXT_LENGTH:]
     owner_lines = stat_sword(implementor, OWNER)
@@ -922,7 +888,7 @@ def test_a_refresh_keeps_what_is_left_in_a_drink_container(server) -> None:
     assert SIPPED_WATERSKIN_LINE in sipped_lines, sipped_lines
 
     shape_prototype(implementor, WATERSKIN_VNUM)
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     assert UPDATED_MARKER_FORMAT.format(WATERSKIN_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
 
     refreshed_lines = stat_carried_object(implementor, WATERSKIN_KEYWORD, OWNER)
@@ -954,7 +920,7 @@ def test_a_version_bump_to_a_prototype_that_cannot_take_the_enchant_drops_it(ser
     assert GLOW_MARKER_FORMAT.format("blue") in reply, reply
 
     shape_prototype(implementor, world.OBJECT_PLAIN_SWORD, give_strength_affect=True)
-    owner = quit_and_log_in_again(server, owner, OWNER)
+    owner = server.relog(owner)
     assert UPDATED_MARKER_FORMAT.format(SWORD_SHORT_DESCRIPTION) in owner.everything, owner.everything[-QUOTED_TEXT_LENGTH:]
 
     refreshed_lines = stat_sword(implementor, OWNER)
@@ -963,4 +929,4 @@ def test_a_version_bump_to_a_prototype_that_cannot_take_the_enchant_drops_it(ser
     assert STRENGTH_AFFECTIONS_LINE in refreshed_lines, refreshed_lines
     assert NO_FLAGS_LINE in refreshed_lines, refreshed_lines
     refresh_line = REFRESH_LOG_FORMAT.format(world.OBJECT_PLAIN_SWORD, owner_idnum) + ENCHANT_NOTE_FORMAT.format("dropped")
-    wait_for_log_line(server.run_dir / "game.log", refresh_line)
+    wait_for_log_count(server.handle.log_path, refresh_line, 1, timeout=LOG_TIMEOUT, poll=LOG_POLL_SECONDS, describe=describe_refresh_lines)

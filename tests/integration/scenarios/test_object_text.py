@@ -170,8 +170,7 @@ def test_a_filled_flask_answers_to_its_liquid_and_its_twin_does_not(server) -> N
     assert drink(implementor, "2.ale") == NOT_FOUND
     assert drink(implementor, "2.flask") == EMPTY
 
-    implementor.quit()
-    again = server.login(SOBER_IMPLEMENTOR.name)
+    again = server.relog(implementor)
     assert drink(again, "ale") == NOT_FOUND
     contents = [again.command(f"look in {ordinal}.flask").text for ordinal in (1, 2)]
     full: list[str] = []

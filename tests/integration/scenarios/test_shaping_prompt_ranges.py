@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 import pytest
 
+from rots_harness import shaping, world
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
@@ -24,7 +25,7 @@ class Refusal(NamedTuple):
     listed: str  # the field's line in the editor's list afterwards, unchanged
 
 
-class Editor(NamedTuple):
+class RangeCase(NamedTuple):
     """An editor opened on a test-world record."""
 
     open_lines: tuple  # what starts shaping the record and gets it ready for the fields
@@ -34,13 +35,11 @@ class Editor(NamedTuple):
 
 
 # Mob 1130 in extended mode, where the fields have their extended numbers (list_help, shapemob.cpp).
-MOB_EDITOR = Editor(
-    ("shape mob 1130", "/simple"), "Mobile: 1130>", "/50", "You released the mobile and stopped shaping."
-)
-OBJECT_EDITOR = Editor(("shape object 1130",), "Object: 1130>", "/50", "You released an object and stopped shaping.")
-ROOM_EDITOR = Editor(("shape room 1101",), "Shaping: 1101>", "/50", "You released the room and stopped shaping.")
-ZONE_EDITOR = Editor(("shape zone 11",), "Zone: 11>", "/51", "You released your job and stop shaping.")
-SCRIPT_EDITOR = Editor(("shape script 1100",), "Script: 1100>", "/51", "You released the script and stopped shaping.")
+MOB_EDITOR = RangeCase((f"shape mob {shaping.SHAPED_RECORD}", "/simple"), shaping.MOBILE_PROMPT, "/50", shaping.MOBILE_RELEASED)
+OBJECT_EDITOR = RangeCase((f"shape object {shaping.SHAPED_RECORD}",), shaping.OBJECT_PROMPT, "/50", shaping.OBJECT_RELEASED)
+ROOM_EDITOR = RangeCase((f"shape room {world.ROOM_IMMORTAL_START}",), shaping.IMMORTAL_START_ROOM_PROMPT, "/50", shaping.ROOM_RELEASED)
+ZONE_EDITOR = RangeCase((f"shape zone {shaping.ZONE_NUMBER}",), shaping.ZONE_PROMPT, "/51", shaping.ZONE_RELEASED)
+SCRIPT_EDITOR = RangeCase((f"shape script {shaping.SHAPED_SCRIPT}",), shaping.SCRIPT_PROMPT, "/51", shaping.SCRIPT_RELEASED)
 
 # Each editor's range refusals (the checks beside each message in shape_center_proto,
 # shape_center_obj, shape_center_room and shape_center_zone).
@@ -95,27 +94,27 @@ FIELD_PROMPT_END = "]"
 SETTLE_SECONDS = 0.5
 
 
-def open_editor(implementor: GameSession, editor: Editor) -> None:
+def open_editor(implementor: GameSession, editor: RangeCase) -> None:
     """Starts shaping the editor's record and gets it ready for the fields."""
     for line in editor.open_lines:
         opened = reply_to(implementor, line, [editor.prompt, "could not open that file."], settle=SETTLE_SECONDS)
         assert editor.prompt in opened, opened
 
 
-def close_editor(implementor: GameSession, editor: Editor) -> None:
+def close_editor(implementor: GameSession, editor: RangeCase) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
     released = reply_to(implementor, "/free", [editor.release_marker], settle=SETTLE_SECONDS)
     assert editor.release_marker in released, released
 
 
-def answer_field(implementor: GameSession, editor: Editor, field_line: str, answer: str) -> str:
+def answer_field(implementor: GameSession, editor: RangeCase, field_line: str, answer: str) -> str:
     """Opens a field's prompt, answers it, and returns the reply up to the editor prompt."""
     prompt = reply_to(implementor, field_line, [FIELD_PROMPT_END, editor.prompt], settle=SETTLE_SECONDS)
     assert FIELD_PROMPT_END in prompt, prompt
     return reply_to(implementor, answer, [editor.prompt], settle=SETTLE_SECONDS)
 
 
-def editor_id(editor: Editor) -> str:
+def editor_id(editor: RangeCase) -> str:
     """The editor's name, from its open line, as the test id."""
     return editor.open_lines[0].split()[1]
 
@@ -125,7 +124,7 @@ def editor_id(editor: Editor) -> str:
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
-def test_a_number_out_of_its_fields_range_is_refused_and_the_field_kept(server, editor: Editor, refusals: list) -> None:
+def test_a_number_out_of_its_fields_range_is_refused_and_the_field_kept(server, editor: RangeCase, refusals: list) -> None:
     """Pins #318: each of these number prompts refuses a value outside its range, says what the
     range is, and leaves the field as it was."""
     implementor = server.login(IMPLEMENTOR.name)
@@ -165,7 +164,7 @@ def test_a_minus_answer_sets_alignment_negative_but_subtracts_from_damage(server
 )
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
-def test_q_at_a_name_prompt_is_refused_and_the_name_kept(server, editor: Editor, refusal: Refusal) -> None:
+def test_q_at_a_name_prompt_is_refused_and_the_name_kept(server, editor: RangeCase, refusal: Refusal) -> None:
     """Pins #318: %q, which empties most text fields, is refused where an empty name would leave
     the record unusable, and the name stays."""
     implementor = server.login(IMPLEMENTOR.name)

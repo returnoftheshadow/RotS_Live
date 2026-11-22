@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import read_game_log
 from rots_harness.game_text import FORCED_REPLY
 from rots_harness.immortal_commands import goto
-from rots_harness.launcher import GAME_LOG_NAME
 from rots_harness.replies import reply_to
 from rots_harness.world_resets import MobReset
 
@@ -68,7 +68,7 @@ LOG_POLL_SECONDS = 0.2
 
 def refusals_in(log_path: Path) -> tuple[list[tuple[str, str]], str]:
     """Every refusal line game.log holds, as (refusal, mob name) in log order, and the log itself."""
-    log_text = log_path.read_text(encoding="latin-1")
+    log_text = read_game_log(log_path)
     matches = REFUSAL_LINE_PATTERN.finditer(log_text)
     return [(match.group(1), match.group(2)) for match in matches], log_text
 
@@ -110,7 +110,7 @@ def test_two_mobs_answering_each_other_stop_at_the_nesting_limit(server) -> None
     assert answers.count(ECHO_SAYS_LINE) == MAX_SCRIPT_NESTING, answers[-1500:]
     assert answers.count(MIRROR_SAYS_LINE) == MAX_SCRIPT_NESTING, answers[-1500:]
 
-    refusals = wait_for_refusals(server.run_dir / GAME_LOG_NAME, 2)
+    refusals = wait_for_refusals(server.handle.log_path, 2)
     assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL, NESTING_REFUSAL], refusals
     assert sorted(name for _, name in refusals) == ["a mirror", "an echo"], refusals
 
@@ -139,7 +139,7 @@ def test_three_mobs_answering_each_other_stop_at_both_limits(server) -> None:
     forced = reply_to(implementor, f"force chanter say {HELLO}", [FORCED_REPLY])
     assert FORCED_REPLY in forced, forced
 
-    refusals = wait_for_refusals(server.run_dir / GAME_LOG_NAME, 4)
+    refusals = wait_for_refusals(server.handle.log_path, 4)
     assert [refusal for refusal, _ in refusals] == [NESTING_REFUSAL, RUNS_REFUSAL] * 2, refusals
 
     arrived = goto(implementor, ROOM_CHANTING, "Chanting Room")

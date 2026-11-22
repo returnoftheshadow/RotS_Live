@@ -497,7 +497,7 @@ online unless the account owns a character above level 91, so a test that logs i
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
 
 `command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
-print mid-reply. Five shared modules hold the helpers and text scenarios use instead of writing their own:
+print mid-reply. These shared modules hold the helpers and text scenarios use instead of writing their own:
 
 - `rots_harness/replies.py`: `reply_to(session, line, outcomes)` sends a line and returns what
   came back up to the first outcome, plus a settle (`SETTLE_SECONDS`, 1.0; pass `settle=` and
@@ -523,6 +523,29 @@ print mid-reply. Five shared modules hold the helpers and text scenarios use ins
   `short_description=` make the give check stronger), `wizset(implementor, "player testpupil",
   "lea", 40, shown_name="Testpupil")`, `where_lines`, `set_syslog` and `set_holylight`. Each
   asserts only what its docstring says; pass only the arguments for the check the test means.
+- `rots_harness/game_log.py`: reading game.log while the server runs, at `server.handle.log_path`:
+  `read_game_log`, `count_in_log`, `log_lines_holding`, `wait_for_log_count(log_path, line,
+  count)` for a line that may reach the log after the reply (`exact=True` also fails on more;
+  pass the file's own `timeout=` and `poll=`, and `describe=` for extra failure detail), and
+  `logged_messages` and `count_logged` for mudlog's messages.
+- `rots_harness/casting.py`: `cast_until_it_lands(caster, "cast 'identify' stone", outcomes)`
+  repeats a cast after `LOST_CONCENTRATION` and returns the first other reply; list `NO_ENERGY`
+  among the outcomes and check the returned text yourself. Pass `timeout=` when the spell takes
+  longer than `CAST_TIMEOUT_SECONDS` (15.0).
+- `rots_harness/accounts.py`: `account_connection(server.handle, server.run_dir, label)` and
+  `playing_connection(server.handle, server.run_dir, character)` open a connection the fixture
+  does not manage, closed when the `with` block ends; `closes_within(connection, seconds)`; and
+  the account-menu text several account files share, such as `NEW_CHARACTER_NAME_PROMPT`.
+- `rots_harness/saved_files.py`: what the server saved under the lib's accounts folder:
+  `stored_account(server.lib_dir)`, `account_file(server.lib_dir, character, "objects")`,
+  `saved_wear_positions` and the wear-position constants.
+- `rots_harness/shaping.py`: the shaping editors' prompts and release markers on the records two
+  or more shaping files open, such as `MOBILE_PROMPT` and `ZONE_RELEASED`.
+
+`rots_harness.characters.immortal(name, level)` declares an immortal test character in the
+immortal start room. `server.relog(session)` quits a character and logs it in again, returning
+the new session, and `server.text_after_hours(session, hours, expected_marker)` advances game
+hours and returns what the session read, beside `server.advance_hours`.
 
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and
@@ -562,7 +585,7 @@ booted, before or after a `server.restart()`, or the test fails after the server
 `expected SYSERR never logged: '<fragment>'`. Lines without `SYSERR` never count, and every other
 `SYSERR` line still fails the test. Markers on the module, a class and the test add up; a
 fragment named twice, an empty one or a marker with none is refused. To check how many times a
-line is logged, read `server.run_dir / "game.log"` in the test.
+line is logged, read `server.handle.log_path` with `rots_harness/game_log.py` in the test.
 
 `server.restart()` stops the server the way a service stop does, with SIGTERM while the
 characters are still logged in, and boots a new server on the same lib, so a test can read back

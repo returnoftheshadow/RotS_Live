@@ -4,17 +4,15 @@ take back a body it is already playing."""
 
 from __future__ import annotations
 
-import contextlib
 import re
-import time
-from typing import Iterator
 
 import pytest
 
 from rots_harness import world
+from rots_harness.accounts import ACCOUNT_MENU_NEW_CHARACTER, NEW_CHARACTER_NAME_PROMPT, account_connection, closes_within, playing_connection
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, Character
+from rots_harness.game_log import wait_for_log_count
 from rots_harness.game_text import QUIT_DROP_REPLY
-from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 from rots_harness.session import (
     ACCOUNT_MENU_PLAY,
     ACCOUNT_MENU_PROMPT,
@@ -46,16 +44,12 @@ HOLDER_AT_LOWEST_UNRESTRICTED_LEVEL = Character(
     name="Testholder", race="human", sex="male", level=LOWEST_UNRESTRICTED_LEVEL, load_room=world.ROOM_IMMORTAL_START, class_name="warrior"
 )
 
-# The account menu's create-a-new-character choice (show_account_menu, interpre.cpp).
-ACCOUNT_MENU_NEW_CHARACTER = "4"
 # What the one-character rule prints; format with the playing character's name
 # (active_account_session_restriction_message_for_session, interpre.cpp).
 ALREADY_CONNECTED_FORMAT = ONE_CHARACTER_ONLINE_MARKER + " {}."
 # The account menu's line for one active character; format with its name, level and state
 # (append_active_account_session_status, interpre.cpp).
 ACTIVE_CHARACTER_FORMAT = "Active character: {} (level {}, {})"
-# The prompt for a new character's name (CON_ACCTMENU in nanny, interpre.cpp).
-NEW_CHARACTER_NAME_PROMPT = "New character name:"
 # What selecting a linkless character prints (CON_SLCT in nanny, interpre.cpp).
 RECONNECTING_MARKER = "Reconnecting."
 # What selecting a character another connection plays prints to each connection (CON_SLCT).
@@ -65,31 +59,8 @@ USURPED_MARKER = "This body has been usurped!"
 CLOSING_LINK_LOG_FORMAT = "Closing link to: {} ["
 # Seconds the server is given to notice a closed connection, or to close one.
 CLOSE_SECONDS = 5.0
-
-
-@contextlib.contextmanager
-def account_connection(server, label: str) -> Iterator[GameSession]:
-    """A connection at the account email prompt, closed when the block ends.
-
-    It plays no character, so the server fixture does not quit it; label names its transcript.
-    """
-    connection = GameSession(server.handle, label, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.expect([LOGIN_EMAIL_PROMPT])
-        yield connection
-    finally:
-        connection.close()
-
-
-@contextlib.contextmanager
-def playing_connection(server, character: Character) -> Iterator[GameSession]:
-    """A connection playing character, closed when the block ends; the server fixture does not quit it."""
-    connection = GameSession(server.handle, character.name, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.login()
-        yield connection
-    finally:
-        connection.close()
+# Seconds between two reads of game.log while waiting for the closing line.
+LOG_POLL_SECONDS = 0.1
 
 
 def sign_in(connection: GameSession) -> str:
@@ -98,24 +69,6 @@ def sign_in(connection: GameSession) -> str:
     connection.expect([LOGIN_PASSWORD_PROMPT])
     connection.send_line(HARNESS_PASSWORD)
     return connection.expect([ACCOUNT_MENU_PROMPT])
-
-
-def closes_within(connection: GameSession, seconds: float) -> bool:
-    """Whether the server closes the connection within seconds; text read meanwhile is discarded."""
-    try:
-        connection.drain(seconds)
-    except ConnectionError:
-        return True
-    return False
-
-
-def wait_for_log_line(server, marker: str, seconds: float) -> None:
-    """Returns once game.log holds a line containing marker; fails the test after seconds."""
-    deadline = time.monotonic() + seconds
-    while marker not in server.handle.log_path.read_text(encoding="latin-1"):
-        if time.monotonic() >= deadline:
-            pytest.fail(f"game.log never logged {marker!r} within {seconds}s")
-        time.sleep(0.1)
 
 
 @pytest.mark.characters(ALPHA, BETA)
@@ -132,7 +85,7 @@ def test_creating_a_character_is_refused_while_another_of_the_account_plays(serv
     """Pins the one-character rule (#285): the account menu's new character choice gives the same
     refusal and shows the account menu again instead of the name prompt."""
     server.login(ALPHA.name)
-    with account_connection(server, "newwhileplaying") as connection:
+    with account_connection(server.handle, server.run_dir, "newwhileplaying") as connection:
         sign_in(connection)
         connection.send_line(ACCOUNT_MENU_NEW_CHARACTER)
         refused = connection.expect([ACCOUNT_MENU_PROMPT, NEW_CHARACTER_NAME_PROMPT])
@@ -145,7 +98,7 @@ def test_quitting_to_the_character_menu_frees_the_account_for_another_character(
     """Pins the one-character rule (#285): a character that quits to the character menu no longer
     holds the account, so another logs in; entering the game from that menu is then refused, and the
     account menu shown instead names the character now playing."""
-    with playing_connection(server, ALPHA) as alpha:
+    with playing_connection(server.handle, server.run_dir, ALPHA) as alpha:
         alpha.send_line("quit")
         quit_reply = alpha.expect([CHARACTER_MENU_PROMPT])
         assert QUIT_DROP_REPLY in quit_reply, quit_reply
@@ -179,13 +132,13 @@ def test_a_linkless_character_still_holds_the_account_and_reconnects_when_select
     """Pins the one-character rule (#285): a character whose connection dropped stays in the game as
     linkless; it still keeps the account's other character out, the account menu shows it as
     linkless, and selecting it reconnects to it."""
-    with playing_connection(server, ALPHA) as alpha:
+    with playing_connection(server.handle, server.run_dir, ALPHA) as alpha:
         # Closing the connection without quitting leaves the character in the game, linkless.
         alpha.close()
-    wait_for_log_line(server, CLOSING_LINK_LOG_FORMAT.format(ALPHA.name), CLOSE_SECONDS)
+    wait_for_log_count(server.handle.log_path, CLOSING_LINK_LOG_FORMAT.format(ALPHA.name), 1, timeout=CLOSE_SECONDS, poll=LOG_POLL_SECONDS)
     with pytest.raises(LoginRefused, match=re.escape(ALREADY_CONNECTED_FORMAT.format(ALPHA.name))):
         server.login(BETA.name)
-    with account_connection(server, "linkless") as connection:
+    with account_connection(server.handle, server.run_dir, "linkless") as connection:
         menu = sign_in(connection)
         assert ACTIVE_CHARACTER_FORMAT.format(ALPHA.name, ALPHA.level, "linkless") in menu, menu
         connection.send_line(ACCOUNT_MENU_PLAY)
@@ -200,8 +153,8 @@ def test_a_linkless_character_still_holds_the_account_and_reconnects_when_select
 def test_selecting_a_character_another_connection_plays_takes_the_body_over(server) -> None:
     """Pins #285: the account may select the character it is already playing; the new connection
     takes over the body and the old one is told and closed."""
-    with playing_connection(server, ALPHA) as first_connection:
-        with account_connection(server, "usurper") as connection:
+    with playing_connection(server.handle, server.run_dir, ALPHA) as first_connection:
+        with account_connection(server.handle, server.run_dir, "usurper") as connection:
             sign_in(connection)
             connection.send_line(ACCOUNT_MENU_PLAY)
             connection.expect([CHARACTER_CHOICE_PROMPT])

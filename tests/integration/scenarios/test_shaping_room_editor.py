@@ -9,6 +9,7 @@ from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import IMMORTAL_START_ROOM_PROMPT, ROOM_RELEASED
 from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE, read_stat
 from rots_harness.text_lines import raw_lines
 
@@ -16,13 +17,9 @@ pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_roo
 
 # The room the implementor arrives in and shapes; it has no flags, so it boots with no affection.
 ROOM_VNUM = world.ROOM_IMMORTAL_START
-# The room editor's prompt while no field is being answered (prompt_text in consts.cpp).
-ROOM_PROMPT = f"Shaping: {ROOM_VNUM}>"
 # What shape room prints once it has read the room, and when it cannot (load_room, shaperom.cpp).
 ROOM_LOADED_MARKER = f"loading room #{ROOM_VNUM}"
 ROOM_LOAD_FAILURES = ["could not open that file.", "no room here."]
-# What /free prints (extra_coms_room).
-ROOM_RELEASED_MARKER = "You released the room and stopped shaping."
 # What /19 prints after adding an affection to the editor's copy of the room.
 AFFECTION_ADDED = "A new affection added."
 # The /18 prompt's line with the first affection's values: a new affection is a spell affection
@@ -88,8 +85,8 @@ def open_room_editor(implementor: GameSession, room_vnum: int = ROOM_VNUM) -> No
 
 def close_room_editor(implementor: GameSession) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [ROOM_RELEASED_MARKER], settle=SETTLE_SECONDS)
-    assert ROOM_RELEASED_MARKER in released, released
+    released = reply_to(implementor, "/free", [ROOM_RELEASED], settle=SETTLE_SECONDS)
+    assert ROOM_RELEASED in released, released
 
 
 def look(mortal: GameSession) -> str:
@@ -111,7 +108,7 @@ def stat_room_affections(implementor: GameSession) -> list:
 def add_blink_affection(implementor: GameSession) -> None:
     """Adds an affection in the editor, sets it to blink at level 30, and checks the editor's
     list shows it."""
-    added = reply_to(implementor, "/19", [AFFECTION_ADDED, ROOM_PROMPT], settle=SETTLE_SECONDS)
+    added = reply_to(implementor, "/19", [AFFECTION_ADDED, IMMORTAL_START_ROOM_PROMPT], settle=SETTLE_SECONDS)
     assert AFFECTION_ADDED in added, added
     prompt = reply_to(implementor, "/18", [NEW_AFFECTION_VALUES, "Current:", NO_AFFECTIONS_FOUND], settle=SETTLE_SECONDS)
     assert NEW_AFFECTION_VALUES in raw_lines(prompt), prompt
@@ -176,9 +173,9 @@ def test_a_flag_answer_stops_at_the_first_word_that_is_not_a_flag(server) -> Non
     implementor = server.login(IMPLEMENTOR.name)
 
     open_room_editor(implementor)
-    prompt = reply_to(implementor, "/3", [ROOM_FLAGS_PROMPT, ROOM_PROMPT], settle=SETTLE_SECONDS)
+    prompt = reply_to(implementor, "/3", [ROOM_FLAGS_PROMPT, IMMORTAL_START_ROOM_PROMPT], settle=SETTLE_SECONDS)
     assert ROOM_FLAGS_PROMPT in raw_lines(prompt), prompt
-    answered = reply_to(implementor, MULTI_FLAG_ANSWER, [MULTI_FLAG_STOPPED, ROOM_PROMPT], settle=SETTLE_SECONDS)
+    answered = reply_to(implementor, MULTI_FLAG_ANSWER, [MULTI_FLAG_STOPPED, IMMORTAL_START_ROOM_PROMPT], settle=SETTLE_SECONDS)
     listed = reply_to(implementor, "/50", ["(3) room flag"], settle=SETTLE_SECONDS)
     close_room_editor(implementor)
 
@@ -221,11 +218,11 @@ def test_an_implemented_affections_room_flags_take_effect_and_leave_with_it(serv
     lit_look = look(mortal)
 
     open_room_editor(implementor)
-    added = reply_to(implementor, "/19", [AFFECTION_ADDED, ROOM_PROMPT], settle=SETTLE_SECONDS)
+    added = reply_to(implementor, "/19", [AFFECTION_ADDED, IMMORTAL_START_ROOM_PROMPT], settle=SETTLE_SECONDS)
     assert AFFECTION_ADDED in added, added
     prompt = reply_to(implementor, "/18", [NEW_AFFECTION_VALUES, "Current:", NO_AFFECTIONS_FOUND], settle=SETTLE_SECONDS)
     assert NEW_AFFECTION_VALUES in raw_lines(prompt), prompt
-    reply_to(implementor, DARKENING_AFFECTION_ANSWER, [ROOM_PROMPT], settle=SETTLE_SECONDS)
+    reply_to(implementor, DARKENING_AFFECTION_ANSWER, [IMMORTAL_START_ROOM_PROMPT], settle=SETTLE_SECONDS)
     implement_room(implementor)
     darkened_look = look(mortal)
     removed = reply_to(implementor, "/20", [AFFECTION_REMOVED, NO_AFFECTIONS_EXIST], settle=SETTLE_SECONDS)

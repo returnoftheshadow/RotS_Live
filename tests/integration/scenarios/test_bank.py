@@ -13,6 +13,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_log import log_lines_holding, read_game_log
 from rots_harness.game_text import UNRECOGNIZED_COMMAND_REPLY
 from rots_harness.immortal_commands import give_new_object, goto, load_object, wizset
 from rots_harness.replies import reply_to, text_seen_before_a_say
@@ -963,9 +964,8 @@ def test_a_banker_with_a_bad_fee_is_logged_at_boot_and_closed(server) -> None:
     """
     customer = server.login(STRANDED_CUSTOMER.name)
 
-    boot_log = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
-    problem_lines = [line for line in boot_log.splitlines() if BAD_FEE_LOG_LINE in line]
-    assert len(problem_lines) == 1, boot_log[-3000:]
+    problem_lines = log_lines_holding(server.handle.log_path, BAD_FEE_LOG_LINE)
+    assert len(problem_lines) == 1, read_game_log(server.handle.log_path)[-3000:]
     assert SYSERR_MARKER not in problem_lines[0], problem_lines[0]
 
     assert customer.command("balance").contains(BANK_CLOSED_FOR_NOW_MARKER)

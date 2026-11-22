@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
 
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_log import count_in_log
 from rots_harness.game_text import DEATH_CRY_FORMAT, FORCED_REPLY, IS_DEAD_FORMAT, POISON_TICK
 from rots_harness.immortal_commands import give_new_object, goto
+from rots_harness.saved_files import CARRIED_WEAR_POSITION, HEAD_WEAR_POSITION, saved_wear_positions
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import AFFECT_BITS_PATTERN, HIT_POINTS_PATTERN, read_stat
 
@@ -47,10 +47,6 @@ SASH_HIT_PENALTY = 72
 SASHED_MAXIMUM_HIT = IDLER_MAXIMUM_HIT - SASH_HIT_PENALTY
 # The wear position a saved object records for the neck (WEAR_NECK_1, src/structs.h).
 NECK_WEAR_POSITION = 3
-# The wear position a saved object records for the head (WEAR_HEAD).
-HEAD_WEAR_POSITION = 6
-# The wear position a saved object records when it is carried rather than worn (MAX_WEAR).
-CARRIED_WEAR_POSITION = 22
 
 # check_idling (limits.cpp) removes an idler in the hourly update that takes its idle timer past
 # 28; the timer counts the hours since the idler last sent anything.
@@ -79,8 +75,6 @@ NO_SUCH_PLAYER_MARKER = "No such player around."
 IDLE_REMOVAL_LOG = "Testidler force-rented and extracted (idle)."
 # What the server logs when the idler dies of its own gear's poison (die, fight.cpp).
 DEATH_LOG = "Testidler killed by Testidler at Idle Hall"
-# Seconds to keep reading after an acknowledgement, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 # The stat line with the room vnum (do_stat_character, act_wiz.cpp).
 STAT_ROOM_PATTERN = re.compile(r"In room \[\s*(\d+)\]")
@@ -114,20 +108,6 @@ def force_idler(implementor: GameSession, command: str) -> None:
     assert forced.contains(FORCED_REPLY), forced.text
 
 
-def saved_wear_positions(lib_dir: Path) -> dict[int, int]:
-    """Each object vnum in the idler's saved objects file, with the wear position it was saved at."""
-    paths = sorted((lib_dir / "accounts").glob(f"*/*/{IDLER.name.lower()}.objects.json"))
-    assert len(paths) == 1, paths
-    saved = json.loads(paths[0].read_text(encoding="utf-8"))
-    return {entry["item_number"]: entry["wear_pos"] for entry in saved["objects"]}
-
-
-def server_log_count(server, line: str) -> int:
-    """How many times the server's log, game.log in the run directory, holds line."""
-    log_text = (server.run_dir / "game.log").read_text(encoding="latin-1")
-    return log_text.count(line)
-
-
 def idle_the_idler_for_28_hours(server, implementor: GameSession, idler: GameSession, *, with_sash: bool) -> None:
     """Gives the idler the cap to wear, the bag and the amulet (and the sash when with_sash) to
     carry, closes its connection without quitting, and advances 28 game hours, one short of its
@@ -150,8 +130,7 @@ def idle_the_idler_for_28_hours(server, implementor: GameSession, idler: GameSes
     lost_link = implementor.expect([LOST_LINK_MARKER])
     assert lost_link.count(LOST_LINK_MARKER) == 1, lost_link
 
-    server.advance_hours(HOURS_BEFORE_REMOVAL)
-    idle_hours = implementor.drain(SETTLE_SECONDS)
+    idle_hours = server.text_after_hours(implementor, HOURS_BEFORE_REMOVAL)
     assert idle_hours.count(VOID_MARKER) == 1, idle_hours
     assert WRITHES_MARKER not in idle_hours, idle_hours
     assert idler_stat(implementor) == (ROOM_MORTAL_IDLE, IDLER_MAXIMUM_HIT, IDLER_MAXIMUM_HIT, HOURS_BEFORE_REMOVAL, "<NONE>")
@@ -188,17 +167,16 @@ def test_an_idler_whose_gear_poisons_them_as_it_comes_off_is_removed_and_returns
     )
     assert hit - GEAR_POISON_DAMAGE == 64
 
-    server.advance_hours(1)
-    removal_hour = implementor.drain(SETTLE_SECONDS)
+    removal_hour = server.text_after_hours(implementor)
     assert removal_hour.count(WRITHES_MARKER) == 1, removal_hour
     assert DEAD_MARKER not in removal_hour, removal_hour
     hall = implementor.command("look")
     assert IDLER.name not in hall.text and "corpse" not in hall.text, hall.text
     gone = implementor.command(f"stat player {IDLER.name.lower()}")
     assert gone.contains(NO_SUCH_PLAYER_MARKER), gone.text
-    assert server_log_count(server, IDLE_REMOVAL_LOG) == 1
-    assert server_log_count(server, "killed by") == 0
-    assert saved_wear_positions(server.lib_dir) == {
+    assert count_in_log(server.handle.log_path, IDLE_REMOVAL_LOG) == 1
+    assert count_in_log(server.handle.log_path, "killed by") == 0
+    assert saved_wear_positions(server.lib_dir, IDLER) == {
         world.OBJECT_SICKLY_AMULET: NECK_WEAR_POSITION,
         world.OBJECT_LEATHER_CAP: HEAD_WEAR_POSITION,
         world.OBJECT_LEATHER_BAG: CARRIED_WEAR_POSITION,
@@ -248,8 +226,7 @@ def test_an_idler_whose_gear_kills_them_as_it_comes_off_dies_once_and_the_server
     )
     assert SASHED_MAXIMUM_HIT - GEAR_POISON_DAMAGE == -3
 
-    server.advance_hours(1)
-    removal_hour = implementor.drain(SETTLE_SECONDS)
+    removal_hour = server.text_after_hours(implementor)
     assert removal_hour.count(WRITHES_MARKER) == 1, removal_hour
     assert removal_hour.count(DEAD_MARKER) == 1, removal_hour
     assert removal_hour.count(DEATH_CRY_MARKER) == 1, removal_hour
@@ -260,9 +237,9 @@ def test_an_idler_whose_gear_kills_them_as_it_comes_off_dies_once_and_the_server
     assert "a sickly amulet" not in corpse.text and "a leather bag" not in corpse.text, corpse.text
     gone = implementor.command(f"stat player {IDLER.name.lower()}")
     assert gone.contains(NO_SUCH_PLAYER_MARKER), gone.text
-    assert server_log_count(server, IDLE_REMOVAL_LOG) == 1
-    assert server_log_count(server, DEATH_LOG) == 1
-    assert saved_wear_positions(server.lib_dir) == {}
+    assert count_in_log(server.handle.log_path, IDLE_REMOVAL_LOG) == 1
+    assert count_in_log(server.handle.log_path, DEATH_LOG) == 1
+    assert saved_wear_positions(server.lib_dir, IDLER) == {}
 
     returned = server.login(IDLER.name)
     assert returned.command("look").contains(BACK_FROM_AFK_MARKER)

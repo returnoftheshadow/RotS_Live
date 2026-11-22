@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import LOST_CONCENTRATION, NO_ENERGY
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.game_text import CORPSE_CONTENTS_HEADER, IS_DEAD_FORMAT
 from rots_harness.immortal_commands import goto, load_mob, load_object
@@ -47,10 +48,6 @@ SLINGER = Character(
 TASTER_DEAD_MARKER = IS_DEAD_FORMAT.format("A frail taster")
 # What `look in bag` prints before a carried bag's contents (show_obj_contents, act_info.cpp).
 BAG_CONTENTS_HEADER = "bag (carried) :"
-# What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp).
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
-# What the caster reads when its mana does not cover the cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # Seconds to wait for a cast's outcome: magic missile's casting delay at mage level 30 is a few
 # seconds (CASTING_TIME, spells.h); 20 leaves room for a loaded host.
 CAST_TIMEOUT = 20.0
@@ -115,8 +112,7 @@ def test_a_mob_that_dies_of_poison_has_its_bagged_cap_gathered_into_its_corpse(s
     #   = -4 <= -1: POSITION_DEAD.
     assert hit_points - POISON_TICK_DAMAGE <= -(constitution // 2)
 
-    server.advance_hours(1)
-    died = implementor.expect([TASTER_DEAD_MARKER]) + implementor.drain(SETTLE_SECONDS)
+    died = server.text_after_hours(implementor, expected_marker=TASTER_DEAD_MARKER)
     assert TASTER_DEAD_MARKER in died, died
     assert_the_corpse_holds_the_cap_outside_the_bag(implementor)
 
@@ -157,8 +153,8 @@ def test_a_mob_a_player_kills_has_its_bagged_cap_gathered_into_its_corpse(server
     assert hit_points - 7 < 0
 
     while True:
-        outcome = reply_to(slinger, "cast 'magic missile' taster", [TASTER_DEAD_MARKER, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER], timeout=CAST_TIMEOUT)
-        assert NO_ENERGY_MARKER not in outcome, "the mage ran out of mana before a cast held"
+        outcome = reply_to(slinger, "cast 'magic missile' taster", [TASTER_DEAD_MARKER, LOST_CONCENTRATION, NO_ENERGY], timeout=CAST_TIMEOUT)
+        assert NO_ENERGY not in outcome, "the mage ran out of mana before a cast held"
         if TASTER_DEAD_MARKER in outcome:
             break
     implementor.drain(SETTLE_SECONDS)

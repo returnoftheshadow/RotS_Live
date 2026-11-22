@@ -8,8 +8,8 @@ from typing import NamedTuple
 
 import pytest
 
-from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness import shaping, world
+from rots_harness.characters import IMPLEMENTOR, immortal
 from rots_harness.replies import reply_to
 from rots_harness.text_lines import raw_lines
 
@@ -25,10 +25,10 @@ class Editor(NamedTuple):
 
 
 # The mob, object, room and script editors on the test world's first record of each kind.
-MOB_EDITOR = Editor("shape mob 1130", "Mobile: 1130>", "You released the mobile and stopped shaping.")
-OBJECT_EDITOR = Editor("shape object 1130", "Object: 1130>", "You released an object and stopped shaping.")
-ROOM_EDITOR = Editor("shape room 1101", "Shaping: 1101>", "You released the room and stopped shaping.")
-SCRIPT_EDITOR = Editor("shape script 1100", "Script: 1100>", "You released the script and stopped shaping.")
+MOB_EDITOR = Editor(f"shape mob {shaping.SHAPED_RECORD}", shaping.MOBILE_PROMPT, shaping.MOBILE_RELEASED)
+OBJECT_EDITOR = Editor(f"shape object {shaping.SHAPED_RECORD}", shaping.OBJECT_PROMPT, shaping.OBJECT_RELEASED)
+ROOM_EDITOR = Editor(f"shape room {world.ROOM_IMMORTAL_START}", shaping.IMMORTAL_START_ROOM_PROMPT, shaping.ROOM_RELEASED)
+SCRIPT_EDITOR = Editor(f"shape script {shaping.SHAPED_SCRIPT}", shaping.SCRIPT_PROMPT, shaping.SCRIPT_RELEASED)
 
 # What a loader prints when the record or its file is missing (load_proto, load_object,
 # load_room and load_script in the shape*.cpp files).
@@ -120,11 +120,6 @@ def test_shape_master_without_a_number_shows_its_usage(server, command: str, kin
     assert f"Usage: shape {command} <idnum>" in reply_lines, reply.text
     assert any(line.startswith(f"{kind} master is player #") for line in reply_lines), reply.text
     assert f"{kind} permission set to player" not in reply.text, reply.text
-
-
-def immortal(name: str, level: int) -> Character:
-    """An immortal human warrior of the given level, entering at the immortal start."""
-    return Character(name=name, race="human", sex="male", level=level, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
 
 
 # Immortals just below and at the level that gets full permission over a zone without owners

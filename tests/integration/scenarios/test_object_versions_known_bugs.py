@@ -151,8 +151,7 @@ def test_a_sipped_drink_containers_weight_is_kept_across_a_login(server) -> None
     sipped_lines = stat_object(implementor, WATERSKIN_KEYWORD)
     assert any(line.startswith(SIPPED_WATERSKIN_WEIGHT_LINE_START) for line in sipped_lines), sipped_lines
 
-    owner.quit()
-    owner = server.login(OWNER.name)
+    owner = server.relog(owner)
 
     returned_lines = stat_object(implementor, WATERSKIN_KEYWORD)
     assert any(SIPPED_WATERSKIN_CONTENTS_FRAGMENT in line for line in returned_lines), returned_lines

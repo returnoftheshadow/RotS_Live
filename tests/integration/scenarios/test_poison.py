@@ -54,14 +54,6 @@ def hit_points(session: GameSession) -> tuple:
     return int(match.group(1)), int(match.group(2))
 
 
-def text_after_an_hour(server, session: GameSession, expected_marker: str = "") -> str:
-    """Advances one game hour and returns what the session read during it."""
-    server.advance_hours(1)
-    if expected_marker:
-        return session.expect([expected_marker]) + session.drain(SETTLE_SECONDS)
-    return session.drain(SETTLE_SECONDS)
-
-
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, MORTAL)
 def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server) -> None:
@@ -79,18 +71,18 @@ def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server
     give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", mortal_keyword)
     assert mortal.command("eat bread").contains(EATEN_POISON_MARKER)
 
-    first_hour = text_after_an_hour(server, mortal, POISON_TICK)
+    first_hour = server.text_after_hours(mortal, expected_marker=POISON_TICK)
     assert first_hour.count(POISON_TICK) == 1, first_hour
     assert hit_points(mortal) == (maximum_hit - FIRST_TICK_DAMAGE, maximum_hit)
 
     for hour in range(2, POISON_HOURS + 1):
-        during_hour = text_after_an_hour(server, mortal, POISON_TICK)
+        during_hour = server.text_after_hours(mortal, expected_marker=POISON_TICK)
         assert during_hour.count(POISON_TICK) == 1, f"hour {hour}:\n{during_hour}"
 
-    wearing_off = text_after_an_hour(server, mortal, POISON_WEARS_OFF_MARKER)
+    wearing_off = server.text_after_hours(mortal, expected_marker=POISON_WEARS_OFF_MARKER)
     assert POISON_TICK not in wearing_off, wearing_off
 
-    after_poison = text_after_an_hour(server, mortal)
+    after_poison = server.text_after_hours(mortal)
     assert POISON_TICK not in after_poison, after_poison
     assert POISON_WEARS_OFF_MARKER not in after_poison, after_poison
 

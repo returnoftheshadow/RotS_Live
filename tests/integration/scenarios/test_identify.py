@@ -8,10 +8,10 @@ import re
 import pytest
 
 from rots_harness import world
+from rots_harness.casting import NO_ENERGY, cast_until_it_lands
 from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
 from rots_harness.game_text import TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY
 from rots_harness.immortal_commands import give_new_object
-from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
 
 pytestmark = [pytest.mark.scenario, pytest.mark.identify]
@@ -49,11 +49,6 @@ AMULET_SHORT_DESCRIPTION = "a sickly amulet"
 
 # The first line identify prints (do_identify_object, act_info.cpp).
 IDENTIFIED_MARKER_FORMAT = "You feel certain the object you have is {}."
-# What the caster reads when the concentration roll fails (do_cast, spell_pa.cpp):
-# number(0, 100) >= 100 still happens once in 101 casts at full knowledge.
-LOST_CONCENTRATION_MARKER = "You lost your concentration!"
-# What the caster reads when its mana no longer covers a cast (can_cast_spell, spell_pa.cpp).
-NO_ENERGY_MARKER = "You can't summon enough energy to cast the spell."
 # The header of identify's attribute list and the lines the stone's two flags print, in bit
 # order (sprintbit, utility.cpp, with extra_messages[], act_info.cpp).
 ATTRIBUTES_HEADER = "This item has the following attributes:"
@@ -76,10 +71,6 @@ FOOD_SENTENCE_LINES = [
 # The header of identify's affection list (do_identify_object).
 AFFECTIONS_HEADER = "This item has the following affections:"
 
-# Seconds to wait for a cast's outcome: identify's 50 beats at mage level 30 are 25
-# (CASTING_TIME, spells.h), about three seconds; 15 leaves room for a loaded host.
-CAST_TIMEOUT = 15.0
-
 
 def prepare_mage_with_object(implementor: GameSession, vnum: int, keyword: str, short_description: str) -> None:
     """Loads the object and hands it to the mage."""
@@ -91,15 +82,13 @@ def cast_identify(caster: GameSession, keyword: str, short_description: str) -> 
 
     A lost concentration is the one roll that can stop the cast, so the cast is repeated after
     it. Each loss costs mana and nothing restores mana between requests under affect-hours, so
-    the repeats end at NO_ENERGY_MARKER at the latest.
+    the repeats end at NO_ENERGY at the latest.
     """
     identified_marker = IDENTIFIED_MARKER_FORMAT.format(short_description)
-    outcomes = [identified_marker, LOST_CONCENTRATION_MARKER, NO_ENERGY_MARKER, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
-    while True:
-        reply = reply_to(caster, f"cast 'identify' {keyword}", outcomes, timeout=CAST_TIMEOUT)
-        if LOST_CONCENTRATION_MARKER not in reply:
-            assert identified_marker in reply, reply
-            return reply
+    outcomes = [identified_marker, NO_ENERGY, TARGET_NOT_CARRIED_REPLY, UNKNOWN_SPELL_REPLY]
+    reply = cast_until_it_lands(caster, f"cast 'identify' {keyword}", outcomes)
+    assert identified_marker in reply, reply
+    return reply
 
 
 def identify_new_object(server, vnum: int, keyword: str, short_description: str) -> str:

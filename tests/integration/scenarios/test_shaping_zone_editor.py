@@ -13,17 +13,15 @@ from rots_harness.characters import IMPLEMENTOR
 from rots_harness.immortal_commands import set_syslog
 from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import SECTION_COMMENT_PROMPT, SECTION_TITLE_PROMPT, ZONE_FILE_RELATIVE, ZONE_NUMBER, ZONE_PROMPT, ZONE_RELEASED
 from rots_harness.text_lines import raw_lines
 
 pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_zone_editor]
 
-# The test world's zone 11.
-ZONE_NUMBER = 11
 # A vnum no mob or object of the test world has.
 MISSING_VNUM = 99999
-# The zone file the editor loads and /save rewrites, relative to the lib (SHAPE_ZON_DIR, protos.h),
-# and where /save copies it first (SHAPE_ZON_BACKDIR).
-ZONE_FILE_RELATIVE = Path("world") / "zon" / f"{ZONE_NUMBER}.zon"
+# Where /save copies the zone file (ZONE_FILE_RELATIVE, SHAPE_ZON_DIR in protos.h) before it
+# rewrites it (SHAPE_ZON_BACKDIR).
 ZONE_BACKUP_RELATIVE = Path("world") / "zon" / "oldzons" / f"{ZONE_NUMBER}.zon"
 # The test world's copy of that file, which every run's lib starts from.
 WORLD_ZONE_TEXT = (Path(__file__).resolve().parents[1] / ZONE_FILE_RELATIVE).read_text(encoding="latin-1")
@@ -35,13 +33,9 @@ SECTION_COMMENT = "who waits where"
 LIST_WIDTH = 78
 SECTION_COMMENT_INDENT = 2
 
-# The editor's prompt while no field is being answered (prompt_text in consts.cpp).
-ZONE_PROMPT = f"Zone: {ZONE_NUMBER}>"
 # What load_zone prints when the zone file or the zone in it is missing.
 ZONE_FILE_MISSING_MARKER = "could not open that file."
 ZONE_MISSING_MARKER = "no zone here."
-# What /free prints (extra_coms_zone).
-ZONE_RELEASED_MARKER = "You released your job and stop shaping."
 # What /6 prints when it moves to the next row, and /10 when it inserts one.
 NEXT_ROW_MARKER = "Next command chosen:"
 ROW_INSERTED_MARKER = "New command added next to current, and selected."
@@ -50,9 +44,6 @@ ROW_INSERTED_MARKER = "New command added next to current, and selected."
 COMMAND_TYPE_PROMPT = "Enter command type:"
 EIGHT_NUMBERS_PROMPT = "Enter 8 numbers:"
 COMMENT_PROMPT = "Enter line COMMENT"
-# The section prompts' first words (shape_section_prompt, shapemob.cpp).
-SECTION_TITLE_PROMPT = "Enter section TITLE"
-SECTION_COMMENT_PROMPT = "Enter section COMMENT"
 # What /3 prints for a letter it does not know.
 UNRECOGNIZED_COMMAND_MARKER = "Unrecognized command."
 # The start of the summary /implement ends with, with or without disabled rows (implement_zone).
@@ -131,8 +122,8 @@ def open_zone_editor(implementor: GameSession) -> None:
 
 def close_zone_editor(implementor: GameSession) -> None:
     """Leaves the editor, so the session can quit when the test ends."""
-    released = reply_to(implementor, "/free", [ZONE_RELEASED_MARKER], settle=SETTLE_SECONDS)
-    assert ZONE_RELEASED_MARKER in released, released
+    released = reply_to(implementor, "/free", [ZONE_RELEASED], settle=SETTLE_SECONDS)
+    assert ZONE_RELEASED in released, released
 
 
 def insert_row_after_the_last(implementor: GameSession, command_letter: str) -> str:

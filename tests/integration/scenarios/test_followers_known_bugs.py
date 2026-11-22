@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.characters import IMPLEMENTOR, immortal
 from rots_harness.game_text import CORPSE_CONTENTS_HEADER, NEW_BODY_MESSAGE, TELEPORTED_BY_ANYONE
 from rots_harness.immortal_commands import give_new_object, goto, load_object, set_holylight, wizset
 from rots_harness.replies import reply_to
@@ -40,14 +40,7 @@ CARRIER = human_warrior("Testcarrier", "female", world.ROOM_GALLOWS_APPROACH)
 # A mortal in the captain's room who is in no group.
 OUTSIDER = human_warrior("Testoutsider", "female", world.ROOM_ARENA_CENTRE)
 # A level-93 immortal (LEVEL_GOD, structs.h), the lowest level with teleport, in Immortal Start.
-GOD = Character(
-    name="Testgod",
-    race="human",
-    sex="male",
-    level=93,
-    load_room=world.ROOM_IMMORTAL_START,
-    class_name="warrior",
-)
+GOD = immortal("Testgod", 93)
 
 # What a follower without the moves for the step reads (do_move).
 EXHAUSTED_MARKER = "You are too exhausted to move."

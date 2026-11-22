@@ -3,24 +3,17 @@ so the pin turns into a failure (XPASS) the day the bug is fixed."""
 
 from __future__ import annotations
 
-import contextlib
-from typing import Iterator
-
 import pytest
 
 from rots_harness import world
+from rots_harness.accounts import ACCOUNT_MENU_NEW_CHARACTER, NEW_CHARACTER_NAME_PROMPT, account_connection, closes_within, playing_connection
 from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
 from rots_harness.immortal_commands import load_mob
-from rots_harness.launcher import LOGIN_EMAIL_PROMPT
-from rots_harness.session import ACCOUNT_MENU_PROMPT, LOGIN_PASSWORD_PROMPT, GameSession
+from rots_harness.session import ACCOUNT_MENU_PROMPT, LOGIN_PASSWORD_PROMPT
 from test_account_menu import FREE_NEW_NAME, ROLEPLAY_QUESTION_FORMAT, new_name_answer
 
 pytestmark = [pytest.mark.scenario, pytest.mark.account_menu]
 
-# The account menu's create-a-new-character choice (show_account_menu, interpre.cpp).
-ACCOUNT_MENU_NEW_CHARACTER = "4"
-# The prompt for a new character's name (CON_ACCTMENU and CON_ACCTNEWCHAR in nanny, interpre.cpp).
-NEW_CHARACTER_NAME_PROMPT = "New character name:"
 # A word fill_word refuses as a name (fill[], interpre.cpp); it passes every check before the
 # confirmation.
 FILL_WORD_NAME = "The"
@@ -42,40 +35,6 @@ DELETE_PASSWORD = "rots"
 CLOSE_SECONDS = 5.0
 
 
-@contextlib.contextmanager
-def account_connection(server, label: str) -> Iterator[GameSession]:
-    """A connection at the account email prompt, closed when the block ends.
-
-    It plays no character, so the server fixture does not quit it; label names its transcript.
-    """
-    connection = GameSession(server.handle, label, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.expect([LOGIN_EMAIL_PROMPT])
-        yield connection
-    finally:
-        connection.close()
-
-
-@contextlib.contextmanager
-def playing_connection(server, character: Character) -> Iterator[GameSession]:
-    """A connection playing character, closed when the block ends; the server fixture does not quit it."""
-    connection = GameSession(server.handle, character.name, HARNESS_EMAIL, HARNESS_PASSWORD, server.run_dir)
-    try:
-        connection.login()
-        yield connection
-    finally:
-        connection.close()
-
-
-def closes_within(connection: GameSession, seconds: float) -> bool:
-    """Whether the server closes the connection within seconds; text read meanwhile is discarded."""
-    try:
-        connection.drain(seconds)
-    except ConnectionError:
-        return True
-    return False
-
-
 @pytest.mark.account_menu_characters
 @pytest.mark.xfail(
     strict=True,
@@ -90,7 +49,7 @@ def test_a_name_refused_at_the_new_character_confirmation_is_followed_by_another
     to the account menu (interpre.cpp:3174-3183). The next name is parsed as an email address and
     refused with the email error and `Account email:`. Correct: the name prompt takes it and offers
     it for confirmation like any free name (CON_ACCTNEWCHAR, interpre.cpp:4083-4085)."""
-    with account_connection(server, "fillword") as connection:
+    with account_connection(server.handle, server.run_dir, "fillword") as connection:
         connection.send_line(HARNESS_EMAIL)
         connection.expect([LOGIN_PASSWORD_PROMPT])
         connection.send_line(HARNESS_PASSWORD)
@@ -122,7 +81,7 @@ def test_delete_disconnects_the_named_player_and_leaves_a_mob_of_the_same_keywor
     its next save prints `Error: you are not being saved.  Please contact an immortal.`
     (save_char, db.cpp:3487-3496). Correct: the player is disconnected and the orc stays."""
     implementor = server.login(IMPLEMENTOR.name)
-    with playing_connection(server, BYSTANDER) as bystander:
+    with playing_connection(server.handle, server.run_dir, BYSTANDER) as bystander:
         load_mob(implementor, world.MOB_BYSTANDER_ORC, BYSTANDER_ORC_SHORT_DESCRIPTION)
         before = implementor.command("look")
         assert BYSTANDER_ORC_IN_ROOM in before.text, before.text

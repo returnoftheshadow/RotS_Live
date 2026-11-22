@@ -15,6 +15,7 @@ from rots_harness.characters import (
     ProfessionPoints,
     StoredValues,
     custom_mage,
+    immortal,
 )
 
 
@@ -95,3 +96,9 @@ def test_equal_stored_values_give_identical_spec_text() -> None:
     first = Character(name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", stored=StoredValues(lea=10, gold=5))
     second = Character(name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", stored=StoredValues(gold=5, lea=10))
     assert CharacterSet((first,)).spec_json() == CharacterSet((second,)).spec_json()
+
+
+def test_immortal_is_a_human_male_warrior_of_the_level_at_the_immortal_start() -> None:
+    god = immortal("Testgod", 93)
+    assert god == Character(name="Testgod", race="human", sex="male", level=93, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
+    assert god.to_spec()["level"] == 93

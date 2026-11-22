@@ -10,6 +10,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
 from rots_harness.immortal_commands import give_new_object, goto
+from rots_harness.saved_files import CARRIED_WEAR_POSITION, HEAD_WEAR_POSITION, account_file, saved_wear_positions
 
 pytestmark = [pytest.mark.scenario, pytest.mark.service_stop]
 
@@ -21,19 +22,6 @@ CAP_NAME = "a leather cap"
 # How the game names the leather bag (world.OBJECT_LEATHER_BAG), which the wayfarer carries, in
 # the inventory.
 BAG_NAME = "a leather bag"
-# The wear position a saved object records for the head (WEAR_HEAD, src/structs.h).
-HEAD_WEAR_POSITION = 6
-# The wear position a saved object records when it is carried rather than worn (MAX_WEAR).
-CARRIED_WEAR_POSITION = 22
-
-
-def account_file(lib_dir: Path, character: Character, kind: str) -> Path:
-    """The character's <name>.<kind>.json in the harness account's folder."""
-    file_name = f"{character.name.lower()}.{kind}.json"
-    matches = (lib_dir / "accounts").glob(f"*/*/{file_name}")
-    paths = sorted(matches)
-    assert len(paths) == 1, paths
-    return paths[0]
 
 
 def saved_load_room(lib_dir: Path, character: Character) -> int:
@@ -42,14 +30,6 @@ def saved_load_room(lib_dir: Path, character: Character) -> int:
     saved_text = character_path.read_text(encoding="utf-8")
     saved = json.loads(saved_text)
     return saved["state"]["load_room"]
-
-
-def saved_wear_positions(lib_dir: Path, character: Character) -> dict[int, int]:
-    """Each object vnum in the character's saved objects file, with the wear position it was saved at."""
-    objects_path = account_file(lib_dir, character, "objects")
-    saved_text = objects_path.read_text(encoding="utf-8")
-    saved = json.loads(saved_text)
-    return {entry["item_number"]: entry["wear_pos"] for entry in saved["objects"]}
 
 
 @pytest.mark.schedule("affect-hours")

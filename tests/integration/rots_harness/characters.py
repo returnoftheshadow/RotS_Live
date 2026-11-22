@@ -106,6 +106,14 @@ class Character:
 IMPLEMENTOR = Character(name="Testimm", race="human", sex="male", level=LEVEL_IMPLEMENTOR, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
 
 
+def immortal(name: str, level: int) -> Character:
+    """An immortal test character: a human male warrior of level whose load room is world.ROOM_IMMORTAL_START.
+
+    Nothing checks that level is an immortal's; the caller picks it.
+    """
+    return Character(name=name, race="human", sex="male", level=level, load_room=world.ROOM_IMMORTAL_START, class_name="warrior")
+
+
 def custom_mage(
     name: str = "Testmage",
     level: int = 30,
