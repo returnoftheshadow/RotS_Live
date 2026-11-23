@@ -1,6 +1,7 @@
 #include "affect_hours_registration.h"
 #include "fake_control_channel.h"
 #include "harness_controlled_schedule.h"
+#include "run_token.h"
 #include "schedule_definition.h"
 #include "schedule_registry.h"
 #include "schedule_setup.h"
@@ -12,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 // These tests run the affect-hours schedule through its registration, its factory and the
@@ -104,6 +106,21 @@ TEST(AffectHoursTranscript, SendsTheReadyLineFirst)
 
     const std::vector<std::string> expected = { "ready schedule=affect-hours hours=0" };
     EXPECT_EQ(run.channel_state->replies, expected) << "Unexpected ready line.";
+}
+
+TEST(AffectHoursTranscript, SendsTheEntryTokenAfterTheHoursInTheReadyLine)
+{
+    harness::ScheduleSetup setup = create_registered_affect_hours_setup();
+    setup.ready_state = harness::with_entry_token(setup.ready_state, "00ff");
+    std::shared_ptr<harness_tests::FakeControlChannel::State> channel_state
+        = std::make_shared<harness_tests::FakeControlChannel::State>();
+    harness::HarnessControlledSchedule wrapper(harness::AFFECT_HOURS_SCHEDULE_NAME, std::move(setup),
+        std::make_unique<harness_tests::FakeControlChannel>(channel_state));
+
+    static_cast<void>(wrapper.next_pass());
+
+    const std::vector<std::string> expected = { "ready schedule=affect-hours hours=0 entry=00ff" };
+    EXPECT_EQ(channel_state->replies, expected) << "Unexpected ready line.";
 }
 
 TEST(AffectHoursTranscript, RunsNoWorldUpdateUntilAGrantArrives)

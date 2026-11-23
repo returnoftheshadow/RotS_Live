@@ -88,9 +88,12 @@ the harness (extending-the-harness.md); never rely on luck.
 ## 5. Declare the characters
 
 Use `@pytest.mark.characters(...)` (fields in the reference); `characters.IMPLEMENTOR` and
-`characters.immortal(name, level)` are the shared immortals. Starting values go in the
-character: a mortal's `load_room` (an immortal always starts in 1101) and its `stored` values
-(hunger, gold, abilities, spirit, alignment, specialization and more, each limited like its
+`characters.immortal(name, level)` are the shared immortals. `server.login(name)` enters each
+one straight into the game with the harness binary's entry token. Add `@pytest.mark.real_login`
+(plain `ageland` and the account menu dialogue) only to a test of the login dialogue, the account
+menu or the boot, or one that opens its own connections at the email prompt. Starting values go
+in the character: a mortal's `load_room` (an immortal always starts in 1101) and its `stored`
+values (hunger, gold, abilities, spirit, alignment, specialization and more, each limited like its
 `wizset` field). Mobs and floor objects the test starts with go in
 `@pytest.mark.world_resets(...)`. The implementor sets what changes during the test and what
 neither can hold (items, practice sessions, and the `saving_throw` field, which only some save
@@ -99,7 +102,6 @@ and `load_object` (shared-helpers.md, "Implementor set-up commands"), whose keyw
 choose what each reply is checked for. Declare `IMPLEMENTOR` whenever
 two characters are online. Across sides a command matches a player's race keyword, never its
 name (reference, "Names, sides and lookups").
-
 
 ## 6. Change the world only when it lacks what you need
 
@@ -181,7 +183,7 @@ it in the description as `@asan-test-scenario=scenarios/test_<file>.py::<test>`,
     three times through the local launcher (on a Mac, inside a container). Between runs, the
     starting game hour, month and moon follow the wall clock at boot, commands from different
     connections arrive in any order, asynchronous text can land before or after a prompt, a
-    plain server's mobs and combat draw on the wall clock, and the two launchers time a
+    real-time server's mobs and combat draw on the wall clock, and the two launchers time a
     server differently, so one pass can be luck;
   - once each with `ROTS_IT_SEED=1` and `ROTS_IT_SEED=987654`, which proves the seed is not
     why they pass (step 4).

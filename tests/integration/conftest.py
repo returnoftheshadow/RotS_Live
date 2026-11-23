@@ -9,7 +9,7 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 import pytest
 
@@ -51,7 +51,13 @@ from rots_harness.replies import SETTLE_SECONDS
 from rots_harness.retention import RunDirectoryReport, keep_run_directory
 from rots_harness.session import GameSession, end_sessions
 from rots_harness.sharding import SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
-from rots_harness.timecontrol import OUTPUT_LOG_NAME, TimeControl, parse_hour_timeout, schedule_name_from_marker
+from rots_harness.timecontrol import (
+    OUTPUT_LOG_NAME,
+    REAL_TIME_SCHEDULE,
+    TimeControl,
+    parse_hour_timeout,
+    server_schedule,
+)
 
 # tests/integration: this file, pytest.ini, the group files and the test world.
 INTEGRATION_ROOT = Path(__file__).resolve().parent
@@ -281,8 +287,10 @@ def controller_needs_docker_lock(session: pytest.Session) -> bool:
 
     It is needed when the run may start a server: always when pytest-xdist workers run the
     tests, since the controller then collects none, and otherwise when a selected test uses the
-    server fixture. A missing or stale server or rotstool takes no lock, so each scenario fails
-    at once with the build command instead of after the lock wait.
+    server fixture. A missing or stale server, harness server or rotstool takes no lock, so each
+    scenario fails at once with the build command instead of after the lock wait. The harness
+    server is checked whenever workers run the tests, since the controller cannot see which of
+    them need it.
     """
     config = session.config
     if launcher_mode() != "docker" or config.option.collectonly:
@@ -294,9 +302,19 @@ def controller_needs_docker_lock(session: pytest.Session) -> bool:
     try:
         selected.require_program(binary_relative())
         selected.require_program(ROTSTOOL_RELATIVE)
+        if distributed or needs_harness_binary(session.items):
+            selected.require_program(HARNESS_BINARY_RELATIVE)
     except RuntimeError:
         return False
     return True
+
+
+def needs_harness_binary(items: Sequence[pytest.Item]) -> bool:
+    """Return whether any of items runs its server on the harness binary.
+
+    An item does when it uses the server fixture without @pytest.mark.real_login.
+    """
+    return any("server" in item.fixturenames and item.get_closest_marker("real_login") is None for item in items)
 
 
 def take_docker_lock(config: pytest.Config) -> None:
@@ -494,11 +512,14 @@ class HarnessServer:
     # What the crash check found during an interrupted run, listed under the kept run directory
     # instead of failing the test.
     interrupted_problems: list[str] = field(default_factory=list)
-    # Drives game time on a server started with @pytest.mark.schedule(...); None otherwise.
+    # Reads a harness server's replies and drives its game time; None for plain bin/ageland.
     time_control: Optional[TimeControl] = None
-    # The schedule the test's @pytest.mark.schedule(...) names, which restart() starts the new
-    # server with; None without one.
+    # The harness server's schedule, which restart() starts the new server with; None for plain
+    # bin/ageland.
     schedule: str | None = None
+    # The harness server's entry token, which login() enters with and restart() replaces; None for
+    # plain bin/ageland, whose characters log in through the account menu.
+    entry_token: str | None = None
     # How many servers the test has booted: 1, and one more for each restart().
     boots: int = 1
     # The SYSERRs the test's @pytest.mark.expect_syserr(...) names.
@@ -508,7 +529,12 @@ class HarnessServer:
         """Log the named character in and return its session; the fixture quits it at teardown."""
         character = self.character_set.character(name)
         game_session = GameSession(
-            self.handle, character.name, self.character_set.email, self.character_set.password, self.run_dir
+            self.handle,
+            character.name,
+            self.character_set.email,
+            self.character_set.password,
+            self.run_dir,
+            entry_token=self.entry_token,
         )
         try:
             game_session.login()
@@ -521,10 +547,10 @@ class HarnessServer:
     def advance_hours(self, hours: int) -> None:
         """Run hours game hours on a harness server and return once the server acknowledges them.
 
-        Fails the test when the test has no @pytest.mark.schedule(...), since a plain server's time
-        cannot be driven.
+        Fails the test when the test has no @pytest.mark.schedule(...): neither plain bin/ageland
+        nor the real-time schedule takes time requests.
         """
-        if self.time_control is None:
+        if self.time_control is None or self.schedule == REAL_TIME_SCHEDULE:
             pytest.fail("advance_hours needs @pytest.mark.schedule(...) on the test", pytrace=False)
         self.time_control.advance_hours(hours, hours * hour_timeout_seconds() + HOUR_TIMEOUT_MARGIN_SECONDS)
 
@@ -587,15 +613,17 @@ class HarnessServer:
         self.handle = start_on_a_free_port(self.launcher, self.run_dir, self.lib_dir, self.seed, schedule=self.schedule)
         self.monitor = CrashMonitor(self.handle, expected=self.expected_syserrs)
         if self.schedule is not None:
-            self.time_control = start_time_control(self.launcher, self.handle, self.schedule, self.run_dir)
+            self.time_control, self.entry_token = start_time_control(
+                self.launcher, self.handle, self.schedule, self.run_dir
+            )
 
 
 def start_time_control(
     server_launcher: ServerLauncher, handle: ServerHandle, schedule: str, run_dir: Path
-) -> TimeControl:
-    """Return the TimeControl of a harness server started with schedule.
+) -> tuple[TimeControl, str]:
+    """Return the TimeControl of a harness server started with schedule, and its entry token.
 
-    It is returned once the server has written its ready line.
+    They are returned once the server has written its ready line, which carries the token.
 
     Any failure, including the constructor's OSError for an output log it cannot open, stops the
     server.
@@ -603,13 +631,13 @@ def start_time_control(
     time_control = None
     try:
         time_control = TimeControl(handle.process.stdin, handle.process.stdout, run_dir / OUTPUT_LOG_NAME)
-        time_control.wait_ready(schedule, READY_TIMEOUT_SECONDS)
+        entry_token = time_control.wait_ready(schedule, READY_TIMEOUT_SECONDS)
     except BaseException:
         server_launcher.stop(handle)
         if time_control is not None:
             time_control.close()
         raise
-    return time_control
+    return time_control, entry_token
 
 
 def selected_launcher() -> ServerLauncher:
@@ -623,15 +651,18 @@ def selected_launcher() -> ServerLauncher:
 
 
 @pytest.fixture(scope="session")
-def harness_launcher() -> ServerLauncher:
+def harness_launcher(request: pytest.FixtureRequest) -> ServerLauncher:
     """Return the launcher selected_launcher returns.
 
     Raises RuntimeError with that launcher's build command when the server or rotstool is missing,
-    or older than the sources it is built from (ServerLauncher.require_program).
+    or older than the sources it is built from (ServerLauncher.require_program), and likewise for
+    the harness server when a selected test needs it (needs_harness_binary).
     """
     selected = selected_launcher()
     selected.require_program(binary_relative())
     selected.require_program(ROTSTOOL_RELATIVE)
+    if needs_harness_binary(request.session.items):
+        selected.require_program(HARNESS_BINARY_RELATIVE)
     return selected
 
 
@@ -692,15 +723,16 @@ def expected_syserrs_for(request: pytest.FixtureRequest) -> ExpectedSyserrs:
 
 
 def schedule_for(request: pytest.FixtureRequest) -> Optional[str]:
-    """Return the schedule the test's @pytest.mark.schedule(...) names, or None without one.
+    """Return the schedule the test's server runs, or None for plain bin/ageland.
 
-    Fail the test on a malformed marker.
+    timecontrol.server_schedule decides it from the markers. Fail the test on a malformed or
+    conflicting marker.
     """
     marker = request.node.get_closest_marker("schedule")
-    if marker is None:
-        return None
+    schedule_args = None if marker is None else marker.args
+    real_login = request.node.get_closest_marker("real_login") is not None
     try:
-        return schedule_name_from_marker(marker.args)
+        return server_schedule(schedule_args, real_login)
     except ValueError as malformed:
         pytest.fail(f"{request.node.nodeid}: {malformed}", pytrace=False)
 
@@ -717,7 +749,10 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
     failed to set up after the lib was copied, any test in the session has failed, this server's
     checks failed, the run was interrupted, or ROTS_IT_KEEP=1. Kept directories are listed at the
     end of the run. A test marked @pytest.mark.schedule(name) gets the harness binary with that
-    schedule, whose time advance_hours drives.
+    schedule, whose time advance_hours drives; a test marked @pytest.mark.real_login gets plain
+    bin/ageland; any other test gets the harness binary with the real-time schedule. On the
+    harness binary, login() enters characters with the server's entry token instead of the
+    account menu.
     """
     report = request.config.stash[RUN_DIRECTORY_REPORT_KEY]
     character_set = character_set_for(request)
@@ -734,8 +769,9 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         seed = session_seed()
         handle = start_on_a_free_port(harness_launcher, run_dir, lib_dir, seed, schedule=schedule)
         time_control = None
+        entry_token = None
         if schedule is not None:
-            time_control = start_time_control(harness_launcher, handle, schedule, run_dir)
+            time_control, entry_token = start_time_control(harness_launcher, handle, schedule, run_dir)
     except BaseException:
         # BaseException so an interrupted setup keeps its evidence too. keep_run_directory never
         # sees this case: a run directory holding more than test-id.txt is always kept, because its
@@ -757,6 +793,7 @@ def server(request: pytest.FixtureRequest, harness_launcher: ServerLauncher, lib
         seed,
         time_control=time_control,
         schedule=schedule,
+        entry_token=entry_token,
         expected_syserrs=expected_syserrs,
     )
     try:

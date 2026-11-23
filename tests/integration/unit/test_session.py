@@ -150,6 +150,93 @@ def test_a_login_that_never_reaches_the_game_times_out_with_the_pending_text(
         game_session.login(timeout=0.5)
 
 
+# An entry token as the harness binary's ready line gives it.
+ENTRY_TOKEN = "54a5c0ffee0123456789abcdef012345"
+# The line that enters Testmage with ENTRY_TOKEN.
+ENTRY_LINE = f"harness-enter {ENTRY_TOKEN} harness@example.com Testmage"
+
+
+def connect_entering_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, replies: dict[str, list[bytes | tuple[bytes, ...]]]
+) -> tuple[GameSession, FakeSocket]:
+    """Return a session for Testmage holding ENTRY_TOKEN, connected to a FakeSocket.
+
+    The socket greets it and answers with `replies`.
+    """
+    fake_socket = FakeSocket(replies, GREETING)
+    monkeypatch.setattr(session.socket, "create_connection", lambda _address, timeout: fake_socket)
+    handle = ServerHandle("127.0.0.1", 1, tmp_path / "game.log", None)  # type: ignore[arg-type]
+    game_session = GameSession(
+        handle, "Testmage", "harness@example.com", "Harness1x", tmp_path, entry_token=ENTRY_TOKEN
+    )
+    return game_session, fake_socket
+
+
+def test_enter_sends_exactly_one_entry_line_and_reads_up_to_the_arrival_prompt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {ENTRY_LINE: [ARRIVAL + ARENA]}, GREETING)
+    game_session.enter(ENTRY_TOKEN, timeout=1.0)
+    assert fake_socket.sent_lines == [ENTRY_LINE]
+    assert "Arena Centre" in game_session.everything
+    assert game_session.drain(0.05) == "", "enter read everything up to the arrival prompt"
+
+
+def test_enter_waits_for_an_arrival_prompt_that_comes_in_a_later_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, {ENTRY_LINE: [(ARRIVAL, ARENA)]}, GREETING)
+    game_session.enter(ENTRY_TOKEN, timeout=1.0)
+    assert fake_socket.sent_lines == [ENTRY_LINE]
+    assert game_session.drain(0.05) == "", "enter read the room and its prompt"
+    assert game_session.everything.rstrip().endswith("S:Powered>")
+
+
+def test_a_refused_entry_raises_login_refused_with_the_servers_words(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    refusal = b"Harness entry refused: the token is not this run's.\n\r"
+    game_session, _fake_socket = connect_fake_session(monkeypatch, tmp_path, {ENTRY_LINE: [refusal]}, GREETING)
+    with pytest.raises(session.LoginRefused, match=r"Testmage: Harness entry refused: the token is not this run's\.$"):
+        game_session.enter(ENTRY_TOKEN, timeout=1.0)
+
+
+def test_an_entry_with_no_arrival_prompt_times_out_naming_the_arrival_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    arrival_without_prompt = ARRIVAL + b"\r\nArena Centre    Exits are: N E S W\r\n"
+    replies = {ENTRY_LINE: [arrival_without_prompt]}
+    game_session, _fake_socket = connect_fake_session(monkeypatch, tmp_path, replies, GREETING)
+    with pytest.raises(session.SessionTimeout, match=r"no prompt after 'Here we go\.\.\.' within 0.3s"):
+        game_session.enter(ENTRY_TOKEN, timeout=0.3)
+
+
+def test_an_entry_the_server_never_answers_times_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    game_session, _fake_socket = connect_fake_session(monkeypatch, tmp_path, {}, GREETING)
+    with pytest.raises(session.SessionTimeout, match="Here we go"):
+        game_session.enter(ENTRY_TOKEN, timeout=0.3)
+
+
+def test_login_with_an_entry_token_enters_instead_of_walking_the_account_menu(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    replies = login_replies()
+    replies[ENTRY_LINE] = [ARRIVAL + ARENA]
+    game_session, fake_socket = connect_entering_session(monkeypatch, tmp_path, replies)
+    game_session.login(timeout=1.0)
+    assert fake_socket.sent_lines == [ENTRY_LINE]
+    assert game_session.everything.rstrip().endswith("S:Powered>")
+
+
+def test_login_without_an_entry_token_walks_the_account_menu(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    replies = login_replies()
+    replies[ENTRY_LINE] = [ARRIVAL + ARENA]
+    game_session, fake_socket = connect_fake_session(monkeypatch, tmp_path, replies, GREETING)
+    game_session.login(timeout=1.0)
+    assert ENTRY_LINE not in fake_socket.sent_lines
+    assert fake_socket.sent_lines == ["harness@example.com", "Harness1x", "2", "Testmage", "1"]
+
+
 def test_quit_the_server_never_answers_raises_quit_refused_and_closes_the_socket(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -208,6 +295,35 @@ def connect_scripted_session(
     monkeypatch.setattr(session.socket, "create_connection", lambda _address, timeout: scripted_socket)
     handle = ServerHandle("127.0.0.1", 1, tmp_path / "game.log", None)  # type: ignore[arg-type]
     return GameSession(handle, "Testmage", "harness@example.com", "Harness1x", tmp_path)
+
+
+def test_an_entry_the_game_refuses_at_admission_raises_login_refused_before_the_connection_closes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    wizlock = b"The game is temporarily restricted.\r\nTry again later.Closed for testing.\n\r\n\r"
+    refusal = b"Harness entry refused: the game refused testmage at admission.\n\r"
+    game_session = connect_scripted_session(monkeypatch, tmp_path, [GREETING, wizlock, refusal], close_after=True)
+    refused_pattern = r"Testmage: Harness entry refused: the game refused testmage at admission\.$"
+    with pytest.raises(session.LoginRefused, match=refused_pattern):
+        game_session.enter(ENTRY_TOKEN, timeout=1.0)
+
+
+def test_a_refusal_split_across_reads_is_reported_whole(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    refusal_start = b"Harness entry refused: the tok"
+    refusal_end = b"en is not this run's.\n\r"
+    chunks = [GREETING, refusal_start, refusal_end]
+    game_session = connect_scripted_session(monkeypatch, tmp_path, chunks, close_after=True)
+    with pytest.raises(session.LoginRefused, match=r"Testmage: Harness entry refused: the token is not this run's\.$"):
+        game_session.enter(ENTRY_TOKEN, timeout=1.0)
+
+
+def test_a_refusal_cut_off_by_the_connection_closing_is_reported_as_far_as_it_came(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    chunks = [GREETING, b"Harness entry refused: the tok"]
+    game_session = connect_scripted_session(monkeypatch, tmp_path, chunks, close_after=True)
+    with pytest.raises(session.LoginRefused, match=r"Testmage: Harness entry refused: the tok$"):
+        game_session.enter(ENTRY_TOKEN, timeout=1.0)
 
 
 # A room with colour codes, ending in a prompt.

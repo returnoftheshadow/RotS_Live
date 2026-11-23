@@ -14,7 +14,7 @@ make configure && cmake --build build --target ageland ageland_harness rotstool
 docker compose run --rm -T rots bash -lc 'make configure && cmake --build build --target ageland ageland_harness rotstool'
 ```
 
-`make build` builds only `ageland`. A test with `@pytest.mark.schedule(...)` also needs
+`make build` builds only `ageland`. Every test not marked `real_login` also needs
 `bin/ageland_harness`; a missing program stops the run with the build command for its launcher
 (`ServerLauncher.require_program` in `rots_harness/launcher.py`).
 
@@ -161,7 +161,7 @@ a usage error naming the variable. `ROTS_IT_KEEP` (only `1` counts) and
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `ROTS_IT_LAUNCHER` | `local` on Linux, `docker` elsewhere | `local` or `docker` |
-| `ROTS_IT_BINARY` | `bin/ageland` | the server for tests without a schedule, relative to the repository root |
+| `ROTS_IT_BINARY` | `bin/ageland` | the server for tests marked `real_login`, relative to the repository root |
 | `ROTS_IT_SEED` | `20261011` | the random seed for rotstool and every server (`--random-seed`) |
 | `ROTS_IT_KEEP` | unset | `1` keeps every run directory and template lib |
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds the Docker launcher waits for the lock |
@@ -182,8 +182,8 @@ Each test gets `build/integration/runs/<12 hex>/`:
 | --- | --- |
 | `test-id.txt` | the test's node id |
 | `lib/` | the test's own copy of the template lib |
-| `game.log` | the server's stderr, and its stdout too when the test has no schedule |
-| `stdout.log` | a schedule server's ordinary stdout lines; `harness: ` replies are not written here |
+| `game.log` | the server's stderr, and its stdout too on plain `ageland` (`real_login`) |
+| `stdout.log` | `ageland_harness`'s ordinary stdout lines; its `harness: ` lines (the ready line and replies) are not written here |
 | `<lowercase name>.txt` | one transcript per character, appended on every read, colour codes removed |
 | `game.boot-<n>.log`, `stdout.boot-<n>.log` | after `server.restart()`, the logs of the server the restart stopped, numbered from 1 |
 
@@ -426,11 +426,11 @@ What an observer reads for a character is `PERS` (`utility.cpp`): the name, a st
 
 | Member | Use |
 | --- | --- |
-| `login(name)` | logs the character in and returns its `GameSession`; it is quit after the test |
-| `advance_hours(n)` | runs `n` game hours on a schedule server and returns when the server acknowledges them; fails the test without `@pytest.mark.schedule` |
+| `login(name)` | brings the character into the game and returns its `GameSession`; it is quit after the test |
+| `advance_hours(n)` | runs `n` game hours on a schedule server and returns when the server acknowledges them; fails the test without `@pytest.mark.schedule`, including on the real-time schedule |
 | `relog(session)` | quits the session's character, logs it in again and returns the new session; rebind your name to it |
 | `text_after_hours(session, hours, expected_marker, settle=)` | runs the hours and returns what the session read, up to `expected_marker` when given, then settles |
-| `restart()` | stops the server with SIGTERM while every session is still logged in, as a service stop does, closes the sessions without quitting them, and boots a new server on the same lib; log in again with `login`. Fails the test when the stop shows problems |
+| `restart()` | stops the server with SIGTERM while every session is still logged in, as a service stop does, closes the sessions without quitting them, and boots a new server of the same binary and schedule on the same lib; log in again with `login`, which takes the new server's entry token. Fails the test when the stop shows problems |
 | `run_dir`, `lib_dir` | the run directory and the test's lib |
 
 `GameSession` (`rots_harness/session.py`):
@@ -441,7 +441,21 @@ What an observer reads for a character is `PERS` (`utility.cpp`): the name, a st
 | `expect(markers, timeout=8.0)` | returns all unread text once any marker appears in it |
 | `drain(timeout=0.5)` | reads for `timeout` seconds and returns the unread text |
 | `send_line(line)` | sends a line without waiting |
+| `wait_for_prompt(timeout=8.0)` | returns the unread text once it ends in a prompt |
+| `login(timeout=15.0)` | `enter` with the session's entry token when it has one, else the account menu dialogue: email, password, `2`, the character's name, `1` |
+| `enter(entry_token, timeout=15.0)` | at the email prompt sends `harness-enter <token> <account email> <character name>` and reads up to the arrival prompt |
 | `everything` | all text received so far |
+
+How characters enter: on `ageland_harness` the fixture reads the entry token from the ready line
+(`TimeControl.wait_ready`) and `server.login` hands it to the session, so `login()` takes two
+round trips, the greeting and the entry line. The server checks the token, the account (refused
+when blocked or unverified, as the password login refuses it) and the character, then runs the
+same login steps the dialogue runs and shows the same arrival text (`Here we go...`, the room,
+the prompt). A refusal is `Harness entry refused: <reason>`, after the game's own words when a
+site ban or wizlock refuses the character, and then the server closes the connection; `enter`
+raises `LoginRefused` with that line. A refusal by the game's rules is logged without `SYSERR`,
+so a test can expect it; a malformed line or another run's token is logged as a `SYSERR`. Plain
+`ageland` ignores entry lines, so on a `real_login` server `login()` walks the account menu.
 
 `Transcript` has `.text`, `.contains(marker)` and `.room_name()`, the first non-empty line up to
 two spaces. A timeout raises `SessionTimeout` (an `AssertionError`) quoting the last 1500
@@ -521,6 +535,7 @@ not groups:
 | `scenario` | boots its own server through the `server` fixture; `make integration` always selects it |
 | `characters(*characters)` | the test's characters; a test using `server` without it fails |
 | `schedule(name)` | runs `bin/ageland_harness --schedule <name>`; game time advances only through `advance_hours` |
+| `real_login` | runs plain `bin/ageland` (`ROTS_IT_BINARY`), whose characters log in through the account menu; for tests of the login dialogue, the account menu or the boot, and tests that open their own connections at the email prompt. The account and boot scenario files carry it in `pytestmark`. It cannot be combined with `schedule` |
 | `world_resets(*resets)` | `MobReset(mob_vnum, room_vnum)` and `ObjectReset(object_vnum, room_vnum)` (`rots_harness/world_resets.py`): the test's lib adds one reset row per value to the zone that owns the room, so boot places each mob in its room and each object on its floor before the first login. A vnum the world lacks fails the lib build, naming it. A server on the wall clock resets a zone again when its lifespan ends, which brings back a placed mob the test has purged or killed, so a test that relies on a mob being gone loads it with `load mob` instead |
 | a group, one per `tests/integration/groups/<name>.txt` | no behaviour of its own |
 | a subgroup `<name>_<sub>`, one per `tests/integration/groups/<name>/<sub>.txt` | no behaviour of its own; a test marking it also marks `<name>` |
@@ -543,12 +558,14 @@ run plan shows a group's subgroups under a header.
 
 ## Time control
 
-Without a schedule the server runs on the wall clock: mob activity, combat, zone resets and the
-hourly update all happen in real time.
+Without a schedule marker the server is `bin/ageland_harness --schedule real-time` (or plain
+`bin/ageland` for `real_login`), which runs on the wall clock exactly as the live server does:
+mob activity, combat, zone resets and the hourly update all happen in real time. It writes
+`harness: ready schedule=real-time entry=<32 hex>` and accepts no time requests.
 
-With `@pytest.mark.schedule("affect-hours")`, the only schedule today, the harness binary
-starts and writes `harness: ready schedule=affect-hours hours=0` to stdout; the fixture waits
-for it. World updates then run only when granted. `advance_hours(n)` writes `advance-hours n`
+With `@pytest.mark.schedule("affect-hours")` the harness binary starts and writes
+`harness: ready schedule=affect-hours hours=0 entry=<32 hex>` to stdout; the fixture waits for
+it and keeps the entry token (`timecontrol.entry_token_from_ready_line`). World updates then run only when granted. `advance_hours(n)` writes `advance-hours n`
 (1 to 1000) to the server's stdin; the reply is `harness: done advance-hours n hours=<total>` or
 `harness: error <reason>`, which raises `TimeControlError`.
 
@@ -556,14 +573,14 @@ for it. World updates then run only when granted. `advance_hours(n)` writes `adv
 | --- | --- |
 | 19 fast-update passes, then one pass with the hourly update (`weather_and_time`, `point_update`, `stat_update`) and the fast update (`fast_update`, `affect_update`) | zone resets, mob activity, combat (`perform_violence`), skill timers |
 
-So a scenario needing combat, wandering mobs or resets has no schedule today: it uses a plain
-server, or a new schedule (extending-the-harness.md).
+So a scenario needing combat, wandering mobs or resets has no schedule marker: it runs the
+real-time schedule, or a new schedule (extending-the-harness.md).
 
 ### Randomness
 
 Every draw goes through one `std::rand()` stream (`number()` and `dice()`, `utility.cpp`),
-seeded from `--random-seed` (`ROTS_IT_SEED`). On a plain server mob activity and combat draw on
-the wall clock, so the seed does not make a run repeat. Under `affect-hours`, between requests
+seeded from `--random-seed` (`ROTS_IT_SEED`). Without a schedule marker (the real-time schedule or
+plain `ageland`) mob activity and combat draw on the wall clock, so the seed does not make a run repeat. Under `affect-hours`, between requests
 only the scenario's commands draw, and each hour draws in the same order (`weather_change`
 among others), so the same commands give the same sequence.
 

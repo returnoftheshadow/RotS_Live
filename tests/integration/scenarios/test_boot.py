@@ -7,7 +7,7 @@ import pytest
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, custom_mage
 
-pytestmark = [pytest.mark.scenario, pytest.mark.boot]
+pytestmark = [pytest.mark.scenario, pytest.mark.boot, pytest.mark.real_login]
 
 # A mage with a custom profession split, waiting in the arena for the implementor to find.
 MAGE = custom_mage(level=30, load_room=world.ROOM_ARENA_CENTRE)

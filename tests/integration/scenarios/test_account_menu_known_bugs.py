@@ -20,7 +20,7 @@ from rots_harness.immortal_commands import load_mob
 from rots_harness.session import ACCOUNT_MENU_PROMPT, LOGIN_PASSWORD_PROMPT
 from test_account_menu import FREE_NEW_NAME, ROLEPLAY_QUESTION_FORMAT, new_name_answer
 
-pytestmark = [pytest.mark.scenario, pytest.mark.account_menu]
+pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.real_login]
 
 # A word fill_word refuses as a name (fill[], interpre.cpp); it passes every check before the
 # confirmation.

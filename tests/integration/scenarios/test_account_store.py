@@ -29,7 +29,7 @@ from rots_harness.session import (
     GameSession,
 )
 
-pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.account_menu_store]
+pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.account_menu_store, pytest.mark.real_login]
 
 # A level-12 human warrior linked to the harness account, which the implementor deletes; never
 # online.

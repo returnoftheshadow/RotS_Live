@@ -25,9 +25,11 @@
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
+#include "connection_entry_policy.h"
 #include "db.h"
 #include "freed_watch.h"
 #include "game_heartbeat.h"
+#include "game_run_settings.h"
 #include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
@@ -263,7 +265,7 @@ int finish_proxy_header_if_ready(descriptor_data* descriptor)
 
 /* functions in this file */
 int get_from_q(struct txt_q* queue, char* dest);
-void game_loop(SocketType s, GameHeartbeat& heartbeat);
+void game_loop(SocketType s, const GameRunSettings& settings);
 SocketType init_socket(sh_int port);
 SocketType pnew_connection(SocketType s);
 void check_pre_login_idle(); /* below, in this file */
@@ -502,7 +504,7 @@ void sigsegv_handler(int sig)
 std::vector<char_data*> specialized_mages;
 
 /* Init sockets, run game, and cleanup sockets */
-void run_the_game(sh_int port, std::shared_ptr<GameTickSchedule> schedule)
+void run_the_game(GameRunSettings settings)
 {
     int s;
 
@@ -514,7 +516,7 @@ void run_the_game(sh_int port, std::shared_ptr<GameTickSchedule> schedule)
     signal_setup();
 
     log("Opening mother connection.");
-    mother_desc = s = init_socket(port);
+    mother_desc = s = init_socket(settings.port);
 
     boot_db();
 
@@ -523,9 +525,7 @@ void run_the_game(sh_int port, std::shared_ptr<GameTickSchedule> schedule)
     log("Entering game loop.");
 
     specialized_mages.clear();
-    // The heartbeat only observes the schedule; the parameter keeps it alive for the loop.
-    GameHeartbeat heartbeat(schedule);
-    game_loop(s, heartbeat);
+    game_loop(s, settings);
 
     // A stop signal that arrived during the last pass still logs its notice and exits with 0.
     perform_signal_requests(game_signal_steps());
@@ -1012,8 +1012,9 @@ static void read_typed_input(const fd_set& input_set)
 }
 
 /* Runs one typed line per connection: a command in the game, or an answer to the login menus.
- * A character still waiting on a delayed action keeps their input queued. */
-static void run_typed_commands()
+ * A character still waiting on a delayed action keeps their input queued. A line typed at the
+ * account email prompt is offered to <entry_policy> before the login menus read it. */
+static void run_typed_commands(ConnectionEntryPolicy& entry_policy)
 {
     char comm[MAX_INPUT_LENGTH];
     struct descriptor_data* point;
@@ -1063,7 +1064,13 @@ static void run_typed_commands()
                         }
                     }
                 } else {
-                    nanny(point, comm);
+                    bool entered_directly = false;
+                    if (STATE(point) == CON_NME) {
+                        entered_directly = entry_policy.try_enter(*point, comm);
+                    }
+                    if (!entered_directly) {
+                        nanny(point, comm);
+                    }
                 }
             }
         }
@@ -1275,8 +1282,10 @@ static void save_players_before_shutdown()
     bank_vaults_write_behind(); /* a vault file a failed write left behind */
 }
 
-void game_loop(SocketType s, GameHeartbeat& heartbeat)
+void game_loop(SocketType s, const GameRunSettings& settings)
 {
+    // The heartbeat only observes the schedule; settings keeps it alive for the loop.
+    GameHeartbeat heartbeat(settings.schedule);
     fd_set input_set, output_set, exception_set;
     // The earliest instant the next pass may start: each pass moves it to the end of its sleep.
     std::chrono::steady_clock::time_point pulse_start = std::chrono::steady_clock::now();
@@ -1295,7 +1304,7 @@ void game_loop(SocketType s, GameHeartbeat& heartbeat)
         read_typed_input(input_set);
         /* Delayed actions that finish this pulse run before anything typed this pulse. */
         process_waiting_list();
-        run_typed_commands();
+        run_typed_commands(settings.entry_policy);
         send_buffered_output(output_set);
         close_finished_connections();
         send_prompts();

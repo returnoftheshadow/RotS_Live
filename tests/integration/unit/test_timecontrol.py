@@ -13,17 +13,24 @@ from rots_harness.session import SessionTimeout
 from rots_harness.timecontrol import (
     DEFAULT_HOUR_TIMEOUT_SECONDS,
     OUTPUT_LOG_NAME,
+    REAL_TIME_SCHEDULE,
     REPLY_PREFIX,
     TimeControl,
     TimeControlError,
+    entry_token_from_ready_line,
     parse_hour_timeout,
     schedule_name_from_marker,
+    server_schedule,
 )
 
 # Long enough for a reader thread to pass a line on; short enough to keep timeout tests quick.
 SHORT_TIMEOUT_SECONDS = 0.3
 # Generous enough that a slow machine never fails a test that expects a reply.
 REPLY_TIMEOUT_SECONDS = 5.0
+# An entry token as the harness binary writes it: 32 lowercase hex digits.
+ENTRY_TOKEN = "54a5c0ffee0123456789abcdef012345"
+# The affect-hours schedule's ready line, as the harness binary writes it after the reply prefix.
+AFFECT_HOURS_READY = f"ready schedule=affect-hours hours=0 entry={ENTRY_TOKEN}"
 
 
 class FakeServer:
@@ -101,17 +108,74 @@ def answer_next_request(server: FakeServer, reply_text: str) -> threading.Thread
     return answerer
 
 
-def test_wait_ready_accepts_the_ready_line_for_its_schedule(fake_server_and_control) -> None:
+def test_wait_ready_accepts_the_ready_line_for_its_schedule_and_returns_its_entry_token(
+    fake_server_and_control,
+) -> None:
     server, control, _output_log = fake_server_and_control
-    server.reply("ready schedule=affect-hours hours=0")
-    control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
+    server.reply(AFFECT_HOURS_READY)
+    assert control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS) == ENTRY_TOKEN
 
 
 def test_wait_ready_refuses_a_ready_line_for_another_schedule(fake_server_and_control) -> None:
     server, control, _output_log = fake_server_and_control
-    server.reply("ready schedule=other hours=0")
+    server.reply(f"ready schedule=other hours=0 entry={ENTRY_TOKEN}")
     with pytest.raises(TimeControlError, match="ready schedule=other"):
         control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
+
+
+def test_a_real_time_ready_line_without_hours_gives_its_entry_token() -> None:
+    ready_line = f"ready schedule=real-time entry={ENTRY_TOKEN}"
+    assert entry_token_from_ready_line(ready_line, REAL_TIME_SCHEDULE) == ENTRY_TOKEN
+
+
+def test_a_real_time_ready_line_may_report_hours_zero() -> None:
+    ready_line = f"ready schedule=real-time hours=0 entry={ENTRY_TOKEN}"
+    assert entry_token_from_ready_line(ready_line, REAL_TIME_SCHEDULE) == ENTRY_TOKEN
+
+
+def test_an_affect_hours_ready_line_without_hours_is_refused() -> None:
+    with pytest.raises(TimeControlError, match="does not report hours=0"):
+        entry_token_from_ready_line(f"ready schedule=affect-hours entry={ENTRY_TOKEN}", "affect-hours")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "ready schedule=affect-hours hours=0",
+        f"ready schedule=affect-hours hours=3 entry={ENTRY_TOKEN}",
+        f"ready schedule=affect-hours hours=0 entry={ENTRY_TOKEN[:-1]}",
+        f"ready schedule=affect-hours hours=0 entry={ENTRY_TOKEN.upper()}",
+        f"ready schedule=affect-hours hours=0 entry={ENTRY_TOKEN} extra",
+        f"ready schedule=affect-hours entry={ENTRY_TOKEN} hours=0",
+        f"ready schedule=real-time entry={ENTRY_TOKEN}",
+        "",
+    ],
+)
+def test_a_malformed_or_foreign_ready_line_is_refused_with_its_text(reply: str) -> None:
+    with pytest.raises(TimeControlError, match="the server sent|does not report"):
+        entry_token_from_ready_line(reply, "affect-hours")
+
+
+def test_a_test_with_no_schedule_marker_runs_the_real_time_schedule() -> None:
+    assert server_schedule(None, real_login=False) == REAL_TIME_SCHEDULE
+
+
+def test_a_real_login_test_runs_plain_ageland() -> None:
+    assert server_schedule(None, real_login=True) is None
+
+
+def test_a_schedule_marker_names_the_schedule() -> None:
+    assert server_schedule(("affect-hours",), real_login=False) == "affect-hours"
+
+
+def test_a_schedule_marker_with_real_login_is_refused() -> None:
+    with pytest.raises(ValueError, match="real_login"):
+        server_schedule(("affect-hours",), real_login=True)
+
+
+def test_a_malformed_schedule_marker_is_refused() -> None:
+    with pytest.raises(ValueError, match="one schedule name"):
+        server_schedule(("affect-hours", "real-time"), real_login=False)
 
 
 def test_wait_ready_times_out_when_no_ready_line_arrives(fake_server_and_control) -> None:
@@ -185,7 +249,7 @@ def test_advance_hours_refuses_fewer_than_one_hour(fake_server_and_control) -> N
 def test_ordinary_output_goes_to_the_output_log_and_is_never_a_reply(fake_server_and_control) -> None:
     server, control, output_log = fake_server_and_control
     server.send("a legacy printf line")
-    server.reply("ready schedule=affect-hours hours=0")
+    server.reply(AFFECT_HOURS_READY)
     control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
     server.end_output()
     control.close()
@@ -205,7 +269,7 @@ def test_keeps_reading_ordinary_output_while_no_request_is_awaited(fake_server_a
     writer.start()
     writer.join(REPLY_TIMEOUT_SECONDS)
     assert not writer.is_alive(), "the reader stopped draining ordinary output"
-    server.reply("ready schedule=affect-hours hours=0")
+    server.reply(AFFECT_HOURS_READY)
     control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
     server.end_output()
     control.close()

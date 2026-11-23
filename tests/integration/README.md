@@ -2,8 +2,9 @@
 
 ## What it is
 
-Each scenario boots its own `ageland` server on a throwaway lib, logs characters in over
-telnet, and checks what they see. The lib is built from the small test world in
+Each scenario boots its own server on a throwaway lib, brings characters into the game over
+telnet, and checks what they see. The server is the harness build, `ageland_harness`, except
+for the login and boot scenarios, which run the shipped `ageland` (see Writing a scenario). The lib is built from the small test world in
 `tests/integration/world` plus an account and characters that `bin/rotstool` writes from the
 characters the scenario declares. Of a developer's `lib/`, only two parts are copied in:
 `lib/text` exactly as it stands in the working tree, and those `lib/misc` files that git
@@ -41,8 +42,8 @@ scenarios; `unit/` tests the harness itself without a server.
 
    That build is itself a Docker job writing this checkout's `build/` tree, so lock
    `build:<checkout>/build` for it by hand first (see Shared Docker lock below) and remove the
-   lock when the build ends. A run whose server binary, `ageland_harness` (for a test with a
-   schedule) or `rotstool` is missing stops at once with the build command for its launcher.
+   lock when the build ends. A run whose server binary, `ageland_harness` (for a test not
+   marked `real_login`) or `rotstool` is missing stops at once with the build command for its launcher.
 
    `make integration-build` runs that build (`make configure`, then the three targets with
    `--parallel $(JOBS)`), on Linux or inside the container
@@ -372,7 +373,7 @@ Environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `ROTS_IT_LAUNCHER` | `local` on Linux, `docker` elsewhere | `local` or `docker`; empty means the default |
-| `ROTS_IT_BINARY` | `bin/ageland` | the server binary for tests without a schedule (a test with one runs `bin/ageland_harness`), relative to the repository root |
+| `ROTS_IT_BINARY` | `bin/ageland` | the server binary for tests marked `real_login` (every other test runs `bin/ageland_harness`), relative to the repository root |
 | `ROTS_IT_SEED` | `20261011` | the random seed for `rotstool` and every server |
 | `ROTS_IT_KEEP` | unset | `1` keeps every run directory and template |
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds to wait for the Docker lock, a finite number |
@@ -444,9 +445,9 @@ Each test gets `build/integration/runs/<id>/` holding:
 
 - `test-id.txt`, the test's node id;
 - `lib/`, the test's own copy of the lib;
-- `game.log`, the server's output (its standard error only, for a test with a schedule);
-- `stdout.log`, for a test with a schedule only: the server's ordinary standard output, without
-  the `harness: ` replies to time requests;
+- `game.log`, the server's output (its standard error only, on `ageland_harness`);
+- `stdout.log`, on `ageland_harness` only: the server's ordinary standard output, without the
+  `harness: ` lines (the ready line and the replies to time requests);
 - one transcript per character (`testimm.txt` for `Testimm`), the text the character read;
 - after `server.restart()`, `game.boot-<n>.log` (and `stdout.boot-<n>.log`), the logs of the
   server the restart stopped, numbered from 1.
@@ -490,10 +491,16 @@ def test_the_mage_starts_in_the_arena(server) -> None:
 ```
 
 All of a test's characters belong to one harness account, listed in marker order.
-`server.login(name)` picks the character by name from the account's character list, so the
-order does not matter to logging in. It returns a session whose `command(text)` returns the
-command's output; the
-fixture quits every session after the test. The game lets an account have only one character
+`server.login(name)` brings the named character into the game, so the order does not matter to
+logging in. On `ageland_harness` it sends one line at the email prompt,
+`harness-enter <token> <account email> <character name>`, with the token from the server's
+ready line; the server enters the character as the login dialogue does and shows the same
+arrival text. A refused entry fails the test with the server's reason (`Harness entry refused:
+...`). A refusal by the game's own rules, such as a blocked account or wizlock, is logged without
+`SYSERR`, so a test can expect it with `pytest.raises(LoginRefused)`; a malformed line or a wrong
+token is logged as a `SYSERR`. On plain `ageland` it walks the account menu and picks the character by name. It returns
+a session whose `command(text)` returns the command's output; the fixture quits every session
+after the test. The game lets an account have only one character
 online unless the account owns a character above level 91, so a test that logs in two
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
 
@@ -556,11 +563,21 @@ descriptions, that two or more scenario files name (`ROOM_*`, `OBJECT_*`, `MOB_*
 integration-unit` checks the world's files (`unit/test_world_files.py`): index order, ascending
 vnums, zone ranges and map squares, notes files and leftover conflict markers.
 
-A plain server's game time follows the wall clock. A test marked
-`@pytest.mark.schedule("affect-hours")` runs `bin/ageland_harness` instead, whose game time
-stands still until `server.advance_hours(n)` runs `n` whole game hours of the hourly and fast
-updates and returns once the server acknowledges them. Zone resets, mob activity, combat and
-skill timers do not run under that schedule. `advance_hours` fails a test without the marker.
+Which server a test gets depends on its markers:
+
+- No schedule marker: `bin/ageland_harness --schedule real-time`, whose world advances with
+  the wall clock exactly as the live server's does, and whose characters enter with the token.
+- `@pytest.mark.schedule("affect-hours")`: `bin/ageland_harness` with that schedule, whose game
+  time stands still until `server.advance_hours(n)` runs `n` whole game hours of the hourly and
+  fast updates and returns once the server acknowledges them. Zone resets, mob activity, combat
+  and skill timers do not run under that schedule. Its characters also enter with the token.
+- `@pytest.mark.real_login`: the shipped `bin/ageland` (`ROTS_IT_BINARY`), whose characters log
+  in through the account menu. Use it only for a test of the login dialogue, the account menu
+  or the boot itself, or one that opens its own connections at the email prompt; the account
+  and boot scenario files carry it in their `pytestmark`. It cannot be combined with a
+  schedule.
+
+`advance_hours` fails a test without a schedule marker.
 
 Any `SYSERR` line fails a test unless the test expects it. A test that pins a `SYSERR` the game
 logs names it with `@pytest.mark.expect_syserr("fragment", ...)`, one or more literal fragments
@@ -574,8 +591,10 @@ line is logged, read `server.handle.log_path` with `rots_harness/game_log.py` in
 
 `server.restart()` stops the server the way a service stop does, with SIGTERM while the
 characters are still logged in, and boots a new server on the same lib, so a test can read back
-what the stop saved. The sessions are closed rather than quit, since quitting saves the
-character itself; log in again with `server.login(name)`. The stop is checked like the one after
+what the stop saved. The new server is the same binary with the same schedule. The sessions are
+closed rather than quit, since quitting saves the character itself; log in again with
+`server.login(name)`, which on `ageland_harness` enters with the new server's entry token. The
+stop is checked like the one after
 the test, and a problem fails the test there.
 
 Before writing or changing a scenario, or the harness itself, read the

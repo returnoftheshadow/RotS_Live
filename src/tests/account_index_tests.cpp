@@ -1,6 +1,7 @@
 #include "account_index.h"
 #include "account_management.h"
 #include "account_management_types.h"
+#include "temporary_working_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -9,9 +10,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <dirent.h>
+#include <filesystem>
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <system_error>
 #include <unistd.h>
 
 namespace {
@@ -2052,6 +2055,75 @@ TEST_F(AccountIndexTest, ARepairedRecordStopsBeingReportedUnreadableOnceItReadsA
 
     EXPECT_EQ(still_reported, 0u)
         << "a record that has just been read successfully must stop being listed as unreadable";
+}
+
+namespace {
+// Creates bob's account in the working directory, out_root, with the index enabled for it,
+// blocked when blocked, and marks the record unreadable since boot. The caller disables the index.
+::testing::AssertionResult prepare_bob_marked_unreadable(bool blocked, std::string& out_root)
+{
+    std::error_code error;
+    const std::filesystem::path root_path = std::filesystem::current_path(error);
+    if (error) {
+        return ::testing::AssertionFailure() << "Could not read the working directory: " << error.message();
+    }
+    const std::string root = root_path.string();
+    out_root = root;
+    std::filesystem::create_directories(root_path / "accounts" / "A-E", error);
+    if (error) {
+        return ::testing::AssertionFailure() << "Could not create the account buckets: " << error.message();
+    }
+
+    account_index::set_root_directory(root);
+    account_index::set_enabled(true);
+
+    std::string error_message;
+    if (!account::create_account(root, "bob", "bob@example.com", "ValidPass1", 1700000000, nullptr, &error_message)) {
+        return ::testing::AssertionFailure() << "Could not create bob: " << error_message;
+    }
+    if (blocked
+        && !account::admin_block_account(root, "bob", "AdminUser", "Chargeback", 1700000001, nullptr, &error_message)) {
+        return ::testing::AssertionFailure() << "Could not block bob: " << error_message;
+    }
+    if (!account_index::note_unreadable_at_runtime("bob@example.com", "Account record could not be read.")) {
+        return ::testing::AssertionFailure() << "Could not mark bob unreadable.";
+    }
+    return ::testing::AssertionSuccess();
+}
+} // namespace
+
+TEST_F(AccountIndexTest, AWrongPasswordStillClearsTheUnreadableMarkOfARecordItRead)
+{
+    rots_tests::TemporaryWorkingDirectory working_directory;
+    std::string root;
+    const ::testing::AssertionResult prepared = prepare_bob_marked_unreadable(false, root);
+    std::string error_message;
+    const bool authenticated = prepared
+        && account::authenticate_account(root, "bob", "WrongPass1", nullptr, &error_message);
+    const std::size_t still_reported = account_index::unreadable_at_runtime_count();
+    account_index::set_enabled(false);
+
+    ASSERT_TRUE(prepared);
+    EXPECT_FALSE(authenticated);
+    EXPECT_EQ(error_message, "Account authentication failed.");
+    EXPECT_EQ(still_reported, 0u) << "Expected the read alone to clear the mark.";
+}
+
+TEST_F(AccountIndexTest, ABlockedAccountsLoginStillClearsTheUnreadableMarkOfARecordItRead)
+{
+    rots_tests::TemporaryWorkingDirectory working_directory;
+    std::string root;
+    const ::testing::AssertionResult prepared = prepare_bob_marked_unreadable(true, root);
+    std::string error_message;
+    const bool authenticated = prepared
+        && account::authenticate_account(root, "bob", "ValidPass1", nullptr, &error_message);
+    const std::size_t still_reported = account_index::unreadable_at_runtime_count();
+    account_index::set_enabled(false);
+
+    ASSERT_TRUE(prepared);
+    EXPECT_FALSE(authenticated);
+    EXPECT_EQ(error_message, "Account authentication failed.");
+    EXPECT_EQ(still_reported, 0u) << "Expected the read alone to clear the mark.";
 }
 
 TEST_F(AccountIndexTest, RegisteringDoesNotDeleteALegacyFlatRecordItCannotRead)
