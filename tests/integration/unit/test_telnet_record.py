@@ -1,3 +1,5 @@
+"""Unit tests for rots_harness.telnet_record, writing its log to a temporary folder."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,6 +29,7 @@ DO_NAWS = TelnetNegotiation(DO, OPTION_NAWS)
 
 
 def new_record(tmp_path: Path) -> TelnetRecord:
+    """Return an empty record logging to telnet.log in tmp_path."""
     return TelnetRecord(tmp_path / "telnet.log")
 
 

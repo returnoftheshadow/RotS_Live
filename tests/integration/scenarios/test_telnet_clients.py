@@ -1,8 +1,12 @@
-"""Telnet clients: each harness client profile negotiates with the real server as the server's protocol code says it should."""
+"""Telnet clients: each harness client profile negotiating with the real server.
+
+Each profile is answered as the server's protocol code says it should be: the options offered,
+the terminal type cycle, the character set, MSDP, MSSP and the MXP acknowledgement.
+"""
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import pytest
 
@@ -39,7 +43,8 @@ pytestmark = [pytest.mark.scenario, pytest.mark.telnet]
 # A mage with a custom profession split, logging in to the arena.
 MAGE = custom_mage(level=30, load_room=world.ROOM_ARENA_CENTRE)
 
-# What the server sends a new connection before the email prompt: a request for the terminal type.
+# What the server sends a new connection before the email prompt: a request for the terminal
+# type.
 CONNECT_OFFER = TelnetNegotiation(DO, OPTION_TTYPE)
 
 # The server's first eight offers, in order: DO TTYPE at connect, then the seven it makes once the
@@ -69,7 +74,12 @@ TTYPE_SEND_PAYLOAD = bytes([TTYPE_SEND])
 MSDP_CLIENT_TTYPE_REQUESTS = 4
 
 # MSDP_CLIENT's TTYPE IS replies, one per request; the last name repeats.
-MSDP_CLIENT_TTYPE_REPLIES = [b"\x00ROTS-HARNESS", b"\x00XTERM-256COLOR", b"\x00MTTS 9", b"\x00MTTS 9"]
+MSDP_CLIENT_TTYPE_REPLIES = [
+    b"\x00ROTS-HARNESS",
+    b"\x00XTERM-256COLOR",
+    b"\x00MTTS 9",
+    b"\x00MTTS 9",
+]
 
 # MSDP_CLIENT's CHARSET reply: ACCEPTED, then the one character set the server offers.
 MSDP_CLIENT_CHARSET_REPLIES = [b"\x02ISO-8859-1"]
@@ -78,7 +88,9 @@ MSDP_CLIENT_CHARSET_REPLIES = [b"\x02ISO-8859-1"]
 MSDP_COMMANDS_VARIABLE = "COMMANDS"
 
 # The start of the MSDP frame that sets COMMANDS; selecting by it leaves other frames undecoded.
-COMMANDS_FRAME_START = bytes([MSDP_VAR]) + MSDP_COMMANDS_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
+COMMANDS_FRAME_START = (
+    bytes([MSDP_VAR]) + MSDP_COMMANDS_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
+)
 
 # The server's answer to MSDP LIST COMMANDS.
 MSDP_COMMANDS_REPLY = {MSDP_COMMANDS_VARIABLE: ["LIST", "REPORT", "RESET", "SEND", "UNREPORT"]}
@@ -93,22 +105,32 @@ MSDP_ON_REPLY = "Msdp mode is now on."
 ROOM_VNUM_VARIABLE = "ROOM_VNUM"
 
 # The start of the MSDP frame that sets ROOM_VNUM; the server sends one variable per frame.
-ROOM_VNUM_FRAME_START = bytes([MSDP_VAR]) + ROOM_VNUM_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
+ROOM_VNUM_FRAME_START = (
+    bytes([MSDP_VAR]) + ROOM_VNUM_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
+)
 
 # The MSSP status the server sends once a client accepts MSSP.
-SERVER_STATUS = {"NAME": ["Return of the Shadow"], "PLAYERS": ["0"], "UPTIME": ["0"], "CRAWL DELAY": ["-1"]}
+SERVER_STATUS = {
+    "NAME": ["Return of the Shadow"],
+    "PLAYERS": ["0"],
+    "UPTIME": ["0"],
+    "CRAWL DELAY": ["-1"],
+}
 
-# The control sequence the server sends as text after its empty SB MXP, opening a secure MXP channel.
+# The control sequence the server sends as text after its empty SB MXP, opening a secure MXP
+# channel.
 MXP_SECURE_CHANNEL = "\x1b[7z"
 
 
 def events_in_direction(game_session: GameSession, direction: TelnetDirection) -> list[TelnetEvent]:
-    """The session's telnet events in one direction, text included, oldest first."""
-    return [recorded.event for recorded in game_session.telnet_events if recorded.direction is direction]
+    """Return the session's telnet events in one direction, text included, oldest first."""
+    return [
+        recorded.event for recorded in game_session.telnet_events if recorded.direction is direction
+    ]
 
 
 def non_text_received_before_email_prompt(game_session: GameSession) -> list[TelnetEvent]:
-    """The received events other than text that arrived before the text completing the email prompt.
+    """Return the received events other than text that came before the email prompt was complete.
 
     The prompt is found in the text accumulated across text events, since a read can split it.
     Fails the test when the prompt never arrived.
@@ -116,23 +138,34 @@ def non_text_received_before_email_prompt(game_session: GameSession) -> list[Tel
     prompt = LOGIN_EMAIL_PROMPT.encode("latin-1")
     received_text = bytearray()
     non_text: list[TelnetEvent] = []
-    for event in events_in_direction(game_session, TelnetDirection.RECEIVED):
+    received = events_in_direction(game_session, TelnetDirection.RECEIVED)
+    for event in received:
         if isinstance(event, TelnetText):
             received_text.extend(event.data)
             if prompt in received_text:
                 return non_text
         else:
             non_text.append(event)
-    pytest.fail(f"{game_session.character_name}: no {LOGIN_EMAIL_PROMPT!r} among the received text events")
+
+    pytest.fail(
+        f"{game_session.character_name}: no {LOGIN_EMAIL_PROMPT!r} among the received text events"
+    )
 
 
 def subnegotiation_payloads(events: Iterable[TelnetEvent], option: int) -> list[bytes]:
-    """The payloads of the subnegotiations for option, in order."""
-    return [event.payload for event in events if isinstance(event, TelnetSubnegotiation) and event.option == option]
+    """Return the payloads of the subnegotiations for option, in order."""
+    return [
+        event.payload
+        for event in events
+        if isinstance(event, TelnetSubnegotiation) and event.option == option
+    ]
 
 
 def wire_listing(game_session: GameSession) -> str:
-    """Every telnet event other than text, one line each with its direction, for an assertion message."""
+    """Return every telnet event other than text, one line each with its direction.
+
+    The listing is an assertion message.
+    """
     return "\n".join(
         f"{recorded.direction.value:<8} {describe_event(recorded.event)}"
         for recorded in game_session.telnet_events
@@ -141,39 +174,56 @@ def wire_listing(game_session: GameSession) -> str:
 
 
 def sets_msdp_commands(payload: bytes) -> bool:
-    """Whether an MSDP frame sets the COMMANDS variable."""
+    """Return whether an MSDP frame sets the COMMANDS variable."""
     return payload.startswith(COMMANDS_FRAME_START)
 
 
 def sets_room_vnum(payload: bytes) -> bool:
-    """Whether an MSDP frame sets the ROOM_VNUM variable."""
+    """Return whether an MSDP frame sets the ROOM_VNUM variable."""
     return payload.startswith(ROOM_VNUM_FRAME_START)
 
 
 def is_empty(payload: bytes) -> bool:
-    """Whether a subnegotiation carries no payload."""
+    """Return whether a subnegotiation carries no payload."""
     return payload == b""
 
 
 @pytest.mark.characters(MAGE)
 def test_a_silent_client_is_offered_only_ttype(server) -> None:
+    """Pins the server offering a client that never answers only DO TTYPE before the email prompt.
+
+    The client answers no negotiation, so the server's other offers, which follow an answer to
+    DO TTYPE, never come, and everything the client sends through login is text.
+    """
     mage = server.connect(MAGE.name)
     mage.login()
     # The password prompt's WILL ECHO comes after the email prompt and is not an offer.
-    assert non_text_received_before_email_prompt(mage) == [CONNECT_OFFER], wire_listing(mage)
+    before_prompt = non_text_received_before_email_prompt(mage)
+    assert before_prompt == [CONNECT_OFFER], wire_listing(mage)
+
     sent = events_in_direction(mage, TelnetDirection.SENT)
     assert all(isinstance(event, TelnetText) for event in sent), wire_listing(mage)
 
 
 @pytest.mark.characters(MAGE)
 def test_a_refusing_client_is_offered_every_other_option_and_refuses_each(server) -> None:
+    """Pins the server's eight offers, in order, to a client that refuses every option.
+
+    Once the client answers DO TTYPE, even with a refusal, the server offers NAWS, CHARSET, MSDP,
+    MSSP, ATCP, MSP and MXP; every negotiation the client sends is a WONT or a DONT.
+    """
     mage = server.connect(MAGE.name, client=REFUSING_CLIENT)
     mage.expect_negotiation(DO, OPTION_MXP)
     mage.login()
     received = events_in_direction(mage, TelnetDirection.RECEIVED)
-    offers = [event for event in received if isinstance(event, TelnetNegotiation) and event.command in OFFER_COMMANDS]
+    offers = [
+        event
+        for event in received
+        if isinstance(event, TelnetNegotiation) and event.command in OFFER_COMMANDS
+    ]
     # Later offers are the server's WILL MXP after our WONT MXP and its DO TTYPE at game entry.
     assert offers[: len(OFFERS_IN_ORDER)] == OFFERS_IN_ORDER, wire_listing(mage)
+
     sent = events_in_direction(mage, TelnetDirection.SENT)
     sent_negotiations = [event for event in sent if isinstance(event, TelnetNegotiation)]
     assert sent_negotiations, wire_listing(mage)
@@ -182,41 +232,67 @@ def test_a_refusing_client_is_offered_every_other_option_and_refuses_each(server
 
 @pytest.mark.characters(MAGE)
 def test_an_msdp_client_completes_the_ttype_cycle_and_accepts_iso_8859_1(server) -> None:
+    """Pins the server's TTYPE cycle and CHARSET offer with a client that accepts both.
+
+    The server asks for a terminal type four times, stopping once a reply repeats the one before,
+    and the client accepts ISO-8859-1, the one character set the server offers.
+    """
     mage = server.connect(MAGE.name, client=MSDP_CLIENT)
     mage.expect_subnegotiation(OPTION_CHARSET)
     mage.login()
     received = events_in_direction(mage, TelnetDirection.RECEIVED)
     sent = events_in_direction(mage, TelnetDirection.SENT)
-    ttype_requests = [payload for payload in subnegotiation_payloads(received, OPTION_TTYPE) if payload == TTYPE_SEND_PAYLOAD]
+    received_ttype_payloads = subnegotiation_payloads(received, OPTION_TTYPE)
+    ttype_requests = [
+        payload for payload in received_ttype_payloads if payload == TTYPE_SEND_PAYLOAD
+    ]
     assert len(ttype_requests) == MSDP_CLIENT_TTYPE_REQUESTS, wire_listing(mage)
-    assert subnegotiation_payloads(sent, OPTION_TTYPE) == MSDP_CLIENT_TTYPE_REPLIES, wire_listing(mage)
-    assert subnegotiation_payloads(sent, OPTION_CHARSET) == MSDP_CLIENT_CHARSET_REPLIES, wire_listing(mage)
+
+    sent_ttype_payloads = subnegotiation_payloads(sent, OPTION_TTYPE)
+    assert sent_ttype_payloads == MSDP_CLIENT_TTYPE_REPLIES, wire_listing(mage)
+
+    sent_charset_payloads = subnegotiation_payloads(sent, OPTION_CHARSET)
+    assert sent_charset_payloads == MSDP_CLIENT_CHARSET_REPLIES, wire_listing(mage)
 
 
 @pytest.mark.characters(MAGE)
 def test_an_msdp_client_lists_commands_at_the_login_prompt(server) -> None:
+    """Pins the server's answer to MSDP LIST COMMANDS sent before the client logs in."""
     mage = server.connect(MAGE.name, client=MSDP_CLIENT)
     mage.expect_subnegotiation(OPTION_CHARSET)
     mage.send_msdp("LIST", "COMMANDS")
     reply = mage.expect_subnegotiation(OPTION_MSDP, matching=sets_msdp_commands)
-    assert decode_msdp(reply.event.payload) == MSDP_COMMANDS_REPLY, wire_listing(mage)
+    variables = decode_msdp(reply.event.payload)
+    assert variables == MSDP_COMMANDS_REPLY, wire_listing(mage)
 
 
 @pytest.mark.characters(MAGE)
 def test_an_msdp_client_hides_the_password_and_gets_its_room_vnum_in_game(server) -> None:
+    """Pins WILL ECHO at the password prompt and, with msdp on, an MSDP frame of the room's vnum."""
     mage = server.login(MAGE.name, client=MSDP_CLIENT)
     # The password prompt's WILL ECHO; the wait fails the test when it never arrived.
     mage.expect_negotiation(WILL, OPTION_ECHO)
-    assert MSDP_ON_REPLY in mage.command(MSDP_ON_COMMAND).text
+    reply = mage.command(MSDP_ON_COMMAND)
+    assert MSDP_ON_REPLY in reply.text, reply.text
+
     room_frame = mage.expect_subnegotiation(OPTION_MSDP, matching=sets_room_vnum)
-    assert decode_msdp(room_frame.event.payload)[ROOM_VNUM_VARIABLE] == str(world.ROOM_ARENA_CENTRE), wire_listing(mage)
+    room_variables = decode_msdp(room_frame.event.payload)
+    room_vnum = room_variables[ROOM_VNUM_VARIABLE]
+    assert room_vnum == str(world.ROOM_ARENA_CENTRE), wire_listing(mage)
 
 
 @pytest.mark.characters(MAGE)
 def test_a_full_client_receives_mssp_and_the_mxp_acknowledgement(server) -> None:
+    """Pins the MSSP status and the MXP acknowledgement a client accepting every option receives.
+
+    The acknowledgement is an empty SB MXP followed, as text, by the sequence opening a secure MXP
+    channel.
+    """
     mage = server.connect(MAGE.name, client=FULL_CLIENT)
     status = mage.expect_subnegotiation(OPTION_MSSP)
-    assert decode_mssp(status.event.payload) == SERVER_STATUS, wire_listing(mage)
+    fields = decode_mssp(status.event.payload)
+    assert fields == SERVER_STATUS, wire_listing(mage)
+
     # The empty SB MXP that acknowledges WILL MXP; the wait fails the test when it never arrived.
     mage.expect_subnegotiation(OPTION_MXP, matching=is_empty)
     mage.login()

@@ -93,7 +93,7 @@ MIXED_STREAM = (
 
 
 def merge_adjacent_text(events: list[TelnetEvent]) -> list[TelnetEvent]:
-    """Joins neighbouring TelnetText events, since a chunk boundary may split one."""
+    """Join neighbouring TelnetText events, since a chunk boundary may split one."""
     merged: list[TelnetEvent] = []
     for event in events:
         if merged and isinstance(event, TelnetText) and isinstance(merged[-1], TelnetText):

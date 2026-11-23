@@ -1,3 +1,5 @@
+"""Unit tests for rots_harness.telnet_negotiator, fed the server's events directly."""
+
 from __future__ import annotations
 
 from rots_harness.telnet import (
@@ -34,6 +36,7 @@ LATIN1_CHARSET_REQUEST = TelnetSubnegotiation(OPTION_CHARSET, b"\x01 ISO-8859-1"
 
 
 def answers(negotiator: TelnetNegotiator, *events: TelnetEvent) -> list[TelnetEvent]:
+    """Return every reply the negotiator gives to events, in order."""
     replies: list[TelnetEvent] = []
     for event in events:
         replies.extend(negotiator.respond(event))

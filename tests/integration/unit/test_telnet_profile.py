@@ -1,3 +1,5 @@
+"""Unit tests for rots_harness.telnet_profile's presets and validation."""
+
 from __future__ import annotations
 
 import pytest

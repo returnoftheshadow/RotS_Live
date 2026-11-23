@@ -6,7 +6,6 @@ It parses a telnet byte stream into text and command events, and encodes telnet 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Union
 
 # Interpret As Command: starts every telnet command, and doubled stands for a data byte 255.
 IAC = 255
@@ -109,7 +108,7 @@ class TelnetCommand:
 
 
 # One thing a telnet stream carries.
-TelnetEvent = Union[TelnetText, TelnetNegotiation, TelnetSubnegotiation, TelnetCommand]
+TelnetEvent = TelnetText | TelnetNegotiation | TelnetSubnegotiation | TelnetCommand
 
 
 class TelnetStreamParser:
@@ -119,7 +118,7 @@ class TelnetStreamParser:
         # The last byte was IAC outside a subnegotiation.
         self._pending_iac = False
         # The negotiation command waiting for its option byte, or None.
-        self._pending_negotiation: Optional[int] = None
+        self._pending_negotiation: int | None = None
         # Inside IAC SB ... IAC SE.
         self._in_subnegotiation = False
         # The last byte inside the subnegotiation was IAC.
@@ -140,6 +139,7 @@ class TelnetStreamParser:
         """
         for byte in chunk:
             self._feed_byte(byte)
+
         self._flush_text()
         events = self._events
         self._events = []
@@ -213,7 +213,8 @@ class TelnetStreamParser:
 
     def _flush_text(self) -> None:
         if self._text:
-            self._events.append(TelnetText(bytes(self._text)))
+            text_bytes = bytes(self._text)
+            self._events.append(TelnetText(text_bytes))
             self._text = bytearray()
 
 
@@ -236,10 +237,13 @@ def encode_event(event: TelnetEvent) -> bytes:
     """Return the wire bytes for an event; text has 0xFF doubled and is otherwise sent as it is."""
     if isinstance(event, TelnetText):
         return escape_iac(event.data)
+
     if isinstance(event, TelnetNegotiation):
         return negotiation_bytes(event.command, event.option)
+
     if isinstance(event, TelnetSubnegotiation):
         return subnegotiation_bytes(event.option, event.payload)
+
     return bytes([IAC, event.command])
 
 
@@ -248,11 +252,16 @@ def describe_event(event: TelnetEvent) -> str:
     if isinstance(event, TelnetText):
         shown = event.data.decode("latin1")[:DESCRIBED_TEXT_LIMIT]
         return f"text {len(event.data)} bytes {shown!r}"
+
     if isinstance(event, TelnetNegotiation):
         command_name = COMMAND_NAMES.get(event.command, str(event.command))
-        return f"{command_name} {_option_name(event.option)}"
+        option_name = _option_name(event.option)
+        return f"{command_name} {option_name}"
+
     if isinstance(event, TelnetSubnegotiation):
-        return f"SB {_option_name(event.option)} {event.payload!r}"
+        option_name = _option_name(event.option)
+        return f"SB {option_name} {event.payload!r}"
+
     return f"IAC {event.command}"
 
 
@@ -277,7 +286,8 @@ class TelnetStreamSanitizer:
 
     def feed(self, chunk: bytes) -> str:
         """Add a chunk and return all text so far."""
-        for event in self._parser.feed(chunk):
+        events = self._parser.feed(chunk)
+        for event in events:
             if isinstance(event, TelnetText):
                 self._sanitized.extend(event.data)
 

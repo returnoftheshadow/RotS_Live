@@ -1,3 +1,5 @@
+"""Unit tests for rots_harness.telnet_payloads' decoders and encoders."""
+
 from __future__ import annotations
 
 import pytest

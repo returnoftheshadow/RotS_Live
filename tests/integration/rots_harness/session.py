@@ -10,7 +10,8 @@ import re
 import socket
 import time
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence
+from collections.abc import Callable
+from typing import Iterable, List, Optional, Sequence
 
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT, ServerHandle
 from rots_harness.telnet import (
@@ -266,12 +267,14 @@ class GameSession:
         self._received_bytes.extend(chunk)
         with self._received_path.open("ab") as received_file:
             received_file.write(chunk)
+
         text_parts: list[bytes] = []
         compression_started = False
         # The first reply failure in this chunk; raised once every event of the chunk is recorded.
-        reply_error: Optional[TelnetPayloadError] = None
+        reply_error: TelnetPayloadError | None = None
         try:
-            for event in self._received_parser.feed(chunk):
+            events = self._received_parser.feed(chunk)
+            for event in events:
                 self._record.add(TelnetDirection.RECEIVED, event)
                 if isinstance(event, TelnetText):
                     text_parts.append(event.data)
@@ -280,18 +283,24 @@ class GameSession:
                     # telnet.
                     compression_started = True
                     break
+
                 try:
                     replies = self._negotiator.respond(event)
                 except TelnetPayloadError as error:
                     # The events after a malformed request still belong in the record and the text.
                     if reply_error is None:
                         reply_error = error
+
                     continue
+
                 for reply in replies:
-                    self._send(encode_event(reply))
+                    reply_bytes = encode_event(reply)
+                    self._send(reply_bytes)
         finally:
             # Text read before a failure still reaches everything and the transcript.
-            self._add_text(b"".join(text_parts).decode("latin-1"))
+            text_bytes = b"".join(text_parts)
+            self._add_text(text_bytes.decode("latin-1"))
+
         if compression_started:
             # A later read would parse compressed bytes as telnet, and a quit could only time out.
             self.close()
@@ -299,8 +308,10 @@ class GameSession:
                 f"{self.character_name}: the server started MCCP2 compression, which the harness "
                 f"cannot read; unread text:\n{self._unconsumed()[-PENDING_TEXT_QUOTED:]}"
             )
+
         if reply_error is not None:
             raise reply_error
+
         return True
 
     def _add_text(self, text: str) -> None:
@@ -360,13 +371,16 @@ class GameSession:
         arrived before the call count, and no wait returns an event twice. Text is left unread.
         """
 
-        def matches(recorded: RecordedTelnetEvent) -> bool:
-            return recorded.event == TelnetNegotiation(command, option)
+        wanted = TelnetNegotiation(command, option)
 
-        return self._expect_event(matches, describe_event(TelnetNegotiation(command, option)), timeout)
+        def matches(recorded: RecordedTelnetEvent) -> bool:
+            return recorded.event == wanted
+
+        description = describe_event(wanted)
+        return self._expect_event(matches, description, timeout)
 
     def expect_subnegotiation(
-        self, option: int, timeout: float = 8.0, matching: Optional[Callable[[bytes], bool]] = None
+        self, option: int, timeout: float = 8.0, matching: Callable[[bytes], bool] | None = None
     ) -> RecordedTelnetEvent:
         """Claim and return the oldest received, unclaimed subnegotiation for option.
 
@@ -383,9 +397,11 @@ class GameSession:
                 and (matching is None or matching(event.payload))
             )
 
-        description = f"SB {OPTION_NAMES.get(option, str(option))}"
+        option_name = OPTION_NAMES.get(option, str(option))
+        description = f"SB {option_name}"
         if matching is not None:
             description += " with a matching payload"
+
         return self._expect_event(matches, description, timeout)
 
     def _expect_event(
@@ -400,13 +416,16 @@ class GameSession:
             claimed = self._record.claim_first(matches)
             if claimed is not None:
                 return claimed
+
             if time.monotonic() >= deadline:
                 unclaimed = self._record.unclaimed_received()[-UNCLAIMED_EVENTS_LISTED:]
-                listing = "\n".join(describe_event(recorded.event) for recorded in unclaimed) or "(none)"
+                descriptions = [describe_event(recorded.event) for recorded in unclaimed]
+                listing = "\n".join(descriptions) or "(none)"
                 raise SessionTimeout(
                     f"{self.character_name}: no {description} within {timeout}s; unclaimed telnet "
                     f"events received:\n{listing}"
                 )
+
             self._pump(deadline)
 
     def _send(self, data: bytes) -> None:
@@ -418,7 +437,9 @@ class GameSession:
         self._socket.sendall(data)
         with self._sent_path.open("ab") as sent_file:
             sent_file.write(data)
-        for event in self._sent_parser.feed(data):
+
+        events = self._sent_parser.feed(data)
+        for event in events:
             self._record.add(TelnetDirection.SENT, event)
 
     def send_line(self, line: str) -> None:
@@ -426,7 +447,8 @@ class GameSession:
 
         A 0xFF is doubled so it stays text.
         """
-        self._send(escape_iac(line.encode("latin-1", errors="replace")) + b"\n")
+        encoded = line.encode("latin-1", errors="replace")
+        self._send(escape_iac(encoded) + b"\n")
 
     def send_bytes(self, data: bytes) -> None:
         """Send data exactly as given, with no escaping.
@@ -440,18 +462,21 @@ class GameSession:
 
         The negotiator does not learn of it, so it answers the server's reply as an unprompted one.
         """
-        self._send(negotiation_bytes(command, option))
+        data = negotiation_bytes(command, option)
+        self._send(data)
 
     def send_subnegotiation(self, option: int, payload: bytes) -> None:
         """Send IAC SB option payload IAC SE, with 0xFF in the payload doubled."""
-        self._send(subnegotiation_bytes(option, payload))
+        data = subnegotiation_bytes(option, payload)
+        self._send(data)
 
     def send_msdp(self, name: str, *values: str) -> None:
         """Send an MSDP frame setting variable name to values.
 
         Raise ValueError for an empty name, no values or MSDP marker bytes.
         """
-        self.send_subnegotiation(OPTION_MSDP, encode_msdp(name, *values))
+        payload = encode_msdp(name, *values)
+        self.send_subnegotiation(OPTION_MSDP, payload)
 
     def command(self, text: str, timeout: float = 8.0) -> Transcript:
         """Discard unread text, send text and return its output up to the next prompt.
