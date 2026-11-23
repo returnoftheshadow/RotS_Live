@@ -45,6 +45,8 @@ void affect_from_char(struct char_data* ch, byte skill);
 
 #include <stddef.h>
 
+class death_watch;
+
 affected_type* affected_by_spell(const char_data* character, byte skill, affected_type* firstaf = 0);
 affected_type* removeable_spell_affection(const char_data* character, const affected_type* aff, affected_type* start_affect);
 affected_type* room_affected_by_spell(const room_data* room, int spell);
@@ -62,8 +64,56 @@ char* fname(const char* namelist);
 void obj_to_char(struct obj_data* object, struct char_data* ch);
 void obj_from_char(struct obj_data* object);
 
-void equip_char(struct char_data* ch, struct obj_data* obj, int pos);
-struct obj_data* unequip_char(struct char_data* ch, int pos);
+/* How equip_char and unequip_char treat an item's spells (APPLY_SPELL) and its poison. Its stat
+ * affects are given or taken either way. */
+enum class gear_change {
+    /* Someone puts the item on or takes it off: its spells are cast on the wearer, and its
+     * poison hurts the wearer. */
+    cast,
+    // The game dresses or strips someone coming into or leaving the game (login, rent, quit,
+    // removal): only a spell that gives a lasting affect for as long as the item is worn
+    // (item_spell_is_worn_affect) gives or takes it. No other spell is cast and the poison hurts
+    // nobody, so the wearer and the item are never freed. cast_quietly_worn_gear casts the rest.
+    quiet,
+};
+
+/* Puts <obj>, held by nobody, on <ch> in <pos>. With gear_change::cast, putting it on can hurt
+ * the wearer: a spell the item casts on its wearer, or the poison it gives (5 damage, and death
+ * at 0 hit points or fewer). The blow can kill the wearer or set off a script that removes the
+ * wearer or the item. Returns false when the wearer or the item was freed: the caller must touch
+ * neither again, and one that must know which watches it with a freed_watch. Returns true
+ * otherwise, whether or not the item is worn: an item refused for its alignment or race goes into
+ * the inventory, and one a death stripped off lies in the corpse. */
+bool equip_char(struct char_data* ch, struct obj_data* obj, int pos,
+    gear_change change = gear_change::cast);
+/* Takes the item in <pos> off <ch> and returns it; logs and returns null when nothing is worn
+ * there. The item is left for the caller to put somewhere. With gear_change::cast, taking it off
+ * can hurt the wearer as putting it on can (equip_char), unless the wearer is dead or in no
+ * room, so it can free the wearer: a caller that uses the wearer afterwards watches it with a
+ * freed_watch, and puts the item where the wearer was if it is gone. The item a freed wearer
+ * took off is held by nobody. */
+struct obj_data* unequip_char(struct char_data* ch, int pos,
+    gear_change change = gear_change::cast);
+// Takes off every item <wearer> has equipped, as unequip_char does with <change>, and extracts
+// each one. Returns false as soon as taking an item off frees <wearer> (only with
+// gear_change::cast; see unequip_char); the caller must not touch <wearer> again. Returns true
+// when the wearer is still in the game.
+[[nodiscard]] bool extract_worn_gear(char_data* wearer, gear_change change = gear_change::cast);
+// Extracts every object in <holder>'s inventory, with its contents.
+void extract_carried_objects(char_data* holder);
+// Whether a character was poisoned before its gear went on, for cast_quietly_worn_gear.
+enum class poison_before_gear {
+    absent,
+    present,
+};
+// Casts on <wearer> what putting its gear on quietly (gear_change::quiet) passed over: each item
+// spell that is not a worn affect, then the poison's blow once if <prior_poison> is absent and
+// <wearer> is poisoned now. Call it once, when <wearer> stands in its room. A cast may free or
+// strip any item or kill anyone in the room; nothing more is cast once <stop_at_death> (null for
+// none) reports a death. Returns false when <wearer> was freed: do not touch it again. A null
+// <wearer> is logged and nothing is cast.
+bool cast_quietly_worn_gear(struct char_data* wearer, poison_before_gear prior_poison,
+    const death_watch* stop_at_death = nullptr);
 /* Encumbrance weight an item of this weight adds when worn in this slot. */
 int worn_encumb_weight(int weight, int slot);
 
@@ -97,6 +147,37 @@ struct char_data* get_char(const char* name);
 void char_from_room(struct char_data* ch);
 void char_to_room(struct char_data* ch, int room);
 void extract_char(struct char_data* ch, int new_room = -1);
+
+/* Lends a character a room it does not stand in, for code that asks where it is (the procedures
+ * on the far side of a door it knocks on), while it stays on its own room's list of people.
+ * char_from_room and extract_char first end any lend of the character they are given, putting it
+ * back where it stands, so that it leaves the right room, and free_char ends any lend of the
+ * character it frees; otherwise the lend puts it back when it goes out of scope. A lend must be a local variable: lends nest, and each ends in the reverse
+ * order of its making. */
+class room_lend {
+public:
+    /* Lends <character>, which stands in a room, the room <lent_room>. */
+    room_lend(char_data* character, int lent_room);
+    ~room_lend();
+
+    room_lend(const room_lend&) = delete;
+    room_lend& operator=(const room_lend&) = delete;
+
+    /* Ends every lend of <character>, putting it back in the room it stands in. */
+    static void end_for(char_data* character);
+
+private:
+    // The newest lend still in scope; each points on to the one made before it. Null when nothing
+    // is lent, which is nearly always, so char_from_room pays one test.
+    static room_lend* newest;
+
+    // The character lent the room; null once the lend has ended.
+    char_data* m_character;
+    // The room the character stands in, given back when the lend ends.
+    int m_own_room;
+    // The lend made before this one, which is the newest again once this one goes.
+    room_lend* m_older;
+};
 
 int in_affected_list(const struct char_data* ch);
 
@@ -134,6 +215,10 @@ void add_follower(struct char_data* ch, struct char_data* leader, int mode);
 void stop_follower(struct char_data* ch, int mode);
 char circle_follow(const struct char_data* ch, struct char_data* victim, int mode);
 void die_follower(struct char_data* ch);
+/* True if <entry> is on <leader>'s follower list and still stands for <follower>. <entry> and
+ * <follower> are compared by address until <entry> is found there, so either may have gone (a
+ * null one is never found). */
+bool is_follower_entry(const char_data* leader, const follow_type* entry, const char_data* follower);
 
 inline constexpr int FOLLOW_MOVE = 1;
 inline constexpr int FOLLOW_GROUP = 2;
@@ -175,10 +260,20 @@ int Crash_clean_file(const char* name);
 void Crash_listrent(const struct char_data* ch, const char* name);
 // int	Crash_load(struct char_data *ch);
 void Crash_crashsave(struct char_data* ch, int rent_code = RENT_CRASH);
-void Crash_idlesave(const struct char_data* ch);
+void Crash_idlesave(struct char_data* ch);
 void Crash_save_all(void);
 FILE* Crash_get_file_by_name(const char* name, const char* mode);
 FILE* Crash_load(struct char_data* ch);
+// Brings <ch>, just read from its player file, into its room with its gear, aliases and followers,
+// then casts what the quiet dressing passed over (cast_quietly_worn_gear): <ch>'s gear first, then
+// each follower's as it comes in. Nothing more is cast once <ch> dies. Returns false when a cast
+// freed <ch>: the caller must not touch it again.
+[[nodiscard]] bool load_character(struct char_data* ch);
+// What a follower record's flag_config says the follower was when it was saved.
+inline constexpr int FOL_MOUNT = 0;
+inline constexpr int FOL_ORC_FRIEND = 1;
+inline constexpr int FOL_TAMED = 2;
+inline constexpr int FOL_GUARDIAN = 3;
 void stage_account_backed_object_bytes_for_character(const struct char_data* ch, const char* bytes, size_t length);
 void clear_account_backed_object_bytes_for_character(const struct char_data* ch);
 
@@ -191,6 +286,11 @@ void forget(struct char_data* ch, const struct char_data* victim);
 void remember(struct char_data* ch, struct char_data* victim);
 int damage(struct char_data* ch, struct char_data* victim, int dam, int attacktype, int hit_location);
 int check_sanctuary(char_data* ch, char_data* victim);
+// Where the wearable gear in a dead character's containers goes when its corpse is made.
+enum class CorpseGear { LEFT_IN_CONTAINERS, GATHERED };
+// Makes <character>'s corpse, holding its gear, in the room it stands in, and returns it.
+// Declared here for the tests (object_text_tests.cpp).
+obj_data* make_physical_corpse(char_data* character, CorpseGear corpse_gear, int attack_type);
 
 char* money_message(int sum, int mode = 0);
 

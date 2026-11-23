@@ -17,8 +17,10 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "note_writing.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
@@ -110,9 +112,26 @@ ACMD(do_say)
         } else
             send_to_char("Ok.\n\r", ch);
 
-        for (s = world[ch->in_room].people; s; s = s->next_in_room)
-            if (IS_NPC(s) && (s != ch))
-                call_trigger(ON_HEAR_SAY, s, ch, talk_line);
+        room_data& room = world[ch->in_room];
+        freed_watch speaker_watch(ch);
+        char_data* speaker = ch;
+        s = room.people;
+        while (s) {
+            char_data* following = s->next_in_room;
+            if (!IS_NPC(s) || s == ch) {
+                s = following;
+                continue;
+            }
+
+            freed_watch listener_watch(s);
+            call_trigger(ON_HEAR_SAY, s, speaker, talk_line);
+            /* A listener's script can remove the speaker: the rest still hear the words, from
+             * nobody. */
+            if (speaker_watch.freed()) {
+                speaker = nullptr;
+            }
+            s = next_person_after_trigger(room, s, listener_watch.freed(), following);
+        }
     }
 }
 
@@ -312,8 +331,6 @@ ACMD(do_ask)
     }
 }
 
-#define MAX_NOTE_LENGTH 1000 /* arbitrary */
-
 ACMD(do_write)
 {
     struct obj_data *paper = 0, *pen = 0;
@@ -338,7 +355,7 @@ ACMD(do_write)
             return;
         }
         if (!(pen = get_obj_in_list_vis(ch, penname, ch->carrying, 9999))) {
-            sprintf(buf, "You have no %s.\n\r", papername);
+            sprintf(buf, "You have no %s.\n\r", penname);
             send_to_char(buf, ch);
             return;
         }
@@ -382,10 +399,9 @@ ACMD(do_write)
         send_to_char("There's something written on it already.\n\r", ch);
     else {
         /* we can write - hooray! */
-        send_to_char("Ok.. go ahead and write.. end the note with a @.\n\r", ch);
+        send_to_char("Ok.. go ahead and write.. end the note with %e.\n\r", ch);
         act("$n begins to jot down a note.", TRUE, ch, 0, 0, TO_ROOM);
-        ch->desc->str = &paper->action_description;
-        ch->desc->max_str = MAX_NOTE_LENGTH;
+        start_writing_note(*ch->desc, *paper);
     }
 }
 
@@ -643,10 +659,17 @@ ACMD(do_gen_com)
     if (subcmd == SCMD_YELL) {
         // triggering specials in other rooms now...
         myzone = world[ch->in_room].zone;
+        /* A procedure that removes the one yelling ends the yell: nobody is left to hear, and
+         * the words can be its own delay's text. */
+        freed_watch yeller_watch(ch);
         for (tmp = 0; tmp <= top_of_world; tmp++) {
             tmproom = &world[tmp];
-            if (tmproom->zone == myzone)
+            if (tmproom->zone == myzone) {
                 special(ch, CMD_YELL, argument, SPECIAL_COMMAND, wtl, tmp);
+                if (yeller_watch.freed()) {
+                    return;
+                }
+            }
         }
     }
 }

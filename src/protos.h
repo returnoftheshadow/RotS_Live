@@ -79,6 +79,13 @@ inline constexpr char SHAPE_MDL_BACKDIR[] = "world/mdl/oldmdls/%s.mdl";
 inline constexpr char SHAPE_SCRIPT_DIR[] = "world/scr/%s.scr";
 inline constexpr char SHAPE_SCRIPT_BACKDIR[] = "world/scr/oldscrs/%s.scr";
 
+/* Whether <file_format>, one of the SHAPE_*_DIR formats above, filled in with <name> fits a
+ * field of <field_size> bytes such as an editor's f_from or f_old. */
+inline bool shape_file_name_fits(const char* file_format, const char* name, size_t field_size)
+{
+    return snprintf(nullptr, 0, file_format, name) < static_cast<int>(field_size);
+}
+
 struct script_data; //  Declaration.  Definition follows below.
 
 struct shape_proto {
@@ -168,7 +175,7 @@ struct shape_zone {
 struct info_script { //  The structure which each char/obj/zon will have if it has a script.
     int index; //  Index number in the script_table of this script
     script_data* next_command; //  Command next to be executed.
-    int str_dynamic[3]; // Set dynamic[x] to 1 if script allocated str[x]
+    int str_dynamic[3]; // 1 while the state owns str[x] (a copy it releases), 0 while str[x] is null
     char* str[3]; //  General text field for holding variable text information, eg a character's name
     char_data* ch[3]; //  Variables
     obj_data* ob[3]; //  Variables

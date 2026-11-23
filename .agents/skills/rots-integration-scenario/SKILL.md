@@ -7,8 +7,9 @@ description: Use when adding, changing or debugging a RotS integration scenario 
 
 A scenario boots its own server on the test world and its declared characters, logs them in
 and checks what they read. Work through the steps in order. Commands, formats and values are in
-[harness-reference.md](harness-reference.md); changing the harness is in
-[extending-the-harness.md](extending-the-harness.md).
+[harness-reference.md](harness-reference.md); the shared helpers and constants a scenario
+imports, rather than writes, are in [shared-helpers.md](shared-helpers.md); changing the harness
+is in [extending-the-harness.md](extending-the-harness.md).
 
 ## 1. Is a scenario the right test?
 
@@ -53,6 +54,18 @@ the harness (extending-the-harness.md); never rely on luck.
   text that never comes. `unit/test_scenario_markers.py` rejects an xfail without both.
 - A **new-behaviour pin** fails before the change and passes after it.
 - A crash or memory-safety fix gets no legacy pin.
+- A test's docstring is PEP 257 and imperative, or the pin statement itself: a one-line summary,
+  then a blank line and the body. Its summary opens with one of these, and carries no other issue
+  or pull request number and no history:
+  - `Legacy pin:` today's behaviour before a change.
+  - `Fix pin (#N):` the fixed behaviour. The body may hold one history sentence, "#N made X;
+    before it, Y".
+  - `Bug:` a strict-xfail known-bug pin, then the correct behaviour.
+  - `Pins ...` every other behaviour pin, such as "Pins the stat lines on ...".
+- A known-bug pin goes in `test_<base>_known_bugs.py`. That file imports what it shares with
+  `test_<base>.py` from it (`from test_<base> import ...`), and imports the `rots_harness` names
+  from `rots_harness`, never through the base file. A scenario file another one imports imports
+  no scenario file: CI follows importers one level only.
 
 ## 4. Make the outcome deterministic by construction
 
@@ -66,14 +79,16 @@ the harness (extending-the-harness.md); never rely on luck.
 - A draw that only decides whether the attempt happens and has its own message (a lost
   concentration, a fumbled skill): repeat the attempt on that message, listed in `expect`.
   Bound the loop by what each attempt uses up (mana does not regenerate between requests under
-  `affect-hours`) so it ends in an assertion, and name the draw in the docstring.
+  `affect-hours`) so it ends in an assertion, and name the draw in the docstring. A cast's lost
+  concentration is `casting.cast_until_it_lands`.
 - A draw that decides the outcome and cannot be pushed out of reach needs a harness extension
   (step 2), not a lucky seed. The seed is never why a test passes; step 9's other seeds prove
   it.
 
 ## 5. Declare the characters
 
-Use `@pytest.mark.characters(...)` (fields in the reference). `server.login(name)` enters each
+Use `@pytest.mark.characters(...)` (fields in the reference); `characters.IMPLEMENTOR` and
+`characters.immortal(name, level)` are the shared immortals. `server.login(name)` enters each
 one straight into the game with the harness binary's entry token. Add `@pytest.mark.real_login`
 (plain `ageland` and the account menu dialogue) only to a test of the login dialogue, the account
 menu or the boot, or one that opens its own connections at the email prompt. Starting values go
@@ -82,7 +97,9 @@ values (hunger, gold, abilities, spirit, alignment, specialization and more, eac
 `wizset` field). Mobs and floor objects the test starts with go in
 `@pytest.mark.world_resets(...)`. The implementor sets what changes during the test and what
 neither can hold (items, practice sessions, and the `saving_throw` field, which only some save
-functions read); assert each reply, such as `hunger set to 10.`. Declare `IMPLEMENTOR` whenever
+functions read) with the checked helpers `immortal_commands.wizset`, `give_new_object`, `goto`
+and `load_object` (shared-helpers.md, "Implementor set-up commands"), whose keyword arguments
+choose what each reply is checked for. Declare `IMPLEMENTOR` whenever
 two characters are online. Across sides a command matches a player's race keyword, never its
 name (reference, "Names, sides and lookups").
 
@@ -100,14 +117,23 @@ are in the reference, "The test world".
 - Run `make integration-unit` (its world check catches order, index and zone mistakes), then
   boot after every change: a bad field shows only as a `SYSERR` or a server that never reaches
   the login prompt.
-- A room or value only one scenario file uses is a constant in that file;
-  `rots_harness/world.py` holds only the rooms two or more scenario files name.
+- A room, object, mob or value only one scenario file uses is a constant in that file.
+  `rots_harness/world.py` holds the rooms, objects and mobs two or more scenario files name,
+  with their room names and short descriptions; add a fixture there, and its row in
+  `unit/test_world.py`, when a second file needs it.
 
-The world files and their notes, the scenario files with their constants, the shared room
-constants in `rots_harness/world.py` and the group files in `tests/integration/groups/` are
-scenario territory; the rest of `tests/integration/` and `src/harness/` is the harness.
+The world files and their notes, the scenario files with their constants, the shared helper
+modules a second scenario file adds to (shared-helpers.md, "Where a new shared name goes") and
+the group files in `tests/integration/groups/` are scenario territory; the rest of
+`tests/integration/` and `src/harness/` is the harness.
 
 ## 7. Assert what players see
+
+Before writing a helper or a constant, look it up in [shared-helpers.md](shared-helpers.md): read
+replies with `replies.reply_to`, stat with `stat_reading.read_stat`, numbers with
+`text_lines.first_number`, game.log with `game_log.wait_for_log_count`, and take fixed game text
+from `game_text`. A file whose replies settle 0.5 seconds passes `settle=EDITOR_SETTLE_SECONDS`
+to each of them. Name constants by the rule in shared-helpers.md, "Names".
 
 - Match each message's exact text as that observer receives it: `someone` for an actor it
   cannot see, or a star name across sides (`PERS`, reference "Names, sides and lookups").
@@ -116,8 +142,9 @@ scenario territory; the rest of `tests/integration/` and `src/harness/` is the h
 - Check what the helpers return in odd states (reference, "Session API").
 - Keep each pin to one behaviour. A control case (the same command succeeding once one input
   changes) must avoid the scenario's other quirks, or one break fails two pins.
-- Advance time only with `server.advance_hours(n)`; read each hour's text with `expect` and
-  `drain` before the next `command()`, which discards unread text.
+- Advance time only with `server.advance_hours(n)`; read each hour's text with
+  `server.text_after_hours` or `replies.settled_expect` before the next `command()`, which
+  discards unread text.
 
 ## 8. Tag the group
 
@@ -134,6 +161,9 @@ a change to the game's code runs a group or subgroup only when the description n
 `@integration-test-<name>`. A change to the harness, the test world, `src/CMakeLists.txt` or a
 `lib/` file the harness copies into every test's lib runs every group, as does every push
 (integration README, "Continuous integration").
+To run a scenario against an AddressSanitizer build, such as one that proves a memory fix, name
+it in the description as `@asan-test-scenario=scenarios/test_<file>.py::<test>`, or its group as
+`@asan-test-<name>` (integration README, "Memory checks on request (ASan)").
 
 ## 9. Run it repeatedly
 
@@ -201,8 +231,9 @@ Commit only after the bite checks and the required runs. The commit message's `T
 | Believing a pin tells two behaviours apart | Break each one and watch the pin fail |
 | A guessed marker | Run once with `ROTS_IT_KEEP=1`, read the transcript, then find the string in `src/` |
 | A fixed `time.sleep` or `drain(n)` as the wait | `expect` the event; `drain` only to settle after `expect` or `advance_hours` |
-| `command()` after asynchronous text (hour messages, `The day has now begun.`) | `command()` returns at the first text ending in `>` or `]`; read pending text first, or `send_line` and `expect` the reply |
-| A long reply read with `command()` (`stat` has lines ending in `]`) | `send_line`, then `expect` its last line and `drain` |
+| `command()` after asynchronous text (hour messages, `The day has now begun.`) | `command()` returns at the first text ending in `>` or `]`; read pending text first, or use `replies.reply_to` with the reply's outcomes |
+| A long reply read with `command()` (`stat` has lines ending in `]`) | `stat_reading.read_stat` for stat, `replies.reply_to` with the reply's last line for anything else |
+| A helper or constant a shared module already has, written again in a scenario file | Import it (shared-helpers.md); `unit/test_scenario_shared_helpers.py` fails on the copy |
 | Asserting exact hit points after several game hours | Regeneration runs in every hour: check once after the first hour, or assert a range |
 | Trusting another connection's command right after a `teleport` | Commands from different connections are not ordered; `expect` the moved character's `has teleported you!` |
 | `wizset <name> level` to change profession levels | It sets only the overall level, and `wizset ... prof` does nothing; declare the level and class |

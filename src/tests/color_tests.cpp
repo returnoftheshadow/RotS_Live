@@ -2,6 +2,7 @@
 #include "../interpre.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -39,6 +40,7 @@ TEST(Color, RendersLegacyAnsiForegroundSelections)
 {
     char_data character {};
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     set_colornum(&character, COLOR_CHAT, CMAG);
 
     EXPECT_EQ(std::string(get_color_sequence(&character, COLOR_CHAT)), std::string(color_sequence[CMAG]));
@@ -52,6 +54,7 @@ TEST(Color, IgnoresOutOfRangeStoredAnsiForegroundValues)
 {
     char_data character {};
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
 
     character.profs->color_settings[COLOR_CHAT].foreground.mode = COLOR_VALUE_ANSI16;
     character.profs->color_settings[COLOR_CHAT].foreground.ansi = 200;
@@ -72,6 +75,7 @@ TEST(Color, RendersTrueColorForegroundSelections)
 {
     char_data character {};
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     set_truecolor_foreground(&character, COLOR_MAGIC, 180, 80, 255);
 
     const std::string sequence = get_color_sequence(&character, COLOR_MAGIC);
@@ -82,6 +86,7 @@ TEST(Color, RendersTrueColorBackgroundSelectionsAlongsideAnsiForegroundFallback)
 {
     char_data character {};
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     set_colornum(&character, COLOR_WEATHER, CBCYN);
     set_truecolor_background(&character, COLOR_WEATHER, 10, 20, 35);
 
@@ -94,6 +99,7 @@ TEST(Color, ClearsBackgroundWithoutAffectingForegroundSelection)
 {
     char_data character {};
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     set_truecolor_foreground(&character, COLOR_MAGIC, 180, 80, 255);
     set_truecolor_background(&character, COLOR_MAGIC, 10, 20, 35);
 
@@ -114,7 +120,9 @@ TEST(Color, LegacyCommandSyntaxStillSetsAnsiForegroundSelection)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
 
     char command[] = "magic bright magenta";
@@ -130,7 +138,9 @@ TEST(Color, CommandSupportsTrueColorForegroundRgbSelection)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
 
     char command[] = "magic fg rgb 180 80 255";
@@ -148,7 +158,9 @@ TEST(Color, CommandSupportsTrueColorBackgroundHexSelection)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
 
     char command[] = "weather bg hex #0A1423";
@@ -166,7 +178,9 @@ TEST(Color, CommandCanClearBackgroundToDefault)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
     set_truecolor_background(&character, COLOR_MAGIC, 10, 20, 35);
 
@@ -182,7 +196,9 @@ TEST(Color, CommandListsStructuredForegroundAndBackgroundSelections)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
     set_truecolor_foreground(&character, COLOR_MAGIC, 180, 80, 255);
     set_truecolor_background(&character, COLOR_WEATHER, 10, 20, 35);
@@ -201,7 +217,9 @@ TEST(Color, CommandRejectsOutOfRangeRgbValues)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
 
     char command[] = "magic fg rgb 300 80 255";
@@ -230,7 +248,9 @@ TEST(Color, MobSlotIsConfigurableThroughTheCommand)
 {
     char_data character {};
     descriptor_data descriptor = make_descriptor();
+    TestDescriptorRelease descriptor_release(&descriptor);
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
     character.desc = &descriptor;
 
     char command[] = "mob bright blue";
@@ -245,6 +265,7 @@ TEST(Color, MobSlotStartsNormalUntilTheDefaultSetIsApplied)
 {
     char_data character {};
     initialize_player_character(&character);
+    ClearedCharacterRelease character_release(&character);
 
     /* Nothing is stored for the new slot, so existing players see mobiles
      * uncoloured until they ask for a colour. */
@@ -270,7 +291,9 @@ TEST(Color, CharacterSlotSelectedForPlayersAndMobSlotForNpcs)
     char_data player {};
     char_data mobile {};
     initialize_player_character(&player);
+    ClearedCharacterRelease player_release(&player);
     clear_char(&mobile, MOB_VOID);
+    ClearedCharacterRelease mobile_release(&mobile);
     SET_BIT(MOB_FLAGS(&mobile), MOB_ISNPC);
 
     EXPECT_EQ(char_color_slot(&player), COLOR_CHAR);

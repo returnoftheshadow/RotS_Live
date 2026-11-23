@@ -1,4 +1,7 @@
-"""Each scenario's recorded run time, kept in build/integration/durations.json so the run plan can estimate a run before it starts."""
+"""Each scenario's recorded run time, kept in build/integration/durations.json.
+
+The run plan estimates a run from these times before it starts.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ INTERRUPTED_EXIT_STATUS = 2
 
 
 def read_durations(path: Path) -> dict[str, float]:
-    """The seconds recorded for each node id in path.
+    """Return the seconds recorded for each node id in path.
 
     A missing or unreadable file, or one that is not a JSON object, reads as empty; an entry whose
     value is not a finite number of seconds of at least 0 is left out.
@@ -39,13 +42,18 @@ def read_durations(path: Path) -> dict[str, float]:
     recorded = {}
     for node_id, seconds in content.items():
         # bool is an int to Python, but true is no number of seconds.
-        if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds) and seconds >= 0:
+        if (
+            isinstance(seconds, (int, float))
+            and not isinstance(seconds, bool)
+            and math.isfinite(seconds)
+            and seconds >= 0
+        ):
             recorded[node_id] = float(seconds)
     return recorded
 
 
 def merge_durations(path: Path, replacing: Mapping[str, float], raising: Optional[Mapping[str, float]] = None) -> None:
-    """Writes the new times into path, keeping every other entry; raises OSError.
+    """Write the new times into path, keeping every other entry; raise OSError.
 
     A time in replacing replaces its test's entry. A time in raising only raises the estimate:
     it replaces a smaller recorded time, and gives a test with no recorded time an entry only
@@ -79,12 +87,15 @@ class _TestTiming:
     seconds: float
     # Whether every phase so far allows recording the test.
     usable: bool = True
-    # Whether the call failed, so its time may only raise the recorded one; None before the call reports.
+    # Whether the call failed, so its time may only raise the recorded one; None before the call
+    # reports.
     call_failed: Optional[bool] = None
 
 
 class DurationRecorder:
-    """A pytest plugin recording the seconds of each scenario that ran to the end, merged into a durations file when the session ends.
+    """A pytest plugin recording the seconds of each scenario that ran to the end.
+
+    The seconds are merged into a durations file when the session ends.
 
     Registered in the process the run started in, which also receives the reports of pytest-xdist
     workers. A scenario counts once its teardown has passed, after a setup that passed and a call
@@ -98,13 +109,14 @@ class DurationRecorder:
         self._path = path
         # The phases of each test whose teardown has not yet reported.
         self._running: dict[str, _TestTiming] = {}
-        # Seconds per node id of the tests that passed or failed as expected; they replace the recorded times.
+        # Seconds per node id of the tests that passed or failed as expected; they replace the
+        # recorded times.
         self.seconds: dict[str, float] = {}
         # Seconds per node id of the tests whose call failed; they only raise the recorded times.
         self.raising_seconds: dict[str, float] = {}
 
     def pytest_runtest_logreport(self, report) -> None:
-        """Adds a scenario's reported phase to its time, and keeps the time once its teardown passes."""
+        """Add a scenario's reported phase to its time; keep the time once its teardown passes."""
         if SCENARIO_MARKER not in report.keywords:
             return
         if report.when == "setup":
@@ -130,7 +142,10 @@ class DurationRecorder:
             self.seconds[report.nodeid] = timing.seconds
 
     def pytest_sessionfinish(self, session, exitstatus: int) -> None:
-        """Merges the times kept into the durations file unless the session was interrupted; a file that cannot be written only prints a warning."""
+        """Merge the times kept into the durations file unless the session was interrupted.
+
+        A file that cannot be written only prints a warning.
+        """
         if int(exitstatus) == INTERRUPTED_EXIT_STATUS:
             return
         if not self.seconds and not self.raising_seconds:

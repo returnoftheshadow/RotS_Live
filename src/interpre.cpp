@@ -9,6 +9,7 @@
  **************************************************************************/
 
 #include "platdef.h"
+#include <algorithm>
 #include <ctype.h>
 #include <optional>
 #include <stdio.h>
@@ -24,6 +25,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_boot_options.h"
 #include "handler.h"
 #include "interpre.h"
@@ -37,6 +39,7 @@
 #include "creation_points.h"
 #include "protos.h"
 #include "savebench.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -91,7 +94,6 @@ void introduce_char(struct descriptor_data*);
 void one_mobile_activity(struct char_data*);
 int update_memory_list(struct char_data*);
 int load_char(char*, struct char_file_u*);
-void load_character(struct char_data* ch);
 void Crash_report_object_refreshes(const struct char_data* ch);
 void msdp_room_update(const char_data* ch);
 void stop_hiding(struct char_data*, char);
@@ -1354,6 +1356,10 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
             cmd = old_search_block(argument, begin, look_at, command, 0);
         }
     } else {
+        /* A delayed or program-called command has no typed text: its specials and handler are
+         * given an empty argument. */
+        argument[0] = '\0';
+
         /* if you're hazed, you have a 10% chance of forgetting targ1 */
         if (IS_AFFECTED(ch, AFF_HAZE))
             if (!number(0, 9)) {
@@ -1376,8 +1382,13 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
         cmd = -1;
 
     if (cmd <= 0) {
-        one_argument(argument + begin, local_buf);
-        subcmd = find_action(local_buf);
+        /* Only a typed word can name a social (find_action takes an empty one for whichever
+         * social it tries first). */
+        subcmd = -1;
+        if (!mode) {
+            one_argument(argument + begin, local_buf);
+            subcmd = find_action(local_buf);
+        }
         if (subcmd >= 0)
             cmd = CMD_SOCIAL;
         else
@@ -1427,13 +1438,19 @@ void command_interpreter(struct char_data* ch, char* argument_chr,
                 may_not_perform = !may_not_perform;
             }
             if (!no_specials && !may_not_perform) {
+                /* A procedure that frees ch ends the command (special returns 1 for it), and the
+                 * targets' procedures are not asked: argument_info can be ch's own delay. */
+                freed_watch actor_watch(ch);
                 may_not_perform |= special(ch, cmd, argument + begin + look_at,
                     SPECIAL_COMMAND, argument_info, NOWHERE);
-                if (cmd != CMD_SELL) /* TEMPORARY, to keep CMD_SELL from crashing */
-                    may_not_perform |= special(ch, cmd, argument + begin + look_at,
-                        SPECIAL_TARGET, argument_info, NOWHERE);
-                else /* also temp */
-                    may_not_perform = 1;
+                if (!actor_watch.freed()) {
+                    if (cmd != CMD_SELL) { /* TEMPORARY, to keep CMD_SELL from crashing */
+                        may_not_perform |= special(ch, cmd, argument + begin + look_at,
+                            SPECIAL_TARGET, argument_info, NOWHERE);
+                    } else { /* also temp */
+                        may_not_perform = 1;
+                    }
+                }
             }
 
             /*
@@ -1528,11 +1545,9 @@ char* one_argument(char* argument, char* first_arg)
         /* Find length of first word */
         /* Make all letters lower case, AND copy them to first_arg */
         if (*(argument + begin) == '\'') {
-            for (look_at = 0; *(argument + begin + look_at) && (*(argument + begin + look_at) != '\''); look_at++)
-                *(first_arg + look_at) = LOWER(*(argument + begin + look_at));
-
-            if (*(argument + begin + look_at) == '\'')
-                look_at++;
+            /* A word that opens with a quote comes back empty, with only the quote consumed. */
+            *first_arg = '\0';
+            look_at = 1;
         } else {
             for (look_at = 0; *(argument + begin + look_at) > ' '; look_at++)
                 *(first_arg + look_at) = LOWER(*(argument + begin + look_at));
@@ -1642,8 +1657,6 @@ int activate_obj_special(struct obj_data* host, struct char_data* ch, int cmd,
 int special(struct char_data* ch, int cmd, char* arg, int callflag,
     struct waiting_type* wtl, int in_room)
 {
-    register struct obj_data* i;
-    register struct char_data* k;
     int j, remote_mode;
     struct char_data* tmpch;
 
@@ -1660,16 +1673,31 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
     if (in_room == NOWHERE)
         return FALSE;
 
+    /* Any procedure can free ch, its own host or anyone or anything else here (a death, a script
+     * it sets off). Once ch is gone no other procedure is offered the command, and wtl, which can
+     * be ch's own delay, is not read again. */
+    freed_watch actor_watch(ch);
+
     if (callflag == SPECIAL_DEATH) {
         /* in this case, specials are called on ch itself */
         if (activate_char_special(ch, ch, cmd, arg, callflag, wtl, in_room))
             return 1;
+        if (actor_watch.freed()) {
+            return 1;
+        }
         return 0;
     }
 
     if ((callflag == SPECIAL_TARGET) || (callflag == SPECIAL_DAMAGE)) { /* instead of room, checking targets */
         if (!wtl)
             return 0;
+
+        /* The first target's procedure can free an object named as the second target. */
+        obj_data* second_target_object = nullptr;
+        if (wtl->targ2.type == TARGET_OBJ) {
+            second_target_object = wtl->targ2.ptr.obj;
+        }
+        freed_watch second_target_object_watch(second_target_object);
 
         switch (wtl->targ1.type) {
         case TARGET_ROOM:
@@ -1702,6 +1730,9 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
                 return 1;
             break;
         }
+        if (actor_watch.freed()) {
+            return 1;
+        }
 
         switch (wtl->targ2.type) {
         case TARGET_ROOM:
@@ -1713,6 +1744,9 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
             break;
 
         case TARGET_OBJ:
+            if (second_target_object_watch.freed()) {
+                break;
+            }
             if (wtl->targ2.ptr.obj->item_number < 0)
                 break;
             if ((void*)(obj_index[wtl->targ2.ptr.obj->item_number].func))
@@ -1728,40 +1762,94 @@ int special(struct char_data* ch, int cmd, char* arg, int callflag,
                 return 1;
             break;
         }
+        if (actor_watch.freed()) {
+            return 1;
+        }
         return 0;
     }
 
+    room_data& room = world[in_room];
+
     /* special in room? */
-    if ((void*)(world[in_room].funct))
-        if ((*world[in_room].funct)(ch, ch, cmd, arg, callflag, 0))
-            return (1);
+    if (room.funct) {
+        if ((*room.funct)(ch, ch, cmd, arg, callflag, 0)) {
+            return 1;
+        }
+        if (actor_watch.freed()) {
+            return 1;
+        }
+    }
 
     if (!remote_mode) {
         /* special in equipment list? */
-        for (j = 0; j <= (MAX_WEAR - 1); j++)
-            if (ch->equipment[j] && ch->equipment[j]->item_number >= 0)
-                if (activate_obj_special(ch->equipment[j], ch, cmd, arg, callflag, wtl))
-                    return (1);
+        for (j = 0; j <= (MAX_WEAR - 1); j++) {
+            obj_data* worn = ch->equipment[j];
+            if (!worn || worn->item_number < 0) {
+                continue;
+            }
+            if (activate_obj_special(worn, ch, cmd, arg, callflag, wtl)) {
+                return 1;
+            }
+            if (actor_watch.freed()) {
+                return 1;
+            }
+        }
 
-        /* special in inventory? */
-        for (i = ch->carrying; i; i = i->next_content)
-            if (i->item_number >= 0)
-                if (activate_obj_special(i, ch, cmd, arg, callflag, wtl))
+        /* special in inventory? While an item is there the offer goes on from it, wherever its
+         * procedure moved it; once it is freed, from the item that came after it, if ch still
+         * carries that one. */
+        obj_data* item = ch->carrying;
+        while (item) {
+            obj_data* following = item->next_content;
+            freed_watch item_watch(item);
+            if (item->item_number >= 0) {
+                if (activate_obj_special(item, ch, cmd, arg, callflag, wtl)) {
                     return 1;
+                }
+                if (actor_watch.freed()) {
+                    return 1;
+                }
+            }
+            if (!item_watch.freed()) {
+                item = item->next_content;
+            } else if (is_on_content_list(ch->carrying, following)) {
+                item = following;
+            } else {
+                item = nullptr;
+            }
+        }
     }
 
     /* special in mobile present? */
-    for (k = world[in_room].people; k; k = k->next_in_room)
-        if (activate_char_special(k, ch, cmd, arg, callflag, wtl, in_room))
+    char_data* person = room.people;
+    while (person) {
+        char_data* following = person->next_in_room;
+        freed_watch person_watch(person);
+        if (activate_char_special(person, ch, cmd, arg, callflag, wtl, in_room)) {
             return 1;
+        }
+        if (actor_watch.freed()) {
+            return 1;
+        }
+        person = next_person_after_trigger(room, person, person_watch.freed(), following);
+    }
 
     /* special in object present? */
-    for (i = world[in_room].contents; i; i = i->next_content)
-        if (i->item_number >= 0)
-            if (obj_index[i->item_number].func)
-                if ((*obj_index[i->item_number].func)((struct char_data*)(i), ch,
-                        cmd, arg, callflag, wtl))
-                    return 1;
+    obj_data* object = room.contents;
+    while (object) {
+        obj_data* following = object->next_content;
+        freed_watch object_watch(object);
+        if (object->item_number >= 0 && obj_index[object->item_number].func) {
+            const special_func object_procedure = obj_index[object->item_number].func;
+            if (object_procedure(reinterpret_cast<char_data*>(object), ch, cmd, arg, callflag, wtl)) {
+                return 1;
+            }
+            if (actor_watch.freed()) {
+                return 1;
+            }
+        }
+        object = next_content_after_trigger(room, object, object_watch.freed(), following);
+    }
 
     return 0;
 }
@@ -2300,24 +2388,33 @@ int find_name(const char* name)
     return -1;
 }
 
+bool parse_name(std::string_view argument, char* name)
+{
+    size_t name_start = 0;
+    while (name_start < argument.size()
+        && isspace(static_cast<unsigned char>(argument[name_start]))) {
+        ++name_start;
+    }
+    const std::string_view letters = argument.substr(name_start);
+
+    const bool fits = !letters.empty() && letters.size() <= static_cast<size_t>(MAX_PARSED_NAME_LENGTH);
+    const bool accepted = fits
+        && std::all_of(letters.begin(), letters.end(),
+            [](unsigned char letter) -> bool { return isalpha(letter) != 0; });
+    if (!accepted) {
+        name[0] = '\0';
+        return false;
+    }
+
+    letters.copy(name, letters.size());
+    name[letters.size()] = '\0';
+    return true;
+}
+
+// Returns 0 when 'arg' holds a name, 1 when it is refused; see parse_name.
 int _parse_name(const char* arg, char* name)
 {
-    int i;
-
-    /* skip whitespaces */
-    for (; isspace(*arg); arg++)
-        ;
-
-    for (i = 0; (*name = *arg); arg++, i++, name++)
-        if (!isalpha(*arg) || i > 15)
-            return 1;
-
-    if (!i)
-        return 1;
-    else
-        name[i] = 0;
-
-    return 0;
+    return parse_name(arg, name) ? 0 : 1;
 }
 
 namespace {
@@ -2936,6 +3033,11 @@ bool grant_account_character_selection_unlock(
     return true;
 }
 
+void clear_account_character_selection_unlocks_for_testing()
+{
+    g_account_character_selection_unlocks.clear();
+}
+
 void show_character_menu(struct descriptor_data* d)
 {
     show_character_menu_impl(d);
@@ -3196,7 +3298,20 @@ void enter_game(descriptor_data& connection)
     }
 
     reset_char(d->character);
-    load_character(d->character); // new function in objsave
+    // Only a character with no connection is freed by a login's casts (extract_char).
+    if (!load_character(d->character)) {
+        log("SYSERR: enter_game: the character was freed while logging in; "
+            "closing the connection.");
+        d->character = nullptr;
+        STATE(d) = CON_CLOSE;
+        return;
+    }
+    // extract_char with no room to go to sent the character back to the menu.
+    if (d->character->in_room == NOWHERE) {
+        vmudlog(NRM, "SYSERR: %s left the game while logging in; back to the menu.",
+            GET_NAME(d->character));
+        return;
+    }
     // Apply before saving, never after: save_char writes the character's PPC back to
     // the account, so saving first would push this character's stale, just-loaded copy
     // over whatever a sibling character last changed. ppc_store_character_to_account

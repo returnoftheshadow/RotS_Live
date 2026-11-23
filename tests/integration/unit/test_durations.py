@@ -31,7 +31,8 @@ class FakeReport:
     outcome: str = "passed"
     # The test's keywords, its marker names among them.
     keywords: dict = field(default_factory=lambda: {"scenario": 1})
-    # The xfail reason pytest sets on a report of a test marked xfail, or None for no such attribute.
+    # The xfail reason pytest sets on a report of a test marked xfail, or None for no such
+    # attribute.
     xfail_reason: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -57,7 +58,10 @@ def report_phases(recorder: durations.DurationRecorder, reports: list[FakeReport
 
 
 def full_run(node_id: str, call_outcome: str = "passed", xfail_reason: Optional[str] = None) -> list[FakeReport]:
-    """A test's three reports: 1 s of setup, 2.5 s of call with the given outcome, 0.5 s of teardown."""
+    """Return a test's three reports: 1 s of setup, 2.5 s of call, 0.5 s of teardown.
+
+    The call has the given outcome.
+    """
     return [
         FakeReport(node_id, "setup", 1.0),
         FakeReport(node_id, "call", 2.5, outcome=call_outcome, xfail_reason=xfail_reason),
@@ -78,7 +82,9 @@ def test_an_unreadable_file_reads_as_empty(tmp_path: Path, content: str) -> None
 
 def test_entries_that_are_not_a_number_of_seconds_are_ignored(tmp_path: Path) -> None:
     path = tmp_path / "durations.json"
-    path.write_text(json.dumps({"good": 3.5, "whole": 2, "text": "slow", "flag": True, "negative": -1}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"good": 3.5, "whole": 2, "text": "slow", "flag": True, "negative": -1}), encoding="utf-8"
+    )
     assert durations.read_durations(path) == {"good": 3.5, "whole": 2.0}
 
 
@@ -102,7 +108,9 @@ def test_merge_creates_the_folder(tmp_path: Path) -> None:
     assert durations.read_durations(path) == {"new": 1.0}
 
 
-def test_a_failed_replace_leaves_the_old_file_and_no_temporary_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_failed_replace_leaves_the_old_file_and_no_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "durations.json"
     path.write_text(json.dumps({"kept": 4.0}), encoding="utf-8")
 
@@ -138,14 +146,18 @@ def test_the_recorder_keeps_a_failed_test_only_as_a_time_that_can_raise(tmp_path
 
 def test_the_recorder_ignores_a_test_whose_setup_failed(tmp_path: Path) -> None:
     recorder = durations.DurationRecorder(tmp_path / "durations.json")
-    report_phases(recorder, [FakeReport("stale", "setup", 0.01, outcome="failed"), FakeReport("stale", "teardown", 0.0)])
+    report_phases(
+        recorder, [FakeReport("stale", "setup", 0.01, outcome="failed"), FakeReport("stale", "teardown", 0.0)]
+    )
     assert recorder.seconds == {}
     assert recorder.raising_seconds == {}
 
 
 def test_the_recorder_ignores_a_test_skipped_at_setup_or_in_its_call(tmp_path: Path) -> None:
     recorder = durations.DurationRecorder(tmp_path / "durations.json")
-    report_phases(recorder, [FakeReport("marked", "setup", 0.0, outcome="skipped"), FakeReport("marked", "teardown", 0.0)])
+    report_phases(
+        recorder, [FakeReport("marked", "setup", 0.0, outcome="skipped"), FakeReport("marked", "teardown", 0.0)]
+    )
     report_phases(recorder, full_run("skips_itself", call_outcome="skipped"))
     assert recorder.seconds == {}
     assert recorder.raising_seconds == {}
@@ -281,24 +293,43 @@ def test_interrupted():
 
 
 def run_pytest_folder(folder: Path, tests: str, extra_arguments: list[str]) -> subprocess.CompletedProcess:
-    """Runs pytest on tests in folder, with RECORDING_CONFTEST and rots_harness importable."""
+    """Run pytest on tests in folder, with RECORDING_CONFTEST and rots_harness importable."""
     (folder / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     (folder / "conftest.py").write_text(RECORDING_CONFTEST, encoding="utf-8")
     (folder / "test_recorded.py").write_text(tests, encoding="utf-8")
     environment = dict(os.environ)
     environment["PYTHONPATH"] = os.pathsep.join(filter(None, [str(INTEGRATION_ROOT), os.environ.get("PYTHONPATH")]))
     command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *extra_arguments, str(folder)]
-    return subprocess.run(command, cwd=folder, env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, check=False)
+    return subprocess.run(
+        command,
+        cwd=folder,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
 
 
 @pytest.mark.parametrize("extra_arguments", [[], ["-n", "1"]], ids=["one process", "xdist"])
-def test_a_run_records_only_complete_times_and_never_lowers_one_with_a_failure(tmp_path: Path, extra_arguments: list[str]) -> None:
+def test_a_run_records_only_complete_times_and_never_lowers_one_with_a_failure(
+    tmp_path: Path, extra_arguments: list[str]
+) -> None:
     path = tmp_path / "durations.json"
-    path.write_text(json.dumps({"test_recorded.py::test_fails": 200.0, "test_recorded.py::test_errors_at_setup": 120.0}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"test_recorded.py::test_fails": 200.0, "test_recorded.py::test_errors_at_setup": 120.0}),
+        encoding="utf-8",
+    )
     completed = run_pytest_folder(tmp_path, OUTCOME_TESTS, extra_arguments)
     assert completed.returncode == 1, completed.stdout + completed.stderr
     recorded = durations.read_durations(path)
-    assert sorted(recorded) == ["test_recorded.py::test_errors_at_setup", "test_recorded.py::test_fails", "test_recorded.py::test_known_bug", "test_recorded.py::test_passes"]
+    assert sorted(recorded) == [
+        "test_recorded.py::test_errors_at_setup",
+        "test_recorded.py::test_fails",
+        "test_recorded.py::test_known_bug",
+        "test_recorded.py::test_passes",
+    ]
     assert recorded["test_recorded.py::test_fails"] == 200.0
     assert recorded["test_recorded.py::test_errors_at_setup"] == 120.0
 

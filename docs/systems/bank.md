@@ -249,7 +249,7 @@ a row. The vault in play is right, only its file is behind: `bank_vault_write` m
 `file_behind` until a write works, and the next `bank_vault_open` (any balance, deposit,
 withdrawal or staff look) writes it again, so the extra copy goes away by itself. A shutdown,
 reboot or service stop writes every such vault once more first (`bank_vaults_write_behind`, called
-from `game_loop` in `comm.cpp` and from `hupsig` in `signals.cpp`), because the files are what the
+from `game_loop` in `comm.cpp` and from the stop that a service stop signal asks for in `signals.cpp`), because the files are what the
 next boot reads; one that still can't be written is reported (`SYSERR: bank: account <name> side
 <n>: vault file still not written at shutdown (<error>)`). Staff are told
 on the syslog and online from area god up with their log at normal (`SYSERR: bank: account

@@ -1,0 +1,8 @@
+#2600 Harness echo~
+Says "Hi." whenever it hears anything said, so two such mobs in one room answer each other.~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+30 2 100 0 0 0 0 0
+ Hi.~
+999 0 0 0 0 0 0 0
+#99999

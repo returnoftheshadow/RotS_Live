@@ -15,7 +15,7 @@ from rots_harness.world_resets import MobReset
 
 
 def make_repo(root: Path) -> Path:
-    """A minimal repo tree with the files the builder copies."""
+    """Return a minimal repo tree with the files the builder copies."""
     (root / "lib" / "text").mkdir(parents=True)
     (root / "lib" / "text" / "motd").write_text("motd\n", encoding="utf-8")
     (root / "lib" / "misc").mkdir()
@@ -31,10 +31,14 @@ def make_repo(root: Path) -> Path:
 
 class FakeToolRunner:
     def __init__(self, exit_status: int = 0, output: str = "") -> None:
+        # Each run's program, arguments and working folder, in call order.
         self.calls: list[tuple[str, list[str], Path]] = []
+        # What every run returns.
         self._result = ToolResult(exit_status, output)
 
-    def run_to_completion(self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float) -> ToolResult:
+    def run_to_completion(
+        self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float
+    ) -> ToolResult:
         self.calls.append((program_relative, arguments, working_dir))
         (working_dir / "lib" / "accounts" / "F-J" / "harness@example.com").mkdir(parents=True, exist_ok=True)
         return self._result
@@ -43,10 +47,20 @@ class FakeToolRunner:
 def test_the_template_has_the_copied_data_the_world_and_the_save_directories(tmp_path: Path) -> None:
     world = make_repo(tmp_path)
     runner = FakeToolRunner()
-    lib = libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7)
+    lib = libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(
+        tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7
+    )
     assert (lib / "text" / "motd").is_file()
     # Literal names: the git-tracked lib/misc files and the server's save-file buckets.
-    assert sorted(path.name for path in (lib / "misc").iterdir()) == ["badsites", "crimelist", "messages", "mudlle", "mudlle.old", "socials", "wizlist"]
+    assert sorted(path.name for path in (lib / "misc").iterdir()) == [
+        "badsites",
+        "crimelist",
+        "messages",
+        "mudlle",
+        "mudlle.old",
+        "socials",
+        "wizlist",
+    ]
     for directory in ("players", "accounts", "account_characters", "plrobjs", "exploits"):
         assert sorted(path.name for path in (lib / directory).iterdir()) == ["A-E", "F-J", "K-O", "P-T", "U-Z", "ZZZ"]
     assert (lib / "boards").is_dir()
@@ -58,7 +72,13 @@ def test_rotstool_runs_in_the_template_directory_with_the_seed_and_the_spec(tmp_
     runner = FakeToolRunner()
     character_set = CharacterSet((IMPLEMENTOR,))
     libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(tmp_path / "t1", character_set, seed=7)
-    assert runner.calls == [("bin/rotstool", ["fixtures", "write", "--lib", "lib", "--random-seed", "7", libbuilder.SPEC_FILE_NAME], tmp_path / "t1")]
+    assert runner.calls == [
+        (
+            "bin/rotstool",
+            ["fixtures", "write", "--lib", "lib", "--random-seed", "7", libbuilder.SPEC_FILE_NAME],
+            tmp_path / "t1",
+        )
+    ]
     assert (tmp_path / "t1" / libbuilder.SPEC_FILE_NAME).read_text(encoding="utf-8") == character_set.spec_json()
 
 
@@ -66,7 +86,9 @@ def test_a_rotstool_refusal_raises_with_its_message_and_status(tmp_path: Path) -
     world = make_repo(tmp_path)
     runner = FakeToolRunner(exit_status=2, output="rotstool fixtures write: characters[0]: 'name': too short\n")
     with pytest.raises(libbuilder.LibBuildError, match=r"(?s)exited with status 2.*too short"):
-        libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7)
+        libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(
+            tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7
+        )
 
 
 @pytest.mark.parametrize("hour, expected", [(0, 12), (10, 22), (12, 0), (23, 11)])
@@ -77,7 +99,9 @@ def test_the_reboot_hour_is_twelve_hours_away(hour: int, expected: int) -> None:
 def make_provider(tmp_path: Path, runner: FakeToolRunner, hour: int = 22) -> libbuilder.RunLibProvider:
     world = make_repo(tmp_path)
     builder = libbuilder.LibTemplateBuilder(tmp_path, world, runner)
-    return libbuilder.RunLibProvider(builder, tmp_path / "libs", seed=7, clock=lambda: datetime(2026, 10, 11, hour, 0, tzinfo=timezone.utc))
+    return libbuilder.RunLibProvider(
+        builder, tmp_path / "libs", seed=7, clock=lambda: datetime(2026, 10, 11, hour, 0, tzinfo=timezone.utc)
+    )
 
 
 def test_each_character_set_is_built_once_and_copied_per_run(tmp_path: Path) -> None:
@@ -96,14 +120,18 @@ def test_a_different_character_set_gets_its_own_template(tmp_path: Path) -> None
     provider.lib_for(CharacterSet((IMPLEMENTOR,)), tmp_path / "runs" / "a")
     provider.lib_for(CharacterSet((IMPLEMENTOR, custom_mage())), tmp_path / "runs" / "b")
     assert len(runner.calls) == 2
-    assert provider.cache_key(CharacterSet((IMPLEMENTOR,))) != provider.cache_key(CharacterSet((IMPLEMENTOR, custom_mage())))
+    assert provider.cache_key(CharacterSet((IMPLEMENTOR,))) != provider.cache_key(
+        CharacterSet((IMPLEMENTOR, custom_mage()))
+    )
 
 
 def test_each_run_gets_boot_options_with_the_reboot_hour_and_the_template_does_not(tmp_path: Path) -> None:
     provider = make_provider(tmp_path, FakeToolRunner(), hour=22)
     character_set = CharacterSet((IMPLEMENTOR,))
     lib = provider.lib_for(character_set, tmp_path / "runs" / "a")
-    assert json.loads((lib / libbuilder.BOOT_OPTIONS_RELATIVE).read_text(encoding="utf-8")) == {"daily_reboot_hour_utc": 10}
+    assert json.loads((lib / libbuilder.BOOT_OPTIONS_RELATIVE).read_text(encoding="utf-8")) == {
+        "daily_reboot_hour_utc": 10
+    }
     template_lib = tmp_path / "libs" / provider.cache_key(character_set) / "lib"
     assert not (template_lib / libbuilder.BOOT_OPTIONS_RELATIVE).exists()
 
@@ -131,7 +159,7 @@ def test_each_seed_gets_its_own_template(tmp_path: Path) -> None:
 
 
 def make_world_with_one_zone(world: Path) -> None:
-    """Writes zone 11 with room 1131 and mob 1130 into the minimal repo's world."""
+    """Write zone 11 with room 1131 and mob 1130 into the minimal repo's world."""
     (world / "zon" / "11.zon").write_text("#11\nZone~\n~\n~\n0\n? 0 0 5\n1199\n999\n2\nS\n", encoding="latin-1")
     (world / "zon" / "index").write_text("11.zon\n$\n", encoding="latin-1")
     (world / "wld" / "11.wld").write_text("#1131\nroom~\n#99999\n", encoding="latin-1")
@@ -143,7 +171,9 @@ def make_world_with_one_zone(world: Path) -> None:
 def test_the_template_world_holds_the_resets_rows_and_the_committed_world_does_not(tmp_path: Path) -> None:
     world = make_repo(tmp_path)
     make_world_with_one_zone(world)
-    lib = libbuilder.LibTemplateBuilder(tmp_path, world, FakeToolRunner()).build(tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7, resets=(MobReset(1130, 1131),))
+    lib = libbuilder.LibTemplateBuilder(tmp_path, world, FakeToolRunner()).build(
+        tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7, resets=(MobReset(1130, 1131),)
+    )
     assert "M 0 1130 1131 0 100 100 1 1" in (lib / "world" / "zon" / "11.zon").read_text(encoding="latin-1")
     assert "M 0" not in (world / "zon" / "11.zon").read_text(encoding="latin-1")
 
@@ -153,7 +183,9 @@ def test_a_reset_naming_an_unknown_room_fails_the_build_before_rotstool_runs(tmp
     make_world_with_one_zone(world)
     runner = FakeToolRunner()
     with pytest.raises(libbuilder.LibBuildError, match="no room 1132"):
-        libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7, resets=(MobReset(1130, 1132),))
+        libbuilder.LibTemplateBuilder(tmp_path, world, runner).build(
+            tmp_path / "t1", CharacterSet((IMPLEMENTOR,)), seed=7, resets=(MobReset(1130, 1132),)
+        )
     assert runner.calls == []
 
 
@@ -171,14 +203,16 @@ def test_resets_get_their_own_template_and_no_resets_keep_the_spec_only_key(tmp_
 
 
 class InterleavingToolRunner(FakeToolRunner):
-    """A tool runner that runs another provider's lib_for in the middle of its own first rotstool call."""
+    """A tool runner that runs another provider's lib_for during its own first rotstool call."""
 
     def __init__(self, interleaved: Callable[[], None]) -> None:
         super().__init__()
         # Runs once, during the first rotstool call, as another worker's build would.
         self._interleaved: Optional[Callable[[], None]] = interleaved
 
-    def run_to_completion(self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float) -> ToolResult:
+    def run_to_completion(
+        self, program_relative: str, arguments: list[str], working_dir: Path, timeout: float
+    ) -> ToolResult:
         result = super().run_to_completion(program_relative, arguments, working_dir, timeout)
         interleaved, self._interleaved = self._interleaved, None
         if interleaved is not None:
@@ -191,7 +225,9 @@ def test_providers_sharing_a_session_folder_each_build_at_most_once_and_both_get
     session_dir = tmp_path / "libs" / "session1"
     character_set = CharacterSet((IMPLEMENTOR,))
     other_runner = FakeToolRunner()
-    other_provider = libbuilder.RunLibProvider(libbuilder.LibTemplateBuilder(tmp_path, world, other_runner), session_dir, seed=7)
+    other_provider = libbuilder.RunLibProvider(
+        libbuilder.LibTemplateBuilder(tmp_path, world, other_runner), session_dir, seed=7
+    )
     template_dir = session_dir / other_provider.cache_key(character_set)
     seen_while_building: list[bool] = []
     other_libs: list[Path] = []
@@ -201,14 +237,18 @@ def test_providers_sharing_a_session_folder_each_build_at_most_once_and_both_get
         other_libs.append(other_provider.lib_for(character_set, tmp_path / "runs" / "other"))
 
     first_runner = InterleavingToolRunner(other_worker_builds_first)
-    first_provider = libbuilder.RunLibProvider(libbuilder.LibTemplateBuilder(tmp_path, world, first_runner), session_dir, seed=7)
+    first_provider = libbuilder.RunLibProvider(
+        libbuilder.LibTemplateBuilder(tmp_path, world, first_runner), session_dir, seed=7
+    )
     first_lib = first_provider.lib_for(character_set, tmp_path / "runs" / "first")
 
     assert seen_while_building == [False], "a template must not appear under its final name before it is complete"
     assert len(first_runner.calls) == 1 and len(other_runner.calls) == 1
     for lib in (first_lib, other_libs[0]):
         assert (lib / "accounts" / "F-J" / "harness@example.com").is_dir()
-    assert [path.name for path in session_dir.iterdir()] == [template_dir.name], "the losing build's temporary folder must be removed"
+    assert [path.name for path in session_dir.iterdir()] == [
+        template_dir.name
+    ], "the losing build's temporary folder must be removed"
 
 
 def test_a_completed_template_is_reused_by_another_provider_without_building(tmp_path: Path) -> None:
@@ -216,9 +256,13 @@ def test_a_completed_template_is_reused_by_another_provider_without_building(tmp
     session_dir = tmp_path / "libs" / "session1"
     character_set = CharacterSet((IMPLEMENTOR,))
     first_runner = FakeToolRunner()
-    libbuilder.RunLibProvider(libbuilder.LibTemplateBuilder(tmp_path, world, first_runner), session_dir, seed=7).lib_for(character_set, tmp_path / "runs" / "a")
+    libbuilder.RunLibProvider(
+        libbuilder.LibTemplateBuilder(tmp_path, world, first_runner), session_dir, seed=7
+    ).lib_for(character_set, tmp_path / "runs" / "a")
     second_runner = FakeToolRunner()
-    second_provider = libbuilder.RunLibProvider(libbuilder.LibTemplateBuilder(tmp_path, world, second_runner), session_dir, seed=7)
+    second_provider = libbuilder.RunLibProvider(
+        libbuilder.LibTemplateBuilder(tmp_path, world, second_runner), session_dir, seed=7
+    )
 
     lib = second_provider.lib_for(character_set, tmp_path / "runs" / "b")
 

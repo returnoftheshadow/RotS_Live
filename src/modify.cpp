@@ -14,12 +14,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <algorithm>
+#include <limits>
+#include <optional>
+#include <string_view>
 
 #include "comm.h"
 #include "db.h"
 #include "handler.h"
 #include "interpre.h"
 #include "mail.h"
+#include "note_writing.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
@@ -127,52 +132,106 @@ char* format_string(const char* str)
     return str_dup(buf);
 }
 
-int replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
+/*
+ * True when an edit that leaves the text new_length characters long fits its limit: the
+ * descriptor's str_limit when set, and never more than MAX_EDITED_TEXT_LENGTH.  An edit that does
+ * not lengthen the text always fits, so a text already past the limit can still be cut.  Otherwise
+ * tells the writer the edit was refused and returns false.
+ */
+static bool edit_fits_limit(descriptor_data* descriptor, size_t current_length, size_t new_length)
 {
-    unsigned int len, pat_len, new_len, count, tmp, bufscan;
+    size_t limit = MAX_EDITED_TEXT_LENGTH;
+    if (descriptor->str_limit != 0 && descriptor->str_limit < limit) {
+        limit = descriptor->str_limit;
+    }
+    if (new_length <= current_length || new_length <= limit) {
+        return true;
+    }
 
-    if (!pattern || !*pattern || !new_pattern)
+    char message[128];
+    snprintf(message, sizeof(message),
+        "That would take the text past its limit of %u characters, so it was not changed.\n\r",
+        static_cast<unsigned int>(limit));
+    SEND_TO_Q(message, descriptor);
+    return false;
+}
+
+/* Replaces every pattern in the text with new_pattern and returns how many were replaced, 0 when
+ * nothing matches.  Returns no count, leaving the text unchanged, when the result would not fit its
+ * limit (edit_fits_limit has told the writer).  The cursor keeps its place in the text: it moves by
+ * the size change of each replacement wholly before it, and to the end of the replacement of a
+ * match it falls inside. */
+std::optional<int> replace_pattern(descriptor_data* d, const char* pattern, const char* new_pattern)
+{
+    if (!pattern || !*pattern || !new_pattern || !*d->str)
         return 0;
 
-    bzero(buf, MAX_STRING_LENGTH);
+    const std::string_view text(*d->str);
+    const std::string_view old_text(pattern);
+    const std::string_view new_text(new_pattern);
 
-    bufscan = 0;
-    len = strlen(*d->str);
-    pat_len = strlen(pattern);
-    new_len = strlen(new_pattern);
-    count = 0;
-
-    for (tmp = 0; tmp < len; tmp++) {
-        if (!strncmp(*d->str + tmp, pattern, pat_len)) {
-            tmp += pat_len - 1;
-            strncpy(buf + bufscan, new_pattern, new_len);
-            bufscan += new_len;
-            if (tmp < d->cur_str)
-                d->cur_str = d->cur_str + new_len - pat_len;
-
-            count++;
-        } else {
-            buf[bufscan] = *(*d->str + tmp);
-            bufscan++;
-        }
+    /* Count first, so the limit is checked before anything changes and the result is sized once. */
+    size_t count = 0;
+    for (size_t match = text.find(old_text); match != std::string_view::npos;
+         match = text.find(old_text, match + old_text.size())) {
+        count++;
     }
-    buf[bufscan] = 0;
-
     if (!count)
         return 0;
 
-    d->len_str = bufscan;
-
-    if (bufscan < d->max_str) {
-        strcpy(*d->str, buf);
-        *(*d->str + bufscan) = 0;
+    /* Growth is checked against the cap before it is multiplied out, so the sum cannot wrap; any
+     * length past the cap is refused alike. */
+    size_t new_length = text.size();
+    if (new_text.size() >= old_text.size()) {
+        const size_t growth = new_text.size() - old_text.size();
+        size_t room = 0;
+        if (text.size() < static_cast<size_t>(MAX_EDITED_TEXT_LENGTH)) {
+            room = MAX_EDITED_TEXT_LENGTH - text.size();
+        }
+        if (growth != 0 && count > room / growth) {
+            new_length = std::max(text.size(), static_cast<size_t>(MAX_EDITED_TEXT_LENGTH)) + 1;
+        } else {
+            new_length = text.size() + count * growth;
+        }
     } else {
-        RELEASE(*d->str);
-        CREATE(*d->str, char, bufscan + BLOCK_STR_LEN);
-        strcpy(*d->str, buf);
-        *(*d->str + bufscan) = 0;
+        new_length = text.size() - count * (old_text.size() - new_text.size());
     }
-    return count;
+    if (!edit_fits_limit(d, text.size(), new_length))
+        return std::nullopt;
+    const size_t allocation = (new_length / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
+    if (allocation > std::numeric_limits<unsigned int>::max()) {
+        log("SYSERR: replace_pattern: the replaced text is too long to edit");
+        return std::nullopt;
+    }
+
+    char* replaced = nullptr;
+    CREATE(replaced, char, allocation);
+    size_t written = 0;
+    size_t copied_to = 0;
+    size_t cursor = d->cur_str;
+    for (size_t match = text.find(old_text); match != std::string_view::npos;
+         match = text.find(old_text, match + old_text.size())) {
+        memcpy(replaced + written, text.data() + copied_to, match - copied_to);
+        written += match - copied_to;
+        memcpy(replaced + written, new_text.data(), new_text.size());
+        written += new_text.size();
+        copied_to = match + old_text.size();
+        if (copied_to <= d->cur_str)
+            cursor = written + (d->cur_str - copied_to);
+        else if (match < d->cur_str)
+            cursor = written;
+    }
+    memcpy(replaced + written, text.data() + copied_to, text.size() - copied_to);
+    written += text.size() - copied_to;
+    replaced[written] = 0;
+
+    RELEASE(*d->str);
+    *d->str = replaced;
+    d->max_str = static_cast<unsigned int>(allocation);
+    d->len_str = static_cast<unsigned int>(new_length);
+    /* string_add moves the text after the cursor, so the cursor must never pass the end. */
+    d->cur_str = static_cast<unsigned int>(std::min(cursor, new_length));
+    return static_cast<int>(count);
 }
 
 int shape_text_field(const struct char_data* ch, char** str, const char** chapter, char* key, int* no_format);
@@ -224,6 +283,7 @@ void string_add_init(struct descriptor_data* d, char** str)
         }
 
     d->str = str;
+    d->str_limit = 0;
     if (!d->str) {
         printf("creating d->str\n");
         CREATE1(d->str, char*);
@@ -234,6 +294,7 @@ void string_add_init(struct descriptor_data* d, char** str)
             tmp = strlen(*d->str);
             CREATE(tmpstr, char, BLOCK_STR_LEN*(1 + tmp / BLOCK_STR_LEN));
             strncpy(tmpstr, *d->str, tmp);
+            RELEASE(*d->str);
             *d->str = tmpstr;
             tmpstr = 0;
             d->max_str = BLOCK_STR_LEN * (1 + tmp / BLOCK_STR_LEN);
@@ -263,13 +324,36 @@ void string_add_finish(struct descriptor_data* d)
      * passes MAX_STRING_LENGTH.  The 256-byte headroom keeps anything saved
      * here loadable, and also stops fread_string writing one byte past its
      * buffer at the very top of the range. */
-    else if (strlen(*d->str) >= MAX_STRING_LENGTH - 256)
-        *(*d->str + MAX_STRING_LENGTH - 256 - 1) = 0;
+    else if (strlen(*d->str) > MAX_EDITED_TEXT_LENGTH)
+        *(*d->str + MAX_EDITED_TEXT_LENGTH) = 0;
 
+    finish_writing_note(*d);
     d->str = 0;
+    d->str_limit = 0;
     if (!d->connected && d->character && !IS_NPC(d->character)) {
         REMOVE_BIT(PLR_FLAGS(d->character), PLR_WRITING);
         act("$n finished writing.", TRUE, d->character, 0, 0, TO_ROOM);
+    }
+}
+
+void stop_editing_text(std::initializer_list<char**> fields)
+{
+    extern struct descriptor_data* descriptor_list;
+
+    for (descriptor_data* descriptor = descriptor_list; descriptor; descriptor = descriptor->next) {
+        if (!descriptor->str
+            || std::find(fields.begin(), fields.end(), descriptor->str) == fields.end()) {
+            continue;
+        }
+        descriptor->str = nullptr;
+        descriptor->str_limit = 0;
+        char_data* writer = descriptor->character;
+        if (writer) {
+            if (!descriptor->connected && !IS_NPC(writer)) {
+                REMOVE_BIT(PLR_FLAGS(writer), PLR_WRITING);
+            }
+            send_to_char("What you were writing is gone.\n\r", writer);
+        }
     }
 }
 
@@ -280,6 +364,18 @@ void string_add(struct descriptor_data* d, char* str)
     char *tmpstr, *tmpstr2;
     int terminator = 0;
     int tmp, tmp2, tmpmark, crmark;
+
+    /* No text is open, though the input loop still sends lines here: stop_editing_text ended the
+     * edit, and a mob's PLR_WRITING bit (one of its own flags) stays set after it. */
+    if (!d->str)
+        return;
+
+    /* A text not started yet has no length, whatever an earlier edit on this connection left. */
+    if (!*d->str) {
+        d->len_str = 0;
+        d->cur_str = 0;
+        d->max_str = 0;
+    }
 
     tmpmark = d->cur_str;
     crmark = 1;
@@ -390,18 +486,24 @@ void string_add(struct descriptor_data* d, char* str)
                 continue;
 
             tmpstr = scan + 2;
-            if (tmpstr == tmpstr2)
+            /* With no '~' the line holds no replacement to read. */
+            if (*tmpstr2 != '~')
+                send_to_char("Use %s<old>~<new>.\n\r", d->character);
+            else if (tmpstr == tmpstr2)
                 send_to_char("No pattern to replace.\n\r", d->character);
             else {
                 *tmpstr2 = 0;
-                tmp = replace_pattern(d, tmpstr, tmpstr2 + 1);
-                sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", tmp,
-                    !tmp ? "" : "s");
-                send_to_char(buf, d->character);
-                send_to_char(*d->str, d->character);
+                const std::optional<int> replaced = replace_pattern(d, tmpstr, tmpstr2 + 1);
+                if (replaced) {
+                    sprintf(buf, "Replaced %d occurence%s.\n\rYour text is:\n\r", *replaced,
+                        !*replaced ? "" : "s");
+                    send_to_char(buf, d->character);
+                    send_to_char(*d->str, d->character);
+                }
                 tmpmark = d->cur_str;
             }
             *str = 0;
+            crmark = 0;
             break;
         case 'f': {
             const char* chapter;
@@ -420,20 +522,39 @@ void string_add(struct descriptor_data* d, char* str)
                 *str = 0;
                 break;
             }
+            /* format_string builds its result in a buffer of MAX_STRING_LENGTH, which the indent and
+             * line breaks it adds to any text the editor can make still fit.  A longer text, stored
+             * before the editor held it to MAX_EDITED_TEXT_LENGTH, would overrun it. */
+            if (d->len_str > static_cast<unsigned int>(MAX_EDITED_TEXT_LENGTH)) {
+                send_to_char("This text is too long to format.\n\r", d->character);
+                *str = 0;
+                crmark = 0;
+                break;
+            }
+            /* Flattened and formatted in a copy, so a result past the limit leaves the text as it
+             * was. */
+            char* flattened;
+            CREATE(flattened, char, d->len_str + 1);
+            memcpy(flattened, *d->str, d->len_str);
             for (tmp = 0; tmp < (int)d->len_str; tmp++)
-                if (*(*d->str + tmp) == '\n')
-                    *(*d->str + tmp) = ' ';
-                else if (*(*d->str + tmp) < ' ')
-                    memmove(*d->str + tmp, *d->str + tmp + 1, d->len_str - tmp);
+                if (*(flattened + tmp) == '\n')
+                    *(flattened + tmp) = ' ';
+                else if (*(flattened + tmp) < ' ')
+                    memmove(flattened + tmp, flattened + tmp + 1, d->len_str - tmp);
 
-            *(*d->str + d->len_str) = 0;
+            *(flattened + d->len_str) = 0;
 
-            tmpstr = format_string(*d->str);
+            tmpstr = format_string(flattened);
+            RELEASE(flattened);
+            crmark = 0;
+            *str = 0;
+            if (!edit_fits_limit(d, d->len_str, strlen(tmpstr))) {
+                RELEASE(tmpstr);
+                break;
+            }
             RELEASE(*d->str);
             *d->str = tmpstr;
             tmpmark = d->len_str = d->cur_str = d->max_str = strlen(tmpstr);
-            crmark = 0;
-            *str = 0;
             send_to_char("Your text is formatted.\n\r", d->character);
             send_to_char(*d->str, d->character);
             break;
@@ -481,7 +602,15 @@ void string_add(struct descriptor_data* d, char* str)
     }
 
     if (terminator >= 0) {
-        if (!(*d->str)) {
+        size_t current_length = 0;
+        size_t new_length = strlen(str) + 2;
+        if (*d->str) {
+            current_length = d->len_str;
+            new_length = d->len_str - (d->cur_str - tmpmark) + strlen(str) + 2 * crmark;
+        }
+        if (!edit_fits_limit(d, current_length, new_length)) {
+            /* The line is dropped; the text and cursor stay as they were. */
+        } else if (!(*d->str)) {
             CREATE(*d->str, char, strlen(str) + 3);
             d->max_str = strlen(str) + 3;
             strcpy(*d->str, str);
@@ -494,7 +623,8 @@ void string_add(struct descriptor_data* d, char* str)
                 tmp = (int)(tmp / BLOCK_STR_LEN + 1) * BLOCK_STR_LEN;
                 CREATE(tmpstr, char, tmp);
                 d->max_str = tmp;
-                memcpy(tmpstr, *d->str, tmp - 2);
+                /* The old buffer can be smaller than the new size: copy only its text and terminator. */
+                memcpy(tmpstr, *d->str, d->len_str + 1);
                 RELEASE(*d->str);
                 *d->str = tmpstr;
                 tmpstr = 0;
@@ -512,6 +642,8 @@ void string_add(struct descriptor_data* d, char* str)
             *(*d->str + d->len_str) = 0;
         }
     }
+
+    save_written_note(*d);
 
     if (terminator) {
         if (!d->connected && (PLR_FLAGGED(d->character, PLR_MAILING))) {
@@ -571,8 +703,6 @@ ACMD(do_string)
     char name[MAX_STRING_LENGTH], string[MAX_STRING_LENGTH];
     int field, type;
     struct char_data* mob;
-    struct obj_data* obj;
-    struct extra_descr_data *ed, *tmp;
 
     if (IS_NPC(ch))
         return;
@@ -643,85 +773,6 @@ ACMD(do_string)
     } else /* type == TP_OBJ */ {
         send_to_char("Sorry, string has been disabled for objects.\n\r", ch);
         return;
-
-        /* locate the object */
-        if (!(obj = get_obj_vis(ch, name))) {
-            send_to_char("Can't find such a thing here..\n\r", ch);
-            return;
-        }
-
-        switch (field) {
-        case 1:
-            ch->desc->str = &obj->name;
-            break;
-        case 2:
-            ch->desc->str = &obj->short_description;
-            break;
-        case 3:
-            ch->desc->str = &obj->description;
-            break;
-        case 4:
-            if (!*string) {
-                send_to_char("You have to supply a keyword.\n\r", ch);
-                return;
-            }
-            /* try to locate extra description */
-            for (ed = obj->ex_description;; ed = ed->next)
-                if (!ed) /* the field was not found. create a new one. */ {
-                    CREATE(ed, struct extra_descr_data, 1);
-                    ed->next = obj->ex_description;
-                    obj->ex_description = ed;
-                    CREATE(ed->keyword, char, strlen(string) + 1);
-                    strcpy(ed->keyword, string);
-                    ed->description = 0;
-                    ch->desc->str = &ed->description;
-                    send_to_char("New field.\n\r", ch);
-                    break;
-                } else if (!str_cmp(ed->keyword, string)) /* the field exists */ {
-                    RELEASE(ed->description);
-                    ed->description = 0;
-                    ch->desc->str = &ed->description;
-                    send_to_char("Modifying description.\n\r", ch);
-                    break;
-                }
-            ch->desc->max_str = MAX_STRING_LENGTH;
-            return; /* the stndrd (see below) procedure does not apply here */
-            break;
-        case 6:
-            if (!*string) {
-                send_to_char("You must supply a field name.\n\r", ch);
-                return;
-            }
-            /* try to locate field */
-            for (ed = obj->ex_description;; ed = ed->next)
-                if (!ed) {
-                    send_to_char("No field with that keyword.\n\r", ch);
-                    return;
-                } else if (!str_cmp(ed->keyword, string)) {
-                    RELEASE(ed->keyword);
-                    RELEASE(ed->description);
-
-                    /* delete the entry in the desr list */
-                    if (ed == obj->ex_description)
-                        obj->ex_description = ed->next;
-                    else {
-                        for (tmp = obj->ex_description; tmp->next != ed;
-                             tmp = tmp->next)
-                            ;
-                        tmp->next = ed->next;
-                    }
-                    RELEASE(ed);
-
-                    send_to_char("Field deleted.\n\r", ch);
-                    return;
-                }
-            break;
-        default:
-            send_to_char(
-                "That field is undefined for objects.\n\r", ch);
-            return;
-            break;
-        }
     }
 
     RELEASE(*ch->desc->str);
@@ -851,6 +902,9 @@ void page_string(struct descriptor_data* d, char* str, int keep_internal)
     show_string(d, "");
 }
 
+/* The lines show_string sends at a time; the reader presses return for the next page. */
+constexpr int PAGE_LINES = 22;
+
 void show_string(struct descriptor_data* d, char* input)
 {
     char buffer[MAX_STRING_LENGTH], buf[MAX_INPUT_LENGTH];
@@ -865,26 +919,33 @@ void show_string(struct descriptor_data* d, char* input)
         return;
     }
 
-    /* show a chunk */
-    for (scan = buffer;; scan++, d->showstr_point++)
-        if ((*scan = *d->showstr_point) == '\n')
+    /* show a chunk: PAGE_LINES lines, or as much of them as buffer holds (the rest shows next) */
+    for (scan = buffer;; scan++, d->showstr_point++) {
+        if (scan >= buffer + sizeof(buffer) - 2) {
+            *scan = '\0';
+        } else if ((*scan = *d->showstr_point) == '\n') {
             lines++;
-        else if (!*scan || (lines >= 22)) {
+            continue;
+        } else if (!*scan || (lines >= PAGE_LINES)) {
             if (*scan == '\r')
                 scan++;
 
             *scan = '\0';
-            SEND_TO_Q(buffer, d);
-
-            /* see if this is the end (or near the end) of the string */
-            for (chk = d->showstr_point; isspace(*chk); chk++)
-                ;
-
-            if (!*chk) {
-                RELEASE(d->showstr_head);
-                d->showstr_point = 0;
-            }
-
-            return;
+        } else {
+            continue;
         }
+
+        SEND_TO_Q(buffer, d);
+
+        /* see if this is the end (or near the end) of the string */
+        for (chk = d->showstr_point; isspace(*chk); chk++)
+            ;
+
+        if (!*chk) {
+            RELEASE(d->showstr_head);
+            d->showstr_point = 0;
+        }
+
+        return;
+    }
 }

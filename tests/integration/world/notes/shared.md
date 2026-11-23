@@ -1,9 +1,11 @@
 # Fixtures outside every zone's own vnums
 
 Files whose fixtures lie outside every zone's own vnums (n * 100 to n * 100 + 99): `mob/14.mob`,
-`mob/15.mob`, `mob/guildmasters.mob` and `obj/14.obj`. No zone resets them except the pen boar,
-so a scenario loads them with `load mob` or `load obj`. The catalogue lists them
-(`python -m rots_harness.world_catalogue --category mobs`, from `tests/integration`).
+`mob/15.mob`, `mob/guildmaster-uruk.mob`, `mob/guildmasters.mob` and `obj/14.obj`. No zone resets
+them except the pen boar, so a scenario loads them with `load mob` or `load obj`. The catalogue
+lists them (`python -m rots_harness.world_catalogue --category mobs`, from `tests/integration`).
+
+`*.obj` is ignored by git (`.gitignore`), so a new file under `obj/` is added with `git add -f`.
 
 ## Tame animals: `mob/14.mob`
 
@@ -20,7 +22,7 @@ For the `tame` group; zone 18 (`zone-18.md`) resets the pen boar into its pen.
 1451 to 1454 are level 1 unless the table says otherwise, `SENTINEL`, and follow 1450 in
 `mob/14.mob`; nothing resets them, so a scenario loads them with `load mob`.
 
-## Guild masters: `mob/15.mob` and `mob/guildmasters.mob`
+## Guild masters: `mob/15.mob`, `mob/guildmaster-uruk.mob` and `mob/guildmasters.mob`
 
 For the `practice` group. Seven real guildmasters are copied at their real vnums (1503, 2043, 4601,
 10003, 10054, 13600, 32200) so `spec_ass.cpp` binds the guild special to them; each one's program
@@ -31,8 +33,9 @@ binds the guild special to, with programs chosen for a scenario rather than the 
 62), the last two naming no row, and 4608 `trainer` (program 9, the URUK WARRIOR row, speaking
 human language) for the reject-message bug pin.
 
-1503 and 1509 are in `mob/15.mob`, so that the mobs of `mob/17.mob` keep the vnums ascending; the
-rest are in `mob/guildmasters.mob`.
+1503 and 1509 are in `mob/15.mob`, so that the mobs of `mob/17.mob` keep the vnums ascending.
+2043 has `mob/guildmaster-uruk.mob` to itself, so that `mob/22.mob` to `mob/27.mob` sort between it
+and the rest, which are in `mob/guildmasters.mob`.
 
 Each teaches the races in its last field, the `will_teach` mask (`WILL_TEACH`, `utils.h`): 63 (god,
 human, dwarf, wood elf, hobbit and high elf, not the beorning) for 1503, 1509, 3888, 8500, 10003

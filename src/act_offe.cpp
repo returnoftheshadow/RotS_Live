@@ -16,6 +16,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -127,9 +128,14 @@ ACMD(do_hit)
             act("$CD$n attacks YOU!", FALSE, ch, NULL, victim, TO_VICT);
             act("$CHYou attack $N!", FALSE, ch, NULL, victim, TO_CHAR);
 
+            freed_watch attacker_watch(ch);
             hit(ch, victim, TYPE_UNDEFINED);
+            /* The blow can remove the attacker (a riposte that kills it, a script). */
+            if (attacker_watch.freed()) {
+                return;
+            }
 
-            WAIT_STATE(ch, 2); /* HVORFOR DET?? */
+            (void)WAIT_STATE(ch, 2); // HVORFOR DET??
         } else {
             if (victim == ch->specials.fighting)
                 send_to_char("You do the best you can!\n\r", ch);
@@ -270,7 +276,6 @@ ACMD(do_order)
     char found = FALSE;
     int org_room;
     struct char_data* victim;
-    struct follow_type* k;
 
     if (IS_SHADOW(ch)) {
         send_to_char("Who'd listen to a shadow?.\n\r", ch);
@@ -316,12 +321,37 @@ ACMD(do_order)
 
             org_room = ch->in_room;
 
-            for (k = ch->followers; k; k = k->next) {
-                if (org_room == k->follower->in_room)
-                    if (IS_AFFECTED(k->follower, AFF_CHARM) && !utils::is_guardian(*k->follower)) {
-                        found = TRUE;
-                        command_interpreter(k->follower, message);
-                    }
+            // An order can remove its follower, its following or ch: go on from an entry still on
+            // ch's list.
+            freed_watch leader_watch(ch);
+            follow_type* entry = ch->followers;
+            while (entry) {
+                char_data* follower = entry->follower;
+                if (org_room != follower->in_room || !IS_AFFECTED(follower, AFF_CHARM)
+                    || utils::is_guardian(*follower)) {
+                    entry = entry->next;
+                    continue;
+                }
+
+                follow_type* following_entry = entry->next;
+                char_data* following_follower = nullptr;
+                if (following_entry) {
+                    following_follower = following_entry->follower;
+                }
+
+                found = TRUE;
+                command_interpreter(follower, message);
+                if (leader_watch.freed()) {
+                    return;
+                }
+
+                if (is_follower_entry(ch, entry, follower)) {
+                    entry = entry->next;
+                } else if (is_follower_entry(ch, following_entry, following_follower)) {
+                    entry = following_entry;
+                } else {
+                    entry = nullptr;
+                }
             }
             if (found)
                 send_to_char("Ok.\n\r", ch);
@@ -363,8 +393,20 @@ ACMD(do_flee)
         if (res) {
             act("$n panics, and attempts to flee!", TRUE, ch, 0, 0, TO_ROOM);
 
+            freed_watch fleer_watch(ch);
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
-            if (!special(ch, cmd + 1, "", SPECIAL_COMMAND, 0) && number(0, 1) && die) {
+            /* An ON_BEFORE_ENTER script where it fled to removed the one fleeing. */
+            if (fleer_watch.freed()) {
+                return;
+            }
+
+            const int taken_by_special = special(ch, cmd + 1, "", SPECIAL_COMMAND, 0);
+            // A procedure here removed the one fleeing.
+            if (fleer_watch.freed()) {
+                return;
+            }
+
+            if (!taken_by_special && number(0, 1) && die) {
                 /* The escape has not succeded */
                 switch (die) {
                 case 1:
@@ -507,7 +549,7 @@ ACMD(do_bash)
             return;
         }
 
-        WAIT_STATE_FULL(ch, skills[SKILL_BASH].beats, CMD_BASH, next_mode, 50, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_BASH].beats, CMD_BASH, next_mode, 50, 0,
             (next_mode == 1) ? GET_ABS_NUM(victim) : door, victim,
             AFF_WAITING | AFF_WAITWHEEL, (next_mode == 1) ? TARGET_CHAR : TARGET_OTHER);
         return;
@@ -578,8 +620,19 @@ ACMD(do_bash)
                weapon hits already respect (fight.cpp). Skip the clobber here the
                same way, so a resisted roll leaves the cast running uninterrupted. */
             if (!victim_resists_cast_interruption) {
-                WAIT_STATE_FULL(victim, PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2),
-                    CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH, TARGET_IGNORE);
+                const int knocked_down_pulses
+                    = PULSE_VIOLENCE * 3 / 2 + number(0, PULSE_VIOLENCE / 2);
+                // Ending the victim's own delay runs the rest of a paused script, which can remove
+                // the victim or the basher.
+                freed_watch basher_watch(ch);
+                if (!WAIT_STATE_FULL(victim, knocked_down_pulses, CMD_BASH, 2, 80, 0, 0, 0,
+                        AFF_WAITING | AFF_BASH, TARGET_IGNORE)) {
+                    return;
+                }
+
+                if (basher_watch.freed()) {
+                    return;
+                }
             }
             damage(ch, victim, 1, SKILL_BASH, 0);
         }
@@ -679,8 +732,8 @@ ACMD(do_bash)
             act("$n falls in.", TRUE, ch, 0, 0, TO_ROOM);
         }
         GET_POS(ch) = POSITION_SITTING;
-        WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 3, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
-            TARGET_NONE);
+        (void)WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 3, CMD_BASH, 2, 80, 0, 0, 0,
+            AFF_WAITING | AFF_BASH, TARGET_NONE);
 
         break;
     case -1: // emergency exit.
@@ -918,8 +971,15 @@ ACMD(do_rescue)
     // Defender specialized characters don't have a delay from rescue.
     game_types::player_specs spec = utils::get_specialization(*ch);
     if (spec != game_types::PS_Defender) {
-        WAIT_STATE(victim, PULSE_VIOLENCE / 3);
-        WAIT_STATE(ch, PULSE_VIOLENCE / 2);
+        // Ending the rescued one's delay runs the rest of a paused script, which can remove the
+        // rescuer.
+        freed_watch rescuer_watch(ch);
+        (void)WAIT_STATE(victim, PULSE_VIOLENCE / 3);
+        if (rescuer_watch.freed()) {
+            return;
+        }
+
+        (void)WAIT_STATE(ch, PULSE_VIOLENCE / 2);
     }
 }
 
@@ -1048,19 +1108,27 @@ ACMD(do_kick)
         dam *= wild_fighting.get_wild_swing_damage_multiplier();
     }
 
-    if (prob < 0)
-        damage(ch, victim, 0, attacktype, 0);
-    else {
-        // Heavy fighters kick 20% harder.
-        if (utils::get_specialization(*ch) == (int)game_types::PS_HeavyFighting) {
-            dam += dam / 5;
+    {
+        // The blow's scripts can remove the kicker; then it has no recovery to wait out.
+        freed_watch kicker_watch(ch);
+        if (prob < 0) {
+            damage(ch, victim, 0, attacktype, 0);
+        } else {
+            // Heavy fighters kick 20% harder.
+            if (utils::get_specialization(*ch) == (int)game_types::PS_HeavyFighting) {
+                dam += dam / 5;
+            }
+            damage(ch, victim, dam, attacktype, 0);
         }
-        damage(ch, victim, dam, attacktype, 0);
+
+        if (kicker_watch.freed()) {
+            return;
+        }
     }
 
 delay:
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
-        AFF_WAITING, TARGET_NONE);
+    const int recovery_pulses = PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE);
+    (void)WAIT_STATE_FULL(ch, recovery_pulses, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
 }
 
 ACMD(do_disengage)
@@ -1076,7 +1144,15 @@ ACMD(do_disengage)
         return;
     }
 
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE);
+    if (!WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 2, 0, 2, 80, 0, 0, 0, AFF_WAITING, TARGET_NONE)) {
+        return;
+    }
+
+    // The paused script the delay ran can remove the one ch fought, which ends that fight: there
+    // is nobody to name.
+    if (!ch->specials.fighting) {
+        return;
+    }
 
     act("$n stops fighting $N.", TRUE, ch, 0, ch->specials.fighting, TO_NOTVICT);
     act("$n stops fighting you.", TRUE, ch, 0, ch->specials.fighting, TO_VICT);
@@ -1127,7 +1203,7 @@ ACMD(do_defend)
     }
 
     // create affect
-    affected_type af;
+    affected_type af{};
     af.type = SKILL_DEFEND;
     af.duration = 2; // 2 fast update ticks -- ~6s
     af.modifier = defend_knowledge;
@@ -1254,6 +1330,8 @@ ACMD(do_rend)
 
     int prob = get_prob_skill(ch, victim, SKILL_REND);
 
+    // The blow's scripts can remove the attacker; then it has no recovery to wait out.
+    freed_watch attacker_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_REND, 0);
     } else {
@@ -1268,8 +1346,12 @@ ACMD(do_rend)
         damage(ch, victim, dam, SKILL_REND, 0);
     }
 
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
-        AFF_WAITING, TARGET_NONE);
+    if (attacker_watch.freed()) {
+        return;
+    }
+
+    const int recovery_pulses = PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE);
+    (void)WAIT_STATE_FULL(ch, recovery_pulses, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
 }
 
 //============================================================================
@@ -1341,6 +1423,8 @@ ACMD(do_bite)
 
     int prob = get_prob_skill(ch, victim, SKILL_BITE);
 
+    // The blow's scripts can remove the attacker; then it has no recovery to wait out.
+    freed_watch attacker_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_BITE, 0);
     } else {
@@ -1354,8 +1438,13 @@ ACMD(do_bite)
         }
         damage(ch, victim, dam, SKILL_BITE, 0);
     }
-    WAIT_STATE_FULL(ch, PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE), 0, 0, 59, 0, 0, 0,
-        AFF_WAITING, TARGET_NONE);
+
+    if (attacker_watch.freed()) {
+        return;
+    }
+
+    const int recovery_pulses = PULSE_VIOLENCE * 4 / 3 + number(0, PULSE_VIOLENCE);
+    (void)WAIT_STATE_FULL(ch, recovery_pulses, 0, 0, 59, 0, 0, 0, AFF_WAITING, TARGET_NONE);
 }
 
 //============================================================================
@@ -1407,7 +1496,7 @@ int maul_calculate_duration(const char_data* mauler)
 
 void apply_maul_victim(char_data* victim, const char_data* ch)
 {
-    affected_type af;
+    affected_type af{};
     af.type = SKILL_MAUL;
     af.duration = maul_calculate_duration(ch) / 5;
     af.location = APPLY_DODGE;
@@ -1420,7 +1509,7 @@ void apply_maul_victim(char_data* victim, const char_data* ch)
 void apply_maul_char(char_data* ch)
 {
     affected_type* current_maul = affected_by_spell(ch, SKILL_MAUL);
-    affected_type af;
+    affected_type af{};
     af.type = SKILL_MAUL;
     af.duration = maul_calculate_duration(ch) / 10;
     af.location = APPLY_MAUL;
@@ -1476,6 +1565,8 @@ ACMD(do_maul)
 
     int prob = get_prob_skill(ch, victim, SKILL_MAUL);
 
+    // The blow's scripts can remove the mauler; then there is nobody to tire.
+    freed_watch mauler_watch(ch);
     if (prob < 0) {
         damage(ch, victim, 0, SKILL_MAUL, 0);
     } else {
@@ -1483,5 +1574,10 @@ ACMD(do_maul)
         apply_maul_char(ch);
         damage(ch, victim, number(1, 4), SKILL_MAUL, 0);
     }
+
+    if (mauler_watch.freed()) {
+        return;
+    }
+
     GET_MOVE(ch) -= maul_cost;
 }

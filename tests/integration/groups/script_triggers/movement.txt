@@ -1,0 +1,1 @@
+walking in: ON_ENTER on mobs and floor objects, and ON_BEFORE_ENTER turning back a walker, a follower and a rider

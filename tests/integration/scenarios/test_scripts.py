@@ -1,29 +1,41 @@
-"""Mob scripts run as written: a false IF skips its whole block, nested blocks included, section
-rows change nothing, a script that has finished stays finished when its mob is killed, a line
-that would crash is reported and skipped, script writes to hit points are clamped and keep the
-position in step, a north door opens and locks, and the boot check reports every line that names
-something missing."""
+"""Mob scripts run as written.
+
+A false IF skips its whole block, nested blocks included, section rows change nothing, a script
+that has finished stays finished when its mob is killed, a line that would crash is reported and
+skipped, script writes to hit points are clamped and keep the position in step, a north door
+opens and locks, a mob a script loads can be placed, and the boot check reports every line that
+names something missing.
+"""
 
 from __future__ import annotations
 
 import re
-import time
 from dataclasses import dataclass
-from typing import Optional
 
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import count_logged, logged_messages
+from rots_harness.game_text import DEATH_CRY_FORMAT
+from rots_harness.immortal_commands import give_new_object, goto, load_mob, load_object, set_syslog
+from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import CONSTITUTION_PATTERN, read_stat
+from rots_harness.text_lines import capitalised, first_number
 from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.scripts]
 
 # Room 1701, zone 17's yard, whose north exit is a door (keyword door) to 1702.
 ROOM_GATEHOUSE_YARD = 1701
-# Room 1702, north of the yard, whose south exit is the same door seen from its side (keyword gate).
+# Room 1702, north of the yard, whose south exit is the same door seen from its side (keyword
+# gate).
 ROOM_BEYOND_THE_GATE = 1702
+# The name look shows for ROOM_GATEHOUSE_YARD (wld/17.wld).
+ROOM_GATEHOUSE_YARD_NAME = "Gatehouse Yard"
+# The name look shows for ROOM_BEYOND_THE_GATE (wld/17.wld).
+ROOM_BEYOND_THE_GATE_NAME = "Beyond the Gate"
 
 
 @dataclass(frozen=True)
@@ -39,7 +51,7 @@ class ScriptMob:
 
 
 def placed(*mobs: ScriptMob) -> pytest.MarkDecorator:
-    """The world_resets marker that places each mob in the implementors' room at boot, in order."""
+    """Return the world_resets marker that places each mob in the implementors' room at boot."""
     return pytest.mark.world_resets(*(MobReset(mob.vnum, world.ROOM_IMMORTAL_START) for mob in mobs))
 
 
@@ -50,123 +62,84 @@ PLAIN_SMITH = ScriptMob(vnum=1700, keyword="plain", short_description="a plain s
 # Script 1701: script 1700 with SECTION rows between the outer IF and its BEGIN, before the
 # nested IF, and on the nested block's empty else branch.
 LABELLED_SMITH = ScriptMob(vnum=1701, keyword="labelled", short_description="a labelled smith")
+# Both smiths, each placed at boot for its own case.
 SMITHS = [
     pytest.param(PLAIN_SMITH, id="plain", marks=placed(PLAIN_SMITH)),
     pytest.param(LABELLED_SMITH, id="labelled", marks=placed(LABELLED_SMITH)),
 ]
 
-# The star token, a grey pebble (tests/integration/world/obj/17.obj) and the leather cap
-# (obj/11.obj), a piece of head armour.
+# The star token (tests/integration/world/obj/17.obj).
 STAR_TOKEN_VNUM = 1700
-PEBBLE_VNUM = 1701
-LEATHER_CAP_VNUM = 1137
 # The weary foreman (mob 1702), whose script 1702 says a line when anyone speaks, waits four
 # passes (DO_WAIT), says a last line and ends.
 WEARY_FOREMAN = ScriptMob(vnum=1702, keyword="weary", short_description="a weary foreman")
 # The patient foreman (mob 1721): script 1702 with a wait of 400 passes, 100 seconds.
 PATIENT_FOREMAN = ScriptMob(vnum=1721, keyword="patient", short_description="a patient foreman")
 # A mob without a script, for an implementor to force.
-PORTER = ScriptMob(vnum=1722, keyword="porter", short_description="a porter")
+PORTER = ScriptMob(vnum=world.MOB_PORTER, keyword="porter", short_description=world.MOB_PORTER_SHORT_DESCRIPTION)
 
-# What the smiths say (DO_SAY rows of scripts 1700 and 1701), in script order: the nested
-# guard's body, which only a mob giver reaches; the reward inside the star token's block; the
-# outer else branch; and the last row, which a player's give reaches.
+# What the smiths say (DO_SAY rows of scripts 1700 and 1701), in script order. First the nested
+# guard's body, which only a mob giver reaches.
 GUARD_LINE = "I do not trade with your kind."
+# The reward inside the star token's block.
 REWARD_LINE = "A star token! Here is your reward."
+# The outer else branch.
 NOT_A_TOKEN_LINE = "That is no star token."
+# The last row, which a player's give reaches.
 FINAL_LINE = "Who is next?"
-# What the foremen say before and after their wait (scripts 1702 and 1721).
+# What the room reads as the forced porter gives the plain smith the token (perform_give,
+# act_obj1.cpp).
+PORTER_GIVES_TOKEN = "A porter gives a star token to a plain smith."
+# What the foremen say before their wait (scripts 1702 and 1721).
 FAREWELL_LINE = "Goodbye, then."
+# What the foremen say after their wait.
 LAST_LINE = "My shift is over at last."
 # What the implementor reads when it slays a mob (do_slay, act_offe.cpp), before raw_kill runs.
-SLAY_MARKER = "You chop him to pieces!  Ah!  The blood!"
+SLAY_REPLY = "You chop him to pieces!  Ah!  The blood!"
 # The stat line that holds a character's delay (do_stat_character, act_wiz.cpp).
 DELAY_LINE_PATTERN = re.compile(r"Delay command:(-?\d+) delay_value:(-?\d+)")
 # The command number a script's wait leaves as the delay command (CMD_SCRIPT, interpre.h).
 SCRIPT_DELAY_COMMAND = 9999
-# The stat lines with a character's current hit points, maximum and hourly gain, its position,
-# and its constitution's current value.
-HIT_POINTS_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)\+(-?\d+)\(")
+# The stat line with a character's current hit points, maximum and hourly gain.
+HIT_POINTS_AND_GAIN_PATTERN = re.compile(r"HP :\[(-?\d+)/(-?\d+)\+(-?\d+)\(")
+# The stat line with a character's position.
 POSITION_PATTERN = re.compile(r"Pos: ([A-Za-z ]+), Fighting:")
-CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/")
-# The stat line after the delay line's block; once it arrives the drain collects the rest.
-STAT_LAST_LINE_MARKER = "VUL:"
 # Seconds to wait for a foreman's last line: four passes are one second (OPT_USEC, comm.cpp);
 # the rest leaves room for a loaded host. Also the wait for a line to reach game.log.
-WAIT_TIMEOUT = 10.0
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
-# Seconds between two reads of game.log while waiting for a line.
-LOG_POLL_SECONDS = 0.1
+WAIT_TIMEOUT_SECONDS = 10.0
+# Seconds between two reads of game.log while waiting for a line, shorter than game_log's own.
+FAST_LOG_POLL_SECONDS = 0.1
+# The start of every script report mudlog writes (script.cpp).
+SCRIPT_ERROR_START = "SCRIPT ERROR"
+# The start of every report for one script; format with the script's number.
+SCRIPT_REPORT_START_FORMAT = "SCRIPT ERROR: script #{},"
 
 # What every mob of scripts 1704 to 1713 says last.
 STILL_HERE_LINE = "Still here."
 
 
 def said(short_description: str, line: str) -> str:
-    """What the implementor reads when a mob says a line (say_to_char, act_comm.cpp).
+    """Return what the implementor reads when a mob says a line (say_to_char, act_comm.cpp).
 
     act() capitalises the first letter of the line it sends.
     """
-    return f"{short_description[0].upper()}{short_description[1:]} says '{line}'"
+    return f"{capitalised(short_description)} says '{line}'"
 
 
 def death_cry(short_description: str) -> str:
-    """What a character in the room reads from raw_kill's death_cry (fight.cpp)."""
-    return f"Your blood freezes as you hear {short_description}'s death cry."
+    """Return what a character in the room reads from raw_kill's death_cry (fight.cpp)."""
+    return DEATH_CRY_FORMAT.format(short_description)
 
 
-def load_mob(implementor: GameSession, mob: ScriptMob) -> None:
-    """Loads a mob into the implementor's room and checks the game's reply."""
-    reply = implementor.command(f"load mob {mob.vnum}")
-    assert reply.contains(f"You create {mob.short_description}."), reply.text
-
-
-def give_new_object(implementor: GameSession, vnum: int, keyword: str, mob: ScriptMob) -> str:
-    """Loads an object and gives it to the mob; returns the give's reply.
-
-    The ON_RECEIVE trigger runs inside the give (perform_give, act_obj1.cpp), so everything the
-    mob's script says arrives in the reply, before its prompt.
-    """
-    assert implementor.command(f"load obj {vnum}").contains("You create")
-    reply = implementor.command(f"give {keyword} {mob.keyword}")
-    assert reply.contains("You give"), reply.text
-    return reply.text
-
-
-def read_mob_stat(implementor: GameSession, mob: ScriptMob) -> str:
-    """The implementor's stat of the mob; several of its lines end in ], so command() would stop early."""
-    implementor.send_line(f"stat mob {mob.keyword}")
-    return implementor.expect([STAT_LAST_LINE_MARKER]) + implementor.drain(SETTLE_SECONDS)
-
-
-def stat_value(pattern: re.Pattern, stat: str) -> str:
-    """The first group of the pattern in the stat text."""
+def stat_value(pattern: re.Pattern[str], stat: str) -> str:
+    """Return the first group of the pattern in the stat text."""
     match = pattern.search(stat)
     assert match is not None, stat
     return match.group(1)
 
 
-def log_messages(server) -> list:
-    """The messages mudlog wrote to game.log, each line being '<type>, <time> :: <message>' (utility.cpp)."""
-    text = (server.run_dir / "game.log").read_text(encoding="utf-8", errors="replace")
-    return [line.split(" :: ", 1)[1] for line in text.splitlines() if " :: " in line]
-
-
-def count_logged(server, message: str, expected_count: int) -> int:
-    """How many times game.log holds the message, once it holds it expected_count times or WAIT_TIMEOUT passes.
-
-    The server writes its log before it sends the reply that caused it; the Docker launcher
-    relays the log through compose, so the line can reach the file a little later.
-    """
-    deadline = time.monotonic() + WAIT_TIMEOUT
-    while log_messages(server).count(message) < expected_count and time.monotonic() < deadline:
-        time.sleep(LOG_POLL_SECONDS)
-    return log_messages(server).count(message)
-
-
 def finish_the_foremans_script(implementor: GameSession) -> None:
-    """Starts the weary foreman's script by speaking, and waits for the script's last line.
+    """Start the weary foreman's script by speaking, and wait for the script's last line.
 
     The first line runs inside the say (do_say, act_comm.cpp). The last runs when the foreman's
     wait ends on the game loop's waiting list (comm.cpp), which runs every pass under the
@@ -175,13 +148,12 @@ def finish_the_foremans_script(implementor: GameSession) -> None:
     spoken = implementor.command("say Your shift is done.")
     assert said(WEARY_FOREMAN.short_description, FAREWELL_LINE) in spoken.text, spoken.text
     last_line_said = said(WEARY_FOREMAN.short_description, LAST_LINE)
-    finished = implementor.expect([last_line_said], timeout=WAIT_TIMEOUT)
-    finished += implementor.drain(SETTLE_SECONDS)
+    finished = settled_expect(implementor, [last_line_said], timeout=WAIT_TIMEOUT_SECONDS)
     assert finished.count(last_line_said) == 1, finished
 
 
 def start_the_patient_foremans_wait(implementor: GameSession) -> None:
-    """Starts the patient foreman's script, which then waits for 100 seconds."""
+    """Start the patient foreman's script, which then waits for 100 seconds."""
     spoken = implementor.command("say Your shift is done.")
     assert said(PATIENT_FOREMAN.short_description, FAREWELL_LINE) in spoken.text, spoken.text
 
@@ -191,18 +163,17 @@ def start_the_patient_foremans_wait(implementor: GameSession) -> None:
 @pytest.mark.characters(IMPLEMENTOR)
 @pytest.mark.parametrize("smith", SMITHS)
 def test_a_false_if_skips_its_whole_block_with_the_nested_block_inside(server, smith: ScriptMob) -> None:
-    """A false outer IF skips its block, nested IF/ELSE included, and runs its else branch.
+    """Pins a false outer IF skipping its block, nested IF/ELSE included, and running its else.
 
-    Pins #305: get_next_command (script.cpp) skips a nested IF / BEGIN / ... /
-    END_ELSE_BEGIN / END with an empty else branch as a whole, so giving a smith anything but
-    the star token runs the outer else branch and never the reward (Brali's script #2709 has
-    this shape). The labelled smith pins #368 on the same path: section rows between the IF
-    and its BEGIN and on the nested empty else branch leave the skip where it is. Nothing here
-    draws a random number.
+    get_next_command (script.cpp) skips a nested IF / BEGIN / ... / END_ELSE_BEGIN / END with an
+    empty else branch as a whole, so giving a smith anything but the star token runs the outer
+    else branch and never the reward (Brali's script #2709 has this shape). The labelled smith
+    pins the same path with section rows: rows between the IF and its BEGIN and on the nested
+    empty else branch leave the skip where it is. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", smith)
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", smith.keyword)
     assert said(smith.short_description, FINAL_LINE) in reply, reply
     assert said(smith.short_description, NOT_A_TOKEN_LINE) in reply, reply
     assert REWARD_LINE not in reply, reply
@@ -214,17 +185,17 @@ def test_a_false_if_skips_its_whole_block_with_the_nested_block_inside(server, s
 @pytest.mark.characters(IMPLEMENTOR)
 @pytest.mark.parametrize("smith", SMITHS)
 def test_a_true_if_runs_its_block_past_the_skipped_nested_guard(server, smith: ScriptMob) -> None:
-    """A true outer IF runs its block: the false nested guard is skipped and the reward runs.
+    """Pins a true outer IF running its block: the false nested guard is skipped, the reward runs.
 
-    Pins the other side of #305: inside the star token's block the nested guard is false for a
-    player giver, its block is skipped, and the script goes on to the reward, then past the
-    outer else branch to the last row. The labelled smith pins #368 here too: a section row on
-    the path that runs, including the one labelling the empty else branch the guard's skip
-    lands on, does nothing. Nothing here draws a random number.
+    The other side of the false-IF pin above: inside the star token's block the nested guard is
+    false for a player giver, its block is skipped, and the script goes on to the reward, then
+    past the outer else branch to the last row. The labelled smith pins section rows here too: a
+    section row on the path that runs, including the one labelling the empty else branch the
+    guard's skip lands on, does nothing. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, STAR_TOKEN_VNUM, "token", smith)
+    reply = give_new_object(implementor, STAR_TOKEN_VNUM, "token", smith.keyword)
     reward = said(smith.short_description, REWARD_LINE)
     final = said(smith.short_description, FINAL_LINE)
     assert reward in reply and final in reply, reply
@@ -238,7 +209,7 @@ def test_a_true_if_runs_its_block_past_the_skipped_nested_guard(server, smith: S
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(PLAIN_SMITH, PORTER)
 def test_a_true_nested_guard_halts_the_script_for_a_mob_giver(server) -> None:
-    """A smith given the star token by a mob runs the nested guard's body and stops there.
+    """Pins a smith given the star token by a mob running the nested guard's body and stopping.
 
     The other branch of script 1700's nested guard: IF_IS_NPC on the giver is true for a mob,
     so the smith says the guard line and RETURN_FALSE ends the script before the reward and
@@ -247,10 +218,10 @@ def test_a_true_nested_guard_halts_the_script_for_a_mob_giver(server) -> None:
     block. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, STAR_TOKEN_VNUM, "token", PORTER)
+    give_new_object(implementor, STAR_TOKEN_VNUM, "token", PORTER.keyword)
 
     reply = implementor.command(f"force {PORTER.keyword} give token {PLAIN_SMITH.keyword}").text
-    assert "A porter gives a star token to a plain smith." in reply, reply
+    assert PORTER_GIVES_TOKEN in reply, reply
     assert said(PLAIN_SMITH.short_description, GUARD_LINE) in reply, reply
     assert REWARD_LINE not in reply, reply
     assert FINAL_LINE not in reply, reply
@@ -261,19 +232,21 @@ def test_a_true_nested_guard_halts_the_script_for_a_mob_giver(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(WEARY_FOREMAN)
 def test_a_finished_script_leaves_no_script_delay_on_its_mob(server) -> None:
-    """Once a waiting script has run to its end, the mob's delay command is cleared.
+    """Pins a waiting script that has run to its end leaving its mob's delay command cleared.
 
-    Pins #270's continue_char_script (script.cpp), which clears delay.cmd before the script
-    goes on after a DO_WAIT. Left set, the script's command (CMD_SCRIPT, 9999, interpre.h)
+    continue_char_script (script.cpp) clears delay.cmd before the script goes on after a
+    DO_WAIT. Left set, the script's command (CMD_SCRIPT, 9999, interpre.h)
     stays on the mob with no wait to count down. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     finish_the_foremans_script(implementor)
 
-    stat = read_mob_stat(implementor, WEARY_FOREMAN)
+    stat = read_stat(implementor, f"mob {WEARY_FOREMAN.keyword}")
     delay = DELAY_LINE_PATTERN.search(stat)
     assert delay is not None, stat
-    assert (int(delay.group(1)), int(delay.group(2))) == (0, 0), stat
+    delay_command = int(delay.group(1))
+    delay_value = int(delay.group(2))
+    assert (delay_command, delay_value) == (0, 0), stat
 
 
 @pytest.mark.scripts_delays
@@ -281,7 +254,7 @@ def test_a_finished_script_leaves_no_script_delay_on_its_mob(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(PATIENT_FOREMAN)
 def test_a_waiting_script_shows_its_delay_on_its_mob(server) -> None:
-    """While a script waits, stat shows the script's delay command and the passes left.
+    """Pins stat showing a waiting script's delay command and the passes left.
 
     The positive control for the finished-script pin above: during the patient foreman's
     100-second wait, DO_WAIT's WAIT_STATE_BRIEF (utils.h) has set the delay command to
@@ -290,7 +263,7 @@ def test_a_waiting_script_shows_its_delay_on_its_mob(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     start_the_patient_foremans_wait(implementor)
 
-    stat = read_mob_stat(implementor, PATIENT_FOREMAN)
+    stat = read_stat(implementor, f"mob {PATIENT_FOREMAN.keyword}")
     delay = DELAY_LINE_PATTERN.search(stat)
     assert delay is not None, stat
     assert int(delay.group(1)) == SCRIPT_DELAY_COMMAND, stat
@@ -302,18 +275,19 @@ def test_a_waiting_script_shows_its_delay_on_its_mob(server) -> None:
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(WEARY_FOREMAN)
 def test_slaying_a_mob_whose_script_finished_does_not_repeat_its_last_line(server) -> None:
-    """Killing a mob whose script has finished does not run the script's last line again.
+    """Pins a kill of a mob whose script has finished not running the script's last line again.
 
-    Pins #270: raw_kill (fight.cpp) completes a pending delay only while one is still counting
-    down, and the finished script left none. A repeated line would arrive between the slay
-    message and the death cry. Either of #270's two changes prevents it alone, so the pin fails
-    only with both undone. slay calls raw_kill directly (do_slay, act_offe.cpp), with no roll.
+    raw_kill (fight.cpp) completes a pending delay only while one is still counting down, and
+    the finished script left none. A repeated line would arrive between the slay message and the
+    death cry. Either that check or continue_char_script's clearing of delay.cmd prevents it
+    alone, so the pin fails only with both undone. slay calls raw_kill directly (do_slay,
+    act_offe.cpp), with no roll.
     """
     implementor = server.login(IMPLEMENTOR.name)
     finish_the_foremans_script(implementor)
 
     reply = implementor.command(f"slay {WEARY_FOREMAN.keyword}")
-    assert reply.contains(SLAY_MARKER), reply.text
+    assert reply.contains(SLAY_REPLY), reply.text
     assert reply.contains(death_cry(WEARY_FOREMAN.short_description)), reply.text
     assert LAST_LINE not in reply.text, reply.text
 
@@ -323,7 +297,7 @@ def test_slaying_a_mob_whose_script_finished_does_not_repeat_its_last_line(serve
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(PATIENT_FOREMAN)
 def test_slaying_a_mob_mid_wait_runs_the_rest_of_its_script_before_it_dies(server) -> None:
-    """Killing a mob whose script is still waiting runs the rest of the script as it dies.
+    """Pins a kill of a mob whose script is still waiting running the rest of the script.
 
     The positive control for the slay pin above: raw_kill (fight.cpp) completes the pending
     delay, so continue_char_script says the patient foreman's last line between the slay
@@ -336,13 +310,101 @@ def test_slaying_a_mob_mid_wait_runs_the_rest_of_its_script_before_it_dies(serve
     reply = implementor.command(f"slay {PATIENT_FOREMAN.keyword}").text
     last_line = said(PATIENT_FOREMAN.short_description, LAST_LINE)
     cry = death_cry(PATIENT_FOREMAN.short_description)
-    assert SLAY_MARKER in reply and last_line in reply and cry in reply, reply
-    assert reply.index(SLAY_MARKER) < reply.index(last_line) < reply.index(cry), reply
+    assert SLAY_REPLY in reply and last_line in reply and cry in reply, reply
+    assert reply.index(SLAY_REPLY) < reply.index(last_line) < reply.index(cry), reply
+
+
+# The fading pilgrim (mob 1740), whose script 1740 says a line when anyone speaks, waits four
+# passes, says a second line and removes him from the game (EXTRACT_CHAR ch1).
+FADING_PILGRIM = ScriptMob(vnum=1740, keyword="pilgrim", short_description="a fading pilgrim")
+# The steward (mob 1741), whose script 1741 never speaks: on speech containing "dusk" it bows,
+# waits four passes and straightens up; other speech, the pilgrim's included, it ignores.
+STEWARD = ScriptMob(vnum=1741, keyword="steward", short_description="a steward")
+# What the pilgrim says before his wait.
+PILGRIM_FIRST_LINE = "I must be going."
+# What the pilgrim says after his wait.
+PILGRIM_LAST_LINE = "Farewell, all."
+# What the implementor says: it contains "dusk", so the steward answers it.
+DUSK_SPEECH = "say Dusk is falling."
+# What the steward's script sends the room before its wait (SEND_TO_ROOM).
+STEWARD_BOW_LINE = "The steward bows."
+# What the steward's script sends the room after its wait.
+STEWARD_RISE_LINE = "The steward straightens up."
+# The pilgrim's room line (do_look, act_info.cpp).
+PILGRIM_IN_ROOM = "A fading pilgrim leans on his staff here."
+# The room line of the pebble lying on the floor.
+PEBBLE_ON_FLOOR = "A grey pebble lies here."
+# The steward's room line, which a look shows while it is still in the game.
+STEWARD_IN_ROOM = "A steward stands here, attending the pilgrim."
+
+
+@pytest.mark.scripts_delays
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+@placed(FADING_PILGRIM)
+def test_a_waiting_mob_that_removes_itself_last_on_the_waiting_list_logs_nothing(server) -> None:
+    """Pins the only waiter logging nothing as its script removes it, after both its lines.
+
+    It says both lines and drops its gear.
+
+    The pilgrim is the only waiter, so the waiting list's pass (process_waiting_list, comm.cpp)
+    finds no waiter after the one the script freed, which is the end of the list: the server logs
+    no SYSERR, and the harness fails the test on any SYSERR line in game.log. extract_char
+    (handler.cpp) puts what the mob carried on the floor. Nothing here draws a random number.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", FADING_PILGRIM.keyword)
+    before = implementor.command("look").text
+    assert PILGRIM_IN_ROOM in before and PEBBLE_ON_FLOOR not in before, before
+
+    spoken = implementor.command(DUSK_SPEECH).text
+    first_line = said(FADING_PILGRIM.short_description, PILGRIM_FIRST_LINE)
+    last_line = said(FADING_PILGRIM.short_description, PILGRIM_LAST_LINE)
+    assert first_line in spoken and last_line not in spoken, spoken
+    finished = settled_expect(implementor, [last_line], timeout=WAIT_TIMEOUT_SECONDS)
+    assert finished.count(last_line) == 1, finished
+
+    after = implementor.command("look").text
+    assert PILGRIM_IN_ROOM not in after, after
+    assert PEBBLE_ON_FLOOR in after, after
+
+
+@pytest.mark.scripts_delays
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+@placed(FADING_PILGRIM, STEWARD)
+def test_a_mob_waiting_behind_one_that_removes_itself_still_finishes_its_script(server) -> None:
+    """Pins the waiter after a mob whose resumed script removes it still finishing its script.
+
+    do_say (act_comm.cpp) runs the mobs' hearing scripts in room order, the pilgrim (placed
+    first) before the steward. The pilgrim's first line, which the steward hears inside the say,
+    lacks "dusk"; the pilgrim then pauses, and the steward, hearing the implementor, bows and
+    pauses after him. Both waits last four passes, so on the pass where the pilgrim's script
+    removes him the waiting list goes on to the steward, who straightens up after the pilgrim's
+    last line. The steward never speaks, so the two mobs cannot answer each other. Nothing here
+    draws a random number.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+
+    spoken = implementor.command(DUSK_SPEECH).text
+    first_line = said(FADING_PILGRIM.short_description, PILGRIM_FIRST_LINE)
+    last_line = said(FADING_PILGRIM.short_description, PILGRIM_LAST_LINE)
+    assert first_line in spoken and STEWARD_BOW_LINE in spoken, spoken
+    assert spoken.index(first_line) < spoken.index(STEWARD_BOW_LINE), spoken
+    assert last_line not in spoken and STEWARD_RISE_LINE not in spoken, spoken
+    # The steward's line comes on the same pass as the pilgrim's, so the settle reads it.
+    finished = settled_expect(implementor, [last_line], timeout=WAIT_TIMEOUT_SECONDS)
+    assert finished.count(last_line) == 1 and finished.count(STEWARD_RISE_LINE) == 1, finished
+    assert finished.index(last_line) < finished.index(STEWARD_RISE_LINE), finished
+
+    after = implementor.command("look").text
+    assert PILGRIM_IN_ROOM not in after, after
+    assert STEWARD_IN_ROOM in after, after
 
 
 @dataclass(frozen=True)
 class ReportedLine:
-    """A mob whose ON_RECEIVE script reaches a line that would crash; the game reports and skips it."""
+    """A mob whose ON_RECEIVE script reaches a line that would crash; the game reports, skips it."""
 
     # The mob, whose script ends by saying STILL_HERE_LINE.
     mob: ScriptMob
@@ -356,16 +418,24 @@ class ReportedLine:
 # (report_script_bad_exit). Script 1705: TELEPORT_CHAR_XL to rm1, which is unset, after a line
 # that leaves tmpint at room 1101's real number (report_script_no_room). Scripts 1706 and 1707:
 # ASSIGN_EQ and DO_REMOVE on slot 22, outside 0 to MAX_WEAR - 1 (report_script_range), which the
-# boot check also reports.
+# boot check also reports. Script 1734: LOAD_MOB of mob 1799, which does not exist, into ch3
+# (report_script_vnum), which the boot check also reports, then a TELEPORT_CHAR of ch3, which the
+# missing mob leaves unset, so it moves nobody.
 SURVEYOR_LINE = ReportedLine(
     ScriptMob(vnum=1704, keyword="surveyor", short_description="a surveyor"),
     "SCRIPT ERROR: script #1704, line 2 (change exit to): room 1101 has no exit 4",
     0,
 )
-# The mobs whose scripts reach the reported lines below, each running the script of its own number.
+# The mobs whose scripts reach the reported lines below, each running the script of its own
+# number. The courier runs script 1705.
 COURIER = ScriptMob(vnum=1705, keyword="courier", short_description="a courier")
+# The valet runs script 1706.
 VALET = ScriptMob(vnum=1706, keyword="valet", short_description="a valet")
+# The dresser runs script 1707.
 DRESSER = ScriptMob(vnum=1707, keyword="dresser", short_description="a dresser")
+# The hapless summoner runs script 1734.
+HAPLESS_SUMMONER = ScriptMob(vnum=1734, keyword="hapless", short_description="a hapless summoner")
+# Every reported-line case, each placing its own mob at boot.
 REPORTED_LINES = [
     pytest.param(SURVEYOR_LINE, id="change-exit-to-a-missing-exit", marks=placed(SURVEYOR_LINE.mob)),
     pytest.param(
@@ -392,6 +462,14 @@ REPORTED_LINES = [
         ),
         marks=placed(DRESSER), id="do-remove-slot-22",
     ),
+    pytest.param(
+        ReportedLine(
+            HAPLESS_SUMMONER,
+            "SCRIPT ERROR: script #1734, line 2 (load mob): mobile vnum 1799 not found",
+            1,
+        ),
+        marks=placed(HAPLESS_SUMMONER), id="load-mob-of-a-missing-mob",
+    ),
 ]
 # A level-20 human warrior in the implementor's room, who must not read script reports.
 ROOM_WATCHER = Character(
@@ -409,53 +487,64 @@ ROOM_WATCHER = Character(
 @pytest.mark.characters(IMPLEMENTOR)
 @pytest.mark.parametrize("case", REPORTED_LINES)
 def test_a_script_line_that_would_crash_is_reported_and_skipped(server, case: ReportedLine) -> None:
-    """A script line that used to crash the server writes one report each time it runs, and the script goes on.
+    """Pins a script line that would crash writing one report each time it runs, and going on.
 
-    Pins #312's crash guards in run_script (script.cpp): each case's line is skipped with a
-    SCRIPT ERROR report in game.log and the script's last line still runs, on two gives in a
-    row. Nothing here draws a random number.
+    A script line that would crash the server writes one report each time it runs, and the
+    script goes on: run_script's crash guards (script.cpp) skip each case's line with a SCRIPT
+    ERROR report in game.log and the script's last line still runs, on two gives in a row. A
+    LOAD_MOB of a missing mob is reported and skipped the same way. Nothing here draws a random
+    number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     still_here = said(case.mob.short_description, STILL_HERE_LINE)
 
     for gives in (1, 2):
-        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", case.mob)
+        reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", case.mob.keyword)
         assert still_here in reply, reply
-        assert count_logged(server, case.report, case.boot_reports + gives) == case.boot_reports + gives
+        expected_reports = case.boot_reports + gives
+        reports = count_logged(
+            server.handle.log_path,
+            case.report,
+            expected_reports,
+            timeout=WAIT_TIMEOUT_SECONDS,
+            poll=FAST_LOG_POLL_SECONDS,
+        )
+        assert reports == expected_reports, f"{case.report!r} logged {reports} times"
 
 
 @pytest.mark.scripts_reports
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, ROOM_WATCHER)
 def test_a_script_report_reaches_an_immortal_with_syslog_on_and_no_mortal(server) -> None:
-    """A runtime script report reaches an immortal whose syslog is on, before the script's next line, and no mortal.
+    """Pins a runtime script report reaching an immortal whose syslog is on, and no mortal.
 
-    Pins how #312's reports reach people: mudlog (utility.cpp) sends "[ <report> ]" to a
-    character of LEVEL_AREAGOD or above whose syslog level is at least the report's (NRM), and
-    to nobody else in the game. Nothing here draws a random number.
+    The report arrives before the script's next line. mudlog (utility.cpp) sends "[ <report> ]"
+    to a character of LEVEL_AREAGOD or above whose syslog level is at least the report's (NRM),
+    and to nobody else in the game. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     watcher = server.login(ROOM_WATCHER.name)
-    syslog = implementor.command("syslog normal")
-    assert syslog.contains("Your syslog is now normal."), syslog.text
-    load_mob(implementor, SURVEYOR_LINE.mob)
-    assert implementor.command(f"load obj {PEBBLE_VNUM}").contains("You create")
+    set_syslog(implementor, "normal")
+    load_mob(implementor, SURVEYOR_LINE.mob.vnum, SURVEYOR_LINE.mob.short_description)
+    load_object(implementor, world.OBJECT_GREY_PEBBLE)
     watcher.drain(SETTLE_SECONDS)
 
-    # The report line ends in "]", which command() would take for the prompt.
-    implementor.send_line(f"give pebble {SURVEYOR_LINE.mob.keyword}")
     still_here = said(SURVEYOR_LINE.mob.short_description, STILL_HERE_LINE)
-    reply = implementor.expect([still_here]) + implementor.drain(SETTLE_SECONDS)
+    reply = reply_to(implementor, f"give pebble {SURVEYOR_LINE.mob.keyword}", [still_here])
     report_line = f"[ {SURVEYOR_LINE.report} ]"
     assert report_line in reply, reply
     assert reply.index(report_line) < reply.index(still_here), reply
 
-    watched = watcher.expect([still_here]) + watcher.drain(SETTLE_SECONDS)
-    assert "SCRIPT ERROR" not in watched, watched
+    watched = settled_expect(watcher, [still_here])
+    assert SCRIPT_ERROR_START not in watched, watched
 
 
 # The appraiser (mob 1708), whose script ASSIGN_EQs from a character its trigger leaves unset.
 APPRAISER = ScriptMob(vnum=1708, keyword="appraiser", short_description="an appraiser")
+# What the appraiser says when it finds nothing.
+NOTHING_LINE = "Nothing."
+# What the appraiser would say had it kept the cap.
+PHANTOM_LINE = "Phantom."
 
 
 @pytest.mark.scripts_reports
@@ -463,23 +552,25 @@ APPRAISER = ScriptMob(vnum=1708, keyword="appraiser", short_description="an appr
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(APPRAISER)
 def test_assign_eq_on_an_unset_character_finds_no_object(server) -> None:
-    """ASSIGN_EQ on an unset character finds nothing, even after another line looked up an object.
+    """Pins ASSIGN_EQ on an unset character finding nothing, after another line found an object.
 
-    Pins #312's ASSIGN_EQ (run_script, script.cpp), which clears its object before reading the
+    ASSIGN_EQ (run_script, script.cpp) clears its object before reading the
     slot: the appraiser loads a cap, then reads the head slot of ch3, which is unset. Keeping
     the cap would set int1 and say "Phantom."; finding nothing says "Nothing.". Nothing here
     draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", APPRAISER)
-    assert said(APPRAISER.short_description, "Nothing.") in reply, reply
-    assert "Phantom." not in reply, reply
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", APPRAISER.keyword)
+    assert said(APPRAISER.short_description, NOTHING_LINE) in reply, reply
+    assert PHANTOM_LINE not in reply, reply
     assert said(APPRAISER.short_description, STILL_HERE_LINE) in reply, reply
 
 
 # The mumbler (mob 1709), whose script has a false IF whose nested block never ends.
 MUMBLER = ScriptMob(vnum=1709, keyword="mumbler", short_description="a mumbler")
+# What the mumbler's script holds inside the block that never ends.
+NEVER_SAID_LINE = "Never said."
 
 
 @pytest.mark.scripts_control_flow
@@ -487,9 +578,9 @@ MUMBLER = ScriptMob(vnum=1709, keyword="mumbler", short_description="a mumbler")
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(MUMBLER)
 def test_skipping_a_false_if_whose_nested_block_never_ends_ends_the_script(server) -> None:
-    """A false IF whose nested block never reaches an END ends the script instead of crashing it.
+    """Pins a false IF whose nested block never reaches an END ending the script, not crashing it.
 
-    Pins #368's guard in get_next_command (script.cpp): when the nested block runs off the end
+    A guard in get_next_command (script.cpp): when the nested block runs off the end
     of the script, the scan stops there rather than stepping past the end. The mumbler speaks
     first, since nothing can follow an unterminated block; a second give shows the server and
     the mob still answer. Nothing here draws a random number.
@@ -497,9 +588,9 @@ def test_skipping_a_false_if_whose_nested_block_never_ends_ends_the_script(serve
     implementor = server.login(IMPLEMENTOR.name)
 
     for give_number in (1, 2):
-        reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", MUMBLER)
+        reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", MUMBLER.keyword)
         assert reply.count(said(MUMBLER.short_description, STILL_HERE_LINE)) == 1, (give_number, reply)
-        assert "Never said." not in reply, (give_number, reply)
+        assert NEVER_SAID_LINE not in reply, (give_number, reply)
 
 
 @dataclass(frozen=True)
@@ -509,17 +600,22 @@ class UnsetVariableLine:
     # The mob, whose script then says STILL_HERE_LINE.
     mob: ScriptMob
     # What game.log records for the line, if anything.
-    log_message: Optional[str]
+    log_message: str | None
 
 
 # Script 1710: ASSIGN_STR to ch1.name, which get_text_param_writable refuses. Script 1711:
 # DO_SOCIAL performed by ch3, which is unset. Script 1712: DO_WEAR of ob1, which a hear trigger
 # leaves unset. Script 1713: LOAD_OBJ_X, which copies ob1.
-# The mobs whose scripts run the unset-variable lines below, each running the script of its own number.
+# The mobs whose scripts run the unset-variable lines below, each running the script of its own
+# number. The renamer runs script 1710.
 RENAMER = ScriptMob(vnum=1710, keyword="renamer", short_description="a renamer")
+# The smiler runs script 1711.
 SMILER = ScriptMob(vnum=1711, keyword="smiler", short_description="a smiler")
+# The fitter runs script 1712.
 FITTER = ScriptMob(vnum=1712, keyword="fitter", short_description="a fitter")
+# The copier runs script 1713.
 COPIER = ScriptMob(vnum=1713, keyword="copier", short_description="a copier")
+# Every unset-variable case, each placing its own mob at boot.
 UNSET_VARIABLE_LINES = [
     pytest.param(
         UnsetVariableLine(
@@ -548,9 +644,9 @@ UNSET_VARIABLE_LINES = [
 @pytest.mark.characters(IMPLEMENTOR)
 @pytest.mark.parametrize("case", UNSET_VARIABLE_LINES)
 def test_a_script_line_on_an_unset_variable_is_skipped(server, case: UnsetVariableLine) -> None:
-    """A script line whose variable is unset, or cannot be written, does nothing and the script goes on.
+    """Pins a script line on an unset or unwritable variable doing nothing, and the script going on.
 
-    Pins #318's guards in run_script (script.cpp), each of which used to crash the server. Only
+    The guards in run_script (script.cpp) keep each line from crashing the server. Only
     the write to ch1.name is logged. Only one talking ON_HEAR_SAY mob is ever in the room: two
     would answer each other without end. Nothing here draws a random number.
     """
@@ -559,11 +655,16 @@ def test_a_script_line_on_an_unset_variable_is_skipped(server, case: UnsetVariab
     reply = implementor.command("say Hello there.").text
     assert reply.count(said(case.mob.short_description, STILL_HERE_LINE)) == 1, reply
     if case.log_message is not None:
-        assert count_logged(server, case.log_message, 1) == 1
+        logged = count_logged(
+            server.handle.log_path, case.log_message, 1, timeout=WAIT_TIMEOUT_SECONDS, poll=FAST_LOG_POLL_SECONDS
+        )
+        assert logged == 1, f"{case.log_message!r} logged {logged} times"
 
 
 # The hatter (mob 1714), whose script wears an object it carries.
 HATTER = ScriptMob(vnum=1714, keyword="hatter", short_description="a hatter")
+# What the room reads as the hatter wears the cap (wear_message, act_obj2.cpp).
+HATTER_WEARS_CAP = "A hatter wears a leather cap on his head."
 
 
 @pytest.mark.scripts_reports
@@ -571,19 +672,21 @@ HATTER = ScriptMob(vnum=1714, keyword="hatter", short_description="a hatter")
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(HATTER)
 def test_do_wear_wears_an_object_the_mob_carries(server) -> None:
-    """DO_WEAR on set variables wears the object: the control for the unset-object case above.
+    """Pins DO_WEAR on set variables wearing the object: the control for the unset-object case.
 
     The hatter's ON_RECEIVE script wears the leather cap it was given (perform_wear,
     act_obj2.cpp). Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, LEATHER_CAP_VNUM, "cap", HATTER)
-    assert "A hatter wears a leather cap on his head." in reply, reply
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", HATTER.keyword)
+    assert HATTER_WEARS_CAP in reply, reply
 
 
 # The scribe (mob 1715), whose script copies the object it is given with LOAD_OBJ_X.
 SCRIBE = ScriptMob(vnum=1715, keyword="scribe", short_description="a scribe")
+# What the giver reads as the scribe gives the copy back (perform_give, act_obj1.cpp).
+SCRIBE_GIVES_CAP = "A scribe gives you a leather cap."
 
 
 @pytest.mark.scripts_reports
@@ -591,7 +694,7 @@ SCRIBE = ScriptMob(vnum=1715, keyword="scribe", short_description="a scribe")
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(SCRIBE)
 def test_load_obj_x_copies_the_given_object(server) -> None:
-    """LOAD_OBJ_X with ob1 set copies it: the control for the unset-object case above.
+    """Pins LOAD_OBJ_X with ob1 set copying it: the control for the unset-object case above.
 
     The scribe's ON_RECEIVE script copies the leather cap it was given into ob2, takes the copy
     and gives it to the giver (DO_GIVE, perform_give in act_obj1.cpp). Nothing here draws a
@@ -599,8 +702,8 @@ def test_load_obj_x_copies_the_given_object(server) -> None:
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, LEATHER_CAP_VNUM, "cap", SCRIBE)
-    assert "A scribe gives you a leather cap." in reply, reply
+    reply = give_new_object(implementor, world.OBJECT_LEATHER_CAP, "cap", SCRIBE.keyword)
+    assert SCRIBE_GIVES_CAP in reply, reply
 
 
 # The limit a script's write to hit points is clamped to (MAX_SCRIPT_HIT_VALUE and
@@ -614,6 +717,8 @@ FAST_UPDATES_PER_HOUR = 20
 
 # The hale wrestler (mob 1716), whose script writes hit points above its maximum.
 HALE = ScriptMob(vnum=1716, keyword="hale", short_description="a hale wrestler")
+# What look at the hale wrestler shows of its health (report_char_health, act_info.cpp).
+HALE_LOOKS_HEALTHY = "A hale wrestler looks healthy."
 
 
 @pytest.mark.scripts_actions
@@ -621,24 +726,26 @@ HALE = ScriptMob(vnum=1716, keyword="hale", short_description="a hale wrestler")
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(HALE)
 def test_a_script_hit_write_above_the_limit_is_clamped_and_reads_healthy(server) -> None:
-    """A script writing 5000000 to its mob's hit points stores 1000000, which look reports as healthy.
+    """Pins a script hit write of 5000000 storing 1000000, which look reports as healthy.
 
-    Pins #272: set_int_value (script.cpp) clamps a write to chN.hit, and report_char_health
+    set_int_value (script.cpp) clamps a write to chN.hit, and report_char_health
     (act_info.cpp) stops its scan at the last of health_diagnose's eight entries (consts.cpp)
     instead of running past it on a percentage far above 1000. Nothing here draws a random
     number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", HALE)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", HALE.keyword)
 
-    stat = read_mob_stat(implementor, HALE)
-    assert int(stat_value(HIT_POINTS_PATTERN, stat)) == SCRIPT_HIT_LIMIT, stat
+    stat = read_stat(implementor, f"mob {HALE.keyword}")
+    assert first_number(HIT_POINTS_AND_GAIN_PATTERN, stat) == SCRIPT_HIT_LIMIT, stat
     looked = implementor.command(f"look {HALE.keyword}").text
-    assert "A hale wrestler looks healthy." in looked, looked
+    assert HALE_LOOKS_HEALTHY in looked, looked
 
 
 # The dazed wrestler (mob 1717), whose script writes zero hit points, then more.
 DAZED = ScriptMob(vnum=1717, keyword="dazed", short_description="a dazed wrestler")
+# The dazed wrestler's room line while stunned (do_look, act_info.cpp).
+DAZED_LIES_STUNNED = "A dazed wrestler is lying here, stunned."
 
 
 @pytest.mark.scripts_actions
@@ -646,36 +753,38 @@ DAZED = ScriptMob(vnum=1717, keyword="dazed", short_description="a dazed wrestle
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(DAZED)
 def test_a_script_hit_write_of_zero_stuns_and_a_later_write_stands_the_mob_up(server) -> None:
-    """A script writing 0 to its mob's hit points stuns it; writing 50 afterwards stands it up.
+    """Pins a script hit write of 0 stunning its mob, and a later write of 50 standing it up.
 
-    Pins #272's position resync in set_int_value (script.cpp): a write that leaves hit points at
+    The position resync in set_int_value (script.cpp): a write that leaves hit points at
     or below 0 calls update_pos (fight.cpp), and so does a later write while the mob is still
     stunned, incapacitated or dead. Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", DAZED)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", DAZED.keyword)
 
-    stat = read_mob_stat(implementor, DAZED)
+    stat = read_stat(implementor, f"mob {DAZED.keyword}")
     # update_pos (fight.cpp) for the dazed wrestler, with hit 0 and Con from stat:
     #   GET_HIT > 0                  : 0 > 0                      is false
     #   GET_HIT <= -GET_CON / 2      : 0 <= -10 / 2 = -5          is false
     #   GET_HIT <= -GET_CON / 4      : 0 <= -10 / 4 = -2          is false
     #   so POSITION_STUNNED.
     #   (HP :[0/...], Con: [10/...])
-    assert int(stat_value(CONSTITUTION_PATTERN, stat)) == MOB_CONSTITUTION, stat
-    assert int(stat_value(HIT_POINTS_PATTERN, stat)) == 0, stat
+    assert first_number(CONSTITUTION_PATTERN, stat) == MOB_CONSTITUTION, stat
+    assert first_number(HIT_POINTS_AND_GAIN_PATTERN, stat) == 0, stat
     assert stat_value(POSITION_PATTERN, stat) == "Stunned", stat
     looked = implementor.command("look").text
-    assert "A dazed wrestler is lying here, stunned." in looked, looked
+    assert DAZED_LIES_STUNNED in looked, looked
 
     implementor.command("say Wake up.")
-    stat = read_mob_stat(implementor, DAZED)
-    assert int(stat_value(HIT_POINTS_PATTERN, stat)) == 50, stat
+    stat = read_stat(implementor, f"mob {DAZED.keyword}")
+    assert first_number(HIT_POINTS_AND_GAIN_PATTERN, stat) == 50, stat
     assert stat_value(POSITION_PATTERN, stat) == "Standing", stat
 
 
 # The doomed wrestler (mob 1718), whose script writes hit points far below zero.
 DOOMED = ScriptMob(vnum=1718, keyword="doomed", short_description="a doomed wrestler")
+# The doomed wrestler's room line while dead (do_look, act_info.cpp).
+DOOMED_LIES_DEAD = "A doomed wrestler is lying here, dead."
 
 
 @pytest.mark.scripts_actions
@@ -683,20 +792,21 @@ DOOMED = ScriptMob(vnum=1718, keyword="doomed", short_description="a doomed wres
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(DOOMED)
 def test_a_script_hit_write_far_below_zero_leaves_the_mob_dead_until_the_hourly_sweep(server) -> None:
-    """A script writing -5000000 to its mob's hit points leaves it dead, and the next game hour kills it.
+    """Pins a script hit write of -5000000 leaving its mob dead, and the next game hour killing it.
 
-    Pins #272: the write is clamped to -1000000 and update_pos sets POSITION_DEAD; point_update
+    The write is clamped to -1000000 and update_pos sets POSITION_DEAD; point_update
     (limits.cpp) then finds the dead mob in its hourly sweep and calls die(), whose death cry
     the implementor hears. Nothing here draws a random number that decides the outcome; the
     hour's regeneration is bounded below.
     """
     implementor = server.login(IMPLEMENTOR.name)
-    give_new_object(implementor, PEBBLE_VNUM, "pebble", DOOMED)
+    give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", DOOMED.keyword)
 
-    stat = read_mob_stat(implementor, DOOMED)
-    hit_match = HIT_POINTS_PATTERN.search(stat)
+    stat = read_stat(implementor, f"mob {DOOMED.keyword}")
+    hit_match = HIT_POINTS_AND_GAIN_PATTERN.search(stat)
     assert hit_match is not None, stat
-    hit, hourly_gain = int(hit_match.group(1)), int(hit_match.group(3))
+    hit = int(hit_match.group(1))
+    hourly_gain = int(hit_match.group(3))
     # update_pos (fight.cpp) for the doomed wrestler, with hit -1000000 and Con from stat:
     #   GET_HIT > 0                  : -1000000 > 0               is false
     #   GET_HIT <= -GET_CON / 2      : -1000000 <= -10 / 2 = -5   is true
@@ -706,23 +816,27 @@ def test_a_script_hit_write_far_below_zero_leaves_the_mob_dead_until_the_hourly_
     # limits.cpp), with the hourly gain from stat (HP :[-1000000/60+11(0)]):
     #   -1000000 + 20 * (int(11 / 20) + 1) = -1000000 + 20 = -999980 <= -10 / 2 = -5,
     #   still POSITION_DEAD.
-    assert int(stat_value(CONSTITUTION_PATTERN, stat)) == MOB_CONSTITUTION, stat
+    assert first_number(CONSTITUTION_PATTERN, stat) == MOB_CONSTITUTION, stat
     assert hit == -SCRIPT_HIT_LIMIT, stat
     assert hit + FAST_UPDATES_PER_HOUR * (hourly_gain // FAST_UPDATES_PER_HOUR + 1) <= -MOB_CONSTITUTION // 2, stat
     assert stat_value(POSITION_PATTERN, stat) == "Dead", stat
     looked = implementor.command("look").text
-    assert "A doomed wrestler is lying here, dead." in looked, looked
+    assert DOOMED_LIES_DEAD in looked, looked
 
-    # advance_hours returns once the hour has run; the drain collects what the hour sent.
-    server.advance_hours(1)
-    hour = implementor.drain(SETTLE_SECONDS)
+    hour = server.text_after_hours(implementor)
     assert hour.count(death_cry(DOOMED.short_description)) == 1, hour
     looked = implementor.command("look").text
-    assert "A doomed wrestler" not in looked, looked
+    assert capitalised(DOOMED.short_description) not in looked, looked
 
 
 # The accountant (mob 1719), whose script divides by zero.
 ACCOUNTANT = ScriptMob(vnum=1719, keyword="accountant", short_description="an accountant")
+# What the accountant says when the quotient is zero.
+QUOTIENT_ZERO_LINE = "Quotient zero."
+# What the accountant says when the quotient is not zero.
+QUOTIENT_NOT_ZERO_LINE = "Quotient not zero."
+# What game.log records for the accountant's division by zero (int_binary_op, script.cpp).
+DIVIDE_BY_ZERO_LOG = "Script #1719 tried to divide by 0."
 
 
 @pytest.mark.scripts_reports
@@ -730,18 +844,21 @@ ACCOUNTANT = ScriptMob(vnum=1719, keyword="accountant", short_description="an ac
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(ACCOUNTANT)
 def test_a_script_division_by_zero_gives_zero_and_is_logged(server) -> None:
-    """SET_INT_DIV by zero stores 0 and logs the attempt, instead of drawing a random number.
+    """Pins SET_INT_DIV by zero storing 0 and logging the attempt, not drawing a random number.
 
-    Pins #272's int_binary_op (script.cpp): dividing by 0 returns 0 rather than falling through
+    int_binary_op (script.cpp): dividing by 0 returns 0 rather than falling through
     into SET_INT_RANDOM. The accountant's int1 held 99 before the division, so a skipped write
     shows too; a fall-through would draw number(0, 1000000), 0 once in 1000001 draws.
     """
     implementor = server.login(IMPLEMENTOR.name)
 
-    reply = give_new_object(implementor, PEBBLE_VNUM, "pebble", ACCOUNTANT)
-    assert said(ACCOUNTANT.short_description, "Quotient zero.") in reply, reply
-    assert "Quotient not zero." not in reply, reply
-    assert count_logged(server, "Script #1719 tried to divide by 0.", 1) == 1
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", ACCOUNTANT.keyword)
+    assert said(ACCOUNTANT.short_description, QUOTIENT_ZERO_LINE) in reply, reply
+    assert QUOTIENT_NOT_ZERO_LINE not in reply, reply
+    logged = count_logged(
+        server.handle.log_path, DIVIDE_BY_ZERO_LOG, 1, timeout=WAIT_TIMEOUT_SECONDS, poll=FAST_LOG_POLL_SECONDS
+    )
+    assert logged == 1, f"{DIVIDE_BY_ZERO_LOG!r} logged {logged} times"
 
 
 # The gatekeeper (mob 1703), whose script opens the door north of his room when given anything
@@ -756,42 +873,57 @@ GATE_WATCHER = Character(
     load_room=ROOM_BEYOND_THE_GATE,
     class_name="warrior",
 )
+# What the yard reads as the gatekeeper's script opens the door (set_exit_state, db.cpp).
+DOOR_OPENS = "Door opens quietly."
+# What the far side reads as it opens.
+GATE_OPENS = "Gate opens quietly."
+# What the yard reads as the script closes the door.
+DOOR_CLOSES = "The door closes quietly."
+# What the far side reads as it closes.
+GATE_CLOSES = "The gate closes quietly."
+# What both sides read as the script locks the door.
+LOCK_SNAPS = "You hear a sound of a lock snapping shut."
+# What north answers in the yard once the door is closed (do_move, act_move.cpp).
+DOOR_CLOSED_REPLY = "The door seems to be closed."
+# What south answers on the far side once the gate is closed.
+GATE_CLOSED_REPLY = "The gate seems to be closed."
 
 
 @pytest.mark.scripts_actions
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, GATE_WATCHER)
 def test_a_script_opens_and_locks_a_north_door_from_both_sides(server) -> None:
-    """SET_EXIT_STATE works on a north door, and changes the door's other side with it.
+    """Pins SET_EXIT_STATE working on a north door, and changing the door's other side with it.
 
-    Pins #312: run_script's SET_EXIT_STATE (script.cpp) checks the direction's range instead
-    of testing it for non-zero, which made north (0) impossible. set_exit_state (db.cpp) tells
+    run_script's SET_EXIT_STATE (script.cpp) checks the direction's range, so north (0), which
+    a test for non-zero would refuse, works. set_exit_state (db.cpp) tells
     each side in its own words: the yard's exit is keyword "door", the far side's "gate".
     Nothing here draws a random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     watcher = server.login(GATE_WATCHER.name)
-    assert implementor.command(f"goto {ROOM_GATEHOUSE_YARD}").contains("Gatehouse Yard")
-    load_mob(implementor, GATEKEEPER)
+    goto(implementor, ROOM_GATEHOUSE_YARD, ROOM_GATEHOUSE_YARD_NAME, exact=False)
+    load_mob(implementor, GATEKEEPER.vnum, GATEKEEPER.short_description)
     watcher.drain(SETTLE_SECONDS)
 
-    opened = give_new_object(implementor, PEBBLE_VNUM, "pebble", GATEKEEPER)
-    assert "Door opens quietly." in opened, opened
-    watched = watcher.expect(["Gate opens quietly."]) + watcher.drain(SETTLE_SECONDS)
-    assert watched.count("Gate opens quietly.") == 1, watched
-    assert implementor.command("north").contains("Beyond the Gate")
-    assert implementor.command("south").contains("Gatehouse Yard")
+    opened = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", GATEKEEPER.keyword)
+    assert DOOR_OPENS in opened, opened
+    watched = settled_expect(watcher, [GATE_OPENS])
+    assert watched.count(GATE_OPENS) == 1, watched
+    moved = implementor.command("north")
+    assert moved.contains(ROOM_BEYOND_THE_GATE_NAME), moved.text
+    moved_back = implementor.command("south")
+    assert moved_back.contains(ROOM_GATEHOUSE_YARD_NAME), moved_back.text
     watcher.drain(SETTLE_SECONDS)
 
     locked = implementor.command("say lock").text
-    lock_sound = "You hear a sound of a lock snapping shut."
-    assert "The door closes quietly." in locked and lock_sound in locked, locked
-    watched = watcher.expect([lock_sound]) + watcher.drain(SETTLE_SECONDS)
-    assert "The gate closes quietly." in watched and lock_sound in watched, watched
+    assert DOOR_CLOSES in locked and LOCK_SNAPS in locked, locked
+    watched = settled_expect(watcher, [LOCK_SNAPS])
+    assert GATE_CLOSES in watched and LOCK_SNAPS in watched, watched
     blocked = implementor.command("north")
-    assert blocked.contains("The door seems to be closed."), blocked.text
+    assert blocked.contains(DOOR_CLOSED_REPLY), blocked.text
     blocked = watcher.command("south")
-    assert blocked.contains("The gate seems to be closed."), blocked.text
+    assert blocked.contains(GATE_CLOSED_REPLY), blocked.text
 
 
 # What the boot check (check_script_table, script.cpp) writes for script 1720, which no mob
@@ -817,25 +949,34 @@ BOOT_REPORTS = [
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_the_boot_check_reports_every_script_line_naming_something_missing(server) -> None:
-    """At boot, each script line naming a missing vnum, slot or direction is reported once, by its stored line number.
+    """Pins the boot check reporting each script line that names something missing, once.
 
-    Pins #312's check_script_table (script.cpp), which runs once rooms, mobs and objects are
+    Each script line naming a missing vnum, slot or direction is reported once, by its stored
+    line number. check_script_table (script.cpp) runs once rooms, mobs and objects are
     loaded (boot_db, db.cpp). Script 1720 never runs, so every report comes from the boot
     check. Nothing here draws a random number.
     """
     server.login(IMPLEMENTOR.name)
 
     for report in BOOT_REPORTS:
-        assert count_logged(server, report, 1) == 1, report
-    script_reports = [message for message in log_messages(server) if message.startswith("SCRIPT ERROR: script #1720,")]
+        logged = count_logged(
+            server.handle.log_path, report, 1, timeout=WAIT_TIMEOUT_SECONDS, poll=FAST_LOG_POLL_SECONDS
+        )
+        assert logged == 1, report
+    messages = logged_messages(server.handle.log_path)
+    report_start = SCRIPT_REPORT_START_FORMAT.format(1720)
+    script_reports = [message for message in messages if message.startswith(report_start)]
     assert script_reports == BOOT_REPORTS, script_reports
 
 
-# The wanderer (mob 1723), whose script teleports himself to room 1201 when he hears speech,
-# and the listener (mob 1724), whose script answers it.
+# The wanderer (mob 1723), whose script teleports himself to room 1201 when he hears speech.
 WANDERER = ScriptMob(vnum=1723, keyword="wanderer", short_description="a wanderer")
+# The listener (mob 1724), whose script answers speech.
 LISTENER = ScriptMob(vnum=1724, keyword="listener", short_description="a listener")
+# What the listener says when it hears speech.
 LISTENER_LINE = "I heard that."
+# The start of the listener's room line (do_look, act_info.cpp).
+LISTENER_STANDS_START = "A listener stands here"
 
 
 @pytest.mark.scripts_actions
@@ -843,7 +984,7 @@ LISTENER_LINE = "I heard that."
 @pytest.mark.characters(IMPLEMENTOR)
 @placed(LISTENER, WANDERER)
 def test_a_listener_ahead_of_a_mob_that_leaves_on_speech_still_answers(server) -> None:
-    """Every mob in the room hears a say, when the one that leaves comes after the listener.
+    """Pins every mob in the room hearing a say, when the one that leaves comes after the listener.
 
     do_say (act_comm.cpp) runs each mob's ON_HEAR_SAY trigger in room order. Loaded first, the
     listener hears the implementor and answers; the wanderer, which hears that answer too,
@@ -854,4 +995,37 @@ def test_a_listener_ahead_of_a_mob_that_leaves_on_speech_still_answers(server) -
     reply = implementor.command("say Anyone there?").text
     assert reply.count(said(LISTENER.short_description, LISTENER_LINE)) == 1, reply
     looked = implementor.command("look").text
-    assert "A listener stands here" in looked and "A wanderer" not in looked, looked
+    assert LISTENER_STANDS_START in looked and capitalised(WANDERER.short_description) not in looked, looked
+
+
+# The steady summoner (mob 1735), whose script loads the porter (mob 1722) into ch3 and
+# teleports ch3 to room 1101.
+STEADY_SUMMONER = ScriptMob(vnum=1735, keyword="steady", short_description="a steady summoner")
+# What look shows for the porter (mob/17.mob).
+PORTER_STANDS_HERE = "A porter stands here, ready to carry things."
+
+
+@pytest.mark.scripts_actions
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+@placed(STEADY_SUMMONER)
+def test_a_script_load_mob_of_a_mob_that_exists_loads_it_and_the_script_goes_on(server) -> None:
+    """Pins LOAD_MOB of a mob that exists loading it, the next line placing it, the script going on.
+
+    The control for the missing-mob case above: run_script (script.cpp) reads the porter's
+    prototype (read_mobile, db.cpp), which leaves him in no room, and the summoner's
+    TELEPORT_CHAR puts him in room 1101, the implementor's. Nothing is reported. read_mobile's
+    hit-point roll is the only draw, and nothing here reads hit points.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    before = implementor.command("look").text
+    assert PORTER_STANDS_HERE not in before, before
+
+    reply = give_new_object(implementor, world.OBJECT_GREY_PEBBLE, "pebble", STEADY_SUMMONER.keyword)
+    assert said(STEADY_SUMMONER.short_description, STILL_HERE_LINE) in reply, reply
+    after = implementor.command("look").text
+    assert after.count(PORTER_STANDS_HERE) == 1, after
+    messages = logged_messages(server.handle.log_path)
+    report_start = SCRIPT_REPORT_START_FORMAT.format(1735)
+    reports = [message for message in messages if message.startswith(report_start)]
+    assert reports == [], reports

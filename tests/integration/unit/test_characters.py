@@ -15,22 +15,46 @@ from rots_harness.characters import (
     ProfessionPoints,
     StoredValues,
     custom_mage,
+    immortal,
 )
 
 
 def test_a_standard_class_character_becomes_the_spec_rotstool_reads() -> None:
     character = Character(name="Testwar", race="dwarf", sex="male", level=12, load_room=1101, class_name="warrior")
-    assert character.to_spec() == {"name": "Testwar", "race": "dwarf", "sex": "male", "class": "warrior", "level": 12, "load_room": 1101}
+    assert character.to_spec() == {
+        "name": "Testwar",
+        "race": "dwarf",
+        "sex": "male",
+        "class": "warrior",
+        "level": 12,
+        "load_room": 1101,
+    }
 
 
 def test_a_custom_split_writes_points_instead_of_a_class() -> None:
-    character = Character(name="Testcust", race="human", sex="female", level=5, load_room=1131, points=ProfessionPoints(mage=70, mystic=40, ranger=20, warrior=20))
+    character = Character(
+        name="Testcust",
+        race="human",
+        sex="female",
+        level=5,
+        load_room=1131,
+        points=ProfessionPoints(mage=70, mystic=40, ranger=20, warrior=20),
+    )
     assert character.to_spec()["points"] == {"mage": 70, "mystic": 40, "ranger": 20, "warrior": 20}
     assert "class" not in character.to_spec()
 
 
 def test_skills_and_set_values_are_written_only_when_given() -> None:
-    character = Character(name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", skills=(("magic_missile", 5),), hit=300)
+    character = Character(
+        name="Testwiz",
+        race="human",
+        sex="male",
+        level=30,
+        load_room=1101,
+        class_name="wizard",
+        skills=(("magic_missile", 5),),
+        hit=300,
+    )
     spec = character.to_spec()
     assert spec["skills"] == {"magic_missile": 5}
     assert spec["set"] == {"hit": 300}
@@ -38,9 +62,13 @@ def test_skills_and_set_values_are_written_only_when_given() -> None:
 
 
 @pytest.mark.parametrize("class_name, points", [(None, None), ("mage", ProfessionPoints(70, 40, 20, 20))])
-def test_a_character_needs_exactly_one_of_class_and_points(class_name: str | None, points: ProfessionPoints | None) -> None:
+def test_a_character_needs_exactly_one_of_class_and_points(
+    class_name: str | None, points: ProfessionPoints | None
+) -> None:
     with pytest.raises(ValueError, match="exactly one of class_name and points"):
-        Character(name="Testbad", race="human", sex="male", level=1, load_room=1101, class_name=class_name, points=points)
+        Character(
+            name="Testbad", race="human", sex="male", level=1, load_room=1101, class_name=class_name, points=points
+        )
 
 
 def test_the_implementor_is_a_level_100_warrior_in_immortal_start() -> None:
@@ -87,11 +115,45 @@ def test_an_empty_character_set_is_refused() -> None:
 
 def test_stored_values_join_the_set_object_beside_hit_mana_and_move() -> None:
     stored = StoredValues(gold=500, specialization="fire", str=20, int=21, wil=22, maxstamina=300)
-    character = Character(name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", mana=40, stored=stored)
-    assert character.to_spec()["set"] == {"mana": 40, "gold": 500, "specialization": "fire", "str": 20, "int": 21, "wil": 22, "maxstamina": 300}
+    character = Character(
+        name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", mana=40, stored=stored
+    )
+    assert character.to_spec()["set"] == {
+        "mana": 40,
+        "gold": 500,
+        "specialization": "fire",
+        "str": 20,
+        "int": 21,
+        "wil": 22,
+        "maxstamina": 300,
+    }
 
 
 def test_equal_stored_values_give_identical_spec_text() -> None:
-    first = Character(name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", stored=StoredValues(lea=10, gold=5))
-    second = Character(name="Testwiz", race="human", sex="male", level=30, load_room=1101, class_name="wizard", stored=StoredValues(gold=5, lea=10))
+    first = Character(
+        name="Testwiz",
+        race="human",
+        sex="male",
+        level=30,
+        load_room=1101,
+        class_name="wizard",
+        stored=StoredValues(lea=10, gold=5),
+    )
+    second = Character(
+        name="Testwiz",
+        race="human",
+        sex="male",
+        level=30,
+        load_room=1101,
+        class_name="wizard",
+        stored=StoredValues(gold=5, lea=10),
+    )
     assert CharacterSet((first,)).spec_json() == CharacterSet((second,)).spec_json()
+
+
+def test_immortal_is_a_human_male_warrior_of_the_level_at_the_immortal_start() -> None:
+    god = immortal("Testgod", 93)
+    assert god == Character(
+        name="Testgod", race="human", sex="male", level=93, load_room=world.ROOM_IMMORTAL_START, class_name="warrior"
+    )
+    assert god.to_spec()["level"] == 93

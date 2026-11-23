@@ -1,8 +1,8 @@
 """Object skins: boot reads a skin from its world file, and a restyle changes a copy in place.
 
-New-behaviour pins for the object skins feature (docs/systems/object-skins.md). The test world's
-skin family is obj 1140 (a plain steel sword, the base) with skins 1141 (owns its cost) and 1142;
-obj 1143 names a base that does not exist. Mob 1136, the steward, runs script 1101 when it hears
+These pin the object skins feature (docs/systems/object-skins.md). The test world's skin family
+is obj 1140 (a plain steel sword, the base) with skins 1141 (owns its cost) and 1142; obj 1143
+names a base that does not exist. Mob 1136, the steward, runs script 1101 when it hears
 someone speak: it restyles the speaker's plain steel sword, wherever it is carried, into 1141,
 then tries the cap (1137, no look of the sword), which is refused and logged.
 
@@ -14,13 +14,16 @@ commands.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import wait_for_log_count
+from rots_harness.game_text import PUT_FORMAT
+from rots_harness.immortal_commands import GIVEN_START, give_new_object, goto, load_mob, load_object
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import OBJECT_STAT_LAST_LINE
 
 pytestmark = [pytest.mark.scenario, pytest.mark.skins]
 
@@ -35,46 +38,34 @@ OWNER = Character(
     class_name="warrior",
 )
 
-BASE = 1140
+# The skin family's base, obj 1140, the plain steel sword.
+BASE = world.OBJECT_PLAIN_STEEL_SWORD
+# Obj 1141, a skin of BASE whose file gives its own cost.
 SKIN_OWNS_COST = 1141
+# Obj 1142, a skin of BASE that takes every stat from it.
 SKIN = 1142
+# Obj 1143, which names base obj 1199, which does not exist.
 ORPHAN = 1143
-CAP = 1137
-BAG = 1136
+# Mob 1136, the steward, which runs script 1101 when it hears someone speak.
 STEWARD = 1136
+# Seconds to wait for a line to reach game.log.
+LOG_TIMEOUT_SECONDS = 8.0
+# Seconds to keep reading after a reply, for the rest of it.
+REPLY_SETTLE_SECONDS = 0.5
 
 
 def vstat(implementor: GameSession, vnum: int) -> str:
-    """The implementor's vstat of an object prototype; it has lines ending in ']', so read it to
-    its last line (do_stat_object, act_wiz.cpp)."""
-    implementor.send_line(f"vstat obj {vnum}")
-    return implementor.expect(["Affections:"]) + implementor.drain(0.5)
+    """Return the implementor's vstat of an object prototype, read to its last line.
 
-
-def wait_for_log_line(server, line: str, timeout: float = 8.0) -> str:
-    """Re-reads game.log until it holds line, or raises after timeout seconds. Under the Docker
-    launcher the server's log reaches game.log apart from the game text, so a line logged
-    before a reply can still be on its way when the reply arrives."""
-    deadline = time.monotonic() + timeout
-    while True:
-        game_log = (server.run_dir / "game.log").read_text(errors="replace")
-        if line in game_log:
-            return game_log
-        if time.monotonic() >= deadline:
-            raise AssertionError(f"{line!r} not in game.log within {timeout}s:\n{game_log[-2000:]}")
-        time.sleep(0.2)
-
-
-def give_to_owner(implementor: GameSession, vnum: int, keyword: str) -> None:
-    created = implementor.command(f"load obj {vnum}")
-    assert created.contains("You create"), created.text
-    given = implementor.command(f"give {keyword} testowner")
-    assert given.contains("You give"), given.text
+    The reply has lines ending in ']', so it is read with reply_to (do_stat_object, act_wiz.cpp).
+    """
+    return reply_to(implementor, f"vstat obj {vnum}", [OBJECT_STAT_LAST_LINE], settle=REPLY_SETTLE_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_boot_reads_skins_from_the_world_file_and_demotes_one_without_a_base(server) -> None:
+    """Pins boot's reading of skins: the base lists them, and a skin without a base is plain."""
     implementor = server.login(IMPLEMENTOR.name)
 
     base = vstat(implementor, BASE)
@@ -91,21 +82,24 @@ def test_boot_reads_skins_from_the_world_file_and_demotes_one_without_a_base(ser
 
     orphan = vstat(implementor, ORPHAN)
     assert "Skin of" not in orphan, orphan
-    wait_for_log_line(server, f"OBJ ERROR: object #{ORPHAN}: base obj 1199 not found - loaded as plain object")
+    orphan_log_line = f"OBJ ERROR: object #{ORPHAN}: base obj 1199 not found - loaded as plain object"
+    wait_for_log_count(server.handle.log_path, orphan_log_line, 1, timeout=LOG_TIMEOUT_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, OWNER)
 def test_restyle_changes_a_wielded_sword_in_place_and_refuses_another_family(server) -> None:
+    """Pins restyle: it changes a wielded sword in place and refuses an object of another family."""
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
-    implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    give_to_owner(implementor, BASE, "sword")
+    owner_keyword = OWNER.name.lower()
+    goto(implementor, world.ROOM_ARENA_CENTRE)
+    give_new_object(implementor, BASE, "sword", owner_keyword)
     wielded = owner.command("wield sword")
     assert wielded.contains("You wield a plain steel sword."), wielded.text
 
-    owner.drain(0.5)
-    restyled = implementor.command(f"restyle testowner sword {SKIN_OWNS_COST}")
+    owner.drain(REPLY_SETTLE_SECONDS)
+    restyled = implementor.command(f"restyle {owner_keyword} sword {SKIN_OWNS_COST}")
     assert restyled.contains(
         f"Restyled obj {BASE} (a plain steel sword) to obj {SKIN_OWNS_COST} (an engraved steel sword)."
     ), restyled.text
@@ -115,8 +109,8 @@ def test_restyle_changes_a_wielded_sword_in_place_and_refuses_another_family(ser
     equipment = owner.command("equipment")
     assert "<wielded>" in equipment.text and "an engraved steel sword" in equipment.text, equipment.text
 
-    refused = implementor.command(f"restyle testowner sword {CAP}")
-    assert refused.contains(f"Obj {CAP} is not a look of obj {SKIN_OWNS_COST}."), refused.text
+    refused = implementor.command(f"restyle {owner_keyword} sword {world.OBJECT_LEATHER_CAP}")
+    assert refused.contains(f"Obj {world.OBJECT_LEATHER_CAP} is not a look of obj {SKIN_OWNS_COST}."), refused.text
     still = owner.command("equipment")
     assert "an engraved steel sword" in still.text, still.text
 
@@ -124,23 +118,26 @@ def test_restyle_changes_a_wielded_sword_in_place_and_refuses_another_family(ser
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, OWNER)
 def test_a_script_restyles_a_sword_in_a_carried_bag_and_logs_a_refused_line(server) -> None:
+    """Pins a script's restyle: it reaches a sword in a carried bag and logs a refused line."""
     implementor = server.login(IMPLEMENTOR.name)
     owner = server.login(OWNER.name)
-    implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    assert implementor.command(f"load mob {STEWARD}").contains("You create"), "the steward"
-    created = implementor.command(f"load obj {BAG}")
-    assert created.contains("You create"), created.text
-    created = implementor.command(f"load obj {BASE}")
-    assert created.contains("You create"), created.text
+    goto(implementor, world.ROOM_ARENA_CENTRE)
+    load_mob(implementor, STEWARD)
+    load_object(implementor, world.OBJECT_LEATHER_BAG)
+    load_object(implementor, BASE)
     put = implementor.command("put sword bag")
-    assert put.contains("You put a plain steel sword in a leather bag."), put.text
-    given = implementor.command("give bag testowner")
-    assert given.contains("You give"), given.text
+    put_reply = PUT_FORMAT.format("a plain steel sword", world.OBJECT_LEATHER_BAG_SHORT_DESCRIPTION)
+    assert put.contains(put_reply), put.text
+    given = implementor.command(f"give bag {OWNER.name.lower()}")
+    assert given.contains(GIVEN_START), given.text
 
-    owner.send_line("say hello")
-    heard = owner.expect(["Your sword is engraved."]) + owner.drain(0.5)
+    heard = reply_to(owner, "say hello", ["Your sword is engraved."], settle=REPLY_SETTLE_SECONDS)
     assert "Your sword is engraved." in heard, heard
     in_bag = owner.command("look in bag")
     assert "an engraved steel sword" in in_bag.text, in_bag.text
 
-    wait_for_log_line(server, f"SCRIPT ERROR: script #1101, line 4 (restyle obj): obj {SKIN_OWNS_COST} -> {CAP} not same family")
+    refusal_log_line = (
+        f"SCRIPT ERROR: script #1101, line 4 (restyle obj): obj {SKIN_OWNS_COST} -> {world.OBJECT_LEATHER_CAP} "
+        "not same family"
+    )
+    wait_for_log_count(server.handle.log_path, refusal_log_line, 1, timeout=LOG_TIMEOUT_SECONDS)

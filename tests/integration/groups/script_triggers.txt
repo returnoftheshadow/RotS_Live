@@ -1,0 +1,1 @@
+script triggers as players set them off: walking in, guards, wearing, pulling, examining, eating, drinking, blows, deaths and speech, and what a script heard after a pause

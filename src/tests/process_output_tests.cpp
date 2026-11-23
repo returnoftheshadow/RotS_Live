@@ -5,10 +5,12 @@
 #include "../comm.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <memory>
 #include <string>
 
 extern char process_output_buffer[LARGE_BUFSIZE + 20];
@@ -34,6 +36,12 @@ public:
         SET_BIT(PRF_FLAGS(&m_character), PRF_WRAP);
         m_character.desc = &m_descriptor;
         m_descriptor.character = &m_character;
+    }
+
+    ~WrappingPlayer()
+    {
+        release_test_descriptor(&m_descriptor);
+        release_cleared_character(&m_character);
     }
 
     descriptor_data& descriptor() { return m_descriptor; }
@@ -76,6 +84,30 @@ TEST(ProcessOutput, WrapsALongLineAtEightyCharacters)
 
     size_t length = 0;
     EXPECT_EQ(WrappingPlayer::flushed(&length), std::string(80, 'a') + "\n\r" + std::string(20, 'a') + "\n\r\n\r");
+}
+
+/* An empty prompt, at the very start of its buffer, comes back as it is: nothing before the buffer
+ * is touched. */
+TEST(PromptBlanks, AnEmptyPromptIsLeftAsItIs)
+{
+    /* On the heap, so that a read or write before the buffer lands outside its allocation. */
+    const std::unique_ptr<char[]> prompt(new char[MAX_INPUT_LENGTH]());
+
+    char* const start = trim_prompt_blanks(prompt.get());
+
+    EXPECT_EQ(start, prompt.get());
+    EXPECT_STREQ(prompt.get(), "");
+}
+
+/* A prompt starts after its leading blank and loses its trailing one. */
+TEST(PromptBlanks, AnOrdinaryPromptLosesOneBlankFromEachEnd)
+{
+    char prompt[MAX_INPUT_LENGTH] = " HP:Healthy MV:Fresh ";
+
+    char* const start = trim_prompt_blanks(prompt);
+
+    EXPECT_EQ(start, prompt + 1);
+    EXPECT_STREQ(start, "HP:Healthy MV:Fresh");
 }
 
 } // namespace

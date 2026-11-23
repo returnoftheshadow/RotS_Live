@@ -146,9 +146,15 @@ Greets twice.~
 
 @pytest.fixture
 def world(tmp_path: Path) -> Path:
-    """A one-zone world with two rooms, two mobs, two objects and a script."""
+    """Return a one-zone world with two rooms, two mobs, two objects and a script."""
     world_dir = tmp_path / "world"
-    files = {"zon": ("21.zon", ZONE_TEXT), "wld": ("21.wld", ROOMS_TEXT), "mob": ("21.mob", MOBS_TEXT), "obj": ("21.obj", OBJECTS_TEXT), "scr": ("21.scr", SCRIPTS_TEXT)}
+    files = {
+        "zon": ("21.zon", ZONE_TEXT),
+        "wld": ("21.wld", ROOMS_TEXT),
+        "mob": ("21.mob", MOBS_TEXT),
+        "obj": ("21.obj", OBJECTS_TEXT),
+        "scr": ("21.scr", SCRIPTS_TEXT),
+    }
     for category in WORLD_CATEGORIES:
         (world_dir / category).mkdir(parents=True)
         if category in files:
@@ -161,7 +167,7 @@ def world(tmp_path: Path) -> Path:
 
 
 def table_rows(markdown: str, title: str) -> list[list[str]]:
-    """The cells of each data row of the table under ## title."""
+    """Return the cells of each data row of the table under ## title."""
     section = markdown.split(f"## {title}\n", 1)[1].split("\n## ", 1)[0]
     lines = [line for line in section.splitlines() if line.startswith("| ")][2:]
     return [[cell.strip() for cell in line.strip("|").split(" | ")] for line in lines]
@@ -183,7 +189,16 @@ def test_rooms_decode_flags_sectors_and_exits(world: Path) -> None:
 def test_mobs_show_level_flags_special_script_and_options(world: Path) -> None:
     rows = table_rows(world_catalogue.catalogue(world, category="mobs"), "Mobs")
     assert rows == [
-        ["2101", "keeper shop", "a shop keeper", "7", "19 (SPEC, SENTINEL, NOBASH)", "program 33", "2105", "store=2102; attacks=no"],
+        [
+            "2101",
+            "keeper shop",
+            "a shop keeper",
+            "7",
+            "19 (SPEC, SENTINEL, NOBASH)",
+            "program 33",
+            "2105",
+            "store=2102; attacks=no",
+        ],
         ["2102", "crier town", "the town crier", "3", "2 (SENTINEL)", "-", "-", "-"],
     ]
 
@@ -191,7 +206,15 @@ def test_mobs_show_level_flags_special_script_and_options(world: Path) -> None:
 def test_objects_decode_type_flags_and_affects(world: Path) -> None:
     rows = table_rows(world_catalogue.catalogue(world, category="objects"), "Objects")
     assert rows == [
-        ["2101", "amulet sickly", "a sickly amulet", "11 (WORN)", "4096 (NORENT)", "5 (TAKE, WEAR_NECK)", "BITVECTOR 11 (POISON); STR 2"],
+        [
+            "2101",
+            "amulet sickly",
+            "a sickly amulet",
+            "11 (WORN)",
+            "4096 (NORENT)",
+            "5 (TAKE, WEAR_NECK)",
+            "BITVECTOR 11 (POISON); STR 2",
+        ],
         ["2102", "pebble", "a pebble", "12 (OTHER)", "0", "1 (TAKE)", "-"],
     ]
 
@@ -202,7 +225,9 @@ def test_scripts_list_each_trigger_once_with_its_row_count(world: Path) -> None:
 
 
 def test_a_zone_filter_keeps_only_the_fixtures_among_its_own_vnums(world: Path) -> None:
-    (world / "mob" / "guildmasters.mob").write_text(MOBS_TEXT.replace("#2101", "#3101").replace("#2102", "#3102"), encoding="latin-1")
+    (world / "mob" / "guildmasters.mob").write_text(
+        MOBS_TEXT.replace("#2101", "#3101").replace("#2102", "#3102"), encoding="latin-1"
+    )
     (world / "mob" / "index").write_text("21.mob\nguildmasters.mob\n$\n", encoding="latin-1")
     every_mob = table_rows(world_catalogue.catalogue(world, category="mobs"), "Mobs")
     zone_mobs = table_rows(world_catalogue.catalogue(world, zone_number=21, category="mobs"), "Mobs")
@@ -227,7 +252,7 @@ def test_the_committed_world_catalogues_without_errors() -> None:
 
 
 def header_constants(header: str) -> dict[str, int]:
-    """Every `inline constexpr int` in a game header, with its value."""
+    """Return every `inline constexpr int` in a game header, with its value."""
     constants = {}
     for name, expression in CONSTANT_DEFINITION.findall((SOURCE_DIR / header).read_text(encoding="latin-1")):
         shift = SHIFT_VALUE.fullmatch(expression.strip())
@@ -263,9 +288,11 @@ def test_prefixed_tables_name_every_constant_of_their_prefix(table: world_flags.
 
 
 def test_the_item_type_table_names_every_item_type() -> None:
-    """The item types are the run of ITEM_ constants in structs.h from ITEM_LIGHT = 1 to the
-    first line that is not one (ITEM_ is shared with the extra and wear flags, so the
-    prefix test above cannot cover them)."""
+    """Pins the item types as the run of ITEM_ constants in structs.h from ITEM_LIGHT = 1.
+
+    The run ends at the first line that is not one. ITEM_ is shared with the extra and wear flags,
+    so the prefix test above cannot cover them.
+    """
     lines = (SOURCE_DIR / "structs.h").read_text(encoding="latin-1").splitlines()
     start = next(i for i, line in enumerate(lines) if re.search(r"\bITEM_LIGHT = 1;", line))
     types = []
@@ -280,4 +307,6 @@ def test_the_item_type_table_names_every_item_type() -> None:
 
 def test_the_trigger_table_names_every_on_constant() -> None:
     constants = header_constants("script.h")
-    assert {name for name in constants if name.startswith("ON_")} == {name for name, _ in world_flags.SCRIPT_TRIGGERS.entries}
+    assert {name for name in constants if name.startswith("ON_")} == {
+        name for name, _ in world_flags.SCRIPT_TRIGGERS.entries
+    }

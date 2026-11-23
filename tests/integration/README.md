@@ -14,7 +14,10 @@ A scenario fails when the server shows trouble, even if its own checks pass:
 
 - a crash marker in the server log (a sanitizer report or the `Error: signal` line the
   server prints when it catches a fatal signal);
-- a `SYSERR` line the harness does not expect;
+- a `SYSERR` line the harness does not expect: one containing none of the fragments the test
+  names with `@pytest.mark.expect_syserr(...)` (below, "Writing a scenario");
+- a fragment the test names with `@pytest.mark.expect_syserr(...)` that no `SYSERR` line
+  contains by the time the server has stopped;
 - the server exiting during the test, or, when it is stopped, exiting with a non-zero status or
   without logging its shutdown notice.
 
@@ -203,7 +206,8 @@ broken world fails in seconds. A pull request runs:
 - every group when it changes the harness: `rots_harness/`, `conftest.py`, `pytest.ini`,
   `requirements.txt`, the test world (other than its notes), a scenario file other than a
   `test_*.py`, `src/harness/`, `src/tools/rotstool/`, the `Dockerfile`, the image action
-  (`.github/actions/dev-image/`) or the workflow itself;
+  (`.github/actions/dev-image/`) or `integration.yml` itself, though not the ASan workflow
+  (below);
 - every group when it changes `src/CMakeLists.txt`, whose compile settings reach every program,
   or a `lib/` file the harness copies into every test's lib (`lib/text/` and the tracked
   `lib/misc` files in `rots_harness/libbuilder.py`).
@@ -214,23 +218,147 @@ included (locally a header runs every group, as above), so name the groups whose
 touches. A name no group file registers fails the job and lists the registered groups.
 Tokens inside an HTML comment (`<!-- -->`) are ignored. Editing the description reruns the jobs,
 and the "Choose the integration groups" job's summary lists the groups that run and why. A run of
-every group is split across eight parallel jobs, `shard 1/8` to `shard 8/8`, through
-`ROTS_IT_SHARD`; a run of chosen groups is one job. Each job uploads its
+every group is split across `INTEGRATION_SHARDS` parallel jobs, `shard 1/N` to `shard N/N`, through
+`ROTS_IT_SHARD`; a run of chosen groups is one job. Every job runs its scenarios on
+`INTEGRATION_JOBS_PER_SHARD` pytest-xdist workers (`JOBS`), the one job of a run of chosen groups
+included. Both values are set once, at the top of `.github/workflows/integration.yml`. A GitHub-hosted runner has 4 CPUs, and every job takes one
+runner from the account's shared limit on concurrent jobs. Each job uploads its
 `build/integration/results.xml`, with every test's result and time, as its
 `integration-results-shard-<k>` artifact, pass or fail. When a scenario fails, its kept run
 directories are uploaded as that job's `integration-runs-shard-<k>` artifact.
+
+A sharded run also checks its own coverage. The select job lists the selected scenarios
+(`rots_harness/shard_coverage.py`), uploads the list as the `integration-selection` artifact,
+and says in its summary how many of them have no time in `shard_durations.json`. After the
+shards finish, pass or fail, the "Check every selected scenario ran once" job compares every
+shard's `results.xml` with that list. It fails when a shard uploaded no results, or when a
+selected scenario ran in no shard or in more than one, or a scenario ran that was not selected.
+
+The shards are balanced by each test's time in `tests/integration/shard_durations.json`, so
+every shard takes about as long; a test the file lacks counts 15 seconds. Each test still runs in
+exactly one shard. Refresh the file when tests are added or their times change, from every
+shard's results of one or more recent full runs that ran with the workflow's current
+`INTEGRATION_SHARDS` and `INTEGRATION_JOBS_PER_SHARD`. Take them only from a push to
+`release-frodo` or `release-frodo-next`, or from a pull request whose branch is in this repository
+(not a fork), and never from an ASan run, whose artifacts share these names but whose times are
+slower, since the file decides how CI splits every later run:
+
+```bash
+gh run download <run id> --pattern 'integration-results-shard-*' --dir build/ci-results/<run id>
+make integration-shard-durations PYTHON=.venv/bin/python RESULTS=build/ci-results
+```
+
+Each test's time is its median over every `results.xml` under `RESULTS`, leaving out runs where it
+failed, errored or was skipped (an expected failure counts); a test no result file timed is dropped
+from the file. A results file that is not plain UTF-8 (one with a byte-order mark, a NUL byte or
+another declared encoding), holds a DOCTYPE or entity declaration, or is larger than 16 MB stops
+the refresh, and a time that is not a number of seconds is left out with a warning. A refresh that
+would time fewer than 90% of the tests the file holds now, such as one missing a shard, is
+refused; after removing tests on purpose, run
+`PYTHONPATH=tests/integration .venv/bin/python -m rots_harness.shard_durations --force build/ci-results`.
 
 Each job loads the development image from the Actions cache, or from the repository's
 `dev-image-jammy-<hash>` pre-release for the `Dockerfile`'s hash, and builds it from the Ubuntu
 snapshot only when neither has it, so a snapshot outage stops only a pull request that changes
 the `Dockerfile`. `.github/workflows/dev-image.yml` publishes that pre-release on a push.
 
+### Memory checks on request (ASan)
+
+The `ASan` workflow (`.github/workflows/asan.yml`) builds the unit tests, the server, the
+harness server and `rotstool` with AddressSanitizer and runs the tests a pull request's
+description asks for, so a pull request can show it adds no memory errors. A pull request that
+fixes memory errors names the tests that prove them. Without a token nothing runs. The tokens,
+read outside HTML comments as above (`rots_harness/asan_selection.py`):
+
+| Token | Runs |
+| --- | --- |
+| `@asan-test-all` | every unit test, and every scenario split across shards; it wins over every other token |
+| `@asan-test-<group>` | one group or subgroup, named as for `@integration-test-<group>` |
+| `@asan-test-unit=<filter>` | the unit tests a GoogleTest filter matches, such as `@asan-test-unit=BankGameFolder.*`; repeatable |
+| `@asan-test-scenario=<id>` | one scenario file or test, relative to `tests/integration`, such as `@asan-test-scenario=scenarios/test_bank.py` or `@asan-test-scenario=scenarios/test_boot.py::test_an_implementor_logs_in_to_immortal_start`; repeatable |
+
+Tokens combine: each unit filter, group and scenario token adds its tests. Unit tests run only
+for `all` or a unit token, and scenarios only for `all`, a group or a scenario token, so a pull
+request asking only for unit tests builds no server and runs no scenario. The unit filters are
+joined with `:` into one `--gtest_filter`. Tokens are lower case. Each value runs to the next
+whitespace, so write a token as plain text, outside backticks, with a space or line break after
+it. Every value must pass a strict check:
+
+- A filter holds only letters, digits and `_ . * ? :`, with `:` between patterns. A `-` is
+  refused: GoogleTest reads the first one as the start of the tests to leave out, so beside
+  another unit token it would leave out that token's tests too. Name the tests to run instead.
+- A scenario id is `scenarios/test_<name>.py`, optionally followed by `::<test name>` and a
+  parameter id in brackets made of letters, digits and `_ - . / % ~`, such as
+  `[exactly-100]`. The file must exist. A parameter id with a space cannot be named; name the
+  test to run every case.
+- `all`, `unit` and `scenario` are never group names. A group no group file registers fails the
+  job and lists the registered ones.
+
+A token that fails its check stops the "Choose the ASan tests" job, naming the token and the
+reason; characters outside a plain ASCII set are shown as `?`. A token that selects no test fails
+the run too, beside `@asan-test-all` as well: each group and scenario token is collected in that
+job before anything is built, and each unit filter is listed against the unit tests binary
+before the unit tests run, since GoogleTest passes a run of no tests. The job reads the
+description from the event file, not from the environment, so a description of any length works.
+
+Every push and every edit of the pull request (its description, title or base branch) starts a
+new run while the description has tokens, and each new run cancels the pull request's run in
+progress, whatever either one tests. An edit that removes every token cancels the run in progress
+and starts nothing. Re-running a job of an older run puts that run back in the group: it cancels
+a newer run in progress, or a newer run started later cancels it.
+
+`@asan-test-all` therefore runs again on every push, about 9 runners each time. Remove it from the
+description once its run is done; naming the tests that prove a change is the normal use. Two
+pull requests running `@asan-test-all` at once take 18 runners, and other workflows' jobs queue
+behind them.
+
+The jobs:
+
+- "Choose the ASan tests" reads the tokens and lists what runs and why in its summary.
+- "ASan unit tests" builds `ageland_tests` and runs it once, with the joined filter or every
+  test, each test named in the log as it runs (two lines a test, about 1,700 tests). 40
+  minutes.
+- "ASan scenarios" builds `ageland`, `ageland_harness` and `rotstool` and runs the scenarios on
+  `ASAN_JOBS_PER_SHARD` (4) pytest-xdist workers, one per runner CPU. A run of chosen scenarios
+  is one job; `@asan-test-all` splits every scenario across `ASAN_SHARDS` (8) jobs as a full
+  `Integration` run does, and a coverage job checks each ran once. 40 minutes per job. Its
+  summary says whether the scenarios passed and, when they failed, names the artifact holding
+  the kept run directories and quotes each `ERROR: AddressSanitizer` line from their logs.
+
+ASan runs code 2 to 3 times slower, so these run half the workers of an `Integration` job on twice
+the shards, and `ROTS_IT_HOUR_TIMEOUT` is 30. Eight shards and the unit job take 9 runners, leaving
+room for `CI` and a full `Integration` run under the organisation's limit of 20 concurrent jobs.
+The workflow's concurrency group, `asan-<pull request>`, is its own, so it never cancels an
+`Integration` or `CI` run.
+
+Every program runs with `ASAN_OPTIONS=detect_leaks=0:detect_container_overflow=0:exitcode=23`, and
+the build step fails when a program lacks the sanitizer's runtime or instrumented code. A
+sanitizer report fails the run:
+
+- In the unit tests, the first report ends the binary with status 23. A GoogleTest death test
+  waiting for status 1 therefore fails on a report instead of passing.
+- In a scenario, the server's output is its `game.log`. The harness fails the test on the
+  report's `AddressSanitizer` line or the server exiting with any non-zero status (the list
+  under "What it is"). A report from `rotstool` fails the test's lib build. Each failed
+  scenario's run directory, with its `game.log`, is uploaded as `asan-runs-shard-<k>` and kept
+  for 14 days.
+
+The build is `make configure BUILD_DIR=build-asan` with the workflow's `CMAKE_CONFIGURE_ARGS`
+(`-DCMAKE_BUILD_TYPE=Debug` and `-fsanitize=address -fno-omit-frame-pointer -g`). It writes the
+programs to `bin/`, where the harness runs all three from, so reproduce it in a fresh clone or a
+copy of the checkout rather than over a working `bin/`.
+
 ## Launchers
 
 The harness runs the i386 programs in one of two ways:
 
 - `local` runs them directly. It is the default on Linux, which needs the i386 runtime for it
-  (for example `libc6:i386`); without it, set `ROTS_IT_LAUNCHER=docker`.
+  (for example `libc6:i386`); without it, set `ROTS_IT_LAUNCHER=docker`. Each pytest-xdist
+  worker gives its servers ports from its own band of 400 (worker `gwN` from 20000 + 400 N, below
+  the system's ephemeral ports), so two workers never share a port; a run without workers lets
+  the system choose. A server counts as ready only once its own `game.log` says
+  `Entering game loop.`, so a login prompt from another process on the same port is never
+  mistaken for it.
 - `docker` runs each server and each `rotstool` call through `docker compose run` with this
   checkout's `rots` service. It is the default everywhere else. Every container is named
   `rots-it-...` and publishes the server on a random loopback port, so the service's fixed
@@ -251,7 +379,7 @@ Environment variables:
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds to wait for the Docker lock, a finite number |
 | `ROTS_IT_DOCKER_LOCK_DIR` | `/tmp/rots-docker-lock` | the shared Docker lock directory |
 | `ROTS_IT_HOUR_TIMEOUT` | `10.0` | seconds `server.advance_hours` allows per game hour, a positive finite number |
-| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only every N-th selected test in node id order, starting at the k-th; a shard left with no tests passes |
+| `ROTS_IT_SHARD` | unset | `k/N`, such as `2/4`: runs only the k-th of N shares of the selected tests, balanced by `shard_durations.json` (see Continuous integration); a shard left with no tests passes, with or without `JOBS` workers |
 | `ROTS_IT_ALLOW_STALE` | unset | `1` runs a program older than its sources, for example to test an old build on purpose |
 | `ROTS_IT_CONFIRM_MINUTES` | `10` | the estimate, in minutes, from which `make integration` without a terminal needs `CONFIRM=yes`; a positive number (see The run plan) |
 
@@ -320,7 +448,9 @@ Each test gets `build/integration/runs/<id>/` holding:
 - `game.log`, the server's output (its standard error only, on `ageland_harness`);
 - `stdout.log`, on `ageland_harness` only: the server's ordinary standard output, without the
   `harness: ` lines (the ready line and the replies to time requests);
-- one transcript per character (`testimm.txt` for `Testimm`), the text the character read.
+- one transcript per character (`testimm.txt` for `Testimm`), the text the character read;
+- after `server.restart()`, `game.boot-<n>.log` (and `stdout.boot-<n>.log`), the logs of the
+  server the restart stopped, numbered from 1.
 
 A passing test's directory is deleted. It is kept when the lib or server fails to set up after
 the lib was copied in, when any test in the session has failed, when the server's checks fail,
@@ -356,7 +486,8 @@ MAGE = custom_mage(level=30, load_room=world.ROOM_ARENA_CENTRE)
 def test_the_mage_starts_in_the_arena(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     mage = server.login(MAGE.name)
-    assert mage.command("look").room_name() == "Arena Centre"
+    looked = mage.command("look")
+    assert looked.room_name() == world.ROOM_ARENA_CENTRE_NAME, looked.text
 ```
 
 All of a test's characters belong to one harness account, listed in marker order.
@@ -372,6 +503,40 @@ a session whose `command(text)` returns the command's output; the fixture quits 
 after the test. The game lets an account have only one character
 online unless the account owns a character above level 91, so a test that logs in two
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
+
+`command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
+print mid-reply. Shared modules in `rots_harness/` hold the helpers and fixed texts scenarios use
+instead of writing their own, among them:
+
+- `replies.reply_to(session, line, outcomes)` for a reply read up to one of its outcomes;
+- `stat_reading.read_stat(implementor, "player testsaint")` and the stat-line patterns;
+- `immortal_commands.goto`, `load_object`, `give_new_object` and `wizset`, each checking its
+  reply as far as its keyword arguments ask;
+- `game_log.wait_for_log_count(server.handle.log_path, line, count)`;
+- `game_text` for the game's fixed messages and `world` for shared rooms, objects, mobs and
+  their names, such as `world.ROOM_ARENA_CENTRE_NAME`.
+
+The skill's lookup table,
+[`.agents/skills/rots-integration-scenario/shared-helpers.md`](../../.agents/skills/rots-integration-scenario/shared-helpers.md),
+lists every shared helper and constant by what it is for, and the keyword arguments that choose
+how much each checks. `unit/test_scenario_shared_helpers.py` fails when a scenario file defines a
+function named like a shared helper, or a text or vnum equal to a shared constant.
+
+- **A second file moves it.** A helper or constant one scenario file uses stays in that file.
+  When a second scenario file needs it, it moves to the shared module whose docstring covers it
+  (shared-helpers.md, "Where a new shared name goes"), with a unit test, and both files import
+  it.
+- **A shared addition runs every group.** CI treats any edit under `rots_harness/` as a harness
+  change and runs every group, where an edit to one scenario file runs only its own groups, so
+  batch shared additions into one change.
+- **Known-bugs files import from their base file.** `test_<base>_known_bugs.py` imports what it
+  shares with `test_<base>.py` from that file, and imports `rots_harness` names from
+  `rots_harness`, never through the base file. A scenario file another one imports imports no
+  scenario file: CI follows importers one level only (`unit/test_ci_groups.py` checks it).
+- **Names follow one rule.** `*_FORMAT` for a format string, `*_REPLY` for a line answering the
+  reader's own command, `*_START`, `*_END` and `*_PART` for a fragment, `*_SECONDS` for a wait,
+  `*_SHORT_DESCRIPTION` and `ROOM_<X>_NAME` for names; any other fixed line is named for what it
+  is.
 
 A character can also start with stored values that `wizset` would otherwise set after login:
 `Character(..., stored=StoredValues(gold=500, lea=40, specialization="fire"))`, each named and
@@ -392,7 +557,9 @@ The test world's fixtures are listed by `make world-catalogue PYTHON=.venv/bin/p
 (`ZONE=<n>` for one zone, `CATEGORY=rooms` for one table), and explained in one notes file per
 zone, `world/notes/zone-<n>.md`. A new scenario area adds its own zone (its world files, vnums,
 map square and notes file), its own group file, and keeps its room constants in its scenario
-file; `rots_harness/world.py` holds only the rooms two or more scenario files share. `make
+file; `rots_harness/world.py` holds only the rooms, objects and mobs, and their names and short
+descriptions, that two or more scenario files name (`ROOM_*`, `OBJECT_*`, `MOB_*`,
+`ROOM_*_NAME`, `*_SHORT_DESCRIPTION`). `make
 integration-unit` checks the world's files (`unit/test_world_files.py`): index order, ascending
 vnums, zone ranges and map squares, notes files and leftover conflict markers.
 
@@ -411,6 +578,24 @@ Which server a test gets depends on its markers:
   schedule.
 
 `advance_hours` fails a test without a schedule marker.
+
+Any `SYSERR` line fails a test unless the test expects it. A test that pins a `SYSERR` the game
+logs names it with `@pytest.mark.expect_syserr("fragment", ...)`, one or more literal fragments
+of the line (case and spacing as logged). A `SYSERR` line containing any of them does not fail
+the test, and each fragment must be contained in at least one `SYSERR` line of a server the test
+booted, before or after a `server.restart()`, or the test fails after the server stops with
+`expected SYSERR never logged: '<fragment>'`. Lines without `SYSERR` never count, and every other
+`SYSERR` line still fails the test. Markers on the module, a class and the test add up; a
+fragment named twice, an empty one or a marker with none is refused. To check how many times a
+line is logged, read `server.handle.log_path` with `rots_harness/game_log.py` in the test.
+
+`server.restart()` stops the server the way a service stop does, with SIGTERM while the
+characters are still logged in, and boots a new server on the same lib, so a test can read back
+what the stop saved. The new server is the same binary with the same schedule. The sessions are
+closed rather than quit, since quitting saves the character itself; log in again with
+`server.login(name)`, which on `ageland_harness` enters with the new server's entry token. The
+stop is checked like the one after
+the test, and a problem fails the test there.
 
 Before writing or changing a scenario, or the harness itself, read the
 `rots-integration-scenario` skill (`.agents/skills/rots-integration-scenario/SKILL.md`).

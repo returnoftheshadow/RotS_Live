@@ -5,6 +5,7 @@
 #include "../color.h"
 #include "../db.h"
 #include "../json_utils.h"
+#include "../owned_character.h"
 #include "../protocol.h"
 #include "../structs.h"
 #include "../utils.h"
@@ -429,15 +430,19 @@ TEST(AccountPpcStorage, MasksNonPpcBitsOutOnWriteAndRead)
 
 struct PpcTestCharacter {
     PpcTestCharacter()
-        : character(new char_data {})
     {
-        clear_char(character, MOB_VOID);
+        RELEASE(character->profs); /* prof_storage stands in for it */
         character->profs = &prof_storage;
     }
-    ~PpcTestCharacter() { delete character; }
+    ~PpcTestCharacter()
+    {
+        character->profs = nullptr; /* prof_storage is not the heap's, so free_char must skip it */
+    }
 
+    // The profession block the character uses in place of the one clear_char allocates.
     char_prof_data prof_storage {};
-    char_data* character;
+    // The character under test, freed with free_char after the destructor has detached prof_storage.
+    owned_character character;
 };
 
 // ppc_store_character_to_account_in refuses to write the account until the character has read

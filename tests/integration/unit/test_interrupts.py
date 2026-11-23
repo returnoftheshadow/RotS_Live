@@ -14,7 +14,10 @@ HANDLED_SIGNALS: List[signal.Signals] = [signal.SIGTERM] + ([signal.SIGHUP] if h
 
 @pytest.fixture
 def default_handlers() -> Iterator[None]:
-    """Gives each handled signal its default action for the test, then puts the session's handlers back."""
+    """Give each handled signal its default action for the test.
+
+    Then put the session's handlers back.
+    """
     saved_handlers = {signal_number: signal.getsignal(signal_number) for signal_number in HANDLED_SIGNALS}
     for signal_number in HANDLED_SIGNALS:
         signal.signal(signal_number, signal.SIG_DFL)

@@ -110,6 +110,7 @@ set(ROTS_SERVER_SOURCES
     delayed_command_interpreter.cpp
     environment_utils.cpp
     fight.cpp
+    freed_watch.cpp
     game_heartbeat.cpp
     game_time_text.cpp
     graph.cpp
@@ -132,12 +133,15 @@ set(ROTS_SERVER_SOURCES
     mudlle.cpp
     mudlle2.cpp
     mystic.cpp
+    note_writing.cpp
     number_text.cpp
     obj2html.cpp
     object_skins.cpp
+    object_text.cpp
     object_utils.cpp
     objsave.cpp
     olog_hai.cpp
+    owned_character.cpp
     pkill.cpp
     player_file_finalize.cpp
     profs.cpp
@@ -155,6 +159,7 @@ set(ROTS_SERVER_SOURCES
     shapescript.cpp
     shapezon.cpp
     shop.cpp
+    signal_requests.cpp
     signals.cpp
     skill_timer.cpp
     spec_ass.cpp
@@ -214,24 +219,50 @@ set(ROTS_TEST_SOURCES
     tests/game_heartbeat_tests.cpp
     tests/game_time_text_tests.cpp
     tests/mage_tests.cpp
+    tests/mystic_tests.cpp
+    tests/ranger_tests.cpp
+    tests/ranger_shoot_tests.cpp
     tests/ObjFlagDataBuilder.cpp
     tests/json_utils_tests.cpp
     tests/kill_experience_tests.cpp
     tests/lap_timer_tests.cpp
     tests/limits_tests.cpp
+    tests/affect_join_tests.cpp
+    tests/affect_tick_tests.cpp
+    tests/raw_kill_kit_flag_tests.cpp
+    tests/quiet_gear_change_tests.cpp
     tests/room_light_tests.cpp
+    tests/weather_tests.cpp
     tests/mob_options_tests.cpp
     tests/mob_walker_tests.cpp
     tests/sprintbit_tests.cpp
     tests/script_flow_tests.cpp
     tests/script_command_tests.cpp
+    tests/object_trigger_extract_tests.cpp
+    tests/character_trigger_extract_tests.cpp
+    tests/freed_watch_tests.cpp
+    tests/memory_release_tests.cpp
+    tests/combat_movement_extract_tests.cpp
+    tests/death_and_damage_paths_tests.cpp
+    tests/spec_pro_tests.cpp
+    tests/read_mobile_bounds_tests.cpp
+    tests/stay_zone_death_tests.cpp
+    tests/loader_editor_bounds_tests.cpp
+    tests/spell_affect_tests.cpp
+    tests/spell_removal_tests.cpp
+    tests/special_procedure_extract_tests.cpp
+    tests/command_interpreter_callback_tests.cpp
+    tests/fish_and_use_tests.cpp
+    tests/mudlle_stack_tests.cpp
     tests/string_value_tests.cpp
     tests/argument_split_tests.cpp
     tests/zone_loader_tests.cpp
     tests/shape_section_tests.cpp
+    tests/signal_requests_tests.cpp
     tests/idle_follower_tests.cpp
     tests/room_contents_tests.cpp
     tests/negative_room_report_tests.cpp
+    tests/note_writing_tests.cpp
     tests/process_output_tests.cpp
     tests/json_perf_tests.cpp
     tests/objects_json_tests.cpp
@@ -261,6 +292,7 @@ set(ROTS_TEST_SOURCES
     tests/number_text_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_skins_tests.cpp
+    tests/object_text_tests.cpp
     tests/object_utils_tests.cpp
     tests/test_random_utils.cpp
     tests/test_random_utils_tests.cpp
@@ -411,9 +443,12 @@ if(BUILD_TESTING)
     if(ROTS_SUPPRESS_TEST_WARNINGS)
         target_compile_options(ageland_tests PRIVATE -w)
     else()
+        # A discarded [[nodiscard]] result, such as whether a wait freed its character, fails the
+        # build. GCC's -w silences this error too, so only this configuration enforces it.
         target_compile_options(ageland_tests PRIVATE
             -Wall
             -Wextra
+            -Werror=unused-result
         )
     endif()
     target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt Threads::Threads)

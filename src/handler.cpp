@@ -39,8 +39,10 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "object_text.h"
 #include "room_lists.h"
 #include "spells.h"
 #include "structs.h"
@@ -49,12 +51,14 @@
 
 #include "base_utils.h"
 #include "char_utils.h"
+#include "damage_meters.h"
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <utility>
 
 /* external vars */
 extern struct room_data world;
@@ -272,14 +276,8 @@ void affect_modify(struct char_data* ch, byte loc, int mod, long bitv, char add,
 
     if (add == AFFECT_MODIFY_SET) {
         SET_BIT(ch->specials.affected_by, bitv);
-        if (utils::is_set(bitv, long(AFF_CHARM))) {
-            ch->damage_details.reset();
-        }
     } else if (add == AFFECT_MODIFY_REMOVE) {
         REMOVE_BIT(ch->specials.affected_by, bitv);
-        if (utils::is_set(bitv, long(AFF_CHARM))) {
-            ch->damage_details.reset();
-        }
 
         mod = -mod;
     }
@@ -655,6 +653,7 @@ struct affected_type* get_from_affected_type_pool()
 void put_to_affected_type_pool(struct affected_type* oldaf)
 {
 
+    freed_log::note_freed(oldaf);
     free(oldaf);
     //  oldaf->next = affected_type_pool;
     //  affected_type_pool = oldaf;
@@ -703,6 +702,10 @@ void affect_to_char(struct char_data* ch, const struct affected_type* af)
     // 5
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_SET, af->counter);
+    /* A pet starts tracking its damage as soon as it is charmed. */
+    if (utils::is_set(af->bitvector, long(AFF_CHARM))) {
+        reset_damage_meter(*ch);
+    }
     affect_total(ch);
 }
 
@@ -759,6 +762,10 @@ void affect_remove(struct char_data* ch, struct affected_type* af)
 
     affect_modify(ch, af->location, af->modifier, af->bitvector,
         AFFECT_MODIFY_REMOVE, af->counter);
+    /* A pet's damage report is cleared when it is released. */
+    if (utils::is_set(af->bitvector, long(AFF_CHARM))) {
+        reset_damage_meter(*ch);
+    }
 
     /* remove structure *af from linked list */
     if (ch->affected == af) {
@@ -966,31 +973,31 @@ affected_type* room_affected_by_spell(const room_data* room, int spell)
 void affect_join(struct char_data* ch, struct affected_type* af,
     char avg_dur, char avg_mod)
 {
-    struct affected_type* hjp;
-    char found = FALSE;
-
-    for (hjp = ch->affected; !found && hjp; hjp = hjp->next) {
-        if (hjp->type == af->type) {
-
-            if (af->duration < hjp->duration)
-                af->duration += hjp->duration;
-
-            //	 if (avg_dur)
-            //	    af->duration /= 2;
-
-            if (((af->modifier >= 0) && (af->modifier < hjp->modifier)) || ((af->modifier >= 0) && (af->modifier < hjp->modifier)))
-                af->modifier += hjp->modifier;
-
-            //	 if (avg_mod)
-            //	    af->modifier /= 2;
-
-            affect_remove(ch, hjp);
-            affect_to_char(ch, af);
-            found = TRUE;
-        }
+    // The affect of af's type that af replaces.
+    struct affected_type* existing = ch->affected;
+    while (existing && existing->type != af->type) {
+        existing = existing->next;
     }
-    if (!found)
-        affect_to_char(ch, af);
+
+    if (existing) {
+        if (af->duration < existing->duration) {
+            af->duration += existing->duration;
+        }
+
+        //	 if (avg_dur)
+        //	    af->duration /= 2;
+
+        if ((af->modifier >= 0) && (af->modifier < existing->modifier)) {
+            af->modifier += existing->modifier;
+        }
+
+        //	 if (avg_mod)
+        //	    af->modifier /= 2;
+
+        affect_remove(ch, existing);
+    }
+
+    affect_to_char(ch, af);
 }
 
 //***************** follow_type procedures ********************************
@@ -1082,7 +1089,7 @@ void stop_follower(struct char_data* ch, int mode)
                 affect_from_char(ch, SKILL_RECRUIT);
             }
             REMOVE_BIT(ch->specials.affected_by, AFF_CHARM);
-            ch->damage_details.reset();
+            reset_damage_meter(*ch);
         } else {
             act("You stop following $N.", FALSE, ch, 0, ch->master, TO_CHAR);
             if (ch->in_room == ch->master->in_room) {
@@ -1186,13 +1193,58 @@ void die_follower(char_data* character)
     }
 }
 
+bool is_follower_entry(const char_data* leader, const follow_type* entry, const char_data* follower)
+{
+    for (const follow_type* listed = leader->followers; listed; listed = listed->next) {
+        if (listed == entry) {
+            return listed->follower == follower;
+        }
+    }
+    return false;
+}
+
 //**************************************************************************
+
+room_lend* room_lend::newest = nullptr;
+
+room_lend::room_lend(char_data* character, int lent_room)
+    : m_character(character)
+    , m_own_room(character->in_room)
+    , m_older(newest)
+{
+    newest = this;
+    character->in_room = lent_room;
+}
+
+/* Lends are local variables, so they go in the reverse order of their making and this one is the
+ * newest when it goes. */
+room_lend::~room_lend()
+{
+    if (m_character) {
+        m_character->in_room = m_own_room;
+    }
+    newest = m_older;
+}
+
+void room_lend::end_for(char_data* character)
+{
+    /* The oldest lend of the character holds the room it stands in. */
+    for (room_lend* lend = newest; lend; lend = lend->m_older) {
+        if (lend->m_character == character) {
+            character->in_room = lend->m_own_room;
+            lend->m_character = nullptr;
+        }
+    }
+}
 
 /* move a player out of a room */
 void char_from_room(struct char_data* ch)
 {
     struct char_data* i;
     int tmp;
+
+    /* A character lent another room leaves the one it stands in. */
+    room_lend::end_for(ch);
     if (ch->in_room == NOWHERE) {
         //      log("SYSERR: NOWHERE extracting char from room (handler.c, char_from_room)");
         //      exit(1);
@@ -1327,8 +1379,9 @@ void obj_from_char(struct obj_data* object)
         }
     }
 
-    /* set flag for crash-save system */
-    if (!IS_NPC(object->carried_by))
+    /* set flag for crash-save system; taking a worn item off can free the wearer (unequip_char),
+     * leaving the item nobody's */
+    if (object->carried_by && !IS_NPC(object->carried_by))
         SET_BIT(PLR_FLAGS(object->carried_by), PLR_CRASH);
 
     /* Only obj_to_char adds weight, and only for the inventory list.  A worn
@@ -1351,7 +1404,51 @@ void obj_from_char(struct obj_data* object)
         object->obj_flags.prog_number = 0;
 }
 
-void equip_char(char_data* character, obj_data* item, int item_slot)
+/* Whether <change> lets the item affect at <affect_index> of <item> change its wearer through
+ * affect_modify. A quiet change passes over a spell that is not a worn affect: casting it is the
+ * side effect a quiet change leaves out. */
+static bool changes_wearer_through_affect(const obj_data* item, int affect_index, gear_change change)
+{
+    const obj_affected_type& affect = item->affected[affect_index];
+    if (change == gear_change::cast || affect.location != APPLY_SPELL) {
+        return true;
+    }
+
+    /* The spell number, decoded as affect_modify decodes it. */
+    const int spell_number = affect.modifier & 255;
+    return item_spell_is_worn_affect(spell_number);
+}
+
+/* Deals <wearer> the blow of the poison its gear has just given it: 5 damage, then death at 0 hit
+ * points or fewer. <wearer_watch> watches the wearer, and <item_watch>, when not null, the item
+ * going on. Returns false as soon as either is freed. */
+static bool deal_gear_poison_blow(char_data* wearer, const freed_watch& wearer_watch,
+    const freed_watch* item_watch)
+{
+    extern void raw_kill(struct char_data* character, const char_data* killer, int attack_type);
+
+    auto anything_freed = [&wearer_watch, item_watch]() -> bool {
+        return wearer_watch.freed() || (item_watch != nullptr && item_watch->freed());
+    };
+
+    damage(wearer, wearer, 5, SPELL_POISON, 0);
+    if (anything_freed()) {
+        return false;
+    }
+
+    if (GET_HIT(wearer) <= 0) {
+        act("$n suddenly collapses on the ground.",
+            TRUE, wearer, 0, 0, TO_ROOM);
+        send_to_char("Your body failed to the magic.\n\r", wearer);
+        raw_kill(wearer, nullptr, 0);
+        if (anything_freed()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool equip_char(char_data* character, obj_data* item, int item_slot, gear_change change)
 {
     int was_poisoned = IS_AFFECTED(character, AFF_POISON);
 
@@ -1361,12 +1458,12 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
         sprintf(buf, "SYSERR: Char is already equipped: %s, %s", GET_NAME(character),
             item->short_description);
         log(buf);
-        return;
+        return true;
     }
 
     if (item->in_room != NOWHERE) {
         log("SYSERR: EQUIP: Obj is in_room when equip.");
-        return;
+        return true;
     }
 
     if ((IS_OBJ_STAT(item, ITEM_ANTI_EVIL) && IS_EVIL(character)) || (IS_OBJ_STAT(item, ITEM_ANTI_GOOD) && IS_GOOD(character)) || (IS_OBJ_STAT(item, ITEM_ANTI_NEUTRAL) && IS_NEUTRAL(character))) {
@@ -1375,7 +1472,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
             act("You are zapped by $p and instantly drop it.", FALSE, character, item, 0, TO_CHAR);
             act("$n is zapped by $p and instantly drops it.", FALSE, character, item, 0, TO_ROOM);
             obj_to_char(item, character); /* changed to drop in inventory instead of ground */
-            return;
+            return true;
         } else
             log("SYSERR: ch->in_room = NOWHERE when equipping char.");
     }
@@ -1386,7 +1483,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
             act("You are zapped by $p and instantly drop it.", FALSE, character, item, 0, TO_CHAR);
             act("$n is zapped by $p and instantly drops it.", FALSE, character, item, 0, TO_ROOM);
             obj_to_char(item, character); /* changed to drop in inventory instead of ground */
-            return;
+            return true;
         } else
             log("SYSERR: ch->in_room = NOWHERE when equipping char.");
     }
@@ -1404,7 +1501,7 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
     IS_CARRYING_W(character) += GET_OBJ_WEIGHT(item);
 
     if ((item_slot == HOLD) && !CAN_WEAR(item, ITEM_HOLD))
-        return;
+        return true;
 
     if (GET_ITEM_TYPE(item) == ITEM_ARMOR)
         SET_DODGE(character) += item->obj_flags.value[3];
@@ -1429,30 +1526,91 @@ void equip_char(char_data* character, obj_data* item, int item_slot)
         }
     }
 
-    for (int j = 0; j < MAX_OBJ_AFFECT; j++)
-        affect_modify(character, item->affected[j].location,
-            item->affected[j].modifier,
+    /* An item spell (APPLY_SPELL) is cast on the wearer as it goes on, and a harmful one can kill
+     * the wearer or set off a script that removes the wearer or the item. A death that leaves the
+     * wearer (a player) strips the item off, and its remaining affects then do not apply. A spell
+     * a quiet change passes over still gives the item's bitvector, as every affect does. */
+    freed_watch wearer_watch(character);
+    freed_watch item_watch(item);
+    for (int affect_index = 0; affect_index < MAX_OBJ_AFFECT; affect_index++) {
+        if (!changes_wearer_through_affect(item, affect_index, change)) {
+            affect_modify(character, APPLY_NONE, 0, item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
+            continue;
+        }
+        affect_modify(character, item->affected[affect_index].location,
+            item->affected[affect_index].modifier,
             item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
+        if (wearer_watch.freed() || item_watch.freed()) {
+            return false;
+        }
+        if (character->equipment[item_slot] != item) {
+            return true;
+        }
+    }
 
     affect_total(character);
 
     // Special case for poisoned objects.  The wearer should get poison damage
     // when wearing/removing something poisoned.
-    if (was_poisoned == 0 && IS_AFFECTED(character, AFF_POISON)) {
-        extern void raw_kill(struct char_data * character, const char_data * killer, int attacktype);
-
-        damage(character, character, 5, SPELL_POISON, 0);
-
-        if (GET_HIT(character) <= 0) {
-            act("$n suddenly collapses on the ground.",
-                TRUE, character, 0, 0, TO_ROOM);
-            send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, 0);
-        }
+    if (change == gear_change::cast && was_poisoned == 0 && IS_AFFECTED(character, AFF_POISON)) {
+        return deal_gear_poison_blow(character, wearer_watch, &item_watch);
     }
+    return true;
 }
 
-struct obj_data* unequip_char(struct char_data* ch, int pos)
+bool cast_quietly_worn_gear(char_data* wearer, poison_before_gear prior_poison,
+    const death_watch* stop_at_death)
+{
+    if (wearer == nullptr) {
+        log("SYSERR: cast_quietly_worn_gear called for no wearer.");
+        return true;
+    }
+
+    auto death_stops_casting = [stop_at_death]() -> bool {
+        return stop_at_death != nullptr && stop_at_death->died();
+    };
+
+    // Each cast is the one equip_char makes for the same affect. A death strips the gear off, so
+    // the slots after it are empty.
+    freed_watch wearer_watch(wearer);
+    for (int item_slot = 0; item_slot < MAX_WEAR && !death_stops_casting(); item_slot++) {
+        obj_data* item = wearer->equipment[item_slot];
+        // equip_char gives an item in the hold slot that cannot be held none of its affects.
+        if (item == nullptr || (item_slot == HOLD && !CAN_WEAR(item, ITEM_HOLD))) {
+            continue;
+        }
+
+        freed_watch item_watch(item);
+        for (int affect_index = 0; affect_index < MAX_OBJ_AFFECT; affect_index++) {
+            if (changes_wearer_through_affect(item, affect_index, gear_change::quiet)) {
+                continue;
+            }
+            affect_modify(wearer, item->affected[affect_index].location,
+                item->affected[affect_index].modifier,
+                item->obj_flags.bitvector, AFFECT_MODIFY_SET, 0);
+            if (wearer_watch.freed()) {
+                return false;
+            }
+
+            if (item_watch.freed() || wearer->equipment[item_slot] != item
+                || death_stops_casting()) {
+                break;
+            }
+        }
+    }
+
+    affect_total(wearer);
+
+    // Every item's poison flag is already on, so the blow comes once, after every spell: the one
+    // equip_char deals for the first item that poisons its wearer.
+    if (prior_poison == poison_before_gear::absent && IS_AFFECTED(wearer, AFF_POISON)
+        && !death_stops_casting()) {
+        return deal_gear_poison_blow(wearer, wearer_watch, nullptr);
+    }
+    return true;
+}
+
+struct obj_data* unequip_char(struct char_data* ch, int pos, gear_change change)
 {
     int j;
     int was_poisoned = 0;
@@ -1501,29 +1659,75 @@ struct obj_data* unequip_char(struct char_data* ch, int pos)
         }
     }
 
-    for (j = 0; j < MAX_OBJ_AFFECT; j++)
+    /* Taking off an item that casts a spell (APPLY_SPELL) casts it again, and a harmful one can
+     * kill the wearer or set off a script that removes it. The item is then nobody's. A spell a
+     * quiet change passes over still takes the item's bitvector away, as every affect does. */
+    freed_watch wearer_watch(ch);
+    for (j = 0; j < MAX_OBJ_AFFECT; j++) {
+        if (!changes_wearer_through_affect(obj, j, change)) {
+            affect_modify(ch, APPLY_NONE, 0, obj->obj_flags.bitvector, AFFECT_MODIFY_REMOVE, 0);
+            continue;
+        }
         affect_modify(ch, obj->affected[j].location,
             obj->affected[j].modifier,
             obj->obj_flags.bitvector, AFFECT_MODIFY_REMOVE, 0);
+        if (wearer_watch.freed()) {
+            obj->carried_by = nullptr;
+            return obj;
+        }
+    }
 
     affect_total(ch);
 
     // Special case for poisoned objects.  The wearer should get poison damage
-    // when wearing/removing something poisoned.
-    if (was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON)) {
+    // when wearing/removing something poisoned. A dying wearer being stripped, or one in no room
+    // (being removed from the game), is not hurt: that death would be a second one.
+    if (change == gear_change::cast && was_poisoned != 0 && !IS_AFFECTED(ch, AFF_POISON)
+        && GET_POS(ch) > POSITION_DEAD && ch->in_room != NOWHERE) {
         extern void raw_kill(struct char_data * ch, const char_data * killer, int attacktype);
 
         damage(ch, ch, 5, SPELL_POISON, 0);
+        if (wearer_watch.freed()) {
+            obj->carried_by = nullptr;
+            return obj;
+        }
 
         if (GET_HIT(ch) <= 0) {
             act("$n suddenly collapses on the ground.",
                 TRUE, ch, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", ch);
             raw_kill(ch, NULL, 0);
+            if (wearer_watch.freed()) {
+                obj->carried_by = nullptr;
+            }
         }
     }
 
     return (obj);
+}
+
+bool extract_worn_gear(char_data* wearer, gear_change change)
+{
+    freed_watch wearer_watch(wearer);
+    for (int slot = 0; slot < MAX_WEAR; ++slot) {
+        if (!wearer->equipment[slot]) {
+            continue;
+        }
+        obj_data* taken_off = unequip_char(wearer, slot, change);
+        extract_obj(taken_off);
+        if (wearer_watch.freed()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void extract_carried_objects(char_data* holder)
+{
+    // extract_obj takes each object off the holder's list, so the list empties.
+    while (holder->carrying) {
+        extract_obj(holder->carrying);
+    }
 }
 
 int get_number(char** name)
@@ -1779,7 +1983,12 @@ void obj_from_room(struct obj_data* object)
         for (i = world[object->in_room].contents; i && (i->next_content != object); i = i->next_content)
             ;
 
-        i->next_content = object->next_content;
+        if (i) {
+            i->next_content = object->next_content;
+        } else {
+            /* Not in its room's list: there is nothing to unlink it from. */
+            log("SYSERR: obj_from_room: object is not in its room's contents list.");
+        }
     }
 
     if (GET_ITEM_TYPE(object) == ITEM_LIGHT) {
@@ -2011,6 +2220,9 @@ void extract_char(struct char_data* ch, int new_room)
 
     extern struct char_data* combat_list;
     extern struct char_data* waiting_list;
+
+    /* A character lent another room leaves the one it stands in, and its belongings fall there. */
+    room_lend::end_for(ch);
 
     if (!IS_NPC(ch) && !ch->desc) {
         for (t_desc = descriptor_list; t_desc; t_desc = t_desc->next)
@@ -2345,61 +2557,61 @@ struct obj_data* create_money(int amount)
     char buf[200];
 
     struct obj_data* obj;
-    struct extra_descr_data* new_descr;
 
     if (amount <= 0) {
         log("SYSERR: Try to create negative or 0 money.");
         exit(1);
     }
 
-    CREATE(obj, struct obj_data, 1);
-    CREATE(new_descr, struct extra_descr_data, 1);
+    obj = new obj_data();
     clear_object(obj);
+    object_text::fields text;
+    object_text::extra_description look;
     if (amount == 1) {
-        obj->name = str_dup("coin money copper");
-        obj->short_description = str_dup("a coin");
-        obj->description = str_dup("One miserable copper coin is lying here.");
-        new_descr->keyword = str_dup("coin gold");
-        new_descr->description = str_dup("It's just one miserable little copper coin.");
+        text.name = "coin money copper";
+        text.short_description = "a coin";
+        text.description = "One miserable copper coin is lying here.";
+        look.keyword = "coin gold";
+        look.description = "It's just one miserable little copper coin.";
     } else {
-        obj->name = str_dup("coins money gold");
+        text.name = "coins money gold";
         if (amount <= 100) {
-            obj->short_description = str_dup("a small pile of coins");
-            obj->description = str_dup("A small pile of coins is lying here.");
+            text.short_description = "a small pile of coins";
+            text.description = "A small pile of coins is lying here.";
         } else if (amount <= 1000) {
-            obj->short_description = str_dup("a pile of coins");
-            obj->description = str_dup("A pile of coins is lying here.");
+            text.short_description = "a pile of coins";
+            text.description = "A pile of coins is lying here.";
         } else if (amount <= 25000) {
-            obj->short_description = str_dup("a large heap of coins");
-            obj->description = str_dup("A large heap of coins is lying here.");
+            text.short_description = "a large heap of coins";
+            text.description = "A large heap of coins is lying here.";
         } else if (amount <= 500000) {
-            obj->short_description = str_dup("a huge mound of coins");
-            obj->description = str_dup("A huge mound of coins is lying here.");
+            text.short_description = "a huge mound of coins";
+            text.description = "A huge mound of coins is lying here.";
         } else {
-            obj->short_description = str_dup("an enormous mountain of coins");
-            obj->description = str_dup("An enormous mountain of money is lying here.");
+            text.short_description = "an enormous mountain of coins";
+            text.description = "An enormous mountain of money is lying here.";
         }
 
-        new_descr->keyword = str_dup("coins money gold");
+        look.keyword = "coins money gold";
         if (amount < COPP_IN_SILV) {
             sprintf(buf, "There are %d copper coins.", amount);
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else if (amount < COPP_IN_GOLD) {
             sprintf(buf, "There are about %d silver coins.", (amount / COPP_IN_SILV));
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else if (amount < 10 * COPP_IN_GOLD) {
             sprintf(buf, "It looks to be about %d gold coins.", (amount / COPP_IN_GOLD));
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else if (amount < 100 * COPP_IN_GOLD) {
             sprintf(buf, "You guess there are, maybe, %d gold coins.",
                 10 * ((amount / 10 / COPP_IN_GOLD)));
-            new_descr->description = str_dup(buf);
+            look.description = buf;
         } else
-            new_descr->description = str_dup("There is a lot of gold.");
+            look.description = "There is a lot of gold.";
     }
 
-    new_descr->next = 0;
-    obj->ex_description = new_descr;
+    text.extra_descriptions.push_back(std::move(look));
+    obj->set_text(create_object_text(std::move(text)));
 
     obj->obj_flags.type_flag = ITEM_MONEY;
     obj->obj_flags.wear_flags = ITEM_TAKE;

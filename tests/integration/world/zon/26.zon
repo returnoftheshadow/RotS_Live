@@ -1,0 +1,18 @@
+#26
+Harness dressing hall~
+Zone for the zone dressing and runaway script scenarios: a squire a reset dresses, and rooms of hear-script mobs that answer each other. Map (15,21).
+~
+~
+0
+? 15 21 5
+2699
+999
+2
+M 128 2600 2601 0 100 100 1 1 squire loads only while a player is in the zone, never at boot
+E 2 2610 6 0 100 0 0 0 iron sallet worn on the head
+E 2 2611 6 0 100 0 0 0 spare bascinet for the filled head slot: refused
+P 2 -1 2612 -1 0 100 0 flint into the last object loaded, which the refused row left empty
+K 2 2613 2614 2615 0 0 0 0 sabatons, tabard and whetstone given, then worn
+G 2 2616 0 0 100 0 leather satchel carried
+P 2 -1 2617 -1 0 100 0 acorn into the last object loaded: the satchel
+S

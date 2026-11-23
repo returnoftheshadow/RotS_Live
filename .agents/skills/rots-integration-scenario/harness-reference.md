@@ -167,7 +167,7 @@ a usage error naming the variable. `ROTS_IT_KEEP` (only `1` counts) and
 | `ROTS_IT_LOCK_WAIT` | `600` | seconds the Docker launcher waits for the lock |
 | `ROTS_IT_DOCKER_LOCK_DIR` | `/tmp/rots-docker-lock` | the shared lock directory |
 | `ROTS_IT_HOUR_TIMEOUT` | `10.0` | seconds `advance_hours` allows per game hour; the wait is `hours * timeout + 10` |
-| `ROTS_IT_SHARD` | unset | `k/N`: keeps every N-th selected test in sorted node id order from the k-th (`rots_harness/sharding.py`); CI shards only a run of every group, eight ways. An empty share passes |
+| `ROTS_IT_SHARD` | unset | `k/N`: keeps the k-th of N shares of the selected tests, balanced by the times in `tests/integration/shard_durations.json` (`rots_harness/sharding.py`); CI shards only a run of every group, `INTEGRATION_SHARDS` ways. An empty share passes, with or without `JOBS` workers |
 | `ROTS_IT_ALLOW_STALE` | unset | `1` runs a program older than its sources; not checked by `validate_environment()` |
 | `ROTS_IT_CONFIRM_MINUTES` | `10` | the estimate from which `make integration` without a terminal needs `CONFIRM=yes`; checked by `rots_harness/run_plan.py`, not by `validate_environment()` |
 
@@ -185,6 +185,7 @@ Each test gets `build/integration/runs/<12 hex>/`:
 | `game.log` | the server's stderr, and its stdout too on plain `ageland` (`real_login`) |
 | `stdout.log` | `ageland_harness`'s ordinary stdout lines; its `harness: ` lines (the ready line and replies) are not written here |
 | `<lowercase name>.txt` | one transcript per character, appended on every read, colour codes removed |
+| `game.boot-<n>.log`, `stdout.boot-<n>.log` | after `server.restart()`, the logs of the server the restart stopped, numbered from 1 |
 
 A passing test's directory is deleted. It is kept when `ROTS_IT_KEEP=1`, when any test in the
 session has failed, when the server's checks fail, when the run is interrupted, or when setup
@@ -202,7 +203,7 @@ leave them; other kept directories are someone else's evidence.
 sanitizer marker, `Error: signal`, any `SYSERR` line (none is allowed today), the server exiting
 during the test, and after the stop a non-zero status or a status 0 without the
 `Received SIGHUP, SIGINT, or SIGTERM` line. A session that does not answer `quit` also fails the
-test.
+test. `server.restart()` checks the stop it makes the same way, and fails the test at that point.
 
 A program that is missing, or older than the newest `.cpp` or `.h` file it is built from, stops
 each test that runs it at setup with the build command (`ServerLauncher.require_program` and
@@ -299,12 +300,15 @@ SPL: (  4hr) <affect name> ...
 `wizset ... saving_throw` sets, not the result of every save calculation (see the wizset table).
 The `SPL:` lines (one per affect) come last, after `VUL:`. Several
 lines end in `]`, which `command()` takes for a prompt, so read the reply with
-`send_line(f"stat player {name}")`, then `expect(["VUL:"])` and `drain(1.0)`. Parse with, for
-example, `re.search(r"Saving throws (-?\d+),", text)`,
-`re.search(r"Class levels: Mag:(\d+) Cle:(\d+) Ran:(\d+) War:(\d+)", text)`, and for an
-ability's current, base and constant `re.search(r"Int:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]", text)`
-(the same with `Str`, `Wil`, `Dex`, `Con`, `Lea`; `\s*` covers the space the format string puts
-after `Con:`).
+`stat_reading.read_stat(implementor, f"player {name}")`, which waits for `VUL:` and settles
+(`OBJECT_STAT_LAST_LINE` for `stat obj` and a room). Read a value with
+`text_lines.first_number(pattern, text)` and the patterns in `stat_reading`:
+`SAVING_THROW_PATTERN`, `LEVEL_PATTERN`, `MAGE_LEVEL_PATTERN`, `HIT_POINTS_PATTERN`,
+`STRENGTH_PATTERN`, `CONSTITUTION_PATTERN`, `LEARNING_PATTERN`, `PRACTICE_SESSIONS_PATTERN`, and
+`affect_bits` for the AFF line (shared-helpers.md, "Stat"). A pattern only one scenario file
+reads, such as the other class levels or another ability, stays in that file, in the same form:
+`re.compile(r"Int:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")` (`\s*` covers the space the format string
+puts after `Con:`).
 
 `stat player` finds the character by exact name whichever side it is on, but only if the
 implementor can see it: for a character in a dark room, send `set holylight on` first (reply
@@ -424,6 +428,9 @@ What an observer reads for a character is `PERS` (`utility.cpp`): the name, a st
 | --- | --- |
 | `login(name)` | brings the character into the game and returns its `GameSession`; it is quit after the test |
 | `advance_hours(n)` | runs `n` game hours on a schedule server and returns when the server acknowledges them; fails the test without `@pytest.mark.schedule`, including on the real-time schedule |
+| `relog(session)` | quits the session's character, logs it in again and returns the new session; rebind your name to it |
+| `text_after_hours(session, hours, expected_marker, settle=)` | runs the hours and returns what the session read, up to `expected_marker` when given, then settles |
+| `restart()` | stops the server with SIGTERM while every session is still logged in, as a service stop does, closes the sessions without quitting them, and boots a new server of the same binary and schedule on the same lib; log in again with `login`, which takes the new server's entry token. Fails the test when the stop shows problems |
 | `run_dir`, `lib_dir` | the run directory and the test's lib |
 
 `GameSession` (`rots_harness/session.py`):
@@ -459,13 +466,17 @@ What helpers return in odd states (`do_look`, `act_info.cpp`): a character who c
 a sleeping one gets `You can't see anything, you're sleeping!`; a blind one gets
 `You can't see a damned thing, you're blinded!`.
 
-One example, abridged from `scenarios/test_poison.py`:
+The shared helpers over these (`reply_to`, `read_stat`, `goto`, `give_new_object`, ...) are in
+[shared-helpers.md](shared-helpers.md). One example, abridged from `scenarios/test_poison.py`:
 
 ```python
+from rots_harness import world
+from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import EATEN_POISON_REPLY, POISON_TICK
+from rots_harness.immortal_commands import give_new_object, goto, wizset
+
 pytestmark = [pytest.mark.scenario, pytest.mark.poison]
 
-# What the mortal reads on each poison tick.
-POISON_TICK_MARKER = "You writhe in pain as poison courses through your veins."
 # A level-20 human warrior in the arena: a mortal, since immortals are not poisoned by food.
 MORTAL = Character(name="Testeater", race="human", sex="male", level=20,
                    load_room=world.ROOM_ARENA_CENTRE, class_name="warrior")
@@ -474,17 +485,18 @@ MORTAL = Character(name="Testeater", race="human", sex="male", level=20,
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, MORTAL)
 def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server) -> None:
+    """Pins that tainted bread hurts a mortal once in each of POISON_HOURS game hours, then stops."""
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
-    set_hunger = implementor.command("wizset testeater hunger 10")
-    assert set_hunger.contains("hunger set to 10."), set_hunger.text
-    implementor.command("goto testeater")
-    assert implementor.command("load obj 1139").contains("You create")
-    assert implementor.command("give bread testeater").contains("You give")
-    assert mortal.command("eat bread").contains("Oops, that tasted rather strange!")
-    server.advance_hours(1)
-    first_hour = mortal.expect([POISON_TICK_MARKER]) + mortal.drain(1.0)
-    assert first_hour.count(POISON_TICK_MARKER) == 1, first_hour
+    mortal_keyword = MORTAL.name.lower()
+    wizset(implementor, mortal_keyword, "hunger", HUNGER_BEFORE_EATING)
+    goto(implementor, mortal_keyword)
+    give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", mortal_keyword)
+    eaten = mortal.command("eat bread")
+    assert eaten.contains(EATEN_POISON_REPLY), eaten.text
+
+    first_hour = server.text_after_hours(mortal, expected_marker=POISON_TICK)
+    assert first_hour.count(POISON_TICK) == 1, first_hour
 ```
 
 ### Timing rules
@@ -507,8 +519,9 @@ def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server
   (`target_check`, `target_check_one`), so a target test such as `CAN_SEE` can gate a
   behaviour twice: once when the command is typed and once when it completes. A bite check or
   a fix must open both.
-- After `advance_hours` returns, the server has run the passes; `drain(1.0)` (or `expect` on
-  the hour's marker, then `drain`) collects text already sent.
+- After `advance_hours` returns, the server has run the passes, so reading on collects text
+  already sent: `server.text_after_hours(session, hours, expected_marker)` advances and reads in
+  one call, waiting for the hour's own text when it is given.
 - Regeneration (`fast_update`) runs inside every advanced hour, and the hourly update runs
   before it in the same pass: assert hit points once, after the first hour, or as a range.
 
@@ -596,8 +609,9 @@ fixtures are found as below, so a branch that adds an area edits no shared list 
   is, which scenarios rely on it). Fixtures outside every zone's own vnums (`mob/14.mob`,
   `mob/15.mob`, `mob/guildmasters.mob`, `obj/14.obj`) are in `world/notes/shared.md`.
 - **The world files** for anything else, decoded as "File formats" below.
-- **Room constants**: `rots_harness/world.py` holds the rooms that two or more scenario files, or
-  the harness itself, name. A room only one scenario file names is a constant in that file.
+- **Shared fixtures**: `rots_harness/world.py` holds the rooms, objects and mobs that two or more
+  scenario files, or the harness itself, name, with their room names, short descriptions and
+  keywords. A fixture only one scenario file names is a constant in that file.
 
 ### Rules and gotchas
 
@@ -719,17 +733,19 @@ file ends with a `#99999` record, which `count_hash_records` (`db.cpp`) counts o
 - A mob: a special needs the `MOB_SPEC` act flag as well as the program number. Place it with a
   zone reset row, a test's `world_resets` marker or `load mob`.
 - An object the object editor must load goes in its zone's file.
-- Record each new fixture's purpose and quirks in its zone's notes file, and name a room in
-  `rots_harness/world.py` only when a second scenario file needs it.
+- Record each new fixture's purpose and quirks in its zone's notes file, and name a room, object
+  or mob in `rots_harness/world.py` (with its row in `unit/test_world.py`) only when a second
+  scenario file needs it.
 
 ## Scenario territory and harness territory
 
 | Scenario territory | Harness territory (extending-the-harness.md) |
 | --- | --- |
 | `tests/integration/scenarios/test_<group>.py` | `tests/integration/conftest.py` |
-| `tests/integration/world/`, its notes files included | `tests/integration/rots_harness/` other than `world.py` |
-| room constants shared by two scenario files, in `rots_harness/world.py` | `tests/integration/unit/` |
+| `tests/integration/world/`, its notes files included | the rest of `tests/integration/rots_harness/` (session, launcher, schedules, CI) |
+| a helper or constant a second scenario file needs, added to its shared module (shared-helpers.md, "Where a new shared name goes") with its unit test | `tests/integration/unit/` other than those tests |
 | a group or subgroup file in `tests/integration/groups/` | `src/harness/`, `src/tools/rotstool/` |
 
-A helper or constant used by one scenario file stays in that file, as `hit_points` does in
-`test_poison.py` and `ROOM_BANK_HALL` in `test_bank.py`.
+A helper or constant used by one scenario file stays in that file, as `ROOM_BANK_HALL` does in
+`test_bank.py`. A shared addition runs every CI group, since CI treats any edit under
+`rots_harness/` as a harness change.

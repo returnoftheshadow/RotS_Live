@@ -1,0 +1,37 @@
+#2501
+Trigger Hall~
+A bare hall where the script trigger scenarios start. An open arch leads north
+and a hatch closes off a closet to the east.
+~
+25 0 0 0
+D0
+~
+~
+0 0 2502 5
+D1
+~
+hatch~
+3 0 2503 5
+S
+#2502
+Trigger Chamber~
+A small chamber north of the trigger hall, where whoever comes in is noticed.
+~
+25 0 0 0
+D2
+~
+~
+0 0 2501 5
+S
+#2503
+Lever Closet~
+A cramped closet behind the hatch west of it.
+~
+25 0 0 0
+D3
+~
+hatch~
+3 0 2501 5
+S
+#99999
+$~

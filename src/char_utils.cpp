@@ -1746,8 +1746,17 @@ std::string player_damage_details::get_damage_report(const char_data* character)
             const attack_hit_type& hit_text = get_hit_text(ability_index);
             sprintf(ability_name, "%-24s", hit_text.singular);
         } else {
-            const skill_data& skill = skills[iter->first];
-            sprintf(ability_name, "%-24s", skill.name);
+            // Only skills have names here; other attack types (TYPE_SUFFERING) get a numbered label.
+            const char* skill_name = nullptr;
+            if (ability_index >= 0 && ability_index < MAX_SKILLS) {
+                skill_name = skills[ability_index].name;
+            }
+            char unnamed_label[sizeof(ability_name)];
+            if (skill_name == nullptr || *skill_name == '\0') {
+                snprintf(unnamed_label, sizeof(unnamed_label), "attack type %d", ability_index);
+                skill_name = unnamed_label;
+            }
+            snprintf(ability_name, sizeof(ability_name), "%-24s", skill_name);
         }
 
         const damage_details& details = iter->second;

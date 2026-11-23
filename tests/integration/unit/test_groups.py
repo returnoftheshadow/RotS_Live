@@ -53,11 +53,14 @@ def test_group_files_give_each_group_its_description_in_name_order(tmp_path: Pat
     (tmp_path / "summon.txt").write_text("summon cannot reach a dark room\n", encoding="utf-8")
     (tmp_path / "boot.txt").write_text("\n  the server boots  \n\n", encoding="utf-8")
     (tmp_path / "README.md").write_text("not a group\n", encoding="utf-8")
-    assert read_group_descriptions(tmp_path) == {"boot": "the server boots", "summon": "summon cannot reach a dark room"}
+    assert read_group_descriptions(tmp_path) == {
+        "boot": "the server boots",
+        "summon": "summon cannot reach a dark room",
+    }
 
 
 def write_group_tree(groups_dir: Path) -> None:
-    """Two top-level groups, shaping with two subgroups, and files the reader ignores."""
+    """Write two top-level groups, shaping with two subgroups, and files the reader ignores."""
     (groups_dir / "shaping.txt").write_text("the shaping editors\n", encoding="utf-8")
     (groups_dir / "boot.txt").write_text("the server boots\n", encoding="utf-8")
     (groups_dir / "shaping").mkdir()
@@ -97,7 +100,9 @@ def test_a_subfolder_without_its_group_file_is_refused(tmp_path: Path) -> None:
     (tmp_path / "boot.txt").write_text("the server boots\n", encoding="utf-8")
     (tmp_path / "shaping").mkdir()
     (tmp_path / "shaping" / "zone_editor.txt").write_text("the zone editor\n", encoding="utf-8")
-    with pytest.raises(GroupFileError, match=f"folder {tmp_path.name}/shaping has no group file {tmp_path.name}/shaping.txt"):
+    with pytest.raises(
+        GroupFileError, match=f"folder {tmp_path.name}/shaping has no group file {tmp_path.name}/shaping.txt"
+    ):
         read_groups(tmp_path)
 
 
@@ -114,7 +119,12 @@ def test_hidden_and_cache_folders_are_ignored(tmp_path: Path, folder_name: str) 
     (tmp_path / folder_name).mkdir()
     (tmp_path / folder_name / "stray.txt").write_text("not a group\n", encoding="utf-8")
     (tmp_path / "shaping" / folder_name).mkdir()
-    assert [group.name for group in read_groups(tmp_path)] == ["boot", "shaping", "shaping_commands", "shaping_zone_editor"]
+    assert [group.name for group in read_groups(tmp_path)] == [
+        "boot",
+        "shaping",
+        "shaping_commands",
+        "shaping_zone_editor",
+    ]
 
 
 def test_a_folder_inside_a_subgroup_folder_is_refused(tmp_path: Path) -> None:
@@ -142,7 +152,10 @@ def test_a_subgroup_file_without_exactly_one_line_is_refused(tmp_path: Path) -> 
 def test_a_subgroup_named_like_a_top_level_group_is_refused(tmp_path: Path) -> None:
     write_group_tree(tmp_path)
     (tmp_path / "shaping_zone_editor.txt").write_text("the zone editor again\n", encoding="utf-8")
-    with pytest.raises(GroupFileError, match=r"shaping_zone_editor.txt registers shaping_zone_editor, which .*zone_editor.txt also registers"):
+    with pytest.raises(
+        GroupFileError,
+        match=r"shaping_zone_editor.txt registers shaping_zone_editor, which .*zone_editor.txt also registers",
+    ):
         read_groups(tmp_path)
 
 
@@ -171,12 +184,19 @@ def test_a_test_with_its_group_and_one_subgroup_breaks_no_rule() -> None:
 
 def test_a_test_of_a_group_with_subgroups_needs_one_of_them() -> None:
     problems = subgroup_marking_problems([("test_a.py::test_one", {"scenario", "shaping"})], SUBGROUPS)
-    assert problems == ["test_a.py::test_one: marks shaping but none of its subgroups (shaping_commands, shaping_zone_editor)"]
+    assert problems == [
+        "test_a.py::test_one: marks shaping but none of its subgroups (shaping_commands, shaping_zone_editor)"
+    ]
 
 
 def test_a_test_marking_two_subgroups_of_one_group_is_reported() -> None:
-    problems = subgroup_marking_problems([("test_a.py::test_one", {"shaping", "shaping_zone_editor", "shaping_commands"})], SUBGROUPS)
-    assert problems == ["test_a.py::test_one: marks 2 subgroups of shaping (shaping_commands, shaping_zone_editor); a test marks exactly one"]
+    problems = subgroup_marking_problems(
+        [("test_a.py::test_one", {"shaping", "shaping_zone_editor", "shaping_commands"})], SUBGROUPS
+    )
+    assert problems == [
+        "test_a.py::test_one: marks 2 subgroups of shaping "
+        "(shaping_commands, shaping_zone_editor); a test marks exactly one"
+    ]
 
 
 def test_a_subgroup_without_its_group_is_reported() -> None:
@@ -192,7 +212,8 @@ def test_every_problem_of_every_test_is_reported_in_order() -> None:
     ]
     assert subgroup_marking_problems(tests, SUBGROUPS) == [
         "test_a.py::test_one: marks shaping but none of its subgroups (shaping_commands, shaping_zone_editor)",
-        "test_a.py::test_three: marks 2 subgroups of shaping (shaping_commands, shaping_zone_editor); a test marks exactly one",
+        "test_a.py::test_three: marks 2 subgroups of shaping "
+        "(shaping_commands, shaping_zone_editor); a test marks exactly one",
         "test_a.py::test_three: marks the subgroup shaping_commands without its group shaping",
         "test_a.py::test_three: marks the subgroup shaping_zone_editor without its group shaping",
     ]
@@ -213,25 +234,27 @@ def test_a_group_file_without_exactly_one_line_is_refused(tmp_path: Path, text: 
 
 
 def pytest_ini_marker_names() -> set[str]:
-    """The markers pytest.ini registers itself, none of them a group."""
+    """Return the markers pytest.ini registers itself, none of them a group."""
     parser = configparser.ConfigParser(interpolation=None)
     parser.read(INTEGRATION_ROOT / "pytest.ini", encoding="utf-8")
     return set(registered_marker_names(parser.get("pytest", "markers").splitlines()))
 
 
 def scenario_marker_names() -> set[str]:
-    """Every name a scenario file uses as pytest.mark.<name>."""
+    """Return every name a scenario file uses as pytest.mark.<name>."""
     names = set()
     for path in (INTEGRATION_ROOT / "scenarios").glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            is_mark = isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "mark"
+            is_mark = (
+                isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "mark"
+            )
             if is_mark and isinstance(node.value.value, ast.Name) and node.value.value.id == "pytest":
                 names.add(node.attr)
     return names
 
 
 def decorator_marker_names(decorators: list[ast.expr]) -> set[str]:
-    """The names X of every pytest.mark.X in the decorator expressions, called or not."""
+    """Return the names X of every pytest.mark.X in the decorator expressions, called or not."""
     names = set()
     for decorator in decorators:
         names |= mark_names(decorator)
@@ -239,27 +262,34 @@ def decorator_marker_names(decorators: list[ast.expr]) -> set[str]:
 
 
 def mark_names(expression: ast.AST) -> set[str]:
-    """The names X of every pytest.mark.X inside expression."""
+    """Return the names X of every pytest.mark.X inside expression."""
     names = set()
     for node in ast.walk(expression):
-        is_mark = isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "mark"
+        is_mark = (
+            isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute) and node.value.attr == "mark"
+        )
         if is_mark and isinstance(node.value.value, ast.Name) and node.value.value.id == "pytest":
             names.add(node.attr)
     return names
 
 
 def pytestmark_names(body: list[ast.stmt]) -> set[str]:
-    """The marker names a module or class body's pytestmark assignment gives every test in it."""
+    """Return the marker names a module or class body's pytestmark gives every test in it."""
     names = set()
     for statement in body:
-        if isinstance(statement, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in statement.targets):
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "pytestmark" for target in statement.targets
+        ):
             names |= mark_names(statement.value)
     return names
 
 
 def scenario_tests_and_markers(source: str, file_name: str) -> list[tuple[str, set[str]]]:
-    """Each test function in a scenario file's source, as "<file>::[<class>::]<test>", with the markers
-    its module pytestmark, its class (decorators and pytestmark) and its own decorators give it."""
+    """Return each test function in a scenario file's source, with its markers.
+
+    Each is "<file>::[<class>::]<test>", with the markers its module pytestmark, its class
+    (decorators and pytestmark) and its own decorators give it.
+    """
     tree = ast.parse(source)
     module_markers = pytestmark_names(tree.body)
     tests = []
@@ -270,7 +300,12 @@ def scenario_tests_and_markers(source: str, file_name: str) -> list[tuple[str, s
             class_markers = module_markers | decorator_marker_names(node.decorator_list) | pytestmark_names(node.body)
             for method in node.body:
                 if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and method.name.startswith("test"):
-                    tests.append((f"{file_name}::{node.name}::{method.name}", class_markers | decorator_marker_names(method.decorator_list)))
+                    tests.append(
+                        (
+                            f"{file_name}::{node.name}::{method.name}",
+                            class_markers | decorator_marker_names(method.decorator_list),
+                        )
+                    )
     return tests
 
 

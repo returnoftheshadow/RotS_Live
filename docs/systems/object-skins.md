@@ -98,7 +98,7 @@ vnum or `0`:
 | own vnum | `An object can't be its own base.` |
 | missing vnum | `There is no obj N.` |
 | a key | `Keys can't have skins.` |
-| a note | `Notes can't have skins.` (a player writing on a note edits its text in place; a restyle would swap it underneath) |
+| a note | `Notes can't have skins.` (a note shows what a player wrote on it; a restyle would replace that with its target's) |
 | a skin | `Obj N is a skin of obj M; use /23 M.` |
 | the object being edited already has skins | `Obj N has skins (a, b); it can't become a skin.` (list is cut with `...` to fit 78 columns) |
 | valid | `This object is now a skin of obj N (<name>).`, `Stats, values, affects and flags now come from N.`, and `Cost was X, now follows base (Y).` / `Material was X, now follows base (Y).` when they changed. `skin_own` is reset to 0. |
@@ -133,10 +133,9 @@ the object has no prototype, it is already that vnum, or the two are not in the 
 the family of its skins; an unrelated object is not).
 
 It stays the same `obj_data` and `*new` is set to it. Only these change: the prototype counts
-(`obj_index[old].number` down, `obj_index[target].number` up), `item_number`, the five text
-pointers (`name`, `short_description`, `description`, `action_description`, `ex_description`) now
-point at the target prototype's text, and cost, material, `skin_base` and `skin_own` come from the
-target prototype. Everything else stays as it is: place (worn slot, inventory, container or room,
+(`obj_index[old].number` down, `obj_index[target].number` up), `item_number`, the text it shows
+(`name`, `short_description`, `description`, `action_description`, `ex_description`) is now the
+target prototype's, and cost, material, `skin_base` and `skin_own` come from the target prototype. Everything else stays as it is: place (worn slot, inventory, container or room,
 and the position in the list), contents, the rest of `obj_flags` (flags, timer, values...),
 affects, enchants, script, `loaded_by`, `owner`, `touched`. Nothing moves, so the character's
 weight, carry and affect totals are not touched, and a caller still holding the object is safe:
@@ -144,26 +143,23 @@ object triggers (ON_WEAR, ON_EAT, ON_DRINK, ON_PULL, ON_EXAMINE_OBJECT, a mob's 
 using their object after a `RESTYLE_OBJ` in their own script.
 
 Drink container names: filling and emptying change a container's name
-(`name_to_drinkcon` / `name_from_drinkcon`, `act_obj2.cpp:53-81`). A prototype that starts full
+(`name_to_drinkcon` / `name_from_drinkcon`, `act_obj2.cpp`). A prototype that starts full
 has its liquid as the first name word ("water flask leather"); emptying strips the first word and
 filling puts the new liquid in front. Restyle builds the new name the same way
-(`drink_name_from`, `object_skins.cpp:190`): it takes the target's name, drops its first word if the
+(`drink_name_from`, `object_skins.cpp`): it takes the target's name, drops its first word if the
 target prototype starts full, and puts the copy's own liquid in front if the copy is full. So a
 full water flask restyled to "water jug clay" is "water jug clay", an empty one is "jug clay", and
 one refilled with wine is "wine jug clay".
 
-Known issue worked around: the copy's old name is never freed. After an implement of a drink
-prototype, older copies can share one name string that looks like a copy's own (it differs from
-the new prototype's name). Freeing it on restyle would leave the other copies pointing at freed
-memory, so restyle leaks a few bytes per restyle of a drink container instead. The existing
-fill/empty code (`name_to_drinkcon` / `name_from_drinkcon`) still frees in this case and has the
-same hazard; it is not changed here. Revisit if drink names get a real owned/shared marker.
+A copy shows a shared `object_text` (`object_text.h`), which never changes and goes when the last
+object showing it does. A restyled copy shares the target prototype's, unless it is a drink container
+whose rebuilt name differs from the target's; then it gets one of its own with that name.
 
-Any other text that differs from the prototype's is either the prototype's text from before an
-implement (`implement_object` repoints the prototype and leaves the old text to the copies that
-use it), shared with other copies, or a short description a script set with `ASSIGN_STR obN.name`
-(see `docs/shape_script.md`). Neither is freed. A restyle replaces a script-set name with the new
-look's; that name was never saved anyway, so it would have gone at the next reload.
+The text a copy showed before a restyle is the old prototype's, its text from before an implement
+(`implement_object` gives the prototype a new text and leaves the old one to the copies that show
+it), or one of its own: a drink container's name, or a short description a script set with
+`ASSIGN_STR obN.name` (see `docs/shape_script.md`). A restyle lets go of it, so one of a copy's own
+goes at once. A script-set name was never saved anyway, so it would have gone at the next reload.
 
 ### `restyle` command
 

@@ -206,18 +206,9 @@ void write_room(FILE* f, const struct room_data* m, int num)
     fprintf(f, "S\n\r");
 }
 
-/*
- * This was the previous definition of SUBT that was used
- * when the Windows processing macro was defined.  It's
- * interesting because it releases real->, unless our
- * current SUBST().
- * #define SUBST(x)                              \
- *  if (real->x)                                \
- *    RELEASE(real->x);                         \
- *  CREATE(real->x, char, strlen(curr->x) + 1); \
- *  strcpy(real->x, curr->x);                   \
- */
+/* Copies the editor's text x over the live room's, freeing the text it replaces. */
 #define SUBST(x)                                \
+    RELEASE(real->x);                           \
     CREATE(real->x, char, strlen(curr->x) + 1); \
     strcpy(real->x, curr->x);
 
@@ -252,10 +243,7 @@ void implement_room(const struct char_data* ch)
     SUBST(name);
     SUBST(description);
 
-    real->sector_type = curr->sector_type;
-
-    if (real->sector_type >= num_of_sector_types)
-        real->sector_type = num_of_sector_types - 1;
+    real->sector_type = checked_sector_type(curr->sector_type, real->number);
 
     tmpdescr = real->ex_description;
     while (tmpdescr) {
@@ -314,6 +302,7 @@ void implement_room(const struct char_data* ch)
                 SUBST(dir_option[i]->general_description);
             } else {
                 //	  real->dir_option[i]->general_description=(char *)calloc(1,1);
+                RELEASE(real->dir_option[i]->general_description);
                 CREATE(real->dir_option[i]->general_description, char, 1);
             }
             SUBST(dir_option[i]->keyword);
@@ -355,6 +344,8 @@ void implement_room(const struct char_data* ch)
             return;                                                   \
         } else {                                                      \
             if (SHAPE_ROOM(ch)->tmpstr) {                             \
+                /* The session owns the text replaced. */             \
+                RELEASE(addr);                                        \
                 addr = SHAPE_ROOM(ch)->tmpstr;                        \
                 clean_record_text(addr);                              \
             }                                                         \
@@ -701,6 +692,8 @@ void shape_center_room(struct char_data* ch, char* arg)
                 }
             }
             if (SHAPE_ROOM(ch)->room->dir_option[tmp]) {
+                RELEASE(SHAPE_ROOM(ch)->room->dir_option[tmp]->general_description);
+                RELEASE(SHAPE_ROOM(ch)->room->dir_option[tmp]->keyword);
                 RELEASE(SHAPE_ROOM(ch)->room->dir_option[tmp]);
                 SHAPE_ROOM(ch)
                     ->room->dir_option[tmp]
@@ -1388,8 +1381,14 @@ int create_room(struct char_data* ch, const char* arg)
     char str[255], fname[80];
     FILE* f;
     //  struct extra_descr_data * tmpdescr;
-    if (2 != sscanf(arg, "%s %s\n\r", str, fname)) {
+    if (2 != sscanf(arg, "%254s %79s\n\r", str, fname)) {
         send_to_char("format: create <zone number>\n\r", ch);
+        REMOVE_BIT(SHAPE_ROOM(ch)->flags, SHAPE_ROOM_LOADED);
+        return -1;
+    }
+    if (!shape_file_name_fits(SHAPE_ROM_DIR, fname, sizeof(SHAPE_ROOM(ch)->f_from))
+        || !shape_file_name_fits(SHAPE_ROM_BACKDIR, fname, sizeof(SHAPE_ROOM(ch)->f_old))) {
+        send_to_char("That file name is too long.\n\r", ch);
         REMOVE_BIT(SHAPE_ROOM(ch)->flags, SHAPE_ROOM_LOADED);
         return -1;
     }
@@ -1581,12 +1580,16 @@ int append_room(struct char_data* ch, const char* arg)
     return -1;
   }*/
     if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_FILENAME)) {
-        if (2 != sscanf("%s %s", str, fname)) {
+        if (2 != sscanf(arg, "%254s %79s", str, fname)) {
             if (!IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_FILENAME)) {
                 send_to_char("No file defined to write into. Use 'add <filename>\n\r'",
                     ch);
                 return -1;
             }
+        } else if (!shape_file_name_fits(SHAPE_ROM_DIR, fname, sizeof(SHAPE_ROOM(ch)->f_from))
+            || !shape_file_name_fits(SHAPE_ROM_BACKDIR, fname, sizeof(SHAPE_ROOM(ch)->f_old))) {
+            send_to_char("That file name is too long.\n\r", ch);
+            return -1;
         } else {
             sprintf(SHAPE_ROOM(ch)->f_from, SHAPE_ROM_DIR, fname);
             sprintf(SHAPE_ROOM(ch)->f_old, SHAPE_ROM_BACKDIR, fname);
@@ -1707,12 +1710,20 @@ void free_room(struct char_data* ch)
     if (!SHAPE_ROOM(ch))
         return;
     if (IS_SET(SHAPE_ROOM(ch)->flags, SHAPE_ROOM_LOADED)) {
-        for (i = 0; i < NUM_OF_DIRS; i++)
+        for (i = 0; i < NUM_OF_DIRS; i++) {
+            room_direction_data* const room_exit = SHAPE_ROOM(ch)->room->dir_option[i];
+            if (room_exit) {
+                RELEASE(room_exit->general_description);
+                RELEASE(room_exit->keyword);
+            }
             RELEASE(SHAPE_ROOM(ch)->room->dir_option[i]);
+        }
 
         tmpdescr = SHAPE_ROOM(ch)->room->ex_description;
         while (tmpdescr) {
             tmpdescr2 = tmpdescr->next;
+            RELEASE(tmpdescr->keyword);
+            RELEASE(tmpdescr->description);
             RELEASE(tmpdescr);
             tmpdescr = tmpdescr2;
         }

@@ -3,11 +3,14 @@
 #include "structs.h"
 
 #include "handler.h"
+#include "object_text.h"
 #include "spells.h"
 #include "utils.h"
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <utility>
 
 //============================================================================
 // Utility functions that take in an obj_data object.
@@ -332,4 +335,24 @@ bool obj_data::is_ranged_weapon() const
     }
 
     return false;
+}
+
+//============================================================================
+void obj_data::set_text(std::shared_ptr<const object_text> new_text)
+{
+    text = std::move(new_text);
+    if (!text) {
+        name = nullptr;
+        short_description = nullptr;
+        description = nullptr;
+        action_description = nullptr;
+        ex_description = nullptr;
+        return;
+    }
+    /* The fields are char* for the many functions that read them; nothing writes through them. */
+    name = const_cast<char*>(text->name());
+    short_description = const_cast<char*>(text->short_description());
+    description = const_cast<char*>(text->description());
+    action_description = const_cast<char*>(text->action_description());
+    ex_description = const_cast<extra_descr_data*>(text->extra_descriptions());
 }

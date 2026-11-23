@@ -20,13 +20,15 @@ GROUP_DESCRIPTIONS = {
 POISON_SCENARIO = "tests/integration/scenarios/test_poison.py"
 # The poison scenario's source.
 POISON_SOURCE = "pytestmark = [pytest.mark.scenario, pytest.mark.poison]\n"
-# The base the tests name, and the commit it resolves to.
+# The base the tests name.
 BASE = "origin/release-frodo-next"
+# The commit BASE resolves to.
 BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
-# The git argument lists changed_paths runs: committed changes since the base's merge base,
-# uncommitted changes to tracked files, and untracked files.
+# The git argument list changed_paths runs for committed changes since the base's merge base.
 COMMITTED_COMMAND = ["diff", "--name-only", "-z", "--no-renames", f"{BASE_COMMIT}...HEAD"]
+# The git argument list changed_paths runs for uncommitted changes to tracked files.
 UNCOMMITTED_COMMAND = ["diff", "--name-only", "-z", "--no-renames", "HEAD"]
+# The git argument list changed_paths runs for untracked files.
 UNTRACKED_COMMAND = ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"]
 # The git argument list resolve_base runs for BASE.
 RESOLVE_COMMAND = ["rev-parse", "--verify", "--end-of-options", f"{BASE}^{{commit}}"]
@@ -41,7 +43,7 @@ def select(*changed: str) -> ci_groups.Selection:
 
 
 class FakeGit:
-    """Answers the git commands changed_paths runs with canned output, recording each argument list."""
+    """Answers changed_paths' git commands with canned output, recording each argument list."""
 
     def __init__(self, outputs: dict[tuple[str, ...], str]) -> None:
         # The standard output each git argument list prints.
@@ -123,7 +125,10 @@ def test_a_changed_scenario_file_with_subgroups_runs_only_its_subgroups() -> Non
 
 def test_a_changed_scenario_file_also_runs_the_groups_of_the_files_that_import_it() -> None:
     importer = "tests/integration/scenarios/test_summon.py"
-    sources = {POISON_SCENARIO: POISON_SOURCE, importer: "from test_poison import DOSE\npytestmark = [pytest.mark.scenario, pytest.mark.summon]\n"}
+    sources = {
+        POISON_SCENARIO: POISON_SOURCE,
+        importer: "from test_poison import DOSE\npytestmark = [pytest.mark.scenario, pytest.mark.summon]\n",
+    }
     selection = changed_groups.select_local_groups([POISON_SCENARIO], sources.get, GROUPS, None, sorted(sources))
     assert selection.groups == ["boot", "poison", "summon"]
 
@@ -131,7 +136,9 @@ def test_a_changed_scenario_file_also_runs_the_groups_of_the_files_that_import_i
 def test_a_changed_game_header_runs_every_group() -> None:
     selection = select(POISON_SCENARIO, "src/structs.h")
     assert selection.groups is None
-    assert selection.reasons == ["every group: header src/structs.h changed, and constants and layouts in headers reach any scenario"]
+    assert selection.reasons == [
+        "every group: header src/structs.h changed, and constants and layouts in headers reach any scenario"
+    ]
 
 
 def test_a_changed_game_header_runs_every_group_only_locally() -> None:
@@ -151,10 +158,14 @@ def test_a_changed_unit_test_header_selects_no_group() -> None:
 def test_a_changed_build_file_runs_every_group() -> None:
     selection = select("src/CMakeLists.txt")
     assert selection.groups is None
-    assert selection.reasons == ["every group: src/CMakeLists.txt changed, and its compile settings reach every program"]
+    assert selection.reasons == [
+        "every group: src/CMakeLists.txt changed, and its compile settings reach every program"
+    ]
 
 
-@pytest.mark.parametrize("path", ["lib/text/news", "lib/text/help/spells", *(f"lib/misc/{name}" for name in libbuilder.TRACKED_MISC_FILES)])
+@pytest.mark.parametrize(
+    "path", ["lib/text/news", "lib/text/help/spells", *(f"lib/misc/{name}" for name in libbuilder.TRACKED_MISC_FILES)]
+)
 def test_a_changed_lib_file_the_harness_copies_runs_every_group(path: str) -> None:
     selection = select(path)
     assert selection.groups is None
@@ -176,7 +187,7 @@ def test_changed_game_code_is_listed_without_selecting_a_group() -> None:
 
 
 def write_repo(repo_root: Path) -> None:
-    """A repository with one file per group in GROUP_DESCRIPTIONS and the poison scenario."""
+    """Write a repository with one file per group in GROUP_DESCRIPTIONS and the poison scenario."""
     groups_dir = repo_root / ci_groups.GROUPS_DIRECTORY
     groups_dir.mkdir(parents=True)
     for name, description in GROUP_DESCRIPTIONS.items():
@@ -187,7 +198,10 @@ def write_repo(repo_root: Path) -> None:
 
 
 class FakeRun:
-    """Stands in for subprocess.run: answers git as a repository at repo_root would, and records every other command."""
+    """Stands in for subprocess.run.
+
+    It answers git as a repository at repo_root would, and records every other command.
+    """
 
     def __init__(self, repo_root: Path, committed: str, make_status: int = 0, base_known: bool = True) -> None:
         # The repository's top level, which rev-parse --show-toplevel prints.
@@ -221,7 +235,19 @@ class FakeRun:
 
 def run_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_run: FakeRun, *extra: str) -> int:
     monkeypatch.setattr(changed_groups.subprocess, "run", fake_run)
-    return changed_groups.main(["--repo-root", str(tmp_path / "repo" / "tests"), "--base", BASE, "--python", ".venv/bin/python", "--make", "gmake", *extra])
+    return changed_groups.main(
+        [
+            "--repo-root",
+            str(tmp_path / "repo" / "tests"),
+            "--base",
+            BASE,
+            "--python",
+            ".venv/bin/python",
+            "--make",
+            "gmake",
+            *extra,
+        ]
+    )
 
 
 def make_fake_run(tmp_path: Path, committed: str, **options: object) -> FakeRun:
@@ -230,17 +256,23 @@ def make_fake_run(tmp_path: Path, committed: str, **options: object) -> FakeRun:
     return FakeRun(repo_root, committed, **options)  # type: ignore[arg-type]
 
 
-def test_main_runs_make_integration_with_the_chosen_groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_runs_make_integration_with_the_chosen_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     fake_run = make_fake_run(tmp_path, f"{POISON_SCENARIO}\0", make_status=1)
     assert run_main(tmp_path, monkeypatch, fake_run) == 1
-    assert fake_run.commands == [(["gmake", "integration", "PYTHON=.venv/bin/python", "GROUP=boot or poison"], tmp_path / "repo")]
+    assert fake_run.commands == [
+        (["gmake", "integration", "PYTHON=.venv/bin/python", "GROUP=boot or poison"], tmp_path / "repo")
+    ]
     printed = capsys.readouterr().out
     assert f"since {BASE} ({BASE_COMMIT[:12]})" in printed
     assert "- poison: test_poison.py changed\n" in printed
     assert "GROUP=boot or poison" in printed
 
 
-def test_main_runs_every_scenario_with_an_empty_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_runs_every_scenario_with_an_empty_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     fake_run = make_fake_run(tmp_path, "src/structs.h\0")
     assert run_main(tmp_path, monkeypatch, fake_run) == 0
     # An empty GROUP on the command line overrides one exported or passed to the parent make.
@@ -248,27 +280,42 @@ def test_main_runs_every_scenario_with_an_empty_group(tmp_path: Path, monkeypatc
     assert "every group" in capsys.readouterr().out
 
 
-def test_main_runs_git_at_the_top_level_against_the_resolved_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_runs_git_at_the_top_level_against_the_resolved_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake_run = make_fake_run(tmp_path, "")
     run_main(tmp_path, monkeypatch, fake_run, "--list-only")
-    assert fake_run.git_commands == [["rev-parse", "--show-toplevel"], RESOLVE_COMMAND, COMMITTED_COMMAND, UNCOMMITTED_COMMAND, UNTRACKED_COMMAND]
+    assert fake_run.git_commands == [
+        ["rev-parse", "--show-toplevel"],
+        RESOLVE_COMMAND,
+        COMMITTED_COMMAND,
+        UNCOMMITTED_COMMAND,
+        UNTRACKED_COMMAND,
+    ]
 
 
-def test_main_list_only_prints_the_choice_and_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_list_only_prints_the_choice_and_runs_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     fake_run = make_fake_run(tmp_path, f"{POISON_SCENARIO}\0")
     assert run_main(tmp_path, monkeypatch, fake_run, "--list-only") == 0
     assert fake_run.commands == []
     assert "GROUP=boot or poison" in capsys.readouterr().out
 
 
-def test_main_escapes_a_file_name_that_is_not_utf8_in_its_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    # git's output is decoded with surrogateescape, so the name's 0xE9 byte arrives as the surrogate U+DCE9.
+def test_main_escapes_a_file_name_that_is_not_utf8_in_its_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # git's output is decoded with surrogateescape, so the name's 0xE9 byte arrives as the surrogate
+    # U+DCE9.
     fake_run = make_fake_run(tmp_path, "lib/text/caf\udce9\0")
     assert run_main(tmp_path, monkeypatch, fake_run, "--list-only") == 0
     assert "- every group: lib/text/caf\\udce9 changed" in capsys.readouterr().out
 
 
-def test_main_fails_with_status_2_and_git_words_when_the_base_does_not_resolve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_fails_with_status_2_and_git_words_when_the_base_does_not_resolve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     fake_run = make_fake_run(tmp_path, "", base_known=False)
     assert run_main(tmp_path, monkeypatch, fake_run) == 2
     assert fake_run.commands == []

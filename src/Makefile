@@ -51,6 +51,7 @@ SOURCES := \
     db.cpp \
     delayed_command_interpreter.cpp \
     fight.cpp \
+    freed_watch.cpp \
     game_heartbeat.cpp \
     game_time_text.cpp \
     graph.cpp \
@@ -72,6 +73,7 @@ SOURCES := \
     main.cpp \
     mail.cpp \
     mystic.cpp \
+    note_writing.cpp \
     number_text.cpp \
     mage.cpp \
     mobact.cpp \
@@ -88,9 +90,11 @@ SOURCES := \
     game_boot_options.cpp \
     obj2html.cpp \
     object_skins.cpp \
+    object_text.cpp \
     object_utils.cpp \
     objsave.cpp \
     olog_hai.cpp \
+    owned_character.cpp \
     pkill.cpp \
     player_file_finalize.cpp \
     profs.cpp \
@@ -108,6 +112,7 @@ SOURCES := \
     shapezon.cpp \
     shapescript.cpp \
     shop.cpp \
+    signal_requests.cpp \
     signals.cpp \
     skill_timer.cpp \
     spec_ass.cpp \

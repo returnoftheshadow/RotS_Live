@@ -7,8 +7,10 @@
 
 #include "comm.h" /* For TO_ROOM */
 #include "db.h" /* For buf2 and struct reset_com */
+#include "freed_watch.h"
 #include "handler.h" /* For FOLLOW_MOVE */
 #include "pkill.h" /* For pkill_get_XXX_fame() */
+#include "script.h" /* For release_char_script_state */
 #include "structs.h" /* For struct owner_list */
 #include "utils.h" /* For CREATE */
 #include "zone.h"
@@ -665,6 +667,26 @@ int check_if_flag(int if_flag, int last_cmd, int last_mob, int last_obj, int zon
     return 1;
 }
 
+// Runs <dress>, which puts gear on <in_out_mob> and can free it or <in_out_obj> (see equip_char).
+// Sets <in_out_mob> to null and <out_last_mob> to 0 when the mob was freed, and <in_out_obj> to
+// null when the object was, so the zone commands that follow find no mob or no last object.
+template <typename Dressing>
+static void dress_reset_mob(char_data*& in_out_mob, int& out_last_mob, obj_data*& in_out_obj,
+    Dressing dress)
+{
+    freed_watch mob_watch(in_out_mob);
+    freed_watch object_watch(in_out_obj);
+    dress();
+    if (mob_watch.freed()) {
+        in_out_mob = nullptr;
+        out_last_mob = 0;
+    }
+
+    if (object_watch.freed()) {
+        in_out_obj = nullptr;
+    }
+}
+
 /*
  * Perform a zone reset on the specified zone.  This entails
  * walking over the entire list of zone commands and performing
@@ -686,6 +708,7 @@ void reset_zone(int zone)
     extern struct room_data world;
     extern struct index_data* mob_index;
     extern struct index_data* obj_index;
+    extern struct obj_data* obj_proto;
     extern struct char_data* character_list;
     int set_exit_state(const struct room_data*, int, int);
     void add_follower(struct char_data*, struct char_data*, int mode);
@@ -927,7 +950,8 @@ void reset_zone(int zone)
                     break;
                 case 12: /* Assign script to mob */
                     mob->specials.script_number = ZCMD.arg2;
-                    mob->specials.script_info = 0; /* Probably unnecessary */
+                    // A mob found with 'L' may have run its old script already.
+                    release_char_script_state(mob);
                     break;
                 default:
                     vmudlog(CMP, "Unrecognized 'A' command: %d %d %d in zone #%d.",
@@ -1061,7 +1085,8 @@ void reset_zone(int zone)
                     obj = read_object(ZCMD.arg7, REAL);
                     obj_to_char(obj, mob);
                 }
-                do_wear(mob, "all", 0, 0, 0);
+                dress_reset_mob(mob, last_mob, obj,
+                    [&]() -> void { do_wear(mob, "all", 0, 0, 0); });
                 last_cmd = 1;
                 last_obj = 0;
                 break;
@@ -1073,9 +1098,22 @@ void reset_zone(int zone)
                 if ((!ZCMD.arg3 || obj_index[ZCMD.arg1].number < ZCMD.arg3) && (ZCMD.arg4 == 100 || ZCMD.arg4 > number(0, 99))) {
                     if (ZCMD.arg2 < 0 || ZCMD.arg2 >= MAX_WEAR) {
                         last_cmd = 0;
+                    } else if (mob->equipment[ZCMD.arg2]) {
+                        /* equip_char refuses a filled slot without placing the item, which would
+                         * leave it held by nobody and never freed, so it is not made. The log
+                         * line is the one equip_char wrote. last_cmd stays 1 so the commands
+                         * after this one run as they do when it loads; a 'P' into the last
+                         * object loaded has none to go in. */
+                        char refusal[MAX_STRING_LENGTH];
+                        snprintf(refusal, sizeof(refusal), "SYSERR: Char is already equipped: %s, %s",
+                            GET_NAME(mob), obj_proto[ZCMD.arg1].short_description);
+                        log(refusal);
+                        obj = 0;
+                        last_cmd = 1;
                     } else {
                         obj = read_object(ZCMD.arg1, REAL);
-                        equip_char(mob, obj, ZCMD.arg2);
+                        dress_reset_mob(mob, last_mob, obj,
+                            [&]() -> void { equip_char(mob, obj, ZCMD.arg2); });
                         last_cmd = 1;
                     }
                 } else

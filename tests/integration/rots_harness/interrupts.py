@@ -1,4 +1,4 @@
-"""Makes SIGTERM and SIGHUP stop a pytest run the way Ctrl-C does, so fixture finalizers still run."""
+"""Makes SIGTERM and SIGHUP stop a pytest run as Ctrl-C does, so fixture finalizers still run."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ INTERRUPT_SIGNAL_NAMES = ("SIGTERM", "SIGHUP")
 
 
 def raise_keyboard_interrupt(signal_number: int, _frame: object) -> None:
-    """Signal handler that turns the signal into a KeyboardInterrupt naming it."""
+    """Raise a KeyboardInterrupt naming the signal, as a signal handler."""
     raise KeyboardInterrupt(f"received {signal.Signals(signal_number).name}")
 
 
 def install_interrupt_handlers() -> Callable[[], None]:
-    """Routes each interrupt signal that still has its default action to raise_keyboard_interrupt.
+    """Route each interrupt signal that still has its default action to raise_keyboard_interrupt.
 
     A signal with any other handler, including SIG_IGN, is left alone. Returns a function that
     puts back the handlers this call replaced. Off the main thread, where Python cannot install

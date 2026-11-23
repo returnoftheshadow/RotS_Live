@@ -20,6 +20,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
@@ -35,6 +36,7 @@
 
 #include "big_brother.h"
 #include "char_utils.h"
+#include "damage_meters.h"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -334,8 +336,15 @@ void show_obj_to_char(struct obj_data* object, struct char_data* ch, int mode)
     else if (object->short_description && ((mode == 1) || (mode == 2) || (mode == 3) || (mode == 4)))
         sprintf(buf, "%s", object->short_description);
     else if (mode == 5) { /* The trigger will deal with what is sent to ch */
-        if (!call_trigger(ON_EXAMINE_OBJECT, object, ch, 0))
+        /* A script that returned false or extracted the object has shown ch all there is; an
+         * extracted object is freed and must not be read, and nor must an examiner the script
+         * removed. */
+        freed_watch examiner_watch(ch);
+        const object_trigger_result examine_result
+            = call_object_trigger(ON_EXAMINE_OBJECT, object, ch);
+        if (examine_result != object_trigger_result::proceed || examiner_watch.freed()) {
             return;
+        }
 
         if (object->obj_flags.type_flag == ITEM_NOTE) {
             if (object->action_description) {
@@ -1515,7 +1524,7 @@ ACMD(do_look)
          */
         else if (!IS_NPC(ch) && !SUN_PENALTY(ch) && IS_AFFECTED(ch, AFF_HUNT) && !IS_AFFECTED(ch, AFF_CONFUSE)) {
             show_tracks(ch, 0, 2);
-            WAIT_STATE(ch, 4);
+            (void)WAIT_STATE(ch, 4);
         }
         break;
 
@@ -1553,7 +1562,12 @@ ACMD(do_examine)
 
     one_argument(argument, name);
     if (*name) {
+        /* The object's examine script can remove the examiner. */
+        freed_watch examiner_watch(ch);
         do_look(ch, argument, wtl, 15, 1);
+        if (examiner_watch.freed()) {
+            return;
+        }
         one_argument(argument, name);
     } else {
         if (!PRF_FLAGGED(ch, PRF_SPAM)) {
@@ -3410,7 +3424,7 @@ ACMD(do_search)
         if (!*argument) {
             send_to_char("You start searching the area.\n\r", ch);
             act("$n searches the area carefully.", TRUE, ch, 0, 0, TO_ROOM);
-            WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 2, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
+            (void)WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 2, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
                 TARGET_OTHER);
             return;
         }
@@ -3426,7 +3440,7 @@ ACMD(do_search)
             return;
         }
 
-        WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 1, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
+        (void)WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 1, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
             TARGET_OTHER);
         break;
 
@@ -3755,14 +3769,15 @@ ACMD(do_fame)
             return;
         }
 
-        bufpt = 0;
+        /* A string, not buf: a day's battles have no fixed count. */
+        std::string battles;
         for (i = 0; i < n; ++i) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            battles += string;
             free(string);
         }
 
-        page_string(ch->desc, buf, 1);
+        page_string(ch->desc, &battles[0], 1);
         return;
     }
 
@@ -3792,13 +3807,14 @@ ACMD(do_fame)
      */
     pkills = pkill_get_all(&n);
     records = 0;
-    bufpt = 0;
+    /* A string, not buf: a player's records have no fixed count. */
+    std::string report;
 
     /* Get the records where the character idx is the killer */
     for (i = 0; i < n; ++i) {
         if (pkills[i].killer == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            report += string;
             free(string);
             ++records;
         }
@@ -3808,7 +3824,7 @@ ACMD(do_fame)
     for (i = 0; i < n; ++i) {
         if (pkills[i].victim == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_SLAIN);
-            bufpt += sprintf(buf + bufpt, string);
+            report += string;
             free(string);
             ++records;
         }
@@ -3817,14 +3833,15 @@ ACMD(do_fame)
     /* Display the total fame */
     asprintf(&string, "%s", player_table[idx].name);
     CAP(string);
-    sprintf(buf + bufpt,
+    snprintf(buf, sizeof(buf),
         "There %s %d record%s found about %s, "
         "total fame %d.\r\n",
         records == 1 ? "was" : "were", records, records == 1 ? "" : "s", string,
         player_table[idx].warpoints / 100);
     free(string);
+    report += buf;
 
-    send_to_char(buf, ch);
+    send_to_char(report.c_str(), ch);
 }
 
 ACMD(do_rank)
@@ -4805,26 +4822,26 @@ void do_details(char_data* character, char* argument, waiting_type* wait_list, i
             send_to_char(spec_data.c_str(), character);
         } else if (strstr(details_argument, DAMAGE_FLAG)) {
             if (strstr(details_argument, RESET_FLAG)) {
-                character->damage_details.reset();
+                reset_damage_meter(*character);
 
                 for (follow_type* follower = character->followers; follower;
                      follower = follower->next) {
                     char_data* follow_char = follower->follower;
                     if (utils::is_npc(*follow_char) && utils::is_affected_by(*follow_char, AFF_CHARM)) {
-                        follow_char->damage_details.reset();
+                        reset_damage_meter(*follow_char);
                     }
                 }
 
                 send_to_char("Damage details have been reset.\r\n", character);
             } else {
-                std::string damage_data = character->damage_details.get_damage_report(character);
+                std::string damage_data = get_damage_meter_report(*character);
                 send_to_char(damage_data.c_str(), character);
 
                 for (follow_type* follower = character->followers; follower;
                      follower = follower->next) {
                     const char_data* follow_char = follower->follower;
                     if (utils::is_npc(*follow_char) && utils::is_affected_by(*follow_char, AFF_CHARM)) {
-                        std::string follower_damage_data = follow_char->damage_details.get_damage_report(follow_char);
+                        std::string follower_damage_data = get_damage_meter_report(*follow_char);
                         send_to_char("\n\r", character);
                         send_to_char(follower_damage_data.c_str(), character);
                     }

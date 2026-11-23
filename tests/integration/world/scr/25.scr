@@ -1,0 +1,168 @@
+#2500 Harness greeter~
+Greets whoever walks into his room, by name (ON_ENTER).~
+11 1 0 0 0 0 0 0
+ someone walking in starts it~
+30 2 100 201 0 0 0 0
+Welcome, %s.~
+999 0 0 0 0 0 0 0
+#2501 Harness warden~
+Turns back anyone below level 50 about to come into his room, and lets the rest in (ON_BEFORE_ENTER).~
+12 1 0 0 0 0 0 0
+ someone about to come in starts it~
+57 2 50 953 0 0 0 0
+ int1 = 50~
+7 3 210 953 0 0 0 0
+ is the one coming in below level 50?~
+1 4 0 0 0 0 0 0
+ ~
+36 5 200 201 0 0 0 0
+The warden bars your way, %s.~
+6 6 0 0 0 0 0 0
+ the one coming in stays out~
+2 7 0 0 0 0 0 0
+ ~
+999 0 0 0 0 0 0 0
+#2502 Harness echoer~
+Has only a yell trigger, which trigger_char_hear runs for speech said in his room (ON_HEAR_YELL).~
+23 1 0 0 0 0 0 0
+ speech in his room starts it~
+30 2 100 201 0 0 0 0
+I hear you, %s.~
+999 0 0 0 0 0 0 0
+#2503 Harness stoic~
+Speaks and refuses every blow struck at him (ON_DAMAGE).~
+18 1 0 0 0 0 0 0
+ a blow at him starts it~
+30 2 100 201 0 0 0 0
+Your blow cannot touch me, %s.~
+6 3 0 0 0 0 0 0
+ the blow deals nothing~
+999 0 0 0 0 0 0 0
+#2504 Harness mourner~
+Speaks as he dies, and lets the death go ahead (ON_DIE).~
+14 1 0 0 0 0 0 0
+ his death starts it~
+30 2 100 0 0 0 0 0
+My watch is ended.~
+999 0 0 0 0 0 0 0
+#2505 Harness stubborn old man~
+Refuses to die: speaks, sets his hit points to 30 and returns false (ON_DIE).~
+14 1 0 0 0 0 0 0
+ his death starts it~
+30 2 100 0 0 0 0 0
+Not yet!~
+57 3 30 111 0 0 0 0
+ ch1.hit = 30~
+6 4 0 0 0 0 0 0
+ he does not die~
+999 0 0 0 0 0 0 0
+#2506 Harness vanisher~
+Tells the room he fades, then removes himself, when he hears speech (ON_HEAR_SAY).~
+17 1 0 0 0 0 0 0
+ speech in his room starts it~
+32 2 102 0 0 0 0 0
+The vanisher fades away.~
+43 3 100 0 0 0 0 0
+ ch1 is removed~
+999 0 0 0 0 0 0 0
+#2507 Harness answerer~
+Answers speech (ON_HEAR_SAY).~
+17 1 0 0 0 0 0 0
+ speech in his room starts it~
+30 2 100 0 0 0 0 0
+I heard that.~
+999 0 0 0 0 0 0 0
+#2508 Harness parrot~
+Says it heard, waits 20 passes (five seconds), then repeats what it heard (ON_HEAR_SAY).~
+17 1 0 0 0 0 0 0
+ speech in its room starts it~
+30 2 100 0 0 0 0 0
+Let me think about that.~
+58 3 20 0 0 0 0 0
+ 20 passes, five seconds~
+30 4 100 950 0 0 0 0
+You said: %s~
+999 0 0 0 0 0 0 0
+#2550 Harness small bell~
+Chimes for whoever walks into its room, by name (ON_ENTER on a floor object).~
+11 1 0 0 0 0 0 0
+ someone walking in starts it~
+36 2 100 101 0 0 0 0
+A small bell chimes for %s.~
+999 0 0 0 0 0 0 0
+#2551 Harness paper lantern~
+Crumbles, and removes itself, when someone walks into its room (ON_ENTER on a floor object).~
+11 1 0 0 0 0 0 0
+ someone walking in starts it~
+36 2 100 0 0 0 0 0
+The paper lantern crumbles to dust.~
+51 3 400 0 0 0 0 0
+ ob1 is removed~
+999 0 0 0 0 0 0 0
+#2553 Harness thorned diadem~
+Refuses to be worn (ON_WEAR returning false).~
+21 1 0 0 0 0 0 0
+ wearing it starts it~
+36 2 100 0 0 0 0 0
+The thorned diadem will not sit on your head.~
+6 3 0 0 0 0 0 0
+ it is not worn~
+999 0 0 0 0 0 0 0
+#2554 Harness silver coronet~
+Speaks and lets itself be worn (ON_WEAR).~
+21 1 0 0 0 0 0 0
+ wearing it starts it~
+36 2 100 0 0 0 0 0
+The silver coronet settles on your brow.~
+999 0 0 0 0 0 0 0
+#2555 Harness iron lever~
+Speaks and lets itself be pulled (ON_PULL).~
+22 1 0 0 0 0 0 0
+ pulling it starts it~
+36 2 100 0 0 0 0 0
+The iron lever creaks.~
+999 0 0 0 0 0 0 0
+#2556 Harness ledger~
+Speaks before its description is shown (ON_EXAMINE_OBJECT).~
+16 1 0 0 0 0 0 0
+ examining it starts it~
+36 2 100 0 0 0 0 0
+The pages of the ledger rustle.~
+999 0 0 0 0 0 0 0
+#2557 Harness honey cake~
+Speaks and returns false, which eating ignores (ON_EAT).~
+19 1 0 0 0 0 0 0
+ eating it starts it~
+36 2 100 0 0 0 0 0
+The honey cake is sweet.~
+6 3 0 0 0 0 0 0
+ eating ignores it~
+999 0 0 0 0 0 0 0
+#2558 Harness flask~
+Speaks and returns false, which drinking ignores (ON_DRINK).~
+20 1 0 0 0 0 0 0
+ drinking from it starts it~
+36 2 100 0 0 0 0 0
+The water in the flask is cold.~
+6 3 0 0 0 0 0 0
+ drinking ignores it~
+999 0 0 0 0 0 0 0
+#2559 Harness dry biscuit~
+Crumbles, and removes itself, as it is eaten (ON_EAT).~
+19 1 0 0 0 0 0 0
+ eating it starts it~
+36 2 100 0 0 0 0 0
+The dry biscuit crumbles away.~
+51 3 400 0 0 0 0 0
+ ob1 is removed~
+999 0 0 0 0 0 0 0
+#2561 Harness rusted crank~
+Refuses to be pulled (ON_PULL returning false).~
+22 1 0 0 0 0 0 0
+ pulling it starts it~
+36 2 100 0 0 0 0 0
+The rusted crank will not move.~
+6 3 0 0 0 0 0 0
+ it is not pulled~
+999 0 0 0 0 0 0 0
+#99999

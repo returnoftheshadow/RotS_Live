@@ -56,7 +56,9 @@ void bind_connection_to_account(descriptor_data& connection, const account::Acco
 // Puts the connection's admitted character into the game, in its load room, and sends the
 // arrival text and a prompt. A body of the character already in the game is taken over
 // instead, as admit_selected_character does. A connection logged in to an account claims its
-// session with claim_account_session first.
+// session with claim_account_session first. When the login's casts free the character, the
+// connection is left with no character and closing; when they extract it with no room to go
+// to, it is left at the character menu.
 void enter_game(descriptor_data& connection);
 
 #endif /* LOGIN_STEPS_H */
