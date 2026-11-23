@@ -102,13 +102,12 @@ bool parse_random_seed_value(std::string_view text, unsigned int& out_seed, std:
 // SIGSEGV.
 void sigsegv_handler(int sig);
 
-class GameTickSchedule;
+struct GameRunSettings;
 
-// Opens the listening socket on port, boots the world, runs the game loop until shutdown and
-// closes the sockets; exits with status 52 instead of returning when a reboot was requested.
-// schedule decides each pass's world updates and is kept alive until the loop ends; with a
-// null schedule no world update runs, and the loss is logged once.
-void run_the_game(sh_int port, std::shared_ptr<GameTickSchedule> schedule);
+// Opens the listening socket on settings.port, boots the world, runs the game loop until
+// shutdown and closes the sockets; exits with status 52 instead of returning when a reboot was
+// requested. GameRunSettings states what each setting does.
+void run_the_game(GameRunSettings settings);
 
 // 1 when connections arrive through the proxy server, set from the -x option at start-up.
 extern int has_proxy;

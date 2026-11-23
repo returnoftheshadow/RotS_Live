@@ -14,7 +14,12 @@ from rots_harness.immortal_commands import CREATED_FORMAT, goto
 from rots_harness.replies import SETTLE_SECONDS
 from rots_harness.text_lines import stripped_lines
 
-pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.account_menu_crowded_floor]
+pytestmark = [
+    pytest.mark.scenario,
+    pytest.mark.account_menu,
+    pytest.mark.account_menu_crowded_floor,
+    pytest.mark.real_login,
+]
 
 # A level-20 human warrior in the arena centre, who looks at the crowded floor.
 ONLOOKER = Character(

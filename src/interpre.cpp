@@ -30,6 +30,7 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
+#include "login_steps.h"
 #include "mail.h"
 #include "mob_progs/banker.h"
 #include "mob_csv_extract.h"
@@ -2418,7 +2419,7 @@ int _parse_name(const char* arg, char* name)
 
 namespace {
 
-const char* kAccountStorageRoot = ".";
+const char* kAccountStorageRoot = ACCOUNT_STORAGE_ROOT;
 const char* kAccountOnlyPasswordMarker = "*ACCOUNT*";
 const int kAccountActiveSessionAlternateCharacterLevel = 91;
 
@@ -2864,89 +2865,11 @@ void show_account_character_list(struct descriptor_data* d, const account::Accou
     SEND_TO_Q(character_list.c_str(), d);
 }
 
-void complete_existing_character_login(struct descriptor_data* d, int load_result)
+// Logs the connection of the admitted character and shows the MOTD, a notice of load_result
+// failed password attempts when there were any, and the character menu.
+static void show_motd_and_character_menu(struct descriptor_data* d, int load_result)
 {
     char buf[1000];
-    struct char_data* tmp_ch;
-
-    if (isbanned(d->host) == BAN_SELECT && !PLR_FLAGGED(d->character, PLR_SITEOK)) {
-        clear_account_backed_object_bytes_for_character(d->character);
-        SEND_TO_Q("Sorry, this character has not been cleared for login from your site!\n\r", d);
-        STATE(d) = CON_CLOSE;
-        vmudlog(NRM, "Connection attempt for %s denied from %s", GET_NAME(d->character), d->host);
-        return;
-    }
-
-    if (GET_LEVEL(d->character) < restrict) {
-        clear_account_backed_object_bytes_for_character(d->character);
-        SEND_TO_Q("The game is temporarily restricted.\r\nTry again later.", d);
-        SEND_TO_Q(wizlock_msg, d);
-        SEND_TO_Q("\n\r", d);
-        STATE(d) = CON_CLOSE;
-        vmudlog(NRM, "Request for login denied for %s [%s] (wizlock)", GET_NAME(d->character), d->host);
-        return;
-    }
-
-    for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
-        if (IS_NPC(tmp_ch) && tmp_ch->desc && tmp_ch->desc->original && GET_IDNUM(tmp_ch->desc->original) == GET_IDNUM(d->character)) {
-            SEND_TO_Q("Disconnecting.", tmp_ch->desc);
-            free_char(d->character);
-            d->character = tmp_ch->desc->original;
-            d->character->desc = d;
-            tmp_ch->desc->character = 0;
-            tmp_ch->desc->original = 0;
-            STATE(tmp_ch->desc) = CON_CLOSE;
-            d->character->specials.timer = 0;
-            SEND_TO_Q("Reconnecting to unswitched char.", d);
-            REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
-            clear_account_backed_object_bytes_for_character(d->character);
-            ppc_apply_account_to_character(d->account_name, d->character);
-            STATE(d) = CON_PLYNG;
-            if (!d->pProtocol)
-                d->pProtocol = ProtocolCreate();
-            ProtocolNegotiate(d);
-            msdp_room_update(d->character);
-            vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
-            return;
-        }
-    }
-
-    for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
-        if (!IS_NPC(tmp_ch) && GET_IDNUM(d->character) == GET_IDNUM(tmp_ch)) {
-            if (!tmp_ch->desc || (!tmp_ch->desc->descriptor)) {
-                SEND_TO_Q("Reconnecting.\n\r", d);
-                act("$n has reconnected.", TRUE, tmp_ch, 0, 0, TO_ROOM);
-                vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
-
-                if (tmp_ch->desc) {
-                    tmp_ch->desc->character = 0;
-                    close_socket(tmp_ch->desc, TRUE);
-                }
-            } else {
-                vmudlog(NRM, "%s [%s] has re-logged in; disconnecting old socket.", GET_NAME(tmp_ch), d->host);
-                SEND_TO_Q("This body has been usurped!\n\r", tmp_ch->desc);
-                STATE(tmp_ch->desc) = CON_CLOSE;
-                tmp_ch->desc->character = 0;
-                tmp_ch->desc = 0;
-                SEND_TO_Q("You take over your own body, already in use!\n\r", d);
-                act("$n has reconnected.\n\r$n's body has been taken over by a new spirit!", TRUE, tmp_ch, 0, 0, TO_ROOM);
-            }
-
-            clear_account_backed_object_bytes_for_character(d->character);
-            free_char(d->character);
-            tmp_ch->desc = d;
-            d->character = tmp_ch;
-            tmp_ch->specials.timer = 0;
-            REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
-            ppc_apply_account_to_character(d->account_name, d->character);
-            STATE(d) = CON_PLYNG;
-            if (!d->pProtocol)
-                d->pProtocol = ProtocolCreate();
-            ProtocolNegotiate(d);
-            msdp_room_update(d->character);
-            return;
-        }
-    }
 
     vmudlog(BRF, "%s [%s] has connected.", GET_NAME(d->character), d->host);
 
@@ -2963,6 +2886,15 @@ void complete_existing_character_login(struct descriptor_data* d, int load_resul
 
     show_character_menu_impl(d);
     STATE(d) = CON_SLCT;
+}
+
+// Admits the connection's selected character and, when it is cleared to enter the game, shows
+// the MOTD and the character menu. load_result is the failed password attempts to report.
+void complete_existing_character_login(struct descriptor_data* d, int load_result)
+{
+    if (admit_selected_character(*d) == Admission::Admitted) {
+        show_motd_and_character_menu(d, load_result);
+    }
 }
 
 void show_account_character_prompt(struct descriptor_data* d, const account::AccountData& account_data)
@@ -3015,9 +2947,7 @@ void persist_roster_sort_if_dirty(struct descriptor_data* d, account::AccountDat
 
 void handle_account_authenticated(struct descriptor_data* d, const account::AccountData& account_data)
 {
-    set_account_login_name(d, account_data.account_name);
-    set_account_login_email(d, account_data.normalized_email);
-    d->bad_pws = 0;
+    bind_connection_to_account(*d, account_data);
     mudlog_account_event(d, "Account login", account_data.normalized_email.c_str());
 
     const std::string login_failure_notice = account::format_account_login_failure_notice(account_data);
@@ -3131,6 +3061,323 @@ static bool ensure_descriptor_character_for_account_selection(struct descriptor_
     return true;
 }
 
+// Joins the connection to its selected character's body when that body is already in the game,
+// link-dead or played by another connection, which is told its body has been usurped. Returns
+// true when joined; the selected character is then freed and the connection is playing.
+static bool reconnect_to_body_in_game(struct descriptor_data* d)
+{
+    struct char_data* tmp_ch;
+
+    for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
+        if (!IS_NPC(tmp_ch) && GET_IDNUM(d->character) == GET_IDNUM(tmp_ch)) {
+            if (!tmp_ch->desc || (!tmp_ch->desc->descriptor)) {
+                SEND_TO_Q("Reconnecting.\n\r", d);
+                act("$n has reconnected.", TRUE, tmp_ch, 0, 0, TO_ROOM);
+                vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
+
+                if (tmp_ch->desc) {
+                    tmp_ch->desc->character = 0;
+                    close_socket(tmp_ch->desc, TRUE);
+                }
+            } else {
+                vmudlog(NRM, "%s [%s] has re-logged in; disconnecting old socket.", GET_NAME(tmp_ch), d->host);
+                SEND_TO_Q("This body has been usurped!\n\r", tmp_ch->desc);
+                STATE(tmp_ch->desc) = CON_CLOSE;
+                tmp_ch->desc->character = 0;
+                tmp_ch->desc = 0;
+                SEND_TO_Q("You take over your own body, already in use!\n\r", d);
+                act("$n has reconnected.\n\r$n's body has been taken over by a new spirit!", TRUE, tmp_ch, 0, 0, TO_ROOM);
+            }
+
+            clear_account_backed_object_bytes_for_character(d->character);
+            free_char(d->character);
+            tmp_ch->desc = d;
+            d->character = tmp_ch;
+            tmp_ch->specials.timer = 0;
+            REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            ppc_apply_account_to_character(d->account_name, d->character);
+            STATE(d) = CON_PLYNG;
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
+            ProtocolNegotiate(d);
+            msdp_room_update(d->character);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// A refused selection whose words are message, which ends in its own line ending.
+static AccountCharacterSelection refused_selection(std::string_view message)
+{
+    AccountCharacterSelection selection;
+    selection.refusal = message;
+    return selection;
+}
+
+// A refused selection whose words are message and then detail, each on a line of its own.
+static AccountCharacterSelection refused_selection(std::string_view message, std::string_view detail)
+{
+    AccountCharacterSelection selection;
+    selection.refusal.append(message);
+    selection.refusal.append("\n\r");
+    selection.refusal.append(detail);
+    selection.refusal.append("\n\r");
+    return selection;
+}
+
+void bind_connection_to_account(descriptor_data& connection, const account::AccountData& account_data)
+{
+    set_account_login_name(&connection, account_data.account_name);
+    set_account_login_email(&connection, account_data.normalized_email);
+    connection.bad_pws = 0;
+}
+
+AccountCharacterSelection select_account_character(descriptor_data& connection,
+    const account::AccountData& account_data, std::string_view character_name)
+{
+    struct descriptor_data* d = &connection;
+    const std::string selected_character_name(character_name);
+    struct char_file_u tmp_store;
+    int player_i;
+    std::string error_message;
+
+    const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
+    if (!account_session_allows_character_selection_with_unlock(account_data, active_sessions, selected_character_name)) {
+        return refused_selection(active_account_session_restriction_message(account_data, active_sessions));
+    }
+
+    std::string object_file_bytes;
+    if (account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
+        if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
+            return refused_selection("That linked character is missing required object-save data in account storage.", error_message);
+        }
+        const std::string character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, selected_character_name);
+        if (!update_player_index_entry_from_store(&tmp_store, character_path.c_str(), &error_message)) {
+            return refused_selection("That linked character cannot be loaded from account storage.", error_message);
+        }
+        player_i = tmp_store.player_index;
+    } else {
+        const std::string read_error = error_message;
+        bool account_character_exists = false;
+        std::string inspect_error;
+        if (!account::inspect_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &account_character_exists, &inspect_error)) {
+            return refused_selection("That linked character could not be loaded from account storage.", inspect_error);
+        }
+        if (account_character_exists) {
+            return refused_selection("That linked character could not be loaded from account storage.", read_error);
+        }
+
+        account::CharacterMigrationData migration;
+        if (!account::ensure_character_migration(kAccountStorageRoot, d->account_name, selected_character_name, time(0), &migration, &error_message)) {
+            return refused_selection("That linked character is not ready for account-backed play yet.", error_message);
+        }
+
+        if (!account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
+            return refused_selection("That linked character could not be loaded from account storage.", error_message);
+        }
+        const std::string character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, selected_character_name);
+        if (!update_player_index_entry_from_store(&tmp_store, character_path.c_str(), &error_message)) {
+            return refused_selection("That linked character cannot be loaded from account storage.", error_message);
+        }
+        player_i = tmp_store.player_index;
+
+        if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
+            return refused_selection("That linked character is missing required object-save data in account storage.", error_message);
+        }
+    }
+
+    if (IS_SET(tmp_store.specials2.act, PLR_DELETED)) {
+        return refused_selection("That linked character is deleted and cannot be selected.\n\r");
+    }
+
+    d->pos = player_i;
+    const bool created_selection_character = ensure_descriptor_character_for_account_selection(d);
+    store_to_char(&tmp_store, d->character);
+    strncpy(d->pwd, tmp_store.pwd, MAX_PWD_LENGTH);
+    d->pwd[MAX_PWD_LENGTH] = '\0';
+
+    AccountCharacterSelection selection;
+    selection.failed_logins = d->character->specials2.bad_pws;
+    d->character->specials2.bad_pws = 0;
+    save_char(d->character, d->character->specials2.load_room, 0);
+    stage_account_backed_object_bytes_for_character(d->character, object_file_bytes.data(), object_file_bytes.size());
+    if (!account::clear_account_character_runtime_support_files(kAccountStorageRoot, selected_character_name, &error_message)) {
+        clear_account_backed_object_bytes_for_character(d->character);
+        if (created_selection_character) {
+            d->character->desc = nullptr;
+            free_char(d->character);
+            d->character = nullptr;
+            d->pos = -1;
+        }
+        return refused_selection("That linked character could not prepare its runtime support files for account-backed play.", error_message);
+    }
+
+    selection.selected = true;
+    return selection;
+}
+
+Admission admit_selected_character(descriptor_data& connection)
+{
+    struct descriptor_data* d = &connection;
+    struct char_data* tmp_ch;
+
+    if (isbanned(d->host) == BAN_SELECT && !PLR_FLAGGED(d->character, PLR_SITEOK)) {
+        clear_account_backed_object_bytes_for_character(d->character);
+        SEND_TO_Q("Sorry, this character has not been cleared for login from your site!\n\r", d);
+        STATE(d) = CON_CLOSE;
+        vmudlog(NRM, "Connection attempt for %s denied from %s", GET_NAME(d->character), d->host);
+        return Admission::Refused;
+    }
+
+    if (GET_LEVEL(d->character) < restrict) {
+        clear_account_backed_object_bytes_for_character(d->character);
+        SEND_TO_Q("The game is temporarily restricted.\r\nTry again later.", d);
+        SEND_TO_Q(wizlock_msg, d);
+        SEND_TO_Q("\n\r", d);
+        STATE(d) = CON_CLOSE;
+        vmudlog(NRM, "Request for login denied for %s [%s] (wizlock)", GET_NAME(d->character), d->host);
+        return Admission::Refused;
+    }
+
+    for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
+        if (IS_NPC(tmp_ch) && tmp_ch->desc && tmp_ch->desc->original && GET_IDNUM(tmp_ch->desc->original) == GET_IDNUM(d->character)) {
+            SEND_TO_Q("Disconnecting.", tmp_ch->desc);
+            free_char(d->character);
+            d->character = tmp_ch->desc->original;
+            d->character->desc = d;
+            tmp_ch->desc->character = 0;
+            tmp_ch->desc->original = 0;
+            STATE(tmp_ch->desc) = CON_CLOSE;
+            d->character->specials.timer = 0;
+            SEND_TO_Q("Reconnecting to unswitched char.", d);
+            REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
+            clear_account_backed_object_bytes_for_character(d->character);
+            ppc_apply_account_to_character(d->account_name, d->character);
+            STATE(d) = CON_PLYNG;
+            if (!d->pProtocol)
+                d->pProtocol = ProtocolCreate();
+            ProtocolNegotiate(d);
+            msdp_room_update(d->character);
+            vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
+            return Admission::Reconnected;
+        }
+    }
+
+    if (reconnect_to_body_in_game(d)) {
+        return Admission::Reconnected;
+    }
+
+    return Admission::Admitted;
+}
+
+bool claim_account_session(descriptor_data& connection,
+    const account::AccountData& account_data, std::string& out_refusal)
+{
+    const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(&connection, account_data);
+    if (!consume_account_character_selection_unlock(account_data, active_sessions, GET_NAME(connection.character))) {
+        out_refusal = active_account_session_restriction_message(account_data, active_sessions);
+        return false;
+    }
+
+    return true;
+}
+
+void enter_game(descriptor_data& connection)
+{
+    struct descriptor_data* d = &connection;
+    char buf[1000];
+    int tmp;
+    long s;
+
+    extern long secs_to_unretire(const struct char_data*);
+
+    if (reconnect_to_body_in_game(d)) {
+        return;
+    }
+
+    reset_char(d->character);
+    // Only a character with no connection is freed by a login's casts (extract_char).
+    if (!load_character(d->character)) {
+        log("SYSERR: enter_game: the character was freed while logging in; "
+            "closing the connection.");
+        d->character = nullptr;
+        STATE(d) = CON_CLOSE;
+        return;
+    }
+    // extract_char with no room to go to sent the character back to the menu.
+    if (d->character->in_room == NOWHERE) {
+        vmudlog(NRM, "SYSERR: %s left the game while logging in; back to the menu.",
+            GET_NAME(d->character));
+        return;
+    }
+    // Apply before saving, never after: save_char writes the character's PPC back to
+    // the account, so saving first would push this character's stale, just-loaded copy
+    // over whatever a sibling character last changed. ppc_store_character_to_account
+    // also refuses to write until the apply has happened, so the invariant holds even
+    // if this ordering is later disturbed -- but the order is what a reader sees first.
+    // The apply also prefers an already-playing sibling's in-memory PPC over the
+    // account file, which can be an autosave interval behind it.
+    ppc_apply_account_to_character(d->account_name, d->character);
+    save_char(d->character, d->character->in_room, 0);
+    STATE(d) = CON_PLYNG;
+    report_news(d->character);
+    report_mail(d->character);
+    send_to_char(WELC_MESSG, d->character);
+
+    send_to_char("\n\r", d->character);
+
+    /* if level 0, start out the new character */
+    if (!GET_LEVEL(d->character)) {
+        do_start(d->character);
+        send_to_char(START_MESSG, d->character);
+    }
+
+    /* set character's energy to full on log-in */
+    d->character->specials.ENERGY = ENE_TO_HIT;
+
+    /* ensure character has correct practice sessions available on log-in */
+    d->character->update_available_practice_sessions();
+
+    /* update msdp room information */
+    if (!d->pProtocol)
+        d->pProtocol = ProtocolCreate();
+    ProtocolNegotiate(d);
+    extern void msdp_room_update(const char_data* ch);
+    msdp_room_update(d->character);
+
+    do_look(d->character, "", 0, 0, 0);
+    Crash_report_object_refreshes(d->character);
+
+    /* report how long they must wait until unretire */
+    if (IS_SET(PLR_FLAGS(d->character), PLR_RETIRED)) {
+        if ((s = secs_to_unretire(d->character)) > 0) {
+            sprintf(buf, "You may unretire in ");
+            if ((tmp = (int)(s / 86400)))
+                sprintf(buf + strlen(buf), "%d day%s.\r\n", tmp,
+                    tmp == 1 ? "" : "s");
+            else if ((tmp = (int)(s / 3600)))
+                sprintf(buf + strlen(buf), "%d hour%s.\r\n", tmp,
+                    tmp == 1 ? "" : "s");
+            else if ((tmp = (int)(s / 60)))
+                sprintf(buf + strlen(buf), "%d minute%s.\r\n", tmp,
+                    tmp == 1 ? "" : "s");
+            else
+                sprintf(buf + strlen(buf), "%ld second%s.\r\n", s,
+                    s == 1 ? "" : "s");
+        } else {
+            sprintf(buf, "You may unretire now.\r\nType leave to leave the retirement home.\r\n");
+        }
+
+        send_to_char(buf, d->character);
+    }
+    d->prompt_mode = 1;
+    REMOVE_BIT(PRF_FLAGS(d->character), PRF_DISPTEXT);
+    d->character->temp = 0;
+    update_memory_list(d->character);
+}
+
 /* The tail of character creation, shared by the prompted and the skipped path so the two
    cannot drift apart. */
 static void finish_new_character_creation(struct descriptor_data* d)
@@ -3180,11 +3427,7 @@ void nanny(struct descriptor_data* d, char* arg)
     int player_i, load_result;
     char tmp_name[20];
     struct char_file_u tmp_store;
-    struct char_data* tmp_ch;
-    int i, tmp;
-    long s;
 
-    extern long secs_to_unretire(const struct char_data*);
     int load_char(char* name, struct char_file_u* char_element);
 
     switch (STATE(d)) {
@@ -3694,106 +3937,10 @@ void nanny(struct descriptor_data* d, char* arg)
                 return;
             }
 
-            const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
-            if (!account_session_allows_character_selection_with_unlock(account_data, active_sessions, selected_character_name)) {
-                SEND_TO_Q(active_account_session_restriction_message(account_data, active_sessions).c_str(), d);
-                show_account_character_prompt(d, account_data);
-                return;
-            }
-
-            std::string object_file_bytes;
-            char selected_name[MAX_INPUT_LENGTH];
-            strncpy(selected_name, selected_character_name.c_str(), sizeof(selected_name) - 1);
-            selected_name[sizeof(selected_name) - 1] = '\0';
-            if (account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
-                if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
-                    SEND_TO_Q("That linked character is missing required object-save data in account storage.\n\r", d);
-                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-                const std::string character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, selected_character_name);
-                if (!update_player_index_entry_from_store(&tmp_store, character_path.c_str(), &error_message)) {
-                    SEND_TO_Q("That linked character cannot be loaded from account storage.\n\r", d);
-                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-                player_i = tmp_store.player_index;
-            } else {
-                const std::string read_error = error_message;
-                bool account_character_exists = false;
-                std::string inspect_error;
-                if (!account::inspect_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &account_character_exists, &inspect_error)) {
-                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
-                    SEND_TO_Q((inspect_error + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-                if (account_character_exists) {
-                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
-                    SEND_TO_Q((read_error + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-
-                account::CharacterMigrationData migration;
-                if (!account::ensure_character_migration(kAccountStorageRoot, d->account_name, selected_character_name, time(0), &migration, &error_message)) {
-                    SEND_TO_Q("That linked character is not ready for account-backed play yet.\n\r", d);
-                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-
-                if (!account::read_account_character_file(kAccountStorageRoot, d->account_name, selected_character_name, &tmp_store, &error_message)) {
-                    SEND_TO_Q("That linked character could not be loaded from account storage.\n\r", d);
-                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-                const std::string character_path = account::account_character_player_path(kAccountStorageRoot, d->account_name, selected_character_name);
-                if (!update_player_index_entry_from_store(&tmp_store, character_path.c_str(), &error_message)) {
-                    SEND_TO_Q("That linked character cannot be loaded from account storage.\n\r", d);
-                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-                player_i = tmp_store.player_index;
-
-                if (!load_object_save_bytes_for_character(kAccountStorageRoot, selected_character_name, &object_file_bytes, &error_message)) {
-                    SEND_TO_Q("That linked character is missing required object-save data in account storage.\n\r", d);
-                    SEND_TO_Q((error_message + "\n\r").c_str(), d);
-                    show_account_character_prompt(d, account_data);
-                    return;
-                }
-            }
-
-            if (IS_SET(tmp_store.specials2.act, PLR_DELETED)) {
-                SEND_TO_Q("That linked character is deleted and cannot be selected.\n\r", d);
-                show_account_character_prompt(d, account_data);
-                return;
-            }
-
-            d->pos = player_i;
-            const bool created_selection_character = ensure_descriptor_character_for_account_selection(d);
-            store_to_char(&tmp_store, d->character);
-            strncpy(d->pwd, tmp_store.pwd, MAX_PWD_LENGTH);
-            d->pwd[MAX_PWD_LENGTH] = '\0';
-
-            load_result = d->character->specials2.bad_pws;
-            d->character->specials2.bad_pws = 0;
-            save_char(d->character, d->character->specials2.load_room, 0);
-            stage_account_backed_object_bytes_for_character(d->character, object_file_bytes.data(), object_file_bytes.size());
-            if (!account::clear_account_character_runtime_support_files(kAccountStorageRoot, selected_character_name, &error_message)) {
-                clear_account_backed_object_bytes_for_character(d->character);
-                if (created_selection_character) {
-                    d->character->desc = nullptr;
-                    free_char(d->character);
-                    d->character = nullptr;
-                    d->pos = -1;
-                }
-                SEND_TO_Q("That linked character could not prepare its runtime support files for account-backed play.\n\r", d);
-                SEND_TO_Q((error_message + "\n\r").c_str(), d);
+            const AccountCharacterSelection selection
+                = select_account_character(*d, account_data, selected_character_name);
+            if (!selection.selected) {
+                SEND_TO_Q(selection.refusal.c_str(), d);
                 show_account_character_prompt(d, account_data);
                 return;
             }
@@ -3802,7 +3949,7 @@ void nanny(struct descriptor_data* d, char* arg)
             // branch above) -- persist a changed sort here too, or it is silently lost every time
             // a player actually plays instead of backing out to the account menu first.
             persist_roster_sort_if_dirty(d, account_data);
-            complete_existing_character_login(d, load_result);
+            complete_existing_character_login(d, selection.failed_logins);
         }
         break;
     case CON_ACCTNEWCNF:
@@ -4462,9 +4609,9 @@ void nanny(struct descriptor_data* d, char* arg)
                     return;
                 }
 
-                const std::vector<ActiveAccountCharacterSession> active_sessions = active_account_character_sessions(d, account_data);
-                if (!consume_account_character_selection_unlock(account_data, active_sessions, GET_NAME(d->character))) {
-                    SEND_TO_Q(active_account_session_restriction_message(account_data, active_sessions).c_str(), d);
+                std::string refusal;
+                if (!claim_account_session(*d, account_data, refusal)) {
+                    SEND_TO_Q(refusal.c_str(), d);
                     discard_descriptor_character_selection(d);
                     show_account_menu(d, account_data);
                     STATE(d) = CON_ACCTMENU;
@@ -4472,123 +4619,7 @@ void nanny(struct descriptor_data* d, char* arg)
                 }
             }
 
-            // new
-            for (tmp_ch = character_list; tmp_ch; tmp_ch = tmp_ch->next) {
-                if (!IS_NPC(tmp_ch) && GET_IDNUM(d->character) == GET_IDNUM(tmp_ch)) {
-                    if (!tmp_ch->desc || (!tmp_ch->desc->descriptor)) {
-                        SEND_TO_Q("Reconnecting.\n\r", d);
-                        act("$n has reconnected.", TRUE, tmp_ch, 0, 0, TO_ROOM);
-                        vmudlog(NRM, "%s [%s] has reconnected.", GET_NAME(d->character), d->host);
-
-                        if (tmp_ch->desc) {
-                            tmp_ch->desc->character = 0;
-                            close_socket(tmp_ch->desc, TRUE);
-                        }
-                    } else {
-                        vmudlog(NRM, "%s [%s] has re-logged in; disconnecting old socket.", GET_NAME(tmp_ch), d->host);
-                        SEND_TO_Q("This body has been usurped!\n\r", tmp_ch->desc);
-                        STATE(tmp_ch->desc) = CON_CLOSE;
-                        tmp_ch->desc->character = 0;
-                        tmp_ch->desc = 0;
-                        SEND_TO_Q("You take over your own body, already in use!\n\r", d);
-                        act("$n has reconnected.\n\r$n's body has been taken over by a new spirit!", TRUE, tmp_ch, 0, 0, TO_ROOM);
-                    }
-
-                    free_char(d->character);
-                    tmp_ch->desc = d;
-                    d->character = tmp_ch;
-                    tmp_ch->specials.timer = 0;
-                    REMOVE_BIT(PLR_FLAGS(d->character), PLR_MAILING | PLR_WRITING);
-                    ppc_apply_account_to_character(d->account_name, d->character);
-                    STATE(d) = CON_PLYNG;
-                    if (!d->pProtocol)
-                        d->pProtocol = ProtocolCreate();
-                    ProtocolNegotiate(d);
-                    msdp_room_update(d->character);
-                    return;
-                }
-            }
-
-            // endnew
-            reset_char(d->character);
-            // Only a character with no connection is freed by a login's casts (extract_char).
-            if (!load_character(d->character)) {
-                log("SYSERR: nanny: the character was freed while logging in; "
-                    "closing the connection.");
-                d->character = nullptr;
-                STATE(d) = CON_CLOSE;
-                return;
-            }
-            // extract_char with no room to go to sent the character back to the menu.
-            if (d->character->in_room == NOWHERE) {
-                vmudlog(NRM, "SYSERR: %s left the game while logging in; back to the menu.",
-                    GET_NAME(d->character));
-                return;
-            }
-            // Apply before saving, never after: save_char writes the character's PPC back to
-            // the account, so saving first would push this character's stale, just-loaded copy
-            // over whatever a sibling character last changed. ppc_store_character_to_account
-            // also refuses to write until the apply has happened, so the invariant holds even
-            // if this ordering is later disturbed -- but the order is what a reader sees first.
-            // The apply also prefers an already-playing sibling's in-memory PPC over the
-            // account file, which can be an autosave interval behind it.
-            ppc_apply_account_to_character(d->account_name, d->character);
-            save_char(d->character, d->character->in_room, 0);
-            STATE(d) = CON_PLYNG;
-            report_news(d->character);
-            report_mail(d->character);
-            send_to_char(WELC_MESSG, d->character);
-
-            send_to_char("\n\r", d->character);
-
-            /* if level 0, start out the new character */
-            if (!GET_LEVEL(d->character)) {
-                do_start(d->character);
-                send_to_char(START_MESSG, d->character);
-            }
-
-            /* set character's energy to full on log-in */
-            d->character->specials.ENERGY = ENE_TO_HIT;
-
-            /* ensure character has correct practice sessions available on log-in */
-            d->character->update_available_practice_sessions();
-
-            /* update msdp room information */
-            if (!d->pProtocol)
-                d->pProtocol = ProtocolCreate();
-            ProtocolNegotiate(d);
-            extern void msdp_room_update(const char_data * ch);
-            msdp_room_update(d->character);
-
-            do_look(d->character, "", 0, 0, 0);
-            Crash_report_object_refreshes(d->character);
-
-            /* report how long they must wait until unretire */
-            if (IS_SET(PLR_FLAGS(d->character), PLR_RETIRED)) {
-                if ((s = secs_to_unretire(d->character)) > 0) {
-                    sprintf(buf, "You may unretire in ");
-                    if ((tmp = (int)(s / 86400)))
-                        sprintf(buf + strlen(buf), "%d day%s.\r\n", tmp,
-                            tmp == 1 ? "" : "s");
-                    else if ((tmp = (int)(s / 3600)))
-                        sprintf(buf + strlen(buf), "%d hour%s.\r\n", tmp,
-                            tmp == 1 ? "" : "s");
-                    else if ((tmp = (int)(s / 60)))
-                        sprintf(buf + strlen(buf), "%d minute%s.\r\n", tmp,
-                            tmp == 1 ? "" : "s");
-                    else
-                        sprintf(buf + strlen(buf), "%ld second%s.\r\n", s,
-                            s == 1 ? "" : "s");
-                } else {
-                    sprintf(buf, "You may unretire now.\r\nType leave to leave the retirement home.\r\n");
-                }
-
-                send_to_char(buf, d->character);
-            }
-            d->prompt_mode = 1;
-            REMOVE_BIT(PRF_FLAGS(d->character), PRF_DISPTEXT);
-            d->character->temp = 0;
-            update_memory_list(d->character);
+            enter_game(*d);
             break;
         case '3':
             SEND_TO_Q(background, d);

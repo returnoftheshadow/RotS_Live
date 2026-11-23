@@ -212,6 +212,7 @@ set(ROTS_TEST_SOURCES
     tests/exploit_record_tests.cpp
     tests/exploits_json_tests.cpp
     tests/interpre_account_menu_tests.cpp
+    tests/login_entry_tests.cpp
     tests/intrusive_list_tests.cpp
     tests/room_lists_tests.cpp
     tests/fight_proc_tests.cpp
@@ -279,12 +280,15 @@ set(ROTS_TEST_SOURCES
     tests/harness_affect_hours_transcript_tests.cpp
     tests/harness_command_line_parser_tests.cpp
     tests/harness_options_tests.cpp
+    tests/harness_run_token_tests.cpp
+    tests/harness_token_entry_policy_tests.cpp
     tests/rescue_tests.cpp
     tests/save_benchmark_tests.cpp
     tests/spell_pa_tests.cpp
     tests/startup_options_tests.cpp
     tests/gtest_main.cpp
     tests/olog_hai_tests.cpp
+    tests/password_login_only_tests.cpp
     tests/number_text_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_skins_tests.cpp
@@ -311,6 +315,16 @@ target_compile_options(rots_server_objects PRIVATE
     -g
 )
 target_link_libraries(rots_server_objects PUBLIC rots_codegen)
+
+# The live server is built from these objects and must not contain the integration harness's
+# code, which lives under harness/.
+get_target_property(ROTS_SERVER_OBJECT_SOURCES rots_server_objects SOURCES)
+foreach(server_source IN LISTS ROTS_SERVER_OBJECT_SOURCES)
+    if(server_source MATCHES "(^|/)harness/")
+        message(FATAL_ERROR "rots_server_objects compiles ${server_source}, which is the integration "
+            "harness's code; harness sources belong in HARNESS_SOURCES.")
+    endif()
+endforeach()
 
 add_executable(ageland main.cpp)
 target_compile_options(ageland PRIVATE
@@ -362,9 +376,12 @@ set(HARNESS_SOURCES
     harness/harness_controlled_schedule.cpp
     harness/harness_options.cpp
     harness/harness_request_registry.cpp
+    harness/real_time_registration.cpp
     harness/request_dispatch.cpp
+    harness/run_token.cpp
     harness/schedule_registry.cpp
     harness/standard_stream_channel.cpp
+    harness/token_entry_policy.cpp
 )
 
 # The test build of the server, whose world time advances only on the integration harness's
@@ -449,6 +466,20 @@ if(BUILD_TESTING)
         DISCOVERY_MODE PRE_TEST
         WORKING_DIRECTORY "${ROTS_REPO_ROOT}"
     )
+
+    # The live server must not contain the integration harness's code, so ageland's symbol table
+    # may name nothing in namespace harness. Listing it needs nm, which a toolchain without
+    # binutils lacks.
+    if(CMAKE_NM)
+        add_test(NAME ageland_has_no_harness_symbols
+            COMMAND "${CMAKE_COMMAND}"
+                "-DNM=${CMAKE_NM}"
+                "-DBINARY=$<TARGET_FILE:ageland>"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_no_harness_symbols.cmake"
+        )
+    else()
+        message(STATUS "No nm program found: skipping the check that ageland holds no harness:: symbols.")
+    endif()
 endif()
 
 set(ROTS_RUNTIME_DIRS

@@ -32,14 +32,17 @@ Every room is sector 0 (`SECT_INSIDE`), level 0, without the `INDOORS` flag, and
 | 2102 | `wand` | oak wand of enchanting, 1 of 1 charge of spell 60, enchant weapon |
 | 2103 | `wand` | ivory wand of sanctuary, 1 of 1 charge of spell 56, sanctuary |
 | 2104 | `staff` | ash staff of insight (`ITEM_STAFF`), 0 of 1 charges of spell 50 |
+| 2105 | `staff` | elm staff of insight, 1 of 1 charge of spell 50 |
 
 - The sash drives its wearer's maximum hit points to a clamp: `fast_update` (`limits.cpp`)
   keeps current hit points at or below the maximum on every pass, so no regeneration can lift
   them above it. Its `APPLY_HIT` (`affect_modify`, `handler.cpp`) lowers the current hit points
   with the maximum only when the wearer is at full hit points; otherwise the next pass does it.
-- The wands and the staff answer to `wand` and `staff`; use their second keywords (`birch`,
-  `oak`, `ivory`, `ash`) when a character holds more than one.
+- The wands and the staves answer to `wand` and `staff`; use their second keywords (`birch`,
+  `oak`, `ivory`, `ash`, `elm`) when a character holds more than one.
 - `do_use` (`act_othe.cpp`) draws nothing: a wand or staff with a charge left casts its spell,
   one without says `The wand seems powerless.` or `The staff seems powerless.`
-- The staff has no charge on purpose. Tapped with one, it would cast insight at nobody, which
-  logs a `SYSERR` (the spell refuses a missing victim) that fails any scenario.
+- A staff casts its spell at nobody, so the elm staff's insight refuses its missing victim
+  (`spell_lacks_victim`, `spell_pa.cpp`): it prints `Nothing seems to happen.` and logs a
+  `SYSERR`. A scenario tapping it marks that line with `@pytest.mark.expect_syserr`. The ash
+  staff has no charge, so tapping it casts nothing and logs nothing.

@@ -53,9 +53,10 @@ A schedule decides which world updates each game-loop pass runs (`GameTickSchedu
 4. Add the `.cpp` files to `HARNESS_SOURCES` and the test files to `ROTS_TEST_SOURCES` in
    `src/CMakeLists.txt`.
 5. Python: scenarios use `@pytest.mark.schedule("<name>")`. `TimeControl.wait_ready`
-   (`tests/integration/rots_harness/timecontrol.py`) expects `ready schedule=<name> hours=0`
-   exactly; a schedule with a different ready state needs that check generalised, with its
-   tests in `tests/integration/unit/test_timecontrol.py`.
+   (`entry_token_from_ready_line` in `tests/integration/rots_harness/timecontrol.py`) accepts
+   `ready schedule=<name> [hours=0] entry=<32 hex>`, requiring `hours=0` for a schedule in
+   `SCHEDULES_REPORTING_HOURS`; a schedule with another ready state needs that check
+   generalised, with its tests in `tests/integration/unit/test_timecontrol.py`.
 6. Tests to add or update:
    - the schedule's own tests, like `src/tests/harness_affect_hours_schedule_tests.cpp`, using
      `keeps_the_phase_contract` from `src/tests/game_tick_schedule_contract.h`;

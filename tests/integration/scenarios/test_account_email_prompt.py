@@ -9,7 +9,7 @@ from rots_harness.accounts import account_connection, closes_within
 from rots_harness.characters import IMPLEMENTOR
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 
-pytestmark = [pytest.mark.scenario, pytest.mark.account_login]
+pytestmark = [pytest.mark.scenario, pytest.mark.account_login, pytest.mark.real_login]
 
 # Names the bare connection's transcript file; letters only, like a character's name.
 BLANK_LINE_CONNECTION_NAME = "blankemail"

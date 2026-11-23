@@ -6,6 +6,7 @@
 #include "../owned_character.h"
 #include "../roster_cache.h"
 #include "../utils.h"
+#include "temporary_working_directory.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
@@ -1311,6 +1312,111 @@ TEST_F(AccountManagement, AuthenticatesAccountsByEmailAddress)
 
     EXPECT_FALSE(account::authenticate_account_by_email(temp_directory.path(), "player@example.com", "WrongPass1", nullptr, &error_message));
     EXPECT_EQ(error_message, "Account authentication failed.");
+}
+
+namespace {
+// The account name a refused authentication must leave in the caller's account.
+constexpr char UNTOUCHED_ACCOUNT_NAME[] = "untouched";
+// The test account's name and password, and a password that is not its own.
+constexpr char PINNED_ACCOUNT_NAME[] = "alpha-admin";
+constexpr char PINNED_ACCOUNT_PASSWORD[] = "ValidPass1";
+constexpr char WRONG_PASSWORD[] = "WrongPass1";
+// When the test account was created, verified and blocked; any fixed times will do.
+constexpr long PINNED_ACCOUNT_CREATED_AT = 1700005700;
+
+// Creates the test account in the working directory, verifying its email when verified and
+// blocking it when blocked.
+::testing::AssertionResult create_pinned_account(bool verified, bool blocked)
+{
+    std::string error_message;
+    if (!account::create_account(".", PINNED_ACCOUNT_NAME, "pinned@example.com", PINNED_ACCOUNT_PASSWORD,
+            PINNED_ACCOUNT_CREATED_AT, nullptr, &error_message)) {
+        return ::testing::AssertionFailure() << "Could not create the account: " << error_message;
+    }
+    if (verified
+        && !account::admin_verify_email(".", PINNED_ACCOUNT_NAME, "VerifierAdmin", PINNED_ACCOUNT_CREATED_AT + 1,
+            nullptr, &error_message)) {
+        return ::testing::AssertionFailure() << "Could not verify the account: " << error_message;
+    }
+    if (blocked
+        && !account::admin_block_account(".", PINNED_ACCOUNT_NAME, "AdminUser", "Chargeback",
+            PINNED_ACCOUNT_CREATED_AT + 2, nullptr, &error_message)) {
+        return ::testing::AssertionFailure() << "Could not block the account: " << error_message;
+    }
+    return ::testing::AssertionSuccess();
+}
+
+// What one authentication of the test account answered.
+struct AuthenticationOutcome {
+    // Whether it authenticated.
+    bool authenticated = false;
+    // The error message it gave.
+    std::string error_message;
+    // The name in the account it handed back; UNTOUCHED_ACCOUNT_NAME when it handed none back.
+    std::string handed_back_name;
+};
+
+// Authenticates the test account with password.
+AuthenticationOutcome authenticate_pinned_account(const char* password)
+{
+    AuthenticationOutcome outcome;
+    account::AccountData handed_back;
+    handed_back.account_name = UNTOUCHED_ACCOUNT_NAME;
+    outcome.authenticated
+        = account::authenticate_account(".", PINNED_ACCOUNT_NAME, password, &handed_back, &outcome.error_message);
+    outcome.handed_back_name = handed_back.account_name;
+    return outcome;
+}
+} // namespace
+
+TEST_F(AccountManagement, ABlockedAccountFailsAuthenticationWithEitherPasswordAndIsNotHandedBack)
+{
+    rots_tests::TemporaryWorkingDirectory working_directory;
+    ASSERT_TRUE(create_pinned_account(true, true));
+
+    for (const char* password : { PINNED_ACCOUNT_PASSWORD, WRONG_PASSWORD }) {
+        const AuthenticationOutcome outcome = authenticate_pinned_account(password);
+
+        EXPECT_FALSE(outcome.authenticated) << "Expected a blocked account refused with " << password;
+        EXPECT_EQ(outcome.error_message, "Account authentication failed.") << password;
+        EXPECT_EQ(outcome.handed_back_name, UNTOUCHED_ACCOUNT_NAME) << password;
+    }
+}
+
+TEST_F(AccountManagement, ABlockedUnverifiedAccountFailsAuthenticationInsteadOfAwaitingVerification)
+{
+    rots_tests::TemporaryWorkingDirectory working_directory;
+    ASSERT_TRUE(create_pinned_account(false, true));
+
+    const AuthenticationOutcome outcome = authenticate_pinned_account(PINNED_ACCOUNT_PASSWORD);
+
+    EXPECT_FALSE(outcome.authenticated);
+    EXPECT_EQ(outcome.error_message, "Account authentication failed.");
+    EXPECT_EQ(outcome.handed_back_name, UNTOUCHED_ACCOUNT_NAME);
+}
+
+TEST_F(AccountManagement, AnUnverifiedAccountWithTheWrongPasswordFailsAuthenticationAndIsNotHandedBack)
+{
+    rots_tests::TemporaryWorkingDirectory working_directory;
+    ASSERT_TRUE(create_pinned_account(false, false));
+
+    const AuthenticationOutcome outcome = authenticate_pinned_account(WRONG_PASSWORD);
+
+    EXPECT_FALSE(outcome.authenticated);
+    EXPECT_EQ(outcome.error_message, "Account authentication failed.");
+    EXPECT_EQ(outcome.handed_back_name, UNTOUCHED_ACCOUNT_NAME);
+}
+
+TEST_F(AccountManagement, AnUnverifiedAccountWithItsPasswordAwaitsVerificationAndIsHandedBack)
+{
+    rots_tests::TemporaryWorkingDirectory working_directory;
+    ASSERT_TRUE(create_pinned_account(false, false));
+
+    const AuthenticationOutcome outcome = authenticate_pinned_account(PINNED_ACCOUNT_PASSWORD);
+
+    EXPECT_FALSE(outcome.authenticated);
+    EXPECT_EQ(outcome.error_message, "Account email verification is still pending.");
+    EXPECT_EQ(outcome.handed_back_name, PINNED_ACCOUNT_NAME);
 }
 
 TEST_F(AccountManagement, SupportsAccountPasswordsLongerThanLegacyCharacterLimit)
