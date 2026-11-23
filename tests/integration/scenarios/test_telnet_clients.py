@@ -183,6 +183,11 @@ def sets_room_vnum(payload: bytes) -> bool:
     return payload.startswith(ROOM_VNUM_FRAME_START)
 
 
+def is_ttype_send(payload: bytes) -> bool:
+    """Return whether a TTYPE subnegotiation asks for the next terminal type."""
+    return payload == TTYPE_SEND_PAYLOAD
+
+
 def is_empty(payload: bytes) -> bool:
     """Return whether a subnegotiation carries no payload."""
     return payload == b""
@@ -239,6 +244,10 @@ def test_an_msdp_client_completes_the_ttype_cycle_and_accepts_iso_8859_1(server)
     """
     mage = server.connect(MAGE.name, client=MSDP_CLIENT)
     mage.expect_subnegotiation(OPTION_CHARSET)
+    # Wait for every request: the entry-token login can finish before the cycle does.
+    for _ in range(MSDP_CLIENT_TTYPE_REQUESTS):
+        mage.expect_subnegotiation(OPTION_TTYPE, matching=is_ttype_send)
+
     mage.login()
     received = events_in_direction(mage, TelnetDirection.RECEIVED)
     sent = events_in_direction(mage, TelnetDirection.SENT)
@@ -267,6 +276,8 @@ def test_an_msdp_client_lists_commands_at_the_login_prompt(server) -> None:
 
 
 @pytest.mark.characters(MAGE)
+# Only the account-menu login reaches the password prompt that sends WILL ECHO.
+@pytest.mark.real_login
 def test_an_msdp_client_hides_the_password_and_gets_its_room_vnum_in_game(server) -> None:
     """Pins WILL ECHO at the password prompt and, with msdp on, an MSDP frame of the room's vnum."""
     mage = server.login(MAGE.name, client=MSDP_CLIENT)
