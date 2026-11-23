@@ -51,6 +51,7 @@ from rots_harness.replies import SETTLE_SECONDS
 from rots_harness.retention import RunDirectoryReport, keep_run_directory
 from rots_harness.session import GameSession, end_sessions
 from rots_harness.sharding import SHARD_DURATIONS_RELATIVE, Shard, in_shard, parse_shard
+from rots_harness.telnet_profile import SILENT_CLIENT, TelnetClientProfile
 from rots_harness.timecontrol import (
     OUTPUT_LOG_NAME,
     REAL_TIME_SCHEDULE,
@@ -489,7 +490,7 @@ def hour_timeout_seconds() -> float:
 
 @dataclass
 class HarnessServer:
-    """One test's running server, its lib and run directory, and the sessions logged in to it."""
+    """One test's running server, its lib and run directory, and the sessions opened to it."""
 
     # The running server; restart() replaces it, and the server fixture stops it after the test.
     handle: ServerHandle
@@ -505,7 +506,8 @@ class HarnessServer:
     launcher: ServerLauncher
     # The random seed every server of the test is started with.
     seed: int
-    # Every session login() opened, quit by the server fixture after the test.
+    # Every session connect() or login() opened; the server fixture quits those that logged in
+    # and closes the rest after the test.
     sessions: list[GameSession] = field(default_factory=list)
     # Set by the crash checks; keeps the run directory.
     crash_detected: bool = False
@@ -525,8 +527,12 @@ class HarnessServer:
     # The SYSERRs the test's @pytest.mark.expect_syserr(...) names.
     expected_syserrs: ExpectedSyserrs = field(default_factory=ExpectedSyserrs)
 
-    def login(self, name: str) -> GameSession:
-        """Log the named character in and return its session; the fixture quits it at teardown."""
+    def connect(self, name: str, client: TelnetClientProfile = SILENT_CLIENT) -> GameSession:
+        """Open a session for the named declared character, answering negotiation as client.
+
+        The session does not log in. It is registered at once, so the fixture closes it after the
+        test if it never logs in.
+        """
         character = self.character_set.character(name)
         game_session = GameSession(
             self.handle,
@@ -534,14 +540,25 @@ class HarnessServer:
             self.character_set.email,
             self.character_set.password,
             self.run_dir,
+            client=client,
             entry_token=self.entry_token,
         )
+        self.sessions.append(game_session)
+        return game_session
+
+    def login(self, name: str, client: TelnetClientProfile = SILENT_CLIENT) -> GameSession:
+        """Log the named character in as client and return its session.
+
+        The fixture quits it at teardown.
+        """
+        game_session = self.connect(name, client)
         try:
             game_session.login()
         except BaseException:
+            # Closed here so the failure does not leave a socket open; it stays registered, and
+            # teardown skips closed sessions, so it is neither quit nor closed twice.
             game_session.close()
             raise
-        self.sessions.append(game_session)
         return game_session
 
     def advance_hours(self, hours: int) -> None:
@@ -580,11 +597,12 @@ class HarnessServer:
     def relog(self, session: GameSession) -> GameSession:
         """Quit session's character, log it in again with login, and return the new session.
 
-        The old session is closed; the new one is quit at teardown like any other login. Callers
-        rebind their name to the new session. QuitRefused and LoginRefused pass through.
+        The new session answers negotiation as the old one's client did. The old session is
+        closed; the new one is quit at teardown like any other login. Callers rebind their name to
+        the new session. QuitRefused and LoginRefused pass through.
         """
         session.quit()
-        return self.login(session.character_name)
+        return self.login(session.character_name, session.client)
 
     def restart(self) -> None:
         """Stop the server with every session still logged in, as a service stop does.

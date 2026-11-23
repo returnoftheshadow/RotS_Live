@@ -9,6 +9,7 @@ import pytest
 # The integration conftest.py, which pytest has already loaded as the module conftest.
 import conftest
 from rots_harness.characters import IMPLEMENTOR, CharacterSet
+from rots_harness.telnet_profile import SILENT_CLIENT, TelnetClientProfile
 from rots_harness.timecontrol import REAL_TIME_SCHEDULE
 
 # An entry token as the harness binary's ready line gives it.
@@ -105,6 +106,7 @@ class RecordingSession:
         email: str,
         password: str,
         transcript_dir: Path,
+        client: TelnetClientProfile = SILENT_CLIENT,
         entry_token: Optional[str] = None,
     ) -> None:
         # The character the session plays.

@@ -449,8 +449,14 @@ Each test gets `build/integration/runs/<id>/` holding:
 - `stdout.log`, on `ageland_harness` only: the server's ordinary standard output, without the
   `harness: ` lines (the ready line and the replies to time requests);
 - one transcript per character (`testimm.txt` for `Testimm`), the text the character read;
+- `testimm.telnet.log`, one line per telnet event in both directions, text included;
+- `testimm.received.bin` and `testimm.sent.bin`, the raw bytes each way;
 - after `server.restart()`, `game.boot-<n>.log` (and `stdout.boot-<n>.log`), the logs of the
   server the restart stopped, numbered from 1.
+
+The fixture password goes out as plain bytes, so it appears in the `.telnet.log` (as text) and
+in the `.sent.bin`. It is a fixture password, not a real credential, but run directories are
+local test artefacts: do not paste them into issues or pull requests.
 
 A passing test's directory is deleted. It is kept when the lib or server fails to set up after
 the lib was copied in, when any test in the session has failed, when the server's checks fail,
@@ -503,6 +509,17 @@ a session whose `command(text)` returns the command's output; the fixture quits 
 after the test. The game lets an account have only one character
 online unless the account owns a character above level 91, so a test that logs in two
 characters at once also declares one above that level, such as `IMPLEMENTOR` (level 100).
+
+A session answers the server's telnet negotiation as a client profile from
+`rots_harness.telnet_profile` directs. The default, `SILENT_CLIENT`, never answers;
+`REFUSING_CLIENT` refuses every option, `MSDP_CLIENT` accepts TTYPE, ECHO, NAWS, CHARSET and
+MSDP, and `FULL_CLIENT` accepts every option RotS knows. Pass one as
+`server.login(name, client=MSDP_CLIENT)`, or open the session with
+`server.connect(name, client=...)` to check negotiation before calling its `login()`;
+`server.relog(session)` logs in again as the same client. Replies go out when the test next
+reads. `expect_negotiation` and `expect_subnegotiation` wait for telnet events,
+`send_negotiation`, `send_subnegotiation` and `send_msdp` send them, and `telnet_events` lists
+every event both ways. `scenarios/test_telnet_clients.py` (group `telnet`) is the worked example.
 
 `command` stops at the first text ending in `>` or `]`, which `stat`, `where` and the editors
 print mid-reply. Shared modules in `rots_harness/` hold the helpers and fixed texts scenarios use

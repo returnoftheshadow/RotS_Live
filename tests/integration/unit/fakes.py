@@ -77,13 +77,13 @@ class FakeSocket:
 
     replies maps a line the session sends to the answers for its first, second, ... send; a line
     with no answer left is never answered. An answer given as a tuple of chunks arrives one chunk
-    per recv(). greeting is what the server sends on connect.
+    per recv(). greeting is what the server sends on connect, as bytes or a tuple of chunks.
     """
 
     def __init__(
         self,
         replies: Mapping[str, Sequence[bytes | tuple[bytes, ...]]],
-        greeting: bytes = b"",
+        greeting: bytes | tuple[bytes, ...] = b"",
         *,
         closed_by_server: bool = False,
     ) -> None:
@@ -94,21 +94,25 @@ class FakeSocket:
         # Answers still to give per sent line, in send order; copied so the caller's lists stay
         # intact.
         self._replies = {line: list(answers) for line, answers in replies.items()}
+        greeting_chunks = greeting if isinstance(greeting, tuple) else (greeting,)
         # Chunks the coming recv() calls return, one each; when empty, recv() times out or reports
         # the close.
-        self._pending: list[bytes] = [greeting] if greeting else []
+        self._pending: list[bytes] = [chunk for chunk in greeting_chunks if chunk]
         # Whether recv returns b"" once nothing is pending, as a socket the server closed does.
         self._closed_by_server = closed_by_server
         # Whether the session has closed the connection.
         self.closed = False
         # Every line the session sent, in order and without the newline.
         self.sent_lines: list[str] = []
+        # Every byte the session sent, in order.
+        self.sent_bytes = bytearray()
 
     def settimeout(self, _timeout: float) -> None:
         """Ignore the timeout: recv answers at once."""
 
     def sendall(self, data: bytes) -> None:
-        """Record the line and queue its next answer."""
+        """Record the bytes and the line, and queue the line's next answer."""
+        self.sent_bytes.extend(data)
         line = data.decode("latin-1").strip()
         self.sent_lines.append(line)
         answers = self._replies.get(line, [])

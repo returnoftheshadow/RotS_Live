@@ -169,6 +169,24 @@ seam that acts after boot, for example on the first pass in `HarnessControlledSc
    `markers` in `pytest.ini`; a group is never a harness change, only a file in
    `tests/integration/groups/` (`rots_harness/groups.py` reads them for `conftest.py` and CI).
 
+## A telnet client profile or negotiation rule
+
+A session's telnet handling has four parts in `tests/integration/rots_harness/`: the stream
+parser (`telnet.py`), the payload codecs (`telnet_payloads.py`), the profiles
+(`telnet_profile.py`) and the negotiator that answers as a profile directs
+(`telnet_negotiator.py`). `GameSession` (`session.py`) wires them into its read and send paths.
+
+1. A new preset is a `TelnetClientProfile` in `telnet_profile.py`, with its tests in
+   `tests/integration/unit/test_telnet_profile.py`. A profile is data only; its constructor
+   refuses one it cannot honour, such as accepting TTYPE without terminal types.
+2. A change to how the client answers goes in `telnet_negotiator.py`, with sequence tests in
+   `tests/integration/unit/test_telnet_negotiator.py`: what the server sends, then what the
+   client answers, at each step.
+3. Either one gets a real-server check in `tests/integration/scenarios/test_telnet_clients.py`
+   (group `telnet`).
+4. A client that decompresses needs a stream stage before the parser. The server does not
+   compress today, so `GameSession` raises `TelnetCompressionUnsupported` on `SB MCCP2` instead.
+
 ## The world check and the catalogue
 
 - `rots_harness/world_files.py` reads the test world's files: `WORLD_CATEGORIES` (the folders

@@ -1,6 +1,7 @@
 """One character's telnet connection to the game.
 
-It logs in, sends commands, records what the player reads, and ends a test's connections.
+It logs in, sends commands, negotiates as a client profile directs, records what the player reads
+and the wire, waits for telnet events, and ends a test's connections.
 """
 
 from __future__ import annotations
@@ -9,10 +10,28 @@ import re
 import socket
 import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import Iterable, List, Optional, Sequence
 
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT, ServerHandle
-from rots_harness.telnet import TelnetStreamSanitizer
+from rots_harness.telnet import (
+    OPTION_MCCP2,
+    OPTION_MSDP,
+    OPTION_NAMES,
+    TelnetNegotiation,
+    TelnetStreamParser,
+    TelnetSubnegotiation,
+    TelnetText,
+    describe_event,
+    encode_event,
+    escape_iac,
+    negotiation_bytes,
+    subnegotiation_bytes,
+)
+from rots_harness.telnet_negotiator import TelnetNegotiator
+from rots_harness.telnet_payloads import TelnetPayloadError, encode_msdp
+from rots_harness.telnet_profile import SILENT_CLIENT, TelnetClientProfile
+from rots_harness.telnet_record import RecordedTelnetEvent, TelnetDirection, TelnetRecord
 
 # The prompt for the account password, after the email.
 LOGIN_PASSWORD_PROMPT = "Account password:"
@@ -53,6 +72,8 @@ CSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 INCOMPLETE_CSI_PATTERN = re.compile(r"\x1b(\[[0-9;?]*)?\Z")
 # How much of the unread text an error message quotes.
 PENDING_TEXT_QUOTED = 1500
+# How many of the most recent unclaimed telnet events a wait-timeout message lists.
+UNCLAIMED_EVENTS_LISTED = 40
 # The starts of the lines quit answers with as it lets the character go (do_quit, act_othe.cpp).
 FAREWELL_STARTS = ("Goodbye", "As you quit")
 # The longest one read blocks, so a wait loop checks its deadline at least this often.
@@ -82,6 +103,13 @@ class LoginRefused(AssertionError):
     """The game refused the login; the message carries the game's words."""
 
 
+class TelnetCompressionUnsupported(ConnectionError):
+    """The server started MCCP2 compression, which the harness cannot read.
+
+    RotS never compresses, so the server has changed. The session is closed when this is raised.
+    """
+
+
 def ends_with_prompt(text: str) -> bool:
     """Return whether text, ignoring trailing whitespace, ends in a game prompt."""
     stripped = text.rstrip()
@@ -109,9 +137,12 @@ class Transcript:
 
 
 class GameSession:
-    """A character's connection to a running server.
+    """One character's connection to a running server.
 
-    Every byte read is mirrored to a transcript file.
+    It wires the telnet parser, negotiator and record into its read and send paths and exposes
+    waits for telnet events. Protocol decisions belong to the negotiator and event bookkeeping to
+    the record. The text the character reads, the raw bytes both ways and every telnet event are
+    mirrored to files in the transcript directory as they pass.
     """
 
     def __init__(
@@ -121,20 +152,23 @@ class GameSession:
         email: str,
         password: str,
         transcript_dir: Path,
+        client: TelnetClientProfile = SILENT_CLIENT,
         entry_token: Optional[str] = None,
     ) -> None:
-        """Connect to the server.
+        """Connect to the server and answer its negotiation as client directs.
 
         login() then brings the character into the game: with entry_token when given, else
         through the account menu, picking it from the account's list by name.
         """
-        # Names the character in errors and in the transcript file name, and picks it at the
-        # character list.
+        # Names the character in errors and picks it at the character list; the session's file
+        # names use its lower-case form.
         self._character_name = character_name
         # The account email login() sends.
         self._email = email
         # The account password login() sends.
         self._password = password
+        # The profile the negotiator answers the server's negotiation with.
+        self._client = client
         # The harness binary's run token, which login() enters with instead of the account menu;
         # None for the dialogue.
         self._entry_token = entry_token
@@ -142,11 +176,21 @@ class GameSession:
         self._socket = socket.create_connection((handle.host, handle.port), timeout=5.0)
         # A short read timeout lets the wait loops check their deadlines between reads.
         self._socket.settimeout(READ_TIMEOUT_SECONDS)
-        # Turns received bytes into text, carrying telnet negotiation split across reads.
-        self._sanitizer = TelnetStreamSanitizer()
+        # Splits received bytes into text and telnet events, carrying a sequence split across reads.
+        self._received_parser = TelnetStreamParser()
+        # Splits sent bytes into events for the record; separate because each direction is its own
+        # stream.
+        self._sent_parser = TelnetStreamParser()
+        # Decides the replies to the server's negotiation.
+        self._negotiator = TelnetNegotiator(client)
+        # Every raw byte received so far; only ever appended to.
+        self._received_bytes = bytearray()
         # Everything received so far, without telnet negotiation or control sequences; only ever
         # appended to.
         self._clean = ""
+        # Everything received so far without telnet negotiation, with colour and other control
+        # sequences kept; only ever appended to.
+        self._raw = ""
         # The start of a control sequence split across reads, held back until its final letter
         # arrives.
         self._held_escape = ""
@@ -154,9 +198,18 @@ class GameSession:
         self._consumed = 0
         # Set once close() runs; the socket is gone from then on.
         self._closed = False
+        # Set once login() has brought the character into the game.
+        self._logged_in = False
         transcript_dir.mkdir(parents=True, exist_ok=True)
+        file_stem = character_name.lower()
         # Appended to after every read so a failed run keeps what the character saw.
-        self._transcript_path = transcript_dir / f"{character_name.lower()}.txt"
+        self._transcript_path = transcript_dir / f"{file_stem}.txt"
+        # The raw bytes received, appended as they arrive so a failed run keeps the wire.
+        self._received_path = transcript_dir / f"{file_stem}.received.bin"
+        # The raw bytes sent, appended as they leave.
+        self._sent_path = transcript_dir / f"{file_stem}.sent.bin"
+        # Every telnet event both ways, text included, logged one line each to <name>.telnet.log.
+        self._record = TelnetRecord(transcript_dir / f"{file_stem}.telnet.log")
 
     @property
     def character_name(self) -> str:
@@ -164,9 +217,37 @@ class GameSession:
         return self._character_name
 
     @property
+    def client(self) -> TelnetClientProfile:
+        """Return the profile this session answers the server's negotiation with."""
+        return self._client
+
+    @property
     def everything(self) -> str:
         """Return all text received so far, without telnet negotiation or colour codes."""
         return self._clean
+
+    @property
+    def everything_raw(self) -> str:
+        """Return all text received so far, without telnet negotiation, with control sequences kept.
+
+        Colour codes and other control sequences are as the server sent them.
+        """
+        return self._raw
+
+    @property
+    def received_bytes(self) -> bytes:
+        """Return every byte received so far, exactly as it arrived."""
+        return bytes(self._received_bytes)
+
+    @property
+    def telnet_events(self) -> tuple[RecordedTelnetEvent, ...]:
+        """Return every telnet event received or sent so far, text included, oldest first."""
+        return self._record.events
+
+    @property
+    def logged_in(self) -> bool:
+        """Return True once login() has brought the character into the game."""
+        return self._logged_in
 
     @property
     def is_closed(self) -> bool:
@@ -174,10 +255,15 @@ class GameSession:
         return self._closed
 
     def _pump(self, deadline: float) -> bool:
-        """Read one chunk if any arrives in time, and return whether one did.
+        """Read one chunk if any arrives in time, record it and answer it; return whether one did.
 
         A chunk is in time when it arrives before the monotonic deadline or within
-        READ_TIMEOUT_SECONDS, whichever is sooner.
+        READ_TIMEOUT_SECONDS, whichever is sooner. Its events are recorded and the negotiator's
+        replies sent.
+
+        Raise ConnectionError when the server closes the connection, TelnetCompressionUnsupported
+        when it starts MCCP2, and TelnetPayloadError for a malformed CHARSET request once the whole
+        chunk is recorded.
         """
         time_left = max(MINIMUM_READ_TIMEOUT_SECONDS, deadline - time.monotonic())
         read_timeout = min(READ_TIMEOUT_SECONDS, time_left)
@@ -191,8 +277,63 @@ class GameSession:
                 f"{self.character_name}: server closed the connection; unread "
                 f"text:\n{self._unconsumed()[-PENDING_TEXT_QUOTED:]}"
             )
-        self._sanitizer.feed(chunk)
-        received = self._held_escape + self._sanitizer.take_new_text()
+        self._received_bytes.extend(chunk)
+        with self._received_path.open("ab") as received_file:
+            received_file.write(chunk)
+
+        text_parts: list[bytes] = []
+        compression_started = False
+        # The first reply failure in this chunk; raised once every event of the chunk is recorded.
+        reply_error: TelnetPayloadError | None = None
+        try:
+            events = self._received_parser.feed(chunk)
+            for event in events:
+                self._record.add(TelnetDirection.RECEIVED, event)
+                if isinstance(event, TelnetText):
+                    text_parts.append(event.data)
+                elif isinstance(event, TelnetSubnegotiation) and event.option == OPTION_MCCP2:
+                    # Every byte after this frame is compressed, so the rest of the chunk is not
+                    # telnet.
+                    compression_started = True
+                    break
+
+                try:
+                    replies = self._negotiator.respond(event)
+                except TelnetPayloadError as error:
+                    # The events after a malformed request still belong in the record and the text.
+                    if reply_error is None:
+                        reply_error = error
+
+                    continue
+
+                for reply in replies:
+                    reply_bytes = encode_event(reply)
+                    self._send(reply_bytes)
+        finally:
+            # Text read before a failure still reaches everything and the transcript.
+            text_bytes = b"".join(text_parts)
+            self._add_text(text_bytes.decode("latin-1"))
+
+        if compression_started:
+            # A later read would parse compressed bytes as telnet, and a quit could only time out.
+            self.close()
+            raise TelnetCompressionUnsupported(
+                f"{self.character_name}: the server started MCCP2 compression, which the harness "
+                f"cannot read; unread text:\n{self._unconsumed()[-PENDING_TEXT_QUOTED:]}"
+            )
+
+        if reply_error is not None:
+            raise reply_error
+
+        return True
+
+    def _add_text(self, text: str) -> None:
+        """Append one read's text to everything_raw, and to everything and the transcript.
+
+        The text everything and the transcript get has its control sequences stripped.
+        """
+        self._raw += text
+        received = self._held_escape + text
         incomplete = INCOMPLETE_CSI_PATTERN.search(received)
         if incomplete is None:
             self._held_escape = ""
@@ -203,7 +344,6 @@ class GameSession:
         self._clean += fresh
         with self._transcript_path.open("a", encoding="utf-8", newline="") as transcript_file:
             transcript_file.write(fresh)
-        return True
 
     def _unconsumed(self) -> str:
         return self._clean[self._consumed:]
@@ -237,10 +377,119 @@ class GameSession:
             self._pump(deadline)
         return self._consume()
 
-    def send_line(self, line: str) -> None:
-        """Send line followed by a newline; characters outside Latin-1 become '?'."""
+    def expect_negotiation(self, command: int, option: int, timeout: float = 8.0) -> RecordedTelnetEvent:
+        """Claim and return the oldest received, unclaimed IAC command option.
+
+        command is WILL, WONT, DO or DONT. Read until it arrives; raise SessionTimeout. Events that
+        arrived before the call count, and no wait returns an event twice. Text is left unread.
+        """
+
+        wanted = TelnetNegotiation(command, option)
+
+        def matches(recorded: RecordedTelnetEvent) -> bool:
+            return recorded.event == wanted
+
+        description = describe_event(wanted)
+        return self._expect_event(matches, description, timeout)
+
+    def expect_subnegotiation(
+        self, option: int, timeout: float = 8.0, matching: Callable[[bytes], bool] | None = None
+    ) -> RecordedTelnetEvent:
+        """Claim and return the oldest received, unclaimed subnegotiation for option.
+
+        Only one whose payload passes matching counts; any payload does when matching is None.
+        Read until it arrives; raise SessionTimeout. Events that arrived before the call count, and
+        no wait returns an event twice. Text is left unread.
+        """
+
+        def matches(recorded: RecordedTelnetEvent) -> bool:
+            event = recorded.event
+            return (
+                isinstance(event, TelnetSubnegotiation)
+                and event.option == option
+                and (matching is None or matching(event.payload))
+            )
+
+        option_name = OPTION_NAMES.get(option, str(option))
+        description = f"SB {option_name}"
+        if matching is not None:
+            description += " with a matching payload"
+
+        return self._expect_event(matches, description, timeout)
+
+    def _expect_event(
+        self, matches: Callable[[RecordedTelnetEvent], bool], description: str, timeout: float
+    ) -> RecordedTelnetEvent:
+        """Claim and return the first received event that matches, reading until one arrives.
+
+        The SessionTimeout lists the events no wait has claimed.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            claimed = self._record.claim_first(matches)
+            if claimed is not None:
+                return claimed
+
+            if time.monotonic() >= deadline:
+                unclaimed = self._record.unclaimed_received()[-UNCLAIMED_EVENTS_LISTED:]
+                descriptions = [describe_event(recorded.event) for recorded in unclaimed]
+                listing = "\n".join(descriptions) or "(none)"
+                raise SessionTimeout(
+                    f"{self.character_name}: no {description} within {timeout}s; unclaimed telnet "
+                    f"events received:\n{listing}"
+                )
+
+            self._pump(deadline)
+
+    def _send(self, data: bytes) -> None:
+        """Send data, then append it to <name>.sent.bin and record its events as sent.
+
+        It is the only path to the server.
+        """
         self._socket.settimeout(SEND_TIMEOUT_SECONDS)
-        self._socket.sendall(line.encode("latin-1", errors="replace") + b"\n")
+        self._socket.sendall(data)
+        with self._sent_path.open("ab") as sent_file:
+            sent_file.write(data)
+
+        events = self._sent_parser.feed(data)
+        for event in events:
+            self._record.add(TelnetDirection.SENT, event)
+
+    def send_line(self, line: str) -> None:
+        """Send line followed by a newline; characters outside Latin-1 become '?'.
+
+        A 0xFF is doubled so it stays text.
+        """
+        encoded = line.encode("latin-1", errors="replace")
+        self._send(escape_iac(encoded) + b"\n")
+
+    def send_bytes(self, data: bytes) -> None:
+        """Send data exactly as given, with no escaping.
+
+        The negotiator does not learn of any telnet command in it.
+        """
+        self._send(data)
+
+    def send_negotiation(self, command: int, option: int) -> None:
+        """Send IAC command option.
+
+        The negotiator does not learn of it, so it answers the server's reply as an unprompted one.
+        """
+        data = negotiation_bytes(command, option)
+        self._send(data)
+
+    def send_subnegotiation(self, option: int, payload: bytes) -> None:
+        """Send IAC SB option payload IAC SE, with 0xFF in the payload doubled."""
+        data = subnegotiation_bytes(option, payload)
+        self._send(data)
+
+    def send_msdp(self, name: str, *values: str) -> None:
+        """Send an MSDP frame setting variable name to values.
+
+        Raise ValueError for an empty name, no values or MSDP marker bytes.
+        """
+        payload = encode_msdp(name, *values)
+        self.send_subnegotiation(OPTION_MSDP, payload)
 
     def command(self, text: str, timeout: float = 8.0) -> Transcript:
         """Discard unread text, send text and return its output up to the next prompt.
@@ -310,6 +559,7 @@ class GameSession:
         """
         if not ends_with_prompt(arrival):
             self.wait_for_prompt(timeout, after=ENTER_GAME_REPLY)
+        self._logged_in = True
 
     def _expect_or_refuse(self, markers: List[str], timeout: float) -> str:
         """Wait as expect does, but raise LoginRefused as soon as the game refuses the login.
@@ -373,8 +623,9 @@ class GameSession:
 
 
 def end_sessions(sessions: Iterable[GameSession], server_alive: bool) -> list[str]:
-    """Quit each open session, or only close it when the server has exited.
+    """Quit each open session that logged in, and only close the others.
 
+    A session that never logged in, and every session once the server has exited, is only closed.
     Return the quit failures' messages.
 
     Sessions already closed are skipped. A failed quit does not stop the rest from ending.
@@ -383,9 +634,10 @@ def end_sessions(sessions: Iterable[GameSession], server_alive: bool) -> list[st
     for game_session in sessions:
         if game_session.is_closed:
             continue
-        if not server_alive:
+        if not server_alive or not game_session.logged_in:
             # An exited server cannot answer quit, and the caller's crash checks report the exit;
-            # a quit attempt would only add a second, misleading failure.
+            # a quit attempt would only add a second, misleading failure. A session that never
+            # reached the game has no character to quit, so closing it is the whole ending.
             game_session.close()
             continue
         try:
