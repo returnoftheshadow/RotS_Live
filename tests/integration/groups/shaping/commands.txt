@@ -1,0 +1,1 @@
+disabled shaping commands, shape master usage, full permission over an open zone from level 93, and recalculate

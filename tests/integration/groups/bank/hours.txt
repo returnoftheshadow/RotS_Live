@@ -1,0 +1,1 @@
+bankers open only in their hours and swap after twelve hours, and a banker with a bad fee is closed at boot

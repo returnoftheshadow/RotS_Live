@@ -137,21 +137,33 @@ seam that acts after boot, for example on the first pass in `HarnessControlledSc
 ## A new Python module or fixture
 
 1. A module goes in `tests/integration/rots_harness/` (`pythonpath = .` in `pytest.ini` makes
-   `from rots_harness import <module>` work). House style: a module docstring,
-   `from __future__ import annotations`, a `#` comment above every module constant and every
-   instance attribute, descriptive names.
+   `from rots_harness import <module>` work). House style:
+   - a module docstring whose first sentence states the module's one responsibility;
+   - `from __future__ import annotations`;
+   - a `#` comment on its own line above every module constant, field and instance attribute;
+   - descriptive names, and constant names by the naming rule in
+     [shared-helpers.md](shared-helpers.md), "Names" (`*_FORMAT`, `*_REPLY`, `*_START`, ...);
+   - PEP 257 docstrings in the imperative ("Return the stripped lines"): a one-line summary,
+     then a blank line and the body; the closing quotes on their own line when there is a body;
+   - code lines of at most 120 characters, docstring and comment lines of at most 100.
 2. Its unit tests go in `tests/integration/unit/test_<module>.py` and need no server
    (`make integration-unit`). Models: `test_groups.py`, `test_characters.py`,
    `test_timecontrol.py` (fake server pipes), `test_libbuilder.py` (fake tool runner),
-   `test_session.py` (loopback socket), `test_launcher.py`.
-3. A fixture goes in `tests/integration/conftest.py`. `conftest.py` has no unit tests of its
+   `test_session.py` (loopback socket), `test_launcher.py`. Fake sessions and sockets for a
+   helper's test are in `unit/fakes.py`.
+3. A module scenarios import that holds an `assert` goes on the `pytest.register_assert_rewrite`
+   list at the top of `conftest.py`, so its failures report their operands;
+   `unit/test_assert_rewrite.py` fails until it is there. A shared scenario helper is also listed
+   in [shared-helpers.md](shared-helpers.md), and `unit/test_scenario_shared_helpers.py` then
+   stops scenario files from defining it again.
+4. A fixture goes in `tests/integration/conftest.py`. `conftest.py` has no unit tests of its
    own; running the scenarios is its test.
-4. A new character field changes both sides: `Character.to_spec` in
+5. A new character field changes both sides: `Character.to_spec` in
    `tests/integration/rots_harness/characters.py`, and rotstool's parser
    (`src/tools/rotstool/fixture_spec_parser.cpp`, `FixtureSpec` in `fixture_spec.h`,
    `fixture_character_maker.cpp`) with `src/tests/rotstool_fixture_spec_tests.cpp` and
    `rotstool_fixture_maker_tests.cpp`.
-5. Update `tests/integration/README.md` for anything a scenario writer uses: a new marker,
+6. Update `tests/integration/README.md` for anything a scenario writer uses: a new marker,
    method, variable or file in the run directory. A marker that configures a test goes under
    `markers` in `pytest.ini`; a group is never a harness change, only a file in
    `tests/integration/groups/` (`rots_harness/groups.py` reads them for `conftest.py` and CI).

@@ -5,10 +5,12 @@ on:
     branches:
       - master
       - release-frodo
+      - release-frodo-next
   pull_request:
     branches:
       - master
       - release-frodo
+      - release-frodo-next
 
 permissions:
   contents: read
@@ -71,8 +73,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build the development image
-        run: docker build --tag rots-dev:ci .
+      - name: Load or build the development image
+        # From the Actions cache or the repository's pre-release when one matches the Dockerfile,
+        # so an Ubuntu snapshot outage stops only a pull request that changes the Dockerfile.
+        uses: ./.github/actions/dev-image
 
       - name: Configure build tree
         # Running as the runner's user keeps the build tree writable by later steps.

@@ -1,27 +1,30 @@
-"""Parses a telnet byte stream into text and command events, and encodes telnet commands to send."""
+"""Telnet parsing and encoding for harness sessions.
+
+It parses a telnet byte stream into text and command events, and encodes telnet commands to send.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Union
 
-# Interpret As Command: starts every telnet command; doubled, it is a literal 0xFF data byte.
+# Interpret As Command: starts every telnet command, and doubled stands for a data byte 255.
 IAC = 255
-# The sender will use an option.
+# The command offering to enable an option; the option byte follows.
 WILL = 251
-# The sender will not use an option.
+# The command refusing an option; the option byte follows.
 WONT = 252
-# The sender asks the receiver to use an option.
+# The command asking the other side to enable an option; the option byte follows.
 DO = 253
-# The sender asks the receiver not to use an option.
+# The command asking the other side to disable an option; the option byte follows.
 DONT = 254
-# Starts a subnegotiation: the option byte, then its payload.
+# Starts a subnegotiation, which IAC SE ends.
 SB = 250
-# Ends a subnegotiation when it follows IAC.
+# Ends a subnegotiation.
 SE = 240
-# Carriage return; on the wire a bare one is sent as CR NUL.
+# Carriage return.
 CR = 13
-# The NUL after a bare carriage return.
+# The byte that follows CR to make a bare carriage return.
 NUL = 0
 
 # Echo: the server sends WILL ECHO to hide a typed password.
@@ -131,7 +134,10 @@ class TelnetStreamParser:
         self._events: list[TelnetEvent] = []
 
     def feed(self, chunk: bytes) -> list[TelnetEvent]:
-        """Adds a chunk and returns the events it completed, with adjacent text in one TelnetText."""
+        """Add a chunk and return the events it completed.
+
+        Adjacent text comes back as one TelnetText.
+        """
         for byte in chunk:
             self._feed_byte(byte)
         self._flush_text()
@@ -196,7 +202,8 @@ class TelnetStreamParser:
             return
 
         self._subnegotiation_bytes.append(IAC)
-        # IAC IAC is one 0xFF; IAC before any other byte keeps both, so a malformed payload is not lost.
+        # IAC IAC is one 0xFF; IAC before any other byte keeps both, so a malformed payload is not
+        # lost.
         if byte != IAC:
             self._subnegotiation_bytes.append(byte)
 
@@ -211,22 +218,22 @@ class TelnetStreamParser:
 
 
 def escape_iac(data: bytes) -> bytes:
-    """Doubles every 0xFF so the receiver reads it as data, not as IAC."""
+    """Double every 0xFF so the receiver reads it as data, not as IAC."""
     return data.replace(bytes([IAC]), bytes([IAC, IAC]))
 
 
 def negotiation_bytes(command: int, option: int) -> bytes:
-    """IAC, the command (WILL, WONT, DO or DONT) and the option."""
+    """Return IAC, the command (WILL, WONT, DO or DONT) and the option."""
     return bytes([IAC, command, option])
 
 
 def subnegotiation_bytes(option: int, payload: bytes) -> bytes:
-    """IAC SB, the option, the payload with 0xFF doubled, then IAC SE."""
+    """Return IAC SB, the option, the payload with 0xFF doubled, then IAC SE."""
     return bytes([IAC, SB, option]) + escape_iac(payload) + bytes([IAC, SE])
 
 
 def encode_event(event: TelnetEvent) -> bytes:
-    """The wire bytes for an event; text has 0xFF doubled and is otherwise sent as it is."""
+    """Return the wire bytes for an event; text has 0xFF doubled and is otherwise sent as it is."""
     if isinstance(event, TelnetText):
         return escape_iac(event.data)
     if isinstance(event, TelnetNegotiation):
@@ -237,7 +244,7 @@ def encode_event(event: TelnetEvent) -> bytes:
 
 
 def describe_event(event: TelnetEvent) -> str:
-    """A one-line description of an event, naming the commands and options listed above."""
+    """Return a one-line description of an event, naming the commands and options listed above."""
     if isinstance(event, TelnetText):
         shown = event.data.decode("latin1")[:DESCRIBED_TEXT_LIMIT]
         return f"text {len(event.data)} bytes {shown!r}"
@@ -260,7 +267,8 @@ class TelnetStreamSanitizer:
     """
 
     def __init__(self) -> None:
-        # Parser state survives between feed() calls so a sequence split across chunks is still dropped.
+        # Parser state survives between feed() calls, so a sequence split across chunks is still
+        # dropped.
         self._parser = TelnetStreamParser()
         # Every text byte kept so far.
         self._sanitized = bytearray()
@@ -268,19 +276,20 @@ class TelnetStreamSanitizer:
         self._taken = 0
 
     def feed(self, chunk: bytes) -> str:
-        """Adds a chunk and returns all text so far."""
+        """Add a chunk and return all text so far."""
         for event in self._parser.feed(chunk):
             if isinstance(event, TelnetText):
                 self._sanitized.extend(event.data)
+
         return self.text
 
     @property
     def text(self) -> str:
-        """All text kept so far, decoded as Latin-1."""
+        """Return all text kept so far, decoded as Latin-1."""
         return self._sanitized.decode("latin1", errors="ignore")
 
     def take_new_text(self) -> str:
-        """The text kept since the last call, decoded as Latin-1."""
+        """Return the text kept since the last call, decoded as Latin-1."""
         fresh = self._sanitized[self._taken:]
         self._taken = len(self._sanitized)
         return fresh.decode("latin1", errors="ignore")

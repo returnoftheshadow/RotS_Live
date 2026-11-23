@@ -22,10 +22,12 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
 #include "mudlle.h"
+#include "object_skins.h"
 #include "pkill.h"
 #include "profs.h"
 #include "protos.h"
@@ -34,6 +36,8 @@
 #include "utils.h"
 #include "warrior_spec_handlers.h"
 #include "zone.h"
+
+#include <memory>
 
 const int IMM_SEE_INVIS_OBJ_MIN_LVL = 92;
 
@@ -276,7 +280,12 @@ ACMD(do_at)
         char_from_room(ch);
         char_to_room(ch, location);
     }
+    freed_watch actor_watch(ch);
     command_interpreter(ch, command);
+    /* The command can remove the one giving it (quit, a death, a procedure there). */
+    if (actor_watch.freed()) {
+        return;
+    }
 
     /* check if the guy's still there */
     if (ch->in_room == location) {
@@ -507,8 +516,11 @@ void do_stat_room(struct char_data* ch)
             if (!CAN_SEE_OBJ(ch, j) && ch->player.level < IMM_SEE_INVIS_OBJ_MIN_LVL)
                 continue;
             sprintf(buf2, "%s %s", found++ ? "," : "", j->short_description);
-            if (found > 0 && ch->player.level > 91)
+            // A corpse is made from no prototype, so it has no number to show.
+            if (found > 0 && ch->player.level > 91 && j->item_number >= 0)
                 sprintf(buf1, " [%d]", obj_index[j->item_number].virt);
+            else
+                *buf1 = '\0';
             strcat(buf2, buf1);
             strcat(buf, buf2);
             if (strlen(buf) >= 62) {
@@ -557,6 +569,27 @@ void do_stat_room(struct char_data* ch)
     }
 }
 
+extern struct obj_data* obj_proto;
+
+/* stat's "Skins: a, b" lines for a base: every skin is listed, wrapped and indented under the
+ * first so no line passes 78 columns. No lines for no skins. */
+std::vector<std::string> stat_skins_lines(const std::vector<int>& vnums)
+{
+    std::vector<std::string> lines;
+    std::string line = "Skins:";
+    for (size_t k = 0; k < vnums.size(); ++k) {
+        std::string vnum = " " + std::to_string(vnums[k]) + (k + 1 < vnums.size() ? "," : "");
+        if (line.size() + vnum.size() > 78) {
+            lines.push_back(line);
+            line = "      ";
+        }
+        line += vnum;
+    }
+    if (!vnums.empty())
+        lines.push_back(line);
+    return lines;
+}
+
 void do_stat_object(const struct char_data* ch, struct obj_data* j)
 {
     char found;
@@ -579,6 +612,26 @@ void do_stat_object(const struct char_data* ch, struct obj_data* j)
     sprintf(buf, "VNum: [%s%5d%s], RNum: [%5d], Type: %s, SpecProc: %s\n\r",
         CC_FIX(ch, CGRN), virt, CC_NORM(ch), j->item_number, buf1, buf2);
     send_to_char(buf, ch);
+    /* The family comes from the prototype: a copy keeps the skin_base it was made with even after
+     * implement turns its prototype back into a plain object. */
+    const obj_data& family = j->item_number >= 0 ? obj_proto[j->item_number] : *j;
+    if (obj_is_skin(family)) {
+        int base_rnum = real_object(family.obj_flags.skin_base);
+        const char* base_name = (base_rnum >= 0 && obj_proto[base_rnum].short_description)
+            ? obj_proto[base_rnum].short_description
+            : "?";
+        /* The base's name is cut, if need be, to keep the line within 78 columns. */
+        int name_room = 78 - snprintf(buf, sizeof(buf), "Skin of: obj %d ()", family.obj_flags.skin_base);
+        sprintf(buf, "Skin of: obj %d (%.*s)\n\r", family.obj_flags.skin_base, name_room > 0 ? name_room : 0,
+            base_name);
+        send_to_char(buf, ch);
+    } else if (j->item_number >= 0) {
+        std::vector<int> vnums;
+        for (int rnum : skin_rnums_of(j->item_number))
+            vnums.push_back(obj_index[rnum].virt);
+        for (const std::string& line : stat_skins_lines(vnums))
+            send_to_char((line + "\n\r").c_str(), ch);
+    }
     sprintf(buf, "L-Des: %s\n\r", ((j->description) ? j->description : "None"));
     send_to_char(buf, ch);
 
@@ -712,6 +765,9 @@ void do_stat_object(const struct char_data* ch, struct obj_data* j)
         break;
     case ITEM_SHIELD:
         sprintf(buf, "dodge: [%d], Parry: [%d], Encum: [%d], Block coef.: [%d]", j->obj_flags.value[0], j->obj_flags.value[1], j->obj_flags.value[2], j->obj_flags.value[3]);
+        break;
+    case ITEM_KEYRING:
+        sprintf(buf, "Max-contains: %d", j->obj_flags.value[0]);
         break;
     case ITEM_LEVER:
         sprintf(buf, "room: [%d], Direction: [(%d) %s]",
@@ -1157,7 +1213,7 @@ ACMD(do_wizstat)
                 free_char(victim);
             } else {
                 send_to_char("There is no such player.\n\r", ch);
-                RELEASE(victim);
+                free_char(victim);
             }
         }
     } else if (is_abbrev(buf1, "object")) {
@@ -1177,6 +1233,103 @@ ACMD(do_wizstat)
         else
             send_to_char("Nothing around by that name.\n\r", ch);
     }
+}
+
+ACMD(do_restyle)
+{
+    char word1[MAX_INPUT_LENGTH], word2[MAX_INPUT_LENGTH], word3[MAX_INPUT_LENGTH];
+    char old_text[MAX_STRING_LENGTH];
+    char_data* holder = ch;
+    obj_data *old_obj, *new_obj = 0;
+    char *rest, *obj_name, *vnum_text;
+    int slot, old_vnum, target_vnum, target_rnum;
+
+    if (IS_NPC(ch))
+        return;
+
+    rest = one_argument(argument, word1);
+    rest = one_argument(rest, word2);
+    rest = one_argument(rest, word3);
+    if (!*word2 || (*word3 && *one_argument(rest, buf2))) {
+        send_to_char("Restyle what to which vnum?\n\r", ch);
+        return;
+    }
+    if (*word3) {
+        if (!(holder = get_player_vis(ch, word1))) {
+            send_to_char("No such player.\n\r", ch);
+            return;
+        }
+        obj_name = word2;
+        vnum_text = word3;
+    } else {
+        obj_name = word1;
+        vnum_text = word2;
+    }
+
+    if (!(old_obj = get_obj_in_list_vis(ch, obj_name, holder->carrying, 9999)))
+        old_obj = get_object_in_equip_vis(ch, obj_name, holder->equipment, &slot);
+    if (!old_obj) {
+        send_to_char("You don't see that.\n\r", ch);
+        return;
+    }
+
+    old_vnum = (old_obj->item_number >= 0) ? obj_index[old_obj->item_number].virt : 0;
+    snprintf(old_text, sizeof(old_text), "%s", old_obj->short_description ? old_obj->short_description : "");
+    target_vnum = atoi(vnum_text);
+    target_rnum = real_object(target_vnum);
+
+    switch (restyle_object(old_obj, target_rnum, &new_obj)) {
+    case restyle_result::ok:
+        break;
+    case restyle_result::no_such_object:
+        sprintf(buf, "There is no obj %d.\n\r", target_vnum);
+        send_to_char(buf, ch);
+        return;
+    case restyle_result::same_object:
+        sprintf(buf, "It is already obj %d.\n\r", target_vnum);
+        send_to_char(buf, ch);
+        return;
+    case restyle_result::not_same_family:
+        sprintf(buf, "Obj %d is not a look of obj %d.\n\r", target_vnum, old_vnum);
+        send_to_char(buf, ch);
+        return;
+    default:
+        send_to_char("You don't see that.\n\r", ch);
+        return;
+    }
+
+    if (!IS_NPC(holder))
+        SET_BIT(PLR_FLAGS(holder), PLR_CRASH);
+
+    /* The two short descriptions share what is left of 78 columns; a short one leaves its spare
+     * room to the other. */
+    const char* new_text = new_obj->short_description ? new_obj->short_description : "";
+    int room = 78 - snprintf(nullptr, 0, "Restyled obj %d () to obj %d ().", old_vnum, target_vnum);
+    int old_len = strlen(old_text), new_len = strlen(new_text);
+    if (old_len + new_len > room) {
+        if (old_len <= room / 2)
+            new_len = room - old_len;
+        else if (new_len <= room / 2)
+            old_len = room - new_len;
+        else {
+            old_len = room / 2;
+            new_len = room - old_len;
+        }
+    }
+    sprintf(buf, "Restyled obj %d (%.*s) to obj %d (%.*s).\n\r", old_vnum, MAX(old_len, 0), old_text,
+        target_vnum, MAX(new_len, 0), new_text);
+    send_to_char(buf, ch);
+
+    /* A player whose item an immortal restyled is told, without the immortal's name. */
+    if (holder != ch) {
+        snprintf(buf, MAX_STRING_LENGTH, "%s has been restyled into %s.\n\r", old_text, new_text);
+        CAP(buf);
+        send_to_char(buf, holder);
+    }
+
+    sprintf(buf, "(GC) restyle: obj %d -> %d, player idnum %ld, by %s", old_vnum, target_vnum,
+        (long)GET_IDNUM(holder), GET_NAME(ch));
+    mudlog(buf, BRF, MAX(LEVEL_GOD, GET_INVIS_LEV(ch)), TRUE);
 }
 
 ACMD(do_shutdown)
@@ -1432,7 +1585,7 @@ ACMD(do_purge)
     struct char_data *vict, *next_v;
     struct obj_data *obj, *next_o;
     struct affected_type *tmpaf, *next_tmpaf;
-    int my_zone, tmp;
+    int my_zone;
 
     if (IS_NPC(ch) || (ch->in_room == NOWHERE))
         return;
@@ -1471,15 +1624,10 @@ ACMD(do_purge)
 
             act("$n disintegrates $N.", FALSE, ch, 0, vict, TO_NOTVICT);
 
-            for (tmp = 0; tmp < MAX_WEAR; tmp++)
-                if (vict->equipment[tmp])
-                    extract_obj(unequip_char(vict, tmp));
-
-            for (tmp = 0; (tmp < 1000) && vict->carrying; tmp++) {
-                obj = vict->carrying;
-                obj_from_char(vict->carrying);
-                extract_obj(obj);
+            if (!extract_worn_gear(vict)) {
+                return;
             }
+            extract_carried_objects(vict);
 
             if (IS_NPC(vict)) {
                 extract_char(vict);
@@ -2679,7 +2827,7 @@ struct set_struct {
     { "", LEVEL_GOD, PC, BINARY },
     { "level", LEVEL_GOD, BOTH, NUMBER },
     { "roomflag", LEVEL_GRGOD, PC, BINARY }, /* 35 */
-    { "room", LEVEL_IMPL, BOTH, NUMBER },
+    { "", LEVEL_IMPL, BOTH, NUMBER },
     { "siteok", LEVEL_GRGOD, PC, BINARY },
     { "xxdeleted", LEVEL_IMPL, PC, BINARY }, // use delete command
     { "prof", LEVEL_GRGOD, BOTH, MISC },
@@ -2722,6 +2870,8 @@ ACMD(do_wizset)
     int on = 0, off = 0, value = 0;
     char is_file = 0, is_mob = 0, is_player = 0;
     int player_i;
+    // Owns cbuf, the character `file` mode loads, so every return frees it.
+    std::unique_ptr<char_data, void (*)(char_data*)> file_character_owner(nullptr, free_char);
 
     int advance_perm(const struct char_data*, const struct char_data*, int);
 
@@ -2771,10 +2921,10 @@ ACMD(do_wizset)
     } else if (is_file) {
         CREATE(cbuf, struct char_data, 1);
         clear_char(cbuf, MOB_VOID);
+        file_character_owner.reset(cbuf);
         if ((player_i = load_char(name, &tmp_store)) > -1) {
             store_to_char(&tmp_store, cbuf);
             if (GET_LEVEL(cbuf) >= GET_LEVEL(ch)) {
-                free_char(cbuf);
                 send_to_char("Sorry, you can't do that.\n\r", ch);
                 return;
             }
@@ -2785,7 +2935,6 @@ ACMD(do_wizset)
             cbuf->desc = &descr;
             vict = cbuf;
         } else {
-            RELEASE(cbuf);
             send_to_char("There is no such player.\n\r", ch);
             return;
         }
@@ -2990,16 +3139,6 @@ ACMD(do_wizset)
     case 35:
         SET_OR_REMOVE(PRF_FLAGS(vict), PRF_ROOMFLAGS);
         break;
-    case 36:
-        if ((i = real_room(value)) < 0) {
-            send_to_char("No room exists with that number.\n\r", ch);
-            return;
-        }
-        if (IS_RIDING(vict))
-            stop_riding(vict);
-        char_from_room(vict);
-        char_to_room(vict, i);
-        break;
     case 37:
         SET_OR_REMOVE(PLR_FLAGS(vict), PLR_SITEOK);
         break;
@@ -3174,7 +3313,6 @@ ACMD(do_wizset)
     if (is_file) {
         char_to_store(vict, &tmp_store);
         save_char(vict, vict->in_room, 0);
-        free_char(cbuf);
         send_to_char("Saved in file.\n\r", ch);
     }
 }

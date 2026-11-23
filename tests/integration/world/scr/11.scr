@@ -1,6 +1,19 @@
 #1100 harness stub~
 ~
 999 0 0 0 0 0 0 0
+#1101 harness skins restyle~
+~
+17 1 0 0 0 0 0 0
+ hears someone speak~
+35 2 1140 400 200 953 0 0
+ ob1 = the speaker's plain steel sword, wherever it is carried~
+79 3 400 1141 0 0 0 0
+ ob1 becomes the engraved look~
+79 4 400 1137 0 0 0 0
+ the cap is no look of the sword: refused and logged~
+30 5 100 0 0 0 0 0
+ Your sword is engraved.~
+999 0 0 0 0 0 0 0
 #1180 ordered triggers~
 ~
 11 1 0 0 0 0 0 0

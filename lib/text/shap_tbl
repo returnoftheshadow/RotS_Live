@@ -308,6 +308,8 @@ it. There is no input.
 /6 is used to assign and change the keywords of the last extra description.
 See /5 for examples. The input is lower case words separated by spaces,
 without commas.
+Avoid a keyword that is another object's name, such as 'keyring' or
+'sword': look and examine may show this text instead of that object.
 #
 "OBJ 7"
 
@@ -348,11 +350,12 @@ BOAT               22
 FOUNTAIN           23
 SHIELD             24
 LEVER              25
+KEYRING            26
 
 Depending on this type, object values (/12) are different.
 See 'SHAPE OBJ ITEM_TYPE' for meaning of the values.
 See 'SHAPE OBJLIST' for the list of appropriate zones for objects.
-The default value is 13 (Change!), the input is an integer from 1 to 25.
+The default value is 13 (Change!), the input is an integer from 1 to 26.
 #
 "OBJ 10"
 
@@ -645,6 +648,25 @@ flag on the corresponding door.
   More than one lever can be used on the same door.
 
 #
+"OBJ KEYRING"
+
+OBJ KEYRING (26)
+  A ring that holds keys and nothing else. It is always open: it has no
+lock and cannot be closed. Keys on the ring unlock doors and containers
+as if they were carried.
+
+Value[0]: Capacity in weight units, including the keyring's own weight
+Value[1]: NOT USED
+Value[2]: NOT USED
+Value[3]: NOT USED
+Value[4]: NOT USED
+
+  Give a keyring the BELT wear flag. It is meant for a belt hook: only a
+keyring worn on a belt can be used with put and get without taking it
+off. Look in and examine work on a keyring worn anywhere, and keys on a
+keyring worn anywhere still unlock.
+
+#
 "OBJ 13"
 
 /13 assigns a weight of an object. An object MUST have nonzero weight if it's
@@ -659,6 +681,9 @@ See also: ONE TWO
 
 Cost in copper coins. This value should be about 10 * level ^2 for levels
 up to 10, double for every level thereafter. 0 means shops won't trade it.
+On a skin (see /23), a number gives the skin its own cost; the word base
+makes it follow the base's cost again. A skin's own cost is what shops pay
+for it, and its rent when rent is -1, also after a restyle.
 #
 "OBJ 15"
 
@@ -694,6 +719,10 @@ Material of an object, 0-13.
 11  fur
 12  glass
 13  plant
+On a skin (see /23), a number gives the skin its own material; the word
+base makes it follow the base's material again. Material is not only a
+look: chain and metal armor turn arrows, smite works on metal, and shops
+trade by material.
 #
 "OBJ 19"
 
@@ -790,6 +819,31 @@ another port), its numbers go back. Players' copies holding a higher
 number are then refreshed back to the older object, and copies already
 stamped with a number are skipped until a bump passes it. Bump again to
 get past it.
+#
+"OBJ 23"
+
+/23 makes this object a skin of a base object: type the base's vnum, or 0
+for none. A skin keeps its own aliases and descriptions (/1-/5) and takes
+every stat from the base: type, flags, values, weight, rent, level,
+affects, script and version. Its stat fields can't be edited here; edit
+the base, and its skins follow once the base is implemented.
+Cost and material follow the base too, but a skin may set its own with
+/14 or /18; typing base there makes it follow the base again.
+
+Keys and notes can't have skins, a skin can't be a base, and an object
+that has skins can't become one. /23 0 turns a skin back into a plain
+object that keeps the stats it has now.
+
+If the base is a drink container that starts full, start the skin's
+aliases with the liquid word (e.g. water jug clay): filling, emptying
+and restyle treat the first alias of a full container as its liquid.
+
+Players' copies are refreshed by version (see /22). When a base's stats
+change and players' converted copies need the new stats, bump the base's
+version (/22) by hand.
+Making an object that players already have into a skin, or moving a
+skin to another base, also needs the base's version (/22) bumped above
+the skin's old version, or players' copies won't take the new stats.
 #
 "OBJ 49"
 

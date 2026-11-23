@@ -1,0 +1,1 @@
+worn item resistances and vulnerabilities: what a save keeps, the strongest fire item, removing items, flag-only resistance and the vulnerability header

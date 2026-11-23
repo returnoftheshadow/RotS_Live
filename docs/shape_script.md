@@ -94,6 +94,9 @@ Current: ch1 ch2 ob1   (blank = keep)
   dropped.` (Typing `rm1` there used to store its code, 700, as the number.)
 - `ASSIGN_STR` only accepts `str1`-`str3` or `obN.name`
   (`Must be str1-3 or obN.name. dropped.`).
+- `RESTYLE_OBJ` only accepts `ob1`-`ob3` as the object (`Must be ob1, ob2
+  or ob3. dropped.`) and a typed vnum, `int1`-`int3` or `obN.vnum` as the
+  target (`Must be a vnum, int1-3 or obN.vnum. dropped.`).
 - Commands with a second step (`SET_INT_VALUE`, `SET_EXIT_STATE`,
   `PAGE_ZONE_MAP`, `EQUIP_CHAR`, `DO_SAY`, `DO_YELL`, `DO_EMOTE`, `DO_SOCIAL`,
   the `IF_STR_*` tests, `ASSIGN_STR`) ask the next part straight after. A
@@ -140,6 +143,16 @@ Scripts use generic variables:
 `SET_INT_VALUE`; only `int1`-`int3` and `chN.hit` can be written. `ASSIGN_STR`
 stores literal text you type; no command copies one text variable into
 another. The `IF_STR_*` tests compare a text variable with text you type.
+
+**Oddity: `ASSIGN_STR obN.name`.** This has been in the code since the
+original 2017 upload (`get_text_param_writable`, `script.cpp`); no script in
+the world files checked on 2026-10-18 uses it. It does not change the object's
+keywords; it replaces the copy's *short description* (the name players see,
+e.g. "a blackened longsword") with a new string. The change is never saved:
+an object's save record holds no text, so after a relog, rent or reboot the
+copy takes its prototype's name again. The new string goes with the object,
+or at the copy's next rename. A `RESTYLE_OBJ` on the copy also replaces it with
+the new look's name.
 
 Use the `get_param_text()` output shown in `/50` to verify that parameters map
 to the intended variables.
@@ -210,6 +223,7 @@ noted earlier.
 | `EQUIP_CHAR` | Load up to five vnums on a character and auto-wear them. Leave unused slots as `0`. |
 | `EXTRACT_CHAR` | Remove a mobile from the game (inventory drops in room). Never use on PCs. |
 | `EXTRACT_OBJ` | Remove an object from the game. |
+| `RESTYLE_OBJ` | Change `ob1`-`ob3`, in place and wherever it is, into another look of the same skin family. The target is a typed vnum, `int1`-`int3` or `obN.vnum`; nothing else is allowed, and the editor refuses any other variable in either place. It stays the same object, so the variable still holds it; a target outside the family does nothing and logs a script error. |
 
 ### Setting and reading values
 

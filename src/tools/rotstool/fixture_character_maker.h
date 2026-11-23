@@ -11,7 +11,9 @@
 // stored character, with idnum as its id and now as its last logon. The stored name is spec.name
 // with its first letter capitalised. out_knowledge receives the knowledge percentage for each of
 // spec.skill_practices, in order. The spec's hit, mana and move become the stored character's
-// current values.
+// current values. Each value in spec.stored is written to the field wizset writes, and each base
+// ability also becomes the current ability. The stored values must be within the limits
+// parse_fixture_spec enforces.
 //
 // Provided the working directory is the lib and the account named account_name is on disk there
 // without this character, writes nothing to disk. Leaves top_of_p_table and

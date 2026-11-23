@@ -329,6 +329,12 @@ Tests, and Smoke Tests` job from the CI workflow as a required status check.
 If you also want to block direct pushes to `master`, make sure your branch
 protection or ruleset disables direct-push bypass as well.
 
+Two more workflows run on pull requests. `Integration` runs the integration
+scenarios a pull request reaches, and `ASan` runs chosen unit tests and
+scenarios against an AddressSanitizer build, but only when the description asks
+for them with an `@asan-test-` token. `tests/integration/README.md`
+("Continuous integration") describes both and their tokens.
+
 #### Step 5: Running the Game
 
 From the repository root you can run the following command.

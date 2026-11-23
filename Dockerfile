@@ -9,6 +9,10 @@
 # makes apt replace the image's libc6. The snapshot also freezes the toolchain versions.
 # To move to a newer image, update the digest and set the snapshot timestamp to that
 # image's org.opencontainers.image.created date.
+#
+# CI loads a stored copy of this image keyed on this file's SHA-256 (.github/actions/dev-image),
+# so any edit here, a comment included, makes CI rebuild it from the snapshot until the edit is
+# merged and its copy published.
 FROM --platform=linux/amd64 ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
 
 RUN printf '%s\n' \

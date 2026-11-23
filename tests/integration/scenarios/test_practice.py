@@ -1,25 +1,35 @@
-"""Practice at a guildmaster: counted and `all` practice, its refusals, the sessions-spent column,
-two guildmasters with different limits, the sessions a skill takes by ranger coefficient, the
-dark-side guildmasters and race-adjusted coefficients, weapon mastery, a guildmaster that is only
-posing, a negative session count, and the plain list's casting costs."""
+"""Practice at a guildmaster: what a practice command spends, refuses and lists.
+
+Counted and `all` practice, its refusals, the sessions-spent column, two guildmasters with
+different limits, the sessions a skill takes by ranger coefficient, the dark-side guildmasters and
+race-adjusted coefficients, weapon mastery, a guildmaster that is only posing, a negative session
+count, and the plain list's casting costs.
+"""
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass
 
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character, ProfessionPoints
+from rots_harness.characters import IMPLEMENTOR, Character, ProfessionPoints, StoredValues
+from rots_harness.game_text import PURGED_REPLY, SIT_DOWN_REPLY, STAND_UP_REPLY
+from rots_harness.immortal_commands import goto, load_mob, wizset
+from rots_harness.replies import reply_to, settled_expect
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import LEARNING_PATTERN, LEVEL_PATTERN, PRACTICE_SESSIONS_PATTERN, read_stat
+from rots_harness.text_lines import capitalised, first_number
+from rots_harness.world_resets import MobReset
 
 pytestmark = [pytest.mark.scenario, pytest.mark.practice]
 
 
 @dataclass(frozen=True)
 class Guildmaster:
-    """A guildmaster copy (mob/15.mob or mob/guildmasters.mob) and the lines a pupil reads from it."""
+    """A guildmaster copy (mob/15.mob or mob/guildmasters.mob) and the lines a pupil reads."""
 
     # The copy's vnum: one spec_ass.cpp binds the guild special to.
     vnum: int
@@ -32,15 +42,15 @@ class Guildmaster:
 
     @property
     def line_start(self) -> str:
-        """The short description as act() starts a line with it, capitalised."""
-        return self.short_description[0].upper() + self.short_description[1:]
+        """Return the short description as act() starts a line with it, capitalised."""
+        return capitalised(self.short_description)
 
 
 # Program 7, the TRAVELLER (MAGE) row of guildmasters[] (consts.cpp): teaches blink up to 100 and
 # cure self up to 80, fireball and cone of cold, but not magic missile. It teaches the races in
 # its will_teach mask, 63: god, human, dwarf, wood elf, hobbit and high elf, not the beorning.
 TRAVELLER = Guildmaster(
-    1503, "traveller", "a mysterious traveller", "Hello, {}! I can teach you these spells:"
+    world.MOB_MYSTERIOUS_TRAVELLER, "traveller", "a mysterious traveller", "Hello, {}! I can teach you these spells:"
 )
 # Scorther, program 16, the LAKETOWN MAGE row: teaches blink and cure self up to 60, magic
 # missile and identify, but not fireball. Same will_teach mask.
@@ -68,8 +78,9 @@ MAGUS = Guildmaster(13600, "magus", "Magus", "You can try to learn these spells:
 URUK_TRAINER = Guildmaster(2043, "master", "an uruk guildmaster", "You can train in these skills:")
 # The wise mystic copy, program 61: the last row of guildmasters[] (guildmaster_number, consts.cpp).
 LAST_ROW_TEACHER = Guildmaster(1509, "mystic", "a wise mystic", "You can train in these skills:")
-# Copies with program 0 and 62, which name no row of guildmasters[]: they have no list.
+# A copy with program 0, which names no row of guildmasters[]: it has no list.
 NO_ROW_TEACHER = Guildmaster(3888, "prisoner", "a starved prisoner", "")
+# A copy with program 62, past the last row: it has no list either.
 PAST_LAST_ROW_TEACHER = Guildmaster(8500, "enchanter", "an elven enchanter", "")
 
 # A level-30 human mage in the arena centre who has practiced nothing.
@@ -127,8 +138,8 @@ BEORNING_PUPIL = Character(
     class_name="mage",
     skills=(("human_language", 3),),
 )
-# Level-30 humans whose ranger coefficients differ: the ranger class has 100 ranger points
-# (coefficient square_root[100] = 1000), the wizard class 9 (300), and this custom split 7 (264).
+# Level-30 humans whose ranger coefficients differ. This one, of the ranger class, has 100 ranger
+# points (coefficient square_root[100] = 1000).
 RANGER_PUPIL = Character(
     name="Testranger",
     race="human",
@@ -137,6 +148,7 @@ RANGER_PUPIL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="ranger",
 )
+# The wizard class has 9 ranger points (coefficient 300).
 WIZARD_PUPIL = Character(
     name="Testwizard",
     race="human",
@@ -145,6 +157,7 @@ WIZARD_PUPIL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="wizard",
 )
+# This custom split has 7 ranger points (coefficient 264).
 LOW_RANGER_PUPIL = Character(
     name="Testlowran",
     race="human",
@@ -167,7 +180,7 @@ CAPPED_PUPIL = Character(
 )
 
 # Level-30 mages of the dark races, for the race-adjusted mage coefficient (GET_PROF_COOF,
-# utils.h) and the dark-side guildmasters.
+# utils.h) and the dark-side guildmasters: this one an uruk-hai.
 URUK_PUPIL = Character(
     name="Testuruk",
     race="uruk-hai",
@@ -176,6 +189,7 @@ URUK_PUPIL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="mage",
 )
+# The orc mage.
 ORC_PUPIL = Character(
     name="Testorc",
     race="orc",
@@ -184,6 +198,7 @@ ORC_PUPIL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="mage",
 )
+# The uruk-lhuth mage.
 LHUTH_PUPIL = Character(
     name="Testlhuth",
     race="uruk-lhuth",
@@ -204,7 +219,8 @@ MASTERY_PUPIL = Character(
     class_name="warrior",
     skills=(("weapon_mastery", MASTERY_SESSIONS_SPENT),),
 )
-# A level-30 human mage who has spent 153 sessions, three skills at the session cap.
+# A level-30 human mage who has spent 153 sessions, three skills at the session cap, with a
+# learning of 0, so its login recount is below what it has spent.
 OVERSPENT_PUPIL = Character(
     name="Testspent",
     race="human",
@@ -213,12 +229,11 @@ OVERSPENT_PUPIL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="mage",
     skills=(("magic_missile", 51), ("blink", 51), ("cure_self", 51)),
+    stored=StoredValues(lea=0),
 )
 
-# The shining angel (mob/11.mob): MOB_SPEC with program 14, the resetter (spec_ass.cpp).
-RESETTING_ANGEL_VNUM = 1170
 # The last of the two lines a pupil reads on a pracreset (do_pracreset, spec_pro.cpp).
-PRACRESET_DONE_MARKER = "Your practices have been reset"
+PRACRESET_DONE = "Your practices have been reset"
 
 # The practice sessions the implementor gives a pupil before practicing.
 STARTING_SESSIONS = 20
@@ -232,167 +247,176 @@ GUILD_SESSIONS_PATTERN = re.compile(r"You have (-?\d+) practice sessions left\."
 # A guildmaster list row: name, knowledge, sessions spent, and what the guildmaster teaches it
 # to, as how_good's word. Rows end in "\n\r", so each starts after a carriage return.
 GUILD_ROW_PATTERN_FORMAT = r"^\r?{}\s+(\d+)%\s+(\d+)\s+Taught to:\s+\(([A-Za-z ]+)\)"
-# The first line of the plain practice list away from a guildmaster (do_practice, spec_pro.cpp);
-# it has no full stop.
-PLAIN_SESSIONS_MARKER = "practice sessions left"
+# The part of the plain practice list's first line, away from a guildmaster (do_practice,
+# spec_pro.cpp), that names the sessions.
+PLAIN_SESSIONS_PART = "practice sessions left"
+# That first line's session count; the line has no full stop.
 PLAIN_SESSIONS_PATTERN = re.compile(r"You have (-?\d+) practice sessions left\r?\n")
 # A plain practice list row: the name, then how well it is known in parentheses (how_good).
 PLAIN_ROW_PATTERN_FORMAT = r"^\r?{}\s+\(([A-Za-z ]+)\)"
 # A whole plain-list row of a mage spell: the name, how well it is known, then the casting time
 # and stamina, and nothing more.
 PLAIN_SPELL_ROW_PATTERN_FORMAT = r"^\r?{}\s+\(([A-Za-z ]+)\)\s+\(\s*\d+ time,\s+\d+ stamina\)$"
-# The professions' coefficients and levels in `stat player` (do_stat_character, act_wiz.cpp).
+# The professions' coefficients in `stat player` (do_stat_character, act_wiz.cpp).
 COEFFICIENTS_PATTERN = re.compile(r"Class coofs : Mag:(\d+) Cle:(\d+) Ran:(\d+) War:(\d+)")
+# The professions' levels in `stat player`.
 CLASS_LEVELS_PATTERN = re.compile(r"Class levels: Mag:(\d+) Cle:(\d+) Ran:(\d+) War:(\d+)")
-# The practice sessions in `stat player`.
-STAT_SESSIONS_PATTERN = re.compile(r"\(pracs left:\[(-?\d+)\]\)")
-# Learning in `stat player`, as current/base/constant, and the level.
-LEARNING_PATTERN = re.compile(r"Lea:\[(-?\d+)/(-?\d+)/(-?\d+)\]")
-LEVEL_PATTERN = re.compile(r"Lev: \[\s*(\d+)\]")
 
 # What the pupil reads on the first session of a practice command (guildmasters[]).
-PRACTICED_MARKER = "You practice it for a while."
-# What the others in the room read on that first session; format with the pupil's name.
-TEACHES_MARKER_FORMAT = "A mysterious traveller teaches {} for a while."
+PRACTICED_REPLY = "You practice it for a while."
+# What the others in the room read on that first session at the traveller; format with the
+# pupil's name.
+TEACHES_FORMAT = f"{TRAVELLER.line_start} teaches {{}} for a while."
 # What the pupil reads after more than one session (SPECIAL(guild)): the count and the skill.
 SESSIONS_SPENT_PATTERN = re.compile(r"You spend (\d+) sessions practicing ([a-z ]+)\.")
 # What the pupil reads when the guildmaster teaches the skill no better (guildmasters[]).
-LIMIT_MARKER = "The guildmaster bows and tells you 'Sorry, I can not teach you better.'"
+LIMIT_REPLY = "The guildmaster bows and tells you 'Sorry, I can not teach you better.'"
 # What the pupil reads when the skill is already at 100 (guildmasters[]).
-PERFECT_MARKER = "You're already perfect in this."
+PERFECT_REPLY = "You're already perfect in this."
 # What the pupil reads after 51 sessions in one skill (practice_refusal, spec_pro.cpp).
-TOO_LONG_MARKER = "You studied this for too long. Enough for you."
+TOO_LONG_REPLY = "You studied this for too long. Enough for you."
 # What the pupil reads when its sessions run out (practice_refusal).
-NO_SESSIONS_MARKER = "You have no practice sessions left now."
-# The refusals SPECIAL(guild) gives before any session is spent.
-HOW_MANY_MARKER = "Practice how many times?"
-WHICH_SKILL_MARKER = "Practice which skill?"
-NO_SUCH_SKILL_MARKER = "There is no such skill as you seek."
-UNKNOWN_TO_GUILDMASTER_MARKER = "tells you 'I know nothing about it.'"
-NOT_DEDICATED_MARKER = "You are not dedicated enough for this."
-NOT_EXPERIENCED_MARKER = "You are not experienced enough for this."
+NO_SESSIONS_REPLY = "You have no practice sessions left now."
+# SPECIAL(guild)'s refusal of a zero count, given before any session is spent.
+HOW_MANY_REPLY = "Practice how many times?"
+# Its refusal of a count with no skill.
+WHICH_SKILL_REPLY = "Practice which skill?"
+# Its refusal of a skill no table has.
+NO_SUCH_SKILL_REPLY = "There is no such skill as you seek."
+# The part, after the guildmaster's name, of its refusal of a skill it does not teach.
+UNKNOWN_TO_GUILDMASTER_PART = "tells you 'I know nothing about it.'"
+# Its refusal of a specialization skill to a pupil without the specialization.
+NOT_DEDICATED_REPLY = "You are not dedicated enough for this."
+# Its refusal of a skill above the pupil's level in the profession.
+NOT_EXPERIENCED_REPLY = "You are not experienced enough for this."
 # What the guildmaster says to a race outside its will_teach mask (SPECIAL(guild), do_say).
 GO_AWAY_SPEECH = "says 'Go away, I won't teach you anything!'"
-# What it says to a shadow, and to a race outside its rp_flag mask.
+# What it says to a shadow.
 SHADOW_SPEECH = "says 'Ugh!  I'm not teaching YOU!'"
+# What it says to a race outside its rp_flag mask.
 RACE_RULE_SPEECH = "says 'Sorry, I can't teach you.'"
 # What a guildmaster whose program names no row of guildmasters[] tells the pupil.
-POSING_MARKER = "Alas, I am just posing for guildmaster! Come back later."
-# The glass-eyed shaman's own first-session and limit lines (its row of guildmasters[]).
-SHAMAN_PRACTICED_MARKER = "A glass-eyed shaman explains it to you."
-SHAMAN_LIMIT_MARKER = "A glass-eyed shaman tells you 'There isn't more for you to know.'"
+POSING_REPLY = "Alas, I am just posing for guildmaster! Come back later."
+# The glass-eyed shaman's own first-session line (its row of guildmasters[]).
+SHAMAN_PRACTICED_REPLY = "A glass-eyed shaman explains it to you."
+# The glass-eyed shaman's own limit line.
+SHAMAN_LIMIT_REPLY = "A glass-eyed shaman tells you 'There isn't more for you to know.'"
 
 # Every line a practice command at a guildmaster can end with: the outcomes of SPECIAL(guild),
 # and the plain list's first line, for a command no guildmaster takes.
 PRACTICE_OUTCOMES = [
-    PRACTICED_MARKER,
-    LIMIT_MARKER,
-    PERFECT_MARKER,
-    TOO_LONG_MARKER,
-    NO_SESSIONS_MARKER,
-    HOW_MANY_MARKER,
-    WHICH_SKILL_MARKER,
-    NO_SUCH_SKILL_MARKER,
-    UNKNOWN_TO_GUILDMASTER_MARKER,
-    NOT_DEDICATED_MARKER,
-    NOT_EXPERIENCED_MARKER,
+    PRACTICED_REPLY,
+    LIMIT_REPLY,
+    PERFECT_REPLY,
+    TOO_LONG_REPLY,
+    NO_SESSIONS_REPLY,
+    HOW_MANY_REPLY,
+    WHICH_SKILL_REPLY,
+    NO_SUCH_SKILL_REPLY,
+    UNKNOWN_TO_GUILDMASTER_PART,
+    NOT_DEDICATED_REPLY,
+    NOT_EXPERIENCED_REPLY,
     GO_AWAY_SPEECH,
     SHADOW_SPEECH,
     RACE_RULE_SPEECH,
-    POSING_MARKER,
-    SHAMAN_PRACTICED_MARKER,
-    SHAMAN_LIMIT_MARKER,
-    PLAIN_SESSIONS_MARKER,
+    POSING_REPLY,
+    SHAMAN_PRACTICED_REPLY,
+    SHAMAN_LIMIT_REPLY,
+    PLAIN_SESSIONS_PART,
 ]
-# Seconds to keep reading after an outcome, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
 
 
 def give_sessions(implementor: GameSession, name: str, sessions: int) -> None:
-    """Sets the character's practice sessions to exactly sessions."""
-    reply = implementor.command(f"wizset player {name.lower()} practices {sessions}")
-    assert reply.contains(f"{name}'s practices set to {sessions}."), reply.text
+    """Set the character's practice sessions to exactly sessions."""
+    wizset(implementor, f"player {name.lower()}", "practices", sessions, shown_name=name)
+
+
+def guildmaster_reset(guildmaster: Guildmaster = TRAVELLER) -> MobReset:
+    """Return the world reset that places the guildmaster in the arena centre at boot."""
+    return MobReset(guildmaster.vnum, world.ROOM_ARENA_CENTRE)
 
 
 def bring_guildmaster(implementor: GameSession, guildmaster: Guildmaster = TRAVELLER) -> None:
-    """Moves the implementor to the arena centre and loads the guildmaster there."""
-    implementor.command(f"goto {world.ROOM_ARENA_CENTRE}")
-    reply = implementor.command(f"load mob {guildmaster.vnum}")
-    assert reply.contains(f"You create {guildmaster.short_description}."), reply.text
+    """Bring the implementor to the arena centre and load the guildmaster there."""
+    goto(implementor, world.ROOM_ARENA_CENTRE)
+    load_mob(implementor, guildmaster.vnum, guildmaster.short_description)
 
 
 def dismiss_guildmaster(implementor: GameSession, guildmaster: Guildmaster) -> None:
-    """Purges the guildmaster from the implementor's room, so the next one loaded answers alone."""
+    """Purge the guildmaster from the implementor's room, so the next one loaded answers alone."""
     reply = implementor.command(f"purge {guildmaster.keyword}")
-    assert reply.contains("Ok."), reply.text
+    assert reply.contains(PURGED_REPLY), reply.text
 
 
 def guild_list(pupil: GameSession, name: str, guildmaster: Guildmaster = TRAVELLER) -> str:
-    """The guildmaster's list as the pupil reads it after a bare `practice`."""
+    """Return the guildmaster's list as the pupil reads it after a bare `practice`."""
     reply = pupil.command("practice")
     assert reply.contains(guildmaster.list_header_format.format(name)), reply.text
     return reply.text
 
 
 def guild_row(listed: str, skill: str) -> tuple[int, int, str]:
-    """A skill's knowledge, sessions spent and taught-to word in a guildmaster's list."""
-    row = re.search(GUILD_ROW_PATTERN_FORMAT.format(re.escape(skill)), listed, re.MULTILINE)
+    """Return a skill's knowledge, sessions spent and taught-to word in a guildmaster's list."""
+    escaped_skill = re.escape(skill)
+    pattern = GUILD_ROW_PATTERN_FORMAT.format(escaped_skill)
+    row = re.search(pattern, listed, re.MULTILINE)
     assert row is not None, f"no {skill} row in the guildmaster's list:\n{listed}"
-    return int(row.group(1)), int(row.group(2)), row.group(3)
+    knowledge = int(row.group(1))
+    sessions_spent = int(row.group(2))
+    return knowledge, sessions_spent, row.group(3)
 
 
 def listed_sessions(listed: str) -> int:
-    """The practice sessions a guildmaster's list reports."""
-    match = GUILD_SESSIONS_PATTERN.search(listed)
-    assert match is not None, f"no session count in the guildmaster's list:\n{listed}"
-    return int(match.group(1))
+    """Return the practice sessions a guildmaster's list reports; asserts it reports them."""
+    return first_number(GUILD_SESSIONS_PATTERN, listed)
 
 
 def sessions_left(pupil: GameSession, name: str, guildmaster: Guildmaster = TRAVELLER) -> int:
-    """The practice sessions the guildmaster's list reports for the pupil."""
-    return listed_sessions(guild_list(pupil, name, guildmaster))
+    """Return the practice sessions the guildmaster's list reports for the pupil."""
+    listed = guild_list(pupil, name, guildmaster)
+    return listed_sessions(listed)
 
 
 def practice(pupil: GameSession, arguments: str, command: str = "practice") -> str:
-    """Sends `<command> <arguments>` at a guildmaster and returns everything the pupil read."""
-    pupil.send_line(f"{command} {arguments}")
-    return pupil.expect(PRACTICE_OUTCOMES) + pupil.drain(SETTLE_SECONDS)
+    """Send `<command> <arguments>` at a guildmaster and return everything the pupil read."""
+    return reply_to(pupil, f"{command} {arguments}", PRACTICE_OUTCOMES)
 
 
 def has_guild_row(listed: str, skill: str) -> bool:
-    """Whether a guildmaster's list has a row for the skill."""
-    pattern = GUILD_ROW_PATTERN_FORMAT.format(re.escape(skill))
+    """Return whether a guildmaster's list has a row for the skill."""
+    escaped_skill = re.escape(skill)
+    pattern = GUILD_ROW_PATTERN_FORMAT.format(escaped_skill)
     return re.search(pattern, listed, re.MULTILINE) is not None
 
 
-def stat_player(implementor: GameSession, name: str) -> str:
-    """The implementor's `stat player` of the character, read to its last line."""
-    implementor.send_line(f"stat player {name.lower()}")
-    return implementor.expect(["VUL:"]) + implementor.drain(SETTLE_SECONDS)
-
-
 def ranger_coefficient_and_level(implementor: GameSession, name: str) -> tuple[int, int]:
-    """The character's ranger coefficient and ranger level, from `stat player`."""
-    text = stat_player(implementor, name)
+    """Return the character's ranger coefficient and ranger level, from `stat player`."""
+    text = read_stat(implementor, f"player {name.lower()}")
     coefficients = COEFFICIENTS_PATTERN.search(text)
     levels = CLASS_LEVELS_PATTERN.search(text)
     assert coefficients is not None and levels is not None, text
-    return int(coefficients.group(3)), int(levels.group(3))
+    coefficient = int(coefficients.group(3))
+    level = int(levels.group(3))
+    return coefficient, level
 
 
 def mage_coefficient_and_level(implementor: GameSession, name: str) -> tuple[int, int]:
-    """The character's mage coefficient and mage level, from `stat player`."""
-    text = stat_player(implementor, name)
+    """Return the character's mage coefficient and mage level, from `stat player`."""
+    text = read_stat(implementor, f"player {name.lower()}")
     coefficients = COEFFICIENTS_PATTERN.search(text)
     levels = CLASS_LEVELS_PATTERN.search(text)
     assert coefficients is not None and levels is not None, text
-    return int(coefficients.group(1)), int(levels.group(1))
+    coefficient = int(coefficients.group(1))
+    level = int(levels.group(1))
+    return coefficient, level
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 def test_practice_all_stops_at_the_guildmasters_limit_and_spends_nothing_more(server) -> None:
-    """`practice <skill> all` spends sessions only up to the guildmaster's limit (#271, #402).
+    """Pins that `practice <skill> all` spends sessions only up to the guildmaster's limit.
 
     The traveller teaches cure self up to 80. With a mage coefficient of 1000, cure self's
     knowledge after N sessions is 36, 64, 84 (recalc_skills, spec_pro.cpp), so the third session
@@ -403,38 +427,42 @@ def test_practice_all_stops_at_the_guildmasters_limit_and_spends_nothing_more(se
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
-    assert sessions_left(pupil, PUPIL.name) == STARTING_SESSIONS
+    goto(implementor, world.ROOM_ARENA_CENTRE)
+    left = sessions_left(pupil, PUPIL.name)
+    assert left == STARTING_SESSIONS, left
 
     first_try = practice(pupil, "cure self all")
-    assert first_try.count(PRACTICED_MARKER) == 1, first_try
+    assert first_try.count(PRACTICED_REPLY) == 1, first_try
     spent = SESSIONS_SPENT_PATTERN.search(first_try)
     assert spent is not None, first_try
     assert (int(spent.group(1)), spent.group(2)) == (3, "cure self"), first_try
-    limit_at = first_try.index(LIMIT_MARKER)
-    assert first_try.index(PRACTICED_MARKER) < spent.start() < limit_at, first_try
-    teaching_seen = implementor.expect([TEACHES_MARKER_FORMAT.format(PUPIL.name)])
-    teaching_seen += implementor.drain(SETTLE_SECONDS)
-    assert teaching_seen.count(TEACHES_MARKER_FORMAT.format(PUPIL.name)) == 1, teaching_seen
+    limit_at = first_try.index(LIMIT_REPLY)
+    assert first_try.index(PRACTICED_REPLY) < spent.start() < limit_at, first_try
+    teaching = TEACHES_FORMAT.format(PUPIL.name)
+    teaching_seen = settled_expect(implementor, [teaching])
+    assert teaching_seen.count(teaching) == 1, teaching_seen
     listed = guild_list(pupil, PUPIL.name)
     assert guild_row(listed, "cure self") == (80, 3, "good"), listed
-    assert listed_sessions(listed) == STARTING_SESSIONS - 3
+    assert listed_sessions(listed) == STARTING_SESSIONS - 3, listed
 
     second_try = practice(pupil, "cure self all")
-    assert LIMIT_MARKER in second_try, second_try
-    assert PRACTICED_MARKER not in second_try, second_try
+    assert LIMIT_REPLY in second_try, second_try
+    assert PRACTICED_REPLY not in second_try, second_try
     assert SESSIONS_SPENT_PATTERN.search(second_try) is None, second_try
-    assert sessions_left(pupil, PUPIL.name) == STARTING_SESSIONS - 3
+    left = sessions_left(pupil, PUPIL.name)
+    assert left == STARTING_SESSIONS - 3, left
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 @pytest.mark.parametrize("arguments", ["blink 3", "3 blink"], ids=["skill-first", "count-first"])
 @pytest.mark.parametrize("command", ["practice", "practise"])
 def test_a_counted_practice_spends_exactly_that_many_sessions_in_either_word_order(
     server, arguments: str, command: str
 ) -> None:
-    """`practice blink 3` and `practice 3 blink` each spend exactly three sessions (#271, #402).
+    """Pins that `practice blink 3` and `practice 3 blink` each spend exactly three sessions.
 
     Each order starts from a pupil who has never practiced blink: three sessions leave it below
     the traveller's limit of 100, which this pupil passes on the fifth. The `practise` spelling,
@@ -443,71 +471,76 @@ def test_a_counted_practice_spends_exactly_that_many_sessions_in_either_word_ord
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
 
     reply = practice(pupil, arguments, command)
-    assert reply.count(PRACTICED_MARKER) == 1, reply
+    assert reply.count(PRACTICED_REPLY) == 1, reply
     spent = SESSIONS_SPENT_PATTERN.search(reply)
     assert spent is not None, reply
     assert (int(spent.group(1)), spent.group(2)) == (3, "blink"), reply
-    assert LIMIT_MARKER not in reply, reply
-    assert sessions_left(pupil, PUPIL.name) == STARTING_SESSIONS - 3
+    assert LIMIT_REPLY not in reply, reply
+    left = sessions_left(pupil, PUPIL.name)
+    assert left == STARTING_SESSIONS - 3, left
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 def test_running_out_of_sessions_part_way_stops_with_the_no_sessions_line(server) -> None:
-    """With two sessions, `practice blink 5` spends both, then says none are left (#271, #402).
+    """Pins that with two sessions, `practice blink 5` spends both, then says none are left.
 
     Practice draws no random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, 2)
-    bring_guildmaster(implementor)
 
     reply = practice(pupil, "blink 5")
-    assert reply.count(PRACTICED_MARKER) == 1, reply
+    assert reply.count(PRACTICED_REPLY) == 1, reply
     spent = SESSIONS_SPENT_PATTERN.search(reply)
     assert spent is not None, reply
     assert (int(spent.group(1)), spent.group(2)) == (2, "blink"), reply
-    assert spent.start() < reply.index(NO_SESSIONS_MARKER), reply
-    assert sessions_left(pupil, PUPIL.name) == 0
+    assert spent.start() < reply.index(NO_SESSIONS_REPLY), reply
+    left = sessions_left(pupil, PUPIL.name)
+    assert left == 0, left
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 @pytest.mark.parametrize(
     ("arguments", "refusal"),
     [
-        ("blink 0", HOW_MANY_MARKER),
-        ("5", WHICH_SKILL_MARKER),
-        ("zzz 3", NO_SUCH_SKILL_MARKER),
+        ("blink 0", HOW_MANY_REPLY),
+        ("5", WHICH_SKILL_REPLY),
+        ("zzz 3", NO_SUCH_SKILL_REPLY),
     ],
     ids=["zero-count", "no-skill", "unknown-skill"],
 )
 def test_a_practice_the_guildmaster_cannot_carry_out_is_refused_and_spends_nothing(
     server, arguments: str, refusal: str
 ) -> None:
-    """A zero count, a count alone and an unknown skill each get their refusal (#271, #402).
+    """Pins that a zero count, a count alone and an unknown skill each get their refusal.
 
     Nothing is practiced and no session is spent.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
 
     reply = practice(pupil, arguments)
     assert refusal in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
-    assert sessions_left(pupil, PUPIL.name) == STARTING_SESSIONS
+    assert PRACTICED_REPLY not in reply, reply
+    left = sessions_left(pupil, PUPIL.name)
+    assert left == STARTING_SESSIONS, left
 
 
+@pytest.mark.practice_lists
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, LISTED_PUPIL)
 def test_the_guildmaster_list_shows_sessions_spent_and_the_plain_list_does_not(server) -> None:
-    """The guildmaster's list has a sessions-spent column; plain `practice` has none (#310, #321).
+    """Pins that the guildmaster's list has a sessions-spent column and plain `practice` has none.
 
     Away from a guildmaster, `practice` lists blink with how well it is known and no count; at
     the traveller, the blink row shows the 12 sessions the pupil has spent on it.
@@ -516,10 +549,12 @@ def test_the_guildmaster_list_shows_sessions_spent_and_the_plain_list_does_not(s
     pupil = server.login(LISTED_PUPIL.name)
 
     plain = pupil.command("practice")
-    assert plain.contains(PLAIN_SESSIONS_MARKER), plain.text
+    assert plain.contains(PLAIN_SESSIONS_PART), plain.text
     assert not plain.contains(TRAVELLER.list_header_format.format(LISTED_PUPIL.name)), plain.text
-    assert re.search(PLAIN_ROW_PATTERN_FORMAT.format("blink"), plain.text, re.MULTILINE), plain.text
-    plain_row = re.search(PLAIN_SPELL_ROW_PATTERN_FORMAT.format("blink"), plain.text, re.MULTILINE)
+    blink_row_pattern = PLAIN_ROW_PATTERN_FORMAT.format("blink")
+    assert re.search(blink_row_pattern, plain.text, re.MULTILINE), plain.text
+    blink_spell_row_pattern = PLAIN_SPELL_ROW_PATTERN_FORMAT.format("blink")
+    plain_row = re.search(blink_spell_row_pattern, plain.text, re.MULTILINE)
     assert plain_row is not None, plain.text
 
     bring_guildmaster(implementor)
@@ -527,10 +562,11 @@ def test_the_guildmaster_list_shows_sessions_spent_and_the_plain_list_does_not(s
     assert guild_row(listed, "blink")[1] == BLINK_SESSIONS_SPENT, listed
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
 def test_a_skill_stopped_at_one_guildmasters_limit_is_finished_at_a_higher_one(server) -> None:
-    """Blink practised to Scorther's limit of 60 goes on at the traveller, who teaches it to 100 (#402).
+    """Pins that blink practised to Scorther's limit of 60 goes on to 100 at the traveller.
 
     With a mage coefficient of 1000, blink's knowledge after N sessions is 36, 64, 84, 96, 101
     (recalc_skills, spec_pro.cpp). At Scorther the second session passes 60, is cut back to it,
@@ -548,8 +584,8 @@ def test_a_skill_stopped_at_one_guildmasters_limit_is_finished_at_a_higher_one(s
     spent = SESSIONS_SPENT_PATTERN.search(at_scorther)
     assert spent is not None, at_scorther
     assert (int(spent.group(1)), spent.group(2)) == (2, "blink"), at_scorther
-    assert LIMIT_MARKER in at_scorther, at_scorther
-    assert spent.start() < at_scorther.index(LIMIT_MARKER), at_scorther
+    assert LIMIT_REPLY in at_scorther, at_scorther
+    assert spent.start() < at_scorther.index(LIMIT_REPLY), at_scorther
     scorther_list = guild_list(pupil, PUPIL.name, SCORTHER)
     assert guild_row(scorther_list, "blink") == (60, 2, "fair"), scorther_list
 
@@ -562,19 +598,20 @@ def test_a_skill_stopped_at_one_guildmasters_limit_is_finished_at_a_higher_one(s
     spent = SESSIONS_SPENT_PATTERN.search(at_traveller)
     assert spent is not None, at_traveller
     assert (int(spent.group(1)), spent.group(2)) == (3, "blink"), at_traveller
-    assert LIMIT_MARKER in at_traveller, at_traveller
-    assert spent.start() < at_traveller.index(LIMIT_MARKER), at_traveller
+    assert LIMIT_REPLY in at_traveller, at_traveller
+    assert spent.start() < at_traveller.index(LIMIT_REPLY), at_traveller
     finished_list = guild_list(pupil, PUPIL.name, TRAVELLER)
     assert guild_row(finished_list, "blink") == (100, 5, "Mastered"), finished_list
-    assert listed_sessions(finished_list) == STARTING_SESSIONS - 5
+    assert listed_sessions(finished_list) == STARTING_SESSIONS - 5, finished_list
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
 def test_a_lower_limit_guildmaster_refuses_a_skill_already_past_it_and_spends_nothing(
     server,
 ) -> None:
-    """Cure self practised to the traveller's 80 is refused at once by Scorther, who teaches 60 (#402).
+    """Pins that cure self practised to the traveller's 80 is refused at once by Scorther (60).
 
     Three sessions take cure self to 84, cut back to the traveller's 80 (recalc_skills gives the
     same 36, 64, 84 as blink at a mage coefficient of 1000). Scorther's limit of 60 is below it,
@@ -589,18 +626,20 @@ def test_a_lower_limit_guildmaster_refuses_a_skill_already_past_it_and_spends_no
     spent = SESSIONS_SPENT_PATTERN.search(at_traveller)
     assert spent is not None, at_traveller
     assert (int(spent.group(1)), spent.group(2)) == (3, "cure self"), at_traveller
-    assert guild_row(guild_list(pupil, PUPIL.name, TRAVELLER), "cure self") == (80, 3, "good")
+    traveller_list = guild_list(pupil, PUPIL.name, TRAVELLER)
+    assert guild_row(traveller_list, "cure self") == (80, 3, "good"), traveller_list
 
     dismiss_guildmaster(implementor, TRAVELLER)
     bring_guildmaster(implementor, SCORTHER)
     at_scorther = practice(pupil, "cure self")
-    assert LIMIT_MARKER in at_scorther, at_scorther
-    assert PRACTICED_MARKER not in at_scorther, at_scorther
+    assert LIMIT_REPLY in at_scorther, at_scorther
+    assert PRACTICED_REPLY not in at_scorther, at_scorther
     scorther_list = guild_list(pupil, PUPIL.name, SCORTHER)
     assert guild_row(scorther_list, "cure self") == (80, 3, "fair"), scorther_list
-    assert listed_sessions(scorther_list) == STARTING_SESSIONS - 3
+    assert listed_sessions(scorther_list) == STARTING_SESSIONS - 3, scorther_list
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
 @pytest.mark.parametrize(
@@ -611,9 +650,10 @@ def test_a_lower_limit_guildmaster_refuses_a_skill_already_past_it_and_spends_no
 def test_a_spell_one_guildmaster_does_not_teach_is_refused_there_and_taught_by_the_other(
     server, refusing: Guildmaster, teaching: Guildmaster, skill: str
 ) -> None:
-    """A guildmaster whose row has 0 for a spell refuses it; one with a limit teaches it (long-standing).
+    """Pins that a spell one guildmaster's row has at 0 is refused there and taught by the other.
 
-    The refusal spends nothing; the other guildmaster's one session spends one. The level-30
+    A guildmaster whose row has 0 for a spell refuses it; one with a limit teaches it. The
+    refusal spends nothing; the other guildmaster's one session spends one. The level-30
     pupil's mage level, 30, covers fireball's level of 21. Practice draws no random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
@@ -622,24 +662,26 @@ def test_a_spell_one_guildmaster_does_not_teach_is_refused_there_and_taught_by_t
     bring_guildmaster(implementor, refusing)
 
     refused = practice(pupil, skill)
-    assert f"{refusing.line_start} {UNKNOWN_TO_GUILDMASTER_MARKER}" in refused, refused
-    assert PRACTICED_MARKER not in refused, refused
-    assert sessions_left(pupil, PUPIL.name, refusing) == STARTING_SESSIONS
+    assert f"{refusing.line_start} {UNKNOWN_TO_GUILDMASTER_PART}" in refused, refused
+    assert PRACTICED_REPLY not in refused, refused
+    left = sessions_left(pupil, PUPIL.name, refusing)
+    assert left == STARTING_SESSIONS, left
 
     dismiss_guildmaster(implementor, refusing)
     bring_guildmaster(implementor, teaching)
     taught = practice(pupil, skill)
-    assert PRACTICED_MARKER in taught, taught
-    assert UNKNOWN_TO_GUILDMASTER_MARKER not in taught, taught
+    assert PRACTICED_REPLY in taught, taught
+    assert UNKNOWN_TO_GUILDMASTER_PART not in taught, taught
     teaching_list = guild_list(pupil, PUPIL.name, teaching)
     assert guild_row(teaching_list, skill)[1] == 1, teaching_list
-    assert listed_sessions(teaching_list) == STARTING_SESSIONS - 1
+    assert listed_sessions(teaching_list) == STARTING_SESSIONS - 1, teaching_list
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, BEORNING_PUPIL)
 def test_a_race_outside_the_guildmasters_mask_is_sent_away(server) -> None:
-    """The traveller tells a beorning to go away and teaches it nothing (long-standing).
+    """Pins that the traveller tells a beorning to go away and teaches it nothing.
 
     WILL_TEACH (utils.h) tests the pupil's race bit, 1 << 6 for a beorning, against the mask 63.
     The refusal is the guildmaster's speech (do_say), which the pupil reads as
@@ -656,38 +698,42 @@ def test_a_race_outside_the_guildmasters_mask_is_sent_away(server) -> None:
 
     reply = practice(pupil, "blink")
     assert f"{TRAVELLER.line_start} {GO_AWAY_SPEECH}" in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
-    stat_sessions = STAT_SESSIONS_PATTERN.search(stat_player(implementor, BEORNING_PUPIL.name))
-    assert stat_sessions is not None and int(stat_sessions.group(1)) == STARTING_SESSIONS
+    assert PRACTICED_REPLY not in reply, reply
+    stat_text = read_stat(implementor, f"player {BEORNING_PUPIL.name.lower()}")
+    assert first_number(PRACTICE_SESSIONS_PATTERN, stat_text) == STARTING_SESSIONS, stat_text
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, NOVICE_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 def test_a_spell_above_the_pupils_mage_level_is_not_taught(server) -> None:
-    """A level-8 mage asking the traveller for fireball (level 21) is not experienced enough (long-standing).
+    """Pins that a level-8 mage is not experienced enough for fireball (level 21).
 
-    The check compares skills[].level with the pupil's mage level, read here from `stat player`.
-    Nothing is practiced and no session is spent.
+    The traveller refuses it. The check compares skills[].level with the pupil's mage level, read
+    here from `stat player`. Nothing is practiced and no session is spent.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(NOVICE_PUPIL.name)
-    levels = CLASS_LEVELS_PATTERN.search(stat_player(implementor, NOVICE_PUPIL.name))
-    assert levels is not None and int(levels.group(1)) == 8
+    stat_text = read_stat(implementor, f"player {NOVICE_PUPIL.name.lower()}")
+    assert first_number(CLASS_LEVELS_PATTERN, stat_text) == 8, stat_text
     give_sessions(implementor, NOVICE_PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
 
     reply = practice(pupil, "fireball")
-    assert NOT_EXPERIENCED_MARKER in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
-    assert sessions_left(pupil, NOVICE_PUPIL.name) == STARTING_SESSIONS
+    assert NOT_EXPERIENCED_REPLY in reply, reply
+    assert PRACTICED_REPLY not in reply, reply
+    left = sessions_left(pupil, NOVICE_PUPIL.name)
+    assert left == STARTING_SESSIONS, left
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, RANGER_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(ARODEN))
 def test_a_specialization_skill_is_taught_only_to_a_pupil_with_that_specialization(
     server,
 ) -> None:
-    """Aroden refuses stalking without the stealth specialization, then teaches it (long-standing).
+    """Pins that Aroden refuses stalking without the stealth specialization, then teaches it.
 
     Stalking's learn_type has LEARN_SPEC (skills[], consts.cpp), so SPECIAL(guild) compares the
     pupil's specialization with its skill_spec, stealth, both in its list, which leaves stalking
@@ -698,31 +744,33 @@ def test_a_specialization_skill_is_taught_only_to_a_pupil_with_that_specializati
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(RANGER_PUPIL.name)
     give_sessions(implementor, RANGER_PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor, ARODEN)
 
     unspecialized_list = guild_list(pupil, RANGER_PUPIL.name, ARODEN)
     assert not has_guild_row(unspecialized_list, "stalking"), unspecialized_list
     assert has_guild_row(unspecialized_list, "awareness"), unspecialized_list
     refused = practice(pupil, "stalking")
-    assert NOT_DEDICATED_MARKER in refused, refused
-    assert PRACTICED_MARKER not in refused, refused
-    assert sessions_left(pupil, RANGER_PUPIL.name, ARODEN) == STARTING_SESSIONS
+    assert NOT_DEDICATED_REPLY in refused, refused
+    assert PRACTICED_REPLY not in refused, refused
+    left = sessions_left(pupil, RANGER_PUPIL.name, ARODEN)
+    assert left == STARTING_SESSIONS, left
 
     name = RANGER_PUPIL.name
-    reply = implementor.command(f"wizset player {name.lower()} specialization {STEALTH_SPECIALIZATION}")
-    assert reply.contains(f"{name}'s specialization set to {STEALTH_SPECIALIZATION}."), reply.text
+    wizset(implementor, f"player {name.lower()}", "specialization", STEALTH_SPECIALIZATION, shown_name=name)
     specialized_list = guild_list(pupil, RANGER_PUPIL.name, ARODEN)
     assert guild_row(specialized_list, "stalking") == (0, 0, "Mastered"), specialized_list
     taught = practice(pupil, "stalking")
-    assert PRACTICED_MARKER in taught, taught
-    assert NOT_DEDICATED_MARKER not in taught, taught
-    assert sessions_left(pupil, RANGER_PUPIL.name, ARODEN) == STARTING_SESSIONS - 1
+    assert PRACTICED_REPLY in taught, taught
+    assert NOT_DEDICATED_REPLY not in taught, taught
+    left = sessions_left(pupil, RANGER_PUPIL.name, ARODEN)
+    assert left == STARTING_SESSIONS - 1, left
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, CAPPED_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(ARODEN))
 def test_a_skill_with_51_sessions_spent_is_refused_at_once(server) -> None:
-    """Aroden refuses travelling to a pupil who has spent 51 sessions on it, at 97% (#402).
+    """Pins that Aroden refuses travelling to a pupil who has spent 51 sessions on it, at 97%.
 
     practice_refusal's check is `skills > 50`; the knowledge is below Aroden's limit of 100, so
     the session cap is the only refusal that applies. Nothing is practiced and no session is
@@ -731,20 +779,22 @@ def test_a_skill_with_51_sessions_spent_is_refused_at_once(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(CAPPED_PUPIL.name)
     give_sessions(implementor, CAPPED_PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor, ARODEN)
     listed = guild_list(pupil, CAPPED_PUPIL.name, ARODEN)
     assert guild_row(listed, "travelling") == (97, SESSION_CAP, "Mastered"), listed
 
     reply = practice(pupil, "travelling")
-    assert TOO_LONG_MARKER in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
-    assert sessions_left(pupil, CAPPED_PUPIL.name, ARODEN) == STARTING_SESSIONS
+    assert TOO_LONG_REPLY in reply, reply
+    assert PRACTICED_REPLY not in reply, reply
+    left = sessions_left(pupil, CAPPED_PUPIL.name, ARODEN)
+    assert left == STARTING_SESSIONS, left
 
 
+@pytest.mark.practice_limits
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PERFECT_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 def test_a_skill_already_at_100_is_refused_as_perfect(server) -> None:
-    """The traveller refuses blink to a pupil whose five sessions put it at 101% (#402).
+    """Pins that the traveller refuses blink to a pupil whose five sessions put it at 101%.
 
     practice_refusal checks `knowledge >= 100` first. Nothing is practiced and no session is
     spent.
@@ -752,12 +802,12 @@ def test_a_skill_already_at_100_is_refused_as_perfect(server) -> None:
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PERFECT_PUPIL.name)
     give_sessions(implementor, PERFECT_PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
 
     reply = practice(pupil, "blink")
-    assert PERFECT_MARKER in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
-    assert sessions_left(pupil, PERFECT_PUPIL.name) == STARTING_SESSIONS
+    assert PERFECT_REPLY in reply, reply
+    assert PRACTICED_REPLY not in reply, reply
+    left = sessions_left(pupil, PERFECT_PUPIL.name)
+    assert left == STARTING_SESSIONS, left
 
 
 # The knowledge a session brings (recalc_skills, spec_pro.cpp) rests on the sessions spent N, the
@@ -794,8 +844,10 @@ def test_a_skill_already_at_100_is_refused_as_perfect(server) -> None:
 # awareness in 37 sessions (tmps = 246, t = 1000 - 37 * 20 * 246 * 10 / 2000 = 90).
 
 
+@pytest.mark.practice_coefficients
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, RANGER_PUPIL, WIZARD_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(ARODEN))
 @pytest.mark.parametrize(
     ("pupil_character", "coefficient", "sessions"),
     [(RANGER_PUPIL, 1000, 9), (WIZARD_PUPIL, 300, 22)],
@@ -804,51 +856,53 @@ def test_a_skill_already_at_100_is_refused_as_perfect(server) -> None:
 def test_awareness_takes_fewer_sessions_to_master_the_higher_the_ranger_coefficient(
     server, pupil_character: Character, coefficient: int, sessions: int
 ) -> None:
-    """Two level-30 humans master awareness at Aroden in 9 and 22 sessions, by coefficient (#402).
+    """Pins that awareness takes 9 sessions to master at ranger coefficient 1000 and 22 at 300.
 
     The counts are worked out in the comment above. Practice draws no random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(pupil_character.name)
-    assert ranger_coefficient_and_level(implementor, pupil_character.name)[0] == coefficient
+    coefficient_and_level = ranger_coefficient_and_level(implementor, pupil_character.name)
+    assert coefficient_and_level[0] == coefficient, coefficient_and_level
     give_sessions(implementor, pupil_character.name, PLENTY_OF_SESSIONS)
-    bring_guildmaster(implementor, ARODEN)
 
     reply = practice(pupil, "awareness all")
     spent = SESSIONS_SPENT_PATTERN.search(reply)
     assert spent is not None, reply
     assert (int(spent.group(1)), spent.group(2)) == (sessions, "awareness"), reply
-    assert PERFECT_MARKER in reply, reply
-    assert spent.start() < reply.index(PERFECT_MARKER), reply
+    assert PERFECT_REPLY in reply, reply
+    assert spent.start() < reply.index(PERFECT_REPLY), reply
     listed = guild_list(pupil, pupil_character.name, ARODEN)
     assert guild_row(listed, "awareness") == (100, sessions, "Mastered"), listed
 
 
+@pytest.mark.practice_coefficients
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, RANGER_PUPIL, LOW_RANGER_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(ARODEN))
 @pytest.mark.parametrize(
     ("pupil_character", "coefficient", "sessions", "final_line", "knowledge"),
     [
-        (RANGER_PUPIL, 1000, 14, PERFECT_MARKER, 100),
-        (LOW_RANGER_PUPIL, 264, SESSION_CAP, TOO_LONG_MARKER, 97),
+        (RANGER_PUPIL, 1000, 14, PERFECT_REPLY, 100),
+        (LOW_RANGER_PUPIL, 264, SESSION_CAP, TOO_LONG_REPLY, 97),
     ],
     ids=["ranger-masters-it", "low-ranger-reaches-the-cap"],
 )
 def test_a_low_ranger_coefficient_reaches_the_session_cap_before_mastering_travelling(
     server, pupil_character: Character, coefficient: int, sessions: int, final_line: str, knowledge: int
 ) -> None:
-    """A ranger masters travelling in 14 sessions; a 7-point ranger stops at the cap at 97% (#402).
+    """Pins that a ranger masters travelling in 14 sessions and a 7-point ranger stops at the cap.
 
-    Travelling (level 6) needs a ranger level of 6, which both pupils have. The counts and
-    knowledge are worked out in the comment above. Practice draws no random number.
+    The 7-point ranger stops at 97%. Travelling (level 6) needs a ranger level of 6, which both
+    pupils have. The counts and knowledge are worked out in the comment above. Practice draws no
+    random number.
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(pupil_character.name)
     pupil_coefficient, ranger_level = ranger_coefficient_and_level(implementor, pupil_character.name)
-    assert pupil_coefficient == coefficient
-    assert ranger_level >= 6
+    assert pupil_coefficient == coefficient, pupil_coefficient
+    assert ranger_level >= 6, ranger_level
     give_sessions(implementor, pupil_character.name, PLENTY_OF_SESSIONS)
-    bring_guildmaster(implementor, ARODEN)
 
     reply = practice(pupil, "travelling all")
     spent = SESSIONS_SPENT_PATTERN.search(reply)
@@ -858,7 +912,7 @@ def test_a_low_ranger_coefficient_reaches_the_session_cap_before_mastering_trave
     assert spent.start() < reply.index(final_line), reply
     listed = guild_list(pupil, pupil_character.name, ARODEN)
     assert guild_row(listed, "travelling") == (knowledge, sessions, "Mastered"), listed
-    assert listed_sessions(listed) == PLENTY_OF_SESSIONS - sessions
+    assert listed_sessions(listed) == PLENTY_OF_SESSIONS - sessions, listed
 
 
 # One session of magic missile (L = 0, D = 10, N = 1) rests only on the pupil's mage coefficient
@@ -877,14 +931,15 @@ def test_a_low_ranger_coefficient_reaches_the_session_cap_before_mastering_trave
 #   (10000 - 729316 / 100) / 99 = (10000 - 7293) / 99 = 27
 
 
+@pytest.mark.practice_coefficients
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL, URUK_PUPIL, ORC_PUPIL)
 @pytest.mark.parametrize(
     ("pupil_character", "guildmaster", "coefficient", "mage_level", "knowledge", "practiced_line"),
     [
-        (PUPIL, SCORTHER, 1000, 30, 36, PRACTICED_MARKER),
-        (URUK_PUPIL, URUK_MAGE_TEACHER, 900, 27, 33, PRACTICED_MARKER),
-        (ORC_PUPIL, SHAMAN, 667, 20, 27, SHAMAN_PRACTICED_MARKER),
+        (PUPIL, SCORTHER, 1000, 30, 36, PRACTICED_REPLY),
+        (URUK_PUPIL, URUK_MAGE_TEACHER, 900, 27, 33, PRACTICED_REPLY),
+        (ORC_PUPIL, SHAMAN, 667, 20, 27, SHAMAN_PRACTICED_REPLY),
     ],
     ids=["human-at-scorther", "uruk-hai-at-the-young-uruk-mage", "orc-at-the-glass-eyed-shaman"],
 )
@@ -897,7 +952,7 @@ def test_one_session_of_magic_missile_teaches_each_race_by_its_adjusted_mage_coe
     knowledge: int,
     practiced_line: str,
 ) -> None:
-    """One magic missile session gives a human 36%, an uruk-hai 33% and an orc 27% (long-standing).
+    """Pins that one magic missile session gives a human 36%, an uruk-hai 33% and an orc 27%.
 
     Each pupil practises at a guildmaster of its own side: Scorther, the young uruk mage (4601)
     and the glass-eyed shaman (32200). The knowledge is worked out in the comment above, from the
@@ -908,7 +963,7 @@ def test_one_session_of_magic_missile_teaches_each_race_by_its_adjusted_mage_coe
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(pupil_character.name)
     stat_values = mage_coefficient_and_level(implementor, pupil_character.name)
-    assert stat_values == (coefficient, mage_level)
+    assert stat_values == (coefficient, mage_level), stat_values
     give_sessions(implementor, pupil_character.name, STARTING_SESSIONS)
     bring_guildmaster(implementor, guildmaster)
 
@@ -917,13 +972,15 @@ def test_one_session_of_magic_missile_teaches_each_race_by_its_adjusted_mage_coe
     assert SESSIONS_SPENT_PATTERN.search(reply) is None, reply
     listed = guild_list(pupil, pupil_character.name, guildmaster)
     assert guild_row(listed, "magic missile") == (knowledge, 1, "Mastered"), listed
-    assert listed_sessions(listed) == STARTING_SESSIONS - 1
+    assert listed_sessions(listed) == STARTING_SESSIONS - 1, listed
 
 
+@pytest.mark.practice_lists
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, ORC_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(SHAMAN))
 def test_the_glass_eyed_shaman_teaches_and_stops_with_its_own_lines(server) -> None:
-    """The shaman's row has its own practice and limit lines, which an orc pupil reads (long-standing).
+    """Pins that the shaman's row has its own practice and limit lines, which an orc pupil reads.
 
     Chill ray (L = 4, D = 10), which the shaman teaches up to 20, at the orc's mage coefficient
     of 667 and mage level of 20, above chill ray's level (recalc_skills, spec_pro.cpp):
@@ -936,29 +993,31 @@ def test_the_glass_eyed_shaman_teaches_and_stops_with_its_own_lines(server) -> N
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(ORC_PUPIL.name)
-    assert mage_coefficient_and_level(implementor, ORC_PUPIL.name) == (667, 20)
+    coefficient_and_level = mage_coefficient_and_level(implementor, ORC_PUPIL.name)
+    assert coefficient_and_level == (667, 20), coefficient_and_level
     give_sessions(implementor, ORC_PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor, SHAMAN)
 
     reply = practice(pupil, "chill ray all")
-    assert SHAMAN_PRACTICED_MARKER in reply, reply
-    assert SHAMAN_LIMIT_MARKER in reply, reply
-    assert reply.index(SHAMAN_PRACTICED_MARKER) < reply.index(SHAMAN_LIMIT_MARKER), reply
-    assert PRACTICED_MARKER not in reply and LIMIT_MARKER not in reply, reply
+    assert SHAMAN_PRACTICED_REPLY in reply, reply
+    assert SHAMAN_LIMIT_REPLY in reply, reply
+    assert reply.index(SHAMAN_PRACTICED_REPLY) < reply.index(SHAMAN_LIMIT_REPLY), reply
+    assert PRACTICED_REPLY not in reply and LIMIT_REPLY not in reply, reply
     assert SESSIONS_SPENT_PATTERN.search(reply) is None, reply
     listed = guild_list(pupil, ORC_PUPIL.name, SHAMAN)
     assert guild_row(listed, "chill ray") == (20, 1, "bad"), listed
-    assert listed_sessions(listed) == STARTING_SESSIONS - 1
+    assert listed_sessions(listed) == STARTING_SESSIONS - 1, listed
 
 
+@pytest.mark.practice_coefficients
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, LHUTH_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(MAGUS))
 def test_an_uruk_lhuth_knows_blink_at_10_percent_unpractised_and_again_after_pracreset(
     server,
 ) -> None:
-    """An uruk-lhuth's blink is 10% with nothing spent, and comes back to 10% after a pracreset.
+    """Pins that an uruk-lhuth knows blink at 10% unpractised, and again after a pracreset.
 
-    Long-standing: recalc_skills (spec_pro.cpp) sets blink to 10 for a RACE_MAGUS player whose
+    recalc_skills (spec_pro.cpp) sets blink to 10 for a RACE_MAGUS player whose
     blink is 0, and do_pracreset ends with recalc_skills. The Magus (13600) lists blink at 10%
     with 0 sessions; one session takes it to 36% at the pupil's mage coefficient of 1000 (the
     same 36 as a human's first blink session); `tell angel pracreset` brings back 10% and 0.
@@ -966,22 +1025,21 @@ def test_an_uruk_lhuth_knows_blink_at_10_percent_unpractised_and_again_after_pra
     """
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(LHUTH_PUPIL.name)
-    assert mage_coefficient_and_level(implementor, LHUTH_PUPIL.name) == (1000, 30)
+    coefficient_and_level = mage_coefficient_and_level(implementor, LHUTH_PUPIL.name)
+    assert coefficient_and_level == (1000, 30), coefficient_and_level
     give_sessions(implementor, LHUTH_PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor, MAGUS)
+    goto(implementor, world.ROOM_ARENA_CENTRE)
     unpractised = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)
     assert guild_row(unpractised, "blink") == (10, 0, "Mastered"), unpractised
 
     reply = practice(pupil, "blink")
-    assert PRACTICED_MARKER in reply, reply
+    assert PRACTICED_REPLY in reply, reply
     practised = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)
     assert guild_row(practised, "blink") == (36, 1, "Mastered"), practised
 
-    reply = implementor.command(f"load mob {RESETTING_ANGEL_VNUM}")
-    assert reply.contains("You create a shining angel."), reply.text
-    pupil.send_line("tell angel pracreset")
-    reset = pupil.expect([PRACRESET_DONE_MARKER]) + pupil.drain(SETTLE_SECONDS)
-    assert PRACRESET_DONE_MARKER in reset, reset
+    load_mob(implementor, world.MOB_SHINING_ANGEL, "a shining angel")
+    reset = reply_to(pupil, "tell angel pracreset", [PRACRESET_DONE])
+    assert PRACRESET_DONE in reset, reset
     after_reset = guild_list(pupil, LHUTH_PUPIL.name, MAGUS)
     assert guild_row(after_reset, "blink") == (10, 0, "Mastered"), after_reset
 
@@ -1009,25 +1067,26 @@ MASTERY_KNOWLEDGE = [
 ]
 
 
+@pytest.mark.practice_coefficients
 @pytest.mark.schedule("affect-hours")
-@pytest.mark.characters(IMPLEMENTOR, MASTERY_PUPIL)
+@pytest.mark.characters(MASTERY_PUPIL)
+@pytest.mark.world_resets(guildmaster_reset(URUK_TRAINER))
 def test_weapon_mastery_sessions_raise_every_weapon_skill_without_sessions_of_its_own(
     server,
 ) -> None:
-    """Eight weapon mastery sessions show each weapon skill at its mastery share (long-standing).
+    """Pins that eight weapon mastery sessions show each weapon skill at its mastery share.
 
     The uruk guildmaster (2043) lists the uruk-hai warrior's weapon skills at the knowledge the
     comment above works out, with 0 sessions spent on each. Nothing draws a random number.
     """
-    implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(MASTERY_PUPIL.name)
-    bring_guildmaster(implementor, URUK_TRAINER)
 
     listed = guild_list(pupil, MASTERY_PUPIL.name, URUK_TRAINER)
     for skill, knowledge, sessions_spent in MASTERY_KNOWLEDGE:
         assert guild_row(listed, skill)[:2] == (knowledge, sessions_spent), (skill, listed)
 
 
+@pytest.mark.practice_lists
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
 @pytest.mark.parametrize(
@@ -1038,7 +1097,7 @@ def test_weapon_mastery_sessions_raise_every_weapon_skill_without_sessions_of_it
 def test_a_guildmaster_whose_program_names_no_row_is_only_posing(
     server, guildmaster: Guildmaster
 ) -> None:
-    """A guild copy with program 0 or 62 says it is only posing; program 61 lists (long-standing).
+    """Pins that a guild copy with program 0 or 62 is only posing, and one with program 61 lists.
 
     SPECIAL(guild) (spec_pro.cpp) takes the row as the program number less one and refuses one
     outside guildmasters[]'s 61 rows (guildmaster_number, consts.cpp) with the posing line, both
@@ -1050,25 +1109,25 @@ def test_a_guildmaster_whose_program_names_no_row_is_only_posing(
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
     bring_guildmaster(implementor, guildmaster)
 
-    pupil.send_line("practice")
-    posing = pupil.expect([POSING_MARKER, PLAIN_SESSIONS_MARKER]) + pupil.drain(SETTLE_SECONDS)
-    assert POSING_MARKER in posing, posing
+    posing = reply_to(pupil, "practice", [POSING_REPLY, PLAIN_SESSIONS_PART])
+    assert POSING_REPLY in posing, posing
     assert GUILD_SESSIONS_PATTERN.search(posing) is None, posing
     requested = practice(pupil, "archery")
-    assert POSING_MARKER in requested, requested
-    assert PRACTICED_MARKER not in requested, requested
+    assert POSING_REPLY in requested, requested
+    assert PRACTICED_REPLY not in requested, requested
 
     dismiss_guildmaster(implementor, guildmaster)
     bring_guildmaster(implementor, LAST_ROW_TEACHER)
     listed = guild_list(pupil, PUPIL.name, LAST_ROW_TEACHER)
-    assert POSING_MARKER not in listed, listed
-    assert listed_sessions(listed) == STARTING_SESSIONS
+    assert POSING_REPLY not in listed, listed
+    assert listed_sessions(listed) == STARTING_SESSIONS, listed
 
 
+@pytest.mark.practice_sessions
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, OVERSPENT_PUPIL)
 def test_more_sessions_spent_than_the_formula_gives_leaves_a_negative_count(server) -> None:
-    """A pupil who has spent more than the login recount gives has a negative count (long-standing).
+    """Pins that spending more sessions than the login recount gives leaves a negative count.
 
     update_available_practice_sessions (char_utils.cpp) sets the count to the formula less the
     sessions spent, with no floor. The pupil has spent 153; with learning set to 0 the recount at
@@ -1078,13 +1137,8 @@ def test_more_sessions_spent_than_the_formula_gives_leaves_a_negative_count(serv
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(OVERSPENT_PUPIL.name)
     name = OVERSPENT_PUPIL.name
-    reply = implementor.command(f"wizset player {name.lower()} lea 0")
-    assert reply.contains(f"{name}'s lea set to 0."), reply.text
-    pupil.quit()
-    pupil = server.login(name)
-    after_relog = stat_player(implementor, name)
-    level = LEVEL_PATTERN.search(after_relog)
-    assert level is not None and int(level.group(1)) == 30, after_relog
+    after_relog = read_stat(implementor, f"player {name.lower()}")
+    assert first_number(LEVEL_PATTERN, after_relog) == 30, after_relog
     learning = LEARNING_PATTERN.search(after_relog)
     assert learning is not None and int(learning.group(2)) == 0, after_relog
     # get_max_practice_count - get_spent_practice_count (char_utils.cpp):
@@ -1092,20 +1146,22 @@ def test_more_sessions_spent_than_the_formula_gives_leaves_a_negative_count(serv
     #   = 30 * 3 + 30 * 0 / 5 + 10 - 153     (level 30; Lea base 0, read above; 3 * 51 spent)
     #   = 90 + 0 + 10 - 153 = -53
     plain = pupil.command("practice")
-    plain_sessions = PLAIN_SESSIONS_PATTERN.search(plain.text)
-    assert plain_sessions is not None and int(plain_sessions.group(1)) == -53, plain.text
+    assert first_number(PLAIN_SESSIONS_PATTERN, plain.text) == -53, plain.text
 
     bring_guildmaster(implementor)
     reply = practice(pupil, "fireball")
-    assert NO_SESSIONS_MARKER in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
-    assert sessions_left(pupil, name) == -53
+    assert NO_SESSIONS_REPLY in reply, reply
+    assert PRACTICED_REPLY not in reply, reply
+    left = sessions_left(pupil, name)
+    assert left == -53, left
 
 
+@pytest.mark.practice_lists
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 def test_a_sitting_pupil_gets_the_plain_list_and_practises_nothing(server) -> None:
-    """At a guildmaster, a sitting pupil's `practice blink` gives the plain list (long-standing).
+    """Pins that a sitting pupil's `practice blink` at a guildmaster gives the plain list.
 
     SPECIAL(guild) (spec_pro.cpp) lets the command go on below POSITION_STANDING, and the command
     itself is allowed from resting, so do_practice answers with the plain list, which ignores the
@@ -1114,24 +1170,26 @@ def test_a_sitting_pupil_gets_the_plain_list_and_practises_nothing(server) -> No
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
-    assert pupil.command("sit").contains("You sit down."), pupil.everything
+    sat = pupil.command("sit")
+    assert sat.contains(SIT_DOWN_REPLY), pupil.everything
 
-    pupil.send_line("practice blink")
-    reply = pupil.expect(PRACTICE_OUTCOMES) + pupil.drain(SETTLE_SECONDS)
-    plain_sessions = PLAIN_SESSIONS_PATTERN.search(reply)
-    assert plain_sessions is not None and int(plain_sessions.group(1)) == STARTING_SESSIONS, reply
+    reply = reply_to(pupil, "practice blink", PRACTICE_OUTCOMES)
+    assert first_number(PLAIN_SESSIONS_PATTERN, reply) == STARTING_SESSIONS, reply
     assert TRAVELLER.list_header_format.format(PUPIL.name) not in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
+    assert PRACTICED_REPLY not in reply, reply
 
-    assert pupil.command("stand").contains("You stand up."), pupil.everything
-    assert sessions_left(pupil, PUPIL.name) == STARTING_SESSIONS
+    stood = pupil.command("stand")
+    assert stood.contains(STAND_UP_REPLY), pupil.everything
+    left = sessions_left(pupil, PUPIL.name)
+    assert left == STARTING_SESSIONS, left
 
 
+@pytest.mark.practice_lists
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, PUPIL)
+@pytest.mark.world_resets(guildmaster_reset())
 def test_a_skill_abbreviation_names_the_first_skill_in_table_order(server) -> None:
-    """`practice bl` asks the traveller for block exit, not blink (long-standing).
+    """Pins that `practice bl` asks the traveller for block exit, not blink.
 
     find_practice_skill (spec_pro.cpp) takes the first skill whose name starts with the words,
     and block exit (17) comes before blink (76) in skills[] (consts.cpp). The traveller does not
@@ -1140,18 +1198,17 @@ def test_a_skill_abbreviation_names_the_first_skill_in_table_order(server) -> No
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(PUPIL.name)
     give_sessions(implementor, PUPIL.name, STARTING_SESSIONS)
-    bring_guildmaster(implementor)
 
     reply = practice(pupil, "bl")
-    assert f"{TRAVELLER.line_start} {UNKNOWN_TO_GUILDMASTER_MARKER}" in reply, reply
-    assert PRACTICED_MARKER not in reply, reply
+    assert f"{TRAVELLER.line_start} {UNKNOWN_TO_GUILDMASTER_PART}" in reply, reply
+    assert PRACTICED_REPLY not in reply, reply
     listed = guild_list(pupil, PUPIL.name)
     assert guild_row(listed, "blink")[:2] == (0, 0), listed
-    assert listed_sessions(listed) == STARTING_SESSIONS
+    assert listed_sessions(listed) == STARTING_SESSIONS, listed
 
 
-# The arcane specialization, the only one that may set a casting speed: PLRSPEC_ARCANE (structs.h).
-ARCANE_SPECIALIZATION = 17
+# The listed pupil specialized in arcane, the only specialization that may set a casting speed.
+ARCANE_PUPIL = dataclasses.replace(LISTED_PUPIL, stored=StoredValues(specialization="arcane"))
 # The plain list's cost for blink (L = 5, beats 13, min_usesmana 5; skills[], consts.cpp) at the
 # listed pupil's mage level of 30, from do_practice (spec_pro.cpp), which do_cast (spell_pa.cpp)
 # matches for every mage spell but expose elements:
@@ -1161,8 +1218,9 @@ ARCANE_SPECIALIZATION = 17
 #   slow: time MAX(1, (6 * 3 + 1) / 2) = 9,   stamina (5 * 1 + 1) / 2 = 3
 
 
+@pytest.mark.practice_lists
 @pytest.mark.schedule("affect-hours")
-@pytest.mark.characters(IMPLEMENTOR, LISTED_PUPIL)
+@pytest.mark.characters(IMPLEMENTOR, ARCANE_PUPIL)
 @pytest.mark.parametrize(
     ("speed", "casting_time", "stamina"),
     [("normal", 6, 5), ("fast", 3, 7), ("slow", 9, 3)],
@@ -1171,7 +1229,7 @@ ARCANE_SPECIALIZATION = 17
 def test_the_plain_list_shows_the_casting_cost_of_the_chosen_casting_speed(
     server, speed: str, casting_time: int, stamina: int
 ) -> None:
-    """An arcane mage's plain list shows blink's time and stamina for its casting speed (long-standing).
+    """Pins that an arcane mage's plain list shows blink's time and stamina for its casting speed.
 
     `set casting <speed>` (do_casting, act_othe.cpp) needs the arcane specialization; the costs
     are worked out in the comment above. Nothing draws a random number.
@@ -1179,15 +1237,16 @@ def test_the_plain_list_shows_the_casting_cost_of_the_chosen_casting_speed(
     implementor = server.login(IMPLEMENTOR.name)
     pupil = server.login(LISTED_PUPIL.name)
     name = LISTED_PUPIL.name
-    reply = implementor.command(f"wizset player {name.lower()} specialization {ARCANE_SPECIALIZATION}")
-    assert reply.contains(f"{name}'s specialization set to {ARCANE_SPECIALIZATION}."), reply.text
-    assert mage_coefficient_and_level(implementor, name)[1] == 30
+    coefficient_and_level = mage_coefficient_and_level(implementor, name)
+    assert coefficient_and_level[1] == 30, coefficient_and_level
     reply = pupil.command(f"set casting {speed}")
     assert reply.contains(f"You are now using {speed} casting."), reply.text
 
     plain = pupil.command("practice")
-    plain_row = re.search(PLAIN_SPELL_ROW_PATTERN_FORMAT.format("blink"), plain.text, re.MULTILINE)
+    blink_spell_row_pattern = PLAIN_SPELL_ROW_PATTERN_FORMAT.format("blink")
+    plain_row = re.search(blink_spell_row_pattern, plain.text, re.MULTILINE)
     assert plain_row is not None, plain.text
-    costs = re.search(r"\(\s*(\d+) time,\s+(\d+) stamina\)", plain_row.group(0))
+    row_text = plain_row.group(0)
+    costs = re.search(r"\(\s*(\d+) time,\s+(\d+) stamina\)", row_text)
     assert costs is not None, plain.text
     assert (int(costs.group(1)), int(costs.group(2))) == (casting_time, stamina), plain.text

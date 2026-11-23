@@ -381,9 +381,12 @@ Zone command `E` equips the object onto the last loaded mob and calls
 `equip_char` (`zone.cpp:844`), which fires `APPLY_SPELL` exactly as it does for
 a player — so the mob ends up with a real graded resistance affect.
 
-A worn item and the mob's own bit are independent sources, and the two are
-combined when damage is calculated. See `docs/systems/magic-system.md` for the
-element list and how a resistance's strength is applied.
+A worn item and the mob's own bit are independent sources, and the higher one
+applies. The bit is worth the flat third, so a weaker elemental item changes
+nothing. Against melee the physical bit misses one hit in three, so it averages
+about 22%, and a physical item above that applies on every melee hit instead.
+Arrows and wild swings never miss the bit. See `docs/systems/magic-system.md`
+for the element list and how a resistance's strength is applied.
 
 ## Special procedures (`/29` with flag bit 0)
 

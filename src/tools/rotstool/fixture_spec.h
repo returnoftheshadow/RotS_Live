@@ -11,6 +11,34 @@
 // The content of a fixture spec after parse_fixture_spec() has checked it, with every name
 // resolved to the game's numbers.
 struct FixtureSpec {
+    // Values a character is stored with, each named and limited like the wizset field that
+    // sets the same value in a running game.
+    struct StoredValues {
+        // Coins carried, 0 to 100000000; wizset gold.
+        std::optional<int> gold;
+        // Spirit points, any int; wizset spirit.
+        std::optional<int> spirit;
+        // Alignment, -1000 to 1000; wizset alignment.
+        std::optional<int> alignment;
+        // PLRSPEC_* number resolved from the specialization's name; wizset specialization.
+        std::optional<int> specialization;
+        // Hunger, thirst and drunkenness conditions, 0 to 24 or -1 for off; wizset hunger,
+        // thirst and drunk.
+        std::optional<int> hunger;
+        std::optional<int> thirst;
+        std::optional<int> drunk;
+        // Base abilities, 0 to 40, under the spec keys str, int, wil, dex, con and lea; wizset str,
+        // int, will, dex, con and lea.
+        std::optional<int> strength;
+        std::optional<int> intelligence;
+        std::optional<int> will;
+        std::optional<int> dexterity;
+        std::optional<int> constitution;
+        std::optional<int> learning;
+        // Base stamina (maximum mana), 1 to 5000; wizset maxstamina.
+        std::optional<int> max_stamina;
+    };
+
     // One character the spec asks for.
     struct Character {
         // The name as the player would type it.
@@ -36,6 +64,8 @@ struct FixtureSpec {
         // Current movement after levelling, 1 to 32767, when the spec sets it; make_fixture_character
         // refuses a value above the levelled maximum.
         std::optional<int> move;
+        // The stored values the spec sets beside hit, mana and move.
+        StoredValues stored;
     };
 
     // The account's email address, which also names the account's directory.

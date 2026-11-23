@@ -1,0 +1,301 @@
+name: ASan
+
+# Runs tests against an AddressSanitizer build when a pull request's description asks for them,
+# and nothing otherwise. tests/integration/rots_harness/asan_selection.py reads the tokens, leaving
+# out HTML comments:
+#   @asan-test-all                     every unit test and every scenario, the scenarios sharded
+#   @asan-test-<group>                 one integration group or subgroup
+#   @asan-test-unit=<gtest filter>     the unit tests the filter matches; repeatable
+#   @asan-test-scenario=<scenario id>  a scenario file or test, relative to tests/integration; repeatable
+# Every push and every description, title or base edit reruns it while the description has
+# tokens, and cancels the pull request's older run, whatever the new run tests.
+
+on:
+  pull_request:
+    branches:
+      - master
+      - release-frodo
+      - release-frodo-next
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer run of the pull request, of any kind, replaces the whole run in progress. The group
+  # is this workflow's own, so it never cancels a ci.yml or integration.yml run.
+  group: asan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # How many parallel shard jobs a run of every scenario is split across. With the unit job that
+  # is 9 runners, which leaves room under the organisation's 20 concurrent jobs for ci.yml's 2 and
+  # a full integration.yml run's 6 at the same time; a second @asan-test-all run makes them queue.
+  ASAN_SHARDS: 8
+  # The pytest-xdist workers each scenarios job runs: one per runner CPU, half of integration.yml's
+  # 8, since an ASan server needs 2 to 3 times the CPU and the real-time scenarios must not starve.
+  ASAN_JOBS_PER_SHARD: 4
+  # No leak checks: LeakSanitizer is untried on the 32-bit build on a runner. No container-overflow
+  # checks: they report false errors when code built without the sanitizer, such as the
+  # precompiled parts of the standard library, changes a container instrumented code annotated.
+  # exitcode=23 makes a report end a program with a status no test expects, so a GoogleTest
+  # death test waiting for exit status 1 cannot pass on a report.
+  ASAN_OPTIONS: detect_leaks=0:detect_container_overflow=0:exitcode=23
+  # Seconds server.advance_hours allows per game hour: three times the default, for the slower server.
+  ROTS_IT_HOUR_TIMEOUT: "30"
+  # The ASan build's settings, which make configure reads from the environment. The programs go to
+  # the checkout's bin/, where the harness runs ageland, ageland_harness and rotstool from; the
+  # fresh checkout has no other build there.
+  CMAKE_CONFIGURE_ARGS: >-
+    -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Debug
+    "-DCMAKE_CXX_FLAGS=-fsanitize=address -fno-omit-frame-pointer -g"
+
+jobs:
+  select:
+    name: Choose the ASan tests
+    # A description that never mentions a token needs no runner.
+    if: contains(github.event.pull_request.body, '@asan-test-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+      unit: ${{ steps.select.outputs.unit }}
+      unit_filters: ${{ steps.select.outputs.unit_filters }}
+      scenarios: ${{ steps.select.outputs.scenarios }}
+      groups: ${{ steps.select.outputs.groups }}
+      scenario_ids: ${{ steps.select.outputs.scenario_ids }}
+      shards: ${{ steps.select.outputs.shards }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Choose the tests from the description
+        id: select
+        # Fails, naming each token and why, when a token cannot be used. The description is read
+        # from the event file GITHUB_EVENT_PATH names, so it is never part of a command, and a
+        # long one cannot overflow the environment.
+        env:
+          ACTION: ${{ github.event.action }}
+        run: |
+          cd tests/integration
+          python3 -m rots_harness.asan_selection --summary "$GITHUB_STEP_SUMMARY" select --action "$ACTION" \
+            --output "$GITHUB_OUTPUT" --full-suite-shards "$ASAN_SHARDS"
+
+      - name: Set up the harness
+        if: steps.select.outputs.run == 'true' && steps.select.outputs.scenarios != 'none'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/harness-venv"
+          "$RUNNER_TEMP/harness-venv/bin/pip" install --quiet --requirement tests/integration/requirements.txt
+
+      - name: Check each scenario token selects tests
+        # Collecting needs no build, so a token that selects nothing fails here, before any build,
+        # beside @asan-test-all too.
+        if: >-
+          steps.select.outputs.run == 'true'
+          && (steps.select.outputs.groups != '[]' || steps.select.outputs.scenario_ids != '[]')
+        env:
+          ASAN_SCENARIOS: ${{ steps.select.outputs.scenarios }}
+          ASAN_GROUPS: ${{ steps.select.outputs.groups }}
+          ASAN_SCENARIO_IDS: ${{ steps.select.outputs.scenario_ids }}
+        run: |
+          cd tests/integration
+          "$RUNNER_TEMP/harness-venv/bin/python" -m rots_harness.asan_selection --summary "$GITHUB_STEP_SUMMARY" \
+            check-scenarios --python "$RUNNER_TEMP/harness-venv/bin/python"
+
+      - name: List every scenario
+        # The coverage job checks every shard's results against this list.
+        if: steps.select.outputs.run == 'true' && steps.select.outputs.scenarios == 'all'
+        run: |
+          cd tests/integration
+          "$RUNNER_TEMP/harness-venv/bin/python" -m rots_harness.shard_coverage selection \
+            --python "$RUNNER_TEMP/harness-venv/bin/python" --group "" \
+            --output "$RUNNER_TEMP/selection.json" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the scenario list
+        if: steps.select.outputs.run == 'true' && steps.select.outputs.scenarios == 'all'
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-selection
+          path: ${{ runner.temp }}/selection.json
+          if-no-files-found: error
+          # A re-run of every job uploads the list again under the same name.
+          overwrite: true
+
+  unit:
+    needs: select
+    if: needs.select.outputs.run == 'true' && needs.select.outputs.unit != 'none'
+    name: ASan unit tests (Ubuntu 22.04 image)
+    runs-on: ubuntu-24.04
+    # ci.yml builds and runs every unit test in about 3 minutes. A Debug build and code 2 to 3
+    # times slower fit well inside 40 minutes, which caps the cost of a hung run.
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Load or build the development image
+        uses: ./.github/actions/dev-image
+
+      - name: Build the unit tests with AddressSanitizer
+        # Running as the runner's user keeps the build tree writable by later steps. The check
+        # fails the build when the program lacks the sanitizer's runtime (__asan_init) or
+        # instrumented code (__asan_report_load*), which would otherwise pass every test unchecked.
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots --env CMAKE_CONFIGURE_ARGS
+          rots-dev:ci bash -lc 'make configure BUILD_DIR=build-asan &&
+          cmake --build build-asan --target ageland_tests --parallel "$(nproc)" &&
+          for program in bin/tests; do symbols="$(readelf --dyn-syms --wide "$program")";
+          grep -q __asan_init <<< "$symbols" && grep -q __asan_report_load <<< "$symbols" ||
+          { echo "error: $program is not built with AddressSanitizer" >&2; exit 1; }; done'
+
+      - name: Run the unit tests
+        env:
+          ASAN_UNIT: ${{ needs.select.outputs.unit }}
+          ASAN_UNIT_FILTERS: ${{ needs.select.outputs.unit_filters }}
+        # Each filter must match a test before the run, beside @asan-test-all too. A sanitizer
+        # report ends the binary with status 23, a failed test with 1, and either fails the step.
+        # Every test is named as it runs, so the log shows where a report came from. The /tmp
+        # mount is the one local Docker runs need, so the command runs the same on a Mac.
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots --tmpfs /tmp:exec,mode=1777
+          --env ASAN_OPTIONS --env ASAN_UNIT --env ASAN_UNIT_FILTERS
+          rots-dev:ci bash -lc 'ulimit -c 0;
+          PYTHONPATH=tests/integration python3 -m rots_harness.asan_selection --summary build-asan/unit-summary.md
+          run-unit --binary bin/tests'
+
+      - name: Add the unit tests to the summary
+        if: always()
+        run: |
+          if [ -f build-asan/unit-summary.md ]; then
+            cat build-asan/unit-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  scenarios:
+    needs: select
+    if: needs.select.outputs.run == 'true' && needs.select.outputs.scenarios != 'none'
+    name: >-
+      ${{ strategy.job-total > 1
+      && format('ASan scenarios (Ubuntu 22.04 image, shard {0}/{1})', matrix.shard, strategy.job-total)
+      || 'ASan scenarios (Ubuntu 22.04 image)' }}
+    runs-on: ubuntu-24.04
+    # A plain shard of integration.yml builds and runs in about 4 minutes on twice the workers.
+    # 40 minutes leaves room for the slower server and for scenarios that wait out their timeouts
+    # after a sanitizer report ends their server, and caps the cost of a hung run.
+    timeout-minutes: 40
+    strategy:
+      # Every shard reports its own failures, so one failing shard does not cancel the others.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.select.outputs.shards) }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Load or build the development image
+        uses: ./.github/actions/dev-image
+
+      - name: Build the server, the harness server and rotstool with AddressSanitizer
+        # As the unit job's build, the check fails it when a program lacks the sanitizer.
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots --env CMAKE_CONFIGURE_ARGS
+          rots-dev:ci bash -lc 'make configure BUILD_DIR=build-asan &&
+          cmake --build build-asan --target ageland ageland_harness rotstool --parallel "$(nproc)" &&
+          for program in bin/ageland bin/ageland_harness bin/rotstool; do symbols="$(readelf --dyn-syms --wide "$program")";
+          grep -q __asan_init <<< "$symbols" && grep -q __asan_report_load <<< "$symbols" ||
+          { echo "error: $program is not built with AddressSanitizer" >&2; exit 1; }; done'
+
+      - name: Run the scenarios
+        env:
+          ASAN_SCENARIOS: ${{ needs.select.outputs.scenarios }}
+          ASAN_GROUPS: ${{ needs.select.outputs.groups }}
+          ASAN_SCENARIO_IDS: ${{ needs.select.outputs.scenario_ids }}
+          ROTS_IT_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          JOBS: ${{ env.ASAN_JOBS_PER_SHARD }}
+        # The local launcher runs the ASan programs in bin/ directly and passes ASAN_OPTIONS to
+        # them. The server's output is its game.log, and the harness fails a test whose log holds
+        # a sanitizer report or whose server exited, as a server does after a report. The summary
+        # quotes each report's first line.
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" --volume "$PWD:/rots" --workdir /rots
+          --env CI --env ROTS_IT_SHARD --env JOBS --env HOME=/tmp --env ROTS_IT_LAUNCHER=local
+          --env ASAN_OPTIONS --env ROTS_IT_HOUR_TIMEOUT --env ASAN_SCENARIOS --env ASAN_GROUPS --env ASAN_SCENARIO_IDS
+          rots-dev:ci bash -lc 'ulimit -c 0;
+          python3 -m venv /tmp/harness-venv &&
+          /tmp/harness-venv/bin/pip install --quiet --requirement tests/integration/requirements.txt &&
+          PYTHONPATH=tests/integration /tmp/harness-venv/bin/python -m rots_harness.asan_selection
+          --summary build/integration/asan-summary.md run-scenarios --python /tmp/harness-venv/bin/python --jobs "$JOBS"'
+
+      - name: Add the scenarios to the summary
+        if: always()
+        run: |
+          if [ -f build/integration/asan-summary.md ]; then
+            cat build/integration/asan-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # The name shard_coverage's check reads.
+          name: integration-results-shard-${{ matrix.shard }}
+          path: build/integration/results.xml
+          if-no-files-found: ignore
+          # A re-run shard's results replace its first attempt's.
+          overwrite: true
+
+      - name: Upload the kept run directories
+        # Each failed test's game.log holds the sanitizer report, if there was one.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-runs-shard-${{ matrix.shard }}
+          path: build/integration/runs/
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 14
+
+  coverage:
+    # Fails the run when a shard's results are missing, or a scenario ran in no shard or in more
+    # than one. Only a run of every scenario is sharded.
+    needs: [select, scenarios]
+    if: >-
+      ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.run == 'true'
+      && needs.select.outputs.scenarios == 'all' }}
+    name: Check every scenario ran once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the scenario list
+        uses: actions/download-artifact@v4
+        with:
+          name: asan-selection
+          path: ${{ runner.temp }}/selection
+
+      - name: Download every shard's results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: integration-results-shard-*
+          path: ${{ runner.temp }}/results
+
+      - name: Check every scenario ran exactly once
+        env:
+          SHARDS: ${{ needs.select.outputs.shards }}
+        run: |
+          cd tests/integration
+          python3 -m rots_harness.shard_coverage check --selection "$RUNNER_TEMP/selection/selection.json" \
+            --results "$RUNNER_TEMP/results" --shards "$SHARDS" --summary "$GITHUB_STEP_SUMMARY"

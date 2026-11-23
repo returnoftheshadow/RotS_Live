@@ -153,6 +153,7 @@ bool big_brother::on_loot_item(const char_data* looter, obj_data* corpse, const 
     // An enemy is trying to loot protected gear of some variety.
     if (!can_loot_item) {
         if (corpse_data.num_items_looted < corpse_data.max_num_items_looted) {
+            // Bags stay protected; a quiver or a keyring (keys and all) counts as one item.
             if (item->obj_flags.type_flag != ITEM_CONTAINER || item->is_quiver()) {
                 // The enemy can loot this item.  Increase the items looted count.
                 can_loot_item = true;
@@ -551,6 +552,26 @@ void big_brother::on_character_disconnected(const char_data* character)
             break;
         }
     }
+#endif
+}
+
+//============================================================================
+void big_brother::on_character_freed(const char_data* character)
+{
+#if USE_BIG_BROTHER
+    assert(character);
+    m_afk_characters.erase(character);
+    m_last_engaged_pk_time.erase(character);
+#endif
+}
+
+//============================================================================
+void big_brother::on_object_freed(const obj_data* object)
+{
+#if USE_BIG_BROTHER
+    assert(object);
+    // The map's key type is non-const; erase only compares the address.
+    m_corpse_map.erase(const_cast<obj_data*>(object));
 #endif
 }
 

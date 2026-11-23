@@ -45,6 +45,8 @@ void gain_condition(struct char_data* ch, int condition, int value);
 int check_idling(struct char_data* ch);
 // returns non-zero if ch was extracted
 void point_update(void);
+/* A decaying object drops what it holds where it was (point_update). */
+void spill_decayed_contents(struct obj_data* j);
 void update_pos(struct char_data* victim);
 void remove_fame_war_bonuses(struct char_data* ch, const struct affected_type* pkaff);
 

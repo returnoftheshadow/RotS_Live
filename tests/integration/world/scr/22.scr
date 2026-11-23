@@ -1,0 +1,21 @@
+#2200 Harness order warden~
+Removes from the game any level-7 speaker he hears: the yew lackey, of the zone 22 mobs.~
+17 1 0 0 0 0 0 0
+ anything said starts it~
+57 2 7 955 0 0 0 0
+ int3 is the level of the speaker to remove~
+4 3 210 955 0 0 0 0
+ is the speaker (ch2) of that level?~
+43 4 200 0 0 0 0 0
+ removes the speaker from the game~
+999 0 0 0 0 0 0 0
+#2201 Harness lackey captain~
+Removes himself from the game when he hears speech containing "farewell".~
+17 1 0 0 0 0 0 0
+ speech containing "farewell" starts it~
+10 2 950 0 0 0 0 0
+FAREWELL~
+43 3 100 0 0 0 0 0
+ removes himself (ch1) from the game~
+999 0 0 0 0 0 0 0
+#99999

@@ -1,0 +1,163 @@
+#2700
+recruit gashface warhost~
+a gash-faced recruit~
+A gash-faced recruit waits here for a captain.~
+An orc recruit (MOB_ORC_FRIEND) an orc captain may recruit; he wears and wields what he is given.
+~
+8388610
+0 -500 M
+16 10 0 0
+120 120
+20 0
+0 0 0
+8 8 1 13 0
+150 70 0 0 0 0
+0 0 100 1
+0
+18 10 10 12 12 10
+0 10 0 0 0 100 0
+#2701
+recruit squinteye warhost~
+a squint-eyed recruit~
+A squint-eyed recruit waits here for a captain.~
+An orc recruit (MOB_ORC_FRIEND) an orc captain may recruit; he wears and wields what he is given.
+~
+8388610
+0 -500 M
+16 10 0 0
+120 120
+20 0
+0 0 0
+8 8 1 13 0
+150 70 0 0 0 0
+0 0 100 1
+0
+18 10 10 12 12 10
+0 10 0 0 0 100 0
+#2702
+recruit broadback warhost~
+a broad-backed recruit~
+A broad-backed recruit waits here for a captain.~
+An orc recruit (MOB_ORC_FRIEND) an orc captain may recruit; he wears and wields what he is given.
+~
+8388610
+0 -500 M
+16 10 0 0
+120 120
+20 0
+0 0 0
+8 8 1 13 0
+150 70 0 0 0 0
+0 0 100 1
+0
+18 10 10 12 12 10
+0 10 0 0 0 100 0
+#2703
+wolf dun warhost~
+a dun wolf~
+A dun wolf stands here, saddled for a rider.~
+A mount (MOB_MOUNT): the gash-faced recruit's to ride.
+~
+514
+0 0 M
+5 10 0 0
+80 80
+2 0
+0 0 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 100 2
+0
+15 10 10 10 10 10
+1 10 0 0 0 100 0
+#2704
+wolf ashen warhost~
+an ashen wolf~
+An ashen wolf stands here, saddled for a rider.~
+A mount (MOB_MOUNT): the squint-eyed recruit's to ride.
+~
+514
+0 0 M
+5 10 0 0
+80 80
+2 0
+0 0 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 100 2
+0
+15 10 10 10 10 10
+1 10 0 0 0 100 0
+#2705
+wolf sable warhost~
+a sable wolf~
+A sable wolf stands here, saddled for a rider.~
+A mount (MOB_MOUNT): the broad-backed recruit's to ride.
+~
+514
+0 0 M
+5 10 0 0
+80 80
+2 0
+0 0 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 100 2
+0
+15 10 10 10 10 10
+1 10 0 0 0 100 0
+#2706
+warg tawny warhost~
+a tawny warg~
+A tawny warg stands here, waiting to be led.~
+A mount (MOB_MOUNT): the captain leads it.
+~
+514
+0 0 M
+5 10 0 0
+80 80
+2 0
+0 0 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 100 2
+0
+15 10 10 10 10 10
+1 10 0 0 0 100 0
+#2707
+warg brindled warhost~
+a brindled warg~
+A brindled warg stands here, waiting to be led.~
+A mount (MOB_MOUNT): the captain leads it.
+~
+514
+0 0 M
+5 10 0 0
+80 80
+2 0
+0 0 0
+8 8 1 0 0
+150 70 0 0 0 0
+0 0 100 2
+0
+15 10 10 10 10 10
+1 10 0 0 0 100 0
+#2708
+dummy practice~
+a practice dummy~
+A practice dummy stands here on a post.~
+The fight's target: no dodge, no parry, constitution 2, no resistances and no script.
+~
+2
+0 0 M
+1 0 -15 0
+75 75
+0 0
+0 0 0
+8 8 1 1 0
+150 70 0 0 0 0
+0 0 50 1
+0
+10 10 10 5 2 10
+0 10 0 0 0 100 0
+#99999

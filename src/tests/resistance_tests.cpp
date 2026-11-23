@@ -7,6 +7,7 @@
 #include "handler.h"
 #include "spells.h"
 #include "structs.h"
+#include "test_cleanup.h"
 #include "utils.h"
 
 extern struct skill_data skills[];
@@ -21,6 +22,7 @@ int apply_resistance(int dam, int magnitude);
 int resist_magnitude_for(const char_data* victim, int resist_type);
 int damage(char_data* attacker, char_data* victim, int dam, int attacktype, int hit_location);
 void affect_naked(char_data* ch);
+void affect_update_person(char_data* character, int mode);
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str);
 const char* room_spell_message_for(int location);
@@ -54,6 +56,9 @@ struct ResistDamageContext {
 
         attacker.specials2.act = MOB_ISNPC;
         victim.specials2.act = MOB_ISNPC;
+        /* No prototype, so a mob_proto another test left set is never read. */
+        attacker.nr = -1;
+        victim.nr = -1;
         attacker.player.short_descr = attacker_name;
         victim.player.short_descr = victim_name;
         attacker.player.race = RACE_HUMAN;
@@ -834,6 +839,7 @@ struct PlayerCasterContext {
     {
         while (caster.affected)
             affect_remove(&caster, caster.affected);
+        release_cleared_character(&caster);
     }
 };
 
@@ -999,6 +1005,25 @@ TEST(SpellWearOffNotify, SurvivesAnAffectWhoseTypeHasNoTableEntry)
         << "the affect is still removed, just without a wear-off line";
 }
 
+TEST(AffectUpdatePerson, ExpiringAngerClearsTheAttackedLevel)
+{
+    // The tick removes, and so frees, an expired affect before checking whether it was anger.
+    ProtoMobContext context(0, 0);
+    context.mob.specials.attacked_level = 5;
+
+    affected_type anger {};
+    anger.type = SPELL_ANGER;
+    anger.duration = 0;
+    anger.location = APPLY_NONE;
+    affect_to_char(&context.mob, &anger);
+    ASSERT_NE(context.mob.affected, nullptr);
+
+    affect_update_person(&context.mob, 0);
+
+    EXPECT_EQ(context.mob.affected, nullptr) << "the expired anger is removed";
+    EXPECT_EQ(context.mob.specials.attacked_level, 0) << "anger running out clears the attacked level";
+}
+
 /* room_spell_message[] is indexed by spell number but is far shorter than MAX_SKILLS, which is
    the only bound show_room_affection() checked. A room affect whose location landed at 128 or
    above would read past the end of the table and segfault. */
@@ -1037,4 +1062,223 @@ TEST(RoomSpellMessage, KnownRoomAffectsHaveAMessage)
         ASSERT_NE(message, nullptr) << "spell " << spell << " indexes past the table";
         EXPECT_NE(*message, '\0') << "spell " << spell << " has no room message";
     }
+}
+
+/* A flag-only source and a magnitude on the same element: the higher one wins.
+
+   A flag-only source is an APPLY_RESIST worn item ("A 30 <element>"), a mob's own record, or a
+   resist affect with no strength. It is worth the flat third, or on average two thirds of
+   that (22%) against a melee hit, because the physical flag rule does not fire one swing in
+   three. When it wins, the live flag rule applies unchanged; when a magnitude is higher, the
+   magnitude applies on every hit.
+
+   Before this, any magnitude replaced the flag rule, so casting a weak protection lowered the
+   resistance a worn item or a mob record already gave (issue #452). */
+
+namespace {
+
+/* A worn item that only sets a resistance bit, the way "A 30 <element>" does. */
+struct FlagResistItem {
+    obj_data item {};
+
+    explicit FlagResistItem(int resist_type)
+    {
+        item.obj_flags.wear_flags = ITEM_TAKE | ITEM_WEAR_BODY;
+        item.affected[0].location = APPLY_RESIST;
+        item.affected[0].modifier = resist_type;
+    }
+};
+
+/* A resist affect of the shape spell_protection writes. */
+affected_type resist_affect(int resist_type, int magnitude, affected_type* next)
+{
+    affected_type aff {};
+    aff.type = SPELL_PROTECTION;
+    aff.duration = 10;
+    aff.location = APPLY_RESIST;
+    aff.modifier = resist_type;
+    aff.effect_modifier = magnitude;
+    aff.next = next;
+    return aff;
+}
+
+/* Saves and restores mob_proto around a test that gives the victim a prototype. */
+struct ProtoScope {
+    char_data* saved = nullptr;
+    char_data proto {};
+
+    explicit ProtoScope(int resistances)
+    {
+        saved = mob_proto;
+        proto.specials2.act = MOB_ISNPC;
+        proto.specials.resistance = resistances;
+        mob_proto = &proto;
+    }
+
+    ~ProtoScope() { mob_proto = saved; }
+};
+
+} // namespace
+
+TEST(FlagResistance, AWornFlagItemBeatsAWeakerCast)
+{
+    ResistDamageContext context;
+    FlagResistItem shield(RESIST_FIRE);
+    context.victim.equipment[WEAR_BODY] = &shield.item;
+    context.resist_element(RESIST_FIRE, 20);
+
+    damage(&context.attacker, &context.victim, 30, SPELL_FIREBOLT, 0);
+    context.victim.equipment[WEAR_BODY] = nullptr;
+
+    EXPECT_EQ(context.victim.tmpabilities.hit, 480)
+        << "the shield's flat third (30 -> 20) beats a 20% protection (30 -> 24)";
+}
+
+TEST(FlagResistance, AStrongerCastBeatsAWornFlagItem)
+{
+    ResistDamageContext context;
+    FlagResistItem shield(RESIST_FIRE);
+    context.victim.equipment[WEAR_BODY] = &shield.item;
+    context.resist_element(RESIST_FIRE, 40);
+
+    damage(&context.attacker, &context.victim, 30, SPELL_FIREBOLT, 0);
+    context.victim.equipment[WEAR_BODY] = nullptr;
+
+    EXPECT_EQ(context.victim.tmpabilities.hit, 482) << "a 40% protection (30 -> 18) beats the flat third";
+}
+
+TEST(FlagResistance, AMobRecordBeatsAWeakerCast)
+{
+    ResistDamageContext context;
+    ProtoScope proto(1 << RESIST_FIRE);
+    context.victim.nr = 0;
+    context.resist_element(RESIST_FIRE, 20);
+
+    damage(&context.attacker, &context.victim, 30, SPELL_FIREBOLT, 0);
+
+    EXPECT_EQ(context.victim.tmpabilities.hit, 480) << "the mob's own fire resistance beats a 20% protection";
+}
+
+TEST(FlagResistance, AStrengthlessResistAffectCountsAsAFlag)
+{
+    ResistDamageContext context;
+    affected_type weak = resist_affect(RESIST_FIRE, 20, nullptr);
+    affected_type bare = resist_affect(RESIST_FIRE, 0, &weak);
+    context.victim.affected = &bare;
+    context.victim.specials.resistance = (1 << RESIST_FIRE);
+
+    damage(&context.attacker, &context.victim, 30, SPELL_FIREBOLT, 0);
+    context.victim.affected = nullptr;
+
+    EXPECT_EQ(context.victim.tmpabilities.hit, 480);
+}
+
+TEST(FlagResistance, AFlagIsWorthTheFlatThirdAgainstNonPhysicalAttacks)
+{
+    char_data victim {};
+    FlagResistItem shield(RESIST_FIRE);
+    victim.equipment[WEAR_BODY] = &shield.item;
+
+    affected_type at_flag = resist_affect(RESIST_FIRE, 33, nullptr);
+    victim.affected = &at_flag;
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_FIRE, false), 0) << "a tie keeps the flag rule";
+
+    affected_type above = resist_affect(RESIST_FIRE, 34, nullptr);
+    victim.affected = &above;
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_FIRE, false), 34);
+
+    victim.affected = nullptr;
+    victim.equipment[WEAR_BODY] = nullptr;
+}
+
+TEST(FlagResistance, APhysicalFlagIsWorthItsAverageAgainstPhysicalAttacks)
+{
+    char_data victim {};
+    FlagResistItem shield(RESIST_PHYS);
+    victim.equipment[WEAR_BODY] = &shield.item;
+
+    affected_type at_average = resist_affect(RESIST_PHYS, 22, nullptr);
+    victim.affected = &at_average;
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_PHYS, true), 0) << "22% does not beat the flag's average";
+
+    affected_type above = resist_affect(RESIST_PHYS, 25, nullptr);
+    victim.affected = &above;
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_PHYS, true), 25)
+        << "25% on every hit beats a third on two hits in three";
+
+    victim.affected = nullptr;
+    victim.equipment[WEAR_BODY] = nullptr;
+}
+
+TEST(FlagResistance, AMagnitudeWithNoFlagSourceStillAppliesHoweverWeak)
+{
+    char_data victim {};
+    affected_type weak = resist_affect(RESIST_FIRE, 11, nullptr);
+    victim.affected = &weak;
+    victim.specials.resistance = (1 << RESIST_FIRE); // the bit the affect itself sets
+
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_FIRE, false), 11);
+
+    victim.affected = nullptr;
+}
+
+TEST(FlagResistance, AFlagItemOnAnotherElementDoesNotCount)
+{
+    char_data victim {};
+    FlagResistItem cold_shield(RESIST_COLD);
+    victim.equipment[WEAR_BODY] = &cold_shield.item;
+    affected_type weak = resist_affect(RESIST_FIRE, 20, nullptr);
+    victim.affected = &weak;
+
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_FIRE, false), 20);
+
+    victim.affected = nullptr;
+    victim.equipment[WEAR_BODY] = nullptr;
+}
+
+TEST(FlagResistance, AHeldItemWithoutTheHoldFlagGivesNothing)
+{
+    // equip_char never applies its affects, so it is not a source.
+    char_data victim {};
+    FlagResistItem shield(RESIST_FIRE);
+    victim.equipment[HOLD] = &shield.item;
+    affected_type weak = resist_affect(RESIST_FIRE, 20, nullptr);
+    victim.affected = &weak;
+
+    EXPECT_EQ(effective_resist_magnitude(&victim, RESIST_FIRE, false), 20);
+
+    victim.affected = nullptr;
+    victim.equipment[HOLD] = nullptr;
+}
+
+TEST(FlagResistance, AffectionsShowTheFlatThirdWhenTheFlagWins)
+{
+    char_data victim {};
+    FlagResistItem shield(RESIST_FIRE);
+    victim.equipment[WEAR_BODY] = &shield.item;
+    affected_type weak = resist_affect(RESIST_FIRE, 20, nullptr);
+    victim.affected = &weak;
+
+    char result[512];
+    sprintbit_resistances(&victim, (1 << RESIST_FIRE), resistance_name, result, 33, TRUE);
+    EXPECT_STREQ(result, "   fire (33%)\n\r");
+
+    victim.affected = nullptr;
+    victim.equipment[WEAR_BODY] = nullptr;
+}
+
+TEST(FlagResistance, AffectionsShowAPhysicalCastThatBeatsTheFlagsAverage)
+{
+    char_data victim {};
+    FlagResistItem shield(RESIST_PHYS);
+    victim.equipment[WEAR_BODY] = &shield.item;
+    affected_type cast = resist_affect(RESIST_PHYS, 25, nullptr);
+    victim.affected = &cast;
+
+    char result[512];
+    sprintbit_resistances(&victim, (1 << RESIST_PHYS), resistance_name, result, 33, TRUE);
+    EXPECT_STREQ(result, "   physical (25%)\n\r");
+
+    victim.affected = nullptr;
+    victim.equipment[WEAR_BODY] = nullptr;
 }

@@ -184,6 +184,9 @@ Per record:
 <weight> <cost> <cost_per_day>
 <level> <rarity> <material> <script_number> <version>
 ```
+A skin (see `docs/systems/object-skins.md`) has a 7-number level line, `... <version> <skin_base>
+<skin_own>`; a plain object has 5. An old 4-number line reads as version 0. The line is read by
+`read_object_level_line` (`object_skins.cpp:151`).
 Then, optionally:
 - Zero or more `E` extra-description blocks: `E` then `<keyword>~` `<description>~`
   (`:1548`).

@@ -1,0 +1,1 @@
+idle removal of a link-dead player, whose gear casts and poisons as it comes off

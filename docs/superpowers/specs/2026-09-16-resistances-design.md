@@ -197,6 +197,14 @@ old behaviour exactly. A percentage resist applies on **every** hit — the roll
 flag path, because rolling twice would make a 40% resist behave like 27% and the number on a
 player's gear would stop meaning anything.
 
+**Amended 2026-10-19 (issue #452): the higher source wins, flags included.** As first built,
+any magnitude replaced the flag rule, so a weak cast lowered the resistance a flag-only source
+already gave. A flag-only source on the element (a worn `A 30` item, the mob record, or a resist
+affect with no strength) is now weighed at 33%, or 22% against a melee hit (archery and wild
+swings have no miss roll, so 33% for them too), and the flag
+rule applies unless a magnitude is strictly higher (`effective_resist_magnitude`, `fight.cpp`).
+`affections` reads the same function.
+
 `is_resistant` stops being assigned as a by-value parameter.
 
 ## Section 5 — Display and diagnostics

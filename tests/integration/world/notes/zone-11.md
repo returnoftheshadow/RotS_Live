@@ -30,11 +30,11 @@ true in all of them but none is ever sunlit.
 | 1134 | Corridor One | | the zone resets the harness snake (1131) here; south to 1135 |
 | 1135 | Corridor Two | | north to 1134 |
 | 1136 | Crevice Floor | | up to 1130 |
-| 1137 | Gallows Pit | `ROOM_GALLOWS_PIT` in `test_followers_known_bugs.py` | a `DEATH` room with no exits |
+| 1137 | Gallows Pit | `world.ROOM_GALLOWS_PIT` | a `DEATH` room with no exits |
 | 1138 | Gallows Approach | `world.ROOM_GALLOWS_APPROACH` | its one exit leads east into the Gallows Pit |
 | 1151 | Retirement Home | | |
 | 1152 | Lost and Found | | where a character with a bad load room arrives |
-| 1160 | Human Start | | |
+| 1160 | Human Start | `world.ROOM_HUMAN_START` | where a dead human mortal wakes |
 | 1170 | Wood-elf Start | | |
 | 1180 | Signpost Room | `world.ROOM_SIGNPOST` | two extra descriptions, below |
 | 1184 | Beorning Start | | |
@@ -54,7 +54,8 @@ true in all of them but none is ever sunlit.
 ## Mobs
 
 The zone 11 mobs speak language 1, the animal tongue, which `say_to_char` (`act_comm.cpp`)
-garbles for players.
+garbles for players, except the steward (1136), which speaks the common tongue (language 0) so
+its line reads exactly.
 
 | Vnum | Keywords | Notes |
 | --- | --- | --- |
@@ -65,13 +66,15 @@ garbles for players.
 | 1133 | `brute orc` | hits very hard |
 | 1134 | `pet orc` | carries the `MOB_PET` flag (act flags `2097154`) |
 | 1135 | `target orc hardy` | a target that outlives several ticks of damage |
+| 1136 | `steward` | runs script 1101 when it hears someone speak (its script number is the 5th value of its last line); speaks the common tongue (language 0); used by `test_skins.py` |
 | 1160 | `zerostam mob` | a stamina-less mob: the bystander orc with no maximum moves; neither has any maximum stamina (`0 0 0 1` and `0 0 50 1` lines) |
 | 1161 | `pony harness` | a harness pony: act flags `514` (`SENTINEL`, `MOB_MOUNT`), so a player can `ride` it; no moves, so it never takes a step |
 | 1170 | `angel shining` | act flags `3` (`MOB_SPEC`) and program 14, the resetter (`spec_ass.cpp`): `tell angel pracreset` resets a player's practice |
 
 Five of these answer to the keyword `orc` (1130, 1132, 1133, 1134 and 1135), as do two of the
 guildmaster copies (4601 and 32200, `shared.md`), and three answer to `harness` (1105, 1131 and
-1161). This matters for name lookups whenever one is loaded (the scenario reference, "Names, sides
+1161). The skin swords (1140 to 1143) answer to `sword`, as does zone 16's plain sword (1601).
+This matters for name lookups whenever one is loaded (the scenario reference, "Names, sides
 and lookups").
 
 ## Objects
@@ -83,6 +86,10 @@ and lookups").
 | 1137 | `cap` | leather cap, head armour; zone 13 stocks it in both store rooms |
 | 1138 | `amulet` | sickly amulet, worn on the neck; its `A 28 11` line (`APPLY_BITVECTOR`, bit 11) sets `AFF_POISON` on the wearer with no poison affect behind it |
 | 1139 | `bread` | tainted bread: food, fill 2, poisoned |
+| 1140 | `sword plain steel` | a plain steel sword, the base of a skin family |
+| 1141 | `sword engraved steel` | an engraved steel sword: a skin of 1140 that owns its cost (level line `... 1140 1`) |
+| 1142 | `sword gilded steel` | a gilded steel sword: a skin of 1140 (level line `... 1140 0`) |
+| 1143 | `sword orphan steel` | names base 1199, which does not exist: boot logs an `OBJ ERROR` and loads it as a plain object |
 | 1160 | `ring` | ring of invisibility; its `A 28 9` line sets `AFF_INVISIBLE` on the wearer |
 | 1171 | `circlet` | iron circlet, head armour with strength +2 |
 | 1185 | `girdle` | stone girdle, worn on the waist, leadership +3; extra flags `WILLPOWER`, `DWARF` and `STAY_ZONE` |
@@ -95,6 +102,7 @@ and lookups").
 | Script | Name | Rows |
 | --- | --- | --- |
 | 1100 | `harness stub` | none |
+| 1101 | `harness skins restyle` | the steward's: on hearing someone speak it finds the speaker's plain steel sword (wherever it is carried), restyles it into 1141, tries the cap 1137 (refused and logged as a `SCRIPT ERROR`) and says `Your sword is engraved.` |
 | 1180 | `ordered triggers` | three `ON_ENTER` rows numbered 1, 2, 3, with the texts `first`, `second`, `third` |
 | 1181 | `out-of-order triggers` | four `ON_ENTER` rows numbered 1, 2, 4, 3, with the texts `one`, `two`, `four`, `three` |
 

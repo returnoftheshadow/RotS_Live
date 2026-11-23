@@ -1,5 +1,7 @@
-"""Names for the numbers in world files' headers, copied from the game's headers (src/structs.h,
-src/script.h); unit/test_world_catalogue.py checks every name and value against those headers.
+"""Names for the numbers in world files' headers, copied from the game's headers.
+
+The headers are src/structs.h and src/script.h; unit/test_world_catalogue.py checks every name and
+value against them.
 
 Each table pairs the header's constant name with its value. Flag tables hold bit masks; the others
 hold plain numbers. The catalogue shows a name without the table's prefix.
@@ -13,7 +15,10 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class NameTable:
-    """Constants of one kind from a game header, and the prefix the catalogue drops from their names."""
+    """Constants of one kind from a game header.
+
+    The prefix the catalogue drops from their names comes with them.
+    """
 
     # The header the constants come from, relative to src/.
     header: str
@@ -23,12 +28,15 @@ class NameTable:
     entries: tuple[tuple[str, int], ...]
 
     def name_of(self, value: int) -> str:
-        """The short name for a plain number, or the number itself when the table has none."""
+        """Return a plain number's short name, or the number itself when the table has none."""
         name = self.short_name(value)
         return str(value) if name is None else name
 
     def flag_names(self, flags: int) -> list[str]:
-        """The short names of the bits set in flags, in bit order; an unnamed bit is "bit <n>"."""
+        """Return the short names of the bits set in flags, in bit order.
+
+        An unnamed bit is "bit <n>".
+        """
         names = []
         bit_index = 0
         while flags >> bit_index:
@@ -39,7 +47,7 @@ class NameTable:
         return names
 
     def short_name(self, value: int) -> Optional[str]:
-        """The name of the entry holding value, without the prefix; None when no entry does."""
+        """Return the name, without the prefix, of the entry holding value; None when none does."""
         for name, entry_value in self.entries:
             if entry_value == value:
                 return name[len(self.prefix):]
@@ -47,12 +55,15 @@ class NameTable:
 
 
 def bits(*names: str) -> tuple[tuple[str, int], ...]:
-    """Pairs each name with the bit of its position: the first is bit 0. An empty name skips a bit."""
+    """Pair each name with the bit of its position: the first is bit 0.
+
+    An empty name skips a bit.
+    """
     return tuple((name, 1 << index) for index, name in enumerate(names) if name)
 
 
 def numbered(first: int, *names: str) -> tuple[tuple[str, int], ...]:
-    """Pairs each name with consecutive numbers starting at first."""
+    """Pair each name with consecutive numbers starting at first."""
     return tuple((name, first + index) for index, name in enumerate(names))
 
 
@@ -90,6 +101,7 @@ ITEM_TYPES = NameTable("structs.h", "ITEM_", numbered(
     "ITEM_MISSILE", "ITEM_TREASURE", "ITEM_ARMOR", "ITEM_POTION", "ITEM_WORN", "ITEM_OTHER",
     "ITEM_TRASH", "ITEM_TRAP", "ITEM_CONTAINER", "ITEM_NOTE", "ITEM_DRINKCON", "ITEM_KEY",
     "ITEM_FOOD", "ITEM_MONEY", "ITEM_PEN", "ITEM_BOAT", "ITEM_FOUNTAIN", "ITEM_SHIELD", "ITEM_LEVER",
+    "ITEM_KEYRING",
 ))
 # Object extra flags, the second number ('extra_flags'); bit 13 has no name.
 ITEM_EXTRA_FLAGS = NameTable("structs.h", "ITEM_", bits(
@@ -116,7 +128,8 @@ APPLY_LOCATIONS = NameTable("structs.h", "APPLY_", numbered(
     "APPLY_RESIST", "APPLY_VULN", "APPLY_MAUL", "APPLY_BEND", "APPLY_PK_MAGE", "APPLY_PK_MYSTIC",
     "APPLY_PK_RANGER", "APPLY_PK_WARRIOR", "APPLY_SPELL_PEN", "APPLY_SPELL_POW",
 ))
-# The location whose modifier is the index of the AFF_ bit the object sets (affect_modify, handler.cpp).
+# The location whose modifier is the index of the AFF_ bit the object sets (affect_modify,
+# handler.cpp).
 APPLY_BITVECTOR = 28
 # Character affect bits, named for an APPLY_BITVECTOR line; bit 28 has no name.
 AFFECT_FLAGS = NameTable("structs.h", "AFF_", bits(

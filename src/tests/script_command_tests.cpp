@@ -9,10 +9,12 @@
  */
 #include "../db.h"
 #include "../handler.h"
+#include "../object_skins.h"
 #include "../protos.h"
 #include "../script.h"
 #include "../structs.h"
 #include "../utils.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -259,6 +261,7 @@ protected:
         if (m_obj.carried_by)
             obj_from_char(&m_obj);
         char_from_room(&m_ch);
+        release_cleared_character(&m_ch);
     }
     void wear(int slot) { equip_char(&m_ch, &m_obj, slot); }
 
@@ -407,9 +410,9 @@ protected:
     }
     void TearDown() override
     {
-        while (obj_data* o = m_ch.carrying) {
-            obj_from_char(o);
-            free(o);
+        while (obj_data* carried = m_ch.carrying) {
+            obj_from_char(carried);
+            delete carried;
         }
         object_list = m_saved_list;
         obj_index = m_saved_index;
@@ -464,7 +467,11 @@ protected:
         clear_char(&m_ch, MOB_VOID);
         char_to_room(&m_ch, kRoomA);
     }
-    void TearDown() override { char_from_room(&m_ch); }
+    void TearDown() override
+    {
+        char_from_room(&m_ch);
+        release_cleared_character(&m_ch);
+    }
 
     TwoRooms m_rooms;
     char_data m_ch {};
@@ -672,6 +679,7 @@ TEST(ScriptOnPathEnd, RunsItsBlock)
     OneScriptTable table(9900, { ON_DIE, SCRIPT_BEGIN, SCRIPT_END, ON_PATH_END, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
     char_data mob {};
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     mob.specials.script_number = 9900;
 
     EXPECT_EQ(0, call_trigger(ON_PATH_END, &mob, 0, 0)); // the block ran and returned FALSE
@@ -686,6 +694,7 @@ TEST(ScriptOnPathEnd, DoesNotRunForAWaitingMob)
     OneScriptTable table(9900, { ON_PATH_END, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
     char_data mob {};
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     mob.specials.script_number = 9900;
     SET_BIT(mob.specials.affected_by, AFF_WAITING);
     EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // the block would have returned FALSE
@@ -701,6 +710,7 @@ TEST(ScriptOnPathEnd, IsQuietWithoutABlockOrAScript)
     OneScriptTable table(9900, { ON_DIE, SCRIPT_BEGIN, SCRIPT_RETURN_FALSE, SCRIPT_END });
     char_data mob {};
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     mob.specials.script_number = 9900;
     EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // the script has no ON_PATH_END block
 
@@ -708,4 +718,220 @@ TEST(ScriptOnPathEnd, IsQuietWithoutABlockOrAScript)
     EXPECT_EQ(1, call_trigger(ON_PATH_END, &mob, 0, 0)); // no script at all
 
     free(mob.specials.script_info);
+}
+
+/* ---- RESTYLE_OBJ <ob1-3> <vnum, int1-3 or obN.vnum>: change the object, in place, into another look ---- */
+
+class ScriptRestyle : public WornObject {
+protected:
+    static constexpr int kBase = 4512, kSkin = 4513, kKey = 4600;
+
+    void SetUp() override
+    {
+        WornObject::SetUp();
+        m_saved_index = obj_index;
+        m_saved_proto = obj_proto;
+        m_saved_top = top_of_objt;
+        const int vnums[3] = { kBase, kSkin, kKey };
+        for (int i = 0; i < 3; ++i) {
+            m_index[i].virt = vnums[i];
+            clear_object(&m_proto[i]);
+            m_proto[i].item_number = i;
+            m_proto[i].in_room = NOWHERE;
+            m_proto[i].obj_flags.type_flag = ITEM_OTHER;
+            m_proto[i].name = m_text[i];
+            m_proto[i].short_description = m_text[i];
+            snprintf(m_text[i], sizeof(m_text[i]), "text %d", vnums[i]);
+        }
+        m_proto[1].obj_flags.skin_base = kBase;
+        obj_index = m_index;
+        obj_proto = m_proto;
+        top_of_objt = 2;
+        apply_object_skins();
+    }
+    void TearDown() override
+    {
+        for (int slot = 0; slot < MAX_WEAR; ++slot)
+            if (m_ch.equipment[slot])
+                extract_obj(m_ch.equipment[slot]);
+        obj_index = m_saved_index;
+        obj_proto = m_saved_proto;
+        top_of_objt = m_saved_top;
+        WornObject::TearDown();
+    }
+    obj_data* wear_new(int vnum, int slot)
+    {
+        obj_data* o = read_object(real_object(vnum), REAL);
+        equip_char(&m_ch, o, slot);
+        return o;
+    }
+
+    index_data m_index[3] {};
+    obj_data m_proto[3] {};
+    char m_text[3][16] {};
+    index_data* m_saved_index;
+    obj_data* m_saved_proto;
+    int m_saved_top;
+};
+
+TEST_F(ScriptRestyle, RestylesInPlace)
+{
+    obj_data* old_obj = wear_new(kBase, WEAR_BODY);
+    info_script info = make_info();
+    info.ob[0] = old_obj;
+    info.ob[1] = old_obj;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, kSkin);
+    s.run(info);
+
+    obj_data* now = m_ch.equipment[WEAR_BODY];
+    ASSERT_NE(nullptr, now);
+    EXPECT_EQ(old_obj, now) << "the same object, so a trigger's caller can keep using it";
+    EXPECT_EQ(real_object(kSkin), now->item_number);
+    EXPECT_EQ(now, info.ob[0]);
+    EXPECT_EQ(now, info.ob[1]);
+    EXPECT_EQ(&m_ch, now->carried_by);
+    EXPECT_TRUE(IS_SET(PLR_FLAGS(&m_ch), PLR_CRASH) || IS_NPC(&m_ch));
+}
+
+TEST_F(ScriptRestyle, TargetFromInt1)
+{
+    wear_new(kBase, WEAR_BODY);
+    info_script info = make_info();
+    info.ob[0] = m_ch.equipment[WEAR_BODY];
+    info.ints[0] = kSkin;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, SCRIPT_PARAM_INT1);
+    s.run(info);
+
+    ASSERT_NE(nullptr, m_ch.equipment[WEAR_BODY]);
+    EXPECT_EQ(real_object(kSkin), m_ch.equipment[WEAR_BODY]->item_number);
+    EXPECT_EQ(m_ch.equipment[WEAR_BODY], info.ob[0]);
+}
+
+/* obN.vnum is read when the line runs too: ob2.vnum gives ob1 ob2's look. */
+TEST_F(ScriptRestyle, TargetFromOb2Vnum)
+{
+    wear_new(kBase, WEAR_BODY);
+    obj_data* look = read_object(real_object(kSkin), REAL);
+    info_script info = make_info();
+    info.ob[0] = m_ch.equipment[WEAR_BODY];
+    info.ob[1] = look;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, SCRIPT_PARAM_OB2_VNUM);
+    s.run(info);
+
+    ASSERT_NE(nullptr, m_ch.equipment[WEAR_BODY]);
+    EXPECT_EQ(real_object(kSkin), m_ch.equipment[WEAR_BODY]->item_number);
+    extract_obj(look);
+}
+
+/* Only int1-3 and obN.vnum are read as the target. Any other variable (ob2, a missing ".vnum";
+ * ch1.level) is refused: the line does nothing (the editor refuses it too). */
+TEST_F(ScriptRestyle, ObjectVariableIsNotATarget)
+{
+    EXPECT_TRUE(is_restyle_target_param(SCRIPT_PARAM_INT1));
+    EXPECT_TRUE(is_restyle_target_param(SCRIPT_PARAM_INT3));
+    EXPECT_TRUE(is_restyle_target_param(SCRIPT_PARAM_OB2_VNUM));
+    EXPECT_FALSE(is_restyle_target_param(SCRIPT_PARAM_CH1_LEVEL));
+    EXPECT_FALSE(is_restyle_target_param(SCRIPT_PARAM_OB2));
+    EXPECT_FALSE(is_restyle_target_param(SCRIPT_PARAM_CH1));
+    EXPECT_FALSE(is_restyle_target_param(SCRIPT_PARAM_STR1));
+    EXPECT_FALSE(is_restyle_target_param(kSkin));
+
+    wear_new(kBase, WEAR_BODY);
+    obj_data* look = read_object(real_object(kSkin), REAL);
+    info_script info = make_info();
+    info.ob[0] = m_ch.equipment[WEAR_BODY];
+    info.ob[1] = look;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, SCRIPT_PARAM_OB2);
+    s.run(info);
+
+    EXPECT_EQ(real_object(kBase), m_ch.equipment[WEAR_BODY]->item_number);
+    extract_obj(look);
+}
+
+/* A number variable other than int1-3 and obN.vnum is refused even when its value is a vnum of
+ * the family: ch1.exp holding the skin's vnum does nothing. */
+TEST_F(ScriptRestyle, OtherNumberVariableIsNotATarget)
+{
+    wear_new(kBase, WEAR_BODY);
+    info_script info = make_info();
+    info.ob[0] = m_ch.equipment[WEAR_BODY];
+    info.ch[0] = &m_ch;
+    GET_EXP(&m_ch) = kSkin;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, SCRIPT_PARAM_CH1_EXP);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.run(info);
+
+    EXPECT_EQ(real_object(kBase), m_ch.equipment[WEAR_BODY]->item_number);
+    EXPECT_EQ(7, info.ints[1]) << "the script carries on";
+}
+
+/* The object must be ob1-3: a character variable there does nothing, and the script carries on. */
+TEST_F(ScriptRestyle, ObjectMustBeAnObjectVariable)
+{
+    wear_new(kBase, WEAR_BODY);
+    info_script info = make_info();
+    info.ob[0] = m_ch.equipment[WEAR_BODY];
+    info.ch[0] = &m_ch;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_CH1, kSkin);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.run(info);
+
+    EXPECT_EQ(real_object(kBase), m_ch.equipment[WEAR_BODY]->item_number);
+    EXPECT_EQ(7, info.ints[1]);
+}
+
+/* A copy inside a container a player carries is restyled where it is, and the player is marked
+ * for the save (the walk up through in_obj to whoever carries the outermost container). */
+TEST_F(ScriptRestyle, InAContainerMarksTheCarryingPlayer)
+{
+    REMOVE_BIT(MOB_FLAGS(&m_ch), MOB_ISNPC); /* a player for this test */
+    obj_to_char(&m_obj, &m_ch); /* the bag */
+    obj_data* copy = read_object(real_object(kBase), REAL);
+    obj_to_obj(copy, &m_obj);
+    REMOVE_BIT(PLR_FLAGS(&m_ch), PLR_CRASH); /* obj_to_char set it; only the restyle may now */
+    info_script info = make_info();
+    info.ob[0] = copy;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, kSkin);
+    s.run(info);
+
+    EXPECT_EQ(real_object(kSkin), copy->item_number);
+    EXPECT_EQ(&m_obj, copy->in_obj) << "restyled where it is";
+    EXPECT_TRUE(IS_SET(PLR_FLAGS(&m_ch), PLR_CRASH));
+    extract_obj(copy);
+    SET_BIT(MOB_FLAGS(&m_ch), MOB_ISNPC);
+}
+
+TEST_F(ScriptRestyle, OutOfFamilyDoesNothingAndContinues)
+{
+    obj_data* old_obj = wear_new(kBase, WEAR_BODY);
+    info_script info = make_info();
+    info.ob[0] = old_obj;
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, kKey);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.run(info);
+
+    EXPECT_EQ(old_obj, m_ch.equipment[WEAR_BODY]);
+    EXPECT_EQ(old_obj, info.ob[0]);
+    EXPECT_EQ(real_object(kBase), old_obj->item_number);
+    EXPECT_EQ(7, info.ints[1]);
+}
+
+TEST_F(ScriptRestyle, NullObjectDoesNothing)
+{
+    info_script info = make_info();
+    Script s;
+    s.add(SCRIPT_RESTYLE_OBJ, SCRIPT_PARAM_OB1, kSkin);
+    s.add(SCRIPT_SET_INT_VALUE, 7, SCRIPT_PARAM_INT2);
+    s.run(info);
+
+    EXPECT_EQ(nullptr, info.ob[0]);
+    EXPECT_EQ(7, info.ints[1]);
 }

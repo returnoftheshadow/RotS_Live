@@ -1,0 +1,1 @@
+a banker keeps items and coins in one vault per account and side, writes the vault and objects files, and keeps its item and coin limits, slot choice and bags

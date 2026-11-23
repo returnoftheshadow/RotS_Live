@@ -2,9 +2,12 @@
 
 #include "account_management.h"
 #include "creation_points.h"
+#include "db.h"
+#include "owned_character.h"
 #include "spells.h"
 #include "structs.h"
 #include "test_random_utils.h"
+#include "utils.h"
 
 #include <gtest/gtest.h>
 
@@ -85,6 +88,14 @@ private:
     // top_of_p_table before this object changed it.
     int saved_value;
 };
+
+// Returns the character stored, read back the way login reads a player file.
+owned_character load_stored_character(const char_file_u& stored)
+{
+    owned_character character;
+    store_to_char(&stored, character);
+    return character;
+}
 
 // Expects two ability sets to hold the same values.
 void expect_same_abilities(const char_ability_data& expected, const char_ability_data& actual)
@@ -329,4 +340,109 @@ TEST_F(RotstoolFixtureMaker, RefusesALevelItCannotReach)
     std::string error_message;
     EXPECT_FALSE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message));
     EXPECT_FALSE(error_message.empty());
+}
+
+TEST_F(RotstoolFixtureMaker, StoresEachStoredValueInTheFieldWizsetWrites)
+{
+    FixtureSpec::Character spec = make_spec(30);
+    spec.stored.gold = 500;
+    spec.stored.spirit = 120;
+    spec.stored.alignment = -400;
+    spec.stored.specialization = PLRSPEC_FIRE;
+    spec.stored.drunk = 3;
+    spec.stored.hunger = 10;
+    spec.stored.thirst = -1;
+    spec.stored.strength = 21;
+    spec.stored.intelligence = 22;
+    spec.stored.will = 23;
+    spec.stored.dexterity = 24;
+    spec.stored.constitution = 25;
+    spec.stored.learning = 26;
+    spec.stored.max_stamina = 300;
+    char_file_u stored {};
+    std::vector<int> knowledge;
+    std::string error_message;
+    ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
+        << error_message;
+
+    EXPECT_EQ(stored.points.gold, 500);
+    EXPECT_EQ(stored.points.spirit, 120);
+    EXPECT_EQ(stored.specials2.alignment, -400);
+    EXPECT_EQ(stored.profs.specialization, PLRSPEC_FIRE);
+    EXPECT_EQ(stored.specials2.conditions[DRUNK], 3);
+    EXPECT_EQ(stored.specials2.conditions[FULL], 10);
+    EXPECT_EQ(stored.specials2.conditions[THIRST], -1);
+    EXPECT_EQ(stored.constabilities.str, 21);
+    EXPECT_EQ(stored.constabilities.intel, 22);
+    EXPECT_EQ(stored.constabilities.wil, 23);
+    EXPECT_EQ(stored.constabilities.dex, 24);
+    EXPECT_EQ(stored.constabilities.con, 25);
+    EXPECT_EQ(stored.constabilities.lea, 26);
+    EXPECT_EQ(stored.constabilities.mana, 300);
+}
+
+TEST_F(RotstoolFixtureMaker, LoginReadsStoredAbilitiesAsBaseMaximumAndCurrentValues)
+{
+    FixtureSpec::Character spec = make_spec(30);
+    spec.stored.intelligence = 22;
+    spec.stored.learning = 26;
+    char_file_u stored {};
+    std::vector<int> knowledge;
+    std::string error_message;
+    ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
+        << error_message;
+
+    const owned_character character = load_stored_character(stored);
+    EXPECT_EQ(character->constabilities.intel, 22);
+    EXPECT_EQ(character->abilities.intel, 22);
+    EXPECT_EQ(character->tmpabilities.intel, 22);
+    EXPECT_EQ(character->constabilities.lea, 26);
+    EXPECT_EQ(character->tmpabilities.lea, 26);
+}
+
+TEST_F(RotstoolFixtureMaker, LoginReadsStoredMaximumStaminaAndSpecialization)
+{
+    FixtureSpec::Character spec = make_spec(30);
+    spec.stored.max_stamina = 300;
+    spec.stored.specialization = PLRSPEC_FIRE;
+    char_file_u stored { };
+    std::vector<int> knowledge;
+    std::string error_message;
+    ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
+        << error_message;
+
+    const owned_character character = load_stored_character(stored);
+    EXPECT_EQ(character->constabilities.mana, 300);
+    EXPECT_GE(GET_MAX_MANA(character.get()), 300);
+    EXPECT_EQ(GET_SPEC(character.get()), PLRSPEC_FIRE);
+}
+
+TEST_F(RotstoolFixtureMaker, AcceptsASetManaUpToTheStoredMaximumStamina)
+{
+    FixtureSpec::Character spec = make_spec(30);
+    spec.stored.max_stamina = 1000;
+    spec.mana = 900;
+    char_file_u stored {};
+    std::vector<int> knowledge;
+    std::string error_message;
+    ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
+        << error_message;
+
+    EXPECT_EQ(stored.tmpabilities.mana, 900);
+}
+
+TEST_F(RotstoolFixtureMaker, LoginKeepsSetCurrentValuesBecauseTheLastLogonIsNow)
+{
+    FixtureSpec::Character spec = make_spec(30);
+    spec.hit = 50;
+    spec.move = 30;
+    char_file_u stored {};
+    std::vector<int> knowledge;
+    std::string error_message;
+    ASSERT_TRUE(make_fixture_character(spec, account_name, fixture_idnum, now, stored, knowledge, error_message))
+        << error_message;
+
+    const owned_character character = load_stored_character(stored);
+    EXPECT_EQ(GET_HIT(character.get()), 50);
+    EXPECT_EQ(GET_MOVE(character.get()), 30);
 }

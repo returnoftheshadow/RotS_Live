@@ -373,12 +373,10 @@ void walker_remove_finished()
         if (char_exists(gone.abs_number) && gone.ch->in_room != NOWHERE) {
             /* What it wears and carries goes with it: extract_char would
              * leave it all in the room, free to pick up, at every zone reset. */
-            for (int slot = 0; slot < MAX_WEAR; ++slot)
-                if (gone.ch->equipment[slot])
-                    extract_obj(unequip_char(gone.ch, slot));
-            while (gone.ch->carrying)
-                extract_obj(gone.ch->carrying);
-            extract_char(gone.ch);
+            if (extract_worn_gear(gone.ch)) {
+                extract_carried_objects(gone.ch);
+                extract_char(gone.ch);
+            }
         }
         send_route_message(gone.message, gone.room);
     }

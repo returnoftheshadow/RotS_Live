@@ -1,0 +1,1 @@
+what objects made at run time are called: corpses, heads, coins and filled flasks, and stat room's numbers beside a corpse

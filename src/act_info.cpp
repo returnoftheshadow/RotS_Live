@@ -20,6 +20,7 @@
 #include "color.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "game_time_text.h"
 #include "handler.h"
 #include "interpre.h"
@@ -35,6 +36,7 @@
 
 #include "big_brother.h"
 #include "char_utils.h"
+#include "damage_meters.h"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -334,8 +336,15 @@ void show_obj_to_char(struct obj_data* object, struct char_data* ch, int mode)
     else if (object->short_description && ((mode == 1) || (mode == 2) || (mode == 3) || (mode == 4)))
         sprintf(buf, "%s", object->short_description);
     else if (mode == 5) { /* The trigger will deal with what is sent to ch */
-        if (!call_trigger(ON_EXAMINE_OBJECT, object, ch, 0))
+        /* A script that returned false or extracted the object has shown ch all there is; an
+         * extracted object is freed and must not be read, and nor must an examiner the script
+         * removed. */
+        freed_watch examiner_watch(ch);
+        const object_trigger_result examine_result
+            = call_object_trigger(ON_EXAMINE_OBJECT, object, ch);
+        if (examine_result != object_trigger_result::proceed || examiner_watch.freed()) {
             return;
+        }
 
         if (object->obj_flags.type_flag == ITEM_NOTE) {
             if (object->action_description) {
@@ -1077,12 +1086,84 @@ char* keywords[] = { "north", "east", "south", "west", "up",
     "\n" };
 
 /* subcmd == 1 serves for "examine" calls */
+/* True when ch can't look now (no connection, asleep, blind, dark); tells
+ * them why. */
+static bool cannot_look(char_data* ch)
+{
+    if (!ch->desc)
+        return true;
+    if (!ch->desc->descriptor)
+        return true;
+
+    /* Position/condition checking */
+    if (GET_POS(ch) < POSITION_SLEEPING) {
+        send_to_char("You can't see anything but stars!\n\r", ch);
+        return true;
+    } else if (GET_POS(ch) == POSITION_SLEEPING) {
+        send_to_char("You can't see anything, you're sleeping!\n\r", ch);
+        return true;
+    } else if (IS_AFFECTED(ch, AFF_BLIND)) {
+        send_to_char("You can't see a damned thing, you're blinded!\n\r", ch);
+        return true;
+    } else if (!CAN_SEE(ch)) {
+        send_to_char("It is pitch black...\n\r", ch);
+        list_char_to_char(world[ch->in_room].people, ch, 0);
+        return true;
+    }
+    return false;
+}
+
+/* What "look in" shows for obj, found by find_container (bits says where:
+ * FIND_OBJ_BELT_KEYRING for a keyring on the belt). Examine's contents step
+ * shows the same. */
+static void show_obj_contents(char_data* ch, obj_data* obj, int bits)
+{
+    int temp;
+
+    if (bits == FIND_OBJ_BELT_KEYRING) {
+        send_to_char(fname(obj->name), ch);
+        send_to_char(" (worn) : \n\r", ch);
+        list_obj_to_char(obj->contains, ch, 2, true);
+    } else if ((GET_ITEM_TYPE(obj) == ITEM_DRINKCON) || (GET_ITEM_TYPE(obj) == ITEM_FOUNTAIN)) {
+        /* Found a drink container */
+        if (obj->obj_flags.value[1] <= 0)
+            act("It is empty.", FALSE, ch, 0, 0, TO_CHAR);
+        else { /* It's not empty, how full is it? */
+            if (obj->obj_flags.value[0]) {
+                temp = (obj->obj_flags.value[1] * 3) / obj->obj_flags.value[0];
+                sprintf(buf, "It's %sfull of a %s liquid.\n\r", fullness[temp],
+                    color_liquid[obj->obj_flags.value[2]]);
+            } else
+                sprintf(buf, "It's max_content is zero, beware!\n\r");
+            send_to_char(buf, ch);
+        }
+    } else if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER && IS_SET(obj->obj_flags.value[1], CONT_CLOSED)) {
+        send_to_char("It is closed.\n\r", ch); /* A keyring is always open */
+    } else if (obj->holds_items()) {
+        /* A normal container (backpack, pouch, etc) or a keyring */
+        send_to_char(fname(obj->name), ch);
+        switch (bits) {
+        case FIND_OBJ_INV:
+            send_to_char(" (carried) : \n\r", ch);
+            break;
+        case FIND_OBJ_ROOM:
+            send_to_char(" (here) : \n\r", ch);
+            break;
+        case FIND_OBJ_EQUIP:
+            send_to_char(" (used) : \n\r", ch);
+            break;
+        }
+        list_obj_to_char(obj->contains, ch, 2, true);
+    } else /* They looked in something that isn't a container */
+        send_to_char("That is not a container.\n\r", ch);
+}
+
 ACMD(do_look)
 {
     char arg1[MAX_INPUT_LENGTH], arg2[MAX_INPUT_LENGTH];
     char str[2000];
     int keyword_no;
-    int j, bits = 0, temp, tmp;
+    int j, bits = 0, tmp;
     char found;
     struct obj_data *tmp_object, *found_object;
     struct char_data* tmp_char;
@@ -1091,26 +1172,8 @@ ACMD(do_look)
     sh_int exit_choice;
     char exit_line[20];
 
-    if (!ch->desc)
+    if (cannot_look(ch))
         return;
-    if (!ch->desc->descriptor)
-        return;
-
-    /* Position/condition checking */
-    if (GET_POS(ch) < POSITION_SLEEPING) {
-        send_to_char("You can't see anything but stars!\n\r", ch);
-        return;
-    } else if (GET_POS(ch) == POSITION_SLEEPING) {
-        send_to_char("You can't see anything, you're sleeping!\n\r", ch);
-        return;
-    } else if (IS_AFFECTED(ch, AFF_BLIND)) {
-        send_to_char("You can't see a damned thing, you're blinded!\n\r", ch);
-        return;
-    } else if (!CAN_SEE(ch)) {
-        send_to_char("It is pitch black...\n\r", ch);
-        list_char_to_char(world[ch->in_room].people, ch, 0);
-        return;
-    }
 
     argument_split_2(argument, arg1, arg2);
     keyword_no = search_block(arg1, keywords, FALSE); /* Partial match */
@@ -1205,45 +1268,10 @@ ACMD(do_look)
 
     case 6: /* look 'in' */
         if (*arg2) { /* look in <item carried> */
-            bits = generic_find(arg2, FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP, ch, &tmp_char,
-                &tmp_object);
-
-            if (bits) { /* Found something */
-                if ((GET_ITEM_TYPE(tmp_object) == ITEM_DRINKCON) || (GET_ITEM_TYPE(tmp_object) == ITEM_FOUNTAIN)) {
-                    /* Found a drink container */
-                    if (tmp_object->obj_flags.value[1] <= 0)
-                        act("It is empty.", FALSE, ch, 0, 0, TO_CHAR);
-                    else { /* It's not empty, how full is it? */
-                        if (tmp_object->obj_flags.value[0]) {
-                            temp = (tmp_object->obj_flags.value[1] * 3) / tmp_object->obj_flags.value[0];
-                            sprintf(buf, "It's %sfull of a %s liquid.\n\r", fullness[temp],
-                                color_liquid[tmp_object->obj_flags.value[2]]);
-                        } else
-                            sprintf(buf, "It's max_content is zero, beware!\n\r");
-                        send_to_char(buf, ch);
-                    }
-                } else if (GET_ITEM_TYPE(tmp_object) == ITEM_CONTAINER) {
-                    /* Found a normal container; i.e.: backpack, pouch, etc */
-                    if (!IS_SET(tmp_object->obj_flags.value[1], CONT_CLOSED)) {
-                        /* The item isn't closed, so they can see into it */
-                        send_to_char(fname(tmp_object->name), ch);
-                        switch (bits) {
-                        case FIND_OBJ_INV:
-                            send_to_char(" (carried) : \n\r", ch);
-                            break;
-                        case FIND_OBJ_ROOM:
-                            send_to_char(" (here) : \n\r", ch);
-                            break;
-                        case FIND_OBJ_EQUIP:
-                            send_to_char(" (used) : \n\r", ch);
-                            break;
-                        }
-                        list_obj_to_char(tmp_object->contains, ch, 2, true);
-                    } else /* It was closed, pretty simple case */
-                        send_to_char("It is closed.\n\r", ch);
-                } else /* They looked in something that isn't a container */
-                    send_to_char("That is not a container.\n\r", ch);
-            } else /* They looked at something that isn't here */
+            if ((bits = find_container(ch, arg2, FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP, &tmp_char,
+                     &tmp_object)))
+                show_obj_contents(ch, tmp_object, bits); /* Found something */
+            else /* They looked at something that isn't here */
                 send_to_char("You do not see that item here.\n\r", ch);
         } else /* They didn't look "in" anything! */
             send_to_char("Look in what?!\n\r", ch);
@@ -1274,9 +1302,9 @@ ACMD(do_look)
             }
 
             if (tmp == -1) /* Still haven't found anyone */
-                bits = generic_find(arg2,
+                bits = find_container(ch, arg2,
                     FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP | FIND_CHAR_ROOM,
-                    ch, &tmp_char, &found_object);
+                    &tmp_char, &found_object);
             /*
              * The next line was the cause of look spirit crashes.
              *
@@ -1496,7 +1524,7 @@ ACMD(do_look)
          */
         else if (!IS_NPC(ch) && !SUN_PENALTY(ch) && IS_AFFECTED(ch, AFF_HUNT) && !IS_AFFECTED(ch, AFF_CONFUSE)) {
             show_tracks(ch, 0, 2);
-            WAIT_STATE(ch, 4);
+            (void)WAIT_STATE(ch, 4);
         }
         break;
 
@@ -1527,14 +1555,19 @@ ACMD(do_read)
  */
 ACMD(do_examine)
 {
-    char name[100], buf[100];
+    char name[MAX_INPUT_LENGTH];
     int bits;
     struct char_data* tmp_char;
     struct obj_data* tmp_object;
 
     one_argument(argument, name);
     if (*name) {
+        /* The object's examine script can remove the examiner. */
+        freed_watch examiner_watch(ch);
         do_look(ch, argument, wtl, 15, 1);
+        if (examiner_watch.freed()) {
+            return;
+        }
         one_argument(argument, name);
     } else {
         if (!PRF_FLAGGED(ch, PRF_SPAM)) {
@@ -1546,14 +1579,26 @@ ACMD(do_examine)
         return;
     }
 
-    bits = generic_find(name, FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP, ch, &tmp_char,
+    /* The contents step searches again, with the same search as the
+     * description step: an examine script may have destroyed or moved the
+     * object, so a pointer kept from that step is not safe. */
+    bits = find_container(ch, name, FIND_OBJ_INV | FIND_OBJ_ROOM | FIND_OBJ_EQUIP, &tmp_char,
         &tmp_object);
 
     if (tmp_object) {
-        if ((GET_ITEM_TYPE(tmp_object) == ITEM_DRINKCON) || (GET_ITEM_TYPE(tmp_object) == ITEM_FOUNTAIN) || (GET_ITEM_TYPE(tmp_object) == ITEM_CONTAINER)) {
+        if (tmp_object->holds_items() || GET_ITEM_TYPE(tmp_object) == ITEM_DRINKCON || GET_ITEM_TYPE(tmp_object) == ITEM_FOUNTAIN) {
             send_to_char("When you look inside, you see:\n\r", ch);
-            sprintf(buf, "in %s", argument);
-            do_look(ch, buf, wtl, 15, 0);
+            /* When the first raw word is not the one examine used (a fill
+             * word such as "the", a quote, a tab), look in reads the raw
+             * word, as it always has. */
+            char raw[MAX_INPUT_LENGTH], unused[MAX_INPUT_LENGTH];
+            argument_split_2(argument, raw, unused);
+            if (strcmp(raw, name)) {
+                char look_in[MAX_INPUT_LENGTH + 4];
+                snprintf(look_in, sizeof(look_in), "in %s", argument);
+                do_look(ch, look_in, wtl, 15, 0);
+            } else if (!cannot_look(ch))
+                show_obj_contents(ch, tmp_object, bits);
         }
     }
 }
@@ -3379,7 +3424,7 @@ ACMD(do_search)
         if (!*argument) {
             send_to_char("You start searching the area.\n\r", ch);
             act("$n searches the area carefully.", TRUE, ch, 0, 0, TO_ROOM);
-            WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 2, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
+            (void)WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 2, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
                 TARGET_OTHER);
             return;
         }
@@ -3395,7 +3440,7 @@ ACMD(do_search)
             return;
         }
 
-        WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 1, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
+        (void)WAIT_STATE_FULL(ch, 10, CMD_SEARCH, 1, 30, tmp, 0, 0, AFF_WAITING | AFF_WAITWHEEL,
             TARGET_OTHER);
         break;
 
@@ -3724,14 +3769,15 @@ ACMD(do_fame)
             return;
         }
 
-        bufpt = 0;
+        /* A string, not buf: a day's battles have no fixed count. */
+        std::string battles;
         for (i = 0; i < n; ++i) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            battles += string;
             free(string);
         }
 
-        page_string(ch->desc, buf, 1);
+        page_string(ch->desc, &battles[0], 1);
         return;
     }
 
@@ -3761,13 +3807,14 @@ ACMD(do_fame)
      */
     pkills = pkill_get_all(&n);
     records = 0;
-    bufpt = 0;
+    /* A string, not buf: a player's records have no fixed count. */
+    std::string report;
 
     /* Get the records where the character idx is the killer */
     for (i = 0; i < n; ++i) {
         if (pkills[i].killer == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_KILLED);
-            bufpt += sprintf(buf + bufpt, string);
+            report += string;
             free(string);
             ++records;
         }
@@ -3777,7 +3824,7 @@ ACMD(do_fame)
     for (i = 0; i < n; ++i) {
         if (pkills[i].victim == idx) {
             string = pkill_get_string(&pkills[i], PKILL_STRING_SLAIN);
-            bufpt += sprintf(buf + bufpt, string);
+            report += string;
             free(string);
             ++records;
         }
@@ -3786,14 +3833,15 @@ ACMD(do_fame)
     /* Display the total fame */
     asprintf(&string, "%s", player_table[idx].name);
     CAP(string);
-    sprintf(buf + bufpt,
+    snprintf(buf, sizeof(buf),
         "There %s %d record%s found about %s, "
         "total fame %d.\r\n",
         records == 1 ? "was" : "were", records, records == 1 ? "" : "s", string,
         player_table[idx].warpoints / 100);
     free(string);
+    report += buf;
 
-    send_to_char(buf, ch);
+    send_to_char(report.c_str(), ch);
 }
 
 ACMD(do_rank)
@@ -4281,6 +4329,7 @@ char* item_messages[] = {
     "fountain",
     "shield",
     "lever",
+    "keyring",
 };
 
 char* extra_messages[] = {
@@ -4505,7 +4554,17 @@ char* value_array[][5] = {
         "",
         "",
     }, /* Lever */
+    {
+        "Capacity",
+        "",
+        "",
+        "",
+        "",
+    }, /* Keyring */
 };
+/* Identify reads value_array by item type: one row for every type. */
+static_assert(sizeof(value_array) / sizeof(value_array[0]) == ITEM_KEYRING + 1,
+    "value_array needs a row for every item type");
 
 char* weapon_types[] = {
 
@@ -4763,26 +4822,26 @@ void do_details(char_data* character, char* argument, waiting_type* wait_list, i
             send_to_char(spec_data.c_str(), character);
         } else if (strstr(details_argument, DAMAGE_FLAG)) {
             if (strstr(details_argument, RESET_FLAG)) {
-                character->damage_details.reset();
+                reset_damage_meter(*character);
 
                 for (follow_type* follower = character->followers; follower;
                      follower = follower->next) {
                     char_data* follow_char = follower->follower;
                     if (utils::is_npc(*follow_char) && utils::is_affected_by(*follow_char, AFF_CHARM)) {
-                        follow_char->damage_details.reset();
+                        reset_damage_meter(*follow_char);
                     }
                 }
 
                 send_to_char("Damage details have been reset.\r\n", character);
             } else {
-                std::string damage_data = character->damage_details.get_damage_report(character);
+                std::string damage_data = get_damage_meter_report(*character);
                 send_to_char(damage_data.c_str(), character);
 
                 for (follow_type* follower = character->followers; follower;
                      follower = follower->next) {
                     const char_data* follow_char = follower->follower;
                     if (utils::is_npc(*follow_char) && utils::is_affected_by(*follow_char, AFF_CHARM)) {
-                        std::string follower_damage_data = follow_char->damage_details.get_damage_report(follow_char);
+                        std::string follower_damage_data = get_damage_meter_report(*follow_char);
                         send_to_char("\n\r", character);
                         send_to_char(follower_damage_data.c_str(), character);
                     }

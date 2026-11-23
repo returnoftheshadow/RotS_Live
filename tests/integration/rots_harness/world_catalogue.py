@@ -1,5 +1,6 @@
-"""Prints the test world as markdown tables: zones, rooms, mobs, objects and scripts, read from the
-world files in index order, with flag numbers decoded.
+"""Prints the test world as markdown tables: zones, rooms, mobs, objects and scripts.
+
+The tables are read from the world files in index order, with flag numbers decoded.
 
 Run from tests/integration as `python -m rots_harness.world_catalogue [--zone N] [--category C]`,
 or `make world-catalogue [ZONE=N] [CATEGORY=C]` from the repository root. The per-fixture notes
@@ -90,7 +91,8 @@ class Mob:
     act_flags: int
     # The level; 0 for a mob without numeric lines.
     level: int
-    # The program number on the weight line: a special's row when SPEC is set, else a mudlle program.
+    # The program number on the weight line: a special's row when SPEC is set, else a mudlle
+    # program.
     program: int
     # The script the mob runs; 0 for none.
     script: int
@@ -131,7 +133,7 @@ class Script:
 
 
 def read_rooms(path: Path) -> list[Room]:
-    """The rooms of a .wld file; raises WorldFileError when the layout is not load_rooms'."""
+    """Return the rooms of a .wld file; raise WorldFileError when the layout is not load_rooms'."""
     cursor = TextCursor(read_world_text(path), str(path))
     rooms = []
     while not cursor.at_end():
@@ -170,7 +172,7 @@ def read_rooms(path: Path) -> list[Room]:
 
 
 def record_number(cursor: TextCursor, path: Path) -> Optional[int]:
-    """The next record's vnum, or None at the closing #99999 or $."""
+    """Return the next record's vnum, or None at the closing #99999 or $."""
     token = cursor.read_word()
     if token.startswith("$") or not token:
         return None
@@ -181,7 +183,7 @@ def record_number(cursor: TextCursor, path: Path) -> Optional[int]:
 
 
 def read_mobs(path: Path) -> list[Mob]:
-    """The mobs of a .mob file; raises WorldFileError when the layout is not load_mobiles'."""
+    """Return the mobs of a .mob file; raise WorldFileError when the layout is not load_mobiles'."""
     cursor = TextCursor(read_world_text(path), str(path))
     mobs = []
     while not cursor.at_end():
@@ -202,7 +204,9 @@ def read_mobs(path: Path) -> list[Mob]:
             cursor.read_string()
         if letter in NUMERIC_MOB_LETTERS:
             level = cursor.read_int()
-            skip_ints(cursor, 3 + 2 + 2 + 3 + 5)  # ob, parry, dodge; hit points; damage, regen; gold, exp, owner; position to pref
+            skip_ints(
+                cursor, 3 + 2 + 2 + 3 + 5
+            )  # ob, parry, dodge; hit points; damage, regen; gold, exp, owner; position to pref
             skip_ints(cursor, 2)  # weight, height
             program = cursor.read_int()
             skip_ints(cursor, 3 + 4 + 1 + 6)  # butcher, corpse, rp; prof, mana, move, bodytype; saving throw; abilities
@@ -217,13 +221,13 @@ def read_mobs(path: Path) -> list[Mob]:
 
 
 def skip_ints(cursor: TextCursor, count: int, default: Optional[int] = None) -> None:
-    """Reads and drops count numbers; with a default, a missing number is not an error."""
+    """Read and drop count numbers; with a default, a missing number is not an error."""
     for _ in range(count):
         cursor.read_int(default=default)
 
 
 def read_objects(path: Path) -> list[GameObject]:
-    """The objects of a .obj file; raises WorldFileError when the layout is not load_objects'."""
+    """Return a .obj file's objects; raise WorldFileError when the layout is not load_objects'."""
     cursor = TextCursor(read_world_text(path), str(path))
     objects = []
     token = cursor.read_word()
@@ -240,6 +244,7 @@ def read_objects(path: Path) -> list[GameObject]:
         wear_flags = cursor.read_int()
         skip_ints(cursor, 5 + 3 + 4)  # values; weight, cost, rent; level, rarity, material, script
         cursor.read_int(default=0)  # version, absent from older lines
+        skip_ints(cursor, 2, default=0)  # skin base vnum and own fields, written only for skins
         game_object = GameObject(vnum, keywords, short_description, item_type, extra_flags, wear_flags)
         token = cursor.read_word()
         while token == "E":
@@ -256,7 +261,7 @@ def read_objects(path: Path) -> list[GameObject]:
 
 
 def read_scripts(path: Path) -> list[Script]:
-    """The scripts of a .scr file; raises WorldFileError when the layout is not load_scripts'."""
+    """Return a .scr file's scripts; raise WorldFileError when the layout is not load_scripts'."""
     cursor = TextCursor(read_world_text(path), str(path))
     scripts = []
     trigger_types = {value for _, value in world_flags.SCRIPT_TRIGGERS.entries}
@@ -279,17 +284,17 @@ def read_scripts(path: Path) -> list[Script]:
 
 
 def cell(text: str) -> str:
-    """Text made safe for one markdown table cell."""
+    """Return text made safe for one markdown table cell."""
     return text.replace("|", "\\|").replace("\n", " ") if text else "-"
 
 
 def flags_cell(flags: int, table: world_flags.NameTable) -> str:
-    """A flag number and its names, such as "3 (ISDOOR, CLOSED)", or "0"."""
+    """Return a flag number and its names, such as "3 (ISDOOR, CLOSED)", or "0"."""
     return f"{flags} ({', '.join(table.flag_names(flags))})" if flags else "0"
 
 
 def markdown_table(title: str, headings: list[str], rows: list[list[str]]) -> str:
-    """A level-2 heading and a markdown table; "none" when there are no rows."""
+    """Return a level-2 heading and a markdown table; "none" when there are no rows."""
     lines = [f"## {title}", ""]
     if not rows:
         return "\n".join(lines + ["none", ""])
@@ -300,7 +305,7 @@ def markdown_table(title: str, headings: list[str], rows: list[list[str]]) -> st
 
 
 def exit_text(room_exit: Exit) -> str:
-    """An exit as "north 1702", with its flags and keyword for a door."""
+    """Return an exit as "north 1702", with its flags and keyword for a door."""
     text = f"{world_flags.DIRECTIONS.name_of(room_exit.direction).lower()} {room_exit.to_room}"
     details = []
     if room_exit.flags:
@@ -311,7 +316,7 @@ def exit_text(room_exit: Exit) -> str:
 
 
 def affect_text(location: int, modifier: int) -> str:
-    """An A line as "STR 2", naming the AFF_ bit an APPLY_BITVECTOR line sets."""
+    """Return an A line as "STR 2", naming the AFF_ bit an APPLY_BITVECTOR line sets."""
     text = f"{world_flags.APPLY_LOCATIONS.name_of(location)} {modifier}"
     if location == world_flags.APPLY_BITVECTOR and 0 <= modifier <= 31:
         text += f" ({', '.join(world_flags.AFFECT_FLAGS.flag_names(1 << modifier))})"
@@ -319,17 +324,19 @@ def affect_text(location: int, modifier: int) -> str:
 
 
 def zones_section(zones: list[Zone], blocks: dict[int, tuple[int, int]]) -> str:
-    """The zones table; each zone's vnums are its own block (zone_blocks)."""
+    """Return the zones table; each zone's vnums are its own block (zone_blocks)."""
     rows = []
     for zone in zones:
         low, high = blocks[zone.number]
         resets = "; ".join(row.summary() for row in zone.resets) or "none"
-        rows.append([str(zone.number), zone.name, f"({zone.map_square[0]}, {zone.map_square[1]})", f"{low}-{high}", resets])
+        rows.append(
+            [str(zone.number), zone.name, f"({zone.map_square[0]}, {zone.map_square[1]})", f"{low}-{high}", resets]
+        )
     return markdown_table("Zones", ["Zone", "Name", "Map square", "Vnums", "Resets"], rows)
 
 
 def rooms_section(rooms: list[Room]) -> str:
-    """The rooms table."""
+    """Return the rooms table."""
     rows = [
         [
             str(room.vnum),
@@ -344,7 +351,7 @@ def rooms_section(rooms: list[Room]) -> str:
 
 
 def mobs_section(mobs: list[Mob]) -> str:
-    """The mobs table; a special is shown only for a mob with the SPEC flag."""
+    """Return the mobs table; a special is shown only for a mob with the SPEC flag."""
     rows = [
         [
             str(mob.vnum),
@@ -358,11 +365,13 @@ def mobs_section(mobs: list[Mob]) -> str:
         ]
         for mob in mobs
     ]
-    return markdown_table("Mobs", ["Vnum", "Keywords", "Short description", "Level", "Act flags", "Special", "Script", "Options"], rows)
+    return markdown_table(
+        "Mobs", ["Vnum", "Keywords", "Short description", "Level", "Act flags", "Special", "Script", "Options"], rows
+    )
 
 
 def objects_section(objects: list[GameObject]) -> str:
-    """The objects table."""
+    """Return the objects table."""
     rows = [
         [
             str(game_object.vnum),
@@ -375,11 +384,16 @@ def objects_section(objects: list[GameObject]) -> str:
         ]
         for game_object in objects
     ]
-    return markdown_table("Objects", ["Vnum", "Keywords", "Short description", "Type", "Extra flags", "Wear flags", "Affects"], rows)
+    return markdown_table(
+        "Objects", ["Vnum", "Keywords", "Short description", "Type", "Extra flags", "Wear flags", "Affects"], rows
+    )
 
 
 def triggers_text(triggers: list[int]) -> str:
-    """Each trigger once, in first-row order, with its row count when it has several: "ON_ENTER (3 rows)"."""
+    """Return each trigger once, in first-row order.
+
+    A trigger with several rows has its row count: "ON_ENTER (3 rows)".
+    """
     counts: dict[int, int] = {}
     for trigger in triggers:
         counts[trigger] = counts.get(trigger, 0) + 1
@@ -391,13 +405,13 @@ def triggers_text(triggers: list[int]) -> str:
 
 
 def scripts_section(scripts: list[Script]) -> str:
-    """The scripts table."""
+    """Return the scripts table."""
     rows = [[str(script.vnum), script.name, triggers_text(script.triggers)] for script in scripts]
     return markdown_table("Scripts", ["Vnum", "Name", "Triggers"], rows)
 
 
 def read_category(world_dir: Path, category: str, reader: Callable[[Path], list]) -> list:
-    """Every record of a category, reading its indexed files in index order."""
+    """Return every record of a category, reading its indexed files in index order."""
     records = []
     for path in indexed_files(world_dir, category):
         records.extend(reader(path))
@@ -405,10 +419,13 @@ def read_category(world_dir: Path, category: str, reader: Callable[[Path], list]
 
 
 def catalogue(world_dir: Path, zone_number: Optional[int] = None, category: Optional[str] = None) -> str:
-    """The catalogue's markdown; zone_number keeps only that zone and the fixtures in its own vnums
-    (n * 100 to n * 100 + 99, up to its top), wherever they are filed.
+    """Return the catalogue's markdown.
 
-    Raises WorldFileError for a file the catalogue cannot read, and UnknownZone for a zone the world lacks.
+    zone_number keeps only that zone and the fixtures in its own vnums (n * 100 to n * 100 + 99, up
+    to its top), wherever they are filed.
+
+    Raises WorldFileError for a file the catalogue cannot read, and UnknownZone for a zone the world
+    lacks.
     """
     zones = read_zones(world_dir)
     blocks = zone_blocks(zones)
@@ -423,20 +440,30 @@ def catalogue(world_dir: Path, zone_number: Optional[int] = None, category: Opti
 
     sections = {
         "zones": lambda: zones_section([zone for zone in zones if zone_number in (None, zone.number)], blocks),
-        "rooms": lambda: rooms_section([room for room in read_category(world_dir, "wld", read_rooms) if wanted(room.vnum)]),
+        "rooms": lambda: rooms_section(
+            [room for room in read_category(world_dir, "wld", read_rooms) if wanted(room.vnum)]
+        ),
         "mobs": lambda: mobs_section([mob for mob in read_category(world_dir, "mob", read_mobs) if wanted(mob.vnum)]),
-        "objects": lambda: objects_section([item for item in read_category(world_dir, "obj", read_objects) if wanted(item.vnum)]),
-        "scripts": lambda: scripts_section([script for script in read_category(world_dir, "scr", read_scripts) if wanted(script.vnum)]),
+        "objects": lambda: objects_section(
+            [item for item in read_category(world_dir, "obj", read_objects) if wanted(item.vnum)]
+        ),
+        "scripts": lambda: scripts_section(
+            [script for script in read_category(world_dir, "scr", read_scripts) if wanted(script.vnum)]
+        ),
     }
     chosen = CATEGORIES if category is None else (category,)
     return "\n".join(sections[name]() for name in chosen)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """Prints the catalogue; 2 for an unknown zone or a world file it cannot read."""
+    """Print the catalogue and return 0, or 2 for an unknown zone or a world file it cannot read."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--world", type=Path, default=DEFAULT_WORLD_DIR, help="the world folder (default: the committed test world)")
-    parser.add_argument("--zone", type=int, help="only this zone and the fixtures among its own vnums, n * 100 to n * 100 + 99")
+    parser.add_argument(
+        "--world", type=Path, default=DEFAULT_WORLD_DIR, help="the world folder (default: the committed test world)"
+    )
+    parser.add_argument(
+        "--zone", type=int, help="only this zone and the fixtures among its own vnums, n * 100 to n * 100 + 99"
+    )
     parser.add_argument("--category", choices=CATEGORIES, help="only this table")
     arguments = parser.parse_args(argv)
     try:

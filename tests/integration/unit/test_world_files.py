@@ -40,26 +40,31 @@ S
 
 
 def write_zone(world_dir: Path, number: int, square: tuple[int, int], top: int) -> None:
-    """Writes zon/<number>.zon with one M row, one section row and one O row."""
-    text = ZONE_TEMPLATE.format(number=number, x=square[0], y=square[1], top=top, mob=number * 100 + 1, room=number * 100 + 2)
+    """Write zon/<number>.zon with one M row, one section row and one O row."""
+    text = ZONE_TEMPLATE.format(
+        number=number, x=square[0], y=square[1], top=top, mob=number * 100 + 1, room=number * 100 + 2
+    )
     (world_dir / "zon" / f"{number}.zon").write_text(text, encoding="latin-1")
 
 
 def write_records(world_dir: Path, category: str, file_name: str, vnums: list[int]) -> None:
-    """Writes a world file holding one bare record per vnum and the closing #99999."""
+    """Write a world file holding one bare record per vnum and the closing #99999."""
     text = "".join(f"#{vnum}\nrecord {vnum}~\n" for vnum in vnums) + "#99999\n"
     (world_dir / category / file_name).write_text(text, encoding="latin-1")
 
 
 def write_indexes(world_dir: Path) -> None:
-    """Writes every category's index in the order the world check expects."""
+    """Write every category's index in the order the world check expects."""
     for category in WORLD_CATEGORIES:
         (world_dir / category / "index").write_text(index_text(index_order(world_dir / category)), encoding="latin-1")
 
 
 @pytest.fixture
 def world(tmp_path: Path) -> Path:
-    """A small world that passes every check: zones 11 and 12 with rooms, mobs and their notes."""
+    """Return a small world that passes every check.
+
+    Its zones 11 and 12 have rooms, mobs and their notes.
+    """
     world_dir = tmp_path / "world"
     for category in WORLD_CATEGORIES:
         (world_dir / category).mkdir(parents=True)
@@ -80,7 +85,7 @@ def world(tmp_path: Path) -> Path:
 
 
 def all_problems(world_dir: Path) -> list[str]:
-    """Every check's problems for a world, the conflict markers included."""
+    """Return every check's problems for a world, the conflict markers included."""
     return (
         world_check.index_problems(world_dir)
         + world_check.vnum_order_problems(world_dir)
@@ -121,13 +126,19 @@ def test_files_are_indexed_by_first_vnum_with_backup_folders_left_out(world: Pat
 
 def test_an_unindexed_file_is_reported(world: Path) -> None:
     write_records(world, "wld", "13.wld", [1301])
-    assert world_check.index_problems(world) == ["wld/index must list the folder's world files by first vnum: 11.wld 12.wld 13.wld $"]
+    assert world_check.index_problems(world) == [
+        "wld/index must list the folder's world files by first vnum: 11.wld 12.wld 13.wld $"
+    ]
 
 
 def test_a_misordered_index_is_reported(world: Path) -> None:
     (world / "mob" / "index").write_text("12.mob\n11.mob\nguildmasters.mob\n$\n", encoding="latin-1")
-    assert world_check.index_problems(world) == ["mob/index must list the folder's world files by first vnum: 11.mob 12.mob guildmasters.mob $"]
-    assert world_check.vnum_order_problems(world) == ["mob/11.mob: #1101 comes after #1201 in mob/12.mob; vnums ascend across the index"]
+    assert world_check.index_problems(world) == [
+        "mob/index must list the folder's world files by first vnum: 11.mob 12.mob guildmasters.mob $"
+    ]
+    assert world_check.vnum_order_problems(world) == [
+        "mob/11.mob: #1101 comes after #1201 in mob/12.mob; vnums ascend across the index"
+    ]
 
 
 def test_a_missing_index_is_reported(world: Path) -> None:
@@ -137,7 +148,9 @@ def test_a_missing_index_is_reported(world: Path) -> None:
 
 def test_a_vnum_out_of_order_within_a_file_is_reported(world: Path) -> None:
     write_records(world, "wld", "11.wld", [1102, 1101])
-    assert world_check.vnum_order_problems(world) == ["wld/11.wld: #1101 comes after #1102 in wld/11.wld; vnums ascend across the index"]
+    assert world_check.vnum_order_problems(world) == [
+        "wld/11.wld: #1101 comes after #1102 in wld/11.wld; vnums ascend across the index"
+    ]
 
 
 def test_a_repeated_vnum_is_reported(world: Path) -> None:
@@ -153,7 +166,9 @@ def test_a_file_without_its_closing_record_is_reported(world: Path) -> None:
 
 def test_a_shared_map_square_is_reported(world: Path) -> None:
     write_zone(world, 12, (0, 0), 1299)
-    assert world_check.zone_problems(world) == ["zone 12 shares map square (0, 0) with zone 11; relocate and the world map find a zone by its square"]
+    assert world_check.zone_problems(world) == [
+        "zone 12 shares map square (0, 0) with zone 11; relocate and the world map find a zone by its square"
+    ]
 
 
 def test_a_vnum_outside_its_zone_is_reported(world: Path) -> None:
@@ -167,7 +182,9 @@ def test_a_vnum_outside_its_zone_is_reported(world: Path) -> None:
 
 def test_a_vnum_outside_its_file_number_block_is_reported(world: Path) -> None:
     write_records(world, "mob", "12.mob", [1201, 1301])
-    assert world_check.zone_problems(world) == ["mob/12.mob: #1301 is outside 1200-1299, where the shaping editors look for it"]
+    assert world_check.zone_problems(world) == [
+        "mob/12.mob: #1301 is outside 1200-1299, where the shaping editors look for it"
+    ]
 
 
 def test_zone_tops_must_ascend(world: Path) -> None:
@@ -178,7 +195,9 @@ def test_zone_tops_must_ascend(world: Path) -> None:
 
 def test_a_conflict_marker_is_reported(world: Path) -> None:
     path = world / "wld" / "11.wld"
-    path.write_text("<<<<<<< HEAD\n" + path.read_text(encoding="latin-1") + "=======\n>>>>>>> branch\n", encoding="latin-1")
+    path.write_text(
+        "<<<<<<< HEAD\n" + path.read_text(encoding="latin-1") + "=======\n>>>>>>> branch\n", encoding="latin-1"
+    )
     assert world_check.conflict_marker_problems([world]) == [f"{path}: a merge conflict marker is left in the file"]
 
 
@@ -200,7 +219,11 @@ def test_a_zone_file_is_read_with_its_square_top_and_resets(world: Path) -> None
         ResetRow("=", (), "Section title"),
         ResetRow("O", (0, 1101, 1102, 0, 100, 1), ""),
     ]
-    assert [row.summary() for row in zone.resets] == ["mob 1101 to room 1102 (a mob waits)", "section Section title", "object 1101 to room 1102"]
+    assert [row.summary() for row in zone.resets] == [
+        "mob 1101 to room 1102 (a mob waits)",
+        "section Section title",
+        "object 1101 to room 1102",
+    ]
 
 
 def test_zone_ranges_start_above_the_previous_zones_top(world: Path) -> None:

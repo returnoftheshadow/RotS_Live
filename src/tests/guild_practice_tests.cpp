@@ -5,6 +5,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -190,11 +191,15 @@ protected:
         skills[SKILL_KICK] = m_saved_kick;
         world[kRoom] = m_saved_room;
         zone_table = m_saved_zone_table;
+        release_cleared_character(&m_host);
+        release_test_descriptor(&m_descriptor);
+        release_test_descriptor(&m_watcher_descriptor);
     }
 
     void make_player(char_data* pc, char_prof_data* profs, byte* pc_skills, byte* pc_knowledge)
     {
         clear_char(pc, 0);
+        release_cleared_character(pc); /* the fixture's own arrays replace clear_char's */
         *profs = char_prof_data();
         for (int prof = 0; prof <= MAX_PROFS; ++prof) {
             profs->prof_coof[prof] = 1000;

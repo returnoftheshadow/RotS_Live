@@ -21,8 +21,10 @@
 #include "limits.h"
 #include "mail.h"
 #include "mudlle.h"
+#include "note_writing.h"
 #include "pkill.h"
 #include "protos.h"
+#include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -36,8 +38,11 @@
 #include "big_brother.h"
 #include "char_utils.h"
 #include "character_json.h"
+#include "damage_meters.h"
 #include "exploits_json.h"
 #include "mob_options.h"
+#include "object_skins.h"
+#include "object_text.h"
 #include "mob_walker.h"
 #include "game_boot_options.h"
 #include "mob_progs/banker.h"
@@ -59,6 +64,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 /**************************************************************************
@@ -424,6 +430,9 @@ void boot_db(void)
 
     log("Loading objs and generating index.");
     index_boot(DB_BOOT_OBJ);
+
+    log("Applying object skins.");
+    apply_object_skins();
 
     log("Renumbering zone table.");
     renum_zone_table();
@@ -1203,11 +1212,25 @@ bool delete_player_character_by_index(int index)
     return true;
 }
 
+/* Frees the player index and the name create_entry gave each entry, leaving it empty. */
+static void release_player_table()
+{
+    if (player_table) {
+        for (int index = 0; index <= top_of_p_table; ++index) {
+            RELEASE(player_table[index].name);
+        }
+        RELEASE(player_table);
+    }
+    top_of_p_table = -1;
+}
+
 void build_player_index(void)
 {
     int nr, tt;
 
-    top_of_p_file = top_of_p_table = -1;
+    /* The walks below index every player file from scratch, so the current index is freed. */
+    release_player_table();
+    top_of_p_file = -1;
     top_idnum = 1;
 
     build_directory("players/A-E/");
@@ -1339,7 +1362,7 @@ void index_boot(int mode)
             CREATE(mob_index, struct index_data, rec_count);
             break;
         case DB_BOOT_OBJ:
-            CREATE(obj_proto, struct obj_data, rec_count);
+            obj_proto = new obj_data[rec_count]();
             CREATE(obj_index, struct index_data, rec_count);
             break;
         case DB_BOOT_ZON:
@@ -1398,7 +1421,6 @@ void index_boot(int mode)
 /* load the rooms */
 void load_rooms(FILE* fl)
 {
-    extern char num_of_sector_types;
     static int room_nr = 0, zone = 0, virt_nr, flag, tmp, tmp2, tmp3, tmp4;
     int aff_set;
     char *temp, *temp2, chk[50];
@@ -1444,9 +1466,7 @@ void load_rooms(FILE* fl)
             //	 fscanf(fl, " %d ", &tmp);
             world[room_nr].room_flags = tmp2;
             //	 fscanf(fl, " %d ", &tmp);
-            world[room_nr].sector_type = tmp3;
-            if (world[room_nr].sector_type >= num_of_sector_types)
-                world[room_nr].sector_type = num_of_sector_types - 1;
+            world[room_nr].sector_type = checked_sector_type(tmp3, virt_nr);
             world[room_nr].level = tmp4;
 
             world[room_nr].funct = 0;
@@ -1600,6 +1620,12 @@ void symbol_to_map(int x, int y, int symb)
 {
     if (x > WORLD_SIZE_X / 2)
         x = WORLD_SIZE_X / 2;
+    /* A zone's coordinates come from its file and the zone editor, unchecked. */
+    if (x < 0 || y < 0 || y >= WORLD_SIZE_Y) {
+        vmudlog(NRM, "SYSERR: symbol_to_map: (%d, %d) is off the world map; '%c' not drawn.", x, y,
+            symb);
+        return;
+    }
     world_map[(y + 1) * (WORLD_SIZE_X + 4) + x * 2 + 1] = symb;
 }
 
@@ -1789,19 +1815,30 @@ struct char_data* read_mobile(int nr, int type)
     byte tmp;
     struct char_data* mob;
     void* tmpptr;
-    affected_type tmp_aff;
+    affected_type tmp_aff{};
 
     if (type == VIRT) {
         if ((i = real_mobile(nr)) < 0) {
             sprintf(buf, "Mobile (V) %d does not exist in database.", nr);
             return (0);
         }
-    } else
+    } else {
+        // A caller that passes real_mobile's -1 for a missing prototype is refused here.
+        if (nr < 0 || nr > top_of_mobt) {
+            vmudlog(BRF, "SYSERR: read_mobile: real number %d is outside the mob table (0 to %d).",
+                nr, top_of_mobt);
+            return nullptr;
+        }
         i = nr;
+    }
 
     CREATE(mob, struct char_data, 1);
 
     *mob = mob_proto[i];
+    // The copy starts without a damage meter of its own rather than sharing the prototype's.
+    mob->damage_details = nullptr;
+    // Script state belongs to one character; freeing this mob releases its own.
+    mob->specials.script_info = nullptr;
 
     mob->in_room = NOWHERE;
 
@@ -1843,8 +1880,7 @@ struct char_data* read_mobile(int nr, int type)
         was_fixed = 1;
     }
     if (was_fixed) {
-        sprintf(buf, "Mobile %d had its stats fixed.",
-            (nr >= 0) ? mob_index[nr].virt : -1);
+        sprintf(buf, "Mobile %d had its stats fixed.", mob_index[i].virt);
         mudlog(buf, CMP, LEVEL_GRGOD, TRUE);
     }
 
@@ -2117,8 +2153,9 @@ struct obj_data* read_object(int nr, int type)
     } else
         i = nr;
 
-    CREATE(obj, struct obj_data, 1);
-    *obj = obj_proto[i];
+    obj = new obj_data(obj_proto[i]); /* sharing the prototype's text */
+    // Script state belongs to one object; freeing this one releases its own.
+    obj->obj_flags.script_info = nullptr;
 
     /* storing closed/locked state for containers */
     if (GET_ITEM_TYPE(obj) == ITEM_CONTAINER)
@@ -2148,7 +2185,6 @@ void load_objects(FILE* obj_f)
     static int i = 0;
     int tmp, tmp2, tmp3, tmp4, tmp5, j, nr;
     char chk[50], *tmpptr;
-    struct extra_descr_data* new_descr;
 
     if (!fscanf(obj_f, "%s\n", chk)) {
         perror("load_objects");
@@ -2171,20 +2207,24 @@ void load_objects(FILE* obj_f)
 
             /* *** string data *** */
 
-            tmpptr = obj_proto[i].name = fread_string(obj_f, buf2);
+            object_text::fields text;
+            tmpptr = fread_string(obj_f, buf2);
             if (!tmpptr) {
                 fprintf(stderr, "format error at or near %s\n", buf2);
                 exit(1);
             }
+            text.name = take_allocated_string(tmpptr);
 
-            tmpptr = obj_proto[i].short_description = fread_string(obj_f, buf2);
+            tmpptr = fread_string(obj_f, buf2);
             if (*tmpptr)
                 if (!str_cmp(fname(tmpptr), "a") || !str_cmp(fname(tmpptr), "an") || !str_cmp(fname(tmpptr), "the"))
                     *tmpptr = tolower(*tmpptr);
-            tmpptr = obj_proto[i].description = fread_string(obj_f, buf2);
+            text.short_description = take_allocated_string(tmpptr);
+            tmpptr = fread_string(obj_f, buf2);
             if (tmpptr && *tmpptr)
                 *tmpptr = toupper(*tmpptr);
-            obj_proto[i].action_description = fread_string(obj_f, buf2);
+            text.description = take_allocated_string(tmpptr);
+            text.action_description = take_allocated_string(fread_string(obj_f, buf2));
 
             /* *** numeric data *** */
 
@@ -2206,13 +2246,20 @@ void load_objects(FILE* obj_f)
             obj_proto[i].obj_flags.cost_per_day = tmp3;
 
             /* An older line has four numbers: no version, not whatever tmp5 last held. */
-            if (fscanf(obj_f, " %d %d %d %d %d", &tmp, &tmp2, &tmp3, &tmp4, &tmp5) < 5)
-                tmp5 = 0;
+            int level_nums[7];
+            read_object_level_line(obj_f, level_nums);
+            tmp = level_nums[0];
+            tmp2 = level_nums[1];
+            tmp3 = level_nums[2];
+            tmp4 = level_nums[3];
+            tmp5 = level_nums[4];
             obj_proto[i].obj_flags.level = tmp;
             obj_proto[i].obj_flags.rarity = tmp2;
             obj_proto[i].obj_flags.material = tmp3;
             obj_proto[i].obj_flags.script_number = tmp4;
             obj_proto[i].obj_flags.version = tmp5;
+            obj_proto[i].obj_flags.skin_base = level_nums[5];
+            obj_proto[i].obj_flags.skin_own = level_nums[6];
             /*fscanf(obj_f, " %d %d %d %d %d", &tmp, &tmp2, &tmp3, &tmp4);
             obj_proto[i].obj_flags.poisoned = tmp;
             obj_proto[i].obj_flags.poisondata[0] = tmp2;
@@ -2221,17 +2268,18 @@ void load_objects(FILE* obj_f)
 
             /* *** extra descriptions *** */
 
-            obj_proto[i].ex_description = 0;
-
             sprintf(buf2, "%s - extra desc. section", buf2);
 
             while (fscanf(obj_f, " %s \n", chk), *chk == 'E') {
-                CREATE(new_descr, struct extra_descr_data, 1);
-                new_descr->keyword = fread_string(obj_f, buf2);
-                new_descr->description = fread_string(obj_f, buf2);
-                new_descr->next = obj_proto[i].ex_description;
-                obj_proto[i].ex_description = new_descr;
+                object_text::extra_description extra;
+                extra.keyword = take_allocated_string(fread_string(obj_f, buf2));
+                extra.description = take_allocated_string(fread_string(obj_f, buf2));
+                text.extra_descriptions.push_back(std::move(extra));
             }
+            /* A prototype's list shows its extra descriptions last first; implement_object builds
+             * it the same way. */
+            std::reverse(text.extra_descriptions.begin(), text.extra_descriptions.end());
+            obj_proto[i].set_text(create_object_text(std::move(text)));
 
             for (j = 0; (j < MAX_OBJ_AFFECT) && (*chk == 'A'); j++) {
                 fscanf(obj_f, " %d %d ", &tmp, &tmp2);
@@ -2356,13 +2404,10 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
         break;                      \
     }
 
-#define KEY_STR(the_field, element, length)                   \
-    if (!strcmp(line, the_field)) {                           \
-        memcpy(element, value, length);                       \
-        for (ctmp = element; ctmp < element + length; ctmp++) \
-            if (*ctmp == '\n')                                \
-                *ctmp = '\0';                                 \
-        break;                                                \
+#define KEY_STR(the_field, element, length)                       \
+    if (!strcmp(line, the_field)) {                               \
+        copy_key_string(element, sizeof(element), value, length); \
+        break;                                                    \
     }
 
 #define KEY_LONG_STR(the_field, element, length)                                                            \
@@ -2388,6 +2433,14 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
     if (!strcmp(line, the_field)) {                                           \
         sscanf(value, "%d %d %d %d %d %d", &tmp1, &tmp2, &tmp3, &tmp4, &tmp5, \
             &tmp6);                                                           \
+        if (tmp1 < 0 || tmp1 >= MAX_AFFECT) {                                 \
+            log_slot_out_of_range(name, line, tmp1, MAX_AFFECT);              \
+            break;                                                            \
+        }                                                                     \
+        if (tmp2 < 0 || tmp2 >= MAX_SKILLS) {                                 \
+            log_affect_type_out_of_range(name, tmp1, tmp2);                   \
+            break;                                                            \
+        }                                                                     \
         char_element->affected[tmp1].type = tmp2;                             \
         char_element->affected[tmp1].duration = tmp3;                         \
         char_element->affected[tmp1].modifier = tmp4;                         \
@@ -2419,11 +2472,16 @@ int set_exit_state(const struct room_data* room, int dir, int newstate)
         break;                                                    \
     }
 
-#define KEY_ARRAY(the_field, element)         \
-    if (!strcmp(line, the_field)) {           \
-        sscanf(value, "%d %d", &tmp1, &tmp2); \
-        element[tmp1] = tmp2;                 \
-        break;                                \
+#define KEY_ARRAY(the_field, element)                                                \
+    if (!strcmp(line, the_field)) {                                                  \
+        const int slot_count = static_cast<int>(sizeof(element) / sizeof(element[0])); \
+        sscanf(value, "%d %d", &tmp1, &tmp2);                                        \
+        if (tmp1 < 0 || tmp1 >= slot_count) {                                        \
+            log_slot_out_of_range(name, line, tmp1, slot_count);                     \
+            break;                                                                   \
+        }                                                                            \
+        element[tmp1] = tmp2;                                                        \
+        break;                                                                       \
     }
 
 namespace {
@@ -2454,13 +2512,46 @@ void sanitize_persisted_combat_state(struct char_special2_data* specials2)
     specials2->two_handed = specials2->two_handed ? 1 : 0;
 }
 
+/* Copies a player file string value into the fixed field <destination> of <destination_size>
+ * bytes: at most <length> characters, the width the file gives the field, and always leaving
+ * room for the terminator. The rest of the field is zeroed. */
+void copy_key_string(char* destination, size_t destination_size, const char* value, size_t length)
+{
+    const size_t limit = std::min(length, destination_size - 1);
+    size_t copied = 0;
+    while (copied < limit && value[copied] != '\0' && value[copied] != '\n') {
+        destination[copied] = value[copied];
+        ++copied;
+    }
+    memset(destination + copied, 0, destination_size - copied);
+}
+
+/* Logs a player file line whose <slot> index is outside the <slot_count> slots of its field. */
+void log_slot_out_of_range(const char* player_name, const char* key, int slot, int slot_count)
+{
+    snprintf(buf, sizeof(buf),
+        "SYSERR: load_player_from_text: %s's '%s' line names slot %d, outside 0-%d; line skipped.",
+        player_name, key, slot, slot_count - 1);
+    log(buf);
+}
+
+/* Logs a player file affect whose <type> is outside the skill table every affect reader
+ * indexes; the affect is not loaded. */
+void log_affect_type_out_of_range(const char* player_name, int slot, int type)
+{
+    snprintf(buf, sizeof(buf),
+        "SYSERR: load_player_from_text: %s's affect in slot %d has type %d, outside 0-%d; skipped.",
+        player_name, slot, type, MAX_SKILLS - 1);
+    log(buf);
+}
+
 } // namespace
 
 int load_player_from_text(char* name, const char* player_text, struct char_file_u* char_element)
 {
     int tmp, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, end, return_value;
     char line[100];
-    char *tmpchar, *value, *ctmp, *position;
+    char *tmpchar, *value, *position;
     const char* input_end = nullptr;
 
     memset((char*)char_element, 0, sizeof(struct char_file_u));
@@ -2510,7 +2601,7 @@ int load_player_from_text(char* name, const char* player_text, struct char_file_
         }
 
         /* clear line, then read off a line */
-        memset(line, 0, 99);
+        memset(line, 0, sizeof(line));
         for (tmpchar = position, tmp1 = 0; tmpchar < input_end && (*tmpchar != '\n') && (*tmpchar != '\r') && (*tmpchar != '\0');
             tmpchar++, tmp1++) {
             if (tmp1 >= static_cast<int>(sizeof(line) - 1)) {
@@ -2636,7 +2727,7 @@ int load_player_from_text(char* name, const char* player_text, struct char_file_
             break;
 
         case 'K':
-            printf(value);
+            printf("%s", value);
             break;
 
         case 'L':
@@ -2860,7 +2951,10 @@ void store_to_char(const struct char_file_u* st, struct char_data* ch)
     for (i = 0; i < MAX_TOUNGE; i++)
         ch->player.talks[i] = st->talks[i];
 
-    CREATE1(ch->profs, char_prof_data);
+    /* Reuse the block clear_char made: the copy overwrites all of it. */
+    if (!ch->profs) {
+        CREATE1(ch->profs, char_prof_data);
+    }
     memcpy(ch->profs, &(st->profs), sizeof(struct char_prof_data));
     ch->specials.alias = 0;
 
@@ -2907,7 +3001,7 @@ void store_to_char(const struct char_file_u* st, struct char_data* ch)
     CREATE(ch->player.name, char, strlen(st->name) + 1);
     strcpy(ch->player.name, st->name);
 
-    ch->damage_details.reset();
+    reset_damage_meter(*ch);
 
     /* Add all spell effects.
 
@@ -3234,8 +3328,8 @@ void encrypt_line(unsigned char* line, int len);
 
 // Serialize ch to scratch_path in the legacy versioned-text format. Returns false and
 // removes the partial scratch on any write/close error, so the caller skips finalize and
-// never destroys the live file. Body is the former save_player serialization, unchanged,
-// so its bytes stay identical to the legacy path (pinned by the A/B oracle + round-trip test).
+// never destroys the live file. Its bytes match the legacy save_player output except where
+// that wrote garbage past an unterminated password or host field.
 bool write_player_text(struct char_data* ch, int load_room, const char* scratch_path)
 {
     struct char_file_u chd;
@@ -3249,6 +3343,7 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     char_to_store(ch, &chd);
     strcpy(chd.pwd, ch->desc->pwd);
     strncpy(chd.host, ch->desc->host, HOST_LEN);
+    chd.host[HOST_LEN] = '\0'; // strncpy leaves a host of HOST_LEN or more bytes unterminated
     if (!PLR_FLAGGED(ch, PLR_LOADROOM))
         chd.specials2.load_room = load_room;
 
@@ -3271,7 +3366,9 @@ bool write_player_text(struct char_data* ch, int load_room, const char* scratch_
     fprintf(pf, "last_logon  %ld\n", chd.last_logon);
     memcpy(pwdcrypt, chd.pwd, MAX_PWD_LENGTH);
     encrypt_line((unsigned char*)pwdcrypt, MAX_PWD_LENGTH);
-    fprintf(pf, "password    %s\n", pwdcrypt);
+    // The encrypted password fills pwdcrypt with no terminator, and the loader reads
+    // MAX_PWD_LENGTH bytes back.
+    fprintf(pf, "password    %.*s\n", MAX_PWD_LENGTH, pwdcrypt);
     fprintf(pf, "host        %s\n", chd.host);
     fprintf(pf, "idnum       %ld\n", chd.specials2.idnum);
     fprintf(pf, "load_room   %d\n", chd.specials2.load_room);
@@ -3576,7 +3673,7 @@ char* fread_string(FILE* fl, const char* error)
 {
     char buf[MAX_STRING_LENGTH], tmp[MAX_STRING_LENGTH];
     char* rslt;
-    register char *point, *tmppoint;
+    char* tmppoint;
     int flag, markfirst;
 
     bzero(buf, MAX_STRING_LENGTH);
@@ -3600,18 +3697,27 @@ char* fread_string(FILE* fl, const char* error)
         for (tmppoint = tmp; (*tmppoint < ' ') && (*tmppoint != 0); tmppoint++)
             continue;
 
-        if (strlen(tmppoint) + strlen(buf) > MAX_STRING_LENGTH) {
+        // The text needs room for its terminator.
+        if (strlen(tmppoint) + strlen(buf) >= MAX_STRING_LENGTH) {
             log("SYSERR: fread_string: string too large (db.c)");
             exit(0);
         } else
             strcat(buf, tmppoint);
 
-        for (point = buf + strlen(buf) - 2; point >= buf && isspace(*point);
-            point--)
-            continue;
-        if ((flag = (*point == '~')))
-            *point = 0;
+        // Walk back from before the kept newline to the last non-blank byte. A blank first line
+        // leaves buf empty, so the walk can end in front of buf, where there is nothing to test.
+        int last_index = static_cast<int>(strlen(buf)) - 2;
+        while (last_index >= 0 && isspace(static_cast<unsigned char>(buf[last_index])))
+            last_index--;
+        flag = last_index >= 0 && buf[last_index] == '~';
+        if (flag)
+            buf[last_index] = 0;
         else if (strlen(buf)) {
+            // The line break adds '\r' before the terminator.
+            if (strlen(buf) + 2 > MAX_STRING_LENGTH) {
+                log("SYSERR: fread_string: string too large (db.c)");
+                exit(0);
+            }
             *(buf + strlen(buf) + 1) = '\0';
             *(buf + strlen(buf)) = '\r';
         }
@@ -3687,6 +3793,14 @@ char* fread_line(FILE* fp)
 /* release memory allocated for a char struct */
 void free_char(struct char_data* ch)
 {
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_character_freed(ch);
+    note_char_freed(ch);
+    /* A lend still in scope would otherwise give the room back to freed memory. */
+    room_lend::end_for(ch);
+    /* Its own describe command or an immortal's string command may be typing into one. */
+    stop_editing_text({ &ch->player.name, &ch->player.title, &ch->player.short_descr,
+        &ch->player.long_descr, &ch->player.description });
     clear_account_backed_object_bytes_for_character(ch);
 
     RELEASE(ch->specials.poofIn);
@@ -3697,7 +3811,8 @@ void free_char(struct char_data* ch)
 
     if (!IS_NPC(ch) || (IS_NPC(ch) && ch->nr == -1)) {
 
-        RELEASE(GET_NAME(ch));
+        /* Not GET_NAME, which is a mob's short description. */
+        RELEASE(ch->player.name);
         RELEASE(ch->player.title);
         RELEASE(ch->player.short_descr);
         RELEASE(ch->player.long_descr);
@@ -3727,49 +3842,54 @@ void free_char(struct char_data* ch)
     }
     // printf("skills freed, and others\n");
 
+    RELEASE(ch->specials.recite_lines);
     ch->extra_specialization_data.reset();
-    ch->damage_details.reset();
+    free_damage_meter(*ch);
     remove_char_exists(ch->abs_number);
     RELEASE(ch);
+}
+
+/* Logs a SYSERR when 'object' has text fields but no shared text: text set by hand belongs to
+   whoever set it, and deleting the object frees none of it. */
+static void log_hand_set_object_text(const obj_data& object)
+{
+    if (object.shared_text()) {
+        return;
+    }
+    const bool has_text = object.name || object.description || object.short_description
+        || object.action_description || object.ex_description;
+    if (!has_text) {
+        return;
+    }
+
+    int virtual_number = -1;
+    if (object.item_number >= 0 && object.item_number <= top_of_objt) {
+        virtual_number = obj_index[object.item_number].virt;
+    }
+    const char* shown_name = "(none)";
+    if (object.short_description) {
+        shown_name = object.short_description;
+    }
+    const std::string message = "SYSERR: free_obj: object " + std::to_string(virtual_number)
+        + " (" + shown_name + ") has text set by hand, which nothing frees";
+    log(message.c_str());
 }
 
 /* release memory allocated for an obj struct */
 void free_obj(struct obj_data* obj)
 {
-    int nr;
-    struct extra_descr_data *thith, *next_one;
+    /* A writer's editor must not outlive the note it writes on. */
+    stop_writing_on_note(*obj);
+    if (game_rules::big_brother::is_created())
+        game_rules::big_brother::instance().on_object_freed(obj);
+    note_object_freed(obj);
+    log_hand_set_object_text(*obj);
 
-    if ((nr = obj->item_number) == -1) {
-        RELEASE(obj->name);
-        RELEASE(obj->description);
-        RELEASE(obj->short_description);
-        RELEASE(obj->action_description);
-        if (obj->ex_description)
-            for (thith = obj->ex_description; thith; thith = next_one) {
-                next_one = thith->next;
-                RELEASE(thith->keyword);
-                RELEASE(thith->description);
-                RELEASE(thith);
-            }
-    } /* else {
-     if (obj->name && obj->name != obj_proto[nr].name)
-       RELEASE(obj->name);
-     if (obj->description && obj->description != obj_proto[nr].description)
-       RELEASE(obj->description);
-     if (obj->short_description && obj->short_description !=
-   obj_proto[nr].short_description) RELEASE(obj->short_description); if
-   (obj->action_description && obj->action_description !=
-   obj_proto[nr].action_description) RELEASE(obj->action_description); if
-   (obj->ex_description && obj->ex_description != obj_proto[nr].ex_description)
-       for (thith = obj->ex_description; thith; thith = next_one) {
-         next_one = thith->next;
-         RELEASE(thith->keyword);
-         RELEASE(thith->description);
-         RELEASE(thith);
-       }
-   } */
-
-    RELEASE(obj);
+    /* "setfree off" keeps freed memory for debugging, as RELEASE does. Deleting the object lets go
+     * of its text, which goes with the last object showing it. */
+    if (global_release_flag) {
+        delete obj;
+    }
 }
 
 // The read in file_to_string_read_lines() asks for up to the limit plus one byte in one call.
@@ -4050,7 +4170,7 @@ void clear_char(struct char_data* ch, int mode)
 
 void clear_object(struct obj_data* obj)
 {
-    memset((char*)obj, 0, (size_t)sizeof(struct obj_data));
+    *obj = obj_data();
 
     obj->item_number = -1;
     obj->in_room = NOWHERE;
@@ -4113,10 +4233,29 @@ void init_char(struct char_data* ch)
     for (i = 0; i < 3; i++)
         GET_COND(ch, i) = (GET_LEVEL(ch) == LEVEL_IMPL ? -1 : 24);
 
-    ch->damage_details.reset();
+    reset_damage_meter(*ch);
 
     /* The default preference flags */
     PRF_FLAGS(ch) |= PRF_SPAM | PRF_NARRATE | PRF_CHAT | PRF_WIZ | PRF_SING | PRF_PROMPT | PRF_ECHO | PRF_SPINNER;
+}
+
+int checked_sector_type(int sector_type, int room_number)
+{
+    extern char num_of_sector_types;
+    if (sector_type >= 0 && sector_type < num_of_sector_types) {
+        return sector_type;
+    }
+
+    int checked = SECT_INSIDE;
+    if (sector_type >= num_of_sector_types) {
+        checked = num_of_sector_types - 1;
+    }
+
+    char complaint[MAX_STRING_LENGTH];
+    snprintf(complaint, sizeof(complaint), "SYSERR: checked_sector_type: room %d has sector type %d; using %d.",
+        room_number, sector_type, checked);
+    log(complaint);
+    return checked;
 }
 
 /* returns the real number of the room with given virt number */
@@ -4499,7 +4638,8 @@ void room_data::create_exit(int dir, int room, char connect)
         //    RELEASE(dir_option[dir]->general_description);
         //    RELEASE(dir_option[dir]->keyword);
     } else {
-        dir_option[dir] = new room_direction_data;
+        /* CREATE, not new: exits are freed with RELEASE. */
+        CREATE1(dir_option[dir], room_direction_data);
         dir_option[dir]->general_description = str_dup("");
         dir_option[dir]->keyword = str_dup("");
         dir_option[dir]->exit_width = 0;
@@ -4560,6 +4700,10 @@ int room_data::create_room(int zone)
     } else
         new_room = &world[place];
 
+    /* A free slot holds either nothing (a booted world's spare slot) or the placeholder text
+     * dummy_room_data gave it, which it replaces. */
+    RELEASE(new_room->name);
+    RELEASE(new_room->description);
     dummy_room_data(new_room);
     if (place == 0)
         new_room->number = 0;

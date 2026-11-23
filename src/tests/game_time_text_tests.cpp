@@ -4,6 +4,7 @@
 #include "../utils.h"
 
 #include "ScopedGameClock.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -37,6 +38,7 @@ public:
     ~TimeCommandReader()
     {
         free(m_character.player.name);
+        release_cleared_character(&m_character);
     }
 
     std::string read_time()

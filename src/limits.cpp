@@ -13,6 +13,7 @@
 #include "game_boot_options.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "pkill.h"
@@ -32,6 +33,7 @@
 #include "world_clock.h"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 extern char* pc_race_types[];
 
@@ -518,8 +520,6 @@ void gain_condition(struct char_data* ch, int condition, int value)
     }
 }
 
-void Crash_extract_objs(obj_data*);
-
 //============================================================================
 // Returns 1 if the char was extracted, 0 otherwise
 //============================================================================
@@ -580,17 +580,20 @@ int check_idling(char_data* character)
             save_char(character, world[character->specials.was_in_room].number, 0);
             character->specials.was_in_room = NOWHERE;
         }
+        // Gear coming off can cast spells or poison; a death frees an idler with no connection.
+        freed_watch idler_watch(character);
         Crash_idlesave(character);
+        if (idler_watch.freed()) {
+            return 1;
+        }
+
         sprintf(buf, "%s force-rented and extracted (idle).", GET_NAME(character));
         mudlog(buf, NRM, LEVEL_GOD, TRUE);
 
-        for (int j = 0; j < MAX_WEAR; j++) {
-            if (character->equipment[j]) {
-                Crash_extract_objs(character->equipment[j]);
-                character->equipment[j] = NULL;
-            }
+        if (!extract_worn_gear(character)) {
+            return 1;
         }
-        Crash_extract_objs(character->carrying);
+        extract_carried_objects(character);
 
         if (character->desc && character->desc->descriptor) {
             close_socket(character->desc);
@@ -610,13 +613,46 @@ void update_room_tracks();
 void update_bleed_tracks();
 extern int LOOT_DECAY_TIME;
 
+/* A decaying object drops what it holds where it was: into its container,
+ * the room of whoever carries it, or its room. A bag, a corpse and a keyring
+ * alike; a decaying corpse tells big brother first. */
+void spill_decayed_contents(obj_data* j)
+{
+    struct obj_data *jj, *next_thing2;
+
+    if (!j->holds_items())
+        return;
+    // If this is a corpse, let big brother know that it is decaying.
+    if (GET_ITEM_TYPE(j) == ITEM_CONTAINER && j->obj_flags.value[3] == 1) {
+        game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
+        bb_instance.on_corpse_decayed(j);
+    }
+
+    for (jj = j->contains; jj; jj = next_thing2) {
+        next_thing2 = jj->next_content; /* Next in inventory */
+        obj_from_obj(jj);
+
+        if (j->in_obj) {
+            obj_to_obj(jj, j->in_obj);
+        } else if (j->carried_by) {
+            obj_to_room(jj, j->carried_by->in_room);
+        } else if (j->in_room != NOWHERE) {
+            obj_to_room(jj, j->in_room);
+        } else {
+            log("SYSERR: OBJ DECAYED IN NOWHERE (limits.c)!!!");
+        }
+
+        jj->obj_flags.timer = LOOT_DECAY_TIME;
+    }
+}
+
 void point_update(void)
 {
     int recalc_flag = 0, full_update, feeling, mytime, tmp;
     void update_char_objects(const struct char_data * ch); /* handler.c */
     void extract_obj(struct obj_data * obj); /* handler.c */
     struct char_data *i, *next_dude;
-    struct obj_data *j, *next_thing, *jj, *next_thing2;
+    struct obj_data *j, *next_thing;
     struct affected_type* hjp;
 
     /* characters */
@@ -738,14 +774,31 @@ void point_update(void)
                     i->specials.attacked_level -= 2;
             }
 
-            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON))
+            if (!affected_by_spell(i, SPELL_POISON) && IS_AFFECTED(i, AFF_POISON)) {
+                // A script the blow sets off can remove the next character; the rest wait a tick.
+                freed_watch next_watch(next_dude);
                 damage(i, i, 5, SPELL_POISON, 0);
+                if (next_watch.freed()) {
+                    vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for "
+                                 "the next tick.",
+                        __func__);
+                    break;
+                }
+            }
             //        if (GET_POS(i) == POSITION_STUNNED)
             //  	update_pos(i);
 
-        } else if (GET_POS(i) == POSITION_INCAP)
+        } else if (GET_POS(i) == POSITION_INCAP) {
+            // As for poison.
+            freed_watch next_watch(next_dude);
             damage(i, i, 3, TYPE_SUFFERING, 0);
-        else if (GET_POS(i) == POSITION_DEAD) {
+            if (next_watch.freed()) {
+                vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for "
+                             "the next tick.",
+                    __func__);
+                break;
+            }
+        } else if (GET_POS(i) == POSITION_DEAD) {
             /* A character can land directly at POSITION_DEAD via a
              * script write to hit (see set_int_value()/int_fromstack())
              * without ever going through damage()'s own die() call.
@@ -773,7 +826,15 @@ void point_update(void)
              * position. */
             update_pos(i);
             if (GET_POS(i) == POSITION_DEAD) {
+                // As for poison.
+                freed_watch next_watch(next_dude);
                 die(i, NULL, TYPE_UNDEFINED);
+                if (next_watch.freed()) {
+                    vmudlog(NRM, "SYSERR: %s: the next character was freed; the rest wait for "
+                                 "the next tick.",
+                        __func__);
+                    break;
+                }
                 continue;
             }
         }
@@ -798,30 +859,7 @@ void point_update(void)
                     act("$p decays into dust.", TRUE, world[j->in_room].people, j, 0, TO_CHAR);
                 }
 
-                if (GET_ITEM_TYPE(j) == ITEM_CONTAINER) {
-                    // If this is a corpse, let big brother know that it is decaying.
-                    if (j->obj_flags.value[3] == 1) {
-                        game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
-                        bb_instance.on_corpse_decayed(j);
-                    }
-
-                    for (jj = j->contains; jj; jj = next_thing2) {
-                        next_thing2 = jj->next_content; /* Next in inventory */
-                        obj_from_obj(jj);
-
-                        if (j->in_obj) {
-                            obj_to_obj(jj, j->in_obj);
-                        } else if (j->carried_by) {
-                            obj_to_room(jj, j->carried_by->in_room);
-                        } else if (j->in_room != NOWHERE) {
-                            obj_to_room(jj, j->in_room);
-                        } else {
-                            log("SYSERR: OBJ DECAYED IN NOWHERE (limits.c)!!!");
-                        }
-
-                        jj->obj_flags.timer = LOOT_DECAY_TIME;
-                    }
-                }
+                spill_decayed_contents(j);
 
                 extract_obj(j);
                 continue;
@@ -1001,7 +1039,7 @@ void finalize_new_character_start_state(struct char_data* ch)
 
 void check_breathing(char_data* ch)
 {
-    affected_type newaf;
+    affected_type newaf{};
     affected_type* tmpaf;
 
     tmpaf = affected_by_spell(ch, SPELL_ASPHYXIATION);
@@ -1247,6 +1285,9 @@ void do_fame_war_bonuses(struct char_data* ch)
     {
         remove_fame_war_bonuses(ch, pkaff);
         affect_remove(ch, pkaff);
+        // pkaff is freed, and an unranked player gets no new bonus.
+        ch->player.ranking = ranking;
+        return;
     }
 
     if ((ranking == ch->player.ranking && pkaff) // ranking hasn't changed
@@ -1266,7 +1307,7 @@ void do_fame_war_bonuses(struct char_data* ch)
     }
 
     if (!pkaff) {
-        affected_type newpkaf;
+        affected_type newpkaf{};
         assign_pk_bonuses(ch, coeff, tier, true);
         newpkaf.type = SPELL_FAME_WAR;
         newpkaf.duration = 100;
@@ -1284,7 +1325,7 @@ void do_fame_war_bonuses(struct char_data* ch)
 void do_power_of_arda(char_data* ch)
 {
     affected_type* tmpaf;
-    affected_type newaf;
+    affected_type newaf{};
     int level, maxlevel;
 
     if (GET_RACE(ch) == RACE_HARADRIM) {
@@ -1329,12 +1370,24 @@ void do_power_of_arda(char_data* ch)
     }
 }
 
+// The nodes of the list that starts at <first>, in list order. A pass over the copy leaves a node
+// added during it, at the head of the list, for the next pass.
+template <typename Node>
+static std::vector<Node*> copy_list_nodes(Node* first)
+{
+    std::vector<Node*> nodes;
+    for (Node* node = first; node; node = node->next) {
+        nodes.push_back(node);
+    }
+
+    return nodes;
+}
+
 void affect_update_person(struct char_data* i, int mode)
 {
     affected_type* otheraf;
     // mode != 0 for fast_update
 
-    static struct affected_type *af, *next_af_dude;
     int tmp, freq, val, time_phase;
 
     if (i->desc && i->desc->connected && (i->desc->connected != CON_LINKLS))
@@ -1342,8 +1395,14 @@ void affect_update_person(struct char_data* i, int mode)
 
     time_phase = get_current_time_phase();
 
-    for (af = i->affected; af; af = next_af_dude) {
-        next_af_dude = af->next;
+    // A tick can free other affects (a broken sanctuary or shield, a flee); freed_log skips them.
+    freed_log freed_this_pass;
+    const std::vector<affected_type*> pass_affects = copy_list_nodes(i->affected);
+    for (affected_type* af : pass_affects) {
+        if (freed_this_pass.contains(af)) {
+            continue;
+        }
+
         if (skills[af->type].is_fast || (!mode && (time_phase == af->time_phase))) {
             if ((af->duration >= 1) || (af->duration < 0)) {
                 if (af->duration >= 1)
@@ -1365,11 +1424,22 @@ void affect_update_person(struct char_data* i, int mode)
                 case SPELL_RESTLESSNESS:
                     // handled by hit_gain and move_gain now.
                     break;
-                case SPELL_FEAR:
+                case SPELL_FEAR: {
+                    // Fleeing can remove the character (a script, a death room) and its affects.
+                    freed_watch fleeing_watch(i);
                     do_flee(i, "", 0, 0, 0);
+                    if (fleeing_watch.freed()) {
+                        return;
+                    }
+
+                    if (freed_this_pass.contains(af)) {
+                        break;
+                    }
+
                     if (saves_spell(i, af->modifier -= 2, 0))
                         af->duration = 0;
                     break;
+                }
                 case SPELL_VITALITY:
                     // handled by move_gain now.
                     break;
@@ -1384,7 +1454,13 @@ void affect_update_person(struct char_data* i, int mode)
                         one_mobile_activity(i);
                         if (!char_exists(abs_number))
                             return;
+
+                        if (freed_this_pass.contains(af)) {
+                            break;
+                        }
                     }
+                    // Activity also takes confusion's concentration check.
+                    [[fallthrough]];
                 case SPELL_CONFUSE:
                     if (IS_AFFECTED(i, AFF_CONCENTRATION) && (af->duration >= 10))
                         af->duration -= 3;
@@ -1431,14 +1507,16 @@ void affect_update_person(struct char_data* i, int mode)
                 if (GET_POS(i) == POSITION_STUNNED)
                     update_pos(i);
             } else {
-                if (af->type > 0 && af->type < MAX_SKILLS)
+                // Removing the affect frees it, so its type is read first.
+                const int expired_type = af->type;
+                if (expired_type > 0 && expired_type < MAX_SKILLS)
                     /* It must be a spell */
-                    if (!af->next || af->next->type != af->type || af->next->duration > 0)
+                    if (!af->next || af->next->type != expired_type || af->next->duration > 0)
                         affect_remove_notify(i, af);
                     else
                         affect_remove(i, af);
 
-                if (af->type == SPELL_ANGER)
+                if (expired_type == SPELL_ANGER)
                     i->specials.attacked_level = 0;
             }
         }
@@ -1450,7 +1528,7 @@ ASPELL(spell_poison);
 void affect_update_room(struct room_data* room)
 {
     struct affected_type *tmpaf, *next_tmpaf, *checkaf;
-    struct affected_type newaf;
+    struct affected_type newaf{};
     struct char_data *tmpch, *next_tmpch;
     int time_phase, tmp, direction, mod, roomnum, movechance;
     extern char* dirs[];
@@ -1472,11 +1550,17 @@ void affect_update_room(struct room_data* room)
                 if (1 /*skills[tmpaf->location].targets  & TAR_CHAR_ROOM*/) {
                     for (tmpch = room->people; tmpch; tmpch = next_tmpch) {
                         next_tmpch = tmpch->next_in_room;
+                        // A death it causes can free the next occupant, which ends the spell here.
+                        freed_watch next_occupant_watch(next_tmpch);
 
                         /* 1 in 13 chance that a room spell won't do anything */
                         if (!(tmp = number(0, 12)) || (skills[tmpaf->location].is_fast && !number(0, 2))) {
                             (skills[tmpaf->location].spell_pointer)(tmpch, "", SPELL_TYPE_SPELL,
                                 tmpch, 0, 0, 0);
+                        }
+
+                        if (next_occupant_watch.freed()) {
+                            break;
                         }
                     }
                 } else {
@@ -1524,6 +1608,8 @@ void affect_update_room(struct room_data* room)
 
                         affect_to_room(&world[roomnum], &newaf);
                         affect_remove_room(room, tmpaf);
+                        // Freed: the mist has left this room, so it does not expire here.
+                        tmpaf = nullptr;
                     }
                 }
             }
@@ -1544,13 +1630,15 @@ extern universal_list* affected_list_pool;
 
 void affect_update()
 {
-    universal_list *tmplist, *tmplist2, *tmplist3;
-    ;
     char mybuf[1000];
 
-    tmplist3 = 0;
-    for (tmplist = affected_list; tmplist; tmplist = tmplist2) {
-        tmplist2 = tmplist->next;
+    // A room tick can free an occupant's entry; freed_log skips it.
+    freed_log freed_this_pass;
+    const std::vector<universal_list*> pass_entries = copy_list_nodes(affected_list);
+    for (universal_list* tmplist : pass_entries) {
+        if (freed_this_pass.contains(tmplist)) {
+            continue;
+        }
 
         if (tmplist->type == TARGET_CHAR) {
 
@@ -1567,7 +1655,6 @@ void affect_update()
         } else if (tmplist->type == TARGET_ROOM) {
             affect_update_room(tmplist->ptr.room);
         }
-        tmplist3 = tmplist; /* prev item */
     }
     walker_remove_finished(); /* walkers whose route ended during this pass */
 }
@@ -1603,8 +1690,9 @@ void fast_update()
         if (GET_HIT(character) < 0 && hitregen < 0) {
             act("$n suddenly collapses on the ground.", TRUE, character, 0, 0, TO_ROOM);
             send_to_char("Your body failed to the magic.\n\r", character);
-            raw_kill(character, NULL, TYPE_UNDEFINED);
+            // Recorded before the death, which frees a mob or a linkless player.
             add_exploit_record(EXPLOIT_REGEN_DEATH, character, 0, NULL);
+            raw_kill(character, nullptr, TYPE_UNDEFINED);
             return;
         }
 

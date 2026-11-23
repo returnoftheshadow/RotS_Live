@@ -182,7 +182,14 @@ shrug off low-level casters (`+LEVELA/5`).
 1. **Elemental resistance** (`check_resistances`, `utility.cpp:1924`): matches the attack's element
    against the victim's resist/vuln flags → **×⅔ if resistant, ×3⁄2 if vulnerable**, else ×1.
    A resistance written by a spell or an item carries a **percentage** instead, and that
-   percentage is used in place of the flat ⅔ (`resist_magnitude_for`, largest wins).
+   percentage is used in place of the flat ⅔ (`effective_resist_magnitude`, `fight.cpp`).
+   **The higher source wins**: the largest percentage on the victim, or a flag-only source on
+   the same element — a worn `A 30` item, the mob's own record, or a resist affect with no
+   strength — weighed at **33%**, or **22%** against a melee hit (the flag misses one
+   swing in three, so two thirds of 33% on average; archery and wild swings resist as
+   physical with no miss roll, so they weigh it at 33%). When a flag wins, or ties, the flat rule
+   applies exactly as before; when a percentage is higher, it applies on every hit
+   (issue #452). `affections` shows the same choice: the percentage, or 33% when the flag wins.
 
    Two details that are easy to get wrong:
    - **Untyped attacks are not exempt.** `RESIST_NONE` is **0**, and `IS_RESISTANT(victim, 0)`

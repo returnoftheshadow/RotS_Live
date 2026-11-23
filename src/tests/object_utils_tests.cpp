@@ -44,6 +44,39 @@ TEST(ObjectData, ReportsContainerNamedQuiverAsQuiver) {
         << "Expected a container with 'quiver' in its keywords to be recognized as a quiver.";
 }
 
+TEST(ObjectData, KeyringIsKeyringAndHoldsItems) {
+    obj_data object{};
+    object.obj_flags.type_flag = 26;
+
+    EXPECT_TRUE(object.is_keyring());
+    EXPECT_TRUE(object.holds_items());
+}
+
+TEST(ObjectData, ContainerHoldsItemsButIsNotKeyring) {
+    obj_data object{};
+    object.obj_flags.type_flag = ITEM_CONTAINER;
+
+    EXPECT_FALSE(object.is_keyring());
+    EXPECT_TRUE(object.holds_items());
+}
+
+TEST(ObjectData, KeyIsNeither) {
+    obj_data object{};
+    object.obj_flags.type_flag = ITEM_KEY;
+
+    EXPECT_FALSE(object.is_keyring());
+    EXPECT_FALSE(object.holds_items());
+}
+
+TEST(ObjectData, KeyringNamedQuiverIsNotAQuiver) {
+    obj_data object{};
+    object.obj_flags.type_flag = 26;
+    char quiver_name[] = "quiver";
+    object.name = quiver_name;
+
+    EXPECT_FALSE(object.is_quiver());
+}
+
 TEST(ObjectData, ReportsNonContainerAsNotQuiver) {
     obj_data object{};
     object.obj_flags.type_flag = ITEM_WEAPON;

@@ -20,12 +20,19 @@ from rots_harness.telnet import (
     subnegotiation_bytes,
 )
 
+# Interpret As Command: starts every telnet command.
 IAC = 255
+# The command offering to enable an option.
 WILL = 251
+# The command asking the other side to enable an option.
 DO = 253
+# Starts a subnegotiation.
 SB = 250
+# Ends a subnegotiation.
 SE = 240
+# The echo option.
 ECHO = 1
+# The Mud Server Data Protocol option.
 MSDP = 69
 
 

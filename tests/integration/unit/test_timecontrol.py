@@ -21,13 +21,16 @@ from rots_harness.timecontrol import (
 )
 
 # Long enough for a reader thread to pass a line on; short enough to keep timeout tests quick.
-SHORT_TIMEOUT = 0.3
+SHORT_TIMEOUT_SECONDS = 0.3
 # Generous enough that a slow machine never fails a test that expects a reply.
-REPLY_TIMEOUT = 5.0
+REPLY_TIMEOUT_SECONDS = 5.0
 
 
 class FakeServer:
-    """The server's side of two pipes: reads the requests TimeControl writes, writes the lines it reads."""
+    """The server's side of two pipes.
+
+    It reads the requests TimeControl writes, and writes the lines it reads.
+    """
 
     def __init__(self) -> None:
         request_read, request_write = os.pipe()
@@ -42,15 +45,15 @@ class FakeServer:
         self.replies_out: BinaryIO = os.fdopen(reply_write, "wb", buffering=0)
 
     def send(self, line: str) -> None:
-        """Writes one output line, as the server's stdout would."""
+        """Write one output line, as the server's stdout would."""
         self.replies_out.write(line.encode("latin-1") + b"\n")
 
     def reply(self, text: str) -> None:
-        """Writes one prefixed reply line."""
+        """Write one prefixed reply line."""
         self.send(REPLY_PREFIX + text)
 
     def read_request(self) -> str:
-        """Returns the next request line TimeControl wrote, without its newline."""
+        """Return the next request line TimeControl wrote, without its newline."""
         received = b""
         while not received.endswith(b"\n"):
             chunk = self.requests_in.read(1)
@@ -60,7 +63,7 @@ class FakeServer:
         return received.decode("ascii").rstrip("\n")
 
     def end_output(self) -> None:
-        """Closes the server's stdout, as when the process exits."""
+        """Close the server's stdout, as when the process exits."""
         self.replies_out.close()
 
 
@@ -88,7 +91,7 @@ class FailingReplies(io.RawIOBase):
 
 
 def answer_next_request(server: FakeServer, reply_text: str) -> threading.Thread:
-    """Starts a thread that reads one request and answers it with reply_text."""
+    """Start a thread that reads one request and answers it with reply_text."""
     def answer() -> None:
         server.read_request()
         server.reply(reply_text)
@@ -101,20 +104,20 @@ def answer_next_request(server: FakeServer, reply_text: str) -> threading.Thread
 def test_wait_ready_accepts_the_ready_line_for_its_schedule(fake_server_and_control) -> None:
     server, control, _output_log = fake_server_and_control
     server.reply("ready schedule=affect-hours hours=0")
-    control.wait_ready("affect-hours", REPLY_TIMEOUT)
+    control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
 
 
 def test_wait_ready_refuses_a_ready_line_for_another_schedule(fake_server_and_control) -> None:
     server, control, _output_log = fake_server_and_control
     server.reply("ready schedule=other hours=0")
     with pytest.raises(TimeControlError, match="ready schedule=other"):
-        control.wait_ready("affect-hours", REPLY_TIMEOUT)
+        control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
 
 
 def test_wait_ready_times_out_when_no_ready_line_arrives(fake_server_and_control) -> None:
     _server, control, _output_log = fake_server_and_control
     with pytest.raises(SessionTimeout, match="ready"):
-        control.wait_ready("affect-hours", SHORT_TIMEOUT)
+        control.wait_ready("affect-hours", SHORT_TIMEOUT_SECONDS)
 
 
 def test_advance_hours_sends_the_request_and_returns_on_its_acknowledgement(fake_server_and_control) -> None:
@@ -127,8 +130,8 @@ def test_advance_hours_sends_the_request_and_returns_on_its_acknowledgement(fake
 
     answerer = threading.Thread(target=answer, daemon=True)
     answerer.start()
-    control.advance_hours(3, REPLY_TIMEOUT)
-    answerer.join(REPLY_TIMEOUT)
+    control.advance_hours(3, REPLY_TIMEOUT_SECONDS)
+    answerer.join(REPLY_TIMEOUT_SECONDS)
     assert requests_seen == ["advance-hours 3"]
 
 
@@ -142,48 +145,48 @@ def test_advance_hours_recognises_an_acknowledgement_after_a_stray_carriage_retu
 
     answerer = threading.Thread(target=answer, daemon=True)
     answerer.start()
-    control.advance_hours(1, REPLY_TIMEOUT)
-    answerer.join(REPLY_TIMEOUT)
+    control.advance_hours(1, REPLY_TIMEOUT_SECONDS)
+    answerer.join(REPLY_TIMEOUT_SECONDS)
 
 
 def test_advance_hours_raises_with_the_servers_words_on_an_error_reply(fake_server_and_control) -> None:
     server, control, _output_log = fake_server_and_control
     answer_next_request(server, "error advance-hours 3: at most 1000 hours may be pending")
     with pytest.raises(TimeControlError, match="at most 1000 hours may be pending"):
-        control.advance_hours(3, REPLY_TIMEOUT)
+        control.advance_hours(3, REPLY_TIMEOUT_SECONDS)
 
 
 def test_advance_hours_raises_on_an_acknowledgement_of_another_request(fake_server_and_control) -> None:
     server, control, _output_log = fake_server_and_control
     answer_next_request(server, "done advance-hours 2 hours=2")
     with pytest.raises(TimeControlError, match="done advance-hours 2"):
-        control.advance_hours(3, REPLY_TIMEOUT)
+        control.advance_hours(3, REPLY_TIMEOUT_SECONDS)
 
 
 def test_advance_hours_times_out_when_no_acknowledgement_arrives(fake_server_and_control) -> None:
     _server, control, _output_log = fake_server_and_control
     with pytest.raises(SessionTimeout, match="advance-hours 1"):
-        control.advance_hours(1, SHORT_TIMEOUT)
+        control.advance_hours(1, SHORT_TIMEOUT_SECONDS)
 
 
 def test_advance_hours_raises_when_the_servers_output_ends_first(fake_server_and_control) -> None:
     server, control, _output_log = fake_server_and_control
     server.end_output()
     with pytest.raises(TimeControlError, match="output ended"):
-        control.advance_hours(1, REPLY_TIMEOUT)
+        control.advance_hours(1, REPLY_TIMEOUT_SECONDS)
 
 
 def test_advance_hours_refuses_fewer_than_one_hour(fake_server_and_control) -> None:
     _server, control, _output_log = fake_server_and_control
     with pytest.raises(ValueError):
-        control.advance_hours(0, REPLY_TIMEOUT)
+        control.advance_hours(0, REPLY_TIMEOUT_SECONDS)
 
 
 def test_ordinary_output_goes_to_the_output_log_and_is_never_a_reply(fake_server_and_control) -> None:
     server, control, output_log = fake_server_and_control
     server.send("a legacy printf line")
     server.reply("ready schedule=affect-hours hours=0")
-    control.wait_ready("affect-hours", REPLY_TIMEOUT)
+    control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
     server.end_output()
     control.close()
     assert output_log.read_text(encoding="latin-1") == "a legacy printf line\n"
@@ -200,10 +203,10 @@ def test_keeps_reading_ordinary_output_while_no_request_is_awaited(fake_server_a
 
     writer = threading.Thread(target=write_filler, daemon=True)
     writer.start()
-    writer.join(REPLY_TIMEOUT)
+    writer.join(REPLY_TIMEOUT_SECONDS)
     assert not writer.is_alive(), "the reader stopped draining ordinary output"
     server.reply("ready schedule=affect-hours hours=0")
-    control.wait_ready("affect-hours", REPLY_TIMEOUT)
+    control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
     server.end_output()
     control.close()
     assert output_log.read_text(encoding="latin-1").count("\n") == filler_lines
@@ -220,8 +223,8 @@ def test_a_failing_read_raises_promptly_with_the_failure(tmp_path: Path) -> None
     control = TimeControl(io.BytesIO(), FailingReplies(), tmp_path / OUTPUT_LOG_NAME)
     started = time.monotonic()
     with pytest.raises(TimeControlError, match="simulated read failure"):
-        control.wait_ready("affect-hours", REPLY_TIMEOUT)
-    assert time.monotonic() - started < REPLY_TIMEOUT / 2, "the failure waited out the timeout"
+        control.wait_ready("affect-hours", REPLY_TIMEOUT_SECONDS)
+    assert time.monotonic() - started < REPLY_TIMEOUT_SECONDS / 2, "the failure waited out the timeout"
     control.close()
 
 

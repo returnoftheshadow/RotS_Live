@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -139,6 +140,7 @@ inline constexpr int ITEM_BOAT = 22;
 inline constexpr int ITEM_FOUNTAIN = 23;
 inline constexpr int ITEM_SHIELD = 24;
 inline constexpr int ITEM_LEVER = 25;
+inline constexpr int ITEM_KEYRING = 26;
 
 /* For obj_flags.value[] of an ITEM_LIGHT */
 
@@ -284,6 +286,9 @@ enum weapon_type {
 const char* get_weapon_name(weapon_type type);
 } // namespace game_types
 
+/* 0 ("setfree off") makes RELEASE and free_obj keep what they would free. Object text an object
+ * lets go of through set_text is freed anyway, as is the shape editor's working object, though not
+ * the text that object holds, which goes through RELEASE. */
 #ifdef CONSTANTSMARK
 int global_release_flag = 1;
 #else
@@ -440,6 +445,10 @@ public:
      * bump). Saved copy: the version it was made or last refreshed from. See
      * Crash_refresh_object. */
     int version;
+    /* Skin: a prototype with its own text whose stats come from this base prototype's
+     * vnum (0 = not a skin). skin_own is a bitmask of SKIN_OWN_* (object_skins.h). */
+    int skin_base;
+    ubyte skin_own;
     struct info_script* script_info; /* Pointer to char_script (protos.h) 0 if no script */
     bool poisoned;
     int poisondata[5];
@@ -489,6 +498,8 @@ inline constexpr int ENCHANT_ALIGN_NEUTRAL = 0;
 inline constexpr int ENCHANT_ALIGN_GOOD = 1; /* ITEM_ANTI_EVIL */
 inline constexpr int ENCHANT_ALIGN_EVIL = 2; /* ITEM_ANTI_GOOD */
 
+class object_text;
+
 /* ======================== Structure for object ========================= */
 struct obj_data {
 public:
@@ -509,8 +520,24 @@ public:
     // Returns true if the object is a quiver.
     bool is_quiver() const;
 
+    // Returns true if the object is a keyring.
+    bool is_keyring() const;
+
+    // Returns true if the object can hold other items (container or keyring).
+    bool holds_items() const;
+
     // Returns true if the weapon is a ranged weapon.
     bool is_ranged_weapon() const;
+
+    // Shows `new_text` (object_text.h), which every change to an object's text goes through:
+    // name, short_description, description, action_description and ex_description point into it,
+    // or are all null for a null text. The text shown before is let go, and freed if no other
+    // object shows it.
+    void set_text(std::shared_ptr<const object_text> new_text);
+
+    // The text this object shows and shares, or null when it shows none: also when its char*
+    // fields were set by hand, and belong to whoever set them.
+    const std::shared_ptr<const object_text>& shared_text() const { return text; }
 
 public:
     int item_number; /* Where in data-base               */
@@ -520,6 +547,9 @@ public:
     struct obj_affected_type affected[MAX_OBJ_AFFECT]; /* Which abilities in PC to change  */
     struct obj_enchant_type enchants[MAX_OBJ_ENCHANT]; /* Enchants cast on this copy       */
 
+    /* The text fields point into the text set_text gave the object and change only through
+     * set_text; nothing writes through them. An object built by hand without a text, such as the
+     * object editor's working copy, sets them itself and keeps what it sets (shared_text). */
     char* name; /* Title of object :get etc.        */
     char* description; /* When in room                     */
     char* short_description; /* when worn/carry/in cont.         */
@@ -535,6 +565,11 @@ public:
     struct obj_data* next; /* For the object list              */
     int touched; /* Has a PC touched this object?    */
     int loaded_by; /* idnum of immortal who loaded the object (else 0) */
+
+private:
+    // Keeps the text the char* fields point into alive while this object shows it. A copy shares
+    // its prototype's; freeing the object lets go of it.
+    std::shared_ptr<const object_text> text;
 };
 
 /* ======================================================================= */
@@ -1232,7 +1267,7 @@ struct char_special_data {
 
     int mental_delay;
     int trap_number; /* used to determine #s in trap */
-    char* recite_lines; /* For reciters, how far read? */
+    char* recite_lines; /* A reciter's own copy of what it has left to read */
     ubyte shooting; /* shooting speed for archery spec*/
     ubyte casting; /*  casting speed for spell casters*/
 };
@@ -1820,7 +1855,10 @@ public:
     struct char_special2_data specials2; /* Additional special constants  */
     struct char_prof_data* profs; /* prof cooficients */
     specialization_data extra_specialization_data; /* extra data used by some specializations */
-    player_damage_details damage_details; /* structure for storing damage data */
+    // The personal damage meter behind the `damage` report: null until the character first needs
+    // one (see keeps_damage_meter in damage_meters.h), owned by the character and deleted by
+    // free_char. A whole-character copy must not share it.
+    player_damage_details* damage_details = nullptr;
     byte* skills; /* dynam. alloc. array of pracs spent                                         on
                      skills */
     byte* knowledge; /* array of knowledge, computed from
@@ -2106,6 +2144,9 @@ struct snoop_data {
 
 inline constexpr int BLOCK_STR_LEN = 512; /* how much to allocate initially
            for string_add messages */
+inline constexpr int MAX_NOTE_LENGTH = 1000; /* most characters a note written with `write` may hold */
+/* Most characters the text editor keeps in any text; string_add_finish explains the headroom. */
+inline constexpr int MAX_EDITED_TEXT_LENGTH = MAX_STRING_LENGTH - 257;
 
 struct descriptor_data {
     SocketType descriptor; /* file descriptor for socket	*/
@@ -2133,8 +2174,14 @@ struct descriptor_data {
     char* showstr_point; /*		-			*/
     char** str; /* for the modify-str system		*/
     unsigned int max_str; /*  allocated length of *str		*/
+    unsigned int str_limit; /* most characters string_add lets *str hold; 0 = no limit */
     unsigned int len_str; /* present length of *str               */
     unsigned int cur_str; /* current pointer position in *str     */
+    // The note this descriptor's editor writes on (note_writing.h); null when it writes none.
+    struct obj_data* written_note = nullptr;
+    // The editor's text for written_note, which str points at while it is written; this
+    // descriptor owns it.
+    char* written_note_text = nullptr;
     int prompt_mode; /* control of prompt-printing		*/
     bool bare_prompt_pending; /* true if the last thing written to this socket was a bare
                                   prompt/menu marker with no trailing newline, so the next

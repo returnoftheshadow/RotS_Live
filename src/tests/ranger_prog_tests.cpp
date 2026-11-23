@@ -9,6 +9,7 @@
 #include "../structs.h"
 #include "../utils.h"
 #include "../zone.h"
+#include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
@@ -113,6 +114,7 @@ TEST(RangerOptions, UnsupportedFlagsAreWarnedWithinSeventyEightColumns)
 {
     char_data proto;
     clear_char(&proto, MOB_ISNPC);
+    ClearedCharacterRelease proto_release(&proto);
     proto.specials2.act = MOB_ISNPC | MOB_SPEC;
     EXPECT_TRUE(ranger_flag_warnings(&proto, 19602).empty());
 
@@ -132,9 +134,13 @@ TEST(MobAggression, FlagFollowsTheAlignmentLimits)
 {
     char_data mob, good, evil, npc;
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     clear_char(&good, 0);
+    ClearedCharacterRelease good_release(&good);
     clear_char(&evil, 0);
+    ClearedCharacterRelease evil_release(&evil);
     clear_char(&npc, MOB_ISNPC);
+    ClearedCharacterRelease npc_release(&npc);
     npc.specials2.act = MOB_ISNPC;
     good.specials2.alignment = 500;
     evil.specials2.alignment = -500;
@@ -160,7 +166,9 @@ TEST(MobAggression, RaceNeedsPreferencesAndNoMount)
 {
     char_data mob, orc;
     clear_char(&mob, MOB_ISNPC);
+    ClearedCharacterRelease mob_release(&mob);
     clear_char(&orc, 0);
+    ClearedCharacterRelease orc_release(&orc);
     mob.specials2.act = MOB_ISNPC;
     orc.player.race = RACE_ORC;
 
@@ -281,6 +289,9 @@ protected:
         descriptor_list = m_saved_descriptor_list;
         zone_table = m_saved_zone_table;
         top_of_world = m_saved_top_of_world;
+        for (char_data* ch : { &m_mob, &m_player, &m_ally, &m_enemy, &m_mob_proto[0] })
+            release_cleared_character(ch);
+        release_test_descriptor(&m_descriptor);
     }
 
     /* A third room, in room A's zone, with no exits. */
@@ -321,6 +332,7 @@ protected:
 
     void make_mob(char_data* mob, int slot, char* name)
     {
+        release_cleared_character(mob); /* a test may make the same mob twice */
         clear_char(mob, MOB_ISNPC);
         mob->nr = 0;
         mob->abs_number = slot;
@@ -928,6 +940,7 @@ TEST_F(RangerProgTest, SaveChecksTheNewProgramBeforeImplement)
      * old /29 gave it, until /implement. */
     char_data editing {};
     clear_char(&editing, MOB_ISNPC);
+    ClearedCharacterRelease editing_release(&editing);
     editing.specials2.act = MOB_ISNPC | MOB_SPEC;
     editing.specials.store_prog_number = PROG_RANGER;
     m_mob_proto[0].specials.store_prog_number = 15;

@@ -98,7 +98,7 @@ rarity, material, affects and script.
 | `/n` | Behaviour |
 |------|-----------|
 | `/5` | Adds a new extra description at the end of the list and chains to `/6` and `/7` for it. |
-| `/6` | Keywords of the **last** extra description (the words `look <word>` matches), separated by spaces. |
+| `/6` | Keywords of the **last** extra description (the words `look <word>` matches), separated by spaces. Avoid a keyword that is another object's name, such as 'keyring' or 'sword': look and examine may show this text instead of that object. |
 | `/7` | Text of the **last** extra description (multi-line editor). |
 | `/8` | Removes the last extra description. |
 
@@ -111,7 +111,7 @@ gone for newly loaded copies; copies already in the game keep the old ones.
 
 | `/n` | Field | Notes |
 |------|-------|-------|
-| `/9` | Type | Prompt lists the types. Must be 1-25 (`Item type must be 1-25. dropped.` otherwise). Changing the type changes what `/12` means. |
+| `/9` | Type | Prompt lists the types. Must be 1-26 (`Item type must be 1-26. dropped.` otherwise). Changing the type changes what `/12` means. |
 | `/10` | Extra flags | Prompt lists the bits. `pN`/`mN` set/clear bits, several per answer, or type the full number. Not in the `/49` sequence. |
 | `/11` | Wear flags | Prompt lists the bits. At minimum set `TAKE` for portable items and `WIELD` for weapons. |
 
@@ -119,7 +119,7 @@ Type ids: `1` LIGHT, `2` SCROLL, `3` WAND, `4` STAFF, `5` WEAPON, `6` FIRE
 WEAPON, `7` MISSILE, `8` TREASURE, `9` ARMOR, `10` POTION, `11` WORN, `12`
 OTHER, `13` TRASH (new objects start here), `14` TRAP, `15` CONTAINER, `16`
 NOTE, `17` LIQUID CONTAINER, `18` KEY, `19` FOOD, `20` MONEY, `21` PEN, `22`
-BOAT, `23` FOUNTAIN, `24` SHIELD, `25` LEVER.
+BOAT, `23` FOUNTAIN, `24` SHIELD, `25` LEVER, `26` KEYRING.
 
 Extra-flag bits:
 
@@ -208,6 +208,7 @@ its slot, whatever the type.
 | FOUNTAIN (23) | Same layout as LIQUID CONTAINER; `value[1]` refills to `value[0]` every object tick. |
 | SHIELD (24) | `value[0]` dodge bonus, `value[1]` parry bonus, `value[2]` encumbrance, `value[3]`/`value[4]` unused. |
 | LEVER (25) | `value[0]` vnum of the room that has the door, `value[1]` direction 0-5 (N/E/S/W/U/D; anything else “seems to be broken”). Mark levers not TAKE and set the matching door flag. |
+| KEYRING (26) | `value[0]` capacity in weight units, **including the keyring's own weight**; `value[1]`-`value[4]` unused. Holds keys only and is always open. Give it the BELT wear flag: it is meant for a belt hook, and only a keyring worn on a belt can be used with put and get without taking it off. Look in and examine work on a keyring worn anywhere, and keys on it unlock as if carried, wherever it is worn. |
 
 Copy values from similar objects with `/50` when in doubt.
 

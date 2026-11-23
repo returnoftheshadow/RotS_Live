@@ -16,6 +16,7 @@
 
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "spells.h"
@@ -257,9 +258,9 @@ ACMD(do_track)
         }
         send_to_char("You start searching the ground for tracks.\n\r", ch);
         act("$n searches the ground for tracks.", TRUE, ch, 0, 0, TO_ROOM);
-        WAIT_STATE_FULL(ch, skills[SKILL_TRACK].beats, CMD_TRACK, 1, 30, 0, 0,
-            get_from_txt_block_pool(argument), AFF_WAITING | AFF_WAITWHEEL,
-            TARGET_TEXT);
+        txt_block* tracked_keyword = get_from_txt_block_pool(argument);
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_TRACK].beats, CMD_TRACK, 1, 30, 0, 0,
+            tracked_keyword, AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
         return;
     }
     if (ch->delay.targ1.type == TARGET_TEXT)
@@ -364,7 +365,7 @@ int check_gather_conditions(const struct char_data* ch, int percent, int gather_
 ACMD(do_gather_food)
 {
     struct obj_data* obj;
-    struct affected_type af;
+    struct affected_type af{};
     sh_int percent, move_use, GatherType;
     int affects_last, ranger_bonus;
 
@@ -412,8 +413,14 @@ ACMD(do_gather_food)
             return;
 
         /*And we've passed our conditions so we're going on now to try and gather */
-        WAIT_STATE_FULL(ch, MIN(25, 40 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5), CMD_GATHER_FOOD,
-            GatherType, 30, 0, 0, 0, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
+        {
+            const int gathering_pulses = MIN(25, 40 - GET_SKILL(ch, SKILL_GATHER_FOOD) / 5);
+            if (!WAIT_STATE_FULL(ch, gathering_pulses, CMD_GATHER_FOOD, GatherType, 30, 0, 0, 0,
+                    AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE)) {
+                return;
+            }
+        }
+
         GET_MOVE(ch) -= move_use;
         break;
     default:
@@ -574,7 +581,9 @@ ACMD(do_pick)
         send_to_char("Pick what?\n\r", ch);
     else if (generic_find(argument, FIND_OBJ_INV | FIND_OBJ_ROOM, ch, &victim, &obj))
 
-        if (obj->obj_flags.type_flag != ITEM_CONTAINER)
+        if (refuse_keyring(ch, obj, keyring_action::lock)) {
+            /* refuse_keyring told ch */
+        } else if (obj->obj_flags.type_flag != ITEM_CONTAINER)
             send_to_char("That's not a container.\n\r", ch);
         else if (!IS_SET(obj->obj_flags.value[1], CONT_CLOSED))
             send_to_char("Silly - it isn't even closed!\n\r", ch);
@@ -687,21 +696,31 @@ ACMD(do_hide)
          * into the room, hiding times will be slightly faster
          */
         else {
-            if (IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN))
-                if (IS_SET(ch->specials2.hide_flags, HIDING_WELL))
+            bool hider_remains = true;
+            if (IS_SET(ch->specials2.hide_flags, HIDING_SNUCK_IN)) {
+                if (IS_SET(ch->specials2.hide_flags, HIDING_WELL)) {
                     /* Hiding well after sneaking in -> 7 beats*/
-                    WAIT_STATE_BRIEF(ch,
-                        skills[SKILL_HIDE].beats * (IS_SET(ch->specials2.hide_flags, HIDING_WELL) * 2) - 1,
-                        CMD_HIDE, 1, 30, AFF_WAITING | AFF_WAITWHEEL);
-                else
-                    /* Hiding after sneaking in -> 3 beats*/
-                    WAIT_STATE_BRIEF(ch, skills[SKILL_HIDE].beats - 1, CMD_HIDE, 1, 30,
+                    const int hiding_pulses = skills[SKILL_HIDE].beats
+                        * (IS_SET(ch->specials2.hide_flags, HIDING_WELL) * 2) - 1;
+                    hider_remains = WAIT_STATE_BRIEF(ch, hiding_pulses, CMD_HIDE, 1, 30,
                         AFF_WAITING | AFF_WAITWHEEL);
-            else
+                } else {
+                    /* Hiding after sneaking in -> 3 beats*/
+                    const int hiding_pulses = skills[SKILL_HIDE].beats - 1;
+                    hider_remains = WAIT_STATE_BRIEF(ch, hiding_pulses, CMD_HIDE, 1, 30,
+                        AFF_WAITING | AFF_WAITWHEEL);
+                }
+            } else {
                 /*Hiding well with no sneak -> 9 beats, with four being default for normal hide*/
-                WAIT_STATE_BRIEF(ch,
-                    skills[SKILL_HIDE].beats * (IS_SET(ch->specials2.hide_flags, HIDING_WELL) * 2 + 1),
-                    CMD_HIDE, 1, 30, AFF_WAITING | AFF_WAITWHEEL);
+                const int hiding_pulses = skills[SKILL_HIDE].beats
+                    * (IS_SET(ch->specials2.hide_flags, HIDING_WELL) * 2 + 1);
+                hider_remains = WAIT_STATE_BRIEF(ch, hiding_pulses, CMD_HIDE, 1, 30,
+                    AFF_WAITING | AFF_WAITWHEEL);
+            }
+
+            if (!hider_remains) {
+                return;
+            }
 
             if (IS_SET(ch->specials2.hide_flags, HIDING_WELL))
                 send_to_char("You carefully choose a place to hide.\n\r", ch);
@@ -757,7 +776,7 @@ ACMD(do_sneak)
  */
 struct char_data* ambush_get_valid_victim(struct char_data* ch, const struct waiting_type* target)
 {
-    struct char_data* victim;
+    struct char_data* victim = nullptr;
 
     if (target->targ1.type == TARGET_TEXT)
         victim = get_char_room_vis(ch, target->targ1.ptr.text->text);
@@ -974,13 +993,14 @@ ACMD(do_ambush)
         }
 
         /* TARGET_CHAR stores the victim, TARGET_TEXT stores the keyword */
-        if (wtl->targ1.type == TARGET_CHAR)
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0,
+        if (wtl->targ1.type == TARGET_CHAR) {
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0,
                 GET_ABS_NUM(victim), victim, AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
-        else
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0, 0,
-                get_from_txt_block_pool(wtl->targ1.ptr.text->text),
-                AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
+        } else {
+            txt_block* ambushed_keyword = get_from_txt_block_pool(wtl->targ1.ptr.text->text);
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats, CMD_AMBUSH, 1, 30, 0, 0,
+                ambushed_keyword, AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
+        }
 
         return;
 
@@ -1038,7 +1058,7 @@ ACMD(do_ambush)
 struct char_data* trap_get_valid_victim(struct char_data* ch, const struct waiting_type* target)
 {
     char* keyword;
-    struct char_data* victim;
+    struct char_data* victim = nullptr;
 
     if (target->targ1.type == TARGET_NONE)
         victim = target->targ2.ptr.ch;
@@ -1216,24 +1236,28 @@ ACMD(do_trap)
 
         /* If there's a target keyword, then store it */
         if (wtl->targ1.type == TARGET_TEXT) {
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0,
-                get_from_txt_block_pool(wtl->targ1.ptr.text->text),
-                AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
+            txt_block* trapped_keyword = get_from_txt_block_pool(wtl->targ1.ptr.text->text);
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0,
+                trapped_keyword, AFF_WAITING | AFF_WAITWHEEL, TARGET_TEXT);
         } else {
-            WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0, NULL,
-                AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
+            (void)WAIT_STATE_FULL(ch, skills[SKILL_AMBUSH].beats * 2, CMD_TRAP, 1, 30, 0, 0,
+                nullptr, AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
         }
         break;
 
     case 1:
         send_to_char("You begin to wait patiently for your victim.\r\n", ch);
 
-        /* Use the wait state to store the target data */
+        // Use the wait state to store the target data.
         if (wtl->targ1.type == TARGET_TEXT) {
-            WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0,
-                get_from_txt_block_pool(wtl->targ1.ptr.text->text), 0, TARGET_TEXT);
+            txt_block* trapped_keyword = get_from_txt_block_pool(wtl->targ1.ptr.text->text);
+            if (!WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0, trapped_keyword, 0, TARGET_TEXT)) {
+                return;
+            }
         } else {
-            WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0, NULL, 0, TARGET_NONE);
+            if (!WAIT_STATE_FULL(ch, -1, CMD_TRAP, 2, 30, 0, 0, nullptr, 0, TARGET_NONE)) {
+                return;
+            }
         }
 
         /* We use spec_prog 16 for people with trap */
@@ -1262,11 +1286,15 @@ ACMD(do_trap)
          */
         ignore_recursion = 1;
         if (wtl->targ1.type == TARGET_TEXT) {
-            WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0,
-                get_from_txt_block_pool(wtl->targ1.ptr.text->text), AFF_WAITING,
-                TARGET_TEXT);
+            txt_block* trapped_keyword = get_from_txt_block_pool(wtl->targ1.ptr.text->text);
+            if (!WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0, trapped_keyword, AFF_WAITING,
+                    TARGET_TEXT)) {
+                return;
+            }
         } else {
-            WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0, NULL, AFF_WAITING, TARGET_NONE);
+            if (!WAIT_STATE_FULL(ch, 1, CMD_TRAP, 3, 40, 0, 0, nullptr, AFF_WAITING, TARGET_NONE)) {
+                return;
+            }
         }
 
         /* WAIT_STATE_FULL clobbers targ2 unconditionally, so we refill it */
@@ -1306,9 +1334,17 @@ ACMD(do_trap)
             dmg = ambush_calculate_damage(ch, victim, success);
             dmg = dmg >> 1; // Cut the damage in half?  Easier ways to do this.  dmg = dmg >> 1;
 
-            // Set a bash affection on the victim
-            WAIT_STATE_FULL(victim, 5, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
-                TARGET_IGNORE);
+            // Set a bash affection on the victim; ending its own delay runs the rest of a paused
+            // script, which can remove the victim or the trapper.
+            freed_watch trapper_watch(ch);
+            if (!WAIT_STATE_FULL(victim, 5, CMD_BASH, 2, 80, 0, 0, 0, AFF_WAITING | AFF_BASH,
+                    TARGET_IGNORE)) {
+                return;
+            }
+
+            if (trapper_watch.freed()) {
+                return;
+            }
 
             damage(ch, victim, dmg, SKILL_TRAP, 0);
         }
@@ -1326,7 +1362,7 @@ ACMD(do_calm)
     int calm_skill;
     struct char_data* victim;
     struct waiting_type tmpwtl;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (IS_SHADOW(ch)) {
         send_to_char("You are too airy for that.\r\n", ch);
@@ -1394,14 +1430,20 @@ ACMD(do_calm)
             send_to_char("Learn how to calm properly first!\n\r", ch);
             return;
         }
-        /* #define is here for readability only. */
+        {
+            // Confusion can drive calm_skill far enough below zero to cancel the ranger level,
+            // or outweigh it. A divisor below 1 counts as 1, the longest wait the formula gives
+            // otherwise: a negative one would give a negative wait, which never completes.
+            int calm_divisor = GET_PROF_LEVEL(PROF_RANGER, ch) + calm_skill / 15;
+            if (calm_divisor < 1) {
+                calm_divisor = 1;
+            }
 
-#define CALM_WAIT_BEATS \
-    skills[SKILL_CALM].beats * 2 * GET_LEVEL(victim) / (GET_PROF_LEVEL(PROF_RANGER, ch) + calm_skill / 15)
-
-        WAIT_STATE_FULL(ch, CALM_WAIT_BEATS, CMD_CALM, 1, 50, 0, GET_ABS_NUM(victim), victim,
-            AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
-#undef CALM_WAIT_BEATS
+            const int calm_wait_beats
+                = skills[SKILL_CALM].beats * 2 * GET_LEVEL(victim) / calm_divisor;
+            (void)WAIT_STATE_FULL(ch, calm_wait_beats, CMD_CALM, 1, 50, 0, GET_ABS_NUM(victim),
+                victim, AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
+        }
 
         break;
     case 1:
@@ -1463,7 +1505,7 @@ ACMD(do_tame)
     double tmp_skl;
     struct char_data* victim = NULL;
     struct waiting_type tmpwtl;
-    struct affected_type af;
+    struct affected_type af{};
     affected_type* existing_affect;
 
     if (IS_SHADOW(ch)) {
@@ -1561,7 +1603,7 @@ ACMD(do_tame)
             return;
         }
 
-        WAIT_STATE_FULL(ch,
+        (void)WAIT_STATE_FULL(ch,
             skills[SKILL_TAME].beats * GET_LEVEL(victim) * 2 / (GET_PROF_LEVEL(PROF_RANGER, ch) + 1),
             CMD_TAME, 1, 50, 0, GET_ABS_NUM(victim), victim,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
@@ -1673,7 +1715,7 @@ ACMD(do_whistle)
 
     if (!subcmd) { /* setting a delay */
         send_to_char("You gather your breath.\r\n", ch);
-        WAIT_STATE_FULL(ch, skills[SKILL_WHISTLE].beats, CMD_WHISTLE, 1, 50, 0, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_WHISTLE].beats, CMD_WHISTLE, 1, 50, 0, 0, 0,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
         return;
     } else if (subcmd == 1) {
@@ -1706,7 +1748,13 @@ ACMD(do_whistle)
                     if (GET_POS(tmpch) == POSITION_FIGHTING) {
                         /* in combat: just try to disengage this whistle; the
                          * normal recall runs next time it's whistled while not fighting */
+                        // The flee can set off scripts that destroy the one saved next.
+                        freed_watch next_pet_watch(next_tmpch);
                         do_flee(tmpch, "", 0, 0, 0);
+                        if (next_pet_watch.freed()) {
+                            break;
+                        }
+
                         continue;
                     }
 
@@ -1716,7 +1764,7 @@ ACMD(do_whistle)
                      */
                     GET_POS(tmpch) = POSITION_STANDING;
                     update_pos(tmpch);
-                    affected_type newaf;
+                    affected_type newaf{};
                     newaf.type = SPELL_ACTIVITY;
                     newaf.duration = 5;
                     newaf.modifier = 1;
@@ -1771,8 +1819,11 @@ ACMD(do_stalk)
         return;
     }
 
-    WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, dir + 1, SCMD_STALK, 30,
-        AFF_WAITING | AFF_WAITWHEEL);
+    if (!WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, dir + 1, SCMD_STALK, 30,
+            AFF_WAITING | AFF_WAITWHEEL)) {
+        return;
+    }
+
     ch->delay.targ1.type = TARGET_DIR;
     ch->delay.targ1.ch_num = dir;
 
@@ -1802,8 +1853,11 @@ ACMD(do_cover)
         if (GET_KNOWLEDGE(ch, SKILL_STALK) <= 0) {
             send_to_char("You fumble around, trying to tidy up the place.\r\n", ch);
         } else {
-            WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, CMD_COVER, 1, 30,
-                AFF_WAITING | AFF_WAITWHEEL);
+            if (!WAIT_STATE_BRIEF(ch, skills[SKILL_STALK].beats, CMD_COVER, 1, 30,
+                    AFF_WAITING | AFF_WAITWHEEL)) {
+                return;
+            }
+
             send_to_char("You start covering up the tracks.\r\n", ch);
         }
         act("$n moves around, making small adjustments.", TRUE, ch, 0, 0, TO_ROOM);
@@ -1928,7 +1982,7 @@ void snuck_in(struct char_data* ch)
         wait = wait * 0.5;
     }
 
-    WAIT_STATE(ch, wait);
+    (void)WAIT_STATE(ch, wait);
 }
 
 /*
@@ -2228,6 +2282,36 @@ bool does_arrow_break(const char_data* archer, const char_data* victim, obj_data
     return false;
 }
 
+/* The arrow <archer> shoots next: the first in the quiver it wears, or, for an NPC wearing none
+ * (a follower), the first missile in its own inventory. Null if it has none. */
+static obj_data* find_archer_arrow(const char_data* archer)
+{
+    const obj_data* quiver = archer->equipment[WEAR_BACK];
+    if (quiver && quiver->is_quiver()) {
+        return quiver->contains;
+    }
+    if (utils::is_pc(*archer)) {
+        return nullptr;
+    }
+    for (obj_data* item = archer->carrying; item; item = item->next_content) {
+        if (item->obj_flags.type_flag == ITEM_MISSILE) {
+            return item;
+        }
+    }
+    return nullptr;
+}
+
+/* Puts <arrow>, from <archer>'s quiver or inventory (find_archer_arrow), in its inventory: one in
+ * the quiver is taken out of it, and one already in the inventory is left where it is, never put
+ * on that list a second time. */
+static void take_arrow_into_inventory(char_data* archer, obj_data* arrow)
+{
+    if (arrow->in_obj) {
+        obj_from_obj(arrow);
+        obj_to_char(arrow, archer);
+    }
+}
+
 /*
  * move_arrow_to_victim will take the arrow out of the shooters quiver and
  * tag the arrow with their character_id. After that it will move the arrow
@@ -2244,11 +2328,7 @@ bool does_arrow_break(const char_data* archer, const char_data* victim, obj_data
  */
 bool move_arrow_to_victim(char_data* archer, char_data* victim, obj_data* arrow)
 {
-    // Remove object from the character.
-    if (arrow->in_obj) {
-        obj_from_obj(arrow);
-    }
-    obj_to_char(arrow, archer); // Move it into his inventory.
+    take_arrow_into_inventory(archer, arrow);
     // tag arrow in value slot 2 of the shooter
     if (!IS_NPC(archer)) {
         arrow->obj_flags.value[2] = (int)archer->specials2.idnum;
@@ -2280,12 +2360,7 @@ bool move_arrow_to_victim(char_data* archer, char_data* victim, obj_data* arrow)
  */
 void move_arrow_to_room(char_data* archer, obj_data* arrow, int room_num)
 {
-    // Remove object from the character.
-    if (arrow->in_obj) {
-        obj_from_obj(arrow);
-    }
-
-    obj_to_char(arrow, archer); // Move it into his inventory.
+    take_arrow_into_inventory(archer, arrow);
 
     // tag arrow in value slot 2 of the shooter
     arrow->obj_flags.value[2] = utils::is_pc(*archer) ? (int)archer->specials2.idnum : (int)archer->abs_number;
@@ -2338,29 +2413,16 @@ bool can_ch_shoot(char_data* archer)
     }
 
     const obj_data* quiver = archer->equipment[WEAR_BACK];
-    if (!quiver || !quiver->is_quiver()) {
-        if (is_pc(*archer)) {
-            send_to_char("You must be wearing a quiver on your back.\r\n", archer);
-            return false;
-        } else {
-            // Ensure that the NPC has an arrow.
-            obj_data* arrow = NULL;
+    if (is_pc(*archer) && (!quiver || !quiver->is_quiver())) {
+        send_to_char("You must be wearing a quiver on your back.\r\n", archer);
+        return false;
+    }
 
-            // Must be a follower and shooting from their inventory.  Find the first missile they
-            // have.
-            for (obj_data* item = archer->carrying; item; item = item->next) {
-                if (item->obj_flags.type_flag == ITEM_MISSILE) {
-                    arrow = item;
-                    break;
-                }
-            }
-
-            if (arrow == NULL) {
-                char_data* receiver = archer->master ? archer->master : archer;
-                send_to_char("Your follower is out of arrows.", receiver);
-                return false;
-            }
-        }
+    // An NPC shoots from its quiver, or from its inventory if it wears none.
+    if (is_npc(*archer) && find_archer_arrow(archer) == nullptr) {
+        char_data* receiver = archer->master ? archer->master : archer;
+        send_to_char("Your follower is out of arrows.", receiver);
+        return false;
     }
 
     if (is_pc(*archer) && !quiver->contains) {
@@ -2633,7 +2695,7 @@ ACMD(do_shoot)
 
         int wait_delay = shoot_calculate_wait(ch);
         SET_CURRENT_PARRY(ch) = 0;
-        WAIT_STATE_FULL(ch, wait_delay, CMD_SHOOT, 1, 30, 0, victim->abs_number, victim,
+        (void)WAIT_STATE_FULL(ch, wait_delay, CMD_SHOOT, 1, 30, 0, victim->abs_number, victim,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
     } break;
     case 1: {
@@ -2651,21 +2713,8 @@ ACMD(do_shoot)
             return;
         }
 
-        // Get the arrow.
-        obj_data* arrow = NULL;
-        obj_data* quiver = ch->equipment[WEAR_BACK];
-        if (quiver) {
-            arrow = quiver->contains;
-        } else {
-            // Must be a follower and shooting from their inventory.  Find the first missile they
-            // have.
-            for (obj_data* item = ch->carrying; item; item = item->next) {
-                if (item->obj_flags.type_flag == ITEM_MISSILE) {
-                    arrow = item;
-                    break;
-                }
-            }
-        }
+        // can_ch_shoot found it.
+        obj_data* arrow = find_archer_arrow(ch);
         send_to_char("You release your arrow and it goes flying!\r\n", ch);
 
         byte sex = ch->player.sex;
@@ -2679,10 +2728,17 @@ ACMD(do_shoot)
 
         int roll = number(0, 99);
         int target_number = shoot_calculate_success(*ch);
+        // The arrow's blow can remove the archer (a script it sets off, a death that runs one),
+        // and with it the delay <wtl> is part of.
+        freed_watch archer_watch(ch);
         if (roll < target_number) {
             on_arrow_hit(ch, victim, arrow);
         } else {
             on_arrow_miss(ch, victim, arrow);
+        }
+
+        if (archer_watch.freed()) {
+            return;
         }
 
         ch->specials.ENERGY = std::min(ch->specials.ENERGY, 0); // reset swing timer after loosing an arrow.
@@ -2975,7 +3031,7 @@ int mark_calculate_damage(const char_data* marker, const char_data* victim)
 ==================================================================================*/
 void on_mark_hit(char_data* marker, char_data* victim)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int damage_dealt = mark_calculate_damage(marker, victim);
     if (!utils::is_affected_by_spell(*victim, SKILL_MARK)) {
         af.type = SKILL_MARK;
@@ -3184,7 +3240,7 @@ ACMD(do_mark)
         wtl->targ2.cleanup();
 
         int wait_delay = mark_calculate_wait(ch);
-        WAIT_STATE_FULL(ch, wait_delay, CMD_MARK, 1, 30, 0, victim->abs_number, victim,
+        (void)WAIT_STATE_FULL(ch, wait_delay, CMD_MARK, 1, 30, 0, victim->abs_number, victim,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
     } break;
     case 1: {
@@ -3208,10 +3264,16 @@ ACMD(do_mark)
         // Did we land our touch attack???
         int target_number = mark_calculate_success(ch, victim);
         say_spell(ch, SKILL_MARK);
+        // As for an arrow (do_shoot).
+        freed_watch marker_watch(ch);
         if (target_number > 0) {
             on_mark_hit(ch, victim);
         } else {
             on_mark_miss(ch, victim);
+        }
+
+        if (marker_watch.freed()) {
+            return;
         }
 
         wtl->targ1.cleanup();
@@ -3353,7 +3415,7 @@ void on_dust_miss(char_data* ch, char_data* victim, int mana_cost)
 void on_dust_hit(char_data* ch, char_data* victim, int mana_cost)
 {
     int ranger_bonus = 15; // Setting this as a default for now.
-    struct affected_type af;
+    struct affected_type af{};
     int affects_last = 22 - ranger_bonus;
 
     af.type = SKILL_BLINDING;
@@ -3429,7 +3491,7 @@ ACMD(do_blinding)
         wtl->targ1.cleanup();
         wtl->targ2.cleanup();
 
-        WAIT_STATE_FULL(ch, skills[SKILL_BLINDING].beats, CMD_BLINDING, 1, 30, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_BLINDING].beats, CMD_BLINDING, 1, 30, 0,
             victim->abs_number, victim, AFF_WAITING | AFF_WAITWHEEL, TARGET_CHAR);
     } break;
 
@@ -3463,10 +3525,16 @@ ACMD(do_blinding)
 
         int percent_hit = harad_skill_calculate_save(ch, victim, SKILL_BLINDING);
         say_spell(ch, SKILL_BLINDING);
+        // As for an arrow (do_shoot); a freed blinder's dust stays where its death left it.
+        freed_watch blinder_watch(ch);
         if (percent_hit < 0) {
             on_dust_miss(ch, victim, mana_cost);
         } else {
             on_dust_hit(ch, victim, mana_cost);
+        }
+
+        if (blinder_watch.freed()) {
+            return;
         }
 
         extract_obj(dust);
@@ -3543,7 +3611,7 @@ void on_bend_success(char_data* ch, int mana_cost, int move_cost)
     GET_MANA(ch) -= mana_cost;
     GET_MOVE(ch) -= move_cost;
 
-    struct affected_type af;
+    struct affected_type af{};
 
     af.type = SKILL_BEND_TIME;
     af.duration = 15;
@@ -3596,7 +3664,7 @@ ACMD(do_bendtime)
         act("$n begins quietly muttering some strange, foreign powerful words.\n\r", FALSE, ch, 0,
             0, TO_ROOM);
 
-        WAIT_STATE_FULL(ch, skills[SKILL_BEND_TIME].beats, CMD_BENDTIME, 1, 30, 0, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_BEND_TIME].beats, CMD_BENDTIME, 1, 30, 0, 0, 0,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
     } break;
     case 1: {
@@ -3644,7 +3712,12 @@ void on_windblast_hit(char_data* ch)
         }
 
         if (res) {
+            freed_watch pushed_watch(ch);
             die = check_simple_move(ch, attempt, &move_cost, SCMD_FLEE);
+            /* An ON_BEFORE_ENTER script where it was pushed to removed it. */
+            if (pushed_watch.freed()) {
+                return;
+            }
 
             if (!die) {
                 if (ch->specials.fighting) {
@@ -3698,7 +3771,10 @@ void on_windblast_success(char_data* ch, int mana_cost, int move_cost)
 
     send_to_char("Vile black wind eminates from you, slamming into all!\r\n", ch);
 
-    for (tmpch = world[ch->in_room].people; tmpch; tmpch = tmpch_next) {
+    // A push or a blow can remove the one hit (a script where it lands or that it sets off, a
+    // death room) or, through a script, the caster.
+    freed_watch caster_watch(ch);
+    for (tmpch = cur_room->people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != ch) {
             if (!bb_instance.is_target_valid(ch, tmpch)) {
@@ -3707,13 +3783,26 @@ void on_windblast_success(char_data* ch, int mana_cost, int move_cost)
                 continue;
             }
 
+            freed_watch target_watch(tmpch);
+            freed_watch next_target_watch(tmpch_next);
             int saved = harad_skill_calculate_save(ch, tmpch, 0);
             if (saved < 0) {
                 dam_value >> 1;
                 damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
             } else {
                 on_windblast_hit(tmpch);
-                damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
+                if (!target_watch.freed()) {
+                    damage(ch, tmpch, dam_value, SKILL_WINDBLAST, 0);
+                }
+            }
+
+            if (caster_watch.freed()) {
+                return;
+            }
+
+            // The blast goes on to the one saved before, unless the blow destroyed it too.
+            if (next_target_watch.freed()) {
+                return;
             }
         }
     }
@@ -3755,7 +3844,7 @@ ACMD(do_windblast)
         send_to_char("You start to draw powers from the land and gods of old.\r\n", ch);
         act("$n begins quietly muttering some strange, foreign powerful words.\r\n", FALSE, ch, 0,
             0, TO_ROOM);
-        WAIT_STATE_FULL(ch, skills[SKILL_WINDBLAST].beats, CMD_WINDBLAST, 1, 30, 0, 0, 0,
+        (void)WAIT_STATE_FULL(ch, skills[SKILL_WINDBLAST].beats, CMD_WINDBLAST, 1, 30, 0, 0, 0,
             AFF_WAITING | AFF_WAITWHEEL, TARGET_NONE);
     } break;
     case 1: {

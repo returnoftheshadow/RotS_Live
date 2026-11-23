@@ -54,7 +54,9 @@ private:
     char_data* character = nullptr;
     const obj_data* weapon = nullptr;
     game_types::player_specs spec;
-    game_types::weapon_type weapon_type;
+    // The wielded weapon's type; WT_UNUSED_1, which no mastery bonus names, when nothing or a
+    // non-weapon is wielded.
+    game_types::weapon_type weapon_type = game_types::WT_UNUSED_1;
 };
 
 class battle_mage_handler {

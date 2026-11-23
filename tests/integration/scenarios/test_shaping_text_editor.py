@@ -1,5 +1,7 @@
-"""The text editor lists its commands when it opens, and the mob options field, one setting per
-line, neither offers nor accepts %f."""
+"""The text editor's command list when it opens, and %f in the mob options field.
+
+The mob options field, one setting per line, neither offers nor accepts %f.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +9,20 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_text import TEXT_EDITOR_CURSOR, TEXT_EDITOR_PROMPT, TEXT_SO_FAR
+from rots_harness.replies import reply_to
 from rots_harness.session import GameSession
+from rots_harness.shaping import (
+    COULD_NOT_OPEN_FILE_REPLY,
+    EDITOR_SETTLE_SECONDS,
+    MOBILE_PROMPT,
+    MOBILE_RELEASED_REPLY,
+    SHAPED_RECORD,
+    release_editor,
+)
+from rots_harness.text_lines import raw_lines
 
-pytestmark = [pytest.mark.scenario, pytest.mark.shaping]
+pytestmark = [pytest.mark.scenario, pytest.mark.shaping, pytest.mark.shaping_prompts]
 
 # A level-10 human warrior in the arena: a mortal editing its own description.
 MORTAL = Character(
@@ -20,10 +33,6 @@ MORTAL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="warrior",
 )
-# The mortal's room, as look names it.
-ROOM_NAME = "Arena Centre"
-# The prompt while a text is being written (comm.cpp).
-EDITOR_PROMPT = "] "
 # The opening lines every text editor shows before the line about %f (string_add_commands,
 # modify.cpp).
 COMMAND_LIST_HEAD = [
@@ -33,98 +42,79 @@ COMMAND_LIST_HEAD = [
     "  %l cursor to the end       %l<n> cursor after line n",
     "  %r redisplay the text      %s<old>~<new> replace everywhere",
 ]
-# The list's line about %f and %%, and its line about %h for text with no help entry of its own.
+# The list's line about %f and %%.
 FORMAT_LINE = "  %f format the text         %% a % sign"
+# The list's line about %h, for text with no help entry of its own.
 GENERAL_HELP_LINE = "  %h more on these commands"
-# The mob options field's line in place of FORMAT_LINE, and its %h line, which offers the
-# field's own help entry first.
+# The mob options field's line in place of FORMAT_LINE.
 PERCENT_ONLY_LINE = "  %% a % sign"
+# The mob options field's %h line, which offers the field's own help entry first.
 FIELD_HELP_LINE = "  %h help for this field, and more on these commands"
 # What %f prints in the mob options field (string_add, modify.cpp).
-FORMAT_REFUSED = "This text is one setting per line, so %f is not allowed here."
+FORMAT_REFUSED_REPLY = "This text is one setting per line, so %f is not allowed here."
 # The ways to type format: the command letter in either case, after '%' or '~'.
 FORMAT_COMMANDS = ["%f", "%F", "~f"]
 # Two settings typed into the options, which a format would join into one line.
 OPTION_LINES = ["first setting", "second setting"]
-# What %r prints before the text, and after the part before the cursor (string_add, modify.cpp).
-TEXT_SO_FAR = "Your text so far:"
-CURSOR_MARK = ">>"
 # What %f prints in any other text that is still empty.
-NOTHING_TO_FORMAT = "What are you trying to format?"
+NOTHING_TO_FORMAT_REPLY = "What are you trying to format?"
 # The start of what %f prints once it has formatted a text.
-FORMATTED_MARKER = "Your text is formatted."
+FORMATTED_START = "Your text is formatted."
 
-# The mob the implementor opens, its editor prompt, and what /free prints (shapemob.cpp).
-MOB_VNUM = 1130
-MOB_PROMPT = f"Mobile: {MOB_VNUM}>"
-MOB_RELEASED_MARKER = "You released the mobile and stopped shaping."
 # What /simple prints when it leaves simple mode, where field 42 does not exist.
-EXTENDED_MODE_MARKER = "You switched to extended editing mode."
+EXTENDED_MODE_REPLY = "You switched to extended editing mode."
 # What /42 prints before it opens the text editor on the mob options.
-OPTIONS_FIELD_MARKER = "You are about to change OPTIONS, settings for the mob program, one per line:"
-# Seconds to keep reading after a marker, for the rest of the reply.
-SETTLE_SECONDS = 0.5
-
-
-def lines_of(text: str) -> list:
-    """The text's lines without the carriage returns the game sends with each line end."""
-    return [line.strip("\r") for line in text.split("\n")]
-
-
-def reply_to(session: GameSession, line: str, outcomes: list) -> str:
-    """Sends a line and returns what came back, up to and just after the first outcome.
-
-    Inside the text editor the prompt is "] ", so command() cannot be used.
-    """
-    session.send_line(line)
-    return session.expect(outcomes) + session.drain(SETTLE_SECONDS)
+OPTIONS_FIELD_REPLY = "You are about to change OPTIONS, settings for the mob program, one per line:"
 
 
 def open_mob_options(implementor: GameSession) -> str:
-    """Opens mob 1130's options in the text editor; returns what the editor printed."""
-    opened = reply_to(implementor, f"shape mob {MOB_VNUM}", [MOB_PROMPT, "could not open that file.", "No such mob"])
-    assert MOB_PROMPT in opened, opened
-    extended = reply_to(implementor, "/simple", ["editing mode."])
-    assert EXTENDED_MODE_MARKER in extended, extended
-    return reply_to(implementor, "/42", [OPTIONS_FIELD_MARKER, MOB_PROMPT])
+    """Open SHAPED_RECORD's mob options in the text editor and return what the editor printed."""
+    outcomes = [MOBILE_PROMPT, COULD_NOT_OPEN_FILE_REPLY, "No such mob"]
+    opened = reply_to(implementor, f"shape mob {SHAPED_RECORD}", outcomes, settle=EDITOR_SETTLE_SECONDS)
+    assert MOBILE_PROMPT in opened, opened
+    extended = reply_to(implementor, "/simple", ["editing mode."], settle=EDITOR_SETTLE_SECONDS)
+    assert EXTENDED_MODE_REPLY in extended, extended
+    return reply_to(implementor, "/42", [OPTIONS_FIELD_REPLY, MOBILE_PROMPT], settle=EDITOR_SETTLE_SECONDS)
 
 
 def close_mob_editor(implementor: GameSession) -> None:
-    """Abandons the options text and leaves the editor, so the session can quit."""
+    """Abandon the options text and leave the editor, so the session can quit."""
     implementor.send_line("%q")
-    released = reply_to(implementor, "/free", [MOB_RELEASED_MARKER])
-    assert MOB_RELEASED_MARKER in released, released
+    release_editor(implementor, MOBILE_RELEASED_REPLY, settle=EDITOR_SETTLE_SECONDS)
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(MORTAL)
 def test_a_mortals_description_editor_lists_its_commands_and_q_leaves_it(server) -> None:
-    """Pins #357: `set description` opens the text editor with the list of its commands, %f
-    among them; %q then leaves the editor, so the next line is a command again."""
+    """Pins `set description`'s editor: it lists its commands, %f among them, and %q leaves it.
+
+    After %q the next line is a command again.
+    """
     mortal = server.login(MORTAL.name)
 
-    opened = reply_to(mortal, "set description", [GENERAL_HELP_LINE])
+    opened = reply_to(mortal, "set description", [GENERAL_HELP_LINE], settle=EDITOR_SETTLE_SECONDS)
     mortal.send_line("%q")
     # Still in the editor, look would only add a line to the text and get the editor's prompt.
-    looked = reply_to(mortal, "look", [ROOM_NAME, EDITOR_PROMPT])
+    look_outcomes = [world.ROOM_ARENA_CENTRE_NAME, TEXT_EDITOR_PROMPT]
+    looked = reply_to(mortal, "look", look_outcomes, settle=EDITOR_SETTLE_SECONDS)
 
-    opened_lines = lines_of(opened)
+    opened_lines = raw_lines(opened)
     start = opened_lines.index(COMMAND_LIST_HEAD[0]) if COMMAND_LIST_HEAD[0] in opened_lines else -1
     expected = COMMAND_LIST_HEAD + [FORMAT_LINE, GENERAL_HELP_LINE]
     assert start >= 0 and opened_lines[start:start + len(expected)] == expected, opened
-    assert ROOM_NAME in looked, looked
+    assert world.ROOM_ARENA_CENTRE_NAME in looked, looked
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_the_mob_options_editor_does_not_offer_format(server) -> None:
-    """Pins #357: the command list for the mob options field (/42) has no %f line, only %%."""
+    """Pins the command list for the mob options field (/42): no %f line, only %%."""
     implementor = server.login(IMPLEMENTOR.name)
 
     opened = open_mob_options(implementor)
     close_mob_editor(implementor)
 
-    opened_lines = lines_of(opened)
+    opened_lines = raw_lines(opened)
     start = opened_lines.index(COMMAND_LIST_HEAD[0]) if COMMAND_LIST_HEAD[0] in opened_lines else -1
     expected = COMMAND_LIST_HEAD + [PERCENT_ONLY_LINE, FIELD_HELP_LINE]
     assert start >= 0 and opened_lines[start:start + len(expected)] == expected, opened
@@ -135,20 +125,23 @@ def test_the_mob_options_editor_does_not_offer_format(server) -> None:
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR)
 def test_the_mob_options_editor_refuses_format(server, format_command: str) -> None:
-    """Pins #357: format in the mob options field, however it is typed, is refused, since joining
-    the lines would merge the settings; the text keeps one setting per line."""
+    """Pins that format in the mob options field is refused, however it is typed.
+
+    Joining the lines would merge the settings; the text keeps one setting per line.
+    """
     implementor = server.login(IMPLEMENTOR.name)
 
     opened = open_mob_options(implementor)
-    assert OPTIONS_FIELD_MARKER in opened, opened
+    assert OPTIONS_FIELD_REPLY in opened, opened
     for option_line in OPTION_LINES:
         implementor.send_line(option_line)
-    formatted = reply_to(implementor, format_command, [FORMAT_REFUSED, NOTHING_TO_FORMAT, FORMATTED_MARKER])
-    shown = reply_to(implementor, "%r", [CURSOR_MARK])
+    format_outcomes = [FORMAT_REFUSED_REPLY, NOTHING_TO_FORMAT_REPLY, FORMATTED_START]
+    formatted = reply_to(implementor, format_command, format_outcomes, settle=EDITOR_SETTLE_SECONDS)
+    shown = reply_to(implementor, "%r", [TEXT_EDITOR_CURSOR], settle=EDITOR_SETTLE_SECONDS)
     close_mob_editor(implementor)
 
-    assert FORMAT_REFUSED in lines_of(formatted), formatted
-    shown_lines = lines_of(shown)
+    assert FORMAT_REFUSED_REPLY in raw_lines(formatted), formatted
+    shown_lines = raw_lines(shown)
     start = shown_lines.index(TEXT_SO_FAR) if TEXT_SO_FAR in shown_lines else -1
     shown_text = [line for line in shown_lines[start + 1:] if line] if start >= 0 else []
-    assert shown_text[:3] == OPTION_LINES + [CURSOR_MARK], shown
+    assert shown_text[:3] == OPTION_LINES + [TEXT_EDITOR_CURSOR], shown

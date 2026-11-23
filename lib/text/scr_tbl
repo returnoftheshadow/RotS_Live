@@ -107,7 +107,7 @@ script, then you will need to use a SEND function.
     IF_INT_GREATER       DO_REMOVE           OBJ_TO_CHAR
     IF_INT_TRUE          DO_SAY              OBJ_TO_ROOM
     IF_INT_FALSE         DO_SOCIAL           IF_ROOM_SUNLIT
-
+                                             RESTYLE_OBJ
                          DO_WAIT
                          DO_YELL
 
@@ -1035,6 +1035,25 @@ ch1, ch2, ch3 (the character to move)
 TELEPORT_CHAR_XL - take a character (leave followers behind) from a room and move to another room. NB no messages are sent to the rooms - the script must handle messages.
 - Parameters: chX.room as room to move to
 ch1, ch2, ch3 (the character to move)
+#
+RESTYLE_OBJ
+
+Changes an object into another look of the same family (a base object
+and the skins made from it), wherever it is: worn, carried, in a
+container or in a room.  It stays the same object in the same place and
+keeps its state; it takes the new look's text, cost and material.
+
+Argument 1:
+    The object to restyle: ob1, ob2 or ob3.
+Argument 2:
+    The new look's vnum, typed (e.g. 4513), or taken from int1-3 or
+    obN.vnum (ob2.vnum gives ob1 the look of ob2).
+
+Nothing else is allowed in either place; the editor refuses it.  When
+the line runs, a target outside the family or a missing object does
+nothing and a SCRIPT ERROR is logged; the script carries on.
+
+SEE ALSO: COMMANDS "COMMAND LIST"
 #
 EXAMPLE
 

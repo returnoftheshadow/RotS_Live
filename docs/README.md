@@ -44,6 +44,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started
 | [Mage program](systems/mage-program.md) | ✅ builder guide: program 31 + mob options (types, conjurer, shield, terror); health bands, interrupt limit, target picker | `spec_pro.cpp`, `mob_progs/mage_prog.cpp` |
 | [Ranger program](systems/ranger-program.md) | ✅ builder guide: program 32 + mob options (hide, ambush, track, riposte); turn order, supported flags | `spec_pro.cpp`, `mob_progs/ranger_prog.cpp`, `mobact.cpp` |
 | [Player bank](systems/bank.md) | ✅ program 34 bankers, account vaults per side, fees, `vault` and `gameoptions` | `mob_progs/banker.cpp`, `game_boot_options.cpp` |
+| [Object skins](systems/object-skins.md) | ✅ builder guide: skin objects (own text, base stats), `/23`, boot pass, `restyle`, `RESTYLE_OBJ`; 7-number level line | `object_skins.cpp`, `shapeobj.cpp`, `act_wiz.cpp`, `script.cpp` |
 
 ⬜ Races ·
 XP/leveling · Movement/zones · Objects/equipment · Mob AI/specprocs · Shops/economy ·

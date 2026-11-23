@@ -6,14 +6,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "comm.h"
 #include "db.h"
 #include "interpre.h"
+#include "object_skins.h"
+#include "object_text.h"
 #include "protos.h"
 #include "structs.h"
 #include "utils.h"
 
 extern struct obj_data* obj_proto;
+extern struct obj_data* object_list;
+extern struct index_data* obj_index;
 extern int object_master_idnum;
 extern int object_master2_idnum;
 extern char* object_materials[];
@@ -37,7 +46,7 @@ void new_obj(const struct char_data* ch)
 {
     int i;
     //    SHAPE_OBJECT(ch)->object=(struct obj_data *)calloc(1,sizeof(struct obj_data));
-    CREATE1(SHAPE_OBJECT(ch)->object, obj_data);
+    SHAPE_OBJECT(ch)->object = new obj_data();
     //    bzero((char *)(SHAPE_OBJECT(ch)->object),sizeof(struct obj_data));
     SHAPE_OBJECT(ch)
         ->object->item_number
@@ -166,8 +175,11 @@ void write_object(FILE* f, const struct obj_data* obj, int num)
 
         obj->obj_flags.cost_per_day);
 
-    fprintf(f, "%d %d %d %d %d\n\r", obj->obj_flags.level,
+    fprintf(f, "%d %d %d %d %d", obj->obj_flags.level,
         obj->obj_flags.rarity, obj->obj_flags.material, obj->obj_flags.script_number, obj->obj_flags.version);
+    if (obj->obj_flags.skin_base > 0)
+        fprintf(f, " %d %d", obj->obj_flags.skin_base, obj->obj_flags.skin_own);
+    fprintf(f, "\n\r");
 
     for (tmpdesc = obj->ex_description; tmpdesc; tmpdesc = tmpdesc->next) {
 
@@ -183,18 +195,13 @@ void write_object(FILE* f, const struct obj_data* obj, int num)
     }
 }
 
-// #define SUBST(x)   real->x=(char *)calloc(strlen(curr->x)+1,1);  strcpy(real->x,curr->x);
-
-#define SUBST(x)                                \
-    CREATE(real->x, char, strlen(curr->x) + 1); \
-    strcpy(real->x, curr->x);
+static void send_has_skins(const struct char_data* ch, int vnum, int rnum, const char* what);
 
 void implement_object(const struct char_data* ch)
 {
     struct obj_data *real, *curr;
     int rnum, i;
     // int tmp;
-    struct extra_descr_data *tmpdescr, *tmp2descr;
     if (!SHAPE_OBJECT(ch)->object) {
         send_to_char("You have nothing to implement\n\r", ch);
         return;
@@ -215,10 +222,19 @@ void implement_object(const struct char_data* ch)
     }
     real = &(obj_proto[rnum]);
     curr = SHAPE_OBJECT(ch)->object;
-    SUBST(name);
-    SUBST(short_description);
-    SUBST(description);
-    SUBST(action_description);
+    /* /9 refuses this while editing, but the type can also come from the file. */
+    const int type = curr->obj_flags.type_flag;
+    if ((type == ITEM_KEY || type == ITEM_NOTE) && !skin_rnums_of(rnum).empty()) {
+        send_has_skins(ch, SHAPE_OBJECT(ch)->basenum, rnum, type == ITEM_KEY ? "a key" : "a note");
+        send_to_char("Not implemented.\n\r", ch);
+        return;
+    }
+    /* Copies already in the game keep showing the text they were made with. Removed or renamed
+     * extra descriptions go away for copies loaded from now on; the working copy keeps them in
+     * file order, and the prototype's list shows them last first, as boot builds it. */
+    object_text::fields text = object_text_fields_of(*curr);
+    std::reverse(text.extra_descriptions.begin(), text.extra_descriptions.end());
+    real->set_text(create_object_text(std::move(text)));
     real->obj_flags.type_flag = curr->obj_flags.type_flag;
     real->obj_flags.extra_flags = curr->obj_flags.extra_flags;
     real->obj_flags.wear_flags = curr->obj_flags.wear_flags;
@@ -232,44 +248,32 @@ void implement_object(const struct char_data* ch)
     real->obj_flags.material = curr->obj_flags.material;
     real->obj_flags.script_number = curr->obj_flags.script_number;
     real->obj_flags.version = curr->obj_flags.version;
-    /*  for(tmpdescr=real->ex_description ; tmpdescr ; tmpdescr=tmp2descr){
-    tmp2descr=tmpdescr->next;
-    RELEASE(tmpdescr->keyword);
-    RELEASE(tmpdescr->description);
-    RELEASE(tmpdescr);
-  }
-*/
-    /* Start a new list instead of stacking onto the old one, so removed or
-     * renamed extra descriptions go away for copies loaded from now on.  The
-     * old list is not freed: copies already in the game still point at it.
-     * Prepending gives the same order boot builds. */
-    real->ex_description = 0;
-    for (tmpdescr = curr->ex_description; tmpdescr; tmpdescr = tmpdescr->next) {
-        tmp2descr = real->ex_description;
-
-        CREATE1(real->ex_description, extra_descr_data);
-
-        real->ex_description->next = tmp2descr;
-
-        if (tmpdescr->keyword) {
-            CREATE(real->ex_description->keyword, char, strlen(tmpdescr->keyword) + 1);
-            strcpy(real->ex_description->keyword, tmpdescr->keyword);
-        } else {
-            CREATE(real->ex_description->keyword, char, 1);
-        }
-        if (tmpdescr->description) {
-            //      real->ex_description->description=(char *)calloc(strlen(tmpdescr->description)+1,1);
-            CREATE(real->ex_description->description, char, strlen(tmpdescr->description) + 1);
-            strcpy(real->ex_description->description, tmpdescr->description);
-        } else {
-            //      real->ex_description->description=(char *)calloc(1,1);
-            CREATE(real->ex_description->description, char, 1);
-        }
-    }
+    real->obj_flags.skin_base = curr->obj_flags.skin_base;
+    real->obj_flags.skin_own = curr->obj_flags.skin_own;
     for (i = 0; i < MAX_OBJ_AFFECT; i++) {
         real->affected[i].location = curr->affected[i].location;
         real->affected[i].modifier = curr->affected[i].modifier;
     }
+    /* A skin's stats come from its base; a base passes its new stats on to its skins. A skin
+     * whose base is no longer valid goes live as a plain object; the working copy keeps the
+     * builder's base so it can be fixed. */
+    if (obj_is_skin(*real)) {
+        std::string problem = skin_base_problem(SHAPE_OBJECT(ch)->basenum, real->obj_flags.skin_base);
+        /* /23 refuses this while editing, but a skin of this object can go live in the meantime. */
+        if (problem.empty() && !skin_rnums_of(rnum).empty())
+            problem = "obj " + std::to_string(SHAPE_OBJECT(ch)->basenum) + " has skins";
+        if (problem.empty()) {
+            copy_skin_stats_from_base(*real, obj_proto[real_object(real->obj_flags.skin_base)]);
+        } else {
+            char buf[100];
+            real->obj_flags.skin_base = 0;
+            real->obj_flags.skin_own = 0;
+            snprintf(buf, sizeof(buf), "Skin not applied: %s.\n\r", problem.c_str());
+            send_to_char(buf, ch);
+        }
+    }
+    if (!obj_is_skin(*real))
+        refresh_skins_of_base(rnum);
     send_to_char("Object implemented\n\r", ch);
 }
 
@@ -288,13 +292,13 @@ void implement_object(const struct char_data* ch)
             ch->specials.prompt_number = 1;                           \
             SET_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_SIMPLE_ACTIVE);    \
             str[0] = 0;                                               \
-            SHAPE_OBJECT(ch)                                          \
-                ->tmpstr                                              \
-                = str_dup(addr);                                      \
+            SHAPE_OBJECT(ch)->tmpstr = str_dup(addr);                 \
             string_add_init(ch->desc, &(SHAPE_OBJECT(ch)->tmpstr));   \
             return;                                                   \
         } else {                                                      \
             if (SHAPE_OBJECT(ch)->tmpstr) {                           \
+                /* The session object owns the text replaced. */      \
+                RELEASE(addr);                                        \
                 addr = SHAPE_OBJECT(ch)->tmpstr;                      \
                 clean_record_text(addr);                              \
             }                                                         \
@@ -389,8 +393,213 @@ static const char* obj_value_names(int type)
         return "DODGE PARRY ENCUMBRANCE - -";
     case ITEM_LEVER:
         return "ROOM_VNUM DIRECTION - - -";
+    case ITEM_KEYRING:
+        return "CAPACITY - - - -";
     default:
         return "- - - - - (none used by this type)";
+    }
+}
+
+/* The skins of base_rnum as "4513, 4514", cut short with ", ..." when the line it goes in, with
+ * `used` other columns, would pass 78 columns. */
+static std::string skin_vnum_list(int base_rnum, size_t used)
+{
+    std::vector<std::string> vnums;
+    std::string all;
+    for (int rnum : skin_rnums_of(base_rnum)) {
+        vnums.push_back(std::to_string(obj_index[rnum].virt));
+        all += (all.empty() ? "" : ", ") + vnums.back();
+    }
+    if (used + all.size() <= 78)
+        return all;
+    std::string cut;
+    for (const std::string& vnum : vnums) {
+        std::string next = cut + (cut.empty() ? "" : ", ") + vnum;
+        if (used + next.size() + 5 > 78)
+            break;
+        cut = next;
+    }
+    return cut + ", ...";
+}
+
+/* "Obj 4512 has skins (4513, 4514); it can't become <what>." */
+static void send_has_skins(const struct char_data* ch, int vnum, int rnum, const char* what)
+{
+    char head[40], tail[40];
+    snprintf(head, sizeof(head), "Obj %d has skins (", vnum);
+    snprintf(tail, sizeof(tail), "); it can't become %s.", what);
+    std::string line = head + skin_vnum_list(rnum, strlen(head) + strlen(tail)) + tail + "\n\r";
+    send_to_char(line.c_str(), ch);
+}
+
+/* The vnum of the object being edited. Not basenum: new_obj() resets that to -1 when the vnum is
+ * not booted yet, while number holds the vnum on both load paths. */
+static int edited_vnum(const struct char_data* ch) { return SHAPE_OBJECT(ch)->number; }
+
+/* The rnum of the object being edited when it has skins, otherwise -1. */
+static int edited_base_with_skins(const struct char_data* ch)
+{
+    int rnum = real_object(edited_vnum(ch));
+    if (rnum < 0 || skin_rnums_of(rnum).empty())
+        return -1;
+    return rnum;
+}
+
+/* The stat fields: the ones a skin refuses (see skin_refuses_stat_edit). */
+static bool skin_stat_field(int field)
+{
+    return (field >= 9 && field <= 13) || (field >= 15 && field <= 22 && field != 18);
+}
+
+/* Whether the working copy is a skin of a valid base, so its stats come from that base. One whose
+ * base is no longer valid (gone, a key, a note, a skin) boots as a plain object and is edited as
+ * one. */
+static int skin_of_valid_base(const struct char_data* ch, const struct obj_data* obj)
+{
+    return obj_is_skin(*obj) && skin_base_problem(edited_vnum(ch), obj->obj_flags.skin_base).empty();
+}
+
+/* The creation chain's step after `field`; on a skin it skips the stat fields, so the chain
+ * shows the refusal once and goes on to text, cost or material. */
+static int next_chain_step(const struct char_data* ch, int field)
+{
+    int next = obj_chain[field];
+    if (skin_of_valid_base(ch, SHAPE_OBJECT(ch)->object))
+        while (next != 0 && skin_stat_field(next))
+            next = obj_chain[next];
+    return next;
+}
+
+/* A skin takes every stat from its base: refuses stat field `field` on one, and goes on with the
+ * creation chain. */
+static int skin_refuses_stat_edit(struct char_data* ch, int field)
+{
+    struct obj_data* obj = SHAPE_OBJECT(ch)->object;
+    char buf[100];
+
+    if (!skin_of_valid_base(ch, obj))
+        return 0;
+    snprintf(buf, sizeof(buf), "Obj %d is a skin of obj %d; edit stats on %d.\n\r",
+        edited_vnum(ch), obj->obj_flags.skin_base, obj->obj_flags.skin_base);
+    send_to_char(buf, ch);
+    if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
+        shape_standup(ch, SHAPE_OBJECT(ch)->position);
+        ch->specials.prompt_number = 6;
+        REMOVE_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+    }
+    SHAPE_OBJECT(ch)->editflag = IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN) ? next_chain_step(ch, field) : 0;
+    return 1;
+}
+
+/* True when a prompt answer is the word "base" and nothing else. */
+static int answer_is_base(const char* arg)
+{
+    char word[8];
+    char extra[2];
+    return sscanf(arg, " %7s %1s", word, extra) == 1 && !str_cmp(word, "base");
+}
+
+/* True when a prompt answer starts with a number (a value, not blank or a word). */
+static int answer_is_number(const char* arg)
+{
+    while (*arg && isspace((unsigned char)*arg))
+        arg++;
+    if (*arg == '+' || *arg == '-')
+        arg++;
+    return isdigit((unsigned char)*arg);
+}
+
+/* "base" at /14 or /18 on a skin: the skin's cost or material follows the base again. A base that
+ * is no longer valid is refused and nothing is copied. Ends the prompt; the caller goes on with the
+ * chain. */
+static void skin_follow_base(struct char_data* ch, int own_bit)
+{
+    struct obj_data* obj = SHAPE_OBJECT(ch)->object;
+    std::string problem = skin_base_problem(edited_vnum(ch), obj->obj_flags.skin_base);
+    char buf[100];
+
+    if (!problem.empty()) {
+        snprintf(buf, sizeof(buf), "Can't follow the base: %s.\n\r", problem.c_str());
+    } else {
+        REMOVE_BIT(obj->obj_flags.skin_own, own_bit);
+        copy_skin_stats_from_base(*obj, obj_proto[real_object(obj->obj_flags.skin_base)]);
+        if (own_bit == SKIN_OWN_COST)
+            snprintf(buf, sizeof(buf), "Cost now follows base (%d).\n\r", obj->obj_flags.cost);
+        else
+            snprintf(buf, sizeof(buf), "Material now follows base (%d).\n\r", obj->obj_flags.material);
+    }
+    send_to_char(buf, ch);
+    shape_standup(ch, SHAPE_OBJECT(ch)->position);
+    ch->specials.prompt_number = 6;
+    REMOVE_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE);
+}
+
+/* The answer to /23: makes the working copy a skin of base_vnum, or a plain object for 0. */
+static void shape_set_skin_base(const struct char_data* ch, int base_vnum)
+{
+    struct obj_data* obj = SHAPE_OBJECT(ch)->object;
+    const int this_vnum = edited_vnum(ch);
+    char buf[MAX_STRING_LENGTH];
+
+    if (base_vnum == 0) {
+        obj->obj_flags.skin_base = 0;
+        obj->obj_flags.skin_own = 0;
+        send_to_char("This object is no longer a skin; its stats are now its own.\n\r", ch);
+        return;
+    }
+    /* The rules live in check_skin_base; this only words each refusal for the builder. */
+    switch (check_skin_base(this_vnum, base_vnum)) {
+    case skin_base_rule::ok:
+        break;
+    case skin_base_rule::own_base:
+        send_to_char("An object can't be its own base.\n\r", ch);
+        return;
+    case skin_base_rule::no_base:
+        snprintf(buf, sizeof(buf), "There is no obj %d.\n\r", base_vnum);
+        send_to_char(buf, ch);
+        return;
+    case skin_base_rule::base_is_key:
+        send_to_char("Keys can't have skins.\n\r", ch);
+        return;
+    case skin_base_rule::base_is_note:
+        send_to_char("Notes can't have skins.\n\r", ch);
+        return;
+    case skin_base_rule::base_is_skin: {
+        const int its_base = obj_proto[real_object(base_vnum)].obj_flags.skin_base;
+        snprintf(buf, sizeof(buf), "Obj %d is a skin of obj %d; use /23 %d.\n\r", base_vnum,
+            its_base, its_base);
+        send_to_char(buf, ch);
+        return;
+    }
+    }
+    const struct obj_data& base = obj_proto[real_object(base_vnum)];
+    const int this_rnum = edited_base_with_skins(ch);
+    if (this_rnum >= 0) {
+        send_has_skins(ch, this_vnum, this_rnum, "a skin");
+        return;
+    }
+
+    const int old_cost = obj->obj_flags.cost;
+    const int old_material = obj->obj_flags.material;
+    obj->obj_flags.skin_base = base_vnum;
+    obj->obj_flags.skin_own = 0;
+    copy_skin_stats_from_base(*obj, base);
+
+    /* The base's name is cut, if need be, to keep the line within 78 columns. */
+    const int name_room = 78 - snprintf(buf, sizeof(buf), "This object is now a skin of obj %d ().", base_vnum);
+    snprintf(buf, sizeof(buf), "This object is now a skin of obj %d (%.*s).\n\r", base_vnum,
+        name_room > 0 ? name_room : 0, base.short_description ? base.short_description : "");
+    send_to_char(buf, ch);
+    snprintf(buf, sizeof(buf), "Stats, values, affects and flags now come from %d.\n\r", base_vnum);
+    send_to_char(buf, ch);
+    if (old_cost != obj->obj_flags.cost) {
+        snprintf(buf, sizeof(buf), "Cost was %d, now follows base (%d).\n\r", old_cost, obj->obj_flags.cost);
+        send_to_char(buf, ch);
+    }
+    if (old_material != obj->obj_flags.material) {
+        snprintf(buf, sizeof(buf), "Material was %d, now follows base (%d).\n\r", old_material,
+            obj->obj_flags.material);
+        send_to_char(buf, ch);
     }
 }
 
@@ -668,19 +877,25 @@ void shape_center_obj(struct char_data* ch, char* arg)
         = 0;
 
         case 9:
+            if (skin_refuses_stat_edit(ch, 9))
+                break;
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
                 send_to_char("   1 LIGHT          8 TREASURE   15 CONTAINER          22 BOAT\n\r"
                              "   2 SCROLL         9 ARMOR      16 NOTE               23 FOUNTAIN\n\r"
                              "   3 WAND          10 POTION     17 LIQUID CONTAINER   24 SHIELD\n\r"
                              "   4 STAFF         11 WORN       18 KEY                25 LEVER\n\r"
-                             "   5 WEAPON        12 OTHER      19 FOOD\n\r"
+                             "   5 WEAPON        12 OTHER      19 FOOD               26 KEYRING\n\r"
                              "   6 FIRE WEAPON   13 TRASH      20 MONEY\n\r"
                              "   7 MISSILE       14 TRAP       21 PEN\n\r\n\r",
                     ch);
             tmp3 = obj->obj_flags.type_flag;
             DIGITCHANGE("TYPE (changes what /12 means)", obj->obj_flags.type_flag);
-            if (tmp != tmp3 && (tmp < 1 || tmp > 25)) {
-                send_to_char("Item type must be 1-25. dropped.\n\r", ch);
+            if (tmp != tmp3 && (tmp < 1 || tmp > ITEM_KEYRING)) { /* the highest type */
+                sprintf(tmpstr, "Item type must be 1-%d. dropped.\n\r", ITEM_KEYRING);
+                send_to_char(tmpstr, ch);
+                obj->obj_flags.type_flag = tmp3;
+            } else if (tmp != tmp3 && (tmp == ITEM_KEY || tmp == ITEM_NOTE) && edited_base_with_skins(ch) >= 0) {
+                send_has_skins(ch, edited_vnum(ch), edited_base_with_skins(ch), tmp == ITEM_KEY ? "a key" : "a note");
                 obj->obj_flags.type_flag = tmp3;
             }
 
@@ -695,6 +910,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 10:
+            if (skin_refuses_stat_edit(ch, 10))
+                break;
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
                 send_to_char("   0 GLOW         6 MAGIC          12 NORENT      18 DWARF      24 MOBORC\n\r"
                              "   1 HUM          7 NODROP         13 (unused)    19 WOODELF    25 MAGUS\n\r"
@@ -716,6 +933,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 11:
+            if (skin_refuses_stat_edit(ch, 11))
+                break;
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE))
                 send_to_char("   0 TAKE      3 BODY    6 FEET     9 SHIELD   12 WRIST   15 THROW\n\r"
                              "   1 FINGER    4 HEAD    7 HANDS   10 ABOUT    13 WIELD   16 BACK\n\r"
@@ -733,11 +952,13 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 12:
+            if (skin_refuses_stat_edit(ch, 12))
+                break;
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
                 sprintf(tmpstr, "Enter VALUES for %s: %s\n\r"
                                 "  ('-' = not used; fewer numbers keep the rest, blank keeps all)\n\r"
                                 "Current: %d %d %d %d %d\n\r",
-                    obj->obj_flags.type_flag <= ITEM_LEVER ? item_types[obj->obj_flags.type_flag] : "?",
+                    obj->obj_flags.type_flag <= ITEM_KEYRING ? item_types[obj->obj_flags.type_flag] : "?",
                     obj_value_names(obj->obj_flags.type_flag),
                     obj->obj_flags.value[0], obj->obj_flags.value[1], obj->obj_flags.value[2],
                     obj->obj_flags.value[3], obj->obj_flags.value[4]);
@@ -789,6 +1010,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 13:
+            if (skin_refuses_stat_edit(ch, 13))
+                break;
             DIGITCHANGE("WEIGHT (1/100 lb)", obj->obj_flags.weight)
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
@@ -802,12 +1025,19 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 14:
-            DIGITCHANGE("COST in copper (0 = shops won't trade it)", obj->obj_flags.cost)
+            if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE) && obj_is_skin(*obj) && answer_is_base(arg)) {
+                skin_follow_base(ch, SKIN_OWN_COST);
+            } else {
+                tmp3 = obj->obj_flags.cost;
+                DIGITCHANGE("COST in copper (0 = shops won't trade it)", obj->obj_flags.cost)
+                if (obj_is_skin(*obj) && (tmp3 != obj->obj_flags.cost || answer_is_number(arg)))
+                    SET_BIT(obj->obj_flags.skin_own, SKIN_OWN_COST);
+            }
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
                 SHAPE_OBJECT(ch)
                     ->editflag
-                    = obj_chain[14];
+                    = next_chain_step(ch, 14);
             else
                 SHAPE_OBJECT(ch)
                     ->editflag
@@ -815,6 +1045,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 15:
+            if (skin_refuses_stat_edit(ch, 15))
+                break;
             DIGITCHANGE("RENT PER DAY (-1 = cost/100, below -1 = can't rent;\n\r  -N sets negative)", obj->obj_flags.cost_per_day)
             if (string_to_negative_value(arg, &tmp))
                 obj->obj_flags.cost_per_day = tmp;
@@ -830,6 +1062,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 16:
+            if (skin_refuses_stat_edit(ch, 16))
+                break;
             tmp3 = obj->obj_flags.level;
             DIGITCHANGE("LEVEL 0-255 (item power, not a level needed to use it)", obj->obj_flags.level)
             if (tmp != tmp3 && (tmp < 0 || tmp > 255)) {
@@ -848,6 +1082,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 17:
+            if (skin_refuses_stat_edit(ch, 17))
+                break;
             DIGITCHANGE("RARITY (unused)", obj->obj_flags.rarity)
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
@@ -866,11 +1102,17 @@ void shape_center_obj(struct char_data* ch, char* arg)
                              "   1 cloth      4 metal    7 crystal   10 mithril   13 plant\n\r"
                              "   2 leather    5 wood     8 gold      11 fur\n\r\n\r",
                     ch);
-            tmp3 = obj->obj_flags.material;
-            DIGITCHANGE("MATERIAL", obj->obj_flags.material)
-            if (tmp != tmp3 && (tmp < 0 || tmp > 13)) {
-                send_to_char("Material must be 0-13. dropped.\n\r", ch);
-                obj->obj_flags.material = tmp3;
+            if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE) && obj_is_skin(*obj) && answer_is_base(arg)) {
+                skin_follow_base(ch, SKIN_OWN_MATERIAL);
+            } else {
+                tmp3 = obj->obj_flags.material;
+                DIGITCHANGE("MATERIAL", obj->obj_flags.material)
+                if (tmp != tmp3 && (tmp < 0 || tmp > 13)) {
+                    send_to_char("Material must be 0-13. dropped.\n\r", ch);
+                    obj->obj_flags.material = tmp3;
+                } else if (obj_is_skin(*obj) && (tmp != tmp3 || answer_is_number(arg))) {
+                    SET_BIT(obj->obj_flags.skin_own, SKIN_OWN_MATERIAL);
+                }
             }
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
@@ -883,6 +1125,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
                     = 0;
             break;
         case 19: /* 'Affected' features... */
+            if (skin_refuses_stat_edit(ch, 19))
+                break;
             if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DIGIT_ACTIVE)) {
                 sprintf(tmpstr, "   1 STR     9 AGE      17 DODGE       24 SPEED        31 VULN BIT\n\r"
                                 "   2 DEX    10 WEIGHT   18 OB          25 PERCEPTION   33 BEND\n\r"
@@ -958,6 +1202,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 20:
+            if (skin_refuses_stat_edit(ch, 20))
+                break;
             DIGITCHANGE("PROGRAM (not saved, no effect)", obj->obj_flags.prog_number)
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
                 SHAPE_OBJECT(ch)
@@ -970,6 +1216,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 21:
+            if (skin_refuses_stat_edit(ch, 21))
+                break;
             DIGITCHANGE("SCRIPT vnum (0 = none)", obj->obj_flags.script_number)
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
@@ -983,6 +1231,8 @@ void shape_center_obj(struct char_data* ch, char* arg)
             break;
 
         case 22: {
+            if (skin_refuses_stat_edit(ch, 22))
+                break;
             /* No typed numbers: a bump goes one past the number in the world file, so it cannot
              * land on a number this file has handed out. (A world file replaced by an older copy
              * takes the count back with it: see the OBJ 22 help.) Off keeps the number, negated. */
@@ -1029,6 +1279,20 @@ void shape_center_obj(struct char_data* ch, char* arg)
 
             if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
                 SHAPE_OBJECT(ch)->editflag = obj_chain[22];
+            else
+                SHAPE_OBJECT(ch)->editflag = 0;
+            break;
+        }
+
+        case 23: {
+            const int old_base = obj->obj_flags.skin_base;
+            int new_base = old_base;
+            DIGITCHANGE("BASE (vnum of the object this is a skin of, 0 = none)", new_base)
+            if (new_base != old_base)
+                shape_set_skin_base(ch, new_base);
+
+            if (IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_CHAIN))
+                SHAPE_OBJECT(ch)->editflag = obj_chain[23];
             else
                 SHAPE_OBJECT(ch)->editflag = 0;
             break;
@@ -1106,6 +1370,8 @@ void list_help_obj(const struct char_data* ch)
 
     send_to_char("22 - version (refreshes players' copies at login);\n\r", ch);
 
+    send_to_char("23 - base object (makes this a skin);\n\r", ch);
+
     send_to_char("49 - object creation sequence;\n\r", ch);
 
     send_to_char("50 - list;\n\r", ch);
@@ -1123,6 +1389,16 @@ void list_object(const struct char_data* ch, const struct obj_data* obj)
     struct extra_descr_data* tmpdesc;
 
     int i;
+
+    /* On a skin, the stats come from its base; cost and material may be its own. */
+    char from[40] = "";
+    char cost_from[40] = "";
+    char material_from[40] = "";
+    if (skin_of_valid_base(ch, obj)) {
+        snprintf(from, sizeof(from), " (from %d)", obj->obj_flags.skin_base);
+        strcpy(cost_from, IS_SET(obj->obj_flags.skin_own, SKIN_OWN_COST) ? " [own]" : from);
+        strcpy(material_from, IS_SET(obj->obj_flags.skin_own, SKIN_OWN_MATERIAL) ? " [own]" : from);
+    }
 
     sprintf(str, "(1) alias(es)    :%s\n\r", obj->name);
 
@@ -1160,52 +1436,53 @@ void list_object(const struct char_data* ch, const struct obj_data* obj)
     else
         send_to_char("No extra descriptions for this object\n\r", ch);
 
-    sprintf(str, "(9) type flag    :%d\n\r", obj->obj_flags.type_flag);
+    sprintf(str, "(9) type flag    :%d%s\n\r", obj->obj_flags.type_flag, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(10) extra flag   :%d\n\r", obj->obj_flags.extra_flags);
+    sprintf(str, "(10) extra flag   :%d%s\n\r", obj->obj_flags.extra_flags, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(11) wear flag    :%d\n\r", obj->obj_flags.wear_flags);
+    sprintf(str, "(11) wear flag    :%d%s\n\r", obj->obj_flags.wear_flags, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(12) values: %d %d %d %d %d\n\r", obj->obj_flags.value[0],
+    sprintf(str, "(12) values: %d %d %d %d %d%s\n\r", obj->obj_flags.value[0],
 
         obj->obj_flags.value[1], obj->obj_flags.value[2],
 
-        obj->obj_flags.value[3], obj->obj_flags.value[4]);
+        obj->obj_flags.value[3], obj->obj_flags.value[4], from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(13) weight       :%d\n\r", obj->obj_flags.weight);
+    sprintf(str, "(13) weight       :%d%s\n\r", obj->obj_flags.weight, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(14) cost         :%d\n\r", obj->obj_flags.cost);
+    sprintf(str, "(14) cost         :%d%s\n\r", obj->obj_flags.cost, cost_from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(15) cost per day :%d\n\r", obj->obj_flags.cost_per_day);
+    sprintf(str, "(15) cost per day :%d%s\n\r", obj->obj_flags.cost_per_day, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(16) level        :%d\n\r", obj->obj_flags.level);
+    sprintf(str, "(16) level        :%d%s\n\r", obj->obj_flags.level, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(17) rarity       :%d\n\r", obj->obj_flags.rarity);
+    sprintf(str, "(17) rarity       :%d%s\n\r", obj->obj_flags.rarity, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(18) material     :%d (%s)\n\r", obj->obj_flags.material,
-        ((obj->obj_flags.material >= 0) && (obj->obj_flags.material < num_of_object_materials)) ? object_materials[obj->obj_flags.material] : "Unknown");
+    sprintf(str, "(18) material     :%d (%s)%s\n\r", obj->obj_flags.material,
+        ((obj->obj_flags.material >= 0) && (obj->obj_flags.material < num_of_object_materials)) ? object_materials[obj->obj_flags.material] : "Unknown",
+        material_from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(19) Affections:\n\r");
+    sprintf(str, "(19) Affections%s:\n\r", from);
 
     for (i = 0; i < MAX_OBJ_AFFECT; i++) {
 
@@ -1220,12 +1497,24 @@ void list_object(const struct char_data* ch, const struct obj_data* obj)
 
     send_to_char(str, ch);
 
-    sprintf(str, "(21) script        :%d\n\r", obj->obj_flags.script_number);
+    sprintf(str, "(21) script        :%d%s\n\r", obj->obj_flags.script_number, from);
 
     send_to_char(str, ch);
 
-    sprintf(str, "(22) version       :%s\n\r", object_version_text(obj->obj_flags.version).c_str());
+    sprintf(str, "(22) version       :%s%s\n\r", object_version_text(obj->obj_flags.version).c_str(), from);
 
+    send_to_char(str, ch);
+
+    int base_rnum;
+    if (obj_is_skin(*obj)) {
+        base_rnum = real_object(obj->obj_flags.skin_base);
+        snprintf(str, sizeof(str), "(23) Skin of: obj %d (%.40s)\n\r", obj->obj_flags.skin_base,
+            base_rnum >= 0 && obj_proto[base_rnum].short_description ? obj_proto[base_rnum].short_description : "missing");
+    } else if ((base_rnum = edited_base_with_skins(ch)) >= 0) {
+        snprintf(str, sizeof(str), "(23) Skins: %s\n\r", skin_vnum_list(base_rnum, strlen("(23) Skins: ")).c_str());
+    } else {
+        strcpy(str, "(23) Skin of: none\n\r");
+    }
     send_to_char(str, ch);
 }
 
@@ -1329,7 +1618,7 @@ int load_object(struct char_data* ch, const char* arg)
         room_number = ch->in_room;
 
         //  SHAPE_OBJECT(ch)->object=(struct obj_data *)calloc(1,sizeof(struct obj_data));
-        CREATE1(SHAPE_OBJECT(ch)->object, obj_data);
+        SHAPE_OBJECT(ch)->object = new obj_data();
         //  bzero((char *)(SHAPE_OBJECT(ch)->object),sizeof(struct obj_data));
 
         SHAPE_OBJECT(ch)
@@ -1429,10 +1718,14 @@ int load_object(struct char_data* ch, const char* arg)
             ->object->obj_flags.cost_per_day
             = tmp;
 
-        if (5 != fscanf(f, "%d %d %d %d %d", &tmp, &tmp2, &tmp3, &tmp4, &tmp5)) {
-            printf("Error reading12\n\r");
-            tmp5 = 0; /* an older line has four numbers: no version, not a leftover value */
-        }
+        int level_nums[7];
+        if (read_object_level_line(f, level_nums) < 5)
+            printf("Error reading12\n\r"); /* an older line: no version, no skin */
+        tmp = level_nums[0];
+        tmp2 = level_nums[1];
+        tmp3 = level_nums[2];
+        tmp4 = level_nums[3];
+        tmp5 = level_nums[4];
         SHAPE_OBJECT(ch)
             ->object->obj_flags.level
             = tmp;
@@ -1448,6 +1741,8 @@ int load_object(struct char_data* ch, const char* arg)
         SHAPE_OBJECT(ch)
             ->object->obj_flags.version
             = tmp5;
+        SHAPE_OBJECT(ch)->object->obj_flags.skin_base = level_nums[5];
+        SHAPE_OBJECT(ch)->object->obj_flags.skin_own = level_nums[6];
 
         SHAPE_OBJECT(ch)
             ->object->ex_description
@@ -1490,6 +1785,12 @@ int load_object(struct char_data* ch, const char* arg)
                 .modifier
                 = 0;
         }
+
+        /* A skin's stats in the file are only a fallback: show the base's current ones, as save
+         * and implement use. */
+        struct obj_data* loaded = SHAPE_OBJECT(ch)->object;
+        if (obj_is_skin(*loaded) && skin_base_problem(number, loaded->obj_flags.skin_base).empty())
+            copy_skin_stats_from_base(*loaded, obj_proto[real_object(loaded->obj_flags.skin_base)]);
 
         /*
 
@@ -1731,6 +2032,11 @@ int replace_object(struct char_data* ch, char* arg)
 
     if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_DELETE_ACTIVE)) {
 
+        /* A skin's stats in the file are only a fallback: keep them current with its base. */
+        struct obj_data* edited = SHAPE_OBJECT(ch)->object;
+        if (obj_is_skin(*edited) && skin_base_problem(num, edited->obj_flags.skin_base).empty())
+            copy_skin_stats_from_base(*edited, obj_proto[real_object(edited->obj_flags.skin_base)]);
+
         write_object(f2, SHAPE_OBJECT(ch)->object, num);
 
         REMOVE_BIT(SHAPE_OBJECT(ch)->flags, SHAPE_DELETE_ACTIVE);
@@ -1790,7 +2096,7 @@ int append_object(struct char_data* ch, char* arg)
         return replace_object(ch, arg);
     }
 
-    if (2 != sscanf(arg, "%s %s", str, fname)) {
+    if (2 != sscanf(arg, "%254s %79s", str, fname)) {
 
         if (!IS_SET(SHAPE_OBJECT(ch)->flags, SHAPE_FILENAME)) {
 
@@ -1804,6 +2110,12 @@ int append_object(struct char_data* ch, char* arg)
     }
 
     else {
+
+        if (!shape_file_name_fits(SHAPE_MOB_DIR, fname, sizeof(SHAPE_OBJECT(ch)->f_from))
+            || !shape_file_name_fits(SHAPE_MOB_BACKDIR, fname, sizeof(SHAPE_OBJECT(ch)->f_old))) {
+            send_to_char("That file name is too long.\n\r", ch);
+            return -1;
+        }
 
         sprintf(SHAPE_OBJECT(ch)->f_from, SHAPE_MOB_DIR, fname);
 
@@ -1941,7 +2253,14 @@ void free_object(struct char_data* ch)
             RELEASE(tmp);
             tmp = tmp2;
         }
-        RELEASE(SHAPE_OBJECT(ch)->object);
+        /* The session's object holds its own copy of every text field: load_object reads each
+         * from the file, new_obj duplicates them, and an edit replaces one with a new copy. */
+        obj_data* const session_object = SHAPE_OBJECT(ch)->object;
+        RELEASE(session_object->name);
+        RELEASE(session_object->short_description);
+        RELEASE(session_object->description);
+        RELEASE(session_object->action_description);
+        delete SHAPE_OBJECT(ch)->object;
         SHAPE_OBJECT(ch)
             ->object
             = NULL;
@@ -1973,7 +2292,7 @@ void extra_coms_obj(struct char_data* ch, char* argument)
         comm_key = SHAPE_NONE;
         str[0] = 0;
         str2[0] = 0;
-        sscanf(argument, "%s %s", str, str2);
+        sscanf(argument, "%254s %49s", str, str2);
         if (str[0] == 0)
             return;
         do {

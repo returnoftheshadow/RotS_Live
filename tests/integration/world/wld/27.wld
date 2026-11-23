@@ -1,0 +1,38 @@
+#2700
+Warband Inn~
+A low inn where a captain may rest with the band that follows him. A yard lies
+to the east.
+~
+27 0 0 0
+D1
+~
+~
+0 0 2701 5
+S
+#2701
+Warband Yard~
+A trampled yard outside the inn, wide enough for riders. The inn is west and a
+track runs east.
+~
+27 0 0 0
+D1
+~
+~
+0 0 2702 5
+D3
+~
+~
+0 0 2700 5
+S
+#2702
+Warband Track~
+A muddy track where the band practises on a straw dummy. The yard is west.
+~
+27 0 0 0
+D3
+~
+~
+0 0 2701 5
+S
+#99999
+$~

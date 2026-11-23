@@ -49,7 +49,16 @@ void close_socket(struct descriptor_data* d, int drop_all = TRUE);
 void check_state_deadlines(time_t now);
 void break_spell(struct char_data* ch);
 void abort_delay(char_data* wait_ch);
+/* Ends <ch>'s delay and carries out what it was waiting for: the delayed command, or the rest of
+ * the script DO_WAIT paused. A forced completion (delay.subcmd set to -1 first, as WAIT_STATE and
+ * raw_kill do when they replace or end a delay) runs the command's interrupted branch, or the
+ * rest of the paused script. Either can free ch; a caller that uses ch afterwards watches it with
+ * a freed_watch. */
 void complete_delay(struct char_data* ch);
+/* Runs one pulse of the waiting list: every waiting character's delay goes down by one, and each
+ * that runs out is completed (a paused script resumes, a delayed command runs). A character
+ * freed while its delay completes is not touched again. */
+void process_waiting_list();
 std::string mob_age_message(const struct char_data* victim);
 struct txt_block* get_from_txt_block_pool(const char* line = 0);
 void put_to_txt_block_pool(struct txt_block*);
@@ -110,6 +119,11 @@ extern int no_specials;
 
 // The command log, last_cmds in the data directory; opened by main() before the game runs.
 extern FILE* fpCommand;
+
+// Trims one blank from each end of a prompt built in <prompt>: returns where the prompt to send
+// starts, one past a leading blank, and cuts off a trailing blank. An empty prompt is returned as
+// it is; no byte before <prompt> is read or written. A null <prompt> is logged and gives null.
+char* trim_prompt_blanks(char* prompt);
 
 /* #define SEND_TO_Q(messg, desc)  write_to_q((messg), &(desc)->output) */
 #define SEND_TO_Q(messg, desc) write_to_output((messg), desc)

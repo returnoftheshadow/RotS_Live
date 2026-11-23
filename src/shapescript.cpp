@@ -772,6 +772,18 @@ static void format_command(const script_data* script)
             get_param_text(script->param[0]), script->text);
         break;
 
+    case SCRIPT_RESTYLE_OBJ: {
+        char look[16];
+        const char* target = get_param_text(script->param[1]);
+        if (!target) {
+            sprintf(look, "%d", script->param[1]);
+            target = look;
+        }
+        sprintf(buf, "[%d] SYS RESTYLE_OBJ      Restyle: %s to %s (%s)\n\r", script->number,
+            get_param_text(script->param[0]), target, script->text);
+        break;
+    }
+
     case SCRIPT_GAIN_EXP:
         sprintf(buf, "[%d] SYS GAIN_EXP         Give %s, %s experience (%s)\n\r", script->number,
             get_param_text(script->param[0]), get_param_text(script->param[1]), script->text);
@@ -1070,7 +1082,7 @@ void extra_coms_script(struct char_data* ch, char* argument)
         comm_key = SHAPE_NONE;
         str[0] = 0;
         str2[0] = 0;
-        sscanf(argument, "%s %s", str, str2);
+        sscanf(argument, "%254s %49s", str, str2);
         if (str[0] == 0)
             return;
         do {
@@ -1260,6 +1272,8 @@ void extra_coms_script(struct char_data* ch, char* argument)
             return;                                                   \
         } else {                                                      \
             if (SHAPE_SCRIPT(ch)->tmpstr) {                           \
+                /* The session owns the text replaced. */             \
+                RELEASE(addr);                                        \
                 addr = SHAPE_SCRIPT(ch)->tmpstr;                      \
                 clean_record_text(addr);                              \
             }                                                         \
@@ -1375,7 +1389,7 @@ static const char* script_type_groups[][2] = {
     { "Actions: ", "DO_SAY DO_YELL DO_EMOTE DO_SOCIAL DO_DROP DO_GIVE DO_WEAR DO_REMOVE\n\r"
                    "  DO_HIT DO_FLEE DO_FOLLOW" },
     { "Create:  ", "LOAD_MOB LOAD_OBJ LOAD_OBJ_X EQUIP_CHAR EXTRACT_CHAR EXTRACT_OBJ\n\r"
-                   "  RAW_KILL" },
+                   "  RAW_KILL RESTYLE_OBJ" },
     { "Move:    ", "OBJ_FROM_CHAR OBJ_TO_CHAR OBJ_FROM_ROOM OBJ_TO_ROOM TELEPORT_CHAR\n\r"
                    "  TELEPORT_CHAR_X TELEPORT_CHAR_XL CHANGE_EXIT_TO SET_EXIT_STATE" },
     { "Messages:", "SEND_TO_CHAR SEND_TO_ROOM SEND_TO_ROOM_X PAGE_ZONE_MAP" },
@@ -1470,7 +1484,8 @@ static bool script_message_percent_ok(const char* text)
 
 /* Parameter prompts.  kinds has one letter per value, stored from
  * param[first]: 'v' a variable (ch1, ob2, int1, ch1.room...), 's' a writable
- * text variable (str1-3, obN.name), 'n' a typed number (vnum, slot, pulses). */
+ * text variable (str1-3, obN.name), 'n' a typed number (vnum, slot, pulses),
+ * 'o' an object variable (ob1-3), 'i' a typed vnum, int1-3 or obN.vnum. */
 static void script_show_params(const struct char_data* ch, const char* label, int first, const char* kinds)
 {
     char buf[1200], *p;
@@ -1539,6 +1554,14 @@ static int script_read_params(const struct char_data* ch, char* arg, int first, 
                 return -1;
             }
             v = atoi(word);
+        }
+        if (kinds[i] == 'o' && v != SCRIPT_PARAM_OB1 && v != SCRIPT_PARAM_OB2 && v != SCRIPT_PARAM_OB3) {
+            send_to_char("Must be ob1, ob2 or ob3. dropped.\n\r", ch);
+            return -1;
+        }
+        if (kinds[i] == 'i' && get_param_text(v) && !is_restyle_target_param(v)) {
+            send_to_char("Must be a vnum, int1-3 or obN.vnum. dropped.\n\r", ch);
+            return -1;
         }
         if (kinds[i] == 's' && v != SCRIPT_PARAM_STR1 && v != SCRIPT_PARAM_STR2 && v != SCRIPT_PARAM_STR3
             && v != SCRIPT_PARAM_OB1_NAME && v != SCRIPT_PARAM_OB2_NAME && v != SCRIPT_PARAM_OB3_NAME) {
@@ -2009,6 +2032,13 @@ void shape_center_script(struct char_data* ch, char* arg)
 
             case SCRIPT_EXTRACT_OBJ:
                 SCRIPTPARAMS("EXTRACT_OBJ: object to remove  e.g. ob1", 0, "v");
+                SHAPE_SCRIPT(ch)
+                    ->editflag
+                    = 5;
+                break;
+
+            case SCRIPT_RESTYLE_OBJ:
+                SCRIPTPARAMS("RESTYLE_OBJ: object, new look's vnum  e.g. ob1 4513 or ob1 ob2.vnum", 0, "oi");
                 SHAPE_SCRIPT(ch)
                     ->editflag
                     = 5;
@@ -2861,6 +2891,8 @@ int get_command(const char* command)
     case 'R':
         if (!strcmp(command, "RAW_KILL"))
             return SCRIPT_RAW_KILL;
+        if (!strcmp(command, "RESTYLE_OBJ"))
+            return SCRIPT_RESTYLE_OBJ;
         if (!strcmp(command, "RETURN_FALSE"))
             return SCRIPT_RETURN_FALSE;
         return 0;

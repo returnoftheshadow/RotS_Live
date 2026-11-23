@@ -19,6 +19,7 @@
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
@@ -32,8 +33,10 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 /*---------------------------------------------------------------------------------------------*/
 
@@ -119,6 +122,10 @@ combat_result_struct damage_stat(char_data* killer, char_data* caster, int stat_
 
 ASPELL(spell_curse)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_CURSE)) {
+        return;
+    }
+
     const int DAMAGE_TABLE_SIZE = 7;
     const int NUM_STATS = 6;
 
@@ -176,6 +183,9 @@ ASPELL(spell_curse)
 
     int actual_count = 0;
     int stat_index = 0;
+    // damage_stat can free either of them; see its comment in clerics.cpp.
+    freed_watch caster_watch(caster);
+    freed_watch victim_watch(victim);
 
     while (stat_index < NUM_STATS && !victim_died && caster->points.spirit > 0) {
         int stat_damage = damage_table[stat_index];
@@ -184,10 +194,18 @@ ASPELL(spell_curse)
             caster->points.spirit = std::max(caster->points.spirit, 0);
 
             combat_result_struct curse_result = damage_stat(caster, victim, stat_index, stat_damage);
+            if (caster_watch.freed()) {
+                return;
+            }
             victim_flees |= curse_result.wants_to_flee;
             victim_died |= curse_result.will_die;
 
             actual_count += stat_damage;
+            // A removed victim is not cursed further and does not flee.
+            if (victim_watch.freed()) {
+                victim_flees = false;
+                break;
+            }
         }
 
         ++stat_index;
@@ -196,6 +214,10 @@ ASPELL(spell_curse)
     // Only flee after the curse has completed attacking all of its stats.
     if (!victim_died && victim_flees) {
         do_flee(victim, "", NULL, 0, 0);
+        // A self-curse flees the caster, and the flight can remove it.
+        if (caster_watch.freed()) {
+            return;
+        }
     }
 
     set_mental_delay(caster, actual_count * PULSE_MENTAL_FIGHT);
@@ -205,6 +227,10 @@ int restore_stat(char_data* caster, int stat_num, int amount);
 
 ASPELL(spell_revive)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_REVIVE)) {
+        return;
+    }
+
     int i, i2, num, count, actual_count, stat_dam, stat_dam2;
     int revive_table[7];
 
@@ -297,7 +323,7 @@ ASPELL(spell_revive)
 
 ASPELL(spell_mind_block)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (victim != caster) {
         send_to_char("You can only protect your own mind.\n\r", caster);
@@ -319,7 +345,11 @@ ASPELL(spell_mind_block)
 
 ASPELL(spell_insight)
 {
-    affected_type af;
+    if (spell_lacks_victim(caster, victim, SPELL_INSIGHT)) {
+        return;
+    }
+
+    affected_type af{};
     affected_type* afptr;
     int my_duration;
 
@@ -372,7 +402,11 @@ ASPELL(spell_insight)
 
 ASPELL(spell_pragmatism)
 {
-    affected_type af;
+    if (spell_lacks_victim(caster, victim, SPELL_PRAGMATISM)) {
+        return;
+    }
+
+    affected_type af{};
     affected_type* afptr;
     int my_duration;
 
@@ -431,7 +465,7 @@ ASPELL(spell_pragmatism)
 
 ASPELL(spell_detect_hidden)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration;
 
     if (!victim)
@@ -468,7 +502,7 @@ ASPELL(spell_detect_hidden)
 
 ASPELL(spell_detect_magic)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!victim)
         victim = caster;
@@ -494,7 +528,7 @@ ASPELL(spell_detect_magic)
 
 ASPELL(spell_evasion)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration;
 
     if (!victim)
@@ -544,7 +578,7 @@ ASPELL(spell_resist_magic)
         modifier += 1;
     }
 
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_RESIST_MAGIC;
     af.duration = level;
     af.modifier = modifier;
@@ -578,7 +612,7 @@ ASPELL(spell_resist_magic)
 
 ASPELL(spell_slow_digestion)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level;
 
     if (!victim)
@@ -602,6 +636,33 @@ ASPELL(spell_slow_digestion)
     }
 }
 
+namespace {
+
+/* Ends a divination list cut short at DIVINATION_LIST_LIMIT. */
+constexpr char DIVINATION_LIST_CUT[] = "and more.\n\r";
+constexpr std::size_t DIVINATION_LIST_CUT_LENGTH = sizeof(DIVINATION_LIST_CUT) - 1;
+
+/* Called after each entry appended to <list>: moves <out_kept_length> up to the list's length while
+ * the list could still end there with DIVINATION_LIST_CUT within DIVINATION_LIST_LIMIT. */
+void note_divination_entry(const std::string& list, std::size_t& out_kept_length)
+{
+    if (list.size() + DIVINATION_LIST_CUT_LENGTH <= DIVINATION_LIST_LIMIT)
+        out_kept_length = list.size();
+}
+
+/* Leaves <out_list> whole if it is within DIVINATION_LIST_LIMIT; otherwise keeps its first
+ * <kept_length> characters, the header and the entries that fit, and ends it DIVINATION_LIST_CUT. */
+void limit_divination_list(std::string& out_list, std::size_t kept_length)
+{
+    if (out_list.size() <= DIVINATION_LIST_LIMIT)
+        return;
+
+    out_list.resize(kept_length);
+    out_list += DIVINATION_LIST_CUT;
+}
+
+} // namespace
+
 ASPELL(spell_divination)
 {
     // Ensure that we have a valid caster and location.
@@ -612,9 +673,10 @@ ASPELL(spell_divination)
 
     const room_data& cur_room = world[caster->in_room];
 
-    sprintf(buff, "You feel confident about your location.\n\r");
     sprintbit(cur_room.room_flags, room_bits, buf, 0);
-    sprintf(buff, "%s (#%d) [ %s, %s], Exits are:\n\r", buff, cur_room.number, sector_types[cur_room.sector_type], buf);
+    snprintf(buff, sizeof(buff),
+        "You feel confident about your location.\n\r (#%d) [ %s, %s], Exits are:\n\r",
+        cur_room.number, sector_types[cur_room.sector_type], buf);
     send_to_char(buff, caster);
 
     bool found = false;
@@ -624,7 +686,7 @@ ASPELL(spell_divination)
             const room_data& exit_room = world[exit->to_room];
 
             found = true;
-            sprintf(buff, "%5s: to %s (#%d)\n\r", dirs[dir], exit_room.name, exit_room.number);
+            snprintf(buff, sizeof(buff), "%5s: to %s (#%d)\n\r", dirs[dir], exit_room.name, exit_room.number);
             if (exit->exit_info != 0) {
                 const char* keyword = exit->keyword ? exit->keyword : "";
                 const char* key_name = "None";
@@ -642,7 +704,9 @@ ASPELL(spell_divination)
                     }
                 }
 
-                sprintf(buff, "%s     door '%s', key '%s'.\n\r", buff, keyword, key_name);
+                const std::size_t exit_length = strlen(buff);
+                snprintf(buff + exit_length, sizeof(buff) - exit_length,
+                    "     door '%s', key '%s'.\n\r", keyword, key_name);
             }
             send_to_char(buff, caster);
         }
@@ -651,36 +715,42 @@ ASPELL(spell_divination)
         send_to_char("None.\n\r", caster);
     }
 
-    sprintf(buff, "Living beings in the room:\n\r");
     if (cur_room.people) {
+        std::string people_list = "Living beings in the room:\n\r";
+        std::size_t kept_length = people_list.size();
         for (char_data* character = cur_room.people; character; character = character->next_in_room) {
             if (caster->player.level >= GET_INVIS_LEV(character)) {
-                strcat(buff, GET_NAME(character));
+                people_list += GET_NAME(character);
                 if (character->next_in_room) {
-                    strcat(buff, ", ");
+                    people_list += ", ";
                 } else {
-                    strcat(buff, ".\n\r");
+                    people_list += ".\n\r";
                 }
+                note_divination_entry(people_list, kept_length);
             }
         }
-        send_to_char(buff, caster);
+        limit_divination_list(people_list, kept_length);
+        send_to_char(people_list.c_str(), caster);
     } else {
         send_to_char("Living beings in the room:\n\r None.\n\r", caster);
     }
 
     if (cur_room.contents) {
-        sprintf(buff, "Objects in the room:\n\r");
+        std::string object_list = "Objects in the room:\n\r";
+        std::size_t kept_length = object_list.size();
         for (obj_data* item = cur_room.contents; item; item = item->next_content) {
             if (CAN_SEE_OBJ(caster, item)) {
-                strcat(buff, item->short_description);
+                object_list += item->short_description;
                 if (item->next_content) {
-                    strcat(buff, ", ");
+                    object_list += ", ";
                 } else {
-                    strcat(buff, ".\n\r");
+                    object_list += ".\n\r";
                 }
+                note_divination_entry(object_list, kept_length);
             }
         }
-        send_to_char(buff, caster);
+        limit_divination_list(object_list, kept_length);
+        send_to_char(object_list.c_str(), caster);
     } else {
         send_to_char("Objects in the room:\n\r None.\n\r", caster);
     }
@@ -700,7 +770,7 @@ ASPELL(spell_infravision)
     }
 
     int level = get_mystic_caster_level(caster);
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_INFRAVISION;
     af.duration = level;
     af.modifier = 0;
@@ -725,7 +795,7 @@ ASPELL(spell_infravision)
 ASPELL(spell_resist_poison)
 {
     affected_type* af;
-    affected_type newaf;
+    affected_type newaf{};
 
     if (!victim)
         victim = caster;
@@ -770,7 +840,7 @@ ASPELL(spell_curing)
     }
 
     if (!affected_by_spell(victim, SPELL_CURING)) {
-        affected_type effect;
+        affected_type effect{};
         effect.type = SPELL_CURING;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
         effect.modifier = healing_level;
@@ -804,7 +874,7 @@ ASPELL(spell_restlessness)
     }
 
     if (!affected_by_spell(victim, SPELL_RESTLESSNESS)) {
-        affected_type effect;
+        affected_type effect{};
         effect.type = SPELL_RESTLESSNESS;
         effect.duration = healing_level * FAST_UPDATE_RATE / 2;
         effect.modifier = healing_level;
@@ -858,7 +928,7 @@ ASPELL(spell_vitality)
     healing_level = healing_level / 3 * (SECS_PER_MUD_HOUR * 4) / PULSE_FAST_UPDATE;
     affected_type* current_vitality_effect = affected_by_spell(victim, SPELL_VITALITY);
     if (!current_vitality_effect) {
-        affected_type vitality_effect;
+        affected_type vitality_effect{};
         vitality_effect.type = SPELL_VITALITY;
         vitality_effect.duration = healing_level;
         vitality_effect.modifier = 1;
@@ -955,7 +1025,7 @@ ASPELL(spell_regeneration)
 
     affected_type* current_regen_effect = affected_by_spell(victim, SPELL_REGENERATION);
     if (!current_regen_effect) {
-        affected_type regen_effect;
+        affected_type regen_effect{};
         regen_effect.type = SPELL_REGENERATION;
         regen_effect.duration = regen_level;
         regen_effect.modifier = 1;
@@ -1033,7 +1103,7 @@ ASPELL(spell_mass_insight)
 
 ASPELL(spell_hallucinate)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration;
     int modifier;
 
@@ -1077,7 +1147,7 @@ ASPELL(spell_hallucinate)
 
 ASPELL(spell_haze)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     int loc_level, my_duration, tmp;
     affected_type* tmpaf;
@@ -1158,7 +1228,7 @@ ASPELL(spell_haze)
 
 ASPELL(spell_fear)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!victim) {
         send_to_char("Whom do you want to scare?\n\r", caster);
@@ -1215,7 +1285,7 @@ ASPELL(spell_fear)
 
 ASPELL(spell_poison)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     int magus_save = 0;
 
@@ -1279,7 +1349,7 @@ ASPELL(spell_poison)
 ASPELL(spell_terror)
 {
     struct char_data* tmpch;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!caster || (caster->in_room == NOWHERE))
         return;
@@ -1340,7 +1410,7 @@ ASPELL(spell_attune)
 
 ASPELL(spell_sanctuary)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level;
 
     if (!victim)
@@ -1416,7 +1486,11 @@ ASPELL(spell_enchant_weapon)
 
 ASPELL(spell_death_ward)
 {
-    affected_type af;
+    if (spell_lacks_victim(caster, victim, SPELL_DEATH_WARD)) {
+        return;
+    }
+
+    affected_type af{};
 
     if ((type == SPELL_TYPE_ANTI) || is_object) {
 
@@ -1445,7 +1519,7 @@ ASPELL(spell_death_ward)
 
 ASPELL(spell_confuse)
 {
-    struct affected_type af;
+    struct affected_type af{};
     int loc_level, my_duration, tmp;
     affected_type* tmpaf;
     int modifier;
@@ -1749,6 +1823,31 @@ int clamp_resist_magnitude(int magnitude)
 /* The affect a worn item installs never ticks down; a cast always does. */
 static bool is_item_held(const affected_type* affect) { return affect && affect->duration == -1; }
 
+bool item_spell_is_worn_affect(int spell_number)
+{
+    /* Each of these, cast by an item (is_object), installs an affect that never ticks down and
+       removes it again on SPELL_TYPE_ANTI, without a blow or a saving throw. Death ward is the
+       exception: its SPELL_TYPE_ANTI removes insight and leaves death ward, and its item cast
+       removes insight too. Pragmatism and confuse also look at is_object but give an affect
+       that ticks down, so they are casts. */
+    switch (spell_number) {
+    case SPELL_DETECT_HIDDEN:
+    case SPELL_ARMOR:
+    case SPELL_INSIGHT:
+    case SPELL_HAZE:
+    case SPELL_DEATH_WARD:
+    case SPELL_RESIST_FIRE:
+    case SPELL_RESIST_COLD:
+    case SPELL_RESIST_LIGHT:
+    case SPELL_RESIST_ILLUSION:
+    case SPELL_RESIST_PHYSICAL:
+    case SPELL_RESIST_DARK:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /* The strongest resistance a still-worn item grants through this resist spell, or 0 when none
    does. Decodes APPLY_SPELL exactly as affect_modify() does, and skips a HOLD item that is not
    holdable because equip_char() never applied that item's affects in the first place. */
@@ -1779,7 +1878,7 @@ static int strongest_worn_resist(const char_data* victim, int resist_type)
 static void install_resist_affect(char_data* victim, int resist_type, int modifier, int duration,
     int magnitude)
 {
-    affected_type newaf;
+    affected_type newaf{};
 
     newaf.type = resist_type;
     newaf.duration = duration;
@@ -1812,6 +1911,10 @@ static void install_resist_affect(char_data* victim, int resist_type, int modifi
 void do_resist_spell(int resist_type, int modifier, char_data* caster, char_data* victim,
     int type, int is_object, const char* str)
 {
+    if (spell_lacks_victim(caster, victim, resist_type)) {
+        return;
+    }
+
     affected_type* current_effect = affected_by_spell(victim, resist_type);
 
     if (type == SPELL_TYPE_ANTI) {
@@ -1896,7 +1999,7 @@ ASPELL(spell_protection)
     char_data* loc_victim;
     int res;
     char first_word[255], second_word[255];
-    affected_type newaf;
+    affected_type newaf{};
 
     if (strlen(arg) >= 255)
         arg[254] = 0;

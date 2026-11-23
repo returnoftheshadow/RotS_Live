@@ -1,6 +1,7 @@
 #include "fixture_character_maker.h"
 
 #include "db.h"
+#include "fixture_spec_parser.h"
 #include "handler.h"
 #include "limits.h"
 #include "spells.h"
@@ -8,6 +9,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -105,6 +107,57 @@ bool stored_value_matches(const char* character_name, const char* field_name, co
     return false;
 }
 
+// The parser's limits for the stored values that narrow on the cast below fit their fields: the
+// abilities' signed char and maximum stamina's sh_int. Gold, spirit, alignment and the conditions
+// are int fields.
+static_assert(MIN_BASE_ABILITY >= std::numeric_limits<signed char>::min()
+        && MAX_BASE_ABILITY <= std::numeric_limits<signed char>::max(),
+    "a base ability must fit char_ability_data's signed char fields");
+static_assert(MIN_BASE_STAMINA >= std::numeric_limits<sh_int>::min()
+        && MAX_BASE_STAMINA <= std::numeric_limits<sh_int>::max(),
+    "base stamina must fit char_ability_data's sh_int mana field");
+
+// Copies requested into out_field when the spec sets it.
+template <typename Field>
+void apply_stored_value(const std::optional<int>& requested, Field& out_field)
+{
+    if (requested.has_value()) {
+        // The parser bounded the value by its wizset limit, which the static_asserts above prove
+        // fits the field's type.
+        out_field = static_cast<Field>(*requested);
+    }
+}
+
+// Writes each stored value the spec sets onto character, in the fields wizset writes, and sets
+// each current ability to the base the spec sets.
+void apply_stored_values(const FixtureSpec::StoredValues& stored, char_data& character)
+{
+    apply_stored_value(stored.gold, GET_GOLD(&character));
+    apply_stored_value(stored.spirit, character.points.spirit);
+    apply_stored_value(stored.alignment, GET_ALIGNMENT(&character));
+    if (stored.specialization.has_value()) {
+        SET_SPEC(&character, *stored.specialization);
+    }
+    apply_stored_value(stored.drunk, GET_COND(&character, DRUNK));
+    apply_stored_value(stored.hunger, GET_COND(&character, FULL));
+    apply_stored_value(stored.thirst, GET_COND(&character, THIRST));
+    apply_stored_value(stored.strength, character.constabilities.str);
+    apply_stored_value(stored.intelligence, character.constabilities.intel);
+    apply_stored_value(stored.will, character.constabilities.wil);
+    apply_stored_value(stored.dexterity, character.constabilities.dex);
+    apply_stored_value(stored.constitution, character.constabilities.con);
+    apply_stored_value(stored.learning, character.constabilities.lea);
+    apply_stored_value(stored.max_stamina, character.constabilities.mana);
+    // affect_total derives an ability's maximum from its base but leaves the current value, which
+    // login keeps; a character with no gear or affects is rested at its base.
+    apply_stored_value(stored.strength, character.tmpabilities.str);
+    apply_stored_value(stored.intelligence, character.tmpabilities.intel);
+    apply_stored_value(stored.will, character.tmpabilities.wil);
+    apply_stored_value(stored.dexterity, character.tmpabilities.dex);
+    apply_stored_value(stored.constitution, character.tmpabilities.con);
+    apply_stored_value(stored.learning, character.tmpabilities.lea);
+}
+
 } // namespace
 
 bool make_fixture_character(const FixtureSpec::Character& spec, const std::string& account_name, long idnum,
@@ -169,7 +222,9 @@ bool make_fixture_character(const FixtureSpec::Character& spec, const std::strin
     for (const std::pair<int, int> skill_practice : spec.skill_practices) {
         out_knowledge.push_back(character->knowledge[skill_practice.first]);
     }
-    // The maximums depend on knowledge (stealth lowers hit points, travelling raises movement).
+    apply_stored_values(spec.stored, *character);
+    // The maximums depend on knowledge (stealth lowers hit points, travelling raises movement)
+    // and on the stored base values.
     affect_total(character.get());
 
     const char* const character_name = GET_NAME(character.get());

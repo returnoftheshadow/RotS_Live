@@ -1,0 +1,1 @@
+blows and deaths: ON_DAMAGE refusing a spell's blow, and ON_DIE speaking and paying experience, or refusing the death

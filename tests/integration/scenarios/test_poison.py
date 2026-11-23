@@ -1,5 +1,9 @@
-"""Poison over game hours: tainted bread hurts a mortal once per granted game hour for its
-duration, then wears off."""
+"""Poison over game hours, and poisoned gear.
+
+Tainted bread hurts a mortal once per granted game hour for its duration, then wears off; the
+sickly amulet hurts whoever puts it on or takes it off, and kills a wearer it leaves with no hit
+points, once.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +12,20 @@ import re
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.characters import IMPLEMENTOR, Character, StoredValues
+from rots_harness.game_text import (
+    CORPSE_CONTENTS_HEADER,
+    EATEN_POISON_REPLY,
+    NEW_BODY_MESSAGE,
+    NOTHING_FOUND_REPLY,
+    POISON_TICK,
+    STOP_USING_FORMAT,
+)
+from rots_harness.immortal_commands import give_new_object, goto, load_mob, wizset
+from rots_harness.replies import SETTLE_SECONDS, reply_to, settled_expect
 from rots_harness.session import GameSession
+from rots_harness.stat_reading import HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, read_stat
+from rots_harness.text_lines import assert_in_order, first_number, lines_after
 
 pytestmark = [pytest.mark.scenario, pytest.mark.poison]
 
@@ -22,46 +38,38 @@ MORTAL = Character(
     load_room=world.ROOM_ARENA_CENTRE,
     class_name="warrior",
 )
-# The tainted bread's virtual number in the test world (tests/integration/world/obj/11.obj).
-TAINTED_BREAD_VNUM = 1139
-# The bread's fill value is 2 and food poison lasts twice its fill, in game hours.
+# The tainted bread's (world.OBJECT_TAINTED_BREAD) fill value is 2 and food poison lasts twice its
+# fill, in game hours.
 POISON_HOURS = 4
 # Damage the first poison tick does; regeneration cannot raise full hit points before it.
 FIRST_TICK_DAMAGE = 5
 # A hunger low enough that eating is allowed (above 20 is too full) and high enough not to
 # reach 0 in this test.
 HUNGER_BEFORE_EATING = 10
-# What the mortal reads after eating the bread.
-EATEN_POISON_MARKER = "Oops, that tasted rather strange!"
-# What the mortal reads on each poison tick.
-POISON_TICK_MARKER = "You writhe in pain as poison courses through your veins."
 # What the mortal reads when the poison wears off.
-POISON_WEARS_OFF_MARKER = "You feel less sick."
-# Seconds to keep reading after an acknowledgement, for text already sent to arrive.
-SETTLE_SECONDS = 1.0
+POISON_WEARS_OFF = "You feel less sick."
 # The score line with current and maximum hit points.
-HIT_POINTS_PATTERN = re.compile(r"You have (-?\d+)/(\d+) hit,")
+SCORE_HIT_POINTS_PATTERN = re.compile(r"You have (-?\d+)/(\d+) hit,")
 
 
-def hit_points(session: GameSession) -> tuple:
-    """The character's current and maximum hit points, read from score."""
+def hit_points(session: GameSession) -> tuple[int, int]:
+    """Return the character's current and maximum hit points, read from score."""
     score = session.command("score").text
-    match = HIT_POINTS_PATTERN.search(score)
+    match = SCORE_HIT_POINTS_PATTERN.search(score)
     assert match is not None, f"no hit-point line in score:\n{score}"
-    return int(match.group(1)), int(match.group(2))
-
-
-def text_after_an_hour(server, session: GameSession, expected_marker: str = "") -> str:
-    """Advances one game hour and returns what the session read during it."""
-    server.advance_hours(1)
-    if expected_marker:
-        return session.expect([expected_marker]) + session.drain(SETTLE_SECONDS)
-    return session.drain(SETTLE_SECONDS)
+    current_hit = int(match.group(1))
+    maximum_hit = int(match.group(2))
+    return current_hit, maximum_hit
 
 
 @pytest.mark.schedule("affect-hours")
 @pytest.mark.characters(IMPLEMENTOR, MORTAL)
 def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server) -> None:
+    """Pins that tainted bread hurts a mortal once in each of POISON_HOURS game hours, then stops.
+
+    The first tick takes FIRST_TICK_DAMAGE from full hit points, and once the poison wears off a
+    further game hour brings no tick.
+    """
     implementor = server.login(IMPLEMENTOR.name)
     mortal = server.login(MORTAL.name)
     mortal_keyword = MORTAL.name.lower()
@@ -71,24 +79,270 @@ def test_tainted_bread_poisons_a_mortal_once_per_game_hour_then_wears_off(server
         f"expected full hit points before eating, got {current_hit}/{maximum_hit}"
     )
 
-    set_hunger = implementor.command(f"wizset {mortal_keyword} hunger {HUNGER_BEFORE_EATING}")
-    assert set_hunger.contains(f"hunger set to {HUNGER_BEFORE_EATING}."), set_hunger.text
-    implementor.command(f"goto {mortal_keyword}")
-    assert implementor.command(f"load obj {TAINTED_BREAD_VNUM}").contains("You create")
-    assert implementor.command(f"give bread {mortal_keyword}").contains("You give")
-    assert mortal.command("eat bread").contains(EATEN_POISON_MARKER)
+    wizset(implementor, mortal_keyword, "hunger", HUNGER_BEFORE_EATING)
+    goto(implementor, mortal_keyword)
+    give_new_object(implementor, world.OBJECT_TAINTED_BREAD, "bread", mortal_keyword)
+    eaten = mortal.command("eat bread")
+    assert eaten.contains(EATEN_POISON_REPLY), eaten.text
 
-    first_hour = text_after_an_hour(server, mortal, POISON_TICK_MARKER)
-    assert first_hour.count(POISON_TICK_MARKER) == 1, first_hour
-    assert hit_points(mortal) == (maximum_hit - FIRST_TICK_DAMAGE, maximum_hit)
+    first_hour = server.text_after_hours(mortal, expected_marker=POISON_TICK)
+    assert first_hour.count(POISON_TICK) == 1, first_hour
+    after_first_tick = hit_points(mortal)
+    assert after_first_tick == (maximum_hit - FIRST_TICK_DAMAGE, maximum_hit), after_first_tick
 
     for hour in range(2, POISON_HOURS + 1):
-        during_hour = text_after_an_hour(server, mortal, POISON_TICK_MARKER)
-        assert during_hour.count(POISON_TICK_MARKER) == 1, f"hour {hour}:\n{during_hour}"
+        during_hour = server.text_after_hours(mortal, expected_marker=POISON_TICK)
+        assert during_hour.count(POISON_TICK) == 1, f"hour {hour}:\n{during_hour}"
 
-    wearing_off = text_after_an_hour(server, mortal, POISON_WEARS_OFF_MARKER)
-    assert POISON_TICK_MARKER not in wearing_off, wearing_off
+    wearing_off = server.text_after_hours(mortal, expected_marker=POISON_WEARS_OFF)
+    assert POISON_TICK not in wearing_off, wearing_off
 
-    after_poison = text_after_an_hour(server, mortal)
-    assert POISON_TICK_MARKER not in after_poison, after_poison
-    assert POISON_WEARS_OFF_MARKER not in after_poison, after_poison
+    after_poison = server.text_after_hours(mortal)
+    assert POISON_TICK not in after_poison, after_poison
+    assert POISON_WEARS_OFF not in after_poison, after_poison
+
+
+# The blow the amulet deals as it goes on or comes off (handler.cpp).
+GEAR_POISON_BLOW = 5
+# The constitution the amulet's wearers are stored with, so the stunned band below is known.
+WEARER_CONSTITUTION = 15
+# A level-20 human warrior in the arena centre with exactly the amulet's blow left in hit points.
+# The amulet's wearers carry no coins, so a corpse holds only what the test gives.
+LAST_BLOW_WEARER = Character(
+    name="Testsickly",
+    race="human",
+    sex="male",
+    level=20,
+    load_room=world.ROOM_ARENA_CENTRE,
+    class_name="warrior",
+    hit=GEAR_POISON_BLOW,
+    stored=StoredValues(con=WEARER_CONSTITUTION, gold=0),
+)
+# The same warrior with two blows left: the amulet going on leaves one, and taking it off the last.
+TWO_BLOW_WEARER = Character(
+    name="Testailing",
+    race="human",
+    sex="male",
+    level=20,
+    load_room=world.ROOM_ARENA_CENTRE,
+    class_name="warrior",
+    hit=2 * GEAR_POISON_BLOW,
+    stored=StoredValues(con=WEARER_CONSTITUTION, gold=0),
+)
+# What the wearer reads as the amulet goes on (wear_message, act_obj2.cpp).
+WEAR_AMULET_REPLY = f"You wear {world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION} around your neck."
+# What the wearer reads as the amulet comes off.
+REMOVE_AMULET_REPLY = STOP_USING_FORMAT.format(world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION)
+# What the wearer reads when the blow leaves it at 0 hit points (damage, fight.cpp).
+STUNNED_MESSAGE = "You're stunned, but will probably regain consciousness again."
+# What the wearer reads when the blow kills it outright in damage() instead (damage, fight.cpp).
+DEAD_MESSAGE = "You are dead!  Sorry..."
+# What the wearer reads as the gear's poison kills it (handler.cpp).
+BODY_FAILED_MESSAGE = "Your body failed to the magic."
+# What the room reads then; format with the wearer as the room sees it.
+COLLAPSES_FORMAT = "{} suddenly collapses on the ground."
+# The part of every corpse's room line that names it a corpse (get_corpse_desc, fight.cpp).
+CORPSE_LINE_PART = "corpse of"
+# The end of the line the room reads as damage() kills a character (IS_DEAD_FORMAT's ending).
+IS_DEAD_END = "is dead!  R.I.P."
+# The current constitution on the stat line the stunned-band margin rests on (do_stat_character,
+# act_wiz.cpp).
+CURRENT_CONSTITUTION_PATTERN = re.compile(r"Con:\s*\[(-?\d+)/(-?\d+)/(-?\d+)\]")
+# The stat line showing no resistance and no vulnerability, which the margin also rests on.
+NO_RESISTANCES_LINE = "RES: <NONE> VUL: <NONE>"
+
+
+def stat_hit_constitution_and_resists_nothing(
+    implementor: GameSession, target: str
+) -> tuple[int, int, bool]:
+    """Return the current hit points and constitution from the reply to `stat <target>`.
+
+    The third value is whether the reply shows no resistance or vulnerability. Asserts both
+    numbers are in the reply.
+    """
+    text = read_stat(implementor, target)
+    hit = first_number(HIT_POINTS_UNSIGNED_MAXIMUM_PATTERN, text)
+    constitution = first_number(CURRENT_CONSTITUTION_PATTERN, text)
+    return hit, constitution, NO_RESISTANCES_LINE in text
+
+
+def assert_blow_leaves_zero(hit_before: int, constitution: int, resists_nothing: bool) -> None:
+    """Assert the amulet's blow leaves exactly 0 hit points and a stunned, not dead, position.
+
+    Margin check (damage and update_pos, fight.cpp), for a wearer at GEAR_POISON_BLOW hit
+    points with constitution WEARER_CONSTITUTION (the porter's is the same band, see its test):
+      dam        = 5, unchanged: check_resistances gives 0 (RES: <NONE> VUL: <NONE>), and no
+                   shield, beorning or fame-war term applies to a plain human or mob
+      GET_HIT    = 5 - 5 = 0; the player-attacker hack (`GET_HIT < 0` sets -20) needs below 0
+      update_pos = 0 > 0 no; 0 <= -GET_CON / 2 = -15 / 2 = -7 no; 0 <= -GET_CON / 4 = -3 no:
+                   STUNNED, so damage() kills nobody and deal_gear_poison_blow's `GET_HIT <= 0`
+                   collapse kills the wearer. The blow draws number(0, 2) for physical
+                   resistance, which a poison blow never uses.
+    """
+    assert resists_nothing, "stat shows a resistance or vulnerability"
+    hit_after = hit_before - GEAR_POISON_BLOW
+    assert hit_after == 0, hit_after
+    assert not hit_after <= -(constitution // 2), (hit_after, constitution)
+    assert not hit_after <= -(constitution // 4), (hit_after, constitution)
+
+
+def corpse_lines(session: GameSession) -> list[str]:
+    """Return the corpse lines of the session's `look`, stripped."""
+    looked = session.command("look").text
+    lines = looked.splitlines()
+    return [line.strip() for line in lines if CORPSE_LINE_PART in line]
+
+
+def corpse_contents(session: GameSession) -> list[str]:
+    """Return the lines `look in corpse` lists after its header, up to the prompt."""
+    looked = session.command("look in corpse").text
+    return lines_after(looked, CORPSE_CONTENTS_HEADER)
+
+
+def hand_amulet_to(implementor: GameSession, wearer: Character) -> None:
+    """Bring the implementor to the wearer, create the amulet and give it to the wearer."""
+    wearer_keyword = wearer.name.lower()
+    goto(implementor, wearer_keyword, world.ROOM_ARENA_CENTRE_NAME, exact=False)
+    give_new_object(
+        implementor,
+        world.OBJECT_SICKLY_AMULET,
+        "amulet",
+        wearer_keyword,
+        shown_recipient=wearer.name,
+        short_description=world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION,
+    )
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, LAST_BLOW_WEARER)
+def test_a_poisoned_amulet_put_on_with_the_last_hit_points_kills_its_wearer_once(server) -> None:
+    """Fix pin (#539): putting on the amulet with exactly its blow left kills the wearer once.
+
+    equip_char's blow (deal_gear_poison_blow, handler.cpp) leaves the wearer at 0 hit points,
+    stunned, and the collapse kills it (raw_kill, fight.cpp). raw_kill marks the wearer dead
+    before the corpse takes its gear, and unequip_char spares the dead. #539 made the wearer die
+    once; before it, the corpse taking the amulet off dealt a second blow to the dying wearer,
+    who died again with a second corpse and the death line of damage(). The wearer wakes in its
+    start room with 1 hit point (a death with no killer and no poison attack type, raw_kill), and
+    the one corpse holds the amulet. No roll decides any of this (assert_blow_leaves_zero).
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    wearer = server.login(LAST_BLOW_WEARER.name)
+    hand_amulet_to(implementor, LAST_BLOW_WEARER)
+    stat_target = f"player {LAST_BLOW_WEARER.name.lower()}"
+    stat_values = stat_hit_constitution_and_resists_nothing(implementor, stat_target)
+    assert_blow_leaves_zero(*stat_values)
+
+    died = reply_to(wearer, "wear amulet", [NEW_BODY_MESSAGE])
+    expected_order = [
+        WEAR_AMULET_REPLY,
+        STUNNED_MESSAGE,
+        BODY_FAILED_MESSAGE,
+        NEW_BODY_MESSAGE,
+        world.ROOM_HUMAN_START_NAME,
+    ]
+    assert_in_order(died, expected_order)
+    assert DEAD_MESSAGE not in died, died
+    collapse = COLLAPSES_FORMAT.format(LAST_BLOW_WEARER.name)
+    seen = settled_expect(implementor, [collapse])
+    assert seen.count(collapse) == 1, seen
+
+    corpses = corpse_lines(implementor)
+    assert len(corpses) == 1, corpses
+    contents = corpse_contents(implementor)
+    assert contents == [world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION], contents
+    woken = stat_hit_constitution_and_resists_nothing(implementor, stat_target)
+    assert woken[0] == 1, woken
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR, TWO_BLOW_WEARER)
+def test_a_poisoned_amulet_taken_off_with_the_last_hit_points_kills_its_wearer_who_keeps_it(server) -> None:
+    """Legacy pin: taking off the amulet with exactly its blow left kills the wearer, who keeps it.
+
+    The wearer wakes in its start room holding the amulet. The amulet going on costs one blow,
+    leaving one. Taking it off deals the last
+    (unequip_char, handler.cpp) before the remove command has put it anywhere: the collapse
+    kills the wearer (raw_kill, fight.cpp), whose corpse takes nothing of the amulet, and only
+    then does the remove put it in the inventory of the wearer, now in its start room, and say
+    so. The wearer wakes with 1 hit point. No roll decides any of this (assert_blow_leaves_zero).
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    wearer = server.login(TWO_BLOW_WEARER.name)
+    hand_amulet_to(implementor, TWO_BLOW_WEARER)
+    worn = wearer.command("wear amulet")
+    assert worn.contains(WEAR_AMULET_REPLY), worn.text
+    assert BODY_FAILED_MESSAGE not in worn.text, worn.text
+    stat_target = f"player {TWO_BLOW_WEARER.name.lower()}"
+    stat_values = stat_hit_constitution_and_resists_nothing(implementor, stat_target)
+    assert_blow_leaves_zero(*stat_values)
+
+    died = reply_to(wearer, "remove amulet", [REMOVE_AMULET_REPLY])
+    expected_order = [
+        STUNNED_MESSAGE,
+        BODY_FAILED_MESSAGE,
+        NEW_BODY_MESSAGE,
+        world.ROOM_HUMAN_START_NAME,
+        REMOVE_AMULET_REPLY,
+    ]
+    assert_in_order(died, expected_order)
+    assert DEAD_MESSAGE not in died, died
+    collapse = COLLAPSES_FORMAT.format(TWO_BLOW_WEARER.name)
+    seen = settled_expect(implementor, [collapse])
+    assert seen.count(collapse) == 1, seen
+
+    carried = wearer.command("inventory").text
+    assert world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION in carried, carried
+    looked = wearer.command("look")
+    assert looked.room_name() == world.ROOM_HUMAN_START_NAME, looked.text
+    corpses = corpse_lines(implementor)
+    assert len(corpses) == 1, corpses
+    contents = corpse_contents(implementor)
+    assert contents == [], contents
+    woken = stat_hit_constitution_and_resists_nothing(implementor, stat_target)
+    assert woken[0] == 1, woken
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.characters(IMPLEMENTOR)
+def test_a_mob_made_to_put_on_a_poisoned_amulet_with_the_last_hit_points_dies_once(server) -> None:
+    """Fix pin (#539, #547): a mob the amulet kills as it goes on dies once and its corpse holds it.
+
+    The porter, forced to wear the amulet at exactly its blow, is stunned at 0 hit points and the
+    collapse kills it (deal_gear_poison_blow, handler.cpp; raw_kill frees a mob). The one corpse
+    holds the amulet and the server stays up to show it. #539 made the mob die once; before it,
+    the corpse taking the amulet off dealt a second blow that killed the mob again inside the
+    first death, freeing it while the first death still used it. No roll decides any of this
+    (assert_blow_leaves_zero, with the porter's own constitution read from stat).
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME, exact=False)
+    load_mob(implementor, world.MOB_PORTER, world.MOB_PORTER_SHORT_DESCRIPTION)
+    give_new_object(
+        implementor,
+        world.OBJECT_SICKLY_AMULET,
+        "amulet",
+        "porter",
+        shown_recipient=world.MOB_PORTER_SHORT_DESCRIPTION,
+        short_description=world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION,
+    )
+    wizset(implementor, "mob porter", "hit", GEAR_POISON_BLOW)
+    hit, constitution, resists_nothing = stat_hit_constitution_and_resists_nothing(implementor, "mob porter")
+    # The porter's constitution is its own (mob/17.mob), not WEARER_CONSTITUTION: read and assert
+    # it, so the stunned band in assert_blow_leaves_zero holds for it too.
+    assert constitution >= 4, constitution
+    assert_blow_leaves_zero(hit, constitution, resists_nothing)
+
+    forced_reply = implementor.command("force porter wear amulet")
+    forced = forced_reply.text + implementor.drain(SETTLE_SECONDS)
+    porter_wears = f"A porter wears {world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION} around his neck."
+    porter_collapses = COLLAPSES_FORMAT.format("A porter")
+    assert_in_order(forced, [porter_wears, porter_collapses])
+    assert IS_DEAD_END not in forced, forced
+
+    corpses = corpse_lines(implementor)
+    assert len(corpses) == 1, corpses
+    contents = corpse_contents(implementor)
+    assert contents == [world.OBJECT_SICKLY_AMULET_SHORT_DESCRIPTION], contents
+    porters = implementor.command("where porter").text
+    assert NOTHING_FOUND_REPLY in porters, porters

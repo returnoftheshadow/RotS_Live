@@ -367,6 +367,102 @@ TEST(RotstoolFixtureSpec, RefusesPracticesOutOfRange)
     }
 }
 
+TEST(RotstoolFixtureSpec, ParsesStoredValuesIntoTheirFields)
+{
+    FixtureSpec spec;
+    std::string error_message;
+    const std::string text = spec_with_character("", R"("set": { "gold": 500, "spirit": 120, "alignment": -1000,
+        "specialization": "Wild Fighting", "hunger": 10, "thirst": -1, "drunk": 24, "str": 40, "int": 0,
+        "wil": 12, "dex": 13, "con": 14, "lea": 15, "maxstamina": 5000, "hit": 20 })");
+    ASSERT_TRUE(parse_fixture_spec(text, spec, error_message)) << error_message;
+
+    const FixtureSpec::StoredValues& stored = spec.characters[0].stored;
+    EXPECT_EQ(stored.gold, 500);
+    EXPECT_EQ(stored.spirit, 120);
+    EXPECT_EQ(stored.alignment, -1000);
+    EXPECT_EQ(stored.specialization, PLRSPEC_WILD);
+    EXPECT_EQ(stored.hunger, 10);
+    EXPECT_EQ(stored.thirst, -1);
+    EXPECT_EQ(stored.drunk, 24);
+    EXPECT_EQ(stored.strength, 40);
+    EXPECT_EQ(stored.intelligence, 0);
+    EXPECT_EQ(stored.will, 12);
+    EXPECT_EQ(stored.dexterity, 13);
+    EXPECT_EQ(stored.constitution, 14);
+    EXPECT_EQ(stored.learning, 15);
+    EXPECT_EQ(stored.max_stamina, 5000);
+    EXPECT_EQ(spec.characters[0].hit, 20);
+}
+
+TEST(RotstoolFixtureSpec, LeavesStoredValuesTheSpecDoesNotSetUnset)
+{
+    FixtureSpec spec;
+    std::string error_message;
+    ASSERT_TRUE(parse_fixture_spec(spec_with_character("", R"("set": { "gold": 1 })"), spec, error_message))
+        << error_message;
+
+    const FixtureSpec::StoredValues& stored = spec.characters[0].stored;
+    EXPECT_EQ(stored.gold, 1);
+    EXPECT_FALSE(stored.spirit.has_value());
+    EXPECT_FALSE(stored.specialization.has_value());
+    EXPECT_FALSE(stored.learning.has_value());
+    EXPECT_FALSE(stored.max_stamina.has_value());
+}
+
+TEST(RotstoolFixtureSpec, RefusesStoredValuesOutsideTheirWizsetLimits)
+{
+    // A stored value just outside its limits and the limits the refusal names.
+    struct OutOfRangeValue {
+        // The set object's key.
+        std::string key;
+        // The value given, one past a limit.
+        int value;
+        // The lowest value the key accepts.
+        int minimum;
+        // The highest value the key accepts.
+        int maximum;
+    };
+    const std::vector<OutOfRangeValue> out_of_range_values = {
+        { "gold", MIN_GOLD - 1, MIN_GOLD, MAX_GOLD },
+        { "gold", MAX_GOLD + 1, MIN_GOLD, MAX_GOLD },
+        { "alignment", -MAX_ALIGNMENT - 1, -MAX_ALIGNMENT, MAX_ALIGNMENT },
+        { "alignment", MAX_ALIGNMENT + 1, -MAX_ALIGNMENT, MAX_ALIGNMENT },
+        { "hunger", CONDITION_OFF - 1, CONDITION_OFF, MAX_CONDITION },
+        { "thirst", MAX_CONDITION + 1, CONDITION_OFF, MAX_CONDITION },
+        { "drunk", MAX_CONDITION + 1, CONDITION_OFF, MAX_CONDITION },
+        { "str", MIN_BASE_ABILITY - 1, MIN_BASE_ABILITY, MAX_BASE_ABILITY },
+        { "int", MAX_BASE_ABILITY + 1, MIN_BASE_ABILITY, MAX_BASE_ABILITY },
+        { "wil", MAX_BASE_ABILITY + 1, MIN_BASE_ABILITY, MAX_BASE_ABILITY },
+        { "dex", MAX_BASE_ABILITY + 1, MIN_BASE_ABILITY, MAX_BASE_ABILITY },
+        { "con", MAX_BASE_ABILITY + 1, MIN_BASE_ABILITY, MAX_BASE_ABILITY },
+        { "lea", MAX_BASE_ABILITY + 1, MIN_BASE_ABILITY, MAX_BASE_ABILITY },
+        { "maxstamina", MIN_BASE_STAMINA - 1, MIN_BASE_STAMINA, MAX_BASE_STAMINA },
+        { "maxstamina", MAX_BASE_STAMINA + 1, MIN_BASE_STAMINA, MAX_BASE_STAMINA },
+    };
+    for (const OutOfRangeValue& out_of_range : out_of_range_values) {
+        const std::string value = std::to_string(out_of_range.value);
+        const std::string error_message
+            = parse_error_of(spec_with_character("", "\"set\": { \"" + out_of_range.key + "\": " + value + " }"));
+        const std::string expected = "'set': '" + out_of_range.key + "': " + value + " is outside "
+            + std::to_string(out_of_range.minimum) + " to " + std::to_string(out_of_range.maximum);
+        EXPECT_TRUE(contains(error_message, expected)) << out_of_range.key << " " << value << ": " << error_message;
+    }
+}
+
+TEST(RotstoolFixtureSpec, RefusesAnUnknownSpecialization)
+{
+    const std::string error_message
+        = parse_error_of(spec_with_character("", R"("set": { "specialization": "juggling" })"));
+    EXPECT_TRUE(contains(error_message, "'set': 'specialization': 'juggling' is not a specialization"))
+        << error_message;
+}
+
+TEST(RotstoolFixtureSpec, RefusesAWizsetFieldTheSpecDoesNotStore)
+{
+    const std::string error_message = parse_error_of(spec_with_character("", R"("set": { "practices": 5 })"));
+    EXPECT_TRUE(contains(error_message, "'set': Unknown key 'practices'")) << error_message;
+}
+
 TEST(RotstoolFixtureSpec, RefusesAnEmptyCharacterList)
 {
     const std::string error_message = parse_error_of(spec_with_characters(""));

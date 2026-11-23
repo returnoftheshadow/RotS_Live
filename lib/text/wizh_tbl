@@ -328,6 +328,29 @@ Examples:
 > vault take bobsmith 1 3
 > vault put bobsmith 1 coins 5 gold
 #
+RESTYLE
+
+Usage:
+> restyle <object> <vnum>
+> restyle <player> <object> <vnum>
+
+Changes an item in your inventory or equipment, or in a player's, to
+another look of the same object. A look is a skin: an object with its
+own vnum and text that takes every stat from a base object. The item
+and the vnum must be in the same family: the base and its skins.
+
+Only items held directly can be named, not items inside a container; a
+script (RESTYLE_OBJ) can restyle an item anywhere. The item keeps its
+place (worn slot, inventory position) and its state. It takes the new
+look's text, cost and material. A player whose item you restyle is
+told, without your name.
+Use stat on an object to see its family: a skin shows Skin of, a base
+shows Skins. Every restyle is logged with the owner's idnum.
+
+Examples:
+> restyle sword 4513
+> restyle aragorn sword 4514
+#
 GAMEOPTIONS
 
 Usage:
