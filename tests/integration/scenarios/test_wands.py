@@ -1,6 +1,7 @@
 """Wands and staves, used until their charges run out.
 
-A wand's spell on its own user and on an object, its charges, and a staff with none left.
+A wand's spell on its own user and on an object, its charges, a staff with none left, and a
+spell that needs a victim cast with nobody to work on.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ import pytest
 
 from rots_harness import world
 from rots_harness.characters import IMPLEMENTOR, Character
+from rots_harness.game_log import wait_for_log_count
 from rots_harness.immortal_commands import give_new_object, goto
 from rots_harness.session import GameSession
 from rots_harness.stat_reading import read_stat
@@ -35,6 +37,8 @@ INSIGHT_WAND_VNUM = 2101
 ENCHANTING_WAND_VNUM = 2102
 # Zone 21's ash staff of insight, with no charge left.
 EMPTY_STAFF_VNUM = 2104
+# Zone 21's elm staff of insight, with 1 charge.
+CHARGED_STAFF_VNUM = 2105
 
 # What the wielder reads as he holds the insight wand (wear_message, act_obj2.cpp).
 GRAB_INSIGHT_WAND_REPLY = "You grab a birch wand of insight."
@@ -42,11 +46,17 @@ GRAB_INSIGHT_WAND_REPLY = "You grab a birch wand of insight."
 GRAB_ENCHANTING_WAND_REPLY = "You grab an oak wand of enchanting."
 # What the wielder reads as he holds the staff.
 GRAB_STAFF_REPLY = "You grab an ash staff of insight."
+# What the wielder reads as he holds the charged staff.
+GRAB_CHARGED_STAFF_REPLY = "You grab an elm staff of insight."
 
 # What the user reads when pointing the insight wand at himself (do_use, act_othe.cpp).
 POINT_INSIGHT_REPLY = "You point a birch wand of insight at Testwielder."
 # What the room reads then.
 WIELDER_POINTS_INSIGHT = "Testwielder points a birch wand of insight at Testwielder."
+# What the user reads when pointing the insight wand at the sword.
+POINT_INSIGHT_AT_SWORD_REPLY = "You point a birch wand of insight at a plain steel sword."
+# What the room reads then.
+WIELDER_POINTS_INSIGHT_AT_SWORD = "Testwielder points a birch wand of insight at a plain steel sword."
 # What the user reads when insight takes (spell_insight, mystic.cpp).
 INSIGHT_REPLY = "The world seems to gain a few edges for you."
 # What the user reads when insight finds him already insightful.
@@ -63,10 +73,17 @@ WAND_POWERLESS_REPLY = "The wand seems powerless."
 TAP_REPLY = "You tap an ash staff of insight three times on the ground."
 # What the room reads then.
 WIELDER_TAPS = "Testwielder taps an ash staff of insight three times on the ground."
+# What the user reads when tapping the charged staff.
+CHARGED_TAP_REPLY = "You tap an elm staff of insight three times on the ground."
+# What the room reads then.
+WIELDER_TAPS_CHARGED = "Testwielder taps an elm staff of insight three times on the ground."
 # What the user reads when a staff has no charge left.
 STAFF_POWERLESS_REPLY = "The staff seems powerless."
 # What do_use answers when a staff or a wand whose spell needs a victim has none.
 NOTHING_HAPPENS_REPLY = "Nothing seems to happen."
+# The part of the SYSERR line spell_lacks_victim (spell_pa.cpp) logs when a spell that needs a
+# victim has none.
+NO_VICTIM_SYSERR_PART = "has nobody to work on"
 # The stat line of insight's affect (do_stat_character, act_wiz.cpp).
 INSIGHT_AFFECT_LINE = "insight               +50 to PERCEPTION"
 # The stat line of the enchanted sword's affect (do_stat_object, act_wiz.cpp).
@@ -155,9 +172,8 @@ def test_a_staff_with_no_charge_left_is_tapped_and_seems_powerless(server) -> No
     """Pins tapping a staff whose spell needs a victim, with no charge left.
 
     The wielder holds the ash staff of insight, which has no charge, and taps it: he and the room
-    read the tapping, and he reads that the staff seems powerless; no spell is cast. The staff
-    has no charge: one cast at nobody logs a SYSERR, which fails any scenario. Nothing on this
-    path draws.
+    read the tapping, and he reads that the staff seems powerless; no spell is cast, so nothing is
+    logged. Nothing on this path draws.
     """
     implementor, wielder = meet_the_wielder(server)
     hand_object(implementor, EMPTY_STAFF_VNUM, "staff")
@@ -171,3 +187,68 @@ def test_a_staff_with_no_charge_left_is_tapped_and_seems_powerless(server) -> No
     assert NOTHING_HAPPENS_REPLY not in reply, reply
     room = implementor.expect([WIELDER_TAPS])
     assert room.count(WIELDER_TAPS) == 1, room
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.expect_syserr(NO_VICTIM_SYSERR_PART)
+@pytest.mark.characters(IMPLEMENTOR, WIELDER)
+def test_a_wand_of_insight_pointed_at_a_sword_does_nothing_and_then_runs_out(server) -> None:
+    """Fix pin (#561): a wand whose spell needs a victim, pointed at an object, does nothing.
+
+    The wielder points the wand of insight, 2 charges, at a plain steel sword he carries, three
+    times. Each charge is spent, and each time he reads that nothing seems to happen and the game
+    logs one SYSERR; the third finds the wand powerless. He never gains insight, and the server
+    is still up to show his stat. #561 made the spell refuse the missing victim; before it,
+    insight used the missing victim and crashed the server. Nothing on this path draws: do_use
+    has no roll, and spell_lacks_victim stops insight before its save.
+    """
+    implementor, wielder = meet_the_wielder(server)
+    hand_object(implementor, INSIGHT_WAND_VNUM, "wand")
+    hand_object(implementor, world.OBJECT_PLAIN_STEEL_SWORD, "sword")
+    held = wielder.command("hold wand")
+    assert held.contains(GRAB_INSIGHT_WAND_REPLY), held.text
+
+    outcomes = [INSIGHT_REPLY, INSIGHT_ALREADY_REPLY, WAND_POWERLESS_REPLY, NOTHING_HAPPENS_REPLY]
+    expected = (NOTHING_HAPPENS_REPLY, NOTHING_HAPPENS_REPLY, WAND_POWERLESS_REPLY)
+    for expected_outcome in expected:
+        used = wielder.command("use wand sword")
+        reply = used.text
+        assert reply.count(POINT_INSIGHT_AT_SWORD_REPLY) == 1, reply
+        assert [outcome for outcome in outcomes if outcome in reply] == [expected_outcome], reply
+        room = implementor.expect([WIELDER_POINTS_INSIGHT_AT_SWORD])
+        assert room.count(WIELDER_POINTS_INSIGHT_AT_SWORD) == 1, room
+
+    wait_for_log_count(server.handle.log_path, NO_VICTIM_SYSERR_PART, 2, exact=True)
+    stat = read_stat(implementor, f"player {WIELDER_KEYWORD}")
+    assert INSIGHT_AFFECT_LINE not in stat, stat
+
+
+@pytest.mark.schedule("affect-hours")
+@pytest.mark.expect_syserr(NO_VICTIM_SYSERR_PART)
+@pytest.mark.characters(IMPLEMENTOR, WIELDER)
+def test_a_staff_of_insight_with_a_charge_does_nothing_and_then_seems_powerless(server) -> None:
+    """Fix pin (#561): a staff whose spell needs a victim casts it at nobody, and nothing happens.
+
+    The wielder taps the elm staff of insight, 1 charge, twice. The first tap spends the charge:
+    he reads that nothing seems to happen and the game logs one SYSERR. The second finds the
+    staff powerless. He never gains insight, and the server is still up to show his stat. #561
+    made the spell refuse the missing victim; before it, insight used the missing victim and
+    crashed the server. Nothing on this path draws.
+    """
+    implementor, wielder = meet_the_wielder(server)
+    hand_object(implementor, CHARGED_STAFF_VNUM, "staff")
+    held = wielder.command("hold staff")
+    assert held.contains(GRAB_CHARGED_STAFF_REPLY), held.text
+
+    outcomes = [INSIGHT_REPLY, STAFF_POWERLESS_REPLY, NOTHING_HAPPENS_REPLY]
+    for expected_outcome in (NOTHING_HAPPENS_REPLY, STAFF_POWERLESS_REPLY):
+        used = wielder.command("use staff")
+        reply = used.text
+        assert reply.count(CHARGED_TAP_REPLY) == 1, reply
+        assert [outcome for outcome in outcomes if outcome in reply] == [expected_outcome], reply
+        room = implementor.expect([WIELDER_TAPS_CHARGED])
+        assert room.count(WIELDER_TAPS_CHARGED) == 1, room
+
+    wait_for_log_count(server.handle.log_path, NO_VICTIM_SYSERR_PART, 1, exact=True)
+    stat = read_stat(implementor, f"player {WIELDER_KEYWORD}")
+    assert INSIGHT_AFFECT_LINE not in stat, stat
