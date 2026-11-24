@@ -10,6 +10,16 @@ static_assert(std::is_unsigned<char>::value,
 
 extern room_data world;
 
+// AddressSanitizer's defaults for the unit tests: the ASan CI job's ASAN_OPTIONS
+// (.github/workflows/asan.yml; keep the two in step). An ASAN_OPTIONS variable still overrides
+// them. Leak checks stay off because LeakSanitizer needs ptrace, which qemu-i386 lacks, and that
+// is how Docker on Apple silicon runs this 32-bit binary: every exit, so every death test, would
+// spin forever.
+extern "C" const char* __asan_default_options()
+{
+    return "detect_leaks=0:detect_container_overflow=0:exitcode=23";
+}
+
 #ifdef TESTING
 int main(int argc, char* argv[])
 {
