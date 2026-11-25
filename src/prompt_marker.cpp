@@ -19,13 +19,13 @@ constexpr char GO_AHEAD_MARKER[] = { TELNET_IAC, TELNET_GA };
 
 } // namespace
 
-std::string_view prompt_end_marker(bool client_agreed_eor, bool client_suppressed_ga)
+std::string_view prompt_end_marker(EorAgreement eor, GoAhead go_ahead)
 {
-    if (client_agreed_eor) {
+    if (eor == EorAgreement::Agreed) {
         return std::string_view(END_OF_RECORD_MARKER, sizeof(END_OF_RECORD_MARKER));
     }
 
-    if (client_suppressed_ga) {
+    if (go_ahead == GoAhead::Suppressed) {
         return std::string_view();
     }
 

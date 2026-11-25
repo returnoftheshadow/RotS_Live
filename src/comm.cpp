@@ -1160,18 +1160,28 @@ static void close_finished_connections()
 
 // Writes a prompt and the client's end-of-prompt marker in one write, refilling out_prompt_bytes
 // as the buffer. Returns write_to_descriptor()'s result for the whole write.
-static int write_prompt_with_marker(const descriptor_data* point, std::string& out_prompt_bytes,
+static int write_prompt_with_marker(const descriptor_data* connection, std::string& out_prompt_bytes,
     std::string_view prompt_text)
 {
     out_prompt_bytes.assign(prompt_text);
-    // Every listed descriptor gets its protocol in new_descriptor() and loses it only in
-    // close_socket(), so a null protocol is a descriptor a unit fixture built by hand.
-    const protocol_t* protocol = point->pProtocol;
+    // Only a descriptor a unit fixture built by hand has no protocol.
+    const protocol_t* protocol = connection->pProtocol;
     if (protocol != nullptr) {
-        out_prompt_bytes.append(prompt_end_marker(protocol->bEOR, protocol->bSGA));
+        EorAgreement eor = EorAgreement::Refused;
+        if (protocol->bEOR) {
+            eor = EorAgreement::Agreed;
+        }
+
+        GoAhead go_ahead = GoAhead::Sent;
+        if (protocol->bSGA) {
+            go_ahead = GoAhead::Suppressed;
+        }
+
+        const std::string_view marker = prompt_end_marker(eor, go_ahead);
+        out_prompt_bytes.append(marker);
     }
 
-    return write_to_descriptor(point->descriptor, out_prompt_bytes.c_str());
+    return write_to_descriptor(connection->descriptor, out_prompt_bytes.c_str());
 }
 
 /* Sends a prompt to each connection that has been sent something this pulse. */
