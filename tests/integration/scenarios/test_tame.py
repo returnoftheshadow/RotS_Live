@@ -75,8 +75,6 @@ WOLF_VNUM = 1452
 OWL_VNUM = 1453
 # A target orc (mob 1130, 30 hit points), which the boar is set on in the pen gate.
 TARGET_ORC_VNUM = 1130
-# A hardy target orc (mob 1135, 900 hit points), which the tame fights in the whistle hub.
-HARDY_ORC_VNUM = 1135
 # The test world's zone 18, the boar pen.
 BOAR_ZONE = 18
 # The end of the implementor's reply to `zreset 18` (do_zreset, act_wiz.cpp).
@@ -273,7 +271,7 @@ def set_tame_on_hardy_orc(implementor: GameSession, tamer: GameSession) -> None:
     points, and the affect-hours schedule runs no combat rounds after it.
     """
     goto_anywhere(implementor, ROOM_WHISTLE_HUB)
-    load_mob(implementor, HARDY_ORC_VNUM)
+    load_mob(implementor, world.MOB_HARDY_TARGET_ORC)
     ordered = reply_to(tamer, "order boar kill target", [BOAR_ATTACKS_HARDY_ORC, *ORDER_REFUSALS])
     assert BOAR_ATTACKS_HARDY_ORC in ordered, ordered
     fighting = stat_mob(implementor, BOAR_KEYWORD)

@@ -13,8 +13,9 @@ from collections.abc import Iterable
 import pytest
 
 from rots_harness import world
-from rots_harness.characters import custom_mage
-from rots_harness.game_text import TEXT_EDITOR_PROMPT
+from rots_harness.characters import IMPLEMENTOR, custom_mage
+from rots_harness.game_text import PURGED_REPLY, TEXT_EDITOR_PROMPT
+from rots_harness.immortal_commands import goto, load_mob
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
 from rots_harness.replies import reply_to
 from rots_harness.session import CSI_PATTERN, GameSession
@@ -44,6 +45,7 @@ from rots_harness.telnet_payloads import (
     MSDP_VAL,
     MSDP_VAR,
     TTYPE_SEND,
+    MsdpValue,
     decode_charset_request,
     decode_msdp,
     decode_mssp,
@@ -237,6 +239,34 @@ FIRST_REPORTABLE_VARIABLE = "CHARACTER_NAME"
 # The leading names the legacy pin expects at the start of the reportable-variables list.
 LEADING_REPORTABLE_VARIABLES = ["", FIRST_REPORTABLE_VARIABLE]
 
+# The GUI variable holding the Score button: its label, then the command a click sends.
+SCORE_BUTTON_VARIABLE = "BUTTON_3"
+
+# The Score button as the legacy pin expects it, sending help.
+SCORE_BUTTON_SENDING_HELP = ["Score", "help"]
+
+# The variable holding the opponent's health as a percentage, 0 out of a fight.
+OPPONENT_HEALTH_VARIABLE = "OPPONENT_HEALTH"
+
+# The variable the Opponent gauge (GAUGE_5) divides OPPONENT_HEALTH by.
+OPPONENT_HEALTH_MAX_VARIABLE = "OPPONENT_HEALTH_MAX"
+
+# Both opponent gauge variables out of a fight.
+NO_OPPONENT_VALUE = "0"
+
+# The keyword the mage attacks the hardy target orc by; no other test-world mob answers to it.
+HARDY_ORC_KEYWORD = "hardy"
+
+# What the mage reads as it attacks the hardy target orc (do_hit, act_offe.cpp).
+MAGE_ATTACKS_HARDY_ORC_REPLY = f"You attack {world.MOB_HARDY_TARGET_ORC_SHORT_DESCRIPTION}!"
+
+# What hit answers when no visible character in the room has the keyword (do_hit).
+TARGET_ABSENT_REPLY = "They aren't here."
+
+# The game hours of anger a player's blow at a mob gives (on_attacked_character,
+# char_utils_combat.cpp); do_quit (act_othe.cpp) refuses anyone angry.
+ANGER_HOURS = 2
+
 
 def events_in_direction(game_session: GameSession, direction: TelnetDirection) -> list[TelnetEvent]:
     """Return the session's telnet events in one direction, text included, oldest first."""
@@ -364,6 +394,75 @@ def is_ttype_send(payload: bytes) -> bool:
 def is_empty(payload: bytes) -> bool:
     """Return whether a subnegotiation carries no payload."""
     return payload == b""
+
+
+def next_msdp_value(game_session: GameSession, variable: str) -> MsdpValue:
+    """Claim the oldest unclaimed MSDP frame setting variable and return its value.
+
+    Fails the test when none arrives.
+    """
+    start = frame_start(variable)
+    frame = game_session.expect_subnegotiation(
+        OPTION_MSDP, matching=lambda payload: payload.startswith(start)
+    )
+    variables = decode_msdp(frame.event.payload)
+    return variables[variable]
+
+
+def received_msdp_values(game_session: GameSession, variable: str) -> list[MsdpValue]:
+    """Return every value received so far in MSDP frames setting variable, oldest first."""
+    start = frame_start(variable)
+    received = events_in_direction(game_session, TelnetDirection.RECEIVED)
+    payloads = subnegotiation_payloads(received, OPTION_MSDP)
+    return [decode_msdp(payload)[variable] for payload in payloads if payload.startswith(start)]
+
+
+def turn_msdp_on(game_session: GameSession) -> None:
+    """Turn the session's msdp preference on, asserting the game's reply."""
+    reply = game_session.command(MSDP_ON_COMMAND)
+    assert MSDP_ON_REPLY in reply.text, reply.text
+
+
+def start_fight_reporting_opponent_gauge(server) -> tuple[GameSession, GameSession]:
+    """Set the mage, reporting the opponent gauge's variables, on the hardy target orc.
+
+    Returns the implementor and the mage. The mage reports both variables before turning msdp on,
+    so each arrives once as 0 before the attack; OPPONENT_HEALTH then arrives as a percentage after
+    it. End the fight with end_fight, since a fighting character cannot quit. do_hit (act_offe.cpp) runs one hit(), and
+    every way out of hit() sets both sides fighting: a dodge or parry falls through to
+    set_fighting, and a blow calls damage(), which sets them. The orc's 900 hit points outlast the
+    blow, and the affect-hours schedule runs no combat round after it, so the fight lasts until
+    the orc is purged.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    goto(implementor, world.ROOM_ARENA_CENTRE, world.ROOM_ARENA_CENTRE_NAME)
+    load_mob(implementor, world.MOB_HARDY_TARGET_ORC, world.MOB_HARDY_TARGET_ORC_SHORT_DESCRIPTION)
+
+    mage = server.login(MAGE.name, client=MSDP_CLIENT)
+    gauge_variables = (OPPONENT_HEALTH_VARIABLE, OPPONENT_HEALTH_MAX_VARIABLE)
+    for variable in gauge_variables:
+        mage.send_msdp("REPORT", variable)
+    turn_msdp_on(mage)
+    for variable in gauge_variables:
+        assert next_msdp_value(mage, variable) == NO_OPPONENT_VALUE, wire_listing(mage)
+
+    attacked = reply_to(
+        mage, f"hit {HARDY_ORC_KEYWORD}", [MAGE_ATTACKS_HARDY_ORC_REPLY, TARGET_ABSENT_REPLY]
+    )
+    assert MAGE_ATTACKS_HARDY_ORC_REPLY in attacked, attacked
+    health = next_msdp_value(mage, OPPONENT_HEALTH_VARIABLE)
+    assert isinstance(health, str) and 1 <= int(health) <= 100, wire_listing(mage)
+    return implementor, mage
+
+
+def end_fight(server, implementor: GameSession) -> None:
+    """Purge the hardy target orc, ending the mage's fight, then run the hours its anger lasts.
+
+    The frames the purge brings stay claimable; the hours only let the mage quit.
+    """
+    purged = implementor.command(f"purge {HARDY_ORC_KEYWORD}")
+    assert purged.contains(PURGED_REPLY), purged.text
+    server.advance_hours(ANGER_HOURS + 1)
 
 
 @pytest.mark.characters(MAGE)
@@ -686,3 +785,32 @@ def test_the_text_editor_prompt_is_followed_by_ga(server) -> None:
     mage.command(TEXT_EDITOR_ABORT_COMMAND)
     assert editor_markers, wire_listing(mage)
     assert all(command == COMMAND_GA for _, command in editor_markers), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_the_score_button_sends_help(server) -> None:
+    """Legacy pin: MSDP SEND BUTTON_3 answers the Score button with help as its command.
+
+    This becomes a strict xfail when the button sends score.
+    """
+    mage = server.login(MAGE.name, client=MSDP_CLIENT)
+    turn_msdp_on(mage)
+    mage.send_msdp("SEND", SCORE_BUTTON_VARIABLE)
+    button = next_msdp_value(mage, SCORE_BUTTON_VARIABLE)
+    assert button == SCORE_BUTTON_SENDING_HELP, wire_listing(mage)
+
+
+@pytest.mark.characters(IMPLEMENTOR, MAGE)
+@pytest.mark.schedule("affect-hours")
+def test_the_opponent_gauge_has_no_maximum_in_a_fight(server) -> None:
+    """Legacy pin: OPPONENT_HEALTH_MAX stays at the 0 it reported with while the mage fights.
+
+    This becomes a strict xfail when the maximum is 100 in a fight.
+    """
+    implementor, mage = start_fight_reporting_opponent_gauge(server)
+    # A maximum set in the fight would come in the same update as OPPONENT_HEALTH; read on through
+    # a few more updates.
+    mage.drain()
+    maximums = received_msdp_values(mage, OPPONENT_HEALTH_MAX_VARIABLE)
+    end_fight(server, implementor)
+    assert maximums == [NO_OPPONENT_VALUE], wire_listing(mage)

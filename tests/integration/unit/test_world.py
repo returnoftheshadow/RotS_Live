@@ -41,6 +41,7 @@ OBJECT_SHORT_DESCRIPTIONS = [
 MOB_SHORT_DESCRIPTIONS = [
     (world.MOB_INNKEEPER, "the harness innkeeper"),
     (world.MOB_BYSTANDER_ORC, "a bystander orc"),
+    (world.MOB_HARDY_TARGET_ORC, "a hardy target orc"),
     (world.MOB_SHINING_ANGEL, "a shining angel"),
     (world.MOB_STRAW_SCARECROW, "a straw scarecrow"),
     (world.MOB_MYSTERIOUS_TRAVELLER, "a mysterious traveller"),

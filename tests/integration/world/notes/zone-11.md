@@ -65,7 +65,7 @@ its line reads exactly.
 | 1132 | `bystander orc` | involved in nothing, there to be splashed |
 | 1133 | `brute orc` | hits very hard |
 | 1134 | `pet orc` | carries the `MOB_PET` flag (act flags `2097154`) |
-| 1135 | `target orc hardy` | a target that outlives several ticks of damage |
+| 1135 | `target orc hardy` | a target that outlives several ticks of damage, and under `affect-hours` keeps a fight going after the one blow that starts it; `world.MOB_HARDY_TARGET_ORC`, used by `test_tame.py` and `test_telnet_clients.py` |
 | 1136 | `steward` | runs script 1101 when it hears someone speak (its script number is the 5th value of its last line); speaks the common tongue (language 0); used by `test_skins.py` |
 | 1160 | `zerostam mob` | a stamina-less mob: the bystander orc with no maximum moves; neither has any maximum stamina (`0 0 0 1` and `0 0 50 1` lines) |
 | 1161 | `pony harness` | a harness pony: act flags `514` (`SENTINEL`, `MOB_MOUNT`), so a player can `ride` it; no moves, so it never takes a step |
