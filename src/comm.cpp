@@ -36,6 +36,7 @@
 #include "limits.h"
 #include "mob_progs/banker.h"
 #include "note_writing.h"
+#include "prompt_marker.h"
 #include "protocol.h"
 #include "script.h"
 #include "signal_requests.h"
@@ -1157,6 +1158,22 @@ static void close_finished_connections()
     }
 }
 
+// Writes a prompt and the client's end-of-prompt marker in one write, refilling out_prompt_bytes
+// as the buffer. Returns write_to_descriptor()'s result for the whole write.
+static int write_prompt_with_marker(const descriptor_data* point, std::string& out_prompt_bytes,
+    std::string_view prompt_text)
+{
+    out_prompt_bytes.assign(prompt_text);
+    // Every listed descriptor gets its protocol in new_descriptor() and loses it only in
+    // close_socket(), so a null protocol is a descriptor a unit fixture built by hand.
+    const protocol_t* protocol = point->pProtocol;
+    if (protocol != nullptr) {
+        out_prompt_bytes.append(prompt_end_marker(protocol->bEOR, protocol->bSGA));
+    }
+
+    return write_to_descriptor(point->descriptor, out_prompt_bytes.c_str());
+}
+
 /* Sends a prompt to each connection that has been sent something this pulse. */
 static void send_prompts()
 {
@@ -1165,6 +1182,8 @@ static void send_prompts()
     struct descriptor_data* point;
     int tmp;
     char disp, tmpflag;
+    // The prompt and its marker for the write in progress, reused across descriptors.
+    std::string prompt_bytes;
 
     for (point = descriptor_list; point; point = point->next)
         if (point->prompt_mode && point->descriptor) {
@@ -1178,14 +1197,16 @@ static void send_prompts()
                    write, -2 on EAGAIN (nothing written), -1 fatal --
                    only a real 0 leaves a bare prompt dangling on the
                    wire that later needs its leading break. */
-                if (write_to_descriptor(point->descriptor, "] ") == 0)
+                if (write_prompt_with_marker(point, prompt_bytes, "] ") == 0) {
                     point->bare_prompt_pending = true;
+                }
             } else if (!point->connected) {
                 if (point->showstr_point) {
-                    if (write_to_descriptor(point->descriptor,
+                    if (write_prompt_with_marker(point, prompt_bytes,
                             "*** Press return to continue, q to quit ***")
-                        == 0)
+                        == 0) {
                         point->bare_prompt_pending = true;
+                    }
                 } else { /*if point->showstr_point */
                     struct char_data* opponent;
                     struct char_data* tank;
@@ -1279,8 +1300,9 @@ static void send_prompts()
                     else
                         tmpflag = 1;
                     if (tmpflag) {
-                        if (write_to_descriptor(point->descriptor, pptr) == 0)
+                        if (write_prompt_with_marker(point, prompt_bytes, pptr) == 0) {
                             point->bare_prompt_pending = true;
+                        }
                     }
                 }
             }
