@@ -21,7 +21,13 @@ POISON_SCENARIO = "tests/integration/scenarios/test_poison.py"
 # The poison scenario's source.
 POISON_SOURCE = "pytestmark = [pytest.mark.scenario, pytest.mark.poison]\n"
 # The base the tests name.
-BASE = "origin/release-frodo-next"
+BASE = "origin/release-frodo"
+# The default base: release-frodo, the active development branch.
+DEFAULT_BASE = "origin/release-frodo"
+# The repository's top-level Makefile, which passes the default base to changed_groups.
+MAKEFILE_PATH = Path(__file__).resolve().parents[3] / "Makefile"
+# The Makefile line that sets the base when BASE is not on the make command line.
+MAKEFILE_DEFAULT_BASE_LINE = f"INTEGRATION_CHANGED_BASE := {DEFAULT_BASE}"
 # The commit BASE resolves to.
 BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 # The git argument list changed_paths runs for committed changes since the base's merge base.
@@ -86,6 +92,15 @@ def test_a_file_renamed_out_of_the_harness_runs_every_group() -> None:
     })
     selection = select(*changed_groups.changed_paths(BASE_COMMIT, fake_git))
     assert selection.groups is None
+
+
+def test_changes_are_measured_from_release_frodo_by_default() -> None:
+    assert changed_groups.DEFAULT_BASE == DEFAULT_BASE
+
+
+def test_make_integration_changed_defaults_to_the_same_base() -> None:
+    makefile_lines = MAKEFILE_PATH.read_text(encoding="utf-8").splitlines()
+    assert MAKEFILE_DEFAULT_BASE_LINE in makefile_lines
 
 
 def test_resolve_base_names_the_commit_with_options_ended() -> None:
