@@ -28,14 +28,28 @@ from rots_harness.telnet import (
     OPTION_TTYPE,
     WILL,
     WONT,
+    TelnetCommand,
     TelnetEvent,
     TelnetNegotiation,
     TelnetSubnegotiation,
     TelnetText,
     describe_event,
 )
-from rots_harness.telnet_payloads import MSDP_VAL, MSDP_VAR, TTYPE_SEND, decode_msdp, decode_mssp
-from rots_harness.telnet_profile import FULL_CLIENT, MSDP_CLIENT, REFUSING_CLIENT
+from rots_harness.telnet_payloads import (
+    CHARSET_REJECTED,
+    MSDP_VAL,
+    MSDP_VAR,
+    TTYPE_SEND,
+    decode_charset_request,
+    decode_msdp,
+    decode_mssp,
+)
+from rots_harness.telnet_profile import (
+    FULL_CLIENT,
+    MSDP_CLIENT,
+    REFUSING_CLIENT,
+    TelnetClientProfile,
+)
 from rots_harness.telnet_record import TelnetDirection
 
 pytestmark = [pytest.mark.scenario, pytest.mark.telnet]
@@ -121,6 +135,64 @@ SERVER_STATUS = {
 # channel.
 MXP_SECURE_CHANNEL = "\x1b[7z"
 
+# The options TINTIN_CLIENT accepts when the server offers them.
+TINTIN_CLIENT_OPTIONS = frozenset(
+    (OPTION_TTYPE, OPTION_ECHO, OPTION_NAWS, OPTION_CHARSET, OPTION_MSDP, OPTION_MSSP)
+)
+
+# TinTin++ 2.02.61 running a script that handles MSDP, as client mappers do; without one it
+# refuses MSDP and leaves MSSP unanswered. Its window size stands in for the real terminal's.
+TINTIN_CLIENT = TelnetClientProfile(
+    name="tintin",
+    answers_negotiation=True,
+    accepted_options=TINTIN_CLIENT_OPTIONS,
+    terminal_types=("TINTIN++", "xterm-256color", "MTTS 2831"),
+    window_size=(120, 40),
+    charsets=("UTF-8",),
+)
+
+# How many times the server asks TINTIN_CLIENT for a terminal type: once for each of its three
+# names, and once more for the repeat.
+TINTIN_CLIENT_TTYPE_REQUESTS = 4
+
+# The client variables MSDP SEND reports for TINTIN_CLIENT's terminal types. The first terminal
+# type becomes CLIENT_ID, and MTTS 2831 holds the ANSI (1), UTF-8 (4) and 256-colour (8) bits.
+# CLIENT_VERSION keeps its default: the MTTS number goes only to the variable's number, and the
+# variable is sent as text.
+TINTIN_CLIENT_VARIABLES = {
+    "CLIENT_ID": "TINTIN++",
+    "CLIENT_VERSION": "Unknown",
+    "ANSI_COLORS": "1",
+    "XTERM_256_COLORS": "1",
+    "UTF_8": "1",
+}
+
+# The character sets the server's CHARSET request offers.
+SERVER_CHARSETS = ["ISO-8859-1"]
+
+# TINTIN_CLIENT's CHARSET reply: REJECTED, since the server offers no UTF-8.
+TINTIN_CLIENT_CHARSET_REPLIES = [bytes([CHARSET_REJECTED])]
+
+# The telnet option for End of Record, which lets a server mark the end of a prompt.
+OPTION_EOR = 25
+
+# The commands that mark the end of a prompt: GA (249) and EOR (239).
+PROMPT_MARKER_COMMANDS = (249, 239)
+
+# A command whose reply ends at the in-game prompt.
+LOOK_COMMAND = "look"
+
+# The variable an MSDP LIST REPORTABLE_VARIABLES reply sets.
+MSDP_REPORTABLE_VARIABLE = "REPORTABLE_VARIABLES"
+
+# The start of the MSDP frame that sets REPORTABLE_VARIABLES.
+REPORTABLE_FRAME_START = (
+    bytes([MSDP_VAR]) + MSDP_REPORTABLE_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
+)
+
+# The leading names of the server's reportable-variables list.
+LEADING_REPORTABLE_VARIABLES = ["", "CHARACTER_NAME"]
+
 
 def events_in_direction(game_session: GameSession, direction: TelnetDirection) -> list[TelnetEvent]:
     """Return the session's telnet events in one direction, text included, oldest first."""
@@ -181,6 +253,25 @@ def sets_msdp_commands(payload: bytes) -> bool:
 def sets_room_vnum(payload: bytes) -> bool:
     """Return whether an MSDP frame sets the ROOM_VNUM variable."""
     return payload.startswith(ROOM_VNUM_FRAME_START)
+
+
+def sets_reportable_variables(payload: bytes) -> bool:
+    """Return whether an MSDP frame sets the REPORTABLE_VARIABLES variable."""
+    return payload.startswith(REPORTABLE_FRAME_START)
+
+
+def frame_start(variable: str) -> bytes:
+    """Return the bytes an MSDP frame setting variable starts with."""
+    return bytes([MSDP_VAR]) + variable.encode("ascii") + bytes([MSDP_VAL])
+
+
+def wait_for_ttype_cycle(game_session: GameSession, requests: int) -> None:
+    """Wait until the server has asked for a terminal type requests times.
+
+    Fails the test when a request does not arrive.
+    """
+    for _ in range(requests):
+        game_session.expect_subnegotiation(OPTION_TTYPE, matching=is_ttype_send)
 
 
 def is_ttype_send(payload: bytes) -> bool:
@@ -308,3 +399,90 @@ def test_a_full_client_receives_mssp_and_the_mxp_acknowledgement(server) -> None
     mage.expect_subnegotiation(OPTION_MXP, matching=is_empty)
     mage.login()
     assert MXP_SECURE_CHANNEL in mage.everything_raw, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_tintin_client_is_identified_from_its_terminal_types(server) -> None:
+    """Legacy pin: the client variables the server takes from TinTin++'s terminal types.
+
+    CLIENT_VERSION stays Unknown. The server answers MSDP SEND only for a character in game with
+    msdp on. This becomes a strict xfail when the server reads more of MTTS.
+    """
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    wait_for_ttype_cycle(mage, TINTIN_CLIENT_TTYPE_REQUESTS)
+    mage.login()
+    reply = mage.command(MSDP_ON_COMMAND)
+    assert MSDP_ON_REPLY in reply.text, reply.text
+
+    reported: dict[str, object] = {}
+    for variable in TINTIN_CLIENT_VARIABLES:
+        mage.send_msdp("SEND", variable)
+        start = frame_start(variable)
+        frame = mage.expect_subnegotiation(
+            OPTION_MSDP, matching=lambda payload, start=start: payload.startswith(start)
+        )
+        decoded = decode_msdp(frame.event.payload)
+        reported.update(decoded)
+
+    assert reported == TINTIN_CLIENT_VARIABLES, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_tintin_client_rejects_the_servers_only_character_set(server) -> None:
+    """Legacy pin: the server offers only ISO-8859-1, and TinTin++ rejects it.
+
+    This becomes a strict xfail when the server offers UTF-8.
+    """
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    request = mage.expect_subnegotiation(OPTION_CHARSET)
+    charsets = decode_charset_request(request.event.payload)
+    assert charsets == SERVER_CHARSETS, wire_listing(mage)
+
+    mage.login()
+    sent = events_in_direction(mage, TelnetDirection.SENT)
+    sent_charset_payloads = subnegotiation_payloads(sent, OPTION_CHARSET)
+    assert sent_charset_payloads == TINTIN_CLIENT_CHARSET_REPLIES, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_tintin_client_gets_no_end_of_prompt_marker(server) -> None:
+    """Legacy pin: the server neither offers EOR nor ends any prompt with GA or EOR.
+
+    Checked through login and the prompt after an in-game command. This becomes a strict xfail
+    when the server marks its prompts.
+    """
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    mage.login()
+    reply = mage.command(LOOK_COMMAND)
+    assert reply.text, wire_listing(mage)
+
+    received = events_in_direction(mage, TelnetDirection.RECEIVED)
+    eor_offers = [
+        event
+        for event in received
+        if isinstance(event, TelnetNegotiation) and event.option == OPTION_EOR
+    ]
+    assert not eor_offers, wire_listing(mage)
+
+    prompt_markers = [
+        event
+        for event in received
+        if isinstance(event, TelnetCommand) and event.command in PROMPT_MARKER_COMMANDS
+    ]
+    assert not prompt_markers, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_tintin_clients_reportable_variables_list_starts_with_an_empty_name(server) -> None:
+    """Legacy pin: MSDP LIST REPORTABLE_VARIABLES answers an array whose first name is empty.
+
+    This becomes a strict xfail when the list holds only real names.
+    """
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    mage.expect_subnegotiation(OPTION_CHARSET)
+    mage.send_msdp("LIST", MSDP_REPORTABLE_VARIABLE)
+    reply = mage.expect_subnegotiation(OPTION_MSDP, matching=sets_reportable_variables)
+    variables = decode_msdp(reply.event.payload)
+    names = variables[MSDP_REPORTABLE_VARIABLE]
+    leading_names = names[: len(LEADING_REPORTABLE_VARIABLES)]
+    assert leading_names == LEADING_REPORTABLE_VARIABLES, wire_listing(mage)
