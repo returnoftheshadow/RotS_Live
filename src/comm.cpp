@@ -823,18 +823,19 @@ void msdp_update()
         MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
-        if (opponent && utils::is_npc(*opponent)) {
+        if (opponent) {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH_MAX, OPPONENT_HEALTH_MAX_IN_FIGHT);
-            MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
-            MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, std::to_string(GET_LEVEL(opponent)).c_str());
-            MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
-        } else if (opponent && utils::is_pc(*opponent)) {
-            MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
-            MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH_MAX, OPPONENT_HEALTH_MAX_IN_FIGHT);
-            MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
-            MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");
-            MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
+            if (utils::is_npc(*opponent)) {
+                MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
+                MSDPSetString(desc, eMSDP_OPPONENT_LEVEL,
+                              std::to_string(GET_LEVEL(opponent)).c_str());
+                MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
+            } else {
+                MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
+                MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");
+                MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
+            }
         } else {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, 0);
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH_MAX, 0);
