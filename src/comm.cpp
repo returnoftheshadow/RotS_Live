@@ -1158,12 +1158,17 @@ static void close_finished_connections()
     }
 }
 
-// Writes a prompt and the client's end-of-prompt marker in one write, refilling out_prompt_bytes
-// as the buffer. Returns write_to_descriptor()'s result for the whole write.
-static int write_prompt_with_marker(const descriptor_data* connection, std::string& out_prompt_bytes,
-    std::string_view prompt_text)
+// Room for the longest prompt send_prompts() builds, its end-of-prompt marker and a terminating
+// NUL: the prompt buffer holds MAX_INPUT_LENGTH bytes, its own NUL included.
+constexpr std::size_t PROMPT_BYTES_CAPACITY = MAX_INPUT_LENGTH + PROMPT_END_MARKER_MAX_LENGTH;
+
+// Writes a prompt and the client's end-of-prompt marker in one write, using out_prompt_bytes as
+// the buffer. A prompt too long for it goes out without its marker. Returns
+// write_to_descriptor()'s result for the whole write.
+static int write_prompt_with_marker(const descriptor_data* connection,
+    char (&out_prompt_bytes)[PROMPT_BYTES_CAPACITY], const char* prompt_text)
 {
-    out_prompt_bytes.assign(prompt_text);
+    std::string_view marker;
     // Only a descriptor a unit fixture built by hand has no protocol.
     const protocol_t* protocol = connection->pProtocol;
     if (protocol != nullptr) {
@@ -1177,11 +1182,20 @@ static int write_prompt_with_marker(const descriptor_data* connection, std::stri
             go_ahead = GoAhead::Suppressed;
         }
 
-        const std::string_view marker = prompt_end_marker(eor, go_ahead);
-        out_prompt_bytes.append(marker);
+        marker = prompt_end_marker(eor, go_ahead);
     }
 
-    return write_to_descriptor(connection->descriptor, out_prompt_bytes.c_str());
+    const std::string_view prompt_view(prompt_text);
+    const bool composed = compose_prompt_with_marker(
+        prompt_view, marker, out_prompt_bytes, sizeof(out_prompt_bytes));
+    if (!composed) {
+        vmudlog(NRM,
+            "%s: descriptor %d: a %zu-byte prompt overflows its %zu-byte buffer; sent unmarked.",
+            __func__, connection->descriptor, prompt_view.size(), sizeof(out_prompt_bytes));
+        return write_to_descriptor(connection->descriptor, prompt_text);
+    }
+
+    return write_to_descriptor(connection->descriptor, out_prompt_bytes);
 }
 
 /* Sends a prompt to each connection that has been sent something this pulse. */
@@ -1193,7 +1207,7 @@ static void send_prompts()
     int tmp;
     char disp, tmpflag;
     // The prompt and its marker for the write in progress, reused across descriptors.
-    std::string prompt_bytes;
+    char prompt_bytes[PROMPT_BYTES_CAPACITY];
 
     for (point = descriptor_list; point; point = point->next)
         if (point->prompt_mode && point->descriptor) {
