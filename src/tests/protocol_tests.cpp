@@ -546,6 +546,8 @@ TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
     EXPECT_FALSE(protocol->bMSP);
     EXPECT_FALSE(protocol->bMXP);
     EXPECT_FALSE(protocol->bMCCP);
+    EXPECT_FALSE(protocol->bEOR);
+    EXPECT_FALSE(protocol->bSGA);
     EXPECT_EQ(protocol->b256Support, eUNKNOWN);
     EXPECT_EQ(protocol->ScreenWidth, 0);
     EXPECT_EQ(protocol->ScreenHeight, 0);
@@ -609,7 +611,8 @@ TEST(MSDPProtocol, TTypeNegotiationRequestsFullProtocolSet)
             + telnet_sequence(WILL, TELOPT_MSSP)
             + telnet_sequence(DO, TELOPT_ATCP)
             + telnet_sequence(WILL, TELOPT_MSP)
-            + telnet_sequence(DO, TELOPT_MXP));
+            + telnet_sequence(DO, TELOPT_MXP)
+            + telnet_sequence(WILL, TELOPT_EOR));
 }
 
 TEST(MSDPProtocol, NegotiatesAndRejectsMSDPSupport)

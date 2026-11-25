@@ -112,6 +112,8 @@ typedef enum {
     eNEGOTIATED_MXP,
     eNEGOTIATED_MXP2,
     eNEGOTIATED_MCCP,
+    eNEGOTIATED_EOR,
+    eNEGOTIATED_SGA,
 
     eNEGOTIATED_MAX /* This must always be last */
 } negotiated_t;
@@ -287,6 +289,8 @@ struct protocol_t {
     bool bMSP; /* The client supports MSP */
     bool bMXP; /* The client supports MXP */
     bool bMCCP; /* The client supports MCCP */
+    bool bEOR; /* The client agreed to IAC EOR after each prompt */
+    bool bSGA; /* The client asked the server to suppress go-ahead */
     support_t b256Support; /* The client supports XTerm 256 colors */
     int ScreenWidth; /* The client's screen width */
     int ScreenHeight; /* The client's screen height */
