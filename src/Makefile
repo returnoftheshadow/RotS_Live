@@ -98,6 +98,7 @@ SOURCES := \
     pkill.cpp \
     player_file_finalize.cpp \
     profs.cpp \
+    prompt_marker.cpp \
     protocol.cpp \
     ranger.cpp \
     real_time_tick_schedule.cpp \
