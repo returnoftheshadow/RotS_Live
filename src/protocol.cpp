@@ -325,6 +325,8 @@ protocol_t* ProtocolCreate(void)
     pProtocol->bMSP = false;
     pProtocol->bMXP = false;
     pProtocol->bMCCP = false;
+    pProtocol->bEOR = false;
+    pProtocol->bSGA = false;
     pProtocol->b256Support = eUNKNOWN;
     pProtocol->ScreenWidth = 0;
     pProtocol->ScreenHeight = 0;
@@ -1697,6 +1699,7 @@ static void Negotiate(const descriptor_t* apDescriptor)
         ConfirmNegotiation(apDescriptor, eNEGOTIATED_MSP, true, true);
         ConfirmNegotiation(apDescriptor, eNEGOTIATED_MXP, true, true);
         ConfirmNegotiation(apDescriptor, eNEGOTIATED_MCCP, true, true);
+        ConfirmNegotiation(apDescriptor, eNEGOTIATED_EOR, true, true);
     }
 }
 
@@ -1968,6 +1971,33 @@ static void PerformHandshake(const descriptor_t* apDescriptor, char aCmd, char a
         }
         break;
 
+    case (char)TELOPT_EOR:
+        if (aCmd == (char)DO) {
+            ConfirmNegotiation(apDescriptor, eNEGOTIATED_EOR, true, true);
+            pProtocol->bEOR = true;
+        } else if (aCmd == (char)DONT) {
+            ConfirmNegotiation(apDescriptor, eNEGOTIATED_EOR, false, pProtocol->bEOR);
+            pProtocol->bEOR = false;
+        } else if (aCmd == (char)WILL) {
+            /* Invalid negotiation, send a rejection */
+            SendNegotiationSequence(apDescriptor, (char)DONT, (char)aProtocol);
+        }
+        break;
+
+    case (char)TELOPT_SGA:
+        if (aCmd == (char)DO) {
+            /* The client wants no IAC GA after prompts. */
+            ConfirmNegotiation(apDescriptor, eNEGOTIATED_SGA, true, true);
+            pProtocol->bSGA = true;
+        } else if (aCmd == (char)DONT) {
+            ConfirmNegotiation(apDescriptor, eNEGOTIATED_SGA, false, pProtocol->bSGA);
+            pProtocol->bSGA = false;
+        } else if (aCmd == (char)WILL) {
+            /* Invalid negotiation, send a rejection */
+            SendNegotiationSequence(apDescriptor, (char)DONT, (char)aProtocol);
+        }
+        break;
+
     default:
         if (aCmd == (char)WILL) {
             /* Invalid negotiation, send a rejection */
@@ -2223,6 +2253,12 @@ static bool ConfirmNegotiation(const descriptor_t* apDescriptor, negotiated_t aP
 #ifdef USING_MCCP
                     SendNegotiationSequence(apDescriptor, abWillDo ? WILL : WONT, TELOPT_MCCP);
 #endif /* USING_MCCP */
+                    break;
+                case eNEGOTIATED_EOR:
+                    SendNegotiationSequence(apDescriptor, abWillDo ? WILL : WONT, TELOPT_EOR);
+                    break;
+                case eNEGOTIATED_SGA:
+                    SendNegotiationSequence(apDescriptor, abWillDo ? WILL : WONT, TELOPT_SGA);
                     break;
                 default:
                     bResult = false;

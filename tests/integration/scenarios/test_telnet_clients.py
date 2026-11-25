@@ -1,19 +1,23 @@
 """Telnet clients: each harness client profile negotiating with the real server.
 
 Each profile is answered as the server's protocol code says it should be: the options offered,
-the terminal type cycle, the character set, MSDP, MSSP and the MXP acknowledgement.
+the terminal type cycle, the character set, MSDP, MSSP, the MXP acknowledgement and the marker
+that ends each prompt.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterable
 
 import pytest
 
 from rots_harness import world
 from rots_harness.characters import custom_mage
+from rots_harness.game_text import TEXT_EDITOR_PROMPT
 from rots_harness.launcher import LOGIN_EMAIL_PROMPT
-from rots_harness.session import GameSession
+from rots_harness.replies import reply_to
+from rots_harness.session import CSI_PATTERN, GameSession
 from rots_harness.telnet import (
     DO,
     DONT,
@@ -135,9 +139,31 @@ SERVER_STATUS = {
 # channel.
 MXP_SECURE_CHANNEL = "\x1b[7z"
 
-# The options TINTIN_CLIENT accepts when the server offers them.
+# The telnet option for End of Record, which lets a server mark the end of a prompt.
+OPTION_EOR = 25
+
+# The telnet option for Suppress Go-Ahead; a client sends DO SGA to stop GA after prompts.
+OPTION_SGA = 3
+
+# The go-ahead command byte, which follows IAC to end a prompt for a client without EOR.
+COMMAND_GA = 249
+
+# The end-of-record command byte, which follows IAC to end a prompt for a client that agreed to
+# EOR.
+COMMAND_EOR = 239
+
+# The options TINTIN_CLIENT accepts when the server offers them. TinTin++ answers the server's
+# WILL EOR with DO EOR without a script.
 TINTIN_CLIENT_OPTIONS = frozenset(
-    (OPTION_TTYPE, OPTION_ECHO, OPTION_NAWS, OPTION_CHARSET, OPTION_MSDP, OPTION_MSSP)
+    (
+        OPTION_TTYPE,
+        OPTION_ECHO,
+        OPTION_NAWS,
+        OPTION_CHARSET,
+        OPTION_MSDP,
+        OPTION_MSSP,
+        OPTION_EOR,
+    )
 )
 
 # TinTin++ 2.02.61 running a script that handles MSDP, as client mappers do; without one it
@@ -173,11 +199,26 @@ SERVER_CHARSETS = ["ISO-8859-1"]
 # TINTIN_CLIENT's CHARSET reply: REJECTED, since the server offers no UTF-8.
 TINTIN_CLIENT_CHARSET_REPLIES = [bytes([CHARSET_REJECTED])]
 
-# The telnet option for End of Record, which lets a server mark the end of a prompt.
-OPTION_EOR = 25
+# The commands that mark the end of a prompt.
+PROMPT_MARKER_COMMANDS = (COMMAND_GA, COMMAND_EOR)
 
-# The commands that mark the end of a prompt: GA (249) and EOR (239).
-PROMPT_MARKER_COMMANDS = (249, 239)
+# A protocol client that refuses EOR and, once it asks for suppress-go-ahead, agrees when the
+# server answers WILL SGA rather than refusing it.
+GO_AHEAD_SUPPRESSING_CLIENT = dataclasses.replace(
+    MSDP_CLIENT,
+    name="go-ahead-suppressing",
+    accepted_options=MSDP_CLIENT.accepted_options | {OPTION_SGA},
+)
+
+# The command that opens the text editor on the character's own description.
+TEXT_EDITOR_OPEN_COMMAND = "set description"
+
+# The text editor's command that abandons the text and leaves the editor (string_add, modify.cpp).
+TEXT_EDITOR_ABORT_COMMAND = "%q"
+
+# The last characters of a prompt: the game prompt's ">", the shaping prompt's "]" and the text
+# editor's "] " once its space is stripped.
+PROMPT_ENDINGS = (">", "]")
 
 # A command whose reply ends at the in-game prompt.
 LOOK_COMMAND = "look"
@@ -272,6 +313,44 @@ def wait_for_ttype_cycle(game_session: GameSession, requests: int) -> None:
     """
     for _ in range(requests):
         game_session.expect_subnegotiation(OPTION_TTYPE, matching=is_ttype_send)
+
+
+def received_prompt_markers(game_session: GameSession) -> list[tuple[str, int]]:
+    """Return each received GA or EOR with the text received just before it, oldest first.
+
+    The text has its colour codes and trailing spaces removed. A marker whose previous event is
+    not text pairs with "".
+    """
+    markers: list[tuple[str, int]] = []
+    previous_text = ""
+    received = events_in_direction(game_session, TelnetDirection.RECEIVED)
+    for event in received:
+        if isinstance(event, TelnetText):
+            previous_text = event.data.decode("latin-1")
+        elif isinstance(event, TelnetCommand) and event.command in PROMPT_MARKER_COMMANDS:
+            colourless_text = CSI_PATTERN.sub("", previous_text)
+            cleaned = colourless_text.rstrip()
+            markers.append((cleaned, event.command))
+            previous_text = ""
+        else:
+            previous_text = ""
+    return markers
+
+
+def follows_a_prompt(marker: tuple[str, int]) -> bool:
+    """Return whether a marker from received_prompt_markers comes right after a prompt's end."""
+    text, _ = marker
+    return text.endswith(PROMPT_ENDINGS)
+
+
+def log_in_and_look(game_session: GameSession) -> None:
+    """Log in, send look, read its reply up to the prompt, and read whatever follows the prompt."""
+    game_session.login()
+    reply = game_session.command(LOOK_COMMAND)
+    assert reply.text, wire_listing(game_session)
+
+    # A marker can arrive after the prompt text, in a later read.
+    game_session.drain()
 
 
 def is_ttype_send(payload: bytes) -> bool:
@@ -445,6 +524,11 @@ def test_a_tintin_client_rejects_the_servers_only_character_set(server) -> None:
 
 
 @pytest.mark.characters(MAGE)
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="the server offers EOR and ends each prompt with EOR or GA",
+)
 def test_a_tintin_client_gets_no_end_of_prompt_marker(server) -> None:
     """Legacy pin: the server neither offers EOR nor ends any prompt with GA or EOR.
 
@@ -486,3 +570,98 @@ def test_a_tintin_clients_reportable_variables_list_starts_with_an_empty_name(se
     names = variables[MSDP_REPORTABLE_VARIABLE]
     leading_names = names[: len(LEADING_REPORTABLE_VARIABLES)]
     assert leading_names == LEADING_REPORTABLE_VARIABLES, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_client_that_agrees_to_eor_gets_eor_after_each_prompt(server) -> None:
+    """Pins IAC EOR, offered and agreed, after every prompt a TinTin++ client receives."""
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    mage.expect_negotiation(WILL, OPTION_EOR)
+    log_in_and_look(mage)
+    markers = received_prompt_markers(mage)
+    assert markers, wire_listing(mage)
+    assert all(command == COMMAND_EOR for _, command in markers), wire_listing(mage)
+    assert all(follows_a_prompt(marker) for marker in markers), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_client_that_refuses_eor_gets_ga_after_each_prompt(server) -> None:
+    """Pins IAC GA after every prompt a client that refused EOR receives."""
+    mage = server.connect(MAGE.name, client=MSDP_CLIENT)
+    log_in_and_look(mage)
+    markers = received_prompt_markers(mage)
+    assert markers, wire_listing(mage)
+    assert all(command == COMMAND_GA for _, command in markers), wire_listing(mage)
+    assert all(follows_a_prompt(marker) for marker in markers), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_silent_client_gets_ga_after_each_prompt(server) -> None:
+    """Pins IAC GA after every prompt a client that never answers negotiation receives."""
+    mage = server.connect(MAGE.name)
+    log_in_and_look(mage)
+    markers = received_prompt_markers(mage)
+    assert markers, wire_listing(mage)
+    assert all(command == COMMAND_GA for _, command in markers), wire_listing(mage)
+    assert all(follows_a_prompt(marker) for marker in markers), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_client_that_suppresses_go_ahead_gets_no_prompt_marker(server) -> None:
+    """Pins WILL SGA in answer to DO SGA, and no GA or EOR after any prompt from then on."""
+    mage = server.connect(MAGE.name, client=GO_AHEAD_SUPPRESSING_CLIENT)
+    mage.send_negotiation(DO, OPTION_SGA)
+    mage.expect_negotiation(WILL, OPTION_SGA)
+    log_in_and_look(mage)
+    assert not received_prompt_markers(mage), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_client_that_turns_eor_off_gets_ga_again(server) -> None:
+    """Pins WONT EOR in answer to DONT EOR, and IAC GA after the prompts that follow."""
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    log_in_and_look(mage)
+    mage.send_negotiation(DONT, OPTION_EOR)
+    mage.expect_negotiation(WONT, OPTION_EOR)
+    reply = mage.command(LOOK_COMMAND)
+    assert reply.text, wire_listing(mage)
+
+    mage.drain()
+    markers = received_prompt_markers(mage)
+    assert markers, wire_listing(mage)
+    assert markers[-1][1] == COMMAND_GA, wire_listing(mage)
+    assert follows_a_prompt(markers[-1]), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_client_that_stops_suppressing_go_ahead_gets_ga_again(server) -> None:
+    """Pins WONT SGA in answer to DONT SGA, and IAC GA after the prompts that follow."""
+    mage = server.connect(MAGE.name, client=GO_AHEAD_SUPPRESSING_CLIENT)
+    mage.send_negotiation(DO, OPTION_SGA)
+    mage.expect_negotiation(WILL, OPTION_SGA)
+    log_in_and_look(mage)
+    mage.send_negotiation(DONT, OPTION_SGA)
+    mage.expect_negotiation(WONT, OPTION_SGA)
+    reply = mage.command(LOOK_COMMAND)
+    assert reply.text, wire_listing(mage)
+
+    mage.drain()
+    markers = received_prompt_markers(mage)
+    assert markers, wire_listing(mage)
+    assert markers[-1][1] == COMMAND_GA, wire_listing(mage)
+    assert follows_a_prompt(markers[-1]), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_the_text_editor_prompt_is_followed_by_ga(server) -> None:
+    """Pins IAC GA after the text editor's prompt, which `set description` opens."""
+    mage = server.connect(MAGE.name, client=MSDP_CLIENT)
+    mage.login()
+    reply_to(mage, TEXT_EDITOR_OPEN_COMMAND, [TEXT_EDITOR_PROMPT])
+    editor_prompt = TEXT_EDITOR_PROMPT.rstrip()
+    markers = received_prompt_markers(mage)
+    editor_markers = [marker for marker in markers if marker[0].endswith(editor_prompt)]
+    # Leave the editor first, so the test ends at the game prompt whatever the assertions find.
+    mage.command(TEXT_EDITOR_ABORT_COMMAND)
+    assert editor_markers, wire_listing(mage)
+    assert all(command == COMMAND_GA for _, command in editor_markers), wire_listing(mage)

@@ -145,6 +145,7 @@ set(ROTS_SERVER_SOURCES
     pkill.cpp
     player_file_finalize.cpp
     profs.cpp
+    prompt_marker.cpp
     protocol.cpp
     ranger.cpp
     real_time_tick_schedule.cpp
@@ -291,6 +292,7 @@ set(ROTS_TEST_SOURCES
     tests/olog_hai_tests.cpp
     tests/password_login_only_tests.cpp
     tests/number_text_tests.cpp
+    tests/prompt_marker_tests.cpp
     tests/obj_flag_data_tests.cpp
     tests/object_skins_tests.cpp
     tests/object_text_tests.cpp

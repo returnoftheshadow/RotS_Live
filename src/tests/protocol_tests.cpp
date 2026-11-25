@@ -546,6 +546,8 @@ TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
     EXPECT_FALSE(protocol->bMSP);
     EXPECT_FALSE(protocol->bMXP);
     EXPECT_FALSE(protocol->bMCCP);
+    EXPECT_FALSE(protocol->bEOR);
+    EXPECT_FALSE(protocol->bSGA);
     EXPECT_EQ(protocol->b256Support, eUNKNOWN);
     EXPECT_EQ(protocol->ScreenWidth, 0);
     EXPECT_EQ(protocol->ScreenHeight, 0);
@@ -609,7 +611,8 @@ TEST(MSDPProtocol, TTypeNegotiationRequestsFullProtocolSet)
             + telnet_sequence(WILL, TELOPT_MSSP)
             + telnet_sequence(DO, TELOPT_ATCP)
             + telnet_sequence(WILL, TELOPT_MSP)
-            + telnet_sequence(DO, TELOPT_MXP));
+            + telnet_sequence(DO, TELOPT_MXP)
+            + telnet_sequence(WILL, TELOPT_EOR));
 }
 
 TEST(MSDPProtocol, NegotiatesAndRejectsMSDPSupport)
@@ -638,6 +641,87 @@ TEST(MSDPProtocol, NegotiatesAndRejectsMSDPSupport)
     EXPECT_TRUE(context.descriptor.pProtocol->bMSDP);
     EXPECT_EQ(context.read_output(),
         telnet_sequence(WILL, TELOPT_MSDP) + expected_msdp_pair("SERVER_ID", MUD_NAME));
+}
+
+// The EOR and SGA tests below read replies the protocol code writes straight to the descriptor's
+// socket, so they use ProtocolDescriptor's POSIX socketpair.
+TEST(MSDPProtocol, AcceptsOfferedEndOfRecordWithoutAnotherOffer)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    feed_protocol_input(&context.descriptor, telnet_sequence(WILL, TELOPT_TTYPE), output);
+    context.read_output();
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(DO, TELOPT_EOR), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_EOR]);
+    EXPECT_TRUE(context.descriptor.pProtocol->bEOR);
+    EXPECT_EQ(context.read_output(), "");
+}
+
+TEST(MSDPProtocol, NegotiatesAndRejectsEndOfRecord)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(DO, TELOPT_EOR), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_EOR]);
+    EXPECT_TRUE(context.descriptor.pProtocol->bEOR);
+    EXPECT_EQ(context.read_output(), telnet_sequence(WILL, TELOPT_EOR));
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(DONT, TELOPT_EOR), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_FALSE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_EOR]);
+    EXPECT_FALSE(context.descriptor.pProtocol->bEOR);
+    EXPECT_EQ(context.read_output(), telnet_sequence(WONT, TELOPT_EOR));
+}
+
+TEST(MSDPProtocol, RefusesAClientOfferingEndOfRecord)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(WILL, TELOPT_EOR), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_FALSE(context.descriptor.pProtocol->bEOR);
+    EXPECT_EQ(context.read_output(), telnet_sequence(DONT, TELOPT_EOR));
+}
+
+TEST(MSDPProtocol, SuppressesAndRestoresGoAhead)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(DO, TELOPT_SGA), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_SGA]);
+    EXPECT_TRUE(context.descriptor.pProtocol->bSGA);
+    EXPECT_EQ(context.read_output(), telnet_sequence(WILL, TELOPT_SGA));
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(DONT, TELOPT_SGA), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_FALSE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_SGA]);
+    EXPECT_FALSE(context.descriptor.pProtocol->bSGA);
+    EXPECT_EQ(context.read_output(), telnet_sequence(WONT, TELOPT_SGA));
+}
+
+TEST(MSDPProtocol, RefusesAClientOfferingToSuppressItsGoAhead)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, telnet_sequence(WILL, TELOPT_SGA), output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_FALSE(context.descriptor.pProtocol->bSGA);
+    EXPECT_EQ(context.read_output(), telnet_sequence(DONT, TELOPT_SGA));
 }
 
 TEST(MSDPProtocol, SetNumberMarksDirtyOnlyWhenValueChanges)
