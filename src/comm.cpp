@@ -704,6 +704,9 @@ static std::string get_group_msdp_table(const group_data* group)
     return payload;
 }
 
+// OPPONENT_HEALTH_MAX while fighting: OPPONENT_HEALTH is a percentage.
+constexpr int OPPONENT_HEALTH_MAX_IN_FIGHT = 100;
+
 void msdp_update()
 {
     for (auto desc = descriptor_list; desc; desc = desc->next) {
@@ -822,16 +825,19 @@ void msdp_update()
         auto opponent = desc->character->specials.fighting;
         if (opponent && utils::is_npc(*opponent)) {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
+            MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH_MAX, OPPONENT_HEALTH_MAX_IN_FIGHT);
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, std::to_string(GET_LEVEL(opponent)).c_str());
             MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
         } else if (opponent && utils::is_pc(*opponent)) {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, get_health_percent(opponent));
+            MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH_MAX, OPPONENT_HEALTH_MAX_IN_FIGHT);
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");
             MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");
         } else {
             MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH, 0);
+            MSDPSetNumber(desc, eMSDP_OPPONENT_HEALTH_MAX, 0);
             MSDPSetString(desc, eMSDP_OPPONENT_NAME, "");
             MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "");
             MSDPSetString(desc, eMSDP_OPPONENT_AGE, "");

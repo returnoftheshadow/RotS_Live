@@ -15,6 +15,9 @@ NO_ONE_AROUND_REPLY = "No-one by that name around."
 # What a word that is neither a command within the speaker's level nor a social answers
 # (command_interpreter, interpre.cpp).
 UNRECOGNIZED_COMMAND_REPLY = "Unrecognized command."
+# What hit answers when no character the attacker can see in the room has the keyword (do_hit,
+# act_offe.cpp).
+TARGET_ABSENT_REPLY = "They aren't here."
 # What the old shop and rent commands answer where no shopkeeper or receptionist serves them
 # (do_not_here, act_othe.cpp).
 NOT_HERE_REPLY = "Sorry, but you can't do that here!"

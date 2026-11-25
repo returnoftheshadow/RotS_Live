@@ -154,6 +154,11 @@ MOB_INNKEEPER = 1105
 MOB_BYSTANDER_ORC = 1132
 # MOB_BYSTANDER_ORC's short description.
 MOB_BYSTANDER_ORC_SHORT_DESCRIPTION = "a bystander orc"
+# Mob 1135 in mob/11.mob, the hardy target orc: 900 hit points, so a fight with it outlasts the
+# blows a scenario lands.
+MOB_HARDY_TARGET_ORC = 1135
+# MOB_HARDY_TARGET_ORC's short description.
+MOB_HARDY_TARGET_ORC_SHORT_DESCRIPTION = "a hardy target orc"
 # Mob 1170 in mob/11.mob, the shining angel: the resetter special (spec_ass.cpp), which resets a
 # player's practice when told "pracreset".
 MOB_SHINING_ANGEL = 1170
