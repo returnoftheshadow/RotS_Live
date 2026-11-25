@@ -347,7 +347,14 @@ See also: help weather
 #
 OPPONENT_HEALTH
 
-This variable shows your currently engaged opponent's health percentage.
+This variable shows your currently engaged opponent's health as a percentage,
+from 0 to 100. It is 0 when you are not fighting.
+
+#
+OPPONENT_HEALTH_MAX
+
+This variable is the most OPPONENT_HEALTH can be: 100 while you are
+fighting, and 0 when you are not.
 
 #
 OPPONENT_NAME

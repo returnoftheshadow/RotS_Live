@@ -616,13 +616,12 @@ TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
         "\005\002Health\002red\002HEALTH\002HEALTH_MAX\006");
 }
 
-// Legacy pin: the Score button sends help.
-TEST(MSDPProtocol, ScoreButtonSendsHelp)
+TEST(MSDPProtocol, ScoreButtonSendsScore)
 {
     ProtocolDescriptor context;
 
     EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_BUTTON_3]->pValueString,
-        "\005\002Score\002help\006");
+        "\005\002Score\002score\006");
 }
 
 TEST(MSDPProtocol, TTypeNegotiationRequestsFullProtocolSet)
@@ -2063,8 +2062,7 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
             + expected_msdp_pair("OPPONENT_AGE", ""));
 }
 
-// Legacy pin: OPPONENT_HEALTH_MAX stays 0 and unsent while the character fights.
-TEST(MSDPProtocol, MsdpUpdateLeavesOpponentHealthMaxUnsetWhileFighting)
+TEST(MSDPProtocol, MsdpUpdateSetsOpponentHealthMaxTo100WhileFightingNpc)
 {
     ScopedDescriptorList descriptor_list_scope;
     ScopedMSDPTestRoom room_scope;
@@ -2085,8 +2083,57 @@ TEST(MSDPProtocol, MsdpUpdateLeavesOpponentHealthMaxUnsetWhileFighting)
 
     msdp_update();
 
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_OPPONENT_HEALTH_MAX]->ValueInt, 100);
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("OPPONENT_HEALTH", "25")
+            + expected_msdp_pair("OPPONENT_HEALTH_MAX", "100"));
+}
+
+TEST(MSDPProtocol, MsdpUpdateSetsOpponentHealthMaxTo100WhileFightingPlayer)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+    char_data opponent {};
+    MsdpCharacterRelease opponent_release(&opponent);
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    initialize_msdp_player(&opponent, "Boromir");
+    opponent.player.race = RACE_HUMAN;
+    opponent.abilities.hit = 120;
+    opponent.tmpabilities.hit = 30;
+    context.character.specials.fighting = &opponent;
+    enable_msdp_reports(context.descriptor.pProtocol,
+        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_HEALTH_MAX });
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_OPPONENT_HEALTH_MAX]->ValueInt, 100);
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("OPPONENT_HEALTH", "25")
+            + expected_msdp_pair("OPPONENT_HEALTH_MAX", "100"));
+}
+
+TEST(MSDPProtocol, MsdpUpdateSetsOpponentHealthMaxTo0WhenNotFighting)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    ProtocolDescriptor context;
+
+    initialize_msdp_player(&context.character, "Aragorn");
+    enable_msdp_reports(context.descriptor.pProtocol,
+        { eMSDP_OPPONENT_HEALTH, eMSDP_OPPONENT_HEALTH_MAX });
+    MSDPSetNumber(&context.descriptor, eMSDP_OPPONENT_HEALTH, 40);
+    MSDPSetNumber(&context.descriptor, eMSDP_OPPONENT_HEALTH_MAX, 100);
+    descriptor_list = &context.descriptor;
+
+    msdp_update();
+
     EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_OPPONENT_HEALTH_MAX]->ValueInt, 0);
-    EXPECT_EQ(context.read_output(), expected_msdp_pair("OPPONENT_HEALTH", "25"));
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("OPPONENT_HEALTH", "0")
+            + expected_msdp_pair("OPPONENT_HEALTH_MAX", "0"));
 }
 
 // --- Regression tests for the "dirty flag dropped while MSDP is off" bug -------------------------
