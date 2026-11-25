@@ -167,12 +167,12 @@ how many tests had no recorded time.
 ### The groups your changes reach
 
 ```bash
-make integration-changed PYTHON=.venv/bin/python                    # changes since origin/release-frodo-next
+make integration-changed PYTHON=.venv/bin/python                    # changes since origin/release-frodo
 make integration-changed PYTHON=.venv/bin/python BASE=origin/master
 ```
 
 `make integration-changed` (`rots_harness/changed_groups.py`) lists the files changed since the
-merge base with `BASE` (default `origin/release-frodo-next`; only a `BASE` on the make command
+merge base with `BASE` (default `origin/release-frodo`; only a `BASE` on the make command
 line counts, not an exported one), uncommitted changes to tracked files and untracked files git
 does not ignore. A renamed file counts as both its old and its new path. It chooses groups by
 the pull request rules under Continuous integration below, without a description, prints why

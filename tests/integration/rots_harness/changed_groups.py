@@ -29,7 +29,7 @@ from rots_harness import ci_groups
 from rots_harness import groups as group_files
 
 # The branch changes are measured from unless --base names another.
-DEFAULT_BASE = "origin/release-frodo-next"
+DEFAULT_BASE = "origin/release-frodo"
 # The folder holding the game's sources.
 GAME_SOURCE_DIRECTORY = "src/"
 # Folders under src/ whose files are not game code: CI's rules cover the harness, and unit tests

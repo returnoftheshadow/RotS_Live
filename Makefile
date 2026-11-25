@@ -34,7 +34,7 @@ CATEGORY ?=
 ifeq ($(origin BASE),command line)
 INTEGRATION_CHANGED_BASE := $(value BASE)
 else
-INTEGRATION_CHANGED_BASE := origin/release-frodo-next
+INTEGRATION_CHANGED_BASE := origin/release-frodo
 endif
 
 .DEFAULT_GOAL := help
@@ -57,7 +57,7 @@ help:
 	@printf "                         and scripts (ZONE=<n>, CATEGORY=<table> to narrow it)\n"
 	@printf "  make integration-build Build the server, harness server and rotstool the scenarios run\n"
 	@printf "  make integration-changed  Run the scenario groups this checkout's changes reach\n"
-	@printf "                         (BASE=<branch>, default origin/release-frodo-next)\n"
+	@printf "                         (BASE=<branch>, default origin/release-frodo)\n"
 	@printf "  make integration-shard-durations  Refresh the times CI's shards are balanced by\n"
 	@printf "                         from downloaded CI results (RESULTS=<folder>)\n"
 	@printf "  make format            clang-format the WHOLE tree -- see the warning above the target;\n"
