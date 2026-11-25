@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include "ScopedExitTestRooms.h"
 #include "ScopedGameClock.h"
 #include "test_cleanup.h"
 
@@ -25,6 +26,7 @@ extern room_data world;
 extern weather_data weather_info;
 extern char* pc_races[];
 extern char* pc_star_types[];
+extern char* sector_types[];
 extern int average_mob_life;
 
 void clear_char(struct char_data* ch, int mode);
@@ -1827,6 +1829,152 @@ TEST(MSDPProtocol, RoomUpdateOnEnteringGameSendsNoPlaceholderCharacterValues)
     EXPECT_NE(update_output.find(expected_msdp_pair("WARRIOR_LEVEL", "5")), std::string::npos);
     EXPECT_NE(update_output.find(expected_msdp_pair("SPELL_PEN", "0")), std::string::npos)
         << "A value that really is 0 must still reach the client once.";
+}
+
+namespace {
+
+// VAR name VAL value, one entry of an MSDP table.
+std::string msdp_table_entry(const std::string& name, const std::string& value)
+{
+    return msdp_pair_payload(name, value);
+}
+
+// An MSDP array value holding values.
+std::string msdp_array_value(const std::vector<std::string>& values)
+{
+    std::string array;
+    array.push_back(static_cast<char>(MSDP_ARRAY_OPEN));
+    for (const std::string& value : values) {
+        array.push_back(static_cast<char>(MSDP_VAL));
+        array += value;
+    }
+    array.push_back(static_cast<char>(MSDP_ARRAY_CLOSE));
+    return array;
+}
+
+// The ROOM table ScopedExitTestRooms' hall is sent, with exits_value as its EXITS entry.
+std::string hall_room_table(const std::string& exits_value)
+{
+    return msdp_table_entry("VNUM", std::to_string(ScopedExitTestRooms::HALL_VNUM))
+        + msdp_table_entry("NAME", "Exit Test Hall") + msdp_table_entry("EXITS", exits_value)
+        + msdp_table_entry("TERRAIN", sector_types[SECT_INSIDE]);
+}
+
+// The vnum ScopedExitTestRooms gives the room its hall's exit in direction leads to.
+std::string destination_vnum(int direction)
+{
+    return std::to_string(ScopedExitTestRooms::vnum_of(ScopedExitTestRooms::destination(direction)));
+}
+
+// A player standing in ScopedExitTestRooms' hall whose connection reports the four room
+// variables.
+class MsdpRoomUpdateTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        initialize_msdp_player(&m_context.character, "Mapper", ScopedExitTestRooms::HALL);
+        m_context.character.desc = &m_context.descriptor;
+        m_context.descriptor.connected = CON_PLYNG;
+        enable_msdp_reports(m_context.descriptor.pProtocol,
+            { eMSDP_ROOM, eMSDP_ROOM_EXITS, eMSDP_ROOM_NAME, eMSDP_ROOM_VNUM });
+    }
+
+    // The frames after the exits: the ROOM table with exits_value, then ROOM_NAME and ROOM_VNUM.
+    static std::string expected_room_frames(const std::string& exits_value)
+    {
+        return expected_msdp_table_pair("ROOM", hall_room_table(exits_value))
+            + expected_msdp_pair("ROOM_NAME", "Exit Test Hall")
+            + expected_msdp_pair("ROOM_VNUM", std::to_string(ScopedExitTestRooms::HALL_VNUM));
+    }
+
+    // Empties descriptor_list for the test and restores it after.
+    ScopedDescriptorList m_descriptor_list_scope;
+    // The hall and its exits.
+    ScopedExitTestRooms m_rooms;
+    // The player and the connection whose output the tests read.
+    ProtocolDescriptor m_context;
+};
+
+} // namespace
+
+TEST_F(MsdpRoomUpdateTest, LegacyPinSendsTheExitsAsAnArrayOfRoomNumbersWithoutDirections)
+{
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_array_pair("ROOM_EXITS", { "n", "e" })
+            + expected_room_frames(msdp_array_value({ destination_vnum(0), destination_vnum(1) })));
+}
+
+TEST_F(MsdpRoomUpdateTest, LegacyPinSendsTheSameExitsInTheDark)
+{
+    room_data& hall = world[ScopedExitTestRooms::HALL];
+    hall.light = 0;
+    hall.room_flags = INDOORS | DARK;
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_array_pair("ROOM_EXITS", { "n", "e" })
+            + expected_room_frames(msdp_array_value({ destination_vnum(0), destination_vnum(1) })));
+}
+
+TEST_F(MsdpRoomUpdateTest, LegacyPinLeavesOutAnExitToRealRoomZero)
+{
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        m_rooms.remove_exit(direction);
+    }
+    m_rooms.set_exit(0, 0, 0);
+    m_rooms.set_exit(1, 0, NOWHERE);
+
+    msdp_room_update(&m_context.character);
+
+    // ROOM_EXITS starts empty, so an empty list is no change and is not sent.
+    EXPECT_EQ(m_context.read_output(), expected_room_frames(msdp_array_value({})));
+}
+
+TEST_F(MsdpRoomUpdateTest, SendsNothingForAnNpc)
+{
+    SET_BIT(m_context.character.specials2.act, MOB_ISNPC);
+    m_context.character.player.short_descr = strdup("mapping npc");
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(), "");
+}
+
+TEST_F(MsdpRoomUpdateTest, SendsNothingWithoutAConnection)
+{
+    m_context.character.desc = nullptr;
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(), "");
+}
+
+TEST_F(MsdpRoomUpdateTest, SendsNothingWhenTheConnectionHasNoProtocolState)
+{
+    descriptor_data no_protocol {};
+    no_protocol.descriptor = m_context.descriptor.descriptor;
+    no_protocol.character = &m_context.character;
+    m_context.character.desc = &no_protocol;
+
+    msdp_room_update(&m_context.character);
+
+    m_context.character.desc = &m_context.descriptor;
+    EXPECT_EQ(m_context.read_output(), "");
+}
+
+TEST_F(MsdpRoomUpdateTest, SendsNothingForARoomOutsideTheWorld)
+{
+    for (int out_of_range_room : { -1, top_of_world + 1 }) {
+        m_context.character.in_room = out_of_range_room;
+
+        msdp_room_update(&m_context.character);
+
+        EXPECT_EQ(m_context.read_output(), "") << "in_room " << out_of_range_room;
+    }
+    m_context.character.in_room = ScopedExitTestRooms::HALL;
 }
 
 TEST(MSDPProtocol, MsdpUpdateSendsWorldTimeInTheFirstUpdateAfterEnteringTheGame)
