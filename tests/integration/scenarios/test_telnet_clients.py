@@ -231,8 +231,11 @@ REPORTABLE_FRAME_START = (
     bytes([MSDP_VAR]) + MSDP_REPORTABLE_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
 )
 
-# The leading names of the server's reportable-variables list.
-LEADING_REPORTABLE_VARIABLES = ["", "CHARACTER_NAME"]
+# The first name in the server's reportable-variables list.
+FIRST_REPORTABLE_VARIABLE = "CHARACTER_NAME"
+
+# The leading names the legacy pin expects at the start of the reportable-variables list.
+LEADING_REPORTABLE_VARIABLES = ["", FIRST_REPORTABLE_VARIABLE]
 
 
 def events_in_direction(game_session: GameSession, direction: TelnetDirection) -> list[TelnetEvent]:
@@ -557,6 +560,11 @@ def test_a_tintin_client_gets_no_end_of_prompt_marker(server) -> None:
 
 
 @pytest.mark.characters(MAGE)
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="the reportable-variables list holds only real names, CHARACTER_NAME first",
+)
 def test_a_tintin_clients_reportable_variables_list_starts_with_an_empty_name(server) -> None:
     """Legacy pin: MSDP LIST REPORTABLE_VARIABLES answers an array whose first name is empty.
 
@@ -570,6 +578,19 @@ def test_a_tintin_clients_reportable_variables_list_starts_with_an_empty_name(se
     names = variables[MSDP_REPORTABLE_VARIABLE]
     leading_names = names[: len(LEADING_REPORTABLE_VARIABLES)]
     assert leading_names == LEADING_REPORTABLE_VARIABLES, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_a_tintin_clients_reportable_variables_list_holds_only_real_names(server) -> None:
+    """Pins MSDP LIST REPORTABLE_VARIABLES answering an array of real names, CHARACTER_NAME first."""
+    mage = server.connect(MAGE.name, client=TINTIN_CLIENT)
+    mage.expect_subnegotiation(OPTION_CHARSET)
+    mage.send_msdp("LIST", MSDP_REPORTABLE_VARIABLE)
+    reply = mage.expect_subnegotiation(OPTION_MSDP, matching=sets_reportable_variables)
+    variables = decode_msdp(reply.event.payload)
+    names = variables[MSDP_REPORTABLE_VARIABLE]
+    assert names[0] == FIRST_REPORTABLE_VARIABLE, wire_listing(mage)
+    assert "" not in names, wire_listing(mage)
 
 
 @pytest.mark.characters(MAGE)
