@@ -2361,7 +2361,8 @@ static void ExecuteMSDPPair(const descriptor_t* apDescriptor, const char* apVari
                 for (i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
                     if (!VariableNameTable[i].bGUI) {
                         /* Add the separator between variables */
-                        strcat(MSDPCommands, " ");
+                        if (MSDPCommands[0] != '\0')
+                            strcat(MSDPCommands, " ");
 
                         /* Add the variable to the list */
                         strcat(MSDPCommands, VariableNameTable[i].pName);

@@ -396,6 +396,33 @@ bool output_contains_array_value(const std::string& output, const std::string& v
         || output.find(terminal_marker) != std::string::npos;
 }
 
+// The start of the MSDP frame that sets variable to an array whose first element is first_value,
+// up to the separator before the second element.
+std::string expected_msdp_array_start(const std::string& variable, const std::string& first_value)
+{
+    std::string start;
+    start.push_back(static_cast<char>(IAC));
+    start.push_back(static_cast<char>(SB));
+    start.push_back(static_cast<char>(TELOPT_MSDP));
+    start.push_back(static_cast<char>(MSDP_VAR));
+    start += variable;
+    start.push_back(static_cast<char>(MSDP_VAL));
+    start.push_back(static_cast<char>(MSDP_ARRAY_OPEN));
+    start.push_back(static_cast<char>(MSDP_VAL));
+    start += first_value;
+    start.push_back(static_cast<char>(MSDP_VAL));
+    return start;
+}
+
+// Returns whether an MSDP array in output holds an empty element: two separators in a row, or a
+// separator just before the array closes.
+bool output_contains_empty_array_element(const std::string& output)
+{
+    const std::string separators = { static_cast<char>(MSDP_VAL), static_cast<char>(MSDP_VAL) };
+    const std::string empty_last = { static_cast<char>(MSDP_VAL), static_cast<char>(MSDP_ARRAY_CLOSE) };
+    return output.find(separators) != std::string::npos || output.find(empty_last) != std::string::npos;
+}
+
 void append_expected_table_value(std::string& payload, const std::string& name, const std::string& value)
 {
     payload.push_back(static_cast<char>(MSDP_VAR));
@@ -968,6 +995,21 @@ TEST(MSDPProtocol, ListsCommandsAndReportedVariables)
     feed_msdp_command(&context.descriptor, "LIST", "REPORTED_VARIABLES");
     EXPECT_EQ(context.read_output(),
         expected_msdp_array_pair("REPORTED_VARIABLES", { "HEALTH", "MANA" }));
+}
+
+TEST(MSDPProtocol, ListsReportableAndSendableVariablesWithoutAnEmptyName)
+{
+    ProtocolDescriptor context;
+
+    for (const std::string list_name : { "REPORTABLE_VARIABLES", "SENDABLE_VARIABLES" }) {
+        feed_msdp_command(&context.descriptor, "LIST", list_name);
+        const std::string list_output = context.read_output();
+        const std::string expected_start = expected_msdp_array_start(list_name, "CHARACTER_NAME");
+
+        const std::string list_start = list_output.substr(0, expected_start.size());
+        EXPECT_EQ(list_start, expected_start) << list_output;
+        EXPECT_FALSE(output_contains_empty_array_element(list_output)) << list_output;
+    }
 }
 
 TEST(MSDPProtocol, ListsConfigurableAndGuiVariables)
