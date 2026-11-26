@@ -19,12 +19,14 @@
 #include "handler.h"
 #include "interpre.h"
 #include "protocol.h"
+#include "room_exits.h"
 #include "script.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
 
 #include <assert.h>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -638,33 +640,70 @@ int racial_movement_reduction(const int room_type, const int race, const int mov
     return movement_cost;
 }
 
-bool is_exit_valid(const room_direction_data room_direction)
+namespace {
+
+// The letter MSDP names each direction by, north to down.
+constexpr std::string_view MSDP_DIRECTION_LETTERS[NUM_OF_DIRS] = { "n", "e", "s", "w", "u", "d" };
+
+// The ROOM_EXITS value: an array of the direction letter of each exit in exits.
+std::string msdp_exit_letters(const room_exit_view& exits)
 {
-    auto to_room = room_direction.to_room;
-    auto exit_info = room_direction.exit_info;
+    std::string letters;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        if (!exits[direction].to_room) {
+            continue;
+        }
 
-    if (!to_room || to_room == NOWHERE) {
-        return false;
+        letters += (char)MSDP_VAL;
+        letters += MSDP_DIRECTION_LETTERS[direction];
     }
 
-    if (exit_info == NOWHERE) {
-        return false;
-    }
-
-    if (IS_SET(exit_info, EX_ISBROKEN)) {
-        return false;
-    }
-
-    if (IS_SET(exit_info, EX_NOWALK)) {
-        return false;
-    }
-
-    if (IS_SET(exit_info, EX_ISHIDDEN)) {
-        return false;
-    }
-
-    return true;
+    return letters;
 }
+
+// ROOM's EXITS value: a table of each exit's direction letter to the number of the room it leads
+// to.
+std::string msdp_exits_table(const room_exit_view& exits)
+{
+    std::string table;
+    table += (char)MSDP_TABLE_OPEN;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        const room_exit& exit = exits[direction];
+        if (!exit.to_room) {
+            continue;
+        }
+
+        table += (char)MSDP_VAR;
+        table += MSDP_DIRECTION_LETTERS[direction];
+        table += (char)MSDP_VAL;
+        table += std::to_string(world[*exit.to_room].number);
+    }
+    table += (char)MSDP_TABLE_CLOSE;
+
+    return table;
+}
+
+// ROOM's EXITS value for a player with legacyexits set: an array of the numbers of the rooms the
+// exits lead to, in ROOM_EXITS' order.
+std::string msdp_exits_legacy_array(const room_exit_view& exits)
+{
+    std::string array;
+    array += (char)MSDP_ARRAY_OPEN;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        const room_exit& exit = exits[direction];
+        if (!exit.to_room) {
+            continue;
+        }
+
+        array += (char)MSDP_VAL;
+        array += std::to_string(world[*exit.to_room].number);
+    }
+    array += (char)MSDP_ARRAY_CLOSE;
+
+    return array;
+}
+
+} // namespace
 
 void msdp_room_update(const char_data* ch)
 {
@@ -687,53 +726,42 @@ void msdp_room_update(const char_data* ch)
         return;
     }
 
-    MSDPSetString(ch->desc, eMSDP_ROOM_NAME, world[ch->in_room].name);
-    MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, world[ch->in_room].number);
+    const room_data& room = world[ch->in_room];
+    MSDPSetString(ch->desc, eMSDP_ROOM_NAME, room.name);
+    MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, room.number);
+
+    const room_exit_view room_view = room_exits(ch->in_room);
+    const room_exit_view seen_exits = exits_seen_by(*ch, room_view, exit_view_purpose::room_line);
+    const std::string exit_letters = msdp_exit_letters(seen_exits);
+    std::string exits_value;
+    if (PRF_FLAGGED(ch, PRF_LEGACY_EXITS)) {
+        exits_value = msdp_exits_legacy_array(seen_exits);
+    } else {
+        exits_value = msdp_exits_table(seen_exits);
+    }
 
     std::string msdp_room = {};
     msdp_room += (char)MSDP_VAR;
     msdp_room += "VNUM";
     msdp_room += (char)MSDP_VAL;
-    msdp_room += std::to_string(world[ch->in_room].number);
+    msdp_room += std::to_string(room.number);
     msdp_room += (char)MSDP_VAR;
     msdp_room += "NAME";
     msdp_room += (char)MSDP_VAL;
-    msdp_room += MSDPSanitizeValue(world[ch->in_room].name);
+    msdp_room += MSDPSanitizeValue(room.name);
     msdp_room += (char)MSDP_VAR;
     msdp_room += "EXITS";
     msdp_room += (char)MSDP_VAL;
-    msdp_room += (char)MSDP_ARRAY_OPEN;
-    std::string exits_names = {};
-    const std::string direction[NUM_OF_DIRS] = { "n", "e", "s", "w", "u", "d" };
-
-    for (int exits = 0; exits < NUM_OF_DIRS; exits++) {
-        if (ch->in_room == NOWHERE) {
-            break;
-        }
-
-        if (world[ch->in_room].dir_option[exits] == nullptr) {
-            continue;
-        }
-
-        const room_direction_data room_direction = *world[ch->in_room].dir_option[exits];
-
-        if (is_exit_valid(room_direction)) {
-            msdp_room += (char)MSDP_VAL;
-            msdp_room += std::to_string(world[room_direction.to_room].number);
-            exits_names += (char)MSDP_VAL;
-            exits_names += direction[exits];
-        }
-    }
-    msdp_room += (char)MSDP_ARRAY_CLOSE;
+    msdp_room += exits_value;
     msdp_room += (char)MSDP_VAR;
     msdp_room += "TERRAIN";
     msdp_room += (char)MSDP_VAL;
 
     extern char* sector_types[];
-    msdp_room += MSDPSanitizeValue(sector_types[world[ch->in_room].sector_type]);
+    msdp_room += MSDPSanitizeValue(sector_types[room.sector_type]);
 
     // Room exits need to be sent first before anything else
-    MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exits_names.c_str());
+    MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exit_letters.c_str());
     MSDPFlush(ch->desc, eMSDP_ROOM_EXITS);
     MSDPSetTable(ch->desc, eMSDP_ROOM, msdp_room.c_str());
 
@@ -1146,9 +1174,6 @@ ACMD(do_move)
             /* Arriving can remove the rider as it can a walker, above. */
             mover_gone = mover_watch.freed();
         }
-
-        if (!mover_gone)
-            msdp_room_update(ch);
 
         mounts = 0;
         if (!mover_gone && IS_RIDING(ch))

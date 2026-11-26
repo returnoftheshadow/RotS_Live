@@ -16,6 +16,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "act_move.h"
 #include "boards.h"
 #include "color.h"
 #include "comm.h"
@@ -26,6 +27,7 @@
 #include "interpre.h"
 #include "limits.h"
 #include "pkill.h"
+#include "room_exits.h"
 #include "script.h"
 #include "skill_timer.h"
 #include "spells.h"
@@ -1061,20 +1063,69 @@ void show_room_weather(char* str, const struct char_data* ch)
         sprintf(str, "%sSnow lies upon the ground.\n\r", str);
 }
 
-/*
- * Format strings passed to sprintf(3); used to print an exit
- * symbol when using the look <no argument> command; i.e.:
- * Exits are: E (W) *S* #U# %D%
- */
-char* exit_mark[] = {
-    "", /* A hidden exit */
-    " %c", /* A plain, boring link to another room */
-    " (%c)", /* A closed, non-broken door */
-    " *%c*", /* A closed, hidden exit, as seen by an immortal */
-    " {%c}", /* A NOWALK exit such as a window, as seen by an immortal */
-    " #%c#", /* A sunlit room, as seen by an Orc, Uruk, or Lhuth */
-    " %%%c%%" /* A shadowy room during the day, as seen by darkies */
-};
+// The room line's mark for each exit, a printf format given the exit's direction letter, as in
+// "Exits are: N (E) *S* {W} #U# %D%".
+constexpr const char* EXIT_MARK_OPEN = " %c";
+constexpr const char* EXIT_MARK_CLOSED_DOOR = " (%c)";
+constexpr const char* EXIT_MARK_HIDDEN_DOOR = " *%c*";
+constexpr const char* EXIT_MARK_WINDOW = " {%c}";
+// An open exit into a sunlit room, as a race the sun hurts sees it.
+constexpr const char* EXIT_MARK_SUNLIT = " #%c#";
+// An open exit into a shadowy room while the sun is up, as a race the sun hurts sees it.
+constexpr const char* EXIT_MARK_SHADOWY_IN_SUN = " %%%c%%";
+
+// The letter the room line shows for each direction, north to down.
+constexpr char ROOM_LINE_DIRECTION_LETTERS[NUM_OF_DIRS] = { 'N', 'E', 'S', 'W', 'U', 'D' };
+
+// Room for one mark, at most four characters such as " #N#", and its terminator.
+constexpr int EXIT_MARK_BUFFER_SIZE = 8;
+
+// Appends to line the room-line mark of every exit viewer sees from its room. line must have room
+// for NUM_OF_DIRS marks of up to four characters each; a null line logs an error and is skipped.
+static void append_room_line_exits(char* line, const char_data& viewer)
+{
+    if (line == nullptr) {
+        vmudlog(NRM, "SYSERR: %s: no line to append the exits to.", __func__);
+        return;
+    }
+
+    const room_exit_view room_view = room_exits(viewer.in_room);
+    const room_exit_view seen_exits = exits_seen_by(viewer, room_view, exit_view_purpose::room_line);
+    const int race = GET_RACE(&viewer);
+    const bool hurt_by_sun = race == RACE_URUK || race == RACE_ORC || race == RACE_MAGUS
+        || race == RACE_OLOGHAI;
+
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        const room_exit& exit = seen_exits[direction];
+        if (!exit.to_room) {
+            continue;
+        }
+
+        const char* mark = EXIT_MARK_OPEN;
+        if (has(exit.flags, exit_flags::shut | exit_flags::hidden)) {
+            mark = EXIT_MARK_HIDDEN_DOOR;
+        } else if (has(exit.flags, exit_flags::shut)) {
+            mark = EXIT_MARK_CLOSED_DOOR;
+        } else if (has(exit.flags, exit_flags::window)) {
+            mark = EXIT_MARK_WINDOW;
+        }
+
+        // While the sun is up, a race the sun hurts sees whether the room past an exit it can walk
+        // through is sunlit or shadowy.
+        if (hurt_by_sun && weather_info.sunlight == SUN_LIGHT && is_passable(exit)) {
+            const long destination_flags = world[*exit.to_room].room_flags;
+            if (IS_SET(destination_flags, SHADOWY)) {
+                mark = EXIT_MARK_SHADOWY_IN_SUN;
+            } else if (!IS_SET(destination_flags, DARK) && !IS_SET(destination_flags, INDOORS)) {
+                mark = EXIT_MARK_SUNLIT;
+            }
+        }
+
+        char exit_text[EXIT_MARK_BUFFER_SIZE];
+        snprintf(exit_text, sizeof(exit_text), mark, ROOM_LINE_DIRECTION_LETTERS[direction]);
+        strcat(line, exit_text);
+    }
+}
 
 /*
  * A list of valid arguments to look; i.e.: look north,
@@ -1168,13 +1219,17 @@ ACMD(do_look)
     struct char_data* tmp_char;
     struct affected_type* tmpaf;
     char* tmp_desc;
-    sh_int exit_choice;
-    char exit_line[20];
+
+    argument_split_2(argument, arg1, arg2);
+
+    // A look at the room reaches the client even when ch cannot see it.
+    if (!*arg1) {
+        msdp_room_update(ch);
+    }
 
     if (cannot_look(ch))
         return;
 
-    argument_split_2(argument, arg1, arg2);
     keyword_no = search_block(arg1, keywords, FALSE); /* Partial match */
 
     if ((keyword_no == -1) && *arg1) {
@@ -1408,83 +1463,8 @@ ACMD(do_look)
         }
 
         strcat(buf2, CC_NORM(ch));
-        /* Send them the exits */
-        int i;
         strcat(buf2, "    Exits are:");
-
-        for (i = 0; i < NUM_OF_DIRS; i++) {
-            /* exit_choice 1 means nothing special */
-            exit_choice = 1;
-
-            if (world[ch->in_room].dir_option[i])
-                if (world[ch->in_room].dir_option[i]->to_room != NOWHERE) {
-                    /* Are there any closed and non-broken doors? */
-                    if (IS_SET(world[ch->in_room].dir_option[i]->exit_info, EX_CLOSED) && !IS_SET(world[ch->in_room].dir_option[i]->exit_info, EX_ISBROKEN)) {
-                        exit_choice = 2; /* Denotes a normal, closed door */
-
-                        if (IS_SET(world[ch->in_room].dir_option[i]->exit_info, EX_ISHIDDEN)) {
-                            if (ch->player.level < LEVEL_GOD)
-                                exit_choice = 0; /* An Immortal sees hidden doors */
-                            else
-                                exit_choice = 3; /* Denotes a hidden and closed door */
-                        }
-                    }
-                    /*
-                     * exit_choice 4 means that you cannot walk into this
-                     * exit.  This is used for windows, mainly.
-                     */
-                    else if (IS_SET(world[ch->in_room].dir_option[i]->exit_info, EX_NOWALK)) {
-                        if (ch->player.level >= LEVEL_GOD)
-                            exit_choice = 4;
-                        else
-                            exit_choice = 0;
-                    }
-
-                    /*
-                     * exit_choice 5 means a darkie is looking at an exit which
-                     * leads to a sunlit room
-                     */
-                    if (((GET_RACE(ch) == RACE_URUK) || (GET_RACE(ch) == RACE_ORC) || (GET_RACE(ch) == RACE_MAGUS) || (GET_RACE(ch) == RACE_OLOGHAI)) && IS_SUNLIT_EXIT(ch->in_room, world[ch->in_room].dir_option[i]->to_room, i))
-                        if (exit_choice != 4)
-                            exit_choice = 5;
-
-                    /*
-                     * exit_choice 6 means a darkie is looking at an exit which
-                     * leads to a shadowy room, AND the sun is shining in that
-                     * room.
-                     */
-                    if (((GET_RACE(ch) == RACE_URUK) || (GET_RACE(ch) == RACE_ORC) || (GET_RACE(ch) == RACE_MAGUS) || (GET_RACE(ch) == RACE_OLOGHAI)) && IS_SHADOWY_EXIT(ch->in_room, world[ch->in_room].dir_option[i]->to_room, i) && weather_info.sunlight == SUN_LIGHT)
-                        if (exit_choice != 4)
-                            exit_choice = 6;
-
-                    /*
-                     * Generate the direction letter and any surrounding symbols
-                     * based on the information we've gathered with exit_choice
-                     */
-                    switch (i) {
-                    case 0:
-                        sprintf(exit_line, exit_mark[exit_choice], 'N');
-                        break;
-                    case 1:
-                        sprintf(exit_line, exit_mark[exit_choice], 'E');
-                        break;
-                    case 2:
-                        sprintf(exit_line, exit_mark[exit_choice], 'S');
-                        break;
-                    case 3:
-                        sprintf(exit_line, exit_mark[exit_choice], 'W');
-                        break;
-                    case 4:
-                        sprintf(exit_line, exit_mark[exit_choice], 'U');
-                        break;
-                    case 5:
-                        sprintf(exit_line, exit_mark[exit_choice], 'D');
-                        break;
-                    };
-
-                    strcat(buf2, exit_line);
-                }
-        }
+        append_room_line_exits(buf2, *ch);
         strcat(buf2, "\n\r");
 
         /* Now generate the room description */
@@ -2935,7 +2915,8 @@ ACMD(do_toggle)
         "        Latin-1: %-3s    "
         "        Spinner: %-3s\r\n"
         "  Advanced View: %-3s    "
-        "Advanced Prompt: %-3s    ",
+        "Advanced Prompt: %-3s    "
+        "   Legacy Exits: %-3s",
         ONOFF(PRF_FLAGGED(ch, PRF_PROMPT)), ONOFF(PRF_FLAGGED(ch, PRF_BRIEF)),
         ONOFF(PRF_FLAGGED(ch, PRF_NOTELL)), ONOFF(PRF_FLAGGED(ch, PRF_COMPACT)),
         ONOFF(PRF_FLAGGED(ch, PRF_NARRATE)), ONOFF(PRF_FLAGGED(ch, PRF_MSDP)),
@@ -2945,13 +2926,13 @@ ACMD(do_toggle)
         ONOFF(PRF_FLAGGED(ch, PRF_WRAP)), ONOFF(PRF_FLAGGED(ch, PRF_SUMMONABLE)), buf2,
         ONOFF(PRF_FLAGGED(ch, PRF_SWIM)), ONOFF(PRF_FLAGGED(ch, PRF_LATIN1)),
         ONOFF(PRF_FLAGGED(ch, PRF_SPINNER)), ONOFF(PRF_FLAGGED(ch, PRF_ADVANCED_VIEW)),
-        ONOFF(PRF_FLAGGED(ch, PRF_ADVANCED_PROMPT)));
+        ONOFF(PRF_FLAGGED(ch, PRF_ADVANCED_PROMPT)), ONOFF(PRF_FLAGGED(ch, PRF_LEGACY_EXITS)));
     send_to_char(buf, ch);
 
     /* the special, immortal set list */
     if (GET_LEVEL(ch) >= LEVEL_IMMORT) {
         sprintf(buf,
-            "      Roomflags: %-3s\r\n"
+            "\r\n      Roomflags: %-3s\r\n"
             "      Holylight: %-3s    "
             "       Nohassle: %-3s    "
             " Wiznet Channel: %-3s\r\n",

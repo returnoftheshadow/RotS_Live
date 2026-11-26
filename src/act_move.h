@@ -11,4 +11,9 @@ struct char_data;
  * again. */
 bool prohibit_item_stay_zone_move(char_data* ch, int room);
 
+// Sends ch's MSDP client the room ch stands in: its name, number, terrain and the exits ch sees.
+// Does nothing for an NPC, a character without a protocol-capable connection, or a room outside
+// the world. Only values that changed are sent.
+void msdp_room_update(const char_data* ch);
+
 #endif /* ACT_MOVE_H */

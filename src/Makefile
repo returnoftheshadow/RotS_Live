@@ -102,6 +102,7 @@ SOURCES := \
     protocol.cpp \
     ranger.cpp \
     real_time_tick_schedule.cpp \
+    room_exits.cpp \
     save_benchmark.cpp \
     savebench.cpp \
     script.cpp \

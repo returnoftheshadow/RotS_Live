@@ -21,6 +21,7 @@
 
 #include "account_management.h"
 #include "account_ppc.h"
+#include "act_move.h"
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
@@ -985,7 +986,11 @@ char* tog_messages[][4] = {
     { "Advanced view is now on.\r\n", "Advanced view is off.\r\n", "Advanced view is on.\r\n",
         "Advanced view is off.\r\n" },
     { "Advanced prompt is now on.\r\n", "Advanced prompt is off.\r\n", "Advanced prompt is on.\r\n",
-        "Advanced prompt is off.\r\n" }
+        "Advanced prompt is off.\r\n" },
+    { "MSDP will now send room exits as a list of room numbers.\r\n",
+        "MSDP will now send room exits as directions with their room numbers.\r\n",
+        "MSDP sends room exits as a list of room numbers.\r\n",
+        "MSDP sends room exits as directions with their room numbers.\r\n" }
 };
 
 ACMD(do_gen_tog)
@@ -1047,6 +1052,12 @@ ACMD(do_gen_tog)
 
     case SCMD_ADVANCED_PROMPT:
         result = flag_modify(ch, PRF_ADVANCED_PROMPT, tog_messages[23], 0);
+        break;
+
+    case SCMD_LEGACY_EXITS:
+        result = flag_modify(ch, PRF_LEGACY_EXITS, tog_messages[24], 0);
+        // Resend ROOM at once so the client gets EXITS in its new shape without waiting for a look.
+        msdp_room_update(ch);
         break;
 
     case SCMD_ECHO:
@@ -1515,7 +1526,7 @@ char* change_comm[] = {
     "incognito", "time", "sing", "mental", "swim", /* 20 */
     "latin1", "spinner", "wiz", "roomflags", "nohassle", /* 25 */
     "holylight", "slowns", "shooting", "casting", "sorting", /* 30 */
-    "advancedview", "advancedprompt", "\n"
+    "advancedview", "advancedprompt", "legacyexits", "\n"
 };
 
 ACMD(do_toggle);
@@ -1562,7 +1573,7 @@ ACMD(do_set)
             strcat(buf, change_comm[change_index]);
             strcat(buf, ", ");
         }
-        strcat(buf, "sorting, advancedview, advancedprompt");
+        strcat(buf, "sorting, advancedview, advancedprompt, legacyexits");
         strcat(buf, ".\n\r");
         send_to_char(buf, ch);
         return;
@@ -1719,6 +1730,9 @@ ACMD(do_set)
         break;
     case 32:
         do_gen_tog(ch, arg, wtl, 0, SCMD_ADVANCED_PROMPT);
+        break;
+    case 33:
+        do_gen_tog(ch, arg, wtl, 0, SCMD_LEGACY_EXITS);
         break;
     default:
         send_to_char("Undefined response to this argument.\n\r", ch);
