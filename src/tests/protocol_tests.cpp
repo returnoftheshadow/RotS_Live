@@ -557,6 +557,17 @@ TEST(MSDPProtocol, SanitizesStringValuesForJsonLikeConsumers)
     EXPECT_EQ(MSDPSanitizeValue(nullptr), "");
 }
 
+TEST(MSDPProtocol, AppendSanitizedAddsTheEscapedValueAfterExistingText)
+{
+    std::string text = "NAME=";
+
+    MSDPAppendSanitized(text, "orc \"guard\"\n");
+    EXPECT_EQ(text, "NAME=orc \\\"guard\\\"\\n");
+
+    MSDPAppendSanitized(text, nullptr);
+    EXPECT_EQ(text, "NAME=orc \\\"guard\\\"\\n");
+}
+
 TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
 {
     ProtocolDescriptor context;

@@ -531,6 +531,10 @@ void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, std::stri
  */
 std::string MSDPSanitizeValue(const char* apValue);
 
+// Appends the MSDPSanitizeValue text for apValue to out_text, so a caller building a table in a
+// reused string needs no copy of its own. A null apValue appends nothing.
+void MSDPAppendSanitized(std::string& out_text, const char* apValue);
+
 /* Function: MSDPSetTable
  *
  * Works like MSDPSetString, but the value is sent as an MSDP table.

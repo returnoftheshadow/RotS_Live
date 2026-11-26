@@ -254,6 +254,8 @@ static char* AllocString(const char* apString);
 [[nodiscard]] static char* copy_string(const char* value);
 [[nodiscard]] static char* copy_string(std::string_view value);
 [[nodiscard]] static char* create_string(std::size_t length);
+static std::size_t msdp_sanitized_length(std::string_view value);
+static char* msdp_write_sanitized(std::string_view value, char* out_text);
 
 /******************************************************************************
  ANSI colour codes.
@@ -1277,14 +1279,13 @@ void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, cons
         if (pProtocol == NULL)
             return;
 
-        std::string SanitizedValue = MSDPSanitizeValue(apValue);
-        apValue = SanitizedValue.c_str();
+        const std::size_t value_length = msdp_sanitized_length(apValue);
 
         /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + SanitizedValue.size() + 12;
+        int RequiredBuffer = strlen(apVariable) + value_length + 12;
 
         if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - SanitizedValue.size() < MAX_VARIABLE_LENGTH) {
+            if (RequiredBuffer - value_length < MAX_VARIABLE_LENGTH) {
                 sprintf(MSDPBuffer,
                     "MSDPSendPair: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
                     apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
@@ -1299,11 +1300,15 @@ void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, cons
             ReportBug(MSDPBuffer);
             MSDPBuffer[0] = '\0';
         } else if (pProtocol->bMSDP) {
-            sprintf(MSDPBuffer, "%c%c%c%c%s%c%s%c%c", IAC, SB, TELOPT_MSDP, MSDP_VAR, apVariable,
-                MSDP_VAL, apValue, IAC, SE);
+            const int prefix_length = sprintf(
+                MSDPBuffer, "%c%c%c%c%s%c", IAC, SB, TELOPT_MSDP, MSDP_VAR, apVariable, MSDP_VAL);
+            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            sprintf(value_end, "%c%c", IAC, SE);
         } else if (pProtocol->bATCP) {
-            sprintf(MSDPBuffer, "%c%c%cMSDP.%s %s%c%c", IAC, SB, TELOPT_ATCP, apVariable, apValue,
-                IAC, SE);
+            const int prefix_length
+                = sprintf(MSDPBuffer, "%c%c%cMSDP.%s ", IAC, SB, TELOPT_ATCP, apVariable);
+            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            sprintf(value_end, "%c%c", IAC, SE);
         }
 
         /* Just in case someone calls this function without checking MSDP/ATCP */
@@ -1321,14 +1326,13 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
         if (pProtocol == NULL)
             return;
 
-        std::string SanitizedValue = MSDPSanitizeValue(apValue);
-        apValue = SanitizedValue.c_str();
+        const std::size_t value_length = msdp_sanitized_length(apValue);
 
         /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + SanitizedValue.size() + 12;
+        int RequiredBuffer = strlen(apVariable) + value_length + 12;
 
         if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - SanitizedValue.size() < MAX_VARIABLE_LENGTH) {
+            if (RequiredBuffer - value_length < MAX_VARIABLE_LENGTH) {
                 sprintf(MSDPBuffer,
                     "MSDPSendList: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
                     apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
@@ -1344,9 +1348,10 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
             MSDPBuffer[0] = '\0';
         } else if (pProtocol->bMSDP) {
             int i; /* Loop counter */
-            sprintf(MSDPBuffer, "%c%c%c%c%s%c%c%c%s%c%c%c", IAC, SB, TELOPT_MSDP, MSDP_VAR,
-                apVariable, MSDP_VAL, MSDP_ARRAY_OPEN, MSDP_VAL, apValue, MSDP_ARRAY_CLOSE, IAC,
-                SE);
+            const int prefix_length = sprintf(MSDPBuffer, "%c%c%c%c%s%c%c%c", IAC, SB, TELOPT_MSDP,
+                MSDP_VAR, apVariable, MSDP_VAL, MSDP_ARRAY_OPEN, MSDP_VAL);
+            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            sprintf(value_end, "%c%c%c", MSDP_ARRAY_CLOSE, IAC, SE);
 
             /* Convert the spaces to MSDP_VAL */
             for (i = 0; MSDPBuffer[i] != '\0'; ++i) {
@@ -1354,8 +1359,10 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
                     MSDPBuffer[i] = MSDP_VAL;
             }
         } else if (pProtocol->bATCP) {
-            sprintf(MSDPBuffer, "%c%c%cMSDP.%s %s%c%c", IAC, SB, TELOPT_ATCP, apVariable, apValue,
-                IAC, SE);
+            const int prefix_length
+                = sprintf(MSDPBuffer, "%c%c%cMSDP.%s ", IAC, SB, TELOPT_ATCP, apVariable);
+            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            sprintf(value_end, "%c%c", IAC, SE);
         }
 
         /* Just in case someone calls this function without checking MSDP/ATCP */
@@ -1437,8 +1444,9 @@ static std::size_t msdp_sanitized_length(std::string_view value)
 }
 
 // Writes the MSDPSanitizeValue text for value to out_text, which is never null and has room for
-// msdp_sanitized_length(value) characters. Writes no terminating NUL.
-static void msdp_write_sanitized(std::string_view value, char* out_text)
+// msdp_sanitized_length(value) characters, and returns the end of what it wrote. Writes no
+// terminating NUL.
+static char* msdp_write_sanitized(std::string_view value, char* out_text)
 {
     char escape[MSDP_LONGEST_ESCAPE];
     std::for_each(value.begin(), value.end(), [&escape, &out_text](char character) -> void {
@@ -1446,6 +1454,7 @@ static void msdp_write_sanitized(std::string_view value, char* out_text)
             = msdp_escape_byte(static_cast<unsigned char>(character), escape);
         out_text = std::copy_n(escape, escape_length, out_text);
     });
+    return out_text;
 }
 
 // The MSDPSanitizeValue text for value in a newly allocated string, or nullptr out of memory. The
@@ -1522,15 +1531,22 @@ static bool msdp_set_wrapped(
     return true;
 }
 
-std::string MSDPSanitizeValue(const char* apValue)
+void MSDPAppendSanitized(std::string& out_text, const char* apValue)
 {
     if (apValue == NULL) {
-        return std::string();
+        return;
     }
     const std::string_view value(apValue);
+    const std::size_t old_size = out_text.size();
     const std::size_t length = msdp_sanitized_length(value);
-    std::string sanitized(length, '\0');
-    msdp_write_sanitized(value, sanitized.data());
+    out_text.resize(old_size + length);
+    msdp_write_sanitized(value, out_text.data() + old_size);
+}
+
+std::string MSDPSanitizeValue(const char* apValue)
+{
+    std::string sanitized;
+    MSDPAppendSanitized(sanitized, apValue);
     return sanitized;
 }
 
