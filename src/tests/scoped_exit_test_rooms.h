@@ -100,14 +100,14 @@ public:
     ScopedExitTestRooms& operator=(const ScopedExitTestRooms&) = delete;
 
     // Gives the hall an exit in direction with these EX_ flags, leading to real room to_room.
-    void set_exit(int direction, int exit_flags, int to_room)
+    void set_exit(int direction, int exit_info, int to_room)
     {
         room_direction_data& exit = m_exits[direction];
         exit = {};
         exit.general_description = m_empty_text;
         exit.keyword = m_door_keyword;
         exit.exit_width = DEFAULT_EXIT_WIDTH;
-        exit.exit_info = exit_flags;
+        exit.exit_info = exit_info;
         exit.key = NO_KEY;
         exit.to_room = to_room;
         world[HALL].dir_option[direction] = &exit;
@@ -115,6 +115,9 @@ public:
 
     // Leaves the hall with no exit at all in direction.
     void remove_exit(int direction) { world[HALL].dir_option[direction] = nullptr; }
+
+    // Leaves the hall's exit in direction, set by set_exit, with no keywords.
+    void remove_keyword(int direction) { m_exits[direction].keyword = nullptr; }
 
 private:
     // The hall plus one destination room per direction.

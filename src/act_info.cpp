@@ -1097,32 +1097,27 @@ static void append_room_line_exits(char* line, const char_data& viewer)
 
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
         const room_exit& exit = seen_exits[direction];
-        const char* mark = nullptr;
-        switch (exit.state) {
-        case exit_state::none:
+        if (!exit.to_room) {
             continue;
-        case exit_state::open:
-            mark = EXIT_MARK_OPEN;
-            break;
-        case exit_state::closed_door:
-            mark = EXIT_MARK_CLOSED_DOOR;
-            break;
-        case exit_state::hidden_door:
-            mark = EXIT_MARK_HIDDEN_DOOR;
-            break;
-        case exit_state::window:
-            mark = EXIT_MARK_WINDOW;
-            break;
         }
 
-        // A window keeps its own mark; a closed exit is never sunlit or shadowy.
-        if (hurt_by_sun && exit.state != exit_state::window) {
-            if (IS_SUNLIT_EXIT(viewer.in_room, exit.to_room, direction)) {
-                mark = EXIT_MARK_SUNLIT;
-            }
-            if (IS_SHADOWY_EXIT(viewer.in_room, exit.to_room, direction)
-                && weather_info.sunlight == SUN_LIGHT) {
+        const char* mark = EXIT_MARK_OPEN;
+        if (has(exit.flags, exit_flags::shut | exit_flags::hidden)) {
+            mark = EXIT_MARK_HIDDEN_DOOR;
+        } else if (has(exit.flags, exit_flags::shut)) {
+            mark = EXIT_MARK_CLOSED_DOOR;
+        } else if (has(exit.flags, exit_flags::window)) {
+            mark = EXIT_MARK_WINDOW;
+        }
+
+        // While the sun is up, a race the sun hurts sees whether the room past an exit it can walk
+        // through is sunlit or shadowy.
+        if (hurt_by_sun && weather_info.sunlight == SUN_LIGHT && is_passable(exit)) {
+            const long destination_flags = world[*exit.to_room].room_flags;
+            if (IS_SET(destination_flags, SHADOWY)) {
                 mark = EXIT_MARK_SHADOWY_IN_SUN;
+            } else if (!IS_SET(destination_flags, DARK) && !IS_SET(destination_flags, INDOORS)) {
+                mark = EXIT_MARK_SUNLIT;
             }
         }
 

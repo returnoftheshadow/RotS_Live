@@ -689,7 +689,7 @@ void msdp_room_update(const char_data* ch)
     exits_value += exits_open;
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
         const room_exit& exit = seen_exits[direction];
-        if (exit.state == exit_state::none) {
+        if (!exit.to_room) {
             continue;
         }
 
@@ -700,7 +700,7 @@ void msdp_room_update(const char_data* ch)
             exits_value += MSDP_DIRECTION_LETTERS[direction];
         }
         exits_value += (char)MSDP_VAL;
-        exits_value += std::to_string(world[exit.to_room].number);
+        exits_value += std::to_string(world[*exit.to_room].number);
     }
     exits_value += exits_close;
 

@@ -8,44 +8,57 @@ extern int top_of_world;
 
 namespace {
 
-// Classifies exit: a closed door that is not broken first, then a window, and anything else is
-// open. A broken door counts as open even while flagged closed, and a hidden door only
-// stays hidden while it is closed.
-exit_state state_of(const room_direction_data& exit)
+// The flags exit_info gives an exit, in the combinations exit_flags describes.
+exit_flags flags_of(int exit_info)
 {
-    if (IS_SET(exit.exit_info, EX_CLOSED) && !IS_SET(exit.exit_info, EX_ISBROKEN)) {
-        if (IS_SET(exit.exit_info, EX_ISHIDDEN)) {
-            return exit_state::hidden_door;
+    exit_flags flags = exit_flags::none;
+    if (IS_SET(exit_info, EX_ISDOOR) || IS_SET(exit_info, EX_CLOSED)) {
+        flags |= exit_flags::door;
+        if (IS_SET(exit_info, EX_ISBROKEN)) {
+            flags |= exit_flags::broken;
+        } else if (IS_SET(exit_info, EX_CLOSED)) {
+            flags |= exit_flags::shut;
+            if (IS_SET(exit_info, EX_LOCKED)) {
+                flags |= exit_flags::locked;
+            }
         }
-        return exit_state::closed_door;
     }
 
-    if (IS_SET(exit.exit_info, EX_NOWALK)) {
-        return exit_state::window;
+    if (IS_SET(exit_info, EX_ISHIDDEN)) {
+        flags |= exit_flags::hidden;
+    }
+    if (IS_SET(exit_info, EX_NOWALK)) {
+        flags |= exit_flags::window;
     }
 
-    return exit_state::open;
+    return flags;
 }
 
-// Whether the room line shows viewer an exit of this kind: gods see hidden doors and windows,
-// everyone else sees neither.
-bool room_line_shows(const char_data& viewer, exit_state state)
+// Whether the room line shows viewer exit. Gods see every exit; everyone else sees neither a shut
+// hidden door nor a window that is not shut.
+bool room_line_shows(const char_data& viewer, const room_exit& exit)
 {
-    switch (state) {
-    case exit_state::open:
-    case exit_state::closed_door:
-        return true;
-    case exit_state::hidden_door:
-    case exit_state::window:
-        return GET_LEVEL(&viewer) >= LEVEL_GOD;
-    case exit_state::none:
+    if (!exit.to_room) {
         return false;
     }
+    if (GET_LEVEL(&viewer) >= LEVEL_GOD) {
+        return true;
+    }
 
-    return false;
+    const bool shut = has(exit.flags, exit_flags::shut);
+    if (shut) {
+        return !has(exit.flags, exit_flags::hidden);
+    }
+    return !has(exit.flags, exit_flags::window);
 }
 
 } // namespace
+
+bool is_passable(const room_exit& exit)
+{
+    return exit.to_room && !has(exit.flags, exit_flags::window)
+        && !has(exit.flags, exit_flags::shut);
+}
 
 room_exit_view room_exits(int real_room)
 {
@@ -56,12 +69,18 @@ room_exit_view room_exits(int real_room)
     }
 
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
-        const room_direction_data* exit = world[real_room].dir_option[direction];
-        if (exit == nullptr || exit->to_room == NOWHERE) {
+        const room_direction_data* world_exit = world[real_room].dir_option[direction];
+        if (world_exit == nullptr || world_exit->to_room == NOWHERE) {
             continue;
         }
 
-        exits[direction] = { state_of(*exit), exit->to_room };
+        room_exit& exit = exits[direction];
+        exit.to_room = world_exit->to_room;
+        exit.flags = flags_of(world_exit->exit_info);
+        // A door with no keywords is opened by its direction alone.
+        if (has(exit.flags, exit_flags::door) && world_exit->keyword != nullptr) {
+            exit.door_name = world_exit->keyword;
+        }
     }
 
     return exits;
@@ -86,7 +105,7 @@ room_exit_view exits_seen_by(const char_data& viewer, const room_exit_view& exit
         bool shown = false;
         switch (purpose) {
         case exit_view_purpose::room_line:
-            shown = room_line_shows(viewer, exit.state);
+            shown = room_line_shows(viewer, exit);
             break;
         }
 
