@@ -1056,6 +1056,8 @@ inline constexpr int PRF_LOG1 = (1 << 17);
 inline constexpr int PRF_LOG2 = (1 << 18);
 inline constexpr int PRF_LOG3 = (1 << 19);
 inline constexpr int PRF_CHAT = (1 << 20);
+// MSDP sends ROOM's EXITS as an array of room numbers instead of a direction-to-room table.
+inline constexpr int PRF_LEGACY_EXITS = (1 << 21);
 inline constexpr int PRF_ROOMFLAGS = (1 << 22);
 inline constexpr int PRF_SPAM = (1 << 23);
 inline constexpr int PRF_MSDP = (1 << 24); // TODO: Replace this is PRF_MSDP
@@ -1075,7 +1077,7 @@ inline constexpr int PRF_ADVANCED_PROMPT = (1 << 31);
    against the account is masked with it, so no other preference bit is ever touched. */
 inline constexpr int PPC_PRF_MASK = (PRF_PROMPT | PRF_ADVANCED_PROMPT | PRF_ADVANCED_VIEW
     | PRF_BRIEF | PRF_COMPACT | PRF_SPAM | PRF_WRAP | PRF_ECHO | PRF_MSDP
-    | PRF_LATIN1 | PRF_SPINNER | PRF_INV_SORT1 | PRF_INV_SORT2 | PRF_COLOR);
+    | PRF_LATIN1 | PRF_SPINNER | PRF_INV_SORT1 | PRF_INV_SORT2 | PRF_COLOR | PRF_LEGACY_EXITS);
 
 struct memory_rec {
     struct char_data* enemy;

@@ -111,7 +111,7 @@ TEST(AccountPpcMask, CoversEveryPpcOptionAndNothingElse)
     const long expected = PRF_PROMPT | PRF_ADVANCED_PROMPT | PRF_ADVANCED_VIEW
         | PRF_BRIEF | PRF_COMPACT | PRF_SPAM | PRF_WRAP | PRF_ECHO
         | PRF_MSDP | PRF_LATIN1 | PRF_SPINNER
-        | PRF_INV_SORT1 | PRF_INV_SORT2 | PRF_COLOR;
+        | PRF_INV_SORT1 | PRF_INV_SORT2 | PRF_COLOR | PRF_LEGACY_EXITS;
     EXPECT_EQ(PPC_PRF_MASK, expected);
 }
 

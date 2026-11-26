@@ -1932,6 +1932,9 @@ set <parameter> [on|off|number|toggle]
 > set <parameter> on/off
 > set <parameter> toggle    -- will toggle from on to off and from off to on.
 
+> set legacyexits on/off -- sends MSDP room exits as a list of room
+                            numbers, for older mapping scripts.
+
 See also: PROMPT, WIMPY, BRIEF, COMPACT, SPAM, NOTELL, NOCHAT, NONARRATE,
 NOSUMMON, ECHO, INCOGNITO, SWIM, LATIN1
 #

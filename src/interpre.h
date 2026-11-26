@@ -196,6 +196,7 @@ inline constexpr int SCMD_LATIN1 = 224;
 inline constexpr int SCMD_SPINNER = 225;
 inline constexpr int SCMD_ADVANCED_VIEW = 226;
 inline constexpr int SCMD_ADVANCED_PROMPT = 227;
+inline constexpr int SCMD_LEGACY_EXITS = 228;
 
 inline constexpr int SCMD_PARDON = 301;
 inline constexpr int SCMD_NOTITLE = 302;

@@ -341,6 +341,23 @@ TEST(CharacterJson, EncodesFlagBitvectorsAsReadableNames)
     EXPECT_EQ(character_json::encode_affected_flags(AFF_INVISIBLE | AFF_SANCTUARY), (std::vector<std::string> { "sanctuary", "invisible" }));
 }
 
+TEST(CharacterJson, LegacyExitsIsNamedAndStartsOffWhenAbsent)
+{
+    EXPECT_EQ(character_json::encode_preference_flags(PRF_LEGACY_EXITS),
+        (std::vector<std::string> { "legacy_exits" }));
+
+    long flags = 0;
+    std::string error_message;
+    ASSERT_TRUE(character_json::decode_preference_flags({ "legacy_exits" }, &flags, &error_message))
+        << error_message;
+    EXPECT_EQ(flags, PRF_LEGACY_EXITS);
+
+    flags = 0;
+    ASSERT_TRUE(character_json::decode_preference_flags({ "brief", "msdp" }, &flags, &error_message))
+        << error_message;
+    EXPECT_EQ(flags & PRF_LEGACY_EXITS, 0);
+}
+
 TEST(CharacterJson, RejectsUnknownFlagNamesWhenDecoding)
 {
     long flags = 0;

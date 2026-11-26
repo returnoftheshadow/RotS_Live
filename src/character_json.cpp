@@ -77,6 +77,7 @@ namespace {
         { "roomflags", PRF_ROOMFLAGS },
         { "spam", PRF_SPAM },
         { "msdp", PRF_MSDP },
+        { "legacy_exits", PRF_LEGACY_EXITS },
         { "wrap", PRF_WRAP },
         { "latin1", PRF_LATIN1 },
         { "spinner", PRF_SPINNER },

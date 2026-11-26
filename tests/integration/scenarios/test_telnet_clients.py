@@ -127,6 +127,29 @@ ROOM_VNUM_FRAME_START = (
     bytes([MSDP_VAR]) + ROOM_VNUM_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
 )
 
+# The variable carrying the table that describes the character's room.
+ROOM_VARIABLE = "ROOM"
+
+# The start of the MSDP frame that sets ROOM.
+ROOM_FRAME_START = bytes([MSDP_VAR]) + ROOM_VARIABLE.encode("ascii") + bytes([MSDP_VAL])
+
+# The room south of ROOM_ARENA_CENTRE (wld/11.wld), which no other scenario names.
+ROOM_ARENA_CORRIDOR = 1134
+
+# ROOM's EXITS from ROOM_ARENA_CENTRE: each direction letter with the vnum it leads to.
+ARENA_CENTRE_EXITS = {
+    "n": str(world.ROOM_DARK_CELL),
+    "e": str(world.ROOM_ARENA_EAST),
+    "s": str(ROOM_ARENA_CORRIDOR),
+    "w": str(world.ROOM_ARENA_WEST),
+}
+
+# The command that turns the legacyexits preference on.
+LEGACY_EXITS_ON_COMMAND = "set legacyexits on"
+
+# The game's reply when the legacyexits preference turns on.
+LEGACY_EXITS_ON_REPLY = "MSDP will now send room exits as a list of room numbers."
+
 # The MSSP status the server sends once a client accepts MSSP.
 SERVER_STATUS = {
     "NAME": ["Return of the Shadow"],
@@ -299,6 +322,11 @@ def sets_room_vnum(payload: bytes) -> bool:
     return payload.startswith(ROOM_VNUM_FRAME_START)
 
 
+def sets_room(payload: bytes) -> bool:
+    """Return whether an MSDP frame sets the ROOM variable."""
+    return payload.startswith(ROOM_FRAME_START)
+
+
 def sets_reportable_variables(payload: bytes) -> bool:
     """Return whether an MSDP frame sets the REPORTABLE_VARIABLES variable."""
     return payload.startswith(REPORTABLE_FRAME_START)
@@ -463,6 +491,34 @@ def test_an_msdp_client_hides_the_password_and_gets_its_room_vnum_in_game(server
     room_variables = decode_msdp(room_frame.event.payload)
     room_vnum = room_variables[ROOM_VNUM_VARIABLE]
     assert room_vnum == str(world.ROOM_ARENA_CENTRE), wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_an_msdp_client_gets_its_rooms_exits_as_directions_with_room_numbers(server) -> None:
+    """Pins ROOM's EXITS as a table of each exit's direction letter to the vnum it leads to."""
+    mage = server.login(MAGE.name, client=MSDP_CLIENT)
+    reply = mage.command(MSDP_ON_COMMAND)
+    assert MSDP_ON_REPLY in reply.text, reply.text
+
+    room_frame = mage.expect_subnegotiation(OPTION_MSDP, matching=sets_room)
+    room = decode_msdp(room_frame.event.payload)[ROOM_VARIABLE]
+    assert room["EXITS"] == ARENA_CENTRE_EXITS, wire_listing(mage)
+
+
+@pytest.mark.characters(MAGE)
+def test_legacy_exits_sends_the_rooms_exits_as_a_list_of_room_numbers(server) -> None:
+    """Pins ROOM's EXITS under set legacyexits on: the vnums alone, in ROOM_EXITS' order."""
+    mage = server.login(MAGE.name, client=MSDP_CLIENT)
+    reply = mage.command(MSDP_ON_COMMAND)
+    assert MSDP_ON_REPLY in reply.text, reply.text
+    mage.expect_subnegotiation(OPTION_MSDP, matching=sets_room)
+
+    reply = mage.command(LEGACY_EXITS_ON_COMMAND)
+    assert LEGACY_EXITS_ON_REPLY in reply.text, reply.text
+
+    room_frame = mage.expect_subnegotiation(OPTION_MSDP, matching=sets_room)
+    room = decode_msdp(room_frame.event.payload)[ROOM_VARIABLE]
+    assert room["EXITS"] == list(ARENA_CENTRE_EXITS.values()), wire_listing(mage)
 
 
 @pytest.mark.characters(MAGE)

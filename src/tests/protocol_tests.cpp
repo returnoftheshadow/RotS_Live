@@ -1,5 +1,6 @@
 #include "../char_utils.h"
 #include "../game_time_text.h"
+#include "../interpre.h"
 #include "../limits.h"
 #include "../protocol.h"
 #include "../structs.h"
@@ -32,6 +33,7 @@ extern int average_mob_life;
 void clear_char(struct char_data* ch, int mode);
 void msdp_update();
 void msdp_room_update(const char_data* ch);
+void do_gen_tog(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
 void another_hour(int mode);
 int get_percent_absorb(const char_data* character);
 
@@ -1897,16 +1899,45 @@ protected:
 
 } // namespace
 
-TEST_F(MsdpRoomUpdateTest, LegacyPinSendsTheExitsAsAnArrayOfRoomNumbersWithoutDirections)
+TEST_F(MsdpRoomUpdateTest, SendsTheExitsTheRoomLineShowsAsATableOfDirectionToRoomNumber)
 {
     msdp_room_update(&m_context.character);
 
     EXPECT_EQ(m_context.read_output(),
-        expected_msdp_array_pair("ROOM_EXITS", { "n", "e" })
-            + expected_room_frames(msdp_array_value({ destination_vnum(0), destination_vnum(1) })));
+        expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "u", "d" })
+            + expected_room_frames(msdp_table_value(msdp_table_entry("n", destination_vnum(0))
+                + msdp_table_entry("e", destination_vnum(1)) + msdp_table_entry("u", destination_vnum(4))
+                + msdp_table_entry("d", destination_vnum(5)))));
 }
 
-TEST_F(MsdpRoomUpdateTest, LegacyPinSendsTheSameExitsInTheDark)
+TEST_F(MsdpRoomUpdateTest, WithLegacyExitsSetTheExitsAreAnArrayOfRoomNumbersInRoomExitsOrder)
+{
+    SET_BIT(PRF_FLAGS(&m_context.character), PRF_LEGACY_EXITS);
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "u", "d" })
+            + expected_room_frames(msdp_array_value(
+                { destination_vnum(0), destination_vnum(1), destination_vnum(4), destination_vnum(5) })));
+}
+
+TEST_F(MsdpRoomUpdateTest, AGodIsSentTheHiddenDoorsAndWindowsItSees)
+{
+    m_context.character.player.level = LEVEL_GOD;
+
+    msdp_room_update(&m_context.character);
+
+    std::string exits_table;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        exits_table += msdp_table_entry(std::string(1, "neswud"[direction]), destination_vnum(direction));
+    }
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "s", "w", "u", "d" })
+            + expected_room_frames(msdp_table_value(exits_table)));
+}
+
+TEST_F(MsdpRoomUpdateTest, InTheDarkTheRoomNameAndNumberAreSentWithNoExits)
 {
     room_data& hall = world[ScopedExitTestRooms::HALL];
     hall.light = 0;
@@ -1914,12 +1945,33 @@ TEST_F(MsdpRoomUpdateTest, LegacyPinSendsTheSameExitsInTheDark)
 
     msdp_room_update(&m_context.character);
 
-    EXPECT_EQ(m_context.read_output(),
-        expected_msdp_array_pair("ROOM_EXITS", { "n", "e" })
-            + expected_room_frames(msdp_array_value({ destination_vnum(0), destination_vnum(1) })));
+    // ROOM_EXITS starts empty, so an empty list is no change and is not sent.
+    EXPECT_EQ(m_context.read_output(), expected_room_frames(msdp_table_value("")));
 }
 
-TEST_F(MsdpRoomUpdateTest, LegacyPinLeavesOutAnExitToRealRoomZero)
+TEST_F(MsdpRoomUpdateTest, GoingBlindEmptiesTheExitsAndLeavesTheNameAndNumberAsSent)
+{
+    msdp_room_update(&m_context.character);
+    m_context.read_output();
+    SET_BIT(m_context.character.specials.affected_by, AFF_BLIND);
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_pair("ROOM_EXITS", "")
+            + expected_msdp_table_pair("ROOM", hall_room_table(msdp_table_value(""))));
+}
+
+TEST_F(MsdpRoomUpdateTest, AsleepThePlayerIsSentNoExits)
+{
+    m_context.character.specials.position = POSITION_SLEEPING;
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(), expected_room_frames(msdp_table_value("")));
+}
+
+TEST_F(MsdpRoomUpdateTest, AnExitToRealRoomZeroIsSent)
 {
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
         m_rooms.remove_exit(direction);
@@ -1929,8 +1981,29 @@ TEST_F(MsdpRoomUpdateTest, LegacyPinLeavesOutAnExitToRealRoomZero)
 
     msdp_room_update(&m_context.character);
 
-    // ROOM_EXITS starts empty, so an empty list is no change and is not sent.
-    EXPECT_EQ(m_context.read_output(), expected_room_frames(msdp_array_value({})));
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_array_pair("ROOM_EXITS", { "n" })
+            + expected_room_frames(
+                msdp_table_value(msdp_table_entry("n", std::to_string(world[0].number)))));
+}
+
+TEST_F(MsdpRoomUpdateTest, SettingLegacyExitsResendsTheRoomAtOnce)
+{
+    m_context.descriptor.output = m_context.descriptor.small_outbuf;
+    m_context.descriptor.small_outbuf[0] = '\0';
+    m_context.descriptor.bufspace = SMALL_BUFSIZE - 1;
+    msdp_room_update(&m_context.character);
+    m_context.read_output();
+
+    char on_argument[] = "on";
+    do_gen_tog(&m_context.character, on_argument, nullptr, 0, SCMD_LEGACY_EXITS);
+
+    EXPECT_TRUE(PRF_FLAGGED(&m_context.character, PRF_LEGACY_EXITS));
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_table_pair("ROOM",
+            hall_room_table(msdp_array_value(
+                { destination_vnum(0), destination_vnum(1), destination_vnum(4), destination_vnum(5) }))));
+    EXPECT_NE(std::string(m_context.descriptor.output).find("list of room numbers"), std::string::npos);
 }
 
 TEST_F(MsdpRoomUpdateTest, SendsNothingForAnNpc)

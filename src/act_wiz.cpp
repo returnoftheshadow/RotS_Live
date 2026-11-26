@@ -56,7 +56,6 @@ void stop_riding(char_data* ch);
 extern int cost_per_day(const obj_data* obj);
 extern struct script_head* script_table;
 extern int top_of_script_table;
-extern void msdp_room_update(const char_data* ch);
 
 extern int restrict;
 extern int top_of_world;
@@ -322,7 +321,6 @@ ACMD(do_goto)
 
     act(buf, TRUE, ch, 0, 0, TO_ROOM);
     do_look(ch, "", wtl, 0, 0);
-    msdp_room_update(ch);
 }
 
 // non-persistent, used to flag output of debugging messages

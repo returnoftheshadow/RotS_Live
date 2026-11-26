@@ -1,5 +1,6 @@
 #include "../comm.h"
 #include "../interpre.h"
+#include "../room_exits.h"
 #include "../structs.h"
 #include "../utils.h"
 
@@ -11,6 +12,7 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
 
 extern room_data world;
 extern weather_data weather_info;
@@ -97,7 +99,7 @@ TEST_F(RoomLineTest, AnImmortalBelowGodSeesWhatAMortalSees)
     EXPECT_EQ(look_and_read_first_line(), "Exit Test Hall    Exits are: N (E) U D\n\r");
 }
 
-TEST_F(RoomLineTest, AnOrcSeesSunlitExitsMarkedIncludingAWindowAMortalOtherwiseCannotSee)
+TEST_F(RoomLineTest, AnOrcSeesSunlitExitsMarkedButNotAWindowIntoTheSun)
 {
     ScopedGameClock clock_scope;
     weather_info.sunlight = SUN_LIGHT;
@@ -108,7 +110,20 @@ TEST_F(RoomLineTest, AnOrcSeesSunlitExitsMarkedIncludingAWindowAMortalOtherwiseC
         destination.sector_type = SECT_FIELD;
     }
 
-    EXPECT_EQ(look_and_read_first_line(), "Exit Test Hall    Exits are: #N# (E) #W# U D\n\r");
+    EXPECT_EQ(look_and_read_first_line(), "Exit Test Hall    Exits are: #N# (E) U D\n\r");
+}
+
+TEST_F(RoomLineTest, AnOrcGodSeesAWindowIntoTheSunWithItsWindowMark)
+{
+    ScopedGameClock clock_scope;
+    weather_info.sunlight = SUN_LIGHT;
+    m_player.player.race = RACE_ORC;
+    m_player.player.level = LEVEL_GOD;
+    room_data& destination = world[ScopedExitTestRooms::destination(3)];
+    destination.room_flags = 0;
+    destination.sector_type = SECT_FIELD;
+
+    EXPECT_EQ(look_and_read_first_line(), "Exit Test Hall    Exits are: N (E) *S* {W} U D\n\r");
 }
 
 TEST_F(RoomLineTest, AHumanSeesTheSameSunlitExitsUnmarked)
@@ -152,4 +167,121 @@ TEST_F(RoomLineTest, InTheDarkThePlayerIsShownNoExits)
 
     EXPECT_EQ(look_and_read_first_line(), "It is pitch black...\n\r");
     EXPECT_EQ(output().find("Exits are:"), std::string::npos);
+}
+
+namespace {
+
+// A character standing in ScopedExitTestRooms' hall, awake and able to see.
+class ExitViewTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        clear_char(&m_viewer, 0);
+        m_viewer.player.name = m_viewer_name;
+        m_viewer.player.race = RACE_HUMAN;
+        m_viewer.player.level = 10;
+        m_viewer.specials.position = POSITION_STANDING;
+        m_viewer.in_room = ScopedExitTestRooms::HALL;
+    }
+
+    void TearDown() override { release_cleared_character(&m_viewer); }
+
+    // The exits m_viewer sees from the hall in the room line.
+    room_exit_view room_line_view() const
+    {
+        return exits_seen_by(m_viewer, room_exits(ScopedExitTestRooms::HALL), exit_view_purpose::room_line);
+    }
+
+    // The hall and its exits.
+    ScopedExitTestRooms m_rooms;
+    // The character who looks.
+    char_data m_viewer {};
+
+private:
+    // The viewer's name.
+    char m_viewer_name[16] = "Viewer";
+};
+
+// The states of view, north to down.
+std::vector<exit_state> states_of(const room_exit_view& view)
+{
+    std::vector<exit_state> states;
+    states.reserve(view.size());
+    for (const room_exit& exit : view) {
+        states.push_back(exit.state);
+    }
+    return states;
+}
+
+} // namespace
+
+TEST_F(ExitViewTest, TheFullViewHoldsEveryExitTheRoomHasWithItsDestination)
+{
+    const room_exit_view exits = room_exits(ScopedExitTestRooms::HALL);
+
+    EXPECT_EQ(states_of(exits),
+        (std::vector<exit_state> { exit_state::open, exit_state::closed_door, exit_state::hidden_door,
+            exit_state::window, exit_state::open, exit_state::open }));
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        EXPECT_EQ(exits[direction].to_room, ScopedExitTestRooms::destination(direction)) << direction;
+    }
+}
+
+TEST_F(ExitViewTest, MissingAndNowhereExitsAreNoneLeadingNowhere)
+{
+    m_rooms.remove_exit(0);
+    m_rooms.set_exit(1, 0, NOWHERE);
+
+    const room_exit_view exits = room_exits(ScopedExitTestRooms::HALL);
+
+    for (int direction : { 0, 1 }) {
+        EXPECT_EQ(exits[direction].state, exit_state::none) << direction;
+        EXPECT_EQ(exits[direction].to_room, NOWHERE) << direction;
+    }
+}
+
+TEST_F(ExitViewTest, ARoomOutsideTheWorldHasNoExits)
+{
+    const room_exit_view exits = room_exits(-1);
+
+    EXPECT_EQ(states_of(exits), std::vector<exit_state>(NUM_OF_DIRS, exit_state::none));
+}
+
+TEST_F(ExitViewTest, AMortalDoesNotSeeHiddenDoorsOrWindows)
+{
+    const room_exit_view seen = room_line_view();
+
+    EXPECT_EQ(states_of(seen),
+        (std::vector<exit_state> { exit_state::open, exit_state::closed_door, exit_state::none,
+            exit_state::none, exit_state::open, exit_state::open }));
+    EXPECT_EQ(seen[2].to_room, NOWHERE);
+    EXPECT_EQ(seen[3].to_room, NOWHERE);
+}
+
+TEST_F(ExitViewTest, AGodSeesEveryExit)
+{
+    m_viewer.player.level = LEVEL_GOD;
+
+    EXPECT_EQ(states_of(room_line_view()), states_of(room_exits(ScopedExitTestRooms::HALL)));
+}
+
+TEST_F(ExitViewTest, AViewerWhoCannotSeeSeesNoExits)
+{
+    const std::vector<exit_state> no_exits(NUM_OF_DIRS, exit_state::none);
+
+    m_viewer.specials.position = POSITION_SLEEPING;
+    EXPECT_FALSE(can_see_room(m_viewer));
+    EXPECT_EQ(states_of(room_line_view()), no_exits) << "asleep";
+
+    m_viewer.specials.position = POSITION_STANDING;
+    SET_BIT(m_viewer.specials.affected_by, AFF_BLIND);
+    EXPECT_FALSE(can_see_room(m_viewer));
+    EXPECT_EQ(states_of(room_line_view()), no_exits) << "blind";
+
+    REMOVE_BIT(m_viewer.specials.affected_by, AFF_BLIND);
+    room_data& hall = world[ScopedExitTestRooms::HALL];
+    hall.light = 0;
+    hall.room_flags = INDOORS | DARK;
+    EXPECT_FALSE(can_see_room(m_viewer));
+    EXPECT_EQ(states_of(room_line_view()), no_exits) << "dark";
 }
