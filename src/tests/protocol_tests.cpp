@@ -557,7 +557,7 @@ TEST(MSDPProtocol, SanitizesStringValuesForJsonLikeConsumers)
     EXPECT_EQ(MSDPSanitizeValue(nullptr), "");
 }
 
-TEST(MSDPProtocol, AppendSanitizedAddsTheEscapedValueAfterExistingText)
+TEST(MSDPProtocol, AppendSanitizedAddsTheEscapedValueAfterExistingTextAndNothingForNull)
 {
     std::string text = "NAME=";
 
@@ -1239,21 +1239,22 @@ TEST(MSDPProtocol, SendPairAndListEscapeTheirValuesForMSDPAndATCP)
     EXPECT_EQ(context.read_output(), expected_atcp_pair("COMMANDS", "LIST \\\"REPORT\\\""));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair, for the reason given above.
+// Reads the wire through ProtocolDescriptor's socket pair, for the reason given at
+// SendPairAndListEscapeTheirValuesForMSDPAndATCP.
 TEST(MSDPProtocol, SendPairMeasuresItsLimitWithTheEscapedValue)
 {
     ProtocolDescriptor context;
-    // The bytes MSDPSendPair adds around the variable and value, counted in its limit.
+    // The framing allowance MSDPSendPair's limit adds to the variable and value lengths.
     constexpr std::size_t packet_overhead = 12;
     const std::string variable = "HEALTH";
     const std::size_t largest_escaped_value
         = MAX_VARIABLE_LENGTH - 1 - variable.size() - packet_overhead;
     // A quote escapes to two bytes, so the raw value is one byte shorter than what is sent.
-    const std::string largest_value = std::string(largest_escaped_value - 2, 'X') + "\"";
+    const std::string padding(largest_escaped_value - 2, 'X');
+    const std::string largest_value = padding + "\"";
 
     MSDPSendPair(&context.descriptor, variable.c_str(), largest_value.c_str());
-    EXPECT_EQ(context.read_output(),
-        expected_msdp_pair(variable, std::string(largest_escaped_value - 2, 'X') + "\\\""));
+    EXPECT_EQ(context.read_output(), expected_msdp_pair(variable, padding + "\\\""));
 
     const std::string one_too_long = "X" + largest_value;
     MSDPSendPair(&context.descriptor, variable.c_str(), one_too_long.c_str());
@@ -2054,6 +2055,7 @@ TEST(MSDPProtocol, MsdpUpdateGivesEachPlayerOnlyTheirOwnGroup)
 
     msdp_update();
 
+    // The health, mana and movement percentages that initialize_msdp_player's stats give.
     const std::string expected_group = expected_group_table({
         expected_group_member_table("Aragorn", 83, 81, 84),
         expected_group_member_table("Boromir", 83, 81, 84),

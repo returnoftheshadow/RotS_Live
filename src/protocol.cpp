@@ -1279,22 +1279,25 @@ void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, cons
         if (pProtocol == NULL)
             return;
 
-        const std::size_t value_length = msdp_sanitized_length(apValue);
+        const std::string_view value(apValue);
+        const std::size_t value_length = msdp_sanitized_length(value);
 
         /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + value_length + 12;
+        // Kept as std::size_t so no value is long enough to wrap around the limit check.
+        constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
+        const std::size_t required_length = strlen(apVariable) + value_length + 12;
 
-        if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - value_length < MAX_VARIABLE_LENGTH) {
-                sprintf(MSDPBuffer,
-                    "MSDPSendPair: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
-                    apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
+        if (required_length >= buffer_limit) {
+            if (required_length - value_length < buffer_limit) {
+                snprintf(MSDPBuffer, sizeof(MSDPBuffer),
+                    "MSDPSendPair: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n", apVariable,
+                    required_length, MAX_VARIABLE_LENGTH);
             } else /* The variable name itself is too long */
             {
-                sprintf(MSDPBuffer,
-                    "MSDPSendPair: Variable name has a length of %d bytes (exceeds "
+                snprintf(MSDPBuffer, sizeof(MSDPBuffer),
+                    "MSDPSendPair: Variable name has a length of %zu bytes (exceeds "
                     "MAX_VARIABLE_LENGTH of %d).\n",
-                    RequiredBuffer, MAX_VARIABLE_LENGTH);
+                    required_length, MAX_VARIABLE_LENGTH);
             }
 
             ReportBug(MSDPBuffer);
@@ -1302,12 +1305,12 @@ void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, cons
         } else if (pProtocol->bMSDP) {
             const int prefix_length = sprintf(
                 MSDPBuffer, "%c%c%c%c%s%c", IAC, SB, TELOPT_MSDP, MSDP_VAR, apVariable, MSDP_VAL);
-            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            char* const value_end = msdp_write_sanitized(value, MSDPBuffer + prefix_length);
             sprintf(value_end, "%c%c", IAC, SE);
         } else if (pProtocol->bATCP) {
             const int prefix_length
                 = sprintf(MSDPBuffer, "%c%c%cMSDP.%s ", IAC, SB, TELOPT_ATCP, apVariable);
-            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            char* const value_end = msdp_write_sanitized(value, MSDPBuffer + prefix_length);
             sprintf(value_end, "%c%c", IAC, SE);
         }
 
@@ -1326,22 +1329,25 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
         if (pProtocol == NULL)
             return;
 
-        const std::size_t value_length = msdp_sanitized_length(apValue);
+        const std::string_view value(apValue);
+        const std::size_t value_length = msdp_sanitized_length(value);
 
         /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + value_length + 12;
+        // Kept as std::size_t so no value is long enough to wrap around the limit check.
+        constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
+        const std::size_t required_length = strlen(apVariable) + value_length + 12;
 
-        if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - value_length < MAX_VARIABLE_LENGTH) {
-                sprintf(MSDPBuffer,
-                    "MSDPSendList: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
-                    apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
+        if (required_length >= buffer_limit) {
+            if (required_length - value_length < buffer_limit) {
+                snprintf(MSDPBuffer, sizeof(MSDPBuffer),
+                    "MSDPSendList: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n", apVariable,
+                    required_length, MAX_VARIABLE_LENGTH);
             } else /* The variable name itself is too long */
             {
-                sprintf(MSDPBuffer,
-                    "MSDPSendList: Variable name has a length of %d bytes (exceeds "
+                snprintf(MSDPBuffer, sizeof(MSDPBuffer),
+                    "MSDPSendList: Variable name has a length of %zu bytes (exceeds "
                     "MAX_VARIABLE_LENGTH of %d).\n",
-                    RequiredBuffer, MAX_VARIABLE_LENGTH);
+                    required_length, MAX_VARIABLE_LENGTH);
             }
 
             ReportBug(MSDPBuffer);
@@ -1350,7 +1356,7 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
             int i; /* Loop counter */
             const int prefix_length = sprintf(MSDPBuffer, "%c%c%c%c%s%c%c%c", IAC, SB, TELOPT_MSDP,
                 MSDP_VAR, apVariable, MSDP_VAL, MSDP_ARRAY_OPEN, MSDP_VAL);
-            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            char* const value_end = msdp_write_sanitized(value, MSDPBuffer + prefix_length);
             sprintf(value_end, "%c%c%c", MSDP_ARRAY_CLOSE, IAC, SE);
 
             /* Convert the spaces to MSDP_VAL */
@@ -1361,7 +1367,7 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
         } else if (pProtocol->bATCP) {
             const int prefix_length
                 = sprintf(MSDPBuffer, "%c%c%cMSDP.%s ", IAC, SB, TELOPT_ATCP, apVariable);
-            char* const value_end = msdp_write_sanitized(apValue, MSDPBuffer + prefix_length);
+            char* const value_end = msdp_write_sanitized(value, MSDPBuffer + prefix_length);
             sprintf(value_end, "%c%c", IAC, SE);
         }
 

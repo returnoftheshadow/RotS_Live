@@ -676,8 +676,9 @@ static void append_msdp_table_value(std::string& out_payload, const char* name, 
     out_payload.append(digits, written.ptr);
 }
 
-// Replaces out_payload with group's GROUP table, keeping the string's storage.
-static void build_group_msdp_table(const group_data* group, std::string& out_payload)
+// Replaces out_payload with group's GROUP table, keeping the string's storage. A null group gives
+// an empty MEMBERS array.
+static void build_group_msdp_table(std::string& out_payload, const group_data* group)
 {
     out_payload.clear();
     append_msdp_table_name(out_payload, "MEMBERS");
@@ -711,8 +712,8 @@ constexpr int OPPONENT_HEALTH_MAX_IN_FIGHT = 100;
 
 void msdp_update()
 {
-    // Every player's GROUP table is built here, so after the first few pulses building one
-    // allocates only when a larger group outgrows it.
+    // Reused for every player's GROUP table. MSDPSetTable copies the text, so nothing keeps it, and
+    // building a table allocates only when a group outgrows every earlier one.
     static std::string group_payload;
 
     for (auto desc = descriptor_list; desc; desc = desc->next) {
@@ -853,7 +854,7 @@ void msdp_update()
         }
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
-        build_group_msdp_table(desc->character->group, group_payload);
+        build_group_msdp_table(group_payload, desc->character->group);
         MSDPSetTable(desc, eMSDP_GROUP, group_payload.c_str());
 
         MSDPUpdate(desc);
