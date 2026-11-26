@@ -4,21 +4,22 @@
 #include "../structs.h"
 #include "../utils.h"
 
-#include "ScopedExitTestRooms.h"
 #include "ScopedGameClock.h"
+#include "scoped_exit_test_rooms.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
 
-#include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 extern room_data world;
 extern weather_data weather_info;
 
-void clear_char(struct char_data* ch, int mode);
-void do_look(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void clear_char(struct char_data* character, int mode);
+void do_look(
+    char_data* character, char* argument, waiting_type* wait_list, int command, int subcommand);
 
 namespace {
 
@@ -55,12 +56,13 @@ protected:
     {
         char no_argument[1] = "";
         do_look(&m_player, no_argument, nullptr, CMD_LOOK, 0);
-        const std::string output(m_descriptor.output);
-        const std::size_t line_end = output.find("\n\r");
+        constexpr std::string_view LINE_END = "\n\r";
+        const std::string sent_text(m_descriptor.output);
+        const std::size_t line_end = sent_text.find(LINE_END);
         if (line_end == std::string::npos) {
-            return output;
+            return sent_text;
         }
-        return output.substr(0, line_end + 2);
+        return sent_text.substr(0, line_end + LINE_END.size());
     }
 
     // Everything the player has been sent.
@@ -104,7 +106,7 @@ TEST_F(RoomLineTest, AnOrcSeesSunlitExitsMarkedButNotAWindowIntoTheSun)
     ScopedGameClock clock_scope;
     weather_info.sunlight = SUN_LIGHT;
     m_player.player.race = RACE_ORC;
-    for (int direction : { 0, 3 }) {
+    for (int direction : { NORTH, WEST }) {
         room_data& destination = world[ScopedExitTestRooms::destination(direction)];
         destination.room_flags = 0;
         destination.sector_type = SECT_FIELD;
@@ -119,7 +121,7 @@ TEST_F(RoomLineTest, AnOrcGodSeesAWindowIntoTheSunWithItsWindowMark)
     weather_info.sunlight = SUN_LIGHT;
     m_player.player.race = RACE_ORC;
     m_player.player.level = LEVEL_GOD;
-    room_data& destination = world[ScopedExitTestRooms::destination(3)];
+    room_data& destination = world[ScopedExitTestRooms::destination(WEST)];
     destination.room_flags = 0;
     destination.sector_type = SECT_FIELD;
 
@@ -130,7 +132,7 @@ TEST_F(RoomLineTest, AHumanSeesTheSameSunlitExitsUnmarked)
 {
     ScopedGameClock clock_scope;
     weather_info.sunlight = SUN_LIGHT;
-    for (int direction : { 0, 3 }) {
+    for (int direction : { NORTH, WEST }) {
         room_data& destination = world[ScopedExitTestRooms::destination(direction)];
         destination.room_flags = 0;
         destination.sector_type = SECT_FIELD;
@@ -141,18 +143,18 @@ TEST_F(RoomLineTest, AHumanSeesTheSameSunlitExitsUnmarked)
 
 TEST_F(RoomLineTest, MissingAndNowhereExitsAreLeftOutButAnExitToRealRoomZeroIsShown)
 {
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+    for (int direction = NORTH; direction <= DOWN; ++direction) {
         m_rooms.remove_exit(direction);
     }
-    m_rooms.set_exit(0, 0, 0);
-    m_rooms.set_exit(1, 0, NOWHERE);
+    m_rooms.set_exit(NORTH, 0, 0);
+    m_rooms.set_exit(EAST, 0, NOWHERE);
 
     EXPECT_EQ(look_and_read_first_line(), "Exit Test Hall    Exits are: N\n\r");
 }
 
 TEST_F(RoomLineTest, AHallWithNoExitsShowsAnEmptyExitList)
 {
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+    for (int direction = NORTH; direction <= DOWN; ++direction) {
         m_rooms.remove_exit(direction);
     }
 
@@ -189,7 +191,8 @@ protected:
     // The exits m_viewer sees from the hall in the room line.
     room_exit_view room_line_view() const
     {
-        return exits_seen_by(m_viewer, room_exits(ScopedExitTestRooms::HALL), exit_view_purpose::room_line);
+        const room_exit_view room_view = room_exits(ScopedExitTestRooms::HALL);
+        return exits_seen_by(m_viewer, room_view, exit_view_purpose::room_line);
     }
 
     // The hall and its exits.
@@ -220,21 +223,22 @@ TEST_F(ExitViewTest, TheFullViewHoldsEveryExitTheRoomHasWithItsDestination)
     const room_exit_view exits = room_exits(ScopedExitTestRooms::HALL);
 
     EXPECT_EQ(states_of(exits),
-        (std::vector<exit_state> { exit_state::open, exit_state::closed_door, exit_state::hidden_door,
-            exit_state::window, exit_state::open, exit_state::open }));
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
-        EXPECT_EQ(exits[direction].to_room, ScopedExitTestRooms::destination(direction)) << direction;
+        (std::vector<exit_state> { exit_state::open, exit_state::closed_door,
+            exit_state::hidden_door, exit_state::window, exit_state::open, exit_state::open }));
+    for (int direction = NORTH; direction <= DOWN; ++direction) {
+        EXPECT_EQ(exits[direction].to_room, ScopedExitTestRooms::destination(direction))
+            << direction;
     }
 }
 
 TEST_F(ExitViewTest, MissingAndNowhereExitsAreNoneLeadingNowhere)
 {
-    m_rooms.remove_exit(0);
-    m_rooms.set_exit(1, 0, NOWHERE);
+    m_rooms.remove_exit(NORTH);
+    m_rooms.set_exit(EAST, 0, NOWHERE);
 
     const room_exit_view exits = room_exits(ScopedExitTestRooms::HALL);
 
-    for (int direction : { 0, 1 }) {
+    for (int direction : { NORTH, EAST }) {
         EXPECT_EQ(exits[direction].state, exit_state::none) << direction;
         EXPECT_EQ(exits[direction].to_room, NOWHERE) << direction;
     }
@@ -254,8 +258,8 @@ TEST_F(ExitViewTest, AMortalDoesNotSeeHiddenDoorsOrWindows)
     EXPECT_EQ(states_of(seen),
         (std::vector<exit_state> { exit_state::open, exit_state::closed_door, exit_state::none,
             exit_state::none, exit_state::open, exit_state::open }));
-    EXPECT_EQ(seen[2].to_room, NOWHERE);
-    EXPECT_EQ(seen[3].to_room, NOWHERE);
+    EXPECT_EQ(seen[SOUTH].to_room, NOWHERE);
+    EXPECT_EQ(seen[WEST].to_room, NOWHERE);
 }
 
 TEST_F(ExitViewTest, AGodSeesEveryExit)

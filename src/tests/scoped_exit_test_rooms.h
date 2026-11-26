@@ -18,15 +18,25 @@ extern int top_of_world;
 // All seven rooms are indoors and lit.
 class ScopedExitTestRooms {
 public:
+    // The real room the fixture turns into the hall.
     static constexpr int HALL = 992;
+    // The real room the hall's north exit leads to; the other directions follow in order.
     static constexpr int FIRST_DESTINATION = 993;
-    static constexpr int HALL_VNUM = 99200;
+
+    // The vnum the fixture gives real_room: the real number times 100.
+    static constexpr int vnum_of(int real_room) { return real_room * 100; }
+
+    // The real room the hall's exit in direction leads to by default.
+    static constexpr int destination(int direction) { return FIRST_DESTINATION + direction; }
+
+    // The hall's vnum. It is vnum_of(HALL), which cannot be called until the class is complete.
+    static constexpr int HALL_VNUM = HALL * 100;
 
     ScopedExitTestRooms()
         : m_top_of_world(top_of_world)
     {
-        if (top_of_world < FIRST_DESTINATION + NUM_OF_DIRS - 1) {
-            top_of_world = FIRST_DESTINATION + NUM_OF_DIRS - 1;
+        if (top_of_world < destination(DOWN)) {
+            top_of_world = destination(DOWN);
         }
 
         for (int room_offset = 0; room_offset < ROOM_COUNT; ++room_offset) {
@@ -41,7 +51,7 @@ public:
             saved.people = room.people;
             saved.contents = room.contents;
             saved.affected = room.affected;
-            for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            for (int direction = NORTH; direction <= DOWN; ++direction) {
                 saved.dir_option[direction] = room.dir_option[direction];
                 room.dir_option[direction] = nullptr;
             }
@@ -57,12 +67,12 @@ public:
             room.affected = nullptr;
         }
 
-        set_exit(0, 0, FIRST_DESTINATION + 0);
-        set_exit(1, EX_ISDOOR | EX_CLOSED, FIRST_DESTINATION + 1);
-        set_exit(2, EX_ISDOOR | EX_CLOSED | EX_ISHIDDEN, FIRST_DESTINATION + 2);
-        set_exit(3, EX_NOWALK, FIRST_DESTINATION + 3);
-        set_exit(4, EX_ISDOOR | EX_CLOSED | EX_ISBROKEN, FIRST_DESTINATION + 4);
-        set_exit(5, EX_ISDOOR | EX_ISHIDDEN, FIRST_DESTINATION + 5);
+        set_exit(NORTH, 0, destination(NORTH));
+        set_exit(EAST, EX_ISDOOR | EX_CLOSED, destination(EAST));
+        set_exit(SOUTH, EX_ISDOOR | EX_CLOSED | EX_ISHIDDEN, destination(SOUTH));
+        set_exit(WEST, EX_NOWALK, destination(WEST));
+        set_exit(UP, EX_ISDOOR | EX_CLOSED | EX_ISBROKEN, destination(UP));
+        set_exit(DOWN, EX_ISDOOR | EX_ISHIDDEN, destination(DOWN));
     }
 
     ~ScopedExitTestRooms()
@@ -79,7 +89,7 @@ public:
             room.people = saved.people;
             room.contents = saved.contents;
             room.affected = saved.affected;
-            for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+            for (int direction = NORTH; direction <= DOWN; ++direction) {
                 room.dir_option[direction] = saved.dir_option[direction];
             }
         }
@@ -96,9 +106,9 @@ public:
         exit = {};
         exit.general_description = m_empty_text;
         exit.keyword = m_door_keyword;
-        exit.exit_width = 4;
+        exit.exit_width = DEFAULT_EXIT_WIDTH;
         exit.exit_info = exit_flags;
-        exit.key = -1;
+        exit.key = NO_KEY;
         exit.to_room = to_room;
         world[HALL].dir_option[direction] = &exit;
     }
@@ -106,14 +116,13 @@ public:
     // Leaves the hall with no exit at all in direction.
     void remove_exit(int direction) { world[HALL].dir_option[direction] = nullptr; }
 
-    // The vnum the fixture gives real room room: the real number times 100.
-    static int vnum_of(int room) { return room * 100; }
-
-    // The real room the hall's exit in direction leads to by default.
-    static int destination(int direction) { return FIRST_DESTINATION + direction; }
-
 private:
+    // The hall plus one destination room per direction.
     static constexpr int ROOM_COUNT = 1 + NUM_OF_DIRS;
+    // The width world files give an ordinary exit.
+    static constexpr ubyte DEFAULT_EXIT_WIDTH = 4;
+    // The key number of an exit no key opens.
+    static constexpr int NO_KEY = -1;
 
     // One room's fields as they were before the fixture changed them.
     struct saved_room {
@@ -155,3 +164,6 @@ private:
     // An empty exit description.
     char m_empty_text[1] = "";
 };
+
+static_assert(
+    ScopedExitTestRooms::HALL_VNUM == ScopedExitTestRooms::vnum_of(ScopedExitTestRooms::HALL));

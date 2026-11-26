@@ -16,6 +16,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "act_move.h"
 #include "boards.h"
 #include "color.h"
 #include "comm.h"
@@ -25,7 +26,6 @@
 #include "handler.h"
 #include "interpre.h"
 #include "limits.h"
-#include "act_move.h"
 #include "pkill.h"
 #include "room_exits.h"
 #include "script.h"
@@ -1067,9 +1067,7 @@ void show_room_weather(char* str, const struct char_data* ch)
 // "Exits are: N (E) *S* {W} #U# %D%".
 constexpr const char* EXIT_MARK_OPEN = " %c";
 constexpr const char* EXIT_MARK_CLOSED_DOOR = " (%c)";
-// Seen only by gods.
 constexpr const char* EXIT_MARK_HIDDEN_DOOR = " *%c*";
-// Seen only by gods.
 constexpr const char* EXIT_MARK_WINDOW = " {%c}";
 // An open exit into a sunlit room, as a race the sun hurts sees it.
 constexpr const char* EXIT_MARK_SUNLIT = " #%c#";
@@ -1079,12 +1077,20 @@ constexpr const char* EXIT_MARK_SHADOWY_IN_SUN = " %%%c%%";
 // The letter the room line shows for each direction, north to down.
 constexpr char ROOM_LINE_DIRECTION_LETTERS[NUM_OF_DIRS] = { 'N', 'E', 'S', 'W', 'U', 'D' };
 
-// Appends to line, a buffer with room for it, the room-line mark of every exit viewer sees from
-// its room.
+// Room for one mark, at most four characters such as " #N#", and its terminator.
+constexpr int EXIT_MARK_BUFFER_SIZE = 8;
+
+// Appends to line the room-line mark of every exit viewer sees from its room. line must have room
+// for NUM_OF_DIRS marks of up to four characters each; a null line logs an error and is skipped.
 static void append_room_line_exits(char* line, const char_data& viewer)
 {
-    const room_exit_view seen_exits
-        = exits_seen_by(viewer, room_exits(viewer.in_room), exit_view_purpose::room_line);
+    if (line == nullptr) {
+        vmudlog(NRM, "SYSERR: %s: no line to append the exits to.", __func__);
+        return;
+    }
+
+    const room_exit_view room_view = room_exits(viewer.in_room);
+    const room_exit_view seen_exits = exits_seen_by(viewer, room_view, exit_view_purpose::room_line);
     const int race = GET_RACE(&viewer);
     const bool hurt_by_sun = race == RACE_URUK || race == RACE_ORC || race == RACE_MAGUS
         || race == RACE_OLOGHAI;
@@ -1120,7 +1126,7 @@ static void append_room_line_exits(char* line, const char_data& viewer)
             }
         }
 
-        char exit_text[8];
+        char exit_text[EXIT_MARK_BUFFER_SIZE];
         snprintf(exit_text, sizeof(exit_text), mark, ROOM_LINE_DIRECTION_LETTERS[direction]);
         strcat(line, exit_text);
     }

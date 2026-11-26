@@ -5,9 +5,9 @@
 
 #include <array>
 
-// A room's six exits, as data the room line, the client protocols and other exit displays all
-// read, so each shows the same exits. A room_exit_view built by room_exits() holds everything
-// the room has; exits_seen_by() narrows it to what one character can see.
+// A room's six exits, as data the room line and MSDP both read, so the two show the same exits.
+// A room_exit_view built by room_exits() holds everything the room has; exits_seen_by() narrows
+// it to what one character can see.
 
 // What kind of exit leads one way out of a room.
 enum class exit_state {
@@ -34,10 +34,11 @@ struct room_exit {
 // A room's exits indexed by direction, north to down.
 using room_exit_view = std::array<room_exit, NUM_OF_DIRS>;
 
-// Every exit the real room room has, whoever looks. room must be a valid index into world.
-room_exit_view room_exits(int room);
+// Every exit real_room has, whoever looks. A room outside the world logs an error and has no
+// exits.
+room_exit_view room_exits(int real_room);
 
-// The display an exit view is built for; each may show a viewer different exits.
+// The display an exit view is built for.
 enum class exit_view_purpose {
     // The "Exits are:" line under a room's name, which the client protocols also send.
     room_line,

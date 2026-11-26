@@ -136,7 +136,8 @@ ROOM_FRAME_START = bytes([MSDP_VAR]) + ROOM_VARIABLE.encode("ascii") + bytes([MS
 # The room south of ROOM_ARENA_CENTRE (wld/11.wld), which no other scenario names.
 ROOM_ARENA_CORRIDOR = 1134
 
-# ROOM's EXITS from ROOM_ARENA_CENTRE: each direction letter with the vnum it leads to.
+# ROOM's EXITS from ROOM_ARENA_CENTRE: each direction letter with the vnum it leads to, in the
+# server's direction order (n, e, s, w), which the legacy list keeps.
 ARENA_CENTRE_EXITS = {
     "n": str(world.ROOM_DARK_CELL),
     "e": str(world.ROOM_ARENA_EAST),

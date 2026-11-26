@@ -3340,11 +3340,11 @@ void enter_game(descriptor_data& connection)
     /* ensure character has correct practice sessions available on log-in */
     d->character->update_available_practice_sessions();
 
-    /* The look below sends the MSDP room information. */
     if (!d->pProtocol)
         d->pProtocol = ProtocolCreate();
     ProtocolNegotiate(d);
 
+    // This look also sends the MSDP room information.
     do_look(d->character, "", 0, 0, 0);
     Crash_report_object_refreshes(d->character);
 

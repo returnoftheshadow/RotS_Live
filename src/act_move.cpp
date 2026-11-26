@@ -26,6 +26,7 @@
 #include "utils.h"
 
 #include <assert.h>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -642,7 +643,7 @@ int racial_movement_reduction(const int room_type, const int race, const int mov
 namespace {
 
 // The letter MSDP names each direction by, north to down.
-constexpr const char* MSDP_DIRECTION_LETTERS[NUM_OF_DIRS] = { "n", "e", "s", "w", "u", "d" };
+constexpr std::string_view MSDP_DIRECTION_LETTERS[NUM_OF_DIRS] = { "n", "e", "s", "w", "u", "d" };
 
 } // namespace
 
@@ -674,11 +675,18 @@ void msdp_room_update(const char_data* ch)
     // EXITS is a table of direction letter to room number, or with legacyexits set an array of
     // room numbers in ROOM_EXITS' order.
     const bool legacy_exits = PRF_FLAGGED(ch, PRF_LEGACY_EXITS);
-    const room_exit_view seen_exits
-        = exits_seen_by(*ch, room_exits(ch->in_room), exit_view_purpose::room_line);
+    char exits_open = (char)MSDP_TABLE_OPEN;
+    char exits_close = (char)MSDP_TABLE_CLOSE;
+    if (legacy_exits) {
+        exits_open = (char)MSDP_ARRAY_OPEN;
+        exits_close = (char)MSDP_ARRAY_CLOSE;
+    }
+
+    const room_exit_view room_view = room_exits(ch->in_room);
+    const room_exit_view seen_exits = exits_seen_by(*ch, room_view, exit_view_purpose::room_line);
     std::string exit_letters;
     std::string exits_value;
-    exits_value += (char)(legacy_exits ? MSDP_ARRAY_OPEN : MSDP_TABLE_OPEN);
+    exits_value += exits_open;
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
         const room_exit& exit = seen_exits[direction];
         if (exit.state == exit_state::none) {
@@ -694,7 +702,7 @@ void msdp_room_update(const char_data* ch)
         exits_value += (char)MSDP_VAL;
         exits_value += std::to_string(world[exit.to_room].number);
     }
-    exits_value += (char)(legacy_exits ? MSDP_ARRAY_CLOSE : MSDP_TABLE_CLOSE);
+    exits_value += exits_close;
 
     std::string msdp_room = {};
     msdp_room += (char)MSDP_VAR;

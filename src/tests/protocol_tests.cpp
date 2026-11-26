@@ -12,13 +12,15 @@
 
 #include <gtest/gtest.h>
 
-#include "ScopedExitTestRooms.h"
 #include "ScopedGameClock.h"
+#include "scoped_exit_test_rooms.h"
 #include "test_cleanup.h"
 
 #include <cstring>
 #include <fcntl.h>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 extern descriptor_data* descriptor_list;
@@ -33,7 +35,8 @@ extern int average_mob_life;
 void clear_char(struct char_data* ch, int mode);
 void msdp_update();
 void msdp_room_update(const char_data* ch);
-void do_gen_tog(char_data* ch, char* argument, waiting_type* wtl, int cmd, int subcmd);
+void do_gen_tog(
+    char_data* character, char* argument, waiting_type* wait_list, int command, int subcommand);
 void another_hour(int mode);
 int get_percent_absorb(const char_data* character);
 
@@ -1865,7 +1868,42 @@ std::string hall_room_table(const std::string& exits_value)
 // The vnum ScopedExitTestRooms gives the room its hall's exit in direction leads to.
 std::string destination_vnum(int direction)
 {
-    return std::to_string(ScopedExitTestRooms::vnum_of(ScopedExitTestRooms::destination(direction)));
+    const int destination = ScopedExitTestRooms::destination(direction);
+    return std::to_string(ScopedExitTestRooms::vnum_of(destination));
+}
+
+// The directions of the hall's exits a mortal sees: the open, closed, broken and opened hidden
+// ones.
+constexpr int MORTAL_HALL_EXITS[] = { NORTH, EAST, UP, DOWN };
+
+// MSDP's direction letters, north to down, as the server sends them.
+constexpr std::string_view MSDP_LETTERS = "neswud";
+
+// MSDP's letter for direction.
+std::string msdp_letter(int direction)
+{
+    return std::string(1, MSDP_LETTERS[direction]);
+}
+
+// The vnums of the hall's exits a mortal sees, in direction order.
+std::vector<std::string> mortal_hall_exit_vnums()
+{
+    std::vector<std::string> vnums;
+    vnums.reserve(std::size(MORTAL_HALL_EXITS));
+    for (int direction : MORTAL_HALL_EXITS) {
+        vnums.push_back(destination_vnum(direction));
+    }
+    return vnums;
+}
+
+// The EXITS table of the hall's exits a mortal sees.
+std::string mortal_hall_exits_table()
+{
+    std::string table;
+    for (int direction : MORTAL_HALL_EXITS) {
+        table += msdp_table_entry(msdp_letter(direction), destination_vnum(direction));
+    }
+    return msdp_table_value(table);
 }
 
 // A player standing in ScopedExitTestRooms' hall whose connection reports the four room
@@ -1905,9 +1943,7 @@ TEST_F(MsdpRoomUpdateTest, SendsTheExitsTheRoomLineShowsAsATableOfDirectionToRoo
 
     EXPECT_EQ(m_context.read_output(),
         expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "u", "d" })
-            + expected_room_frames(msdp_table_value(msdp_table_entry("n", destination_vnum(0))
-                + msdp_table_entry("e", destination_vnum(1)) + msdp_table_entry("u", destination_vnum(4))
-                + msdp_table_entry("d", destination_vnum(5)))));
+            + expected_room_frames(mortal_hall_exits_table()));
 }
 
 TEST_F(MsdpRoomUpdateTest, WithLegacyExitsSetTheExitsAreAnArrayOfRoomNumbersInRoomExitsOrder)
@@ -1918,8 +1954,7 @@ TEST_F(MsdpRoomUpdateTest, WithLegacyExitsSetTheExitsAreAnArrayOfRoomNumbersInRo
 
     EXPECT_EQ(m_context.read_output(),
         expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "u", "d" })
-            + expected_room_frames(msdp_array_value(
-                { destination_vnum(0), destination_vnum(1), destination_vnum(4), destination_vnum(5) })));
+            + expected_room_frames(msdp_array_value(mortal_hall_exit_vnums())));
 }
 
 TEST_F(MsdpRoomUpdateTest, AGodIsSentTheHiddenDoorsAndWindowsItSees)
@@ -1929,8 +1964,8 @@ TEST_F(MsdpRoomUpdateTest, AGodIsSentTheHiddenDoorsAndWindowsItSees)
     msdp_room_update(&m_context.character);
 
     std::string exits_table;
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
-        exits_table += msdp_table_entry(std::string(1, "neswud"[direction]), destination_vnum(direction));
+    for (int direction = NORTH; direction <= DOWN; ++direction) {
+        exits_table += msdp_table_entry(msdp_letter(direction), destination_vnum(direction));
     }
     EXPECT_EQ(m_context.read_output(),
         expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "s", "w", "u", "d" })
@@ -1973,11 +2008,11 @@ TEST_F(MsdpRoomUpdateTest, AsleepThePlayerIsSentNoExits)
 
 TEST_F(MsdpRoomUpdateTest, AnExitToRealRoomZeroIsSent)
 {
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+    for (int direction = NORTH; direction <= DOWN; ++direction) {
         m_rooms.remove_exit(direction);
     }
-    m_rooms.set_exit(0, 0, 0);
-    m_rooms.set_exit(1, 0, NOWHERE);
+    m_rooms.set_exit(NORTH, 0, 0);
+    m_rooms.set_exit(EAST, 0, NOWHERE);
 
     msdp_room_update(&m_context.character);
 
@@ -2000,10 +2035,10 @@ TEST_F(MsdpRoomUpdateTest, SettingLegacyExitsResendsTheRoomAtOnce)
 
     EXPECT_TRUE(PRF_FLAGGED(&m_context.character, PRF_LEGACY_EXITS));
     EXPECT_EQ(m_context.read_output(),
-        expected_msdp_table_pair("ROOM",
-            hall_room_table(msdp_array_value(
-                { destination_vnum(0), destination_vnum(1), destination_vnum(4), destination_vnum(5) }))));
-    EXPECT_NE(std::string(m_context.descriptor.output).find("list of room numbers"), std::string::npos);
+        expected_msdp_table_pair(
+            "ROOM", hall_room_table(msdp_array_value(mortal_hall_exit_vnums()))));
+    const std::string sent_text(m_context.descriptor.output);
+    EXPECT_NE(sent_text.find("list of room numbers"), std::string::npos);
 }
 
 TEST_F(MsdpRoomUpdateTest, SendsNothingForAnNpc)

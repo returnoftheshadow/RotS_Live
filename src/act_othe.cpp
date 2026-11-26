@@ -1056,7 +1056,7 @@ ACMD(do_gen_tog)
 
     case SCMD_LEGACY_EXITS:
         result = flag_modify(ch, PRF_LEGACY_EXITS, tog_messages[24], 0);
-        // The new shape of ROOM is a change, so it is sent now rather than on the next look.
+        // Resend ROOM at once so the client gets EXITS in its new shape without waiting for a look.
         msdp_room_update(ch);
         break;
 

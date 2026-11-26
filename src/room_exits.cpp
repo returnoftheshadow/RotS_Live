@@ -8,8 +8,8 @@ extern int top_of_world;
 
 namespace {
 
-// The kind of exit exit is: a closed door that is not broken first, then a window, and anything
-// else is open. A broken door counts as open even while flagged closed, and a hidden door only
+// Classifies exit: a closed door that is not broken first, then a window, and anything else is
+// open. A broken door counts as open even while flagged closed, and a hidden door only
 // stays hidden while it is closed.
 exit_state state_of(const room_direction_data& exit)
 {
@@ -47,16 +47,16 @@ bool room_line_shows(const char_data& viewer, exit_state state)
 
 } // namespace
 
-room_exit_view room_exits(int room)
+room_exit_view room_exits(int real_room)
 {
     room_exit_view exits {};
-    if (room < 0 || room > top_of_world) {
-        vmudlog(NRM, "SYSERR: %s: room %d is outside the world.", __func__, room);
+    if (real_room < 0 || real_room > top_of_world) {
+        vmudlog(NRM, "SYSERR: %s: room %d is outside the world.", __func__, real_room);
         return exits;
     }
 
     for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
-        const room_direction_data* exit = world[room].dir_option[direction];
+        const room_direction_data* exit = world[real_room].dir_option[direction];
         if (exit == nullptr || exit->to_room == NOWHERE) {
             continue;
         }
