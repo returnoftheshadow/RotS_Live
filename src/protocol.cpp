@@ -251,9 +251,9 @@ static bool MatchString(const char* apFirst, const char* apSecond);
 static bool PrefixString(const char* apPart, const char* apWhole);
 static bool IsNumber(const char* apString);
 static char* AllocString(const char* apString);
-static char* copy_string(const char* value);
-static char* copy_string(std::string_view value);
-static char* create_string(std::size_t length);
+[[nodiscard]] static char* copy_string(const char* value);
+[[nodiscard]] static char* copy_string(std::string_view value);
+[[nodiscard]] static char* create_string(std::size_t length);
 
 /******************************************************************************
  ANSI colour codes.
@@ -1436,7 +1436,7 @@ static std::size_t msdp_sanitized_length(std::string_view value)
         });
 }
 
-// Writes the MSDPSanitizeValue text for value to out_text, which has room for
+// Writes the MSDPSanitizeValue text for value to out_text, which is never null and has room for
 // msdp_sanitized_length(value) characters. Writes no terminating NUL.
 static void msdp_write_sanitized(std::string_view value, char* out_text)
 {
@@ -1449,8 +1449,8 @@ static void msdp_write_sanitized(std::string_view value, char* out_text)
 }
 
 // The MSDPSanitizeValue text for value in a newly allocated string, or nullptr out of memory. The
-// caller frees it.
-static char* msdp_copy_sanitized(std::string_view value)
+// caller frees it with free().
+[[nodiscard]] static char* msdp_copy_sanitized(std::string_view value)
 {
     const std::size_t length = msdp_sanitized_length(value);
     char* const sanitized = create_string(length);
@@ -1462,23 +1462,21 @@ static char* msdp_copy_sanitized(std::string_view value)
     return sanitized;
 }
 
-// Whether the NUL-terminated stored is exactly the MSDPSanitizeValue text for value, compared
-// without building it.
+// Whether the NUL-terminated stored, which is never null, is exactly the MSDPSanitizeValue text
+// for value, compared without building it.
 static bool equals_sanitized(const char* stored, std::string_view value)
 {
     char escape[MSDP_LONGEST_ESCAPE];
-    const bool prefix_matches
-        = std::all_of(value.begin(), value.end(), [&escape, &stored](char character) -> bool {
-              const std::size_t escape_length
-                  = msdp_escape_byte(static_cast<unsigned char>(character), escape);
-              // A shorter stored mismatches at its NUL, so strncmp never reads past it.
-              if (strncmp(stored, escape, escape_length) != 0) {
-                  return false;
-              }
-              stored += escape_length;
-              return true;
-          });
-    return prefix_matches && *stored == '\0';
+    for (const char character : value) {
+        const std::size_t escape_length
+            = msdp_escape_byte(static_cast<unsigned char>(character), escape);
+        // A shorter stored mismatches at its NUL, so strncmp never reads past it.
+        if (strncmp(stored, escape, escape_length) != 0) {
+            return false;
+        }
+        stored += escape_length;
+    }
+    return *stored == '\0';
 }
 
 // Whether the NUL-terminated stored is exactly open_marker, then payload, then close_marker.
@@ -1507,7 +1505,6 @@ static bool msdp_set_wrapped(
         return false;
     }
 
-    // The two markers.
     constexpr std::size_t marker_bytes = 2;
     char* const wrapped = create_string(payload.size() + marker_bytes);
     if (wrapped == nullptr) {
@@ -1531,7 +1528,8 @@ std::string MSDPSanitizeValue(const char* apValue)
         return std::string();
     }
     const std::string_view value(apValue);
-    std::string sanitized(msdp_sanitized_length(value), '\0');
+    const std::size_t length = msdp_sanitized_length(value);
+    std::string sanitized(length, '\0');
     msdp_write_sanitized(value, sanitized.data());
     return sanitized;
 }
@@ -2932,8 +2930,8 @@ static char* AllocString(const char* apString)
 
 // Copies the string contained in value into a newly allocated string.
 // Returns nullptr if given a nullptr value, or out of memory; either is logged.
-// The caller is responsible for freeing this string.
-static char* copy_string(const char* value)
+// The caller is responsible for freeing this string with free().
+[[nodiscard]] static char* copy_string(const char* value)
 {
     if (value == nullptr) {
         ReportBug("copy_string: asked to copy a null string.\n");
@@ -2945,8 +2943,8 @@ static char* copy_string(const char* value)
 
 // Copies the string contained in value into a newly allocated, NUL-terminated string. value
 // holds no NUL. Returns nullptr out of memory, and logs it.
-// The caller is responsible for freeing this string.
-static char* copy_string(std::string_view value)
+// The caller is responsible for freeing this string with free().
+[[nodiscard]] static char* copy_string(std::string_view value)
 {
     const std::size_t length = value.size();
     char* const result = create_string(length);
@@ -2963,7 +2961,7 @@ static char* copy_string(std::string_view value)
 // Allocates a new string that can hold length characters plus the NUL terminator, which the
 // caller writes. Returns nullptr out of memory.
 // The caller is responsible for freeing this string with free().
-static char* create_string(std::size_t length)
+[[nodiscard]] static char* create_string(std::size_t length)
 {
     return static_cast<char*>(malloc(length + 1));
 }
