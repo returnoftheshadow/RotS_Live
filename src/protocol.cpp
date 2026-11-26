@@ -26,7 +26,9 @@
 #include <string.h>
 #include <time.h>
 
+#include <algorithm>
 #include <cstddef>
+#include <numeric>
 #include <string>
 #include <string_view>
 
@@ -249,6 +251,9 @@ static bool MatchString(const char* apFirst, const char* apSecond);
 static bool PrefixString(const char* apPart, const char* apWhole);
 static bool IsNumber(const char* apString);
 static char* AllocString(const char* apString);
+static char* copy_string(const char* value);
+static char* copy_string(std::string_view value);
+static char* create_string(std::size_t length);
 
 /******************************************************************************
  ANSI colour codes.
@@ -1421,41 +1426,64 @@ static std::size_t msdp_escape_byte(unsigned char byte, char (&out_escape)[MSDP_
     return MSDP_LONGEST_ESCAPE;
 }
 
-// The MSDPSanitizeValue text for value.
-static std::string msdp_sanitize(std::string_view value)
+// The length of the MSDPSanitizeValue text for value.
+static std::size_t msdp_sanitized_length(std::string_view value)
 {
-    std::string sanitized;
-    sanitized.reserve(value.size());
-
     char escape[MSDP_LONGEST_ESCAPE];
-    for (const char character : value) {
+    return std::accumulate(value.begin(), value.end(), std::size_t { 0 },
+        [&escape](std::size_t length, char character) -> std::size_t {
+            return length + msdp_escape_byte(static_cast<unsigned char>(character), escape);
+        });
+}
+
+// Writes the MSDPSanitizeValue text for value to out_text, which has room for
+// msdp_sanitized_length(value) characters. Writes no terminating NUL.
+static void msdp_write_sanitized(std::string_view value, char* out_text)
+{
+    char escape[MSDP_LONGEST_ESCAPE];
+    std::for_each(value.begin(), value.end(), [&escape, &out_text](char character) -> void {
         const std::size_t escape_length
             = msdp_escape_byte(static_cast<unsigned char>(character), escape);
-        sanitized.append(escape, escape_length);
+        out_text = std::copy_n(escape, escape_length, out_text);
+    });
+}
+
+// The MSDPSanitizeValue text for value in a newly allocated string, or nullptr out of memory. The
+// caller frees it.
+static char* msdp_copy_sanitized(std::string_view value)
+{
+    const std::size_t length = msdp_sanitized_length(value);
+    char* const sanitized = create_string(length);
+    if (sanitized == nullptr) {
+        return nullptr;
     }
+    msdp_write_sanitized(value, sanitized);
+    sanitized[length] = '\0';
     return sanitized;
 }
 
 // Whether the NUL-terminated stored is exactly the MSDPSanitizeValue text for value, compared
 // without building it.
-static bool msdp_stored_matches_sanitized(const char* stored, std::string_view value)
+static bool equals_sanitized(const char* stored, std::string_view value)
 {
     char escape[MSDP_LONGEST_ESCAPE];
-    for (const char character : value) {
-        const std::size_t escape_length
-            = msdp_escape_byte(static_cast<unsigned char>(character), escape);
-        // A shorter stored mismatches at its NUL, so strncmp never reads past it.
-        if (strncmp(stored, escape, escape_length) != 0) {
-            return false;
-        }
-        stored += escape_length;
-    }
-    return *stored == '\0';
+    const bool prefix_matches
+        = std::all_of(value.begin(), value.end(), [&escape, &stored](char character) -> bool {
+              const std::size_t escape_length
+                  = msdp_escape_byte(static_cast<unsigned char>(character), escape);
+              // A shorter stored mismatches at its NUL, so strncmp never reads past it.
+              if (strncmp(stored, escape, escape_length) != 0) {
+                  return false;
+              }
+              stored += escape_length;
+              return true;
+          });
+    return prefix_matches && *stored == '\0';
 }
 
 // Whether the NUL-terminated stored is exactly open_marker, then payload, then close_marker.
 // payload holds no NUL.
-static bool msdp_stored_matches_wrapped(
+static bool equals_wrapped(
     const char* stored, char open_marker, std::string_view payload, char close_marker)
 {
     if (stored[0] != open_marker) {
@@ -1475,14 +1503,14 @@ static bool msdp_stored_matches_wrapped(
 static bool msdp_set_wrapped(
     MSDP_t& variable, char open_marker, std::string_view payload, char close_marker)
 {
-    if (msdp_stored_matches_wrapped(variable.pValueString, open_marker, payload, close_marker)) {
+    if (equals_wrapped(variable.pValueString, open_marker, payload, close_marker)) {
         return false;
     }
 
-    // The two markers and the terminating NUL.
-    constexpr std::size_t wrapping_bytes = 3;
-    char* wrapped = static_cast<char*>(malloc(payload.size() + wrapping_bytes));
-    if (wrapped == NULL) {
+    // The two markers.
+    constexpr std::size_t marker_bytes = 2;
+    char* const wrapped = create_string(payload.size() + marker_bytes);
+    if (wrapped == nullptr) {
         ReportBug("msdp_set_wrapped: out of memory; the MSDP value is unchanged.\n");
         return false;
     }
@@ -1502,7 +1530,10 @@ std::string MSDPSanitizeValue(const char* apValue)
     if (apValue == NULL) {
         return std::string();
     }
-    return msdp_sanitize(apValue);
+    const std::string_view value(apValue);
+    std::string sanitized(msdp_sanitized_length(value), '\0');
+    msdp_write_sanitized(value, sanitized.data());
+    return sanitized;
 }
 
 void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue)
@@ -1518,10 +1549,14 @@ void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, std::stri
 
     if (pProtocol != NULL && MSDPIsValidVariable(aMSDP) && VariableNameTable[aMSDP].bString) {
         MSDP_t* variable = pProtocol->pVariables[aMSDP];
-        if (!msdp_stored_matches_sanitized(variable->pValueString, aValue)) {
-            const std::string sanitized = msdp_sanitize(aValue);
+        if (!equals_sanitized(variable->pValueString, aValue)) {
+            char* const sanitized = msdp_copy_sanitized(aValue);
+            if (sanitized == nullptr) {
+                ReportBug("MSDPSetString: out of memory; the MSDP value is unchanged.\n");
+                return;
+            }
             free(variable->pValueString);
-            variable->pValueString = AllocString(sanitized.c_str());
+            variable->pValueString = sanitized;
             variable->bDirty = true;
         }
     }
@@ -2892,14 +2927,43 @@ static bool IsNumber(const char* apString)
 
 static char* AllocString(const char* apString)
 {
-    char* pResult = NULL;
+    return copy_string(apString);
+}
 
-    if (apString != NULL) {
-        int Size = strlen(apString);
-        pResult = (char*)malloc(Size + 1);
-        if (pResult != NULL)
-            strcpy(pResult, apString);
+// Copies the string contained in value into a newly allocated string.
+// Returns nullptr if given a nullptr value, or out of memory; either is logged.
+// The caller is responsible for freeing this string.
+static char* copy_string(const char* value)
+{
+    if (value == nullptr) {
+        ReportBug("copy_string: asked to copy a null string.\n");
+        return nullptr;
     }
 
-    return pResult;
+    return copy_string(std::string_view(value));
+}
+
+// Copies the string contained in value into a newly allocated, NUL-terminated string. value
+// holds no NUL. Returns nullptr out of memory, and logs it.
+// The caller is responsible for freeing this string.
+static char* copy_string(std::string_view value)
+{
+    const std::size_t length = value.size();
+    char* const result = create_string(length);
+    if (result == nullptr) {
+        ReportBug("copy_string: out of memory.\n");
+        return nullptr;
+    }
+
+    memcpy(result, value.data(), length);
+    result[length] = '\0';
+    return result;
+}
+
+// Allocates a new string that can hold length characters plus the NUL terminator, which the
+// caller writes. Returns nullptr out of memory.
+// The caller is responsible for freeing this string with free().
+static char* create_string(std::size_t length)
+{
+    return static_cast<char*>(malloc(length + 1));
 }
