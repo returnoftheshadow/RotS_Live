@@ -1281,10 +1281,10 @@ void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, cons
         apValue = SanitizedValue.c_str();
 
         /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
+        int RequiredBuffer = strlen(apVariable) + SanitizedValue.size() + 12;
 
         if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - strlen(apValue) < MAX_VARIABLE_LENGTH) {
+            if (RequiredBuffer - SanitizedValue.size() < MAX_VARIABLE_LENGTH) {
                 sprintf(MSDPBuffer,
                     "MSDPSendPair: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
                     apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
@@ -1325,10 +1325,10 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
         apValue = SanitizedValue.c_str();
 
         /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
+        int RequiredBuffer = strlen(apVariable) + SanitizedValue.size() + 12;
 
         if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - strlen(apValue) < MAX_VARIABLE_LENGTH) {
+            if (RequiredBuffer - SanitizedValue.size() < MAX_VARIABLE_LENGTH) {
                 sprintf(MSDPBuffer,
                     "MSDPSendList: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
                     apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
