@@ -133,7 +133,7 @@ TEST_F(WeatherToCharTest, MsdpIndoorsGivesNoFeelingAndLooksUpNoWeather)
     world[WEATHER_ROOM].room_flags = INDOORS;
 
     testing::internal::CaptureStderr();
-    const std::string value = msdp_weather_value(&m_player);
+    const std::string_view value = msdp_weather_value(&m_player);
     const std::string log_text = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(value, MSDP_NO_FEELING);
@@ -145,7 +145,7 @@ TEST_F(WeatherToCharTest, MsdpGivesNoFeelingForASectorPastTheTable)
     world[WEATHER_ROOM].sector_type = SECTOR_PAST_THE_WEATHER;
 
     testing::internal::CaptureStderr();
-    const std::string value = msdp_weather_value(&m_player);
+    const std::string_view value = msdp_weather_value(&m_player);
     const std::string log_text = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(value, MSDP_NO_FEELING);
@@ -158,7 +158,7 @@ TEST_F(WeatherToCharTest, MsdpGivesNoFeelingForASkyValuePastTheTable)
     weather_info.sky[SECT_INSIDE] = SKY_BLIZZARD + 1;
 
     testing::internal::CaptureStderr();
-    const std::string value = msdp_weather_value(&m_player);
+    const std::string_view value = msdp_weather_value(&m_player);
     const std::string log_text = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(value, MSDP_NO_FEELING);

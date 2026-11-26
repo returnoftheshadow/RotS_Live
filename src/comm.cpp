@@ -660,26 +660,29 @@ int get_health_percent(const char_data* character)
     return get_stat_percent(GET_HIT(character), GET_MAX_HIT(character));
 }
 
-static void append_msdp_table_value(std::string& payload, const char* name, const std::string& value)
+static void append_msdp_table_name(std::string& out_payload, const char* name)
 {
-    payload += static_cast<char>(MSDP_VAR);
-    payload += name;
-    payload += static_cast<char>(MSDP_VAL);
-    payload += value;
+    out_payload += static_cast<char>(MSDP_VAR);
+    out_payload += name;
+    out_payload += static_cast<char>(MSDP_VAL);
 }
 
-static void append_msdp_table_value(std::string& payload, const char* name, int value)
+static void append_msdp_table_value(std::string& out_payload, const char* name, int value)
 {
-    append_msdp_table_value(payload, name, std::to_string(value));
+    append_msdp_table_name(out_payload, name);
+    // Room for every digit of an int and its sign.
+    char digits[std::numeric_limits<int>::digits10 + 2];
+    const std::to_chars_result written = std::to_chars(digits, digits + sizeof(digits), value);
+    out_payload.append(digits, written.ptr);
 }
 
-static std::string get_group_msdp_table(const group_data* group)
+// Replaces out_payload with group's GROUP table, keeping the string's storage. A null group gives
+// an empty MEMBERS array.
+static void build_group_msdp_table(std::string& out_payload, const group_data* group)
 {
-    std::string payload;
-    payload += static_cast<char>(MSDP_VAR);
-    payload += "MEMBERS";
-    payload += static_cast<char>(MSDP_VAL);
-    payload += static_cast<char>(MSDP_ARRAY_OPEN);
+    out_payload.clear();
+    append_msdp_table_name(out_payload, "MEMBERS");
+    out_payload += static_cast<char>(MSDP_ARRAY_OPEN);
 
     if (group != nullptr) {
         for (const_char_iter iter = group->begin(); iter != group->end(); ++iter) {
@@ -687,21 +690,21 @@ static std::string get_group_msdp_table(const group_data* group)
             if (member == nullptr)
                 continue;
 
-            payload += static_cast<char>(MSDP_VAL);
-            payload += static_cast<char>(MSDP_TABLE_OPEN);
-            append_msdp_table_value(payload, "NAME", MSDPSanitizeValue(GET_NAME(member)));
-            append_msdp_table_value(payload, "HEALTH",
+            out_payload += static_cast<char>(MSDP_VAL);
+            out_payload += static_cast<char>(MSDP_TABLE_OPEN);
+            append_msdp_table_name(out_payload, "NAME");
+            MSDPAppendSanitized(out_payload, GET_NAME(member));
+            append_msdp_table_value(out_payload, "HEALTH",
                 get_stat_percent(GET_HIT(member), GET_MAX_HIT(member)));
-            append_msdp_table_value(payload, "MANA",
+            append_msdp_table_value(out_payload, "MANA",
                 get_stat_percent(GET_MANA(member), GET_MAX_MANA(member)));
-            append_msdp_table_value(payload, "MOVEMENT",
+            append_msdp_table_value(out_payload, "MOVEMENT",
                 get_stat_percent(GET_MOVE(member), GET_MAX_MOVE(member)));
-            payload += static_cast<char>(MSDP_TABLE_CLOSE);
+            out_payload += static_cast<char>(MSDP_TABLE_CLOSE);
         }
     }
 
-    payload += static_cast<char>(MSDP_ARRAY_CLOSE);
-    return payload;
+    out_payload += static_cast<char>(MSDP_ARRAY_CLOSE);
 }
 
 // OPPONENT_HEALTH_MAX while fighting: OPPONENT_HEALTH is a percentage.
@@ -709,6 +712,10 @@ constexpr int OPPONENT_HEALTH_MAX_IN_FIGHT = 100;
 
 void msdp_update()
 {
+    // Reused for every player's GROUP table. MSDPSetTable copies the text, so nothing keeps it, and
+    // building a table allocates only when a group outgrows every earlier one.
+    static std::string group_payload;
+
     for (auto desc = descriptor_list; desc; desc = desc->next) {
         if (!desc->character || IS_NPC(desc->character)) {
             continue;
@@ -819,7 +826,7 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character).c_str());
+        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character));
         MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
@@ -830,7 +837,9 @@ void msdp_update()
                 MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
                 MSDPSetString(desc, eMSDP_OPPONENT_LEVEL,
                               std::to_string(GET_LEVEL(opponent)).c_str());
-                MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
+                const std::array<char, MOB_AGE_MESSAGE_SIZE> age_message
+                    = mob_age_message(opponent);
+                MSDPSetString(desc, eMSDP_OPPONENT_AGE, age_message.data());
             } else {
                 MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
                 MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");
@@ -845,7 +854,8 @@ void msdp_update()
         }
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
-        MSDPSetTable(desc, eMSDP_GROUP, get_group_msdp_table(desc->character->group).c_str());
+        build_group_msdp_table(group_payload, desc->character->group);
+        MSDPSetTable(desc, eMSDP_GROUP, group_payload.c_str());
 
         MSDPUpdate(desc);
     }

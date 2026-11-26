@@ -11,6 +11,8 @@
 #ifndef COMM_H
 #define COMM_H
 
+#include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -59,7 +61,11 @@ void complete_delay(struct char_data* ch);
  * that runs out is completed (a paused script resumes, a delayed command runs). A character
  * freed while its delay completes is not touched again. */
 void process_waiting_list();
-std::string mob_age_message(const struct char_data* victim);
+// The capacity of mob_age_message's result, NUL included.
+inline constexpr std::size_t MOB_AGE_MESSAGE_SIZE = 255;
+// The "has been here for ..." line for victim, without a line break; empty (first byte NUL) for
+// players and orc-friend pets, which show no age. A name too long for the buffer is cut short.
+std::array<char, MOB_AGE_MESSAGE_SIZE> mob_age_message(const struct char_data* victim);
 struct txt_block* get_from_txt_block_pool(const char* line = 0);
 void put_to_txt_block_pool(struct txt_block*);
 

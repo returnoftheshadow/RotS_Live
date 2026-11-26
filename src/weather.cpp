@@ -162,11 +162,12 @@ extern char* moon_phase[];
 
 // weather_messages[] entries end in "\n\r" for direct display to the
 // terminal; MSDP values are discrete data, not display text, so strip it.
-std::string strip_trailing_line_break(const char* text)
+// The result views text.
+std::string_view strip_trailing_line_break(std::string_view text)
 {
-    std::string result(text);
+    std::string_view result = text;
     while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
-        result.pop_back();
+        result.remove_suffix(1);
     }
     return result;
 }
@@ -355,9 +356,9 @@ void weather_to_char(const char_data* ch)
     send_to_char(message, ch);
 }
 
-std::string msdp_weather_value(const char_data* character)
+std::string_view msdp_weather_value(const char_data* character)
 {
-    const char* const no_feeling = "You can have no feeling about the weather here.";
+    constexpr std::string_view no_feeling = "You can have no feeling about the weather here.";
     if (character == NULL) {
         log("SYSERR: msdp_weather_value: no character");
         return no_feeling;

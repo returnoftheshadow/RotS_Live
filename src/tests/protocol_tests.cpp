@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 extern descriptor_data* descriptor_list;
@@ -556,6 +557,17 @@ TEST(MSDPProtocol, SanitizesStringValuesForJsonLikeConsumers)
     EXPECT_EQ(MSDPSanitizeValue(nullptr), "");
 }
 
+TEST(MSDPProtocol, AppendSanitizedAddsTheEscapedValueAfterExistingTextAndNothingForNull)
+{
+    std::string text = "NAME=";
+
+    MSDPAppendSanitized(text, "orc \"guard\"\n");
+    EXPECT_EQ(text, "NAME=orc \\\"guard\\\"\\n");
+
+    MSDPAppendSanitized(text, nullptr);
+    EXPECT_EQ(text, "NAME=orc \\\"guard\\\"\\n");
+}
+
 TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
 {
     ProtocolDescriptor context;
@@ -791,6 +803,318 @@ TEST(MSDPProtocol, SetStringSanitizesAndMarksDirtyOnlyWhenValueChanges)
     EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
 }
 
+// A descriptor with MSDP state and no socket, for tests that read only what the setters store.
+class MsdpSetterDescriptor {
+public:
+    MsdpSetterDescriptor()
+        : m_release(&descriptor)
+    {
+        descriptor.pProtocol = ProtocolCreate();
+    }
+
+    // The stored MSDP record of msdp_variable.
+    MSDP_t* variable(variable_t msdp_variable) const
+    {
+        return descriptor.pProtocol->pVariables[msdp_variable];
+    }
+
+    // The descriptor the setters are given.
+    descriptor_data descriptor {};
+
+private:
+    // Gives back the descriptor's protocol state when the test ends.
+    TestDescriptorRelease m_release;
+};
+
+// The bytes MSDPSetTable stores for payload, or MSDPSetArray when given the array markers.
+std::string msdp_wrapped_value(unsigned char open_marker, std::string_view payload,
+    unsigned char close_marker)
+{
+    std::string value;
+    value.push_back(static_cast<char>(open_marker));
+    value += payload;
+    value.push_back(static_cast<char>(close_marker));
+    return value;
+}
+
+// A one-pair NAME table payload for room_name; tables store it unescaped, so any quote or
+// backslash in it stays raw.
+std::string msdp_test_table_payload(std::string_view room_name)
+{
+    std::string payload;
+    payload.push_back(static_cast<char>(MSDP_VAR));
+    payload += "NAME";
+    payload.push_back(static_cast<char>(MSDP_VAL));
+    payload += room_name;
+    return payload;
+}
+
+TEST(MSDPProtocol, SetStringKeepsAnUnchangedValueInPlace)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
+
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "The Common Room of the Prancing Pony");
+    EXPECT_TRUE(room_name->bDirty);
+    EXPECT_STREQ(room_name->pValueString, "The Common Room of the Prancing Pony");
+
+    room_name->bDirty = false;
+    const char* stored = room_name->pValueString;
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "The Common Room of the Prancing Pony");
+    EXPECT_FALSE(room_name->bDirty);
+    EXPECT_EQ(room_name->pValueString, stored) << "An unchanged value keeps its stored string.";
+    EXPECT_STREQ(room_name->pValueString, "The Common Room of the Prancing Pony");
+}
+
+TEST(MSDPProtocol, SetStringReplacesAValueThatDiffersAnywhere)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
+    const char* const values[] = {
+        "The Common Room of the Prancing Pony",
+        "The Common Room of the Prancing Pon", // a prefix of the stored value
+        "The Common Room of the Prancing Pony", // the stored value is a prefix of this
+        "the Common Room of the Prancing Pony", // the first byte differs
+        "The Common Room of the Prancing Ponies",
+    };
+
+    for (const char* value : values) {
+        room_name->bDirty = false;
+        MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, value);
+        EXPECT_TRUE(room_name->bDirty) << value;
+        EXPECT_STREQ(room_name->pValueString, value);
+    }
+}
+
+TEST(MSDPProtocol, SetStringComparesTheEscapedFormOfAValue)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
+    const char* const raw = "say \"hi\" \\ \n\r\t\001\037 caf\xc3\xa9 \x7f";
+    const char* const escaped = "say \\\"hi\\\" \\\\ \\n\\r\\t\\u0001\\u001f caf\xc3\xa9 \x7f";
+
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, raw);
+    EXPECT_TRUE(room_name->bDirty);
+    EXPECT_STREQ(room_name->pValueString, escaped);
+
+    room_name->bDirty = false;
+    const char* stored = room_name->pValueString;
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, raw);
+    EXPECT_FALSE(room_name->bDirty);
+    EXPECT_EQ(room_name->pValueString, stored);
+
+    // The stored text itself, set as a value, escapes again and so differs.
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, escaped);
+    EXPECT_TRUE(room_name->bDirty);
+    EXPECT_STREQ(room_name->pValueString,
+        "say \\\\\\\"hi\\\\\\\" \\\\\\\\ \\\\n\\\\r\\\\t\\\\u0001\\\\u001f caf\xc3\xa9 \x7f");
+
+    const struct {
+        const char* value;
+        const char* stored;
+    } control_cases[] = {
+        { "a\001", "a\\u0001" },
+        { "a\002", "a\\u0002" },
+        { "a\\u0002", "a\\\\u0002" },
+        { "a\n", "a\\n" },
+        { "a\\n", "a\\\\n" },
+    };
+    for (const auto& control_case : control_cases) {
+        room_name->bDirty = false;
+        MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, control_case.value);
+        EXPECT_TRUE(room_name->bDirty) << control_case.stored;
+        EXPECT_STREQ(room_name->pValueString, control_case.stored);
+    }
+}
+
+TEST(MSDPProtocol, SetStringStoresAndKeepsAnEmptyValue)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* opponent_age = context.variable(eMSDP_OPPONENT_AGE);
+
+    MSDPSetString(
+        &context.descriptor, eMSDP_OPPONENT_AGE, "An orc has just arrived to this place.");
+    opponent_age->bDirty = false;
+    MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "");
+    EXPECT_TRUE(opponent_age->bDirty);
+    EXPECT_STREQ(opponent_age->pValueString, "");
+
+    opponent_age->bDirty = false;
+    MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "");
+    EXPECT_FALSE(opponent_age->bDirty);
+    EXPECT_STREQ(opponent_age->pValueString, "");
+}
+
+TEST(MSDPProtocol, SetStringTakesAValueThatIsNotNulTerminated)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* weather = context.variable(eMDSP_WEATHER);
+    constexpr std::string_view weather_message = "Clouds \"race\" by.\n\r";
+    const std::string_view without_break = weather_message.substr(0, weather_message.size() - 2);
+
+    MSDPSetString(&context.descriptor, eMDSP_WEATHER, without_break);
+    EXPECT_TRUE(weather->bDirty);
+    EXPECT_STREQ(weather->pValueString, "Clouds \\\"race\\\" by.");
+
+    weather->bDirty = false;
+    const char* stored = weather->pValueString;
+    MSDPSetString(&context.descriptor, eMDSP_WEATHER, without_break);
+    EXPECT_FALSE(weather->bDirty);
+    EXPECT_EQ(weather->pValueString, stored);
+
+    MSDPSetString(&context.descriptor, eMDSP_WEATHER, "Clouds \"race\" by.");
+    EXPECT_FALSE(weather->bDirty) << "The view and the same NUL-terminated text compare alike.";
+}
+
+TEST(MSDPProtocol, SetTableWrapsThePayloadAndKeepsAnUnchangedTable)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* room = context.variable(eMSDP_ROOM);
+    const std::string payload = msdp_test_table_payload("The \"Pony\" \\ Inn");
+
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    EXPECT_TRUE(room->bDirty);
+    EXPECT_EQ(std::string(room->pValueString),
+        msdp_wrapped_value(MSDP_TABLE_OPEN, payload, MSDP_TABLE_CLOSE));
+
+    room->bDirty = false;
+    const char* stored = room->pValueString;
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    EXPECT_FALSE(room->bDirty);
+    EXPECT_EQ(room->pValueString, stored);
+
+    const std::string payloads[] = {
+        msdp_test_table_payload("The \"Pony\" \\ In"),
+        msdp_test_table_payload("The \"Pony\" \\ Inn"),
+        msdp_test_table_payload("The \"Pony\" \\ Inns"),
+        msdp_test_table_payload("the \"Pony\" \\ Inn"),
+    };
+    for (const std::string& changed : payloads) {
+        room->bDirty = false;
+        MSDPSetTable(&context.descriptor, eMSDP_ROOM, changed.c_str());
+        EXPECT_TRUE(room->bDirty);
+        EXPECT_EQ(std::string(room->pValueString),
+            msdp_wrapped_value(MSDP_TABLE_OPEN, changed, MSDP_TABLE_CLOSE));
+    }
+
+    // The same payload as an array differs in its markers.
+    room->bDirty = false;
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM, payloads[3].c_str());
+    EXPECT_TRUE(room->bDirty);
+    EXPECT_EQ(std::string(room->pValueString),
+        msdp_wrapped_value(MSDP_ARRAY_OPEN, payloads[3], MSDP_ARRAY_CLOSE));
+}
+
+TEST(MSDPProtocol, SetTableAndArrayStoreAnEmptyValueUnwrapped)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* room = context.variable(eMSDP_ROOM);
+    MSDP_t* exits = context.variable(eMSDP_ROOM_EXITS);
+    const std::string payload = msdp_test_table_payload("Bree");
+
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    room->bDirty = false;
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, "");
+    EXPECT_TRUE(room->bDirty);
+    EXPECT_STREQ(room->pValueString, "");
+    room->bDirty = false;
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, "");
+    EXPECT_FALSE(room->bDirty);
+
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, "\001n");
+    exits->bDirty = false;
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, "");
+    EXPECT_TRUE(exits->bDirty);
+    EXPECT_STREQ(exits->pValueString, "");
+    exits->bDirty = false;
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, "");
+    EXPECT_FALSE(exits->bDirty);
+}
+
+TEST(MSDPProtocol, SetArrayWrapsThePayloadAndKeepsAnUnchangedArray)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* exits = context.variable(eMSDP_ROOM_EXITS);
+    std::string payload;
+    payload.push_back(static_cast<char>(MSDP_VAL));
+    payload += "north";
+    payload.push_back(static_cast<char>(MSDP_VAL));
+    payload += "east";
+
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
+    EXPECT_TRUE(exits->bDirty);
+    EXPECT_EQ(std::string(exits->pValueString),
+        msdp_wrapped_value(MSDP_ARRAY_OPEN, payload, MSDP_ARRAY_CLOSE));
+
+    exits->bDirty = false;
+    const char* stored = exits->pValueString;
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
+    EXPECT_FALSE(exits->bDirty);
+    EXPECT_EQ(exits->pValueString, stored);
+
+    const std::string shorter = payload.substr(0, payload.size() - 1);
+    const std::string longer = payload + "s";
+    for (const std::string& changed : { shorter, payload, longer }) {
+        exits->bDirty = false;
+        MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, changed.c_str());
+        EXPECT_TRUE(exits->bDirty);
+        EXPECT_EQ(std::string(exits->pValueString),
+            msdp_wrapped_value(MSDP_ARRAY_OPEN, changed, MSDP_ARRAY_CLOSE));
+    }
+
+    // The same payload as a table differs in its markers.
+    exits->bDirty = false;
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM_EXITS, longer.c_str());
+    EXPECT_TRUE(exits->bDirty);
+    EXPECT_EQ(std::string(exits->pValueString),
+        msdp_wrapped_value(MSDP_TABLE_OPEN, longer, MSDP_TABLE_CLOSE));
+}
+
+TEST(MSDPProtocol, SendTableStoresLikeSetTableWhenTheVariableIsNotReported)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* room = context.variable(eMSDP_ROOM);
+    room->bReport = false;
+    const std::string payload = msdp_test_table_payload("Bree");
+
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    EXPECT_TRUE(room->bDirty);
+    EXPECT_EQ(std::string(room->pValueString),
+        msdp_wrapped_value(MSDP_TABLE_OPEN, payload, MSDP_TABLE_CLOSE));
+
+    room->bDirty = false;
+    const char* stored = room->pValueString;
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    EXPECT_FALSE(room->bDirty);
+    EXPECT_EQ(room->pValueString, stored);
+
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, "");
+    EXPECT_TRUE(room->bDirty);
+    EXPECT_STREQ(room->pValueString, "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair: the setters write only through
+// write_to_descriptor, which takes a socket, so no portable capture can see the sent bytes.
+TEST(MSDPProtocol, SendsTheStoredBytesOfEscapedStringsAndTablesOnce)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    disable_all_msdp_reports(protocol);
+    protocol->pVariables[eMSDP_ROOM]->bReport = true;
+
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "The \"Pony\"\t\001");
+    MSDPSend(&context.descriptor, eMSDP_ROOM_NAME);
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("ROOM_NAME", "The \\\"Pony\\\"\\t\\u0001"));
+
+    const std::string payload = msdp_test_table_payload("The \"Pony\" \\ Inn");
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    EXPECT_EQ(context.read_output(), expected_msdp_table_pair("ROOM", payload));
+    EXPECT_FALSE(protocol->pVariables[eMSDP_ROOM]->bDirty);
+
+    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    EXPECT_EQ(context.read_output(), "") << "An unchanged table is not sent again.";
+}
+
 TEST(MSDPProtocol, SendsStringAndNumberVariablesAsMSDPPackets)
 {
     ProtocolDescriptor context;
@@ -889,6 +1213,51 @@ TEST(MSDPProtocol, SendPairAndListRejectOversizedPayloads)
     MSDPSendPair(&context.descriptor, "HEALTH", huge_value.c_str());
     MSDPSendList(&context.descriptor, "COMMANDS", huge_value.c_str());
 
+    EXPECT_EQ(context.read_output(), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair: MSDPSendPair and MSDPSendList write
+// only through write_to_descriptor, which takes a socket, so no portable capture can see them.
+TEST(MSDPProtocol, SendPairAndListEscapeTheirValuesForMSDPAndATCP)
+{
+    ProtocolDescriptor context;
+
+    MSDPSendPair(&context.descriptor, "PLAY_SOUND", "say \"hi\"\n");
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("PLAY_SOUND", "say \\\"hi\\\"\\n"));
+
+    MSDPSendList(&context.descriptor, "COMMANDS", "LIST \"REPORT\"");
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_array_pair("COMMANDS", { "LIST", "\\\"REPORT\\\"" }));
+
+    context.descriptor.pProtocol->bMSDP = false;
+    context.descriptor.pProtocol->bATCP = true;
+
+    MSDPSendPair(&context.descriptor, "PLAY_SOUND", "say \"hi\"\n");
+    EXPECT_EQ(context.read_output(), expected_atcp_pair("PLAY_SOUND", "say \\\"hi\\\"\\n"));
+
+    MSDPSendList(&context.descriptor, "COMMANDS", "LIST \"REPORT\"");
+    EXPECT_EQ(context.read_output(), expected_atcp_pair("COMMANDS", "LIST \\\"REPORT\\\""));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair, for the reason given at
+// SendPairAndListEscapeTheirValuesForMSDPAndATCP.
+TEST(MSDPProtocol, SendPairMeasuresItsLimitWithTheEscapedValue)
+{
+    ProtocolDescriptor context;
+    // The framing allowance MSDPSendPair's limit adds to the variable and value lengths.
+    constexpr std::size_t packet_overhead = 12;
+    const std::string variable = "HEALTH";
+    const std::size_t largest_escaped_value
+        = MAX_VARIABLE_LENGTH - 1 - variable.size() - packet_overhead;
+    // A quote escapes to two bytes, so the raw value is one byte shorter than what is sent.
+    const std::string padding(largest_escaped_value - 2, 'X');
+    const std::string largest_value = padding + "\"";
+
+    MSDPSendPair(&context.descriptor, variable.c_str(), largest_value.c_str());
+    EXPECT_EQ(context.read_output(), expected_msdp_pair(variable, padding + "\\\""));
+
+    const std::string one_too_long = "X" + largest_value;
+    MSDPSendPair(&context.descriptor, variable.c_str(), one_too_long.c_str());
     EXPECT_EQ(context.read_output(), "");
 }
 
@@ -1657,6 +2026,44 @@ TEST(MSDPProtocol, MsdpUpdateClearsGroupWhenUngrouped)
         msdp_table_value(expected_group).c_str());
     EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", expected_group));
     EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_GROUP]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpUpdateGivesEachPlayerOnlyTheirOwnGroup)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    // Neither player has MSDP turned on, so the update stores each value without sending it.
+    MsdpSetterDescriptor grouped_context;
+    MsdpSetterDescriptor ungrouped_context;
+    char_data grouped_player {};
+    MsdpCharacterRelease grouped_player_release(&grouped_player);
+    char_data group_member {};
+    MsdpCharacterRelease group_member_release(&group_member);
+    char_data ungrouped_player {};
+    MsdpCharacterRelease ungrouped_player_release(&ungrouped_player);
+
+    initialize_msdp_player(&grouped_player, "Aragorn");
+    initialize_msdp_player(&group_member, "Boromir");
+    initialize_msdp_player(&ungrouped_player, "Faramir");
+    group_data group(&grouped_player);
+    group.add_member(&group_member);
+
+    grouped_context.descriptor.character = &grouped_player;
+    ungrouped_context.descriptor.character = &ungrouped_player;
+    grouped_context.descriptor.next = &ungrouped_context.descriptor;
+    descriptor_list = &grouped_context.descriptor;
+
+    msdp_update();
+
+    // The health, mana and movement percentages that initialize_msdp_player's stats give.
+    const std::string expected_group = expected_group_table({
+        expected_group_member_table("Aragorn", 83, 81, 84),
+        expected_group_member_table("Boromir", 83, 81, 84),
+    });
+    EXPECT_STREQ(grouped_context.variable(eMSDP_GROUP)->pValueString,
+        msdp_table_value(expected_group).c_str());
+    EXPECT_STREQ(ungrouped_context.variable(eMSDP_GROUP)->pValueString,
+        msdp_table_value(expected_group_table({})).c_str());
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsAllGroupMembersWithPercentages)
