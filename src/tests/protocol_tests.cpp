@@ -1205,6 +1205,50 @@ TEST(MSDPProtocol, SendPairAndListRejectOversizedPayloads)
     EXPECT_EQ(context.read_output(), "");
 }
 
+// Reads the wire through ProtocolDescriptor's socket pair: MSDPSendPair and MSDPSendList write
+// only through write_to_descriptor, which takes a socket, so no portable capture can see them.
+TEST(MSDPProtocol, SendPairAndListEscapeTheirValuesForMSDPAndATCP)
+{
+    ProtocolDescriptor context;
+
+    MSDPSendPair(&context.descriptor, "PLAY_SOUND", "say \"hi\"\n");
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("PLAY_SOUND", "say \\\"hi\\\"\\n"));
+
+    MSDPSendList(&context.descriptor, "COMMANDS", "LIST \"REPORT\"");
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_array_pair("COMMANDS", { "LIST", "\\\"REPORT\\\"" }));
+
+    context.descriptor.pProtocol->bMSDP = false;
+    context.descriptor.pProtocol->bATCP = true;
+
+    MSDPSendPair(&context.descriptor, "PLAY_SOUND", "say \"hi\"\n");
+    EXPECT_EQ(context.read_output(), expected_atcp_pair("PLAY_SOUND", "say \\\"hi\\\"\\n"));
+
+    MSDPSendList(&context.descriptor, "COMMANDS", "LIST \"REPORT\"");
+    EXPECT_EQ(context.read_output(), expected_atcp_pair("COMMANDS", "LIST \\\"REPORT\\\""));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair, for the reason given above.
+TEST(MSDPProtocol, SendPairMeasuresItsLimitWithTheEscapedValue)
+{
+    ProtocolDescriptor context;
+    // The bytes MSDPSendPair adds around the variable and value, counted in its limit.
+    constexpr std::size_t packet_overhead = 12;
+    const std::string variable = "HEALTH";
+    const std::size_t largest_escaped_value
+        = MAX_VARIABLE_LENGTH - 1 - variable.size() - packet_overhead;
+    // A quote escapes to two bytes, so the raw value is one byte shorter than what is sent.
+    const std::string largest_value = std::string(largest_escaped_value - 2, 'X') + "\"";
+
+    MSDPSendPair(&context.descriptor, variable.c_str(), largest_value.c_str());
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair(variable, std::string(largest_escaped_value - 2, 'X') + "\\\""));
+
+    const std::string one_too_long = "X" + largest_value;
+    MSDPSendPair(&context.descriptor, variable.c_str(), one_too_long.c_str());
+    EXPECT_EQ(context.read_output(), "");
+}
+
 TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
 {
     ProtocolDescriptor context;
@@ -1970,6 +2014,43 @@ TEST(MSDPProtocol, MsdpUpdateClearsGroupWhenUngrouped)
         msdp_table_value(expected_group).c_str());
     EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", expected_group));
     EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_GROUP]->bDirty);
+}
+
+TEST(MSDPProtocol, MsdpUpdateGivesEachPlayerOnlyTheirOwnGroup)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ScopedMSDPTestRoom room_scope;
+    // Neither player has MSDP turned on, so the update stores each value without sending it.
+    MsdpSetterDescriptor grouped_context;
+    MsdpSetterDescriptor ungrouped_context;
+    char_data grouped_player {};
+    MsdpCharacterRelease grouped_player_release(&grouped_player);
+    char_data group_member {};
+    MsdpCharacterRelease group_member_release(&group_member);
+    char_data ungrouped_player {};
+    MsdpCharacterRelease ungrouped_player_release(&ungrouped_player);
+
+    initialize_msdp_player(&grouped_player, "Aragorn");
+    initialize_msdp_player(&group_member, "Boromir");
+    initialize_msdp_player(&ungrouped_player, "Faramir");
+    group_data group(&grouped_player);
+    group.add_member(&group_member);
+
+    grouped_context.descriptor.character = &grouped_player;
+    ungrouped_context.descriptor.character = &ungrouped_player;
+    grouped_context.descriptor.next = &ungrouped_context.descriptor;
+    descriptor_list = &grouped_context.descriptor;
+
+    msdp_update();
+
+    const std::string expected_group = expected_group_table({
+        expected_group_member_table("Aragorn", 83, 81, 84),
+        expected_group_member_table("Boromir", 83, 81, 84),
+    });
+    EXPECT_STREQ(grouped_context.variable(eMSDP_GROUP)->pValueString,
+        msdp_table_value(expected_group).c_str());
+    EXPECT_STREQ(ungrouped_context.variable(eMSDP_GROUP)->pValueString,
+        msdp_table_value(expected_group_table({})).c_str());
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsAllGroupMembersWithPercentages)
