@@ -645,6 +645,64 @@ namespace {
 // The letter MSDP names each direction by, north to down.
 constexpr std::string_view MSDP_DIRECTION_LETTERS[NUM_OF_DIRS] = { "n", "e", "s", "w", "u", "d" };
 
+// The ROOM_EXITS value: an array of the direction letter of each exit in exits.
+std::string msdp_exit_letters(const room_exit_view& exits)
+{
+    std::string letters;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        if (!exits[direction].to_room) {
+            continue;
+        }
+
+        letters += (char)MSDP_VAL;
+        letters += MSDP_DIRECTION_LETTERS[direction];
+    }
+
+    return letters;
+}
+
+// ROOM's EXITS value: a table of each exit's direction letter to the number of the room it leads
+// to.
+std::string msdp_exits_table(const room_exit_view& exits)
+{
+    std::string table;
+    table += (char)MSDP_TABLE_OPEN;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        const room_exit& exit = exits[direction];
+        if (!exit.to_room) {
+            continue;
+        }
+
+        table += (char)MSDP_VAR;
+        table += MSDP_DIRECTION_LETTERS[direction];
+        table += (char)MSDP_VAL;
+        table += std::to_string(world[*exit.to_room].number);
+    }
+    table += (char)MSDP_TABLE_CLOSE;
+
+    return table;
+}
+
+// ROOM's EXITS value for a player with legacyexits set: an array of the numbers of the rooms the
+// exits lead to, in ROOM_EXITS' order.
+std::string msdp_exits_legacy_array(const room_exit_view& exits)
+{
+    std::string array;
+    array += (char)MSDP_ARRAY_OPEN;
+    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
+        const room_exit& exit = exits[direction];
+        if (!exit.to_room) {
+            continue;
+        }
+
+        array += (char)MSDP_VAL;
+        array += std::to_string(world[*exit.to_room].number);
+    }
+    array += (char)MSDP_ARRAY_CLOSE;
+
+    return array;
+}
+
 } // namespace
 
 void msdp_room_update(const char_data* ch)
@@ -672,37 +730,15 @@ void msdp_room_update(const char_data* ch)
     MSDPSetString(ch->desc, eMSDP_ROOM_NAME, room.name);
     MSDPSetNumber(ch->desc, eMSDP_ROOM_VNUM, room.number);
 
-    // EXITS is a table of direction letter to room number, or with legacyexits set an array of
-    // room numbers in ROOM_EXITS' order.
-    const bool legacy_exits = PRF_FLAGGED(ch, PRF_LEGACY_EXITS);
-    char exits_open = (char)MSDP_TABLE_OPEN;
-    char exits_close = (char)MSDP_TABLE_CLOSE;
-    if (legacy_exits) {
-        exits_open = (char)MSDP_ARRAY_OPEN;
-        exits_close = (char)MSDP_ARRAY_CLOSE;
-    }
-
     const room_exit_view room_view = room_exits(ch->in_room);
     const room_exit_view seen_exits = exits_seen_by(*ch, room_view, exit_view_purpose::room_line);
-    std::string exit_letters;
+    const std::string exit_letters = msdp_exit_letters(seen_exits);
     std::string exits_value;
-    exits_value += exits_open;
-    for (int direction = 0; direction < NUM_OF_DIRS; ++direction) {
-        const room_exit& exit = seen_exits[direction];
-        if (!exit.to_room) {
-            continue;
-        }
-
-        exit_letters += (char)MSDP_VAL;
-        exit_letters += MSDP_DIRECTION_LETTERS[direction];
-        if (!legacy_exits) {
-            exits_value += (char)MSDP_VAR;
-            exits_value += MSDP_DIRECTION_LETTERS[direction];
-        }
-        exits_value += (char)MSDP_VAL;
-        exits_value += std::to_string(world[*exit.to_room].number);
+    if (PRF_FLAGGED(ch, PRF_LEGACY_EXITS)) {
+        exits_value = msdp_exits_legacy_array(seen_exits);
+    } else {
+        exits_value = msdp_exits_table(seen_exits);
     }
-    exits_value += exits_close;
 
     std::string msdp_room = {};
     msdp_room += (char)MSDP_VAR;
