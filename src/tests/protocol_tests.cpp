@@ -2271,11 +2271,15 @@ std::string msdp_array_value(const std::vector<std::string>& values)
     return array;
 }
 
-// The ROOM table ScopedExitTestRooms' hall is sent, with exits_value as its EXITS entry.
-std::string hall_room_table(const std::string& exits_value)
+// The name ScopedExitTestRooms gives its hall, which needs no escaping.
+constexpr const char* HALL_NAME = "Exit Test Hall";
+
+// The ROOM table ScopedExitTestRooms' hall is sent, with exits_value as its EXITS entry and
+// sent_name as its NAME.
+std::string hall_room_table(const std::string& exits_value, const std::string& sent_name = HALL_NAME)
 {
     return msdp_table_entry("VNUM", std::to_string(ScopedExitTestRooms::HALL_VNUM))
-        + msdp_table_entry("NAME", "Exit Test Hall") + msdp_table_entry("EXITS", exits_value)
+        + msdp_table_entry("NAME", sent_name) + msdp_table_entry("EXITS", exits_value)
         + msdp_table_entry("TERRAIN", sector_types[SECT_INSIDE]);
 }
 
@@ -2333,11 +2337,13 @@ protected:
             { eMSDP_ROOM, eMSDP_ROOM_EXITS, eMSDP_ROOM_NAME, eMSDP_ROOM_VNUM });
     }
 
-    // The frames after the exits: the ROOM table with exits_value, then ROOM_NAME and ROOM_VNUM.
-    static std::string expected_room_frames(const std::string& exits_value)
+    // The frames after the exits: the ROOM table with exits_value, then ROOM_NAME and ROOM_VNUM,
+    // with sent_name as the room's name in both.
+    static std::string expected_room_frames(
+        const std::string& exits_value, const std::string& sent_name = HALL_NAME)
     {
-        return expected_msdp_table_pair("ROOM", hall_room_table(exits_value))
-            + expected_msdp_pair("ROOM_NAME", "Exit Test Hall")
+        return expected_msdp_table_pair("ROOM", hall_room_table(exits_value, sent_name))
+            + expected_msdp_pair("ROOM_NAME", sent_name)
             + expected_msdp_pair("ROOM_VNUM", std::to_string(ScopedExitTestRooms::HALL_VNUM));
     }
 
@@ -2453,6 +2459,20 @@ TEST_F(MsdpRoomUpdateTest, SettingLegacyExitsResendsTheRoomAtOnce)
             "ROOM", hall_room_table(msdp_array_value(mortal_hall_exit_vnums()))));
     const std::string sent_text(m_context.descriptor.output);
     EXPECT_NE(sent_text.find("list of room numbers"), std::string::npos);
+}
+
+TEST_F(MsdpRoomUpdateTest, EscapesQuotesAndBackslashesInTheRoomName)
+{
+    // ScopedExitTestRooms restores the hall's own name when the test ends.
+    char quoted_name[] = "The \"Pony\" \\ Inn";
+    world[ScopedExitTestRooms::HALL].name = quoted_name;
+    const std::string escaped_name = "The \\\"Pony\\\" \\\\ Inn";
+
+    msdp_room_update(&m_context.character);
+
+    EXPECT_EQ(m_context.read_output(),
+        expected_msdp_array_pair("ROOM_EXITS", { "n", "e", "u", "d" })
+            + expected_room_frames(mortal_hall_exits_table(), escaped_name));
 }
 
 TEST_F(MsdpRoomUpdateTest, SendsNothingForAnNpc)
