@@ -819,7 +819,7 @@ void msdp_update()
         MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
         MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character).c_str());
+        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character));
         MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
@@ -830,7 +830,9 @@ void msdp_update()
                 MSDPSetString(desc, eMSDP_OPPONENT_NAME, GET_NAME(opponent));
                 MSDPSetString(desc, eMSDP_OPPONENT_LEVEL,
                               std::to_string(GET_LEVEL(opponent)).c_str());
-                MSDPSetString(desc, eMSDP_OPPONENT_AGE, mob_age_message(opponent).c_str());
+                const std::array<char, MOB_AGE_MESSAGE_SIZE> age_message
+                    = mob_age_message(opponent);
+                MSDPSetString(desc, eMSDP_OPPONENT_AGE, age_message.data());
             } else {
                 MSDPSetString(desc, eMSDP_OPPONENT_NAME, pc_star_types[utils::get_race(*opponent)]);
                 MSDPSetString(desc, eMSDP_OPPONENT_LEVEL, "???");

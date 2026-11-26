@@ -801,8 +801,11 @@ public:
         descriptor.pProtocol = ProtocolCreate();
     }
 
-    // The stored MSDP value of variable.
-    MSDP_t* variable(variable_t variable) const { return descriptor.pProtocol->pVariables[variable]; }
+    // The stored MSDP record of msdp_variable.
+    MSDP_t* variable(variable_t msdp_variable) const
+    {
+        return descriptor.pProtocol->pVariables[msdp_variable];
+    }
 
     // The descriptor the setters are given.
     descriptor_data descriptor {};
@@ -812,7 +815,7 @@ private:
     TestDescriptorRelease m_release;
 };
 
-// The bytes MSDPSetTable stores for table_payload, or MSDPSetArray with the array markers.
+// The bytes MSDPSetTable stores for payload, or MSDPSetArray when given the array markers.
 std::string msdp_wrapped_value(unsigned char open_marker, std::string_view payload,
     unsigned char close_marker)
 {
@@ -823,7 +826,8 @@ std::string msdp_wrapped_value(unsigned char open_marker, std::string_view paylo
     return value;
 }
 
-// A table payload that holds a quote and a backslash, which tables store unescaped.
+// A one-pair NAME table payload for room_name; tables store it unescaped, so any quote or
+// backslash in it stays raw.
 std::string msdp_test_table_payload(std::string_view room_name)
 {
     std::string payload;
@@ -917,7 +921,8 @@ TEST(MSDPProtocol, SetStringStoresAndKeepsAnEmptyValue)
     MsdpSetterDescriptor context;
     MSDP_t* opponent_age = context.variable(eMSDP_OPPONENT_AGE);
 
-    MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "An orc has just arrived to this place.");
+    MSDPSetString(
+        &context.descriptor, eMSDP_OPPONENT_AGE, "An orc has just arrived to this place.");
     opponent_age->bDirty = false;
     MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "");
     EXPECT_TRUE(opponent_age->bDirty);
@@ -927,6 +932,27 @@ TEST(MSDPProtocol, SetStringStoresAndKeepsAnEmptyValue)
     MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "");
     EXPECT_FALSE(opponent_age->bDirty);
     EXPECT_STREQ(opponent_age->pValueString, "");
+}
+
+TEST(MSDPProtocol, SetStringTakesAValueThatIsNotNulTerminated)
+{
+    MsdpSetterDescriptor context;
+    MSDP_t* weather = context.variable(eMDSP_WEATHER);
+    constexpr std::string_view weather_message = "Clouds \"race\" by.\n\r";
+    const std::string_view without_break = weather_message.substr(0, weather_message.size() - 2);
+
+    MSDPSetString(&context.descriptor, eMDSP_WEATHER, without_break);
+    EXPECT_TRUE(weather->bDirty);
+    EXPECT_STREQ(weather->pValueString, "Clouds \\\"race\\\" by.");
+
+    weather->bDirty = false;
+    const char* stored = weather->pValueString;
+    MSDPSetString(&context.descriptor, eMDSP_WEATHER, without_break);
+    EXPECT_FALSE(weather->bDirty);
+    EXPECT_EQ(weather->pValueString, stored);
+
+    MSDPSetString(&context.descriptor, eMDSP_WEATHER, "Clouds \"race\" by.");
+    EXPECT_FALSE(weather->bDirty) << "The view and the same NUL-terminated text compare alike.";
 }
 
 TEST(MSDPProtocol, SetTableWrapsThePayloadAndKeepsAnUnchangedTable)

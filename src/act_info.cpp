@@ -2792,43 +2792,45 @@ void report_mob_align(struct char_data* ch, struct char_data* victim)
         act("Killing $M won't change you.", FALSE, ch, 0, victim, TO_CHAR);
 }
 
-/* The "has been here for ..." line shown by look, consider and diagnose, without the
-   trailing line break. Empty for players and orc-friend pets, which show no age. */
-std::string mob_age_message(const struct char_data* victim)
+// Built in a fixed array so a caller that runs every pulse allocates nothing for it.
+std::array<char, MOB_AGE_MESSAGE_SIZE> mob_age_message(const struct char_data* victim)
 {
-    int age;
-    char str[255];
+    std::array<char, MOB_AGE_MESSAGE_SIZE> message;
+    char* const text = message.data();
+    const std::size_t size = message.size();
     extern int average_mob_life;
 
+    text[0] = '\0';
     if (!IS_NPC(victim) || (MOB_FLAGGED(victim, MOB_ORC_FRIEND) && MOB_FLAGGED(victim, MOB_PET)))
-        return "";
+        return message;
 
     const WorldClock::time_point now = WorldClock::now();
-    age = utils::get_mob_age_in_ticks(*victim, now);
+    const int age = utils::get_mob_age_in_ticks(*victim, now);
 
     if (age <= 1)
-        sprintf(str, "%s has just arrived to this place.", GET_NAME(victim));
+        snprintf(text, size, "%s has just arrived to this place.", GET_NAME(victim));
     else if (age <= average_mob_life / 4)
-        sprintf(str, "%s has arrived but recently.", GET_NAME(victim));
+        snprintf(text, size, "%s has arrived but recently.", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 4)
-        sprintf(str, "%s has been here for a little while.", GET_NAME(victim));
+        snprintf(text, size, "%s has been here for a little while.", GET_NAME(victim));
     else if (age <= average_mob_life)
-        sprintf(str, "%s has been here for quite a while.", GET_NAME(victim));
+        snprintf(text, size, "%s has been here for quite a while.", GET_NAME(victim));
     else if (age <= average_mob_life * 3 / 2)
-        sprintf(str, "%s has been here for a long time already.", GET_NAME(victim));
+        snprintf(text, size, "%s has been here for a long time already.", GET_NAME(victim));
     else
-        sprintf(str, "%s has been here for a very long time.", GET_NAME(victim));
-    str[0] = toupper(str[0]);
-    return str;
+        snprintf(text, size, "%s has been here for a very long time.", GET_NAME(victim));
+    text[0] = toupper(text[0]);
+    return message;
 }
 
 void report_mob_age(const struct char_data* ch, const struct char_data* victim)
 {
-    std::string message = mob_age_message(victim);
+    const std::array<char, MOB_AGE_MESSAGE_SIZE> age_message = mob_age_message(victim);
 
-    if (message.empty())
+    if (age_message[0] == '\0')
         return;
 
+    std::string message(age_message.data());
     message += "\r\n";
     send_to_char(message.c_str(), ch);
 }

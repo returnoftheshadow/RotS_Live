@@ -11,6 +11,7 @@
 #define PROTOCOL_H
 
 #include <string>
+#include <string_view>
 
 /******************************************************************************
  Set your MUD_NAME, and change descriptor_t if necessary.
@@ -510,9 +511,14 @@ void MSDPSetNumber(const descriptor_t* apDescriptor, variable_t aMSDP, int aValu
  * set in one place you can just move its MDSPSend() call to there.
  *
  * The value is passed through MSDPSanitizeValue() first, so it stays a
- * valid JSON string for clients that convert MSDP into JSON.
+ * valid JSON string for clients that convert MSDP into JSON. Setting the value
+ * already stored allocates nothing. A null apValue leaves the variable unchanged.
  */
 void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+
+// MSDPSetString for a value that need not be NUL-terminated, such as a message without its line
+// break. aValue must hold no NUL.
+void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, std::string_view aValue);
 
 /* Function: MSDPSanitizeValue
  *
@@ -521,7 +527,7 @@ void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, const cha
  * by their standard JSON escape sequence. MSDPSetString() applies this
  * automatically; call it directly when hand-building a table/array value
  * (see MSDPSetTable) that embeds freeform text, since those bypass
- * MSDPSetString().
+ * MSDPSetString(). Returns an empty string for a null apValue.
  */
 std::string MSDPSanitizeValue(const char* apValue);
 
