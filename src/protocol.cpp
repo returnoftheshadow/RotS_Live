@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -774,6 +775,356 @@ void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char*
     finish_input_scan(scan, out_text);
 }
 
+// The text a \t\t code writes.
+constexpr std::string_view TAB_TEXT = "\t";
+
+// An MSP sound trigger, which a \t! code writes.
+constexpr std::string_view MSP_TRIGGER = "!!";
+
+// What follows "!!" in an MSP sound trigger.
+constexpr std::string_view MSP_SOUND_PREFIX = "SOUND(";
+
+// The MXP framing written for a \t< tag's start and for the '>' that ends it.
+constexpr std::string_view MXP_TAG_START = "\033[1z<";
+constexpr std::string_view MXP_TAG_END = ">\033[7z";
+
+// The MXP send link that a \t( code starts and a \t) code ends.
+constexpr std::string_view LINK_START = "\033[1z<send>\033[7z";
+constexpr std::string_view LINK_END = "\033[1z</send>\033[7z";
+
+// The most characters a \t[...] code's text may hold, such as a Unicode fallback.
+constexpr int MAX_BRACKET_TEXT_LENGTH = 7;
+
+static_assert(RGB_COLOUR_CODE_LENGTH <= MAX_BRACKET_TEXT_LENGTH,
+    "An RGB colour code does not fit a \\t[...] code's text.");
+
+// The RGB code each \t<letter> colour code stands for.
+struct colour_letter {
+    char letter; // The letter after the tab.
+    std::string_view rgb_code; // Its ColourRGB code, such as "F200".
+};
+
+constexpr colour_letter COLOUR_LETTERS[] = {
+    { 'r', "F200" },
+    { 'R', "F500" },
+    { 'g', "F020" },
+    { 'G', "F050" },
+    { 'y', "F220" },
+    { 'Y', "F550" },
+    { 'b', "F002" },
+    { 'B', "F005" },
+    { 'm', "F202" },
+    { 'M', "F505" },
+    { 'c', "F022" },
+    { 'C', "F055" },
+    { 'w', "F222" },
+    { 'W', "F555" },
+    { 'a', "F014" },
+    { 'A', "F025" },
+    { 'j', "F031" },
+    { 'J', "F052" },
+    { 'l', "F140" },
+    { 'L', "F250" },
+    { 'o', "F520" },
+    { 'O', "F530" },
+    { 'p', "F301" },
+    { 'P', "F502" },
+    { 't', "F210" },
+    { 'T', "F321" },
+    { 'v', "F104" },
+    { 'V', "F205" },
+};
+
+// One apply_output_codes call's place in the text and the result it is writing.
+struct output_scan {
+    const descriptor_t* descriptor; // The connection the text is written for.
+    protocol_t* protocol; // The descriptor's protocol state, never null.
+    const char* text; // The text whose codes are applied.
+    std::size_t text_size; // The characters of text that are read; npos reads text unbounded.
+    std::size_t position; // The character being read.
+    char* result; // apply_output_codes's result buffer, MAX_OUTPUT_BUFFER + 1 chars.
+    int result_length; // The chars in result.
+    bool in_mxp_tag; // Whether a \t< tag was sent, so the next '>' ends it.
+    bool reached_end; // Whether a code ended the text before its NUL.
+
+    // text's character at text_position, or a NUL past text_size.
+    char at(std::size_t text_position) const
+    {
+        if (text_position < text_size) {
+            return text[text_position];
+        }
+        return '\0';
+    }
+};
+
+// What to do with a \t[...] code's characters past the buffer it is read into.
+enum class bracket_overflow {
+    skip, // Read on to the ']' without storing them.
+    stop, // Stop reading on the first of them.
+};
+
+// What reading a \t[...] code's text found.
+struct bracket_text {
+    bool closed; // Whether the read reached the ']'.
+    bool fits; // Whether every character read was stored.
+};
+
+// Adds text to the result, cut off once the result holds MAX_OUTPUT_BUFFER chars.
+static void append_output(output_scan& scan, std::string_view text)
+{
+    for (std::size_t copy_index = 0;
+        copy_index < text.size() && scan.result_length < MAX_OUTPUT_BUFFER; ++copy_index) {
+        scan.result[scan.result_length++] = text[copy_index];
+    }
+}
+
+// Formats a malformed code's message into a 256-character buffer, as std::snprintf does, and
+// logs it.
+static void report_code_bug(const char* format, ...)
+{
+    constexpr std::size_t bug_text_size = 256;
+    char bug_text[bug_text_size];
+    std::va_list arguments;
+    va_start(arguments, format);
+    std::vsnprintf(bug_text, sizeof(bug_text), format, arguments);
+    va_end(arguments);
+    report_bug(bug_text);
+}
+
+// Reads a \t[...] code's text from the scan's position into out_text, storing at most capacity
+// chars; the caller NUL-fills out_text past them. The read ends on the ']', at the end of the
+// text, or, for bracket_overflow::stop, on the first character that does not fit.
+static bracket_text read_bracket_text(
+    output_scan& scan, char* out_text, int capacity, bracket_overflow overflow)
+{
+    bracket_text read { false, true };
+    int text_length = 0;
+
+    while (scan.at(scan.position) != '\0' && !read.closed
+        && (read.fits || overflow == bracket_overflow::skip)) {
+        if (scan.at(scan.position) == ']') {
+            read.closed = true;
+        } else if (text_length < capacity) {
+            out_text[text_length++] = scan.at(scan.position++);
+        } else {
+            if (overflow == bracket_overflow::skip) {
+                ++scan.position;
+            }
+            read.fits = false;
+        }
+    }
+    return read;
+}
+
+// Appends the character a \t[U<code point>/<fallback>] code names, the scan on its 'U': the code
+// point's UTF-8 for a client with UTF-8 on, else the fallback. An unclosed code ends the text.
+static void append_unicode_code(output_scan& scan)
+{
+    char fallback_text[MAX_BRACKET_TEXT_LENGTH + 1] = { '\0' };
+    int code_point = 0;
+
+    ++scan.position;
+    while (std::isdigit(scan.at(scan.position))) {
+        code_point *= 10;
+        code_point += (scan.at(scan.position)) - '0';
+        ++scan.position;
+    }
+
+    if (scan.at(scan.position) == '/') {
+        ++scan.position;
+    }
+
+    const bracket_text read = read_bracket_text(
+        scan, fallback_text, MAX_BRACKET_TEXT_LENGTH, bracket_overflow::skip);
+    if (!read.closed) {
+        report_code_bug(
+            "BUG: Unicode substitute '%s' wasn't terminated with ']'.\n", fallback_text);
+    } else if (!read.fits) {
+        report_code_bug("BUG: Unicode substitute '%s' truncated.  Missing ']'?\n", fallback_text);
+    } else if (variable_number(scan.protocol->variables[eMSDP_UTF_8]) != 0) {
+        const std::string_view utf_8_text = UnicodeGet(code_point);
+        append_output(scan, utf_8_text);
+    } else {
+        append_output(scan, fallback_text);
+    }
+
+    // An unclosed code ends the text.
+    scan.reached_end = !read.closed;
+}
+
+// Appends the colour a \t[F<rgb>] or \t[B<rgb>] code names, the scan on its layer letter. A
+// malformed code is logged and writes nothing.
+static void append_rgb_code(output_scan& scan)
+{
+    char code_text[MAX_BRACKET_TEXT_LENGTH + 1] = { '\0' };
+
+    code_text[0] = scan.at(scan.position);
+    ++scan.position;
+    const bracket_text read = read_bracket_text(
+        scan, &code_text[1], RGB_COLOUR_CODE_LENGTH - 1, bracket_overflow::stop);
+
+    const char* layer_name = "back";
+    if (std::tolower(code_text[0]) == 'f') {
+        layer_name = "fore";
+    }
+
+    if (!read.closed || !read.fits) {
+        report_code_bug("BUG: RGB %sground colour '%s' wasn't terminated with ']'.\n",
+            layer_name, &code_text[1]);
+    } else if (!is_valid_colour(code_text)) {
+        report_code_bug("BUG: RGB %sground colour '%s' invalid (each digit must be "
+                        "in the range 0-5).\n",
+            layer_name, &code_text[1]);
+    } else {
+        const std::string_view colour_text = ColourRGB(scan.descriptor, code_text);
+        append_output(scan, colour_text);
+    }
+}
+
+// Applies a \t[X<version>] code, the scan on its 'X': MXP codes are blocked until the next \t) or
+// \t< unless the client's MXP version is at least version. An unclosed code ends the text.
+static void apply_required_mxp_version(output_scan& scan)
+{
+    char version_text[MAX_BRACKET_TEXT_LENGTH + 1] = { '\0' };
+
+    ++scan.position;
+    const bracket_text read = read_bracket_text(
+        scan, version_text, MAX_BRACKET_TEXT_LENGTH, bracket_overflow::skip);
+    if (!read.closed) {
+        report_code_bug(
+            "BUG: Required MXP version '%s' wasn't terminated with ']'.\n", version_text);
+    } else if (!read.fits) {
+        report_code_bug("BUG: Required MXP version '%s' too long.  Missing ']'?\n", version_text);
+    } else {
+        // Versions compare as strings.
+        const bool mxp_version_unknown = scan.protocol->mxp_version == "Unknown";
+        const bool mxp_version_too_low
+            = mxp_version_unknown || scan.protocol->mxp_version.compare(version_text) < 0;
+        scan.protocol->mxp_blocked = mxp_version_too_low;
+    }
+
+    // An unclosed code ends the text.
+    scan.reached_end = !read.closed;
+}
+
+// Applies the \t[...] code whose '[' is at the scan's position, by the letter after it. The scan
+// ends on the code's last character read; an unknown letter writes nothing.
+static void append_bracket_code(output_scan& scan)
+{
+    ++scan.position;
+    const int code_letter = std::tolower(scan.at(scan.position));
+    if (code_letter == 'u') {
+        append_unicode_code(scan);
+    } else if (code_letter == 'f' || code_letter == 'b') {
+        append_rgb_code(scan);
+    } else if (code_letter == 'x') {
+        apply_required_mxp_version(scan);
+    }
+}
+
+// Applies the MXP code \t(, \t) or \t<, the scan on code. Each sends its MXP only while MXP is on
+// and no \t[X] code blocks it; a \t< tag that is not sent is skipped up to its '>'. \t) and \t<
+// end a \t[X] code's block.
+static void append_mxp_code(output_scan& scan, char code)
+{
+    const bool mxp_allowed
+        = !scan.protocol->mxp_blocked && variable_number(scan.protocol->variables[eMSDP_MXP]) != 0;
+    if (code == '(') {
+        if (mxp_allowed) {
+            append_output(scan, LINK_START);
+        }
+        return;
+    }
+
+    if (code == ')') {
+        if (mxp_allowed) {
+            append_output(scan, LINK_END);
+        }
+    } else if (mxp_allowed) {
+        append_output(scan, MXP_TAG_START);
+        scan.in_mxp_tag = true;
+    } else {
+        while (scan.at(scan.position) != '\0' && scan.at(scan.position) != '>') {
+            ++scan.position;
+        }
+    }
+    scan.protocol->mxp_blocked = false;
+}
+
+// Appends the colour a \t<letter> colour code stands for; a letter that names no colour writes
+// nothing.
+static void append_colour_code(output_scan& scan, char letter)
+{
+    for (const colour_letter& colour : COLOUR_LETTERS) {
+        if (colour.letter == letter) {
+            const std::string_view colour_text = ColourRGB(scan.descriptor, colour.rgb_code);
+            append_output(scan, colour_text);
+            return;
+        }
+    }
+}
+
+// Applies the code whose character after the tab is at the scan's position. An unknown character
+// writes nothing, so both it and the tab are dropped; a tab at the end of the text ends it.
+static void append_output_code(output_scan& scan)
+{
+    const char code = scan.at(scan.position);
+    switch (code) {
+    case '\t':
+        append_output(scan, TAB_TEXT);
+        break;
+    case 'n':
+        append_output(scan, ANSI_CLEAR);
+        break;
+    case '(':
+    case ')':
+    case '<':
+        append_mxp_code(scan, code);
+        break;
+    case '[':
+        append_bracket_code(scan);
+        break;
+    case '!':
+        append_output(scan, MSP_TRIGGER);
+        break;
+    case '\0':
+        scan.reached_end = true;
+        break;
+    default:
+        append_colour_code(scan, code);
+        break;
+    }
+}
+
+// Whether the scan's position holds the second '!' of an MSP sound trigger, "!!SOUND(" in any
+// case, written in the text itself rather than by a \t! code.
+static bool is_old_msp_trigger_at(const output_scan& scan)
+{
+    if (scan.position == 0 || scan.at(scan.position - 1) != '!' || scan.at(scan.position) != '!') {
+        return false;
+    }
+    for (std::size_t prefix_index = 0; prefix_index < MSP_SOUND_PREFIX.size(); ++prefix_index) {
+        const char character = scan.at(scan.position + 1 + prefix_index);
+        if (std::tolower(character) != std::tolower(MSP_SOUND_PREFIX[prefix_index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Ends the result with a NUL and returns it. A result that filled the buffer is logged and comes
+// back empty.
+static std::string_view finish_output(output_scan& scan)
+{
+    if (scan.result_length >= MAX_OUTPUT_BUFFER) {
+        scan.result_length = 0;
+        report_bug("ProtocolOutput: Too much outgoing data to store in the buffer.\n");
+    }
+
+    scan.result[scan.result_length] = '\0';
+    return std::string_view(scan.result, static_cast<std::size_t>(scan.result_length));
+}
+
 // ProtocolOutput's work for a protocol that is not null. text is read as though a NUL followed
 // its first text_size characters; a text_size of npos reads text's memory unbounded, as the
 // NUL-terminated overload does. A code may start only before code_start_limit characters.
@@ -781,342 +1132,40 @@ static std::string_view apply_output_codes(const descriptor_t* descriptor, proto
     const char* text, std::size_t text_size, std::size_t code_start_limit)
 {
     static char result[MAX_OUTPUT_BUFFER + 1];
-    static constexpr char tab_text[] = "\t";
-    static constexpr char msp_trigger[] = "!!";
-    // What follows "!!" in an MSP sound trigger.
-    static constexpr std::string_view msp_sound_prefix = "SOUND(";
-    static constexpr char mxp_tag_start[] = "\033[1z<";
-    static constexpr char mxp_tag_end[] = ">\033[7z";
-    static constexpr char link_start[] = "\033[1z<send>\033[7z";
-    static constexpr char link_end[] = "\033[1z</send>\033[7z";
-    // The most characters a \t[...] code's text may hold, such as a Unicode fallback.
-    constexpr int max_bracket_text_length = 7;
-    bool reached_end = false;
-    bool in_mxp_tag = false;
-    bool strips_msp_triggers = false;
-    int result_length = 0;
-    std::size_t input_position = 0;
-    // text's character at position, or a NUL past text_size.
-    const auto text_at = [text, text_size](std::size_t position) -> char {
-        if (position < text_size) {
-            return text[position];
-        }
-        return '\0';
-    };
-    // Whether the characters after position spell the MSP sound prefix, ignoring case.
-    const auto sound_prefix_follows = [&text_at](std::size_t position) -> bool {
-        for (std::size_t prefix_index = 0; prefix_index < msp_sound_prefix.size(); ++prefix_index) {
-            const char character = text_at(position + 1 + prefix_index);
-            if (std::tolower(character) != std::tolower(msp_sound_prefix[prefix_index])) {
-                return false;
-            }
-        }
-        return true;
-    };
+
+    output_scan scan { };
+    scan.descriptor = descriptor;
+    scan.protocol = protocol;
+    scan.text = text;
+    scan.text_size = text_size;
+    scan.result = result;
 
     // A client with MSP or SOUND on would play a literal "!!SOUND(" in the text, so its second
     // '!' becomes '?'.
-    if (protocol->msp_enabled || variable_number(protocol->variables[eMSDP_SOUND]) != 0) {
-        strips_msp_triggers = true;
-    }
+    const bool strips_msp_triggers
+        = protocol->msp_enabled || variable_number(protocol->variables[eMSDP_SOUND]) != 0;
 
-    for (; result_length < MAX_OUTPUT_BUFFER && text_at(input_position) != '\0' && !reached_end;
-        ++input_position) {
-        if (input_position >= code_start_limit) {
+    for (; scan.result_length < MAX_OUTPUT_BUFFER && scan.at(scan.position) != '\0'
+        && !scan.reached_end;
+        ++scan.position) {
+        if (scan.position >= code_start_limit) {
             break;
         }
 
-        const bool is_old_msp_trigger = strips_msp_triggers && input_position > 0
-            && text_at(input_position - 1) == '!' && text_at(input_position) == '!'
-            && sound_prefix_follows(input_position);
-
-        if (text_at(input_position) == '\t') {
-            std::string_view copy_from;
-            // A Unicode code's ASCII fallback. It lives here, not in its case, because copy_from
-            // points into it until the copy below.
-            char unicode_fallback[max_bracket_text_length + 1] = { '\0' };
-
-            ++input_position;
-            switch (text_at(input_position)) {
-            case '\t':
-                copy_from = tab_text;
-                break;
-            case 'n':
-                copy_from = ANSI_CLEAR;
-                break;
-            case 'r':
-                copy_from = ColourRGB(descriptor, "F200");
-                break;
-            case 'R':
-                copy_from = ColourRGB(descriptor, "F500");
-                break;
-            case 'g':
-                copy_from = ColourRGB(descriptor, "F020");
-                break;
-            case 'G':
-                copy_from = ColourRGB(descriptor, "F050");
-                break;
-            case 'y':
-                copy_from = ColourRGB(descriptor, "F220");
-                break;
-            case 'Y':
-                copy_from = ColourRGB(descriptor, "F550");
-                break;
-            case 'b':
-                copy_from = ColourRGB(descriptor, "F002");
-                break;
-            case 'B':
-                copy_from = ColourRGB(descriptor, "F005");
-                break;
-            case 'm':
-                copy_from = ColourRGB(descriptor, "F202");
-                break;
-            case 'M':
-                copy_from = ColourRGB(descriptor, "F505");
-                break;
-            case 'c':
-                copy_from = ColourRGB(descriptor, "F022");
-                break;
-            case 'C':
-                copy_from = ColourRGB(descriptor, "F055");
-                break;
-            case 'w':
-                copy_from = ColourRGB(descriptor, "F222");
-                break;
-            case 'W':
-                copy_from = ColourRGB(descriptor, "F555");
-                break;
-            case 'a':
-                copy_from = ColourRGB(descriptor, "F014");
-                break;
-            case 'A':
-                copy_from = ColourRGB(descriptor, "F025");
-                break;
-            case 'j':
-                copy_from = ColourRGB(descriptor, "F031");
-                break;
-            case 'J':
-                copy_from = ColourRGB(descriptor, "F052");
-                break;
-            case 'l':
-                copy_from = ColourRGB(descriptor, "F140");
-                break;
-            case 'L':
-                copy_from = ColourRGB(descriptor, "F250");
-                break;
-            case 'o':
-                copy_from = ColourRGB(descriptor, "F520");
-                break;
-            case 'O':
-                copy_from = ColourRGB(descriptor, "F530");
-                break;
-            case 'p':
-                copy_from = ColourRGB(descriptor, "F301");
-                break;
-            case 'P':
-                copy_from = ColourRGB(descriptor, "F502");
-                break;
-            case 't':
-                copy_from = ColourRGB(descriptor, "F210");
-                break;
-            case 'T':
-                copy_from = ColourRGB(descriptor, "F321");
-                break;
-            case 'v':
-                copy_from = ColourRGB(descriptor, "F104");
-                break;
-            case 'V':
-                copy_from = ColourRGB(descriptor, "F205");
-                break;
-            case '(':
-                if (!protocol->mxp_blocked
-                    && variable_number(protocol->variables[eMSDP_MXP]) != 0) {
-                    copy_from = link_start;
-                }
-                break;
-            case ')':
-                if (!protocol->mxp_blocked
-                    && variable_number(protocol->variables[eMSDP_MXP]) != 0) {
-                    copy_from = link_end;
-                }
-                protocol->mxp_blocked = false;
-                break;
-            case '<':
-                if (!protocol->mxp_blocked
-                    && variable_number(protocol->variables[eMSDP_MXP]) != 0) {
-                    copy_from = mxp_tag_start;
-                    in_mxp_tag = true;
-                } else {
-                    while (text_at(input_position) != '\0' && text_at(input_position) != '>') {
-                        ++input_position;
-                    }
-                }
-                protocol->mxp_blocked = false;
-                break;
-            case '[':
-                ++input_position;
-                if (std::tolower(text_at(input_position)) == 'u') {
-                    char bug_text[256];
-                    int code_length = 0;
-                    int code_point = 0;
-                    bool closed = false;
-                    bool fits = true;
-
-                    ++input_position;
-                    while (std::isdigit(text_at(input_position))) {
-                        code_point *= 10;
-                        code_point += (text_at(input_position)) - '0';
-                        ++input_position;
-                    }
-
-                    if (text_at(input_position) == '/') {
-                        ++input_position;
-                    }
-
-                    while (text_at(input_position) != '\0' && !closed) {
-                        if (text_at(input_position) == ']') {
-                            closed = true;
-                        } else if (code_length < max_bracket_text_length) {
-                            unicode_fallback[code_length++] = text_at(input_position++);
-                        } else {
-                            input_position++;
-                            fits = false;
-                        }
-                    }
-
-                    if (!closed) {
-                        std::snprintf(bug_text, sizeof(bug_text),
-                            "BUG: Unicode substitute '%s' wasn't terminated with ']'.\n",
-                            unicode_fallback);
-                        report_bug(bug_text);
-                    } else if (!fits) {
-                        std::snprintf(bug_text, sizeof(bug_text),
-                            "BUG: Unicode substitute '%s' truncated.  Missing ']'?\n",
-                            unicode_fallback);
-                        report_bug(bug_text);
-                    } else if (variable_number(protocol->variables[eMSDP_UTF_8]) != 0) {
-                        copy_from = UnicodeGet(code_point);
-                    } else {
-                        copy_from = unicode_fallback;
-                    }
-
-                    // An unclosed code ends the text.
-                    reached_end = !closed;
-                } else if (std::tolower(text_at(input_position)) == 'f'
-                    || std::tolower(text_at(input_position)) == 'b') {
-                    char code_text[max_bracket_text_length + 1] = { '\0' };
-                    char bug_text[256];
-                    int code_length = 0;
-                    bool closed = false;
-                    bool fits = true;
-
-                    code_text[code_length++] = text_at(input_position++);
-
-                    while (text_at(input_position) != '\0' && !closed && fits) {
-                        if (text_at(input_position) == ']') {
-                            closed = true;
-                        } else if (code_length < RGB_COLOUR_CODE_LENGTH) {
-                            code_text[code_length++] = text_at(input_position++);
-                        } else {
-                            fits = false;
-                        }
-                    }
-
-                    const char* layer_name = "back";
-                    if (std::tolower(code_text[0]) == 'f') {
-                        layer_name = "fore";
-                    }
-
-                    if (!closed || !fits) {
-                        std::snprintf(bug_text, sizeof(bug_text),
-                            "BUG: RGB %sground colour '%s' wasn't terminated with ']'.\n",
-                            layer_name, &code_text[1]);
-                        report_bug(bug_text);
-                    } else if (!is_valid_colour(code_text)) {
-                        std::snprintf(bug_text, sizeof(bug_text),
-                            "BUG: RGB %sground colour '%s' invalid (each digit must be "
-                            "in the range 0-5).\n",
-                            layer_name, &code_text[1]);
-                        report_bug(bug_text);
-                    } else {
-                        copy_from = ColourRGB(descriptor, code_text);
-                    }
-                } else if (std::tolower(text_at(input_position)) == 'x') {
-                    char code_text[max_bracket_text_length + 1] = { '\0' };
-                    char bug_text[256];
-                    int code_length = 0;
-                    bool closed = false;
-                    bool fits = true;
-
-                    ++input_position;
-
-                    while (text_at(input_position) != '\0' && !closed) {
-                        if (text_at(input_position) == ']') {
-                            closed = true;
-                        } else if (code_length < max_bracket_text_length) {
-                            code_text[code_length++] = text_at(input_position++);
-                        } else {
-                            input_position++;
-                            fits = false;
-                        }
-                    }
-
-                    if (!closed) {
-                        std::snprintf(bug_text, sizeof(bug_text),
-                            "BUG: Required MXP version '%s' wasn't terminated with ']'.\n",
-                            code_text);
-                        report_bug(bug_text);
-                    } else if (!fits) {
-                        std::snprintf(bug_text, sizeof(bug_text),
-                            "BUG: Required MXP version '%s' too long.  Missing ']'?\n", code_text);
-                        report_bug(bug_text);
-                    } else {
-                        // Versions compare as strings.
-                        const bool mxp_version_unknown = protocol->mxp_version == "Unknown";
-                        const bool mxp_version_too_low
-                            = mxp_version_unknown || protocol->mxp_version.compare(code_text) < 0;
-                        protocol->mxp_blocked = mxp_version_too_low;
-                    }
-
-                    // An unclosed code ends the text.
-                    reached_end = !closed;
-                }
-                break;
-            case '!':
-                copy_from = msp_trigger;
-                break;
-            case '\0':
-                reached_end = true;
-                break;
-            default:
-                break;
-            }
-
-            for (std::size_t copy_index = 0;
-                copy_index < copy_from.size() && result_length < MAX_OUTPUT_BUFFER; ++copy_index) {
-                result[result_length++] = copy_from[copy_index];
-            }
-        } else if (in_mxp_tag && text_at(input_position) == '>') {
-            const std::string_view copy_from = mxp_tag_end;
-            for (std::size_t copy_index = 0;
-                copy_index < copy_from.size() && result_length < MAX_OUTPUT_BUFFER; ++copy_index) {
-                result[result_length++] = copy_from[copy_index];
-            }
-            in_mxp_tag = false;
-        } else if (is_old_msp_trigger) {
-            result[result_length++] = '?';
+        if (scan.at(scan.position) == '\t') {
+            ++scan.position;
+            append_output_code(scan);
+        } else if (scan.in_mxp_tag && scan.at(scan.position) == '>') {
+            append_output(scan, MXP_TAG_END);
+            scan.in_mxp_tag = false;
+        } else if (strips_msp_triggers && is_old_msp_trigger_at(scan)) {
+            scan.result[scan.result_length++] = '?';
         } else {
-            result[result_length++] = text_at(input_position);
+            scan.result[scan.result_length++] = scan.at(scan.position);
         }
     }
 
-    if (result_length >= MAX_OUTPUT_BUFFER) {
-        result_length = 0;
-        report_bug("ProtocolOutput: Too much outgoing data to store in the buffer.\n");
-    }
-
-    result[result_length] = '\0';
-    return std::string_view(result, static_cast<std::size_t>(result_length));
+    return finish_output(scan);
 }
 
 std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text)
