@@ -289,15 +289,6 @@ static int printf_precision(std::string_view text)
     return static_cast<int>(std::min(text.size(), largest_precision));
 }
 
-// The text of a string variable, one VARIABLE_NAME_TABLE marks is_string.
-static std::string& variable_text(MSDP_t& variable)
-{
-    return std::get<std::string>(variable.value);
-}
-
-// The number of a number variable, one VARIABLE_NAME_TABLE does not mark is_string.
-static int& variable_number(MSDP_t& variable) { return std::get<int>(variable.value); }
-
 static void negotiate(const descriptor_t* descriptor);
 static void perform_handshake(const descriptor_t* descriptor, char command, char option);
 static void perform_subnegotiation(
@@ -405,28 +396,6 @@ protocol_t* ProtocolCreate()
     protocol->mxp_version = "Unknown";
     protocol->last_ttype = std::nullopt;
 
-    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        const variable_name_t& description = VARIABLE_NAME_TABLE[variable_index];
-        MSDP_t& variable = protocol->variables[variable_index];
-        variable.reported = true;
-        // Server-reported variables start dirty so the first update sends them even at their
-        // default, since a client takes a stat it is never sent, such as a spell power of 0, as
-        // unsupported. Client-set and GUI variables start clean.
-        variable.dirty = !description.configurable && !description.gui;
-
-        if (description.is_string) {
-            std::string_view initial_text = "";
-            if (description.default_text.has_value()) {
-                initial_text = *description.default_text;
-            } else if (description.configurable) {
-                initial_text = "Unknown";
-            }
-            variable.value.emplace<std::string>(initial_text);
-        } else {
-            variable.value.emplace<int>(description.default_number);
-        }
-    }
-
     return protocol;
 }
 
@@ -438,6 +407,110 @@ static constexpr std::size_t unpadded_size(std::size_t members_size, std::size_t
 {
     return (members_size + alignment - 1) / alignment * alignment;
 }
+
+msdp_variables_t::msdp_variables_t()
+{
+    // Here rather than after the class, since it reads the private fields.
+    static_assert(sizeof(msdp_variables_t)
+            == unpadded_size(sizeof(m_values) + sizeof(m_reported) + sizeof(m_dirty),
+                alignof(msdp_variables_t)),
+        "msdp_variables_t has padding between its fields.");
+
+    m_reported.set();
+    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
+        const variable_name_t& description = VARIABLE_NAME_TABLE[variable_index];
+        // Server-reported variables start dirty so the first update sends them even at their
+        // default, since a client takes a stat it is never sent, such as a spell power of 0, as
+        // unsupported. Client-set and GUI variables start clean.
+        m_dirty[variable_index] = !description.configurable && !description.gui;
+
+        msdp_value_t& value = m_values[variable_index];
+        if (description.is_string) {
+            std::string_view initial_text = "";
+            if (description.default_text.has_value()) {
+                initial_text = *description.default_text;
+            } else if (description.configurable) {
+                initial_text = "Unknown";
+            }
+            value.emplace<std::string>(initial_text);
+        } else {
+            value.emplace<int>(description.default_number);
+        }
+    }
+}
+
+const msdp_value_t& msdp_variables_t::value(variable_t variable) const
+{
+    return m_values[variable];
+}
+
+const std::string& msdp_variables_t::text(variable_t variable) const
+{
+    return std::get<std::string>(m_values[variable]);
+}
+
+int msdp_variables_t::number(variable_t variable) const
+{
+    return std::get<int>(m_values[variable]);
+}
+
+void msdp_variables_t::set_number(variable_t variable, int value)
+{
+    int& stored = stored_number(variable);
+    if (stored != value) {
+        stored = value;
+        m_dirty[variable] = true;
+    }
+}
+
+std::string& msdp_variables_t::text_to_change(variable_t variable)
+{
+    m_dirty[variable] = true;
+    return stored_text(variable);
+}
+
+int& msdp_variables_t::stored_number(variable_t variable)
+{
+    return std::get<int>(m_values[variable]);
+}
+
+std::string& msdp_variables_t::stored_text(variable_t variable)
+{
+    return std::get<std::string>(m_values[variable]);
+}
+
+bool msdp_variables_t::is_reported(variable_t variable) const { return m_reported[variable]; }
+
+bool msdp_variables_t::is_dirty(variable_t variable) const { return m_dirty[variable]; }
+
+void msdp_variables_t::set_reported(variable_t variable, bool reported)
+{
+    m_reported[variable] = reported;
+}
+
+void msdp_variables_t::mark_dirty(variable_t variable) { m_dirty[variable] = true; }
+
+void msdp_variables_t::mark_clean(variable_t variable) { m_dirty[variable] = false; }
+
+void msdp_variables_t::report(variable_t variable)
+{
+    m_reported[variable] = true;
+    m_dirty[variable] = true;
+}
+
+void msdp_variables_t::unreport(variable_t variable)
+{
+    m_reported[variable] = false;
+    m_dirty[variable] = false;
+}
+
+void msdp_variables_t::unreport_all()
+{
+    m_dirty &= ~m_reported;
+    m_reported.reset();
+}
+
+void msdp_variables_t::mark_reported_dirty() { m_dirty |= m_reported; }
 
 // What one step of ProtocolInput's scan tells its loop to do next.
 enum class input_step {
@@ -586,7 +659,7 @@ static bool is_mxp_line_tag_at(const char* data, int position, int size)
 // Records that the client supports XTerm 256 colours.
 static void enable_xterm_256(protocol_t* protocol)
 {
-    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
+    protocol->variables.stored_number(eMSDP_XTERM_256_COLORS) = 1;
     protocol->xterm_256_support = eYES;
 }
 
@@ -610,14 +683,14 @@ static void apply_mxp_version_reply(
     char* tag_value = find_mxp_tag_value("CLIENT=", tag_text);
     if (tag_value != nullptr) {
         // Replace any earlier client name: an MXP <VERSION> reply is harder to fake.
-        variable_text(protocol->variables[eMSDP_CLIENT_ID]).assign(tag_value);
+        protocol->variables.stored_text(eMSDP_CLIENT_ID).assign(tag_value);
     }
 
     tag_value = find_mxp_tag_value("VERSION=", tag_text);
     if (tag_value != nullptr) {
-        const std::string& client_name = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+        const std::string& client_name = protocol->variables.text(eMSDP_CLIENT_ID);
 
-        variable_text(protocol->variables[eMSDP_CLIENT_VERSION]).assign(tag_value);
+        protocol->variables.stored_text(eMSDP_CLIENT_VERSION).assign(tag_value);
 
         if (equals_ignoring_case("MUSHCLIENT", client_name)) {
             apply_minimum_256_colour_version(protocol, tag_value, "4.02");
@@ -1025,7 +1098,7 @@ static void append_unicode_code(output_scan& scan)
             "BUG: Unicode substitute '%s' wasn't terminated with ']'.\n", fallback_text);
     } else if (!read.fits) {
         report_code_bug("BUG: Unicode substitute '%s' truncated.  Missing ']'?\n", fallback_text);
-    } else if (variable_number(scan.protocol->variables[eMSDP_UTF_8]) != 0) {
+    } else if (scan.protocol->variables.number(eMSDP_UTF_8) != 0) {
         const std::string_view utf_8_text = UnicodeGet(code_point);
         append_output(scan, utf_8_text);
     } else {
@@ -1111,7 +1184,7 @@ static void append_bracket_code(output_scan& scan)
 static void append_mxp_code(output_scan& scan, char code)
 {
     const bool mxp_allowed
-        = !scan.protocol->mxp_blocked && variable_number(scan.protocol->variables[eMSDP_MXP]) != 0;
+        = !scan.protocol->mxp_blocked && scan.protocol->variables.number(eMSDP_MXP) != 0;
     if (code == '(') {
         if (mxp_allowed) {
             append_output(scan, LINK_START);
@@ -1226,7 +1299,7 @@ static std::string_view apply_output_codes(const descriptor_t* descriptor, proto
     // A client with MSP or SOUND on would play a literal "!!SOUND(" in the text, so its second
     // '!' becomes '?'.
     const bool strips_msp_triggers
-        = protocol->msp_enabled || variable_number(protocol->variables[eMSDP_SOUND]) != 0;
+        = protocol->msp_enabled || protocol->variables.number(eMSDP_SOUND) != 0;
 
     for (; scan.result_length < MAX_OUTPUT_BUFFER && scan.current() != '\0'
         && !scan.reached_end;
@@ -1297,10 +1370,11 @@ void MSDPUpdate(const descriptor_t* descriptor)
     }
 
     for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        if (protocol->variables[variable_index].reported) {
-            if (protocol->variables[variable_index].dirty) {
-                if (MSDPSend(descriptor, static_cast<variable_t>(variable_index))) {
-                    protocol->variables[variable_index].dirty = false;
+        const variable_t variable = static_cast<variable_t>(variable_index);
+        if (protocol->variables.is_reported(variable)) {
+            if (protocol->variables.is_dirty(variable)) {
+                if (MSDPSend(descriptor, variable)) {
+                    protocol->variables.mark_clean(variable);
                 }
             }
         }
@@ -1312,10 +1386,10 @@ void MSDPFlush(const descriptor_t* descriptor, variable_t variable)
     if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
         protocol_t* protocol = protocol_of(descriptor);
 
-        if (protocol != nullptr && protocol->variables[variable].reported) {
-            if (protocol->variables[variable].dirty) {
+        if (protocol != nullptr && protocol->variables.is_reported(variable)) {
+            if (protocol->variables.is_dirty(variable)) {
                 if (MSDPSend(descriptor, variable)) {
-                    protocol->variables[variable].dirty = false;
+                    protocol->variables.mark_clean(variable);
                 }
             }
         }
@@ -1329,11 +1403,7 @@ void MSDPMarkAllReportedDirty(const descriptor_t* descriptor)
         return;
     }
 
-    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        if (protocol->variables[variable_index].reported) {
-            protocol->variables[variable_index].dirty = true;
-        }
-    }
+    protocol->variables.mark_reported_dirty();
 }
 
 bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
@@ -1353,7 +1423,7 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
         const std::string_view name = VARIABLE_NAME_TABLE[variable].name;
         const int name_precision = printf_precision(name);
         if (VARIABLE_NAME_TABLE[variable].is_string) {
-            const std::string& value = variable_text(protocol->variables[variable]);
+            const std::string& value = protocol->variables.text(variable);
             const std::size_t required_length = name.size() + value.size() + MSDP_FRAMING_LENGTH;
 
             if (required_length >= static_cast<std::size_t>(MAX_VARIABLE_LENGTH)) {
@@ -1372,7 +1442,7 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
                     IAC, SE);
             }
         } else {
-            const int value = variable_number(protocol->variables[variable]);
+            const int value = protocol->variables.number(variable);
             if (protocol->msdp_enabled) {
                 std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%d%c%c", IAC, SB,
                     TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL, value, IAC, SE);
@@ -1527,11 +1597,7 @@ void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int valu
     const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
     if (can_set) {
         if (!VARIABLE_NAME_TABLE[variable].is_string) {
-            int& stored = variable_number(protocol->variables[variable]);
-            if (stored != value) {
-                stored = value;
-                protocol->variables[variable].dirty = true;
-            }
+            protocol->variables.set_number(variable, value);
         }
     }
 }
@@ -1642,19 +1708,18 @@ static bool equals_wrapped(
 // unless that is its value already. Returns whether the value changed. The value is written into
 // the stored string, which allocates only when it outgrows its capacity. payload must not point
 // into the stored string.
-static bool msdp_set_wrapped(
-    MSDP_t& variable, char open_marker, std::string_view payload, char close_marker)
+static bool msdp_set_wrapped(msdp_variables_t& variables, variable_t variable, char open_marker,
+    std::string_view payload, char close_marker)
 {
-    std::string& stored = variable_text(variable);
-    if (equals_wrapped(stored, open_marker, payload, close_marker)) {
+    if (equals_wrapped(variables.text(variable), open_marker, payload, close_marker)) {
         return false;
     }
 
+    std::string& stored = variables.text_to_change(variable);
     stored.resize(payload.size() + MSDP_WRAPPER_LENGTH);
     stored.front() = open_marker;
     payload.copy(stored.data() + 1, payload.size());
     stored.back() = close_marker;
-    variable.dirty = true;
     return true;
 }
 
@@ -1700,13 +1765,11 @@ void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::str
 
     const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
     if (can_set && VARIABLE_NAME_TABLE[variable].is_string) {
-        MSDP_t& stored_variable = protocol->variables[variable];
-        std::string& stored = variable_text(stored_variable);
-        if (!equals_sanitized(stored, value)) {
+        if (!equals_sanitized(protocol->variables.text(variable), value)) {
             // Written into the stored string, which allocates only when it outgrows its capacity.
+            std::string& stored = protocol->variables.text_to_change(variable);
             stored.resize(msdp_sanitized_length(value));
             msdp_write_sanitized(value, stored.data());
-            stored_variable.dirty = true;
         }
     }
 }
@@ -1728,7 +1791,7 @@ void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::stri
             // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
-            msdp_set_wrapped(protocol->variables[variable], static_cast<char>(MSDP_TABLE_OPEN),
+            msdp_set_wrapped(protocol->variables, variable, static_cast<char>(MSDP_TABLE_OPEN),
                 value, static_cast<char>(MSDP_TABLE_CLOSE));
         }
     }
@@ -1751,7 +1814,7 @@ void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::stri
             // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
-            msdp_set_wrapped(protocol->variables[variable], static_cast<char>(MSDP_ARRAY_OPEN),
+            msdp_set_wrapped(protocol->variables, variable, static_cast<char>(MSDP_ARRAY_OPEN),
                 value, static_cast<char>(MSDP_ARRAY_CLOSE));
         }
     }
@@ -1771,7 +1834,7 @@ void MXPSendTag(const descriptor_t* descriptor, std::string_view tag)
     const bool can_send
         = protocol != nullptr && tag.size() < static_cast<std::size_t>(MAX_MXP_TAG_LENGTH);
     if (can_send) {
-        if (variable_number(protocol->variables[eMSDP_MXP]) != 0) {
+        if (protocol->variables.number(eMSDP_MXP) != 0) {
             char tag_text[MXP_BUFFER_SIZE];
             std::snprintf(tag_text, sizeof(tag_text), "\033[1z%.*s\033[7z\r\n",
                 printf_precision(tag), tag.data());
@@ -1807,7 +1870,7 @@ std::string_view ColourRGB(const descriptor_t* descriptor, std::string_view rgb_
     protocol_t* protocol = protocol_of(descriptor);
 
     const bool uses_ansi_colour
-        = protocol != nullptr && variable_number(protocol->variables[eMSDP_ANSI_COLORS]) != 0;
+        = protocol != nullptr && protocol->variables.number(eMSDP_ANSI_COLORS) != 0;
     if (uses_ansi_colour) {
         if (is_valid_colour(rgb_code)) {
             bool background = (std::tolower(rgb_code[0]) == 'b');
@@ -1815,7 +1878,7 @@ std::string_view ColourRGB(const descriptor_t* descriptor, std::string_view rgb_
             int green = rgb_code[2] - '0';
             int blue = rgb_code[3] - '0';
 
-            if (variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) != 0) {
+            if (protocol->variables.number(eMSDP_XTERM_256_COLORS) != 0) {
                 return get_xterm_colour(background, red, green, blue);
             } else {
                 return get_ansi_colour(background, red, green, blue);
@@ -2085,7 +2148,7 @@ static void start_mxp(const descriptor_t* descriptor)
     // Lock secure mode, in which the client accepts MXP tags.
     send_to_client(descriptor, "\033[7z");
     protocol->mxp_enabled = true;
-    variable_number(protocol->variables[eMSDP_MXP]) = 1;
+    protocol->variables.stored_number(eMSDP_MXP) = 1;
 
     if (protocol->needs_mxp_version) {
         MXPSendTag(descriptor, "<VERSION>");
@@ -2216,7 +2279,7 @@ static int read_ttype_name(const char* data, char (&out_name)[MAX_CLIENT_NAME_LE
 static bool record_first_client_name(
     protocol_t* protocol, const char* client_name, int name_length)
 {
-    std::string& client_id = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+    std::string& client_id = protocol->variables.stored_text(eMSDP_CLIENT_ID);
     if (client_id != "Unknown") {
         return false;
     }
@@ -2236,7 +2299,7 @@ static void request_next_ttype(
     const descriptor_t* descriptor, const char* client_name, bool stop_cyclic_ttype)
 {
     protocol_t* protocol = descriptor->pProtocol;
-    const std::string_view client_id = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+    const std::string_view client_id = protocol->variables.text(eMSDP_CLIENT_ID);
     const bool has_last_ttype = protocol->last_ttype.has_value();
     const bool repeats_last_ttype = has_last_ttype && *protocol->last_ttype == client_name;
     const bool repeats_client_name
@@ -2275,11 +2338,11 @@ static void apply_mtts_capabilities(
     constexpr int mtts_xterm_256 = 8;
     const int mtts_bits = std::atoi(client_name + mtts_prefix_length);
     if ((mtts_bits & mtts_ansi) != 0) {
-        variable_number(protocol->variables[eMSDP_ANSI_COLORS]) = 1;
+        protocol->variables.stored_number(eMSDP_ANSI_COLORS) = 1;
     }
 
     if ((mtts_bits & mtts_utf_8) != 0) {
-        variable_number(protocol->variables[eMSDP_UTF_8]) = 1;
+        protocol->variables.stored_number(eMSDP_UTF_8) = 1;
     }
 
     if ((mtts_bits & mtts_xterm_256) != 0) {
@@ -2300,8 +2363,8 @@ static bool split_client_version(protocol_t* protocol, char* client_name, std::s
     }
 
     client_name[name_length] = '\0';
-    variable_text(protocol->variables[eMSDP_CLIENT_ID]).assign(client_name, name_length);
-    variable_text(protocol->variables[eMSDP_CLIENT_VERSION]).assign(client_name + version_start);
+    protocol->variables.stored_text(eMSDP_CLIENT_ID).assign(client_name, name_length);
+    protocol->variables.stored_text(eMSDP_CLIENT_VERSION).assign(client_name + version_start);
     return true;
 }
 
@@ -2337,7 +2400,7 @@ static void apply_client_name_capabilities(protocol_t* protocol, char* client_na
         if (split_client_version(protocol, client_name, mudlet_name_length)) {
             // Mudlet 1.1 and later support 256 colours.
             const std::string_view client_version
-                = variable_text(protocol->variables[eMSDP_CLIENT_VERSION]);
+                = protocol->variables.text(eMSDP_CLIENT_VERSION);
             const bool supports_xterm_256 = client_version.compare("1.1") >= 0;
             if (supports_xterm_256) {
                 enable_xterm_256(protocol);
@@ -2622,8 +2685,7 @@ static void report_variable_named(const descriptor_t* descriptor, const char* va
 {
     const variable_t variable = find_variable(variable_name);
     if (variable != eMSDP_NONE) {
-        descriptor->pProtocol->variables[variable].reported = true;
-        descriptor->pProtocol->variables[variable].dirty = true;
+        descriptor->pProtocol->variables.report(variable);
     }
 }
 
@@ -2632,8 +2694,7 @@ static void unreport_variable_named(const descriptor_t* descriptor, const char* 
 {
     const variable_t variable = find_variable(variable_name);
     if (variable != eMSDP_NONE) {
-        descriptor->pProtocol->variables[variable].reported = false;
-        descriptor->pProtocol->variables[variable].dirty = false;
+        descriptor->pProtocol->variables.unreport(variable);
     }
 }
 
@@ -2648,12 +2709,7 @@ static void reset_reported_variables(const descriptor_t* descriptor, const char*
         return;
     }
 
-    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        if (descriptor->pProtocol->variables[variable_index].reported) {
-            descriptor->pProtocol->variables[variable_index].reported = false;
-            descriptor->pProtocol->variables[variable_index].dirty = false;
-        }
-    }
+    descriptor->pProtocol->variables.unreport_all();
 }
 
 // Sends, as the list list_name, the space-separated names of the variables for whose index
@@ -2695,7 +2751,7 @@ static void send_msdp_list(const descriptor_t* descriptor, const char* list_name
         });
     } else if (equals_ignoring_case(list_name, "REPORTED_VARIABLES")) {
         send_variable_list(descriptor, list_name, [protocol](int variable_index) -> bool {
-            return protocol->variables[variable_index].reported;
+            return protocol->variables.is_reported(static_cast<variable_t>(variable_index));
         });
     } else if (equals_ignoring_case(list_name, "CONFIGURABLE_VARIABLES")) {
         send_variable_list(descriptor, "CONFIGURABLE_VARIABLES", [](int variable_index) -> bool {
@@ -2710,12 +2766,13 @@ static void send_msdp_list(const descriptor_t* descriptor, const char* list_name
 
 // Stores the printable bytes of value, cut to description's maximum, as variable's text when
 // there are at least its minimum of them and the variable may still be written.
-static void set_configurable_text(
-    MSDP_t& variable, const variable_name_t& description, const char* value)
+static void set_configurable_text(msdp_variables_t& variables, variable_t variable,
+    const variable_name_t& description, const char* value)
 {
     // A write-once variable, such as the client name, is set only while it is "Unknown": a
     // client may name itself but not replace a name already found.
-    const bool can_write = !description.write_once || variable_text(variable) == "Unknown";
+    std::string& stored = variables.stored_text(variable);
+    const bool can_write = !description.write_once || stored == "Unknown";
     if (!can_write) {
         return;
     }
@@ -2733,14 +2790,14 @@ static void set_configurable_text(
     if (stored_length > description.minimum) {
         // stored_length counts the NUL.
         const std::size_t text_length = static_cast<std::size_t>(stored_length) - 1;
-        variable_text(variable).assign(stored_text, text_length);
+        stored.assign(stored_text, text_length);
     }
 }
 
 // Stores value, after any leading spaces, as variable's number when it is all digits and within
 // description's minimum and maximum.
-static void set_configurable_number(
-    MSDP_t& variable, const variable_name_t& description, const char* value)
+static void set_configurable_number(msdp_variables_t& variables, variable_t variable,
+    const variable_name_t& description, const char* value)
 {
     while (*value == ' ') {
         ++value;
@@ -2754,7 +2811,7 @@ static void set_configurable_number(
     const int number = std::atoi(value);
     const bool in_range = number >= description.minimum && number <= description.maximum;
     if (in_range) {
-        variable_number(variable) = number;
+        variables.stored_number(variable) = number;
     }
 }
 
@@ -2768,11 +2825,11 @@ static void set_configurable_variable(
     }
 
     const variable_name_t& description = VARIABLE_NAME_TABLE[variable];
-    MSDP_t& stored_variable = descriptor->pProtocol->variables[variable];
+    msdp_variables_t& variables = descriptor->pProtocol->variables;
     if (description.is_string) {
-        set_configurable_text(stored_variable, description, value);
+        set_configurable_text(variables, variable, description, value);
     } else {
-        set_configurable_number(stored_variable, description, value);
+        set_configurable_number(variables, variable, description, value);
     }
 }
 

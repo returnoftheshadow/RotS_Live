@@ -12,6 +12,7 @@
 #define PROTOCOL_H
 
 #include <array>
+#include <bitset>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -237,13 +238,62 @@ struct variable_name_t {
     bool gui; // Whether it is a GUI layout, listed under GUI_VARIABLES, not with the others.
 };
 
-// One MSDP variable's value and reporting state on one connection.
-struct MSDP_t {
-    // The value: the std::string alternative for a string variable, the int for a number one, as
-    // the variable table's is_string says.
-    std::variant<int, std::string> value;
-    bool reported; // Whether updates send the variable; every variable starts reported.
-    bool dirty; // Whether the value has changed since it was last sent.
+// One MSDP variable's value: the std::string alternative for a string variable, the int for a
+// number one, as the variable table's is_string says.
+using msdp_value_t = std::variant<int, std::string>;
+
+// One connection's MSDP variables: each one's value, whether updates report it, and whether it
+// has changed since it was last sent. The server's own changes go through set_number and
+// text_to_change, which mark the variable dirty. Values a client or negotiation supplies go
+// through stored_number and stored_text, which do not. Every variable argument must satisfy
+// MSDPIsValidVariable; it is not checked.
+class msdp_variables_t {
+public:
+    // Every variable at its default value, reported and dirty as ProtocolCreate describes.
+    msdp_variables_t();
+
+    // The variable's value, whichever type it holds. Only the tests use it.
+    const msdp_value_t& value(variable_t variable) const;
+    // The text of a string variable.
+    const std::string& text(variable_t variable) const;
+    // The number of a number variable.
+    int number(variable_t variable) const;
+
+    // Stores value as a number variable's value and marks the variable dirty if it changed.
+    void set_number(variable_t variable, int value);
+    // The stored text of a string variable, to change. It marks the variable dirty whatever is
+    // then written, so the caller first checks that the new text differs.
+    std::string& text_to_change(variable_t variable);
+    // The stored number of a number variable, to change without marking the variable dirty.
+    int& stored_number(variable_t variable);
+    // The stored text of a string variable, to change without marking the variable dirty.
+    std::string& stored_text(variable_t variable);
+
+    // Whether updates send the variable.
+    bool is_reported(variable_t variable) const;
+    // Whether the variable has changed since it was last sent.
+    bool is_dirty(variable_t variable) const;
+    // Sets whether updates send the variable, leaving its dirty flag alone. Only the tests use it.
+    void set_reported(variable_t variable, bool reported);
+    // Marks the variable changed since it was last sent. Only the tests use it.
+    void mark_dirty(variable_t variable);
+    // Marks the variable sent.
+    void mark_clean(variable_t variable);
+
+    // Carries out REPORT: the variable becomes reported and dirty.
+    void report(variable_t variable);
+    // Carries out UNREPORT: the variable becomes neither reported nor dirty.
+    void unreport(variable_t variable);
+    // Carries out RESET: every reported variable becomes unreported and clean; the dirty flags of
+    // the others are left alone.
+    void unreport_all();
+    // Marks every reported variable dirty.
+    void mark_reported_dirty();
+
+private:
+    std::array<msdp_value_t, eMSDP_MAX> m_values; // Each variable's value, indexed by variable_t.
+    std::bitset<eMSDP_MAX> m_reported; // Set for each variable that updates send.
+    std::bitset<eMSDP_MAX> m_dirty; // Set for each variable changed since it was last sent.
 };
 
 // One entry of the MSSP status message.
@@ -255,7 +305,7 @@ struct MSSP_t {
 // The protocol state of one connection: what was negotiated, what the client is and its MSDP
 // variables. ProtocolCreate makes it and ProtocolDestroy frees it.
 struct protocol_t {
-    std::array<MSDP_t, eMSDP_MAX> variables; // The MSDP variables, indexed by variable_t.
+    msdp_variables_t variables; // The MSDP variables.
     std::string mxp_version; // The MXP version from the client's <VERSION> reply, or "Unknown".
     // The terminal type the client sent last, to see when its TTYPE list repeats; empty before the
     // first.

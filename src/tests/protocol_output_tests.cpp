@@ -45,10 +45,9 @@ public:
         set_variable(eMSDP_XTERM_256_COLORS, colour_mode == ColourMode::XTERM_256);
     }
 
-    void set_variable(int msdp_variable, bool enabled)
+    void set_variable(variable_t msdp_variable, bool enabled)
     {
-        std::get<int>(descriptor.pProtocol->variables[msdp_variable].value)
-            = static_cast<int>(enabled);
+        descriptor.pProtocol->variables.stored_number(msdp_variable) = static_cast<int>(enabled);
     }
 
     // Replaces the client's reported MXP version.
