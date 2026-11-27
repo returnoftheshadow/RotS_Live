@@ -21,6 +21,7 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 extern descriptor_data* descriptor_list;
@@ -41,6 +42,15 @@ void another_hour(int mode);
 int get_percent_absorb(const char_data* character);
 
 namespace {
+
+// The text a string MSDP variable holds.
+const std::string& msdp_text(const MSDP_t& variable)
+{
+    return std::get<std::string>(variable.value);
+}
+
+// The number a number MSDP variable holds, to read or to set.
+int& msdp_number(MSDP_t& variable) { return std::get<int>(variable.value); }
 
 // Frees what these tests give a character: the name and short description they copy with strdup,
 // and the arrays clear_char allocates.
@@ -270,8 +280,8 @@ void initialize_msdp_player(char_data* character, const char* name, int room = 0
 void disable_all_msdp_reports(protocol_t* protocol)
 {
     for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i) {
-        protocol->variables[i]->reported = false;
-        protocol->variables[i]->dirty = false;
+        protocol->variables[i].reported = false;
+        protocol->variables[i].dirty = false;
     }
 }
 
@@ -279,7 +289,7 @@ void enable_msdp_reports(protocol_t* protocol, const std::vector<variable_t>& va
 {
     disable_all_msdp_reports(protocol);
     for (variable_t variable : variables)
-        protocol->variables[variable]->reported = true;
+        protocol->variables[variable].reported = true;
 }
 
 void seed_msdp_numbers(descriptor_data* descriptor, const std::vector<variable_t>& variables, int value)
@@ -596,14 +606,14 @@ TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
     EXPECT_EQ(protocol->xterm_256_support, eUNKNOWN);
     EXPECT_EQ(protocol->screen_width, 0);
     EXPECT_EQ(protocol->screen_height, 0);
-    EXPECT_STREQ(protocol->mxp_version, "Unknown");
+    EXPECT_EQ(protocol->mxp_version, "Unknown");
     for (int i = eNEGOTIATED_TTYPE; i < eNEGOTIATED_MAX; ++i)
         EXPECT_FALSE(protocol->option_states[i]) << "negotiated enum " << i;
     EXPECT_EQ(protocol->pending_input_length, 0);
     EXPECT_EQ(protocol->subnegotiation_input_length, 0);
 
     for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i)
-        EXPECT_TRUE(protocol->variables[i]->reported) << "MSDP enum " << i;
+        EXPECT_TRUE(protocol->variables[i].reported) << "MSDP enum " << i;
 
     /* Server-reported variables start dirty so the first update after login
        transmits them even when their value is still the default. */
@@ -611,26 +621,26 @@ TEST(MSDPProtocol, ProtocolCreateInitializesExpectedDefaults)
         eMSDP_SPELL_PEN, eMSDP_SPELL_POWER, eMSDP_CARRIED_WEIGHT, eMSDP_MAGE_LEVEL,
         eMSDP_SPECIALIZATION, eMSDP_ROOM_NAME };
     for (variable_t variable : primed)
-        EXPECT_TRUE(protocol->variables[variable]->dirty) << "MSDP enum " << variable;
+        EXPECT_TRUE(protocol->variables[variable].dirty) << "MSDP enum " << variable;
 
     /* Client-owned configuration and GUI template variables are not primed. */
     const std::vector<variable_t> not_primed = { eMSDP_CLIENT_ID, eMSDP_ANSI_COLORS,
         eMSDP_XTERM_256_COLORS, eMSDP_UTF_8, eMSDP_SOUND, eMSDP_MXP, eMSDP_BUTTON_1,
         eMSDP_GAUGE_1 };
     for (variable_t variable : not_primed)
-        EXPECT_FALSE(protocol->variables[variable]->dirty) << "MSDP enum " << variable;
+        EXPECT_FALSE(protocol->variables[variable].dirty) << "MSDP enum " << variable;
 
-    EXPECT_EQ(protocol->variables[eMSDP_SNIPPET_VERSION]->value_number, 8);
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "Unknown");
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "Unknown");
-    EXPECT_STREQ(protocol->variables[eMSDP_PLUGIN_ID]->value_text, "Unknown");
-    EXPECT_EQ(protocol->variables[eMSDP_ANSI_COLORS]->value_number, 1);
-    EXPECT_EQ(protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 0);
-    EXPECT_EQ(protocol->variables[eMSDP_UTF_8]->value_number, 0);
-    EXPECT_EQ(protocol->variables[eMSDP_SOUND]->value_number, 0);
-    EXPECT_EQ(protocol->variables[eMSDP_MXP]->value_number, 0);
-    EXPECT_STREQ(protocol->variables[eMSDP_BUTTON_1]->value_text, "\005\002Help\002help\006");
-    EXPECT_STREQ(protocol->variables[eMSDP_GAUGE_1]->value_text,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SNIPPET_VERSION]), 8);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "Unknown");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_VERSION]), "Unknown");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_PLUGIN_ID]), "Unknown");
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ANSI_COLORS]), 1);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_XTERM_256_COLORS]), 0);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_UTF_8]), 0);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SOUND]), 0);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MXP]), 0);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_BUTTON_1]), "\005\002Help\002help\006");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_GAUGE_1]),
         "\005\002Health\002red\002HEALTH\002HEALTH_MAX\006");
 }
 
@@ -638,7 +648,7 @@ TEST(MSDPProtocol, ScoreButtonSendsScore)
 {
     ProtocolDescriptor context;
 
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_BUTTON_3]->value_text,
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_BUTTON_3]),
         "\005\002Score\002score\006");
 }
 
@@ -782,16 +792,16 @@ TEST(MSDPProtocol, SetNumberMarksDirtyOnlyWhenValueChanges)
     ProtocolDescriptor context;
 
     /* HEALTH is primed dirty by ProtocolCreate; clear it to test change detection. */
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty = false;
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty = false;
 
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 42);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->value_number, 42);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_HEALTH]), 42);
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty = false;
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 42);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
 }
 
 TEST(MSDPProtocol, SetStringSanitizesAndMarksDirtyOnlyWhenValueChanges)
@@ -800,13 +810,13 @@ TEST(MSDPProtocol, SetStringSanitizesAndMarksDirtyOnlyWhenValueChanges)
 
     MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "A \"B\"\n");
 
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->value_text,
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]),
         "A \\\"B\\\"\\n");
 
-    context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty = false;
+    context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty = false;
     MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "A \"B\"\n");
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
 }
 
 // A descriptor with MSDP state and no socket, for tests that read only what the setters store.
@@ -821,7 +831,7 @@ public:
     // The stored MSDP record of msdp_variable.
     MSDP_t* variable(variable_t msdp_variable) const
     {
-        return descriptor.pProtocol->variables[msdp_variable];
+        return &descriptor.pProtocol->variables[msdp_variable];
     }
 
     // The descriptor the setters are given.
@@ -862,14 +872,15 @@ TEST(MSDPProtocol, SetStringKeepsAnUnchangedValueInPlace)
 
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "The Common Room of the Prancing Pony");
     EXPECT_TRUE(room_name->dirty);
-    EXPECT_STREQ(room_name->value_text, "The Common Room of the Prancing Pony");
+    EXPECT_EQ(msdp_text(*room_name), "The Common Room of the Prancing Pony");
 
     room_name->dirty = false;
-    const char* stored = room_name->value_text;
+    const char* stored = msdp_text(*room_name).data();
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "The Common Room of the Prancing Pony");
     EXPECT_FALSE(room_name->dirty);
-    EXPECT_EQ(room_name->value_text, stored) << "An unchanged value keeps its stored string.";
-    EXPECT_STREQ(room_name->value_text, "The Common Room of the Prancing Pony");
+    EXPECT_EQ(msdp_text(*room_name).data(), stored)
+        << "An unchanged value keeps its stored string.";
+    EXPECT_EQ(msdp_text(*room_name), "The Common Room of the Prancing Pony");
 }
 
 TEST(MSDPProtocol, SetStringReplacesAValueThatDiffersAnywhere)
@@ -888,7 +899,7 @@ TEST(MSDPProtocol, SetStringReplacesAValueThatDiffersAnywhere)
         room_name->dirty = false;
         MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, value);
         EXPECT_TRUE(room_name->dirty) << value;
-        EXPECT_STREQ(room_name->value_text, value);
+        EXPECT_EQ(msdp_text(*room_name), value);
     }
 }
 
@@ -901,18 +912,18 @@ TEST(MSDPProtocol, SetStringComparesTheEscapedFormOfAValue)
 
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, raw);
     EXPECT_TRUE(room_name->dirty);
-    EXPECT_STREQ(room_name->value_text, escaped);
+    EXPECT_EQ(msdp_text(*room_name), escaped);
 
     room_name->dirty = false;
-    const char* stored = room_name->value_text;
+    const char* stored = msdp_text(*room_name).data();
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, raw);
     EXPECT_FALSE(room_name->dirty);
-    EXPECT_EQ(room_name->value_text, stored);
+    EXPECT_EQ(msdp_text(*room_name).data(), stored);
 
     // The stored text itself, set as a value, escapes again and so differs.
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, escaped);
     EXPECT_TRUE(room_name->dirty);
-    EXPECT_STREQ(room_name->value_text,
+    EXPECT_EQ(msdp_text(*room_name),
         "say \\\\\\\"hi\\\\\\\" \\\\\\\\ \\\\n\\\\r\\\\t\\\\u0001\\\\u001f caf\xc3\xa9 \x7f");
 
     const struct {
@@ -929,7 +940,7 @@ TEST(MSDPProtocol, SetStringComparesTheEscapedFormOfAValue)
         room_name->dirty = false;
         MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, control_case.value);
         EXPECT_TRUE(room_name->dirty) << control_case.stored;
-        EXPECT_STREQ(room_name->value_text, control_case.stored);
+        EXPECT_EQ(msdp_text(*room_name), control_case.stored);
     }
 }
 
@@ -943,12 +954,12 @@ TEST(MSDPProtocol, SetStringStoresAndKeepsAnEmptyValue)
     opponent_age->dirty = false;
     MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "");
     EXPECT_TRUE(opponent_age->dirty);
-    EXPECT_STREQ(opponent_age->value_text, "");
+    EXPECT_EQ(msdp_text(*opponent_age), "");
 
     opponent_age->dirty = false;
     MSDPSetString(&context.descriptor, eMSDP_OPPONENT_AGE, "");
     EXPECT_FALSE(opponent_age->dirty);
-    EXPECT_STREQ(opponent_age->value_text, "");
+    EXPECT_EQ(msdp_text(*opponent_age), "");
 }
 
 TEST(MSDPProtocol, SetStringTakesAValueThatIsNotNulTerminated)
@@ -960,13 +971,13 @@ TEST(MSDPProtocol, SetStringTakesAValueThatIsNotNulTerminated)
 
     MSDPSetString(&context.descriptor, eMSDP_WEATHER, without_break);
     EXPECT_TRUE(weather->dirty);
-    EXPECT_STREQ(weather->value_text, "Clouds \\\"race\\\" by.");
+    EXPECT_EQ(msdp_text(*weather), "Clouds \\\"race\\\" by.");
 
     weather->dirty = false;
-    const char* stored = weather->value_text;
+    const char* stored = msdp_text(*weather).data();
     MSDPSetString(&context.descriptor, eMSDP_WEATHER, without_break);
     EXPECT_FALSE(weather->dirty);
-    EXPECT_EQ(weather->value_text, stored);
+    EXPECT_EQ(msdp_text(*weather).data(), stored);
 
     MSDPSetString(&context.descriptor, eMSDP_WEATHER, "Clouds \"race\" by.");
     EXPECT_FALSE(weather->dirty) << "The view and the same NUL-terminated text compare alike.";
@@ -980,14 +991,14 @@ TEST(MSDPProtocol, SetTableWrapsThePayloadAndKeepsAnUnchangedTable)
 
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
     EXPECT_TRUE(room->dirty);
-    EXPECT_EQ(std::string(room->value_text),
+    EXPECT_EQ(msdp_text(*room),
         msdp_wrapped_value(MSDP_TABLE_OPEN, payload, MSDP_TABLE_CLOSE));
 
     room->dirty = false;
-    const char* stored = room->value_text;
+    const char* stored = msdp_text(*room).data();
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
     EXPECT_FALSE(room->dirty);
-    EXPECT_EQ(room->value_text, stored);
+    EXPECT_EQ(msdp_text(*room).data(), stored);
 
     const std::string payloads[] = {
         msdp_test_table_payload("The \"Pony\" \\ In"),
@@ -999,7 +1010,7 @@ TEST(MSDPProtocol, SetTableWrapsThePayloadAndKeepsAnUnchangedTable)
         room->dirty = false;
         MSDPSetTable(&context.descriptor, eMSDP_ROOM, changed.c_str());
         EXPECT_TRUE(room->dirty);
-        EXPECT_EQ(std::string(room->value_text),
+        EXPECT_EQ(msdp_text(*room),
             msdp_wrapped_value(MSDP_TABLE_OPEN, changed, MSDP_TABLE_CLOSE));
     }
 
@@ -1007,7 +1018,7 @@ TEST(MSDPProtocol, SetTableWrapsThePayloadAndKeepsAnUnchangedTable)
     room->dirty = false;
     MSDPSetArray(&context.descriptor, eMSDP_ROOM, payloads[3].c_str());
     EXPECT_TRUE(room->dirty);
-    EXPECT_EQ(std::string(room->value_text),
+    EXPECT_EQ(msdp_text(*room),
         msdp_wrapped_value(MSDP_ARRAY_OPEN, payloads[3], MSDP_ARRAY_CLOSE));
 }
 
@@ -1022,7 +1033,7 @@ TEST(MSDPProtocol, SetTableAndArrayStoreAnEmptyValueUnwrapped)
     room->dirty = false;
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, "");
     EXPECT_TRUE(room->dirty);
-    EXPECT_STREQ(room->value_text, "");
+    EXPECT_EQ(msdp_text(*room), "");
     room->dirty = false;
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, "");
     EXPECT_FALSE(room->dirty);
@@ -1031,7 +1042,7 @@ TEST(MSDPProtocol, SetTableAndArrayStoreAnEmptyValueUnwrapped)
     exits->dirty = false;
     MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, "");
     EXPECT_TRUE(exits->dirty);
-    EXPECT_STREQ(exits->value_text, "");
+    EXPECT_EQ(msdp_text(*exits), "");
     exits->dirty = false;
     MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, "");
     EXPECT_FALSE(exits->dirty);
@@ -1049,14 +1060,14 @@ TEST(MSDPProtocol, SetArrayWrapsThePayloadAndKeepsAnUnchangedArray)
 
     MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
     EXPECT_TRUE(exits->dirty);
-    EXPECT_EQ(std::string(exits->value_text),
+    EXPECT_EQ(msdp_text(*exits),
         msdp_wrapped_value(MSDP_ARRAY_OPEN, payload, MSDP_ARRAY_CLOSE));
 
     exits->dirty = false;
-    const char* stored = exits->value_text;
+    const char* stored = msdp_text(*exits).data();
     MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
     EXPECT_FALSE(exits->dirty);
-    EXPECT_EQ(exits->value_text, stored);
+    EXPECT_EQ(msdp_text(*exits).data(), stored);
 
     const std::string shorter = payload.substr(0, payload.size() - 1);
     const std::string longer = payload + "s";
@@ -1064,7 +1075,7 @@ TEST(MSDPProtocol, SetArrayWrapsThePayloadAndKeepsAnUnchangedArray)
         exits->dirty = false;
         MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, changed.c_str());
         EXPECT_TRUE(exits->dirty);
-        EXPECT_EQ(std::string(exits->value_text),
+        EXPECT_EQ(msdp_text(*exits),
             msdp_wrapped_value(MSDP_ARRAY_OPEN, changed, MSDP_ARRAY_CLOSE));
     }
 
@@ -1072,7 +1083,7 @@ TEST(MSDPProtocol, SetArrayWrapsThePayloadAndKeepsAnUnchangedArray)
     exits->dirty = false;
     MSDPSetTable(&context.descriptor, eMSDP_ROOM_EXITS, longer.c_str());
     EXPECT_TRUE(exits->dirty);
-    EXPECT_EQ(std::string(exits->value_text),
+    EXPECT_EQ(msdp_text(*exits),
         msdp_wrapped_value(MSDP_TABLE_OPEN, longer, MSDP_TABLE_CLOSE));
 }
 
@@ -1246,7 +1257,7 @@ TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
 
     /* Clear the priming flag so a dirty CHARACTER_NAME below could only come
        from one of the invalid-variable calls. */
-    context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty = false;
+    context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty = false;
 
     EXPECT_FALSE(MSDPIsValidVariable(eMSDP_NONE));
     EXPECT_FALSE(MSDPIsValidVariable(eMSDP_MAX));
@@ -1261,8 +1272,8 @@ TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
     MSDPSetArray(&context.descriptor, eMSDP_NONE, "ignored");
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->value_text, "");
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]), "");
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
 }
 
 TEST(MSDPProtocol, UpdateFlushesOnlyDirtyReportedVariables)
@@ -1270,10 +1281,10 @@ TEST(MSDPProtocol, UpdateFlushesOnlyDirtyReportedVariables)
     ProtocolDescriptor context;
 
     for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i)
-        context.descriptor.pProtocol->variables[i]->reported = false;
+        context.descriptor.pProtocol->variables[i].reported = false;
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = true;
-    context.descriptor.pProtocol->variables[eMSDP_MANA]->reported = true;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = true;
+    context.descriptor.pProtocol->variables[eMSDP_MANA].reported = true;
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 45);
     MSDPSetNumber(&context.descriptor, eMSDP_MANA, 12);
     MSDPSetNumber(&context.descriptor, eMSDP_MOVEMENT, 77);
@@ -1282,9 +1293,9 @@ TEST(MSDPProtocol, UpdateFlushesOnlyDirtyReportedVariables)
 
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("HEALTH", "45") + expected_msdp_pair("MANA", "12"));
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA]->dirty);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_MOVEMENT]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA].dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_MOVEMENT].dirty);
 }
 
 TEST(MSDPProtocol, FlushSendsOnlyTheRequestedDirtyReportedVariable)
@@ -1297,18 +1308,18 @@ TEST(MSDPProtocol, FlushSendsOnlyTheRequestedDirtyReportedVariable)
     MSDPFlush(&context.descriptor, eMSDP_HEALTH);
 
     EXPECT_EQ(context.read_output(), expected_msdp_pair("HEALTH", "45"));
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_MANA]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_MANA].dirty);
 }
 
 TEST(MSDPProtocol, ParsesReportUnreportResetAndSendCommands)
 {
     ProtocolDescriptor context;
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
     feed_msdp_command(&context.descriptor, "REPORT", "HEALTH");
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
 
     context.read_output();
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 75);
@@ -1316,20 +1327,20 @@ TEST(MSDPProtocol, ParsesReportUnreportResetAndSendCommands)
     EXPECT_EQ(context.read_output(), expected_msdp_pair("HEALTH", "75"));
 
     feed_msdp_command(&context.descriptor, "UNREPORT", "HEALTH");
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
 
     const char* reset_targets[] = { "REPORTED_VARIABLES", "REPORTABLE_VARIABLES", "VARIABLES" };
     for (const char* reset_target : reset_targets) {
-        context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = true;
-        context.descriptor.pProtocol->variables[eMSDP_MANA]->reported = true;
-        context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty = true;
-        context.descriptor.pProtocol->variables[eMSDP_MANA]->dirty = true;
+        context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = true;
+        context.descriptor.pProtocol->variables[eMSDP_MANA].reported = true;
+        context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty = true;
+        context.descriptor.pProtocol->variables[eMSDP_MANA].dirty = true;
         feed_msdp_command(&context.descriptor, "RESET", reset_target);
-        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported) << reset_target;
-        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA]->reported) << reset_target;
-        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty) << reset_target;
-        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA]->dirty) << reset_target;
+        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported) << reset_target;
+        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA].reported) << reset_target;
+        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty) << reset_target;
+        EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA].dirty) << reset_target;
     }
 }
 
@@ -1342,9 +1353,9 @@ TEST(MSDPProtocol, ListsCommandsAndReportedVariables)
         expected_msdp_array_pair("COMMANDS", { "LIST", "REPORT", "RESET", "SEND", "UNREPORT" }));
 
     for (int i = eMSDP_NONE + 1; i < eMSDP_MAX; ++i)
-        context.descriptor.pProtocol->variables[i]->reported = false;
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = true;
-    context.descriptor.pProtocol->variables[eMSDP_MANA]->reported = true;
+        context.descriptor.pProtocol->variables[i].reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = true;
+    context.descriptor.pProtocol->variables[eMSDP_MANA].reported = true;
 
     feed_msdp_command(&context.descriptor, "LIST", "REPORTED_VARIABLES");
     EXPECT_EQ(context.read_output(),
@@ -1408,49 +1419,49 @@ TEST(MSDPProtocol, ConfigurableVariablesValidateRangeLengthAndWriteOnceRules)
     ProtocolDescriptor context;
 
     feed_msdp_command(&context.descriptor, "XTERM_256_COLORS", "1");
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     feed_msdp_command(&context.descriptor, "XTERM_256_COLORS", "abc");
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     feed_msdp_command(&context.descriptor, "XTERM_256_COLORS", "-1");
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     feed_msdp_command(&context.descriptor, "XTERM_256_COLORS", "");
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     feed_msdp_command(&context.descriptor, "XTERM_256_COLORS", "2");
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     std::string hostile_plugin_id;
     hostile_plugin_id.push_back(static_cast<char>(0xff));
     hostile_plugin_id += "\007RotS";
     feed_msdp_command(&context.descriptor, "PLUGIN_ID", hostile_plugin_id);
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_PLUGIN_ID]->value_text, "RotS");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_PLUGIN_ID]), "RotS");
     feed_msdp_command(&context.descriptor, "PLUGIN_ID", "\007");
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_PLUGIN_ID]->value_text, "RotS");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_PLUGIN_ID]), "RotS");
 
     feed_msdp_command(&context.descriptor, "PLUGIN_ID", std::string(48, 'A'));
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_PLUGIN_ID]->value_text,
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_PLUGIN_ID]),
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
     feed_msdp_command(&context.descriptor, "CLIENT_ID", "Mudlet");
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "Mudlet");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "Mudlet");
     feed_msdp_command(&context.descriptor, "CLIENT_ID", "TinTin");
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "Mudlet");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "Mudlet");
 }
 
 TEST(MSDPProtocol, UnknownCommandsAndVariablesDoNotChangeKnownState)
 {
     ProtocolDescriptor context;
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty = false;
     feed_msdp_command(&context.descriptor, "REPORT", "NOT_A_VARIABLE");
     feed_msdp_command(&context.descriptor, "NOT_A_COMMAND", "HEALTH");
 
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
     EXPECT_EQ(context.read_output(), "");
 }
 
@@ -1459,14 +1470,14 @@ TEST(MSDPProtocol, IgnoresMalformedAndOversizedSubnegotiationInput)
     ProtocolDescriptor context;
     char output[MAX_INPUT_LENGTH] = { '\0' };
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
     feed_msdp_command(&context.descriptor, "REPORT", "");
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 
     std::string oversized_value = "HEALTH";
     oversized_value.append(120, 'X');
     feed_msdp_command(&context.descriptor, "REPORT", oversized_value);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 
     std::string truncated = msdp_packet(msdp_pair_payload("REPORT", "HEALTH"));
     truncated.resize(truncated.size() - 2);
@@ -1474,7 +1485,7 @@ TEST(MSDPProtocol, IgnoresMalformedAndOversizedSubnegotiationInput)
 
     EXPECT_STREQ(output, "");
     EXPECT_TRUE(context.descriptor.pProtocol->in_subnegotiation);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
     EXPECT_EQ(context.read_output(), "");
 
     std::string terminator;
@@ -1484,21 +1495,21 @@ TEST(MSDPProtocol, IgnoresMalformedAndOversizedSubnegotiationInput)
 
     EXPECT_STREQ(output, "");
     EXPECT_FALSE(context.descriptor.pProtocol->in_subnegotiation);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 }
 
 TEST(MSDPProtocol, IgnoresMalformedMarkerOrderWithoutUsingStalePairs)
 {
     ProtocolDescriptor context;
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
 
     std::string value_without_variable;
     value_without_variable.push_back(static_cast<char>(MSDP_VAL));
     value_without_variable += "HEALTH";
     char output[MAX_INPUT_LENGTH] = { '\0' };
     feed_protocol_input(&context.descriptor, msdp_packet(value_without_variable), output);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 
     output[0] = '\0';
     std::string repeated_variable;
@@ -1511,8 +1522,8 @@ TEST(MSDPProtocol, IgnoresMalformedMarkerOrderWithoutUsingStalePairs)
     feed_protocol_input(&context.descriptor, msdp_packet(repeated_variable), output);
 
     EXPECT_STREQ(output, "");
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
     EXPECT_EQ(context.read_output(), "");
 }
 
@@ -1522,19 +1533,19 @@ TEST(MSDPProtocol, CompletesSplitMSDPSubnegotiationAcrossProtocolInputCalls)
     char output[MAX_INPUT_LENGTH] = { '\0' };
     std::string packet = msdp_packet(msdp_pair_payload("REPORT", "HEALTH"));
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
     feed_protocol_input(&context.descriptor, packet.substr(0, 5), output);
 
     EXPECT_STREQ(output, "");
     EXPECT_TRUE(context.descriptor.pProtocol->in_subnegotiation);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 
     feed_protocol_input(&context.descriptor, packet.substr(5), output);
 
     EXPECT_STREQ(output, "");
     EXPECT_FALSE(context.descriptor.pProtocol->in_subnegotiation);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
 }
 
 TEST(MSDPProtocol, CompletesMSDPSubnegotiationSplitBetweenIacAndSe)
@@ -1543,13 +1554,13 @@ TEST(MSDPProtocol, CompletesMSDPSubnegotiationSplitBetweenIacAndSe)
     char output[MAX_INPUT_LENGTH] = { '\0' };
     std::string packet = msdp_packet(msdp_pair_payload("REPORT", "HEALTH"));
 
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
     feed_protocol_input(&context.descriptor, packet.substr(0, packet.size() - 1), output);
 
     EXPECT_STREQ(output, "");
     EXPECT_TRUE(context.descriptor.pProtocol->in_subnegotiation);
     EXPECT_EQ(context.descriptor.pProtocol->pending_input_length, 1);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 
     output[0] = '\0';
     feed_protocol_input(&context.descriptor, packet.substr(packet.size() - 1), output);
@@ -1557,8 +1568,8 @@ TEST(MSDPProtocol, CompletesMSDPSubnegotiationSplitBetweenIacAndSe)
     EXPECT_STREQ(output, "");
     EXPECT_FALSE(context.descriptor.pProtocol->in_subnegotiation);
     EXPECT_EQ(context.descriptor.pProtocol->pending_input_length, 0);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
 }
 
 TEST(MSDPProtocol, RecoversAfterOversizedUnterminatedSubnegotiation)
@@ -1629,15 +1640,15 @@ TEST(MSDPProtocol, MsdpUpdateSkipsInvalidDescriptorsWithoutStoppingList)
 
     msdp_update();
 
-    EXPECT_STREQ(valid_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->value_text,
+    EXPECT_EQ(msdp_text(valid_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]),
         "Updated");
-    EXPECT_EQ(valid_context.descriptor.pProtocol->variables[eMSDP_HEALTH]->value_number, 125);
+    EXPECT_EQ(msdp_number(valid_context.descriptor.pProtocol->variables[eMSDP_HEALTH]), 125);
     EXPECT_EQ(valid_context.read_output(),
         expected_msdp_pair("CHARACTER_NAME", "Updated") + expected_msdp_pair("HEALTH", "125"));
     EXPECT_EQ(npc_context.read_output(), "");
     EXPECT_EQ(nowhere_context.read_output(), "");
-    EXPECT_FALSE(valid_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
-    EXPECT_FALSE(valid_context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_FALSE(valid_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
+    EXPECT_FALSE(valid_context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
 }
 
 TEST(MSDPProtocol, MsdpUpdateSkipsOutOfRangeRoomsWithoutStoppingList)
@@ -1672,17 +1683,17 @@ TEST(MSDPProtocol, MsdpUpdateSkipsOutOfRangeRoomsWithoutStoppingList)
 
     EXPECT_EQ(negative_room_context.read_output(), "");
     EXPECT_EQ(high_room_context.read_output(), "");
-    EXPECT_STREQ(negative_room_context.descriptor.pProtocol->variables[eMSDP_ROOM_NAME]->value_text,
+    EXPECT_EQ(msdp_text(negative_room_context.descriptor.pProtocol->variables[eMSDP_ROOM_NAME]),
         "stale negative room");
-    EXPECT_STREQ(negative_room_context.descriptor.pProtocol->variables[eMSDP_WEATHER]->value_text,
+    EXPECT_EQ(msdp_text(negative_room_context.descriptor.pProtocol->variables[eMSDP_WEATHER]),
         "stale negative weather");
-    EXPECT_STREQ(negative_room_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->value_text,
+    EXPECT_EQ(msdp_text(negative_room_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]),
         "");
-    EXPECT_STREQ(high_room_context.descriptor.pProtocol->variables[eMSDP_ROOM_NAME]->value_text,
+    EXPECT_EQ(msdp_text(high_room_context.descriptor.pProtocol->variables[eMSDP_ROOM_NAME]),
         "stale high room");
-    EXPECT_STREQ(high_room_context.descriptor.pProtocol->variables[eMSDP_WEATHER]->value_text,
+    EXPECT_EQ(msdp_text(high_room_context.descriptor.pProtocol->variables[eMSDP_WEATHER]),
         "stale high weather");
-    EXPECT_STREQ(high_room_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->value_text,
+    EXPECT_EQ(msdp_text(high_room_context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]),
         "");
     EXPECT_EQ(valid_context.read_output(),
         expected_msdp_pair("CHARACTER_NAME", "StillUpdated")
@@ -1705,15 +1716,15 @@ TEST(MSDPProtocol, MsdpUpdateEmitsMinimalPlayerState)
     msdp_update();
 
     protocol_t* protocol = context.descriptor.pProtocol;
-    EXPECT_STREQ(protocol->variables[eMSDP_CHARACTER_NAME]->value_text, "Aragorn");
-    EXPECT_EQ(protocol->variables[eMSDP_LEVEL]->value_number, 10);
-    EXPECT_EQ(protocol->variables[eMSDP_HEALTH]->value_number, 125);
-    EXPECT_EQ(protocol->variables[eMSDP_HEALTH_MAX]->value_number, 150);
-    EXPECT_STREQ(protocol->variables[eMSDP_ROOM_NAME]->value_text, "MSDP Test Room");
-    EXPECT_EQ(protocol->variables[eMSDP_ROOM_VNUM]->value_number, 3001);
-    EXPECT_STREQ(protocol->variables[eMSDP_RACE]->value_text, pc_races[RACE_HUMAN]);
-    EXPECT_STREQ(protocol->variables[eMSDP_TACTIC]->value_text, "normal");
-    EXPECT_EQ(protocol->variables[eMSDP_SPIRIT]->value_number, 7);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CHARACTER_NAME]), "Aragorn");
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_LEVEL]), 10);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_HEALTH]), 125);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_HEALTH_MAX]), 150);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_ROOM_NAME]), "MSDP Test Room");
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ROOM_VNUM]), 3001);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_RACE]), pc_races[RACE_HUMAN]);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_TACTIC]), "normal");
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SPIRIT]), 7);
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("CHARACTER_NAME", "Aragorn") + expected_msdp_pair("HEALTH", "125")
             + expected_msdp_pair("HEALTH_MAX", "150") + expected_msdp_pair("LEVEL", "10")
@@ -1721,9 +1732,9 @@ TEST(MSDPProtocol, MsdpUpdateEmitsMinimalPlayerState)
             + expected_msdp_pair("SPIRIT", "7") + expected_msdp_pair("TACTIC", "normal")
             + expected_msdp_pair("ROOM_NAME", "MSDP Test Room")
             + expected_msdp_pair("ROOM_VNUM", "3001"));
-    EXPECT_FALSE(protocol->variables[eMSDP_CHARACTER_NAME]->dirty);
-    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH]->dirty);
-    EXPECT_FALSE(protocol->variables[eMSDP_ROOM_NAME]->dirty);
+    EXPECT_FALSE(protocol->variables[eMSDP_CHARACTER_NAME].dirty);
+    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH].dirty);
+    EXPECT_FALSE(protocol->variables[eMSDP_ROOM_NAME].dirty);
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsZeroValuedStatsOnFirstUpdate)
@@ -1784,16 +1795,16 @@ TEST(MSDPProtocol, MsdpUpdateEmitsCarriedWeightProfessionLevelsAndSpecialization
     msdp_update();
 
     protocol_t* protocol = context.descriptor.pProtocol;
-    EXPECT_EQ(protocol->variables[eMSDP_CARRIED_WEIGHT]->value_number, 2550);
-    EXPECT_STREQ(protocol->variables[eMSDP_SPECIALIZATION]->value_text, "archery");
-    EXPECT_EQ(protocol->variables[eMSDP_WARRIOR_LEVEL]->value_number, 5);
-    EXPECT_EQ(protocol->variables[eMSDP_WARRIOR_LEVEL_MAX]->value_number, 30);
-    EXPECT_EQ(protocol->variables[eMSDP_RANGER_LEVEL]->value_number, 2);
-    EXPECT_EQ(protocol->variables[eMSDP_RANGER_LEVEL_MAX]->value_number, 21);
-    EXPECT_EQ(protocol->variables[eMSDP_MYSTIC_LEVEL]->value_number, 3);
-    EXPECT_EQ(protocol->variables[eMSDP_MYSTIC_LEVEL_MAX]->value_number, 12);
-    EXPECT_EQ(protocol->variables[eMSDP_MAGE_LEVEL]->value_number, 4);
-    EXPECT_EQ(protocol->variables[eMSDP_MAGE_LEVEL_MAX]->value_number, 15);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_CARRIED_WEIGHT]), 2550);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_SPECIALIZATION]), "archery");
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WARRIOR_LEVEL]), 5);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WARRIOR_LEVEL_MAX]), 30);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_RANGER_LEVEL]), 2);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_RANGER_LEVEL_MAX]), 21);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MYSTIC_LEVEL]), 3);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MYSTIC_LEVEL_MAX]), 12);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MAGE_LEVEL]), 4);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MAGE_LEVEL_MAX]), 15);
 }
 
 TEST(MSDPProtocol, MsdpUpdateClampsNegativeProfessionMaximumForUrukWithoutMagePoints)
@@ -1815,8 +1826,8 @@ TEST(MSDPProtocol, MsdpUpdateClampsNegativeProfessionMaximumForUrukWithoutMagePo
     msdp_update();
 
     protocol_t* protocol = context.descriptor.pProtocol;
-    EXPECT_EQ(protocol->variables[eMSDP_MAGE_LEVEL_MAX]->value_number, 0);
-    EXPECT_EQ(protocol->variables[eMSDP_WARRIOR_LEVEL_MAX]->value_number, 30);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MAGE_LEVEL_MAX]), 0);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WARRIOR_LEVEL_MAX]), 30);
 }
 
 TEST(MSDPProtocol, MsdpUpdateReportsNoSpecializationAsNothing)
@@ -1832,8 +1843,8 @@ TEST(MSDPProtocol, MsdpUpdateReportsNoSpecializationAsNothing)
 
     msdp_update();
 
-    EXPECT_STREQ(
-        context.descriptor.pProtocol->variables[eMSDP_SPECIALIZATION]->value_text, "nothing");
+    EXPECT_EQ(
+        msdp_text(context.descriptor.pProtocol->variables[eMSDP_SPECIALIZATION]), "nothing");
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsBroadCharacterStats)
@@ -1863,51 +1874,51 @@ TEST(MSDPProtocol, MsdpUpdateEmitsBroadCharacterStats)
     protocol_t* protocol = context.descriptor.pProtocol;
     const int next_level_xp = xp_to_level(GET_LEVEL(&context.character) + 1);
     const int current_level_xp = xp_to_level(GET_LEVEL(&context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_ALIGNMENT]->value_number, 250);
-    EXPECT_EQ(protocol->variables[eMSDP_EXPERIENCE_MAX]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ALIGNMENT]), 250);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_EXPERIENCE_MAX]),
         next_level_xp - current_level_xp);
-    EXPECT_EQ(protocol->variables[eMSDP_EXPERIENCE]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_EXPERIENCE]),
         next_level_xp - GET_EXP(&context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_MANA]->value_number, 90);
-    EXPECT_EQ(protocol->variables[eMSDP_MANA_MAX]->value_number, 110);
-    EXPECT_EQ(protocol->variables[eMSDP_MOVEMENT]->value_number, 80);
-    EXPECT_EQ(protocol->variables[eMSDP_MOVEMENT_MAX]->value_number, 95);
-    EXPECT_EQ(protocol->variables[eMSDP_MONEY]->value_number, 543);
-    EXPECT_EQ(protocol->variables[eMSDP_STR]->value_number, 14);
-    EXPECT_EQ(protocol->variables[eMSDP_INT]->value_number, 13);
-    EXPECT_EQ(protocol->variables[eMSDP_WILL]->value_number, 11);
-    EXPECT_EQ(protocol->variables[eMSDP_DEX]->value_number, 15);
-    EXPECT_EQ(protocol->variables[eMSDP_CON]->value_number, 16);
-    EXPECT_EQ(protocol->variables[eMSDP_LEA]->value_number, 8);
-    EXPECT_EQ(protocol->variables[eMSDP_STR_PERM]->value_number, 16);
-    EXPECT_EQ(protocol->variables[eMSDP_INT_PERM]->value_number, 15);
-    EXPECT_EQ(protocol->variables[eMSDP_WIL_PERM]->value_number, 12);
-    EXPECT_EQ(protocol->variables[eMSDP_DEX_PERM]->value_number, 17);
-    EXPECT_EQ(protocol->variables[eMSDP_CON_PERM]->value_number, 18);
-    EXPECT_EQ(protocol->variables[eMSDP_LEA_PERM]->value_number, 9);
-    EXPECT_EQ(protocol->variables[eMSDP_WIMPY]->value_number, 33);
-    EXPECT_EQ(protocol->variables[eMSDP_SPELL_SAVE]->value_number, -8);
-    EXPECT_EQ(protocol->variables[eMSDP_SPELL_PEN]->value_number, 5);
-    EXPECT_EQ(protocol->variables[eMSDP_SPELL_POWER]->value_number, 6);
-    EXPECT_EQ(protocol->variables[eMSDP_ARMOUR_ABS]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MANA]), 90);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MANA_MAX]), 110);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MOVEMENT]), 80);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MOVEMENT_MAX]), 95);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MONEY]), 543);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_STR]), 14);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_INT]), 13);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WILL]), 11);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_DEX]), 15);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_CON]), 16);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_LEA]), 8);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_STR_PERM]), 16);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_INT_PERM]), 15);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WIL_PERM]), 12);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_DEX_PERM]), 17);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_CON_PERM]), 18);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_LEA_PERM]), 9);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WIMPY]), 33);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SPELL_SAVE]), -8);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SPELL_PEN]), 5);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SPELL_POWER]), 6);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ARMOUR_ABS]),
         get_percent_absorb(&context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_OFFENSIVE_BONUS]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_OFFENSIVE_BONUS]),
         get_real_OB(&context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_PARRY]->value_number, get_real_parry(&context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_DODGE]->value_number, get_real_dodge(&context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_ATTACK_SPEED]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_PARRY]), get_real_parry(&context.character));
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_DODGE]), get_real_dodge(&context.character));
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ATTACK_SPEED]),
         utils::get_energy_regen(context.character) / 5);
-    EXPECT_EQ(protocol->variables[eMSDP_PERCEPTION]->value_number, 66);
-    EXPECT_EQ(protocol->variables[eMSDP_WILLPOWER]->value_number, 44);
-    EXPECT_EQ(protocol->variables[eMSDP_SKILL_ENCUMBRANCE]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_PERCEPTION]), 66);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_WILLPOWER]), 44);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_SKILL_ENCUMBRANCE]),
         utils::get_encumbrance(context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_MOVEMENT_ENCUMBRANCE]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MOVEMENT_ENCUMBRANCE]),
         utils::get_leg_encumbrance(context.character));
-    EXPECT_EQ(protocol->variables[eMSDP_HEALTH_REGENERATION]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_HEALTH_REGENERATION]),
         static_cast<int>(hit_gain(&context.character)));
-    EXPECT_EQ(protocol->variables[eMSDP_STAMINA_REGENERATION]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_STAMINA_REGENERATION]),
         static_cast<int>(mana_gain(&context.character)));
-    EXPECT_EQ(protocol->variables[eMSDP_MOVEMENT_REGENERATION]->value_number,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MOVEMENT_REGENERATION]),
         static_cast<int>(move_gain(&context.character)));
 
     EXPECT_EQ(context.read_output(),
@@ -1946,7 +1957,7 @@ TEST(MSDPProtocol, MsdpUpdateEmitsBroadCharacterStats)
             + expected_msdp_pair("MOVEMENT_REGENERATION",
                 std::to_string(static_cast<int>(move_gain(&context.character)))));
     for (variable_t variable : variables)
-        EXPECT_FALSE(protocol->variables[variable]->dirty);
+        EXPECT_FALSE(protocol->variables[variable].dirty);
 }
 
 TEST(MSDPProtocol, MsdpUpdateEmitsIndoorAndOutdoorWeather)
@@ -1962,11 +1973,11 @@ TEST(MSDPProtocol, MsdpUpdateEmitsIndoorAndOutdoorWeather)
 
     msdp_update();
 
-    EXPECT_STREQ(indoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER]->value_text,
+    EXPECT_EQ(msdp_text(indoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER]),
         "You can have no feeling about the weather here.");
     EXPECT_EQ(indoor_context.read_output(),
         expected_msdp_pair("WEATHER", "You can have no feeling about the weather here."));
-    EXPECT_FALSE(indoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER]->dirty);
+    EXPECT_FALSE(indoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER].dirty);
 
     world[0].room_flags = 0;
     world[0].sector_type = SECT_FIELD;
@@ -1977,11 +1988,11 @@ TEST(MSDPProtocol, MsdpUpdateEmitsIndoorAndOutdoorWeather)
 
     msdp_update();
 
-    EXPECT_STREQ(outdoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER]->value_text,
+    EXPECT_EQ(msdp_text(outdoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER]),
         "Above the fields, not a cloud can be seen in the sky.");
     EXPECT_EQ(outdoor_context.read_output(),
         expected_msdp_pair("WEATHER", "Above the fields, not a cloud can be seen in the sky."));
-    EXPECT_FALSE(outdoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER]->dirty);
+    EXPECT_FALSE(outdoor_context.descriptor.pProtocol->variables[eMSDP_WEATHER].dirty);
 }
 
 TEST(MSDPProtocol, MsdpUpdateClearsGroupWhenUngrouped)
@@ -1999,10 +2010,10 @@ TEST(MSDPProtocol, MsdpUpdateClearsGroupWhenUngrouped)
     msdp_update();
 
     const std::string expected_group = expected_group_table({});
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_GROUP]->value_text,
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_GROUP]),
         msdp_table_value(expected_group).c_str());
     EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", expected_group));
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_GROUP]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_GROUP].dirty);
 }
 
 TEST(MSDPProtocol, MsdpUpdateGivesEachPlayerOnlyTheirOwnGroup)
@@ -2037,9 +2048,9 @@ TEST(MSDPProtocol, MsdpUpdateGivesEachPlayerOnlyTheirOwnGroup)
         expected_group_member_table("Aragorn", 83, 81, 84),
         expected_group_member_table("Boromir", 83, 81, 84),
     });
-    EXPECT_STREQ(grouped_context.variable(eMSDP_GROUP)->value_text,
+    EXPECT_EQ(msdp_text(*grouped_context.variable(eMSDP_GROUP)),
         msdp_table_value(expected_group).c_str());
-    EXPECT_STREQ(ungrouped_context.variable(eMSDP_GROUP)->value_text,
+    EXPECT_EQ(msdp_text(*ungrouped_context.variable(eMSDP_GROUP)),
         msdp_table_value(expected_group_table({})).c_str());
 }
 
@@ -2095,9 +2106,9 @@ TEST(MSDPProtocol, MsdpUpdateEmitsAllGroupMembersWithPercentages)
         expected_group_member_table("orc \\\"guard\\\"\\n", 25, 0, 0),
     });
     EXPECT_EQ(context.read_output(), expected_msdp_table_pair("GROUP", expected_group));
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_GROUP]->value_text,
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_GROUP]),
         msdp_table_value(expected_group).c_str());
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_GROUP]->dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_GROUP].dirty);
 
     msdp_update();
 
@@ -2132,10 +2143,10 @@ TEST(MSDPProtocol, MsdpUpdateClearsOpponentFieldsWhenNotFighting)
     msdp_update();
 
     protocol_t* protocol = context.descriptor.pProtocol;
-    EXPECT_EQ(protocol->variables[eMSDP_OPPONENT_HEALTH]->value_number, 0);
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_NAME]->value_text, "");
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_LEVEL]->value_text, "");
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_AGE]->value_text, "");
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_OPPONENT_HEALTH]), 0);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_NAME]), "");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_LEVEL]), "");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_AGE]), "");
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "0") + expected_msdp_pair("OPPONENT_LEVEL", "")
             + expected_msdp_pair("OPPONENT_NAME", "") + expected_msdp_pair("OPPONENT_AGE", ""));
@@ -2161,8 +2172,8 @@ TEST(MSDPProtocol, MsdpUpdatePublishesNothingForDescriptorAtCharacterMenu)
     msdp_update();
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_ROOM_NAME]->value_text, "");
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_ROOM_VNUM]->value_number, 0);
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_ROOM_NAME]), "");
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_ROOM_VNUM]), 0);
 }
 
 TEST(MSDPProtocol, MsdpUpdatePublishesOnceDescriptorIsPlaying)
@@ -2179,7 +2190,7 @@ TEST(MSDPProtocol, MsdpUpdatePublishesOnceDescriptorIsPlaying)
     msdp_update();
 
     /* Same descriptor, now in the game: the real room is published normally. */
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_ROOM_VNUM]->value_number,
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_ROOM_VNUM]),
         world[context.character.in_room].number);
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("ROOM_VNUM", std::to_string(world[context.character.in_room].number)));
@@ -2581,10 +2592,10 @@ TEST(MSDPProtocol, MsdpUpdateEmitsNpcOpponentDetails)
     msdp_update();
 
     protocol_t* protocol = context.descriptor.pProtocol;
-    EXPECT_EQ(protocol->variables[eMSDP_OPPONENT_HEALTH]->value_number, 25);
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_NAME]->value_text, "a snarling orc");
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_LEVEL]->value_text, "12");
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_AGE]->value_text,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_OPPONENT_HEALTH]), 25);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_NAME]), "a snarling orc");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_LEVEL]), "12");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_AGE]),
         "A snarling orc has just arrived to this place.");
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25") + expected_msdp_pair("OPPONENT_LEVEL", "12")
@@ -2624,8 +2635,8 @@ TEST(MSDPProtocol, MsdpUpdateUsesDiagnoseAgeBandsForNpcOpponent)
         const WorldClock::time_point now = WorldClock::now();
         utils::set_mob_age_in_ticks(opponent, c.ticks, now);
         msdp_update();
-        EXPECT_STREQ(
-            context.descriptor.pProtocol->variables[eMSDP_OPPONENT_AGE]->value_text, c.expected);
+        EXPECT_EQ(
+            msdp_text(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_AGE]), c.expected);
         EXPECT_EQ(context.read_output(), expected_msdp_pair("OPPONENT_AGE", c.expected));
     }
 }
@@ -2651,7 +2662,7 @@ TEST(MSDPProtocol, MsdpUpdateHidesAgeOfOrcFriendPetOpponent)
 
     msdp_update();
 
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_AGE]->value_text, "");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_AGE]), "");
     EXPECT_EQ(context.read_output(), expected_msdp_pair("OPPONENT_AGE", ""));
 }
 
@@ -2677,7 +2688,7 @@ TEST(MSDPProtocol, MsdpUpdateHandlesOpponentWithInvalidMaxHealth)
 
     msdp_update();
 
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH]->value_number, 0);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH]), 0);
     EXPECT_EQ(context.read_output(), expected_msdp_pair("OPPONENT_HEALTH", "0"));
 }
 
@@ -2704,11 +2715,11 @@ TEST(MSDPProtocol, MsdpUpdateMasksPlayerOpponentDetails)
     msdp_update();
 
     protocol_t* protocol = context.descriptor.pProtocol;
-    EXPECT_EQ(protocol->variables[eMSDP_OPPONENT_HEALTH]->value_number, 25);
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_NAME]->value_text,
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_OPPONENT_HEALTH]), 25);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_NAME]),
         pc_star_types[RACE_HUMAN]);
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_LEVEL]->value_text, "???");
-    EXPECT_STREQ(protocol->variables[eMSDP_OPPONENT_AGE]->value_text, "");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_LEVEL]), "???");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_OPPONENT_AGE]), "");
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25") + expected_msdp_pair("OPPONENT_LEVEL", "???")
             + expected_msdp_pair("OPPONENT_NAME", pc_star_types[RACE_HUMAN])
@@ -2736,7 +2747,7 @@ TEST(MSDPProtocol, MsdpUpdateSetsOpponentHealthMaxTo100WhileFightingNpc)
 
     msdp_update();
 
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH_MAX]->value_number, 100);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH_MAX]), 100);
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25")
             + expected_msdp_pair("OPPONENT_HEALTH_MAX", "100"));
@@ -2762,7 +2773,7 @@ TEST(MSDPProtocol, MsdpUpdateSetsOpponentHealthMaxTo100WhileFightingPlayer)
 
     msdp_update();
 
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH_MAX]->value_number, 100);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH_MAX]), 100);
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "25")
             + expected_msdp_pair("OPPONENT_HEALTH_MAX", "100"));
@@ -2783,7 +2794,7 @@ TEST(MSDPProtocol, MsdpUpdateSetsOpponentHealthMaxTo0WhenNotFighting)
 
     msdp_update();
 
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH_MAX]->value_number, 0);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_OPPONENT_HEALTH_MAX]), 0);
     EXPECT_EQ(context.read_output(),
         expected_msdp_pair("OPPONENT_HEALTH", "0")
             + expected_msdp_pair("OPPONENT_HEALTH_MAX", "0"));
@@ -2803,12 +2814,12 @@ TEST(MSDPProtocol, MsdpUpdateKeepsVariableDirtyWhenMsdpIsOff)
     REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
     enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_CHARACTER_NAME });
     MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
-    ASSERT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
+    ASSERT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
 
     MSDPUpdate(&context.descriptor);
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
 }
 
 TEST(MSDPProtocol, MsdpUpdateFlushesValueDirtiedWhileMsdpWasOff)
@@ -2842,7 +2853,7 @@ TEST(MSDPProtocol, MsdpFlushKeepsVariableDirtyWhenMsdpIsOff)
     MSDPFlush(&context.descriptor, eMSDP_CHARACTER_NAME);
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
 }
 
 TEST(MSDPProtocol, MarkAllReportedDirtyForcesResendOnNextUpdate)
@@ -2855,7 +2866,7 @@ TEST(MSDPProtocol, MarkAllReportedDirtyForcesResendOnNextUpdate)
     MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
     MSDPUpdate(&context.descriptor);
     context.read_output();
-    ASSERT_FALSE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME]->dirty);
+    ASSERT_FALSE(context.descriptor.pProtocol->variables[eMSDP_CHARACTER_NAME].dirty);
 
     MSDPMarkAllReportedDirty(&context.descriptor);
     MSDPUpdate(&context.descriptor);
@@ -3270,7 +3281,7 @@ TEST(ProtocolHandshake, CharsetAgreementAfterTheServerOfferRequestsLatin1Alone)
     reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE));
 
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_CHARSET)), expected_charset_request());
-    EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_UTF_8]->value_number, 0);
+    EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_UTF_8]), 0);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3353,7 +3364,7 @@ TEST(ProtocolHandshake, MxpOfferedByTheClientIsAcceptedAndStartsTheSecureLine)
         telnet_sequence(DO, TELOPT_MXP) + expected_mxp_start());
     EXPECT_TRUE(protocol->mxp_enabled);
     EXPECT_TRUE(protocol->option_states[eNEGOTIATED_MXP]);
-    EXPECT_EQ(protocol->variables[eMSDP_MXP]->value_number, 1);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_MXP]), 1);
 
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MXP)), "");
 }
@@ -3391,7 +3402,7 @@ TEST(ProtocolHandshake, MxpSwitchedOffLeavesTheMsdpMxpFlagSetSoTagsAreStillSent)
     EXPECT_EQ(reply_to(offered_by_client, telnet_sequence(WONT, TELOPT_MXP)),
         telnet_sequence(DONT, TELOPT_MXP));
     EXPECT_FALSE(offered_by_client.descriptor.pProtocol->mxp_enabled);
-    EXPECT_EQ(offered_by_client.descriptor.pProtocol->variables[eMSDP_MXP]->value_number, 1);
+    EXPECT_EQ(msdp_number(offered_by_client.descriptor.pProtocol->variables[eMSDP_MXP]), 1);
     MXPSendTag(&offered_by_client.descriptor, "<B>");
     EXPECT_EQ(offered_by_client.read_output(), expected_mxp_tag("<B>"));
 
@@ -3401,7 +3412,7 @@ TEST(ProtocolHandshake, MxpSwitchedOffLeavesTheMsdpMxpFlagSetSoTagsAreStillSent)
     EXPECT_EQ(reply_to(requested_by_client, telnet_sequence(DONT, TELOPT_MXP)),
         telnet_sequence(WONT, TELOPT_MXP));
     EXPECT_FALSE(requested_by_client.descriptor.pProtocol->mxp_enabled);
-    EXPECT_EQ(requested_by_client.descriptor.pProtocol->variables[eMSDP_MXP]->value_number, 1);
+    EXPECT_EQ(msdp_number(requested_by_client.descriptor.pProtocol->variables[eMSDP_MXP]), 1);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3422,7 +3433,7 @@ TEST(ProtocolHandshake, AtcpIsAgreedButOnlyUsedWhileMsdpIsOff)
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_ATCP)),
         telnet_sequence(DO, TELOPT_ATCP) + expected_atcp_pair("SERVER_ID", MUD_NAME));
     EXPECT_TRUE(protocol->atcp_enabled);
-    EXPECT_STREQ(protocol->variables[eMSDP_SERVER_ID]->value_text, MUD_NAME);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_SERVER_ID]), MUD_NAME);
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_ATCP)), "");
 
     EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_ATCP)), telnet_sequence(DONT, TELOPT_ATCP));
@@ -3486,8 +3497,8 @@ TEST(ProtocolSubnegotiation, TerminalTypeIsIgnoredUntilTheClientAgreesToSendIt)
 
     EXPECT_EQ(reply_to(context, ttype_reply("Mudlet 4.17.2")), "");
 
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "Unknown");
-    EXPECT_EQ(context.descriptor.pProtocol->last_ttype, nullptr);
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "Unknown");
+    EXPECT_FALSE(context.descriptor.pProtocol->last_ttype.has_value());
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3498,18 +3509,18 @@ TEST(ProtocolSubnegotiation, FirstTerminalTypeNamesTheClientAndEachNewTypeAsksFo
     protocol->ttype_enabled = true;
 
     EXPECT_EQ(reply_to(context, ttype_reply("TinTin++")), ttype_send_sequence());
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "TinTin++");
-    EXPECT_STREQ(protocol->last_ttype, "TinTin++");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "TinTin++");
+    EXPECT_EQ(protocol->last_ttype, "TinTin++");
     EXPECT_EQ(protocol->xterm_256_support, eUNKNOWN);
 
     EXPECT_EQ(reply_to(context, ttype_reply("XTERM-256COLOR")), ttype_send_sequence());
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "TinTin++");
-    EXPECT_STREQ(protocol->last_ttype, "XTERM-256COLOR");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "TinTin++");
+    EXPECT_EQ(protocol->last_ttype, "XTERM-256COLOR");
     EXPECT_EQ(protocol->xterm_256_support, eYES);
-    EXPECT_EQ(protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     EXPECT_EQ(reply_to(context, ttype_reply("MTTS 2825")), ttype_send_sequence());
-    EXPECT_STREQ(protocol->last_ttype, "MTTS 2825");
+    EXPECT_EQ(protocol->last_ttype, "MTTS 2825");
 
     EXPECT_EQ(reply_to(context, ttype_reply("MTTS 2825")), "") << "a repeated type ends the cycle";
 }
@@ -3524,7 +3535,7 @@ TEST(ProtocolSubnegotiation, TerminalTypeCycleEndsWhenItReturnsToTheClientName)
     reply_to(context, ttype_reply("XTERM"));
 
     EXPECT_EQ(reply_to(context, ttype_reply("TinTin++")), "");
-    EXPECT_STREQ(context.descriptor.pProtocol->last_ttype, "XTERM");
+    EXPECT_EQ(context.descriptor.pProtocol->last_ttype, "XTERM");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3536,10 +3547,10 @@ TEST(ProtocolSubnegotiation, ClientNameSetEarlierIsKeptWhileTheTypesStillCycle)
     feed_msdp_command(&context.descriptor, "CLIENT_ID", "MyClient");
 
     EXPECT_EQ(reply_to(context, ttype_reply("XTERM")), ttype_send_sequence());
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "MyClient");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "MyClient");
 
     EXPECT_EQ(reply_to(context, ttype_reply("MyClient")), "");
-    EXPECT_STREQ(protocol->last_ttype, "XTERM");
+    EXPECT_EQ(protocol->last_ttype, "XTERM");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3550,8 +3561,8 @@ TEST(ProtocolSubnegotiation, AnsiAsTheFirstTerminalTypeAsksForNoOther)
     protocol->ttype_enabled = true;
 
     EXPECT_EQ(reply_to(context, ttype_reply("ANSI")), "");
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "ANSI");
-    EXPECT_STREQ(protocol->last_ttype, "ANSI");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "ANSI");
+    EXPECT_EQ(protocol->last_ttype, "ANSI");
 
     EXPECT_EQ(reply_to(context, ttype_reply("VT100")), ttype_send_sequence())
         << "only an ANSI first reply stops the cycle";
@@ -3570,7 +3581,7 @@ TEST(ProtocolSubnegotiation, TerminalTypeKeepsTheFirst64PrintableBytes)
 
     EXPECT_EQ(reply_to(context, ttype_reply(terminal_type)), ttype_send_sequence());
 
-    EXPECT_EQ(std::string(protocol->variables[eMSDP_CLIENT_ID]->value_text),
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]),
         "TinTin" + std::string(58, 'A'));
 }
 
@@ -3582,8 +3593,8 @@ TEST(ProtocolSubnegotiation, EmptyTerminalTypeBecomesAnEmptyClientName)
 
     EXPECT_EQ(reply_to(context, ttype_reply("")), ttype_send_sequence());
 
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "");
-    EXPECT_STREQ(context.descriptor.pProtocol->last_ttype, "");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "");
+    EXPECT_EQ(context.descriptor.pProtocol->last_ttype, "");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3594,28 +3605,28 @@ TEST(ProtocolSubnegotiation, MudletTypeIsSplitIntoClientAndVersionAndItsVersionD
     reply_to(current_mudlet, ttype_reply("Mudlet 4.17.2"));
     protocol_t* current_protocol = current_mudlet.descriptor.pProtocol;
 
-    EXPECT_STREQ(current_protocol->variables[eMSDP_CLIENT_ID]->value_text, "Mudlet");
-    EXPECT_STREQ(current_protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "4.17.2");
-    EXPECT_STREQ(current_protocol->last_ttype, "Mudlet 4.17.2");
+    EXPECT_EQ(msdp_text(current_protocol->variables[eMSDP_CLIENT_ID]), "Mudlet");
+    EXPECT_EQ(msdp_text(current_protocol->variables[eMSDP_CLIENT_VERSION]), "4.17.2");
+    EXPECT_EQ(current_protocol->last_ttype, "Mudlet 4.17.2");
     EXPECT_EQ(current_protocol->xterm_256_support, eYES);
-    EXPECT_EQ(current_protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(current_protocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     ProtocolDescriptor old_mudlet;
     old_mudlet.descriptor.pProtocol->ttype_enabled = true;
     reply_to(old_mudlet, ttype_reply("Mudlet 1.0"));
     protocol_t* old_protocol = old_mudlet.descriptor.pProtocol;
 
-    EXPECT_STREQ(old_protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "1.0");
+    EXPECT_EQ(msdp_text(old_protocol->variables[eMSDP_CLIENT_VERSION]), "1.0");
     EXPECT_EQ(old_protocol->xterm_256_support, eSOMETIMES);
-    EXPECT_EQ(old_protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 0);
+    EXPECT_EQ(msdp_number(old_protocol->variables[eMSDP_XTERM_256_COLORS]), 0);
 
     ProtocolDescriptor unversioned_mudlet;
     unversioned_mudlet.descriptor.pProtocol->ttype_enabled = true;
     reply_to(unversioned_mudlet, ttype_reply("Mudlet"));
     protocol_t* unversioned_protocol = unversioned_mudlet.descriptor.pProtocol;
 
-    EXPECT_STREQ(unversioned_protocol->variables[eMSDP_CLIENT_ID]->value_text, "Mudlet");
-    EXPECT_STREQ(unversioned_protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "Unknown");
+    EXPECT_EQ(msdp_text(unversioned_protocol->variables[eMSDP_CLIENT_ID]), "Mudlet");
+    EXPECT_EQ(msdp_text(unversioned_protocol->variables[eMSDP_CLIENT_VERSION]), "Unknown");
     EXPECT_EQ(unversioned_protocol->xterm_256_support, eSOMETIMES);
 }
 
@@ -3626,47 +3637,46 @@ TEST(ProtocolSubnegotiation, DecafMudTypeIsSplitIntoClientAndVersionAndAlwaysHas
     versioned.descriptor.pProtocol->ttype_enabled = true;
     reply_to(versioned, ttype_reply("DecafMUD 0.9.0"));
 
-    EXPECT_STREQ(versioned.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "DecafMUD");
-    EXPECT_STREQ(versioned.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]->value_text, "0.9.0");
+    EXPECT_EQ(msdp_text(versioned.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "DecafMUD");
+    EXPECT_EQ(msdp_text(versioned.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]), "0.9.0");
     EXPECT_EQ(versioned.descriptor.pProtocol->xterm_256_support, eYES);
-    EXPECT_EQ(versioned.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(versioned.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     ProtocolDescriptor unversioned;
     unversioned.descriptor.pProtocol->ttype_enabled = true;
     reply_to(unversioned, ttype_reply("DecafMUD"));
 
-    EXPECT_STREQ(unversioned.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "DecafMUD");
-    EXPECT_STREQ(unversioned.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]->value_text, "Unknown");
+    EXPECT_EQ(msdp_text(unversioned.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "DecafMUD");
+    EXPECT_EQ(msdp_text(unversioned.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]), "Unknown");
     EXPECT_EQ(unversioned.descriptor.pProtocol->xterm_256_support, eYES);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(ProtocolSubnegotiation, MttsBitsTurnOnAnsiUtf8And256ColoursAndAreStoredAsTheVersionNumber)
+TEST(ProtocolSubnegotiation, MttsBitsTurnOnAnsiUtf8And256ColoursAndLeaveTheClientVersion)
 {
     ProtocolDescriptor all_bits;
     protocol_t* all_bits_protocol = all_bits.descriptor.pProtocol;
     all_bits_protocol->ttype_enabled = true;
-    all_bits_protocol->variables[eMSDP_ANSI_COLORS]->value_number = 0;
+    msdp_number(all_bits_protocol->variables[eMSDP_ANSI_COLORS]) = 0;
     reply_to(all_bits, ttype_reply("MTTS 13"));
 
-    EXPECT_STREQ(all_bits_protocol->variables[eMSDP_CLIENT_ID]->value_text, "MTTS 13");
-    EXPECT_EQ(all_bits_protocol->variables[eMSDP_CLIENT_VERSION]->value_number, 13);
-    EXPECT_STREQ(all_bits_protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "Unknown");
-    EXPECT_EQ(all_bits_protocol->variables[eMSDP_ANSI_COLORS]->value_number, 1);
-    EXPECT_EQ(all_bits_protocol->variables[eMSDP_UTF_8]->value_number, 1);
-    EXPECT_EQ(all_bits_protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_text(all_bits_protocol->variables[eMSDP_CLIENT_ID]), "MTTS 13");
+    EXPECT_EQ(msdp_text(all_bits_protocol->variables[eMSDP_CLIENT_VERSION]), "Unknown");
+    EXPECT_EQ(msdp_number(all_bits_protocol->variables[eMSDP_ANSI_COLORS]), 1);
+    EXPECT_EQ(msdp_number(all_bits_protocol->variables[eMSDP_UTF_8]), 1);
+    EXPECT_EQ(msdp_number(all_bits_protocol->variables[eMSDP_XTERM_256_COLORS]), 1);
     EXPECT_EQ(all_bits_protocol->xterm_256_support, eYES);
 
     ProtocolDescriptor no_bits;
     protocol_t* no_bits_protocol = no_bits.descriptor.pProtocol;
     no_bits_protocol->ttype_enabled = true;
-    no_bits_protocol->variables[eMSDP_ANSI_COLORS]->value_number = 0;
+    msdp_number(no_bits_protocol->variables[eMSDP_ANSI_COLORS]) = 0;
     reply_to(no_bits, ttype_reply("MTTS 2"));
 
-    EXPECT_EQ(no_bits_protocol->variables[eMSDP_CLIENT_VERSION]->value_number, 2);
-    EXPECT_EQ(no_bits_protocol->variables[eMSDP_ANSI_COLORS]->value_number, 0);
-    EXPECT_EQ(no_bits_protocol->variables[eMSDP_UTF_8]->value_number, 0);
-    EXPECT_EQ(no_bits_protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 0);
+    EXPECT_EQ(msdp_text(no_bits_protocol->variables[eMSDP_CLIENT_VERSION]), "Unknown");
+    EXPECT_EQ(msdp_number(no_bits_protocol->variables[eMSDP_ANSI_COLORS]), 0);
+    EXPECT_EQ(msdp_number(no_bits_protocol->variables[eMSDP_UTF_8]), 0);
+    EXPECT_EQ(msdp_number(no_bits_protocol->variables[eMSDP_XTERM_256_COLORS]), 0);
     EXPECT_EQ(no_bits_protocol->xterm_256_support, eUNKNOWN);
 }
 
@@ -3678,14 +3688,14 @@ TEST(ProtocolSubnegotiation, OnlyA256colorSuffixAfterTheFirstDashMeans256Colours
     reply_to(suffixed, ttype_reply("xterm-256color"));
 
     EXPECT_EQ(suffixed.descriptor.pProtocol->xterm_256_support, eYES);
-    EXPECT_EQ(suffixed.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(suffixed.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 
     ProtocolDescriptor second_dash;
     second_dash.descriptor.pProtocol->ttype_enabled = true;
     reply_to(second_dash, ttype_reply("rxvt-unicode-256color"));
 
     EXPECT_EQ(second_dash.descriptor.pProtocol->xterm_256_support, eUNKNOWN);
-    EXPECT_EQ(second_dash.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 0);
+    EXPECT_EQ(msdp_number(second_dash.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]), 0);
 }
 
 // A client name and the 256-colour support the server records for it.
@@ -3711,7 +3721,7 @@ TEST(ProtocolSubnegotiation, KnownClientNamesRecordTheir256ColourSupport)
         reply_to(context, ttype_reply(client.terminal_type));
 
         EXPECT_EQ(context.descriptor.pProtocol->xterm_256_support, client.support) << client.terminal_type;
-        EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number,
+        EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]),
             client.xterm_256_colours)
             << client.terminal_type;
     }
@@ -3764,7 +3774,7 @@ TEST(ProtocolSubnegotiation, CharsetReplyAndUnknownSubnegotiationsChangeNothing)
     EXPECT_EQ(reply_to(context, telnet_subnegotiation(TELOPT_CHARSET, accepted)), "");
     EXPECT_EQ(reply_to(context, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "data")), "");
 
-    EXPECT_EQ(protocol->variables[eMSDP_UTF_8]->value_number, 0);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_UTF_8]), 0);
     EXPECT_TRUE(protocol->charset_enabled);
     EXPECT_FALSE(protocol->in_subnegotiation);
 }
@@ -3774,24 +3784,24 @@ TEST(ProtocolSubnegotiation, MsdpCommandsAreIgnoredWhileMsdpIsOff)
 {
     ProtocolDescriptor context;
     context.descriptor.pProtocol->msdp_enabled = false;
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 40);
 
     EXPECT_EQ(reply_to(context, msdp_packet(msdp_pair_payload("REPORT", "HEALTH"))), "");
     EXPECT_EQ(reply_to(context, msdp_packet(msdp_pair_payload("SEND", "HEALTH"))), "");
 
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolAtcp, CommandsAreIgnoredWhileAtcpIsOff)
 {
     ProtocolDescriptor context;
-    context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported = false;
+    context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported = false;
 
     reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@REPORT HEALTH"));
 
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].reported);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3805,14 +3815,14 @@ TEST(ProtocolAtcp, EachAtNameStartsACommandAndEachSpaceStartsAValue)
 
     reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@REPORT HEALTH MANA"));
 
-    EXPECT_TRUE(protocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_TRUE(protocol->variables[eMSDP_MANA]->reported);
+    EXPECT_TRUE(protocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_TRUE(protocol->variables[eMSDP_MANA].reported);
 
     reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@UNREPORT HEALTH@REPORT MOVEMENT"));
 
-    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_TRUE(protocol->variables[eMSDP_MANA]->reported);
-    EXPECT_TRUE(protocol->variables[eMSDP_MOVEMENT]->reported);
+    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_TRUE(protocol->variables[eMSDP_MANA].reported);
+    EXPECT_TRUE(protocol->variables[eMSDP_MOVEMENT].reported);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3825,11 +3835,11 @@ TEST(ProtocolAtcp, IgnoresTextBeforeTheFirstAtAndAValueLongerThanTheMsdpSizeLimi
     disable_all_msdp_reports(protocol);
 
     reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "REPORT HEALTH"));
-    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH].reported);
 
     const std::string long_value = "@REPORT HEALTH" + std::string(MAX_MSDP_SIZE, 'X');
     reply_to(context, telnet_subnegotiation(TELOPT_ATCP, long_value));
-    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH]->reported);
+    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH].reported);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3853,11 +3863,11 @@ TEST(ProtocolMxp, VersionReplyRecordsTheClientAndAnnouncesTheMxpVersion)
     EXPECT_EQ(reply_to(context, mxp_version_reply("MXP=1.0 CLIENT=MUSHclient VERSION=4.94")),
         expected_mxp_announcement("1.0"));
 
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "MUSHclient");
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "4.94");
-    EXPECT_STREQ(protocol->mxp_version, "1.0");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "MUSHclient");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_VERSION]), "4.94");
+    EXPECT_EQ(protocol->mxp_version, "1.0");
     EXPECT_EQ(protocol->xterm_256_support, eYES);
-    EXPECT_EQ(protocol->variables[eMSDP_XTERM_256_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_XTERM_256_COLORS]), 1);
 }
 
 // The 256-colour support one MXP <VERSION> reply records.
@@ -3884,7 +3894,7 @@ TEST(ProtocolMxp, VersionComparedAsTextDecides256ColoursForMushclientCmudAndAtla
         reply_to(context, mxp_version_reply(reply.attributes));
 
         EXPECT_EQ(context.descriptor.pProtocol->xterm_256_support, reply.support) << reply.attributes;
-        EXPECT_EQ(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]->value_number,
+        EXPECT_EQ(msdp_number(context.descriptor.pProtocol->variables[eMSDP_XTERM_256_COLORS]),
             reply.xterm_256_colours)
             << reply.attributes;
     }
@@ -3898,9 +3908,9 @@ TEST(ProtocolMxp, VersionReplyWithoutAnMxpVersionAnnouncesNothing)
 
     EXPECT_EQ(reply_to(context, mxp_version_reply("CLIENT=zMUD VERSION=7.21")), "");
 
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_ID]->value_text, "zMUD");
-    EXPECT_STREQ(protocol->variables[eMSDP_CLIENT_VERSION]->value_text, "7.21");
-    EXPECT_STREQ(protocol->mxp_version, "Unknown");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_ID]), "zMUD");
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CLIENT_VERSION]), "7.21");
+    EXPECT_EQ(protocol->mxp_version, "Unknown");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3910,13 +3920,13 @@ TEST(ProtocolMxp, ValuesSkipAnOpeningQuoteAndEndAtTheFirstByteNotALetterDigitOrD
 
     EXPECT_EQ(reply_to(quoted, mxp_version_reply("MXP=\"1.0\" CLIENT=\"TinTin++\" VERSION=\"2.02\"")),
         expected_mxp_announcement("1.0"));
-    EXPECT_STREQ(quoted.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "TinTin");
-    EXPECT_STREQ(quoted.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]->value_text, "2.02");
+    EXPECT_EQ(msdp_text(quoted.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "TinTin");
+    EXPECT_EQ(msdp_text(quoted.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]), "2.02");
 
     ProtocolDescriptor empty_value;
     reply_to(empty_value, mxp_version_reply("CLIENT= VERSION=\"\""));
-    EXPECT_STREQ(empty_value.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "");
-    EXPECT_STREQ(empty_value.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]->value_text, "");
+    EXPECT_EQ(msdp_text(empty_value.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "");
+    EXPECT_EQ(msdp_text(empty_value.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]), "");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3925,12 +3935,12 @@ TEST(ProtocolMxp, ValueOfSixtyCharactersIsIgnoredAndOneOfFiftyNineKept)
     ProtocolDescriptor longest_kept;
     const std::string fifty_nine(59, 'A');
     reply_to(longest_kept, mxp_version_reply("CLIENT=" + fifty_nine));
-    EXPECT_EQ(std::string(longest_kept.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text),
+    EXPECT_EQ(msdp_text(longest_kept.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]),
         fifty_nine);
 
     ProtocolDescriptor too_long;
     reply_to(too_long, mxp_version_reply("CLIENT=" + std::string(60, 'A')));
-    EXPECT_STREQ(too_long.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "Unknown");
+    EXPECT_EQ(msdp_text(too_long.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "Unknown");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3961,12 +3971,12 @@ TEST(ProtocolMxp, ReplySplitAcrossReadsKeepsTheFirstPartAndPassesTheRestToThePla
 
     EXPECT_STREQ(output, "");
     EXPECT_EQ(context.read_output(), expected_mxp_announcement("1.0"));
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]->value_text, "CMUD");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CLIENT_ID]), "CMUD");
 
     feed_protocol_input(&context.descriptor, " VERSION=3.04>look", output);
 
     EXPECT_STREQ(output, " VERSION=3.04>look");
-    EXPECT_STREQ(context.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]->value_text, "Unknown");
+    EXPECT_EQ(msdp_text(context.descriptor.pProtocol->variables[eMSDP_CLIENT_VERSION]), "Unknown");
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -3989,7 +3999,7 @@ TEST(ProtocolMxp, SendTagWrapsTagsUnderAThousandBytesInSecureLineEscapes)
     MXPSendTag(&descriptor_without_protocol, "<B>");
 
     ProtocolDescriptor context;
-    context.descriptor.pProtocol->variables[eMSDP_MXP]->value_number = 1;
+    msdp_number(context.descriptor.pProtocol->variables[eMSDP_MXP]) = 1;
 
     MXPSendTag(&context.descriptor, nullptr);
     EXPECT_EQ(context.read_output(), "");
@@ -4185,8 +4195,8 @@ TEST(MSDPProtocol, MarkAllReportedDirtyIgnoresAMissingProtocolAndSkipsUnreported
 
     MSDPMarkAllReportedDirty(&context.descriptor);
 
-    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH]->dirty);
-    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA]->dirty);
+    EXPECT_TRUE(context.descriptor.pProtocol->variables[eMSDP_HEALTH].dirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->variables[eMSDP_MANA].dirty);
 }
 
 TEST(MSDPProtocol, NumericConfigurableValueMaySkipLeadingSpacesButNotBeOnlySpaces)
@@ -4195,13 +4205,13 @@ TEST(MSDPProtocol, NumericConfigurableValueMaySkipLeadingSpacesButNotBeOnlySpace
     protocol_t* protocol = context.descriptor.pProtocol;
 
     feed_msdp_command(&context.descriptor, "ANSI_COLORS", "  0");
-    EXPECT_EQ(protocol->variables[eMSDP_ANSI_COLORS]->value_number, 0);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ANSI_COLORS]), 0);
 
     feed_msdp_command(&context.descriptor, "ANSI_COLORS", "  1");
-    EXPECT_EQ(protocol->variables[eMSDP_ANSI_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ANSI_COLORS]), 1);
 
     feed_msdp_command(&context.descriptor, "ANSI_COLORS", "   ");
-    EXPECT_EQ(protocol->variables[eMSDP_ANSI_COLORS]->value_number, 1);
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_ANSI_COLORS]), 1);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -4210,7 +4220,7 @@ TEST(MSDPProtocol, UnknownSendUnreportResetAndListValuesChangeNothing)
     ProtocolDescriptor context;
     protocol_t* protocol = context.descriptor.pProtocol;
     enable_msdp_reports(protocol, { eMSDP_HEALTH });
-    protocol->variables[eMSDP_HEALTH]->dirty = true;
+    protocol->variables[eMSDP_HEALTH].dirty = true;
 
     feed_msdp_command(&context.descriptor, "SEND", "NOT_A_VARIABLE");
     feed_msdp_command(&context.descriptor, "UNREPORT", "NOT_A_VARIABLE");
@@ -4218,8 +4228,8 @@ TEST(MSDPProtocol, UnknownSendUnreportResetAndListValuesChangeNothing)
     feed_msdp_command(&context.descriptor, "LIST", "NOT_A_LIST");
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_TRUE(protocol->variables[eMSDP_HEALTH]->reported);
-    EXPECT_TRUE(protocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_TRUE(protocol->variables[eMSDP_HEALTH].reported);
+    EXPECT_TRUE(protocol->variables[eMSDP_HEALTH].dirty);
 }
 
 TEST(MSDPProtocol, SetStringIgnoresANullValueAMissingProtocolAndNumberVariables)
@@ -4230,18 +4240,18 @@ TEST(MSDPProtocol, SetStringIgnoresANullValueAMissingProtocolAndNumberVariables)
 
     ProtocolDescriptor context;
     protocol_t* protocol = context.descriptor.pProtocol;
-    protocol->variables[eMSDP_CHARACTER_NAME]->dirty = false;
-    protocol->variables[eMSDP_HEALTH]->dirty = false;
+    protocol->variables[eMSDP_CHARACTER_NAME].dirty = false;
+    protocol->variables[eMSDP_HEALTH].dirty = false;
     const char* missing_value = nullptr;
 
     MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, missing_value);
     MSDPSetString(&context.descriptor, eMSDP_HEALTH, "12");
 
-    EXPECT_STREQ(protocol->variables[eMSDP_CHARACTER_NAME]->value_text, "");
-    EXPECT_FALSE(protocol->variables[eMSDP_CHARACTER_NAME]->dirty);
-    EXPECT_EQ(protocol->variables[eMSDP_HEALTH]->value_number, 0);
-    EXPECT_EQ(protocol->variables[eMSDP_HEALTH]->value_text, nullptr);
-    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH]->dirty);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_CHARACTER_NAME]), "");
+    EXPECT_FALSE(protocol->variables[eMSDP_CHARACTER_NAME].dirty);
+    EXPECT_TRUE(std::holds_alternative<int>(protocol->variables[eMSDP_HEALTH].value));
+    EXPECT_EQ(msdp_number(protocol->variables[eMSDP_HEALTH]), 0);
+    EXPECT_FALSE(protocol->variables[eMSDP_HEALTH].dirty);
 }
 
 // The size of a struct with no padding between its members: their sizes added, rounded up to the
@@ -4253,8 +4263,8 @@ constexpr std::size_t unpadded_size(std::size_t members_size, std::size_t alignm
 
 TEST(ProtocolLayout, ProtocolHasNoPaddingBetweenFields)
 {
-    constexpr std::size_t members_size = sizeof(protocol_t::mxp_version)
-        + sizeof(protocol_t::last_ttype) + sizeof(protocol_t::variables)
+    constexpr std::size_t members_size = sizeof(protocol_t::variables)
+        + sizeof(protocol_t::mxp_version) + sizeof(protocol_t::last_ttype)
         + sizeof(protocol_t::write_oob) + sizeof(protocol_t::pending_input_length)
         + sizeof(protocol_t::subnegotiation_input_length) + sizeof(protocol_t::xterm_256_support)
         + sizeof(protocol_t::screen_width) + sizeof(protocol_t::screen_height)
@@ -4272,8 +4282,8 @@ TEST(ProtocolLayout, ProtocolHasNoPaddingBetweenFields)
 
 TEST(ProtocolLayout, MsdpVariableHasNoPaddingBetweenFields)
 {
-    constexpr std::size_t members_size = sizeof(MSDP_t::value_text) + sizeof(MSDP_t::value_number)
-        + sizeof(MSDP_t::reported) + sizeof(MSDP_t::dirty);
+    constexpr std::size_t members_size
+        = sizeof(MSDP_t::value) + sizeof(MSDP_t::reported) + sizeof(MSDP_t::dirty);
 
     EXPECT_EQ(sizeof(MSDP_t), unpadded_size(members_size, alignof(MSDP_t)));
 }

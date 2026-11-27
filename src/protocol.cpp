@@ -14,9 +14,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "protocol.h"
 
@@ -90,32 +93,34 @@ static protocol_t* protocol_of(const descriptor_t* descriptor)
 // The default layouts of the GUI variables, an MSDP extension for clients that offer a generic
 // GUI. Each is an MSDP array: a button's label and command, or a gauge's label, colour and the
 // MSDP variables for its value and maximum.
-static const char GUI_BUTTON_1[] = "\005\002Help\002help\006";
-static const char GUI_BUTTON_2[] = "\005\002Look\002look\006";
-static const char GUI_BUTTON_3[] = "\005\002Score\002score\006";
-static const char GUI_BUTTON_4[] = "\005\002Equipment\002equipment\006";
-static const char GUI_BUTTON_5[] = "\005\002Inventory\002inventory\006";
+constexpr std::string_view GUI_BUTTON_1 = "\005\002Help\002help\006";
+constexpr std::string_view GUI_BUTTON_2 = "\005\002Look\002look\006";
+constexpr std::string_view GUI_BUTTON_3 = "\005\002Score\002score\006";
+constexpr std::string_view GUI_BUTTON_4 = "\005\002Equipment\002equipment\006";
+constexpr std::string_view GUI_BUTTON_5 = "\005\002Inventory\002inventory\006";
 
-static const char GUI_GAUGE_1[] = "\005\002Health\002red\002HEALTH\002HEALTH_MAX\006";
-static const char GUI_GAUGE_2[] = "\005\002Mana\002blue\002MANA\002MANA_MAX\006";
-static const char GUI_GAUGE_3[] = "\005\002Movement\002green\002MOVEMENT\002MOVEMENT_MAX\006";
-static const char GUI_GAUGE_4[] = "\005\002Exp TNL\002yellow\002EXPERIENCE\002EXPERIENCE_MAX\006";
-static const char GUI_GAUGE_5[]
+constexpr std::string_view GUI_GAUGE_1 = "\005\002Health\002red\002HEALTH\002HEALTH_MAX\006";
+constexpr std::string_view GUI_GAUGE_2 = "\005\002Mana\002blue\002MANA\002MANA_MAX\006";
+constexpr std::string_view GUI_GAUGE_3
+    = "\005\002Movement\002green\002MOVEMENT\002MOVEMENT_MAX\006";
+constexpr std::string_view GUI_GAUGE_4
+    = "\005\002Exp TNL\002yellow\002EXPERIENCE\002EXPERIENCE_MAX\006";
+constexpr std::string_view GUI_GAUGE_5
     = "\005\002Opponent\002darkred\002OPPONENT_HEALTH\002OPPONENT_HEALTH_MAX\006";
 
 // VARIABLE_NAME_TABLE entries for each kind of variable.
 #define NUMBER_READ_ONLY(variable, name) \
-    { name, nullptr, variable, 0, -1, 0, false, false, false, false }
+    { name, std::nullopt, variable, 0, -1, 0, false, false, false, false }
 #define NUMBER_READ_ONLY_SET_TO(variable, name, default_value) \
-    { name, nullptr, variable, 0, -1, default_value, false, false, false, false }
+    { name, std::nullopt, variable, 0, -1, default_value, false, false, false, false }
 #define STRING_READ_ONLY(variable, name) \
-    { name, nullptr, variable, 0, -1, 0, true, false, false, false }
+    { name, std::nullopt, variable, 0, -1, 0, true, false, false, false }
 #define BOOLEAN_SET_TO(variable, name, default_value) \
-    { name, nullptr, variable, 0, 1, default_value, false, true, false, false }
+    { name, std::nullopt, variable, 0, 1, default_value, false, true, false, false }
 #define STRING_WITH_LENGTH_OF(variable, name, min_length, max_length) \
-    { name, nullptr, variable, min_length, max_length, 0, true, true, false, false }
+    { name, std::nullopt, variable, min_length, max_length, 0, true, true, false, false }
 #define STRING_WRITE_ONCE(variable, name, min_length, max_length) \
-    { name, nullptr, variable, min_length, max_length, 0, true, true, true, false }
+    { name, std::nullopt, variable, min_length, max_length, 0, true, true, true, false }
 #define STRING_GUI(variable, name, default_text) \
     { name, default_text, variable, 0, -1, 0, true, false, false, true }
 
@@ -255,7 +260,7 @@ static constexpr std::size_t all_variable_names_length()
 {
     std::size_t length = 0;
     for (int index = eMSDP_NONE + 1; index < eMSDP_MAX; ++index) {
-        length += std::char_traits<char>::length(VARIABLE_NAME_TABLE[index].name) + 1;
+        length += VARIABLE_NAME_TABLE[index].name.size() + 1;
     }
     return length;
 }
@@ -265,16 +270,32 @@ static_assert(all_variable_names_length() <= MAX_OUTPUT_BUFFER,
 
 // Appends name to the space-separated list of list_length characters in out_list, which has room,
 // and returns the list's new length. Writes no NUL.
-static std::size_t append_list_name(char* out_list, std::size_t list_length, const char* name)
+static std::size_t append_list_name(char* out_list, std::size_t list_length, std::string_view name)
 {
     if (list_length != 0) {
         out_list[list_length] = ' ';
         ++list_length;
     }
-    const std::size_t name_length = std::strlen(name);
-    std::memcpy(out_list + list_length, name, name_length);
-    return list_length + name_length;
+    std::memcpy(out_list + list_length, name.data(), name.size());
+    return list_length + name.size();
 }
+
+// text's length as the precision a %.*s conversion takes, which is an int. A length past the
+// largest int is cut to it, so the cast never narrows.
+static int printf_precision(std::string_view text)
+{
+    constexpr std::size_t largest_precision = std::numeric_limits<int>::max();
+    return static_cast<int>(std::min(text.size(), largest_precision));
+}
+
+// The text of a string variable, one VARIABLE_NAME_TABLE marks is_string.
+static std::string& variable_text(MSDP_t& variable)
+{
+    return std::get<std::string>(variable.value);
+}
+
+// The number of a number variable, one VARIABLE_NAME_TABLE does not mark is_string.
+static int& variable_number(MSDP_t& variable) { return std::get<int>(variable.value); }
 
 static void negotiate(const descriptor_t* descriptor);
 static void perform_handshake(const descriptor_t* descriptor, char command, char option);
@@ -298,12 +319,9 @@ static const char* get_ansi_colour(bool background, int red, int green, int blue
 static const char* get_xterm_colour(bool background, int red, int green, int blue);
 static bool is_valid_colour(const char* rgb_code);
 
-static bool equals_ignoring_case(const char* first, const char* second);
+static bool equals_ignoring_case(std::string_view first, std::string_view second);
 static bool starts_with_ignoring_case(const char* prefix, const char* text);
 static bool is_all_digits(const char* text);
-[[nodiscard]] static char* copy_string(const char* value);
-[[nodiscard]] static char* copy_string(std::string_view value);
-[[nodiscard]] static char* create_string(std::size_t length);
 static std::size_t msdp_sanitized_length(std::string_view value);
 static char* msdp_write_sanitized(std::string_view value, char* out_text);
 
@@ -358,18 +376,16 @@ protocol_t* ProtocolCreate()
 
     protocol = new protocol_t;
     protocol->write_oob = 0;
-    for (int option_index = eNEGOTIATED_TTYPE; option_index < eNEGOTIATED_MAX; ++option_index) {
-        protocol->option_states[option_index] = false;
-    }
+    protocol->option_states.fill(false);
     protocol->in_subnegotiation = false;
     protocol->negotiated = false;
     protocol->renegotiate = false;
     protocol->needs_mxp_version = false;
     protocol->mxp_blocked = false;
     protocol->pending_input_length = 0;
-    std::memset(protocol->pending_input, 0, sizeof(protocol->pending_input));
+    protocol->pending_input.fill('\0');
     protocol->subnegotiation_input_length = 0;
-    std::memset(protocol->subnegotiation_input, 0, sizeof(protocol->subnegotiation_input));
+    protocol->subnegotiation_input.fill('\0');
     protocol->ttype_enabled = false;
     protocol->echo_enabled = false;
     protocol->naws_enabled = false;
@@ -385,54 +401,35 @@ protocol_t* ProtocolCreate()
     protocol->xterm_256_support = eUNKNOWN;
     protocol->screen_width = 0;
     protocol->screen_height = 0;
-    protocol->mxp_version = copy_string("Unknown");
-    protocol->last_ttype = nullptr;
-    protocol->variables = new MSDP_t*[eMSDP_MAX];
+    protocol->mxp_version = "Unknown";
+    protocol->last_ttype = std::nullopt;
 
     for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        protocol->variables[variable_index] = new MSDP_t;
-        protocol->variables[variable_index]->reported = true;
+        const variable_name_t& description = VARIABLE_NAME_TABLE[variable_index];
+        MSDP_t& variable = protocol->variables[variable_index];
+        variable.reported = true;
         // Server-reported variables start dirty so the first update sends them even at their
         // default, since a client takes a stat it is never sent, such as a spell power of 0, as
         // unsupported. Client-set and GUI variables start clean.
-        protocol->variables[variable_index]->dirty
-            = !VARIABLE_NAME_TABLE[variable_index].configurable
-            && !VARIABLE_NAME_TABLE[variable_index].gui;
-        protocol->variables[variable_index]->value_number = 0;
-        protocol->variables[variable_index]->value_text = nullptr;
+        variable.dirty = !description.configurable && !description.gui;
 
-        if (VARIABLE_NAME_TABLE[variable_index].is_string) {
-            if (VARIABLE_NAME_TABLE[variable_index].default_text != nullptr) {
-                protocol->variables[variable_index]->value_text
-                    = copy_string(VARIABLE_NAME_TABLE[variable_index].default_text);
-            } else if (VARIABLE_NAME_TABLE[variable_index].configurable) {
-                protocol->variables[variable_index]->value_text = copy_string("Unknown");
-            } else {
-                protocol->variables[variable_index]->value_text = copy_string("");
+        if (description.is_string) {
+            std::string_view initial_text = "";
+            if (description.default_text.has_value()) {
+                initial_text = *description.default_text;
+            } else if (description.configurable) {
+                initial_text = "Unknown";
             }
-        } else if (VARIABLE_NAME_TABLE[variable_index].default_number != 0) {
-            protocol->variables[variable_index]->value_number
-                = VARIABLE_NAME_TABLE[variable_index].default_number;
+            variable.value.emplace<std::string>(initial_text);
+        } else {
+            variable.value.emplace<int>(description.default_number);
         }
     }
 
     return protocol;
 }
 
-void ProtocolDestroy(protocol_t* protocol)
-{
-    // ProtocolCreate makes the protocol, its variable table and each variable with new; only
-    // the strings come from copy_string's malloc.
-    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        std::free(protocol->variables[variable_index]->value_text);
-        delete protocol->variables[variable_index];
-    }
-
-    delete[] protocol->variables;
-    std::free(protocol->last_ttype);
-    std::free(protocol->mxp_version);
-    delete protocol;
-}
+void ProtocolDestroy(protocol_t* protocol) { delete protocol; }
 
 // Whether an MXP line tag, ESC [ <digit> z, starts at position in data of size bytes. ProtocolInput
 // asks only once a byte is outside a subnegotiation, so isdigit sees only those bytes.
@@ -455,7 +452,7 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
         return;
     }
 
-    char* subnegotiation = protocol->subnegotiation_input;
+    char* subnegotiation = protocol->subnegotiation_input.data();
     int subnegotiation_length = 0;
     if (protocol->in_subnegotiation) {
         subnegotiation_length = protocol->subnegotiation_input_length;
@@ -463,7 +460,7 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 
     if (protocol->pending_input_length > 0) {
         char* combined = static_cast<char*>(alloca(protocol->pending_input_length + size));
-        std::memcpy(combined, protocol->pending_input, protocol->pending_input_length);
+        std::memcpy(combined, protocol->pending_input.data(), protocol->pending_input_length);
         std::memcpy(combined + protocol->pending_input_length, data, size);
         data = combined;
         size += protocol->pending_input_length;
@@ -528,7 +525,7 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                 || (remaining >= 3 && data[position + 1] == '['
                     && std::isdigit(data[position + 2]));
             if (may_start_mxp_line_tag) {
-                std::memcpy(protocol->pending_input, data + position, remaining);
+                std::memcpy(protocol->pending_input.data(), data + position, remaining);
                 protocol->pending_input_length = remaining;
                 break;
             }
@@ -549,22 +546,21 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
             tag_value = find_mxp_tag_value("CLIENT=", mxp_text);
             if (tag_value != nullptr) {
                 // Replace any earlier client name: an MXP <VERSION> reply is harder to fake.
-                std::free(protocol->variables[eMSDP_CLIENT_ID]->value_text);
-                protocol->variables[eMSDP_CLIENT_ID]->value_text = copy_string(tag_value);
+                variable_text(protocol->variables[eMSDP_CLIENT_ID]).assign(tag_value);
             }
 
             tag_value = find_mxp_tag_value("VERSION=", mxp_text);
             if (tag_value != nullptr) {
-                const char* client_name = protocol->variables[eMSDP_CLIENT_ID]->value_text;
+                const std::string& client_name
+                    = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
 
-                std::free(protocol->variables[eMSDP_CLIENT_VERSION]->value_text);
-                protocol->variables[eMSDP_CLIENT_VERSION]->value_text = copy_string(tag_value);
+                variable_text(protocol->variables[eMSDP_CLIENT_VERSION]).assign(tag_value);
 
                 if (equals_ignoring_case("MUSHCLIENT", client_name)) {
                     // MUSHclient 4.02 and later support 256 colours; versions compare as
                     // strings.
                     if (std::strcmp(tag_value, "4.02") >= 0) {
-                        protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                         protocol->xterm_256_support = eYES;
                     } else {
                         protocol->xterm_256_support = eNO;
@@ -572,28 +568,28 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                 } else if (equals_ignoring_case("CMUD", client_name)) {
                     // CMUD 3.04 and later support 256 colours.
                     if (std::strcmp(tag_value, "3.04") >= 0) {
-                        protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                         protocol->xterm_256_support = eYES;
                     } else {
                         protocol->xterm_256_support = eNO;
                     }
                 } else if (equals_ignoring_case("ATLANTIS", client_name)) {
                     // Every Atlantis that answers <VERSION> supports 256 colours.
-                    protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                     protocol->xterm_256_support = eYES;
                 }
             }
 
             tag_value = find_mxp_tag_value("MXP=", mxp_text);
             if (tag_value != nullptr) {
-                std::free(protocol->mxp_version);
-                protocol->mxp_version = copy_string(tag_value);
+                protocol->mxp_version.assign(tag_value);
             }
 
-            if (std::strcmp(protocol->mxp_version, "Unknown") != 0) {
+            if (protocol->mxp_version != "Unknown") {
                 send_to_client(descriptor, "\n");
                 std::snprintf(mxp_text, sizeof(mxp_text),
-                    "MXP version %s detected and enabled.\r\n", protocol->mxp_version);
+                    "MXP version %.*s detected and enabled.\r\n",
+                    printf_precision(protocol->mxp_version), protocol->mxp_version.data());
                 send_info_message(descriptor, mxp_text);
             }
         } else {
@@ -686,7 +682,7 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
 
     // A client with MSP or SOUND on would play a literal "!!SOUND(" in the text, so its second
     // '!' becomes '?'.
-    if (protocol->msp_enabled || protocol->variables[eMSDP_SOUND]->value_number != 0) {
+    if (protocol->msp_enabled || variable_number(protocol->variables[eMSDP_SOUND]) != 0) {
         strips_msp_triggers = true;
     }
 
@@ -800,18 +796,21 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                 copy_from = ColourRGB(descriptor, "F205");
                 break;
             case '(':
-                if (!protocol->mxp_blocked && protocol->variables[eMSDP_MXP]->value_number != 0) {
+                if (!protocol->mxp_blocked
+                    && variable_number(protocol->variables[eMSDP_MXP]) != 0) {
                     copy_from = link_start;
                 }
                 break;
             case ')':
-                if (!protocol->mxp_blocked && protocol->variables[eMSDP_MXP]->value_number != 0) {
+                if (!protocol->mxp_blocked
+                    && variable_number(protocol->variables[eMSDP_MXP]) != 0) {
                     copy_from = link_end;
                 }
                 protocol->mxp_blocked = false;
                 break;
             case '<':
-                if (!protocol->mxp_blocked && protocol->variables[eMSDP_MXP]->value_number != 0) {
+                if (!protocol->mxp_blocked
+                    && variable_number(protocol->variables[eMSDP_MXP]) != 0) {
                     copy_from = mxp_tag_start;
                     in_mxp_tag = true;
                 } else {
@@ -862,7 +861,7 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                             "BUG: Unicode substitute '%s' truncated.  Missing ']'?\n",
                             unicode_fallback);
                         report_bug(bug_text);
-                    } else if (protocol->variables[eMSDP_UTF_8]->value_number != 0) {
+                    } else if (variable_number(protocol->variables[eMSDP_UTF_8]) != 0) {
                         copy_from = UnicodeGet(code_point);
                     } else {
                         copy_from = unicode_fallback;
@@ -940,10 +939,9 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                         report_bug(bug_text);
                     } else {
                         // Versions compare as strings.
-                        const bool mxp_version_unknown
-                            = std::strcmp(protocol->mxp_version, "Unknown") == 0;
-                        const bool mxp_version_too_low = mxp_version_unknown
-                            || std::strcmp(protocol->mxp_version, code_text) < 0;
+                        const bool mxp_version_unknown = protocol->mxp_version == "Unknown";
+                        const bool mxp_version_too_low
+                            = mxp_version_unknown || protocol->mxp_version.compare(code_text) < 0;
                         protocol->mxp_blocked = mxp_version_too_low;
                     }
 
@@ -1009,10 +1007,10 @@ void MSDPUpdate(const descriptor_t* descriptor)
     }
 
     for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        if (protocol->variables[variable_index]->reported) {
-            if (protocol->variables[variable_index]->dirty) {
+        if (protocol->variables[variable_index].reported) {
+            if (protocol->variables[variable_index].dirty) {
                 if (MSDPSend(descriptor, static_cast<variable_t>(variable_index))) {
-                    protocol->variables[variable_index]->dirty = false;
+                    protocol->variables[variable_index].dirty = false;
                 }
             }
         }
@@ -1024,10 +1022,10 @@ void MSDPFlush(const descriptor_t* descriptor, variable_t variable)
     if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
         protocol_t* protocol = protocol_of(descriptor);
 
-        if (protocol != nullptr && protocol->variables[variable]->reported) {
-            if (protocol->variables[variable]->dirty) {
+        if (protocol != nullptr && protocol->variables[variable].reported) {
+            if (protocol->variables[variable].dirty) {
                 if (MSDPSend(descriptor, variable)) {
-                    protocol->variables[variable]->dirty = false;
+                    protocol->variables[variable].dirty = false;
                 }
             }
         }
@@ -1042,8 +1040,8 @@ void MSDPMarkAllReportedDirty(const descriptor_t* descriptor)
     }
 
     for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
-        if (protocol->variables[variable_index]->reported) {
-            protocol->variables[variable_index]->dirty = true;
+        if (protocol->variables[variable_index].reported) {
+            protocol->variables[variable_index].dirty = true;
         }
     }
 }
@@ -1062,36 +1060,35 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
     }
 
     if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
+        const std::string_view name = VARIABLE_NAME_TABLE[variable].name;
+        const int name_precision = printf_precision(name);
         if (VARIABLE_NAME_TABLE[variable].is_string) {
-            const std::size_t name_length = std::strlen(VARIABLE_NAME_TABLE[variable].name);
-            const std::size_t value_length
-                = std::strlen(protocol->variables[variable]->value_text);
-            const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
+            const std::string& value = variable_text(protocol->variables[variable]);
+            const std::size_t required_length = name.size() + value.size() + MSDP_FRAMING_LENGTH;
 
             if (required_length >= static_cast<std::size_t>(MAX_VARIABLE_LENGTH)) {
                 std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSend: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
-                    VARIABLE_NAME_TABLE[variable].name, required_length, MAX_VARIABLE_LENGTH);
+                    "MSDPSend: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
+                    name_precision, name.data(), required_length, MAX_VARIABLE_LENGTH);
                 report_bug(msdp_text);
                 msdp_text[0] = '\0';
             } else if (protocol->msdp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%s%c%s%c%c", IAC, SB,
-                    TELOPT_MSDP, MSDP_VAR, VARIABLE_NAME_TABLE[variable].name, MSDP_VAL,
-                    protocol->variables[variable]->value_text, IAC, SE);
+                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%.*s%c%c", IAC, SB,
+                    TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL,
+                    printf_precision(value), value.data(), IAC, SE);
             } else if (protocol->atcp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%s %s%c%c", IAC, SB,
-                    TELOPT_ATCP, VARIABLE_NAME_TABLE[variable].name,
-                    protocol->variables[variable]->value_text, IAC, SE);
+                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s %.*s%c%c", IAC, SB,
+                    TELOPT_ATCP, name_precision, name.data(), printf_precision(value), value.data(),
+                    IAC, SE);
             }
         } else {
+            const int value = variable_number(protocol->variables[variable]);
             if (protocol->msdp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%s%c%d%c%c", IAC, SB,
-                    TELOPT_MSDP, MSDP_VAR, VARIABLE_NAME_TABLE[variable].name, MSDP_VAL,
-                    protocol->variables[variable]->value_number, IAC, SE);
+                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%d%c%c", IAC, SB,
+                    TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL, value, IAC, SE);
             } else if (protocol->atcp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%s %d%c%c", IAC, SB,
-                    TELOPT_ATCP, VARIABLE_NAME_TABLE[variable].name,
-                    protocol->variables[variable]->value_number, IAC, SE);
+                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s %d%c%c", IAC, SB,
+                    TELOPT_ATCP, name_precision, name.data(), value, IAC, SE);
             }
         }
 
@@ -1231,9 +1228,10 @@ void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int valu
     const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
     if (can_set) {
         if (!VARIABLE_NAME_TABLE[variable].is_string) {
-            if (protocol->variables[variable]->value_number != value) {
-                protocol->variables[variable]->value_number = value;
-                protocol->variables[variable]->dirty = true;
+            int& stored = variable_number(protocol->variables[variable]);
+            if (stored != value) {
+                stored = value;
+                protocol->variables[variable].dirty = true;
             }
         }
     }
@@ -1311,76 +1309,52 @@ static char* msdp_write_sanitized(std::string_view value, char* out_text)
     return out_text;
 }
 
-// The MSDPSanitizeValue text for value in a newly allocated string, or nullptr out of memory. The
-// caller frees it with free().
-[[nodiscard]] static char* msdp_copy_sanitized(std::string_view value)
-{
-    const std::size_t length = msdp_sanitized_length(value);
-    char* const sanitized = create_string(length);
-    if (sanitized == nullptr) {
-        return nullptr;
-    }
-    msdp_write_sanitized(value, sanitized);
-    sanitized[length] = '\0';
-    return sanitized;
-}
-
-// Whether the NUL-terminated stored, which is never null, is exactly the MSDPSanitizeValue text
-// for value, compared without building it.
-static bool equals_sanitized(const char* stored, std::string_view value)
+// Whether stored is exactly the MSDPSanitizeValue text for value, compared without building it.
+static bool equals_sanitized(std::string_view stored, std::string_view value)
 {
     char escape[MSDP_LONGEST_ESCAPE];
     for (const char character : value) {
         const std::size_t escape_length
             = msdp_escape_byte(static_cast<unsigned char>(character), escape);
-        // A shorter stored mismatches at its NUL, so strncmp never reads past it.
-        if (std::strncmp(stored, escape, escape_length) != 0) {
+        // A stored text too short for the escape gives a shorter substring, which mismatches.
+        if (stored.substr(0, escape_length) != std::string_view(escape, escape_length)) {
             return false;
         }
-        stored += escape_length;
+        stored.remove_prefix(escape_length);
     }
-    return *stored == '\0';
+    return stored.empty();
 }
 
-// Whether the NUL-terminated stored is exactly open_marker, then payload, then close_marker.
-// payload holds no NUL.
+// The bytes msdp_set_wrapped puts around a payload: its open and close markers.
+constexpr std::size_t MSDP_WRAPPER_LENGTH = 2;
+
+// Whether stored is exactly open_marker, then payload, then close_marker.
 static bool equals_wrapped(
-    const char* stored, char open_marker, std::string_view payload, char close_marker)
+    std::string_view stored, char open_marker, std::string_view payload, char close_marker)
 {
-    if (stored[0] != open_marker) {
+    if (stored.size() != payload.size() + MSDP_WRAPPER_LENGTH) {
         return false;
     }
-    // A shorter stored mismatches at its NUL, so strncmp never reads past it.
-    if (std::strncmp(stored + 1, payload.data(), payload.size()) != 0) {
-        return false;
-    }
-    const char* const after_payload = stored + 1 + payload.size();
-    return after_payload[0] == close_marker && after_payload[1] == '\0';
+    return stored.front() == open_marker && stored.substr(1, payload.size()) == payload
+        && stored.back() == close_marker;
 }
 
-// Stores open_marker, payload and close_marker as variable's value and marks it dirty, unless
-// that is its value already. Returns whether the value changed; out of memory, it logs and leaves
-// the value as it was. payload holds no NUL.
+// Stores open_marker, payload and close_marker as the string variable's value and marks it dirty,
+// unless that is its value already. Returns whether the value changed. The value is written into
+// the stored string, which allocates only when it outgrows its capacity. payload must not point
+// into the stored string.
 static bool msdp_set_wrapped(
     MSDP_t& variable, char open_marker, std::string_view payload, char close_marker)
 {
-    if (equals_wrapped(variable.value_text, open_marker, payload, close_marker)) {
+    std::string& stored = variable_text(variable);
+    if (equals_wrapped(stored, open_marker, payload, close_marker)) {
         return false;
     }
 
-    constexpr std::size_t marker_bytes = 2;
-    char* const wrapped = create_string(payload.size() + marker_bytes);
-    if (wrapped == nullptr) {
-        report_bug("msdp_set_wrapped: out of memory; the MSDP value is unchanged.\n");
-        return false;
-    }
-    wrapped[0] = open_marker;
-    std::memcpy(wrapped + 1, payload.data(), payload.size());
-    wrapped[payload.size() + 1] = close_marker;
-    wrapped[payload.size() + 2] = '\0';
-
-    std::free(variable.value_text);
-    variable.value_text = wrapped;
+    stored.resize(payload.size() + MSDP_WRAPPER_LENGTH);
+    stored.front() = open_marker;
+    payload.copy(stored.data() + 1, payload.size());
+    stored.back() = close_marker;
     variable.dirty = true;
     return true;
 }
@@ -1417,16 +1391,13 @@ void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::str
 
     const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
     if (can_set && VARIABLE_NAME_TABLE[variable].is_string) {
-        MSDP_t* stored = protocol->variables[variable];
-        if (!equals_sanitized(stored->value_text, value)) {
-            char* const sanitized = msdp_copy_sanitized(value);
-            if (sanitized == nullptr) {
-                report_bug("MSDPSetString: out of memory; the MSDP value is unchanged.\n");
-                return;
-            }
-            std::free(stored->value_text);
-            stored->value_text = sanitized;
-            stored->dirty = true;
+        MSDP_t& stored_variable = protocol->variables[variable];
+        std::string& stored = variable_text(stored_variable);
+        if (!equals_sanitized(stored, value)) {
+            // Written into the stored string, which allocates only when it outgrows its capacity.
+            stored.resize(msdp_sanitized_length(value));
+            msdp_write_sanitized(value, stored.data());
+            stored_variable.dirty = true;
         }
     }
 }
@@ -1441,7 +1412,7 @@ void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const cha
             // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
-            msdp_set_wrapped(*protocol->variables[variable], static_cast<char>(MSDP_TABLE_OPEN),
+            msdp_set_wrapped(protocol->variables[variable], static_cast<char>(MSDP_TABLE_OPEN),
                 value, static_cast<char>(MSDP_TABLE_CLOSE));
         }
     }
@@ -1457,7 +1428,7 @@ void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const cha
             // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
-            msdp_set_wrapped(*protocol->variables[variable], static_cast<char>(MSDP_ARRAY_OPEN),
+            msdp_set_wrapped(protocol->variables[variable], static_cast<char>(MSDP_ARRAY_OPEN),
                 value, static_cast<char>(MSDP_ARRAY_CLOSE));
         }
     }
@@ -1470,7 +1441,7 @@ void MXPSendTag(const descriptor_t* descriptor, const char* tag)
     const bool can_send = protocol != nullptr && tag != nullptr
         && std::strlen(tag) < static_cast<std::size_t>(MAX_MXP_TAG_LENGTH);
     if (can_send) {
-        if (protocol->variables[eMSDP_MXP]->value_number != 0) {
+        if (variable_number(protocol->variables[eMSDP_MXP]) != 0) {
             char tag_text[MXP_BUFFER_SIZE];
             std::snprintf(tag_text, sizeof(tag_text), "\033[1z%s\033[7z\r\n", tag);
             send_to_client(descriptor, tag_text);
@@ -1496,7 +1467,7 @@ const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
     protocol_t* protocol = protocol_of(descriptor);
 
     const bool uses_ansi_colour
-        = protocol != nullptr && protocol->variables[eMSDP_ANSI_COLORS]->value_number != 0;
+        = protocol != nullptr && variable_number(protocol->variables[eMSDP_ANSI_COLORS]) != 0;
     if (uses_ansi_colour) {
         if (is_valid_colour(rgb_code)) {
             bool background = (std::tolower(rgb_code[0]) == 'b');
@@ -1504,7 +1475,7 @@ const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
             int green = rgb_code[2] - '0';
             int blue = rgb_code[3] - '0';
 
-            if (protocol->variables[eMSDP_XTERM_256_COLORS]->value_number != 0) {
+            if (variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) != 0) {
                 return get_xterm_colour(background, red, green, blue);
             } else {
                 return get_ansi_colour(background, red, green, blue);
@@ -1744,7 +1715,7 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
                 // Lock secure mode, in which the client accepts MXP tags.
                 send_to_client(descriptor, "\033[7z");
                 protocol->mxp_enabled = true;
-                protocol->variables[eMSDP_MXP]->value_number = 1;
+                variable_number(protocol->variables[eMSDP_MXP]) = 1;
 
                 if (protocol->needs_mxp_version) {
                     MXPSendTag(descriptor, "<VERSION>");
@@ -1860,9 +1831,9 @@ static void perform_subnegotiation(
             client_name[name_length] = '\0';
 
             // The first TTYPE is the client name.
-            if (std::strcmp(protocol->variables[eMSDP_CLIENT_ID]->value_text, "Unknown") == 0) {
-                std::free(protocol->variables[eMSDP_CLIENT_ID]->value_text);
-                protocol->variables[eMSDP_CLIENT_ID]->value_text = copy_string(client_name);
+            std::string& client_id = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+            if (client_id == "Unknown") {
+                client_id.assign(client_name, static_cast<std::size_t>(name_length));
 
                 // Cycling TTYPE locks up Windows telnet, whose first name is "ANSI"; no client
                 // worth cycling sends that first.
@@ -1873,25 +1844,23 @@ static void perform_subnegotiation(
 
             // Ask for the next TTYPE until a name repeats: an RFC 1091 client repeats its last
             // name to end the list, and another may start the list again from the client name.
-            const char* client_id = protocol->variables[eMSDP_CLIENT_ID]->value_text;
-            const bool has_last_ttype = protocol->last_ttype != nullptr;
-            const bool repeats_last_ttype
-                = has_last_ttype && std::strcmp(protocol->last_ttype, client_name) == 0;
-            const bool repeats_client_name = has_last_ttype && !repeats_last_ttype
-                && std::strcmp(client_id, client_name) == 0;
+            const bool has_last_ttype = protocol->last_ttype.has_value();
+            const bool repeats_last_ttype = has_last_ttype && *protocol->last_ttype == client_name;
+            const bool repeats_client_name
+                = has_last_ttype && !repeats_last_ttype && client_id == client_name;
             if (!repeats_last_ttype && !repeats_client_name) {
                 static constexpr char ttype_request[] = { TELNET_IAC, TELNET_SB, TELOPT_TTYPE, SEND,
                     TELNET_IAC, TELNET_SE, '\0' };
                 const char* type_suffix = std::strstr(client_name, "-");
 
-                std::free(protocol->last_ttype);
-                protocol->last_ttype = copy_string(client_name);
+                // Assigned into the stored string once there is one, reusing its buffer.
+                protocol->last_ttype = client_name;
 
                 const bool names_xterm_256
                     = type_suffix != nullptr && equals_ignoring_case(type_suffix, "-256color");
                 if (names_xterm_256) {
                     // TinTin++, WinTin++ and BlowTorch show 256-colour support this way.
-                    protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                     protocol->xterm_256_support = eYES;
                 }
 
@@ -1913,18 +1882,15 @@ static void perform_subnegotiation(
                 constexpr int mtts_xterm_256 = 8;
                 constexpr std::size_t mtts_prefix_length
                     = std::char_traits<char>::length(mtts_prefix);
-                protocol->variables[eMSDP_CLIENT_VERSION]->value_number
-                    = std::atoi(client_name + mtts_prefix_length);
-
-                const int mtts_bits = protocol->variables[eMSDP_CLIENT_VERSION]->value_number;
+                const int mtts_bits = std::atoi(client_name + mtts_prefix_length);
                 if ((mtts_bits & mtts_ansi) != 0) {
-                    protocol->variables[eMSDP_ANSI_COLORS]->value_number = 1;
+                    variable_number(protocol->variables[eMSDP_ANSI_COLORS]) = 1;
                 }
                 if ((mtts_bits & mtts_utf_8) != 0) {
-                    protocol->variables[eMSDP_UTF_8]->value_number = 1;
+                    variable_number(protocol->variables[eMSDP_UTF_8]) = 1;
                 }
                 if ((mtts_bits & mtts_xterm_256) != 0) {
-                    protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                     protocol->xterm_256_support = eYES;
                 }
 
@@ -1939,26 +1905,23 @@ static void perform_subnegotiation(
                 const std::size_t client_length = std::strlen(client_name);
                 if (client_length > version_start) {
                     client_name[mudlet_name_length] = '\0';
-                    std::free(protocol->variables[eMSDP_CLIENT_ID]->value_text);
-                    protocol->variables[eMSDP_CLIENT_ID]->value_text = copy_string(client_name);
-                    std::free(protocol->variables[eMSDP_CLIENT_VERSION]->value_text);
-                    protocol->variables[eMSDP_CLIENT_VERSION]->value_text
-                        = copy_string(client_name + version_start);
+                    client_id.assign(client_name, mudlet_name_length);
+                    std::string& client_version
+                        = variable_text(protocol->variables[eMSDP_CLIENT_VERSION]);
+                    client_version.assign(client_name + version_start);
 
                     // Mudlet 1.1 and later support 256 colours.
-                    const char* client_version
-                        = protocol->variables[eMSDP_CLIENT_VERSION]->value_text;
-                    const bool supports_xterm_256 = std::strcmp(client_version, "1.1") >= 0;
+                    const bool supports_xterm_256 = client_version.compare("1.1") >= 0;
                     if (supports_xterm_256) {
-                        protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                         protocol->xterm_256_support = eYES;
                     }
                 }
             } else if (equals_ignoring_case(client_name, "EMACS-RINZAI")) {
-                protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                 protocol->xterm_256_support = eYES;
             } else if (starts_with_ignoring_case(decafmud_name, client_name)) {
-                protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
+                variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
                 protocol->xterm_256_support = eYES;
 
                 constexpr std::size_t decafmud_name_length
@@ -1967,11 +1930,9 @@ static void perform_subnegotiation(
                 const std::size_t client_length = std::strlen(client_name);
                 if (client_length > version_start) {
                     client_name[decafmud_name_length] = '\0';
-                    std::free(protocol->variables[eMSDP_CLIENT_ID]->value_text);
-                    protocol->variables[eMSDP_CLIENT_ID]->value_text = copy_string(client_name);
-                    std::free(protocol->variables[eMSDP_CLIENT_VERSION]->value_text);
-                    protocol->variables[eMSDP_CLIENT_VERSION]->value_text
-                        = copy_string(client_name + version_start);
+                    client_id.assign(client_name, decafmud_name_length);
+                    variable_text(protocol->variables[eMSDP_CLIENT_VERSION])
+                        .assign(client_name + version_start);
                 }
             } else if (sometimes_supports_xterm_256(client_name)) {
                 protocol->xterm_256_support = eSOMETIMES;
@@ -2165,8 +2126,8 @@ static void execute_msdp_pair(
             for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX && !found;
                 ++variable_index) {
                 if (equals_ignoring_case(value, VARIABLE_NAME_TABLE[variable_index].name)) {
-                    descriptor->pProtocol->variables[variable_index]->reported = true;
-                    descriptor->pProtocol->variables[variable_index]->dirty = true;
+                    descriptor->pProtocol->variables[variable_index].reported = true;
+                    descriptor->pProtocol->variables[variable_index].dirty = true;
                     found = true;
                 }
             }
@@ -2177,9 +2138,9 @@ static void execute_msdp_pair(
             if (resets_variables) {
                 for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
                     ++variable_index) {
-                    if (descriptor->pProtocol->variables[variable_index]->reported) {
-                        descriptor->pProtocol->variables[variable_index]->reported = false;
-                        descriptor->pProtocol->variables[variable_index]->dirty = false;
+                    if (descriptor->pProtocol->variables[variable_index].reported) {
+                        descriptor->pProtocol->variables[variable_index].reported = false;
+                        descriptor->pProtocol->variables[variable_index].dirty = false;
                     }
                 }
             }
@@ -2188,8 +2149,8 @@ static void execute_msdp_pair(
             for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX && !found;
                 ++variable_index) {
                 if (equals_ignoring_case(value, VARIABLE_NAME_TABLE[variable_index].name)) {
-                    descriptor->pProtocol->variables[variable_index]->reported = false;
-                    descriptor->pProtocol->variables[variable_index]->dirty = false;
+                    descriptor->pProtocol->variables[variable_index].reported = false;
+                    descriptor->pProtocol->variables[variable_index].dirty = false;
                     found = true;
                 }
             }
@@ -2222,7 +2183,7 @@ static void execute_msdp_pair(
 
                 for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
                     ++variable_index) {
-                    if (descriptor->pProtocol->variables[variable_index]->reported) {
+                    if (descriptor->pProtocol->variables[variable_index].reported) {
                         commands_length = append_list_name(
                             name_list, commands_length, VARIABLE_NAME_TABLE[variable_index].name);
                     }
@@ -2270,12 +2231,12 @@ static void execute_msdp_pair(
                     continue;
                 }
 
-                MSDP_t* const variable = descriptor->pProtocol->variables[variable_index];
+                MSDP_t& variable = descriptor->pProtocol->variables[variable_index];
                 if (VARIABLE_NAME_TABLE[variable_index].is_string) {
                     // A write-once variable, such as the client name, is set only while it is
                     // "Unknown": a client may name itself but not replace a name already found.
                     const bool can_write = !VARIABLE_NAME_TABLE[variable_index].write_once
-                        || std::strcmp(variable->value_text, "Unknown") == 0;
+                        || variable_text(variable) == "Unknown";
                     if (can_write) {
                         char stored_text[MAX_CONFIGURABLE_STRING_LENGTH + 1];
                         int stored_length = 0;
@@ -2290,8 +2251,10 @@ static void execute_msdp_pair(
                         stored_text[stored_length++] = '\0';
 
                         if (stored_length > VARIABLE_NAME_TABLE[variable_index].minimum) {
-                            std::free(variable->value_text);
-                            variable->value_text = copy_string(stored_text);
+                            // stored_length counts the NUL.
+                            const std::size_t text_length
+                                = static_cast<std::size_t>(stored_length) - 1;
+                            variable_text(variable).assign(stored_text, text_length);
                         }
                     }
                 } else {
@@ -2305,7 +2268,7 @@ static void execute_msdp_pair(
                         const bool in_range = number >= VARIABLE_NAME_TABLE[variable_index].minimum
                             && number <= VARIABLE_NAME_TABLE[variable_index].maximum;
                         if (in_range) {
-                            variable->value_number = number;
+                            variable_number(variable) = number;
                         }
                     }
                 }
@@ -2371,16 +2334,16 @@ static void send_mssp(const descriptor_t* descriptor)
 
         // Generic
         { "CRAWL DELAY", "-1" },
-        { nullptr, nullptr } // Ends the table.
     };
 
     std::snprintf(mssp_text, sizeof(mssp_text), "%c%c%c", IAC, SB, TELOPT_MSSP);
 
-    for (int entry_index = 0; mssp_table[entry_index].name != nullptr; ++entry_index) {
+    for (const MSSP_t& entry : mssp_table) {
         int pair_length;
 
-        std::snprintf(pair_text, sizeof(pair_text), "%c%s%c%s", MSSP_VAR,
-            mssp_table[entry_index].name, MSSP_VAL, mssp_table[entry_index].value);
+        std::snprintf(pair_text, sizeof(pair_text), "%c%.*s%c%.*s", MSSP_VAR,
+            printf_precision(entry.name), entry.name.data(), MSSP_VAL,
+            printf_precision(entry.value), entry.value.data());
 
         // A pair that does not fit is left out.
         pair_length = std::strlen(pair_text);
@@ -2535,13 +2498,15 @@ static bool is_valid_colour(const char* rgb_code)
 }
 
 // Whether first and second are equal, ignoring case.
-static bool equals_ignoring_case(const char* first, const char* second)
+static bool equals_ignoring_case(std::string_view first, std::string_view second)
 {
-    while (*first != '\0' && std::tolower(*first) == std::tolower(*second)) {
-        ++first;
-        ++second;
+    if (first.size() != second.size()) {
+        return false;
     }
-    return (*first == '\0' && *second == '\0');
+    return std::equal(first.begin(), first.end(), second.begin(),
+        [](char first_character, char second_character) -> bool {
+            return std::tolower(first_character) == std::tolower(second_character);
+        });
 }
 
 // Whether text starts with prefix, ignoring case. The prefix comes first.
@@ -2561,42 +2526,4 @@ static bool is_all_digits(const char* text)
         ++text;
     }
     return (*text == '\0');
-}
-
-// Copies the string contained in value into a newly allocated string.
-// Returns nullptr if given a nullptr value, or out of memory; either is logged.
-// The caller is responsible for freeing this string with free().
-[[nodiscard]] static char* copy_string(const char* value)
-{
-    if (value == nullptr) {
-        report_bug("copy_string: asked to copy a null string.\n");
-        return nullptr;
-    }
-
-    return copy_string(std::string_view(value));
-}
-
-// Copies the string contained in value into a newly allocated, NUL-terminated string. value
-// holds no NUL. Returns nullptr out of memory, and logs it.
-// The caller is responsible for freeing this string with free().
-[[nodiscard]] static char* copy_string(std::string_view value)
-{
-    const std::size_t length = value.size();
-    char* const result = create_string(length);
-    if (result == nullptr) {
-        report_bug("copy_string: out of memory.\n");
-        return nullptr;
-    }
-
-    std::memcpy(result, value.data(), length);
-    result[length] = '\0';
-    return result;
-}
-
-// Allocates a new string that can hold length characters plus the NUL terminator, which the
-// caller writes. Returns nullptr out of memory.
-// The caller is responsible for freeing this string with free().
-[[nodiscard]] static char* create_string(std::size_t length)
-{
-    return static_cast<char*>(std::malloc(length + 1));
 }

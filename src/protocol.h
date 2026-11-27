@@ -11,8 +11,11 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#include <array>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 
 // The server's name, sent as MSDP SERVER_ID and MSSP NAME.
 inline constexpr char MUD_NAME[] = "Return of the Shadow";
@@ -221,8 +224,9 @@ enum variable_t {
 
 // The fixed description of one MSDP variable: its name, its kind and what a client may set it to.
 struct variable_name_t {
-    const char* name; // The variable's name on the wire.
-    const char* default_text; // The initial text of a GUI variable; null for every other one.
+    std::string_view name; // The variable's name on the wire.
+    // A GUI variable's initial text; empty for every other variable.
+    std::optional<std::string_view> default_text;
     variable_t variable; // The variable described, which is also the entry's table index.
     int minimum; // The least number, or the shortest text, a client may set.
     int maximum; // The greatest number, or the longest text, a client may set; -1 when it may not.
@@ -235,26 +239,27 @@ struct variable_name_t {
 
 // One MSDP variable's value and reporting state on one connection.
 struct MSDP_t {
-    char* value_text; // A string variable's value, owned and freed with free(); null for numbers.
-    int value_number; // A number variable's value.
+    // The value: the std::string alternative for a string variable, the int for a number one, as
+    // the variable table's is_string says.
+    std::variant<int, std::string> value;
     bool reported; // Whether updates send the variable; every variable starts reported.
     bool dirty; // Whether the value has changed since it was last sent.
 };
 
 // One entry of the MSSP status message.
 struct MSSP_t {
-    const char* name; // The MSSP variable's name.
-    const char* value; // Its value, as text.
+    std::string_view name; // The MSSP variable's name.
+    std::string_view value; // Its value, as text.
 };
 
 // The protocol state of one connection: what was negotiated, what the client is and its MSDP
 // variables. ProtocolCreate makes it and ProtocolDestroy frees it.
 struct protocol_t {
-    char* mxp_version; // The MXP version from the client's <VERSION> reply, or "Unknown"; owned.
-    // The terminal type the client sent last, to see when its TTYPE list repeats; null before the
-    // first, and owned.
-    char* last_ttype;
-    MSDP_t** variables; // The MSDP variables, indexed by variable_t; the array and each are owned.
+    std::array<MSDP_t, eMSDP_MAX> variables; // The MSDP variables, indexed by variable_t.
+    std::string mxp_version; // The MXP version from the client's <VERSION> reply, or "Unknown".
+    // The terminal type the client sent last, to see when its TTYPE list repeats; empty before the
+    // first.
+    std::optional<std::string> last_ttype;
     // Raised from a positive value to 2 by every send. It starts at 0 and the server never sets it,
     // so only a caller that sets it to 1 sees a change.
     int write_oob;
@@ -265,8 +270,12 @@ struct protocol_t {
     support_t xterm_256_support;
     int screen_width; // The client's window width in characters from NAWS; 0 until it is sent.
     int screen_height; // The client's window height in lines from NAWS; 0 until it is sent.
+    // The start of a telnet command or MXP line tag that ended a read, put before the next read.
+    std::array<char, 4> pending_input;
+    // The subnegotiation collected so far, kept across reads until its IAC SE.
+    std::array<char, MAX_PROTOCOL_BUFFER + 1> subnegotiation_input;
     // Each negotiated_t option's last offered or agreed state; an offer is sent only on a change.
-    bool option_states[eNEGOTIATED_MAX];
+    std::array<bool, eNEGOTIATED_MAX> option_states;
     bool in_subnegotiation; // Whether input is inside IAC SB ... IAC SE, which may span reads.
     bool negotiated; // Whether the client has answered TTYPE, so the other options were offered.
     // Set when the TTYPE answer starts negotiation and cleared when the client answers NAWS. While
@@ -277,10 +286,6 @@ struct protocol_t {
     // Set by a ProtocolOutput \t[X...] code whose MXP version the client lacks; it suppresses the
     // next MXP link or tag.
     bool mxp_blocked;
-    // The start of a telnet command or MXP line tag that ended a read, put before the next read.
-    char pending_input[4];
-    // The subnegotiation collected so far, kept across reads until its IAC SE.
-    char subnegotiation_input[MAX_PROTOCOL_BUFFER + 1];
     bool ttype_enabled; // The client agreed to send its terminal type.
     bool echo_enabled; // The client agreed that the server echoes its input (DO ECHO).
     bool naws_enabled; // The client agreed to send its window size.
@@ -378,9 +383,10 @@ void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int valu
 
 // Stores value, escaped as by MSDPSanitizeValue, as a string variable's value, and marks the
 // variable dirty if the value changed. Storing the value already held allocates nothing and
-// stays clean. There is no login or PRF_MSDP check: it only stores, and MSDPSend sends. A null
-// value, a null descriptor, an invalid variable or a number variable changes nothing. Out of
-// memory, it logs and keeps the old value.
+// stays clean; a changed value is written into the stored string, which allocates only when it
+// outgrows its capacity, so value must not point into it. There is no login or PRF_MSDP check:
+// it only stores, and MSDPSend sends. A null value, a null descriptor, an invalid variable or a
+// number variable changes nothing.
 void MSDPSetString(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // MSDPSetString for a value that need not be NUL-terminated, such as a message without its line
@@ -399,10 +405,10 @@ void MSDPAppendSanitized(std::string& out_text, const char* value);
 
 // Stores value as a string variable's MSDP table, between MSDP_TABLE_OPEN and MSDP_TABLE_CLOSE,
 // and marks the variable dirty if it changed; an unchanged value allocates nothing and stays
-// clean. value is stored as it is: the caller puts MSDP_VAR before each name and MSDP_VAL before
-// each value. An empty value is stored empty, without the markers. A null descriptor or value,
-// an invalid variable or a number variable is ignored. Out of memory, it logs and keeps the old
-// value.
+// clean, and a changed one is written in place as by MSDPSetString. value is stored as it is: the
+// caller puts MSDP_VAR before each name and MSDP_VAL before each value. An empty value is stored
+// empty, without the markers. A null descriptor or value, an invalid variable or a number
+// variable is ignored.
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // MSDPSetTable for an MSDP array, between MSDP_ARRAY_OPEN and MSDP_ARRAY_CLOSE: the caller puts

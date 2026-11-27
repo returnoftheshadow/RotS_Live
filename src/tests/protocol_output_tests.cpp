@@ -3,10 +3,10 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdlib>
-#include <cstring>
+#include <cstddef>
 #include <initializer_list>
 #include <string>
+#include <variant>
 
 namespace {
 
@@ -46,18 +46,12 @@ public:
 
     void set_variable(int msdp_variable, bool enabled)
     {
-        descriptor.pProtocol->variables[msdp_variable]->value_number = static_cast<int>(enabled);
+        std::get<int>(descriptor.pProtocol->variables[msdp_variable].value)
+            = static_cast<int>(enabled);
     }
 
-    // Replaces the client's reported MXP version with a heap copy ProtocolDestroy frees.
-    void set_mxp_version(const char* version)
-    {
-        const std::size_t length = std::strlen(version);
-        char* const copy = static_cast<char*>(std::malloc(length + 1));
-        std::memcpy(copy, version, length + 1);
-        std::free(descriptor.pProtocol->mxp_version);
-        descriptor.pProtocol->mxp_version = copy;
-    }
+    // Replaces the client's reported MXP version.
+    void set_mxp_version(const char* version) { descriptor.pProtocol->mxp_version = version; }
 
     // The descriptor passed to the functions under test; its protocol is owned here.
     descriptor_data descriptor {};
