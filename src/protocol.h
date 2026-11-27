@@ -5,6 +5,9 @@
 // The copyright holder grants any entity the right to use this work for any
 // purpose, without any conditions, unless such conditions are required by law.
 
+// The MSDP support here is based on the MUD Server Data Protocol specification:
+// https://tintin.mudhalla.net/protocols/msdp/
+
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
