@@ -328,12 +328,6 @@ void ProtocolDestroy(protocol_t* apProtocol);
  */
 void ProtocolNegotiate(const descriptor_t* apDescriptor);
 
-/* Function: ProtocolNoEcho
- *
- * Tells the client to switch echo on or off.
- */
-void ProtocolNoEcho(const descriptor_t* apDescriptor, bool abOn);
-
 /* Function: ProtocolInput
  *
  * Extracts any negotiation sequences from the input buffer, and passes back
@@ -410,34 +404,6 @@ void ProtocolInput(const descriptor_t* apDescriptor, const char* apData, int aSi
  * support MXP, but it's very important you remember to close the tags.
  */
 const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData, int* apLength);
-
-/******************************************************************************
- Copyover save/load functions.
- ******************************************************************************/
-
-/* Function: CopyoverGet
- *
- * Returns the protocol values stored as a short string.  If your mud uses
- * copyover, you should call this for each player and insert it after their
- * name in the temporary text file.
- */
-const char* CopyoverGet(const descriptor_t* apDescriptor);
-
-/* Function: CopyoverSet
- *
- * Call this function for each player after a copyover, passing in the string
- * you added to the temporary text file.  This will restore their protocol
- * settings, and automatically renegotiate MSDP/ATCP.
- *
- * Note that the client doesn't recognise a copyover, and therefore refuses to
- * renegotiate certain telnet options (to avoid loops), so they really need to
- * be saved.  However MSDP/ATCP is handled through scripts, and we don't want
- * to have to save all of the REPORT variables, so it's easier to renegotiate.
- *
- * Client name and version are not saved.  It is recommended you save these in
- * the player file, as then you can grep to collect client usage stats.
- */
-void CopyoverSet(const descriptor_t* apDescriptor, const char* apData);
 
 /******************************************************************************
  MSDP functions.
@@ -546,14 +512,6 @@ void MSDPAppendSanitized(std::string& out_text, const char* apValue);
  */
 void MSDPSetTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
 
-/* Function: MSDPSendTable
- *
- * Works like MSDPSetTable, but the data is sent instantly. Useful for
- * automappers, comm channels, etc.
- */
-
-void MSDPSendTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
-
 /* Function: MSDPSetArray
  *
  * Works like MSDPSetString, but the value is sent as an MSDP array.
@@ -568,48 +526,15 @@ void MSDPSetArray(const descriptor_t* apDescriptor, variable_t aMSDP, const char
 bool MSDPIsValidVariable(variable_t aMSDP);
 
 /******************************************************************************
- MSSP functions.
- ******************************************************************************/
-
-/* Function: MSSPSetPlayers
- *
- * Stores the current number of players.  The first time it's called, it also
- * stores the uptime.
- */
-void MSSPSetPlayers(int aPlayers);
-
-/******************************************************************************
  MXP functions.
  ******************************************************************************/
 
-/* Function: MXPCreateTag
- *
- * Puts the specified tag into a secure line, if MXP is supported.  If the user
- * doesn't support MXP they will see the string unchanged, meaning they will
- * see the <send> tags or whatever.  You should therefore check for support and
- * provide a different sequence for other users, or better yet just embed MXP
- * tags for the ProtocolOutput() function.
- */
-const char* MXPCreateTag(const descriptor_t* apDescriptor, const char* apTag);
-
 /* Function: MXPSendTag
  *
- * This works like MXPCreateTag, but instead of returning the string it sends
- * it directly to the user.  This is mainly useful for the <VERSION> tag.
+ * Sends the specified tag to the user in a secure line, if MXP is supported.
+ * This is mainly useful for the <VERSION> tag.
  */
 void MXPSendTag(const descriptor_t* apDescriptor, const char* apTag);
-
-/******************************************************************************
- Sound functions.
- ******************************************************************************/
-
-/* Function: SoundSend
- *
- * Sends the specified sound trigger to the player, using MSDP or ATCP if
- * supported, MSP if not.  The trigger string itself is a relative path and
- * filename, eg: SoundSend( pDesc, "monster/growl.wav" );
- */
-void SoundSend(const descriptor_t* apDescriptor, const char* apTrigger);
 
 /******************************************************************************
  Colour functions.

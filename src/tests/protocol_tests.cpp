@@ -1076,49 +1076,22 @@ TEST(MSDPProtocol, SetArrayWrapsThePayloadAndKeepsAnUnchangedArray)
         msdp_wrapped_value(MSDP_TABLE_OPEN, longer, MSDP_TABLE_CLOSE));
 }
 
-TEST(MSDPProtocol, SendTableStoresLikeSetTableWhenTheVariableIsNotReported)
-{
-    MsdpSetterDescriptor context;
-    MSDP_t* room = context.variable(eMSDP_ROOM);
-    room->bReport = false;
-    const std::string payload = msdp_test_table_payload("Bree");
-
-    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
-    EXPECT_TRUE(room->bDirty);
-    EXPECT_EQ(std::string(room->pValueString),
-        msdp_wrapped_value(MSDP_TABLE_OPEN, payload, MSDP_TABLE_CLOSE));
-
-    room->bDirty = false;
-    const char* stored = room->pValueString;
-    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
-    EXPECT_FALSE(room->bDirty);
-    EXPECT_EQ(room->pValueString, stored);
-
-    MSDPSendTable(&context.descriptor, eMSDP_ROOM, "");
-    EXPECT_TRUE(room->bDirty);
-    EXPECT_STREQ(room->pValueString, "");
-}
-
 // Reads the wire through ProtocolDescriptor's socket pair: the setters write only through
 // write_to_descriptor, which takes a socket, so no portable capture can see the sent bytes.
-TEST(MSDPProtocol, SendsTheStoredBytesOfEscapedStringsAndTablesOnce)
+TEST(MSDPProtocol, SendsTheStoredBytesOfEscapedStringsAndTables)
 {
     ProtocolDescriptor context;
     protocol_t* protocol = context.descriptor.pProtocol;
     disable_all_msdp_reports(protocol);
-    protocol->pVariables[eMSDP_ROOM]->bReport = true;
 
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "The \"Pony\"\t\001");
     MSDPSend(&context.descriptor, eMSDP_ROOM_NAME);
     EXPECT_EQ(context.read_output(), expected_msdp_pair("ROOM_NAME", "The \\\"Pony\\\"\\t\\u0001"));
 
     const std::string payload = msdp_test_table_payload("The \"Pony\" \\ Inn");
-    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+    MSDPSend(&context.descriptor, eMSDP_ROOM);
     EXPECT_EQ(context.read_output(), expected_msdp_table_pair("ROOM", payload));
-    EXPECT_FALSE(protocol->pVariables[eMSDP_ROOM]->bDirty);
-
-    MSDPSendTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
-    EXPECT_EQ(context.read_output(), "") << "An unchanged table is not sent again.";
 }
 
 TEST(MSDPProtocol, SendsStringAndNumberVariablesAsMSDPPackets)
@@ -1284,8 +1257,6 @@ TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
     MSDPSetString(&context.descriptor, eMSDP_NONE, "ignored");
     MSDPSetTable(&context.descriptor, eMSDP_MAX, "ignored");
     MSDPSetTable(&context.descriptor, eMSDP_NONE, "ignored");
-    MSDPSendTable(&context.descriptor, eMSDP_MAX, "ignored");
-    MSDPSendTable(&context.descriptor, eMSDP_NONE, "ignored");
     MSDPSetArray(&context.descriptor, eMSDP_MAX, "ignored");
     MSDPSetArray(&context.descriptor, eMSDP_NONE, "ignored");
 
@@ -2872,21 +2843,6 @@ TEST(MSDPProtocol, MsdpFlushKeepsVariableDirtyWhenMsdpIsOff)
 
     EXPECT_EQ(context.read_output(), "");
     EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
-}
-
-TEST(MSDPProtocol, MsdpSendTableKeepsVariableDirtyWhenMsdpIsOff)
-{
-    ScopedDescriptorList descriptor_list_scope;
-    ProtocolDescriptor context;
-
-    initialize_msdp_player(&context.character, "Aragorn");
-    REMOVE_BIT(context.character.specials2.pref, PRF_MSDP);
-    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_ROOM });
-
-    MSDPSendTable(&context.descriptor, eMSDP_ROOM, "contents");
-
-    EXPECT_EQ(context.read_output(), "");
-    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_ROOM]->bDirty);
 }
 
 TEST(MSDPProtocol, MarkAllReportedDirtyForcesResendOnNextUpdate)

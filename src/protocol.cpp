@@ -1042,138 +1042,6 @@ void ProtocolNegotiate(const descriptor_t* apDescriptor)
     ConfirmNegotiation(apDescriptor, eNEGOTIATED_TTYPE, true, true);
 }
 
-/* Tells the client to switch echo on or off. */
-void ProtocolNoEcho(const descriptor_t* apDescriptor, bool abOn)
-{
-    ConfirmNegotiation(apDescriptor, eNEGOTIATED_ECHO, abOn, true);
-}
-
-/******************************************************************************
- Copyover save/load functions.
- ******************************************************************************/
-
-const char* CopyoverGet(const descriptor_t* apDescriptor)
-{
-    static char Buffer[64];
-    char* pBuffer = Buffer;
-    protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
-
-    if (pProtocol != NULL) {
-        sprintf(Buffer, "%d/%d", pProtocol->ScreenWidth, pProtocol->ScreenHeight);
-
-        /* Skip to the end */
-        while (*pBuffer != '\0')
-            ++pBuffer;
-
-        if (pProtocol->bTTYPE)
-            *pBuffer++ = 'T';
-        if (pProtocol->bNAWS)
-            *pBuffer++ = 'N';
-        if (pProtocol->bMSDP)
-            *pBuffer++ = 'M';
-        if (pProtocol->bATCP)
-            *pBuffer++ = 'A';
-        if (pProtocol->bMSP)
-            *pBuffer++ = 'S';
-        if (pProtocol->pVariables[eMSDP_MXP]->ValueInt)
-            *pBuffer++ = 'X';
-        if (pProtocol->bMCCP) {
-            *pBuffer++ = 'c';
-        }
-        if (pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt)
-            *pBuffer++ = 'C';
-        if (pProtocol->bCHARSET)
-            *pBuffer++ = 'H';
-        if (pProtocol->pVariables[eMSDP_UTF_8]->ValueInt)
-            *pBuffer++ = 'U';
-    }
-
-    /* Terminate the string */
-    *pBuffer = '\0';
-
-    return Buffer;
-}
-
-void CopyoverSet(const descriptor_t* apDescriptor, const char* apData)
-{
-    protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
-
-    if (pProtocol != NULL && apData != NULL) {
-        int Width = 0, Height = 0;
-        bool bDoneWidth = false;
-        int i; /* Loop counter */
-
-        for (i = 0; apData[i] != '\0'; ++i) {
-            switch (apData[i]) {
-            case 'T':
-                pProtocol->bTTYPE = true;
-                break;
-            case 'N':
-                pProtocol->bNAWS = true;
-                break;
-            case 'M':
-                pProtocol->bMSDP = true;
-                break;
-            case 'A':
-                pProtocol->bATCP = true;
-                break;
-            case 'S':
-                pProtocol->bMSP = true;
-                break;
-            case 'X':
-                pProtocol->bMXP = true;
-                pProtocol->pVariables[eMSDP_MXP]->ValueInt = 1;
-                break;
-            case 'c':
-                pProtocol->bMCCP = true;
-                break;
-            case 'C':
-                pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt = 1;
-                break;
-            case 'H':
-                pProtocol->bCHARSET = true;
-                break;
-            case 'U':
-                pProtocol->pVariables[eMSDP_UTF_8]->ValueInt = 1;
-                break;
-            default:
-                if (apData[i] == '/')
-                    bDoneWidth = true;
-                else if (isdigit(apData[i])) {
-                    if (bDoneWidth) {
-                        Height *= 10;
-                        Height += (apData[i] - '0');
-                    } else /* We're still calculating height */
-                    {
-                        Width *= 10;
-                        Width += (apData[i] - '0');
-                    }
-                }
-                break;
-            }
-        }
-
-        /* Restore the width and height */
-        pProtocol->ScreenWidth = Width;
-        pProtocol->ScreenHeight = Height;
-
-        /* If we're using MSDP or ATCP, we need to renegotiate it so that the
-         * client can resend the list of variables it wants us to REPORT.
-         *
-         * Note that we only use ATCP if MSDP is not supported.
-         */
-        if (pProtocol->bMSDP) {
-            ConfirmNegotiation(apDescriptor, eNEGOTIATED_MSDP, true, true);
-        } else if (pProtocol->bATCP) {
-            ConfirmNegotiation(apDescriptor, eNEGOTIATED_ATCP, true, true);
-        }
-
-        /* Ask the client to send its MXP version again */
-        if (pProtocol->bMXP)
-            MXPSendTag(apDescriptor, "<VERSION>");
-    }
-}
-
 /******************************************************************************
  MSDP global functions.
  ******************************************************************************/
@@ -1597,28 +1465,6 @@ void MSDPSetTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char
     }
 }
 
-void MSDPSendTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue)
-{
-    protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
-
-    if (pProtocol != NULL && apValue != NULL && MSDPIsValidVariable(aMSDP)) {
-        if (*apValue == '\0') {
-            /* It's easier to call MSDPSetString if the value is empty */
-            MSDPSetString(apDescriptor, aMSDP, apValue);
-        } else if (VariableNameTable[aMSDP].bString) {
-            MSDP_t& variable = *pProtocol->pVariables[aMSDP];
-            const bool changed = msdp_set_wrapped(variable, static_cast<char>(MSDP_TABLE_OPEN),
-                apValue, static_cast<char>(MSDP_TABLE_CLOSE));
-            if (changed && variable.bReport) {
-                const bool sent = MSDPSend(apDescriptor, aMSDP);
-                if (sent) {
-                    variable.bDirty = false;
-                }
-            }
-        }
-    }
-}
-
 void MSDPSetArray(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue)
 {
     protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
@@ -1635,34 +1481,8 @@ void MSDPSetArray(const descriptor_t* apDescriptor, variable_t aMSDP, const char
 }
 
 /******************************************************************************
- MSSP global functions.
- ******************************************************************************/
-
-void MSSPSetPlayers(int aPlayers)
-{
-    s_Players = aPlayers;
-
-    if (s_Uptime == 0)
-        s_Uptime = time(0);
-}
-
-/******************************************************************************
  MXP global functions.
  ******************************************************************************/
-
-const char* MXPCreateTag(const descriptor_t* apDescriptor, const char* apTag)
-{
-    protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
-
-    if (pProtocol != NULL && pProtocol->pVariables[eMSDP_MXP]->ValueInt && strlen(apTag) < 1000) {
-        static char MXPBuffer[1024];
-        sprintf(MXPBuffer, "\033[1z%s\033[7z", apTag);
-        return MXPBuffer;
-    } else /* Leave the tag as-is, don't try to MXPify it */
-    {
-        return apTag;
-    }
-}
 
 void MXPSendTag(const descriptor_t* apDescriptor, const char* apTag)
 {
@@ -1688,31 +1508,6 @@ void MXPSendTag(const descriptor_t* apDescriptor, const char* apTag)
             pProtocol->bRenegotiate = false;
             pProtocol->bNeedMXPVersion = true;
             Negotiate(apDescriptor);
-        }
-    }
-}
-
-/******************************************************************************
- Sound global functions.
- ******************************************************************************/
-
-void SoundSend(const descriptor_t* apDescriptor, const char* apTrigger)
-{
-    const int MaxTriggerLength = 128; /* Used for the buffer size */
-
-    if (apDescriptor != NULL && apTrigger != NULL) {
-        protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
-
-        if (pProtocol != NULL && pProtocol->pVariables[eMSDP_SOUND]->ValueInt) {
-            if (pProtocol->bMSDP || pProtocol->bATCP) {
-                /* Send the sound trigger through MSDP or ATCP */
-                MSDPSendPair(apDescriptor, "PLAY_SOUND", apTrigger);
-            } else if (strlen(apTrigger) <= MaxTriggerLength) {
-                /* Use an old MSP-style trigger */
-                char* pBuffer = (char*)alloca(MaxTriggerLength + 10);
-                sprintf(pBuffer, "\t!SOUND(%s)", apTrigger);
-                Write(apDescriptor, pBuffer);
-            }
         }
     }
 }
