@@ -15,7 +15,8 @@
 
 inline constexpr char MUD_NAME[] = "Return of the Shadow";
 
-typedef struct descriptor_data descriptor_t;
+struct descriptor_data;
+using descriptor_t = descriptor_data;
 
 /******************************************************************************
  Symbolic constants.
@@ -54,7 +55,7 @@ inline constexpr int MSSP_VAL = 2;
  Types.
  ******************************************************************************/
 
-typedef enum {
+enum negotiated_t {
     eNEGOTIATED_TTYPE,
     eNEGOTIATED_ECHO,
     eNEGOTIATED_NAWS,
@@ -70,16 +71,16 @@ typedef enum {
     eNEGOTIATED_SGA,
 
     eNEGOTIATED_MAX /* This must always be last */
-} negotiated_t;
+};
 
-typedef enum {
+enum support_t {
     eUNKNOWN,
     eNO,
     eSOMETIMES,
     eYES
-} support_t;
+};
 
-typedef enum {
+enum variable_t {
     eMSDP_NONE = -1, /* This must always be first. */
 
     /* General */
@@ -190,10 +191,9 @@ typedef enum {
     eMSDP_GROUP,
 
     eMSDP_MAX /* This must always be last */
-} variable_t;
+};
 
-typedef struct
-{
+struct variable_name_t {
     const char* pName; /* The string name of this variable */
     const char* pDefault; /* The default value for a string */
     variable_t Variable; /* The enum type of this variable */
@@ -204,21 +204,19 @@ typedef struct
     bool bConfigurable; /* Can it be configured by the client? */
     bool bWriteOnce; /* Can only set this variable once */
     bool bGUI; /* It's a special GUI configuration variable */
-} variable_name_t;
+};
 
-typedef struct
-{
+struct MSDP_t {
     char* pValueString; /* The string value of the variable */
     int ValueInt; /* The numeric value of the variable */
     bool bReport; /* Is this variable being reported? */
     bool bDirty; /* Does this variable need to be sent again? */
-} MSDP_t;
+};
 
-typedef struct
-{
+struct MSSP_t {
     const char* pName; /* The name of the MSSP variable */
     const char* pValue; /* The value of the MSSP variable */
-} MSSP_t;
+};
 
 struct protocol_t {
     char* pMXPVersion; /* The version of MXP supported */
@@ -261,7 +259,7 @@ struct protocol_t {
  * Creates, initialises and returns a structure containing protocol data for a
  * single user.  This should be called when the descriptor is initialised.
  */
-protocol_t* ProtocolCreate(void);
+protocol_t* ProtocolCreate();
 
 /* Function: ProtocolDestroy
  *
