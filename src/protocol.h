@@ -13,51 +13,9 @@
 #include <string>
 #include <string_view>
 
-/******************************************************************************
- Set your MUD_NAME, and change descriptor_t if necessary.
- ******************************************************************************/
-
 inline constexpr char MUD_NAME[] = "Return of the Shadow";
 
 typedef struct descriptor_data descriptor_t;
-
-/******************************************************************************
- If you wish to support traditional mud colour codes, uncomment COLOUR_CHAR.
- ******************************************************************************/
-
-/* You may replace the '^' with another character if you wish, eg '&' or '@'. */
-/*
-#define COLOUR_CHAR '^'
-*/
-
-/* Change this to 'false' if colour codes are off by default (see README.TXT) */
-inline constexpr bool COLOUR_ON_BY_DEFAULT = true;
-
-/* Uncomment this if players can also use RGB colour codes such as "^[F135]" */
-/*
-#define EXTENDED_COLOUR
-*/
-
-/* Uncomment this if invalid colours are displayed rather than being eaten. */
-/*
-#define DISPLAY_INVALID_COLOUR_CODES
-*/
-
-/******************************************************************************
- If your mud supports MCCP (compression), uncomment the next line.
- ******************************************************************************/
-
-/*
-#define USING_MCCP
-*/
-
-/******************************************************************************
- If your offer a Mudlet GUI for autoinstallation, put the path/filename here.
- ******************************************************************************/
-
-/*
-#define MUDLET_PACKAGE "1\nhttp://blah.org/download/MY_GUI.mpackage"
-*/
 
 /******************************************************************************
  Symbolic constants.
@@ -72,7 +30,6 @@ inline constexpr int MAX_MSSP_BUFFER = 4096;
 
 inline constexpr int SEND = 1;
 inline constexpr int ACCEPTED = 2;
-inline constexpr int REJECTED = 3;
 
 inline constexpr int TELOPT_CHARSET = 42;
 inline constexpr int TELOPT_MSDP = 69;
@@ -92,10 +49,6 @@ inline constexpr int MAX_MSDP_SIZE = 100;
 
 inline constexpr int MSSP_VAR = 1;
 inline constexpr int MSSP_VAL = 2;
-
-inline constexpr int UNICODE_MALE = 9794;
-inline constexpr int UNICODE_FEMALE = 9792;
-inline constexpr int UNICODE_NEUTER = 9791;
 
 /******************************************************************************
  Types.
@@ -265,7 +218,6 @@ typedef struct
 {
     const char* pName; /* The name of the MSSP variable */
     const char* pValue; /* The value of the MSSP variable */
-    const char* (*pFunction)(); /* Optional function to return the value */
 } MSSP_t;
 
 struct protocol_t {

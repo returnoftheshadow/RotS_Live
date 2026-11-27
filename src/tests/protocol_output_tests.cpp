@@ -314,7 +314,6 @@ TEST(ProtocolOutput, LeavesCaretColourCodesAsTextBecauseColourCharIsNotDefined)
     OutputDescriptor output_descriptor;
 
     EXPECT_FALSE(COLOUR_CHAR_DEFINED) << "Traditional ^ colour codes are compiled out.";
-    EXPECT_TRUE(COLOUR_ON_BY_DEFAULT);
     EXPECT_EQ(render(output_descriptor, "^rred^^ and ^n"), "^rred^^ and ^n");
 }
 

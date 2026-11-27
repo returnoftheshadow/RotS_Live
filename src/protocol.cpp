@@ -20,11 +20,9 @@
 #include <alloca.h>
 #include <arpa/telnet.h>
 #include <ctype.h>
-#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -42,12 +40,7 @@
 
 static void Write(const descriptor_t* apDescriptor, const char* apData)
 {
-    // wtf is fcommand?!
-    //    if ( apDescriptor != nullptr && !apDescriptor->fcommand )
     if (apDescriptor != nullptr) {
-        // What is outtop?
-        //        if ( apDescriptor->pProtocol->WriteOOB > 0 ||
-        //             apDescriptor->outtop == 0 )
         if (apDescriptor->pProtocol->WriteOOB > 0) {
             apDescriptor->pProtocol->WriteOOB = 2;
         }
@@ -95,7 +88,6 @@ static const char s_Gauge5[] = "\005\002Opponent\002darkred\002OPPONENT_HEALTH\0
 #define NUMBER_READ_ONLY false, false, false, false, false, -1, 0, NULL
 #define NUMBER_READ_ONLY_SET_TO(x) false, false, false, false, false, -1, x, NULL
 #define STRING_READ_ONLY true, false, false, false, false, -1, 0, NULL
-#define NUMBER_IN_THE_RANGE(x, y) false, true, false, x, false, y, 0, NULL
 #define BOOLEAN_SET_TO(x) false, true, false, 0, false, 1, x, NULL
 #define STRING_WITH_LENGTH_OF(x, y) true, true, false, x, false, y, 0, NULL
 #define STRING_WRITE_ONCE(x, y) true, true, true, x, false, y, 0, NULL
@@ -213,13 +205,6 @@ static variable_name_t VariableNameTable[eMSDP_MAX + 1] = {
 };
 
 /******************************************************************************
- MSSP file-scope variables.
- ******************************************************************************/
-
-static int s_Players = 0;
-static time_t s_Uptime = 0;
-
-/******************************************************************************
  Local function prototypes.
  ******************************************************************************/
 
@@ -235,9 +220,6 @@ static void ExecuteMSDPPair(const descriptor_t* apDescriptor, const char* apVari
     const char* apValue);
 
 static void ParseATCP(const descriptor_t* apDescriptor, const char* apData);
-#ifdef MUDLET_PACKAGE
-static void SendATCP(const descriptor_t* apDescriptor, const char* apVariable, const char* apValue);
-#endif /* MUDLET_PACKAGE */
 
 static void SendMSSP(const descriptor_t* apDescriptor);
 
@@ -590,9 +572,6 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
     const char LinkStart[] = "\033[1z<send>\033[7z";
     const char LinkStop[] = "\033[1z</send>\033[7z";
     bool bTerminate = false, bUseMXP = false, bUseMSP = false;
-#ifdef COLOUR_CHAR
-    bool bColourOn = COLOUR_ON_BY_DEFAULT;
-#endif /* COLOUR_CHAR */
     int i = 0, j = 0; /* Index values */
 
     protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
@@ -844,14 +823,6 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
             case '!': /* Used for in-band MSP sound triggers */
                 pCopyFrom = MSP;
                 break;
-#ifdef COLOUR_CHAR
-            case '+':
-                bColourOn = true;
-                break;
-            case '-':
-                bColourOn = false;
-                break;
-#endif /* COLOUR_CHAR */
             case '\0':
                 bTerminate = true;
                 break;
@@ -865,145 +836,6 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
                     Result[i++] = *pCopyFrom++;
             }
         }
-#ifdef COLOUR_CHAR
-        else if (bColourOn && apData[j] == COLOUR_CHAR) {
-            const char ColourChar[] = { COLOUR_CHAR, '\0' };
-            const char* pCopyFrom = NULL;
-
-            switch (apData[++j]) {
-            case COLOUR_CHAR: /* Two in a row display the actual character */
-                pCopyFrom = ColourChar;
-                break;
-            case 'n':
-                pCopyFrom = s_Clean;
-                break;
-            case 'r': /* dark red */
-                pCopyFrom = ColourRGB(apDescriptor, "F200");
-                break;
-            case 'R': /* light red */
-                pCopyFrom = ColourRGB(apDescriptor, "F500");
-                break;
-            case 'g': /* dark green */
-                pCopyFrom = ColourRGB(apDescriptor, "F020");
-                break;
-            case 'G': /* light green */
-                pCopyFrom = ColourRGB(apDescriptor, "F050");
-                break;
-            case 'y': /* dark yellow */
-                pCopyFrom = ColourRGB(apDescriptor, "F220");
-                break;
-            case 'Y': /* light yellow */
-                pCopyFrom = ColourRGB(apDescriptor, "F550");
-                break;
-            case 'b': /* dark blue */
-                pCopyFrom = ColourRGB(apDescriptor, "F002");
-                break;
-            case 'B': /* light blue */
-                pCopyFrom = ColourRGB(apDescriptor, "F005");
-                break;
-            case 'm': /* dark magenta */
-                pCopyFrom = ColourRGB(apDescriptor, "F202");
-                break;
-            case 'M': /* light magenta */
-                pCopyFrom = ColourRGB(apDescriptor, "F505");
-                break;
-            case 'c': /* dark cyan */
-                pCopyFrom = ColourRGB(apDescriptor, "F022");
-                break;
-            case 'C': /* light cyan */
-                pCopyFrom = ColourRGB(apDescriptor, "F055");
-                break;
-            case 'w': /* dark white */
-                pCopyFrom = ColourRGB(apDescriptor, "F222");
-                break;
-            case 'W': /* light white */
-                pCopyFrom = ColourRGB(apDescriptor, "F555");
-                break;
-            case 'a': /* dark azure */
-                pCopyFrom = ColourRGB(apDescriptor, "F014");
-                break;
-            case 'A': /* light azure */
-                pCopyFrom = ColourRGB(apDescriptor, "F025");
-                break;
-            case 'j': /* dark jade */
-                pCopyFrom = ColourRGB(apDescriptor, "F031");
-                break;
-            case 'J': /* light jade */
-                pCopyFrom = ColourRGB(apDescriptor, "F052");
-                break;
-            case 'l': /* dark lime */
-                pCopyFrom = ColourRGB(apDescriptor, "F140");
-                break;
-            case 'L': /* light lime */
-                pCopyFrom = ColourRGB(apDescriptor, "F250");
-                break;
-            case 'o': /* dark orange */
-                pCopyFrom = ColourRGB(apDescriptor, "F520");
-                break;
-            case 'O': /* light orange */
-                pCopyFrom = ColourRGB(apDescriptor, "F530");
-                break;
-            case 'p': /* dark pink */
-                pCopyFrom = ColourRGB(apDescriptor, "F301");
-                break;
-            case 'P': /* light pink */
-                pCopyFrom = ColourRGB(apDescriptor, "F502");
-                break;
-            case 't': /* dark tan */
-                pCopyFrom = ColourRGB(apDescriptor, "F210");
-                break;
-            case 'T': /* light tan */
-                pCopyFrom = ColourRGB(apDescriptor, "F321");
-                break;
-            case 'v': /* dark violet */
-                pCopyFrom = ColourRGB(apDescriptor, "F104");
-                break;
-            case 'V': /* light violet */
-                pCopyFrom = ColourRGB(apDescriptor, "F205");
-                break;
-            case '\0':
-                bTerminate = true;
-                break;
-#ifdef EXTENDED_COLOUR
-            case '[':
-                if (tolower(apData[++j]) == 'f' || tolower(apData[j]) == 'b') {
-                    char Buffer[8] = { '\0' };
-                    int Index = 0;
-                    bool bDone = false, bValid = true;
-
-                    /* Copy the 'f' (foreground) or 'b' (background) */
-                    Buffer[Index++] = apData[j++];
-
-                    while (apData[j] != '\0' && !bDone && bValid) {
-                        if (apData[j] == ']')
-                            bDone = true;
-                        else if (Index < 4)
-                            Buffer[Index++] = apData[j++];
-                        else /* It's too long, so drop out - the colour code may still be
-                                valid */
-                            bValid = false;
-                    }
-
-                    if (bDone && bValid && IsValidColour(Buffer))
-                        pCopyFrom = ColourRGB(apDescriptor, Buffer);
-                }
-                break;
-#endif /* EXTENDED_COLOUR */
-            default:
-#ifdef DISPLAY_INVALID_COLOUR_CODES
-                Result[i++] = COLOUR_CHAR;
-                Result[i++] = apData[j];
-#endif /* DISPLAY_INVALID_COLOUR_CODES */
-                break;
-            }
-
-            /* Copy the colour code, if any. */
-            if (pCopyFrom != NULL) {
-                while (*pCopyFrom != '\0' && i < MAX_OUTPUT_BUFFER)
-                    Result[i++] = *pCopyFrom++;
-            }
-        }
-#endif /* COLOUR_CHAR */
         else if (bUseMXP && apData[j] == '>') {
             const char* pCopyFrom = MXPStop;
             while (*pCopyFrom != '\0' && i < MAX_OUTPUT_BUFFER)
@@ -1847,13 +1679,6 @@ static void PerformHandshake(const descriptor_t* apDescriptor, char aCmd, char a
             if (!pProtocol->bMSDP && !pProtocol->bATCP) {
                 pProtocol->bATCP = true;
 
-#ifdef MUDLET_PACKAGE
-                /* Send the Mudlet GUI package to the user. */
-                if (MatchString("Mudlet", pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString)) {
-                    SendATCP(apDescriptor, "Client.GUI", MUDLET_PACKAGE);
-                }
-#endif /* MUDLET_PACKAGE */
-
                 /* Identify the mud to the client. This fires during telnet negotiation,
                    before login, so it can't go through MSDPSend() (which requires a
                    logged-in character with PRF_MSDP set) -- MSDPSendPair() sends it
@@ -2154,9 +1979,6 @@ static bool ConfirmNegotiation(const descriptor_t* apDescriptor, negotiated_t aP
                     SendNegotiationSequence(apDescriptor, abWillDo ? WILL : WONT, TELOPT_MXP);
                     break;
                 case eNEGOTIATED_MCCP:
-#ifdef USING_MCCP
-                    SendNegotiationSequence(apDescriptor, abWillDo ? WILL : WONT, TELOPT_MCCP);
-#endif /* USING_MCCP */
                     break;
                 case eNEGOTIATED_EOR:
                     SendNegotiationSequence(apDescriptor, abWillDo ? WILL : WONT, TELOPT_EOR);
@@ -2410,63 +2232,9 @@ static void ParseATCP(const descriptor_t* apDescriptor, const char* apData)
     }
 }
 
-#ifdef MUDLET_PACKAGE
-static void SendATCP(const descriptor_t* apDescriptor, const char* apVariable, const char* apValue)
-{
-    char ATCPBuffer[MAX_VARIABLE_LENGTH + 1] = { '\0' };
-
-    if (apVariable != NULL && apValue != NULL) {
-        protocol_t* pProtocol = apDescriptor ? apDescriptor->pProtocol : NULL;
-
-        /* Should really be replaced with a dynamic buffer */
-        int RequiredBuffer = strlen(apVariable) + strlen(apValue) + 12;
-
-        if (RequiredBuffer >= MAX_VARIABLE_LENGTH) {
-            if (RequiredBuffer - strlen(apValue) < MAX_VARIABLE_LENGTH) {
-                sprintf(ATCPBuffer, "SendATCP: %s %d bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
-                    apVariable, RequiredBuffer, MAX_VARIABLE_LENGTH);
-            } else /* The variable name itself is too long */
-            {
-                sprintf(ATCPBuffer,
-                    "SendATCP: Variable name has a length of %d bytes (exceeds "
-                    "MAX_VARIABLE_LENGTH of %d).\n",
-                    RequiredBuffer, MAX_VARIABLE_LENGTH);
-            }
-
-            ReportBug(ATCPBuffer);
-            ATCPBuffer[0] = '\0';
-        } else if (pProtocol->bATCP) {
-            sprintf(ATCPBuffer, "%c%c%c%s %s%c%c", IAC, SB, TELOPT_ATCP, apVariable, apValue, IAC,
-                SE);
-        }
-
-        /* Just in case someone calls this function without checking ATCP */
-        if (ATCPBuffer[0] != '\0')
-            Write(apDescriptor, ATCPBuffer);
-    }
-}
-#endif /* MUDLET_PACKAGE */
-
 /******************************************************************************
  Local MSSP functions.
  ******************************************************************************/
-
-static const char* GetMSSP_Players()
-{
-    static char Buffer[32];
-    sprintf(Buffer, "%d", s_Players);
-    return Buffer;
-}
-
-static const char* GetMSSP_Uptime()
-{
-    static char Buffer[32];
-    sprintf(Buffer, "%d", (int)s_Uptime);
-    return Buffer;
-}
-
-/* Macro for readability, but you can remove it if you don't like it */
-#define FUNCTION_CALL(f) "", f
 
 static void SendMSSP(const descriptor_t* apDescriptor)
 {
@@ -2485,108 +2253,11 @@ static void SendMSSP(const descriptor_t* apDescriptor)
     static MSSP_t MSSPTable[] = {
         /* Required */
         { "NAME", MUD_NAME }, /* Change this in protocol.h */
-        { "PLAYERS", FUNCTION_CALL(GetMSSP_Players) },
-        { "UPTIME", FUNCTION_CALL(GetMSSP_Uptime) },
+        { "PLAYERS", "0" },
+        { "UPTIME", "0" },
 
         /* Generic */
         { "CRAWL DELAY", "-1" },
-        /*
-              { "HOSTNAME",           "" },
-              { "PORT",               "" },
-              { "CODEBASE",           "" },
-              { "CONTACT",            "" },
-              { "CREATED",            "" },
-              { "ICON",               "" },
-              { "IP",                 "" },
-              { "LANGUAGE",           "" },
-              { "LOCATION",           "" },
-              { "MINIMUM AGE",        "" },
-              { "WEBSITE",            "" },
-        */
-        /* Categorisation */
-        /*
-              { "FAMILY",             "" },
-              { "GENRE",              "" },
-              { "GAMEPLAY",           "" },
-              { "STATUS",             "" },
-              { "GAMESYSTEM",         "" },
-              { "INTERMUD",           "" },
-              { "SUBGENRE",           "" },
-        */
-        /* World */
-        /*
-              { "AREAS",              "0" },
-              { "HELPFILES",          "0" },
-              { "MOBILES",            "0" },
-              { "OBJECTS",            "0" },
-              { "ROOMS",              "0" },
-              { "CLASSES",            "0" },
-              { "LEVELS",             "0" },
-              { "RACES",              "0" },
-              { "SKILLS",             "0" },
-        */
-        /* Protocols */
-        /*
-              { "ANSI",               "1" },
-              { "GMCP",               "0" },
-        #ifdef USING_MCCP
-              { "MCCP",               "1" },
-        #else
-              { "MCCP",               "0" },
-        #endif // USING_MCCP
-              { "MCP",                "0" },
-              { "MSDP",               "1" },
-              { "MSP",                "1" },
-              { "MXP",                "1" },
-              { "PUEBLO",             "0" },
-              { "UTF-8",              "1" },
-              { "VT100",              "0" },
-              { "XTERM 256 COLORS",   "1" },
-        */
-        /* Commercial */
-        /*
-              { "PAY TO PLAY",        "0" },
-              { "PAY FOR PERKS",      "0" },
-        */
-        /* Hiring */
-        /*
-              { "HIRING BUILDERS",    "0" },
-              { "HIRING CODERS",      "0" },
-        */
-        /* Extended variables */
-
-        /* World */
-        /*
-              { "DBSIZE",             "0" },
-              { "EXITS",              "0" },
-              { "EXTRA DESCRIPTIONS", "0" },
-              { "MUDPROGS",           "0" },
-              { "MUDTRIGS",           "0" },
-              { "RESETS",             "0" },
-        */
-        /* Game */
-        /*
-              { "ADULT MATERIAL",     "0" },
-              { "MULTICLASSING",      "0" },
-              { "NEWBIE FRIENDLY",    "0" },
-              { "PLAYER CITIES",      "0" },
-              { "PLAYER CLANS",       "0" },
-              { "PLAYER CRAFTING",    "0" },
-              { "PLAYER GUILDS",      "0" },
-              { "EQUIPMENT SYSTEM",   "" },
-              { "MULTIPLAYING",       "" },
-              { "PLAYERKILLING",      "" },
-              { "QUEST SYSTEM",       "" },
-              { "ROLEPLAYING",        "" },
-              { "TRAINING SYSTEM",    "" },
-              { "WORLD ORIGINALITY",  "" },
-        */
-        /* Protocols */
-        /*
-              { "ATCP",               "1" },
-              { "SSL",                "0" },
-              { "ZMP",                "0" },
-        */
         { NULL, NULL } /* This must always be last. */
     };
 
@@ -2597,8 +2268,7 @@ static void SendMSSP(const descriptor_t* apDescriptor)
         int SizePair;
 
         /* Retrieve the next MSSP variable/value pair */
-        sprintf(MSSPPair, "%c%s%c%s", MSSP_VAR, MSSPTable[i].pName, MSSP_VAL,
-            MSSPTable[i].pFunction ? (*MSSPTable[i].pFunction)() : MSSPTable[i].pValue);
+        sprintf(MSSPPair, "%c%s%c%s", MSSP_VAR, MSSPTable[i].pName, MSSP_VAL, MSSPTable[i].pValue);
 
         /* Make sure we don't overflow the buffer */
         SizePair = strlen(MSSPPair);
