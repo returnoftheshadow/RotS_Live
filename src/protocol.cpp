@@ -434,6 +434,15 @@ void ProtocolDestroy(protocol_t* protocol)
     delete protocol;
 }
 
+// Whether an MXP line tag, ESC [ <digit> z, starts at position in data of size bytes. ProtocolInput
+// asks only once a byte is outside a subnegotiation, so isdigit sees only those bytes.
+static bool is_mxp_line_tag_at(const char* data, int position, int size)
+{
+    const bool has_three_more = (position + 3) < size;
+    return data[position] == ANSI_ESCAPE && has_three_more && data[position + 1] == '['
+        && std::isdigit(data[position + 2]) && data[position + 3] == 'z';
+}
+
 void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text)
 {
     static char command_text[MAX_PROTOCOL_BUFFER + 1];
@@ -468,8 +477,6 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
         const bool is_iac = data[position] == TELNET_IAC;
         const bool is_escape = data[position] == ANSI_ESCAPE;
         const bool is_doubled_iac = is_iac && has_next && data[position + 1] == TELNET_IAC;
-        const bool is_mxp_line_tag = is_escape && has_three_more && data[position + 1] == '['
-            && std::isdigit(data[position + 2]) && data[position + 3] == 'z';
 
         // A read too long for either buffer is logged and its text dropped; a subnegotiation
         // that fills its buffer is abandoned.
@@ -525,7 +532,7 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                 protocol->pending_input_length = remaining;
                 break;
             }
-        } else if (is_mxp_line_tag) {
+        } else if (is_mxp_line_tag_at(data, position, size)) {
             constexpr int line_tag_length = 4;
             char mxp_text[MXP_BUFFER_SIZE];
             char* tag_value = nullptr;
