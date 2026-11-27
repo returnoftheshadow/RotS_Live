@@ -273,6 +273,7 @@ set(ROTS_TEST_SOURCES
     tests/player_finalize_tests.cpp
     tests/protocol_tests.cpp
     tests/protocol_output_tests.cpp
+    tests/protocol_allocation_tests.cpp
     tests/real_time_tick_schedule_tests.cpp
     tests/harness_affect_hours_schedule_tests.cpp
     tests/harness_advance_hours_request_tests.cpp
