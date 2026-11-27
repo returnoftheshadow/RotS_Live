@@ -1805,6 +1805,256 @@ static void negotiate(const descriptor_t* descriptor)
     }
 }
 
+// Which side of the connection performs a telnet option.
+enum class option_side {
+    server, // The client answers DO or DONT: ECHO, MSDP, MSSP, MCCP, MSP, EOR, SGA.
+    client, // The client answers WILL or WONT: TTYPE, NAWS, CHARSET, ATCP.
+};
+
+// What the client's command means for an option performed by one side.
+enum class option_answer {
+    accept, // DO for a server option, WILL for a client option.
+    decline, // DONT for a server option, WONT for a client option.
+    refuse, // WILL for a server option or DO for a client option: an offer from the wrong side.
+    none, // WONT for a server option, DONT for a client option, or another command.
+};
+
+// What command means for an option performed by side.
+static option_answer answer_of(char command, option_side side)
+{
+    char accept_command = TELNET_WILL;
+    char decline_command = TELNET_WONT;
+    char wrong_side_command = TELNET_DO;
+    if (side == option_side::server) {
+        accept_command = TELNET_DO;
+        decline_command = TELNET_DONT;
+        wrong_side_command = TELNET_WILL;
+    }
+
+    if (command == accept_command) {
+        return option_answer::accept;
+    }
+
+    if (command == decline_command) {
+        return option_answer::decline;
+    }
+
+    if (command == wrong_side_command) {
+        return option_answer::refuse;
+    }
+    return option_answer::none;
+}
+
+// Answers command for an option performed by side, whose state is negotiated and whose flag is
+// enabled, and returns what command meant. Confirms an accept, confirms a decline and clears
+// enabled, and refuses an offer from the wrong side with DONT or WONT. Setting enabled on an
+// accept is left to the caller.
+static option_answer answer_option(const descriptor_t* descriptor, char command, char option,
+    option_side side, negotiated_t negotiated, bool& enabled)
+{
+    const option_answer answer = answer_of(command, side);
+    switch (answer) {
+    case option_answer::accept:
+        confirm_negotiation(descriptor, negotiated, true, true);
+        break;
+    case option_answer::decline:
+        confirm_negotiation(descriptor, negotiated, false, enabled);
+        enabled = false;
+        break;
+    case option_answer::refuse:
+        if (side == option_side::server) {
+            send_negotiation_sequence(descriptor, TELNET_DONT, option);
+        } else {
+            send_negotiation_sequence(descriptor, TELNET_WONT, option);
+        }
+        break;
+    case option_answer::none:
+        break;
+    }
+    return answer;
+}
+
+// answer_option for an option that needs nothing more: an accept sets enabled.
+static option_answer answer_plain_option(const descriptor_t* descriptor, char command, char option,
+    option_side side, negotiated_t negotiated, bool& enabled)
+{
+    const option_answer answer
+        = answer_option(descriptor, command, option, side, negotiated, enabled);
+    if (answer == option_answer::accept) {
+        enabled = true;
+    }
+    return answer;
+}
+
+// Offers the other options the first time the client answers TTYPE, and marks the connection
+// for renegotiation unless the client answers NAWS.
+static void start_negotiation_once(const descriptor_t* descriptor)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    if (!protocol->negotiated) {
+        protocol->negotiated = true;
+        negotiate(descriptor);
+        protocol->renegotiate = true;
+    }
+}
+
+// Answers command for TTYPE, which the client performs.
+static void answer_ttype(const descriptor_t* descriptor, char command, char option)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const option_answer answer = answer_option(descriptor, command, option, option_side::client,
+        eNEGOTIATED_TTYPE, protocol->ttype_enabled);
+    if (answer == option_answer::accept) {
+        protocol->ttype_enabled = true;
+        start_negotiation_once(descriptor);
+    } else if (answer == option_answer::decline) {
+        // A WONT still shows the client answers negotiation, so offer the other options;
+        // negotiate does not ask for the terminal type.
+        start_negotiation_once(descriptor);
+    }
+}
+
+// Answers command for NAWS, which the client performs.
+static void answer_naws(const descriptor_t* descriptor, char command, char option)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const option_answer answer = answer_plain_option(descriptor, command, option,
+        option_side::client, eNEGOTIATED_NAWS, protocol->naws_enabled);
+    if (answer == option_answer::accept || answer == option_answer::decline) {
+        // The client answers negotiation, so it needs no renegotiation.
+        protocol->renegotiate = false;
+    }
+}
+
+// Answers command for CHARSET, which the client performs, offering ISO-8859-1 on the first
+// accept.
+static void answer_charset(const descriptor_t* descriptor, char command, char option)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const option_answer answer = answer_option(descriptor, command, option, option_side::client,
+        eNEGOTIATED_CHARSET, protocol->charset_enabled);
+    if (answer == option_answer::accept && !protocol->charset_enabled) {
+        // Offer ISO-8859-1, because every byte the server sends is latin-1; it never encodes
+        // UTF-8.
+        static constexpr char charset_latin1[] = { TELNET_IAC, TELNET_SB, TELOPT_CHARSET, 1, ' ',
+            'I', 'S', 'O', '-', '8', '8', '5', '9', '-', '1', TELNET_IAC, TELNET_SE, '\0' };
+        send_to_client(descriptor, charset_latin1);
+        protocol->charset_enabled = true;
+    }
+}
+
+// Answers command for MSDP, which the server performs, sending SERVER_ID when MSDP comes on.
+static void answer_msdp(const descriptor_t* descriptor, char command, char option)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const option_answer answer = answer_option(descriptor, command, option, option_side::server,
+        eNEGOTIATED_MSDP, protocol->msdp_enabled);
+    if (answer == option_answer::accept) {
+        // Stored on every DO, for a later SEND SERVER_ID: msdp_enabled starts true, so the check
+        // below passes only after a DONT.
+        MSDPSetString(descriptor, eMSDP_SERVER_ID, MUD_NAME);
+
+        if (!protocol->msdp_enabled) {
+            protocol->msdp_enabled = true;
+
+            // MSDPSendPair, unlike MSDPSend, works before login.
+            MSDPSendPair(descriptor, "SERVER_ID", MUD_NAME);
+        }
+    }
+}
+
+// Answers command for MSSP, which the server performs, sending the status message on the first
+// accept.
+static void answer_mssp(const descriptor_t* descriptor, char command, char option)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const option_answer answer = answer_option(descriptor, command, option, option_side::server,
+        eNEGOTIATED_MSSP, protocol->mssp_enabled);
+    if (answer == option_answer::accept && !protocol->mssp_enabled) {
+        send_mssp(descriptor);
+        protocol->mssp_enabled = true;
+    }
+}
+
+// Answers command for ATCP, which the client performs, sending SERVER_ID when ATCP comes on.
+static void answer_atcp(const descriptor_t* descriptor, char command, char option)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const option_answer answer = answer_option(descriptor, command, option, option_side::client,
+        eNEGOTIATED_ATCP, protocol->atcp_enabled);
+
+    // ATCP carries the MSDP variables only for a client without MSDP.
+    if (answer == option_answer::accept && !protocol->msdp_enabled && !protocol->atcp_enabled) {
+        protocol->atcp_enabled = true;
+
+        // Sent now, before login, and stored for a later SEND SERVER_ID.
+        MSDPSendPair(descriptor, "SERVER_ID", MUD_NAME);
+        MSDPSetString(descriptor, eMSDP_SERVER_ID, MUD_NAME);
+    }
+}
+
+// Turns MXP on: tells the client, locks secure mode and asks for the client's MXP version when
+// renegotiation wants it.
+static void start_mxp(const descriptor_t* descriptor)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    static constexpr char mxp_enable[]
+        = { TELNET_IAC, TELNET_SB, TELOPT_MXP, TELNET_IAC, TELNET_SE, '\0' };
+    send_to_client(descriptor, mxp_enable);
+
+    // Lock secure mode, in which the client accepts MXP tags.
+    send_to_client(descriptor, "\033[7z");
+    protocol->mxp_enabled = true;
+    variable_number(protocol->variables[eMSDP_MXP]) = 1;
+
+    if (protocol->needs_mxp_version) {
+        MXPSendTag(descriptor, "<VERSION>");
+    }
+}
+
+// Answers command for MXP, which either side may perform: WILL answers the server's DO MXP
+// (eNEGOTIATED_MXP) and DO its WILL MXP (eNEGOTIATED_MXP2). Nothing is refused.
+static void answer_mxp(const descriptor_t* descriptor, char command)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+
+    if (command == TELNET_WILL || command == TELNET_DO) {
+        negotiated_t offer = eNEGOTIATED_MXP2;
+        if (command == TELNET_WILL) {
+            offer = eNEGOTIATED_MXP;
+        }
+        confirm_negotiation(descriptor, offer, true, true);
+
+        if (!protocol->mxp_enabled) {
+            start_mxp(descriptor);
+        }
+    } else if (command == TELNET_WONT) {
+        confirm_negotiation(descriptor, eNEGOTIATED_MXP, false, protocol->mxp_enabled);
+
+        if (!protocol->mxp_enabled) {
+            // The MXP standard does not say whether the server sends DO MXP or WILL MXP, and
+            // clients differ, so a WONT to DO MXP brings an offer of WILL MXP.
+            confirm_negotiation(descriptor, eNEGOTIATED_MXP2, true, true);
+        } else {
+            // A WONT once MXP is on switches it off.
+            protocol->mxp_enabled = false;
+        }
+    } else if (command == TELNET_DONT) {
+        confirm_negotiation(descriptor, eNEGOTIATED_MXP2, false, protocol->mxp_enabled);
+        protocol->mxp_enabled = false;
+    }
+}
+
+// Refuses a WILL or DO for an option the server does not know; other commands need nothing.
+static void refuse_unknown_option(const descriptor_t* descriptor, char command, char option)
+{
+    if (command == TELNET_WILL) {
+        send_negotiation_sequence(descriptor, TELNET_DONT, option);
+    } else if (command == TELNET_DO) {
+        send_negotiation_sequence(descriptor, TELNET_WONT, option);
+    }
+}
+
 // Answers the client's WILL, WONT, DO or DONT for option and records the result. A WILL or DO
 // that would have the wrong side perform an option, such as DO TTYPE, is refused, as is any WILL
 // or DO for an unknown option.
@@ -1814,242 +2064,49 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
 
     switch (option) {
     case static_cast<char>(TELOPT_TTYPE):
-        if (command == TELNET_WILL) {
-            confirm_negotiation(descriptor, eNEGOTIATED_TTYPE, true, true);
-            protocol->ttype_enabled = true;
-
-            if (!protocol->negotiated) {
-                protocol->negotiated = true;
-                negotiate(descriptor);
-
-                // Renegotiate later unless the client answers NAWS.
-                protocol->renegotiate = true;
-            }
-        } else if (command == TELNET_WONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_TTYPE, false, protocol->ttype_enabled);
-            protocol->ttype_enabled = false;
-
-            if (!protocol->negotiated) {
-                // A WONT still shows the client answers negotiation, so offer the other options;
-                // negotiate does not ask for the terminal type.
-                protocol->negotiated = true;
-                negotiate(descriptor);
-
-                protocol->renegotiate = true;
-            }
-        } else if (command == TELNET_DO) {
-            send_negotiation_sequence(descriptor, TELNET_WONT, option);
-        }
+        answer_ttype(descriptor, command, option);
         break;
-
     case static_cast<char>(TELOPT_ECHO):
-        if (command == TELNET_DO) {
-            confirm_negotiation(descriptor, eNEGOTIATED_ECHO, true, true);
-            protocol->echo_enabled = true;
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_ECHO, false, protocol->echo_enabled);
-            protocol->echo_enabled = false;
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        answer_plain_option(descriptor, command, option, option_side::server, eNEGOTIATED_ECHO,
+            protocol->echo_enabled);
         break;
-
     case static_cast<char>(TELOPT_NAWS):
-        if (command == TELNET_WILL) {
-            confirm_negotiation(descriptor, eNEGOTIATED_NAWS, true, true);
-            protocol->naws_enabled = true;
-
-            // The client answers negotiation, so it needs no renegotiation.
-            protocol->renegotiate = false;
-        } else if (command == TELNET_WONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_NAWS, false, protocol->naws_enabled);
-            protocol->naws_enabled = false;
-
-            protocol->renegotiate = false;
-        } else if (command == TELNET_DO) {
-            send_negotiation_sequence(descriptor, TELNET_WONT, option);
-        }
+        answer_naws(descriptor, command, option);
         break;
-
     case static_cast<char>(TELOPT_CHARSET):
-        if (command == TELNET_WILL) {
-            confirm_negotiation(descriptor, eNEGOTIATED_CHARSET, true, true);
-            if (!protocol->charset_enabled) {
-                // Offer ISO-8859-1, because every byte the server sends is latin-1; it never
-                // encodes UTF-8.
-                static constexpr char charset_latin1[] = {
-                    TELNET_IAC, TELNET_SB, TELOPT_CHARSET, 1, ' ', 'I', 'S', 'O',
-                    '-', '8', '8', '5', '9', '-', '1', TELNET_IAC, TELNET_SE, '\0'
-                };
-                send_to_client(descriptor, charset_latin1);
-                protocol->charset_enabled = true;
-            }
-        } else if (command == TELNET_WONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_CHARSET, false, protocol->charset_enabled);
-            protocol->charset_enabled = false;
-        } else if (command == TELNET_DO) {
-            send_negotiation_sequence(descriptor, TELNET_WONT, option);
-        }
+        answer_charset(descriptor, command, option);
         break;
-
     case static_cast<char>(TELOPT_MSDP):
-        if (command == TELNET_DO) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MSDP, true, true);
-
-            // Stored on every DO, for a later SEND SERVER_ID: msdp_enabled starts true, so the
-            // check below passes only after a DONT.
-            MSDPSetString(descriptor, eMSDP_SERVER_ID, MUD_NAME);
-
-            if (!protocol->msdp_enabled) {
-                protocol->msdp_enabled = true;
-
-                // MSDPSendPair, unlike MSDPSend, works before login.
-                MSDPSendPair(descriptor, "SERVER_ID", MUD_NAME);
-            }
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MSDP, false, protocol->msdp_enabled);
-            protocol->msdp_enabled = false;
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        answer_msdp(descriptor, command, option);
         break;
-
     case static_cast<char>(TELOPT_MSSP):
-        if (command == TELNET_DO) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MSSP, true, true);
-
-            if (!protocol->mssp_enabled) {
-                send_mssp(descriptor);
-                protocol->mssp_enabled = true;
-            }
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MSSP, false, protocol->mssp_enabled);
-            protocol->mssp_enabled = false;
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        answer_mssp(descriptor, command, option);
         break;
-
     case static_cast<char>(TELOPT_MCCP):
-        if (command == TELNET_DO) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MCCP, true, true);
-
-            if (!protocol->mccp_enabled) {
-                protocol->mccp_enabled = true;
-            }
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MCCP, false, protocol->mccp_enabled);
-
-            if (protocol->mccp_enabled) {
-                protocol->mccp_enabled = false;
-            }
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        answer_plain_option(descriptor, command, option, option_side::server, eNEGOTIATED_MCCP,
+            protocol->mccp_enabled);
         break;
-
     case static_cast<char>(TELOPT_MSP):
-        if (command == TELNET_DO) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MSP, true, true);
-            protocol->msp_enabled = true;
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MSP, false, protocol->msp_enabled);
-            protocol->msp_enabled = false;
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        answer_plain_option(descriptor, command, option, option_side::server, eNEGOTIATED_MSP,
+            protocol->msp_enabled);
         break;
-
     case static_cast<char>(TELOPT_MXP):
-        if (command == TELNET_WILL || command == TELNET_DO) {
-            if (command == TELNET_WILL) {
-                confirm_negotiation(descriptor, eNEGOTIATED_MXP, true, true);
-            } else {
-                confirm_negotiation(descriptor, eNEGOTIATED_MXP2, true, true);
-            }
-
-            if (!protocol->mxp_enabled) {
-                static constexpr char mxp_enable[]
-                    = { TELNET_IAC, TELNET_SB, TELOPT_MXP, TELNET_IAC, TELNET_SE, '\0' };
-                send_to_client(descriptor, mxp_enable);
-
-                // Lock secure mode, in which the client accepts MXP tags.
-                send_to_client(descriptor, "\033[7z");
-                protocol->mxp_enabled = true;
-                variable_number(protocol->variables[eMSDP_MXP]) = 1;
-
-                if (protocol->needs_mxp_version) {
-                    MXPSendTag(descriptor, "<VERSION>");
-                }
-            }
-        } else if (command == TELNET_WONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MXP, false, protocol->mxp_enabled);
-
-            if (!protocol->mxp_enabled) {
-                // The MXP standard does not say whether the server sends DO MXP or WILL MXP,
-                // and clients differ, so a WONT to DO MXP brings an offer of WILL MXP.
-                confirm_negotiation(descriptor, eNEGOTIATED_MXP2, true, true);
-            } else {
-                // A WONT once MXP is on switches it off.
-                protocol->mxp_enabled = false;
-            }
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_MXP2, false, protocol->mxp_enabled);
-            protocol->mxp_enabled = false;
-        }
+        answer_mxp(descriptor, command);
         break;
-
     case static_cast<char>(TELOPT_ATCP):
-        if (command == TELNET_WILL) {
-            confirm_negotiation(descriptor, eNEGOTIATED_ATCP, true, true);
-
-            // ATCP carries the MSDP variables only for a client without MSDP.
-            if (!protocol->msdp_enabled && !protocol->atcp_enabled) {
-                protocol->atcp_enabled = true;
-
-                // Sent now, before login, and stored for a later SEND SERVER_ID.
-                MSDPSendPair(descriptor, "SERVER_ID", MUD_NAME);
-                MSDPSetString(descriptor, eMSDP_SERVER_ID, MUD_NAME);
-            }
-        } else if (command == TELNET_WONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_ATCP, false, protocol->atcp_enabled);
-            protocol->atcp_enabled = false;
-        } else if (command == TELNET_DO) {
-            send_negotiation_sequence(descriptor, TELNET_WONT, option);
-        }
+        answer_atcp(descriptor, command, option);
         break;
-
     case static_cast<char>(TELOPT_EOR):
-        if (command == TELNET_DO) {
-            confirm_negotiation(descriptor, eNEGOTIATED_EOR, true, true);
-            protocol->eor_enabled = true;
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_EOR, false, protocol->eor_enabled);
-            protocol->eor_enabled = false;
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        answer_plain_option(descriptor, command, option, option_side::server, eNEGOTIATED_EOR,
+            protocol->eor_enabled);
         break;
-
     case static_cast<char>(TELOPT_SGA):
-        if (command == TELNET_DO) {
-            // The client wants no IAC GA after prompts.
-            confirm_negotiation(descriptor, eNEGOTIATED_SGA, true, true);
-            protocol->sga_enabled = true;
-        } else if (command == TELNET_DONT) {
-            confirm_negotiation(descriptor, eNEGOTIATED_SGA, false, protocol->sga_enabled);
-            protocol->sga_enabled = false;
-        } else if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        }
+        // A DO means the client wants no IAC GA after prompts.
+        answer_plain_option(descriptor, command, option, option_side::server, eNEGOTIATED_SGA,
+            protocol->sga_enabled);
         break;
-
     default:
-        if (command == TELNET_WILL) {
-            send_negotiation_sequence(descriptor, TELNET_DONT, option);
-        } else if (command == TELNET_DO) {
-            send_negotiation_sequence(descriptor, TELNET_WONT, option);
-        }
+        refuse_unknown_option(descriptor, command, option);
         break;
     }
 }
