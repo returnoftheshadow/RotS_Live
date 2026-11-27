@@ -431,6 +431,132 @@ protocol_t* ProtocolCreate()
 
 void ProtocolDestroy(protocol_t* protocol) { delete protocol; }
 
+// What one step of ProtocolInput's scan tells its loop to do next.
+enum class input_step {
+    next_byte, // Go on to the next byte.
+    stop, // Stop reading; any unread bytes are held for the next read.
+    abandon, // A buffer filled: drop everything this read gathered.
+};
+
+// One ProtocolInput call's place in the client's bytes and the text gathered so far.
+struct input_scan {
+    const descriptor_t* descriptor; // The connection whose bytes are read.
+    protocol_t* protocol; // The descriptor's protocol state, never null.
+    const char* data; // The bytes held from the last read, then this read's.
+    int size; // How many bytes data holds.
+    int position; // The byte being read.
+    char* command_text; // The text passed on to the caller, MAX_PROTOCOL_BUFFER + 1 chars.
+    int command_length; // The chars in command_text.
+    char* subnegotiation; // The protocol's subnegotiation_input buffer.
+    int subnegotiation_length; // The chars in subnegotiation.
+};
+
+// Whether the scan has more than count bytes left from its position.
+static bool has_bytes_after(const input_scan& scan, int count)
+{
+    return (scan.position + count) < scan.size;
+}
+
+// Keeps count bytes from the scan's position for the next read, and stops the scan. count is at
+// most the size of pending_input.
+static input_step hold_for_next_read(input_scan& scan, int count)
+{
+    std::memcpy(scan.protocol->pending_input.data(), scan.data + scan.position, count);
+    scan.protocol->pending_input_length = count;
+    return input_step::stop;
+}
+
+// Whether the text or the subnegotiation buffer is already full.
+static bool is_input_buffer_full(const input_scan& scan)
+{
+    return scan.command_length >= MAX_PROTOCOL_BUFFER
+        || scan.subnegotiation_length >= MAX_PROTOCOL_BUFFER;
+}
+
+// Logs a read too long for a buffer so that its text is dropped, and abandons a subnegotiation
+// that filled its buffer.
+static input_step abandon_full_read(const input_scan& scan)
+{
+    report_bug("ProtocolInput: Too much incoming data to store in the buffer.\n");
+    if (scan.subnegotiation_length >= MAX_PROTOCOL_BUFFER) {
+        scan.protocol->in_subnegotiation = false;
+        scan.protocol->subnegotiation_input_length = 0;
+        scan.protocol->subnegotiation_input[0] = '\0';
+    }
+    return input_step::abandon;
+}
+
+// Whether IAC IAC, a literal 255 byte, starts at the scan's position.
+static bool is_doubled_iac_at(const input_scan& scan)
+{
+    return scan.data[scan.position] == TELNET_IAC && has_bytes_after(scan, 1)
+        && scan.data[scan.position + 1] == TELNET_IAC;
+}
+
+// Adds the 255 byte of an IAC IAC to the subnegotiation or the text, and moves onto the second IAC.
+static input_step append_literal_iac(input_scan& scan)
+{
+    if (scan.protocol->in_subnegotiation) {
+        scan.subnegotiation[scan.subnegotiation_length++] = TELNET_IAC;
+    } else {
+        scan.command_text[scan.command_length++] = TELNET_IAC;
+    }
+    ++scan.position;
+    return input_step::next_byte;
+}
+
+// Ends the subnegotiation at the IAC SE at the scan's position, acting on it when it holds at
+// least an option and one byte, and moves onto the SE.
+static void end_subnegotiation(input_scan& scan)
+{
+    ++scan.position;
+    scan.protocol->in_subnegotiation = false;
+    scan.subnegotiation[scan.subnegotiation_length] = '\0';
+    if (scan.subnegotiation_length >= 2) {
+        perform_subnegotiation(scan.descriptor, scan.subnegotiation[0], &scan.subnegotiation[1],
+            scan.subnegotiation_length - 1);
+    }
+    scan.subnegotiation_length = 0;
+    scan.protocol->subnegotiation_input_length = 0;
+}
+
+// Reads a byte inside a subnegotiation: IAC SE ends it, a trailing IAC is held since it may start
+// IAC SE, and any other byte is added to it.
+static input_step read_subnegotiation_byte(input_scan& scan)
+{
+    if (scan.data[scan.position] == TELNET_IAC) {
+        if (!has_bytes_after(scan, 1)) {
+            return hold_for_next_read(scan, 1);
+        }
+        if (scan.data[scan.position + 1] == TELNET_SE) {
+            end_subnegotiation(scan);
+            return input_step::next_byte;
+        }
+    }
+    scan.subnegotiation[scan.subnegotiation_length++] = scan.data[scan.position];
+    return input_step::next_byte;
+}
+
+// Whether the scan's position holds an ESC with fewer than three bytes after it.
+static bool is_escape_in_last_three_bytes(const input_scan& scan)
+{
+    return scan.data[scan.position] == ANSI_ESCAPE && !has_bytes_after(scan, 3);
+}
+
+// Holds an ESC near the end of the bytes that may start an MXP line tag split across reads, with
+// the bytes after it. An ESC that cannot start one is dropped.
+static input_step read_escape_near_end(input_scan& scan)
+{
+    const char* escape = scan.data + scan.position;
+    const int remaining = scan.size - scan.position;
+    const bool may_start_mxp_line_tag = remaining == 1 || (remaining >= 2 && escape[1] == '[')
+        || (remaining >= 3 && escape[1] == '[' && std::isdigit(escape[2]));
+    if (may_start_mxp_line_tag) {
+        return hold_for_next_read(scan, remaining);
+    }
+    return input_step::next_byte;
+}
+
 // Whether an MXP line tag, ESC [ <digit> z, starts at position in data of size bytes. ProtocolInput
 // asks only once a byte is outside a subnegotiation, so isdigit sees only those bytes.
 static bool is_mxp_line_tag_at(const char* data, int position, int size)
@@ -438,6 +564,156 @@ static bool is_mxp_line_tag_at(const char* data, int position, int size)
     const bool has_three_more = (position + 3) < size;
     return data[position] == ANSI_ESCAPE && has_three_more && data[position + 1] == '['
         && std::isdigit(data[position + 2]) && data[position + 3] == 'z';
+}
+
+// Records 256-colour support for a client whose first version with it is first_version; versions
+// compare as strings.
+static void apply_minimum_256_colour_version(
+    protocol_t* protocol, const char* version, const char* first_version)
+{
+    if (std::strcmp(version, first_version) >= 0) {
+        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
+        protocol->xterm_256_support = eYES;
+    } else {
+        protocol->xterm_256_support = eNO;
+    }
+}
+
+// Acts on an MXP <VERSION> reply's tag text: records its CLIENT=, VERSION= and MXP= values, the
+// 256-colour support they show, and tells the player once an MXP version is known.
+static void apply_mxp_version_reply(
+    const descriptor_t* descriptor, protocol_t* protocol, const char* tag_text)
+{
+    char* tag_value = find_mxp_tag_value("CLIENT=", tag_text);
+    if (tag_value != nullptr) {
+        // Replace any earlier client name: an MXP <VERSION> reply is harder to fake.
+        variable_text(protocol->variables[eMSDP_CLIENT_ID]).assign(tag_value);
+    }
+
+    tag_value = find_mxp_tag_value("VERSION=", tag_text);
+    if (tag_value != nullptr) {
+        const std::string& client_name = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+
+        variable_text(protocol->variables[eMSDP_CLIENT_VERSION]).assign(tag_value);
+
+        if (equals_ignoring_case("MUSHCLIENT", client_name)) {
+            apply_minimum_256_colour_version(protocol, tag_value, "4.02");
+        } else if (equals_ignoring_case("CMUD", client_name)) {
+            apply_minimum_256_colour_version(protocol, tag_value, "3.04");
+        } else if (equals_ignoring_case("ATLANTIS", client_name)) {
+            // Every Atlantis that answers <VERSION> supports 256 colours.
+            variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
+            protocol->xterm_256_support = eYES;
+        }
+    }
+
+    tag_value = find_mxp_tag_value("MXP=", tag_text);
+    if (tag_value != nullptr) {
+        protocol->mxp_version.assign(tag_value);
+    }
+
+    if (protocol->mxp_version != "Unknown") {
+        char message[MXP_BUFFER_SIZE];
+        send_to_client(descriptor, "\n");
+        std::snprintf(message, sizeof(message), "MXP version %.*s detected and enabled.\r\n",
+            printf_precision(protocol->mxp_version), protocol->mxp_version.data());
+        send_info_message(descriptor, message);
+    }
+}
+
+// Reads the MXP line tag at the scan's position: the tag text up to its '>', cut at
+// MAX_MXP_TAG_LENGTH bytes, is acted on as a <VERSION> reply. The scan stops on the '>', or on
+// the byte after the cut, so the loop's step passes over it.
+static input_step read_mxp_line_tag(input_scan& scan)
+{
+    constexpr int line_tag_length = 4;
+    char tag_text[MXP_BUFFER_SIZE];
+    int tag_length = 0;
+
+    scan.position += line_tag_length;
+    while (scan.position < scan.size && scan.data[scan.position] != '>'
+        && tag_length < MAX_MXP_TAG_LENGTH) {
+        tag_text[tag_length++] = scan.data[scan.position++];
+    }
+    tag_text[tag_length++] = '>';
+    tag_text[tag_length] = '\0';
+
+    apply_mxp_version_reply(scan.descriptor, scan.protocol, tag_text);
+    return input_step::next_byte;
+}
+
+// Reads the telnet command whose IAC is at the scan's position. IAC SB starts a subnegotiation,
+// DO, DONT, WILL and WONT are answered, and any other command is dropped. A command cut off by the
+// end of the bytes is held for the next read.
+static input_step read_telnet_command(input_scan& scan)
+{
+    if (!has_bytes_after(scan, 1)) {
+        return hold_for_next_read(scan, 1);
+    }
+
+    const char command = scan.data[scan.position + 1];
+    switch (command) {
+    case TELNET_SB:
+        ++scan.position;
+        scan.protocol->in_subnegotiation = true;
+        return input_step::next_byte;
+
+    case TELNET_DO:
+    case TELNET_DONT:
+    case TELNET_WILL:
+    case TELNET_WONT:
+        if (!has_bytes_after(scan, 2)) {
+            return hold_for_next_read(scan, 2);
+        }
+        perform_handshake(scan.descriptor, command, scan.data[scan.position + 2]);
+        scan.position += 2;
+        return input_step::next_byte;
+
+    default:
+        ++scan.position;
+        return input_step::next_byte;
+    }
+}
+
+// Reads the byte at the scan's position and any that follow it in the same sequence, leaving the
+// position on the last byte read. The order of the checks decides which bytes each one sees.
+static input_step read_input_byte(input_scan& scan)
+{
+    if (is_input_buffer_full(scan)) {
+        return abandon_full_read(scan);
+    }
+    if (is_doubled_iac_at(scan)) {
+        return append_literal_iac(scan);
+    }
+    if (scan.protocol->in_subnegotiation) {
+        return read_subnegotiation_byte(scan);
+    }
+    if (is_escape_in_last_three_bytes(scan)) {
+        return read_escape_near_end(scan);
+    }
+    if (is_mxp_line_tag_at(scan.data, scan.position, scan.size)) {
+        return read_mxp_line_tag(scan);
+    }
+    if (scan.data[scan.position] == TELNET_IAC) {
+        return read_telnet_command(scan);
+    }
+    scan.command_text[scan.command_length++] = scan.data[scan.position];
+    return input_step::next_byte;
+}
+
+// Ends both buffers with a NUL, stores the length of a subnegotiation still open, and appends the
+// gathered text to out_text.
+static void finish_input_scan(const input_scan& scan, char* out_text)
+{
+    scan.subnegotiation[scan.subnegotiation_length] = '\0';
+    scan.command_text[scan.command_length] = '\0';
+    if (scan.protocol->in_subnegotiation) {
+        scan.protocol->subnegotiation_input_length = scan.subnegotiation_length;
+    } else {
+        scan.protocol->subnegotiation_input_length = 0;
+    }
+
+    std::strcat(out_text, scan.command_text);
 }
 
 void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text)
@@ -453,8 +729,6 @@ void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char*
     // The longest input whose length, with the held bytes put before it, fits an int.
     constexpr std::size_t max_input_length = std::numeric_limits<int>::max()
         - std::tuple_size<decltype(protocol_t::pending_input)>::value;
-    int command_length = 0;
-    int position;
 
     protocol_t* protocol = protocol_of(descriptor);
     if (protocol == nullptr || input.empty() || out_text == nullptr) {
@@ -464,213 +738,40 @@ void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char*
         report_bug("ProtocolInput: Too much incoming data to store in the buffer.\n");
         return;
     }
-    const char* data = input.data();
-    int size = static_cast<int>(input.size());
 
-    char* subnegotiation = protocol->subnegotiation_input.data();
-    int subnegotiation_length = 0;
+    input_scan scan { };
+    scan.descriptor = descriptor;
+    scan.protocol = protocol;
+    scan.data = input.data();
+    scan.size = static_cast<int>(input.size());
+    scan.command_text = command_text;
+    scan.subnegotiation = protocol->subnegotiation_input.data();
     if (protocol->in_subnegotiation) {
-        subnegotiation_length = protocol->subnegotiation_input_length;
+        scan.subnegotiation_length = protocol->subnegotiation_input_length;
     }
 
+    // The held bytes are put before this read's here, since alloca memory lasts only until the
+    // function that took it returns.
     if (protocol->pending_input_length > 0) {
-        char* combined = static_cast<char*>(alloca(protocol->pending_input_length + size));
+        char* combined = static_cast<char*>(alloca(protocol->pending_input_length + scan.size));
         std::memcpy(combined, protocol->pending_input.data(), protocol->pending_input_length);
-        std::memcpy(combined + protocol->pending_input_length, data, size);
-        data = combined;
-        size += protocol->pending_input_length;
+        std::memcpy(combined + protocol->pending_input_length, scan.data, scan.size);
+        scan.data = combined;
+        scan.size += protocol->pending_input_length;
         protocol->pending_input_length = 0;
     }
 
-    for (position = 0; position < size; ++position) {
-        const bool has_next = (position + 1) < size;
-        const bool has_two_more = (position + 2) < size;
-        const bool has_three_more = (position + 3) < size;
-        const bool is_iac = data[position] == TELNET_IAC;
-        const bool is_escape = data[position] == ANSI_ESCAPE;
-        const bool is_doubled_iac = is_iac && has_next && data[position + 1] == TELNET_IAC;
-
-        // A read too long for either buffer is logged and its text dropped; a subnegotiation
-        // that fills its buffer is abandoned.
-        const bool command_buffer_full = command_length >= MAX_PROTOCOL_BUFFER;
-        const bool subnegotiation_buffer_full = subnegotiation_length >= MAX_PROTOCOL_BUFFER;
-        if (command_buffer_full || subnegotiation_buffer_full) {
-            report_bug("ProtocolInput: Too much incoming data to store in the buffer.\n");
-            if (subnegotiation_buffer_full) {
-                protocol->in_subnegotiation = false;
-                protocol->subnegotiation_input_length = 0;
-                protocol->subnegotiation_input[0] = '\0';
-            }
+    for (scan.position = 0; scan.position < scan.size; ++scan.position) {
+        const input_step step = read_input_byte(scan);
+        if (step == input_step::abandon) {
             return;
         }
-
-        // IAC IAC is a literal 255 byte.
-        if (is_doubled_iac) {
-            if (protocol->in_subnegotiation) {
-                subnegotiation[subnegotiation_length++] = TELNET_IAC;
-            } else {
-                command_text[command_length++] = TELNET_IAC;
-            }
-            position++;
-        } else if (protocol->in_subnegotiation) {
-            const bool ends_subnegotiation = is_iac && has_next && data[position + 1] == TELNET_SE;
-
-            // Keep a trailing IAC for the next read, since it may start IAC SE.
-            if (is_iac && !has_next) {
-                protocol->pending_input[0] = data[position];
-                protocol->pending_input_length = 1;
-                break;
-            } else if (ends_subnegotiation) {
-                position++;
-                protocol->in_subnegotiation = false;
-                subnegotiation[subnegotiation_length] = '\0';
-                if (subnegotiation_length >= 2) {
-                    perform_subnegotiation(descriptor, subnegotiation[0], &subnegotiation[1],
-                        subnegotiation_length - 1);
-                }
-                subnegotiation_length = 0;
-                protocol->subnegotiation_input_length = 0;
-            } else {
-                subnegotiation[subnegotiation_length++] = data[position];
-            }
-        } else if (is_escape && !has_three_more) {
-            const int remaining = size - position;
-            const bool may_start_mxp_line_tag = remaining == 1
-                || (remaining >= 2 && data[position + 1] == '[')
-                || (remaining >= 3 && data[position + 1] == '['
-                    && std::isdigit(data[position + 2]));
-            if (may_start_mxp_line_tag) {
-                std::memcpy(protocol->pending_input.data(), data + position, remaining);
-                protocol->pending_input_length = remaining;
-                break;
-            }
-        } else if (is_mxp_line_tag_at(data, position, size)) {
-            constexpr int line_tag_length = 4;
-            char mxp_text[MXP_BUFFER_SIZE];
-            char* tag_value = nullptr;
-            int tag_length = 0;
-
-            position += line_tag_length;
-
-            while (position < size && data[position] != '>' && tag_length < MAX_MXP_TAG_LENGTH) {
-                mxp_text[tag_length++] = data[position++];
-            }
-            mxp_text[tag_length++] = '>';
-            mxp_text[tag_length] = '\0';
-
-            tag_value = find_mxp_tag_value("CLIENT=", mxp_text);
-            if (tag_value != nullptr) {
-                // Replace any earlier client name: an MXP <VERSION> reply is harder to fake.
-                variable_text(protocol->variables[eMSDP_CLIENT_ID]).assign(tag_value);
-            }
-
-            tag_value = find_mxp_tag_value("VERSION=", mxp_text);
-            if (tag_value != nullptr) {
-                const std::string& client_name
-                    = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
-
-                variable_text(protocol->variables[eMSDP_CLIENT_VERSION]).assign(tag_value);
-
-                if (equals_ignoring_case("MUSHCLIENT", client_name)) {
-                    // MUSHclient 4.02 and later support 256 colours; versions compare as
-                    // strings.
-                    if (std::strcmp(tag_value, "4.02") >= 0) {
-                        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                        protocol->xterm_256_support = eYES;
-                    } else {
-                        protocol->xterm_256_support = eNO;
-                    }
-                } else if (equals_ignoring_case("CMUD", client_name)) {
-                    // CMUD 3.04 and later support 256 colours.
-                    if (std::strcmp(tag_value, "3.04") >= 0) {
-                        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                        protocol->xterm_256_support = eYES;
-                    } else {
-                        protocol->xterm_256_support = eNO;
-                    }
-                } else if (equals_ignoring_case("ATLANTIS", client_name)) {
-                    // Every Atlantis that answers <VERSION> supports 256 colours.
-                    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                    protocol->xterm_256_support = eYES;
-                }
-            }
-
-            tag_value = find_mxp_tag_value("MXP=", mxp_text);
-            if (tag_value != nullptr) {
-                protocol->mxp_version.assign(tag_value);
-            }
-
-            if (protocol->mxp_version != "Unknown") {
-                send_to_client(descriptor, "\n");
-                std::snprintf(mxp_text, sizeof(mxp_text),
-                    "MXP version %.*s detected and enabled.\r\n",
-                    printf_precision(protocol->mxp_version), protocol->mxp_version.data());
-                send_info_message(descriptor, mxp_text);
-            }
-        } else {
-            if (data[position] == TELNET_IAC) {
-                if (!has_next) {
-                    protocol->pending_input[0] = data[position];
-                    protocol->pending_input_length = 1;
-                    break;
-                }
-
-                switch (data[position + 1]) {
-                case TELNET_SB:
-                    position++;
-                    protocol->in_subnegotiation = true;
-                    break;
-
-                case TELNET_DO:
-                case TELNET_DONT:
-                case TELNET_WILL:
-                case TELNET_WONT:
-                    if (!has_two_more) {
-                        protocol->pending_input[0] = data[position];
-                        protocol->pending_input[1] = data[position + 1];
-                        protocol->pending_input_length = 2;
-                        break;
-                    }
-                    perform_handshake(descriptor, data[position + 1], data[position + 2]);
-                    position += 2;
-                    break;
-
-                case TELNET_IAC:
-                    command_text[command_length++] = TELNET_IAC;
-                    position++;
-                    break;
-
-                default: // Any other telnet command is dropped.
-                    position++;
-                    break;
-                }
-                if (protocol->pending_input_length > 0) {
-                    break;
-                }
-            } else {
-                command_text[command_length++] = data[position];
-            }
-            if (protocol->pending_input_length > 0) {
-                break;
-            }
-        }
-
-        if (protocol->in_subnegotiation && data[position] == TELNET_IAC && !has_next) {
-            protocol->pending_input[0] = data[position];
-            protocol->pending_input_length = 1;
+        if (step == input_step::stop) {
             break;
         }
     }
 
-    subnegotiation[subnegotiation_length] = '\0';
-    command_text[command_length] = '\0';
-    if (protocol->in_subnegotiation) {
-        protocol->subnegotiation_input_length = subnegotiation_length;
-    } else {
-        protocol->subnegotiation_input_length = 0;
-    }
-
-    std::strcat(out_text, command_text);
+    finish_input_scan(scan, out_text);
 }
 
 // ProtocolOutput's work for a protocol that is not null. text is read as though a NUL followed
