@@ -4254,6 +4254,28 @@ TEST(MSDPProtocol, SetStringIgnoresANullValueAMissingProtocolAndNumberVariables)
     EXPECT_FALSE(protocol->variables[eMSDP_HEALTH].dirty);
 }
 
+TEST(MSDPProtocol, SetTableAndSetArrayIgnoreANullValue)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, "\x01VNUM\x02"
+                                                  "1101");
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, "\x02n");
+    const std::string room_before = msdp_text(protocol->variables[eMSDP_ROOM]);
+    const std::string exits_before = msdp_text(protocol->variables[eMSDP_ROOM_EXITS]);
+    protocol->variables[eMSDP_ROOM].dirty = false;
+    protocol->variables[eMSDP_ROOM_EXITS].dirty = false;
+    const char* missing_value = nullptr;
+
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, missing_value);
+    MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, missing_value);
+
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_ROOM]), room_before);
+    EXPECT_FALSE(protocol->variables[eMSDP_ROOM].dirty);
+    EXPECT_EQ(msdp_text(protocol->variables[eMSDP_ROOM_EXITS]), exits_before);
+    EXPECT_FALSE(protocol->variables[eMSDP_ROOM_EXITS].dirty);
+}
+
 // The size of a struct with no padding between its members: their sizes added, rounded up to the
 // struct's alignment.
 constexpr std::size_t unpadded_size(std::size_t members_size, std::size_t alignment)

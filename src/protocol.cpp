@@ -1478,6 +1478,13 @@ void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::str
     }
 }
 
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value)
+{
+    if (value != nullptr) {
+        MSDPSetTable(descriptor, variable, std::string_view(value));
+    }
+}
+
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value)
 {
     protocol_t* protocol = protocol_of(descriptor);
@@ -1491,6 +1498,13 @@ void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::stri
             msdp_set_wrapped(protocol->variables[variable], static_cast<char>(MSDP_TABLE_OPEN),
                 value, static_cast<char>(MSDP_TABLE_CLOSE));
         }
+    }
+}
+
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value)
+{
+    if (value != nullptr) {
+        MSDPSetArray(descriptor, variable, std::string_view(value));
     }
 }
 

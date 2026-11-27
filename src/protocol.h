@@ -433,9 +433,15 @@ void MSDPAppendSanitized(std::string& out_text, const char* value);
 // ignored.
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
+// MSDPSetTable for a NUL-terminated value; a null value is ignored.
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value);
+
 // MSDPSetTable for an MSDP array, between MSDP_ARRAY_OPEN and MSDP_ARRAY_CLOSE: the caller puts
 // MSDP_VAL before each element.
 void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::string_view value);
+
+// MSDPSetArray for a NUL-terminated value; a null value is ignored.
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // Whether variable is an MSDP variable: above eMSDP_NONE and below eMSDP_MAX.
 bool MSDPIsValidVariable(variable_t variable);
