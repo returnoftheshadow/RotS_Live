@@ -254,7 +254,7 @@ static constexpr int longest_configurable_string()
 }
 
 static_assert(longest_configurable_string() <= MAX_CONFIGURABLE_STRING_LENGTH,
-    "A configurable string variable is longer than execute_msdp_pair's buffer.");
+    "A configurable string variable is longer than set_configurable_text's buffer.");
 
 // The length of a space-separated list of every name in VARIABLE_NAME_TABLE, with its NUL.
 static constexpr std::size_t all_variable_names_length()
@@ -267,7 +267,7 @@ static constexpr std::size_t all_variable_names_length()
 }
 
 static_assert(all_variable_names_length() <= MAX_OUTPUT_BUFFER,
-    "execute_msdp_pair's variable lists do not fit in MAX_OUTPUT_BUFFER.");
+    "send_variable_list's variable lists do not fit in MAX_OUTPUT_BUFFER.");
 
 // Appends name to the space-separated list of list_length characters in out_list, which has room,
 // and returns the list's new length. Writes no NUL.
@@ -2479,174 +2479,250 @@ static bool names_sendable_variables(const char* list_name)
     return equals_ignoring_case(list_name, "REPORTABLE_VARIABLES");
 }
 
+// The lower-case form of character if it is an ASCII capital letter; otherwise character.
+static constexpr char ascii_lower(char character)
+{
+    if (character >= 'A' && character <= 'Z') {
+        return static_cast<char>(character - 'A' + 'a');
+    }
+    return character;
+}
+
+// Whether first and second are equal, ignoring ASCII case; usable at compile time.
+static constexpr bool equals_ignoring_ascii_case(std::string_view first, std::string_view second)
+{
+    if (first.size() != second.size()) {
+        return false;
+    }
+
+    for (std::size_t character_index = 0; character_index < first.size(); ++character_index) {
+        if (ascii_lower(first[character_index]) != ascii_lower(second[character_index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Whether no two variable names in VARIABLE_NAME_TABLE are equal, ignoring case.
+static constexpr bool variable_names_differ_ignoring_case()
+{
+    for (int first_index = eMSDP_NONE + 1; first_index < eMSDP_MAX; ++first_index) {
+        for (int second_index = first_index + 1; second_index < eMSDP_MAX; ++second_index) {
+            const std::string_view first_name = VARIABLE_NAME_TABLE[first_index].name;
+            const std::string_view second_name = VARIABLE_NAME_TABLE[second_index].name;
+            if (equals_ignoring_ascii_case(first_name, second_name)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static_assert(variable_names_differ_ignoring_case(),
+    "Two MSDP variable names differ only in case, so find_variable finds only the first.");
+
+// The variable whose name is name, ignoring case, or eMSDP_NONE.
+static variable_t find_variable(const char* name)
+{
+    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
+        if (equals_ignoring_case(name, VARIABLE_NAME_TABLE[variable_index].name)) {
+            return static_cast<variable_t>(variable_index);
+        }
+    }
+    return eMSDP_NONE;
+}
+
+// Carries out SEND: sends the variable named variable_name, if there is one.
+static void send_variable_named(const descriptor_t* descriptor, const char* variable_name)
+{
+    const variable_t variable = find_variable(variable_name);
+    if (variable != eMSDP_NONE) {
+        MSDPSend(descriptor, variable);
+    }
+}
+
+// Carries out REPORT: marks the variable named variable_name, if there is one, reported and due
+// to be sent.
+static void report_variable_named(const descriptor_t* descriptor, const char* variable_name)
+{
+    const variable_t variable = find_variable(variable_name);
+    if (variable != eMSDP_NONE) {
+        descriptor->pProtocol->variables[variable].reported = true;
+        descriptor->pProtocol->variables[variable].dirty = true;
+    }
+}
+
+// Carries out UNREPORT: stops reporting the variable named variable_name, if there is one.
+static void unreport_variable_named(const descriptor_t* descriptor, const char* variable_name)
+{
+    const variable_t variable = find_variable(variable_name);
+    if (variable != eMSDP_NONE) {
+        descriptor->pProtocol->variables[variable].reported = false;
+        descriptor->pProtocol->variables[variable].dirty = false;
+    }
+}
+
+// Carries out RESET: stops reporting every reported variable when list_name is
+// REPORTABLE_VARIABLES, REPORTED_VARIABLES or VARIABLES.
+static void reset_reported_variables(const descriptor_t* descriptor, const char* list_name)
+{
+    const bool resets_variables = equals_ignoring_case(list_name, "REPORTABLE_VARIABLES")
+        || equals_ignoring_case(list_name, "REPORTED_VARIABLES")
+        || equals_ignoring_case(list_name, "VARIABLES");
+    if (!resets_variables) {
+        return;
+    }
+
+    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
+        if (descriptor->pProtocol->variables[variable_index].reported) {
+            descriptor->pProtocol->variables[variable_index].reported = false;
+            descriptor->pProtocol->variables[variable_index].dirty = false;
+        }
+    }
+}
+
+// Sends, as the list list_name, the space-separated names of the variables whose index includes
+// accepts.
+template <typename Includes>
+static void send_variable_list(
+    const descriptor_t* descriptor, const char* list_name, Includes includes)
+{
+    char name_list[MAX_OUTPUT_BUFFER];
+    std::size_t list_length = 0;
+
+    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
+        if (includes(variable_index)) {
+            list_length = append_list_name(
+                name_list, list_length, VARIABLE_NAME_TABLE[variable_index].name);
+        }
+    }
+    name_list[list_length] = '\0';
+
+    MSDPSendList(descriptor, list_name, name_list);
+}
+
+// Carries out LIST: sends the list list_name names. An unknown list sends nothing.
+static void send_msdp_list(const descriptor_t* descriptor, const char* list_name)
+{
+    const protocol_t* protocol = descriptor->pProtocol;
+
+    if (equals_ignoring_case(list_name, "COMMANDS")) {
+        static constexpr char name_list[] = "LIST REPORT RESET SEND UNREPORT";
+        MSDPSendList(descriptor, "COMMANDS", name_list);
+    } else if (equals_ignoring_case(list_name, "LISTS")) {
+        static constexpr char name_list[]
+            = "COMMANDS LISTS CONFIGURABLE_VARIABLES REPORTABLE_VARIABLES "
+              "REPORTED_VARIABLES SENDABLE_VARIABLES GUI_VARIABLES";
+        MSDPSendList(descriptor, "LISTS", name_list);
+    } else if (names_sendable_variables(list_name)) {
+        send_variable_list(descriptor, list_name, [](int variable_index) -> bool {
+            return !VARIABLE_NAME_TABLE[variable_index].gui;
+        });
+    } else if (equals_ignoring_case(list_name, "REPORTED_VARIABLES")) {
+        send_variable_list(descriptor, list_name, [protocol](int variable_index) -> bool {
+            return protocol->variables[variable_index].reported;
+        });
+    } else if (equals_ignoring_case(list_name, "CONFIGURABLE_VARIABLES")) {
+        send_variable_list(descriptor, "CONFIGURABLE_VARIABLES", [](int variable_index) -> bool {
+            return VARIABLE_NAME_TABLE[variable_index].configurable;
+        });
+    } else if (equals_ignoring_case(list_name, "GUI_VARIABLES")) {
+        send_variable_list(descriptor, list_name, [](int variable_index) -> bool {
+            return VARIABLE_NAME_TABLE[variable_index].gui;
+        });
+    }
+}
+
+// Stores the printable bytes of value, cut to description's maximum, as variable's text when
+// they are longer than its minimum and the variable may still be written.
+static void set_configurable_text(
+    MSDP_t& variable, const variable_name_t& description, const char* value)
+{
+    // A write-once variable, such as the client name, is set only while it is "Unknown": a
+    // client may name itself but not replace a name already found.
+    const bool can_write = !description.write_once || variable_text(variable) == "Unknown";
+    if (!can_write) {
+        return;
+    }
+
+    char stored_text[MAX_CONFIGURABLE_STRING_LENGTH + 1];
+    int stored_length = 0;
+    for (; stored_length < description.maximum && *value != '\0'; ++value) {
+        const unsigned char value_byte = static_cast<unsigned char>(*value);
+        if (value_byte >= FIRST_PRINTABLE_ASCII && value_byte <= LAST_PRINTABLE_ASCII) {
+            stored_text[stored_length++] = *value;
+        }
+    }
+    stored_text[stored_length++] = '\0';
+
+    if (stored_length > description.minimum) {
+        // stored_length counts the NUL.
+        const std::size_t text_length = static_cast<std::size_t>(stored_length) - 1;
+        variable_text(variable).assign(stored_text, text_length);
+    }
+}
+
+// Stores value, after any leading spaces, as variable's number when it is all digits and within
+// description's minimum and maximum.
+static void set_configurable_number(
+    MSDP_t& variable, const variable_name_t& description, const char* value)
+{
+    while (*value == ' ') {
+        ++value;
+    }
+
+    const bool is_number = *value != '\0' && is_all_digits(value);
+    if (!is_number) {
+        return;
+    }
+
+    const int number = std::atoi(value);
+    const bool in_range = number >= description.minimum && number <= description.maximum;
+    if (in_range) {
+        variable_number(variable) = number;
+    }
+}
+
+// Sets the configurable variable named variable_name, if there is one, from value.
+static void set_configurable_variable(
+    const descriptor_t* descriptor, const char* variable_name, const char* value)
+{
+    const variable_t variable = find_variable(variable_name);
+    if (variable == eMSDP_NONE || !VARIABLE_NAME_TABLE[variable].configurable) {
+        return;
+    }
+
+    const variable_name_t& description = VARIABLE_NAME_TABLE[variable];
+    MSDP_t& stored_variable = descriptor->pProtocol->variables[variable];
+    if (description.is_string) {
+        set_configurable_text(stored_variable, description, value);
+    } else {
+        set_configurable_number(stored_variable, description, value);
+    }
+}
+
 // Carries out a client's MSDP command (SEND, REPORT, RESET, UNREPORT or LIST) or sets a
 // configurable variable. An empty name or value does nothing.
 static void execute_msdp_pair(
     const descriptor_t* descriptor, const char* name, const char* value)
 {
-    if (name[0] != '\0' && value[0] != '\0') {
-        if (equals_ignoring_case(name, "SEND")) {
-            bool found = false;
-            for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX && !found;
-                ++variable_index) {
-                if (equals_ignoring_case(value, VARIABLE_NAME_TABLE[variable_index].name)) {
-                    MSDPSend(descriptor, static_cast<variable_t>(variable_index));
-                    found = true;
-                }
-            }
-        } else if (equals_ignoring_case(name, "REPORT")) {
-            bool found = false;
-            for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX && !found;
-                ++variable_index) {
-                if (equals_ignoring_case(value, VARIABLE_NAME_TABLE[variable_index].name)) {
-                    descriptor->pProtocol->variables[variable_index].reported = true;
-                    descriptor->pProtocol->variables[variable_index].dirty = true;
-                    found = true;
-                }
-            }
-        } else if (equals_ignoring_case(name, "RESET")) {
-            const bool resets_variables = equals_ignoring_case(value, "REPORTABLE_VARIABLES")
-                || equals_ignoring_case(value, "REPORTED_VARIABLES")
-                || equals_ignoring_case(value, "VARIABLES");
-            if (resets_variables) {
-                for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
-                    ++variable_index) {
-                    if (descriptor->pProtocol->variables[variable_index].reported) {
-                        descriptor->pProtocol->variables[variable_index].reported = false;
-                        descriptor->pProtocol->variables[variable_index].dirty = false;
-                    }
-                }
-            }
-        } else if (equals_ignoring_case(name, "UNREPORT")) {
-            bool found = false;
-            for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX && !found;
-                ++variable_index) {
-                if (equals_ignoring_case(value, VARIABLE_NAME_TABLE[variable_index].name)) {
-                    descriptor->pProtocol->variables[variable_index].reported = false;
-                    descriptor->pProtocol->variables[variable_index].dirty = false;
-                    found = true;
-                }
-            }
-        } else if (equals_ignoring_case(name, "LIST")) {
-            if (equals_ignoring_case(value, "COMMANDS")) {
-                static constexpr char name_list[] = "LIST REPORT RESET SEND UNREPORT";
-                MSDPSendList(descriptor, "COMMANDS", name_list);
-            } else if (equals_ignoring_case(value, "LISTS")) {
-                static constexpr char name_list[]
-                    = "COMMANDS LISTS CONFIGURABLE_VARIABLES REPORTABLE_VARIABLES "
-                      "REPORTED_VARIABLES SENDABLE_VARIABLES GUI_VARIABLES";
-                MSDPSendList(descriptor, "LISTS", name_list);
-            } else if (names_sendable_variables(value)) {
-                char name_list[MAX_OUTPUT_BUFFER];
-                std::size_t commands_length = 0;
+    if (name[0] == '\0' || value[0] == '\0') {
+        return;
+    }
 
-                for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
-                    ++variable_index) {
-                    if (!VARIABLE_NAME_TABLE[variable_index].gui) {
-                        commands_length = append_list_name(
-                            name_list, commands_length, VARIABLE_NAME_TABLE[variable_index].name);
-                    }
-                }
-                name_list[commands_length] = '\0';
-
-                MSDPSendList(descriptor, value, name_list);
-            } else if (equals_ignoring_case(value, "REPORTED_VARIABLES")) {
-                char name_list[MAX_OUTPUT_BUFFER];
-                std::size_t commands_length = 0;
-
-                for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
-                    ++variable_index) {
-                    if (descriptor->pProtocol->variables[variable_index].reported) {
-                        commands_length = append_list_name(
-                            name_list, commands_length, VARIABLE_NAME_TABLE[variable_index].name);
-                    }
-                }
-                name_list[commands_length] = '\0';
-
-                MSDPSendList(descriptor, value, name_list);
-            } else if (equals_ignoring_case(value, "CONFIGURABLE_VARIABLES")) {
-                char name_list[MAX_OUTPUT_BUFFER];
-                std::size_t commands_length = 0;
-
-                for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
-                    ++variable_index) {
-                    if (VARIABLE_NAME_TABLE[variable_index].configurable) {
-                        commands_length = append_list_name(
-                            name_list, commands_length, VARIABLE_NAME_TABLE[variable_index].name);
-                    }
-                }
-                name_list[commands_length] = '\0';
-
-                MSDPSendList(descriptor, "CONFIGURABLE_VARIABLES", name_list);
-            } else if (equals_ignoring_case(value, "GUI_VARIABLES")) {
-                char name_list[MAX_OUTPUT_BUFFER];
-                std::size_t commands_length = 0;
-
-                for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
-                    ++variable_index) {
-                    if (VARIABLE_NAME_TABLE[variable_index].gui) {
-                        commands_length = append_list_name(
-                            name_list, commands_length, VARIABLE_NAME_TABLE[variable_index].name);
-                    }
-                }
-                name_list[commands_length] = '\0';
-
-                MSDPSendList(descriptor, value, name_list);
-            }
-        } else {
-            // Otherwise name may be a configurable variable.
-            for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
-                ++variable_index) {
-                if (!VARIABLE_NAME_TABLE[variable_index].configurable) {
-                    continue;
-                }
-                if (!equals_ignoring_case(name, VARIABLE_NAME_TABLE[variable_index].name)) {
-                    continue;
-                }
-
-                MSDP_t& variable = descriptor->pProtocol->variables[variable_index];
-                if (VARIABLE_NAME_TABLE[variable_index].is_string) {
-                    // A write-once variable, such as the client name, is set only while it is
-                    // "Unknown": a client may name itself but not replace a name already found.
-                    const bool can_write = !VARIABLE_NAME_TABLE[variable_index].write_once
-                        || variable_text(variable) == "Unknown";
-                    if (can_write) {
-                        char stored_text[MAX_CONFIGURABLE_STRING_LENGTH + 1];
-                        int stored_length = 0;
-                        const int max_length = VARIABLE_NAME_TABLE[variable_index].maximum;
-                        for (; stored_length < max_length && *value != '\0'; ++value) {
-                            const unsigned char value_byte = static_cast<unsigned char>(*value);
-                            if (value_byte >= FIRST_PRINTABLE_ASCII
-                                && value_byte <= LAST_PRINTABLE_ASCII) {
-                                stored_text[stored_length++] = *value;
-                            }
-                        }
-                        stored_text[stored_length++] = '\0';
-
-                        if (stored_length > VARIABLE_NAME_TABLE[variable_index].minimum) {
-                            // stored_length counts the NUL.
-                            const std::size_t text_length
-                                = static_cast<std::size_t>(stored_length) - 1;
-                            variable_text(variable).assign(stored_text, text_length);
-                        }
-                    }
-                } else {
-                    while (*value == ' ') {
-                        ++value;
-                    }
-
-                    const bool is_number = *value != '\0' && is_all_digits(value);
-                    if (is_number) {
-                        int number = std::atoi(value);
-                        const bool in_range = number >= VARIABLE_NAME_TABLE[variable_index].minimum
-                            && number <= VARIABLE_NAME_TABLE[variable_index].maximum;
-                        if (in_range) {
-                            variable_number(variable) = number;
-                        }
-                    }
-                }
-            }
-        }
+    if (equals_ignoring_case(name, "SEND")) {
+        send_variable_named(descriptor, value);
+    } else if (equals_ignoring_case(name, "REPORT")) {
+        report_variable_named(descriptor, value);
+    } else if (equals_ignoring_case(name, "RESET")) {
+        reset_reported_variables(descriptor, value);
+    } else if (equals_ignoring_case(name, "UNREPORT")) {
+        unreport_variable_named(descriptor, value);
+    } else if (equals_ignoring_case(name, "LIST")) {
+        send_msdp_list(descriptor, value);
+    } else {
+        // Otherwise name may be a configurable variable.
+        set_configurable_variable(descriptor, name, value);
     }
 }
 
