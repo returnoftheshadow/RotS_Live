@@ -581,7 +581,7 @@ static void apply_minimum_256_colour_version(
 }
 
 // Acts on an MXP <VERSION> reply's tag text: records its CLIENT=, VERSION= and MXP= values, the
-// 256-colour support they show, and tells the player once an MXP version is known.
+// 256-colour support they show, and tells the player the MXP version whenever one is known.
 static void apply_mxp_version_reply(
     const descriptor_t* descriptor, protocol_t* protocol, const char* tag_text)
 {
@@ -623,8 +623,9 @@ static void apply_mxp_version_reply(
 }
 
 // Reads the MXP line tag at the scan's position: the tag text up to its '>', cut at
-// MAX_MXP_TAG_LENGTH bytes, is acted on as a <VERSION> reply. The scan stops on the '>', or on
-// the byte after the cut, so the loop's step passes over it.
+// MAX_MXP_TAG_LENGTH bytes, is acted on as a <VERSION> reply. The position is left on the '>',
+// which the loop's step then passes; on the byte after a cut, which is dropped; or past the end
+// of the bytes when no '>' arrives.
 static input_step read_mxp_line_tag(input_scan& scan)
 {
     constexpr int line_tag_length = 4;
@@ -677,7 +678,8 @@ static input_step read_telnet_command(input_scan& scan)
 }
 
 // Reads the byte at the scan's position and any that follow it in the same sequence, leaving the
-// position on the last byte read. The order of the checks decides which bytes each one sees.
+// position where the loop's step moves on from. The order of the checks decides which bytes each
+// one sees.
 static input_step read_input_byte(input_scan& scan)
 {
     if (is_input_buffer_full(scan)) {
@@ -916,8 +918,9 @@ static bracket_text read_bracket_text(
     return read;
 }
 
-// Appends the character a \t[U<code point>/<fallback>] code names, the scan on its 'U': the code
-// point's UTF-8 for a client with UTF-8 on, else the fallback. An unclosed code ends the text.
+// Appends the character a \t[U<code point>/<fallback>] code names, the scan on its 'U' or 'u':
+// the code point's UTF-8 for a client with UTF-8 on, else the fallback. An unclosed code ends the
+// text.
 static void append_unicode_code(output_scan& scan)
 {
     char fallback_text[MAX_BRACKET_TEXT_LENGTH + 1] = { '\0' };
