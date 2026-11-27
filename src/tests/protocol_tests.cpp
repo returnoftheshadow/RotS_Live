@@ -4243,4 +4243,57 @@ TEST(MSDPProtocol, SetStringIgnoresANullValueAMissingProtocolAndNumberVariables)
     EXPECT_FALSE(protocol->pVariables[eMSDP_HEALTH]->bDirty);
 }
 
+// The size of a struct with no padding between its members: their sizes added, rounded up to the
+// struct's alignment.
+constexpr std::size_t unpadded_size(std::size_t members_size, std::size_t alignment)
+{
+    return (members_size + alignment - 1) / alignment * alignment;
+}
+
+TEST(ProtocolLayout, ProtocolHasNoPaddingBetweenFields)
+{
+    constexpr std::size_t members_size = sizeof(protocol_t::pMXPVersion)
+        + sizeof(protocol_t::pLastTTYPE) + sizeof(protocol_t::pVariables)
+        + sizeof(protocol_t::WriteOOB) + sizeof(protocol_t::PendingInputLength)
+        + sizeof(protocol_t::IacInputLength) + sizeof(protocol_t::b256Support)
+        + sizeof(protocol_t::ScreenWidth) + sizeof(protocol_t::ScreenHeight)
+        + sizeof(protocol_t::Negotiated) + sizeof(protocol_t::bIACMode)
+        + sizeof(protocol_t::bNegotiated) + sizeof(protocol_t::bRenegotiate)
+        + sizeof(protocol_t::bNeedMXPVersion) + sizeof(protocol_t::bBlockMXP)
+        + sizeof(protocol_t::PendingInput) + sizeof(protocol_t::IacInput)
+        + sizeof(protocol_t::bTTYPE) + sizeof(protocol_t::bECHO) + sizeof(protocol_t::bNAWS)
+        + sizeof(protocol_t::bCHARSET) + sizeof(protocol_t::bMSDP) + sizeof(protocol_t::bMSSP)
+        + sizeof(protocol_t::bATCP) + sizeof(protocol_t::bMSP) + sizeof(protocol_t::bMXP)
+        + sizeof(protocol_t::bMCCP) + sizeof(protocol_t::bEOR) + sizeof(protocol_t::bSGA);
+
+    EXPECT_EQ(sizeof(protocol_t), unpadded_size(members_size, alignof(protocol_t)));
+}
+
+TEST(ProtocolLayout, MsdpVariableHasNoPaddingBetweenFields)
+{
+    constexpr std::size_t members_size = sizeof(MSDP_t::pValueString) + sizeof(MSDP_t::ValueInt)
+        + sizeof(MSDP_t::bReport) + sizeof(MSDP_t::bDirty);
+
+    EXPECT_EQ(sizeof(MSDP_t), unpadded_size(members_size, alignof(MSDP_t)));
+}
+
+TEST(ProtocolLayout, VariableNameHasNoPaddingBetweenFields)
+{
+    constexpr std::size_t members_size = sizeof(variable_name_t::pName)
+        + sizeof(variable_name_t::pDefault) + sizeof(variable_name_t::Variable)
+        + sizeof(variable_name_t::Min) + sizeof(variable_name_t::Max)
+        + sizeof(variable_name_t::Default) + sizeof(variable_name_t::bString)
+        + sizeof(variable_name_t::bConfigurable) + sizeof(variable_name_t::bWriteOnce)
+        + sizeof(variable_name_t::bGUI);
+
+    EXPECT_EQ(sizeof(variable_name_t), unpadded_size(members_size, alignof(variable_name_t)));
+}
+
+TEST(ProtocolLayout, MsspEntryHasNoPaddingBetweenFields)
+{
+    constexpr std::size_t members_size = sizeof(MSSP_t::pName) + sizeof(MSSP_t::pValue);
+
+    EXPECT_EQ(sizeof(MSSP_t), unpadded_size(members_size, alignof(MSSP_t)));
+}
+
 } // namespace

@@ -194,24 +194,24 @@ typedef enum {
 
 typedef struct
 {
-    variable_t Variable; /* The enum type of this variable */
     const char* pName; /* The string name of this variable */
+    const char* pDefault; /* The default value for a string */
+    variable_t Variable; /* The enum type of this variable */
+    int Min; /* The minimum valid value or string length */
+    int Max; /* The maximum valid value or string length */
+    int Default; /* The default value for a number */
     bool bString; /* Is this variable a string or a number? */
     bool bConfigurable; /* Can it be configured by the client? */
     bool bWriteOnce; /* Can only set this variable once */
-    int Min; /* The minimum valid value or string length */
     bool bGUI; /* It's a special GUI configuration variable */
-    int Max; /* The maximum valid value or string length */
-    int Default; /* The default value for a number */
-    const char* pDefault; /* The default value for a string */
 } variable_name_t;
 
 typedef struct
 {
+    char* pValueString; /* The string value of the variable */
+    int ValueInt; /* The numeric value of the variable */
     bool bReport; /* Is this variable being reported? */
     bool bDirty; /* Does this variable need to be sent again? */
-    int ValueInt; /* The numeric value of the variable */
-    char* pValueString; /* The string value of the variable */
 } MSDP_t;
 
 typedef struct
@@ -221,16 +221,22 @@ typedef struct
 } MSSP_t;
 
 struct protocol_t {
+    char* pMXPVersion; /* The version of MXP supported */
+    char* pLastTTYPE; /* Used for the cyclic TTYPE check */
+    MSDP_t** pVariables; /* The MSDP variables */
     int WriteOOB; /* Used internally to indicate OOB data */
+    int PendingInputLength; /* Buffered bytes from an incomplete telnet/MXP fragment */
+    int IacInputLength; /* Buffered bytes from an incomplete subnegotiation sequence */
+    support_t b256Support; /* The client supports XTerm 256 colors */
+    int ScreenWidth; /* The client's screen width */
+    int ScreenHeight; /* The client's screen height */
     bool Negotiated[eNEGOTIATED_MAX];
     bool bIACMode; /* Current mode - deals with broken packets */
     bool bNegotiated; /* Indicates client successfully negotiated */
     bool bRenegotiate; /* Workaround for clients that autoconnect */
     bool bNeedMXPVersion; /* Workaround for clients that autoconnect */
     bool bBlockMXP; /* Used internally based on MXP version */
-    int PendingInputLength; /* Buffered bytes from an incomplete telnet/MXP fragment */
     char PendingInput[4]; /* Prefix buffer for split negotiation sequences */
-    int IacInputLength; /* Buffered bytes from an incomplete subnegotiation sequence */
     char IacInput[MAX_PROTOCOL_BUFFER + 1]; /* Subnegotiation bytes split across network reads */
     bool bTTYPE; /* The client supports TTYPE */
     bool bECHO; /* Toggles ECHO on/off */
@@ -244,12 +250,6 @@ struct protocol_t {
     bool bMCCP; /* The client supports MCCP */
     bool bEOR; /* The client agreed to IAC EOR after each prompt */
     bool bSGA; /* The client asked the server to suppress go-ahead */
-    support_t b256Support; /* The client supports XTerm 256 colors */
-    int ScreenWidth; /* The client's screen width */
-    int ScreenHeight; /* The client's screen height */
-    char* pMXPVersion; /* The version of MXP supported */
-    char* pLastTTYPE; /* Used for the cyclic TTYPE check */
-    MSDP_t** pVariables; /* The MSDP variables */
 };
 
 /******************************************************************************
