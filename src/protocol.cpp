@@ -432,6 +432,13 @@ protocol_t* ProtocolCreate()
 
 void ProtocolDestroy(protocol_t* protocol) { delete protocol; }
 
+// The size of a struct with no padding between its members: their sizes added, rounded up to the
+// struct's alignment. The structs below assert it, so their fields stay in size order.
+static constexpr std::size_t unpadded_size(std::size_t members_size, std::size_t alignment)
+{
+    return (members_size + alignment - 1) / alignment * alignment;
+}
+
 // What one step of ProtocolInput's scan tells its loop to do next.
 enum class input_step {
     next_byte, // Go on to the next byte.
@@ -444,13 +451,22 @@ struct input_scan {
     const descriptor_t* descriptor; // The connection whose bytes are read.
     protocol_t* protocol; // The descriptor's protocol state, never null.
     const char* data; // The bytes held from the last read, then this read's.
+    char* command_text; // The text passed on to the caller, MAX_PROTOCOL_BUFFER + 1 chars.
+    char* subnegotiation; // The protocol's subnegotiation_input buffer.
     int size; // How many bytes data holds.
     int position; // The byte being read.
-    char* command_text; // The text passed on to the caller, MAX_PROTOCOL_BUFFER + 1 chars.
     int command_length; // The chars in command_text.
-    char* subnegotiation; // The protocol's subnegotiation_input buffer.
     int subnegotiation_length; // The chars in subnegotiation.
 };
+
+static_assert(sizeof(input_scan)
+        == unpadded_size(sizeof(input_scan::descriptor) + sizeof(input_scan::protocol)
+                + sizeof(input_scan::data) + sizeof(input_scan::command_text)
+                + sizeof(input_scan::subnegotiation) + sizeof(input_scan::size)
+                + sizeof(input_scan::position) + sizeof(input_scan::command_length)
+                + sizeof(input_scan::subnegotiation_length),
+            alignof(input_scan)),
+    "input_scan has padding between its fields.");
 
 // Whether the scan has more than count bytes left from its position.
 static bool has_bytes_after(const input_scan& scan, int count)
@@ -811,6 +827,11 @@ struct colour_letter {
     std::string_view rgb_code; // Its ColourRGB code, such as "F200".
 };
 
+static_assert(sizeof(colour_letter)
+        == unpadded_size(sizeof(colour_letter::letter) + sizeof(colour_letter::rgb_code),
+            alignof(colour_letter)),
+    "colour_letter has padding between its fields.");
+
 constexpr colour_letter COLOUR_LETTERS[] = {
     { 'r', "F200" },
     { 'R', "F500" },
@@ -864,6 +885,15 @@ struct output_scan {
     }
 };
 
+static_assert(sizeof(output_scan)
+        == unpadded_size(sizeof(output_scan::descriptor) + sizeof(output_scan::protocol)
+                + sizeof(output_scan::text) + sizeof(output_scan::text_size)
+                + sizeof(output_scan::position) + sizeof(output_scan::result)
+                + sizeof(output_scan::result_length) + sizeof(output_scan::in_mxp_tag)
+                + sizeof(output_scan::reached_end),
+            alignof(output_scan)),
+    "output_scan has padding between its fields.");
+
 // What to do with a \t[...] code's characters past the buffer it is read into.
 enum class bracket_overflow {
     skip, // Read on to the ']' without storing them.
@@ -875,6 +905,11 @@ struct bracket_text {
     bool closed; // Whether the read reached the ']'.
     bool fits; // Whether every character read was stored.
 };
+
+static_assert(sizeof(bracket_text)
+        == unpadded_size(sizeof(bracket_text::closed) + sizeof(bracket_text::fits),
+            alignof(bracket_text)),
+    "bracket_text has padding between its fields.");
 
 // Adds text to the result, cut off once the result holds MAX_OUTPUT_BUFFER chars.
 static void append_output(output_scan& scan, std::string_view text)
