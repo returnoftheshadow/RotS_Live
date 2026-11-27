@@ -266,7 +266,7 @@ protocol_t* ProtocolCreate();
  * Frees the memory allocated by the specified structure.  This should be
  * called just before a descriptor is freed.
  */
-void ProtocolDestroy(protocol_t* apProtocol);
+void ProtocolDestroy(protocol_t* protocol);
 
 /* Function: ProtocolNegotiate
  *
@@ -276,7 +276,7 @@ void ProtocolDestroy(protocol_t* apProtocol);
  * either immediately after the user has connected, or just after they have
  * entered the game.
  */
-void ProtocolNegotiate(const descriptor_t* apDescriptor);
+void ProtocolNegotiate(const descriptor_t* descriptor);
 
 /* Function: ProtocolInput
  *
@@ -284,7 +284,7 @@ void ProtocolNegotiate(const descriptor_t* apDescriptor);
  * whatever is left for the mud to parse normally.  Call this after data has
  * been read into the input buffer, before it is used for anything else.
  */
-void ProtocolInput(const descriptor_t* apDescriptor, const char* apData, int aSize, char* apOut);
+void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text);
 
 /* Function: ProtocolOutput
  *
@@ -353,7 +353,7 @@ void ProtocolInput(const descriptor_t* apDescriptor, const char* apData, int aSi
  * Note that the MXP tags will automatically be removed if the user doesn't
  * support MXP, but it's very important you remember to close the tags.
  */
-const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData, int* apLength);
+const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length);
 
 /******************************************************************************
  MSDP functions.
@@ -365,7 +365,7 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
  * dirty MSDP variable that has been requested by the client via REPORT.  This
  * will automatically use ATCP instead if MSDP is not supported by the client.
  */
-void MSDPUpdate(const descriptor_t* apDescriptor);
+void MSDPUpdate(const descriptor_t* descriptor);
 
 /* Function: MSDPFlush
  *
@@ -375,7 +375,7 @@ void MSDPUpdate(const descriptor_t* apDescriptor);
  * Call this function after setting a variable if you want it to be reported
  * immediately, instead of on the next update.
  */
-void MSDPFlush(const descriptor_t* apDescriptor, variable_t aMSDP);
+void MSDPFlush(const descriptor_t* descriptor, variable_t variable);
 
 /* Function: MSDPMarkAllReportedDirty
  *
@@ -383,7 +383,7 @@ void MSDPFlush(const descriptor_t* apDescriptor, variable_t aMSDP);
  * snapshot. Call when a client's MSDP channel becomes newly deliverable (e.g. the
  * player enables MSDP after login) so it receives values that never change again.
  */
-void MSDPMarkAllReportedDirty(const descriptor_t* apDescriptor);
+void MSDPMarkAllReportedDirty(const descriptor_t* descriptor);
 
 /* Function: MSDPSend
  *
@@ -391,22 +391,22 @@ void MSDPMarkAllReportedDirty(const descriptor_t* apDescriptor);
  * need to do this manually, except perhaps when debugging something.  This
  * will automatically use ATCP instead if MSDP is not supported by the client.
  */
-bool MSDPSend(const descriptor_t* apDescriptor, variable_t aMSDP);
+bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
 
 /* Function: MSDPSendPair
  *
  * Send the specified strings to the user as an MSDP variable/value pair.  This
  * will automatically use ATCP instead if MSDP is not supported by the client.
  */
-void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, const char* apValue);
+void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value);
 
 /* Function: MSDPSendList
  *
  * Works like MSDPSendPair, but the value is sent as an MSDP array.
  *
- * apValue should be a list of values separated by spaces.
+ * value should be a list of values separated by spaces.
  */
-void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, const char* apValue);
+void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value);
 
 /* Function: MSDPSetNumber
  *
@@ -417,7 +417,7 @@ void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, cons
  *
  * You can also this function for bools, chars, enums, short ints, etc.
  */
-void MSDPSetNumber(const descriptor_t* apDescriptor, variable_t aMSDP, int aValue);
+void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int value);
 
 /* Function: MSDPSetString
  *
@@ -428,28 +428,28 @@ void MSDPSetNumber(const descriptor_t* apDescriptor, variable_t aMSDP, int aValu
  *
  * The value is passed through MSDPSanitizeValue() first, so it stays a
  * valid JSON string for clients that convert MSDP into JSON. Setting the value
- * already stored allocates nothing. A null apValue leaves the variable unchanged.
+ * already stored allocates nothing. A null value leaves the variable unchanged.
  */
-void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+void MSDPSetString(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // MSDPSetString for a value that need not be NUL-terminated, such as a message without its line
-// break. aValue must hold no NUL.
-void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, std::string_view aValue);
+// break. value must hold no NUL.
+void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
 /* Function: MSDPSanitizeValue
  *
- * Returns a copy of apValue with characters that are illegal inside a bare
+ * Returns a copy of value with characters that are illegal inside a bare
  * JSON string ('"', '\', and control characters such as \n and \r) replaced
  * by their standard JSON escape sequence. MSDPSetString() applies this
  * automatically; call it directly when hand-building a table/array value
  * (see MSDPSetTable) that embeds freeform text, since those bypass
- * MSDPSetString(). Returns an empty string for a null apValue.
+ * MSDPSetString(). Returns an empty string for a null value.
  */
-std::string MSDPSanitizeValue(const char* apValue);
+std::string MSDPSanitizeValue(const char* value);
 
-// Appends the MSDPSanitizeValue text for apValue to out_text, so a caller building a table in a
-// reused string needs no copy of its own. A null apValue appends nothing.
-void MSDPAppendSanitized(std::string& out_text, const char* apValue);
+// Appends the MSDPSanitizeValue text for value to out_text, so a caller building a table in a
+// reused string needs no copy of its own. A null value appends nothing.
+void MSDPAppendSanitized(std::string& out_text, const char* value);
 
 /* Function: MSDPSetTable
  *
@@ -460,7 +460,7 @@ void MSDPAppendSanitized(std::string& out_text, const char* apValue);
  * sprintf( Buffer, "%c%s%c%s", (char)MSDP_VAR, Name, (char)MSDP_VAL, Value );
  * MSDPSetTable( d, eMSDP_TEST, Buffer );
  */
-void MSDPSetTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 /* Function: MSDPSetArray
  *
@@ -471,9 +471,9 @@ void MSDPSetTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char
  * sprintf( Buffer, "%c%s%c%s", (char)MSDP_VAL, Val1, (char)MSDP_VAL, Val2 );
  * MSDPSetArray( d, eMSDP_TEST, Buffer );
  */
-void MSDPSetArray(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value);
 
-bool MSDPIsValidVariable(variable_t aMSDP);
+bool MSDPIsValidVariable(variable_t variable);
 
 /******************************************************************************
  MXP functions.
@@ -484,7 +484,7 @@ bool MSDPIsValidVariable(variable_t aMSDP);
  * Sends the specified tag to the user in a secure line, if MXP is supported.
  * This is mainly useful for the <VERSION> tag.
  */
-void MXPSendTag(const descriptor_t* apDescriptor, const char* apTag);
+void MXPSendTag(const descriptor_t* descriptor, const char* tag);
 
 /******************************************************************************
  Colour functions.
@@ -505,7 +505,7 @@ void MXPSendTag(const descriptor_t* apDescriptor, const char* apTag);
  *
  * If you wish to embed colours in strings, use ProtocolOutput().
  */
-const char* ColourRGB(const descriptor_t* apDescriptor, const char* apRGB);
+const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code);
 
 /******************************************************************************
  Unicode (UTF-8 conversion) functions.
@@ -515,13 +515,13 @@ const char* ColourRGB(const descriptor_t* apDescriptor, const char* apRGB);
  *
  * Returns the UTF-8 sequence for the specified unicode value.
  */
-char* UnicodeGet(int aValue);
+char* UnicodeGet(int code_point);
 
 /* Function: UnicodeAdd
  *
  * Adds the UTF-8 sequence for the specified unicode value onto the end of the
  * string, without adding a NUL character at the end.
  */
-void UnicodeAdd(char** apString, int aValue);
+void UnicodeAdd(char** out_cursor, int code_point);
 
 #endif /* PROTOCOL_H */
