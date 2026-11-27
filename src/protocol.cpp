@@ -567,14 +567,20 @@ static bool is_mxp_line_tag_at(const char* data, int position, int size)
         && std::isdigit(data[position + 2]) && data[position + 3] == 'z';
 }
 
+// Records that the client supports XTerm 256 colours.
+static void enable_xterm_256(protocol_t* protocol)
+{
+    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
+    protocol->xterm_256_support = eYES;
+}
+
 // Records 256-colour support for a client whose first version with it is first_version; versions
 // compare as strings.
 static void apply_minimum_256_colour_version(
     protocol_t* protocol, const char* version, const char* first_version)
 {
     if (std::strcmp(version, first_version) >= 0) {
-        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-        protocol->xterm_256_support = eYES;
+        enable_xterm_256(protocol);
     } else {
         protocol->xterm_256_support = eNO;
     }
@@ -603,8 +609,7 @@ static void apply_mxp_version_reply(
             apply_minimum_256_colour_version(protocol, tag_value, "3.04");
         } else if (equals_ignoring_case("ATLANTIS", client_name)) {
             // Every Atlantis that answers <VERSION> supports 256 colours.
-            variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-            protocol->xterm_256_support = eYES;
+            enable_xterm_256(protocol);
         }
     }
 
@@ -2111,6 +2116,120 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
     }
 }
 
+// The most characters of a client's TTYPE name the server keeps.
+constexpr int MAX_CLIENT_NAME_LENGTH = 64;
+
+// Copies the printable ASCII name after a TTYPE subnegotiation's IS byte into out_name, cut to
+// MAX_CLIENT_NAME_LENGTH characters and NUL-terminated, and returns its length. Other bytes are
+// skipped.
+static int read_ttype_name(const char* data, char (&out_name)[MAX_CLIENT_NAME_LENGTH + 1])
+{
+    int name_length = 0;
+    for (int input_position = 1;
+        data[input_position] != '\0' && name_length < MAX_CLIENT_NAME_LENGTH; ++input_position) {
+        const unsigned char client_byte = static_cast<unsigned char>(data[input_position]);
+        if (client_byte >= FIRST_PRINTABLE_ASCII && client_byte <= LAST_PRINTABLE_ASCII) {
+            out_name[name_length++] = data[input_position];
+        }
+    }
+    out_name[name_length] = '\0';
+    return name_length;
+}
+
+// Stores client_name, name_length characters, as CLIENT_ID if it is the first TTYPE, and
+// returns whether asking for more TTYPEs must stop.
+static bool record_first_client_name(
+    protocol_t* protocol, const char* client_name, int name_length)
+{
+    std::string& client_id = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+    if (client_id != "Unknown") {
+        return false;
+    }
+
+    client_id.assign(client_name, static_cast<std::size_t>(name_length));
+
+    // Cycling TTYPE locks up Windows telnet, whose first name is "ANSI"; no client worth cycling
+    // sends that first.
+    return std::strcmp(client_name, "ANSI") == 0;
+}
+
+// Asks for the next TTYPE until a name repeats: an RFC 1091 client repeats its last name to end
+// the list, and another may start the list again from the client name. Records client_name as
+// the last TTYPE and any 256-colour support its "-256color" suffix shows; sends no request when
+// stop_cyclic_ttype is set.
+static void request_next_ttype(
+    const descriptor_t* descriptor, const char* client_name, bool stop_cyclic_ttype)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    const std::string_view client_id = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
+    const bool has_last_ttype = protocol->last_ttype.has_value();
+    const bool repeats_last_ttype = has_last_ttype && *protocol->last_ttype == client_name;
+    const bool repeats_client_name
+        = has_last_ttype && !repeats_last_ttype && client_id == client_name;
+    if (repeats_last_ttype || repeats_client_name) {
+        return;
+    }
+
+    static constexpr char ttype_request[]
+        = { TELNET_IAC, TELNET_SB, TELOPT_TTYPE, SEND, TELNET_IAC, TELNET_SE, '\0' };
+    const char* type_suffix = std::strstr(client_name, "-");
+
+    // Assigned into the stored string once there is one, reusing its buffer.
+    protocol->last_ttype = client_name;
+
+    const bool names_xterm_256
+        = type_suffix != nullptr && equals_ignoring_case(type_suffix, "-256color");
+    if (names_xterm_256) {
+        // TinTin++, WinTin++ and BlowTorch show 256-colour support this way.
+        enable_xterm_256(protocol);
+    }
+
+    if (!stop_cyclic_ttype) {
+        send_to_client(descriptor, ttype_request);
+    }
+}
+
+// Records the colours and character set an MTTS bit field after mtts_prefix_length characters
+// of client_name claims.
+static void apply_mtts_capabilities(
+    protocol_t* protocol, const char* client_name, std::size_t mtts_prefix_length)
+{
+    // The MTTS capability bits the server reads.
+    constexpr int mtts_ansi = 1;
+    constexpr int mtts_utf_8 = 4;
+    constexpr int mtts_xterm_256 = 8;
+    const int mtts_bits = std::atoi(client_name + mtts_prefix_length);
+    if ((mtts_bits & mtts_ansi) != 0) {
+        variable_number(protocol->variables[eMSDP_ANSI_COLORS]) = 1;
+    }
+
+    if ((mtts_bits & mtts_utf_8) != 0) {
+        variable_number(protocol->variables[eMSDP_UTF_8]) = 1;
+    }
+
+    if ((mtts_bits & mtts_xterm_256) != 0) {
+        enable_xterm_256(protocol);
+    }
+}
+
+// Splits a client_name of a name name_length characters long, a one-character separator and a
+// version into CLIENT_ID and CLIENT_VERSION, cutting client_name to the name, and returns
+// whether it had a version. A client_name with no version is left alone.
+static bool split_client_version(protocol_t* protocol, char* client_name, std::size_t name_length)
+{
+    constexpr std::size_t separator_length = 1;
+    const std::size_t version_start = name_length + separator_length;
+    const std::size_t client_length = std::strlen(client_name);
+    if (client_length <= version_start) {
+        return false;
+    }
+
+    client_name[name_length] = '\0';
+    variable_text(protocol->variables[eMSDP_CLIENT_ID]).assign(client_name, name_length);
+    variable_text(protocol->variables[eMSDP_CLIENT_VERSION]).assign(client_name + version_start);
+    return true;
+}
+
 // Whether client_name is a client some of whose versions support XTerm 256 colours.
 static bool sometimes_supports_xterm_256(const char* client_name)
 {
@@ -2123,6 +2242,72 @@ static bool sometimes_supports_xterm_256(const char* client_name)
     return false;
 }
 
+// Records the colour support a TTYPE's client_name shows, and for Mudlet and DecafMUD the name
+// and version it carries, which may cut client_name to the name.
+static void apply_client_name_capabilities(protocol_t* protocol, char* client_name)
+{
+    static constexpr char mtts_prefix[] = "MTTS ";
+    static constexpr char mudlet_name[] = "Mudlet";
+    static constexpr char decafmud_name[] = "DecafMUD";
+
+    if (starts_with_ignoring_case(mtts_prefix, client_name)) {
+        constexpr std::size_t mtts_prefix_length = std::char_traits<char>::length(mtts_prefix);
+        apply_mtts_capabilities(protocol, client_name, mtts_prefix_length);
+    } else if (starts_with_ignoring_case(mudlet_name, client_name)) {
+        // Mudlet beta 15 and later support 256 colours, but every Mudlet before 1.1 reports
+        // version 1.0.
+        protocol->xterm_256_support = eSOMETIMES;
+
+        constexpr std::size_t mudlet_name_length = std::char_traits<char>::length(mudlet_name);
+        if (split_client_version(protocol, client_name, mudlet_name_length)) {
+            // Mudlet 1.1 and later support 256 colours.
+            const std::string_view client_version
+                = variable_text(protocol->variables[eMSDP_CLIENT_VERSION]);
+            const bool supports_xterm_256 = client_version.compare("1.1") >= 0;
+            if (supports_xterm_256) {
+                enable_xterm_256(protocol);
+            }
+        }
+    } else if (equals_ignoring_case(client_name, "EMACS-RINZAI")) {
+        enable_xterm_256(protocol);
+    } else if (starts_with_ignoring_case(decafmud_name, client_name)) {
+        enable_xterm_256(protocol);
+
+        constexpr std::size_t decafmud_name_length
+            = std::char_traits<char>::length(decafmud_name);
+        split_client_version(protocol, client_name, decafmud_name_length);
+    } else if (sometimes_supports_xterm_256(client_name)) {
+        protocol->xterm_256_support = eSOMETIMES;
+    } else if (equals_ignoring_case(client_name, "ZMUD")) {
+        protocol->xterm_256_support = eNO;
+    }
+}
+
+// Acts on one TTYPE subnegotiation's data: records the client name it carries, asks for the
+// next one, and records what the name shows the client supports.
+static void answer_ttype_subnegotiation(const descriptor_t* descriptor, const char* data)
+{
+    protocol_t* protocol = descriptor->pProtocol;
+    char client_name[MAX_CLIENT_NAME_LENGTH + 1];
+    const int name_length = read_ttype_name(data, client_name);
+    const bool stop_cyclic_ttype = record_first_client_name(protocol, client_name, name_length);
+    request_next_ttype(descriptor, client_name, stop_cyclic_ttype);
+    apply_client_name_capabilities(protocol, client_name);
+}
+
+// Records the window size a NAWS subnegotiation's data carries: the width, then the height, each
+// as two bytes, high byte first.
+static void read_window_size(protocol_t* protocol, const char* data)
+{
+    protocol->screen_width = static_cast<unsigned char>(data[0]);
+    protocol->screen_width <<= 8;
+    protocol->screen_width += static_cast<unsigned char>(data[1]);
+
+    protocol->screen_height = static_cast<unsigned char>(data[2]);
+    protocol->screen_height <<= 8;
+    protocol->screen_height += static_cast<unsigned char>(data[3]);
+}
+
 // Acts on one complete subnegotiation for option. data is its NUL-terminated payload, size bytes
 // long.
 static void perform_subnegotiation(
@@ -2133,143 +2318,13 @@ static void perform_subnegotiation(
     switch (option) {
     case static_cast<char>(TELOPT_TTYPE):
         if (protocol->ttype_enabled) {
-            // The name after TTYPE's IS byte, in printable ASCII.
-            constexpr int max_client_length = 64;
-            char client_name[max_client_length + 1];
-            int name_length = 0;
-            bool stop_cyclic_ttype = false;
-
-            for (int input_position = 1;
-                data[input_position] != '\0' && name_length < max_client_length; ++input_position) {
-                const unsigned char client_byte = static_cast<unsigned char>(data[input_position]);
-                if (client_byte >= FIRST_PRINTABLE_ASCII && client_byte <= LAST_PRINTABLE_ASCII) {
-                    client_name[name_length++] = data[input_position];
-                }
-            }
-            client_name[name_length] = '\0';
-
-            // The first TTYPE is the client name.
-            std::string& client_id = variable_text(protocol->variables[eMSDP_CLIENT_ID]);
-            if (client_id == "Unknown") {
-                client_id.assign(client_name, static_cast<std::size_t>(name_length));
-
-                // Cycling TTYPE locks up Windows telnet, whose first name is "ANSI"; no client
-                // worth cycling sends that first.
-                if (std::strcmp(client_name, "ANSI") == 0) {
-                    stop_cyclic_ttype = true;
-                }
-            }
-
-            // Ask for the next TTYPE until a name repeats: an RFC 1091 client repeats its last
-            // name to end the list, and another may start the list again from the client name.
-            const bool has_last_ttype = protocol->last_ttype.has_value();
-            const bool repeats_last_ttype = has_last_ttype && *protocol->last_ttype == client_name;
-            const bool repeats_client_name
-                = has_last_ttype && !repeats_last_ttype && client_id == client_name;
-            if (!repeats_last_ttype && !repeats_client_name) {
-                static constexpr char ttype_request[] = { TELNET_IAC, TELNET_SB, TELOPT_TTYPE, SEND,
-                    TELNET_IAC, TELNET_SE, '\0' };
-                const char* type_suffix = std::strstr(client_name, "-");
-
-                // Assigned into the stored string once there is one, reusing its buffer.
-                protocol->last_ttype = client_name;
-
-                const bool names_xterm_256
-                    = type_suffix != nullptr && equals_ignoring_case(type_suffix, "-256color");
-                if (names_xterm_256) {
-                    // TinTin++, WinTin++ and BlowTorch show 256-colour support this way.
-                    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                    protocol->xterm_256_support = eYES;
-                }
-
-                if (!stop_cyclic_ttype) {
-                    send_to_client(descriptor, ttype_request);
-                }
-            }
-
-            // A client's name and the separator before the version it may append.
-            static constexpr char mtts_prefix[] = "MTTS ";
-            static constexpr char mudlet_name[] = "Mudlet";
-            static constexpr char decafmud_name[] = "DecafMUD";
-            constexpr std::size_t separator_length = 1;
-
-            if (starts_with_ignoring_case(mtts_prefix, client_name)) {
-                // The MTTS capability bits the server reads.
-                constexpr int mtts_ansi = 1;
-                constexpr int mtts_utf_8 = 4;
-                constexpr int mtts_xterm_256 = 8;
-                constexpr std::size_t mtts_prefix_length
-                    = std::char_traits<char>::length(mtts_prefix);
-                const int mtts_bits = std::atoi(client_name + mtts_prefix_length);
-                if ((mtts_bits & mtts_ansi) != 0) {
-                    variable_number(protocol->variables[eMSDP_ANSI_COLORS]) = 1;
-                }
-                if ((mtts_bits & mtts_utf_8) != 0) {
-                    variable_number(protocol->variables[eMSDP_UTF_8]) = 1;
-                }
-                if ((mtts_bits & mtts_xterm_256) != 0) {
-                    variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                    protocol->xterm_256_support = eYES;
-                }
-
-            } else if (starts_with_ignoring_case(mudlet_name, client_name)) {
-                // Mudlet beta 15 and later support 256 colours, but every Mudlet before 1.1
-                // reports version 1.0.
-                protocol->xterm_256_support = eSOMETIMES;
-
-                constexpr std::size_t mudlet_name_length
-                    = std::char_traits<char>::length(mudlet_name);
-                constexpr std::size_t version_start = mudlet_name_length + separator_length;
-                const std::size_t client_length = std::strlen(client_name);
-                if (client_length > version_start) {
-                    client_name[mudlet_name_length] = '\0';
-                    client_id.assign(client_name, mudlet_name_length);
-                    std::string& client_version
-                        = variable_text(protocol->variables[eMSDP_CLIENT_VERSION]);
-                    client_version.assign(client_name + version_start);
-
-                    // Mudlet 1.1 and later support 256 colours.
-                    const bool supports_xterm_256 = client_version.compare("1.1") >= 0;
-                    if (supports_xterm_256) {
-                        variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                        protocol->xterm_256_support = eYES;
-                    }
-                }
-            } else if (equals_ignoring_case(client_name, "EMACS-RINZAI")) {
-                variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                protocol->xterm_256_support = eYES;
-            } else if (starts_with_ignoring_case(decafmud_name, client_name)) {
-                variable_number(protocol->variables[eMSDP_XTERM_256_COLORS]) = 1;
-                protocol->xterm_256_support = eYES;
-
-                constexpr std::size_t decafmud_name_length
-                    = std::char_traits<char>::length(decafmud_name);
-                constexpr std::size_t version_start = decafmud_name_length + separator_length;
-                const std::size_t client_length = std::strlen(client_name);
-                if (client_length > version_start) {
-                    client_name[decafmud_name_length] = '\0';
-                    client_id.assign(client_name, decafmud_name_length);
-                    variable_text(protocol->variables[eMSDP_CLIENT_VERSION])
-                        .assign(client_name + version_start);
-                }
-            } else if (sometimes_supports_xterm_256(client_name)) {
-                protocol->xterm_256_support = eSOMETIMES;
-            } else if (equals_ignoring_case(client_name, "ZMUD")) {
-                protocol->xterm_256_support = eNO;
-            }
+            answer_ttype_subnegotiation(descriptor, data);
         }
         break;
 
     case static_cast<char>(TELOPT_NAWS):
         if (protocol->naws_enabled) {
-            // NAWS sends the width, then the height, each as two bytes, high byte first.
-            protocol->screen_width = static_cast<unsigned char>(data[0]);
-            protocol->screen_width <<= 8;
-            protocol->screen_width += static_cast<unsigned char>(data[1]);
-
-            protocol->screen_height = static_cast<unsigned char>(data[2]);
-            protocol->screen_height <<= 8;
-            protocol->screen_height += static_cast<unsigned char>(data[3]);
+            read_window_size(protocol, data);
         }
         break;
 
