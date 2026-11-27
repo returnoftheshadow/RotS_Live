@@ -1892,7 +1892,7 @@ static option_answer answer_plain_option(const descriptor_t* descriptor, char co
 }
 
 // Offers the other options the first time the client answers TTYPE, and marks the connection
-// for renegotiation unless the client answers NAWS.
+// for renegotiation, which a NAWS answer cancels.
 static void start_negotiation_once(const descriptor_t* descriptor)
 {
     protocol_t* protocol = descriptor->pProtocol;
@@ -2154,9 +2154,9 @@ static bool record_first_client_name(
 }
 
 // Asks for the next TTYPE until a name repeats: an RFC 1091 client repeats its last name to end
-// the list, and another may start the list again from the client name. Records client_name as
-// the last TTYPE and any 256-colour support its "-256color" suffix shows; sends no request when
-// stop_cyclic_ttype is set.
+// the list, and another may start the list again from the client name. For a name that does not
+// repeat, records it as the last TTYPE, records 256-colour support when the text after its first
+// '-' is "-256color", and sends the request unless stop_cyclic_ttype is set.
 static void request_next_ttype(
     const descriptor_t* descriptor, const char* client_name, bool stop_cyclic_ttype)
 {
@@ -2212,7 +2212,7 @@ static void apply_mtts_capabilities(
     }
 }
 
-// Splits a client_name of a name name_length characters long, a one-character separator and a
+// Splits a client_name made of a name_length-character name, a one-character separator and a
 // version into CLIENT_ID and CLIENT_VERSION, cutting client_name to the name, and returns
 // whether it had a version. A client_name with no version is left alone.
 static bool split_client_version(protocol_t* protocol, char* client_name, std::size_t name_length)
@@ -2581,8 +2581,8 @@ static void reset_reported_variables(const descriptor_t* descriptor, const char*
     }
 }
 
-// Sends, as the list list_name, the space-separated names of the variables whose index includes
-// accepts.
+// Sends, as the list list_name, the space-separated names of the variables for whose index
+// includes returns true.
 template <typename Includes>
 static void send_variable_list(
     const descriptor_t* descriptor, const char* list_name, Includes includes)
@@ -2634,7 +2634,7 @@ static void send_msdp_list(const descriptor_t* descriptor, const char* list_name
 }
 
 // Stores the printable bytes of value, cut to description's maximum, as variable's text when
-// they are longer than its minimum and the variable may still be written.
+// there are at least its minimum of them and the variable may still be written.
 static void set_configurable_text(
     MSDP_t& variable, const variable_name_t& description, const char* value)
 {
