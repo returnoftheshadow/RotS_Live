@@ -883,6 +883,32 @@ struct output_scan {
         }
         return '\0';
     }
+
+    // The character at the position.
+    char current() const
+    {
+        return at(position);
+    }
+
+    // The character at the position, moving the position past it.
+    char take()
+    {
+        const char character = current();
+        ++position;
+        return character;
+    }
+
+    // Up to count characters from the position, fewer where text_size ends them, moving the
+    // position count characters on. The characters must already have been read with at().
+    std::string_view take_many(std::size_t count)
+    {
+        std::string_view taken;
+        if (position < text_size) {
+            taken = std::string_view(text + position, std::min(count, text_size - position));
+        }
+        position += count;
+        return taken;
+    }
 };
 
 static_assert(sizeof(output_scan)
@@ -933,28 +959,44 @@ static void report_code_bug(const char* format, ...)
     report_bug(bug_text);
 }
 
+static_assert(RGB_COLOUR_CODE_LENGTH > 1 && MAX_BRACKET_TEXT_LENGTH > 0,
+    "read_bracket_text's capacities must be positive.");
+
 // Reads a \t[...] code's text from the scan's position into out_text, storing at most capacity
 // chars; the caller NUL-fills out_text past them. The read ends on the ']', at the end of the
 // text, or, for bracket_overflow::stop, on the first character that does not fit.
 static bracket_text read_bracket_text(
-    output_scan& scan, char* out_text, int capacity, bracket_overflow overflow)
+    output_scan& scan, char* out_text, std::size_t capacity, bracket_overflow overflow)
 {
-    bracket_text read { false, true };
-    int text_length = 0;
-
-    while (scan.at(scan.position) != '\0' && !read.closed
-        && (read.fits || overflow == bracket_overflow::skip)) {
-        if (scan.at(scan.position) == ']') {
-            read.closed = true;
-        } else if (text_length < capacity) {
-            out_text[text_length++] = scan.at(scan.position++);
-        } else {
-            if (overflow == bracket_overflow::skip) {
-                ++scan.position;
-            }
-            read.fits = false;
-        }
+    // stop looks no further than one character past what fits.
+    std::size_t length_limit = std::string_view::npos;
+    if (overflow == bracket_overflow::stop) {
+        length_limit = capacity + 1;
     }
+
+    bracket_text read { false, true };
+    std::size_t text_length = 0;
+    while (text_length < length_limit) {
+        const char character = scan.at(scan.position + text_length);
+        if (character == ']') {
+            read.closed = true;
+            break;
+        }
+
+        if (character == '\0') {
+            break;
+        }
+        ++text_length;
+    }
+    read.fits = text_length <= capacity;
+
+    // skip moves past the whole text, stop only past what is stored.
+    std::size_t taken_length = text_length;
+    if (overflow == bracket_overflow::stop) {
+        taken_length = std::min(text_length, capacity);
+    }
+    const std::string_view taken = scan.take_many(taken_length);
+    taken.copy(out_text, capacity);
     return read;
 }
 
@@ -967,13 +1009,12 @@ static void append_unicode_code(output_scan& scan)
     int code_point = 0;
 
     ++scan.position;
-    while (std::isdigit(scan.at(scan.position))) {
+    while (std::isdigit(scan.current())) {
         code_point *= 10;
-        code_point += (scan.at(scan.position)) - '0';
-        ++scan.position;
+        code_point += scan.take() - '0';
     }
 
-    if (scan.at(scan.position) == '/') {
+    if (scan.current() == '/') {
         ++scan.position;
     }
 
@@ -1001,8 +1042,7 @@ static void append_rgb_code(output_scan& scan)
 {
     char code_text[MAX_BRACKET_TEXT_LENGTH + 1] = { '\0' };
 
-    code_text[0] = scan.at(scan.position);
-    ++scan.position;
+    code_text[0] = scan.take();
     const bracket_text read = read_bracket_text(
         scan, &code_text[1], RGB_COLOUR_CODE_LENGTH - 1, bracket_overflow::stop);
 
@@ -1055,7 +1095,7 @@ static void apply_required_mxp_version(output_scan& scan)
 static void append_bracket_code(output_scan& scan)
 {
     ++scan.position;
-    const int code_letter = std::tolower(scan.at(scan.position));
+    const int code_letter = std::tolower(scan.current());
     if (code_letter == 'u') {
         append_unicode_code(scan);
     } else if (code_letter == 'f' || code_letter == 'b') {
@@ -1087,7 +1127,7 @@ static void append_mxp_code(output_scan& scan, char code)
         append_output(scan, MXP_TAG_START);
         scan.in_mxp_tag = true;
     } else {
-        while (scan.at(scan.position) != '\0' && scan.at(scan.position) != '>') {
+        while (scan.current() != '\0' && scan.current() != '>') {
             ++scan.position;
         }
     }
@@ -1111,7 +1151,7 @@ static void append_colour_code(output_scan& scan, char letter)
 // writes nothing, so both it and the tab are dropped; a tab at the end of the text ends it.
 static void append_output_code(output_scan& scan)
 {
-    const char code = scan.at(scan.position);
+    const char code = scan.current();
     switch (code) {
     case '\t':
         append_output(scan, TAB_TEXT);
@@ -1143,7 +1183,7 @@ static void append_output_code(output_scan& scan)
 // case, written in the text itself rather than by a \t! code.
 static bool is_old_msp_trigger_at(const output_scan& scan)
 {
-    if (scan.position == 0 || scan.at(scan.position - 1) != '!' || scan.at(scan.position) != '!') {
+    if (scan.position == 0 || scan.at(scan.position - 1) != '!' || scan.current() != '!') {
         return false;
     }
     for (std::size_t prefix_index = 0; prefix_index < MSP_SOUND_PREFIX.size(); ++prefix_index) {
@@ -1188,23 +1228,23 @@ static std::string_view apply_output_codes(const descriptor_t* descriptor, proto
     const bool strips_msp_triggers
         = protocol->msp_enabled || variable_number(protocol->variables[eMSDP_SOUND]) != 0;
 
-    for (; scan.result_length < MAX_OUTPUT_BUFFER && scan.at(scan.position) != '\0'
+    for (; scan.result_length < MAX_OUTPUT_BUFFER && scan.current() != '\0'
         && !scan.reached_end;
         ++scan.position) {
         if (scan.position >= code_start_limit) {
             break;
         }
 
-        if (scan.at(scan.position) == '\t') {
+        if (scan.current() == '\t') {
             ++scan.position;
             append_output_code(scan);
-        } else if (scan.in_mxp_tag && scan.at(scan.position) == '>') {
+        } else if (scan.in_mxp_tag && scan.current() == '>') {
             append_output(scan, MXP_TAG_END);
             scan.in_mxp_tag = false;
         } else if (strips_msp_triggers && is_old_msp_trigger_at(scan)) {
             scan.result[scan.result_length++] = '?';
         } else {
-            scan.result[scan.result_length++] = scan.at(scan.position);
+            scan.result[scan.result_length++] = scan.current();
         }
     }
 
