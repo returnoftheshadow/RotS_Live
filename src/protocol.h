@@ -122,32 +122,32 @@ enum variable_t {
     eMSDP_DEX_PERM,
     eMSDP_CON_PERM,
     eMSDP_LEA_PERM,
-    eMDSP_SPELL_SAVE,
-    eMDSP_SPELL_PEN,
-    eMDSP_SPELL_POWER,
-    eMDSP_ARMOUR_ABS,
-    eMDSP_OFFENSIVE_BONUS,
-    eMDSP_PARRY,
-    eMDSP_DODGE,
-    eMDSP_ATTACK_SPEED,
-    eMDSP_TACTIC,
-    eMDSP_SPECIALIZATION,
-    eMDSP_PERCEPTION,
-    eMDSP_WILLPOWER,
-    eMDSP_SKILL_ENCUMBRANCE,
-    eMDSP_MOVEMENT_ENCUMBRANCE,
-    eMDSP_CARRIED_WEIGHT,
-    eMDSP_WARRIOR_LEVEL,
-    eMDSP_WARRIOR_LEVEL_MAX,
-    eMDSP_RANGER_LEVEL,
-    eMDSP_RANGER_LEVEL_MAX,
-    eMDSP_MYSTIC_LEVEL,
-    eMDSP_MYSTIC_LEVEL_MAX,
-    eMDSP_MAGE_LEVEL,
-    eMDSP_MAGE_LEVEL_MAX,
-    eMDSP_HEALTH_REGENERATION,
-    eMDSP_STAMINA_REGENERATION,
-    eMDSP_MOVEMENT_REGENERATION,
+    eMSDP_SPELL_SAVE,
+    eMSDP_SPELL_PEN,
+    eMSDP_SPELL_POWER,
+    eMSDP_ARMOUR_ABS,
+    eMSDP_OFFENSIVE_BONUS,
+    eMSDP_PARRY,
+    eMSDP_DODGE,
+    eMSDP_ATTACK_SPEED,
+    eMSDP_TACTIC,
+    eMSDP_SPECIALIZATION,
+    eMSDP_PERCEPTION,
+    eMSDP_WILLPOWER,
+    eMSDP_SKILL_ENCUMBRANCE,
+    eMSDP_MOVEMENT_ENCUMBRANCE,
+    eMSDP_CARRIED_WEIGHT,
+    eMSDP_WARRIOR_LEVEL,
+    eMSDP_WARRIOR_LEVEL_MAX,
+    eMSDP_RANGER_LEVEL,
+    eMSDP_RANGER_LEVEL_MAX,
+    eMSDP_MYSTIC_LEVEL,
+    eMSDP_MYSTIC_LEVEL_MAX,
+    eMSDP_MAGE_LEVEL,
+    eMSDP_MAGE_LEVEL_MAX,
+    eMSDP_HEALTH_REGENERATION,
+    eMSDP_STAMINA_REGENERATION,
+    eMSDP_MOVEMENT_REGENERATION,
 
     /* Combat */
     eMSDP_OPPONENT_HEALTH,
@@ -163,7 +163,7 @@ enum variable_t {
     eMSDP_ROOM_NAME,
     eMSDP_ROOM_VNUM,
     eMSDP_WORLD_TIME,
-    eMDSP_WEATHER,
+    eMSDP_WEATHER,
 
     /* Configuration */
     eMSDP_CLIENT_ID,
@@ -194,60 +194,61 @@ enum variable_t {
 };
 
 struct variable_name_t {
-    const char* pName; /* The string name of this variable */
-    const char* pDefault; /* The default value for a string */
-    variable_t Variable; /* The enum type of this variable */
-    int Min; /* The minimum valid value or string length */
-    int Max; /* The maximum valid value or string length */
-    int Default; /* The default value for a number */
-    bool bString; /* Is this variable a string or a number? */
-    bool bConfigurable; /* Can it be configured by the client? */
-    bool bWriteOnce; /* Can only set this variable once */
-    bool bGUI; /* It's a special GUI configuration variable */
+    const char* name; /* The string name of this variable */
+    const char* default_text; /* The default value for a string */
+    variable_t variable; /* The enum type of this variable */
+    int minimum; /* The minimum valid value or string length */
+    int maximum; /* The maximum valid value or string length */
+    int default_number; /* The default value for a number */
+    bool is_string; /* Is this variable a string or a number? */
+    bool configurable; /* Can it be configured by the client? */
+    bool write_once; /* Can only set this variable once */
+    bool gui; /* It's a special GUI configuration variable */
 };
 
 struct MSDP_t {
-    char* pValueString; /* The string value of the variable */
-    int ValueInt; /* The numeric value of the variable */
-    bool bReport; /* Is this variable being reported? */
-    bool bDirty; /* Does this variable need to be sent again? */
+    char* value_text; /* The string value of the variable */
+    int value_number; /* The numeric value of the variable */
+    bool reported; /* Is this variable being reported? */
+    bool dirty; /* Does this variable need to be sent again? */
 };
 
 struct MSSP_t {
-    const char* pName; /* The name of the MSSP variable */
-    const char* pValue; /* The value of the MSSP variable */
+    const char* name; /* The name of the MSSP variable */
+    const char* value; /* The value of the MSSP variable */
 };
 
 struct protocol_t {
-    char* pMXPVersion; /* The version of MXP supported */
-    char* pLastTTYPE; /* Used for the cyclic TTYPE check */
-    MSDP_t** pVariables; /* The MSDP variables */
-    int WriteOOB; /* Used internally to indicate OOB data */
-    int PendingInputLength; /* Buffered bytes from an incomplete telnet/MXP fragment */
-    int IacInputLength; /* Buffered bytes from an incomplete subnegotiation sequence */
-    support_t b256Support; /* The client supports XTerm 256 colors */
-    int ScreenWidth; /* The client's screen width */
-    int ScreenHeight; /* The client's screen height */
-    bool Negotiated[eNEGOTIATED_MAX];
-    bool bIACMode; /* Current mode - deals with broken packets */
-    bool bNegotiated; /* Indicates client successfully negotiated */
-    bool bRenegotiate; /* Workaround for clients that autoconnect */
-    bool bNeedMXPVersion; /* Workaround for clients that autoconnect */
-    bool bBlockMXP; /* Used internally based on MXP version */
-    char PendingInput[4]; /* Prefix buffer for split negotiation sequences */
-    char IacInput[MAX_PROTOCOL_BUFFER + 1]; /* Subnegotiation bytes split across network reads */
-    bool bTTYPE; /* The client supports TTYPE */
-    bool bECHO; /* Toggles ECHO on/off */
-    bool bNAWS; /* The client supports NAWS */
-    bool bCHARSET; /* The client supports CHARSET */
-    bool bMSDP; /* The client supports MSDP */
-    bool bMSSP; /* The client supports MSSP */
-    bool bATCP; /* The client supports ATCP */
-    bool bMSP; /* The client supports MSP */
-    bool bMXP; /* The client supports MXP */
-    bool bMCCP; /* The client supports MCCP */
-    bool bEOR; /* The client agreed to IAC EOR after each prompt */
-    bool bSGA; /* The client asked the server to suppress go-ahead */
+    char* mxp_version; /* The version of MXP supported */
+    char* last_ttype; /* Used for the cyclic TTYPE check */
+    MSDP_t** variables; /* The MSDP variables */
+    int write_oob; /* Used internally to indicate OOB data */
+    int pending_input_length; /* Buffered bytes from an incomplete telnet/MXP fragment */
+    int subnegotiation_input_length; /* Buffered bytes from an incomplete subnegotiation sequence */
+    support_t xterm_256_support; /* The client supports XTerm 256 colors */
+    int screen_width; /* The client's screen width */
+    int screen_height; /* The client's screen height */
+    bool option_states[eNEGOTIATED_MAX];
+    bool in_subnegotiation; /* Current mode - deals with broken packets */
+    bool negotiated; /* Indicates client successfully negotiated */
+    bool renegotiate; /* Workaround for clients that autoconnect */
+    bool needs_mxp_version; /* Workaround for clients that autoconnect */
+    bool mxp_blocked; /* Used internally based on MXP version */
+    char pending_input[4]; /* Prefix buffer for split negotiation sequences */
+    /* Subnegotiation bytes split across network reads */
+    char subnegotiation_input[MAX_PROTOCOL_BUFFER + 1];
+    bool ttype_enabled; /* The client supports TTYPE */
+    bool echo_enabled; /* Toggles ECHO on/off */
+    bool naws_enabled; /* The client supports NAWS */
+    bool charset_enabled; /* The client supports CHARSET */
+    bool msdp_enabled; /* The client supports MSDP */
+    bool mssp_enabled; /* The client supports MSSP */
+    bool atcp_enabled; /* The client supports ATCP */
+    bool msp_enabled; /* The client supports MSP */
+    bool mxp_enabled; /* The client supports MXP */
+    bool mccp_enabled; /* The client supports MCCP */
+    bool eor_enabled; /* The client agreed to IAC EOR after each prompt */
+    bool sga_enabled; /* The client asked the server to suppress go-ahead */
 };
 
 /******************************************************************************

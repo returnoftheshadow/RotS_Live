@@ -46,7 +46,7 @@ public:
 
     void set_variable(int msdp_variable, bool enabled)
     {
-        descriptor.pProtocol->pVariables[msdp_variable]->ValueInt = static_cast<int>(enabled);
+        descriptor.pProtocol->variables[msdp_variable]->value_number = static_cast<int>(enabled);
     }
 
     // Replaces the client's reported MXP version with a heap copy ProtocolDestroy frees.
@@ -55,8 +55,8 @@ public:
         const std::size_t length = std::strlen(version);
         char* const copy = static_cast<char*>(std::malloc(length + 1));
         std::memcpy(copy, version, length + 1);
-        std::free(descriptor.pProtocol->pMXPVersion);
-        descriptor.pProtocol->pMXPVersion = copy;
+        std::free(descriptor.pProtocol->mxp_version);
+        descriptor.pProtocol->mxp_version = copy;
     }
 
     // The descriptor passed to the functions under test; its protocol is owned here.
@@ -505,11 +505,11 @@ TEST(ProtocolOutput, BlocksMxpTagsAfterAVersionCheckWhenTheVersionIsUnknown)
     output_descriptor.set_variable(eMSDP_MXP, true);
 
     EXPECT_EQ(render(output_descriptor, "\t[X1.0]\t(north\t)"), "north");
-    EXPECT_FALSE(output_descriptor.descriptor.pProtocol->bBlockMXP)
+    EXPECT_FALSE(output_descriptor.descriptor.pProtocol->mxp_blocked)
         << "The closing \\t) lifts the block.";
 
     EXPECT_EQ(render(output_descriptor, "\t[X1.0]\t<b>bold"), "bold");
-    EXPECT_FALSE(output_descriptor.descriptor.pProtocol->bBlockMXP)
+    EXPECT_FALSE(output_descriptor.descriptor.pProtocol->mxp_blocked)
         << "A blocked \\t< tag lifts the block.";
 }
 
@@ -519,7 +519,7 @@ TEST(ProtocolOutput, KeepsTheMxpBlockAcrossCallsUntilALinkCloses)
     output_descriptor.set_variable(eMSDP_MXP, true);
 
     EXPECT_EQ(render(output_descriptor, "\t[X1.0]x"), "x");
-    EXPECT_TRUE(output_descriptor.descriptor.pProtocol->bBlockMXP);
+    EXPECT_TRUE(output_descriptor.descriptor.pProtocol->mxp_blocked);
     EXPECT_EQ(render(output_descriptor, "\t(north"), "north");
 }
 
@@ -537,7 +537,7 @@ TEST(ProtocolOutput, AllowsMxpTagsWhenTheClientVersionIsHighEnough)
     OutputDescriptor output_descriptor;
     output_descriptor.set_variable(eMSDP_MXP, true);
     output_descriptor.set_mxp_version("1.0");
-    output_descriptor.descriptor.pProtocol->bBlockMXP = true;
+    output_descriptor.descriptor.pProtocol->mxp_blocked = true;
 
     EXPECT_EQ(render(output_descriptor, "\t[X0.9]\t(north\t)"),
         std::string(LINK_START) + "north" + LINK_STOP);
@@ -562,7 +562,7 @@ TEST(ProtocolOutput, StopsAtAnUnterminatedMxpVersionCheck)
     const char text[] = "a\t[X1.0\0tail";
 
     EXPECT_EQ(render(output_descriptor, text), "a");
-    EXPECT_FALSE(output_descriptor.descriptor.pProtocol->bBlockMXP);
+    EXPECT_FALSE(output_descriptor.descriptor.pProtocol->mxp_blocked);
 }
 
 TEST(ProtocolOutput, WritesADoubleBangForTabBang)
@@ -575,7 +575,7 @@ TEST(ProtocolOutput, WritesADoubleBangForTabBang)
 TEST(ProtocolOutput, DefusesASoundTriggerInTextWhenTheClientSupportsMsp)
 {
     OutputDescriptor output_descriptor;
-    output_descriptor.descriptor.pProtocol->bMSP = true;
+    output_descriptor.descriptor.pProtocol->msp_enabled = true;
 
     EXPECT_EQ(render(output_descriptor, "say !!SOUND(rain.wav)"), "say !?SOUND(rain.wav)");
     EXPECT_EQ(render(output_descriptor, "!!sound(rain.wav)"), "!?sound(rain.wav)");
