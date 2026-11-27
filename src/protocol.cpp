@@ -607,6 +607,9 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
          ++j) {
         if (apData[j] == '\t') {
             const char* pCopyFrom = NULL;
+            // A Unicode code's ASCII fallback. It lives here, not in its case, because pCopyFrom
+            // points into it until the copy below.
+            char UnicodeFallback[8] = { '\0' };
 
             switch (apData[++j]) {
             case '\t': /* Two tabs in a row will display an actual tab */
@@ -721,7 +724,7 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
                 break;
             case '[':
                 if (tolower(apData[++j]) == 'u') {
-                    char Buffer[8] = { '\0' }, BugString[256];
+                    char BugString[256];
                     int Index = 0;
                     int Number = 0;
                     bool bDone = false, bValid = true;
@@ -738,7 +741,7 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
                         if (apData[j] == ']')
                             bDone = true;
                         else if (Index < 7)
-                            Buffer[Index++] = apData[j++];
+                            UnicodeFallback[Index++] = apData[j++];
                         else /* It's too long, so ignore the rest and note the problem */
                         {
                             j++;
@@ -749,17 +752,18 @@ const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData,
                     if (!bDone) {
                         sprintf(BugString,
                             "BUG: Unicode substitute '%s' wasn't terminated with ']'.\n",
-                            Buffer);
+                            UnicodeFallback);
                         ReportBug(BugString);
                     } else if (!bValid) {
                         sprintf(BugString,
-                            "BUG: Unicode substitute '%s' truncated.  Missing ']'?\n", Buffer);
+                            "BUG: Unicode substitute '%s' truncated.  Missing ']'?\n",
+                            UnicodeFallback);
                         ReportBug(BugString);
                     } else if (pProtocol->pVariables[eMSDP_UTF_8]->ValueInt) {
                         pCopyFrom = UnicodeGet(Number);
                     } else /* Display the substitute string */
                     {
-                        pCopyFrom = Buffer;
+                        pCopyFrom = UnicodeFallback;
                     }
 
                     /* Terminate if we've reached the end of the string */
