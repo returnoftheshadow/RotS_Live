@@ -2907,7 +2907,8 @@ std::string reply_to(ProtocolDescriptor& context, const std::string& input)
     return context.read_output();
 }
 
-// The offers Negotiate makes for every protocol after TTYPE, in the order it makes them.
+// The offers protocol.cpp's negotiate makes for every protocol after TTYPE, in the order it makes
+// them.
 std::string expected_protocol_offers()
 {
     return telnet_sequence(DO, TELOPT_NAWS) + telnet_sequence(DO, TELOPT_CHARSET)

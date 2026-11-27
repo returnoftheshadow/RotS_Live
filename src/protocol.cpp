@@ -1,21 +1,9 @@
-/******************************************************************************
- Protocol snippet by KaVir.  Released into the public domain in February 2011.
-
- In case this is not legally possible:
-
- The copyright holder grants any entity the right to use this work for any
- purpose, without any conditions, unless such conditions are required by law.
- ******************************************************************************/
-
-/******************************************************************************
- This snippet was originally designed to be codebase independent, but has been
- modified slightly so that it runs out-of-the-box on Merc derivatives.  To use
- it for other codebases, just change the code in the "Diku/Merc" section below.
- ******************************************************************************/
-
-/******************************************************************************
- Header files.
- ******************************************************************************/
+// Protocol snippet by KaVir.  Released into the public domain in February 2011.
+//
+// In case this is not legally possible:
+//
+// The copyright holder grants any entity the right to use this work for any
+// purpose, without any conditions, unless such conditions are required by law.
 
 #include <alloca.h>
 #include <arpa/telnet.h>
@@ -66,12 +54,9 @@ constexpr int MSDP_PAIR_PARTS = 2;
 static_assert(MSDP_VAR - 1 < MSDP_PAIR_PARTS && MSDP_VAL - 1 < MSDP_PAIR_PARTS,
     "An MSDP pair part's index is outside the parsed pair.");
 
-/******************************************************************************
- The following section is for Diku/Merc derivatives.  Replace as needed.
- ******************************************************************************/
-
 #include "comm.h"
 
+// Writes text to descriptor's socket, which must not be null, and raises a positive write_oob to 2.
 static void send_to_client(const descriptor_t* descriptor, const char* text)
 {
     if (descriptor != nullptr) {
@@ -82,8 +67,11 @@ static void send_to_client(const descriptor_t* descriptor, const char* text)
     write_to_descriptor(descriptor->descriptor, text);
 }
 
+// Logs text to the server log, passing it to vmudlog as the format string.
 static void report_bug(const char* text) { vmudlog(NRM, text); }
 
+// Sends text to descriptor after an "[INFO]" label. The label's colour codes are ProtocolOutput
+// codes, and they reach the client untranslated.
 static void send_info_message(const descriptor_t* descriptor, const char* text)
 {
     send_to_client(descriptor, "\t[F210][\toINFO\t[F210]]\tn ");
@@ -99,18 +87,9 @@ static protocol_t* protocol_of(const descriptor_t* descriptor)
     return descriptor->pProtocol;
 }
 
-/******************************************************************************
- MSDP file-scope variables.
- ******************************************************************************/
-
-/* These are for the GUI_VARIABLES, my unofficial extension of MSDP.  They're
- * intended for clients that wish to offer a generic GUI - not as nice as a
- * custom GUI, admittedly, but still better than a plain terminal window.
- *
- * These are per-player so that they can be customised for different characters
- * (eg changing 'mana' to 'blood' for vampires).  You could even allow players
- * to customise the buttons and gauges themselves if you wish.
- */
+// The default layouts of the GUI variables, an MSDP extension for clients that offer a generic
+// GUI. Each is an MSDP array: a button's label and command, or a gauge's label, colour and the
+// MSDP variables for its value and maximum.
 static const char GUI_BUTTON_1[] = "\005\002Help\002help\006";
 static const char GUI_BUTTON_2[] = "\005\002Look\002look\006";
 static const char GUI_BUTTON_3[] = "\005\002Score\002score\006";
@@ -124,11 +103,7 @@ static const char GUI_GAUGE_4[] = "\005\002Exp TNL\002yellow\002EXPERIENCE\002EX
 static const char GUI_GAUGE_5[]
     = "\005\002Opponent\002darkred\002OPPONENT_HEALTH\002OPPONENT_HEALTH_MAX\006";
 
-/******************************************************************************
- MSDP variable table.
- ******************************************************************************/
-
-/* Macros for readability, but you can remove them if you don't like them */
+// VARIABLE_NAME_TABLE entries for each kind of variable.
 #define NUMBER_READ_ONLY(variable, name) \
     { name, nullptr, variable, 0, -1, 0, false, false, false, false }
 #define NUMBER_READ_ONLY_SET_TO(variable, name, default_value) \
@@ -144,14 +119,15 @@ static const char GUI_GAUGE_5[]
 #define STRING_GUI(variable, name, default_text) \
     { name, default_text, variable, 0, -1, 0, true, false, false, true }
 
+// Each variable's description, at its variable_t index; ProtocolCreate checks the order.
 static constexpr variable_name_t VARIABLE_NAME_TABLE[eMSDP_MAX + 1] = {
-    /* General */
+    // General
     STRING_READ_ONLY(eMSDP_CHARACTER_NAME, "CHARACTER_NAME"),
     STRING_READ_ONLY(eMSDP_SERVER_ID, "SERVER_ID"),
     NUMBER_READ_ONLY(eMSDP_SERVER_TIME, "SERVER_TIME"),
     NUMBER_READ_ONLY_SET_TO(eMSDP_SNIPPET_VERSION, "SNIPPET_VERSION", SNIPPET_VERSION),
 
-    /* Character */
+    // Character
     STRING_READ_ONLY(eMSDP_AFFECTS, "AFFECTS"),
     NUMBER_READ_ONLY(eMSDP_ALIGNMENT, "ALIGNMENT"),
     NUMBER_READ_ONLY(eMSDP_EXPERIENCE, "EXPERIENCE"),
@@ -211,14 +187,14 @@ static constexpr variable_name_t VARIABLE_NAME_TABLE[eMSDP_MAX + 1] = {
     NUMBER_READ_ONLY(eMSDP_STAMINA_REGENERATION, "STAMINA_REGENERATION"),
     NUMBER_READ_ONLY(eMSDP_MOVEMENT_REGENERATION, "MOVEMENT_REGENERATION"),
 
-    /* Combat */
+    // Combat
     NUMBER_READ_ONLY(eMSDP_OPPONENT_HEALTH, "OPPONENT_HEALTH"),
     NUMBER_READ_ONLY(eMSDP_OPPONENT_HEALTH_MAX, "OPPONENT_HEALTH_MAX"),
     STRING_READ_ONLY(eMSDP_OPPONENT_LEVEL, "OPPONENT_LEVEL"),
     STRING_READ_ONLY(eMSDP_OPPONENT_NAME, "OPPONENT_NAME"),
     STRING_READ_ONLY(eMSDP_OPPONENT_AGE, "OPPONENT_AGE"),
 
-    /* World */
+    // World
     STRING_READ_ONLY(eMSDP_AREA_NAME, "AREA_NAME"),
     STRING_READ_ONLY(eMSDP_ROOM, "ROOM"),
     STRING_READ_ONLY(eMSDP_ROOM_EXITS, "ROOM_EXITS"),
@@ -227,7 +203,7 @@ static constexpr variable_name_t VARIABLE_NAME_TABLE[eMSDP_MAX + 1] = {
     STRING_READ_ONLY(eMSDP_WORLD_TIME, "WORLD_TIME"),
     STRING_READ_ONLY(eMSDP_WEATHER, "WEATHER"),
 
-    /* Configurable variables */
+    // Configurable variables
     STRING_WRITE_ONCE(eMSDP_CLIENT_ID, "CLIENT_ID", 1, 40),
     STRING_WRITE_ONCE(eMSDP_CLIENT_VERSION, "CLIENT_VERSION", 1, 40),
     STRING_WITH_LENGTH_OF(eMSDP_PLUGIN_ID, "PLUGIN_ID", 1, 40),
@@ -237,7 +213,7 @@ static constexpr variable_name_t VARIABLE_NAME_TABLE[eMSDP_MAX + 1] = {
     BOOLEAN_SET_TO(eMSDP_SOUND, "SOUND", 0),
     BOOLEAN_SET_TO(eMSDP_MXP, "MXP", 0),
 
-    /* GUI variables */
+    // GUI variables
     STRING_GUI(eMSDP_BUTTON_1, "BUTTON_1", GUI_BUTTON_1),
     STRING_GUI(eMSDP_BUTTON_2, "BUTTON_2", GUI_BUTTON_2),
     STRING_GUI(eMSDP_BUTTON_3, "BUTTON_3", GUI_BUTTON_3),
@@ -249,16 +225,17 @@ static constexpr variable_name_t VARIABLE_NAME_TABLE[eMSDP_MAX + 1] = {
     STRING_GUI(eMSDP_GAUGE_4, "GAUGE_4", GUI_GAUGE_4),
     STRING_GUI(eMSDP_GAUGE_5, "GAUGE_5", GUI_GAUGE_5),
 
-    /* Group information */
+    // Group information
     STRING_READ_ONLY(eMSDP_GROUP, "GROUP"),
 
-    NUMBER_READ_ONLY(eMSDP_MAX, "") /* This must always be last. */
+    // Fills the eMSDP_MAX slot; no variable has it.
+    NUMBER_READ_ONLY(eMSDP_MAX, "")
 };
 
 // The most characters a client may store in a configurable string variable.
 constexpr int MAX_CONFIGURABLE_STRING_LENGTH = 40;
 
-// The largest Max of any configurable string variable in VARIABLE_NAME_TABLE.
+// The largest maximum of any configurable string variable in VARIABLE_NAME_TABLE.
 static constexpr int longest_configurable_string()
 {
     int longest = 0;
@@ -299,10 +276,6 @@ static std::size_t append_list_name(char* out_list, std::size_t list_length, con
     return list_length + name_length;
 }
 
-/******************************************************************************
- Local function prototypes.
- ******************************************************************************/
-
 static void negotiate(const descriptor_t* descriptor);
 static void perform_handshake(const descriptor_t* descriptor, char command, char option);
 static void perform_subnegotiation(
@@ -334,48 +307,44 @@ static bool is_all_digits(const char* text);
 static std::size_t msdp_sanitized_length(std::string_view value);
 static char* msdp_write_sanitized(std::string_view value, char* out_text);
 
-/******************************************************************************
- ANSI colour codes.
- ******************************************************************************/
+// Resets every colour attribute.
+static const char ANSI_CLEAR[] = "\033[0;00m";
 
-static const char ANSI_CLEAR[] = "\033[0;00m"; /* Remove colour */
+// The eight foreground colours at normal intensity.
+static const char ANSI_DARK_BLACK[] = "\033[0;30m";
+static const char ANSI_DARK_RED[] = "\033[0;31m";
+static const char ANSI_DARK_GREEN[] = "\033[0;32m";
+static const char ANSI_DARK_YELLOW[] = "\033[0;33m";
+static const char ANSI_DARK_BLUE[] = "\033[0;34m";
+static const char ANSI_DARK_MAGENTA[] = "\033[0;35m";
+static const char ANSI_DARK_CYAN[] = "\033[0;36m";
+static const char ANSI_DARK_WHITE[] = "\033[0;37m";
 
-static const char ANSI_DARK_BLACK[] = "\033[0;30m"; /* Black foreground */
-static const char ANSI_DARK_RED[] = "\033[0;31m"; /* Red foreground */
-static const char ANSI_DARK_GREEN[] = "\033[0;32m"; /* Green foreground */
-static const char ANSI_DARK_YELLOW[] = "\033[0;33m"; /* Yellow foreground */
-static const char ANSI_DARK_BLUE[] = "\033[0;34m"; /* Blue foreground */
-static const char ANSI_DARK_MAGENTA[] = "\033[0;35m"; /* Magenta foreground */
-static const char ANSI_DARK_CYAN[] = "\033[0;36m"; /* Cyan foreground */
-static const char ANSI_DARK_WHITE[] = "\033[0;37m"; /* White foreground */
+// The bold, brighter foreground colours; bold black shows as grey.
+static const char ANSI_BOLD_BLACK[] = "\033[1;30m";
+static const char ANSI_BOLD_RED[] = "\033[1;31m";
+static const char ANSI_BOLD_GREEN[] = "\033[1;32m";
+static const char ANSI_BOLD_YELLOW[] = "\033[1;33m";
+static const char ANSI_BOLD_BLUE[] = "\033[1;34m";
+static const char ANSI_BOLD_MAGENTA[] = "\033[1;35m";
+static const char ANSI_BOLD_CYAN[] = "\033[1;36m";
+static const char ANSI_BOLD_WHITE[] = "\033[1;37m";
 
-static const char ANSI_BOLD_BLACK[] = "\033[1;30m"; /* Grey foreground */
-static const char ANSI_BOLD_RED[] = "\033[1;31m"; /* Bright red foreground */
-static const char ANSI_BOLD_GREEN[] = "\033[1;32m"; /* Bright green foreground */
-static const char ANSI_BOLD_YELLOW[] = "\033[1;33m"; /* Bright yellow foreground */
-static const char ANSI_BOLD_BLUE[] = "\033[1;34m"; /* Bright blue foreground */
-static const char ANSI_BOLD_MAGENTA[] = "\033[1;35m"; /* Bright magenta foreground */
-static const char ANSI_BOLD_CYAN[] = "\033[1;36m"; /* Bright cyan foreground */
-static const char ANSI_BOLD_WHITE[] = "\033[1;37m"; /* Bright white foreground */
-
-static const char ANSI_BACKGROUND_BLACK[] = "\033[1;40m"; /* Black background */
-static const char ANSI_BACKGROUND_RED[] = "\033[1;41m"; /* Red background */
-static const char ANSI_BACKGROUND_GREEN[] = "\033[1;42m"; /* Green background */
-static const char ANSI_BACKGROUND_YELLOW[] = "\033[1;43m"; /* Yellow background */
-static const char ANSI_BACKGROUND_BLUE[] = "\033[1;44m"; /* Blue background */
-static const char ANSI_BACKGROUND_MAGENTA[] = "\033[1;45m"; /* Magenta background */
-static const char ANSI_BACKGROUND_CYAN[] = "\033[1;46m"; /* Cyan background */
-static const char ANSI_BACKGROUND_WHITE[] = "\033[1;47m"; /* White background */
-
-/******************************************************************************
- Protocol global functions.
- ******************************************************************************/
+// The eight background colours, which also make the foreground bold.
+static const char ANSI_BACKGROUND_BLACK[] = "\033[1;40m";
+static const char ANSI_BACKGROUND_RED[] = "\033[1;41m";
+static const char ANSI_BACKGROUND_GREEN[] = "\033[1;42m";
+static const char ANSI_BACKGROUND_YELLOW[] = "\033[1;43m";
+static const char ANSI_BACKGROUND_BLUE[] = "\033[1;44m";
+static const char ANSI_BACKGROUND_MAGENTA[] = "\033[1;45m";
+static const char ANSI_BACKGROUND_CYAN[] = "\033[1;46m";
+static const char ANSI_BACKGROUND_WHITE[] = "\033[1;47m";
 
 protocol_t* ProtocolCreate()
 {
     protocol_t* protocol;
 
-    /* Called the first time we enter - make sure the table is correct */
+    // Check once that VARIABLE_NAME_TABLE is in variable_t order.
     static bool table_checked = false;
     if (!table_checked) {
         table_checked = true;
@@ -423,11 +392,9 @@ protocol_t* ProtocolCreate()
     for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
         protocol->variables[variable_index] = new MSDP_t;
         protocol->variables[variable_index]->reported = true;
-        /* Prime server-reported variables so the first update after login sends
-           them even when their value is still the default -- otherwise a stat
-           that is legitimately 0 (spell pen/power, carried weight, an unused
-           profession level) is never transmitted and looks unsupported to the
-           client. Client-owned config and GUI template variables are excluded. */
+        // Server-reported variables start dirty so the first update sends them even at their
+        // default, since a client takes a stat it is never sent, such as a spell power of 0, as
+        // unsupported. Client-set and GUI variables start clean.
         protocol->variables[variable_index]->dirty
             = !VARIABLE_NAME_TABLE[variable_index].configurable
             && !VARIABLE_NAME_TABLE[variable_index].gui;
@@ -441,7 +408,6 @@ protocol_t* ProtocolCreate()
             } else if (VARIABLE_NAME_TABLE[variable_index].configurable) {
                 protocol->variables[variable_index]->value_text = copy_string("Unknown");
             } else {
-                /* Use an empty string */
                 protocol->variables[variable_index]->value_text = copy_string("");
             }
         } else if (VARIABLE_NAME_TABLE[variable_index].default_number != 0) {
@@ -505,7 +471,8 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
         const bool is_mxp_line_tag = is_escape && has_three_more && data[position + 1] == '['
             && std::isdigit(data[position + 2]) && data[position + 3] == 'z';
 
-        /* If we'd overflow the buffer, we just ignore the input */
+        // A read too long for either buffer is logged and its text dropped; a subnegotiation
+        // that fills its buffer is abandoned.
         const bool command_buffer_full = command_length >= MAX_PROTOCOL_BUFFER;
         const bool subnegotiation_buffer_full = subnegotiation_length >= MAX_PROTOCOL_BUFFER;
         if (command_buffer_full || subnegotiation_buffer_full) {
@@ -518,19 +485,18 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
             return;
         }
 
-        /* IAC IAC is treated as a single value of 255 */
+        // IAC IAC is a literal 255 byte.
         if (is_doubled_iac) {
             if (protocol->in_subnegotiation) {
                 subnegotiation[subnegotiation_length++] = TELNET_IAC;
             } else {
-                /* In-band command */
                 command_text[command_length++] = TELNET_IAC;
             }
             position++;
         } else if (protocol->in_subnegotiation) {
             const bool ends_subnegotiation = is_iac && has_next && data[position + 1] == TELNET_SE;
 
-            /* End subnegotiation. */
+            // Keep a trailing IAC for the next read, since it may start IAC SE.
             if (is_iac && !has_next) {
                 protocol->pending_input[0] = data[position];
                 protocol->pending_input_length = 1;
@@ -565,7 +531,7 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
             char* tag_value = nullptr;
             int tag_length = 0;
 
-            position += line_tag_length; /* Skip to the start of the MXP sequence. */
+            position += line_tag_length;
 
             while (position < size && data[position] != '>' && tag_length < MAX_MXP_TAG_LENGTH) {
                 mxp_text[tag_length++] = data[position++];
@@ -575,7 +541,7 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 
             tag_value = find_mxp_tag_value("CLIENT=", mxp_text);
             if (tag_value != nullptr) {
-                /* Overwrite the previous client name - this is harder to fake */
+                // Replace any earlier client name: an MXP <VERSION> reply is harder to fake.
                 std::free(protocol->variables[eMSDP_CLIENT_ID]->value_text);
                 protocol->variables[eMSDP_CLIENT_ID]->value_text = copy_string(tag_value);
             }
@@ -588,28 +554,24 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                 protocol->variables[eMSDP_CLIENT_VERSION]->value_text = copy_string(tag_value);
 
                 if (equals_ignoring_case("MUSHCLIENT", client_name)) {
-                    /* MUSHclient 4.02 and later supports 256 colours. */
+                    // MUSHclient 4.02 and later support 256 colours; versions compare as
+                    // strings.
                     if (std::strcmp(tag_value, "4.02") >= 0) {
                         protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
                         protocol->xterm_256_support = eYES;
                     } else {
-                        /* We know for sure that 256 colours are not supported */
                         protocol->xterm_256_support = eNO;
                     }
                 } else if (equals_ignoring_case("CMUD", client_name)) {
-                    /* CMUD 3.04 and later supports 256 colours. */
+                    // CMUD 3.04 and later support 256 colours.
                     if (std::strcmp(tag_value, "3.04") >= 0) {
                         protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
                         protocol->xterm_256_support = eYES;
                     } else {
-                        /* We know for sure that 256 colours are not supported */
                         protocol->xterm_256_support = eNO;
                     }
                 } else if (equals_ignoring_case("ATLANTIS", client_name)) {
-                    /* Atlantis 0.9.9.0 supports XTerm 256 colours, but it doesn't
-                     * yet have MXP.  However MXP is planned, so once it responds
-                     * to a <VERSION> tag we'll know we can use 256 colours.
-                     */
+                    // Every Atlantis that answers <VERSION> supports 256 colours.
                     protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
                     protocol->xterm_256_support = eYES;
                 }
@@ -628,7 +590,6 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                 send_info_message(descriptor, mxp_text);
             }
         } else {
-            /* In-band command */
             if (data[position] == TELNET_IAC) {
                 if (!has_next) {
                     protocol->pending_input[0] = data[position];
@@ -637,12 +598,12 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                 }
 
                 switch (data[position + 1]) {
-                case TELNET_SB: /* Begin subnegotiation. */
+                case TELNET_SB:
                     position++;
                     protocol->in_subnegotiation = true;
                     break;
 
-                case TELNET_DO: /* Handshake. */
+                case TELNET_DO:
                 case TELNET_DONT:
                 case TELNET_WILL:
                 case TELNET_WONT:
@@ -656,12 +617,12 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
                     position += 2;
                     break;
 
-                case TELNET_IAC: /* Two IACs count as one. */
+                case TELNET_IAC:
                     command_text[command_length++] = TELNET_IAC;
                     position++;
                     break;
 
-                default: /* Skip it. */
+                default: // Any other telnet command is dropped.
                     position++;
                     break;
                 }
@@ -683,7 +644,6 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
         }
     }
 
-    /* Terminate the two buffers */
     subnegotiation[subnegotiation_length] = '\0';
     command_text[command_length] = '\0';
     if (protocol->in_subnegotiation) {
@@ -692,7 +652,6 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
         protocol->subnegotiation_input_length = 0;
     }
 
-    /* Copy the input buffer back to the player. */
     std::strcat(out_text, command_text);
 }
 
@@ -710,7 +669,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
     bool reached_end = false;
     bool in_mxp_tag = false;
     bool strips_msp_triggers = false;
-    /* Index values */
     int result_length = 0;
     int input_position = 0;
 
@@ -719,14 +677,14 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
         return text;
     }
 
-    /* Strip !!SOUND() triggers if they support MSP or are using sound */
+    // A client with MSP or SOUND on would play a literal "!!SOUND(" in the text, so its second
+    // '!' becomes '?'.
     if (protocol->msp_enabled || protocol->variables[eMSDP_SOUND]->value_number != 0) {
         strips_msp_triggers = true;
     }
 
     for (; result_length < MAX_OUTPUT_BUFFER && text[input_position] != '\0' && !reached_end;
         ++input_position) {
-        // A length of zero or less means text ends at its NUL.
         const bool past_length = *out_length > 0 && input_position >= *out_length;
         if (past_length) {
             break;
@@ -744,102 +702,102 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
 
             ++input_position;
             switch (text[input_position]) {
-            case '\t': /* Two tabs in a row will display an actual tab */
+            case '\t':
                 copy_from = tab_text;
                 break;
             case 'n':
                 copy_from = ANSI_CLEAR;
                 break;
-            case 'r': /* dark red */
+            case 'r':
                 copy_from = ColourRGB(descriptor, "F200");
                 break;
-            case 'R': /* light red */
+            case 'R':
                 copy_from = ColourRGB(descriptor, "F500");
                 break;
-            case 'g': /* dark green */
+            case 'g':
                 copy_from = ColourRGB(descriptor, "F020");
                 break;
-            case 'G': /* light green */
+            case 'G':
                 copy_from = ColourRGB(descriptor, "F050");
                 break;
-            case 'y': /* dark yellow */
+            case 'y':
                 copy_from = ColourRGB(descriptor, "F220");
                 break;
-            case 'Y': /* light yellow */
+            case 'Y':
                 copy_from = ColourRGB(descriptor, "F550");
                 break;
-            case 'b': /* dark blue */
+            case 'b':
                 copy_from = ColourRGB(descriptor, "F002");
                 break;
-            case 'B': /* light blue */
+            case 'B':
                 copy_from = ColourRGB(descriptor, "F005");
                 break;
-            case 'm': /* dark magenta */
+            case 'm':
                 copy_from = ColourRGB(descriptor, "F202");
                 break;
-            case 'M': /* light magenta */
+            case 'M':
                 copy_from = ColourRGB(descriptor, "F505");
                 break;
-            case 'c': /* dark cyan */
+            case 'c':
                 copy_from = ColourRGB(descriptor, "F022");
                 break;
-            case 'C': /* light cyan */
+            case 'C':
                 copy_from = ColourRGB(descriptor, "F055");
                 break;
-            case 'w': /* dark white */
+            case 'w':
                 copy_from = ColourRGB(descriptor, "F222");
                 break;
-            case 'W': /* light white */
+            case 'W':
                 copy_from = ColourRGB(descriptor, "F555");
                 break;
-            case 'a': /* dark azure */
+            case 'a':
                 copy_from = ColourRGB(descriptor, "F014");
                 break;
-            case 'A': /* light azure */
+            case 'A':
                 copy_from = ColourRGB(descriptor, "F025");
                 break;
-            case 'j': /* dark jade */
+            case 'j':
                 copy_from = ColourRGB(descriptor, "F031");
                 break;
-            case 'J': /* light jade */
+            case 'J':
                 copy_from = ColourRGB(descriptor, "F052");
                 break;
-            case 'l': /* dark lime */
+            case 'l':
                 copy_from = ColourRGB(descriptor, "F140");
                 break;
-            case 'L': /* light lime */
+            case 'L':
                 copy_from = ColourRGB(descriptor, "F250");
                 break;
-            case 'o': /* dark orange */
+            case 'o':
                 copy_from = ColourRGB(descriptor, "F520");
                 break;
-            case 'O': /* light orange */
+            case 'O':
                 copy_from = ColourRGB(descriptor, "F530");
                 break;
-            case 'p': /* dark pink */
+            case 'p':
                 copy_from = ColourRGB(descriptor, "F301");
                 break;
-            case 'P': /* light pink */
+            case 'P':
                 copy_from = ColourRGB(descriptor, "F502");
                 break;
-            case 't': /* dark tan */
+            case 't':
                 copy_from = ColourRGB(descriptor, "F210");
                 break;
-            case 'T': /* light tan */
+            case 'T':
                 copy_from = ColourRGB(descriptor, "F321");
                 break;
-            case 'v': /* dark violet */
+            case 'v':
                 copy_from = ColourRGB(descriptor, "F104");
                 break;
-            case 'V': /* light violet */
+            case 'V':
                 copy_from = ColourRGB(descriptor, "F205");
                 break;
-            case '(': /* MXP link */
+            case '(':
                 if (!protocol->mxp_blocked && protocol->variables[eMSDP_MXP]->value_number != 0) {
                     copy_from = link_start;
                 }
                 break;
-            case ')': /* MXP link */
+            case ')':
                 if (!protocol->mxp_blocked && protocol->variables[eMSDP_MXP]->value_number != 0) {
                     copy_from = link_end;
                 }
@@ -850,7 +808,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     copy_from = mxp_tag_start;
                     in_mxp_tag = true;
                 } else {
-                    /* No MXP support, so just strip it out */
                     while (text[input_position] != '\0' && text[input_position] != '>') {
                         ++input_position;
                     }
@@ -883,7 +840,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                         } else if (code_length < max_bracket_text_length) {
                             unicode_fallback[code_length++] = text[input_position++];
                         } else {
-                            /* It's too long, so ignore the rest and note the problem */
                             input_position++;
                             fits = false;
                         }
@@ -902,11 +858,10 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     } else if (protocol->variables[eMSDP_UTF_8]->value_number != 0) {
                         copy_from = UnicodeGet(code_point);
                     } else {
-                        /* Display the substitute string */
                         copy_from = unicode_fallback;
                     }
 
-                    /* Terminate if we've reached the end of the string */
+                    // An unclosed code ends the text.
                     reached_end = !closed;
                 } else if (std::tolower(text[input_position]) == 'f'
                     || std::tolower(text[input_position]) == 'b') {
@@ -916,7 +871,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     bool closed = false;
                     bool fits = true;
 
-                    /* Copy the 'f' (foreground) or 'b' (background) */
                     code_text[code_length++] = text[input_position++];
 
                     while (text[input_position] != '\0' && !closed && fits) {
@@ -925,8 +879,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                         } else if (code_length < RGB_COLOUR_CODE_LENGTH) {
                             code_text[code_length++] = text[input_position++];
                         } else {
-                            /* It's too long, so drop out - the colour code may still be
-                               valid */
                             fits = false;
                         }
                     }
@@ -948,7 +900,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                             layer_name, &code_text[1]);
                         report_bug(bug_text);
                     } else {
-                        /* Success */
                         copy_from = ColourRGB(descriptor, code_text);
                     }
                 } else if (std::tolower(text[input_position]) == 'x') {
@@ -958,7 +909,7 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     bool closed = false;
                     bool fits = true;
 
-                    ++input_position; /* Skip the 'x' */
+                    ++input_position;
 
                     while (text[input_position] != '\0' && !closed) {
                         if (text[input_position] == ']') {
@@ -966,7 +917,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                         } else if (code_length < max_bracket_text_length) {
                             code_text[code_length++] = text[input_position++];
                         } else {
-                            /* It's too long, so ignore the rest and note the problem */
                             input_position++;
                             fits = false;
                         }
@@ -982,19 +932,19 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                             "BUG: Required MXP version '%s' too long.  Missing ']'?\n", code_text);
                         report_bug(bug_text);
                     } else {
+                        // Versions compare as strings.
                         const bool mxp_version_unknown
                             = std::strcmp(protocol->mxp_version, "Unknown") == 0;
                         const bool mxp_version_too_low = mxp_version_unknown
                             || std::strcmp(protocol->mxp_version, code_text) < 0;
-                        /* Block the tag unless their version of MXP is high enough */
                         protocol->mxp_blocked = mxp_version_too_low;
                     }
 
-                    /* Terminate if we've reached the end of the string */
+                    // An unclosed code ends the text.
                     reached_end = !closed;
                 }
                 break;
-            case '!': /* Used for in-band MSP sound triggers */
+            case '!':
                 copy_from = msp_trigger;
                 break;
             case '\0':
@@ -1004,7 +954,6 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                 break;
             }
 
-            /* Copy the colour code, if any. */
             if (copy_from != nullptr) {
                 while (*copy_from != '\0' && result_length < MAX_OUTPUT_BUFFER) {
                     result[result_length++] = *copy_from++;
@@ -1017,46 +966,33 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
             }
             in_mxp_tag = false;
         } else if (is_old_msp_trigger) {
-            /* Avoid accidental triggering of old-style MSP triggers */
             result[result_length++] = '?';
         } else {
-            /* Just copy the character normally */
             result[result_length++] = text[input_position];
         }
     }
 
-    /* If we'd overflow the buffer, we don't send any output */
     if (result_length >= MAX_OUTPUT_BUFFER) {
         result_length = 0;
         report_bug("ProtocolOutput: Too much outgoing data to store in the buffer.\n");
     }
 
-    /* Terminate the string */
     result[result_length] = '\0';
 
-    /* Store the length */
     if (out_length != nullptr) {
         *out_length = result_length;
     }
 
-    /* Return the string */
     return result;
 }
 
-/* Some clients (such as GMud) don't properly handle negotiation, and simply
- * display every printable character to the screen.  However TTYPE isn't a
- * printable character, so we negotiate for it first, and only negotiate for
- * other protocols if the client responds with IAC WILL TTYPE or IAC WONT
- * TTYPE.  Thanks go to Donky on MudBytes for the suggestion.
- */
+// Only TTYPE is offered here, because some clients, such as GMud, print negotiation instead of
+// answering it. TTYPE's option byte is not printable; the other options, some of whose bytes are,
+// are offered only once the client answers.
 void ProtocolNegotiate(const descriptor_t* descriptor)
 {
     confirm_negotiation(descriptor, eNEGOTIATED_TTYPE, true, true);
 }
-
-/******************************************************************************
- MSDP global functions.
- ******************************************************************************/
 
 void MSDPUpdate(const descriptor_t* descriptor)
 {
@@ -1120,7 +1056,6 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
 
     if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
         if (VARIABLE_NAME_TABLE[variable].is_string) {
-            /* Should really be replaced with a dynamic buffer */
             const std::size_t name_length = std::strlen(VARIABLE_NAME_TABLE[variable].name);
             const std::size_t value_length
                 = std::strlen(protocol->variables[variable]->value_text);
@@ -1142,7 +1077,6 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
                     protocol->variables[variable]->value_text, IAC, SE);
             }
         } else {
-            /* It's an integer, not a string */
             if (protocol->msdp_enabled) {
                 std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%s%c%d%c%c", IAC, SB,
                     TELOPT_MSDP, MSDP_VAR, VARIABLE_NAME_TABLE[variable].name, MSDP_VAL,
@@ -1154,7 +1088,7 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
             }
         }
 
-        /* Just in case someone calls this function without checking MSDP/ATCP */
+        // Empty when the client has neither MSDP nor ATCP, or the message was too long.
         if (msdp_text[0] != '\0') {
             send_to_client(descriptor, msdp_text);
             return true;
@@ -1176,8 +1110,7 @@ void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* 
         const std::string_view value_view(value);
         const std::size_t value_length = msdp_sanitized_length(value_view);
 
-        /* Should really be replaced with a dynamic buffer */
-        // Kept as std::size_t so no value is long enough to wrap around the limit check.
+        // The limit as std::size_t, so the length checks need no sign conversion.
         constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
         const std::size_t name_length = std::strlen(name);
         const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
@@ -1188,7 +1121,7 @@ void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* 
                     "MSDPSendPair: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n", name,
                     required_length, MAX_VARIABLE_LENGTH);
             } else {
-                /* The variable name itself is too long */
+                // The name alone is too long.
                 std::snprintf(msdp_text, sizeof(msdp_text),
                     "MSDPSendPair: Variable name has a length of %zu bytes (exceeds "
                     "MAX_VARIABLE_LENGTH of %d).\n",
@@ -1213,7 +1146,7 @@ void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* 
             std::snprintf(value_end, room_left, "%c%c", IAC, SE);
         }
 
-        /* Just in case someone calls this function without checking MSDP/ATCP */
+        // Empty when the client has neither MSDP nor ATCP, or the message was too long.
         if (msdp_text[0] != '\0') {
             send_to_client(descriptor, msdp_text);
         }
@@ -1233,8 +1166,7 @@ void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* 
         const std::string_view value_view(value);
         const std::size_t value_length = msdp_sanitized_length(value_view);
 
-        /* Should really be replaced with a dynamic buffer */
-        // Kept as std::size_t so no value is long enough to wrap around the limit check.
+        // The limit as std::size_t, so the length checks need no sign conversion.
         constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
         const std::size_t name_length = std::strlen(name);
         const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
@@ -1245,7 +1177,7 @@ void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* 
                     "MSDPSendList: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n", name,
                     required_length, MAX_VARIABLE_LENGTH);
             } else {
-                /* The variable name itself is too long */
+                // The name alone is too long.
                 std::snprintf(msdp_text, sizeof(msdp_text),
                     "MSDPSendList: Variable name has a length of %zu bytes (exceeds "
                     "MAX_VARIABLE_LENGTH of %d).\n",
@@ -1263,7 +1195,7 @@ void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* 
                 = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
             std::snprintf(value_end, room_left, "%c%c%c", MSDP_ARRAY_CLOSE, IAC, SE);
 
-            /* Convert the spaces to MSDP_VAL */
+            // Each space separates two array values.
             for (int text_position = 0; msdp_text[text_position] != '\0'; ++text_position) {
                 if (msdp_text[text_position] == ' ') {
                     msdp_text[text_position] = MSDP_VAL;
@@ -1278,7 +1210,7 @@ void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* 
             std::snprintf(value_end, room_left, "%c%c", IAC, SE);
         }
 
-        /* Just in case someone calls this function without checking MSDP/ATCP */
+        // Empty when the client has neither MSDP nor ATCP, or the message was too long.
         if (msdp_text[0] != '\0') {
             send_to_client(descriptor, msdp_text);
         }
@@ -1499,7 +1431,7 @@ void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const cha
     const bool can_set = protocol != nullptr && value != nullptr && MSDPIsValidVariable(variable);
     if (can_set) {
         if (*value == '\0') {
-            /* It's easier to call MSDPSetString if the value is empty */
+            // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
             msdp_set_wrapped(*protocol->variables[variable], static_cast<char>(MSDP_TABLE_OPEN),
@@ -1515,7 +1447,7 @@ void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const cha
     const bool can_set = protocol != nullptr && value != nullptr && MSDPIsValidVariable(variable);
     if (can_set) {
         if (*value == '\0') {
-            /* It's easier to call MSDPSetString if the value is empty */
+            // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
             msdp_set_wrapped(*protocol->variables[variable], static_cast<char>(MSDP_ARRAY_OPEN),
@@ -1523,10 +1455,6 @@ void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const cha
         }
     }
 }
-
-/******************************************************************************
- MXP global functions.
- ******************************************************************************/
 
 void MXPSendTag(const descriptor_t* descriptor, const char* tag)
 {
@@ -1540,12 +1468,8 @@ void MXPSendTag(const descriptor_t* descriptor, const char* tag)
             std::snprintf(tag_text, sizeof(tag_text), "\033[1z%s\033[7z\r\n", tag);
             send_to_client(descriptor, tag_text);
         } else if (protocol->renegotiate) {
-            /* Tijer pointed out that when MUSHclient autoconnects, it fails
-             * to complete the negotiation.  This workaround will attempt to
-             * renegotiate after the character has connected.
-             */
-
-            // Renegotiate everything except TTYPE.
+            // A client that connects automatically, such as MUSHclient, can miss the first
+            // offers, so make them again now that the character has connected, except TTYPE.
             for (int option_index = eNEGOTIATED_TTYPE + 1; option_index < eNEGOTIATED_MAX;
                 ++option_index) {
                 protocol->option_states[option_index] = false;
@@ -1559,10 +1483,6 @@ void MXPSendTag(const descriptor_t* descriptor, const char* tag)
         }
     }
 }
-
-/******************************************************************************
- Colour global functions.
- ******************************************************************************/
 
 const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
 {
@@ -1580,22 +1500,15 @@ const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
             if (protocol->variables[eMSDP_XTERM_256_COLORS]->value_number != 0) {
                 return get_xterm_colour(background, red, green, blue);
             } else {
-                /* Use regular ANSI colour */
                 return get_ansi_colour(background, red, green, blue);
             }
         } else {
-            /* Invalid colour - use this to clear any existing colour. */
             return ANSI_CLEAR;
         }
     } else {
-        /* Don't send any colour, not even clear */
         return "";
     }
 }
-
-/******************************************************************************
- UTF-8 global functions.
- ******************************************************************************/
 
 char* UnicodeGet(int code_point)
 {
@@ -1627,10 +1540,8 @@ void UnicodeAdd(char** out_cursor, int code_point)
     }
 }
 
-/******************************************************************************
- Local negotiation functions.
- ******************************************************************************/
-
+// Once the client has answered TTYPE, asks for its terminal type if it agreed to TTYPE, and
+// offers the other options.
 static void negotiate(const descriptor_t* descriptor)
 {
     protocol_t* protocol = descriptor->pProtocol;
@@ -1639,12 +1550,10 @@ static void negotiate(const descriptor_t* descriptor)
         static constexpr char ttype_request[]
             = { TELNET_IAC, TELNET_SB, TELOPT_TTYPE, SEND, TELNET_IAC, TELNET_SE, '\0' };
 
-        /* Request the client type if TTYPE is supported. */
         if (protocol->ttype_enabled) {
             send_to_client(descriptor, ttype_request);
         }
 
-        /* Check for other protocols. */
         confirm_negotiation(descriptor, eNEGOTIATED_NAWS, true, true);
         confirm_negotiation(descriptor, eNEGOTIATED_CHARSET, true, true);
         confirm_negotiation(descriptor, eNEGOTIATED_MSDP, true, true);
@@ -1657,6 +1566,9 @@ static void negotiate(const descriptor_t* descriptor)
     }
 }
 
+// Answers the client's WILL, WONT, DO or DONT for option and records the result. A WILL or DO
+// that would have the wrong side perform an option, such as DO TTYPE, is refused, as is any WILL
+// or DO for an unknown option.
 static void perform_handshake(const descriptor_t* descriptor, char command, char option)
 {
     protocol_t* protocol = descriptor->pProtocol;
@@ -1668,11 +1580,10 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             protocol->ttype_enabled = true;
 
             if (!protocol->negotiated) {
-                /* Negotiate for the remaining protocols. */
                 protocol->negotiated = true;
                 negotiate(descriptor);
 
-                /* We may need to renegotiate if they don't reply */
+                // Renegotiate later unless the client answers NAWS.
                 protocol->renegotiate = true;
             }
         } else if (command == TELNET_WONT) {
@@ -1680,18 +1591,14 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             protocol->ttype_enabled = false;
 
             if (!protocol->negotiated) {
-                /* Still negotiate, as this client obviously knows how to
-                 * correctly respond to negotiation attempts - but we don't
-                 * ask for TTYPE, as it doesn't support it.
-                 */
+                // A WONT still shows the client answers negotiation, so offer the other options;
+                // negotiate does not ask for the terminal type.
                 protocol->negotiated = true;
                 negotiate(descriptor);
 
-                /* We may need to renegotiate if they don't reply */
                 protocol->renegotiate = true;
             }
         } else if (command == TELNET_DO) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_WONT, option);
         }
         break;
@@ -1704,7 +1611,6 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_ECHO, false, protocol->echo_enabled);
             protocol->echo_enabled = false;
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
@@ -1714,16 +1620,14 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_NAWS, true, true);
             protocol->naws_enabled = true;
 
-            /* Renegotiation workaround won't be necessary. */
+            // The client answers negotiation, so it needs no renegotiation.
             protocol->renegotiate = false;
         } else if (command == TELNET_WONT) {
             confirm_negotiation(descriptor, eNEGOTIATED_NAWS, false, protocol->naws_enabled);
             protocol->naws_enabled = false;
 
-            /* Renegotiation workaround won't be necessary. */
             protocol->renegotiate = false;
         } else if (command == TELNET_DO) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_WONT, option);
         }
         break;
@@ -1732,23 +1636,8 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
         if (command == TELNET_WILL) {
             confirm_negotiation(descriptor, eNEGOTIATED_CHARSET, true, true);
             if (!protocol->charset_enabled) {
-                /* Advertise ISO-8859-1, not UTF-8: that is what we actually put
-                   on the wire. Nothing in the output path ever encodes to UTF-8
-                   -- ProtocolOutput() (the only function that would, via
-                   UnicodeGet()) has no callers anywhere in the server; text goes
-                   straight from process_output() to write_to_descriptor() as raw
-                   bytes. The one source of non-ASCII output is the Quenya month
-                   names in consts.cpp (month_name[0..11], e.g. "N\xE9nim\xEB"),
-                   reached through day_to_str() from `time` and the pkill log,
-                   and those are literal latin-1 bytes.
-
-                   Claiming UTF-8 here made conforming clients (Mudlet) decode
-                   those bytes as UTF-8, where a lone 0xEB is an invalid sequence
-                   -- so the month names rendered as replacement characters.
-
-                   Note this is only about what we *emit*. PRF_LATIN1 still
-                   controls whether process_output() folds those bytes down to
-                   7-bit ASCII via unaccent() for players who asked for that. */
+                // Offer ISO-8859-1, because every byte the server sends is latin-1; it never
+                // encodes UTF-8.
                 static constexpr char charset_latin1[] = {
                     TELNET_IAC, TELNET_SB, TELOPT_CHARSET, 1, ' ', 'I', 'S', 'O',
                     '-', '8', '8', '5', '9', '-', '1', TELNET_IAC, TELNET_SE, '\0'
@@ -1760,7 +1649,6 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_CHARSET, false, protocol->charset_enabled);
             protocol->charset_enabled = false;
         } else if (command == TELNET_DO) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_WONT, option);
         }
         break;
@@ -1769,32 +1657,20 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
         if (command == TELNET_DO) {
             confirm_negotiation(descriptor, eNEGOTIATED_MSDP, true, true);
 
-            /* Unlike its sibling flags (mssp_enabled/atcp_enabled/msp_enabled/mxp_enabled/
-               mccp_enabled, all false by default), msdp_enabled defaults to true at
-               connection creation -- so the
-               "!protocol->msdp_enabled" check below can essentially never be true on a
-               normal DO/WILL exchange, making the block it guards dead in practice.
-               MSDPSetString() only populates SERVER_ID's own backing storage (no
-               wire traffic, no login/preference guard, safe to call on every DO),
-               so do that unconditionally here -- otherwise a client-issued
-               "SEND SERVER_ID" later (read via MSDPSend(), which reads that
-               storage) returns an empty string instead of the mud's name. */
+            // Stored on every DO, for a later SEND SERVER_ID: msdp_enabled starts true, so the
+            // check below passes only after a DONT.
             MSDPSetString(descriptor, eMSDP_SERVER_ID, MUD_NAME);
 
             if (!protocol->msdp_enabled) {
                 protocol->msdp_enabled = true;
 
-                /* Identify the mud to the client immediately. This fires during
-                   telnet negotiation, before login, so it can't go through
-                   MSDPSend() (which requires a logged-in character with PRF_MSDP
-                   set) -- MSDPSendPair() sends it immediately with no such guard. */
+                // MSDPSendPair, unlike MSDPSend, works before login.
                 MSDPSendPair(descriptor, "SERVER_ID", MUD_NAME);
             }
         } else if (command == TELNET_DONT) {
             confirm_negotiation(descriptor, eNEGOTIATED_MSDP, false, protocol->msdp_enabled);
             protocol->msdp_enabled = false;
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
@@ -1811,7 +1687,6 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_MSSP, false, protocol->mssp_enabled);
             protocol->mssp_enabled = false;
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
@@ -1830,7 +1705,6 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
                 protocol->mccp_enabled = false;
             }
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
@@ -1843,7 +1717,6 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_MSP, false, protocol->msp_enabled);
             protocol->msp_enabled = false;
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
@@ -1853,17 +1726,15 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             if (command == TELNET_WILL) {
                 confirm_negotiation(descriptor, eNEGOTIATED_MXP, true, true);
             } else {
-                /* command == TELNET_DO */
                 confirm_negotiation(descriptor, eNEGOTIATED_MXP2, true, true);
             }
 
             if (!protocol->mxp_enabled) {
-                /* Enable MXP. */
                 static constexpr char mxp_enable[]
                     = { TELNET_IAC, TELNET_SB, TELOPT_MXP, TELNET_IAC, TELNET_SE, '\0' };
                 send_to_client(descriptor, mxp_enable);
 
-                /* Create a secure channel, and note that MXP is active. */
+                // Lock secure mode, in which the client accepts MXP tags.
                 send_to_client(descriptor, "\033[7z");
                 protocol->mxp_enabled = true;
                 protocol->variables[eMSDP_MXP]->value_number = 1;
@@ -1876,16 +1747,11 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_MXP, false, protocol->mxp_enabled);
 
             if (!protocol->mxp_enabled) {
-                /* The MXP standard doesn't actually specify whether you should
-                 * negotiate with IAC DO MXP or IAC WILL MXP.  As a result, some
-                 * clients support one, some the other, and some support both.
-                 *
-                 * Therefore we first try IAC DO MXP, and if the client replies
-                 * with WONT, we try again (here) with IAC WILL MXP.
-                 */
+                // The MXP standard does not say whether the server sends DO MXP or WILL MXP,
+                // and clients differ, so a WONT to DO MXP brings an offer of WILL MXP.
                 confirm_negotiation(descriptor, eNEGOTIATED_MXP2, true, true);
             } else {
-                /* The client is actually asking us to switch MXP off. */
+                // A WONT once MXP is on switches it off.
                 protocol->mxp_enabled = false;
             }
         } else if (command == TELNET_DONT) {
@@ -1898,19 +1764,11 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
         if (command == TELNET_WILL) {
             confirm_negotiation(descriptor, eNEGOTIATED_ATCP, true, true);
 
-            /* If we don't support MSDP, fake it with ATCP */
+            // ATCP carries the MSDP variables only for a client without MSDP.
             if (!protocol->msdp_enabled && !protocol->atcp_enabled) {
                 protocol->atcp_enabled = true;
 
-                /* Identify the mud to the client. This fires during telnet negotiation,
-                   before login, so it can't go through MSDPSend() (which requires a
-                   logged-in character with PRF_MSDP set) -- MSDPSendPair() sends it
-                   immediately with no such guard, exactly as before. But MSDPSendPair()
-                   never touches the variable's own backing storage, so without this,
-                   a later client-issued "SEND SERVER_ID" (which does go through
-                   MSDPSend(), reading that storage) would return an empty string.
-                   MSDPSetString() has no login/preference guard either, so store the
-                   value too. */
+                // Sent now, before login, and stored for a later SEND SERVER_ID.
                 MSDPSendPair(descriptor, "SERVER_ID", MUD_NAME);
                 MSDPSetString(descriptor, eMSDP_SERVER_ID, MUD_NAME);
             }
@@ -1918,7 +1776,6 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_ATCP, false, protocol->atcp_enabled);
             protocol->atcp_enabled = false;
         } else if (command == TELNET_DO) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_WONT, option);
         }
         break;
@@ -1931,31 +1788,27 @@ static void perform_handshake(const descriptor_t* descriptor, char command, char
             confirm_negotiation(descriptor, eNEGOTIATED_EOR, false, protocol->eor_enabled);
             protocol->eor_enabled = false;
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
 
     case static_cast<char>(TELOPT_SGA):
         if (command == TELNET_DO) {
-            /* The client wants no IAC GA after prompts. */
+            // The client wants no IAC GA after prompts.
             confirm_negotiation(descriptor, eNEGOTIATED_SGA, true, true);
             protocol->sga_enabled = true;
         } else if (command == TELNET_DONT) {
             confirm_negotiation(descriptor, eNEGOTIATED_SGA, false, protocol->sga_enabled);
             protocol->sga_enabled = false;
         } else if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         }
         break;
 
     default:
         if (command == TELNET_WILL) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_DONT, option);
         } else if (command == TELNET_DO) {
-            /* Invalid negotiation, send a rejection */
             send_negotiation_sequence(descriptor, TELNET_WONT, option);
         }
         break;
@@ -1974,6 +1827,8 @@ static bool sometimes_supports_xterm_256(const char* client_name)
     return false;
 }
 
+// Acts on one complete subnegotiation for option. data is its NUL-terminated payload, size bytes
+// long.
 static void perform_subnegotiation(
     const descriptor_t* descriptor, char option, const char* data, int size)
 {
@@ -1982,7 +1837,7 @@ static void perform_subnegotiation(
     switch (option) {
     case static_cast<char>(TELOPT_TTYPE):
         if (protocol->ttype_enabled) {
-            /* Store the client name. */
+            // The name after TTYPE's IS byte, in printable ASCII.
             constexpr int max_client_length = 64;
             char client_name[max_client_length + 1];
             int name_length = 0;
@@ -1997,38 +1852,20 @@ static void perform_subnegotiation(
             }
             client_name[name_length] = '\0';
 
-            /* Store the first TTYPE as the client name */
+            // The first TTYPE is the client name.
             if (std::strcmp(protocol->variables[eMSDP_CLIENT_ID]->value_text, "Unknown") == 0) {
                 std::free(protocol->variables[eMSDP_CLIENT_ID]->value_text);
                 protocol->variables[eMSDP_CLIENT_ID]->value_text = copy_string(client_name);
 
-                /* This is a bit nasty, but using cyclic TTYPE on windows telnet
-                 * causes it to lock up.  None of the clients we need to cycle
-                 * with send ANSI to start with anyway, so we shouldn't have any
-                 * conflicts.
-                 *
-                 * An alternative solution is to use escape sequences to check
-                 * for windows telnet prior to negotiation, and this also avoids
-                 * the player losing echo, but it has other issues.  Because the
-                 * escape codes are technically in-band, even though they'll be
-                 * stripped from the display, the newlines will still cause some
-                 * scrolling.  Therefore you need to either pause the session
-                 * for a few seconds before displaying the login screen, or wait
-                 * until the player has entered their name before negotiating.
-                 */
+                // Cycling TTYPE locks up Windows telnet, whose first name is "ANSI"; no client
+                // worth cycling sends that first.
                 if (std::strcmp(client_name, "ANSI") == 0) {
                     stop_cyclic_ttype = true;
                 }
             }
 
-            /* Cycle through the TTYPEs until we get the same result twice, or
-             * find ourselves back at the start.
-             *
-             * If the client follows RFC1091 properly then it will indicate the
-             * end of the list by repeating the last response, and then return
-             * to the top of the list.  If you're the trusting type, then feel
-             * free to remove the second strcmp ;)
-             */
+            // Ask for the next TTYPE until a name repeats: an RFC 1091 client repeats its last
+            // name to end the list, and another may start the list again from the client name.
             const char* client_id = protocol->variables[eMSDP_CLIENT_ID]->value_text;
             const bool has_last_ttype = protocol->last_ttype != nullptr;
             const bool repeats_last_ttype
@@ -2040,22 +1877,17 @@ static void perform_subnegotiation(
                     TELNET_IAC, TELNET_SE, '\0' };
                 const char* type_suffix = std::strstr(client_name, "-");
 
-                /* Store the TTYPE */
                 std::free(protocol->last_ttype);
                 protocol->last_ttype = copy_string(client_name);
 
-                /* Look for 256 colour support */
                 const bool names_xterm_256
                     = type_suffix != nullptr && equals_ignoring_case(type_suffix, "-256color");
                 if (names_xterm_256) {
-                    /* This is currently the only way to detect support for 256
-                     * colours in TinTin++, WinTin++ and BlowTorch.
-                     */
+                    // TinTin++, WinTin++ and BlowTorch show 256-colour support this way.
                     protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
                     protocol->xterm_256_support = eYES;
                 }
 
-                /* Request another TTYPE */
                 if (!stop_cyclic_ttype) {
                     send_to_client(descriptor, ttype_request);
                 }
@@ -2090,10 +1922,8 @@ static void perform_subnegotiation(
                 }
 
             } else if (starts_with_ignoring_case(mudlet_name, client_name)) {
-                /* Mudlet beta 15 and later supports 256 colours, but we can't
-                 * identify it from the mud - everything prior to 1.1 claims
-                 * to be version 1.0, so we just don't know.
-                 */
+                // Mudlet beta 15 and later support 256 colours, but every Mudlet before 1.1
+                // reports version 1.0.
                 protocol->xterm_256_support = eSOMETIMES;
 
                 constexpr std::size_t mudlet_name_length
@@ -2108,7 +1938,7 @@ static void perform_subnegotiation(
                     protocol->variables[eMSDP_CLIENT_VERSION]->value_text
                         = copy_string(client_name + version_start);
 
-                    /* Mudlet 1.1 and later supports 256 colours. */
+                    // Mudlet 1.1 and later support 256 colours.
                     const char* client_version
                         = protocol->variables[eMSDP_CLIENT_VERSION]->value_text;
                     const bool supports_xterm_256 = std::strcmp(client_version, "1.1") >= 0;
@@ -2118,11 +1948,9 @@ static void perform_subnegotiation(
                     }
                 }
             } else if (equals_ignoring_case(client_name, "EMACS-RINZAI")) {
-                /* We know for certain that this client has support */
                 protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
                 protocol->xterm_256_support = eYES;
             } else if (starts_with_ignoring_case(decafmud_name, client_name)) {
-                /* We know for certain that this client has support */
                 protocol->variables[eMSDP_XTERM_256_COLORS]->value_number = 1;
                 protocol->xterm_256_support = eYES;
 
@@ -2139,10 +1967,8 @@ static void perform_subnegotiation(
                         = copy_string(client_name + version_start);
                 }
             } else if (sometimes_supports_xterm_256(client_name)) {
-                /* We know that some versions of this client have support */
                 protocol->xterm_256_support = eSOMETIMES;
             } else if (equals_ignoring_case(client_name, "ZMUD")) {
-                /* We know for certain that this client does not have support */
                 protocol->xterm_256_support = eNO;
             }
         }
@@ -2150,12 +1976,11 @@ static void perform_subnegotiation(
 
     case static_cast<char>(TELOPT_NAWS):
         if (protocol->naws_enabled) {
-            /* Store the new width. */
+            // NAWS sends the width, then the height, each as two bytes, high byte first.
             protocol->screen_width = static_cast<unsigned char>(data[0]);
             protocol->screen_width <<= 8;
             protocol->screen_width += static_cast<unsigned char>(data[1]);
 
-            /* Store the new height. */
             protocol->screen_height = static_cast<unsigned char>(data[2]);
             protocol->screen_height <<= 8;
             protocol->screen_height += static_cast<unsigned char>(data[3]);
@@ -2163,20 +1988,8 @@ static void perform_subnegotiation(
         break;
 
     case static_cast<char>(TELOPT_CHARSET):
-        /* Nothing to record. We only ever offer one charset, ISO-8859-1 (see the
-         * REQUEST we send in perform_handshake), and we emit latin-1 either way --
-         * so neither ACCEPTED nor REJECTED changes what we put on the wire. If you
-         * ever offer more than one, read the reply here to see which was picked.
-         *
-         * This deliberately no longer sets eMSDP_UTF_8. It did, back when the
-         * REQUEST above claimed UTF-8 -- but that flag means "UTF-8 is in play",
-         * and accepting latin-1 is the opposite of that. The server has no UTF-8
-         * output path at all (ProtocolOutput(), which would provide one, is
-         * uncalled), so asserting it here only misled clients. Genuine client-side
-         * UTF-8 capability is still recorded from the MTTS bitfield in the TTYPE
-         * handler, which is a statement about the client rather than about this
-         * negotiation.
-         */
+        // ISO-8859-1 is the only charset offered, and the server sends latin-1 whatever the
+        // client answers, so the answer changes nothing.
         break;
 
     case static_cast<char>(TELOPT_MSDP):
@@ -2191,7 +2004,7 @@ static void perform_subnegotiation(
         }
         break;
 
-    default: /* Unknown subnegotiation, so we simply ignore it. */
+    default:
         break;
     }
 }
@@ -2208,15 +2021,16 @@ static void send_negotiation_sequence(const descriptor_t* descriptor, char comma
     send_to_client(descriptor, sequence);
 }
 
+// Records will_do as option's state and returns whether the state changed. When it changed and
+// send_reply is set, sends the offer or answer: DO or DONT for an option the client performs,
+// WILL or WONT for one the server performs. MCCP is never sent.
 static bool confirm_negotiation(
     const descriptor_t* descriptor, negotiated_t option, bool will_do, bool send_reply)
 {
     bool changed = false;
 
     if (option >= eNEGOTIATED_TTYPE && option < eNEGOTIATED_MAX) {
-        /* Only negotiate if the state has changed. */
         if (descriptor->pProtocol->option_states[option] != will_do) {
-            /* Store the new state. */
             descriptor->pProtocol->option_states[option] = will_do;
 
             changed = true;
@@ -2282,10 +2096,8 @@ static bool confirm_negotiation(
     return changed;
 }
 
-/******************************************************************************
- Local MSDP functions.
- ******************************************************************************/
-
+// Passes each value in an MSDP payload to execute_msdp_pair with the variable name before it.
+// Names and values are cut to MAX_MSDP_SIZE characters.
 static void parse_msdp(const descriptor_t* descriptor, const char* data)
 {
     char pair_parts[MSDP_PAIR_PARTS][MAX_MSDP_SIZE + 1] = { { '\0' }, { '\0' } };
@@ -2300,7 +2112,7 @@ static void parse_msdp(const descriptor_t* descriptor, const char* data)
             write_position = part_start;
             ++data;
             break;
-        default: /* Anything else */
+        default:
             if (write_position != nullptr && write_position - part_start < MAX_MSDP_SIZE) {
                 *write_position++ = *data;
                 *write_position = '\0';
@@ -2326,6 +2138,8 @@ static bool names_sendable_variables(const char* list_name)
     return equals_ignoring_case(list_name, "REPORTABLE_VARIABLES");
 }
 
+// Carries out a client's MSDP command (SEND, REPORT, RESET, UNREPORT or LIST) or sets a
+// configurable variable. An empty name or value does nothing.
 static void execute_msdp_pair(
     const descriptor_t* descriptor, const char* name, const char* value)
 {
@@ -2381,9 +2195,7 @@ static void execute_msdp_pair(
                     = "COMMANDS LISTS CONFIGURABLE_VARIABLES REPORTABLE_VARIABLES "
                       "REPORTED_VARIABLES SENDABLE_VARIABLES GUI_VARIABLES";
                 MSDPSendList(descriptor, "LISTS", name_list);
-            }
-            /* Split this into two if some variables aren't REPORTABLE */
-            else if (names_sendable_variables(value)) {
+            } else if (names_sendable_variables(value)) {
                 char name_list[MAX_OUTPUT_BUFFER];
                 std::size_t commands_length = 0;
 
@@ -2441,7 +2253,7 @@ static void execute_msdp_pair(
                 MSDPSendList(descriptor, value, name_list);
             }
         } else {
-            /* Set any configurable variables */
+            // Otherwise name may be a configurable variable.
             for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX;
                 ++variable_index) {
                 if (!VARIABLE_NAME_TABLE[variable_index].configurable) {
@@ -2453,17 +2265,11 @@ static void execute_msdp_pair(
 
                 MSDP_t* const variable = descriptor->pProtocol->variables[variable_index];
                 if (VARIABLE_NAME_TABLE[variable_index].is_string) {
-                    /* A write-once variable can only be set if the value
-                     * is "Unknown".  This is for things like client name,
-                     * where we don't really want the player overwriting a
-                     * proper client name with junk - but on the other hand,
-                     * its possible a client may choose to use MSDP to
-                     * identify itself.
-                     */
+                    // A write-once variable, such as the client name, is set only while it is
+                    // "Unknown": a client may name itself but not replace a name already found.
                     const bool can_write = !VARIABLE_NAME_TABLE[variable_index].write_once
                         || std::strcmp(variable->value_text, "Unknown") == 0;
                     if (can_write) {
-                        /* Store the new value if it's valid */
                         char stored_text[MAX_CONFIGURABLE_STRING_LENGTH + 1];
                         int stored_length = 0;
                         const int max_length = VARIABLE_NAME_TABLE[variable_index].maximum;
@@ -2482,8 +2288,6 @@ static void execute_msdp_pair(
                         }
                     }
                 } else {
-                    /* This variable only accepts numeric values */
-                    /* Strip any leading spaces */
                     while (*value == ' ') {
                         ++value;
                     }
@@ -2503,10 +2307,7 @@ static void execute_msdp_pair(
     }
 }
 
-/******************************************************************************
- Local ATCP functions.
- ******************************************************************************/
-
+// parse_msdp for an ATCP payload, where '@' starts the name and a space the value.
 static void parse_atcp(const descriptor_t* descriptor, const char* data)
 {
     char pair_parts[MSDP_PAIR_PARTS][MAX_MSDP_SIZE + 1] = { { '\0' }, { '\0' } };
@@ -2525,7 +2326,7 @@ static void parse_atcp(const descriptor_t* descriptor, const char* data)
             write_position = part_start;
             data++;
             break;
-        default: /* Anything else */
+        default:
             if (write_position != nullptr && write_position - part_start < MAX_MSDP_SIZE) {
                 *write_position++ = *data;
                 *write_position = '\0';
@@ -2542,10 +2343,7 @@ static void parse_atcp(const descriptor_t* descriptor, const char* data)
     }
 }
 
-/******************************************************************************
- Local MSSP functions.
- ******************************************************************************/
-
+// Sends the MSSP status message.
 static void send_mssp(const descriptor_t* descriptor)
 {
     // IAC SB MSSP, and the room kept for IAC SE and the NUL.
@@ -2556,35 +2354,28 @@ static void send_mssp(const descriptor_t* descriptor)
     char pair_text[pair_buffer_size];
     int mssp_length = mssp_header_length;
 
-    /* Before updating the following table, please read the MSSP specification:
-     *
-     * http://tintin.sourceforge.net/mssp/
-     *
-     * It's important that you use the correct format and spelling for the MSSP
-     * variables, otherwise crawlers may reject the data as invalid.
-     */
+    // Names and values follow the MSSP specification, http://tintin.sourceforge.net/mssp/;
+    // crawlers reject the data when one is misspelt.
     static constexpr MSSP_t mssp_table[] = {
-        /* Required */
-        { "NAME", MUD_NAME }, /* Change this in protocol.h */
+        // Required
+        { "NAME", MUD_NAME },
         { "PLAYERS", "0" },
         { "UPTIME", "0" },
 
-        /* Generic */
+        // Generic
         { "CRAWL DELAY", "-1" },
-        { nullptr, nullptr } /* This must always be last. */
+        { nullptr, nullptr } // Ends the table.
     };
 
-    /* Begin the subnegotiation sequence */
     std::snprintf(mssp_text, sizeof(mssp_text), "%c%c%c", IAC, SB, TELOPT_MSSP);
 
     for (int entry_index = 0; mssp_table[entry_index].name != nullptr; ++entry_index) {
         int pair_length;
 
-        /* Retrieve the next MSSP variable/value pair */
         std::snprintf(pair_text, sizeof(pair_text), "%c%s%c%s", MSSP_VAR,
             mssp_table[entry_index].name, MSSP_VAL, mssp_table[entry_index].value);
 
-        /* Make sure we don't overflow the buffer */
+        // A pair that does not fit is left out.
         pair_length = std::strlen(pair_text);
         if (pair_length + mssp_length < MAX_MSSP_BUFFER - mssp_trailer_room) {
             std::memcpy(
@@ -2593,18 +2384,15 @@ static void send_mssp(const descriptor_t* descriptor)
         }
     }
 
-    /* End the subnegotiation sequence */
     std::snprintf(mssp_text + mssp_length,
         sizeof(mssp_text) - static_cast<std::size_t>(mssp_length), "%c%c", IAC, SE);
 
-    /* Send the sequence */
     send_to_client(descriptor, mssp_text);
 }
 
-/******************************************************************************
- Local MXP functions.
- ******************************************************************************/
-
+// The value after tag, such as "VERSION=", in text: letters, digits and dots, perhaps quoted. It
+// is in a static buffer that the next call overwrites. Returns nullptr when tag is absent, or
+// when its value runs to the end of text or reaches 60 characters.
 static char* find_mxp_tag_value(const char* tag, const char* text)
 {
     constexpr int value_buffer_size = 64;
@@ -2615,12 +2403,11 @@ static char* find_mxp_tag_value(const char* tag, const char* text)
     if (cursor != nullptr) {
         const char* text_end = text + std::strlen(text);
 
-        cursor += std::strlen(tag); /* Add length of the tag */
+        cursor += std::strlen(tag);
 
         if (cursor < text_end) {
             int value_length = 0;
 
-            /* Some clients use quotes...and some don't. */
             if (*cursor == '\"') {
                 cursor++;
             }
@@ -2630,7 +2417,6 @@ static char* find_mxp_tag_value(const char* tag, const char* text)
                 if (letter == '.' || std::isdigit(letter) || std::isalpha(letter)) {
                     tag_value[value_length++] = letter;
                 } else {
-                    /* Return the result */
                     tag_value[value_length] = '\0';
                     return tag_value;
                 }
@@ -2638,14 +2424,11 @@ static char* find_mxp_tag_value(const char* tag, const char* text)
         }
     }
 
-    /* Return nullptr to indicate no tag was found. */
     return nullptr;
 }
 
-/******************************************************************************
- Local colour functions.
- ******************************************************************************/
-
+// The ANSI colour nearest to the red, green and blue digits, each 0 to 5: the background colour
+// when background is set, otherwise the bold or normal foreground colour.
 static const char* get_ansi_colour(bool background, int red, int green, int blue)
 {
     const char* background_colour = nullptr;
@@ -2689,7 +2472,7 @@ static const char* get_ansi_colour(bool background, int red, int green, int blue
         dark_colour = ANSI_DARK_CYAN;
         is_bright = green >= 3;
     } else {
-        /* blue is the highest */
+        // Blue is the largest.
         background_colour = ANSI_BACKGROUND_BLUE;
         bold_colour = ANSI_BOLD_BLUE;
         dark_colour = ANSI_DARK_BLUE;
@@ -2705,49 +2488,46 @@ static const char* get_ansi_colour(bool background, int red, int green, int blue
     return dark_colour;
 }
 
+// The xterm 256-colour escape code for the red, green and blue digits, each 0 to 5, in a static
+// buffer that the next call overwrites.
 static const char* get_xterm_colour(bool background, int red, int green, int blue)
 {
     static char escape_code[16];
     int xterm_colour_index = 16 + (red * 36) + (green * 6) + blue;
     std::snprintf(escape_code, sizeof(escape_code), "\033[%c8;5;%c%c%cm",
-        '3' + background, /* Background */
-        '0' + (xterm_colour_index / 100), /* Red        */
-        '0' + ((xterm_colour_index % 100) / 10), /* Green      */
-        '0' + (xterm_colour_index % 10)); /* Blue       */
+        '3' + background, // 3 sets the foreground, 4 the background.
+        '0' + (xterm_colour_index / 100), // The palette index's hundreds,
+        '0' + ((xterm_colour_index % 100) / 10), // tens
+        '0' + (xterm_colour_index % 10)); // and units.
     return escape_code;
 }
 
+// Whether rgb_code starts with a colour code: 'F' or 'B' in either case, then three digits from
+// 0 to 5. Characters after the fourth are ignored, and null is not a colour code.
 static bool is_valid_colour(const char* rgb_code)
 {
     if (rgb_code == nullptr) {
         return false;
     }
 
-    /* The sequence is 4 bytes, but we can ignore anything after it. */
     if (std::strlen(rgb_code) < static_cast<std::size_t>(RGB_COLOUR_CODE_LENGTH)) {
         return false;
     }
 
-    /* The first byte indicates foreground/background. */
     if (std::tolower(rgb_code[0]) != 'f' && std::tolower(rgb_code[0]) != 'b') {
         return false;
     }
 
-    /* The remaining three bytes must each be in the range '0' to '5'. */
     for (int digit_index = 1; digit_index < RGB_COLOUR_CODE_LENGTH; ++digit_index) {
         if (rgb_code[digit_index] < '0' || rgb_code[digit_index] > '5') {
             return false;
         }
     }
 
-    /* It's a valid foreground or background colour */
     return true;
 }
 
-/******************************************************************************
- Other local functions.
- ******************************************************************************/
-
+// Whether first and second are equal, ignoring case.
 static bool equals_ignoring_case(const char* first, const char* second)
 {
     while (*first != '\0' && std::tolower(*first) == std::tolower(*second)) {
@@ -2757,6 +2537,7 @@ static bool equals_ignoring_case(const char* first, const char* second)
     return (*first == '\0' && *second == '\0');
 }
 
+// Whether text starts with prefix, ignoring case. The prefix comes first.
 static bool starts_with_ignoring_case(const char* prefix, const char* text)
 {
     while (*prefix != '\0' && std::tolower(*prefix) == std::tolower(*text)) {
@@ -2766,6 +2547,7 @@ static bool starts_with_ignoring_case(const char* prefix, const char* text)
     return (*prefix == '\0');
 }
 
+// Whether every character of text is a decimal digit; true for an empty string.
 static bool is_all_digits(const char* text)
 {
     while (*text != '\0' && std::isdigit(*text)) {

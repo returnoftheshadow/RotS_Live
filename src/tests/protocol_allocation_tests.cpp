@@ -254,10 +254,10 @@ public:
         descriptor.pProtocol->atcp_enabled = true;
     }
 
-    // Arms wrote(): protocol.cpp's Write turns a positive write_oob into 2.
+    // Arms wrote(): protocol.cpp's send_to_client turns a positive write_oob into 2.
     void watch_for_write() { descriptor.pProtocol->write_oob = 1; }
 
-    // Whether a packet reached Write since watch_for_write.
+    // Whether a packet reached send_to_client since watch_for_write.
     bool wrote() const { return descriptor.pProtocol->write_oob == 2; }
 
     // The descriptor given to the functions under test; its protocol is released at scope end.
@@ -553,7 +553,8 @@ TEST_F(ProtocolAllocation, SetArrayReplacesAChangedValueWithoutOperatorNew)
     EXPECT_TRUE(exits->dirty);
 }
 
-// MSDPSend's allocations for a string and a number variable, checking each reached Write.
+// MSDPSend's allocations for a string and a number variable, checking each reached
+// send_to_client.
 void expect_send_does_not_allocate(AllocationDescriptor& context)
 {
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ESCAPED_ROOM_NAME);
