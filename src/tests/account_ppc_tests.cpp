@@ -1584,16 +1584,16 @@ TEST(AccountPpcPropagate, ASiblingSwitchedOntoMsdpGetsAFullSnapshot)
     PRF_FLAGS(already_on_sibling.character) = PRF_MSDP;
 
     for (int index = eMSDP_NONE + 1; index < eMSDP_MAX; ++index) {
-        sibling_desc.pProtocol->pVariables[index]->bDirty = false;
-        already_on_desc.pProtocol->pVariables[index]->bDirty = false;
+        sibling_desc.pProtocol->variables.mark_clean(static_cast<variable_t>(index));
+        already_on_desc.pProtocol->variables.mark_clean(static_cast<variable_t>(index));
     }
 
     ppc_propagate_from(source.character);
 
     ASSERT_TRUE(PRF_FLAGGED(sibling.character, PRF_MSDP));
-    EXPECT_TRUE(sibling_desc.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty)
+    EXPECT_TRUE(sibling_desc.pProtocol->variables.is_dirty(eMSDP_CHARACTER_NAME))
         << "An off->on transition on a sibling must re-prime its reported variables.";
-    EXPECT_FALSE(already_on_desc.pProtocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty)
+    EXPECT_FALSE(already_on_desc.pProtocol->variables.is_dirty(eMSDP_CHARACTER_NAME))
         << "A sibling that already had MSDP on has not transitioned and needs no snapshot.";
 
     ProtocolDestroy(sibling_desc.pProtocol);

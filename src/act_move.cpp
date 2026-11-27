@@ -748,7 +748,7 @@ void msdp_room_update(const char_data* ch)
     msdp_room += (char)MSDP_VAR;
     msdp_room += "NAME";
     msdp_room += (char)MSDP_VAL;
-    msdp_room += MSDPSanitizeValue(room.name);
+    MSDPAppendSanitized(msdp_room, room.name);
     msdp_room += (char)MSDP_VAR;
     msdp_room += "EXITS";
     msdp_room += (char)MSDP_VAL;
@@ -758,12 +758,12 @@ void msdp_room_update(const char_data* ch)
     msdp_room += (char)MSDP_VAL;
 
     extern char* sector_types[];
-    msdp_room += MSDPSanitizeValue(sector_types[room.sector_type]);
+    MSDPAppendSanitized(msdp_room, sector_types[room.sector_type]);
 
     // Room exits need to be sent first before anything else
-    MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exit_letters.c_str());
+    MSDPSetArray(ch->desc, eMSDP_ROOM_EXITS, exit_letters);
     MSDPFlush(ch->desc, eMSDP_ROOM_EXITS);
-    MSDPSetTable(ch->desc, eMSDP_ROOM, msdp_room.c_str());
+    MSDPSetTable(ch->desc, eMSDP_ROOM, msdp_room);
 
     /* Not MSDPUpdate(): on a fresh connection the other variables still hold
        ProtocolCreate()'s 0/"" placeholders until msdp_update() computes them. */

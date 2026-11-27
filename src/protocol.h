@@ -1,107 +1,77 @@
-/******************************************************************************
- Protocol snippet by KaVir.  Released into the public domain in February 2011.
+// Protocol snippet by KaVir.  Released into the public domain in February 2011.
+//
+// In case this is not legally possible:
+//
+// The copyright holder grants any entity the right to use this work for any
+// purpose, without any conditions, unless such conditions are required by law.
 
- In case this is not legally possible:
-
- The copyright holder grants any entity the right to use this work for any
- purpose, without any conditions, unless such conditions are required by law.
- ******************************************************************************/
+// The MSDP support here is based on the MUD Server Data Protocol specification:
+// https://tintin.mudhalla.net/protocols/msdp/
 
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#include <array>
+#include <bitset>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 
-/******************************************************************************
- Set your MUD_NAME, and change descriptor_t if necessary.
- ******************************************************************************/
-
+// The server's name, sent as MSDP SERVER_ID and MSSP NAME.
 inline constexpr char MUD_NAME[] = "Return of the Shadow";
 
-typedef struct descriptor_data descriptor_t;
+struct descriptor_data;
+// A connection. Its pProtocol member is the protocol state these functions read and change.
+using descriptor_t = descriptor_data;
 
-/******************************************************************************
- If you wish to support traditional mud colour codes, uncomment COLOUR_CHAR.
- ******************************************************************************/
+// The protocol snippet's version, sent to clients as MSDP SNIPPET_VERSION.
+inline constexpr int SNIPPET_VERSION = 8;
 
-/* You may replace the '^' with another character if you wish, eg '&' or '@'. */
-/*
-#define COLOUR_CHAR '^'
-*/
-
-/* Change this to 'false' if colour codes are off by default (see README.TXT) */
-inline constexpr bool COLOUR_ON_BY_DEFAULT = true;
-
-/* Uncomment this if players can also use RGB colour codes such as "^[F135]" */
-/*
-#define EXTENDED_COLOUR
-*/
-
-/* Uncomment this if invalid colours are displayed rather than being eaten. */
-/*
-#define DISPLAY_INVALID_COLOUR_CODES
-*/
-
-/******************************************************************************
- If your mud supports MCCP (compression), uncomment the next line.
- ******************************************************************************/
-
-/*
-#define USING_MCCP
-*/
-
-/******************************************************************************
- If your offer a Mudlet GUI for autoinstallation, put the path/filename here.
- ******************************************************************************/
-
-/*
-#define MUDLET_PACKAGE "1\nhttp://blah.org/download/MY_GUI.mpackage"
-*/
-
-/******************************************************************************
- Symbolic constants.
- ******************************************************************************/
-
-inline constexpr int SNIPPET_VERSION = 8; /* Helpful for debugging */
-
+// The most characters one ProtocolInput call passes on, and the most bytes one subnegotiation
+// may hold.
 inline constexpr int MAX_PROTOCOL_BUFFER = 2048;
+// The limit on one MSDP or ATCP message, framing included; a longer one is logged and not sent.
 inline constexpr int MAX_VARIABLE_LENGTH = 4096;
+// The limit on ProtocolOutput's result and on the variable lists sent for MSDP LIST.
 inline constexpr int MAX_OUTPUT_BUFFER = 8192;
+// The size of the MSSP status message.
 inline constexpr int MAX_MSSP_BUFFER = 4096;
 
+// Telnet subnegotiation codes: SEND asks the client for a value, as in TTYPE SEND, and ACCEPTED
+// answers a CHARSET request.
 inline constexpr int SEND = 1;
 inline constexpr int ACCEPTED = 2;
-inline constexpr int REJECTED = 3;
 
+// Telnet option numbers for the MUD protocols.
 inline constexpr int TELOPT_CHARSET = 42;
 inline constexpr int TELOPT_MSDP = 69;
 inline constexpr int TELOPT_MSSP = 70;
-inline constexpr int TELOPT_MCCP = 86; /* This is MCCP version 2 */
+// MCCP version 2.
+inline constexpr int TELOPT_MCCP = 86;
 inline constexpr int TELOPT_MSP = 90;
 inline constexpr int TELOPT_MXP = 91;
 inline constexpr int TELOPT_ATCP = 200;
 
+// MSDP's framing bytes: VAR comes before a name and VAL before a value, and the open and close
+// bytes surround a table or an array.
 inline constexpr int MSDP_VAR = 1;
 inline constexpr int MSDP_VAL = 2;
 inline constexpr int MSDP_TABLE_OPEN = 3;
 inline constexpr int MSDP_TABLE_CLOSE = 4;
 inline constexpr int MSDP_ARRAY_OPEN = 5;
 inline constexpr int MSDP_ARRAY_CLOSE = 6;
+// The most characters of a name or a value kept from a client's MSDP or ATCP message; the rest
+// are dropped.
 inline constexpr int MAX_MSDP_SIZE = 100;
 
+// MSSP's framing bytes, before each name and each value.
 inline constexpr int MSSP_VAR = 1;
 inline constexpr int MSSP_VAL = 2;
 
-inline constexpr int UNICODE_MALE = 9794;
-inline constexpr int UNICODE_FEMALE = 9792;
-inline constexpr int UNICODE_NEUTER = 9791;
-
-/******************************************************************************
- Types.
- ******************************************************************************/
-
-typedef enum {
+// The telnet options whose state protocol_t::option_states records, one for each option except
+// MXP, which has one for each way of offering it.
+enum negotiated_t {
     eNEGOTIATED_TTYPE,
     eNEGOTIATED_ECHO,
     eNEGOTIATED_NAWS,
@@ -110,32 +80,45 @@ typedef enum {
     eNEGOTIATED_MSSP,
     eNEGOTIATED_ATCP,
     eNEGOTIATED_MSP,
+    // MXP offered as DO MXP.
     eNEGOTIATED_MXP,
+    // MXP offered as WILL MXP, after the client refuses DO MXP, or agreed when the client sends
+    // DO MXP.
     eNEGOTIATED_MXP2,
+    // Recorded, but never sent: the server neither offers nor answers MCCP.
     eNEGOTIATED_MCCP,
     eNEGOTIATED_EOR,
     eNEGOTIATED_SGA,
 
-    eNEGOTIATED_MAX /* This must always be last */
-} negotiated_t;
+    // The number of options; not an option.
+    eNEGOTIATED_MAX
+};
 
-typedef enum {
+// What the server knows of a client's support for a feature.
+enum support_t {
+    // Nothing is known yet.
     eUNKNOWN,
+    // The client does not support it.
     eNO,
+    // Some versions of the client support it, and this one's version cannot tell.
     eSOMETIMES,
+    // The client supports it.
     eYES
-} support_t;
+};
 
-typedef enum {
-    eMSDP_NONE = -1, /* This must always be first. */
+// The MSDP variables, each named as on the wire without its eMSDP_ prefix. Adding one needs an
+// entry at the same place in protocol.cpp's variable table.
+enum variable_t {
+    // No variable; below every valid one.
+    eMSDP_NONE = -1,
 
-    /* General */
+    // The server, its time and the snippet's version.
     eMSDP_CHARACTER_NAME,
     eMSDP_SERVER_ID,
     eMSDP_SERVER_TIME,
     eMSDP_SNIPPET_VERSION,
 
-    /* Character */
+    // The player's character.
     eMSDP_AFFECTS,
     eMSDP_ALIGNMENT,
     eMSDP_EXPERIENCE,
@@ -144,7 +127,7 @@ typedef enum {
     eMSDP_HEALTH_MAX,
     eMSDP_LEVEL,
     eMSDP_RACE,
-    eMSDP_CLASS, // TODO: reuse this
+    eMSDP_CLASS, // Never set, so it always reports its default.
     eMSDP_MANA,
     eMSDP_MANA_MAX,
     eMSDP_WIMPY,
@@ -152,10 +135,10 @@ typedef enum {
     eMSDP_MONEY,
     eMSDP_MOVEMENT,
     eMSDP_MOVEMENT_MAX,
-    eMSDP_HITROLL, // TODO: reuse this
-    eMSDP_DAMROLL, // TODO: reuse this
+    eMSDP_HITROLL, // Never set, so it always reports its default.
+    eMSDP_DAMROLL, // Never set, so it always reports its default.
     eMSDP_SPIRIT,
-    eMSDP_AC, // TODO: reuse this
+    eMSDP_AC, // Never set, so it always reports its default.
     eMSDP_STR,
     eMSDP_INT,
     eMSDP_WILL,
@@ -168,50 +151,50 @@ typedef enum {
     eMSDP_DEX_PERM,
     eMSDP_CON_PERM,
     eMSDP_LEA_PERM,
-    eMDSP_SPELL_SAVE,
-    eMDSP_SPELL_PEN,
-    eMDSP_SPELL_POWER,
-    eMDSP_ARMOUR_ABS,
-    eMDSP_OFFENSIVE_BONUS,
-    eMDSP_PARRY,
-    eMDSP_DODGE,
-    eMDSP_ATTACK_SPEED,
-    eMDSP_TACTIC,
-    eMDSP_SPECIALIZATION,
-    eMDSP_PERCEPTION,
-    eMDSP_WILLPOWER,
-    eMDSP_SKILL_ENCUMBRANCE,
-    eMDSP_MOVEMENT_ENCUMBRANCE,
-    eMDSP_CARRIED_WEIGHT,
-    eMDSP_WARRIOR_LEVEL,
-    eMDSP_WARRIOR_LEVEL_MAX,
-    eMDSP_RANGER_LEVEL,
-    eMDSP_RANGER_LEVEL_MAX,
-    eMDSP_MYSTIC_LEVEL,
-    eMDSP_MYSTIC_LEVEL_MAX,
-    eMDSP_MAGE_LEVEL,
-    eMDSP_MAGE_LEVEL_MAX,
-    eMDSP_HEALTH_REGENERATION,
-    eMDSP_STAMINA_REGENERATION,
-    eMDSP_MOVEMENT_REGENERATION,
+    eMSDP_SPELL_SAVE,
+    eMSDP_SPELL_PEN,
+    eMSDP_SPELL_POWER,
+    eMSDP_ARMOUR_ABS,
+    eMSDP_OFFENSIVE_BONUS,
+    eMSDP_PARRY,
+    eMSDP_DODGE,
+    eMSDP_ATTACK_SPEED,
+    eMSDP_TACTIC,
+    eMSDP_SPECIALIZATION,
+    eMSDP_PERCEPTION,
+    eMSDP_WILLPOWER,
+    eMSDP_SKILL_ENCUMBRANCE,
+    eMSDP_MOVEMENT_ENCUMBRANCE,
+    eMSDP_CARRIED_WEIGHT,
+    eMSDP_WARRIOR_LEVEL,
+    eMSDP_WARRIOR_LEVEL_MAX,
+    eMSDP_RANGER_LEVEL,
+    eMSDP_RANGER_LEVEL_MAX,
+    eMSDP_MYSTIC_LEVEL,
+    eMSDP_MYSTIC_LEVEL_MAX,
+    eMSDP_MAGE_LEVEL,
+    eMSDP_MAGE_LEVEL_MAX,
+    eMSDP_HEALTH_REGENERATION,
+    eMSDP_STAMINA_REGENERATION,
+    eMSDP_MOVEMENT_REGENERATION,
 
-    /* Combat */
+    // The character's opponent.
     eMSDP_OPPONENT_HEALTH,
     eMSDP_OPPONENT_HEALTH_MAX,
     eMSDP_OPPONENT_LEVEL,
     eMSDP_OPPONENT_NAME,
     eMSDP_OPPONENT_AGE,
 
-    /* World */
+    // The character's room and area, and the game's time and weather.
     eMSDP_AREA_NAME,
     eMSDP_ROOM,
     eMSDP_ROOM_EXITS,
     eMSDP_ROOM_NAME,
     eMSDP_ROOM_VNUM,
     eMSDP_WORLD_TIME,
-    eMDSP_WEATHER,
+    eMSDP_WEATHER,
 
-    /* Configuration */
+    // The client and its features, set by the client over MSDP or found by client detection.
     eMSDP_CLIENT_ID,
     eMSDP_CLIENT_VERSION,
     eMSDP_PLUGIN_ID,
@@ -221,7 +204,7 @@ typedef enum {
     eMSDP_SOUND,
     eMSDP_MXP,
 
-    /* GUI variables */
+    // Button and gauge layouts for clients that offer a generic GUI.
     eMSDP_BUTTON_1,
     eMSDP_BUTTON_2,
     eMSDP_BUTTON_3,
@@ -233,345 +216,314 @@ typedef enum {
     eMSDP_GAUGE_4,
     eMSDP_GAUGE_5,
 
-    /* Group Information  */
+    // The character's group.
     eMSDP_GROUP,
 
-    eMSDP_MAX /* This must always be last */
-} variable_t;
-
-typedef struct
-{
-    variable_t Variable; /* The enum type of this variable */
-    const char* pName; /* The string name of this variable */
-    bool bString; /* Is this variable a string or a number? */
-    bool bConfigurable; /* Can it be configured by the client? */
-    bool bWriteOnce; /* Can only set this variable once */
-    int Min; /* The minimum valid value or string length */
-    bool bGUI; /* It's a special GUI configuration variable */
-    int Max; /* The maximum valid value or string length */
-    int Default; /* The default value for a number */
-    const char* pDefault; /* The default value for a string */
-} variable_name_t;
-
-typedef struct
-{
-    bool bReport; /* Is this variable being reported? */
-    bool bDirty; /* Does this variable need to be sent again? */
-    int ValueInt; /* The numeric value of the variable */
-    char* pValueString; /* The string value of the variable */
-} MSDP_t;
-
-typedef struct
-{
-    const char* pName; /* The name of the MSSP variable */
-    const char* pValue; /* The value of the MSSP variable */
-    const char* (*pFunction)(); /* Optional function to return the value */
-} MSSP_t;
-
-struct protocol_t {
-    int WriteOOB; /* Used internally to indicate OOB data */
-    bool Negotiated[eNEGOTIATED_MAX];
-    bool bIACMode; /* Current mode - deals with broken packets */
-    bool bNegotiated; /* Indicates client successfully negotiated */
-    bool bRenegotiate; /* Workaround for clients that autoconnect */
-    bool bNeedMXPVersion; /* Workaround for clients that autoconnect */
-    bool bBlockMXP; /* Used internally based on MXP version */
-    int PendingInputLength; /* Buffered bytes from an incomplete telnet/MXP fragment */
-    char PendingInput[4]; /* Prefix buffer for split negotiation sequences */
-    int IacInputLength; /* Buffered bytes from an incomplete subnegotiation sequence */
-    char IacInput[MAX_PROTOCOL_BUFFER + 1]; /* Subnegotiation bytes split across network reads */
-    bool bTTYPE; /* The client supports TTYPE */
-    bool bECHO; /* Toggles ECHO on/off */
-    bool bNAWS; /* The client supports NAWS */
-    bool bCHARSET; /* The client supports CHARSET */
-    bool bMSDP; /* The client supports MSDP */
-    bool bMSSP; /* The client supports MSSP */
-    bool bATCP; /* The client supports ATCP */
-    bool bMSP; /* The client supports MSP */
-    bool bMXP; /* The client supports MXP */
-    bool bMCCP; /* The client supports MCCP */
-    bool bEOR; /* The client agreed to IAC EOR after each prompt */
-    bool bSGA; /* The client asked the server to suppress go-ahead */
-    support_t b256Support; /* The client supports XTerm 256 colors */
-    int ScreenWidth; /* The client's screen width */
-    int ScreenHeight; /* The client's screen height */
-    char* pMXPVersion; /* The version of MXP supported */
-    char* pLastTTYPE; /* Used for the cyclic TTYPE check */
-    MSDP_t** pVariables; /* The MSDP variables */
+    // The number of variables; not a variable.
+    eMSDP_MAX
 };
 
-/******************************************************************************
- Protocol functions.
- ******************************************************************************/
+// The fixed description of one MSDP variable: its name, its kind and what a client may set it to.
+struct variable_name_t {
+    std::string_view name; // The variable's name on the wire.
+    // A GUI variable's initial text; empty for every other variable.
+    std::optional<std::string_view> default_text;
+    variable_t variable; // The variable described, which is also the entry's table index.
+    int minimum; // The least number, or the shortest text, a client may set.
+    int maximum; // The greatest number, or the longest text, a client may set; -1 when it may not.
+    int default_number; // The initial value of a number variable.
+    bool is_string; // Whether the value is text rather than a number.
+    bool configurable; // Whether a client may set the variable.
+    bool write_once; // Whether a client may set it only while its value is "Unknown".
+    bool gui; // Whether it is a GUI layout, listed under GUI_VARIABLES, not with the others.
+};
 
-/* Function: ProtocolCreate
- *
- * Creates, initialises and returns a structure containing protocol data for a
- * single user.  This should be called when the descriptor is initialised.
- */
-protocol_t* ProtocolCreate(void);
+// One MSDP variable's value: the std::string alternative for a string variable, the int for a
+// number one, as the variable table's is_string says.
+using msdp_value_t = std::variant<int, std::string>;
 
-/* Function: ProtocolDestroy
- *
- * Frees the memory allocated by the specified structure.  This should be
- * called just before a descriptor is freed.
- */
-void ProtocolDestroy(protocol_t* apProtocol);
+// One connection's MSDP variables: each one's value, whether updates report it, and whether it
+// has changed since it was last sent. The server's own changes go through set_number and
+// text_to_change, which mark the variable dirty. Values a client or negotiation supplies go
+// through stored_number and stored_text, which do not. Every variable argument must satisfy
+// MSDPIsValidVariable; it is not checked.
+class msdp_variables_t {
+public:
+    // Every variable at its default value, reported and dirty as ProtocolCreate describes.
+    msdp_variables_t();
 
-/* Function: ProtocolNegotiate
- *
- * Negatiates with the client to see which protocols the user supports, and
- * stores the results in the user's protocol structure.  Call this when you
- * wish to perform negotiation (but only call it once).  It is usually called
- * either immediately after the user has connected, or just after they have
- * entered the game.
- */
-void ProtocolNegotiate(const descriptor_t* apDescriptor);
+    // The variable's value, whichever type it holds. Only the tests use it.
+    const msdp_value_t& value(variable_t variable) const;
+    // The text of a string variable.
+    const std::string& text(variable_t variable) const;
+    // The number of a number variable.
+    int number(variable_t variable) const;
 
-/* Function: ProtocolInput
- *
- * Extracts any negotiation sequences from the input buffer, and passes back
- * whatever is left for the mud to parse normally.  Call this after data has
- * been read into the input buffer, before it is used for anything else.
- */
-void ProtocolInput(const descriptor_t* apDescriptor, const char* apData, int aSize, char* apOut);
+    // Stores value as a number variable's value and marks the variable dirty if it changed.
+    void set_number(variable_t variable, int value);
+    // The stored text of a string variable, to change. It marks the variable dirty whatever is
+    // then written, so the caller first checks that the new text differs.
+    std::string& text_to_change(variable_t variable);
+    // The stored number of a number variable, to change without marking the variable dirty.
+    int& stored_number(variable_t variable);
+    // The stored text of a string variable, to change without marking the variable dirty.
+    std::string& stored_text(variable_t variable);
 
-/* Function: ProtocolOutput
- *
- * This function takes a string, applies colour codes to it, and returns the
- * result.  It should be called just before writing to the output buffer.
- *
- * The special character used to indicate the start of a colour sequence is
- * '\t' (i.e., a tab, or ASCII character 9).  This makes it easy to include
- * in help files (as you can literally press the tab key) as well as strings
- * (where you can use \t instead).  However players can't send tabs (on most
- * muds at least), so this stops them from sending colour codes to each other.
- *
- * The predefined colours are:
- *
- *   n: no colour (switches colour off)
- *
- *   r: dark red                        R: light red
- *   g: dark green                      G: light green
- *   b: dark blue                       B: light blue
- *   y: dark yellow                     Y: light yellow
- *   m: dark magenta                    M: light magenta
- *   c: dark cyan                       C: light cyan
- *   w: dark white                      W: light white
- *
- *   a: dark azure                      A: light azure
- *   j: dark jade                       J: light jade
- *   l: dark lime                       L: light lime
- *   o: dark orange                     O: bright orange
- *   p: dark pink                       P: light pink
- *   t: dark tan                        T: light tan
- *   v: dark violet                     V: light violet
- *
- * So for example "This is \tOorange\tn." will colour the word "orange".  You
- * can add more colours yourself just by updating the switch statement.
- *
- * It's also possible to explicitly specify an RGB value, by including the four
- * character colour sequence (as used by ColourRGB) within square brackets, eg:
- *
- *    This is a \t[F010]very dark green foreground\tn.
- *
- * The square brackets can also be used to send unicode characters, like this:
- *
- *    Boat: \t[U9973/B]
- *    Rook: \t[U9814/C]
- *
- * For example you might use 'B' to represent a boat on your ASCII map, or a 'C'
- * to represent a castle - but players with UTF-8 support would actually see the
- * appropriate unicode characters for a boat or a rook (the chess playing piece).
- *
- * The exact syntax is '\t' (tab), '[', 'U' (indicating unicode), then the decimal
- * number of the unicode character (see http://www.unicode.org/charts), then '/'
- * followed by the ASCII character/s that should be used if the client doesn't
- * support UTF-8.  The ASCII sequence can be up to 7 characters in length, but in
- * most cases you'll only want it to be one or two characters (so that it has the
- * same alignment as the unicode character).
- *
- * Finally, this function also allows you to embed MXP tags.  The easiest and
- * safest way to do this is via the ( and ) bracket options:
- *
- *    From here, you can walk \t(north\t).
- *
- * However it's also possible to include more explicit MSP tags, like this:
- *
- *    The baker offers to sell you a \t<send href="buy pie">pie\t</send>.
- *
- * Note that the MXP tags will automatically be removed if the user doesn't
- * support MXP, but it's very important you remember to close the tags.
- */
-const char* ProtocolOutput(const descriptor_t* apDescriptor, const char* apData, int* apLength);
+    // Whether updates send the variable.
+    bool is_reported(variable_t variable) const;
+    // Whether the variable has changed since it was last sent.
+    bool is_dirty(variable_t variable) const;
+    // Sets whether updates send the variable, leaving its dirty flag alone. Only the tests use it.
+    void set_reported(variable_t variable, bool reported);
+    // Marks the variable changed since it was last sent. Only the tests use it.
+    void mark_dirty(variable_t variable);
+    // Marks the variable sent.
+    void mark_clean(variable_t variable);
 
-/******************************************************************************
- MSDP functions.
- ******************************************************************************/
+    // Carries out REPORT: the variable becomes reported and dirty.
+    void report(variable_t variable);
+    // Carries out UNREPORT: the variable becomes neither reported nor dirty.
+    void unreport(variable_t variable);
+    // Carries out RESET: every reported variable becomes unreported and clean; the dirty flags of
+    // the others are left alone.
+    void unreport_all();
+    // Marks every reported variable dirty.
+    void mark_reported_dirty();
 
-/* Function: MSDPUpdate
- *
- * Call this regularly (I'd suggest at least once per second) to flush every
- * dirty MSDP variable that has been requested by the client via REPORT.  This
- * will automatically use ATCP instead if MSDP is not supported by the client.
- */
-void MSDPUpdate(const descriptor_t* apDescriptor);
+private:
+    std::array<msdp_value_t, eMSDP_MAX> m_values; // Each variable's value, indexed by variable_t.
+    std::bitset<eMSDP_MAX> m_reported; // Set for each variable that updates send.
+    std::bitset<eMSDP_MAX> m_dirty; // Set for each variable changed since it was last sent.
+};
 
-/* Function: MSDPFlush
- *
- * Works like MSDPUpdate(), except only flushes a specific variable.  The
- * variable will only actually be sent if it's both reported and dirty.
- *
- * Call this function after setting a variable if you want it to be reported
- * immediately, instead of on the next update.
- */
-void MSDPFlush(const descriptor_t* apDescriptor, variable_t aMSDP);
+// One entry of the MSSP status message.
+struct MSSP_t {
+    std::string_view name; // The MSSP variable's name.
+    std::string_view value; // Its value, as text.
+};
 
-/* Function: MSDPMarkAllReportedDirty
- *
- * Marks every reported MSDP variable dirty so the next MSDPUpdate() re-sends a full
- * snapshot. Call when a client's MSDP channel becomes newly deliverable (e.g. the
- * player enables MSDP after login) so it receives values that never change again.
- */
-void MSDPMarkAllReportedDirty(const descriptor_t* apDescriptor);
+// The protocol state of one connection: what was negotiated, what the client is and its MSDP
+// variables. ProtocolCreate makes it and ProtocolDestroy frees it.
+struct protocol_t {
+    msdp_variables_t variables; // The MSDP variables.
+    std::string mxp_version; // The MXP version from the client's <VERSION> reply, or "Unknown".
+    // The terminal type the client sent last, to see when its TTYPE list repeats; empty before the
+    // first.
+    std::optional<std::string> last_ttype;
+    // Raised from a positive value to 2 by every send. It starts at 0 and the server never sets it,
+    // so only a caller that sets it to 1 sees a change.
+    int write_oob;
+    int pending_input_length; // The bytes held in pending_input.
+    int subnegotiation_input_length; // The bytes held in subnegotiation_input.
+    // What client detection found about XTerm 256 colours; colour output follows the
+    // XTERM_256_COLORS variable instead.
+    support_t xterm_256_support;
+    int screen_width; // The client's window width in characters from NAWS; 0 until it is sent.
+    int screen_height; // The client's window height in lines from NAWS; 0 until it is sent.
+    // The start of a telnet command or MXP line tag that ended a read, put before the next read.
+    std::array<char, 4> pending_input;
+    // The subnegotiation collected so far, kept across reads until its IAC SE.
+    std::array<char, MAX_PROTOCOL_BUFFER + 1> subnegotiation_input;
+    // Each negotiated_t option's last offered or agreed state; an offer is sent only on a change.
+    std::array<bool, eNEGOTIATED_MAX> option_states;
+    bool in_subnegotiation; // Whether input is inside IAC SB ... IAC SE, which may span reads.
+    bool negotiated; // Whether the client has answered TTYPE, so the other options were offered.
+    // Set when the TTYPE answer starts negotiation and cleared when the client answers NAWS. While
+    // it is set, MXPSendTag offers every option again, for clients such as MUSHclient that miss
+    // the first offers when they connect automatically.
+    bool renegotiate;
+    bool needs_mxp_version; // Whether to send <VERSION> when MXP comes on; set by renegotiation.
+    // Set by a ProtocolOutput \t[X...] code whose MXP version the client lacks; it suppresses the
+    // next MXP link or tag.
+    bool mxp_blocked;
+    bool ttype_enabled; // The client agreed to send its terminal type.
+    bool echo_enabled; // The client agreed that the server echoes its input (DO ECHO).
+    bool naws_enabled; // The client agreed to send its window size.
+    bool charset_enabled; // The client agreed to CHARSET and was offered ISO-8859-1.
+    bool msdp_enabled; // The server may send MSDP; true from creation until the client sends DONT.
+    bool mssp_enabled; // The client asked for MSSP and was sent the status message.
+    bool atcp_enabled; // The client uses ATCP, which carries the MSDP variables when MSDP is off.
+    bool msp_enabled; // The client accepts MSP sound.
+    bool mxp_enabled; // MXP is on for this connection.
+    bool mccp_enabled; // The client sent DO MCCP; the server does not compress.
+    bool eor_enabled; // The client agreed to IAC EOR after each prompt.
+    bool sga_enabled; // The client asked the server to suppress go-ahead.
+};
 
-/* Function: MSDPSend
- *
- * Send the specified MSDP variable to the player.  You shouldn't ever really
- * need to do this manually, except perhaps when debugging something.  This
- * will automatically use ATCP instead if MSDP is not supported by the client.
- */
-bool MSDPSend(const descriptor_t* apDescriptor, variable_t aMSDP);
+// Returns new protocol state for one connection, with nothing negotiated; free it with
+// ProtocolDestroy. Every MSDP variable starts reported, and the server's own variables start
+// dirty, so the first update sends them even at their default.
+protocol_t* ProtocolCreate();
 
-/* Function: MSDPSendPair
- *
- * Send the specified strings to the user as an MSDP variable/value pair.  This
- * will automatically use ATCP instead if MSDP is not supported by the client.
- */
-void MSDPSendPair(const descriptor_t* apDescriptor, const char* apVariable, const char* apValue);
+// Frees protocol and everything it owns. protocol must not be null.
+void ProtocolDestroy(protocol_t* protocol);
 
-/* Function: MSDPSendList
- *
- * Works like MSDPSendPair, but the value is sent as an MSDP array.
- *
- * apValue should be a list of values separated by spaces.
- */
-void MSDPSendList(const descriptor_t* apDescriptor, const char* apVariable, const char* apValue);
+// Starts negotiation by offering TTYPE; the client's answer brings the offers of the other
+// options. A repeated call sends nothing while the TTYPE offer stands. descriptor and its protocol
+// must not be null.
+void ProtocolNegotiate(const descriptor_t* descriptor);
 
-/* Function: MSDPSetNumber
- *
- * Call this whenever an MSDP integer variable has changed.  The easiest
- * approach is to send every MSDP variable within an update function (and
- * this is what the snippet does by default), but if the variable is only
- * set in one place you can just move its MDSPSend() call to there.
- *
- * You can also this function for bools, chars, enums, short ints, etc.
- */
-void MSDPSetNumber(const descriptor_t* apDescriptor, variable_t aMSDP, int aValue);
+// Acts on the telnet negotiation, subnegotiations and MXP <VERSION> replies in data, and appends
+// the rest to out_text with a NUL. out_text must be NUL-terminated and have room for
+// MAX_PROTOCOL_BUFFER more characters and the NUL. A sequence split across reads is held for the
+// next call. A read with more text or subnegotiation than MAX_PROTOCOL_BUFFER, or too long for an
+// int length, is logged, and its text is not appended. A null descriptor or out_text, or empty
+// data, does nothing.
+void ProtocolInput(const descriptor_t* descriptor, std::string_view data, char* out_text);
 
-/* Function: MSDPSetString
- *
- * Call this whenever an MSDP string variable has changed.  The easiest
- * approach is to send every MSDP variable within an update function (and
- * this is what the snippet does by default), but if the variable is only
- * set in one place you can just move its MDSPSend() call to there.
- *
- * The value is passed through MSDPSanitizeValue() first, so it stays a
- * valid JSON string for clients that convert MSDP into JSON. Setting the value
- * already stored allocates nothing. A null apValue leaves the variable unchanged.
- */
-void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+// ProtocolInput for the size bytes at data. A null data or a size of 0 or less does nothing.
+void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text);
+
+// Returns text with its codes applied for descriptor's client, reading text as though a NUL
+// followed it. A NUL ends the text, unless it cuts off an [F...] or [B...] colour code or a
+// stripped MXP tag, when reading goes on after it. The result views a static buffer and is valid
+// until the next call. A result of MAX_OUTPUT_BUFFER characters or more is logged and comes back
+// empty. With a null descriptor or protocol, returns text unchanged.
+//
+// A code is a tab followed by:
+//   \t                  a tab.
+//   n                   reset colour; sent even when colour is off.
+//   r g y b m c w       dark red, green, yellow, blue, magenta, cyan or white.
+//   a j l o p t v       dark azure, jade, lime, orange, pink, tan or violet.
+//   R G Y B M C W A J L O P T V   the light version of the lowercase colour.
+//   [F<rgb>] [B<rgb>]   a foreground or background colour, as for ColourRGB: \t[F010].
+//   [U<number>/<text>]  the Unicode character with that decimal number, or for a client without
+//                       UTF-8 the text, up to 7 characters: \t[U9814/C].
+//   [X<version>]        blocks the next MXP link or tag unless the client's MXP version is at
+//                       least version, compared as strings.
+//   ( and )             start and end an MXP link that sends the text between them:
+//                       \t(north\t).
+//   <tag>               an MXP tag, up to its '>': \t<send href="buy pie">pie\t</send>.
+//   !                   an MSP "!!" trigger.
+// Any other code is dropped, and an unclosed or overlong [...] code is logged and dropped.
+// Colours need the ANSI_COLORS variable on. MXP links and tags need MXP on, and are removed
+// without it, so every tag must be closed. For a client with MSP or SOUND on, a literal
+// "!!SOUND(" in text is sent as "!?SOUND(".
+std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text);
+
+// ProtocolOutput for NUL-terminated text, returning the static buffer, which holds a NUL after
+// the result. A code may start only before *out_length characters, when that is above 0, but
+// reads on to the NUL to finish. *out_length is set to the result's length; out_length must not
+// be null. With a null descriptor, protocol or text, returns text and leaves *out_length alone.
+const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length);
+
+// Sends every reported, dirty variable through MSDPSend and marks each one it sends clean; the
+// others stay dirty for a later call. A null descriptor does nothing.
+void MSDPUpdate(const descriptor_t* descriptor);
+
+// MSDPUpdate for one variable; an invalid variable does nothing. Call it after setting a variable
+// to send it now rather than on the next update.
+void MSDPFlush(const descriptor_t* descriptor, variable_t variable);
+
+// Marks every reported variable dirty, so the next MSDPUpdate sends them all. Call it when a
+// client's MSDP becomes deliverable, such as when the player turns MSDP on after login, so the
+// client gets values that will not change again. A null descriptor does nothing.
+void MSDPMarkAllReportedDirty(const descriptor_t* descriptor);
+
+// Sends variable's value over MSDP, or over ATCP for a client without MSDP, and returns whether
+// it sent. It sends only for a logged-in character with PRF_MSDP on. It returns false, sending
+// nothing, for a null descriptor, an invalid variable, a client with neither protocol, or a
+// message too long for MAX_VARIABLE_LENGTH, which is logged. The dirty flag is left alone.
+bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
+
+// Sends name and value at once as an MSDP variable, or over ATCP for a client without MSDP, with
+// value escaped as by MSDPSanitizeValue. There is no login or PRF_MSDP check, so it works during
+// negotiation, and nothing is stored. A null descriptor, or a client with neither protocol, sends
+// nothing; so does a message too long for MAX_VARIABLE_LENGTH, which is logged. name and value
+// must hold no NUL.
+void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::string_view value);
+
+// MSDPSendPair for NUL-terminated text; a null name or value sends nothing.
+void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value);
+
+// MSDPSendPair for a list of values separated by spaces, which MSDP receives as an array.
+void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::string_view value);
+
+// MSDPSendList for NUL-terminated text; a null name or value sends nothing.
+void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value);
+
+// Stores value as a number variable's value, and marks the variable dirty if the value changed;
+// an unchanged value stays clean. It never allocates. A null descriptor, an invalid variable or a
+// string variable is ignored. It suits any integral value, such as a bool or an enum.
+void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int value);
+
+// Stores value, escaped as by MSDPSanitizeValue, as a string variable's value, and marks the
+// variable dirty if the value changed. Storing the value already held allocates nothing and
+// stays clean; a changed value is written into the stored string, which allocates only when it
+// outgrows its capacity, so value must not point into it. There is no login or PRF_MSDP check:
+// it only stores, and MSDPSend sends. A null value, a null descriptor, an invalid variable or a
+// number variable changes nothing.
+void MSDPSetString(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // MSDPSetString for a value that need not be NUL-terminated, such as a message without its line
-// break. aValue must hold no NUL.
-void MSDPSetString(const descriptor_t* apDescriptor, variable_t aMSDP, std::string_view aValue);
+// break. value must hold no NUL.
+void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
-/* Function: MSDPSanitizeValue
- *
- * Returns a copy of apValue with characters that are illegal inside a bare
- * JSON string ('"', '\', and control characters such as \n and \r) replaced
- * by their standard JSON escape sequence. MSDPSetString() applies this
- * automatically; call it directly when hand-building a table/array value
- * (see MSDPSetTable) that embeds freeform text, since those bypass
- * MSDPSetString(). Returns an empty string for a null apValue.
- */
-std::string MSDPSanitizeValue(const char* apValue);
+// Returns value with '"', '\' and control characters such as \n and \r replaced by their JSON
+// escapes, so clients that turn MSDP into JSON get a valid string. MSDPSetString and
+// MSDPSendPair apply it themselves. Call it for free text in a table or array value, since
+// MSDPSetTable and MSDPSetArray store their value as it is.
+std::string MSDPSanitizeValue(std::string_view value);
 
-// Appends the MSDPSanitizeValue text for apValue to out_text, so a caller building a table in a
-// reused string needs no copy of its own. A null apValue appends nothing.
-void MSDPAppendSanitized(std::string& out_text, const char* apValue);
+// MSDPSanitizeValue for NUL-terminated text; a null value gives an empty string.
+std::string MSDPSanitizeValue(const char* value);
 
-/* Function: MSDPSetTable
- *
- * Works like MSDPSetString, but the value is sent as an MSDP table.
- *
- * You must add the MSDP_VAR and MSDP_VAL manually, for example:
- *
- * sprintf( Buffer, "%c%s%c%s", (char)MSDP_VAR, Name, (char)MSDP_VAL, Value );
- * MSDPSetTable( d, eMSDP_TEST, Buffer );
- */
-void MSDPSetTable(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+// Appends the MSDPSanitizeValue text for value to out_text, so a caller building a table in a
+// reused string needs no copy of its own. value must not point into out_text.
+void MSDPAppendSanitized(std::string& out_text, std::string_view value);
 
-/* Function: MSDPSetArray
- *
- * Works like MSDPSetString, but the value is sent as an MSDP array.
- *
- * You must add the MSDP_VAR before each element manually, for example:
- *
- * sprintf( Buffer, "%c%s%c%s", (char)MSDP_VAL, Val1, (char)MSDP_VAL, Val2 );
- * MSDPSetArray( d, eMSDP_TEST, Buffer );
- */
-void MSDPSetArray(const descriptor_t* apDescriptor, variable_t aMSDP, const char* apValue);
+// MSDPAppendSanitized for NUL-terminated text; a null value appends nothing.
+void MSDPAppendSanitized(std::string& out_text, const char* value);
 
-bool MSDPIsValidVariable(variable_t aMSDP);
+// Stores value as a string variable's MSDP table, between MSDP_TABLE_OPEN and MSDP_TABLE_CLOSE,
+// and marks the variable dirty if it changed; an unchanged value allocates nothing and stays
+// clean, and a changed one is written in place as by MSDPSetString. value is stored as it is: the
+// caller puts MSDP_VAR before each name and MSDP_VAL before each value. An empty value is stored
+// empty, without the markers. A null descriptor, an invalid variable or a number variable is
+// ignored.
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
-/******************************************************************************
- MXP functions.
- ******************************************************************************/
+// MSDPSetTable for a NUL-terminated value; a null value is ignored.
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value);
 
-/* Function: MXPSendTag
- *
- * Sends the specified tag to the user in a secure line, if MXP is supported.
- * This is mainly useful for the <VERSION> tag.
- */
-void MXPSendTag(const descriptor_t* apDescriptor, const char* apTag);
+// MSDPSetTable for an MSDP array, between MSDP_ARRAY_OPEN and MSDP_ARRAY_CLOSE: the caller puts
+// MSDP_VAL before each element.
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
-/******************************************************************************
- Colour functions.
- ******************************************************************************/
+// MSDPSetArray for a NUL-terminated value; a null value is ignored.
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value);
 
-/* Function: ColourRGB
- *
- * Returns a colour as an escape code, based on the RGB value provided.  The
- * string must be four characters, where the first is either 'f' for foreground
- * or 'b' for background (case insensitive), and the other three characters are
- * numeric digits in the range 0 to 5, representing red, green and blue.
- *
- * For example "F500" returns a red foreground, "B530" an orange background,
- * and so on.  An invalid colour will clear whatever you've set previously.
- *
- * If the user doesn't support XTerm 256 colours, this function will return the
- * best-fit ANSI colour instead.
- *
- * If you wish to embed colours in strings, use ProtocolOutput().
- */
-const char* ColourRGB(const descriptor_t* apDescriptor, const char* apRGB);
+// Whether variable is an MSDP variable: above eMSDP_NONE and below eMSDP_MAX.
+bool MSDPIsValidVariable(variable_t variable);
 
-/******************************************************************************
- Unicode (UTF-8 conversion) functions.
- ******************************************************************************/
+// Sends tag, such as "<VERSION>", on a secure MXP line when the client has MXP on. A tag of 1000
+// characters or more is dropped. When MXP is off and renegotiation is pending (see
+// protocol_t::renegotiate), it offers every option except TTYPE again and sends <VERSION> once
+// MXP comes on; tag itself is not sent. A null descriptor does nothing. tag must hold no NUL.
+void MXPSendTag(const descriptor_t* descriptor, std::string_view tag);
 
-/* Function: UnicodeGet
- *
- * Returns the UTF-8 sequence for the specified unicode value.
- */
-char* UnicodeGet(int aValue);
+// MXPSendTag for a NUL-terminated tag; a null tag does nothing.
+void MXPSendTag(const descriptor_t* descriptor, const char* tag);
 
-/* Function: UnicodeAdd
- *
- * Adds the UTF-8 sequence for the specified unicode value onto the end of the
- * string, without adding a NUL character at the end.
- */
-void UnicodeAdd(char** apString, int aValue);
+// Returns the escape code for an RGB colour code such as "F500": 'F' for foreground or 'B' for
+// background, in either case, then red, green and blue digits from 0 to 5; characters after the
+// fourth are ignored. With the XTERM_256_COLORS variable on, the result is an xterm colour that
+// views a static buffer and is valid until the next call; otherwise it is the nearest ANSI colour.
+// An invalid code gives the code that clears colour. When ANSI colour is off, or descriptor is
+// null, it returns an empty view. To put colours in text, use ProtocolOutput.
+std::string_view ColourRGB(const descriptor_t* descriptor, std::string_view rgb_code);
 
-#endif /* PROTOCOL_H */
+// ColourRGB for a NUL-terminated code; a null code is an invalid one.
+std::string_view ColourRGB(const descriptor_t* descriptor, const char* rgb_code);
+
+// Returns the UTF-8 encoding of code_point, which views a static buffer and is valid until the
+// next call; the buffer holds a NUL after it. It ends at the first NUL byte, so 0, a value of
+// 0x200000 or more, and a negative value whose low byte is 0 give an empty view.
+std::string_view UnicodeGet(int code_point);
+
+// Writes the UTF-8 encoding of code_point at *out_cursor, without a NUL, and moves the cursor
+// past it: 1 to 4 bytes, which the caller must have room for. A value of 0x200000 or more writes
+// nothing.
+void UnicodeAdd(char** out_cursor, int code_point);
+
+#endif // PROTOCOL_H

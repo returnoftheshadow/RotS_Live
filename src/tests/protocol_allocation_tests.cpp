@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <variant>
 
 // Defined when the build runs under AddressSanitizer: GCC's macro, or clang's feature check.
 #if defined(__SANITIZE_ADDRESS__)
@@ -212,6 +213,16 @@ std::string table_payload(std::string_view room_name)
     return payload;
 }
 
+// The bytes MSDPSetTable or MSDPSetArray stores for payload: open_marker, payload, close_marker.
+std::string wrapped_value(int open_marker, std::string_view payload, int close_marker)
+{
+    std::string value;
+    value.push_back(static_cast<char>(open_marker));
+    value += payload;
+    value.push_back(static_cast<char>(close_marker));
+    return value;
+}
+
 // An array payload of north, east, south and last_exit, which MSDPSetArray stores unescaped.
 std::string array_payload(std::string_view last_exit)
 {
@@ -241,24 +252,21 @@ public:
     AllocationDescriptor(const AllocationDescriptor&) = delete;
     AllocationDescriptor& operator=(const AllocationDescriptor&) = delete;
 
-    // The stored MSDP record of msdp_variable.
-    MSDP_t* variable(variable_t msdp_variable) const
-    {
-        return descriptor.pProtocol->pVariables[msdp_variable];
-    }
+    // The stored MSDP variables of the descriptor.
+    msdp_variables_t& variables() const { return descriptor.pProtocol->variables; }
 
     // Makes the client one that speaks ATCP and not MSDP.
     void use_atcp()
     {
-        descriptor.pProtocol->bMSDP = false;
-        descriptor.pProtocol->bATCP = true;
+        descriptor.pProtocol->msdp_enabled = false;
+        descriptor.pProtocol->atcp_enabled = true;
     }
 
-    // Arms wrote(): protocol.cpp's Write turns a positive WriteOOB into 2.
-    void watch_for_write() { descriptor.pProtocol->WriteOOB = 1; }
+    // Arms wrote(): protocol.cpp's send_to_client turns a positive write_oob into 2.
+    void watch_for_write() { descriptor.pProtocol->write_oob = 1; }
 
-    // Whether a packet reached Write since watch_for_write.
-    bool wrote() const { return descriptor.pProtocol->WriteOOB == 2; }
+    // Whether a packet reached send_to_client since watch_for_write.
+    bool wrote() const { return descriptor.pProtocol->write_oob == 2; }
 
     // The descriptor given to the functions under test; its protocol is released at scope end.
     descriptor_data descriptor {};
@@ -337,59 +345,83 @@ TEST_F(ProtocolAllocation, CounterSeesAnAllocationTheProtocolCodeMakes)
     EXPECT_EQ(sanitized, ROOM_NAME);
 }
 
+TEST_F(ProtocolAllocation, CreateAllocatesTheProtocolAndItsLongDefaultTexts)
+{
+    protocol_t* protocol = nullptr;
+    const std::size_t allocations
+        = allocations_made_by([&protocol]() -> void { protocol = ProtocolCreate(); });
+
+    // One for protocol_t, which holds every variable, and one for each stored text too long for
+    // the library's small-string buffer, which an empty string's capacity measures.
+    const std::size_t small_string_capacity = std::string().capacity();
+    std::size_t expected_allocations = 1;
+    for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
+        const msdp_value_t& value
+            = protocol->variables.value(static_cast<variable_t>(variable_index));
+        const std::string* const text = std::get_if<std::string>(&value);
+        if (text != nullptr && text->size() > small_string_capacity) {
+            ++expected_allocations;
+        }
+    }
+    ProtocolDestroy(protocol);
+
+    EXPECT_EQ(allocations, expected_allocations);
+}
+
 TEST_F(ProtocolAllocation, SetStringDoesNotAllocateForAnUnchangedValue)
 {
     AllocationDescriptor context;
-    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
+    msdp_variables_t& msdp_variables = context.variables();
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ROOM_NAME);
-    room_name->bDirty = false;
-    const char* const stored = room_name->pValueString;
+    msdp_variables.mark_clean(eMSDP_ROOM_NAME);
+    const char* const stored = msdp_variables.text(eMSDP_ROOM_NAME).data();
 
     const std::size_t allocations = allocations_made_by(
         [&context]() -> void { MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ROOM_NAME); });
 
     EXPECT_EQ(allocations, 0u) << "An unchanged value is compared in place.";
-    EXPECT_EQ(room_name->pValueString, stored);
-    EXPECT_FALSE(room_name->bDirty);
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_NAME).data(), stored);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM_NAME));
 }
 
 TEST_F(ProtocolAllocation, SetStringDoesNotAllocateForAnUnchangedEscapedValue)
 {
     AllocationDescriptor context;
-    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
+    msdp_variables_t& msdp_variables = context.variables();
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ESCAPED_ROOM_NAME);
-    room_name->bDirty = false;
-    const char* const stored = room_name->pValueString;
+    msdp_variables.mark_clean(eMSDP_ROOM_NAME);
+    const char* const stored = msdp_variables.text(eMSDP_ROOM_NAME).data();
 
     const std::size_t allocations = allocations_made_by([&context]() -> void {
         MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ESCAPED_ROOM_NAME);
     });
 
     EXPECT_EQ(allocations, 0u) << "An unchanged value is escaped and compared byte by byte.";
-    EXPECT_EQ(room_name->pValueString, stored);
-    EXPECT_FALSE(room_name->bDirty);
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_NAME).data(), stored);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM_NAME));
 }
 
 TEST_F(ProtocolAllocation, SetStringDoesNotAllocateForAnUnchangedEmptyValue)
 {
     AllocationDescriptor context;
-    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
-    ASSERT_STREQ(room_name->pValueString, "") << "ProtocolCreate stores an empty room name.";
-    room_name->bDirty = false;
+    msdp_variables_t& msdp_variables = context.variables();
+    ASSERT_EQ(msdp_variables.text(eMSDP_ROOM_NAME), "")
+        << "ProtocolCreate stores an empty room name.";
+    msdp_variables.mark_clean(eMSDP_ROOM_NAME);
 
     const std::size_t allocations = allocations_made_by(
         [&context]() -> void { MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ""); });
 
     EXPECT_EQ(allocations, 0u);
-    EXPECT_FALSE(room_name->bDirty);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM_NAME));
 }
 
 TEST_F(ProtocolAllocation, SetStringViewDoesNotAllocateForAnUnchangedValue)
 {
     AllocationDescriptor context;
-    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
+    msdp_variables_t& msdp_variables = context.variables();
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ROOM_NAME);
-    room_name->bDirty = false;
+    msdp_variables.mark_clean(eMSDP_ROOM_NAME);
     // The room name followed by a line break the view leaves out, as a message's text is passed.
     const std::string line = std::string(ROOM_NAME) + "\r\n";
     const std::string_view without_line_break(line.data(), std::strlen(ROOM_NAME));
@@ -399,161 +431,247 @@ TEST_F(ProtocolAllocation, SetStringViewDoesNotAllocateForAnUnchangedValue)
     });
 
     EXPECT_EQ(allocations, 0u) << "A view is compared in place without a terminated copy.";
-    EXPECT_FALSE(room_name->bDirty);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM_NAME));
 }
 
-TEST_F(ProtocolAllocation, SetStringReplacesAChangedValueWithoutOperatorNew)
+TEST_F(ProtocolAllocation, SetStringReusesItsBufferForAChangedValueThatFits)
 {
     AllocationDescriptor context;
-    MSDP_t* room_name = context.variable(eMSDP_ROOM_NAME);
-    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ROOM_NAME);
-    // A longer value, a shorter one and an escaped one: each takes a new malloc buffer, which this
-    // counter does not see, and no buffer is reused in place.
-    for (const char* const value : { OTHER_ROOM_NAME, SHORT_ROOM_NAME, ESCAPED_ROOM_NAME }) {
-        room_name->bDirty = false;
-        const char* const stored = room_name->pValueString;
+    msdp_variables_t& msdp_variables = context.variables();
+    // Longer than a small-string buffer, so the stored text is on the heap, and longer than each
+    // value below once escaped.
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, OTHER_ROOM_NAME);
+    const char* const buffer = msdp_variables.text(eMSDP_ROOM_NAME).data();
+    // A shorter value, a much shorter one and an escaped one.
+    for (const char* const value : { ROOM_NAME, SHORT_ROOM_NAME, ESCAPED_ROOM_NAME }) {
+        const std::string sanitized = MSDPSanitizeValue(value);
+        ASSERT_LE(sanitized.size(), msdp_variables.text(eMSDP_ROOM_NAME).capacity()) << value;
+        msdp_variables.mark_clean(eMSDP_ROOM_NAME);
 
         const std::size_t allocations = allocations_made_by([&context, value]() -> void {
             MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, value);
         });
 
-        EXPECT_EQ(allocations, 0u) << "Setting \"" << value << "\" used operator new.";
-        EXPECT_NE(room_name->pValueString, stored) << "A changed value gets its own buffer.";
-        EXPECT_TRUE(room_name->bDirty);
-        EXPECT_EQ(room_name->pValueString, MSDPSanitizeValue(value));
+        EXPECT_EQ(allocations, 0u) << "Setting \"" << value << "\" allocated.";
+        EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_NAME).data(), buffer)
+            << "A value that fits reuses the buffer.";
+        EXPECT_TRUE(msdp_variables.is_dirty(eMSDP_ROOM_NAME));
+        EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_NAME), sanitized);
     }
+}
+
+TEST_F(ProtocolAllocation, SetStringAllocatesOnceForALongerValue)
+{
+    AllocationDescriptor context;
+    msdp_variables_t& msdp_variables = context.variables();
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ROOM_NAME);
+    ASSERT_GT(std::strlen(OTHER_ROOM_NAME), msdp_variables.text(eMSDP_ROOM_NAME).capacity());
+    msdp_variables.mark_clean(eMSDP_ROOM_NAME);
+
+    const std::size_t allocations = allocations_made_by([&context]() -> void {
+        MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, OTHER_ROOM_NAME);
+    });
+
+    EXPECT_EQ(allocations, 1u) << "A value longer than the stored capacity grows the string once.";
+    EXPECT_TRUE(msdp_variables.is_dirty(eMSDP_ROOM_NAME));
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_NAME), MSDPSanitizeValue(OTHER_ROOM_NAME));
 }
 
 TEST_F(ProtocolAllocation, SetNumberDoesNotAllocateForAnUnchangedValue)
 {
     AllocationDescriptor context;
     MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 125);
-    context.variable(eMSDP_HEALTH)->bDirty = false;
+    context.variables().mark_clean(eMSDP_HEALTH);
 
     const std::size_t allocations = allocations_made_by(
         [&context]() -> void { MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 125); });
 
     EXPECT_EQ(allocations, 0u);
-    EXPECT_FALSE(context.variable(eMSDP_HEALTH)->bDirty);
+    EXPECT_FALSE(context.variables().is_dirty(eMSDP_HEALTH));
 }
 
 TEST_F(ProtocolAllocation, SetNumberDoesNotAllocateForAChangedValue)
 {
     AllocationDescriptor context;
-    context.variable(eMSDP_HEALTH)->bDirty = false;
+    context.variables().mark_clean(eMSDP_HEALTH);
 
     const std::size_t allocations = allocations_made_by(
         [&context]() -> void { MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 98); });
 
     EXPECT_EQ(allocations, 0u) << "A number is stored in the variable itself.";
-    EXPECT_EQ(context.variable(eMSDP_HEALTH)->ValueInt, 98);
-    EXPECT_TRUE(context.variable(eMSDP_HEALTH)->bDirty);
+    EXPECT_EQ(context.variables().number(eMSDP_HEALTH), 98);
+    EXPECT_TRUE(context.variables().is_dirty(eMSDP_HEALTH));
 }
 
 TEST_F(ProtocolAllocation, SetTableDoesNotAllocateForAnUnchangedValue)
 {
     AllocationDescriptor context;
-    MSDP_t* room = context.variable(eMSDP_ROOM);
+    msdp_variables_t& msdp_variables = context.variables();
     // A quote, a backslash and a line break, which a table keeps raw.
     const std::string payload = table_payload(ESCAPED_ROOM_NAME);
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
-    room->bDirty = false;
-    const char* const stored = room->pValueString;
+    msdp_variables.mark_clean(eMSDP_ROOM);
+    const char* const stored = msdp_variables.text(eMSDP_ROOM).data();
 
     const std::size_t allocations = allocations_made_by([&context, &payload]() -> void {
         MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
     });
 
     EXPECT_EQ(allocations, 0u) << "An unchanged table is compared inside its markers in place.";
-    EXPECT_EQ(room->pValueString, stored);
-    EXPECT_FALSE(room->bDirty);
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM).data(), stored);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM));
 }
 
 TEST_F(ProtocolAllocation, SetTableDoesNotAllocateForAnUnchangedEmptyValue)
 {
     AllocationDescriptor context;
-    MSDP_t* room = context.variable(eMSDP_ROOM);
-    ASSERT_STREQ(room->pValueString, "") << "ProtocolCreate stores an empty room table.";
-    room->bDirty = false;
+    msdp_variables_t& msdp_variables = context.variables();
+    ASSERT_EQ(msdp_variables.text(eMSDP_ROOM), "") << "ProtocolCreate stores an empty room table.";
+    msdp_variables.mark_clean(eMSDP_ROOM);
 
     const std::size_t allocations = allocations_made_by(
         [&context]() -> void { MSDPSetTable(&context.descriptor, eMSDP_ROOM, ""); });
 
     EXPECT_EQ(allocations, 0u) << "An empty table goes through MSDPSetString's comparison.";
-    EXPECT_FALSE(room->bDirty);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM));
 }
 
-TEST_F(ProtocolAllocation, SetTableReplacesAChangedValueWithoutOperatorNew)
+TEST_F(ProtocolAllocation, SetTableReusesItsBufferForAChangedValueThatFits)
 {
     AllocationDescriptor context;
-    MSDP_t* room = context.variable(eMSDP_ROOM);
+    msdp_variables_t& msdp_variables = context.variables();
+    // Longer than a small-string buffer, so the stored table is on the heap, and longer than each
+    // payload below.
+    MSDPSetTable(&context.descriptor, eMSDP_ROOM, table_payload(OTHER_ROOM_NAME).c_str());
+    const char* const buffer = msdp_variables.text(eMSDP_ROOM).data();
+    // A shorter payload, a much shorter one and one whose name its caller escaped.
+    const std::string payloads[] = {
+        table_payload(ROOM_NAME),
+        table_payload(SHORT_ROOM_NAME),
+        table_payload(MSDPSanitizeValue(ESCAPED_ROOM_NAME)),
+    };
+    for (const std::string& payload : payloads) {
+        const std::string wrapped = wrapped_value(MSDP_TABLE_OPEN, payload, MSDP_TABLE_CLOSE);
+        ASSERT_LE(wrapped.size(), msdp_variables.text(eMSDP_ROOM).capacity()) << payload;
+        msdp_variables.mark_clean(eMSDP_ROOM);
+
+        const std::size_t allocations = allocations_made_by([&context, &payload]() -> void {
+            MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
+        });
+
+        EXPECT_EQ(allocations, 0u) << "The table is written inside its markers in place.";
+        EXPECT_EQ(msdp_variables.text(eMSDP_ROOM).data(), buffer)
+            << "A table that fits reuses the buffer.";
+        EXPECT_TRUE(msdp_variables.is_dirty(eMSDP_ROOM));
+        EXPECT_EQ(msdp_variables.text(eMSDP_ROOM), wrapped);
+    }
+}
+
+TEST_F(ProtocolAllocation, SetTableAllocatesOnceForALongerValue)
+{
+    AllocationDescriptor context;
+    msdp_variables_t& msdp_variables = context.variables();
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, table_payload(ROOM_NAME).c_str());
-    room->bDirty = false;
-    const char* const stored = room->pValueString;
     const std::string payload = table_payload(OTHER_ROOM_NAME);
+    const std::string wrapped = wrapped_value(MSDP_TABLE_OPEN, payload, MSDP_TABLE_CLOSE);
+    ASSERT_GT(wrapped.size(), msdp_variables.text(eMSDP_ROOM).capacity());
+    msdp_variables.mark_clean(eMSDP_ROOM);
 
     const std::size_t allocations = allocations_made_by([&context, &payload]() -> void {
         MSDPSetTable(&context.descriptor, eMSDP_ROOM, payload.c_str());
     });
 
-    EXPECT_EQ(allocations, 0u)
-        << "The wrapped value takes one malloc buffer, which is not counted.";
-    EXPECT_NE(room->pValueString, stored);
-    EXPECT_TRUE(room->bDirty);
+    EXPECT_EQ(allocations, 1u) << "A table longer than the stored capacity grows the string once.";
+    EXPECT_TRUE(msdp_variables.is_dirty(eMSDP_ROOM));
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM), wrapped);
 }
 
 TEST_F(ProtocolAllocation, SetArrayDoesNotAllocateForAnUnchangedValue)
 {
     AllocationDescriptor context;
-    MSDP_t* exits = context.variable(eMSDP_ROOM_EXITS);
+    msdp_variables_t& msdp_variables = context.variables();
     const std::string payload = array_payload("\"hidden\" \\ door");
     MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
-    exits->bDirty = false;
-    const char* const stored = exits->pValueString;
+    msdp_variables.mark_clean(eMSDP_ROOM_EXITS);
+    const char* const stored = msdp_variables.text(eMSDP_ROOM_EXITS).data();
 
     const std::size_t allocations = allocations_made_by([&context, &payload]() -> void {
         MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
     });
 
     EXPECT_EQ(allocations, 0u) << "An unchanged array is compared inside its markers in place.";
-    EXPECT_EQ(exits->pValueString, stored);
-    EXPECT_FALSE(exits->bDirty);
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_EXITS).data(), stored);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM_EXITS));
 }
 
 TEST_F(ProtocolAllocation, SetArrayDoesNotAllocateForAnUnchangedEmptyValue)
 {
     AllocationDescriptor context;
-    MSDP_t* exits = context.variable(eMSDP_ROOM_EXITS);
-    ASSERT_STREQ(exits->pValueString, "") << "ProtocolCreate stores an empty exit array.";
-    exits->bDirty = false;
+    msdp_variables_t& msdp_variables = context.variables();
+    ASSERT_EQ(msdp_variables.text(eMSDP_ROOM_EXITS), "")
+        << "ProtocolCreate stores an empty exit array.";
+    msdp_variables.mark_clean(eMSDP_ROOM_EXITS);
 
     const std::size_t allocations = allocations_made_by(
         [&context]() -> void { MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, ""); });
 
     EXPECT_EQ(allocations, 0u) << "An empty array goes through MSDPSetString's comparison.";
-    EXPECT_FALSE(exits->bDirty);
+    EXPECT_FALSE(msdp_variables.is_dirty(eMSDP_ROOM_EXITS));
 }
 
-TEST_F(ProtocolAllocation, SetArrayReplacesAChangedValueWithoutOperatorNew)
+TEST_F(ProtocolAllocation, SetArrayReusesItsBufferForAChangedValueThatFits)
 {
     AllocationDescriptor context;
-    MSDP_t* exits = context.variable(eMSDP_ROOM_EXITS);
+    msdp_variables_t& msdp_variables = context.variables();
+    // Longer than a small-string buffer, so the stored array is on the heap, and longer than each
+    // payload below.
+    MSDPSetArray(
+        &context.descriptor, eMSDP_ROOM_EXITS, array_payload("down into the cellar").c_str());
+    const char* const buffer = msdp_variables.text(eMSDP_ROOM_EXITS).data();
+    // A shorter payload, a much shorter one and one whose last exit its caller escaped.
+    const std::string payloads[] = {
+        array_payload("west"),
+        array_payload("up"),
+        array_payload(MSDPSanitizeValue("\"hidden\" \\ door")),
+    };
+    for (const std::string& payload : payloads) {
+        const std::string wrapped = wrapped_value(MSDP_ARRAY_OPEN, payload, MSDP_ARRAY_CLOSE);
+        ASSERT_LE(wrapped.size(), msdp_variables.text(eMSDP_ROOM_EXITS).capacity()) << payload;
+        msdp_variables.mark_clean(eMSDP_ROOM_EXITS);
+
+        const std::size_t allocations = allocations_made_by([&context, &payload]() -> void {
+            MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
+        });
+
+        EXPECT_EQ(allocations, 0u) << "The array is written inside its markers in place.";
+        EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_EXITS).data(), buffer)
+            << "An array that fits reuses the buffer.";
+        EXPECT_TRUE(msdp_variables.is_dirty(eMSDP_ROOM_EXITS));
+        EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_EXITS), wrapped);
+    }
+}
+
+TEST_F(ProtocolAllocation, SetArrayAllocatesOnceForALongerValue)
+{
+    AllocationDescriptor context;
+    msdp_variables_t& msdp_variables = context.variables();
     MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, array_payload("west").c_str());
-    exits->bDirty = false;
-    const char* const stored = exits->pValueString;
     const std::string payload = array_payload("down into the cellar");
+    const std::string wrapped = wrapped_value(MSDP_ARRAY_OPEN, payload, MSDP_ARRAY_CLOSE);
+    ASSERT_GT(wrapped.size(), msdp_variables.text(eMSDP_ROOM_EXITS).capacity());
+    msdp_variables.mark_clean(eMSDP_ROOM_EXITS);
 
     const std::size_t allocations = allocations_made_by([&context, &payload]() -> void {
         MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, payload.c_str());
     });
 
-    EXPECT_EQ(allocations, 0u)
-        << "The wrapped value takes one malloc buffer, which is not counted.";
-    EXPECT_NE(exits->pValueString, stored);
-    EXPECT_TRUE(exits->bDirty);
+    EXPECT_EQ(allocations, 1u) << "An array longer than the stored capacity grows the string once.";
+    EXPECT_TRUE(msdp_variables.is_dirty(eMSDP_ROOM_EXITS));
+    EXPECT_EQ(msdp_variables.text(eMSDP_ROOM_EXITS), wrapped);
 }
 
-// MSDPSend's allocations for a string and a number variable, checking each reached Write.
+// MSDPSend's allocations for a string and a number variable, checking each reached
+// send_to_client.
 void expect_send_does_not_allocate(AllocationDescriptor& context)
 {
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ESCAPED_ROOM_NAME);
@@ -591,7 +709,7 @@ void expect_update_does_not_allocate(AllocationDescriptor& context)
 {
     MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, ESCAPED_ROOM_NAME);
     MSDPSetTable(&context.descriptor, eMSDP_ROOM, table_payload(ROOM_NAME).c_str());
-    ASSERT_TRUE(context.variable(eMSDP_HEALTH)->bDirty)
+    ASSERT_TRUE(context.variables().is_dirty(eMSDP_HEALTH))
         << "ProtocolCreate primes server variables.";
     context.watch_for_write();
 
@@ -601,7 +719,7 @@ void expect_update_does_not_allocate(AllocationDescriptor& context)
     EXPECT_EQ(allocations, 0u);
     EXPECT_TRUE(context.wrote());
     for (const variable_t msdp_variable : { eMSDP_ROOM_NAME, eMSDP_ROOM, eMSDP_HEALTH }) {
-        EXPECT_FALSE(context.variable(msdp_variable)->bDirty)
+        EXPECT_FALSE(context.variables().is_dirty(msdp_variable))
             << "Variable " << msdp_variable << " was not sent.";
     }
 }
@@ -630,7 +748,7 @@ void expect_flush_does_not_allocate(AllocationDescriptor& context)
 
     EXPECT_EQ(allocations, 0u);
     EXPECT_TRUE(context.wrote());
-    EXPECT_FALSE(context.variable(eMSDP_ROOM_NAME)->bDirty);
+    EXPECT_FALSE(context.variables().is_dirty(eMSDP_ROOM_NAME));
 }
 
 TEST_F(ProtocolAllocation, FlushDoesNotAllocateWhileSendingADirtyVariableOverMsdp)

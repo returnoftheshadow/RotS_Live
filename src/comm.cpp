@@ -775,37 +775,37 @@ void msdp_update()
         MSDPSetNumber(desc, eMSDP_CON_PERM, GET_CON_BASE(desc->character));
         MSDPSetNumber(desc, eMSDP_LEA_PERM, GET_LEA_BASE(desc->character));
         MSDPSetNumber(desc, eMSDP_WIMPY, WIMP_LEVEL(desc->character));
-        MSDPSetNumber(desc, eMDSP_SPELL_SAVE, GET_SAVE(desc->character));
+        MSDPSetNumber(desc, eMSDP_SPELL_SAVE, GET_SAVE(desc->character));
 
         player_spec::battle_mage_handler battle_mage_handler(desc->character);
         MSDPSetNumber(
-            desc, eMDSP_SPELL_PEN,
+            desc, eMSDP_SPELL_PEN,
             battle_mage_handler.get_bonus_spell_pen(desc->character->points.get_spell_pen()));
         MSDPSetNumber(
-            desc, eMDSP_SPELL_POWER,
+            desc, eMSDP_SPELL_POWER,
             battle_mage_handler.get_bonus_spell_power(desc->character->points.get_spell_power()));
 
-        MSDPSetNumber(desc, eMDSP_ARMOUR_ABS, get_percent_absorb(desc->character));
-        MSDPSetNumber(desc, eMDSP_OFFENSIVE_BONUS, get_real_OB(desc->character));
-        MSDPSetNumber(desc, eMDSP_PARRY, get_real_parry(desc->character));
-        MSDPSetNumber(desc, eMDSP_DODGE, get_real_dodge(desc->character));
-        MSDPSetNumber(desc, eMDSP_ATTACK_SPEED, utils::get_energy_regen(*desc->character) / 5);
+        MSDPSetNumber(desc, eMSDP_ARMOUR_ABS, get_percent_absorb(desc->character));
+        MSDPSetNumber(desc, eMSDP_OFFENSIVE_BONUS, get_real_OB(desc->character));
+        MSDPSetNumber(desc, eMSDP_PARRY, get_real_parry(desc->character));
+        MSDPSetNumber(desc, eMSDP_DODGE, get_real_dodge(desc->character));
+        MSDPSetNumber(desc, eMSDP_ATTACK_SPEED, utils::get_energy_regen(*desc->character) / 5);
 
         extern char* tactics[];
-        MSDPSetString(desc, eMDSP_TACTIC, tactics[GET_TACTICS(desc->character) - 1]);
+        MSDPSetString(desc, eMSDP_TACTIC, tactics[GET_TACTICS(desc->character) - 1]);
 
         extern const char* specialize_name[];
         game_types::player_specs spec = utils::get_specialization(*desc->character);
-        MSDPSetString(desc, eMDSP_SPECIALIZATION,
+        MSDPSetString(desc, eMSDP_SPECIALIZATION,
             (spec >= game_types::PS_None && spec < game_types::PS_Count) ? specialize_name[spec]
                                                                          : "nothing");
 
-        MSDPSetNumber(desc, eMDSP_PERCEPTION, GET_PERCEPTION(desc->character));
-        MSDPSetNumber(desc, eMDSP_WILLPOWER, GET_WILLPOWER(desc->character));
-        MSDPSetNumber(desc, eMDSP_SKILL_ENCUMBRANCE, utils::get_encumbrance(*desc->character));
-        MSDPSetNumber(desc, eMDSP_MOVEMENT_ENCUMBRANCE,
+        MSDPSetNumber(desc, eMSDP_PERCEPTION, GET_PERCEPTION(desc->character));
+        MSDPSetNumber(desc, eMSDP_WILLPOWER, GET_WILLPOWER(desc->character));
+        MSDPSetNumber(desc, eMSDP_SKILL_ENCUMBRANCE, utils::get_encumbrance(*desc->character));
+        MSDPSetNumber(desc, eMSDP_MOVEMENT_ENCUMBRANCE,
             utils::get_leg_encumbrance(*desc->character));
-        MSDPSetNumber(desc, eMDSP_CARRIED_WEIGHT, IS_CARRYING_W(desc->character));
+        MSDPSetNumber(desc, eMSDP_CARRIED_WEIGHT, IS_CARRYING_W(desc->character));
 
         /* The coefficient can go negative -- an Uruk with no mage points takes a
            flat -100 mage penalty in GET_PROF_COOF (utils.h) with no floor at
@@ -813,20 +813,20 @@ void msdp_update()
         auto max_prof_level = [](int prof, char_data* ch) {
             return std::max(0, GET_PROF_COOF(prof, ch) * LEVEL_MAX / 1000);
         };
-        MSDPSetNumber(desc, eMDSP_WARRIOR_LEVEL, GET_PROF_LEVEL(PROF_WARRIOR, desc->character));
+        MSDPSetNumber(desc, eMSDP_WARRIOR_LEVEL, GET_PROF_LEVEL(PROF_WARRIOR, desc->character));
         MSDPSetNumber(
-            desc, eMDSP_WARRIOR_LEVEL_MAX, max_prof_level(PROF_WARRIOR, desc->character));
-        MSDPSetNumber(desc, eMDSP_RANGER_LEVEL, GET_PROF_LEVEL(PROF_RANGER, desc->character));
-        MSDPSetNumber(desc, eMDSP_RANGER_LEVEL_MAX, max_prof_level(PROF_RANGER, desc->character));
-        MSDPSetNumber(desc, eMDSP_MYSTIC_LEVEL, GET_PROF_LEVEL(PROF_CLERIC, desc->character));
-        MSDPSetNumber(desc, eMDSP_MYSTIC_LEVEL_MAX, max_prof_level(PROF_CLERIC, desc->character));
-        MSDPSetNumber(desc, eMDSP_MAGE_LEVEL, GET_PROF_LEVEL(PROF_MAGE, desc->character));
-        MSDPSetNumber(desc, eMDSP_MAGE_LEVEL_MAX, max_prof_level(PROF_MAGE, desc->character));
-        MSDPSetNumber(desc, eMDSP_HEALTH_REGENERATION, (int)hit_gain(desc->character));
-        MSDPSetNumber(desc, eMDSP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
-        MSDPSetNumber(desc, eMDSP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
+            desc, eMSDP_WARRIOR_LEVEL_MAX, max_prof_level(PROF_WARRIOR, desc->character));
+        MSDPSetNumber(desc, eMSDP_RANGER_LEVEL, GET_PROF_LEVEL(PROF_RANGER, desc->character));
+        MSDPSetNumber(desc, eMSDP_RANGER_LEVEL_MAX, max_prof_level(PROF_RANGER, desc->character));
+        MSDPSetNumber(desc, eMSDP_MYSTIC_LEVEL, GET_PROF_LEVEL(PROF_CLERIC, desc->character));
+        MSDPSetNumber(desc, eMSDP_MYSTIC_LEVEL_MAX, max_prof_level(PROF_CLERIC, desc->character));
+        MSDPSetNumber(desc, eMSDP_MAGE_LEVEL, GET_PROF_LEVEL(PROF_MAGE, desc->character));
+        MSDPSetNumber(desc, eMSDP_MAGE_LEVEL_MAX, max_prof_level(PROF_MAGE, desc->character));
+        MSDPSetNumber(desc, eMSDP_HEALTH_REGENERATION, (int)hit_gain(desc->character));
+        MSDPSetNumber(desc, eMSDP_STAMINA_REGENERATION, (int)mana_gain(desc->character));
+        MSDPSetNumber(desc, eMSDP_MOVEMENT_REGENERATION, (int)move_gain(desc->character));
 
-        MSDPSetString(desc, eMDSP_WEATHER, msdp_weather_value(desc->character));
+        MSDPSetString(desc, eMSDP_WEATHER, msdp_weather_value(desc->character));
         MSDPSetString(desc, eMSDP_WORLD_TIME, game_time_text::hour_text().c_str());
 
         auto opponent = desc->character->specials.fighting;
@@ -855,7 +855,7 @@ void msdp_update()
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
         build_group_msdp_table(group_payload, desc->character->group);
-        MSDPSetTable(desc, eMSDP_GROUP, group_payload.c_str());
+        MSDPSetTable(desc, eMSDP_GROUP, group_payload);
 
         MSDPUpdate(desc);
     }
@@ -1190,12 +1190,12 @@ static int write_prompt_with_marker(const descriptor_data* connection,
     const protocol_t* protocol = connection->pProtocol;
     if (protocol != nullptr) {
         EorAgreement eor = EorAgreement::Refused;
-        if (protocol->bEOR) {
+        if (protocol->eor_enabled) {
             eor = EorAgreement::Agreed;
         }
 
         GoAhead go_ahead = GoAhead::Sent;
-        if (protocol->bSGA) {
+        if (protocol->sga_enabled) {
             go_ahead = GoAhead::Suppressed;
         }
 
@@ -2086,7 +2086,8 @@ int process_input(struct descriptor_data* t)
             if (t->pProtocol) {
                 char filtered[MAX_STRING_LENGTH];
                 filtered[0] = '\0';
-                ProtocolInput(t, inbuf, thisround, filtered);
+                const std::string_view read_bytes(inbuf, static_cast<std::size_t>(thisround));
+                ProtocolInput(t, read_bytes, filtered);
 
                 int add = (int)strlen(filtered);
                 int room = MAX_STRING_LENGTH - (begin + sofar) - 1;
