@@ -362,11 +362,20 @@ TEST_F(ProtocolAllocation, CreateAllocatesTheProtocolAndItsLongDefaultTexts)
     protocol_t* protocol = nullptr;
     const std::size_t allocations
         = allocations_made_by([&protocol]() -> void { protocol = ProtocolCreate(); });
+
+    // One for protocol_t, which holds every variable, and one for each stored text too long for
+    // the library's small-string buffer, which an empty string's capacity measures.
+    const std::size_t small_string_capacity = std::string().capacity();
+    std::size_t expected_allocations = 1;
+    for (const MSDP_t& variable : protocol->variables) {
+        const std::string* const text = std::get_if<std::string>(&variable.value);
+        if (text != nullptr && text->size() > small_string_capacity) {
+            ++expected_allocations;
+        }
+    }
     ProtocolDestroy(protocol);
 
-    // One for protocol_t, which holds every variable, and one for each default text longer than
-    // libstdc++'s 15-character small-string buffer: BUTTON_4, BUTTON_5 and the five gauges.
-    EXPECT_EQ(allocations, 8u);
+    EXPECT_EQ(allocations, expected_allocations);
 }
 
 TEST_F(ProtocolAllocation, SetStringDoesNotAllocateForAnUnchangedValue)

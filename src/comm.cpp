@@ -855,7 +855,7 @@ void msdp_update()
 
         MSDPSetNumber(desc, eMSDP_SPIRIT, GET_SPIRIT(desc->character));
         build_group_msdp_table(group_payload, desc->character->group);
-        MSDPSetTable(desc, eMSDP_GROUP, group_payload.c_str());
+        MSDPSetTable(desc, eMSDP_GROUP, group_payload);
 
         MSDPUpdate(desc);
     }
@@ -2086,7 +2086,8 @@ int process_input(struct descriptor_data* t)
             if (t->pProtocol) {
                 char filtered[MAX_STRING_LENGTH];
                 filtered[0] = '\0';
-                ProtocolInput(t, inbuf, thisround, filtered);
+                const std::string_view read_bytes(inbuf, static_cast<std::size_t>(thisround));
+                ProtocolInput(t, read_bytes, filtered);
 
                 int add = (int)strlen(filtered);
                 int room = MAX_STRING_LENGTH - (begin + sofar) - 1;

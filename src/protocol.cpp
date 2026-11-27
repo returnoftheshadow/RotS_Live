@@ -317,7 +317,7 @@ static char* find_mxp_tag_value(const char* tag, const char* text);
 
 static const char* get_ansi_colour(bool background, int red, int green, int blue);
 static const char* get_xterm_colour(bool background, int red, int green, int blue);
-static bool is_valid_colour(const char* rgb_code);
+static bool is_valid_colour(std::string_view rgb_code);
 
 static bool equals_ignoring_case(std::string_view first, std::string_view second);
 static bool starts_with_ignoring_case(const char* prefix, const char* text);
@@ -442,15 +442,30 @@ static bool is_mxp_line_tag_at(const char* data, int position, int size)
 
 void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text)
 {
+    if (data != nullptr && size > 0) {
+        ProtocolInput(descriptor, std::string_view(data, static_cast<std::size_t>(size)), out_text);
+    }
+}
+
+void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char* out_text)
+{
     static char command_text[MAX_PROTOCOL_BUFFER + 1];
+    // The longest input whose length, with the held bytes put before it, fits an int.
+    constexpr std::size_t max_input_length = std::numeric_limits<int>::max()
+        - std::tuple_size<decltype(protocol_t::pending_input)>::value;
     int command_length = 0;
     int position;
 
     protocol_t* protocol = protocol_of(descriptor);
-    const bool has_input = data != nullptr && size > 0;
-    if (protocol == nullptr || !has_input || out_text == nullptr) {
+    if (protocol == nullptr || input.empty() || out_text == nullptr) {
         return;
     }
+    if (input.size() > max_input_length) {
+        report_bug("ProtocolInput: Too much incoming data to store in the buffer.\n");
+        return;
+    }
+    const char* data = input.data();
+    int size = static_cast<int>(input.size());
 
     char* subnegotiation = protocol->subnegotiation_input.data();
     int subnegotiation_length = 0;
@@ -658,11 +673,17 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
     std::strcat(out_text, command_text);
 }
 
-const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length)
+// ProtocolOutput's work for a protocol that is not null. text is read as though a NUL followed
+// its first text_size characters; a text_size of npos reads text's memory unbounded, as the
+// NUL-terminated overload does. A code may start only before code_start_limit characters.
+static std::string_view apply_output_codes(const descriptor_t* descriptor, protocol_t* protocol,
+    const char* text, std::size_t text_size, std::size_t code_start_limit)
 {
     static char result[MAX_OUTPUT_BUFFER + 1];
     static constexpr char tab_text[] = "\t";
     static constexpr char msp_trigger[] = "!!";
+    // What follows "!!" in an MSP sound trigger.
+    static constexpr std::string_view msp_sound_prefix = "SOUND(";
     static constexpr char mxp_tag_start[] = "\033[1z<";
     static constexpr char mxp_tag_end[] = ">\033[7z";
     static constexpr char link_start[] = "\033[1z<send>\033[7z";
@@ -673,12 +694,24 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
     bool in_mxp_tag = false;
     bool strips_msp_triggers = false;
     int result_length = 0;
-    int input_position = 0;
-
-    protocol_t* protocol = protocol_of(descriptor);
-    if (protocol == nullptr || text == nullptr) {
-        return text;
-    }
+    std::size_t input_position = 0;
+    // text's character at position, or a NUL past text_size.
+    const auto text_at = [text, text_size](std::size_t position) -> char {
+        if (position < text_size) {
+            return text[position];
+        }
+        return '\0';
+    };
+    // Whether the characters after position spell the MSP sound prefix, ignoring case.
+    const auto sound_prefix_follows = [&text_at](std::size_t position) -> bool {
+        for (std::size_t prefix_index = 0; prefix_index < msp_sound_prefix.size(); ++prefix_index) {
+            const char character = text_at(position + 1 + prefix_index);
+            if (std::tolower(character) != std::tolower(msp_sound_prefix[prefix_index])) {
+                return false;
+            }
+        }
+        return true;
+    };
 
     // A client with MSP or SOUND on would play a literal "!!SOUND(" in the text, so its second
     // '!' becomes '?'.
@@ -686,25 +719,24 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
         strips_msp_triggers = true;
     }
 
-    for (; result_length < MAX_OUTPUT_BUFFER && text[input_position] != '\0' && !reached_end;
+    for (; result_length < MAX_OUTPUT_BUFFER && text_at(input_position) != '\0' && !reached_end;
         ++input_position) {
-        const bool past_length = *out_length > 0 && input_position >= *out_length;
-        if (past_length) {
+        if (input_position >= code_start_limit) {
             break;
         }
 
         const bool is_old_msp_trigger = strips_msp_triggers && input_position > 0
-            && text[input_position - 1] == '!' && text[input_position] == '!'
-            && starts_with_ignoring_case("SOUND(", &text[input_position + 1]);
+            && text_at(input_position - 1) == '!' && text_at(input_position) == '!'
+            && sound_prefix_follows(input_position);
 
-        if (text[input_position] == '\t') {
-            const char* copy_from = nullptr;
+        if (text_at(input_position) == '\t') {
+            std::string_view copy_from;
             // A Unicode code's ASCII fallback. It lives here, not in its case, because copy_from
             // points into it until the copy below.
             char unicode_fallback[max_bracket_text_length + 1] = { '\0' };
 
             ++input_position;
-            switch (text[input_position]) {
+            switch (text_at(input_position)) {
             case '\t':
                 copy_from = tab_text;
                 break;
@@ -814,7 +846,7 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     copy_from = mxp_tag_start;
                     in_mxp_tag = true;
                 } else {
-                    while (text[input_position] != '\0' && text[input_position] != '>') {
+                    while (text_at(input_position) != '\0' && text_at(input_position) != '>') {
                         ++input_position;
                     }
                 }
@@ -822,7 +854,7 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                 break;
             case '[':
                 ++input_position;
-                if (std::tolower(text[input_position]) == 'u') {
+                if (std::tolower(text_at(input_position)) == 'u') {
                     char bug_text[256];
                     int code_length = 0;
                     int code_point = 0;
@@ -830,21 +862,21 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     bool fits = true;
 
                     ++input_position;
-                    while (std::isdigit(text[input_position])) {
+                    while (std::isdigit(text_at(input_position))) {
                         code_point *= 10;
-                        code_point += (text[input_position]) - '0';
+                        code_point += (text_at(input_position)) - '0';
                         ++input_position;
                     }
 
-                    if (text[input_position] == '/') {
+                    if (text_at(input_position) == '/') {
                         ++input_position;
                     }
 
-                    while (text[input_position] != '\0' && !closed) {
-                        if (text[input_position] == ']') {
+                    while (text_at(input_position) != '\0' && !closed) {
+                        if (text_at(input_position) == ']') {
                             closed = true;
                         } else if (code_length < max_bracket_text_length) {
-                            unicode_fallback[code_length++] = text[input_position++];
+                            unicode_fallback[code_length++] = text_at(input_position++);
                         } else {
                             input_position++;
                             fits = false;
@@ -869,21 +901,21 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
 
                     // An unclosed code ends the text.
                     reached_end = !closed;
-                } else if (std::tolower(text[input_position]) == 'f'
-                    || std::tolower(text[input_position]) == 'b') {
+                } else if (std::tolower(text_at(input_position)) == 'f'
+                    || std::tolower(text_at(input_position)) == 'b') {
                     char code_text[max_bracket_text_length + 1] = { '\0' };
                     char bug_text[256];
                     int code_length = 0;
                     bool closed = false;
                     bool fits = true;
 
-                    code_text[code_length++] = text[input_position++];
+                    code_text[code_length++] = text_at(input_position++);
 
-                    while (text[input_position] != '\0' && !closed && fits) {
-                        if (text[input_position] == ']') {
+                    while (text_at(input_position) != '\0' && !closed && fits) {
+                        if (text_at(input_position) == ']') {
                             closed = true;
                         } else if (code_length < RGB_COLOUR_CODE_LENGTH) {
-                            code_text[code_length++] = text[input_position++];
+                            code_text[code_length++] = text_at(input_position++);
                         } else {
                             fits = false;
                         }
@@ -908,7 +940,7 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                     } else {
                         copy_from = ColourRGB(descriptor, code_text);
                     }
-                } else if (std::tolower(text[input_position]) == 'x') {
+                } else if (std::tolower(text_at(input_position)) == 'x') {
                     char code_text[max_bracket_text_length + 1] = { '\0' };
                     char bug_text[256];
                     int code_length = 0;
@@ -917,11 +949,11 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
 
                     ++input_position;
 
-                    while (text[input_position] != '\0' && !closed) {
-                        if (text[input_position] == ']') {
+                    while (text_at(input_position) != '\0' && !closed) {
+                        if (text_at(input_position) == ']') {
                             closed = true;
                         } else if (code_length < max_bracket_text_length) {
-                            code_text[code_length++] = text[input_position++];
+                            code_text[code_length++] = text_at(input_position++);
                         } else {
                             input_position++;
                             fits = false;
@@ -959,21 +991,21 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
                 break;
             }
 
-            if (copy_from != nullptr) {
-                while (*copy_from != '\0' && result_length < MAX_OUTPUT_BUFFER) {
-                    result[result_length++] = *copy_from++;
-                }
+            for (std::size_t copy_index = 0;
+                copy_index < copy_from.size() && result_length < MAX_OUTPUT_BUFFER; ++copy_index) {
+                result[result_length++] = copy_from[copy_index];
             }
-        } else if (in_mxp_tag && text[input_position] == '>') {
-            const char* copy_from = mxp_tag_end;
-            while (*copy_from != '\0' && result_length < MAX_OUTPUT_BUFFER) {
-                result[result_length++] = *copy_from++;
+        } else if (in_mxp_tag && text_at(input_position) == '>') {
+            const std::string_view copy_from = mxp_tag_end;
+            for (std::size_t copy_index = 0;
+                copy_index < copy_from.size() && result_length < MAX_OUTPUT_BUFFER; ++copy_index) {
+                result[result_length++] = copy_from[copy_index];
             }
             in_mxp_tag = false;
         } else if (is_old_msp_trigger) {
             result[result_length++] = '?';
         } else {
-            result[result_length++] = text[input_position];
+            result[result_length++] = text_at(input_position);
         }
     }
 
@@ -983,12 +1015,37 @@ const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int
     }
 
     result[result_length] = '\0';
+    return std::string_view(result, static_cast<std::size_t>(result_length));
+}
 
-    if (out_length != nullptr) {
-        *out_length = result_length;
+std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text)
+{
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol == nullptr) {
+        return text;
+    }
+    return apply_output_codes(
+        descriptor, protocol, text.data(), text.size(), std::string_view::npos);
+}
+
+const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length)
+{
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol == nullptr || text == nullptr) {
+        return text;
     }
 
-    return result;
+    std::size_t code_start_limit = std::string_view::npos;
+    if (out_length != nullptr && *out_length > 0) {
+        code_start_limit = static_cast<std::size_t>(*out_length);
+    }
+    const std::string_view result = apply_output_codes(
+        descriptor, protocol, text, std::string_view::npos, code_start_limit);
+    if (out_length != nullptr) {
+        // The result is shorter than MAX_OUTPUT_BUFFER, so it fits an int.
+        *out_length = static_cast<int>(result.size());
+    }
+    return result.data();
 }
 
 // Only TTYPE is offered here, because some clients, such as GMud, print negotiation instead of
@@ -1103,121 +1160,130 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
 
 void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value)
 {
+    if (name != nullptr && value != nullptr) {
+        MSDPSendPair(descriptor, std::string_view(name), std::string_view(value));
+    }
+}
+
+void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::string_view value)
+{
     char msdp_text[MAX_VARIABLE_LENGTH + 1] = { '\0' };
 
-    if (name != nullptr && value != nullptr) {
-        protocol_t* protocol = protocol_of(descriptor);
-        if (protocol == nullptr) {
-            return;
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol == nullptr) {
+        return;
+    }
+
+    const std::size_t value_length = msdp_sanitized_length(value);
+
+    // The limit as std::size_t, so the length checks need no sign conversion.
+    constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
+    const std::size_t name_length = name.size();
+    const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
+
+    if (required_length >= buffer_limit) {
+        if (required_length - value_length < buffer_limit) {
+            std::snprintf(msdp_text, sizeof(msdp_text),
+                "MSDPSendPair: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
+                printf_precision(name), name.data(), required_length, MAX_VARIABLE_LENGTH);
+        } else {
+            // The name alone is too long.
+            std::snprintf(msdp_text, sizeof(msdp_text),
+                "MSDPSendPair: Variable name has a length of %zu bytes (exceeds "
+                "MAX_VARIABLE_LENGTH of %d).\n",
+                required_length, MAX_VARIABLE_LENGTH);
         }
 
-        const std::string_view value_view(value);
-        const std::size_t value_length = msdp_sanitized_length(value_view);
+        report_bug(msdp_text);
+        msdp_text[0] = '\0';
+    } else if (protocol->msdp_enabled) {
+        const int prefix_length = std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c",
+            IAC, SB, TELOPT_MSDP, MSDP_VAR, printf_precision(name), name.data(), MSDP_VAL);
+        char* const value_end = msdp_write_sanitized(value, msdp_text + prefix_length);
+        const std::size_t room_left
+            = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
+        std::snprintf(value_end, room_left, "%c%c", IAC, SE);
+    } else if (protocol->atcp_enabled) {
+        const int prefix_length = std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s ",
+            IAC, SB, TELOPT_ATCP, printf_precision(name), name.data());
+        char* const value_end = msdp_write_sanitized(value, msdp_text + prefix_length);
+        const std::size_t room_left
+            = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
+        std::snprintf(value_end, room_left, "%c%c", IAC, SE);
+    }
 
-        // The limit as std::size_t, so the length checks need no sign conversion.
-        constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
-        const std::size_t name_length = std::strlen(name);
-        const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
-
-        if (required_length >= buffer_limit) {
-            if (required_length - value_length < buffer_limit) {
-                std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSendPair: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n", name,
-                    required_length, MAX_VARIABLE_LENGTH);
-            } else {
-                // The name alone is too long.
-                std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSendPair: Variable name has a length of %zu bytes (exceeds "
-                    "MAX_VARIABLE_LENGTH of %d).\n",
-                    required_length, MAX_VARIABLE_LENGTH);
-            }
-
-            report_bug(msdp_text);
-            msdp_text[0] = '\0';
-        } else if (protocol->msdp_enabled) {
-            const int prefix_length = std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%s%c",
-                IAC, SB, TELOPT_MSDP, MSDP_VAR, name, MSDP_VAL);
-            char* const value_end = msdp_write_sanitized(value_view, msdp_text + prefix_length);
-            const std::size_t room_left
-                = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
-            std::snprintf(value_end, room_left, "%c%c", IAC, SE);
-        } else if (protocol->atcp_enabled) {
-            const int prefix_length = std::snprintf(
-                msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%s ", IAC, SB, TELOPT_ATCP, name);
-            char* const value_end = msdp_write_sanitized(value_view, msdp_text + prefix_length);
-            const std::size_t room_left
-                = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
-            std::snprintf(value_end, room_left, "%c%c", IAC, SE);
-        }
-
-        // Empty when the client has neither MSDP nor ATCP, or the message was too long.
-        if (msdp_text[0] != '\0') {
-            send_to_client(descriptor, msdp_text);
-        }
+    // Empty when the client has neither MSDP nor ATCP, or the message was too long.
+    if (msdp_text[0] != '\0') {
+        send_to_client(descriptor, msdp_text);
     }
 }
 
 void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value)
 {
+    if (name != nullptr && value != nullptr) {
+        MSDPSendList(descriptor, std::string_view(name), std::string_view(value));
+    }
+}
+
+void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::string_view value)
+{
     char msdp_text[MAX_VARIABLE_LENGTH + 1] = { '\0' };
 
-    if (name != nullptr && value != nullptr) {
-        protocol_t* protocol = protocol_of(descriptor);
-        if (protocol == nullptr) {
-            return;
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol == nullptr) {
+        return;
+    }
+
+    const std::size_t value_length = msdp_sanitized_length(value);
+
+    // The limit as std::size_t, so the length checks need no sign conversion.
+    constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
+    const std::size_t name_length = name.size();
+    const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
+
+    if (required_length >= buffer_limit) {
+        if (required_length - value_length < buffer_limit) {
+            std::snprintf(msdp_text, sizeof(msdp_text),
+                "MSDPSendList: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
+                printf_precision(name), name.data(), required_length, MAX_VARIABLE_LENGTH);
+        } else {
+            // The name alone is too long.
+            std::snprintf(msdp_text, sizeof(msdp_text),
+                "MSDPSendList: Variable name has a length of %zu bytes (exceeds "
+                "MAX_VARIABLE_LENGTH of %d).\n",
+                required_length, MAX_VARIABLE_LENGTH);
         }
 
-        const std::string_view value_view(value);
-        const std::size_t value_length = msdp_sanitized_length(value_view);
+        report_bug(msdp_text);
+        msdp_text[0] = '\0';
+    } else if (protocol->msdp_enabled) {
+        const int prefix_length
+            = std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%c%c", IAC, SB,
+                TELOPT_MSDP, MSDP_VAR, printf_precision(name), name.data(), MSDP_VAL,
+                MSDP_ARRAY_OPEN, MSDP_VAL);
+        char* const value_end = msdp_write_sanitized(value, msdp_text + prefix_length);
+        const std::size_t room_left
+            = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
+        std::snprintf(value_end, room_left, "%c%c%c", MSDP_ARRAY_CLOSE, IAC, SE);
 
-        // The limit as std::size_t, so the length checks need no sign conversion.
-        constexpr std::size_t buffer_limit = MAX_VARIABLE_LENGTH;
-        const std::size_t name_length = std::strlen(name);
-        const std::size_t required_length = name_length + value_length + MSDP_FRAMING_LENGTH;
-
-        if (required_length >= buffer_limit) {
-            if (required_length - value_length < buffer_limit) {
-                std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSendList: %s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n", name,
-                    required_length, MAX_VARIABLE_LENGTH);
-            } else {
-                // The name alone is too long.
-                std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSendList: Variable name has a length of %zu bytes (exceeds "
-                    "MAX_VARIABLE_LENGTH of %d).\n",
-                    required_length, MAX_VARIABLE_LENGTH);
+        // Each space separates two array values.
+        for (int text_position = 0; msdp_text[text_position] != '\0'; ++text_position) {
+            if (msdp_text[text_position] == ' ') {
+                msdp_text[text_position] = MSDP_VAL;
             }
-
-            report_bug(msdp_text);
-            msdp_text[0] = '\0';
-        } else if (protocol->msdp_enabled) {
-            const int prefix_length
-                = std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%s%c%c%c", IAC, SB,
-                    TELOPT_MSDP, MSDP_VAR, name, MSDP_VAL, MSDP_ARRAY_OPEN, MSDP_VAL);
-            char* const value_end = msdp_write_sanitized(value_view, msdp_text + prefix_length);
-            const std::size_t room_left
-                = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
-            std::snprintf(value_end, room_left, "%c%c%c", MSDP_ARRAY_CLOSE, IAC, SE);
-
-            // Each space separates two array values.
-            for (int text_position = 0; msdp_text[text_position] != '\0'; ++text_position) {
-                if (msdp_text[text_position] == ' ') {
-                    msdp_text[text_position] = MSDP_VAL;
-                }
-            }
-        } else if (protocol->atcp_enabled) {
-            const int prefix_length = std::snprintf(
-                msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%s ", IAC, SB, TELOPT_ATCP, name);
-            char* const value_end = msdp_write_sanitized(value_view, msdp_text + prefix_length);
-            const std::size_t room_left
-                = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
-            std::snprintf(value_end, room_left, "%c%c", IAC, SE);
         }
+    } else if (protocol->atcp_enabled) {
+        const int prefix_length = std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s ",
+            IAC, SB, TELOPT_ATCP, printf_precision(name), name.data());
+        char* const value_end = msdp_write_sanitized(value, msdp_text + prefix_length);
+        const std::size_t room_left
+            = sizeof(msdp_text) - static_cast<std::size_t>(value_end - msdp_text);
+        std::snprintf(value_end, room_left, "%c%c", IAC, SE);
+    }
 
-        // Empty when the client has neither MSDP nor ATCP, or the message was too long.
-        if (msdp_text[0] != '\0') {
-            send_to_client(descriptor, msdp_text);
-        }
+    // Empty when the client has neither MSDP nor ATCP, or the message was too long.
+    if (msdp_text[0] != '\0') {
+        send_to_client(descriptor, msdp_text);
     }
 }
 
@@ -1361,17 +1427,27 @@ static bool msdp_set_wrapped(
 
 void MSDPAppendSanitized(std::string& out_text, const char* value)
 {
-    if (value == nullptr) {
-        return;
+    if (value != nullptr) {
+        MSDPAppendSanitized(out_text, std::string_view(value));
     }
-    const std::string_view value_view(value);
+}
+
+void MSDPAppendSanitized(std::string& out_text, std::string_view value)
+{
     const std::size_t old_size = out_text.size();
-    const std::size_t length = msdp_sanitized_length(value_view);
+    const std::size_t length = msdp_sanitized_length(value);
     out_text.resize(old_size + length);
-    msdp_write_sanitized(value_view, out_text.data() + old_size);
+    msdp_write_sanitized(value, out_text.data() + old_size);
 }
 
 std::string MSDPSanitizeValue(const char* value)
+{
+    std::string sanitized;
+    MSDPAppendSanitized(sanitized, value);
+    return sanitized;
+}
+
+std::string MSDPSanitizeValue(std::string_view value)
 {
     std::string sanitized;
     MSDPAppendSanitized(sanitized, value);
@@ -1402,13 +1478,13 @@ void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::str
     }
 }
 
-void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value)
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value)
 {
     protocol_t* protocol = protocol_of(descriptor);
 
-    const bool can_set = protocol != nullptr && value != nullptr && MSDPIsValidVariable(variable);
+    const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
     if (can_set) {
-        if (*value == '\0') {
+        if (value.empty()) {
             // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
@@ -1418,13 +1494,13 @@ void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const cha
     }
 }
 
-void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value)
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::string_view value)
 {
     protocol_t* protocol = protocol_of(descriptor);
 
-    const bool can_set = protocol != nullptr && value != nullptr && MSDPIsValidVariable(variable);
+    const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
     if (can_set) {
-        if (*value == '\0') {
+        if (value.empty()) {
             // An empty value is stored empty, without the markers.
             MSDPSetString(descriptor, variable, value);
         } else if (VARIABLE_NAME_TABLE[variable].is_string) {
@@ -1436,14 +1512,22 @@ void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const cha
 
 void MXPSendTag(const descriptor_t* descriptor, const char* tag)
 {
+    if (tag != nullptr) {
+        MXPSendTag(descriptor, std::string_view(tag));
+    }
+}
+
+void MXPSendTag(const descriptor_t* descriptor, std::string_view tag)
+{
     protocol_t* protocol = protocol_of(descriptor);
 
-    const bool can_send = protocol != nullptr && tag != nullptr
-        && std::strlen(tag) < static_cast<std::size_t>(MAX_MXP_TAG_LENGTH);
+    const bool can_send
+        = protocol != nullptr && tag.size() < static_cast<std::size_t>(MAX_MXP_TAG_LENGTH);
     if (can_send) {
         if (variable_number(protocol->variables[eMSDP_MXP]) != 0) {
             char tag_text[MXP_BUFFER_SIZE];
-            std::snprintf(tag_text, sizeof(tag_text), "\033[1z%s\033[7z\r\n", tag);
+            std::snprintf(tag_text, sizeof(tag_text), "\033[1z%.*s\033[7z\r\n",
+                printf_precision(tag), tag.data());
             send_to_client(descriptor, tag_text);
         } else if (protocol->renegotiate) {
             // A client that connects automatically, such as MUSHclient, can miss the first
@@ -1462,7 +1546,16 @@ void MXPSendTag(const descriptor_t* descriptor, const char* tag)
     }
 }
 
-const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
+std::string_view ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
+{
+    if (rgb_code == nullptr) {
+        // An empty code is invalid, as a null one is.
+        return ColourRGB(descriptor, std::string_view());
+    }
+    return ColourRGB(descriptor, std::string_view(rgb_code));
+}
+
+std::string_view ColourRGB(const descriptor_t* descriptor, std::string_view rgb_code)
 {
     protocol_t* protocol = protocol_of(descriptor);
 
@@ -1488,7 +1581,7 @@ const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code)
     }
 }
 
-char* UnicodeGet(int code_point)
+std::string_view UnicodeGet(int code_point)
 {
     static char utf8_text[8];
     char* cursor = utf8_text;
@@ -1496,7 +1589,8 @@ char* UnicodeGet(int code_point)
     UnicodeAdd(&cursor, code_point);
     *cursor = '\0';
 
-    return utf8_text;
+    // Up to the first NUL, so a code point whose encoding is a NUL byte gives an empty view.
+    return std::string_view(utf8_text);
 }
 
 void UnicodeAdd(char** out_cursor, int code_point)
@@ -2473,14 +2567,10 @@ static const char* get_xterm_colour(bool background, int red, int green, int blu
 }
 
 // Whether rgb_code starts with a colour code: 'F' or 'B' in either case, then three digits from
-// 0 to 5. Characters after the fourth are ignored, and null is not a colour code.
-static bool is_valid_colour(const char* rgb_code)
+// 0 to 5. Characters after the fourth are ignored.
+static bool is_valid_colour(std::string_view rgb_code)
 {
-    if (rgb_code == nullptr) {
-        return false;
-    }
-
-    if (std::strlen(rgb_code) < static_cast<std::size_t>(RGB_COLOUR_CODE_LENGTH)) {
+    if (rgb_code.size() < static_cast<std::size_t>(RGB_COLOUR_CODE_LENGTH)) {
         return false;
     }
 

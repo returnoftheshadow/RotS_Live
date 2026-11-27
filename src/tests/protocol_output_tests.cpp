@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <initializer_list>
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace {
@@ -226,6 +227,35 @@ TEST(ProtocolOutput, ReturnsTheSameStaticBufferOnEveryCall)
 
     EXPECT_EQ(first, second) << "Each call overwrites the previous call's result.";
     EXPECT_STREQ(first, "second");
+}
+
+TEST(ProtocolOutput, AppliesCodesToAViewUpToItsEndOrItsFirstNul)
+{
+    OutputDescriptor output_descriptor(ColourMode::ANSI);
+    const std::string_view text = "ab\trcd";
+    constexpr char text_with_nul[] = "abc\t\0tail";
+
+    EXPECT_EQ(ProtocolOutput(&output_descriptor.descriptor, text), "ab\033[0;31mcd");
+    EXPECT_EQ(ProtocolOutput(&output_descriptor.descriptor, text.substr(0, 3)), "ab")
+        << "A code cut off by the view's end ends the text.";
+    EXPECT_EQ(ProtocolOutput(&output_descriptor.descriptor,
+                  std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "abc");
+}
+
+TEST(ProtocolOutput, ReturnsTheViewUnchangedWithoutAProtocol)
+{
+    descriptor_data descriptor {};
+    const std::string_view text = "\trred";
+
+    // A null descriptor, and one with no protocol.
+    const descriptor_data* const descriptors_without_protocol[] = { nullptr, &descriptor };
+
+    for (const descriptor_data* const descriptor_without_protocol : descriptors_without_protocol) {
+        const std::string_view result = ProtocolOutput(descriptor_without_protocol, text);
+        EXPECT_EQ(result.data(), text.data());
+        EXPECT_EQ(result.size(), text.size());
+    }
 }
 
 TEST(ProtocolOutput, WritesEachColourLetterAsPlainAnsiWhenXtermIsOff)
@@ -689,15 +719,15 @@ TEST(ProtocolOutput, SendsNothingWhenAnMxpTagCloseOverflowsTheBuffer)
 
 TEST(ColourRGB, ReturnsAnEmptyStringForANullDescriptor)
 {
-    EXPECT_STREQ(ColourRGB(nullptr, "F500"), "");
+    EXPECT_EQ(ColourRGB(nullptr, "F500"), "");
 }
 
 TEST(ColourRGB, ReturnsAnEmptyStringWhenTheClientHasNoColour)
 {
     OutputDescriptor output_descriptor(ColourMode::NONE);
 
-    EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, "F500"), "");
-    EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, "F600"), "")
+    EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, "F500"), "");
+    EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, "F600"), "")
         << "Even an invalid colour sends nothing, not the clear code.";
 }
 
@@ -706,16 +736,16 @@ TEST(ColourRGB, ReturnsTheClearCodeForAnInvalidColour)
     OutputDescriptor output_descriptor(ColourMode::XTERM_256);
 
     for (const char* const rgb : { "F600", "F/00", "F0:0", "F00/", "X500", "F50", "" }) {
-        EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, rgb), CLEAN) << "Argument \"" << rgb << "\"";
+        EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, rgb), CLEAN) << "Argument \"" << rgb << "\"";
     }
-    EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, nullptr), CLEAN) << "Null argument";
+    EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, nullptr), CLEAN) << "Null argument";
 }
 
 TEST(ColourRGB, IgnoresCharactersAfterTheFourthWhenValidating)
 {
     OutputDescriptor output_descriptor(ColourMode::ANSI);
 
-    EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, "F500junk"), "\033[1;31m");
+    EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, "F500junk"), "\033[1;31m");
 }
 
 TEST(ColourRGB, ReturnsTheBestFitAnsiColourWhenXtermIsOff)
@@ -723,7 +753,7 @@ TEST(ColourRGB, ReturnsTheBestFitAnsiColourWhenXtermIsOff)
     OutputDescriptor output_descriptor(ColourMode::ANSI);
 
     for (const RgbCase& rgb_case : ANSI_BEST_FIT_CASES) {
-        EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, rgb_case.rgb), rgb_case.expected)
+        EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, rgb_case.rgb), rgb_case.expected)
             << "Argument \"" << rgb_case.rgb << "\"";
     }
 }
@@ -733,7 +763,7 @@ TEST(ColourRGB, ReturnsAnXtermPaletteEscapeWhenXtermIsOn)
     OutputDescriptor output_descriptor(ColourMode::XTERM_256);
 
     for (const RgbCase& rgb_case : XTERM_CASES) {
-        EXPECT_STREQ(ColourRGB(&output_descriptor.descriptor, rgb_case.rgb), rgb_case.expected)
+        EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, rgb_case.rgb), rgb_case.expected)
             << "Argument \"" << rgb_case.rgb << "\"";
     }
 }
@@ -742,8 +772,8 @@ TEST(ColourRGB, ReusesOneStaticBufferForXtermEscapes)
 {
     OutputDescriptor output_descriptor(ColourMode::XTERM_256);
 
-    const char* const first = ColourRGB(&output_descriptor.descriptor, "F500");
-    const char* const second = ColourRGB(&output_descriptor.descriptor, "F005");
+    const char* const first = ColourRGB(&output_descriptor.descriptor, "F500").data();
+    const char* const second = ColourRGB(&output_descriptor.descriptor, "F005").data();
 
     EXPECT_EQ(first, second) << "A second xterm colour overwrites the first.";
     EXPECT_STREQ(first, "\033[38;5;021m");
@@ -786,9 +816,9 @@ TEST(UnicodeGet, EncodesSurrogatesAndValuesAboveTheUnicodeRange)
 
 TEST(UnicodeGet, ReturnsAnEmptyStringForCodePointZeroAndValuesFromTwoToTheTwentyFirst)
 {
-    EXPECT_STREQ(UnicodeGet(0), "");
-    EXPECT_STREQ(UnicodeGet(0x200000), "");
-    EXPECT_STREQ(UnicodeGet(0x7FFFFFFF), "");
+    EXPECT_EQ(UnicodeGet(0), "");
+    EXPECT_EQ(UnicodeGet(0x200000), "");
+    EXPECT_EQ(UnicodeGet(0x7FFFFFFF), "");
 }
 
 TEST(UnicodeGet, WritesTheLowByteOfANegativeValue)
@@ -799,8 +829,8 @@ TEST(UnicodeGet, WritesTheLowByteOfANegativeValue)
 
 TEST(UnicodeGet, ReturnsTheSameStaticBufferOnEveryCall)
 {
-    const char* const first = UnicodeGet(0x41);
-    const char* const second = UnicodeGet(0x42);
+    const char* const first = UnicodeGet(0x41).data();
+    const char* const second = UnicodeGet(0x42).data();
 
     EXPECT_EQ(first, second);
     EXPECT_STREQ(first, "B");

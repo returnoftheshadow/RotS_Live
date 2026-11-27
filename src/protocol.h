@@ -313,19 +313,22 @@ void ProtocolDestroy(protocol_t* protocol);
 // must not be null.
 void ProtocolNegotiate(const descriptor_t* descriptor);
 
-// Acts on the telnet negotiation, subnegotiations and MXP <VERSION> replies in the size bytes at
-// data, and appends the rest to out_text with a NUL. out_text must be NUL-terminated and have
-// room for MAX_PROTOCOL_BUFFER more characters and the NUL. A sequence split across reads is held
-// for the next call. A read with more text or subnegotiation than MAX_PROTOCOL_BUFFER is logged,
-// and its text is not appended. A null descriptor, data or out_text, or a size of 0 or less,
-// does nothing.
+// Acts on the telnet negotiation, subnegotiations and MXP <VERSION> replies in data, and appends
+// the rest to out_text with a NUL. out_text must be NUL-terminated and have room for
+// MAX_PROTOCOL_BUFFER more characters and the NUL. A sequence split across reads is held for the
+// next call. A read with more text or subnegotiation than MAX_PROTOCOL_BUFFER, or too long for an
+// int length, is logged, and its text is not appended. A null descriptor or out_text, or empty
+// data, does nothing.
+void ProtocolInput(const descriptor_t* descriptor, std::string_view data, char* out_text);
+
+// ProtocolInput for the size bytes at data. A null data or a size of 0 or less does nothing.
 void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text);
 
-// Returns text with its codes applied for descriptor's client, in a static buffer that the next
-// call overwrites. *out_length is read as text's length, 0 or less meaning text runs to its NUL,
-// and is set to the result's length; out_length must not be null. A result of MAX_OUTPUT_BUFFER
-// characters or more is logged and comes back empty. With a null descriptor, protocol or text,
-// returns text unchanged.
+// Returns text with its codes applied for descriptor's client, reading text as though a NUL
+// followed it. A NUL ends the text, unless it cuts off an [F...] or [B...] colour code or a
+// stripped MXP tag, when reading goes on after it. The result views a static buffer and is valid
+// until the next call. A result of MAX_OUTPUT_BUFFER characters or more is logged and comes back
+// empty. With a null descriptor or protocol, returns text unchanged.
 //
 // A code is a tab followed by:
 //   \t                  a tab.
@@ -346,6 +349,12 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 // Colours need the ANSI_COLORS variable on. MXP links and tags need MXP on, and are removed
 // without it, so every tag must be closed. For a client with MSP or SOUND on, a literal
 // "!!SOUND(" in text is sent as "!?SOUND(".
+std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text);
+
+// ProtocolOutput for NUL-terminated text, returning the static buffer, which holds a NUL after
+// the result. A code may start only before *out_length characters, when that is above 0, but
+// reads on to the NUL to finish. *out_length is set to the result's length; out_length must not
+// be null. With a null descriptor, protocol or text, returns text and leaves *out_length alone.
 const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length);
 
 // Sends every reported, dirty variable through MSDPSend and marks each one it sends clean; the
@@ -369,11 +378,18 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
 
 // Sends name and value at once as an MSDP variable, or over ATCP for a client without MSDP, with
 // value escaped as by MSDPSanitizeValue. There is no login or PRF_MSDP check, so it works during
-// negotiation, and nothing is stored. A null descriptor, name or value, or a client with neither
-// protocol, sends nothing; so does a message too long for MAX_VARIABLE_LENGTH, which is logged.
+// negotiation, and nothing is stored. A null descriptor, or a client with neither protocol, sends
+// nothing; so does a message too long for MAX_VARIABLE_LENGTH, which is logged. name and value
+// must hold no NUL.
+void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::string_view value);
+
+// MSDPSendPair for NUL-terminated text; a null name or value sends nothing.
 void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value);
 
 // MSDPSendPair for a list of values separated by spaces, which MSDP receives as an array.
+void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::string_view value);
+
+// MSDPSendList for NUL-terminated text; a null name or value sends nothing.
 void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value);
 
 // Stores value as a number variable's value, and marks the variable dirty if the value changed;
@@ -396,24 +412,30 @@ void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::str
 // Returns value with '"', '\' and control characters such as \n and \r replaced by their JSON
 // escapes, so clients that turn MSDP into JSON get a valid string. MSDPSetString and
 // MSDPSendPair apply it themselves. Call it for free text in a table or array value, since
-// MSDPSetTable and MSDPSetArray store their value as it is. A null value gives an empty string.
+// MSDPSetTable and MSDPSetArray store their value as it is.
+std::string MSDPSanitizeValue(std::string_view value);
+
+// MSDPSanitizeValue for NUL-terminated text; a null value gives an empty string.
 std::string MSDPSanitizeValue(const char* value);
 
 // Appends the MSDPSanitizeValue text for value to out_text, so a caller building a table in a
-// reused string needs no copy of its own. A null value appends nothing.
+// reused string needs no copy of its own. value must not point into out_text.
+void MSDPAppendSanitized(std::string& out_text, std::string_view value);
+
+// MSDPAppendSanitized for NUL-terminated text; a null value appends nothing.
 void MSDPAppendSanitized(std::string& out_text, const char* value);
 
 // Stores value as a string variable's MSDP table, between MSDP_TABLE_OPEN and MSDP_TABLE_CLOSE,
 // and marks the variable dirty if it changed; an unchanged value allocates nothing and stays
 // clean, and a changed one is written in place as by MSDPSetString. value is stored as it is: the
 // caller puts MSDP_VAR before each name and MSDP_VAL before each value. An empty value is stored
-// empty, without the markers. A null descriptor or value, an invalid variable or a number
-// variable is ignored.
-void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value);
+// empty, without the markers. A null descriptor, an invalid variable or a number variable is
+// ignored.
+void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
 // MSDPSetTable for an MSDP array, between MSDP_ARRAY_OPEN and MSDP_ARRAY_CLOSE: the caller puts
 // MSDP_VAL before each element.
-void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value);
+void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
 // Whether variable is an MSDP variable: above eMSDP_NONE and below eMSDP_MAX.
 bool MSDPIsValidVariable(variable_t variable);
@@ -421,20 +443,27 @@ bool MSDPIsValidVariable(variable_t variable);
 // Sends tag, such as "<VERSION>", on a secure MXP line when the client has MXP on. A tag of 1000
 // characters or more is dropped. When MXP is off and renegotiation is pending (see
 // protocol_t::renegotiate), it offers every option except TTYPE again and sends <VERSION> once
-// MXP comes on; tag itself is not sent. A null descriptor or tag does nothing.
+// MXP comes on; tag itself is not sent. A null descriptor does nothing. tag must hold no NUL.
+void MXPSendTag(const descriptor_t* descriptor, std::string_view tag);
+
+// MXPSendTag for a NUL-terminated tag; a null tag does nothing.
 void MXPSendTag(const descriptor_t* descriptor, const char* tag);
 
 // Returns the escape code for an RGB colour code such as "F500": 'F' for foreground or 'B' for
-// background, in either case, then red, green and blue digits from 0 to 5. With the
-// XTERM_256_COLORS variable on, the result is an xterm colour in a static buffer that the next
-// call overwrites; otherwise it is the nearest ANSI colour. An invalid code gives the code that
-// clears colour. When ANSI colour is off, or descriptor is null, it returns an empty string. To
-// put colours in text, use ProtocolOutput.
-const char* ColourRGB(const descriptor_t* descriptor, const char* rgb_code);
+// background, in either case, then red, green and blue digits from 0 to 5; characters after the
+// fourth are ignored. With the XTERM_256_COLORS variable on, the result is an xterm colour that
+// views a static buffer and is valid until the next call; otherwise it is the nearest ANSI colour.
+// An invalid code gives the code that clears colour. When ANSI colour is off, or descriptor is
+// null, it returns an empty view. To put colours in text, use ProtocolOutput.
+std::string_view ColourRGB(const descriptor_t* descriptor, std::string_view rgb_code);
 
-// Returns the UTF-8 encoding of code_point in a static buffer that the next call overwrites. A
-// value of 0x200000 or more gives an empty string.
-char* UnicodeGet(int code_point);
+// ColourRGB for a NUL-terminated code; a null code is an invalid one.
+std::string_view ColourRGB(const descriptor_t* descriptor, const char* rgb_code);
+
+// Returns the UTF-8 encoding of code_point, which views a static buffer and is valid until the
+// next call; the buffer holds a NUL after it. It ends at the first NUL byte, so 0, a value of
+// 0x200000 or more, and a negative value whose low byte is 0 give an empty view.
+std::string_view UnicodeGet(int code_point);
 
 // Writes the UTF-8 encoding of code_point at *out_cursor, without a NUL, and moves the cursor
 // past it: 1 to 4 bytes, which the caller must have room for. A value of 0x200000 or more writes
