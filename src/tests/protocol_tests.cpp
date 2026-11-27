@@ -2863,4 +2863,1384 @@ TEST(MSDPProtocol, MarkAllReportedDirtyForcesResendOnNextUpdate)
     EXPECT_EQ(context.read_output(), expected_msdp_pair("CHARACTER_NAME", "Aragorn"));
 }
 
+// The telnet IS code that starts a client's TTYPE reply.
+constexpr char TTYPE_IS = 0;
+
+// An option number no telnet handler in the protocol knows.
+constexpr unsigned char UNKNOWN_TELNET_OPTION = 99;
+
+// Frames payload as a telnet subnegotiation of option.
+std::string telnet_subnegotiation(unsigned char option, std::string_view payload)
+{
+    std::string packet;
+    packet.push_back(static_cast<char>(IAC));
+    packet.push_back(static_cast<char>(SB));
+    packet.push_back(static_cast<char>(option));
+    packet += payload;
+    packet.push_back(static_cast<char>(IAC));
+    packet.push_back(static_cast<char>(SE));
+    return packet;
+}
+
+// The client's TTYPE reply naming terminal_type.
+std::string ttype_reply(std::string_view terminal_type)
+{
+    std::string payload(1, TTYPE_IS);
+    payload += terminal_type;
+    return telnet_subnegotiation(TELOPT_TTYPE, payload);
+}
+
+// The client's NAWS report, each byte as it travels; a 255 byte must already be doubled.
+std::string naws_report(std::string_view size_bytes)
+{
+    return telnet_subnegotiation(TELOPT_NAWS, size_bytes);
+}
+
+// Feeds input to the protocol as one read and returns the bytes the server wrote back. The input
+// is all negotiation, so no player text may come out of it. input stays a std::string for
+// feed_protocol_input.
+std::string reply_to(ProtocolDescriptor& context, const std::string& input)
+{
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    feed_protocol_input(&context.descriptor, input, output);
+    EXPECT_STREQ(output, "") << "negotiation input reached the player's text";
+    return context.read_output();
+}
+
+// The offers Negotiate makes for every protocol after TTYPE, in the order it makes them.
+std::string expected_protocol_offers()
+{
+    return telnet_sequence(DO, TELOPT_NAWS) + telnet_sequence(DO, TELOPT_CHARSET)
+        + telnet_sequence(WILL, TELOPT_MSDP) + telnet_sequence(WILL, TELOPT_MSSP)
+        + telnet_sequence(DO, TELOPT_ATCP) + telnet_sequence(WILL, TELOPT_MSP)
+        + telnet_sequence(DO, TELOPT_MXP) + telnet_sequence(WILL, TELOPT_EOR);
+}
+
+// The CHARSET REQUEST the server sends once a client agrees to CHARSET.
+std::string expected_charset_request()
+{
+    std::string payload(1, static_cast<char>(SEND));
+    payload += " ISO-8859-1";
+    return telnet_subnegotiation(TELOPT_CHARSET, payload);
+}
+
+// The empty MXP subnegotiation and the secure-line escape that switch MXP on.
+std::string expected_mxp_start()
+{
+    return telnet_subnegotiation(TELOPT_MXP, "") + "\033[7z";
+}
+
+// The bytes MXPSendTag sends for tag.
+std::string expected_mxp_tag(std::string_view tag)
+{
+    std::string sent = "\033[1z";
+    sent += tag;
+    sent += "\033[7z\r\n";
+    return sent;
+}
+
+// The announcement the server writes when it learns the client's MXP version.
+std::string expected_mxp_announcement(std::string_view version)
+{
+    std::string announcement = "\n\t[F210][\toINFO\t[F210]]\tn MXP version ";
+    announcement += version;
+    announcement += " detected and enabled.\r\n";
+    return announcement;
+}
+
+// The MXP <VERSION> reply a client sends, holding attributes.
+std::string mxp_version_reply(std::string_view attributes)
+{
+    std::string reply = "\033[1z<VERSION ";
+    reply += attributes;
+    reply += ">";
+    return reply;
+}
+
+// One MSSP variable and its value.
+struct MsspVariable {
+    // The MSSP variable name.
+    std::string name;
+    // The value sent for it.
+    std::string value;
+};
+
+// The MSSP table the server sends. Nothing in the server sets the player count or the boot time,
+// so both are always 0.
+std::string expected_mssp_packet()
+{
+    const std::vector<MsspVariable> variables
+        = { { "NAME", MUD_NAME }, { "PLAYERS", "0" }, { "UPTIME", "0" }, { "CRAWL DELAY", "-1" } };
+    std::string payload;
+    for (const MsspVariable& variable : variables) {
+        payload.push_back(static_cast<char>(MSSP_VAR));
+        payload += variable.name;
+        payload.push_back(static_cast<char>(MSSP_VAL));
+        payload += variable.value;
+    }
+    return telnet_subnegotiation(TELOPT_MSSP, payload);
+}
+
+TEST(ProtocolInput, IgnoresAMissingDescriptorProtocolDataOutputOrLength)
+{
+    char output[MAX_INPUT_LENGTH] = "kept";
+    const char text[] = "look";
+    descriptor_data descriptor_without_protocol {};
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char lone_iac[] = { static_cast<char>(IAC) };
+    ProtocolInput(&descriptor, lone_iac, 1, output);
+    ASSERT_EQ(descriptor.pProtocol->PendingInputLength, 1);
+
+    ProtocolInput(nullptr, text, 4, output);
+    ProtocolInput(&descriptor_without_protocol, text, 4, output);
+    ProtocolInput(&descriptor, nullptr, 4, output);
+    ProtocolInput(&descriptor, text, 4, nullptr);
+    ProtocolInput(&descriptor, text, 0, output);
+    ProtocolInput(&descriptor, text, -1, output);
+
+    EXPECT_STREQ(output, "kept");
+    EXPECT_EQ(descriptor.pProtocol->PendingInputLength, 1) << "an ignored call keeps the pending IAC";
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, AppendsPlayerTextToWhatTheOutputAlreadyHolds)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = "say ";
+
+    feed_protocol_input(&descriptor, "hello", output);
+
+    EXPECT_STREQ(output, "say hello");
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, TurnsADoubledIacIntoOneByteOfPlayerText)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    const std::string input
+        = std::string("a") + static_cast<char>(IAC) + static_cast<char>(IAC) + "b";
+
+    feed_protocol_input(&descriptor, input, output);
+
+    EXPECT_EQ(std::string(output), std::string("a") + static_cast<char>(IAC) + "b");
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, SkipsTelnetCommandsThatAreNotNegotiation)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    const std::string input = std::string("a") + static_cast<char>(IAC) + static_cast<char>(NOP)
+        + "b" + static_cast<char>(IAC) + static_cast<char>(GA) + "c" + static_cast<char>(IAC)
+        + static_cast<char>(SE) + "d";
+
+    feed_protocol_input(&descriptor, input, output);
+
+    EXPECT_STREQ(output, "abcd");
+    EXPECT_FALSE(descriptor.pProtocol->bIACMode);
+    EXPECT_EQ(descriptor.pProtocol->PendingInputLength, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, PassesAReadThatExactlyFillsTheCommandBuffer)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    std::vector<char> output(MAX_PROTOCOL_BUFFER + 1, '\0');
+    const std::string full_read(MAX_PROTOCOL_BUFFER, 'a');
+
+    feed_protocol_input(&descriptor, full_read, output.data());
+
+    EXPECT_EQ(std::string(output.data()), full_read);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, DropsAndLogsAWholeReadLongerThanTheCommandBuffer)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    std::vector<char> output(MAX_PROTOCOL_BUFFER + 2, '\0');
+    const std::string long_read(MAX_PROTOCOL_BUFFER + 1, 'a');
+
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, long_read, output.data());
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output.data(), "") << "none of the read reaches the player, not even its start";
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+    EXPECT_FALSE(descriptor.pProtocol->bIACMode);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, KeepsAnEscapeMidInputButDropsOneNearTheEndWithoutABracket)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&descriptor, "\033[0mlook", output);
+    EXPECT_STREQ(output, "\033[0mlook");
+
+    output[0] = '\0';
+    feed_protocol_input(&descriptor, "\033Olook", output);
+    EXPECT_STREQ(output, "\033Olook");
+
+    output[0] = '\0';
+    feed_protocol_input(&descriptor, "look\033x", output);
+    EXPECT_STREQ(output, "lookx");
+
+    output[0] = '\0';
+    feed_protocol_input(&descriptor, "\033ab", output);
+    EXPECT_STREQ(output, "ab");
+    EXPECT_EQ(descriptor.pProtocol->PendingInputLength, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, BuffersAnEscapeAndBracketEvenWhenNoDigitFollows)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&descriptor, "\033[a", output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_EQ(descriptor.pProtocol->PendingInputLength, 3);
+
+    feed_protocol_input(&descriptor, "bc", output);
+
+    EXPECT_STREQ(output, "\033[abc");
+    EXPECT_EQ(descriptor.pProtocol->PendingInputLength, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolInput, KeepsALoneIacInsideASubnegotiationAsData)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bNAWS = true;
+    const std::string size_bytes = std::string(1, static_cast<char>(IAC)) + "P" + '\0' + '\030';
+
+    EXPECT_EQ(reply_to(context, naws_report(size_bytes)), "");
+
+    EXPECT_EQ(context.descriptor.pProtocol->ScreenWidth, 0xff * 256 + 'P');
+    EXPECT_EQ(context.descriptor.pProtocol->ScreenHeight, 24);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolInput, IgnoresASubnegotiationWithNoDataAfterItsOption)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bNAWS = true;
+    context.descriptor.pProtocol->ScreenWidth = 7;
+    context.descriptor.pProtocol->ScreenHeight = 9;
+
+    EXPECT_EQ(reply_to(context, telnet_subnegotiation(TELOPT_NAWS, "")), "");
+    const std::string empty_subnegotiation = { static_cast<char>(IAC), static_cast<char>(SB),
+        static_cast<char>(IAC), static_cast<char>(SE) };
+    EXPECT_EQ(reply_to(context, empty_subnegotiation), "");
+
+    EXPECT_EQ(context.descriptor.pProtocol->ScreenWidth, 7);
+    EXPECT_EQ(context.descriptor.pProtocol->ScreenHeight, 9);
+    EXPECT_FALSE(context.descriptor.pProtocol->bIACMode);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, ProtocolNegotiateOffersTerminalTypeOnce)
+{
+    ProtocolDescriptor context;
+
+    ProtocolNegotiate(&context.descriptor);
+    EXPECT_EQ(context.read_output(), telnet_sequence(DO, TELOPT_TTYPE));
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_TTYPE]);
+
+    ProtocolNegotiate(&context.descriptor);
+    EXPECT_EQ(context.read_output(), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, TerminalTypeRefusalOffersEveryOtherProtocolWithoutAskingForTheType)
+{
+    ProtocolDescriptor context;
+    ProtocolNegotiate(&context.descriptor);
+    context.read_output();
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_TTYPE)), expected_protocol_offers());
+
+    protocol_t* protocol = context.descriptor.pProtocol;
+    EXPECT_FALSE(protocol->bTTYPE);
+    EXPECT_FALSE(protocol->Negotiated[eNEGOTIATED_TTYPE]);
+    EXPECT_TRUE(protocol->bNegotiated);
+    EXPECT_TRUE(protocol->bRenegotiate);
+    EXPECT_TRUE(protocol->Negotiated[eNEGOTIATED_MCCP]) << "MCCP is recorded as offered unsent";
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_TTYPE)), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, TerminalTypeIsWithdrawnRefusedAndAgreedAgainWithoutRenegotiating)
+{
+    ProtocolDescriptor context;
+    reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE));
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_TTYPE)),
+        telnet_sequence(DONT, TELOPT_TTYPE));
+    EXPECT_FALSE(context.descriptor.pProtocol->bTTYPE);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_TTYPE)),
+        telnet_sequence(WONT, TELOPT_TTYPE));
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_TTYPE)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE)),
+        telnet_sequence(DO, TELOPT_TTYPE));
+    EXPECT_TRUE(context.descriptor.pProtocol->bTTYPE);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, EchoIsAgreedWithdrawnAndRefused)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_ECHO)), telnet_sequence(WILL, TELOPT_ECHO));
+    EXPECT_TRUE(context.descriptor.pProtocol->bECHO);
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_ECHO]);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_ECHO)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_ECHO)), telnet_sequence(WONT, TELOPT_ECHO));
+    EXPECT_FALSE(context.descriptor.pProtocol->bECHO);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_ECHO)), telnet_sequence(DONT, TELOPT_ECHO));
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_ECHO)), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, WindowSizeIsAgreedWithdrawnAndRefusedAndEitherAnswerCancelsRenegotiation)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    protocol->bRenegotiate = true;
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_NAWS)), telnet_sequence(DO, TELOPT_NAWS));
+    EXPECT_TRUE(protocol->bNAWS);
+    EXPECT_FALSE(protocol->bRenegotiate);
+
+    protocol->bRenegotiate = true;
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_NAWS)), telnet_sequence(DONT, TELOPT_NAWS));
+    EXPECT_FALSE(protocol->bNAWS);
+    EXPECT_FALSE(protocol->bRenegotiate);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_NAWS)), telnet_sequence(WONT, TELOPT_NAWS));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, CharsetAgreementRequestsLatin1UntilTheClientWithdraws)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_CHARSET)),
+        telnet_sequence(DO, TELOPT_CHARSET) + expected_charset_request());
+    EXPECT_TRUE(context.descriptor.pProtocol->bCHARSET);
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_CHARSET)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_CHARSET)),
+        telnet_sequence(DONT, TELOPT_CHARSET));
+    EXPECT_FALSE(context.descriptor.pProtocol->bCHARSET);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_CHARSET)),
+        telnet_sequence(DO, TELOPT_CHARSET) + expected_charset_request());
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_CHARSET)),
+        telnet_sequence(WONT, TELOPT_CHARSET));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, CharsetAgreementAfterTheServerOfferRequestsLatin1Alone)
+{
+    ProtocolDescriptor context;
+    reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE));
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_CHARSET)), expected_charset_request());
+    EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_UTF_8]->ValueInt, 0);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, MsdpOfferedByTheClientIsRefused)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MSDP)), telnet_sequence(DONT, TELOPT_MSDP));
+    EXPECT_TRUE(context.descriptor.pProtocol->bMSDP);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMssp, RequestSendsTheStatusTableAgainEachTimeItIsReenabled)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MSSP)),
+        telnet_sequence(WILL, TELOPT_MSSP) + expected_mssp_packet());
+    EXPECT_TRUE(context.descriptor.pProtocol->bMSSP);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MSSP)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_MSSP)), telnet_sequence(WONT, TELOPT_MSSP));
+    EXPECT_FALSE(context.descriptor.pProtocol->bMSSP);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MSSP)),
+        telnet_sequence(WILL, TELOPT_MSSP) + expected_mssp_packet());
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MSSP)), telnet_sequence(DONT, TELOPT_MSSP));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMssp, StatusTableAfterTheServerOfferIsSentWithoutAnotherAgreement)
+{
+    ProtocolDescriptor context;
+    reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE));
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MSSP)), expected_mssp_packet());
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, CompressionIsAgreedAndWithdrawnSilentlyBecauseMccpIsNotBuiltIn)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MCCP)), "");
+    EXPECT_TRUE(protocol->bMCCP);
+    EXPECT_TRUE(protocol->Negotiated[eNEGOTIATED_MCCP]);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MCCP)), "");
+    EXPECT_TRUE(protocol->bMCCP);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_MCCP)), "");
+    EXPECT_FALSE(protocol->bMCCP);
+    EXPECT_FALSE(protocol->Negotiated[eNEGOTIATED_MCCP]);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_MCCP)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MCCP)), telnet_sequence(DONT, TELOPT_MCCP));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, SoundIsAgreedWithdrawnAndRefused)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MSP)), telnet_sequence(WILL, TELOPT_MSP));
+    EXPECT_TRUE(context.descriptor.pProtocol->bMSP);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_MSP)), telnet_sequence(WONT, TELOPT_MSP));
+    EXPECT_FALSE(context.descriptor.pProtocol->bMSP);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MSP)), telnet_sequence(DONT, TELOPT_MSP));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, MxpOfferedByTheClientIsAcceptedAndStartsTheSecureLine)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MXP)),
+        telnet_sequence(DO, TELOPT_MXP) + expected_mxp_start());
+    EXPECT_TRUE(protocol->bMXP);
+    EXPECT_TRUE(protocol->Negotiated[eNEGOTIATED_MXP]);
+    EXPECT_EQ(protocol->pVariables[eMSDP_MXP]->ValueInt, 1);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MXP)), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, MxpRequestedByTheClientIsAnsweredWithWill)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MXP)),
+        telnet_sequence(WILL, TELOPT_MXP) + expected_mxp_start());
+    EXPECT_TRUE(context.descriptor.pProtocol->bMXP);
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_MXP2]);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, MxpRefusalBeforeItStartsIsRetriedWithWill)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_MXP)), telnet_sequence(WILL, TELOPT_MXP));
+    EXPECT_FALSE(context.descriptor.pProtocol->bMXP);
+    EXPECT_TRUE(context.descriptor.pProtocol->Negotiated[eNEGOTIATED_MXP2]);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MXP)), expected_mxp_start());
+    EXPECT_TRUE(context.descriptor.pProtocol->bMXP);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, MxpSwitchedOffLeavesTheMsdpMxpFlagSetSoTagsAreStillSent)
+{
+    ProtocolDescriptor offered_by_client;
+    reply_to(offered_by_client, telnet_sequence(WILL, TELOPT_MXP));
+
+    EXPECT_EQ(reply_to(offered_by_client, telnet_sequence(WONT, TELOPT_MXP)),
+        telnet_sequence(DONT, TELOPT_MXP));
+    EXPECT_FALSE(offered_by_client.descriptor.pProtocol->bMXP);
+    EXPECT_EQ(offered_by_client.descriptor.pProtocol->pVariables[eMSDP_MXP]->ValueInt, 1);
+    MXPSendTag(&offered_by_client.descriptor, "<B>");
+    EXPECT_EQ(offered_by_client.read_output(), expected_mxp_tag("<B>"));
+
+    ProtocolDescriptor requested_by_client;
+    reply_to(requested_by_client, telnet_sequence(DO, TELOPT_MXP));
+
+    EXPECT_EQ(reply_to(requested_by_client, telnet_sequence(DONT, TELOPT_MXP)),
+        telnet_sequence(WONT, TELOPT_MXP));
+    EXPECT_FALSE(requested_by_client.descriptor.pProtocol->bMXP);
+    EXPECT_EQ(requested_by_client.descriptor.pProtocol->pVariables[eMSDP_MXP]->ValueInt, 1);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, AtcpIsAgreedButOnlyUsedWhileMsdpIsOff)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_ATCP)), telnet_sequence(DO, TELOPT_ATCP));
+    EXPECT_FALSE(protocol->bATCP);
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_ATCP)), "")
+        << "an unused ATCP is withdrawn without a reply";
+    EXPECT_FALSE(protocol->Negotiated[eNEGOTIATED_ATCP]);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, TELOPT_MSDP)), "");
+    EXPECT_FALSE(protocol->bMSDP);
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_ATCP)),
+        telnet_sequence(DO, TELOPT_ATCP) + expected_atcp_pair("SERVER_ID", MUD_NAME));
+    EXPECT_TRUE(protocol->bATCP);
+    EXPECT_STREQ(protocol->pVariables[eMSDP_SERVER_ID]->pValueString, MUD_NAME);
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_ATCP)), "");
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_ATCP)), telnet_sequence(DONT, TELOPT_ATCP));
+    EXPECT_FALSE(protocol->bATCP);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_ATCP)), telnet_sequence(WONT, TELOPT_ATCP));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, RefusalsOfWhatWasNeverAgreedGetNoReply)
+{
+    ProtocolDescriptor context;
+    const std::vector<std::string> refusals = { telnet_sequence(DONT, TELOPT_TTYPE),
+        telnet_sequence(DONT, TELOPT_ECHO), telnet_sequence(WONT, TELOPT_ECHO),
+        telnet_sequence(WONT, TELOPT_NAWS), telnet_sequence(DONT, TELOPT_NAWS),
+        telnet_sequence(WONT, TELOPT_CHARSET), telnet_sequence(DONT, TELOPT_CHARSET),
+        telnet_sequence(WONT, TELOPT_MSDP), telnet_sequence(DONT, TELOPT_MSSP),
+        telnet_sequence(WONT, TELOPT_MSSP), telnet_sequence(WONT, TELOPT_MCCP),
+        telnet_sequence(DONT, TELOPT_MSP), telnet_sequence(WONT, TELOPT_MSP),
+        telnet_sequence(DONT, TELOPT_MXP), telnet_sequence(DONT, TELOPT_ATCP),
+        telnet_sequence(WONT, TELOPT_ATCP), telnet_sequence(DONT, TELOPT_EOR),
+        telnet_sequence(WONT, TELOPT_EOR), telnet_sequence(DONT, TELOPT_SGA),
+        telnet_sequence(WONT, TELOPT_SGA) };
+
+    for (std::size_t refusal_index = 0; refusal_index < refusals.size(); ++refusal_index) {
+        EXPECT_EQ(reply_to(context, refusals[refusal_index]), "") << "refusal " << refusal_index;
+    }
+
+    for (int negotiated = eNEGOTIATED_TTYPE; negotiated < eNEGOTIATED_MAX; ++negotiated) {
+        EXPECT_FALSE(context.descriptor.pProtocol->Negotiated[negotiated]) << "negotiated enum " << negotiated;
+    }
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, UnknownOptionsAreRefusedAndTheirRefusalsIgnored)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, UNKNOWN_TELNET_OPTION)),
+        telnet_sequence(DONT, UNKNOWN_TELNET_OPTION));
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, UNKNOWN_TELNET_OPTION)),
+        telnet_sequence(WONT, UNKNOWN_TELNET_OPTION));
+    EXPECT_EQ(reply_to(context, telnet_sequence(WONT, UNKNOWN_TELNET_OPTION)), "");
+    EXPECT_EQ(reply_to(context, telnet_sequence(DONT, UNKNOWN_TELNET_OPTION)), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolHandshake, RefusalOfTheBinaryOptionLosesItsOptionByte)
+{
+    ProtocolDescriptor context;
+    const std::string refuse_will = { static_cast<char>(IAC), static_cast<char>(WONT) };
+    const std::string refuse_do = { static_cast<char>(IAC), static_cast<char>(DONT) };
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_BINARY)), refuse_will);
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_BINARY)), refuse_do);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, TerminalTypeIsIgnoredUntilTheClientAgreesToSendIt)
+{
+    ProtocolDescriptor context;
+
+    EXPECT_EQ(reply_to(context, ttype_reply("Mudlet 4.17.2")), "");
+
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "Unknown");
+    EXPECT_EQ(context.descriptor.pProtocol->pLastTTYPE, nullptr);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, FirstTerminalTypeNamesTheClientAndEachNewTypeAsksForTheNext)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bTTYPE = true;
+
+    EXPECT_EQ(reply_to(context, ttype_reply("TinTin++")), ttype_send_sequence());
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "TinTin++");
+    EXPECT_STREQ(protocol->pLastTTYPE, "TinTin++");
+    EXPECT_EQ(protocol->b256Support, eUNKNOWN);
+
+    EXPECT_EQ(reply_to(context, ttype_reply("XTERM-256COLOR")), ttype_send_sequence());
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "TinTin++");
+    EXPECT_STREQ(protocol->pLastTTYPE, "XTERM-256COLOR");
+    EXPECT_EQ(protocol->b256Support, eYES);
+    EXPECT_EQ(protocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 1);
+
+    EXPECT_EQ(reply_to(context, ttype_reply("MTTS 2825")), ttype_send_sequence());
+    EXPECT_STREQ(protocol->pLastTTYPE, "MTTS 2825");
+
+    EXPECT_EQ(reply_to(context, ttype_reply("MTTS 2825")), "") << "a repeated type ends the cycle";
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, TerminalTypeCycleEndsWhenItReturnsToTheClientName)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bTTYPE = true;
+
+    reply_to(context, ttype_reply("TinTin++"));
+    reply_to(context, ttype_reply("XTERM"));
+
+    EXPECT_EQ(reply_to(context, ttype_reply("TinTin++")), "");
+    EXPECT_STREQ(context.descriptor.pProtocol->pLastTTYPE, "XTERM");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, ClientNameSetEarlierIsKeptWhileTheTypesStillCycle)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bTTYPE = true;
+    feed_msdp_command(&context.descriptor, "CLIENT_ID", "MyClient");
+
+    EXPECT_EQ(reply_to(context, ttype_reply("XTERM")), ttype_send_sequence());
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "MyClient");
+
+    EXPECT_EQ(reply_to(context, ttype_reply("MyClient")), "");
+    EXPECT_STREQ(protocol->pLastTTYPE, "XTERM");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, AnsiAsTheFirstTerminalTypeAsksForNoOther)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bTTYPE = true;
+
+    EXPECT_EQ(reply_to(context, ttype_reply("ANSI")), "");
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "ANSI");
+    EXPECT_STREQ(protocol->pLastTTYPE, "ANSI");
+
+    EXPECT_EQ(reply_to(context, ttype_reply("VT100")), ttype_send_sequence())
+        << "only an ANSI first reply stops the cycle";
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, TerminalTypeKeepsTheFirst64PrintableBytes)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bTTYPE = true;
+    std::string terminal_type = "\001Tin\177";
+    terminal_type.push_back(static_cast<char>(0x80));
+    terminal_type += "Tin";
+    terminal_type.append(70, 'A');
+
+    EXPECT_EQ(reply_to(context, ttype_reply(terminal_type)), ttype_send_sequence());
+
+    EXPECT_EQ(std::string(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString),
+        "TinTin" + std::string(58, 'A'));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, EmptyTerminalTypeBecomesAnEmptyClientName)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bTTYPE = true;
+
+    EXPECT_EQ(reply_to(context, ttype_reply("")), ttype_send_sequence());
+
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "");
+    EXPECT_STREQ(context.descriptor.pProtocol->pLastTTYPE, "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, MudletTypeIsSplitIntoClientAndVersionAndItsVersionDecides256Colours)
+{
+    ProtocolDescriptor current_mudlet;
+    current_mudlet.descriptor.pProtocol->bTTYPE = true;
+    reply_to(current_mudlet, ttype_reply("Mudlet 4.17.2"));
+    protocol_t* current_protocol = current_mudlet.descriptor.pProtocol;
+
+    EXPECT_STREQ(current_protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "Mudlet");
+    EXPECT_STREQ(current_protocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "4.17.2");
+    EXPECT_STREQ(current_protocol->pLastTTYPE, "Mudlet 4.17.2");
+    EXPECT_EQ(current_protocol->b256Support, eYES);
+    EXPECT_EQ(current_protocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 1);
+
+    ProtocolDescriptor old_mudlet;
+    old_mudlet.descriptor.pProtocol->bTTYPE = true;
+    reply_to(old_mudlet, ttype_reply("Mudlet 1.0"));
+    protocol_t* old_protocol = old_mudlet.descriptor.pProtocol;
+
+    EXPECT_STREQ(old_protocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "1.0");
+    EXPECT_EQ(old_protocol->b256Support, eSOMETIMES);
+    EXPECT_EQ(old_protocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 0);
+
+    ProtocolDescriptor unversioned_mudlet;
+    unversioned_mudlet.descriptor.pProtocol->bTTYPE = true;
+    reply_to(unversioned_mudlet, ttype_reply("Mudlet"));
+    protocol_t* unversioned_protocol = unversioned_mudlet.descriptor.pProtocol;
+
+    EXPECT_STREQ(unversioned_protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "Mudlet");
+    EXPECT_STREQ(unversioned_protocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "Unknown");
+    EXPECT_EQ(unversioned_protocol->b256Support, eSOMETIMES);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, DecafMudTypeIsSplitIntoClientAndVersionAndAlwaysHas256Colours)
+{
+    ProtocolDescriptor versioned;
+    versioned.descriptor.pProtocol->bTTYPE = true;
+    reply_to(versioned, ttype_reply("DecafMUD 0.9.0"));
+
+    EXPECT_STREQ(versioned.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "DecafMUD");
+    EXPECT_STREQ(versioned.descriptor.pProtocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "0.9.0");
+    EXPECT_EQ(versioned.descriptor.pProtocol->b256Support, eYES);
+    EXPECT_EQ(versioned.descriptor.pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 1);
+
+    ProtocolDescriptor unversioned;
+    unversioned.descriptor.pProtocol->bTTYPE = true;
+    reply_to(unversioned, ttype_reply("DecafMUD"));
+
+    EXPECT_STREQ(unversioned.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "DecafMUD");
+    EXPECT_STREQ(unversioned.descriptor.pProtocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "Unknown");
+    EXPECT_EQ(unversioned.descriptor.pProtocol->b256Support, eYES);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, MttsBitsTurnOnAnsiUtf8And256ColoursAndAreStoredAsTheVersionNumber)
+{
+    ProtocolDescriptor all_bits;
+    protocol_t* all_bits_protocol = all_bits.descriptor.pProtocol;
+    all_bits_protocol->bTTYPE = true;
+    all_bits_protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt = 0;
+    reply_to(all_bits, ttype_reply("MTTS 13"));
+
+    EXPECT_STREQ(all_bits_protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "MTTS 13");
+    EXPECT_EQ(all_bits_protocol->pVariables[eMSDP_CLIENT_VERSION]->ValueInt, 13);
+    EXPECT_STREQ(all_bits_protocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "Unknown");
+    EXPECT_EQ(all_bits_protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt, 1);
+    EXPECT_EQ(all_bits_protocol->pVariables[eMSDP_UTF_8]->ValueInt, 1);
+    EXPECT_EQ(all_bits_protocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 1);
+    EXPECT_EQ(all_bits_protocol->b256Support, eYES);
+
+    ProtocolDescriptor no_bits;
+    protocol_t* no_bits_protocol = no_bits.descriptor.pProtocol;
+    no_bits_protocol->bTTYPE = true;
+    no_bits_protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt = 0;
+    reply_to(no_bits, ttype_reply("MTTS 2"));
+
+    EXPECT_EQ(no_bits_protocol->pVariables[eMSDP_CLIENT_VERSION]->ValueInt, 2);
+    EXPECT_EQ(no_bits_protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt, 0);
+    EXPECT_EQ(no_bits_protocol->pVariables[eMSDP_UTF_8]->ValueInt, 0);
+    EXPECT_EQ(no_bits_protocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 0);
+    EXPECT_EQ(no_bits_protocol->b256Support, eUNKNOWN);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, OnlyA256colorSuffixAfterTheFirstDashMeans256Colours)
+{
+    ProtocolDescriptor suffixed;
+    suffixed.descriptor.pProtocol->bTTYPE = true;
+    reply_to(suffixed, ttype_reply("xterm-256color"));
+
+    EXPECT_EQ(suffixed.descriptor.pProtocol->b256Support, eYES);
+    EXPECT_EQ(suffixed.descriptor.pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 1);
+
+    ProtocolDescriptor second_dash;
+    second_dash.descriptor.pProtocol->bTTYPE = true;
+    reply_to(second_dash, ttype_reply("rxvt-unicode-256color"));
+
+    EXPECT_EQ(second_dash.descriptor.pProtocol->b256Support, eUNKNOWN);
+    EXPECT_EQ(second_dash.descriptor.pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 0);
+}
+
+// A client name and the 256-colour support the server records for it.
+struct KnownClient {
+    // The client's first TTYPE reply.
+    std::string terminal_type;
+    // The support recorded for it.
+    support_t support;
+    // The XTERM_256_COLORS value recorded for it.
+    int xterm_256_colours;
+};
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, KnownClientNamesRecordTheir256ColourSupport)
+{
+    const std::vector<KnownClient> clients = { { "EMACS-RINZAI", eYES, 1 }, { "cmud", eSOMETIMES, 0 },
+        { "ATLANTIS", eSOMETIMES, 0 }, { "KildClient", eSOMETIMES, 0 }, { "TinyFugue", eSOMETIMES, 0 },
+        { "zMUD", eNO, 0 }, { "TinTin++", eUNKNOWN, 0 } };
+
+    for (const KnownClient& client : clients) {
+        ProtocolDescriptor context;
+        context.descriptor.pProtocol->bTTYPE = true;
+        reply_to(context, ttype_reply(client.terminal_type));
+
+        EXPECT_EQ(context.descriptor.pProtocol->b256Support, client.support) << client.terminal_type;
+        EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt,
+            client.xterm_256_colours)
+            << client.terminal_type;
+    }
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, WindowSizeIsStoredOnlyAfterTheClientAgreedToSendIt)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    const std::string eighty_by_twenty_four = { '\0', 'P', '\0', '\030' };
+
+    reply_to(context, naws_report(eighty_by_twenty_four));
+    EXPECT_EQ(protocol->ScreenWidth, 0);
+    EXPECT_EQ(protocol->ScreenHeight, 0);
+
+    protocol->bNAWS = true;
+    reply_to(context, naws_report(eighty_by_twenty_four));
+    EXPECT_EQ(protocol->ScreenWidth, 80);
+    EXPECT_EQ(protocol->ScreenHeight, 24);
+
+    const std::string doubled_iacs(8, static_cast<char>(IAC));
+    reply_to(context, naws_report(doubled_iacs));
+    EXPECT_EQ(protocol->ScreenWidth, 65535);
+    EXPECT_EQ(protocol->ScreenHeight, 65535);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, ShortWindowSizeReadsLeftoverBytesOfAnEarlierSubnegotiation)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bNAWS = true;
+
+    reply_to(context, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "ABCDE"));
+    const std::string width_only = { '\0', 'd' };
+    reply_to(context, naws_report(width_only));
+
+    EXPECT_EQ(context.descriptor.pProtocol->ScreenWidth, 100);
+    EXPECT_EQ(context.descriptor.pProtocol->ScreenHeight, 'D') << "the height is the stale fifth byte";
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, CharsetReplyAndUnknownSubnegotiationsChangeNothing)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bCHARSET = true;
+    const std::string accepted = std::string(1, static_cast<char>(ACCEPTED)) + "ISO-8859-1";
+
+    EXPECT_EQ(reply_to(context, telnet_subnegotiation(TELOPT_CHARSET, accepted)), "");
+    EXPECT_EQ(reply_to(context, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "data")), "");
+
+    EXPECT_EQ(protocol->pVariables[eMSDP_UTF_8]->ValueInt, 0);
+    EXPECT_TRUE(protocol->bCHARSET);
+    EXPECT_FALSE(protocol->bIACMode);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolSubnegotiation, MsdpCommandsAreIgnoredWhileMsdpIsOff)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bMSDP = false;
+    context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bReport = false;
+    MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 40);
+
+    EXPECT_EQ(reply_to(context, msdp_packet(msdp_pair_payload("REPORT", "HEALTH"))), "");
+    EXPECT_EQ(reply_to(context, msdp_packet(msdp_pair_payload("SEND", "HEALTH"))), "");
+
+    EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bReport);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolAtcp, CommandsAreIgnoredWhileAtcpIsOff)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bReport = false;
+
+    reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@REPORT HEALTH"));
+
+    EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bReport);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolAtcp, EachAtNameStartsACommandAndEachSpaceStartsAValue)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bMSDP = false;
+    protocol->bATCP = true;
+    disable_all_msdp_reports(protocol);
+
+    reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@REPORT HEALTH MANA"));
+
+    EXPECT_TRUE(protocol->pVariables[eMSDP_HEALTH]->bReport);
+    EXPECT_TRUE(protocol->pVariables[eMSDP_MANA]->bReport);
+
+    reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@UNREPORT HEALTH@REPORT MOVEMENT"));
+
+    EXPECT_FALSE(protocol->pVariables[eMSDP_HEALTH]->bReport);
+    EXPECT_TRUE(protocol->pVariables[eMSDP_MANA]->bReport);
+    EXPECT_TRUE(protocol->pVariables[eMSDP_MOVEMENT]->bReport);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolAtcp, IgnoresTextBeforeTheFirstAtAndAValueLongerThanTheMsdpSizeLimit)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->bMSDP = false;
+    protocol->bATCP = true;
+    disable_all_msdp_reports(protocol);
+
+    reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "REPORT HEALTH"));
+    EXPECT_FALSE(protocol->pVariables[eMSDP_HEALTH]->bReport);
+
+    const std::string long_value = "@REPORT HEALTH" + std::string(MAX_MSDP_SIZE, 'X');
+    reply_to(context, telnet_subnegotiation(TELOPT_ATCP, long_value));
+    EXPECT_FALSE(protocol->pVariables[eMSDP_HEALTH]->bReport);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolAtcp, SendAnswersInAtcpForm)
+{
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->bMSDP = false;
+    context.descriptor.pProtocol->bATCP = true;
+    MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 87);
+
+    EXPECT_EQ(reply_to(context, telnet_subnegotiation(TELOPT_ATCP, "@SEND HEALTH")),
+        expected_atcp_pair("HEALTH", "87"));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, VersionReplyRecordsTheClientAndAnnouncesTheMxpVersion)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    EXPECT_EQ(reply_to(context, mxp_version_reply("MXP=1.0 CLIENT=MUSHclient VERSION=4.94")),
+        expected_mxp_announcement("1.0"));
+
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "MUSHclient");
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "4.94");
+    EXPECT_STREQ(protocol->pMXPVersion, "1.0");
+    EXPECT_EQ(protocol->b256Support, eYES);
+    EXPECT_EQ(protocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt, 1);
+}
+
+// The 256-colour support one MXP <VERSION> reply records.
+struct MxpClientVersion {
+    // The reply's attributes.
+    std::string attributes;
+    // The support recorded.
+    support_t support;
+    // The XTERM_256_COLORS value recorded.
+    int xterm_256_colours;
+};
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, VersionComparedAsTextDecides256ColoursForMushclientCmudAndAtlantis)
+{
+    const std::vector<MxpClientVersion> replies = { { "CLIENT=MUSHclient VERSION=4.02", eYES, 1 },
+        { "CLIENT=MUSHclient VERSION=4.01", eNO, 0 }, { "CLIENT=MUSHclient VERSION=10.00", eNO, 0 },
+        { "CLIENT=CMUD VERSION=3.04", eYES, 1 }, { "CLIENT=CMUD VERSION=3.03", eNO, 0 },
+        { "CLIENT=Atlantis VERSION=0.9.9.0", eYES, 1 }, { "CLIENT=zMUD VERSION=7.21", eUNKNOWN, 0 },
+        { "CLIENT=CMUD", eUNKNOWN, 0 } };
+
+    for (const MxpClientVersion& reply : replies) {
+        ProtocolDescriptor context;
+        reply_to(context, mxp_version_reply(reply.attributes));
+
+        EXPECT_EQ(context.descriptor.pProtocol->b256Support, reply.support) << reply.attributes;
+        EXPECT_EQ(context.descriptor.pProtocol->pVariables[eMSDP_XTERM_256_COLORS]->ValueInt,
+            reply.xterm_256_colours)
+            << reply.attributes;
+    }
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, VersionReplyWithoutAnMxpVersionAnnouncesNothing)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    EXPECT_EQ(reply_to(context, mxp_version_reply("CLIENT=zMUD VERSION=7.21")), "");
+
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "zMUD");
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "7.21");
+    EXPECT_STREQ(protocol->pMXPVersion, "Unknown");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, ValuesSkipAnOpeningQuoteAndEndAtTheFirstByteNotALetterDigitOrDot)
+{
+    ProtocolDescriptor quoted;
+
+    EXPECT_EQ(reply_to(quoted, mxp_version_reply("MXP=\"1.0\" CLIENT=\"TinTin++\" VERSION=\"2.02\"")),
+        expected_mxp_announcement("1.0"));
+    EXPECT_STREQ(quoted.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "TinTin");
+    EXPECT_STREQ(quoted.descriptor.pProtocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "2.02");
+
+    ProtocolDescriptor empty_value;
+    reply_to(empty_value, mxp_version_reply("CLIENT= VERSION=\"\""));
+    EXPECT_STREQ(empty_value.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "");
+    EXPECT_STREQ(empty_value.descriptor.pProtocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, ValueOfSixtyCharactersIsIgnoredAndOneOfFiftyNineKept)
+{
+    ProtocolDescriptor longest_kept;
+    const std::string fifty_nine(59, 'A');
+    reply_to(longest_kept, mxp_version_reply("CLIENT=" + fifty_nine));
+    EXPECT_EQ(std::string(longest_kept.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString),
+        fifty_nine);
+
+    ProtocolDescriptor too_long;
+    reply_to(too_long, mxp_version_reply("CLIENT=" + std::string(60, 'A')));
+    EXPECT_STREQ(too_long.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "Unknown");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, TextAroundTheReplyIsPlayerInputAndEveryLaterSequenceRepeatsTheAnnouncement)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, "say " + mxp_version_reply("MXP=1.0") + "hello", output);
+
+    EXPECT_STREQ(output, "say hello");
+    EXPECT_EQ(context.read_output(), expected_mxp_announcement("1.0"));
+
+    output[0] = '\0';
+    feed_protocol_input(&context.descriptor, "\033[4z<SUPPORTS>", output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_EQ(context.read_output(), expected_mxp_announcement("1.0"));
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, ReplySplitAcrossReadsKeepsTheFirstPartAndPassesTheRestToThePlayer)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, "\033[1z<VERSION MXP=1.0 CLIENT=CMUD", output);
+
+    EXPECT_STREQ(output, "");
+    EXPECT_EQ(context.read_output(), expected_mxp_announcement("1.0"));
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_CLIENT_ID]->pValueString, "CMUD");
+
+    feed_protocol_input(&context.descriptor, " VERSION=3.04>look", output);
+
+    EXPECT_STREQ(output, " VERSION=3.04>look");
+    EXPECT_STREQ(context.descriptor.pProtocol->pVariables[eMSDP_CLIENT_VERSION]->pValueString, "Unknown");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, ReplyLongerThanAThousandBytesSwallowsTheNextByteAndPassesTheRest)
+{
+    ProtocolDescriptor context;
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+
+    feed_protocol_input(&context.descriptor, "\033[1z" + std::string(1000, 'A') + "BC>", output);
+
+    EXPECT_STREQ(output, "C>");
+    EXPECT_EQ(context.read_output(), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, SendTagWrapsTagsUnderAThousandBytesInSecureLineEscapes)
+{
+    descriptor_data descriptor_without_protocol {};
+    MXPSendTag(nullptr, "<B>");
+    MXPSendTag(&descriptor_without_protocol, "<B>");
+
+    ProtocolDescriptor context;
+    context.descriptor.pProtocol->pVariables[eMSDP_MXP]->ValueInt = 1;
+
+    MXPSendTag(&context.descriptor, nullptr);
+    EXPECT_EQ(context.read_output(), "");
+
+    const std::string longest_tag = "<" + std::string(997, 'B') + ">";
+    MXPSendTag(&context.descriptor, longest_tag.c_str());
+    EXPECT_EQ(context.read_output(), expected_mxp_tag(longest_tag));
+
+    const std::string too_long_tag = "<" + std::string(998, 'B') + ">";
+    MXPSendTag(&context.descriptor, too_long_tag.c_str());
+    EXPECT_EQ(context.read_output(), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, SendTagWithoutMxpSendsNothingUnlessRenegotiationIsPending)
+{
+    ProtocolDescriptor context;
+
+    MXPSendTag(&context.descriptor, "<VERSION>");
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_FALSE(context.descriptor.pProtocol->bNeedMXPVersion);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, SendTagWhileRenegotiationIsPendingOffersEverythingAgainIncludingEchoAndSga)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE));
+    ASSERT_TRUE(protocol->bRenegotiate);
+
+    MXPSendTag(&context.descriptor, "<VERSION>");
+
+    EXPECT_EQ(context.read_output(),
+        telnet_sequence(WILL, TELOPT_ECHO) + telnet_sequence(DO, TELOPT_NAWS)
+            + telnet_sequence(DO, TELOPT_CHARSET) + telnet_sequence(WILL, TELOPT_MSDP)
+            + telnet_sequence(WILL, TELOPT_MSSP) + telnet_sequence(DO, TELOPT_ATCP)
+            + telnet_sequence(WILL, TELOPT_MSP) + telnet_sequence(DO, TELOPT_MXP)
+            + telnet_sequence(WILL, TELOPT_MXP) + telnet_sequence(WILL, TELOPT_EOR)
+            + telnet_sequence(WILL, TELOPT_SGA) + ttype_send_sequence());
+    EXPECT_FALSE(protocol->bRenegotiate);
+    EXPECT_TRUE(protocol->bNeedMXPVersion);
+    EXPECT_TRUE(protocol->Negotiated[eNEGOTIATED_ECHO]);
+    EXPECT_FALSE(protocol->bECHO);
+    EXPECT_TRUE(protocol->Negotiated[eNEGOTIATED_SGA]);
+
+    MXPSendTag(&context.descriptor, "<VERSION>");
+    EXPECT_EQ(context.read_output(), "") << "renegotiation happens once";
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolMxp, MxpAgreedAfterRenegotiationAsksTheClientForItsVersion)
+{
+    ProtocolDescriptor context;
+    reply_to(context, telnet_sequence(WILL, TELOPT_TTYPE));
+    MXPSendTag(&context.descriptor, "<VERSION>");
+    context.read_output();
+
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MXP)),
+        expected_mxp_start() + expected_mxp_tag("<VERSION>"));
+    EXPECT_TRUE(context.descriptor.pProtocol->bMXP);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, SendReturnsWhetherItWroteAndFallsBackToAtcpForStrings)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 87);
+
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_NONE));
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_MAX));
+    EXPECT_TRUE(MSDPSend(&context.descriptor, eMSDP_HEALTH));
+    context.read_output();
+
+    protocol->bMSDP = false;
+    protocol->bATCP = true;
+    EXPECT_TRUE(MSDPSend(&context.descriptor, eMSDP_CHARACTER_NAME));
+    EXPECT_EQ(context.read_output(), expected_atcp_pair("CHARACTER_NAME", "Aragorn"));
+
+    protocol->bATCP = false;
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_CHARACTER_NAME));
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_HEALTH));
+    EXPECT_EQ(context.read_output(), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, SendLogsAndDropsAStringThatFillsTheBuffer)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    // The framing allowance MSDPSend's limit adds to the name and value lengths.
+    constexpr std::size_t packet_overhead = 12;
+    const std::string name = "CHARACTER_NAME";
+    const std::string largest_value(MAX_VARIABLE_LENGTH - 1 - name.size() - packet_overhead, 'A');
+
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, largest_value.c_str());
+    EXPECT_TRUE(MSDPSend(&context.descriptor, eMSDP_CHARACTER_NAME));
+    EXPECT_EQ(context.read_output(), expected_msdp_pair(name, largest_value));
+
+    const std::string one_too_long = largest_value + "A";
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, one_too_long.c_str());
+    testing::internal::CaptureStderr();
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_CHARACTER_NAME));
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_NE(logged.find("MSDPSend: CHARACTER_NAME 4096 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
+        std::string::npos)
+        << logged;
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, SendPairAndListLogAnOverlongNameWithTheWholePacketLength)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    const std::string long_name(MAX_VARIABLE_LENGTH - 6, 'V');
+
+    testing::internal::CaptureStderr();
+    MSDPSendPair(&context.descriptor, long_name.c_str(), "1");
+    MSDPSendList(&context.descriptor, long_name.c_str(), "1");
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4103 bytes (exceeds "
+                          "MAX_VARIABLE_LENGTH of 4096)."),
+        std::string::npos)
+        << logged;
+    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4103 bytes (exceeds "
+                          "MAX_VARIABLE_LENGTH of 4096)."),
+        std::string::npos)
+        << logged;
+}
+
+TEST(MSDPProtocol, SendPairLogsAnOverlongPairThroughAFormatThatReadsPercentSigns)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    const std::string huge_value(MAX_VARIABLE_LENGTH, 'X');
+
+    testing::internal::CaptureStderr();
+    MSDPSendPair(&context.descriptor, "A%%B", huge_value.c_str());
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(logged.find("MSDPSendPair: A%B 4112 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
+        std::string::npos)
+        << logged;
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, SendPairAndListSendNothingWithoutANameAValueOrAnOutOfBandProtocol)
+{
+    ProtocolDescriptor context;
+
+    MSDPSendPair(&context.descriptor, nullptr, "1");
+    MSDPSendPair(&context.descriptor, "HEALTH", nullptr);
+    MSDPSendList(&context.descriptor, nullptr, "LIST");
+    MSDPSendList(&context.descriptor, "COMMANDS", nullptr);
+    EXPECT_EQ(context.read_output(), "");
+
+    context.descriptor.pProtocol->bMSDP = false;
+    MSDPSendPair(&context.descriptor, "HEALTH", "1");
+    MSDPSendList(&context.descriptor, "COMMANDS", "LIST REPORT");
+    EXPECT_EQ(context.read_output(), "");
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, WriteMarksPendingOutOfBandDataAsWritten)
+{
+    ProtocolDescriptor context;
+
+    MSDPSendPair(&context.descriptor, "HEALTH", "1");
+    EXPECT_EQ(context.descriptor.pProtocol->WriteOOB, 0);
+
+    context.descriptor.pProtocol->WriteOOB = 1;
+    MSDPSendPair(&context.descriptor, "HEALTH", "2");
+    EXPECT_EQ(context.descriptor.pProtocol->WriteOOB, 2);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair("HEALTH", "1") + expected_msdp_pair("HEALTH", "2"));
+}
+
+TEST(MSDPProtocol, MarkAllReportedDirtyIgnoresAMissingProtocolAndSkipsUnreportedVariables)
+{
+    descriptor_data descriptor_without_protocol {};
+    MSDPMarkAllReportedDirty(nullptr);
+    MSDPMarkAllReportedDirty(&descriptor_without_protocol);
+
+    ProtocolDescriptor context;
+    enable_msdp_reports(context.descriptor.pProtocol, { eMSDP_HEALTH });
+
+    MSDPMarkAllReportedDirty(&context.descriptor);
+
+    EXPECT_TRUE(context.descriptor.pProtocol->pVariables[eMSDP_HEALTH]->bDirty);
+    EXPECT_FALSE(context.descriptor.pProtocol->pVariables[eMSDP_MANA]->bDirty);
+}
+
+TEST(MSDPProtocol, NumericConfigurableValueMaySkipLeadingSpacesButNotBeOnlySpaces)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+
+    feed_msdp_command(&context.descriptor, "ANSI_COLORS", "  0");
+    EXPECT_EQ(protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt, 0);
+
+    feed_msdp_command(&context.descriptor, "ANSI_COLORS", "  1");
+    EXPECT_EQ(protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt, 1);
+
+    feed_msdp_command(&context.descriptor, "ANSI_COLORS", "   ");
+    EXPECT_EQ(protocol->pVariables[eMSDP_ANSI_COLORS]->ValueInt, 1);
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, UnknownSendUnreportResetAndListValuesChangeNothing)
+{
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    enable_msdp_reports(protocol, { eMSDP_HEALTH });
+    protocol->pVariables[eMSDP_HEALTH]->bDirty = true;
+
+    feed_msdp_command(&context.descriptor, "SEND", "NOT_A_VARIABLE");
+    feed_msdp_command(&context.descriptor, "UNREPORT", "NOT_A_VARIABLE");
+    feed_msdp_command(&context.descriptor, "RESET", "NOT_A_LIST");
+    feed_msdp_command(&context.descriptor, "LIST", "NOT_A_LIST");
+
+    EXPECT_EQ(context.read_output(), "");
+    EXPECT_TRUE(protocol->pVariables[eMSDP_HEALTH]->bReport);
+    EXPECT_TRUE(protocol->pVariables[eMSDP_HEALTH]->bDirty);
+}
+
+TEST(MSDPProtocol, SetStringIgnoresANullValueAMissingProtocolAndNumberVariables)
+{
+    descriptor_data descriptor_without_protocol {};
+    MSDPSetString(nullptr, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPSetString(&descriptor_without_protocol, eMSDP_CHARACTER_NAME, "Aragorn");
+
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty = false;
+    protocol->pVariables[eMSDP_HEALTH]->bDirty = false;
+    const char* missing_value = nullptr;
+
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, missing_value);
+    MSDPSetString(&context.descriptor, eMSDP_HEALTH, "12");
+
+    EXPECT_STREQ(protocol->pVariables[eMSDP_CHARACTER_NAME]->pValueString, "");
+    EXPECT_FALSE(protocol->pVariables[eMSDP_CHARACTER_NAME]->bDirty);
+    EXPECT_EQ(protocol->pVariables[eMSDP_HEALTH]->ValueInt, 0);
+    EXPECT_EQ(protocol->pVariables[eMSDP_HEALTH]->pValueString, nullptr);
+    EXPECT_FALSE(protocol->pVariables[eMSDP_HEALTH]->bDirty);
+}
+
 } // namespace
