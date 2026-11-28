@@ -150,6 +150,7 @@ set(ROTS_SERVER_SOURCES
     ranger.cpp
     real_time_tick_schedule.cpp
     room_exits.cpp
+    rots_net.cpp
     save_benchmark.cpp
     savebench.cpp
     script.cpp
@@ -275,6 +276,10 @@ set(ROTS_TEST_SOURCES
     tests/protocol_output_tests.cpp
     tests/protocol_allocation_tests.cpp
     tests/real_time_tick_schedule_tests.cpp
+    tests/rots_net_tests.cpp
+    tests/socket_test_support.cpp
+    tests/scripted_socket.cpp
+    tests/comm_socket_io_tests.cpp
     tests/harness_affect_hours_schedule_tests.cpp
     tests/harness_advance_hours_request_tests.cpp
     tests/harness_request_dispatch_tests.cpp

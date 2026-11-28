@@ -103,6 +103,7 @@ SOURCES := \
     ranger.cpp \
     real_time_tick_schedule.cpp \
     room_exits.cpp \
+    rots_net.cpp \
     save_benchmark.cpp \
     savebench.cpp \
     script.cpp \

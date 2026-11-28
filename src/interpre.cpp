@@ -106,8 +106,8 @@ void do_start(struct char_data*);
 int create_entry(const char*);
 int find_action(const char*);
 int isbanned(char*);
-int echo_off(int);
-int echo_on(int);
+void echo_off(SocketType);
+void echo_on(SocketType);
 
 SPECIAL(intelligent);
 SPECIAL(gen_board);

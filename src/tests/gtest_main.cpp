@@ -1,5 +1,7 @@
+#include "../rots_net.h"
 #include "../structs.h"
 #include <gtest/gtest.h>
+#include <cstdio>
 #include <type_traits>
 
 // The tests exercise the code the server ships only when they are built with its settings
@@ -30,6 +32,13 @@ int main(int argc, char* argv[])
     // numbers (highest claimed: 991), so no TU's capacity depends on which
     // suite happens to run first.
     world.create_bulk(1024);
-    return RUN_ALL_TESTS();
+    // Tests open real sockets, which Windows allows only after the socket library has started.
+    if (!rots_net::startup()) {
+        std::fprintf(stderr, "Could not start the socket library: error %d\n", rots_net::last_error());
+        return 1;
+    }
+    const int test_result = RUN_ALL_TESTS();
+    rots_net::shutdown();
+    return test_result;
 }
 #endif

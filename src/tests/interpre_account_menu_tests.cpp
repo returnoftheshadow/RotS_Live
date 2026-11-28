@@ -14,6 +14,7 @@
 #include "../utils.h"
 
 #include "AccountRecordOnDiskBuilder.h"
+#include "scripted_socket.h"
 #include "test_cleanup.h"
 
 #include <gtest/gtest.h>
@@ -25,7 +26,6 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <string>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
@@ -445,12 +445,10 @@ void reset_descriptor_output(descriptor_data* descriptor)
     descriptor->bufspace = SMALL_BUFSIZE - 1;
 }
 
-void write_and_process_snooped_input(
-    descriptor_data* descriptor, int socket_fd, const char* input, std::string* queued_input)
+void write_and_process_snooped_input(descriptor_data* descriptor,
+    socket_test_support::ScriptedSocket& socket, const char* input, std::string* queued_input)
 {
-    const std::string input_line = std::string(input) + "\n";
-    EXPECT_EQ(write(socket_fd, input_line.c_str(), input_line.size()),
-        static_cast<ssize_t>(input_line.size()));
+    socket.queue_input(std::string(input) + "\n");
     EXPECT_EQ(process_input(descriptor), 1);
 
     char queued[MAX_INPUT_LENGTH] = {};
@@ -461,15 +459,12 @@ void write_and_process_snooped_input(
 
 SnoopProbeResult snoop_output_for_input_state(int connection_state, const char* input)
 {
-    int sockets[2] = { -1, -1 };
-    EXPECT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
-    if (sockets[0] < 0 || sockets[1] < 0)
-        return {};
+    socket_test_support::ScriptedSocket socket;
 
     descriptor_data victim_descriptor = make_descriptor();
     TestDescriptorRelease victim_descriptor_release(&victim_descriptor);
     victim_descriptor.connected = connection_state;
-    victim_descriptor.descriptor = sockets[0];
+    victim_descriptor.descriptor = socket.handle();
 
     descriptor_data snooper_descriptor = make_descriptor();
     TestDescriptorRelease snooper_descriptor_release(&snooper_descriptor);
@@ -478,10 +473,8 @@ SnoopProbeResult snoop_output_for_input_state(int connection_state, const char* 
     victim_descriptor.snoop.snoop_by = &snooper;
 
     std::string queued_input;
-    write_and_process_snooped_input(&victim_descriptor, sockets[1], input, &queued_input);
+    write_and_process_snooped_input(&victim_descriptor, socket, input, &queued_input);
 
-    close(sockets[0]);
-    close(sockets[1]);
     return { queued_input, snooper_descriptor.output, victim_descriptor.last_input };
 }
 
@@ -494,15 +487,12 @@ struct SnoopReplayResult {
 
 SnoopReplayResult snoop_replay_after_secret_input_state(int secret_connection_state, const char* secret_input)
 {
-    int sockets[2] = { -1, -1 };
-    EXPECT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
-    if (sockets[0] < 0 || sockets[1] < 0)
-        return {};
+    socket_test_support::ScriptedSocket socket;
 
     descriptor_data victim_descriptor = make_descriptor();
     TestDescriptorRelease victim_descriptor_release(&victim_descriptor);
     victim_descriptor.connected = secret_connection_state;
-    victim_descriptor.descriptor = sockets[0];
+    victim_descriptor.descriptor = socket.handle();
     std::snprintf(victim_descriptor.last_input, sizeof(victim_descriptor.last_input), "%s", "look");
 
     descriptor_data snooper_descriptor = make_descriptor();
@@ -512,17 +502,14 @@ SnoopReplayResult snoop_replay_after_secret_input_state(int secret_connection_st
     victim_descriptor.snoop.snoop_by = &snooper;
 
     std::string queued_secret_input;
-    write_and_process_snooped_input(
-        &victim_descriptor, sockets[1], secret_input, &queued_secret_input);
+    write_and_process_snooped_input(&victim_descriptor, socket, secret_input, &queued_secret_input);
 
     victim_descriptor.connected = CON_DELCNF2;
     reset_descriptor_output(&snooper_descriptor);
 
     std::string replayed_input;
-    write_and_process_snooped_input(&victim_descriptor, sockets[1], "!", &replayed_input);
+    write_and_process_snooped_input(&victim_descriptor, socket, "!", &replayed_input);
 
-    close(sockets[0]);
-    close(sockets[1]);
     return {
         queued_secret_input,
         replayed_input,

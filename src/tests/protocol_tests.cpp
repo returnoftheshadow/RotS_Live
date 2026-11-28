@@ -7,17 +7,15 @@
 #include "../utils.h"
 
 #include <arpa/telnet.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <gtest/gtest.h>
 
 #include "ScopedGameClock.h"
+#include "scripted_socket.h"
 #include "scoped_exit_test_rooms.h"
 #include "test_cleanup.h"
 
 #include <cstring>
-#include <fcntl.h>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -72,24 +70,13 @@ private:
     char_data* m_character;
 };
 
+// A connection with protocol state whose socket is a scripted socket, so a test can read back
+// exactly what the protocol layer wrote to it.
 class ProtocolDescriptor {
 public:
     ProtocolDescriptor()
     {
-        if (socketpair(AF_UNIX, SOCK_STREAM, 0, m_sockets) != 0) {
-            ADD_FAILURE() << "Expected socketpair to create a local protocol output capture.";
-            return;
-        }
-        const int flags = fcntl(m_sockets[1], F_GETFL, 0);
-        if (flags < 0 || fcntl(m_sockets[1], F_SETFL, flags | O_NONBLOCK) != 0) {
-            ADD_FAILURE() << "Expected protocol output capture socket to become nonblocking.";
-            close(m_sockets[0]);
-            close(m_sockets[1]);
-            m_sockets[0] = -1;
-            m_sockets[1] = -1;
-            return;
-        }
-        descriptor.descriptor = m_sockets[0];
+        descriptor.descriptor = m_socket.handle();
         descriptor.pProtocol = ProtocolCreate();
         descriptor.character = &character;
         SET_BIT(character.specials2.pref, PRF_MSDP);
@@ -99,27 +86,14 @@ public:
     {
         release_test_descriptor(&descriptor);
         release_msdp_character(&character);
-        if (m_sockets[0] >= 0)
-            close(m_sockets[0]);
-        if (m_sockets[1] >= 0)
-            close(m_sockets[1]);
     }
 
+    // What has been written to the socket since the last call.
     std::string read_output()
     {
-        std::string output;
-        if (m_sockets[1] < 0)
-            return output;
-
-        char buffer[4096];
-        while (true) {
-            const ssize_t bytes_read = recv(m_sockets[1], buffer, sizeof(buffer), 0);
-            if (bytes_read > 0) {
-                output.append(buffer, static_cast<size_t>(bytes_read));
-                continue;
-            }
-            break;
-        }
+        const std::string& written = m_socket.written();
+        std::string output = written.substr(m_bytes_already_read);
+        m_bytes_already_read = written.size();
         return output;
     }
 
@@ -127,7 +101,10 @@ public:
     char_data character {};
 
 private:
-    int m_sockets[2] = { -1, -1 };
+    // Stands in for the connection's socket for as long as the descriptor exists.
+    socket_test_support::ScriptedSocket m_socket;
+    // How much of the socket's output read_output() has already returned.
+    size_t m_bytes_already_read = 0;
 };
 
 descriptor_data make_protocol_input_descriptor()

@@ -1,17 +1,12 @@
 #include "../comm.h"
 #include "../db.h"
+#include "../rots_net.h"
 #include "../structs.h"
+
+#include "socket_test_support.h"
 
 #include <gtest/gtest.h>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
-#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -33,6 +28,8 @@ extern int nameserver_is_slow;
 extern ban_list_element* ban_list;
 
 namespace {
+
+constexpr std::chrono::milliseconds DELIVERY_WAIT { 1000 };
 
 std::vector<char*> build_argv(std::vector<std::string>* storage)
 {
@@ -75,78 +72,37 @@ protected:
         ban_list = saved_ban_list_;
     }
 
-    int create_listener_socket(in_port_t* port_out)
+    // Reads what the game has sent the client, waiting up to one second for it to arrive.
+    std::string read_client_data(SocketType client)
     {
-        int listener = socket(AF_INET, SOCK_STREAM, 0);
-        EXPECT_GE(listener, 0) << strerror(errno);
-        if (listener < 0)
-            return -1;
-
-        sockaddr_in address {};
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        address.sin_port = 0;
-
-        EXPECT_EQ(bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0) << strerror(errno);
-        if (getsockname(listener, reinterpret_cast<sockaddr*>(&address), reinterpret_cast<socklen_t*>(&socklen_)) == 0)
-            *port_out = ntohs(address.sin_port);
-
-        EXPECT_EQ(listen(listener, 1), 0) << strerror(errno);
-        return listener;
-    }
-
-    int connect_client(in_port_t port)
-    {
-        int client = socket(AF_INET, SOCK_STREAM, 0);
-        EXPECT_GE(client, 0) << strerror(errno);
-        if (client < 0)
-            return -1;
-
-        timeval timeout {};
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-        sockaddr_in address {};
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        address.sin_port = htons(port);
-
-        EXPECT_EQ(connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0) << strerror(errno);
-        return client;
-    }
-
-    std::string read_client_data(int client)
-    {
-        char buffer[2048];
-        const ssize_t bytes_read = recv(client, buffer, sizeof(buffer) - 1, 0);
-        EXPECT_GT(bytes_read, 0) << strerror(errno);
-        if (bytes_read <= 0)
+        if (!socket_test_support::wait_for_readable(client, DELIVERY_WAIT)) {
+            ADD_FAILURE() << "no data reached the client within one second";
             return std::string();
+        }
 
-        buffer[bytes_read] = '\0';
+        char buffer[2048];
+        const rots_net::ssize_type bytes_read = rots_net::read_socket(client, buffer, sizeof(buffer));
+        EXPECT_GT(bytes_read, 0) << rots_net::last_error();
+        if (bytes_read <= 0) {
+            return std::string();
+        }
         return std::string(buffer, static_cast<size_t>(bytes_read));
     }
 
-    void expect_no_client_data_yet(int client)
+    // Fails the test when the game sends the client anything within one second.
+    void expect_no_client_data_yet(SocketType client)
     {
-        char buffer[32];
-        errno = 0;
-        const ssize_t bytes_read = recv(client, buffer, sizeof(buffer), 0);
-        EXPECT_EQ(bytes_read, -1);
-        EXPECT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK) << strerror(errno);
+        EXPECT_FALSE(socket_test_support::wait_for_readable(client, DELIVERY_WAIT))
+            << "the game sent the client data early";
     }
 
     // Waits up to one second for bytes to reach the game's side of `descriptor`, as the game loop
-    // waits in select() before it reads: loopback can deliver data a moment after send() returns.
+    // waits in select() before it reads: loopback can deliver data a moment after a write returns.
     void wait_for_game_side_data(const descriptor_data* descriptor)
     {
         ASSERT_NE(descriptor, nullptr);
-        pollfd readable_check {};
-        readable_check.fd = descriptor->descriptor;
-        readable_check.events = POLLIN;
-        const int ready_count = poll(&readable_check, 1, 1000);
-        EXPECT_EQ(ready_count, 1) << "no data reached the game side within one second";
+        EXPECT_TRUE(socket_test_support::wait_for_readable(descriptor->descriptor, DELIVERY_WAIT))
+            << "no data reached the game side within one second";
     }
 
 private:
@@ -156,7 +112,6 @@ private:
     int saved_has_proxy_ = 0;
     int saved_nameserver_is_slow_ = 0;
     ban_list_element* saved_ban_list_ = nullptr;
-    socklen_t socklen_ = sizeof(sockaddr_in);
 };
 
 TEST(StartupOptions, UsesDefaultPortAndNoProxyWhenNoArgumentsAreProvided)
@@ -473,11 +428,11 @@ TEST_F(RandomSeedTest, SeedsAndLogsAFreshSeedWhenNoneIsRequested)
 
 TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)
 {
-    in_port_t port = 0;
-    const int listener = create_listener_socket(&port);
-    ASSERT_GE(listener, 0);
-    const int client = connect_client(port);
-    ASSERT_GE(client, 0);
+    uint16_t port = 0;
+    const SocketType listener = socket_test_support::open_loopback_listener(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(listener));
+    const SocketType client = socket_test_support::connect_loopback_client(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(client));
 
     has_proxy = 0;
     ASSERT_EQ(pnew_descriptor(listener), 1);
@@ -486,28 +441,28 @@ TEST_F(AcceptPathTest, DirectConnectionsReceiveGreetingWithoutWaitingForInput)
     EXPECT_NE(initial_output.find("RETURN OF THE SHADOW"), std::string::npos);
     EXPECT_NE(initial_output.find("Account email:"), std::string::npos);
 
-    close(client);
-    close(listener);
+    rots_net::close_socket(client);
+    rots_net::close_socket(listener);
 }
 
 TEST_F(AcceptPathTest, ProxyConnectionsWaitForCompleteSplitHeaderBeforeSendingGreeting)
 {
-    in_port_t port = 0;
-    const int listener = create_listener_socket(&port);
-    ASSERT_GE(listener, 0);
-    const int client = connect_client(port);
-    ASSERT_GE(client, 0);
+    uint16_t port = 0;
+    const SocketType listener = socket_test_support::open_loopback_listener(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(listener));
+    const SocketType client = socket_test_support::connect_loopback_client(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(client));
 
     has_proxy = 1;
     ASSERT_EQ(pnew_descriptor(listener), 1);
 
-    const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
+    const uint32_t proxy_header = htonl(INADDR_LOOPBACK);
     const unsigned char* header_bytes = reinterpret_cast<const unsigned char*>(&proxy_header);
-    ASSERT_EQ(send(client, header_bytes, 2, 0), 2);
+    ASSERT_EQ(rots_net::write_socket(client, header_bytes, 2), 2);
     wait_for_game_side_data(descriptor_list);
     ASSERT_EQ(process_input(descriptor_list), 0);
     expect_no_client_data_yet(client);
-    ASSERT_EQ(send(client, header_bytes + 2, 2, 0), 2);
+    ASSERT_EQ(rots_net::write_socket(client, header_bytes + 2, 2), 2);
     wait_for_game_side_data(descriptor_list);
     ASSERT_EQ(process_input(descriptor_list), 0);
 
@@ -515,25 +470,26 @@ TEST_F(AcceptPathTest, ProxyConnectionsWaitForCompleteSplitHeaderBeforeSendingGr
     EXPECT_NE(initial_output.find("RETURN OF THE SHADOW"), std::string::npos);
     EXPECT_NE(initial_output.find("Account email:"), std::string::npos);
 
-    close(client);
-    close(listener);
+    rots_net::close_socket(client);
+    rots_net::close_socket(listener);
 }
 
 TEST_F(AcceptPathTest, ProxyConnectionsWaitForHeaderBeforeSendingGreeting)
 {
-    in_port_t port = 0;
-    const int listener = create_listener_socket(&port);
-    ASSERT_GE(listener, 0);
-    const int client = connect_client(port);
-    ASSERT_GE(client, 0);
+    uint16_t port = 0;
+    const SocketType listener = socket_test_support::open_loopback_listener(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(listener));
+    const SocketType client = socket_test_support::connect_loopback_client(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(client));
 
     has_proxy = 1;
     ASSERT_EQ(pnew_descriptor(listener), 1);
 
     expect_no_client_data_yet(client);
 
-    const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
-    ASSERT_EQ(send(client, &proxy_header, sizeof(proxy_header), 0), static_cast<ssize_t>(sizeof(proxy_header)));
+    const uint32_t proxy_header = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(rots_net::write_socket(client, &proxy_header, sizeof(proxy_header)),
+        static_cast<rots_net::ssize_type>(sizeof(proxy_header)));
     wait_for_game_side_data(descriptor_list);
     ASSERT_EQ(process_input(descriptor_list), 0);
 
@@ -541,8 +497,8 @@ TEST_F(AcceptPathTest, ProxyConnectionsWaitForHeaderBeforeSendingGreeting)
     EXPECT_NE(initial_output.find("RETURN OF THE SHADOW"), std::string::npos);
     EXPECT_NE(initial_output.find("Account email:"), std::string::npos);
 
-    close(client);
-    close(listener);
+    rots_net::close_socket(client);
+    rots_net::close_socket(listener);
 }
 
 TEST_F(AcceptPathTest, ProxyConnectionsRejectBannedHostsBeforeGreeting)
@@ -553,56 +509,57 @@ TEST_F(AcceptPathTest, ProxyConnectionsRejectBannedHostsBeforeGreeting)
     banned.type = BAN_ALL;
     ban_list = &banned;
 
-    in_port_t port = 0;
-    const int listener = create_listener_socket(&port);
-    ASSERT_GE(listener, 0);
-    const int client = connect_client(port);
-    ASSERT_GE(client, 0);
+    uint16_t port = 0;
+    const SocketType listener = socket_test_support::open_loopback_listener(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(listener));
+    const SocketType client = socket_test_support::connect_loopback_client(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(client));
 
     has_proxy = 1;
     ASSERT_EQ(pnew_descriptor(listener), 1);
 
-    const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
-    ASSERT_EQ(send(client, &proxy_header, sizeof(proxy_header), 0), static_cast<ssize_t>(sizeof(proxy_header)));
+    const uint32_t proxy_header = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(rots_net::write_socket(client, &proxy_header, sizeof(proxy_header)),
+        static_cast<rots_net::ssize_type>(sizeof(proxy_header)));
     wait_for_game_side_data(descriptor_list);
     EXPECT_EQ(process_input(descriptor_list), -1);
     expect_no_client_data_yet(client);
 
-    close(client);
-    close(listener);
+    rots_net::close_socket(client);
+    rots_net::close_socket(listener);
 }
 
 TEST_F(AcceptPathTest, ProxyConnectionsGreetWhenTheHeaderArrivesLate)
 {
-    in_port_t port = 0;
-    const int listener = create_listener_socket(&port);
-    ASSERT_GE(listener, 0);
-    const int client = connect_client(port);
-    ASSERT_GE(client, 0);
+    uint16_t port = 0;
+    const SocketType listener = socket_test_support::open_loopback_listener(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(listener));
+    const SocketType client = socket_test_support::connect_loopback_client(port);
+    ASSERT_TRUE(rots_net::is_valid_socket(client));
 
     has_proxy = 1;
     ASSERT_EQ(pnew_descriptor(listener), 1);
 
     // The header reaches the game side only after the test has started waiting for it, which is
     // what a slow loopback delivery looks like to the game.
-    const in_addr_t proxy_header = htonl(INADDR_LOOPBACK);
-    ssize_t header_bytes_sent = -1;
+    const uint32_t proxy_header = htonl(INADDR_LOOPBACK);
+    rots_net::ssize_type header_bytes_sent = -1;
     std::thread late_sender([client, proxy_header, &header_bytes_sent]() -> void {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        header_bytes_sent = send(client, &proxy_header, sizeof(proxy_header), 0);
+        header_bytes_sent = rots_net::write_socket(client, &proxy_header, sizeof(proxy_header));
     });
     wait_for_game_side_data(descriptor_list);
     const int input_result = process_input(descriptor_list);
     late_sender.join();
-    ASSERT_EQ(header_bytes_sent, static_cast<ssize_t>(sizeof(proxy_header)));
+    ASSERT_EQ(header_bytes_sent, static_cast<rots_net::ssize_type>(sizeof(proxy_header)));
     ASSERT_EQ(input_result, 0);
 
     const std::string initial_output = read_client_data(client);
     EXPECT_NE(initial_output.find("RETURN OF THE SHADOW"), std::string::npos);
     EXPECT_NE(initial_output.find("Account email:"), std::string::npos);
 
-    close(client);
-    close(listener);
+    rots_net::close_socket(client);
+    rots_net::close_socket(listener);
 }
 
 } // namespace

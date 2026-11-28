@@ -19,6 +19,7 @@
 #include <string_view>
 #include <stdarg.h>
 
+#include "platdef.h"
 #include "utils.h" /* For the TRUE macro */
 
 struct StartupOptions {
@@ -79,7 +80,11 @@ inline constexpr int TO_VICT = 1;
 inline constexpr int TO_NOTVICT = 2;
 inline constexpr int TO_CHAR = 3;
 
-int write_to_descriptor(int desc, const char* txt);
+// Writes the whole of `txt` to the socket now, bypassing the output queue. Returns 0 once it is
+// all written, or at once without writing when `desc` is 0 or INVALID_SOCKET_HANDLE; -2 when the
+// socket would block before any byte went out, so the caller can keep its text and retry; -1 on
+// any other failure, after which the connection should be closed.
+int write_to_descriptor(SocketType desc, const char* txt);
 void write_to_q(char* txt, struct txt_q* queue);
 void write_to_output(const char* txt, struct descriptor_data* d);
 int output_space_left(const struct descriptor_data* d);
