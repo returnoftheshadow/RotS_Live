@@ -24,7 +24,6 @@
 #include "char_utils.h"
 #include "color.h"
 #include "comm.h"
-#include "comm_testing.h"
 #include "connection_entry_policy.h"
 #include "db.h"
 #include "freed_watch.h"
@@ -189,34 +188,6 @@ bool parse_random_seed_value(
 
 namespace {
 
-#if defined(TESTING)
-// Stand-ins for the socket reads and writes below; null means the real socket is used.
-comm_testing::socket_read_fn socket_read_override = nullptr;
-comm_testing::socket_write_fn socket_write_override = nullptr;
-#endif
-
-// Every read and write of a connection's socket in this file goes through these two, so a
-// test can replace the socket with a callback.
-rots_net::ssize_type read_descriptor_socket(SocketType socket_handle, void* out_buffer, size_t length)
-{
-#if defined(TESTING)
-    if (socket_read_override != nullptr) {
-        return socket_read_override(socket_handle, out_buffer, length);
-    }
-#endif
-    return rots_net::read_socket(socket_handle, out_buffer, length);
-}
-
-rots_net::ssize_type write_descriptor_socket(SocketType socket_handle, const void* buffer, size_t length)
-{
-#if defined(TESTING)
-    if (socket_write_override != nullptr) {
-        return socket_write_override(socket_handle, buffer, length);
-    }
-#endif
-    return rots_net::write_socket(socket_handle, buffer, length);
-}
-
 // Whether the first `stored_length` bytes of `buffer` end in a newline. With nothing stored there
 // is no last byte to look at, which counts as no newline, so the caller reads on.
 bool ends_with_newline(const char* buffer, int stored_length)
@@ -275,7 +246,7 @@ int finish_proxy_header_if_ready(descriptor_data* descriptor)
 
     char* buffer = reinterpret_cast<char*>(&descriptor->proxy_peer_address);
     while (descriptor->proxy_peer_bytes_read < sizeof(descriptor->proxy_peer_address)) {
-        const rots_net::ssize_type bytes_read = read_descriptor_socket(descriptor->descriptor,
+        const rots_net::ssize_type bytes_read = rots_net::read_socket(descriptor->descriptor,
             buffer + descriptor->proxy_peer_bytes_read,
             sizeof(descriptor->proxy_peer_address) - descriptor->proxy_peer_bytes_read);
         if (bytes_read > 0) {
@@ -304,22 +275,6 @@ int finish_proxy_header_if_ready(descriptor_data* descriptor)
 }
 
 } // namespace
-
-#if defined(TESTING)
-comm_testing::socket_read_fn comm_testing::set_socket_read_override(socket_read_fn callback)
-{
-    const socket_read_fn previous = socket_read_override;
-    socket_read_override = callback;
-    return previous;
-}
-
-comm_testing::socket_write_fn comm_testing::set_socket_write_override(socket_write_fn callback)
-{
-    const socket_write_fn previous = socket_write_override;
-    socket_write_override = callback;
-    return previous;
-}
-#endif
 
 /* functions in this file */
 int get_from_q(struct txt_q* queue, char* dest);
@@ -2020,7 +1975,7 @@ int write_to_descriptor(SocketType desc, const char* txt)
 
     try {
         do {
-            thisround = write_descriptor_socket(desc, txt + sofar, total - sofar);
+            thisround = rots_net::write_socket(desc, txt + sofar, total - sofar);
             if (thisround < 0) {
                 const int write_error = rots_net::last_error();
                 if (rots_net::error_is_would_block(write_error) && sofar == 0) {
@@ -2104,7 +2059,7 @@ int process_input(struct descriptor_data* t)
                                                    keeps sending data with no newline */
     do {
         char inbuf[2048];
-        thisround = read_descriptor_socket(t->descriptor, inbuf, sizeof(inbuf));
+        thisround = rots_net::read_socket(t->descriptor, inbuf, sizeof(inbuf));
         if (thisround > 0) {
             /* Filter out telnet/MSDP negotiation if protocol is active */
             if (t->pProtocol) {

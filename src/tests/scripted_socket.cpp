@@ -12,8 +12,8 @@ namespace socket_test_support {
 
 namespace {
 
-    // Far above any descriptor the test process opens, so an access that misses the override
-    // fails with "bad descriptor" instead of reaching a real file.
+    // Far above any descriptor the test process opens, so a scripted handle can never be a real
+    // socket's.
     constexpr SocketType FIRST_SCRIPTED_SOCKET_HANDLE = 1000000;
 
     // The scripted sockets that exist, by handle.
@@ -25,29 +25,17 @@ namespace {
 
 } // namespace
 
-comm_testing::socket_read_fn ScriptedSocket::s_previous_read = nullptr;
-comm_testing::socket_write_fn ScriptedSocket::s_previous_write = nullptr;
 SocketType ScriptedSocket::s_next_handle = FIRST_SCRIPTED_SOCKET_HANDLE;
 
 ScriptedSocket::ScriptedSocket()
     : m_handle(s_next_handle++)
 {
-    std::map<SocketType, ScriptedSocket*>& sockets = live_sockets();
-    if (sockets.empty()) {
-        s_previous_read = comm_testing::set_socket_read_override(&ScriptedSocket::read_override);
-        s_previous_write = comm_testing::set_socket_write_override(&ScriptedSocket::write_override);
-    }
-    sockets[m_handle] = this;
+    live_sockets()[m_handle] = this;
 }
 
 ScriptedSocket::~ScriptedSocket()
 {
-    std::map<SocketType, ScriptedSocket*>& sockets = live_sockets();
-    sockets.erase(m_handle);
-    if (sockets.empty()) {
-        comm_testing::set_socket_read_override(s_previous_read);
-        comm_testing::set_socket_write_override(s_previous_write);
-    }
+    live_sockets().erase(m_handle);
 }
 
 SocketType ScriptedSocket::handle() const
@@ -63,6 +51,11 @@ ScriptedSocket* ScriptedSocket::find(SocketType socket_handle)
         return nullptr;
     }
     return found->second;
+}
+
+bool ScriptedSocket::is_scripted_handle(SocketType socket_handle)
+{
+    return socket_handle >= FIRST_SCRIPTED_SOCKET_HANDLE && socket_handle < s_next_handle;
 }
 
 void ScriptedSocket::queue_input(std::string_view bytes)
@@ -101,30 +94,6 @@ void ScriptedSocket::queue_write_failure()
 void ScriptedSocket::limit_write_size(size_t max_bytes)
 {
     m_write_limit = max_bytes;
-}
-
-rots_net::ssize_type ScriptedSocket::read_override(SocketType socket_handle, void* out_buffer, size_t length)
-{
-    ScriptedSocket* socket = find(socket_handle);
-    if (socket == nullptr) {
-        ADD_FAILURE() << "comm.cpp read socket " << static_cast<long long>(socket_handle)
-                      << ", which is not the scripted socket.";
-        set_connection_reset_error();
-        return -1;
-    }
-    return socket->read(out_buffer, length);
-}
-
-rots_net::ssize_type ScriptedSocket::write_override(SocketType socket_handle, const void* buffer, size_t length)
-{
-    ScriptedSocket* socket = find(socket_handle);
-    if (socket == nullptr) {
-        ADD_FAILURE() << "comm.cpp wrote to socket " << static_cast<long long>(socket_handle)
-                      << ", which is not the scripted socket.";
-        set_connection_reset_error();
-        return -1;
-    }
-    return socket->write(buffer, length);
 }
 
 rots_net::ssize_type ScriptedSocket::read(void* out_buffer, size_t length)
@@ -183,4 +152,57 @@ rots_net::ssize_type ScriptedSocket::write(const void* buffer, size_t length)
     return static_cast<rots_net::ssize_type>(accepted);
 }
 
+namespace {
+
+    // A read or write on a scripted handle whose socket has been destroyed: the test left a
+    // descriptor pointing at it.
+    rots_net::ssize_type fail_on_stale_handle(SocketType socket_handle, const char* operation)
+    {
+        ADD_FAILURE() << "The server tried to " << operation << " scripted socket "
+                      << static_cast<long long>(socket_handle) << " after it was destroyed.";
+        set_connection_reset_error();
+        return -1;
+    }
+
+} // namespace
+
 } // namespace socket_test_support
+
+// The test binary links with --wrap for both functions (src/CMakeLists.txt): every call to
+// rots_net::read_socket or rots_net::write_socket from another object file arrives here, and
+// __real_ names the original. The names are the functions' mangled names for the 32-bit build,
+// where size_t is unsigned int.
+extern "C" rots_net::ssize_type __real__ZN8rots_net11read_socketEiPvj(
+    SocketType socket_handle, void* out_buffer, size_t length);
+extern "C" rots_net::ssize_type __real__ZN8rots_net12write_socketEiPKvj(
+    SocketType socket_handle, const void* buffer, size_t length);
+
+extern "C" rots_net::ssize_type __wrap__ZN8rots_net11read_socketEiPvj(
+    SocketType socket_handle, void* out_buffer, size_t length)
+{
+    using socket_test_support::ScriptedSocket;
+    ScriptedSocket* socket = ScriptedSocket::find(socket_handle);
+    if (socket != nullptr) {
+        return socket->read(out_buffer, length);
+    }
+
+    if (ScriptedSocket::is_scripted_handle(socket_handle)) {
+        return socket_test_support::fail_on_stale_handle(socket_handle, "read");
+    }
+    return __real__ZN8rots_net11read_socketEiPvj(socket_handle, out_buffer, length);
+}
+
+extern "C" rots_net::ssize_type __wrap__ZN8rots_net12write_socketEiPKvj(
+    SocketType socket_handle, const void* buffer, size_t length)
+{
+    using socket_test_support::ScriptedSocket;
+    ScriptedSocket* socket = ScriptedSocket::find(socket_handle);
+    if (socket != nullptr) {
+        return socket->write(buffer, length);
+    }
+
+    if (ScriptedSocket::is_scripted_handle(socket_handle)) {
+        return socket_test_support::fail_on_stale_handle(socket_handle, "write to");
+    }
+    return __real__ZN8rots_net12write_socketEiPKvj(socket_handle, buffer, length);
+}

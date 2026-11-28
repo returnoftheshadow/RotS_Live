@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../comm_testing.h"
 #include "../rots_net.h"
 
 #include <cstddef>
@@ -10,24 +9,22 @@
 
 namespace socket_test_support {
 
-// A pretend connection socket for comm.cpp. While it exists, every connection read and write in
-// comm.cpp goes to it instead of the operating system, so a test can script what the peer sends
-// and how writes go, and read back what the game wrote. Several may exist at once, each with its
-// own handle. Writes made outside comm.cpp, such as echo_on and echo_off in utility.cpp, are not
-// caught. A test must not install its own comm_testing override while one exists: the last
-// ScriptedSocket to go restores the override that was in place before the first.
+// A pretend connection socket. The test binary is linked with rots_net::read_socket and
+// rots_net::write_socket wrapped (src/CMakeLists.txt), so every read and write the server makes
+// on this socket's handle comes here instead of the operating system: a test scripts what the
+// peer sends and how writes go, and reads back what the server wrote. Reads and writes on any
+// other handle reach the real socket. Several may exist at once, each with its own handle.
 class ScriptedSocket {
 public:
-    // Installs the scripted sockets as comm.cpp's read and write overrides, if none existed.
+    // Makes the socket's handle scripted until the socket is destroyed.
     ScriptedSocket();
-    // Restores the overrides that were installed before, once the last scripted socket goes.
     ~ScriptedSocket();
 
     ScriptedSocket(const ScriptedSocket&) = delete;
     ScriptedSocket& operator=(const ScriptedSocket&) = delete;
 
-    // The handle to give a descriptor. No real socket has it; a read or write on a handle no
-    // scripted socket has fails the test.
+    // The handle to give a descriptor. No real socket has it, and a read or write on a scripted
+    // handle whose socket is gone fails the test.
     SocketType handle() const;
 
     // Queue what later reads see, in order. Each read returns bytes from at most one queue_input()
@@ -48,9 +45,20 @@ public:
     // Every byte successful writes have taken so far.
     const std::string& written() const { return m_written; }
 
-    // How many reads and writes comm.cpp has made on this socket.
+    // How many reads and writes the server has made on this socket.
     int read_calls() const { return m_read_calls; }
     int write_calls() const { return m_write_calls; }
+
+    // The scripted socket with `socket_handle`; null when none has it.
+    static ScriptedSocket* find(SocketType socket_handle);
+
+    // True for a handle a ScriptedSocket has had during this run, live or gone.
+    static bool is_scripted_handle(SocketType socket_handle);
+
+    // Play this socket's script for one read or write, with read_socket's and write_socket's
+    // contract. Called by the link-time wrappers.
+    rots_net::ssize_type read(void* out_buffer, size_t length);
+    rots_net::ssize_type write(const void* buffer, size_t length);
 
 private:
     enum class StepKind { Bytes, EndOfFile, Failure, WouldBlock };
@@ -63,25 +71,12 @@ private:
         std::string bytes;
     };
 
-    // The scripted socket with `socket_handle`; null when none has it.
-    static ScriptedSocket* find(SocketType socket_handle);
-
-    static rots_net::ssize_type read_override(SocketType socket_handle, void* out_buffer, size_t length);
-    static rots_net::ssize_type write_override(SocketType socket_handle, const void* buffer, size_t length);
-
-    rots_net::ssize_type read(void* out_buffer, size_t length);
-    rots_net::ssize_type write(const void* buffer, size_t length);
-
-    // The overrides installed before the first scripted socket, restored after the last.
-    static comm_testing::socket_read_fn s_previous_read;
-    static comm_testing::socket_write_fn s_previous_write;
     // The handle the next scripted socket gets; handles are never reused within a run.
     static SocketType s_next_handle;
 
     // The handle descriptors are given and the key in the live-socket registry; unique for the
     // run.
     const SocketType m_handle;
-
     // Read outcomes not yet used, oldest first.
     std::deque<Step> m_read_steps;
     // Write outcomes not yet used, oldest first; a Bytes step is a successful write.
