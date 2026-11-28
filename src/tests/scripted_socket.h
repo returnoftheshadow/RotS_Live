@@ -44,6 +44,10 @@ public:
     // Limits each successful write to at most `max_bytes` bytes, as a full send buffer would.
     void limit_write_size(size_t max_bytes);
 
+    // While `full` is true, every write fails with "would block", as a socket whose send buffer is
+    // full does, before any queued write step is used.
+    void set_send_buffer_full(bool full);
+
     // Every byte successful writes have taken so far.
     const std::string& written() const { return m_written; }
 
@@ -85,6 +89,8 @@ private:
     std::deque<Step> m_write_steps;
     // The most bytes one successful write takes; 0 means no limit.
     size_t m_write_limit = 0;
+    // Whether every write currently fails with "would block"; set by set_send_buffer_full().
+    bool m_send_buffer_full = false;
     // Everything successful writes have taken, in order.
     std::string m_written;
     // Counts of the reads and writes made, failed ones included.

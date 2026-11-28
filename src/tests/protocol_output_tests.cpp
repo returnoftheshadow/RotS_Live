@@ -54,14 +54,13 @@ public:
     void set_mxp_version(const char* version) { descriptor.pProtocol->mxp_version = version; }
 
     // The descriptor passed to the functions under test; its protocol is owned here.
-    descriptor_data descriptor {};
+    descriptor_data descriptor { };
 };
 
-// Runs ProtocolOutput over the whole of text with no length limit.
-std::string render(const OutputDescriptor& output_descriptor, const char* text)
+// Runs ProtocolOutput over the whole of text.
+std::string render(const OutputDescriptor& output_descriptor, std::string_view text)
 {
-    int length = 0;
-    return ProtocolOutput(&output_descriptor.descriptor, text, &length);
+    return std::string(ProtocolOutput(&output_descriptor.descriptor, text));
 }
 
 // Builds a string from raw byte values, so expected UTF-8 is written without hex-escape runs.
@@ -176,56 +175,11 @@ constexpr RgbCase XTERM_CASES[] = {
 
 } // namespace
 
-TEST(ProtocolOutput, ReturnsTheDataPointerUnchangedForANullDescriptor)
-{
-    const char text[] = "\trred";
-    int length = 99;
-
-    EXPECT_EQ(ProtocolOutput(nullptr, text, &length), text);
-    EXPECT_EQ(length, 99) << "The length is left alone when there is no descriptor.";
-}
-
-TEST(ProtocolOutput, ReturnsTheDataPointerUnchangedForADescriptorWithoutAProtocol)
-{
-    descriptor_data descriptor {};
-    const char text[] = "\trred";
-    int length = 99;
-
-    EXPECT_EQ(ProtocolOutput(&descriptor, text, &length), text);
-    EXPECT_EQ(length, 99) << "The length is left alone when there is no protocol.";
-}
-
-TEST(ProtocolOutput, ReturnsNullForNullData)
+TEST(ProtocolOutput, CopiesPlainText)
 {
     OutputDescriptor output_descriptor;
-    int length = 99;
 
-    EXPECT_EQ(ProtocolOutput(&output_descriptor.descriptor, nullptr, &length), nullptr);
-    EXPECT_EQ(length, 99) << "The length is left alone for null data.";
-}
-
-TEST(ProtocolOutput, CopiesPlainTextAndWritesBackItsLength)
-{
-    OutputDescriptor output_descriptor;
-    int length = 0;
-
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, "Hello, world.", &length);
-
-    EXPECT_EQ(result, "Hello, world.");
-    EXPECT_EQ(length, 13);
-}
-
-TEST(ProtocolOutput, ReturnsTheSameStaticBufferOnEveryCall)
-{
-    OutputDescriptor output_descriptor;
-    int first_length = 0;
-    int second_length = 0;
-
-    const char* const first = ProtocolOutput(&output_descriptor.descriptor, "first", &first_length);
-    const char* const second = ProtocolOutput(&output_descriptor.descriptor, "second", &second_length);
-
-    EXPECT_EQ(first, second) << "Each call overwrites the previous call's result.";
-    EXPECT_STREQ(first, "second");
+    EXPECT_EQ(render(output_descriptor, "Hello, world."), "Hello, world.");
 }
 
 TEST(ProtocolOutput, AppliesCodesToAViewUpToItsEndOrItsFirstNul)
@@ -242,9 +196,19 @@ TEST(ProtocolOutput, AppliesCodesToAViewUpToItsEndOrItsFirstNul)
         "abc");
 }
 
+TEST(ProtocolOutput, ReturnsAViewOfTheSameStaticBufferOnEveryCall)
+{
+    OutputDescriptor output_descriptor;
+
+    const char* const first = ProtocolOutput(&output_descriptor.descriptor, "first").data();
+    const char* const second = ProtocolOutput(&output_descriptor.descriptor, "second").data();
+
+    EXPECT_EQ(first, second);
+}
+
 TEST(ProtocolOutput, ReturnsTheViewUnchangedWithoutAProtocol)
 {
-    descriptor_data descriptor {};
+    descriptor_data descriptor { };
     const std::string_view text = "\trred";
 
     // A null descriptor, and one with no protocol.
@@ -292,7 +256,8 @@ TEST(ProtocolOutput, DropsEachColourLetterWhenTheClientHasNoColour)
 
 TEST(ProtocolOutput, WritesTheClearCodeForTabNInEveryColourMode)
 {
-    for (const ColourMode colour_mode : { ColourMode::NONE, ColourMode::ANSI, ColourMode::XTERM_256 }) {
+    for (const ColourMode colour_mode :
+        { ColourMode::NONE, ColourMode::ANSI, ColourMode::XTERM_256 }) {
         OutputDescriptor output_descriptor(colour_mode);
         EXPECT_EQ(render(output_descriptor, "a\tnb"), std::string("a") + CLEAN + "b")
             << "Colour mode " << static_cast<int>(colour_mode)
@@ -317,14 +282,15 @@ TEST(ProtocolOutput, EatsAnUnknownCodeLetter)
 TEST(ProtocolOutput, StopsAtATrailingTab)
 {
     OutputDescriptor output_descriptor;
-    // The byte after the terminator is read before the loop sees the stop flag.
-    const char text[] = "abc\t\0tail";
-    int length = 0;
+    constexpr char text_with_nul[] = "abc\t\0tail";
+    const std::string_view text = "abc\ttail";
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, text, &length);
-
-    EXPECT_EQ(result, "abc");
-    EXPECT_EQ(length, 3);
+    EXPECT_EQ(render(output_descriptor, std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "abc")
+        << "A NUL inside the view ends the text.";
+    EXPECT_EQ(render(output_descriptor, "abc\t"), "abc");
+    EXPECT_EQ(render(output_descriptor, text.substr(0, 4)), "abc")
+        << "The view's end ends the text, though the string goes on.";
 }
 
 TEST(ProtocolOutput, LeavesCaretColourCodesAsTextBecauseColourCharIsNotDefined)
@@ -396,13 +362,32 @@ TEST(ProtocolOutput, DropsAnOverlongRgbCodeButPrintsItsClosingBracket)
     EXPECT_EQ(render(output_descriptor, "\t[B1234]x"), "]x");
 }
 
-TEST(ProtocolOutput, ReadsPastTheTerminatorAfterAnUnterminatedRgbCode)
+TEST(ProtocolOutput, StopsAtAnUnterminatedRgbCode)
 {
     OutputDescriptor output_descriptor(ColourMode::XTERM_256);
-    const char text[] = "a\t[F12\0tail";
+    constexpr char text_with_nul[] = "a\t[F12\0tail";
+    const std::string_view text = "a\t[F12tail";
 
-    EXPECT_EQ(render(output_descriptor, text), "atail")
-        << "An unterminated RGB code does not stop the loop at the string's end.";
+    EXPECT_EQ(render(output_descriptor, std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "a")
+        << "A NUL inside the view ends the text.";
+    EXPECT_EQ(render(output_descriptor, "a\t[F12"), "a");
+    EXPECT_EQ(render(output_descriptor, text.substr(0, 6)), "a")
+        << "The view's end ends the text, though the string goes on.";
+}
+
+TEST(ProtocolOutput, StopsAtABracketAtTheEndOfTheText)
+{
+    OutputDescriptor output_descriptor;
+    constexpr char text_with_nul[] = "a\t[\0tail";
+    const std::string_view text = "a\t[tail";
+
+    EXPECT_EQ(render(output_descriptor, std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "a")
+        << "A NUL inside the view ends the text.";
+    EXPECT_EQ(render(output_descriptor, "a\t["), "a");
+    EXPECT_EQ(render(output_descriptor, text.substr(0, 3)), "a")
+        << "The view's end ends the text, though the string goes on.";
 }
 
 TEST(ProtocolOutput, DropsTheLetterAfterAnUnknownBracketCodeButPrintsTheRest)
@@ -417,7 +402,8 @@ TEST(ProtocolOutput, WritesUtf8ForAUnicodeCodeWhenTheClientSupportsIt)
     OutputDescriptor output_descriptor;
     output_descriptor.set_variable(eMSDP_UTF_8, true);
 
-    EXPECT_EQ(render(output_descriptor, "Boat: \t[U9973/B]."), "Boat: " + bytes({ 0xE2, 0x9B, 0xB5 }) + ".");
+    EXPECT_EQ(render(output_descriptor, "Boat: \t[U9973/B]."),
+        "Boat: " + bytes({ 0xE2, 0x9B, 0xB5 }) + ".");
     EXPECT_EQ(render(output_descriptor, "\t[u233/e]"), bytes({ 0xC3, 0xA9 }));
 }
 
@@ -471,14 +457,14 @@ TEST(ProtocolOutput, TreatsUnicodeTextWithoutDigitsAsTheFallbackForCodePointZero
 TEST(ProtocolOutput, StopsAtAnUnterminatedUnicodeCode)
 {
     OutputDescriptor output_descriptor;
-    // The byte after the terminator is read before the loop sees the stop flag.
-    const char text[] = "a\t[U65/B\0tail";
-    int length = 0;
+    constexpr char text_with_nul[] = "a\t[U65/B\0tail";
+    const std::string_view text = "a\t[U65/Btail";
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, text, &length);
-
-    EXPECT_EQ(result, "a");
-    EXPECT_EQ(length, 1);
+    EXPECT_EQ(render(output_descriptor, std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "a")
+        << "A NUL inside the view ends the text.";
+    EXPECT_EQ(render(output_descriptor, text.substr(0, 8)), "a")
+        << "The view's end ends the text, though the string goes on.";
 }
 
 TEST(ProtocolOutput, WritesMxpLinkTagsWhenTheClientSupportsMxp)
@@ -510,16 +496,22 @@ TEST(ProtocolOutput, StripsExplicitMxpTagsWhenTheClientLacksMxp)
 {
     OutputDescriptor output_descriptor;
 
-    EXPECT_EQ(render(output_descriptor, "a \t<send href=\"buy pie\">pie\t</send> > b"), "a pie > b");
+    EXPECT_EQ(
+        render(output_descriptor, "a \t<send href=\"buy pie\">pie\t</send> > b"), "a pie > b");
 }
 
-TEST(ProtocolOutput, ReadsPastTheTerminatorAfterAnUnclosedStrippedMxpTag)
+TEST(ProtocolOutput, StopsAtAnUnclosedStrippedMxpTag)
 {
     OutputDescriptor output_descriptor;
-    const char text[] = "a\t<send\0tail";
+    constexpr char text_with_nul[] = "a\t<send\0tail";
+    const std::string_view text = "a\t<send>tail";
 
-    EXPECT_EQ(render(output_descriptor, text), "atail")
-        << "An unclosed tag does not stop the loop at the string's end.";
+    EXPECT_EQ(render(output_descriptor, std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "a")
+        << "A NUL inside the view ends the text.";
+    EXPECT_EQ(render(output_descriptor, "a\t<send"), "a");
+    EXPECT_EQ(render(output_descriptor, text.substr(0, 7)), "a")
+        << "The view's end ends the text, though the string goes on.";
 }
 
 TEST(ProtocolOutput, BlocksMxpTagsAfterAVersionCheckWhenTheVersionIsUnknown)
@@ -581,10 +573,10 @@ TEST(ProtocolOutput, StopsAtAnUnterminatedMxpVersionCheck)
 {
     OutputDescriptor output_descriptor;
     output_descriptor.set_variable(eMSDP_MXP, true);
-    // The byte after the terminator is read before the loop sees the stop flag.
-    const char text[] = "a\t[X1.0\0tail";
+    constexpr char text_with_nul[] = "a\t[X1.0\0tail";
 
-    EXPECT_EQ(render(output_descriptor, text), "a");
+    EXPECT_EQ(render(output_descriptor, std::string_view(text_with_nul, sizeof(text_with_nul) - 1)),
+        "a");
     EXPECT_FALSE(output_descriptor.descriptor.pProtocol->mxp_blocked);
 }
 
@@ -621,85 +613,44 @@ TEST(ProtocolOutput, LeavesSoundTriggersInTextWhenTheClientHasNoSound)
     EXPECT_EQ(render(output_descriptor, "!!SOUND(rain.wav)"), "!!SOUND(rain.wav)");
 }
 
-TEST(ProtocolOutput, ReadsOnlyThePositiveLengthOfInput)
-{
-    OutputDescriptor output_descriptor;
-    int length = 3;
-
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, "abcdef", &length);
-
-    EXPECT_EQ(result, "abc");
-    EXPECT_EQ(length, 3);
-}
-
-TEST(ProtocolOutput, FinishesACodeThatStartsInsideThePositiveLength)
-{
-    OutputDescriptor output_descriptor(ColourMode::ANSI);
-    int length = 3;
-
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, "ab\trcd", &length);
-
-    EXPECT_EQ(result, "ab\033[0;31m") << "The code letter after the limit is still read.";
-    EXPECT_EQ(length, 9);
-}
-
-TEST(ProtocolOutput, ReadsTheWholeStringForAZeroOrNegativeLength)
-{
-    OutputDescriptor output_descriptor(ColourMode::ANSI);
-
-    for (const int input_length : { 0, -1, -50 }) {
-        int length = input_length;
-        const std::string result = ProtocolOutput(&output_descriptor.descriptor, "ab\trcd", &length);
-        EXPECT_EQ(result, "ab\033[0;31mcd") << "Input length " << input_length;
-        EXPECT_EQ(length, 11) << "Input length " << input_length;
-    }
-}
-
-TEST(ProtocolOutput, WritesBackTheOutputLengthIncludingEscapeBytes)
+TEST(ProtocolOutput, CountsEscapeBytesInTheResultSize)
 {
     OutputDescriptor output_descriptor(ColourMode::XTERM_256);
-    int length = 0;
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, "\tRhi\tn", &length);
+    const std::string_view result = ProtocolOutput(&output_descriptor.descriptor, "\tRhi\tn");
 
     EXPECT_EQ(result, std::string("\033[38;5;196mhi") + CLEAN);
-    EXPECT_EQ(length, 20);
+    EXPECT_EQ(result.size(), 20U);
 }
 
 TEST(ProtocolOutput, KeepsOutputOneByteShorterThanTheBuffer)
 {
     OutputDescriptor output_descriptor;
     const std::string text(MAX_OUTPUT_BUFFER - 1, 'a');
-    int length = 0;
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, text.c_str(), &length);
+    const std::string result = render(output_descriptor, text);
 
     EXPECT_EQ(result, text);
-    EXPECT_EQ(length, MAX_OUTPUT_BUFFER - 1);
 }
 
 TEST(ProtocolOutput, SendsNothingWhenOutputFillsTheBufferExactly)
 {
     OutputDescriptor output_descriptor;
     const std::string text(MAX_OUTPUT_BUFFER, 'a');
-    int length = 0;
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, text.c_str(), &length);
+    const std::string result = render(output_descriptor, text);
 
     EXPECT_EQ(result, "") << "Output of exactly MAX_OUTPUT_BUFFER bytes is dropped as an overflow.";
-    EXPECT_EQ(length, 0);
 }
 
 TEST(ProtocolOutput, SendsNothingWhenAColourCodeOverflowsTheBuffer)
 {
     OutputDescriptor output_descriptor(ColourMode::ANSI);
     const std::string text = std::string(MAX_OUTPUT_BUFFER - 2, 'a') + "\tr";
-    int length = 0;
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, text.c_str(), &length);
+    const std::string result = render(output_descriptor, text);
 
     EXPECT_EQ(result, "");
-    EXPECT_EQ(length, 0);
 }
 
 TEST(ProtocolOutput, SendsNothingWhenAnMxpTagCloseOverflowsTheBuffer)
@@ -708,12 +659,10 @@ TEST(ProtocolOutput, SendsNothingWhenAnMxpTagCloseOverflowsTheBuffer)
     output_descriptor.set_variable(eMSDP_MXP, true);
     // Five bytes of tag opening plus these bytes leave room for two of the five closing bytes.
     const std::string text = "\t<" + std::string(MAX_OUTPUT_BUFFER - 7, 'a') + ">";
-    int length = 0;
 
-    const std::string result = ProtocolOutput(&output_descriptor.descriptor, text.c_str(), &length);
+    const std::string result = render(output_descriptor, text);
 
     EXPECT_EQ(result, "");
-    EXPECT_EQ(length, 0);
 }
 
 TEST(ColourRGB, ReturnsAnEmptyStringForANullDescriptor)
@@ -735,7 +684,8 @@ TEST(ColourRGB, ReturnsTheClearCodeForAnInvalidColour)
     OutputDescriptor output_descriptor(ColourMode::XTERM_256);
 
     for (const char* const rgb : { "F600", "F/00", "F0:0", "F00/", "X500", "F50", "" }) {
-        EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, rgb), CLEAN) << "Argument \"" << rgb << "\"";
+        EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, rgb), CLEAN)
+            << "Argument \"" << rgb << "\"";
     }
     EXPECT_EQ(ColourRGB(&output_descriptor.descriptor, nullptr), CLEAN) << "Null argument";
 }
@@ -859,7 +809,8 @@ TEST(UnicodeAdd, AppendsEachUtf8LengthBandWithoutATerminator)
         UnicodeAdd(&cursor, unicode_case.value);
 
         const std::size_t written = static_cast<std::size_t>(cursor - buffer);
-        EXPECT_EQ(std::string(buffer, written), unicode_case.expected) << "Code point " << unicode_case.value;
+        EXPECT_EQ(std::string(buffer, written), unicode_case.expected)
+            << "Code point " << unicode_case.value;
         EXPECT_EQ(std::string(cursor), std::string(7 - written, '#'))
             << "Code point " << unicode_case.value << ": bytes after the encoding are untouched.";
     }

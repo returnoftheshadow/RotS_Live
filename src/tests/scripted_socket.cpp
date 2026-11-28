@@ -96,6 +96,11 @@ void ScriptedSocket::limit_write_size(size_t max_bytes)
     m_write_limit = max_bytes;
 }
 
+void ScriptedSocket::set_send_buffer_full(bool full)
+{
+    m_send_buffer_full = full;
+}
+
 rots_net::ssize_type ScriptedSocket::read(void* out_buffer, size_t length)
 {
     ++m_read_calls;
@@ -128,6 +133,11 @@ rots_net::ssize_type ScriptedSocket::read(void* out_buffer, size_t length)
 rots_net::ssize_type ScriptedSocket::write(const void* buffer, size_t length)
 {
     ++m_write_calls;
+    if (m_send_buffer_full) {
+        set_would_block_error();
+        return -1;
+    }
+
     StepKind kind = StepKind::Bytes;
     if (!m_write_steps.empty()) {
         kind = m_write_steps.front().kind;

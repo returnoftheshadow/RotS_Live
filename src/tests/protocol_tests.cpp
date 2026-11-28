@@ -15,6 +15,7 @@
 #include "scoped_exit_test_rooms.h"
 #include "test_cleanup.h"
 
+#include <algorithm>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -87,6 +88,9 @@ public:
         release_test_descriptor(&descriptor);
         release_msdp_character(&character);
     }
+
+    // Makes every later write fail as a socket with a full send buffer does, or ends that.
+    void set_send_buffer_full(bool full) { m_socket.set_send_buffer_full(full); }
 
     // What has been written to the socket since the last call.
     std::string read_output()
@@ -675,8 +679,6 @@ TEST(MSDPProtocol, NegotiatesAndRejectsMSDPSupport)
         telnet_sequence(WILL, TELOPT_MSDP) + expected_msdp_pair("SERVER_ID", MUD_NAME));
 }
 
-// The EOR and SGA tests below read replies the protocol code writes straight to the descriptor's
-// socket, so they use ProtocolDescriptor's POSIX socketpair.
 TEST(MSDPProtocol, AcceptsOfferedEndOfRecordWithoutAnotherOffer)
 {
     ProtocolDescriptor context;
@@ -1053,8 +1055,6 @@ TEST(MSDPProtocol, SetArrayWrapsThePayloadAndKeepsAnUnchangedArray)
         msdp_wrapped_value(MSDP_TABLE_OPEN, longer, MSDP_TABLE_CLOSE));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair: the setters write only through
-// write_to_descriptor, which takes a socket, so no portable capture can see the sent bytes.
 TEST(MSDPProtocol, SendsTheStoredBytesOfEscapedStringsAndTables)
 {
     ProtocolDescriptor context;
@@ -1172,8 +1172,6 @@ TEST(MSDPProtocol, SendPairAndListRejectOversizedPayloads)
     EXPECT_EQ(context.read_output(), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair: MSDPSendPair and MSDPSendList write
-// only through write_to_descriptor, which takes a socket, so no portable capture can see them.
 TEST(MSDPProtocol, SendPairAndListEscapeTheirValuesForMSDPAndATCP)
 {
     ProtocolDescriptor context;
@@ -1195,8 +1193,6 @@ TEST(MSDPProtocol, SendPairAndListEscapeTheirValuesForMSDPAndATCP)
     EXPECT_EQ(context.read_output(), expected_atcp_pair("COMMANDS", "LIST \\\"REPORT\\\""));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair, for the reason given at
-// SendPairAndListEscapeTheirValuesForMSDPAndATCP.
 TEST(MSDPProtocol, SendPairMeasuresItsLimitWithTheEscapedValue)
 {
     ProtocolDescriptor context;
@@ -1240,6 +1236,227 @@ TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
     EXPECT_EQ(context.read_output(), "");
     EXPECT_EQ(context.descriptor.pProtocol->variables.text(eMSDP_CHARACTER_NAME), "");
     EXPECT_FALSE(context.descriptor.pProtocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+}
+
+// What one caller bug logged on its first and its second call.
+struct CallerBugLogs {
+    std::string first; // The stderr text the first call wrote.
+    std::string second; // The stderr text the second call wrote.
+};
+
+// Forgets the caller bugs already logged, then makes call twice with stderr captured each time.
+template <typename Call>
+CallerBugLogs log_two_calls(Call call)
+{
+    ProtocolClearLoggedCallerBugs();
+    CallerBugLogs logs;
+    testing::internal::CaptureStderr();
+    call();
+    logs.first = testing::internal::GetCapturedStderr();
+    testing::internal::CaptureStderr();
+    call();
+    logs.second = testing::internal::GetCapturedStderr();
+    return logs;
+}
+
+// Expects the first call to have logged one line holding bug_text, and the second nothing.
+void expect_logged_once(const CallerBugLogs& logs, const std::string& bug_text)
+{
+    EXPECT_EQ(std::count(logs.first.begin(), logs.first.end(), '\n'), 1) << logs.first;
+    EXPECT_NE(logs.first.find(bug_text), std::string::npos) << logs.first;
+    EXPECT_EQ(logs.second, "");
+}
+
+// The text a caller bug about a valid variable logs: its name and index, then the problem.
+std::string variable_bug_text(
+    std::string_view function, std::string_view name, variable_t variable, std::string_view problem)
+{
+    std::string text(function);
+    text += ": ";
+    text += name;
+    text += " (" + std::to_string(variable) + ") ";
+    text += problem;
+    return text;
+}
+
+TEST(MSDPCallerBugs, SetNumberLogsAnInvalidOrStringVariableOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+
+    const CallerBugLogs invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetNumber(&context.descriptor, eMSDP_MAX, 1); });
+    expect_logged_once(invalid_logs,
+        "MSDPSetNumber: variable " + std::to_string(eMSDP_MAX) + " is not an MSDP variable.");
+
+    const CallerBugLogs string_logs = log_two_calls(
+        [&context]() -> void { MSDPSetNumber(&context.descriptor, eMSDP_CHARACTER_NAME, 1); });
+    expect_logged_once(string_logs,
+        variable_bug_text("MSDPSetNumber", "CHARACTER_NAME", eMSDP_CHARACTER_NAME,
+            "holds text, not a number."));
+}
+
+TEST(MSDPCallerBugs, EachVariableIsLoggedOnceButInvalidVariablesShareOneLog)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    ProtocolClearLoggedCallerBugs();
+    MSDPSetNumber(&context.descriptor, eMSDP_CHARACTER_NAME, 1);
+    MSDPSetNumber(&context.descriptor, eMSDP_MAX, 1);
+
+    testing::internal::CaptureStderr();
+    MSDPSetNumber(&context.descriptor, eMSDP_SERVER_ID, 1);
+    MSDPSetNumber(&context.descriptor, eMSDP_NONE, 1);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(std::count(logged.begin(), logged.end(), '\n'), 1) << logged;
+    EXPECT_NE(logged.find(variable_bug_text("MSDPSetNumber", "SERVER_ID", eMSDP_SERVER_ID,
+                  "holds text, not a number.")),
+        std::string::npos)
+        << logged;
+}
+
+TEST(MSDPCallerBugs, SetStringLogsAnInvalidOrNumberVariableOrANullValueOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+
+    const CallerBugLogs invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetString(&context.descriptor, eMSDP_NONE, "text"); });
+    expect_logged_once(invalid_logs,
+        "MSDPSetString: variable " + std::to_string(eMSDP_NONE) + " is not an MSDP variable.");
+
+    const CallerBugLogs number_logs = log_two_calls(
+        [&context]() -> void { MSDPSetString(&context.descriptor, eMSDP_HEALTH, "text"); });
+    expect_logged_once(number_logs,
+        variable_bug_text("MSDPSetString", "HEALTH", eMSDP_HEALTH, "holds a number, not text."));
+
+    const char* null_value = nullptr;
+    const CallerBugLogs null_logs = log_two_calls([&context, null_value]() -> void {
+        MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, null_value);
+    });
+    expect_logged_once(null_logs,
+        variable_bug_text("MSDPSetString", "CHARACTER_NAME", eMSDP_CHARACTER_NAME,
+            "was given a null value."));
+}
+
+TEST(MSDPCallerBugs, SetTableAndArrayLogAnInvalidOrNumberVariableOrANullValueOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    const char* null_value = nullptr;
+
+    const CallerBugLogs table_invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetTable(&context.descriptor, eMSDP_MAX, "table"); });
+    expect_logged_once(table_invalid_logs,
+        "MSDPSetTable: variable " + std::to_string(eMSDP_MAX) + " is not an MSDP variable.");
+
+    const CallerBugLogs table_number_logs = log_two_calls(
+        [&context]() -> void { MSDPSetTable(&context.descriptor, eMSDP_HEALTH, ""); });
+    expect_logged_once(table_number_logs,
+        variable_bug_text("MSDPSetTable", "HEALTH", eMSDP_HEALTH, "holds a number, not text."));
+
+    const CallerBugLogs table_null_logs = log_two_calls([&context, null_value]() -> void {
+        MSDPSetTable(&context.descriptor, eMSDP_ROOM, null_value);
+    });
+    expect_logged_once(table_null_logs,
+        variable_bug_text("MSDPSetTable", "ROOM", eMSDP_ROOM, "was given a null value."));
+
+    const CallerBugLogs array_invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetArray(&context.descriptor, eMSDP_NONE, "array"); });
+    expect_logged_once(array_invalid_logs,
+        "MSDPSetArray: variable " + std::to_string(eMSDP_NONE) + " is not an MSDP variable.");
+
+    const CallerBugLogs array_number_logs = log_two_calls(
+        [&context]() -> void { MSDPSetArray(&context.descriptor, eMSDP_HEALTH, "array"); });
+    expect_logged_once(array_number_logs,
+        variable_bug_text("MSDPSetArray", "HEALTH", eMSDP_HEALTH, "holds a number, not text."));
+
+    const CallerBugLogs array_null_logs = log_two_calls([&context, null_value]() -> void {
+        MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, null_value);
+    });
+    expect_logged_once(array_null_logs,
+        variable_bug_text(
+            "MSDPSetArray", "ROOM_EXITS", eMSDP_ROOM_EXITS, "was given a null value."));
+}
+
+TEST(MSDPCallerBugs, FlushAndSendLogAnInvalidVariableOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+
+    const CallerBugLogs flush_logs
+        = log_two_calls([&context]() -> void { MSDPFlush(&context.descriptor, eMSDP_MAX); });
+    expect_logged_once(flush_logs,
+        "MSDPFlush: variable " + std::to_string(eMSDP_MAX) + " is not an MSDP variable.");
+
+    const CallerBugLogs send_logs = log_two_calls(
+        [&context]() -> void { EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_NONE)); });
+    expect_logged_once(send_logs,
+        "MSDPSend: variable " + std::to_string(eMSDP_NONE) + " is not an MSDP variable.");
+}
+
+TEST(MSDPCallerBugs, SendPairAndListLogANullNameOrValueOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    const char* null_text = nullptr;
+
+    const CallerBugLogs pair_logs = log_two_calls([&context, null_text]() -> void {
+        MSDPSendPair(&context.descriptor, null_text, "1");
+        MSDPSendPair(&context.descriptor, "HEALTH", null_text);
+    });
+    expect_logged_once(pair_logs, "MSDPSendPair: null name or value.");
+
+    const CallerBugLogs list_logs = log_two_calls([&context, null_text]() -> void {
+        MSDPSendList(&context.descriptor, null_text, "LIST");
+        MSDPSendList(&context.descriptor, "COMMANDS", null_text);
+    });
+    expect_logged_once(list_logs, "MSDPSendList: null name or value.");
+}
+
+TEST(MSDPCallerBugs, MxpSendTagLogsANullOrOverlongTagOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    const char* null_tag = nullptr;
+
+    const CallerBugLogs null_logs = log_two_calls(
+        [&context, null_tag]() -> void { MXPSendTag(&context.descriptor, null_tag); });
+    expect_logged_once(null_logs, "MXPSendTag: null tag.");
+
+    const std::string too_long_tag = "<" + std::string(998, 'B') + ">";
+    const CallerBugLogs long_logs = log_two_calls(
+        [&context, &too_long_tag]() -> void { MXPSendTag(&context.descriptor, too_long_tag); });
+    expect_logged_once(long_logs, "MXPSendTag: tag of 1000 characters (limit 999).");
+}
+
+TEST(MSDPCallerBugs, AMissingDescriptorProtocolOrCharacterLogsNothing)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor_without_protocol { };
+    // A descriptor with a protocol and no character; with no socket, a send counts as written.
+    MsdpSetterDescriptor without_character;
+    ProtocolClearLoggedCallerBugs();
+
+    const descriptor_data* const descriptors[]
+        = { nullptr, &descriptor_without_protocol, &without_character.descriptor };
+
+    testing::internal::CaptureStderr();
+    for (const descriptor_data* descriptor : descriptors) {
+        MSDPSetNumber(descriptor, eMSDP_HEALTH, 1);
+        MSDPSetString(descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+        MSDPSetTable(descriptor, eMSDP_ROOM, "table");
+        MSDPSetArray(descriptor, eMSDP_ROOM_EXITS, "array");
+        MSDPFlush(descriptor, eMSDP_HEALTH);
+        MSDPSend(descriptor, eMSDP_HEALTH);
+        MSDPSendPair(descriptor, "HEALTH", "1");
+        MSDPSendList(descriptor, "COMMANDS", "LIST");
+        MXPSendTag(descriptor, "<B>");
+    }
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(logged, "");
 }
 
 TEST(MSDPProtocol, UpdateFlushesOnlyDirtyReportedVariables)
@@ -1571,6 +1788,38 @@ TEST(MSDPProtocol, RecoversAfterOversizedUnterminatedSubnegotiation)
     feed_protocol_input(&context.descriptor, "look", output);
 
     EXPECT_STREQ(output, "look");
+}
+
+TEST(MSDPProtocol, AbandonsASubnegotiationThatFillsItsBufferAcrossReads)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    std::string first_read;
+    first_read.push_back(static_cast<char>(IAC));
+    first_read.push_back(static_cast<char>(SB));
+    first_read.push_back(static_cast<char>(TELOPT_MSDP));
+    first_read.append(MAX_PROTOCOL_BUFFER / 2, 'X');
+    const std::string second_read(MAX_PROTOCOL_BUFFER / 2, 'X');
+
+    feed_protocol_input(&descriptor, first_read, output);
+    ASSERT_TRUE(descriptor.pProtocol->in_subnegotiation);
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, second_read, output);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output, "");
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+    EXPECT_FALSE(descriptor.pProtocol->in_subnegotiation);
+    EXPECT_EQ(descriptor.pProtocol->subnegotiation_input_length, 0);
+
+    feed_protocol_input(&descriptor, "look", output);
+
+    EXPECT_STREQ(output, "look");
+
+    ProtocolDestroy(descriptor.pProtocol);
 }
 
 TEST(MSDPProtocol, MsdpUpdateSkipsInvalidDescriptorsWithoutStoppingList)
@@ -2923,7 +3172,7 @@ std::string expected_mxp_tag(std::string_view tag)
 // The announcement the server writes when it learns the client's MXP version.
 std::string expected_mxp_announcement(std::string_view version)
 {
-    std::string announcement = "\n\t[F210][\toINFO\t[F210]]\tn MXP version ";
+    std::string announcement = "\n[INFO] MXP version ";
     announcement += version;
     announcement += " detected and enabled.\r\n";
     return announcement;
@@ -3103,7 +3352,89 @@ TEST(ProtocolInput, BuffersAnEscapeAndBracketEvenWhenNoDigitFollows)
     ProtocolDestroy(descriptor.pProtocol);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(ProtocolInput, ReadsAFullSizeReadWholeAfterHeldBytes)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    std::vector<char> output(MAX_PROTOCOL_BUFFER + 1, '\0');
+    const char lone_iac[] = { static_cast<char>(IAC) };
+    ProtocolInput(&descriptor, lone_iac, 1, output.data());
+    ASSERT_EQ(descriptor.pProtocol->pending_input_length, 1);
+    const std::string player_text(MAX_PROTOCOL_BUFFER - 1, 'a');
+    const std::string full_read = std::string(1, static_cast<char>(NOP)) + player_text;
+    ASSERT_EQ(full_read.size(), static_cast<std::size_t>(MAX_PROTOCOL_BUFFER));
+
+    feed_protocol_input(&descriptor, full_read, output.data());
+
+    EXPECT_EQ(std::string(output.data()), player_text);
+    EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, DropsAndLogsAFullSizeReadWhoseHeldBytesOverflowTheCommandBuffer)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    std::vector<char> output(MAX_PROTOCOL_BUFFER + 1, '\0');
+    feed_protocol_input(&descriptor, "\033[a", output.data());
+    ASSERT_EQ(descriptor.pProtocol->pending_input_length, 3);
+    const std::string full_read(MAX_PROTOCOL_BUFFER, 'b');
+
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, full_read, output.data());
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output.data(), "") << "the held bytes and the read are both dropped";
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+    EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    feed_protocol_input(&descriptor, "look", output.data());
+
+    EXPECT_STREQ(output.data(), "look");
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, DropsAndLogsAReadOverTheLimitEvenWhenItsTextWouldFit)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    std::string long_read;
+    while (long_read.size() < static_cast<std::size_t>(MAX_PROTOCOL_BUFFER)) {
+        long_read.push_back(static_cast<char>(IAC));
+        long_read.push_back(static_cast<char>(NOP));
+    }
+    long_read += "look";
+
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, long_read, output);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output, "");
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, KeepsAnEscapeBracketAndHighByteAsPlayerText)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    const std::string input = "\033[\xC3zlook";
+
+    feed_protocol_input(&descriptor, input, output);
+
+    EXPECT_EQ(std::string(output), input);
+    EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
 TEST(ProtocolInput, KeepsALoneIacInsideASubnegotiationAsData)
 {
     ProtocolDescriptor context;
@@ -3116,7 +3447,6 @@ TEST(ProtocolInput, KeepsALoneIacInsideASubnegotiationAsData)
     EXPECT_EQ(context.descriptor.pProtocol->screen_height, 24);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolInput, IgnoresASubnegotiationWithNoDataAfterItsOption)
 {
     ProtocolDescriptor context;
@@ -3134,7 +3464,6 @@ TEST(ProtocolInput, IgnoresASubnegotiationWithNoDataAfterItsOption)
     EXPECT_FALSE(context.descriptor.pProtocol->in_subnegotiation);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, ProtocolNegotiateOffersTerminalTypeOnce)
 {
     ProtocolDescriptor context;
@@ -3147,7 +3476,6 @@ TEST(ProtocolHandshake, ProtocolNegotiateOffersTerminalTypeOnce)
     EXPECT_EQ(context.read_output(), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, TerminalTypeRefusalOffersEveryOtherProtocolWithoutAskingForTheType)
 {
     ProtocolDescriptor context;
@@ -3166,7 +3494,6 @@ TEST(ProtocolHandshake, TerminalTypeRefusalOffersEveryOtherProtocolWithoutAsking
     EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_TTYPE)), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, TerminalTypeIsWithdrawnRefusedAndAgreedAgainWithoutRenegotiating)
 {
     ProtocolDescriptor context;
@@ -3187,7 +3514,6 @@ TEST(ProtocolHandshake, TerminalTypeIsWithdrawnRefusedAndAgreedAgainWithoutReneg
     EXPECT_TRUE(context.descriptor.pProtocol->ttype_enabled);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, EchoIsAgreedWithdrawnAndRefused)
 {
     ProtocolDescriptor context;
@@ -3204,7 +3530,6 @@ TEST(ProtocolHandshake, EchoIsAgreedWithdrawnAndRefused)
     EXPECT_EQ(reply_to(context, telnet_sequence(WONT, TELOPT_ECHO)), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, WindowSizeIsAgreedWithdrawnAndRefusedAndEitherAnswerCancelsRenegotiation)
 {
     ProtocolDescriptor context;
@@ -3223,7 +3548,6 @@ TEST(ProtocolHandshake, WindowSizeIsAgreedWithdrawnAndRefusedAndEitherAnswerCanc
     EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_NAWS)), telnet_sequence(WONT, TELOPT_NAWS));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, CharsetAgreementRequestsLatin1UntilTheClientWithdraws)
 {
     ProtocolDescriptor context;
@@ -3243,7 +3567,6 @@ TEST(ProtocolHandshake, CharsetAgreementRequestsLatin1UntilTheClientWithdraws)
         telnet_sequence(WONT, TELOPT_CHARSET));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, CharsetAgreementAfterTheServerOfferRequestsLatin1Alone)
 {
     ProtocolDescriptor context;
@@ -3253,7 +3576,6 @@ TEST(ProtocolHandshake, CharsetAgreementAfterTheServerOfferRequestsLatin1Alone)
     EXPECT_EQ(context.descriptor.pProtocol->variables.number(eMSDP_UTF_8), 0);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, MsdpOfferedByTheClientIsRefused)
 {
     ProtocolDescriptor context;
@@ -3262,7 +3584,6 @@ TEST(ProtocolHandshake, MsdpOfferedByTheClientIsRefused)
     EXPECT_TRUE(context.descriptor.pProtocol->msdp_enabled);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMssp, RequestSendsTheStatusTableAgainEachTimeItIsReenabled)
 {
     ProtocolDescriptor context;
@@ -3280,7 +3601,6 @@ TEST(ProtocolMssp, RequestSendsTheStatusTableAgainEachTimeItIsReenabled)
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MSSP)), telnet_sequence(DONT, TELOPT_MSSP));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMssp, StatusTableAfterTheServerOfferIsSentWithoutAnotherAgreement)
 {
     ProtocolDescriptor context;
@@ -3289,7 +3609,6 @@ TEST(ProtocolMssp, StatusTableAfterTheServerOfferIsSentWithoutAnotherAgreement)
     EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_MSSP)), expected_mssp_packet());
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, CompressionIsAgreedAndWithdrawnSilentlyBecauseMccpIsNotBuiltIn)
 {
     ProtocolDescriptor context;
@@ -3309,7 +3628,6 @@ TEST(ProtocolHandshake, CompressionIsAgreedAndWithdrawnSilentlyBecauseMccpIsNotB
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MCCP)), telnet_sequence(DONT, TELOPT_MCCP));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, SoundIsAgreedWithdrawnAndRefused)
 {
     ProtocolDescriptor context;
@@ -3323,7 +3641,6 @@ TEST(ProtocolHandshake, SoundIsAgreedWithdrawnAndRefused)
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MSP)), telnet_sequence(DONT, TELOPT_MSP));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, MxpOfferedByTheClientIsAcceptedAndStartsTheSecureLine)
 {
     ProtocolDescriptor context;
@@ -3338,7 +3655,6 @@ TEST(ProtocolHandshake, MxpOfferedByTheClientIsAcceptedAndStartsTheSecureLine)
     EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_MXP)), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, MxpRequestedByTheClientIsAnsweredWithWill)
 {
     ProtocolDescriptor context;
@@ -3349,7 +3665,6 @@ TEST(ProtocolHandshake, MxpRequestedByTheClientIsAnsweredWithWill)
     EXPECT_TRUE(context.descriptor.pProtocol->option_states[eNEGOTIATED_MXP2]);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, MxpRefusalBeforeItStartsIsRetriedWithWill)
 {
     ProtocolDescriptor context;
@@ -3362,7 +3677,6 @@ TEST(ProtocolHandshake, MxpRefusalBeforeItStartsIsRetriedWithWill)
     EXPECT_TRUE(context.descriptor.pProtocol->mxp_enabled);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, MxpSwitchedOffLeavesTheMsdpMxpFlagSetSoTagsAreStillSent)
 {
     ProtocolDescriptor offered_by_client;
@@ -3384,7 +3698,6 @@ TEST(ProtocolHandshake, MxpSwitchedOffLeavesTheMsdpMxpFlagSetSoTagsAreStillSent)
     EXPECT_EQ(requested_by_client.descriptor.pProtocol->variables.number(eMSDP_MXP), 1);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, AtcpIsAgreedButOnlyUsedWhileMsdpIsOff)
 {
     ProtocolDescriptor context;
@@ -3410,7 +3723,6 @@ TEST(ProtocolHandshake, AtcpIsAgreedButOnlyUsedWhileMsdpIsOff)
     EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_ATCP)), telnet_sequence(WONT, TELOPT_ATCP));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, RefusalsOfWhatWasNeverAgreedGetNoReply)
 {
     ProtocolDescriptor context;
@@ -3435,7 +3747,6 @@ TEST(ProtocolHandshake, RefusalsOfWhatWasNeverAgreedGetNoReply)
     }
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolHandshake, UnknownOptionsAreRefusedAndTheirRefusalsIgnored)
 {
     ProtocolDescriptor context;
@@ -3448,18 +3759,16 @@ TEST(ProtocolHandshake, UnknownOptionsAreRefusedAndTheirRefusalsIgnored)
     EXPECT_EQ(reply_to(context, telnet_sequence(DONT, UNKNOWN_TELNET_OPTION)), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(ProtocolHandshake, RefusalOfTheBinaryOptionLosesItsOptionByte)
+TEST(ProtocolHandshake, RefusalOfTheBinaryOptionKeepsItsZeroOptionByte)
 {
     ProtocolDescriptor context;
-    const std::string refuse_will = { static_cast<char>(IAC), static_cast<char>(WONT) };
-    const std::string refuse_do = { static_cast<char>(IAC), static_cast<char>(DONT) };
 
-    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_BINARY)), refuse_will);
-    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_BINARY)), refuse_do);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_BINARY)),
+        telnet_sequence(WONT, TELOPT_BINARY));
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_BINARY)),
+        telnet_sequence(DONT, TELOPT_BINARY));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, TerminalTypeIsIgnoredUntilTheClientAgreesToSendIt)
 {
     ProtocolDescriptor context;
@@ -3470,7 +3779,6 @@ TEST(ProtocolSubnegotiation, TerminalTypeIsIgnoredUntilTheClientAgreesToSendIt)
     EXPECT_FALSE(context.descriptor.pProtocol->last_ttype.has_value());
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, FirstTerminalTypeNamesTheClientAndEachNewTypeAsksForTheNext)
 {
     ProtocolDescriptor context;
@@ -3494,7 +3802,6 @@ TEST(ProtocolSubnegotiation, FirstTerminalTypeNamesTheClientAndEachNewTypeAsksFo
     EXPECT_EQ(reply_to(context, ttype_reply("MTTS 2825")), "") << "a repeated type ends the cycle";
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, TerminalTypeCycleEndsWhenItReturnsToTheClientName)
 {
     ProtocolDescriptor context;
@@ -3507,7 +3814,6 @@ TEST(ProtocolSubnegotiation, TerminalTypeCycleEndsWhenItReturnsToTheClientName)
     EXPECT_EQ(context.descriptor.pProtocol->last_ttype, "XTERM");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, ClientNameSetEarlierIsKeptWhileTheTypesStillCycle)
 {
     ProtocolDescriptor context;
@@ -3522,7 +3828,6 @@ TEST(ProtocolSubnegotiation, ClientNameSetEarlierIsKeptWhileTheTypesStillCycle)
     EXPECT_EQ(protocol->last_ttype, "XTERM");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, AnsiAsTheFirstTerminalTypeAsksForNoOther)
 {
     ProtocolDescriptor context;
@@ -3537,7 +3842,6 @@ TEST(ProtocolSubnegotiation, AnsiAsTheFirstTerminalTypeAsksForNoOther)
         << "only an ANSI first reply stops the cycle";
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, TerminalTypeKeepsTheFirst64PrintableBytes)
 {
     ProtocolDescriptor context;
@@ -3554,7 +3858,6 @@ TEST(ProtocolSubnegotiation, TerminalTypeKeepsTheFirst64PrintableBytes)
         "TinTin" + std::string(58, 'A'));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, EmptyTerminalTypeBecomesAnEmptyClientName)
 {
     ProtocolDescriptor context;
@@ -3566,7 +3869,6 @@ TEST(ProtocolSubnegotiation, EmptyTerminalTypeBecomesAnEmptyClientName)
     EXPECT_EQ(context.descriptor.pProtocol->last_ttype, "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, MudletTypeIsSplitIntoClientAndVersionAndItsVersionDecides256Colours)
 {
     ProtocolDescriptor current_mudlet;
@@ -3599,7 +3901,6 @@ TEST(ProtocolSubnegotiation, MudletTypeIsSplitIntoClientAndVersionAndItsVersionD
     EXPECT_EQ(unversioned_protocol->xterm_256_support, eSOMETIMES);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, DecafMudTypeIsSplitIntoClientAndVersionAndAlwaysHas256Colours)
 {
     ProtocolDescriptor versioned;
@@ -3620,7 +3921,6 @@ TEST(ProtocolSubnegotiation, DecafMudTypeIsSplitIntoClientAndVersionAndAlwaysHas
     EXPECT_EQ(unversioned.descriptor.pProtocol->xterm_256_support, eYES);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, MttsBitsTurnOnAnsiUtf8And256ColoursAndLeaveTheClientVersion)
 {
     ProtocolDescriptor all_bits;
@@ -3649,7 +3949,6 @@ TEST(ProtocolSubnegotiation, MttsBitsTurnOnAnsiUtf8And256ColoursAndLeaveTheClien
     EXPECT_EQ(no_bits_protocol->xterm_256_support, eUNKNOWN);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, OnlyA256colorSuffixAfterTheFirstDashMeans256Colours)
 {
     ProtocolDescriptor suffixed;
@@ -3677,7 +3976,6 @@ struct KnownClient {
     int xterm_256_colours;
 };
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, KnownClientNamesRecordTheir256ColourSupport)
 {
     const std::vector<KnownClient> clients = { { "EMACS-RINZAI", eYES, 1 }, { "cmud", eSOMETIMES, 0 },
@@ -3696,7 +3994,6 @@ TEST(ProtocolSubnegotiation, KnownClientNamesRecordTheir256ColourSupport)
     }
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, WindowSizeIsStoredOnlyAfterTheClientAgreedToSendIt)
 {
     ProtocolDescriptor context;
@@ -3718,21 +4015,25 @@ TEST(ProtocolSubnegotiation, WindowSizeIsStoredOnlyAfterTheClientAgreedToSendIt)
     EXPECT_EQ(protocol->screen_height, 65535);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(ProtocolSubnegotiation, ShortWindowSizeReadsLeftoverBytesOfAnEarlierSubnegotiation)
+TEST(ProtocolSubnegotiation, ShortWindowSizeLeavesTheSizeAsItWas)
 {
-    ProtocolDescriptor context;
-    context.descriptor.pProtocol->naws_enabled = true;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    protocol_t* protocol = descriptor.pProtocol;
+    protocol->naws_enabled = true;
+    char output[MAX_PROTOCOL_BUFFER + 1] = { '\0' };
+    const std::string eighty_by_twenty_four = { '\0', 'P', '\0', '\030' };
+    feed_protocol_input(&descriptor, naws_report(eighty_by_twenty_four), output);
 
-    reply_to(context, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "ABCDE"));
-    const std::string width_only = { '\0', 'd' };
-    reply_to(context, naws_report(width_only));
+    // A longer subnegotiation first leaves bytes a short report's read could pick up.
+    feed_protocol_input(&descriptor, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "ABCDE"), output);
+    const std::string width_and_one_height_byte = { '\0', 'd', '\0' };
+    feed_protocol_input(&descriptor, naws_report(width_and_one_height_byte), output);
 
-    EXPECT_EQ(context.descriptor.pProtocol->screen_width, 100);
-    EXPECT_EQ(context.descriptor.pProtocol->screen_height, 'D') << "the height is the stale fifth byte";
+    EXPECT_EQ(protocol->screen_width, 80);
+    EXPECT_EQ(protocol->screen_height, 24);
+    ProtocolDestroy(protocol);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, CharsetReplyAndUnknownSubnegotiationsChangeNothing)
 {
     ProtocolDescriptor context;
@@ -3748,7 +4049,6 @@ TEST(ProtocolSubnegotiation, CharsetReplyAndUnknownSubnegotiationsChangeNothing)
     EXPECT_FALSE(protocol->in_subnegotiation);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, MsdpCommandsAreIgnoredWhileMsdpIsOff)
 {
     ProtocolDescriptor context;
@@ -3762,7 +4062,6 @@ TEST(ProtocolSubnegotiation, MsdpCommandsAreIgnoredWhileMsdpIsOff)
     EXPECT_FALSE(context.descriptor.pProtocol->variables.is_reported(eMSDP_HEALTH));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolAtcp, CommandsAreIgnoredWhileAtcpIsOff)
 {
     ProtocolDescriptor context;
@@ -3773,7 +4072,6 @@ TEST(ProtocolAtcp, CommandsAreIgnoredWhileAtcpIsOff)
     EXPECT_FALSE(context.descriptor.pProtocol->variables.is_reported(eMSDP_HEALTH));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolAtcp, EachAtNameStartsACommandAndEachSpaceStartsAValue)
 {
     ProtocolDescriptor context;
@@ -3794,7 +4092,6 @@ TEST(ProtocolAtcp, EachAtNameStartsACommandAndEachSpaceStartsAValue)
     EXPECT_TRUE(protocol->variables.is_reported(eMSDP_MOVEMENT));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolAtcp, IgnoresTextBeforeTheFirstAtAndAValueLongerThanTheMsdpSizeLimit)
 {
     ProtocolDescriptor context;
@@ -3811,7 +4108,6 @@ TEST(ProtocolAtcp, IgnoresTextBeforeTheFirstAtAndAValueLongerThanTheMsdpSizeLimi
     EXPECT_FALSE(protocol->variables.is_reported(eMSDP_HEALTH));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolAtcp, SendAnswersInAtcpForm)
 {
     ProtocolDescriptor context;
@@ -3823,7 +4119,6 @@ TEST(ProtocolAtcp, SendAnswersInAtcpForm)
         expected_atcp_pair("HEALTH", "87"));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, VersionReplyRecordsTheClientAndAnnouncesTheMxpVersion)
 {
     ProtocolDescriptor context;
@@ -3849,7 +4144,6 @@ struct MxpClientVersion {
     int xterm_256_colours;
 };
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, VersionComparedAsTextDecides256ColoursForMushclientCmudAndAtlantis)
 {
     const std::vector<MxpClientVersion> replies = { { "CLIENT=MUSHclient VERSION=4.02", eYES, 1 },
@@ -3869,7 +4163,6 @@ TEST(ProtocolMxp, VersionComparedAsTextDecides256ColoursForMushclientCmudAndAtla
     }
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, VersionReplyWithoutAnMxpVersionAnnouncesNothing)
 {
     ProtocolDescriptor context;
@@ -3882,7 +4175,6 @@ TEST(ProtocolMxp, VersionReplyWithoutAnMxpVersionAnnouncesNothing)
     EXPECT_EQ(protocol->mxp_version, "Unknown");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, ValuesSkipAnOpeningQuoteAndEndAtTheFirstByteNotALetterDigitOrDot)
 {
     ProtocolDescriptor quoted;
@@ -3898,7 +4190,6 @@ TEST(ProtocolMxp, ValuesSkipAnOpeningQuoteAndEndAtTheFirstByteNotALetterDigitOrD
     EXPECT_EQ(empty_value.descriptor.pProtocol->variables.text(eMSDP_CLIENT_VERSION), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, ValueOfSixtyCharactersIsIgnoredAndOneOfFiftyNineKept)
 {
     ProtocolDescriptor longest_kept;
@@ -3912,7 +4203,6 @@ TEST(ProtocolMxp, ValueOfSixtyCharactersIsIgnoredAndOneOfFiftyNineKept)
     EXPECT_EQ(too_long.descriptor.pProtocol->variables.text(eMSDP_CLIENT_ID), "Unknown");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, TextAroundTheReplyIsPlayerInputAndEveryLaterSequenceRepeatsTheAnnouncement)
 {
     ProtocolDescriptor context;
@@ -3930,7 +4220,6 @@ TEST(ProtocolMxp, TextAroundTheReplyIsPlayerInputAndEveryLaterSequenceRepeatsThe
     EXPECT_EQ(context.read_output(), expected_mxp_announcement("1.0"));
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, ReplySplitAcrossReadsKeepsTheFirstPartAndPassesTheRestToThePlayer)
 {
     ProtocolDescriptor context;
@@ -3948,7 +4237,6 @@ TEST(ProtocolMxp, ReplySplitAcrossReadsKeepsTheFirstPartAndPassesTheRestToThePla
     EXPECT_EQ(context.descriptor.pProtocol->variables.text(eMSDP_CLIENT_VERSION), "Unknown");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, ReplyLongerThanAThousandBytesSwallowsTheNextByteAndPassesTheRest)
 {
     ProtocolDescriptor context;
@@ -3960,7 +4248,6 @@ TEST(ProtocolMxp, ReplyLongerThanAThousandBytesSwallowsTheNextByteAndPassesTheRe
     EXPECT_EQ(context.read_output(), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, SendTagWrapsTagsUnderAThousandBytesInSecureLineEscapes)
 {
     descriptor_data descriptor_without_protocol {};
@@ -3982,7 +4269,6 @@ TEST(ProtocolMxp, SendTagWrapsTagsUnderAThousandBytesInSecureLineEscapes)
     EXPECT_EQ(context.read_output(), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, SendTagWithoutMxpSendsNothingUnlessRenegotiationIsPending)
 {
     ProtocolDescriptor context;
@@ -3993,7 +4279,6 @@ TEST(ProtocolMxp, SendTagWithoutMxpSendsNothingUnlessRenegotiationIsPending)
     EXPECT_FALSE(context.descriptor.pProtocol->needs_mxp_version);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, SendTagWhileRenegotiationIsPendingOffersEverythingAgainIncludingEchoAndSga)
 {
     ProtocolDescriptor context;
@@ -4020,7 +4305,6 @@ TEST(ProtocolMxp, SendTagWhileRenegotiationIsPendingOffersEverythingAgainIncludi
     EXPECT_EQ(context.read_output(), "") << "renegotiation happens once";
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolMxp, MxpAgreedAfterRenegotiationAsksTheClientForItsVersion)
 {
     ProtocolDescriptor context;
@@ -4033,7 +4317,6 @@ TEST(ProtocolMxp, MxpAgreedAfterRenegotiationAsksTheClientForItsVersion)
     EXPECT_TRUE(context.descriptor.pProtocol->mxp_enabled);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(MSDPProtocol, SendReturnsWhetherItWroteAndFallsBackToAtcpForStrings)
 {
     ProtocolDescriptor context;
@@ -4057,7 +4340,6 @@ TEST(MSDPProtocol, SendReturnsWhetherItWroteAndFallsBackToAtcpForStrings)
     EXPECT_EQ(context.read_output(), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(MSDPProtocol, SendLogsAndDropsAStringThatFillsTheBuffer)
 {
     ScopedDescriptorList descriptor_list_scope;
@@ -4083,8 +4365,93 @@ TEST(MSDPProtocol, SendLogsAndDropsAStringThatFillsTheBuffer)
         << logged;
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(MSDPProtocol, SendPairAndListLogAnOverlongNameWithTheWholePacketLength)
+TEST(MSDPProtocol, UpdateLogsAValueTooLongToSendOnceAndSendsItOnceItFits)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    // The framing allowance MSDPSend's limit adds to the name and value lengths.
+    constexpr std::size_t packet_overhead = 12;
+    const std::string name = "CHARACTER_NAME";
+    const std::string too_long_value(MAX_VARIABLE_LENGTH - name.size() - packet_overhead, 'A');
+    enable_msdp_reports(protocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, too_long_value.c_str());
+
+    testing::internal::CaptureStderr();
+    MSDPUpdate(&context.descriptor);
+    const std::string first_pulse_log = testing::internal::GetCapturedStderr();
+    testing::internal::CaptureStderr();
+    MSDPUpdate(&context.descriptor);
+    const std::string second_pulse_log = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(first_pulse_log.find("MSDPSend: CHARACTER_NAME 4096 bytes"), std::string::npos)
+        << first_pulse_log;
+    EXPECT_EQ(second_pulse_log, "");
+    EXPECT_FALSE(protocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+    EXPECT_EQ(context.read_output(), "");
+
+    const std::string other_too_long_value(too_long_value.size(), 'B');
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, other_too_long_value.c_str());
+    testing::internal::CaptureStderr();
+    MSDPFlush(&context.descriptor, eMSDP_CHARACTER_NAME);
+    const std::string flush_log = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(flush_log.find("MSDPSend: CHARACTER_NAME 4096 bytes"), std::string::npos)
+        << flush_log;
+    EXPECT_FALSE(protocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair(name, "Aragorn"));
+    EXPECT_FALSE(protocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+}
+
+TEST(MSDPProtocol, AFailedWriteKeepsTheVariableAndTheRestOfThePulseDirty)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    // The reported variables, in the order MSDPUpdate sends them.
+    const std::vector<variable_t> reported_variables
+        = { eMSDP_HEALTH, eMSDP_MANA, eMSDP_MOVEMENT, eMSDP_ROOM_NAME };
+    enable_msdp_reports(protocol, reported_variables);
+    MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 45);
+    MSDPSetNumber(&context.descriptor, eMSDP_MANA, 12);
+    MSDPSetNumber(&context.descriptor, eMSDP_MOVEMENT, 80);
+    // A value too long to send, which MSDPUpdate logs and marks clean if it goes on past the
+    // failed write.
+    const std::string too_long_room_name(MAX_VARIABLE_LENGTH, 'R');
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, too_long_room_name.c_str());
+    context.set_send_buffer_full(true);
+
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_HEALTH));
+    MSDPFlush(&context.descriptor, eMSDP_HEALTH);
+    EXPECT_TRUE(protocol->variables.is_dirty(eMSDP_HEALTH));
+
+    testing::internal::CaptureStderr();
+    MSDPUpdate(&context.descriptor);
+    const std::string full_pulse_log = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(full_pulse_log, "");
+    for (const variable_t variable : reported_variables) {
+        EXPECT_TRUE(protocol->variables.is_dirty(variable)) << variable;
+    }
+
+    context.set_send_buffer_full(false);
+    context.read_output();
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "Bree");
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("HEALTH", "45") + expected_msdp_pair("MANA", "12")
+            + expected_msdp_pair("MOVEMENT", "80") + expected_msdp_pair("ROOM_NAME", "Bree"));
+    for (const variable_t variable : reported_variables) {
+        EXPECT_FALSE(protocol->variables.is_dirty(variable)) << variable;
+    }
+}
+
+TEST(MSDPProtocol, SendPairAndListLogTheLengthOfAnOverlongName)
 {
     ScopedDescriptorList descriptor_list_scope;
     ProtocolDescriptor context;
@@ -4096,17 +4463,18 @@ TEST(MSDPProtocol, SendPairAndListLogAnOverlongNameWithTheWholePacketLength)
     const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4103 bytes (exceeds "
-                          "MAX_VARIABLE_LENGTH of 4096)."),
+    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4090 bytes (too long with "
+                          "its framing for MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
-    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4103 bytes (exceeds "
-                          "MAX_VARIABLE_LENGTH of 4096)."),
+    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4090 bytes (too long with "
+                          "its framing for MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
 }
 
-TEST(MSDPProtocol, SendPairLogsAnOverlongPairThroughAFormatThatReadsPercentSigns)
+// The name reaches the log as it is, and each log entry is one line.
+TEST(MSDPProtocol, SendPairLogsAnOverlongPairsNameWithItsPercentSigns)
 {
     ScopedDescriptorList descriptor_list_scope;
     ProtocolDescriptor context;
@@ -4116,12 +4484,12 @@ TEST(MSDPProtocol, SendPairLogsAnOverlongPairThroughAFormatThatReadsPercentSigns
     MSDPSendPair(&context.descriptor, "A%%B", huge_value.c_str());
     const std::string logged = testing::internal::GetCapturedStderr();
 
-    EXPECT_NE(logged.find("MSDPSendPair: A%B 4112 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
+    EXPECT_NE(logged.find("MSDPSendPair: A%%B 4112 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
+    EXPECT_EQ(logged.find("\n\n"), std::string::npos) << logged;
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(MSDPProtocol, SendPairAndListSendNothingWithoutANameAValueOrAnOutOfBandProtocol)
 {
     ProtocolDescriptor context;
@@ -4138,7 +4506,6 @@ TEST(MSDPProtocol, SendPairAndListSendNothingWithoutANameAValueOrAnOutOfBandProt
     EXPECT_EQ(context.read_output(), "");
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(MSDPProtocol, WriteMarksPendingOutOfBandDataAsWritten)
 {
     ProtocolDescriptor context;
@@ -4183,7 +4550,6 @@ TEST(MSDPProtocol, NumericConfigurableValueMaySkipLeadingSpacesButNotBeOnlySpace
     EXPECT_EQ(protocol->variables.number(eMSDP_ANSI_COLORS), 1);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(MSDPProtocol, UnknownSendUnreportResetAndListValuesChangeNothing)
 {
     ProtocolDescriptor context;

@@ -1963,10 +1963,14 @@ int process_output(struct descriptor_data* t)
 
 int write_to_descriptor(SocketType desc, const char* txt)
 {
-    int sofar, thisround, total;
+    return write_to_descriptor(desc, txt, strlen(txt));
+}
 
-    total = strlen(txt);
-    sofar = 0;
+int write_to_descriptor(SocketType desc, const char* text, std::size_t length)
+{
+    std::size_t sofar = 0;
+    const std::size_t total = length;
+    rots_net::ssize_type thisround;
 
     // 0 is a closed connection's descriptor (close_socket clears it) and would be stdin.
     if (desc == 0 || !rots_net::is_valid_socket(desc)) {
@@ -1975,7 +1979,7 @@ int write_to_descriptor(SocketType desc, const char* txt)
 
     try {
         do {
-            thisround = rots_net::write_socket(desc, txt + sofar, total - sofar);
+            thisround = rots_net::write_socket(desc, text + sofar, total - sofar);
             if (thisround < 0) {
                 const int write_error = rots_net::last_error();
                 if (rots_net::error_is_would_block(write_error) && sofar == 0) {
@@ -1993,7 +1997,7 @@ int write_to_descriptor(SocketType desc, const char* txt)
                 perror("Write to socket");
                 return (-1);
             }
-            sofar += thisround;
+            sofar += static_cast<std::size_t>(thisround);
         } while (sofar < total);
     } catch (...) {
         vmudlog(NRM, "Exception in write_to_descriptor");
@@ -2058,7 +2062,7 @@ int process_input(struct descriptor_data* t)
                                                    monopolize a single pulse when it
                                                    keeps sending data with no newline */
     do {
-        char inbuf[2048];
+        char inbuf[MAX_PROTOCOL_BUFFER];
         thisround = rots_net::read_socket(t->descriptor, inbuf, sizeof(inbuf));
         if (thisround > 0) {
             /* Filter out telnet/MSDP negotiation if protocol is active */
