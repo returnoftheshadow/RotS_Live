@@ -1555,7 +1555,7 @@ static send_outcome send_variable(const descriptor_t* descriptor, variable_t var
 }
 
 // Sends a reported, dirty variable for MSDPUpdate and MSDPFlush, and returns false when the write
-// failed, so nothing more is sent to the client this pulse.
+// failed, so that MSDPUpdate sends no more variables in this call.
 static bool send_dirty_variable(
     const descriptor_t* descriptor, protocol_t* protocol, variable_t variable)
 {
@@ -1656,8 +1656,8 @@ void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::st
         } else {
             // The name alone is too long.
             std::snprintf(msdp_text, sizeof(msdp_text),
-                "MSDPSendPair: Variable name has a length of %zu bytes (exceeds "
-                "MAX_VARIABLE_LENGTH of %d).",
+                "MSDPSendPair: Variable name has a length of %zu bytes (too long with "
+                "its framing for MAX_VARIABLE_LENGTH of %d).",
                 name_length, MAX_VARIABLE_LENGTH);
         }
 
@@ -1719,8 +1719,8 @@ void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::st
         } else {
             // The name alone is too long.
             std::snprintf(msdp_text, sizeof(msdp_text),
-                "MSDPSendList: Variable name has a length of %zu bytes (exceeds "
-                "MAX_VARIABLE_LENGTH of %d).",
+                "MSDPSendList: Variable name has a length of %zu bytes (too long with "
+                "its framing for MAX_VARIABLE_LENGTH of %d).",
                 name_length, MAX_VARIABLE_LENGTH);
         }
 

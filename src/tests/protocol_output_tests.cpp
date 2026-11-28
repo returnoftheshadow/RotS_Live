@@ -196,6 +196,16 @@ TEST(ProtocolOutput, AppliesCodesToAViewUpToItsEndOrItsFirstNul)
         "abc");
 }
 
+TEST(ProtocolOutput, ReturnsAViewOfTheSameStaticBufferOnEveryCall)
+{
+    OutputDescriptor output_descriptor;
+
+    const char* const first = ProtocolOutput(&output_descriptor.descriptor, "first").data();
+    const char* const second = ProtocolOutput(&output_descriptor.descriptor, "second").data();
+
+    EXPECT_EQ(first, second);
+}
+
 TEST(ProtocolOutput, ReturnsTheViewUnchangedWithoutAProtocol)
 {
     descriptor_data descriptor { };

@@ -1464,8 +1464,8 @@ TEST(MSDPCallerBugs, AMissingDescriptorProtocolOrCharacterLogsNothing)
 {
     ScopedDescriptorList descriptor_list_scope;
     descriptor_data descriptor_without_protocol { };
-    ProtocolDescriptor without_character;
-    without_character.descriptor.character = nullptr;
+    // A descriptor with a protocol and no character; with no socket, a send counts as written.
+    MsdpSetterDescriptor without_character;
     ProtocolClearLoggedCallerBugs();
 
     const descriptor_data* const descriptors[]
@@ -4079,22 +4079,23 @@ TEST(ProtocolSubnegotiation, WindowSizeIsStoredOnlyAfterTheClientAgreedToSendIt)
     EXPECT_EQ(protocol->screen_height, 65535);
 }
 
-// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
 TEST(ProtocolSubnegotiation, ShortWindowSizeLeavesTheSizeAsItWas)
 {
-    ProtocolDescriptor context;
-    protocol_t* protocol = context.descriptor.pProtocol;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    protocol_t* protocol = descriptor.pProtocol;
     protocol->naws_enabled = true;
+    char output[MAX_PROTOCOL_BUFFER + 1] = { '\0' };
     const std::string eighty_by_twenty_four = { '\0', 'P', '\0', '\030' };
-    reply_to(context, naws_report(eighty_by_twenty_four));
+    feed_protocol_input(&descriptor, naws_report(eighty_by_twenty_four), output);
 
     // A longer subnegotiation first leaves bytes a short report's read could pick up.
-    reply_to(context, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "ABCDE"));
+    feed_protocol_input(&descriptor, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "ABCDE"), output);
     const std::string width_and_one_height_byte = { '\0', 'd', '\0' };
-    reply_to(context, naws_report(width_and_one_height_byte));
+    feed_protocol_input(&descriptor, naws_report(width_and_one_height_byte), output);
 
     EXPECT_EQ(protocol->screen_width, 80);
     EXPECT_EQ(protocol->screen_height, 24);
+    ProtocolDestroy(protocol);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -4605,12 +4606,12 @@ TEST(MSDPProtocol, SendPairAndListLogTheLengthOfAnOverlongName)
     const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4090 bytes (exceeds "
-                          "MAX_VARIABLE_LENGTH of 4096)."),
+    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4090 bytes (too long with "
+                          "its framing for MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
-    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4090 bytes (exceeds "
-                          "MAX_VARIABLE_LENGTH of 4096)."),
+    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4090 bytes (too long with "
+                          "its framing for MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
 }

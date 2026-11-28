@@ -368,9 +368,10 @@ void ProtocolNegotiate(const descriptor_t* descriptor);
 // Acts on the telnet negotiation, subnegotiations and MXP <VERSION> replies in data, and appends
 // the rest to out_text with a NUL. out_text must be NUL-terminated and have room for
 // MAX_PROTOCOL_BUFFER more characters and the NUL. A sequence split across reads is held for the
-// next call. A read of more than MAX_PROTOCOL_BUFFER bytes, or with more text or subnegotiation
-// than that, is logged, and its text is not appended. A null descriptor or out_text, or empty
-// data, does nothing.
+// next call. A read of more than MAX_PROTOCOL_BUFFER bytes is logged and ignored whole, its
+// negotiation included, and bytes held from an earlier read stay held. A read with more text or
+// subnegotiation than MAX_PROTOCOL_BUFFER is logged, and its text is not appended. A null
+// descriptor or out_text, or empty data, does nothing.
 void ProtocolInput(const descriptor_t* descriptor, std::string_view data, char* out_text);
 
 // ProtocolInput for the size bytes at data. A null data or a size of 0 or less does nothing.
@@ -405,8 +406,9 @@ std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view
 
 // The MSDP and MXP functions below log a caller bug, such as an invalid variable or a null text,
 // the first time it happens in the process and then ignore it silently, so a bug repeated every
-// pulse costs one log line. A null descriptor, protocol or character is not a bug and is never
-// logged.
+// pulse costs one log line. That first log line may allocate, so "allocates nothing" below holds
+// for calls without a caller bug. A null descriptor, protocol or character is not a bug and is
+// never logged.
 
 // Forgets the caller bugs already logged, so each is logged again the next time it happens. Only
 // the tests use it.
@@ -427,11 +429,12 @@ void MSDPFlush(const descriptor_t* descriptor, variable_t variable);
 // client gets values that will not change again. A null descriptor does nothing.
 void MSDPMarkAllReportedDirty(const descriptor_t* descriptor);
 
-// Sends variable's value over MSDP, or over ATCP for a client without MSDP, and returns whether
-// the whole message was written. It sends only for a logged-in character with PRF_MSDP on. It
-// returns false, sending nothing, for a null descriptor, an invalid variable (a caller bug), a
-// client with neither protocol, or a message too long for MAX_VARIABLE_LENGTH, which is logged;
-// and it returns false when the write fails. The dirty flag is left alone.
+// Sends variable's value over MSDP, or over ATCP for a client without MSDP, and returns whether the
+// whole message was written; a descriptor without a socket counts as written. It sends only for a
+// logged-in character with PRF_MSDP on. It returns false, sending nothing, for a null descriptor,
+// an invalid variable (a caller bug), a client with neither protocol, or a message too long for
+// MAX_VARIABLE_LENGTH, which is logged; and it returns false when the write fails. The dirty flag
+// is left alone.
 bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
 
 // Sends name and value at once as an MSDP variable, or over ATCP for a client without MSDP, with
@@ -450,8 +453,8 @@ void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::st
 // MSDPSendList for NUL-terminated text; a null name or value is a caller bug.
 void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value);
 
-// Stores value as a number variable's value, and marks the variable dirty if the value changed;
-// an unchanged value stays clean. It never allocates. A null descriptor is ignored, and an invalid
+// Stores value as a number variable's value, and marks the variable dirty if the value changed; an
+// unchanged value stays clean. It allocates nothing. A null descriptor is ignored, and an invalid
 // variable or a string variable is a caller bug. It suits any integral value, such as a bool or an
 // enum.
 void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int value);
