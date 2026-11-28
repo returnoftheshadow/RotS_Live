@@ -99,11 +99,10 @@ static bool send_to_client(const descriptor_t* descriptor, std::string_view byte
 // Logs text to the server log as it is, never as a printf format.
 static void report_bug(const char* text) { vmudlog(NRM, "%s", text); }
 
-// Sends text to descriptor after an "[INFO]" label. The label's colour codes are ProtocolOutput
-// codes, and they reach the client untranslated.
+// Sends text to descriptor after a plain "[INFO] " label.
 static void send_info_message(const descriptor_t* descriptor, const char* text)
 {
-    send_to_client(descriptor, "\t[F210][\toINFO\t[F210]]\tn ");
+    send_to_client(descriptor, "[INFO] ");
     send_to_client(descriptor, text);
 }
 

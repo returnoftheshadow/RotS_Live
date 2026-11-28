@@ -3201,7 +3201,7 @@ std::string expected_mxp_tag(std::string_view tag)
 // The announcement the server writes when it learns the client's MXP version.
 std::string expected_mxp_announcement(std::string_view version)
 {
-    std::string announcement = "\n\t[F210][\toINFO\t[F210]]\tn MXP version ";
+    std::string announcement = "\n[INFO] MXP version ";
     announcement += version;
     announcement += " detected and enabled.\r\n";
     return announcement;
