@@ -217,6 +217,13 @@ rots_net::ssize_type write_descriptor_socket(SocketType socket_handle, const voi
     return rots_net::write_socket(socket_handle, buffer, length);
 }
 
+// Whether the first `stored_length` bytes of `buffer` end in a newline. With nothing stored there
+// is no last byte to look at, which counts as no newline, so the caller reads on.
+bool ends_with_newline(const char* buffer, int stored_length)
+{
+    return stored_length > 0 && ISNEWL(buffer[stored_length - 1]);
+}
+
 void populate_descriptor_host(descriptor_data* descriptor, uint32_t peer_address)
 {
     char resolved_host[MAX_HOSTNAME + 1];
@@ -2140,7 +2147,7 @@ int process_input(struct descriptor_data* t)
                 return (-1);
             }
         }
-    } while (!ISNEWL(*(t->buf + begin + sofar - 1)) && ++read_iterations < MAX_READ_ITERATIONS_PER_CALL);
+    } while (!ends_with_newline(t->buf, begin + sofar) && ++read_iterations < MAX_READ_ITERATIONS_PER_CALL);
 
     if (t->character)
         t->character->specials.timer = 0;

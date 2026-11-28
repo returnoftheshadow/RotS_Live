@@ -1,4 +1,5 @@
 #include "../comm.h"
+#include "../protocol.h"
 #include "../rots_net.h"
 #include "../structs.h"
 
@@ -31,7 +32,17 @@ public:
         std::snprintf(descriptor.account_name, sizeof(descriptor.account_name), "%s", "acct");
     }
 
-    ~ScriptedConnection() { flush_queues(&descriptor); }
+    ~ScriptedConnection()
+    {
+        flush_queues(&descriptor);
+        if (descriptor.pProtocol != nullptr) {
+            ProtocolDestroy(descriptor.pProtocol);
+        }
+    }
+
+    // Gives the connection telnet protocol state, so process_input filters negotiation out of
+    // what it reads, as it does for every real connection.
+    void use_protocol() { descriptor.pProtocol = ProtocolCreate(); }
 
     ScriptedConnection(const ScriptedConnection&) = delete;
     ScriptedConnection& operator=(const ScriptedConnection&) = delete;
@@ -149,6 +160,38 @@ TEST(ProcessInput, KeepsReadingWhileALineArrivesInPieces)
 
     EXPECT_EQ(connection.next_queued_line(), "north");
     EXPECT_EQ(socket.read_calls(), 2);
+}
+
+// IAC NOP: a telnet command the protocol layer drops without answering.
+const std::string TELNET_NO_OPERATION("\xff\xf1", 2);
+
+TEST(ProcessInput, KeepsReadingAfterAFirstReadThatHeldOnlyTelnetNegotiation)
+{
+    ScriptedSocket socket;
+    ScriptedConnection connection(socket);
+    connection.use_protocol();
+    socket.queue_input(TELNET_NO_OPERATION);
+    socket.queue_input("look\n");
+
+    EXPECT_EQ(process_input(&connection.descriptor), 1);
+
+    EXPECT_EQ(connection.next_queued_line(), "look");
+    EXPECT_EQ(socket.read_calls(), 2);
+}
+
+TEST(ProcessInput, QueuesNothingWhenTheOnlyBytesWereTelnetNegotiation)
+{
+    ScriptedSocket socket;
+    ScriptedConnection connection(socket);
+    connection.use_protocol();
+    socket.queue_input(TELNET_NO_OPERATION);
+
+    EXPECT_EQ(process_input(&connection.descriptor), 0);
+
+    EXPECT_EQ(connection.next_queued_line(), "");
+    EXPECT_STREQ(connection.descriptor.buf, "");
+    EXPECT_EQ(socket.read_calls(), 2);
+    EXPECT_EQ(socket.written(), "");
 }
 
 TEST(ProcessInput, ReturnsZeroWhenNothingHasArrived)
