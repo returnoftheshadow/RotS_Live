@@ -5,11 +5,9 @@
 // The copyright holder grants any entity the right to use this work for any
 // purpose, without any conditions, unless such conditions are required by law.
 
-#include <alloca.h>
 #include <arpa/telnet.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
@@ -51,6 +49,30 @@ constexpr int RGB_COLOUR_CODE_LENGTH = 4;
 // The printable ASCII range kept from client-supplied names and values.
 constexpr unsigned char FIRST_PRINTABLE_ASCII = 0x20;
 constexpr unsigned char LAST_PRINTABLE_ASCII = 0x7e;
+
+// The ASCII tests below give the C locale's answers and are defined for every char value,
+// including the bytes from 0x80 that are negative where char is signed.
+
+// Whether character is an ASCII decimal digit.
+static constexpr bool is_ascii_digit(char character)
+{
+    return character >= '0' && character <= '9';
+}
+
+// Whether character is an ASCII letter.
+static constexpr bool is_ascii_alpha(char character)
+{
+    return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+}
+
+// The lower-case form of character if it is an ASCII capital letter; otherwise character.
+static constexpr char ascii_lower(char character)
+{
+    if (character >= 'A' && character <= 'Z') {
+        return static_cast<char>(character - 'A' + 'a');
+    }
+    return character;
+}
 
 // An MSDP or ATCP pair has two parts, the variable and the value, indexed by MSDP_VAR - 1 and
 // MSDP_VAL - 1.
@@ -640,20 +662,19 @@ static input_step read_escape_near_end(input_scan& scan)
     const char* escape = scan.data + scan.position;
     const int remaining = scan.size - scan.position;
     const bool may_start_mxp_line_tag = remaining == 1 || (remaining >= 2 && escape[1] == '[')
-        || (remaining >= 3 && escape[1] == '[' && std::isdigit(escape[2]));
+        || (remaining >= 3 && escape[1] == '[' && is_ascii_digit(escape[2]));
     if (may_start_mxp_line_tag) {
         return hold_for_next_read(scan, remaining);
     }
     return input_step::next_byte;
 }
 
-// Whether an MXP line tag, ESC [ <digit> z, starts at position in data of size bytes. ProtocolInput
-// asks only once a byte is outside a subnegotiation, so isdigit sees only those bytes.
+// Whether an MXP line tag, ESC [ <digit> z, starts at position in data of size bytes.
 static bool is_mxp_line_tag_at(const char* data, int position, int size)
 {
     const bool has_three_more = (position + 3) < size;
     return data[position] == ANSI_ESCAPE && has_three_more && data[position + 1] == '['
-        && std::isdigit(data[position + 2]) && data[position + 3] == 'z';
+        && is_ascii_digit(data[position + 2]) && data[position + 3] == 'z';
 }
 
 // Records that the client supports XTerm 256 colours.
@@ -823,15 +844,12 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char* out_text)
 {
     static char command_text[MAX_PROTOCOL_BUFFER + 1];
-    // The longest input whose length, with the held bytes put before it, fits an int.
-    constexpr std::size_t max_input_length = std::numeric_limits<int>::max()
-        - std::tuple_size<decltype(protocol_t::pending_input)>::value;
 
     protocol_t* protocol = protocol_of(descriptor);
     if (protocol == nullptr || input.empty() || out_text == nullptr) {
         return;
     }
-    if (input.size() > max_input_length) {
+    if (input.size() > static_cast<std::size_t>(MAX_PROTOCOL_BUFFER)) {
         report_bug("ProtocolInput: Too much incoming data to store in the buffer.");
         return;
     }
@@ -847,10 +865,10 @@ void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char*
         scan.subnegotiation_length = protocol->subnegotiation_input_length;
     }
 
-    // The held bytes are put before this read's here, since alloca memory lasts only until the
-    // function that took it returns.
+    // The held bytes go before this read's. The read was refused above if it was over
+    // MAX_PROTOCOL_BUFFER, so both fit.
+    char combined[MAX_PROTOCOL_BUFFER + PENDING_INPUT_CAPACITY];
     if (protocol->pending_input_length > 0) {
-        char* combined = static_cast<char*>(alloca(protocol->pending_input_length + scan.size));
         std::memcpy(combined, protocol->pending_input.data(), protocol->pending_input_length);
         std::memcpy(combined + protocol->pending_input_length, scan.data, scan.size);
         scan.data = combined;
@@ -1082,7 +1100,7 @@ static void append_unicode_code(output_scan& scan)
     int code_point = 0;
 
     ++scan.position;
-    while (std::isdigit(scan.current())) {
+    while (is_ascii_digit(scan.current())) {
         code_point *= 10;
         code_point += scan.take() - '0';
     }
@@ -1120,7 +1138,7 @@ static void append_rgb_code(output_scan& scan)
         scan, &code_text[1], RGB_COLOUR_CODE_LENGTH - 1, bracket_overflow::stop);
 
     const char* layer_name = "back";
-    if (std::tolower(code_text[0]) == 'f') {
+    if (ascii_lower(code_text[0]) == 'f') {
         layer_name = "fore";
     }
 
@@ -1171,7 +1189,7 @@ static void apply_required_mxp_version(output_scan& scan)
 static void append_bracket_code(output_scan& scan)
 {
     ++scan.position;
-    const int code_letter = std::tolower(scan.current());
+    const char code_letter = ascii_lower(scan.current());
     if (code_letter == 'u') {
         append_unicode_code(scan);
     } else if (code_letter == 'f' || code_letter == 'b') {
@@ -1267,7 +1285,7 @@ static bool is_old_msp_trigger_at(const output_scan& scan)
     }
     for (std::size_t prefix_index = 0; prefix_index < MSP_SOUND_PREFIX.size(); ++prefix_index) {
         const char character = scan.at(scan.position + 1 + prefix_index);
-        if (std::tolower(character) != std::tolower(MSP_SOUND_PREFIX[prefix_index])) {
+        if (ascii_lower(character) != ascii_lower(MSP_SOUND_PREFIX[prefix_index])) {
             return false;
         }
     }
@@ -1852,7 +1870,7 @@ std::string_view ColourRGB(const descriptor_t* descriptor, std::string_view rgb_
         = protocol != nullptr && protocol->variables.number(eMSDP_ANSI_COLORS) != 0;
     if (uses_ansi_colour) {
         if (is_valid_colour(rgb_code)) {
-            bool background = (std::tolower(rgb_code[0]) == 'b');
+            bool background = (ascii_lower(rgb_code[0]) == 'b');
             int red = rgb_code[1] - '0';
             int green = rgb_code[2] - '0';
             int blue = rgb_code[3] - '0';
@@ -2596,15 +2614,6 @@ static bool names_sendable_variables(const char* list_name)
     return equals_ignoring_case(list_name, "REPORTABLE_VARIABLES");
 }
 
-// The lower-case form of character if it is an ASCII capital letter; otherwise character.
-static constexpr char ascii_lower(char character)
-{
-    if (character >= 'A' && character <= 'Z') {
-        return static_cast<char>(character - 'A' + 'a');
-    }
-    return character;
-}
-
 // Whether first and second are equal, ignoring ASCII case; usable at compile time.
 static constexpr bool equals_ignoring_ascii_case(std::string_view first, std::string_view second)
 {
@@ -2944,7 +2953,7 @@ static char* find_mxp_tag_value(const char* tag, const char* text)
 
             for (; cursor < text_end && value_length < max_value_length; ++cursor) {
                 char letter = *cursor;
-                if (letter == '.' || std::isdigit(letter) || std::isalpha(letter)) {
+                if (letter == '.' || is_ascii_digit(letter) || is_ascii_alpha(letter)) {
                     tag_value[value_length++] = letter;
                 } else {
                     tag_value[value_length] = '\0';
@@ -3040,7 +3049,7 @@ static bool is_valid_colour(std::string_view rgb_code)
         return false;
     }
 
-    if (std::tolower(rgb_code[0]) != 'f' && std::tolower(rgb_code[0]) != 'b') {
+    if (ascii_lower(rgb_code[0]) != 'f' && ascii_lower(rgb_code[0]) != 'b') {
         return false;
     }
 
@@ -3061,14 +3070,14 @@ static bool equals_ignoring_case(std::string_view first, std::string_view second
     }
     return std::equal(first.begin(), first.end(), second.begin(),
         [](char first_character, char second_character) -> bool {
-            return std::tolower(first_character) == std::tolower(second_character);
+            return ascii_lower(first_character) == ascii_lower(second_character);
         });
 }
 
 // Whether text starts with prefix, ignoring case. The prefix comes first.
 static bool starts_with_ignoring_case(const char* prefix, const char* text)
 {
-    while (*prefix != '\0' && std::tolower(*prefix) == std::tolower(*text)) {
+    while (*prefix != '\0' && ascii_lower(*prefix) == ascii_lower(*text)) {
         ++prefix;
         ++text;
     }
@@ -3078,7 +3087,7 @@ static bool starts_with_ignoring_case(const char* prefix, const char* text)
 // Whether every character of text is a decimal digit; true for an empty string.
 static bool is_all_digits(const char* text)
 {
-    while (*text != '\0' && std::isdigit(*text)) {
+    while (*text != '\0' && is_ascii_digit(*text)) {
         ++text;
     }
     return (*text == '\0');

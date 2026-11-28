@@ -2079,7 +2079,7 @@ int process_input(struct descriptor_data* t)
                                                    monopolize a single pulse when it
                                                    keeps sending data with no newline */
     do {
-        char inbuf[2048];
+        char inbuf[MAX_PROTOCOL_BUFFER];
         thisround = read(t->descriptor, inbuf, sizeof(inbuf));
         if (thisround > 0) {
             /* Filter out telnet/MSDP negotiation if protocol is active */

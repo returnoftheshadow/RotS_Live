@@ -28,9 +28,11 @@ using descriptor_t = descriptor_data;
 // The protocol snippet's version, sent to clients as MSDP SNIPPET_VERSION.
 inline constexpr int SNIPPET_VERSION = 8;
 
-// The most characters one ProtocolInput call passes on, and the most bytes one subnegotiation
-// may hold.
+// The most bytes one ProtocolInput call reads, the most characters it passes on, and the most
+// bytes one subnegotiation may hold.
 inline constexpr int MAX_PROTOCOL_BUFFER = 2048;
+// The size of protocol_t::pending_input; ProtocolInput holds at most three bytes there.
+inline constexpr int PENDING_INPUT_CAPACITY = 4;
 // The limit on one MSDP or ATCP message, framing included; a longer one is logged and not sent.
 inline constexpr int MAX_VARIABLE_LENGTH = 4096;
 // The limit on ProtocolOutput's result and on the variable lists sent for MSDP LIST.
@@ -321,7 +323,7 @@ struct protocol_t {
     int screen_width; // The client's window width in characters from NAWS; 0 until it is sent.
     int screen_height; // The client's window height in lines from NAWS; 0 until it is sent.
     // The start of a telnet command or MXP line tag that ended a read, put before the next read.
-    std::array<char, 4> pending_input;
+    std::array<char, PENDING_INPUT_CAPACITY> pending_input;
     // The subnegotiation collected so far, kept across reads until its IAC SE.
     std::array<char, MAX_PROTOCOL_BUFFER + 1> subnegotiation_input;
     // Each negotiated_t option's last offered or agreed state; an offer is sent only on a change.
@@ -366,8 +368,8 @@ void ProtocolNegotiate(const descriptor_t* descriptor);
 // Acts on the telnet negotiation, subnegotiations and MXP <VERSION> replies in data, and appends
 // the rest to out_text with a NUL. out_text must be NUL-terminated and have room for
 // MAX_PROTOCOL_BUFFER more characters and the NUL. A sequence split across reads is held for the
-// next call. A read with more text or subnegotiation than MAX_PROTOCOL_BUFFER, or too long for an
-// int length, is logged, and its text is not appended. A null descriptor or out_text, or empty
+// next call. A read of more than MAX_PROTOCOL_BUFFER bytes, or with more text or subnegotiation
+// than that, is logged, and its text is not appended. A null descriptor or out_text, or empty
 // data, does nothing.
 void ProtocolInput(const descriptor_t* descriptor, std::string_view data, char* out_text);
 

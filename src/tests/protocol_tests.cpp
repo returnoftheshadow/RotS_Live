@@ -1596,6 +1596,38 @@ TEST(MSDPProtocol, RecoversAfterOversizedUnterminatedSubnegotiation)
     EXPECT_STREQ(output, "look");
 }
 
+TEST(MSDPProtocol, AbandonsASubnegotiationThatFillsItsBufferAcrossReads)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    std::string first_read;
+    first_read.push_back(static_cast<char>(IAC));
+    first_read.push_back(static_cast<char>(SB));
+    first_read.push_back(static_cast<char>(TELOPT_MSDP));
+    first_read.append(MAX_PROTOCOL_BUFFER / 2, 'X');
+    const std::string second_read(MAX_PROTOCOL_BUFFER / 2, 'X');
+
+    feed_protocol_input(&descriptor, first_read, output);
+    ASSERT_TRUE(descriptor.pProtocol->in_subnegotiation);
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, second_read, output);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output, "");
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+    EXPECT_FALSE(descriptor.pProtocol->in_subnegotiation);
+    EXPECT_EQ(descriptor.pProtocol->subnegotiation_input_length, 0);
+
+    feed_protocol_input(&descriptor, "look", output);
+
+    EXPECT_STREQ(output, "look");
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
 TEST(MSDPProtocol, MsdpUpdateSkipsInvalidDescriptorsWithoutStoppingList)
 {
     ScopedDescriptorList descriptor_list_scope;
@@ -3121,6 +3153,63 @@ TEST(ProtocolInput, BuffersAnEscapeAndBracketEvenWhenNoDigitFollows)
     feed_protocol_input(&descriptor, "bc", output);
 
     EXPECT_STREQ(output, "\033[abc");
+    EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, ReadsAFullSizeReadWholeAfterHeldBytes)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    std::vector<char> output(MAX_PROTOCOL_BUFFER + 1, '\0');
+    const char lone_iac[] = { static_cast<char>(IAC) };
+    ProtocolInput(&descriptor, lone_iac, 1, output.data());
+    ASSERT_EQ(descriptor.pProtocol->pending_input_length, 1);
+    const std::string player_text(MAX_PROTOCOL_BUFFER - 1, 'a');
+    const std::string full_read = std::string(1, static_cast<char>(NOP)) + player_text;
+    ASSERT_EQ(full_read.size(), static_cast<std::size_t>(MAX_PROTOCOL_BUFFER));
+
+    feed_protocol_input(&descriptor, full_read, output.data());
+
+    EXPECT_EQ(std::string(output.data()), player_text);
+    EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, DropsAndLogsAReadOverTheLimitEvenWhenItsTextWouldFit)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    std::string long_read;
+    while (long_read.size() < static_cast<std::size_t>(MAX_PROTOCOL_BUFFER)) {
+        long_read.push_back(static_cast<char>(IAC));
+        long_read.push_back(static_cast<char>(NOP));
+    }
+    long_read += "look";
+
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, long_read, output);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output, "");
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, KeepsAnEscapeBracketAndHighByteAsPlayerText)
+{
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    char output[MAX_INPUT_LENGTH] = { '\0' };
+    const std::string input = "\033[\xC3zlook";
+
+    feed_protocol_input(&descriptor, input, output);
+
+    EXPECT_EQ(std::string(output), input);
     EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
 
     ProtocolDestroy(descriptor.pProtocol);
