@@ -79,6 +79,11 @@ inline constexpr int TO_VICT = 1;
 inline constexpr int TO_NOTVICT = 2;
 inline constexpr int TO_CHAR = 3;
 
+// Writes the length bytes at text, which may include NUL bytes, to the socket desc. Returns 0 when
+// all were written or desc is 0 or below; -2 when the socket would block before any byte was
+// written; and -1 for any other failure, including a block after some bytes were written.
+int write_to_descriptor(int desc, const char* text, std::size_t length);
+// write_to_descriptor for the NUL-terminated text txt.
 int write_to_descriptor(int desc, const char* txt);
 void write_to_q(char* txt, struct txt_q* queue);
 void write_to_output(const char* txt, struct descriptor_data* d);
