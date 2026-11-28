@@ -28,13 +28,15 @@ public:
     SocketType handle() const;
 
     // Queue what later reads see, in order. Each read returns bytes from at most one queue_input()
-    // call, as many as fit, and leaves the rest for the next read. Once the queue is empty, reads
-    // fail with "would block".
+    // call, as many as fit, and leaves the rest for the next read. An end-of-file step makes its
+    // read return 0, and a failure step fails it with "connection reset". Once the queue is
+    // empty, reads fail with "would block".
     void queue_input(std::string_view bytes);
     void queue_end_of_file();
     void queue_read_failure();
 
-    // Queue how later writes go, in order; a write with nothing queued succeeds.
+    // Queue how later writes go, in order: success, "would block" or "connection reset". A write
+    // with nothing queued succeeds.
     void queue_write_success();
     void queue_write_would_block();
     void queue_write_failure();

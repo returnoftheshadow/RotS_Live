@@ -188,8 +188,8 @@ bool parse_random_seed_value(
 
 namespace {
 
-// Whether the first `stored_length` bytes of `buffer` end in a newline. With nothing stored there
-// is no last byte to look at, which counts as no newline, so the caller reads on.
+// Whether the first `stored_length` bytes of `buffer` end in '\n' or '\r'; false when nothing is
+// stored.
 bool ends_with_newline(const char* buffer, int stored_length)
 {
     return stored_length > 0 && ISNEWL(buffer[stored_length - 1]);

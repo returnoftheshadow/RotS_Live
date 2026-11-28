@@ -466,7 +466,7 @@ if(BUILD_TESTING)
     target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt Threads::Threads)
     # Routes both number() overloads through the seeded test RNG in tests/test_random_utils.cpp,
     # and rots_net's socket reads and writes through the scripted sockets in
-    # tests/scripted_socket.cpp, which pass every other handle on to the real call.
+    # tests/scripted_socket.cpp.
     target_link_options(ageland_tests PRIVATE
         -Wl,--wrap=_Z6numberv
         -Wl,--wrap=_Z6numberii

@@ -18,8 +18,8 @@ namespace {
 
 using socket_test_support::ScriptedSocket;
 
-// A connection at the account menu whose socket is `socket`, with its queues emptied when the
-// test ends.
+// A connection at the account menu whose socket is `socket`, with its queues emptied and any
+// protocol state freed when the test ends.
 class ScriptedConnection {
 public:
     explicit ScriptedConnection(const ScriptedSocket& socket)
@@ -179,7 +179,7 @@ TEST(ProcessInput, KeepsReadingAfterAFirstReadThatHeldOnlyTelnetNegotiation)
     EXPECT_EQ(socket.read_calls(), 2);
 }
 
-TEST(ProcessInput, QueuesNothingWhenTheOnlyBytesWereTelnetNegotiation)
+TEST(ProcessInput, QueuesNothingWhenTheOnlyBytesAreTelnetNegotiation)
 {
     ScriptedSocket socket;
     ScriptedConnection connection(socket);

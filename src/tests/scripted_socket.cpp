@@ -154,8 +154,8 @@ rots_net::ssize_type ScriptedSocket::write(const void* buffer, size_t length)
 
 namespace {
 
-    // A read or write on a scripted handle whose socket has been destroyed: the test left a
-    // descriptor pointing at it.
+    // Fails the test for a read or write on a scripted handle whose socket is destroyed, then
+    // returns -1 with a connection-reset error, as a socket would.
     rots_net::ssize_type fail_on_stale_handle(SocketType socket_handle, const char* operation)
     {
         ADD_FAILURE() << "The server tried to " << operation << " scripted socket "
@@ -171,7 +171,9 @@ namespace {
 // The test binary links with --wrap for both functions (src/CMakeLists.txt): every call to
 // rots_net::read_socket or rots_net::write_socket from another object file arrives here, and
 // __real_ names the original. The names are the functions' mangled names for the 32-bit build,
-// where size_t is unsigned int.
+// where size_t is unsigned int; a build where it is not stops here.
+static_assert(sizeof(size_t) == sizeof(unsigned int),
+    "the --wrap names in src/CMakeLists.txt mangle size_t as unsigned int");
 extern "C" rots_net::ssize_type __real__ZN8rots_net11read_socketEiPvj(
     SocketType socket_handle, void* out_buffer, size_t length);
 extern "C" rots_net::ssize_type __real__ZN8rots_net12write_socketEiPKvj(
