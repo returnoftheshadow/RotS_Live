@@ -941,12 +941,12 @@ struct output_scan {
     const descriptor_t* descriptor; // The connection the text is written for.
     protocol_t* protocol; // The descriptor's protocol state, never null.
     const char* text; // The text whose codes are applied.
-    std::size_t text_size; // The characters of text that are read; npos reads text unbounded.
+    std::size_t text_size; // The characters of text that are read.
     std::size_t position; // The character being read.
     char* result; // apply_output_codes's result buffer, MAX_OUTPUT_BUFFER + 1 chars.
     int result_length; // The chars in result.
     bool in_mxp_tag; // Whether a \t< tag was sent, so the next '>' ends it.
-    bool reached_end; // Whether a code ended the text before its NUL.
+    bool reached_end; // Whether a code read to the text's end or NUL, which ends the text.
 
     // text's character at text_position, or a NUL past text_size.
     char at(std::size_t text_position) const
@@ -1110,7 +1110,7 @@ static void append_unicode_code(output_scan& scan)
 }
 
 // Appends the colour a \t[F<rgb>] or \t[B<rgb>] code names, the scan on its layer letter. A
-// malformed code is logged and writes nothing.
+// malformed code is logged and writes nothing, and one cut off by the end of the text ends it.
 static void append_rgb_code(output_scan& scan)
 {
     char code_text[MAX_BRACKET_TEXT_LENGTH + 1] = { '\0' };
@@ -1127,6 +1127,8 @@ static void append_rgb_code(output_scan& scan)
     if (!read.closed || !read.fits) {
         report_code_bug("BUG: RGB %sground colour '%s' wasn't terminated with ']'.",
             layer_name, &code_text[1]);
+        // An unclosed code that fits was cut off by the end of the text.
+        scan.reached_end = read.fits;
     } else if (!is_valid_colour(code_text)) {
         report_code_bug("BUG: RGB %sground colour '%s' invalid (each digit must be "
                         "in the range 0-5).",
@@ -1164,7 +1166,8 @@ static void apply_required_mxp_version(output_scan& scan)
 }
 
 // Applies the \t[...] code whose '[' is at the scan's position, by the letter after it. The scan
-// ends on the code's last character read; an unknown letter writes nothing.
+// ends on the code's last character read; an unknown letter writes nothing, and a '[' at the end
+// of the text ends it.
 static void append_bracket_code(output_scan& scan)
 {
     ++scan.position;
@@ -1175,12 +1178,14 @@ static void append_bracket_code(output_scan& scan)
         append_rgb_code(scan);
     } else if (code_letter == 'x') {
         apply_required_mxp_version(scan);
+    } else if (code_letter == '\0') {
+        scan.reached_end = true;
     }
 }
 
 // Applies the MXP code \t(, \t) or \t<, the scan on code. Each sends its MXP only while MXP is on
-// and no \t[X] code blocks it; a \t< tag that is not sent is skipped up to its '>'. \t) and \t<
-// end a \t[X] code's block.
+// and no \t[X] code blocks it; a \t< tag that is not sent is skipped up to its '>', and one
+// without a '>' ends the text. \t) and \t< end a \t[X] code's block.
 static void append_mxp_code(output_scan& scan, char code)
 {
     const bool mxp_allowed
@@ -1203,6 +1208,7 @@ static void append_mxp_code(output_scan& scan, char code)
         while (scan.current() != '\0' && scan.current() != '>') {
             ++scan.position;
         }
+        scan.reached_end = scan.current() == '\0';
     }
     scan.protocol->mxp_blocked = false;
 }
@@ -1281,19 +1287,17 @@ static std::string_view finish_output(output_scan& scan)
     return std::string_view(scan.result, static_cast<std::size_t>(scan.result_length));
 }
 
-// ProtocolOutput's work for a protocol that is not null. text is read as though a NUL followed
-// its first text_size characters; a text_size of npos reads text's memory unbounded, as the
-// NUL-terminated overload does. A code may start only before code_start_limit characters.
-static std::string_view apply_output_codes(const descriptor_t* descriptor, protocol_t* protocol,
-    const char* text, std::size_t text_size, std::size_t code_start_limit)
+// ProtocolOutput's work for a protocol that is not null.
+static std::string_view apply_output_codes(
+    const descriptor_t* descriptor, protocol_t* protocol, std::string_view text)
 {
     static char result[MAX_OUTPUT_BUFFER + 1];
 
     output_scan scan { };
     scan.descriptor = descriptor;
     scan.protocol = protocol;
-    scan.text = text;
-    scan.text_size = text_size;
+    scan.text = text.data();
+    scan.text_size = text.size();
     scan.result = result;
 
     // A client with MSP or SOUND on would play a literal "!!SOUND(" in the text, so its second
@@ -1301,13 +1305,9 @@ static std::string_view apply_output_codes(const descriptor_t* descriptor, proto
     const bool strips_msp_triggers
         = protocol->msp_enabled || protocol->variables.number(eMSDP_SOUND) != 0;
 
-    for (; scan.result_length < MAX_OUTPUT_BUFFER && scan.current() != '\0'
-        && !scan.reached_end;
+    // The stop flag is tested first, so the character after a stop is never read.
+    for (; scan.result_length < MAX_OUTPUT_BUFFER && !scan.reached_end && scan.current() != '\0';
         ++scan.position) {
-        if (scan.position >= code_start_limit) {
-            break;
-        }
-
         if (scan.current() == '\t') {
             ++scan.position;
             append_output_code(scan);
@@ -1330,28 +1330,7 @@ std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view
     if (protocol == nullptr) {
         return text;
     }
-    return apply_output_codes(
-        descriptor, protocol, text.data(), text.size(), std::string_view::npos);
-}
-
-const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length)
-{
-    protocol_t* protocol = protocol_of(descriptor);
-    if (protocol == nullptr || text == nullptr) {
-        return text;
-    }
-
-    std::size_t code_start_limit = std::string_view::npos;
-    if (out_length != nullptr && *out_length > 0) {
-        code_start_limit = static_cast<std::size_t>(*out_length);
-    }
-    const std::string_view result = apply_output_codes(
-        descriptor, protocol, text, std::string_view::npos, code_start_limit);
-    if (out_length != nullptr) {
-        // The result is shorter than MAX_OUTPUT_BUFFER, so it fits an int.
-        *out_length = static_cast<int>(result.size());
-    }
-    return result.data();
+    return apply_output_codes(descriptor, protocol, text);
 }
 
 // Only TTYPE is offered here, because some clients, such as GMud, print negotiation instead of

@@ -374,11 +374,11 @@ void ProtocolInput(const descriptor_t* descriptor, std::string_view data, char* 
 // ProtocolInput for the size bytes at data. A null data or a size of 0 or less does nothing.
 void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, char* out_text);
 
-// Returns text with its codes applied for descriptor's client, reading text as though a NUL
-// followed it. A NUL ends the text, unless it cuts off an [F...] or [B...] colour code or a
-// stripped MXP tag, when reading goes on after it. The result views a static buffer and is valid
-// until the next call. A result of MAX_OUTPUT_BUFFER characters or more is logged and comes back
-// empty. With a null descriptor or protocol, returns text unchanged.
+// Returns text with its codes applied for descriptor's client. The text ends at its first NUL or
+// its size, whichever comes first, and nothing past that is read, even where it cuts off a code.
+// The result views a static buffer and is valid until the next call. A result of
+// MAX_OUTPUT_BUFFER characters or more is logged and comes back empty. With a null descriptor or
+// protocol, returns text unchanged.
 //
 // A code is a tab followed by:
 //   \t                  a tab.
@@ -400,12 +400,6 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 // without it, so every tag must be closed. For a client with MSP or SOUND on, a literal
 // "!!SOUND(" in text is sent as "!?SOUND(".
 std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text);
-
-// ProtocolOutput for NUL-terminated text, returning the static buffer, which holds a NUL after
-// the result. A code may start only before *out_length characters, when that is above 0, but
-// reads on to the NUL to finish. *out_length is set to the result's length; out_length must not
-// be null. With a null descriptor, protocol or text, returns text and leaves *out_length alone.
-const char* ProtocolOutput(const descriptor_t* descriptor, const char* text, int* out_length);
 
 // Sends every reported, dirty variable through MSDPSend and marks each one it sends clean; the
 // others stay dirty for a later call. A null descriptor does nothing.
