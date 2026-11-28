@@ -1,7 +1,9 @@
 #include "rots_net.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 #if !defined(PREDEF_PLATFORM_WINDOWS)
 #include <cerrno>
@@ -72,14 +74,26 @@ void set_nonblocking(SocketType socket_handle)
     }
 }
 
+namespace {
+
+    // recv and send take an int length; a longer request moves INT_MAX bytes and the caller's
+    // loop sends the rest.
+    int winsock_length(size_t length)
+    {
+        const size_t max_length = static_cast<size_t>(std::numeric_limits<int>::max());
+        return static_cast<int>(std::min(length, max_length));
+    }
+
+} // namespace
+
 ssize_type read_socket(SocketType socket_handle, void* out_buffer, size_t length)
 {
-    return ::recv(socket_handle, static_cast<char*>(out_buffer), static_cast<int>(length), 0);
+    return ::recv(socket_handle, static_cast<char*>(out_buffer), winsock_length(length), 0);
 }
 
 ssize_type write_socket(SocketType socket_handle, const void* buffer, size_t length)
 {
-    return ::send(socket_handle, static_cast<const char*>(buffer), static_cast<int>(length), 0);
+    return ::send(socket_handle, static_cast<const char*>(buffer), winsock_length(length), 0);
 }
 
 int last_error()
@@ -117,7 +131,7 @@ void set_nonblocking(SocketType socket_handle)
 {
     const int flags = fcntl(socket_handle, F_GETFL, 0);
     if (flags < 0 || fcntl(socket_handle, F_SETFL, flags | O_NONBLOCK) < 0) {
-        perror("Fatal error executing nonblock");
+        perror("Fatal error making socket nonblocking");
         exit(1);
     }
 }
@@ -161,12 +175,13 @@ bool resolve_host_name(uint32_t ipv4_address_network_order, char* out_host_buffe
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = ipv4_address_network_order;
 
-    // getnameinfo exists on both POSIX and Winsock, unlike gethostbyaddr's thread-unsafe
-    // static result. It writes nothing on failure; NI_NAMEREQD makes a nameless address a
-    // failure instead of returning its numeric form.
+    // getnameinfo writes into the caller's buffer, where gethostbyaddr returns a shared static
+    // result. NI_NAMEREQD makes a nameless address a failure instead of returning its numeric
+    // form. A buffer longer than socklen_t can describe is still offered only that much.
+    const size_t max_length = static_cast<size_t>(std::numeric_limits<socklen_t>::max());
+    const socklen_t offered_length = static_cast<socklen_t>(std::min(host_buffer_length, max_length));
     const int lookup_result = getnameinfo(reinterpret_cast<const sockaddr*>(&address),
-        sizeof(address), out_host_buffer, static_cast<socklen_t>(host_buffer_length), nullptr, 0,
-        NI_NAMEREQD);
+        sizeof(address), out_host_buffer, offered_length, nullptr, 0, NI_NAMEREQD);
     return lookup_result == 0;
 }
 

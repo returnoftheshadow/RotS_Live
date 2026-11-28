@@ -37,7 +37,8 @@
 #define NOMINMAX
 #endif
 // Sizes fd_set, so it must precede winsock2.h. Winsock's default of 64 is below the 256
-// connections the select() loop accepts, and FD_SET silently drops sockets past the limit.
+// connections the select() loop accepts (MAX_DESCRIPTORS_AVAILABLE in comm.cpp), and FD_SET
+// silently drops sockets past the limit.
 #ifndef FD_SETSIZE
 #define FD_SETSIZE 256
 #endif

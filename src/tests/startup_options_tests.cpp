@@ -29,7 +29,7 @@ extern ban_list_element* ban_list;
 
 namespace {
 
-constexpr std::chrono::milliseconds DELIVERY_WAIT { 1000 };
+using socket_test_support::DELIVERY_WAIT;
 
 std::vector<char*> build_argv(std::vector<std::string>* storage)
 {
@@ -72,11 +72,11 @@ protected:
         ban_list = saved_ban_list_;
     }
 
-    // Reads what the game has sent the client, waiting up to one second for it to arrive.
+    // Reads what the game has sent the client, waiting up to DELIVERY_WAIT for it to arrive.
     std::string read_client_data(SocketType client)
     {
         if (!socket_test_support::wait_for_readable(client, DELIVERY_WAIT)) {
-            ADD_FAILURE() << "no data reached the client within one second";
+            ADD_FAILURE() << "no data reached the client in time";
             return std::string();
         }
 
@@ -89,20 +89,20 @@ protected:
         return std::string(buffer, static_cast<size_t>(bytes_read));
     }
 
-    // Fails the test when the game sends the client anything within one second.
+    // Fails the test when the game sends the client anything within DELIVERY_WAIT.
     void expect_no_client_data_yet(SocketType client)
     {
         EXPECT_FALSE(socket_test_support::wait_for_readable(client, DELIVERY_WAIT))
             << "the game sent the client data early";
     }
 
-    // Waits up to one second for bytes to reach the game's side of `descriptor`, as the game loop
+    // Waits up to DELIVERY_WAIT for bytes to reach the game's side of `descriptor`, as the game loop
     // waits in select() before it reads: loopback can deliver data a moment after a write returns.
     void wait_for_game_side_data(const descriptor_data* descriptor)
     {
         ASSERT_NE(descriptor, nullptr);
         EXPECT_TRUE(socket_test_support::wait_for_readable(descriptor->descriptor, DELIVERY_WAIT))
-            << "no data reached the game side within one second";
+            << "no data reached the game side in time";
     }
 
 private:

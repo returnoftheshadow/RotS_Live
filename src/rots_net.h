@@ -3,8 +3,8 @@
 // rots_net: the socket operations whose calls differ between POSIX BSD sockets and Winsock.
 // The game's select() loop and the calls both platforms share (socket, bind, listen, accept,
 // select, setsockopt with a portable option, getpeername) are used directly; everything else
-// goes through this namespace. On POSIX each function makes the libc call of the same purpose
-// and nothing more.
+// goes through this namespace. On POSIX each function makes the libc call of the same purpose,
+// with the argument checks and failure handling its comment states.
 
 #include "platdef.h"
 
@@ -17,6 +17,8 @@
 
 namespace rots_net {
 
+// A signed byte count, as read_socket and write_socket return: the bytes moved, 0 for end of
+// file, or -1 for an error.
 #if defined(PREDEF_PLATFORM_WINDOWS)
 using ssize_type = SSIZE_T;
 #else
@@ -62,7 +64,8 @@ bool set_keepalive(SocketType socket_handle);
 
 // Read up to `length` bytes into `out_buffer`, or write up to `length` bytes from `buffer`.
 // Return the number of bytes moved, 0 when a read finds the peer has closed the connection,
-// or -1 with last_error() set. `length` must fit in an int on Windows.
+// or -1 with last_error() set. Fewer bytes than `length` can move, so callers loop; on Windows
+// one call moves at most INT_MAX bytes.
 ssize_type read_socket(SocketType socket_handle, void* out_buffer, size_t length);
 ssize_type write_socket(SocketType socket_handle, const void* buffer, size_t length);
 
@@ -77,9 +80,11 @@ bool error_is_would_block(int error_code);
 bool error_is_interrupted(int error_code);
 
 // Looks up the host name of an IPv4 address given in network byte order (as in
-// sockaddr_in::sin_addr.s_addr). On success writes the null-terminated name, cut to fit
-// `host_buffer_length`, and returns true. Returns false when the address has no name or the
-// lookup fails; `out_host_buffer` is then unchanged.
+// sockaddr_in::sin_addr.s_addr). On success writes the null-terminated name to
+// `out_host_buffer` and returns true. Returns false when the address has no name, the name and
+// its terminator do not fit in `host_buffer_length` bytes, the lookup fails, or
+// `out_host_buffer` is null or the length is 0; the buffer's contents are then unspecified.
+// The lookup can wait on the network, so it blocks the caller.
 bool resolve_host_name(uint32_t ipv4_address_network_order, char* out_host_buffer,
     size_t host_buffer_length);
 

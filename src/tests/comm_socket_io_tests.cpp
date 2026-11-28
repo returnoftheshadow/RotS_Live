@@ -9,11 +9,9 @@
 #include <cstdio>
 #include <string>
 
-int process_input(struct descriptor_data* t);
+int process_input(struct descriptor_data* descriptor);
 int get_from_q(struct txt_q* queue, char* dest);
-void flush_queues(struct descriptor_data* d);
-
-extern int nameserver_is_slow;
+void flush_queues(struct descriptor_data* descriptor);
 
 namespace {
 

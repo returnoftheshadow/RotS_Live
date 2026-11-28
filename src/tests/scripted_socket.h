@@ -13,7 +13,9 @@ namespace socket_test_support {
 // A pretend connection socket for comm.cpp. While it exists, every connection read and write in
 // comm.cpp goes to it instead of the operating system, so a test can script what the peer sends
 // and how writes go, and read back what the game wrote. Several may exist at once, each with its
-// own handle.
+// own handle. Writes made outside comm.cpp, such as echo_on and echo_off in utility.cpp, are not
+// caught. A test must not install its own comm_testing override while one exists: the last
+// ScriptedSocket to go restores the override that was in place before the first.
 class ScriptedSocket {
 public:
     // Installs the scripted sockets as comm.cpp's read and write overrides, if none existed.
@@ -28,8 +30,9 @@ public:
     // scripted socket has fails the test.
     SocketType handle() const;
 
-    // Queue what later reads see, in order. A read returns as many queued bytes as fit and leaves
-    // the rest for the next read. Once the queue is empty, reads fail with "would block".
+    // Queue what later reads see, in order. Each read returns bytes from at most one queue_input()
+    // call, as many as fit, and leaves the rest for the next read. Once the queue is empty, reads
+    // fail with "would block".
     void queue_input(std::string_view bytes);
     void queue_end_of_file();
     void queue_read_failure();
@@ -75,7 +78,8 @@ private:
     // The handle the next scripted socket gets; handles are never reused within a run.
     static SocketType s_next_handle;
 
-    // This socket's handle.
+    // The handle descriptors are given and the key in the live-socket registry; unique for the
+    // run.
     const SocketType m_handle;
 
     // Read outcomes not yet used, oldest first.

@@ -222,11 +222,15 @@ void populate_descriptor_host(descriptor_data* descriptor, uint32_t peer_address
     char resolved_host[MAX_HOSTNAME + 1];
 
     if (nameserver_is_slow || !rots_net::resolve_host_name(peer_address, resolved_host, sizeof(resolved_host))) {
-        if (!nameserver_is_slow)
-            log("Host name lookup failed; using the numeric address.");
         const int i = peer_address;
         sprintf(descriptor->host, "%d.%d.%d.%d", (i & 0x000000FF), (i & 0x0000FF00) >> 8,
             (i & 0x00FF0000) >> 16, (i & 0xFF000000) >> 24);
+        if (!nameserver_is_slow) {
+            char lookup_failure[96];
+            snprintf(lookup_failure, sizeof(lookup_failure),
+                "Host name lookup failed for %s; using the numeric address.", descriptor->host);
+            log(lookup_failure);
+        }
         return;
     }
 
@@ -277,7 +281,8 @@ int finish_proxy_header_if_ready(descriptor_data* descriptor)
             return -1;
         }
 
-        if (rots_net::error_is_would_block(rots_net::last_error()))
+        const int read_error = rots_net::last_error();
+        if (rots_net::error_is_would_block(read_error))
             return 0;
 
         perror("reading proxy header");
@@ -1032,7 +1037,8 @@ static bool wait_for_next_pulse(SocketType s, int signal_mask,
     sigsetmask(signal_mask);
 
     if (select(maxdesc + 1, &input_set, &output_set, &exception_set, &null_time) < 0) {
-        if (!rots_net::error_is_interrupted(rots_net::last_error())) {
+        const int select_error = rots_net::last_error();
+        if (!rots_net::error_is_interrupted(select_error)) {
             perror("Select poll");
             return false;
         }
@@ -1684,7 +1690,7 @@ SocketType init_socket(sh_int port)
         exit(1);
     }
 
-    /* set_nonblocking handles its own problems */
+    // set_nonblocking handles its own problems
     rots_net::set_nonblocking(s);
 
     listen(s, 3);
@@ -2009,7 +2015,8 @@ int write_to_descriptor(SocketType desc, const char* txt)
         do {
             thisround = write_descriptor_socket(desc, txt + sofar, total - sofar);
             if (thisround < 0) {
-                if (rots_net::error_is_would_block(rots_net::last_error()) && sofar == 0) {
+                const int write_error = rots_net::last_error();
+                if (rots_net::error_is_would_block(write_error) && sofar == 0) {
                     /* Kernel send buffer is momentarily full and nothing from this
                        call has gone out yet. Return a sentinel distinct from both
                        the normal-success return (0) and the fatal return (-1) so
@@ -2122,7 +2129,8 @@ int process_input(struct descriptor_data* t)
             }
         } else {
             if (thisround < 0) {
-                if (!rots_net::error_is_would_block(rots_net::last_error())) {
+                const int read_error = rots_net::last_error();
+                if (!rots_net::error_is_would_block(read_error)) {
                     perror("Read1 - ERROR");
                     return (-1);
                 } else

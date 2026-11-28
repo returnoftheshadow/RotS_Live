@@ -16,9 +16,8 @@
 
 namespace {
 
+using socket_test_support::DELIVERY_WAIT;
 using socket_test_support::LoopbackConnection;
-
-constexpr std::chrono::milliseconds DELIVERY_WAIT { 1000 };
 
 // Reads one int-valued socket option; -1 when it cannot be read.
 int read_int_option(SocketType socket_handle, int level, int option_name)
@@ -80,7 +79,7 @@ TEST(RotsNet, BytesWrittenAtOneEndAreReadAtTheOther)
     EXPECT_EQ(read_bytes(connection.accepted(), message.size()), message);
 }
 
-TEST(RotsNet, BytesTravelInBothDirections)
+TEST(RotsNet, BytesWrittenAtTheAcceptedEndAreReadAtTheClient)
 {
     LoopbackConnection connection;
     ASSERT_TRUE(connection.is_open());
@@ -215,7 +214,7 @@ TEST(RotsNet, ResolveHostNameNamesTheLoopbackAddress)
     EXPECT_GT(std::strlen(host_name), 0u);
 }
 
-TEST(RotsNet, ResolveHostNameFailsWithoutRoomForAName)
+TEST(RotsNet, ResolveHostNameFailsWithoutAUsableBuffer)
 {
     char host_name[1] = { 'x' };
 

@@ -10,6 +10,10 @@
 
 namespace socket_test_support {
 
+// How long a test waits for bytes sent over loopback to arrive. Loopback can deliver them a
+// moment after the write returns, so tests wait instead of reading at once.
+constexpr std::chrono::milliseconds DELIVERY_WAIT { 1000 };
+
 // Opens a listening TCP socket on 127.0.0.1 at a port the system picks, and stores that port
 // in `out_port`. Returns INVALID_SOCKET_HANDLE, after reporting a test failure, when any step
 // fails. The caller closes the socket.

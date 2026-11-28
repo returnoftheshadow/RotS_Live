@@ -446,15 +446,15 @@ void reset_descriptor_output(descriptor_data* descriptor)
 }
 
 void write_and_process_snooped_input(descriptor_data* descriptor,
-    socket_test_support::ScriptedSocket& socket, const char* input, std::string* queued_input)
+    socket_test_support::ScriptedSocket& socket, const char* input, std::string* out_queued_input)
 {
     socket.queue_input(std::string(input) + "\n");
     EXPECT_EQ(process_input(descriptor), 1);
 
     char queued[MAX_INPUT_LENGTH] = {};
     EXPECT_TRUE(get_from_q(&descriptor->input, queued));
-    if (queued_input != nullptr)
-        *queued_input = queued;
+    if (out_queued_input != nullptr)
+        *out_queued_input = queued;
 }
 
 SnoopProbeResult snoop_output_for_input_state(int connection_state, const char* input)
