@@ -61,12 +61,12 @@ char* DFLT_DIR = "lib";
 
 /* Some nameservers (such as the one here at JHU) are slow and cause the
    game to lag terribly every time someone logs in.  The lag is caused by
-   the gethostbyaddr() function -- the function which resolves a numeric
+   the host name lookup (rots_net::resolve_host_name) -- which resolves a numeric
    IP address (such as 128.220.13.30) into an alphabetic name (such as
    circle.cs.jhu.edu).
 
    The nameserver at JHU can get so bad at times that the incredible lag
-   caused by gethostbyaddr() isn't worth the luxury of having names
+   caused by the lookup isn't worth the luxury of having names
    instead of numbers for players' sitenames.
 
    If your nameserver is fast, set the variable below to NO.  If your

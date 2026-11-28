@@ -150,6 +150,7 @@ set(ROTS_SERVER_SOURCES
     ranger.cpp
     real_time_tick_schedule.cpp
     room_exits.cpp
+    rots_net.cpp
     save_benchmark.cpp
     savebench.cpp
     script.cpp
@@ -275,6 +276,10 @@ set(ROTS_TEST_SOURCES
     tests/protocol_output_tests.cpp
     tests/protocol_allocation_tests.cpp
     tests/real_time_tick_schedule_tests.cpp
+    tests/rots_net_tests.cpp
+    tests/socket_test_support.cpp
+    tests/scripted_socket.cpp
+    tests/comm_socket_io_tests.cpp
     tests/harness_affect_hours_schedule_tests.cpp
     tests/harness_advance_hours_request_tests.cpp
     tests/harness_request_dispatch_tests.cpp
@@ -459,10 +464,14 @@ if(BUILD_TESTING)
         )
     endif()
     target_link_libraries(ageland_tests PRIVATE rots_codegen GTest::gtest crypt Threads::Threads)
-    # Routes both number() overloads through the seeded test RNG in tests/test_random_utils.cpp.
+    # Routes both number() overloads through the seeded test RNG in tests/test_random_utils.cpp,
+    # and rots_net's socket reads and writes through the scripted sockets in
+    # tests/scripted_socket.cpp.
     target_link_options(ageland_tests PRIVATE
         -Wl,--wrap=_Z6numberv
         -Wl,--wrap=_Z6numberii
+        -Wl,--wrap=_ZN8rots_net11read_socketEiPvj
+        -Wl,--wrap=_ZN8rots_net12write_socketEiPKvj
     )
     set_target_properties(ageland_tests PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${ROTS_BIN_DIR}"

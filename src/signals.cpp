@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "rots_net.h"
 #include "signal_requests.h"
 #include "signals.h"
 #include "structs.h"
@@ -131,7 +132,7 @@ public:
         // Connections are not closed one by one: closing a playing connection saves the character
         // again without their gear; exit closes the connections without saving.
         save_everything_for_stop();
-        close(mother_desc);
+        rots_net::close_socket(mother_desc);
         exit(0);
     }
 
@@ -173,11 +174,11 @@ void badcrash(int fake)
     log("SIGSEGV or SIGBUS received.  Trying to shut down gracefully.");
     Emergency_save();
     if (!graceful_tried) {
-        close(mother_desc);
+        rots_net::close_socket(mother_desc);
         log("Trying to close all sockets.");
         graceful_tried = 1;
         for (desc = descriptor_list; desc; desc = desc->next)
-            close(desc->descriptor);
+            rots_net::close_socket(desc->descriptor);
     }
     abort();
 }

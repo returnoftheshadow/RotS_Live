@@ -41,6 +41,7 @@
 #include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
+#include "rots_net.h"
 #include "spells.h"
 #include "structs.h"
 #include "utils.h"
@@ -1428,7 +1429,7 @@ struct time_info_data age(const struct char_data* ch)
 ** Turn off echoing (specific to telnet client)
 */
 
-void echo_off(int sock)
+void echo_off(SocketType sock)
 {
 
     char off_string[] = //"";
@@ -1438,14 +1439,14 @@ void echo_off(int sock)
             (char)TELOPT_ECHO,
             (char)0,
         };
-    (void)write(sock, off_string, sizeof(off_string));
+    (void)rots_net::write_socket(sock, off_string, sizeof(off_string));
 }
 
 /*
 ** Turn on echoing (specific to telnet client)
 */
 
-void echo_on(int sock)
+void echo_on(SocketType sock)
 {
     char off_string[] = //"";
         {
@@ -1456,7 +1457,7 @@ void echo_on(int sock)
             (char)TELOPT_NAOCRD,
             (char)0,
         };
-    (void)write(sock, off_string, sizeof(off_string));
+    (void)rots_net::write_socket(sock, off_string, sizeof(off_string));
 }
 
 /* This is to work together with CREATE macro, to try fighting
