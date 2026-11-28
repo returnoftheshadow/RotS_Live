@@ -71,8 +71,8 @@ static void send_to_client(const descriptor_t* descriptor, const char* text)
     write_to_descriptor(descriptor->descriptor, text);
 }
 
-// Logs text to the server log, passing it to vmudlog as the format string.
-static void report_bug(const char* text) { vmudlog(NRM, text); }
+// Logs text to the server log as it is, never as a printf format.
+static void report_bug(const char* text) { vmudlog(NRM, "%s", text); }
 
 // Sends text to descriptor after an "[INFO]" label. The label's colour codes are ProtocolOutput
 // codes, and they reach the client untranslated.
@@ -360,7 +360,7 @@ protocol_t* ProtocolCreate()
         table_checked = true;
         for (int variable_index = eMSDP_NONE + 1; variable_index < eMSDP_MAX; ++variable_index) {
             if (VARIABLE_NAME_TABLE[variable_index].variable != variable_index) {
-                report_bug("MSDP: Variable table does not match the enums in the header.\n");
+                report_bug("MSDP: Variable table does not match the enums in the header.");
                 break;
             }
         }
@@ -567,7 +567,7 @@ static bool is_input_buffer_full(const input_scan& scan)
 // that filled its buffer.
 static input_step abandon_full_read(const input_scan& scan)
 {
-    report_bug("ProtocolInput: Too much incoming data to store in the buffer.\n");
+    report_bug("ProtocolInput: Too much incoming data to store in the buffer.");
     if (scan.subnegotiation_length >= MAX_PROTOCOL_BUFFER) {
         scan.protocol->in_subnegotiation = false;
         scan.protocol->subnegotiation_input_length = 0;
@@ -832,7 +832,7 @@ void ProtocolInput(const descriptor_t* descriptor, std::string_view input, char*
         return;
     }
     if (input.size() > max_input_length) {
-        report_bug("ProtocolInput: Too much incoming data to store in the buffer.\n");
+        report_bug("ProtocolInput: Too much incoming data to store in the buffer.");
         return;
     }
 
@@ -1095,9 +1095,9 @@ static void append_unicode_code(output_scan& scan)
         scan, fallback_text, MAX_BRACKET_TEXT_LENGTH, bracket_overflow::skip);
     if (!read.closed) {
         report_code_bug(
-            "BUG: Unicode substitute '%s' wasn't terminated with ']'.\n", fallback_text);
+            "BUG: Unicode substitute '%s' wasn't terminated with ']'.", fallback_text);
     } else if (!read.fits) {
-        report_code_bug("BUG: Unicode substitute '%s' truncated.  Missing ']'?\n", fallback_text);
+        report_code_bug("BUG: Unicode substitute '%s' truncated.  Missing ']'?", fallback_text);
     } else if (scan.protocol->variables.number(eMSDP_UTF_8) != 0) {
         const std::string_view utf_8_text = UnicodeGet(code_point);
         append_output(scan, utf_8_text);
@@ -1125,11 +1125,11 @@ static void append_rgb_code(output_scan& scan)
     }
 
     if (!read.closed || !read.fits) {
-        report_code_bug("BUG: RGB %sground colour '%s' wasn't terminated with ']'.\n",
+        report_code_bug("BUG: RGB %sground colour '%s' wasn't terminated with ']'.",
             layer_name, &code_text[1]);
     } else if (!is_valid_colour(code_text)) {
         report_code_bug("BUG: RGB %sground colour '%s' invalid (each digit must be "
-                        "in the range 0-5).\n",
+                        "in the range 0-5).",
             layer_name, &code_text[1]);
     } else {
         const std::string_view colour_text = ColourRGB(scan.descriptor, code_text);
@@ -1148,9 +1148,9 @@ static void apply_required_mxp_version(output_scan& scan)
         scan, version_text, MAX_BRACKET_TEXT_LENGTH, bracket_overflow::skip);
     if (!read.closed) {
         report_code_bug(
-            "BUG: Required MXP version '%s' wasn't terminated with ']'.\n", version_text);
+            "BUG: Required MXP version '%s' wasn't terminated with ']'.", version_text);
     } else if (!read.fits) {
-        report_code_bug("BUG: Required MXP version '%s' too long.  Missing ']'?\n", version_text);
+        report_code_bug("BUG: Required MXP version '%s' too long.  Missing ']'?", version_text);
     } else {
         // Versions compare as strings.
         const bool mxp_version_unknown = scan.protocol->mxp_version == "Unknown";
@@ -1274,7 +1274,7 @@ static std::string_view finish_output(output_scan& scan)
 {
     if (scan.result_length >= MAX_OUTPUT_BUFFER) {
         scan.result_length = 0;
-        report_bug("ProtocolOutput: Too much outgoing data to store in the buffer.\n");
+        report_bug("ProtocolOutput: Too much outgoing data to store in the buffer.");
     }
 
     scan.result[scan.result_length] = '\0';
@@ -1428,7 +1428,7 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
 
             if (required_length >= static_cast<std::size_t>(MAX_VARIABLE_LENGTH)) {
                 std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSend: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
+                    "MSDPSend: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).",
                     name_precision, name.data(), required_length, MAX_VARIABLE_LENGTH);
                 report_bug(msdp_text);
                 msdp_text[0] = '\0';
@@ -1487,14 +1487,14 @@ void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::st
     if (required_length >= buffer_limit) {
         if (required_length - value_length < buffer_limit) {
             std::snprintf(msdp_text, sizeof(msdp_text),
-                "MSDPSendPair: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
+                "MSDPSendPair: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).",
                 printf_precision(name), name.data(), required_length, MAX_VARIABLE_LENGTH);
         } else {
             // The name alone is too long.
             std::snprintf(msdp_text, sizeof(msdp_text),
                 "MSDPSendPair: Variable name has a length of %zu bytes (exceeds "
-                "MAX_VARIABLE_LENGTH of %d).\n",
-                required_length, MAX_VARIABLE_LENGTH);
+                "MAX_VARIABLE_LENGTH of %d).",
+                name_length, MAX_VARIABLE_LENGTH);
         }
 
         report_bug(msdp_text);
@@ -1547,14 +1547,14 @@ void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::st
     if (required_length >= buffer_limit) {
         if (required_length - value_length < buffer_limit) {
             std::snprintf(msdp_text, sizeof(msdp_text),
-                "MSDPSendList: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).\n",
+                "MSDPSendList: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).",
                 printf_precision(name), name.data(), required_length, MAX_VARIABLE_LENGTH);
         } else {
             // The name alone is too long.
             std::snprintf(msdp_text, sizeof(msdp_text),
                 "MSDPSendList: Variable name has a length of %zu bytes (exceeds "
-                "MAX_VARIABLE_LENGTH of %d).\n",
-                required_length, MAX_VARIABLE_LENGTH);
+                "MAX_VARIABLE_LENGTH of %d).",
+                name_length, MAX_VARIABLE_LENGTH);
         }
 
         report_bug(msdp_text);

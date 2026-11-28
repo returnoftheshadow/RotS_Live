@@ -4107,7 +4107,7 @@ TEST(MSDPProtocol, SendLogsAndDropsAStringThatFillsTheBuffer)
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(MSDPProtocol, SendPairAndListLogAnOverlongNameWithTheWholePacketLength)
+TEST(MSDPProtocol, SendPairAndListLogTheLengthOfAnOverlongName)
 {
     ScopedDescriptorList descriptor_list_scope;
     ProtocolDescriptor context;
@@ -4119,17 +4119,18 @@ TEST(MSDPProtocol, SendPairAndListLogAnOverlongNameWithTheWholePacketLength)
     const std::string logged = testing::internal::GetCapturedStderr();
 
     EXPECT_EQ(context.read_output(), "");
-    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4103 bytes (exceeds "
+    EXPECT_NE(logged.find("MSDPSendPair: Variable name has a length of 4090 bytes (exceeds "
                           "MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
-    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4103 bytes (exceeds "
+    EXPECT_NE(logged.find("MSDPSendList: Variable name has a length of 4090 bytes (exceeds "
                           "MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
 }
 
-TEST(MSDPProtocol, SendPairLogsAnOverlongPairThroughAFormatThatReadsPercentSigns)
+// The name reaches the log as it is, and each log entry is one line.
+TEST(MSDPProtocol, SendPairLogsAnOverlongPairsNameWithItsPercentSigns)
 {
     ScopedDescriptorList descriptor_list_scope;
     ProtocolDescriptor context;
@@ -4139,9 +4140,10 @@ TEST(MSDPProtocol, SendPairLogsAnOverlongPairThroughAFormatThatReadsPercentSigns
     MSDPSendPair(&context.descriptor, "A%%B", huge_value.c_str());
     const std::string logged = testing::internal::GetCapturedStderr();
 
-    EXPECT_NE(logged.find("MSDPSendPair: A%B 4112 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
+    EXPECT_NE(logged.find("MSDPSendPair: A%%B 4112 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
+    EXPECT_EQ(logged.find("\n\n"), std::string::npos) << logged;
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
