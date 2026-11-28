@@ -8,11 +8,13 @@
 #include <arpa/telnet.h>
 
 #include <algorithm>
+#include <bitset>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -310,6 +312,133 @@ static int printf_precision(std::string_view text)
 {
     constexpr std::size_t largest_precision = std::numeric_limits<int>::max();
     return static_cast<int>(std::min(text.size(), largest_precision));
+}
+
+// The public functions that log a caller bug.
+enum class caller_function {
+    set_number,
+    set_string,
+    set_table,
+    set_array,
+    flush,
+    send,
+    send_pair,
+    send_list,
+    mxp_send_tag,
+    count,
+};
+
+// Each caller_function's name, as its log lines give it.
+constexpr const char* CALLER_FUNCTION_NAMES[] = { "MSDPSetNumber", "MSDPSetString",
+    "MSDPSetTable", "MSDPSetArray", "MSDPFlush", "MSDPSend", "MSDPSendPair", "MSDPSendList",
+    "MXPSendTag" };
+
+static_assert(std::size(CALLER_FUNCTION_NAMES) == static_cast<std::size_t>(caller_function::count),
+    "CALLER_FUNCTION_NAMES does not name every caller_function.");
+
+// The mistakes a caller can make in calling one of those functions.
+enum class caller_bug {
+    invalid_variable, // A variable outside eMSDP_NONE and eMSDP_MAX.
+    wrong_kind, // A number setter given a string variable, or a string setter a number variable.
+    null_text, // A null pointer where text is needed.
+    too_long, // Text over the function's limit.
+    count,
+};
+
+// The record slot of the bugs that concern no valid variable, which share it.
+constexpr int SHARED_BUG_SLOT = eMSDP_MAX;
+
+// The record slots per function and bug: one per variable, then SHARED_BUG_SLOT.
+constexpr std::size_t BUG_SLOTS = SHARED_BUG_SLOT + 1;
+
+// The caller bugs already logged, one bit per function, bug and slot.
+static std::bitset<static_cast<std::size_t>(caller_function::count)
+    * static_cast<std::size_t>(caller_bug::count) * BUG_SLOTS>
+    logged_caller_bugs;
+
+void ProtocolClearLoggedCallerBugs() { logged_caller_bugs.reset(); }
+
+// Records that function met bug for slot, and returns whether it was the first time.
+static bool is_first_caller_bug(caller_function function, caller_bug bug, int slot)
+{
+    const std::size_t bug_index = static_cast<std::size_t>(function)
+            * static_cast<std::size_t>(caller_bug::count)
+        + static_cast<std::size_t>(bug);
+    const std::size_t record_index = bug_index * BUG_SLOTS + static_cast<std::size_t>(slot);
+    // operator[] rather than test() and set(), which can throw; record_index is always in range.
+    if (logged_caller_bugs[record_index]) {
+        return false;
+    }
+    logged_caller_bugs[record_index] = true;
+    return true;
+}
+
+// Logs bug about variable the first time function meets it for that variable. Invalid variables
+// share one record per function and bug.
+static void report_variable_bug_once(caller_function function, caller_bug bug, variable_t variable)
+{
+    const bool is_valid = variable > eMSDP_NONE && variable < eMSDP_MAX;
+    int slot = SHARED_BUG_SLOT;
+    if (is_valid) {
+        slot = variable;
+    }
+    if (!is_first_caller_bug(function, bug, slot)) {
+        return;
+    }
+
+    const char* problem = "was given a null value.";
+    if (bug == caller_bug::invalid_variable) {
+        problem = "is not an MSDP variable.";
+    } else if (bug == caller_bug::wrong_kind && VARIABLE_NAME_TABLE[variable].is_string) {
+        problem = "holds text, not a number.";
+    } else if (bug == caller_bug::wrong_kind) {
+        problem = "holds a number, not text.";
+    }
+
+    const char* function_name = CALLER_FUNCTION_NAMES[static_cast<int>(function)];
+    char bug_text[128];
+    if (is_valid) {
+        const std::string_view name = VARIABLE_NAME_TABLE[variable].name;
+        std::snprintf(bug_text, sizeof(bug_text), "%s: %.*s (%d) %s", function_name,
+            printf_precision(name), name.data(), static_cast<int>(variable), problem);
+    } else {
+        std::snprintf(bug_text, sizeof(bug_text), "%s: variable %d %s", function_name,
+            static_cast<int>(variable), problem);
+    }
+    report_bug(bug_text);
+}
+
+// Whether variable is valid, logging it once for function when it is not.
+static bool is_valid_variable_for(caller_function function, variable_t variable)
+{
+    if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
+        return true;
+    }
+    report_variable_bug_once(function, caller_bug::invalid_variable, variable);
+    return false;
+}
+
+// Whether variable is valid and holds text when wants_text is set, or a number when it is not,
+// logging the bug once for function when it does not.
+static bool is_settable_variable(caller_function function, variable_t variable, bool wants_text)
+{
+    if (!is_valid_variable_for(function, variable)) {
+        return false;
+    }
+
+    if (VARIABLE_NAME_TABLE[variable].is_string != wants_text) {
+        report_variable_bug_once(function, caller_bug::wrong_kind, variable);
+        return false;
+    }
+    return true;
+}
+
+// Logs text, which names function and bug, the first time function meets bug.
+static void report_call_bug_once(caller_function function, caller_bug bug, const char* text)
+{
+    if (is_first_caller_bug(function, bug, SHARED_BUG_SLOT)) {
+        report_bug(text);
+    }
 }
 
 static void negotiate(const descriptor_t* descriptor);
@@ -1464,13 +1593,14 @@ void MSDPUpdate(const descriptor_t* descriptor)
 
 void MSDPFlush(const descriptor_t* descriptor, variable_t variable)
 {
-    if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
-        protocol_t* protocol = protocol_of(descriptor);
+    if (!is_valid_variable_for(caller_function::flush, variable)) {
+        return;
+    }
 
-        if (protocol != nullptr && protocol->variables.is_reported(variable)) {
-            if (protocol->variables.is_dirty(variable)) {
-                send_dirty_variable(descriptor, protocol, variable);
-            }
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol != nullptr && protocol->variables.is_reported(variable)) {
+        if (protocol->variables.is_dirty(variable)) {
+            send_dirty_variable(descriptor, protocol, variable);
         }
     }
 }
@@ -1487,7 +1617,7 @@ void MSDPMarkAllReportedDirty(const descriptor_t* descriptor)
 
 bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
 {
-    if (!MSDPIsValidVariable(variable)) {
+    if (!is_valid_variable_for(caller_function::send, variable)) {
         return false;
     }
     return send_variable(descriptor, variable) == send_outcome::sent;
@@ -1495,9 +1625,12 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
 
 void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value)
 {
-    if (name != nullptr && value != nullptr) {
-        MSDPSendPair(descriptor, std::string_view(name), std::string_view(value));
+    if (name == nullptr || value == nullptr) {
+        report_call_bug_once(
+            caller_function::send_pair, caller_bug::null_text, "MSDPSendPair: null name or value.");
+        return;
     }
+    MSDPSendPair(descriptor, std::string_view(name), std::string_view(value));
 }
 
 void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::string_view value)
@@ -1555,9 +1688,12 @@ void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::st
 
 void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value)
 {
-    if (name != nullptr && value != nullptr) {
-        MSDPSendList(descriptor, std::string_view(name), std::string_view(value));
+    if (name == nullptr || value == nullptr) {
+        report_call_bug_once(
+            caller_function::send_list, caller_bug::null_text, "MSDPSendList: null name or value.");
+        return;
     }
+    MSDPSendList(descriptor, std::string_view(name), std::string_view(value));
 }
 
 void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::string_view value)
@@ -1624,13 +1760,13 @@ void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::st
 
 void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int value)
 {
-    protocol_t* protocol = protocol_of(descriptor);
+    if (!is_settable_variable(caller_function::set_number, variable, false)) {
+        return;
+    }
 
-    const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
-    if (can_set) {
-        if (!VARIABLE_NAME_TABLE[variable].is_string) {
-            protocol->variables.set_number(variable, value);
-        }
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol != nullptr) {
+        protocol->variables.set_number(variable, value);
     }
 }
 
@@ -1786,17 +1922,21 @@ std::string MSDPSanitizeValue(std::string_view value)
 
 void MSDPSetString(const descriptor_t* descriptor, variable_t variable, const char* value)
 {
-    if (value != nullptr) {
-        MSDPSetString(descriptor, variable, std::string_view(value));
+    if (value == nullptr) {
+        report_variable_bug_once(caller_function::set_string, caller_bug::null_text, variable);
+        return;
     }
+    MSDPSetString(descriptor, variable, std::string_view(value));
 }
 
 void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::string_view value)
 {
-    protocol_t* protocol = protocol_of(descriptor);
+    if (!is_settable_variable(caller_function::set_string, variable, true)) {
+        return;
+    }
 
-    const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
-    if (can_set && VARIABLE_NAME_TABLE[variable].is_string) {
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol != nullptr) {
         if (!equals_sanitized(protocol->variables.text(variable), value)) {
             // Written into the stored string, which allocates only when it outgrows its capacity.
             std::string& stored = protocol->variables.text_to_change(variable);
@@ -1808,64 +1948,86 @@ void MSDPSetString(const descriptor_t* descriptor, variable_t variable, std::str
 
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value)
 {
-    if (value != nullptr) {
-        MSDPSetTable(descriptor, variable, std::string_view(value));
+    if (value == nullptr) {
+        report_variable_bug_once(caller_function::set_table, caller_bug::null_text, variable);
+        return;
     }
+    MSDPSetTable(descriptor, variable, std::string_view(value));
 }
 
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value)
 {
-    protocol_t* protocol = protocol_of(descriptor);
+    if (!is_settable_variable(caller_function::set_table, variable, true)) {
+        return;
+    }
 
-    const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
-    if (can_set) {
-        if (value.empty()) {
-            // An empty value is stored empty, without the markers.
-            MSDPSetString(descriptor, variable, value);
-        } else if (VARIABLE_NAME_TABLE[variable].is_string) {
-            msdp_set_wrapped(protocol->variables, variable, static_cast<char>(MSDP_TABLE_OPEN),
-                value, static_cast<char>(MSDP_TABLE_CLOSE));
-        }
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol == nullptr) {
+        return;
+    }
+    if (value.empty()) {
+        // An empty value is stored empty, without the markers.
+        MSDPSetString(descriptor, variable, value);
+    } else {
+        msdp_set_wrapped(protocol->variables, variable, static_cast<char>(MSDP_TABLE_OPEN), value,
+            static_cast<char>(MSDP_TABLE_CLOSE));
     }
 }
 
 void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value)
 {
-    if (value != nullptr) {
-        MSDPSetArray(descriptor, variable, std::string_view(value));
+    if (value == nullptr) {
+        report_variable_bug_once(caller_function::set_array, caller_bug::null_text, variable);
+        return;
     }
+    MSDPSetArray(descriptor, variable, std::string_view(value));
 }
 
 void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::string_view value)
 {
-    protocol_t* protocol = protocol_of(descriptor);
+    if (!is_settable_variable(caller_function::set_array, variable, true)) {
+        return;
+    }
 
-    const bool can_set = protocol != nullptr && MSDPIsValidVariable(variable);
-    if (can_set) {
-        if (value.empty()) {
-            // An empty value is stored empty, without the markers.
-            MSDPSetString(descriptor, variable, value);
-        } else if (VARIABLE_NAME_TABLE[variable].is_string) {
-            msdp_set_wrapped(protocol->variables, variable, static_cast<char>(MSDP_ARRAY_OPEN),
-                value, static_cast<char>(MSDP_ARRAY_CLOSE));
-        }
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol == nullptr) {
+        return;
+    }
+    if (value.empty()) {
+        // An empty value is stored empty, without the markers.
+        MSDPSetString(descriptor, variable, value);
+    } else {
+        msdp_set_wrapped(protocol->variables, variable, static_cast<char>(MSDP_ARRAY_OPEN), value,
+            static_cast<char>(MSDP_ARRAY_CLOSE));
     }
 }
 
 void MXPSendTag(const descriptor_t* descriptor, const char* tag)
 {
-    if (tag != nullptr) {
-        MXPSendTag(descriptor, std::string_view(tag));
+    if (tag == nullptr) {
+        report_call_bug_once(caller_function::mxp_send_tag, caller_bug::null_text,
+            "MXPSendTag: null tag.");
+        return;
     }
+    MXPSendTag(descriptor, std::string_view(tag));
 }
 
 void MXPSendTag(const descriptor_t* descriptor, std::string_view tag)
 {
-    protocol_t* protocol = protocol_of(descriptor);
+    if (tag.size() >= static_cast<std::size_t>(MAX_MXP_TAG_LENGTH)) {
+        if (is_first_caller_bug(caller_function::mxp_send_tag, caller_bug::too_long,
+                SHARED_BUG_SLOT)) {
+            char bug_text[96];
+            std::snprintf(bug_text, sizeof(bug_text),
+                "MXPSendTag: tag of %zu characters (limit %d).", tag.size(),
+                MAX_MXP_TAG_LENGTH - 1);
+            report_bug(bug_text);
+        }
+        return;
+    }
 
-    const bool can_send
-        = protocol != nullptr && tag.size() < static_cast<std::size_t>(MAX_MXP_TAG_LENGTH);
-    if (can_send) {
+    protocol_t* protocol = protocol_of(descriptor);
+    if (protocol != nullptr) {
         if (protocol->variables.number(eMSDP_MXP) != 0) {
             char tag_text[MXP_BUFFER_SIZE];
             std::snprintf(tag_text, sizeof(tag_text), "\033[1z%.*s\033[7z\r\n",

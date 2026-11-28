@@ -16,6 +16,7 @@
 #include "scoped_exit_test_rooms.h"
 #include "test_cleanup.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -1264,6 +1265,227 @@ TEST(MSDPProtocol, PublicSetHelpersIgnoreInvalidVariables)
     EXPECT_EQ(context.read_output(), "");
     EXPECT_EQ(context.descriptor.pProtocol->variables.text(eMSDP_CHARACTER_NAME), "");
     EXPECT_FALSE(context.descriptor.pProtocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+}
+
+// What one caller bug logged on its first and its second call.
+struct CallerBugLogs {
+    std::string first; // The stderr text the first call wrote.
+    std::string second; // The stderr text the second call wrote.
+};
+
+// Forgets the caller bugs already logged, then makes call twice with stderr captured each time.
+template <typename Call>
+CallerBugLogs log_two_calls(Call call)
+{
+    ProtocolClearLoggedCallerBugs();
+    CallerBugLogs logs;
+    testing::internal::CaptureStderr();
+    call();
+    logs.first = testing::internal::GetCapturedStderr();
+    testing::internal::CaptureStderr();
+    call();
+    logs.second = testing::internal::GetCapturedStderr();
+    return logs;
+}
+
+// Expects the first call to have logged one line holding bug_text, and the second nothing.
+void expect_logged_once(const CallerBugLogs& logs, const std::string& bug_text)
+{
+    EXPECT_EQ(std::count(logs.first.begin(), logs.first.end(), '\n'), 1) << logs.first;
+    EXPECT_NE(logs.first.find(bug_text), std::string::npos) << logs.first;
+    EXPECT_EQ(logs.second, "");
+}
+
+// The text a caller bug about a valid variable logs: its name and index, then the problem.
+std::string variable_bug_text(
+    std::string_view function, std::string_view name, variable_t variable, std::string_view problem)
+{
+    std::string text(function);
+    text += ": ";
+    text += name;
+    text += " (" + std::to_string(variable) + ") ";
+    text += problem;
+    return text;
+}
+
+TEST(MSDPCallerBugs, SetNumberLogsAnInvalidOrStringVariableOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+
+    const CallerBugLogs invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetNumber(&context.descriptor, eMSDP_MAX, 1); });
+    expect_logged_once(invalid_logs,
+        "MSDPSetNumber: variable " + std::to_string(eMSDP_MAX) + " is not an MSDP variable.");
+
+    const CallerBugLogs string_logs = log_two_calls(
+        [&context]() -> void { MSDPSetNumber(&context.descriptor, eMSDP_CHARACTER_NAME, 1); });
+    expect_logged_once(string_logs,
+        variable_bug_text("MSDPSetNumber", "CHARACTER_NAME", eMSDP_CHARACTER_NAME,
+            "holds text, not a number."));
+}
+
+TEST(MSDPCallerBugs, EachVariableIsLoggedOnceButInvalidVariablesShareOneLog)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    ProtocolClearLoggedCallerBugs();
+    MSDPSetNumber(&context.descriptor, eMSDP_CHARACTER_NAME, 1);
+    MSDPSetNumber(&context.descriptor, eMSDP_MAX, 1);
+
+    testing::internal::CaptureStderr();
+    MSDPSetNumber(&context.descriptor, eMSDP_SERVER_ID, 1);
+    MSDPSetNumber(&context.descriptor, eMSDP_NONE, 1);
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(std::count(logged.begin(), logged.end(), '\n'), 1) << logged;
+    EXPECT_NE(logged.find(variable_bug_text("MSDPSetNumber", "SERVER_ID", eMSDP_SERVER_ID,
+                  "holds text, not a number.")),
+        std::string::npos)
+        << logged;
+}
+
+TEST(MSDPCallerBugs, SetStringLogsAnInvalidOrNumberVariableOrANullValueOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+
+    const CallerBugLogs invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetString(&context.descriptor, eMSDP_NONE, "text"); });
+    expect_logged_once(invalid_logs,
+        "MSDPSetString: variable " + std::to_string(eMSDP_NONE) + " is not an MSDP variable.");
+
+    const CallerBugLogs number_logs = log_two_calls(
+        [&context]() -> void { MSDPSetString(&context.descriptor, eMSDP_HEALTH, "text"); });
+    expect_logged_once(number_logs,
+        variable_bug_text("MSDPSetString", "HEALTH", eMSDP_HEALTH, "holds a number, not text."));
+
+    const char* null_value = nullptr;
+    const CallerBugLogs null_logs = log_two_calls([&context, null_value]() -> void {
+        MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, null_value);
+    });
+    expect_logged_once(null_logs,
+        variable_bug_text("MSDPSetString", "CHARACTER_NAME", eMSDP_CHARACTER_NAME,
+            "was given a null value."));
+}
+
+TEST(MSDPCallerBugs, SetTableAndArrayLogAnInvalidOrNumberVariableOrANullValueOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    const char* null_value = nullptr;
+
+    const CallerBugLogs table_invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetTable(&context.descriptor, eMSDP_MAX, "table"); });
+    expect_logged_once(table_invalid_logs,
+        "MSDPSetTable: variable " + std::to_string(eMSDP_MAX) + " is not an MSDP variable.");
+
+    const CallerBugLogs table_number_logs = log_two_calls(
+        [&context]() -> void { MSDPSetTable(&context.descriptor, eMSDP_HEALTH, ""); });
+    expect_logged_once(table_number_logs,
+        variable_bug_text("MSDPSetTable", "HEALTH", eMSDP_HEALTH, "holds a number, not text."));
+
+    const CallerBugLogs table_null_logs = log_two_calls([&context, null_value]() -> void {
+        MSDPSetTable(&context.descriptor, eMSDP_ROOM, null_value);
+    });
+    expect_logged_once(table_null_logs,
+        variable_bug_text("MSDPSetTable", "ROOM", eMSDP_ROOM, "was given a null value."));
+
+    const CallerBugLogs array_invalid_logs = log_two_calls(
+        [&context]() -> void { MSDPSetArray(&context.descriptor, eMSDP_NONE, "array"); });
+    expect_logged_once(array_invalid_logs,
+        "MSDPSetArray: variable " + std::to_string(eMSDP_NONE) + " is not an MSDP variable.");
+
+    const CallerBugLogs array_number_logs = log_two_calls(
+        [&context]() -> void { MSDPSetArray(&context.descriptor, eMSDP_HEALTH, "array"); });
+    expect_logged_once(array_number_logs,
+        variable_bug_text("MSDPSetArray", "HEALTH", eMSDP_HEALTH, "holds a number, not text."));
+
+    const CallerBugLogs array_null_logs = log_two_calls([&context, null_value]() -> void {
+        MSDPSetArray(&context.descriptor, eMSDP_ROOM_EXITS, null_value);
+    });
+    expect_logged_once(array_null_logs,
+        variable_bug_text(
+            "MSDPSetArray", "ROOM_EXITS", eMSDP_ROOM_EXITS, "was given a null value."));
+}
+
+TEST(MSDPCallerBugs, FlushAndSendLogAnInvalidVariableOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+
+    const CallerBugLogs flush_logs
+        = log_two_calls([&context]() -> void { MSDPFlush(&context.descriptor, eMSDP_MAX); });
+    expect_logged_once(flush_logs,
+        "MSDPFlush: variable " + std::to_string(eMSDP_MAX) + " is not an MSDP variable.");
+
+    const CallerBugLogs send_logs = log_two_calls(
+        [&context]() -> void { EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_NONE)); });
+    expect_logged_once(send_logs,
+        "MSDPSend: variable " + std::to_string(eMSDP_NONE) + " is not an MSDP variable.");
+}
+
+TEST(MSDPCallerBugs, SendPairAndListLogANullNameOrValueOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    const char* null_text = nullptr;
+
+    const CallerBugLogs pair_logs = log_two_calls([&context, null_text]() -> void {
+        MSDPSendPair(&context.descriptor, null_text, "1");
+        MSDPSendPair(&context.descriptor, "HEALTH", null_text);
+    });
+    expect_logged_once(pair_logs, "MSDPSendPair: null name or value.");
+
+    const CallerBugLogs list_logs = log_two_calls([&context, null_text]() -> void {
+        MSDPSendList(&context.descriptor, null_text, "LIST");
+        MSDPSendList(&context.descriptor, "COMMANDS", null_text);
+    });
+    expect_logged_once(list_logs, "MSDPSendList: null name or value.");
+}
+
+TEST(MSDPCallerBugs, MxpSendTagLogsANullOrOverlongTagOnce)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    MsdpSetterDescriptor context;
+    const char* null_tag = nullptr;
+
+    const CallerBugLogs null_logs = log_two_calls(
+        [&context, null_tag]() -> void { MXPSendTag(&context.descriptor, null_tag); });
+    expect_logged_once(null_logs, "MXPSendTag: null tag.");
+
+    const std::string too_long_tag = "<" + std::string(998, 'B') + ">";
+    const CallerBugLogs long_logs = log_two_calls(
+        [&context, &too_long_tag]() -> void { MXPSendTag(&context.descriptor, too_long_tag); });
+    expect_logged_once(long_logs, "MXPSendTag: tag of 1000 characters (limit 999).");
+}
+
+TEST(MSDPCallerBugs, AMissingDescriptorProtocolOrCharacterLogsNothing)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor_without_protocol { };
+    ProtocolDescriptor without_character;
+    without_character.descriptor.character = nullptr;
+    ProtocolClearLoggedCallerBugs();
+
+    const descriptor_data* const descriptors[]
+        = { nullptr, &descriptor_without_protocol, &without_character.descriptor };
+
+    testing::internal::CaptureStderr();
+    for (const descriptor_data* descriptor : descriptors) {
+        MSDPSetNumber(descriptor, eMSDP_HEALTH, 1);
+        MSDPSetString(descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+        MSDPSetTable(descriptor, eMSDP_ROOM, "table");
+        MSDPSetArray(descriptor, eMSDP_ROOM_EXITS, "array");
+        MSDPFlush(descriptor, eMSDP_HEALTH);
+        MSDPSend(descriptor, eMSDP_HEALTH);
+        MSDPSendPair(descriptor, "HEALTH", "1");
+        MSDPSendList(descriptor, "COMMANDS", "LIST");
+        MXPSendTag(descriptor, "<B>");
+    }
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(logged, "");
 }
 
 TEST(MSDPProtocol, UpdateFlushesOnlyDirtyReportedVariables)
@@ -3174,6 +3396,32 @@ TEST(ProtocolInput, ReadsAFullSizeReadWholeAfterHeldBytes)
 
     EXPECT_EQ(std::string(output.data()), player_text);
     EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    ProtocolDestroy(descriptor.pProtocol);
+}
+
+TEST(ProtocolInput, DropsAndLogsAFullSizeReadWhoseHeldBytesOverflowTheCommandBuffer)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    descriptor_data descriptor = make_protocol_input_descriptor();
+    std::vector<char> output(MAX_PROTOCOL_BUFFER + 1, '\0');
+    feed_protocol_input(&descriptor, "\033[a", output.data());
+    ASSERT_EQ(descriptor.pProtocol->pending_input_length, 3);
+    const std::string full_read(MAX_PROTOCOL_BUFFER, 'b');
+
+    testing::internal::CaptureStderr();
+    feed_protocol_input(&descriptor, full_read, output.data());
+    const std::string logged = testing::internal::GetCapturedStderr();
+
+    EXPECT_STREQ(output.data(), "") << "the held bytes and the read are both dropped";
+    EXPECT_NE(logged.find("ProtocolInput: Too much incoming data to store in the buffer."),
+        std::string::npos)
+        << logged;
+    EXPECT_EQ(descriptor.pProtocol->pending_input_length, 0);
+
+    feed_protocol_input(&descriptor, "look", output.data());
+
+    EXPECT_STREQ(output.data(), "look");
 
     ProtocolDestroy(descriptor.pProtocol);
 }

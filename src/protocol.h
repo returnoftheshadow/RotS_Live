@@ -403,14 +403,23 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 // "!!SOUND(" in text is sent as "!?SOUND(".
 std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text);
 
+// The MSDP and MXP functions below log a caller bug, such as an invalid variable or a null text,
+// the first time it happens in the process and then ignore it silently, so a bug repeated every
+// pulse costs one log line. A null descriptor, protocol or character is not a bug and is never
+// logged.
+
+// Forgets the caller bugs already logged, so each is logged again the next time it happens. Only
+// the tests use it.
+void ProtocolClearLoggedCallerBugs();
+
 // Sends every reported, dirty variable as MSDPSend does and marks each one it sends clean. A value
 // too long to send is logged and marked clean too, so it is logged again only once something marks
 // it dirty. Any other variable not sent stays dirty for a later call, and a failed write also ends
 // the call, so the variables after it stay dirty as well. A null descriptor does nothing.
 void MSDPUpdate(const descriptor_t* descriptor);
 
-// MSDPUpdate for one variable; an invalid variable does nothing. Call it after setting a variable
-// to send it now rather than on the next update.
+// MSDPUpdate for one variable; an invalid variable is a caller bug. Call it after setting a
+// variable to send it now rather than on the next update.
 void MSDPFlush(const descriptor_t* descriptor, variable_t variable);
 
 // Marks every reported variable dirty, so the next MSDPUpdate sends them all. Call it when a
@@ -420,9 +429,9 @@ void MSDPMarkAllReportedDirty(const descriptor_t* descriptor);
 
 // Sends variable's value over MSDP, or over ATCP for a client without MSDP, and returns whether
 // the whole message was written. It sends only for a logged-in character with PRF_MSDP on. It
-// returns false, sending nothing, for a null descriptor, an invalid variable, a client with
-// neither protocol, or a message too long for MAX_VARIABLE_LENGTH, which is logged; and it
-// returns false when the write fails. The dirty flag is left alone.
+// returns false, sending nothing, for a null descriptor, an invalid variable (a caller bug), a
+// client with neither protocol, or a message too long for MAX_VARIABLE_LENGTH, which is logged;
+// and it returns false when the write fails. The dirty flag is left alone.
 bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
 
 // Sends name and value at once as an MSDP variable, or over ATCP for a client without MSDP, with
@@ -432,26 +441,27 @@ bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
 // must hold no NUL.
 void MSDPSendPair(const descriptor_t* descriptor, std::string_view name, std::string_view value);
 
-// MSDPSendPair for NUL-terminated text; a null name or value sends nothing.
+// MSDPSendPair for NUL-terminated text; a null name or value is a caller bug.
 void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value);
 
 // MSDPSendPair for a list of values separated by spaces, which MSDP receives as an array.
 void MSDPSendList(const descriptor_t* descriptor, std::string_view name, std::string_view value);
 
-// MSDPSendList for NUL-terminated text; a null name or value sends nothing.
+// MSDPSendList for NUL-terminated text; a null name or value is a caller bug.
 void MSDPSendList(const descriptor_t* descriptor, const char* name, const char* value);
 
 // Stores value as a number variable's value, and marks the variable dirty if the value changed;
-// an unchanged value stays clean. It never allocates. A null descriptor, an invalid variable or a
-// string variable is ignored. It suits any integral value, such as a bool or an enum.
+// an unchanged value stays clean. It never allocates. A null descriptor is ignored, and an invalid
+// variable or a string variable is a caller bug. It suits any integral value, such as a bool or an
+// enum.
 void MSDPSetNumber(const descriptor_t* descriptor, variable_t variable, int value);
 
 // Stores value, escaped as by MSDPSanitizeValue, as a string variable's value, and marks the
 // variable dirty if the value changed. Storing the value already held allocates nothing and
 // stays clean; a changed value is written into the stored string, which allocates only when it
 // outgrows its capacity, so value must not point into it. There is no login or PRF_MSDP check:
-// it only stores, and MSDPSend sends. A null value, a null descriptor, an invalid variable or a
-// number variable changes nothing.
+// it only stores, and MSDPSend sends. A null descriptor changes nothing, and a null value, an
+// invalid variable or a number variable is a caller bug.
 void MSDPSetString(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // MSDPSetString for a value that need not be NUL-terminated, such as a message without its line
@@ -478,30 +488,30 @@ void MSDPAppendSanitized(std::string& out_text, const char* value);
 // and marks the variable dirty if it changed; an unchanged value allocates nothing and stays
 // clean, and a changed one is written in place as by MSDPSetString. value is stored as it is: the
 // caller puts MSDP_VAR before each name and MSDP_VAL before each value. An empty value is stored
-// empty, without the markers. A null descriptor, an invalid variable or a number variable is
-// ignored.
+// empty, without the markers. A null descriptor is ignored, and an invalid variable or a number
+// variable is a caller bug.
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
-// MSDPSetTable for a NUL-terminated value; a null value is ignored.
+// MSDPSetTable for a NUL-terminated value; a null value is a caller bug.
 void MSDPSetTable(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // MSDPSetTable for an MSDP array, between MSDP_ARRAY_OPEN and MSDP_ARRAY_CLOSE: the caller puts
 // MSDP_VAL before each element.
 void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, std::string_view value);
 
-// MSDPSetArray for a NUL-terminated value; a null value is ignored.
+// MSDPSetArray for a NUL-terminated value; a null value is a caller bug.
 void MSDPSetArray(const descriptor_t* descriptor, variable_t variable, const char* value);
 
 // Whether variable is an MSDP variable: above eMSDP_NONE and below eMSDP_MAX.
 bool MSDPIsValidVariable(variable_t variable);
 
 // Sends tag, such as "<VERSION>", on a secure MXP line when the client has MXP on. A tag of 1000
-// characters or more is dropped. When MXP is off and renegotiation is pending (see
+// characters or more is a caller bug. When MXP is off and renegotiation is pending (see
 // protocol_t::renegotiate), it offers every option except TTYPE again and sends <VERSION> once
 // MXP comes on; tag itself is not sent. A null descriptor does nothing. tag must hold no NUL.
 void MXPSendTag(const descriptor_t* descriptor, std::string_view tag);
 
-// MXPSendTag for a NUL-terminated tag; a null tag does nothing.
+// MXPSendTag for a NUL-terminated tag; a null tag is a caller bug.
 void MXPSendTag(const descriptor_t* descriptor, const char* tag);
 
 // Returns the escape code for an RGB colour code such as "F500": 'F' for foreground or 'B' for
