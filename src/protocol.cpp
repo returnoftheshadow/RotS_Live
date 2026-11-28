@@ -2430,10 +2430,18 @@ static void answer_ttype_subnegotiation(const descriptor_t* descriptor, const ch
     apply_client_name_capabilities(protocol, client_name);
 }
 
-// Records the window size a NAWS subnegotiation's data carries: the width, then the height, each
-// as two bytes, high byte first.
-static void read_window_size(protocol_t* protocol, const char* data)
+// The bytes a NAWS report carries: the width, then the height, each as two bytes.
+constexpr int NAWS_REPORT_LENGTH = 4;
+
+// Records the window size a NAWS subnegotiation's size bytes of data carry: the width, then the
+// height, each as two bytes, high byte first. A report shorter than NAWS_REPORT_LENGTH leaves the
+// size as it was.
+static void read_window_size(protocol_t* protocol, const char* data, int size)
 {
+    if (size < NAWS_REPORT_LENGTH) {
+        return;
+    }
+
     protocol->screen_width = static_cast<unsigned char>(data[0]);
     protocol->screen_width <<= 8;
     protocol->screen_width += static_cast<unsigned char>(data[1]);
@@ -2459,7 +2467,7 @@ static void perform_subnegotiation(
 
     case static_cast<char>(TELOPT_NAWS):
         if (protocol->naws_enabled) {
-            read_window_size(protocol, data);
+            read_window_size(protocol, data, size);
         }
         break;
 

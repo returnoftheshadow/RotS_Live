@@ -3831,17 +3831,21 @@ TEST(ProtocolSubnegotiation, WindowSizeIsStoredOnlyAfterTheClientAgreedToSendIt)
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(ProtocolSubnegotiation, ShortWindowSizeReadsLeftoverBytesOfAnEarlierSubnegotiation)
+TEST(ProtocolSubnegotiation, ShortWindowSizeLeavesTheSizeAsItWas)
 {
     ProtocolDescriptor context;
-    context.descriptor.pProtocol->naws_enabled = true;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    protocol->naws_enabled = true;
+    const std::string eighty_by_twenty_four = { '\0', 'P', '\0', '\030' };
+    reply_to(context, naws_report(eighty_by_twenty_four));
 
+    // A longer subnegotiation first leaves bytes a short report's read could pick up.
     reply_to(context, telnet_subnegotiation(UNKNOWN_TELNET_OPTION, "ABCDE"));
-    const std::string width_only = { '\0', 'd' };
-    reply_to(context, naws_report(width_only));
+    const std::string width_and_one_height_byte = { '\0', 'd', '\0' };
+    reply_to(context, naws_report(width_and_one_height_byte));
 
-    EXPECT_EQ(context.descriptor.pProtocol->screen_width, 100);
-    EXPECT_EQ(context.descriptor.pProtocol->screen_height, 'D') << "the height is the stale fifth byte";
+    EXPECT_EQ(protocol->screen_width, 80);
+    EXPECT_EQ(protocol->screen_height, 24);
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
