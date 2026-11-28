@@ -82,15 +82,16 @@ static_assert(MSDP_VAR - 1 < MSDP_PAIR_PARTS && MSDP_VAL - 1 < MSDP_PAIR_PARTS,
 
 #include "comm.h"
 
-// Writes text to descriptor's socket, which must not be null, and raises a positive write_oob to 2.
-static void send_to_client(const descriptor_t* descriptor, const char* text)
+// Writes bytes to descriptor's socket, which must not be null, and raises a positive write_oob to
+// 2. Returns whether every byte was written; a descriptor without a socket counts as written.
+static bool send_to_client(const descriptor_t* descriptor, std::string_view bytes)
 {
     if (descriptor != nullptr) {
         if (descriptor->pProtocol->write_oob > 0) {
             descriptor->pProtocol->write_oob = 2;
         }
     }
-    write_to_descriptor(descriptor->descriptor, text);
+    return write_to_descriptor(descriptor->descriptor, bytes.data(), bytes.size()) == 0;
 }
 
 // Logs text to the server log as it is, never as a printf format.
@@ -1359,6 +1360,88 @@ void ProtocolNegotiate(const descriptor_t* descriptor)
     confirm_negotiation(descriptor, eNEGOTIATED_TTYPE, true, true);
 }
 
+// How a send of one MSDP variable ended.
+enum class send_outcome {
+    sent, // The whole message was written.
+    not_ready, // Nothing was sent: no character with PRF_MSDP on, or neither MSDP nor ATCP.
+    write_failed, // The write failed, so the client has none or only part of the message.
+    too_long, // The message is longer than MAX_VARIABLE_LENGTH; it was logged and not sent.
+};
+
+// Sends variable's value as MSDPSend describes and says how the send ended. variable must
+// satisfy MSDPIsValidVariable.
+static send_outcome send_variable(const descriptor_t* descriptor, variable_t variable)
+{
+    char msdp_text[MAX_VARIABLE_LENGTH + 1] = { '\0' };
+    protocol_t* protocol = protocol_of(descriptor);
+
+    if (protocol == nullptr || descriptor->character == nullptr) {
+        return send_outcome::not_ready;
+    }
+    const bool wants_msdp = PRF_FLAGGED(descriptor->character, PRF_MSDP);
+    if (!wants_msdp) {
+        return send_outcome::not_ready;
+    }
+
+    const std::string_view name = VARIABLE_NAME_TABLE[variable].name;
+    const int name_precision = printf_precision(name);
+    if (VARIABLE_NAME_TABLE[variable].is_string) {
+        const std::string& value = protocol->variables.text(variable);
+        const std::size_t required_length = name.size() + value.size() + MSDP_FRAMING_LENGTH;
+
+        if (required_length >= static_cast<std::size_t>(MAX_VARIABLE_LENGTH)) {
+            std::snprintf(msdp_text, sizeof(msdp_text),
+                "MSDPSend: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).",
+                name_precision, name.data(), required_length, MAX_VARIABLE_LENGTH);
+            report_bug(msdp_text);
+            return send_outcome::too_long;
+        }
+        if (protocol->msdp_enabled) {
+            std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%.*s%c%c", IAC, SB,
+                TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL,
+                printf_precision(value), value.data(), IAC, SE);
+        } else if (protocol->atcp_enabled) {
+            std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s %.*s%c%c", IAC, SB,
+                TELOPT_ATCP, name_precision, name.data(), printf_precision(value), value.data(),
+                IAC, SE);
+        }
+    } else {
+        const int value = protocol->variables.number(variable);
+        if (protocol->msdp_enabled) {
+            std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%d%c%c", IAC, SB,
+                TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL, value, IAC, SE);
+        } else if (protocol->atcp_enabled) {
+            std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s %d%c%c", IAC, SB,
+                TELOPT_ATCP, name_precision, name.data(), value, IAC, SE);
+        }
+    }
+
+    // Empty when the client has neither MSDP nor ATCP.
+    if (msdp_text[0] == '\0') {
+        return send_outcome::not_ready;
+    }
+    if (!send_to_client(descriptor, msdp_text)) {
+        return send_outcome::write_failed;
+    }
+    return send_outcome::sent;
+}
+
+// Sends a reported, dirty variable for MSDPUpdate and MSDPFlush, and returns false when the write
+// failed, so nothing more is sent to the client this pulse.
+static bool send_dirty_variable(
+    const descriptor_t* descriptor, protocol_t* protocol, variable_t variable)
+{
+    const send_outcome outcome = send_variable(descriptor, variable);
+    // A value too long to send is logged once, then waits clean for a change that marks it dirty.
+    if (outcome == send_outcome::sent || outcome == send_outcome::too_long) {
+        protocol->variables.mark_clean(variable);
+    }
+    // After a failed write the variable stays dirty, to be sent again. A socket that took part of
+    // the message before failing leaves the client inside an unfinished subnegotiation, which
+    // resending does not repair.
+    return outcome != send_outcome::write_failed;
+}
+
 void MSDPUpdate(const descriptor_t* descriptor)
 {
     protocol_t* protocol = protocol_of(descriptor);
@@ -1370,8 +1453,9 @@ void MSDPUpdate(const descriptor_t* descriptor)
         const variable_t variable = static_cast<variable_t>(variable_index);
         if (protocol->variables.is_reported(variable)) {
             if (protocol->variables.is_dirty(variable)) {
-                if (MSDPSend(descriptor, variable)) {
-                    protocol->variables.mark_clean(variable);
+                const bool can_send_more = send_dirty_variable(descriptor, protocol, variable);
+                if (!can_send_more) {
+                    return;
                 }
             }
         }
@@ -1385,9 +1469,7 @@ void MSDPFlush(const descriptor_t* descriptor, variable_t variable)
 
         if (protocol != nullptr && protocol->variables.is_reported(variable)) {
             if (protocol->variables.is_dirty(variable)) {
-                if (MSDPSend(descriptor, variable)) {
-                    protocol->variables.mark_clean(variable);
-                }
+                send_dirty_variable(descriptor, protocol, variable);
             }
         }
     }
@@ -1405,57 +1487,10 @@ void MSDPMarkAllReportedDirty(const descriptor_t* descriptor)
 
 bool MSDPSend(const descriptor_t* descriptor, variable_t variable)
 {
-    char msdp_text[MAX_VARIABLE_LENGTH + 1] = { '\0' };
-    protocol_t* protocol = protocol_of(descriptor);
-
-    if (protocol == nullptr || descriptor->character == nullptr) {
+    if (!MSDPIsValidVariable(variable)) {
         return false;
     }
-    const bool wants_msdp = PRF_FLAGGED(descriptor->character, PRF_MSDP);
-    if (!wants_msdp) {
-        return false;
-    }
-
-    if (variable > eMSDP_NONE && variable < eMSDP_MAX) {
-        const std::string_view name = VARIABLE_NAME_TABLE[variable].name;
-        const int name_precision = printf_precision(name);
-        if (VARIABLE_NAME_TABLE[variable].is_string) {
-            const std::string& value = protocol->variables.text(variable);
-            const std::size_t required_length = name.size() + value.size() + MSDP_FRAMING_LENGTH;
-
-            if (required_length >= static_cast<std::size_t>(MAX_VARIABLE_LENGTH)) {
-                std::snprintf(msdp_text, sizeof(msdp_text),
-                    "MSDPSend: %.*s %zu bytes (exceeds MAX_VARIABLE_LENGTH of %d).",
-                    name_precision, name.data(), required_length, MAX_VARIABLE_LENGTH);
-                report_bug(msdp_text);
-                msdp_text[0] = '\0';
-            } else if (protocol->msdp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%.*s%c%c", IAC, SB,
-                    TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL,
-                    printf_precision(value), value.data(), IAC, SE);
-            } else if (protocol->atcp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s %.*s%c%c", IAC, SB,
-                    TELOPT_ATCP, name_precision, name.data(), printf_precision(value), value.data(),
-                    IAC, SE);
-            }
-        } else {
-            const int value = protocol->variables.number(variable);
-            if (protocol->msdp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%c%c%.*s%c%d%c%c", IAC, SB,
-                    TELOPT_MSDP, MSDP_VAR, name_precision, name.data(), MSDP_VAL, value, IAC, SE);
-            } else if (protocol->atcp_enabled) {
-                std::snprintf(msdp_text, sizeof(msdp_text), "%c%c%cMSDP.%.*s %d%c%c", IAC, SB,
-                    TELOPT_ATCP, name_precision, name.data(), value, IAC, SE);
-            }
-        }
-
-        // Empty when the client has neither MSDP nor ATCP, or the message was too long.
-        if (msdp_text[0] != '\0') {
-            send_to_client(descriptor, msdp_text);
-            return true;
-        }
-    }
-    return false;
+    return send_variable(descriptor, variable) == send_outcome::sent;
 }
 
 void MSDPSendPair(const descriptor_t* descriptor, const char* name, const char* value)
@@ -2495,14 +2530,10 @@ static void perform_subnegotiation(
 
 static void send_negotiation_sequence(const descriptor_t* descriptor, char command, char option)
 {
-    char sequence[4];
+    // Sent with its length, since an option byte can be 0 (BINARY).
+    const char sequence[] = { TELNET_IAC, command, option };
 
-    sequence[0] = TELNET_IAC;
-    sequence[1] = command;
-    sequence[2] = option;
-    sequence[3] = '\0';
-
-    send_to_client(descriptor, sequence);
+    send_to_client(descriptor, std::string_view(sequence, sizeof(sequence)));
 }
 
 // Records will_do as option's state and returns whether the state changed. When it changed and

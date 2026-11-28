@@ -1986,10 +1986,14 @@ int write_to_descriptor_new(int desc, const char* txt)
 
 int write_to_descriptor(int desc, const char* txt)
 {
-    int sofar, thisround, total;
+    return write_to_descriptor(desc, txt, strlen(txt));
+}
 
-    total = strlen(txt);
-    sofar = 0;
+int write_to_descriptor(int desc, const char* text, std::size_t length)
+{
+    std::size_t sofar = 0;
+    const std::size_t total = length;
+    ssize_t thisround;
 
     if (desc <= 0) {
         return 0;
@@ -1997,7 +2001,7 @@ int write_to_descriptor(int desc, const char* txt)
 
     try {
         do {
-            thisround = write(desc, txt + sofar, total - sofar);
+            thisround = write(desc, text + sofar, total - sofar);
             if (thisround < 0) {
                 if ((errno == EAGAIN || errno == EWOULDBLOCK) && sofar == 0) {
                     /* Kernel send buffer is momentarily full and nothing from this
@@ -2014,7 +2018,7 @@ int write_to_descriptor(int desc, const char* txt)
                 perror("Write to socket");
                 return (-1);
             }
-            sofar += thisround;
+            sofar += static_cast<std::size_t>(thisround);
         } while (sofar < total);
     } catch (...) {
         vmudlog(NRM, "Exception in write_to_descriptor");

@@ -403,8 +403,10 @@ void ProtocolInput(const descriptor_t* descriptor, const char* data, int size, c
 // "!!SOUND(" in text is sent as "!?SOUND(".
 std::string_view ProtocolOutput(const descriptor_t* descriptor, std::string_view text);
 
-// Sends every reported, dirty variable through MSDPSend and marks each one it sends clean; the
-// others stay dirty for a later call. A null descriptor does nothing.
+// Sends every reported, dirty variable as MSDPSend does and marks each one it sends clean. A value
+// too long to send is logged and marked clean too, so it is logged again only once something marks
+// it dirty. Any other variable not sent stays dirty for a later call, and a failed write also ends
+// the call, so the variables after it stay dirty as well. A null descriptor does nothing.
 void MSDPUpdate(const descriptor_t* descriptor);
 
 // MSDPUpdate for one variable; an invalid variable does nothing. Call it after setting a variable
@@ -417,9 +419,10 @@ void MSDPFlush(const descriptor_t* descriptor, variable_t variable);
 void MSDPMarkAllReportedDirty(const descriptor_t* descriptor);
 
 // Sends variable's value over MSDP, or over ATCP for a client without MSDP, and returns whether
-// it sent. It sends only for a logged-in character with PRF_MSDP on. It returns false, sending
-// nothing, for a null descriptor, an invalid variable, a client with neither protocol, or a
-// message too long for MAX_VARIABLE_LENGTH, which is logged. The dirty flag is left alone.
+// the whole message was written. It sends only for a logged-in character with PRF_MSDP on. It
+// returns false, sending nothing, for a null descriptor, an invalid variable, a client with
+// neither protocol, or a message too long for MAX_VARIABLE_LENGTH, which is logged; and it
+// returns false when the write fails. The dirty flag is left alone.
 bool MSDPSend(const descriptor_t* descriptor, variable_t variable);
 
 // Sends name and value at once as an MSDP variable, or over ATCP for a client without MSDP, with

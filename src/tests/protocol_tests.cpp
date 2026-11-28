@@ -16,6 +16,7 @@
 #include "scoped_exit_test_rooms.h"
 #include "test_cleanup.h"
 
+#include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <iterator>
@@ -3561,14 +3562,14 @@ TEST(ProtocolHandshake, UnknownOptionsAreRefusedAndTheirRefusalsIgnored)
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
-TEST(ProtocolHandshake, RefusalOfTheBinaryOptionLosesItsOptionByte)
+TEST(ProtocolHandshake, RefusalOfTheBinaryOptionKeepsItsZeroOptionByte)
 {
     ProtocolDescriptor context;
-    const std::string refuse_will = { static_cast<char>(IAC), static_cast<char>(WONT) };
-    const std::string refuse_do = { static_cast<char>(IAC), static_cast<char>(DONT) };
 
-    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_BINARY)), refuse_will);
-    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_BINARY)), refuse_do);
+    EXPECT_EQ(reply_to(context, telnet_sequence(DO, TELOPT_BINARY)),
+        telnet_sequence(WONT, TELOPT_BINARY));
+    EXPECT_EQ(reply_to(context, telnet_sequence(WILL, TELOPT_BINARY)),
+        telnet_sequence(DONT, TELOPT_BINARY));
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
@@ -4197,6 +4198,150 @@ TEST(MSDPProtocol, SendLogsAndDropsAStringThatFillsTheBuffer)
     EXPECT_NE(logged.find("MSDPSend: CHARACTER_NAME 4096 bytes (exceeds MAX_VARIABLE_LENGTH of 4096)."),
         std::string::npos)
         << logged;
+}
+
+// Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
+TEST(MSDPProtocol, UpdateLogsAValueTooLongToSendOnceAndSendsItOnceItFits)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    // The framing allowance MSDPSend's limit adds to the name and value lengths.
+    constexpr std::size_t packet_overhead = 12;
+    const std::string name = "CHARACTER_NAME";
+    const std::string too_long_value(MAX_VARIABLE_LENGTH - name.size() - packet_overhead, 'A');
+    enable_msdp_reports(protocol, { eMSDP_CHARACTER_NAME });
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, too_long_value.c_str());
+
+    testing::internal::CaptureStderr();
+    MSDPUpdate(&context.descriptor);
+    const std::string first_pulse_log = testing::internal::GetCapturedStderr();
+    testing::internal::CaptureStderr();
+    MSDPUpdate(&context.descriptor);
+    const std::string second_pulse_log = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(first_pulse_log.find("MSDPSend: CHARACTER_NAME 4096 bytes"), std::string::npos)
+        << first_pulse_log;
+    EXPECT_EQ(second_pulse_log, "");
+    EXPECT_FALSE(protocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+    EXPECT_EQ(context.read_output(), "");
+
+    const std::string other_too_long_value(too_long_value.size(), 'B');
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, other_too_long_value.c_str());
+    testing::internal::CaptureStderr();
+    MSDPFlush(&context.descriptor, eMSDP_CHARACTER_NAME);
+    const std::string flush_log = testing::internal::GetCapturedStderr();
+
+    EXPECT_NE(flush_log.find("MSDPSend: CHARACTER_NAME 4096 bytes"), std::string::npos)
+        << flush_log;
+    EXPECT_FALSE(protocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+
+    MSDPSetString(&context.descriptor, eMSDP_CHARACTER_NAME, "Aragorn");
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(), expected_msdp_pair(name, "Aragorn"));
+    EXPECT_FALSE(protocol->variables.is_dirty(eMSDP_CHARACTER_NAME));
+}
+
+// Makes a socket non-blocking for the scope's life, then restores its flags.
+class ScopedNonBlockingSocket {
+public:
+    explicit ScopedNonBlockingSocket(int socket)
+        : m_socket(socket)
+        , m_saved_flags(fcntl(socket, F_GETFL, 0))
+    {
+        if (m_saved_flags >= 0) {
+            m_non_blocking = fcntl(socket, F_SETFL, m_saved_flags | O_NONBLOCK) == 0;
+        }
+    }
+
+    ~ScopedNonBlockingSocket()
+    {
+        if (m_non_blocking) {
+            fcntl(m_socket, F_SETFL, m_saved_flags);
+        }
+    }
+
+    ScopedNonBlockingSocket(const ScopedNonBlockingSocket&) = delete;
+    ScopedNonBlockingSocket& operator=(const ScopedNonBlockingSocket&) = delete;
+
+    // Whether the socket was made non-blocking.
+    bool is_non_blocking() const { return m_non_blocking; }
+
+private:
+    // The socket whose flags are changed; the caller owns it.
+    int m_socket;
+    // The socket's flags before the change, or -1 when they could not be read.
+    int m_saved_flags;
+    // Whether the change was made, so the destructor restores m_saved_flags.
+    bool m_non_blocking = false;
+};
+
+// Writes to socket, which must be non-blocking, until even a one-byte write would block, so its
+// send buffer is full. Returns false if a write fails for another reason.
+bool fill_socket(int socket)
+{
+    const std::string filler(4096, 'F');
+    std::size_t write_length = filler.size();
+    while (true) {
+        const ssize_t written = write(socket, filler.data(), write_length);
+        if (written < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                return false;
+            }
+            if (write_length == 1) {
+                return true;
+            }
+            write_length /= 2;
+        }
+    }
+}
+
+// No portable test can fill a socket: standard C++ has no sockets, so this one fills the server
+// end of ProtocolDescriptor's POSIX socket pair until a write would block.
+TEST(MSDPProtocol, AFailedWriteKeepsTheVariableAndTheRestOfThePulseDirty)
+{
+    ScopedDescriptorList descriptor_list_scope;
+    ProtocolDescriptor context;
+    protocol_t* protocol = context.descriptor.pProtocol;
+    // The reported variables, in the order MSDPUpdate sends them.
+    const std::vector<variable_t> reported_variables
+        = { eMSDP_HEALTH, eMSDP_MANA, eMSDP_MOVEMENT, eMSDP_ROOM_NAME };
+    enable_msdp_reports(protocol, reported_variables);
+    MSDPSetNumber(&context.descriptor, eMSDP_HEALTH, 45);
+    MSDPSetNumber(&context.descriptor, eMSDP_MANA, 12);
+    MSDPSetNumber(&context.descriptor, eMSDP_MOVEMENT, 80);
+    // A value too long to send, which MSDPUpdate logs and marks clean if it goes on past the
+    // failed write.
+    const std::string too_long_room_name(MAX_VARIABLE_LENGTH, 'R');
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, too_long_room_name.c_str());
+    const ScopedNonBlockingSocket non_blocking(context.descriptor.descriptor);
+    ASSERT_TRUE(non_blocking.is_non_blocking());
+    ASSERT_TRUE(fill_socket(context.descriptor.descriptor));
+
+    EXPECT_FALSE(MSDPSend(&context.descriptor, eMSDP_HEALTH));
+    MSDPFlush(&context.descriptor, eMSDP_HEALTH);
+    EXPECT_TRUE(protocol->variables.is_dirty(eMSDP_HEALTH));
+
+    testing::internal::CaptureStderr();
+    MSDPUpdate(&context.descriptor);
+    const std::string full_pulse_log = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(full_pulse_log, "");
+    for (const variable_t variable : reported_variables) {
+        EXPECT_TRUE(protocol->variables.is_dirty(variable)) << variable;
+    }
+
+    context.read_output();
+    MSDPSetString(&context.descriptor, eMSDP_ROOM_NAME, "Bree");
+    MSDPUpdate(&context.descriptor);
+
+    EXPECT_EQ(context.read_output(),
+        expected_msdp_pair("HEALTH", "45") + expected_msdp_pair("MANA", "12")
+            + expected_msdp_pair("MOVEMENT", "80") + expected_msdp_pair("ROOM_NAME", "Bree"));
+    for (const variable_t variable : reported_variables) {
+        EXPECT_FALSE(protocol->variables.is_dirty(variable)) << variable;
+    }
 }
 
 // Reads the wire through ProtocolDescriptor's socket pair; nothing portable sees the bytes.
