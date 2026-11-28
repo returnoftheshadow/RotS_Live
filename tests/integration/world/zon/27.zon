@@ -1,0 +1,11 @@
+#27
+Harness warband inn~
+Zone for the follower rent-cycle scenario: an inn, its yard and a track, where an orc captain's mounted warband follows him through rent, login and a service stop. Map (24, 15).
+~
+~
+0
+? 24 15 5
+2799
+999
+2
+S

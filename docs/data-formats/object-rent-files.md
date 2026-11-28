@@ -40,7 +40,7 @@ RENT_CAMP 3, RENT_FORCED 4, RENT_TIMEDOUT 5, RENT_QUIT 6`.
 
 ### `obj_file_elem` — one per object (`structs.h:1842`)
 ```c
-sh_int item_number_deprecated; // legacy id; set to DEPRECATED_ID_VALUE(-255) by new saves
+sh_int item_number_deprecated; // legacy id; new saves set a marker: -255, -254 or -253 (below)
 sh_int value[5];
 int    extra_flags;
 int    weight;
@@ -54,7 +54,14 @@ int    item_number;          // object VNUM (was spare2; widened to int)
 Notes (`Crash_obj2store:635`):
 - `item_number` holds the object **vnum** (`obj_index[...].virt`), or a negative special.
 - New saves stamp `item_number_deprecated = DEPRECATED_ID_VALUE` so loaders can tell new
-  from old records.
+  from old records. Two more markers say that something follows the record:
+  - `VERSIONED_ID_VALUE (-254)`: one `int`, the copy's object version
+    (`obj_flag_data::version`). Written only for an object whose version is not 0.
+  - `ENCHANTED_ID_VALUE (-253)`: one `obj_file_extra` — the version, then
+    `MAX_OBJ_ENCHANT` (4) `obj_enchant_type` slots `{byte type; byte align; sh_int amount;}`.
+    Written only for an object carrying an enchant (`obj_data::enchants`).
+  A record with neither is byte-for-byte what it always was. A server built before these
+  markers cannot read a file that holds one.
 - Special case: for `generic_scalp` objects, the player-id is stashed in `extra_flags`
   (because ids exceed `sh_int`); scalp loading reverses this and zeroes `extra_flags`
   (`:663-668`).
@@ -87,9 +94,30 @@ In write order:
    `follower_file_elem` whose `fol_vnum = -17`.
 
 ## Sentinels
-- `SENTINEL_ITEM_ID_VALUE = -17`, `DEPRECATED_ID_VALUE = -255` (`structs.h:1840-1841`).
+- `SENTINEL_ITEM_ID_VALUE = -17`, `DEPRECATED_ID_VALUE = -255`, `VERSIONED_ID_VALUE = -254`,
+  `ENCHANTED_ID_VALUE = -253` (`structs.h`).
 - Follower list terminator: `follower_file_elem.fol_vnum == -17` (`:749`).
 - Per-follower eq terminator: `obj_file_elem.item_number == -17` (`:688`).
+
+## The account copy (`<name>.objects.json`)
+A character on an account keeps its objects as JSON (`objects_json.cpp`); the binary form above
+is what the game loads from and saves to, converted on the way in and out. Per object the JSON
+adds two optional keys: `"version"` (absent = 0) and `"enchants"`, a list of
+`{"type": "ob", "amount": 6, "align": "good" | "evil" | "neutral"}` (absent = none).
+
+The file's top-level `"version"` is its schema:
+- `2` (`OBJECTS_SCHEMA_VERSION`): every save the game writes. An enchant is in the list or it
+  is not an enchant.
+- `1` (`OBJECTS_SCHEMA_VERSION_UNRECORDED_ENCHANTS`): written before enchants were recorded,
+  and by the conversion of a legacy `.obj` when a character is claimed. An enchant weapon cast
+  in such a file is only what the spell left: `ITEM_MAGIC` and +6 OB as the one affect. The
+  first login from it records those (`record_old_object_enchants`, `db.cpp`), except on the
+  weapons built that way (vnums 5039, 5410, 5614), and the next save is schema 2.
+
+A server built before schema 2 refuses a schema 2 file, so the character cannot be loaded there.
+
+A linked character with no account copy at all, only a bare `.obj`, is not a normal state. That
+file carries no schema number, so the same recording runs each time it is loaded.
 
 ## RotS-specific notes
 - Followers/mounts persistence (with per-follower eq blocks) is richer than stock Diku rent.

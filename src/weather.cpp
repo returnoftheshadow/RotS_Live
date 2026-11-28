@@ -8,14 +8,17 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include <iterator>
 #include <stdio.h>
 
 #include "comm.h"
 #include "db.h"
+#include "game_time_text.h"
 #include "interpre.h"
 #include "protocol.h"
 #include "structs.h"
 #include "utils.h"
+#include "weather.h"
 
 #define WEATHER_MESSAGE_RISE 0
 #define WEATHER_MESSAGE_SET 1
@@ -153,25 +156,20 @@ const char* weather_messages[8][13] = {
 void weather_and_time(int mode);
 void another_hour(int mode);
 void weather_change(void);
-void weather_to_char(char_data* ch);
+void weather_to_char(const char_data* ch);
 
 extern char* moon_phase[];
 
-void send_msdp_function(void (*func)(descriptor_data* desc))
+// weather_messages[] entries end in "\n\r" for direct display to the
+// terminal; MSDP values are discrete data, not display text, so strip it.
+// The result views text.
+std::string_view strip_trailing_line_break(std::string_view text)
 {
-    extern struct descriptor_data *descriptor_list;
-
-    for(auto desc = descriptor_list; desc; desc = desc->next) {
-        if (!desc->character || IS_NPC(desc->character)) {
-            continue;
-        }
-
-        if (!desc->pProtocol) {
-            continue;
-        }
-
-        func(desc);
+    std::string_view result = text;
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.remove_suffix(1);
     }
+    return result;
 }
 
 int get_sun_level(int room)
@@ -314,16 +312,66 @@ int sector_age_value(int sector_type)
     }
 }
 
-void weather_to_char(char_data* ch)
+const char* weather_message_for_sector(int sector_type)
 {
-    int sector_type, weather_type;
+    constexpr int SECTOR_COUNT = static_cast<int>(std::size(weather_info.sky));
+    constexpr int MESSAGE_ROWS = static_cast<int>(std::size(weather_messages));
+    static_assert(std::size(weather_info.sky) == std::size(weather_messages[0]),
+        "weather_messages needs one column per sector");
 
-    sector_type = world[ch->in_room].sector_type;
-    weather_type = weather_info.sky[world[ch->in_room].sector_type];
-    if (OUTSIDE(ch))
-        send_to_char(weather_messages[weather_type + 2][sector_type], ch);
-    else
-        send_to_char("You can have no feeling about the weather here.\n\r", ch);
+    if (sector_type < 0 || sector_type >= SECTOR_COUNT) {
+        char complaint[MAX_STRING_LENGTH];
+        snprintf(complaint, sizeof(complaint), "SYSERR: weather_message_for_sector: sector type %d is not a sector.",
+            sector_type);
+        log(complaint);
+        return NULL;
+    }
+
+    // Sky values start at SKY_CLOUDLESS (0); the rows before it are sunrise and sunset.
+    constexpr int FIRST_SKY_ROW = WEATHER_MESSAGE_SET + 1;
+    const int message_row = weather_info.sky[sector_type] + FIRST_SKY_ROW;
+    if (message_row < FIRST_SKY_ROW || message_row >= MESSAGE_ROWS) {
+        char complaint[MAX_STRING_LENGTH];
+        snprintf(complaint, sizeof(complaint), "SYSERR: weather_message_for_sector: sector %d has sky value %d.",
+            sector_type, weather_info.sky[sector_type]);
+        log(complaint);
+        return NULL;
+    }
+    return weather_messages[message_row][sector_type];
+}
+
+void weather_to_char(const char_data* ch)
+{
+    const char* const NO_FEELING = "You can have no feeling about the weather here.\n\r";
+    if (!OUTSIDE(ch)) {
+        send_to_char(NO_FEELING, ch);
+        return;
+    }
+
+    const char* message = weather_message_for_sector(world[ch->in_room].sector_type);
+    if (message == NULL) {
+        send_to_char(NO_FEELING, ch);
+        return;
+    }
+    send_to_char(message, ch);
+}
+
+std::string_view msdp_weather_value(const char_data* character)
+{
+    constexpr std::string_view no_feeling = "You can have no feeling about the weather here.";
+    if (character == NULL) {
+        log("SYSERR: msdp_weather_value: no character");
+        return no_feeling;
+    }
+    if (!OUTSIDE(character)) {
+        return no_feeling;
+    }
+
+    const char* message = weather_message_for_sector(world[character->in_room].sector_type);
+    if (message == NULL) {
+        return no_feeling;
+    }
+    return strip_trailing_line_break(message);
 }
 
 void age_bleed_tracks()
@@ -414,15 +462,7 @@ void another_hour(int mode)
     age_room_tracks();
     age_bleed_tracks();
 
-    send_msdp_function([](descriptor_data* desc) {
-        char time[64];
-        sprintf(time, "It is about %d:00 %s on ",
-        time_info.hours % 12 == 0 ? 12 : time_info.hours % 12,
-        time_info.hours >= 12 ? "PM" : "AM");
-
-        MSDPSetString(desc, eMSDP_WORLD_TIME, time);
-        MSDPSend(desc, eMSDP_WORLD_TIME);
-    });
+    game_time_text::refresh();
 }
 
 void weather_change(void)
@@ -545,20 +585,13 @@ void weather_change(void)
     for (SectorType = 1; SectorType < 13; SectorType++)
         send_to_sector(weather_messages[weather_info.sky[SectorType] + 2][SectorType], SectorType);
 
-    extern struct descriptor_data *descriptor_list;
-
-    send_msdp_function([](descriptor_data* desc) {
-        auto sector_type = world[desc->character->in_room].sector_type;
-        auto weather_type = weather_info.sky[sector_type];
-        if (OUTSIDE(desc->character)) {
-            MSDPSetString(desc, eMDSP_WEATHER, weather_messages[weather_type + 2][sector_type]);
-        } else {
-            MSDPSetString(desc, eMDSP_WEATHER, "You can have no feeling about the weather here.");
-        }
-        MSDPSend(desc, eMDSP_WEATHER);
-    });
+    // WEATHER MSDP variable is recomputed and sent every pulse by
+    // msdp_update() (comm.cpp), which already picks up this change within
+    // the same pulse (weather_and_time() runs before msdp_update() in the
+    // main loop) — an additional immediate push here only duplicated the
+    // send, since MSDPSend() doesn't clear the dirty flag msdp_update()
+    // checks next.
 }
-
 
 //=============================================================================
 int get_sunlight_level(int current_time, int sun_rise_time, int sun_set_time)

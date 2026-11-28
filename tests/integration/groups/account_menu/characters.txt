@@ -1,0 +1,1 @@
+new character names are refused or offered for confirmation, and a renamed character's account files move with it

@@ -1,0 +1,1 @@
+help color, ansi, set and uruk entries; color slots and replies; set preferences and stat flag lines; wizset field matching; stat obj flags and absorb; known bugs as strict xfails

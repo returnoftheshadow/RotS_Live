@@ -1,0 +1,1 @@
+wands and staves: what a wand's spell does to its user or an object, and the charges it has

@@ -52,6 +52,9 @@ public:
         m_pInstance = &theInstance;
     }
 
+    // Whether create has made the instance yet.
+    static bool is_created() { return m_pInstance != nullptr; }
+
     static T& instance()
     {
         if (!m_pInstance) {
@@ -76,7 +79,12 @@ protected:
     {
     }
 
-    virtual ~world_singleton() { }
+    // The instance is a function-local static, destroyed at exit; is_created() is false after.
+    virtual ~world_singleton()
+    {
+        m_pInstance = nullptr;
+        m_bDestroyed = true;
+    }
 
     const weather_data& get_weather() const { return *m_weather; }
     const room_data* get_world() const { return m_world; }

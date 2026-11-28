@@ -15,9 +15,11 @@
 #include <cmath>
 
 #include "comm.h" // for send_to_char
+#include <chrono>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 
@@ -86,7 +88,8 @@ bool is_affected_by(const char_data& character, long skill_id)
     return utils::is_set(character.specials.affected_by, skill_id);
 }
 
-const bool is_fighting(const char_data& character) {
+const bool is_fighting(const char_data& character)
+{
     return character.specials.fighting;
 }
 
@@ -104,17 +107,17 @@ void set_spirits(char_data* character, int spirits)
     }
 }
 
-int get_spirits(char_data* character)
+int get_spirits(const char_data* character)
 {
     return character->points.spirit;
 }
 
-int get_current_moves(char_data* character)
+int get_current_moves(const char_data* character)
 {
     return character->tmpabilities.move;
 }
 
-int get_max_moves(char_data* character)
+int get_max_moves(const char_data* character)
 {
     return character->abilities.move;
 }
@@ -292,6 +295,39 @@ const char* get_name(const char_data& character)
         return character.player.short_descr;
 
     return character.player.name;
+}
+
+//============================================================================
+namespace {
+    // The world time that one game hour (tick) lasts.
+    constexpr std::chrono::seconds GAME_HOUR_LENGTH(SECS_PER_MUD_HOUR);
+
+    // GAME_HOUR_LENGTH in WorldClock's own units.
+    constexpr WorldClock::duration GAME_HOUR_IN_WORLD_TIME = GAME_HOUR_LENGTH;
+
+    // The longest WorldClock span, counted in game hours. get_mob_age_in_ticks() narrows ages to
+    // int on the strength of this bound.
+    constexpr WorldClock::rep MOST_GAME_HOURS_IN_A_WORLD_SPAN
+        = std::numeric_limits<WorldClock::rep>::max() / GAME_HOUR_IN_WORLD_TIME.count();
+    static_assert(MOST_GAME_HOURS_IN_A_WORLD_SPAN <= std::numeric_limits<int>::max(),
+        "A WorldClock span counted in game hours must fit in an int.");
+}
+
+//============================================================================
+int get_mob_age_in_ticks(const char_data& mob, WorldClock::time_point now)
+{
+    const WorldClock::duration age = now - mob.spawned_at;
+    const WorldClock::rep age_in_ticks = age / GAME_HOUR_LENGTH;
+    if (age_in_ticks < 0) {
+        return 0;
+    }
+    return static_cast<int>(age_in_ticks);
+}
+
+//============================================================================
+void set_mob_age_in_ticks(char_data& mob, int ticks, WorldClock::time_point now)
+{
+    mob.spawned_at = now - ticks * GAME_HOUR_LENGTH;
 }
 
 //============================================================================
@@ -1710,8 +1746,17 @@ std::string player_damage_details::get_damage_report(const char_data* character)
             const attack_hit_type& hit_text = get_hit_text(ability_index);
             sprintf(ability_name, "%-24s", hit_text.singular);
         } else {
-            const skill_data& skill = skills[iter->first];
-            sprintf(ability_name, "%-24s", skill.name);
+            // Only skills have names here; other attack types (TYPE_SUFFERING) get a numbered label.
+            const char* skill_name = nullptr;
+            if (ability_index >= 0 && ability_index < MAX_SKILLS) {
+                skill_name = skills[ability_index].name;
+            }
+            char unnamed_label[sizeof(ability_name)];
+            if (skill_name == nullptr || *skill_name == '\0') {
+                snprintf(unnamed_label, sizeof(unnamed_label), "attack type %d", ability_index);
+                skill_name = unnamed_label;
+            }
+            snprintf(ability_name, sizeof(ability_name), "%-24s", skill_name);
         }
 
         const damage_details& details = iter->second;
@@ -1822,7 +1867,7 @@ bool group_data::remove_member(char_data* member)
 }
 
 //============================================================================
-bool group_data::is_member(struct char_data* character) const
+bool group_data::is_member(const struct char_data* character) const
 {
     return std::find(members.begin(), members.end(), character) != members.end();
 }

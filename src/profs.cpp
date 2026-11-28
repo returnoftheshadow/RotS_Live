@@ -17,6 +17,7 @@
 #include "warrior_spec_handlers.h"
 
 #include "char_utils.h"
+#include "account_management.h"
 #include <algorithm>
 #include <assert.h>
 #include <cmath>
@@ -34,18 +35,28 @@ extern struct char_data* character_list;
 extern int max_race_str[];
 extern struct obj_data* object_list;
 
-struct prof_type existing_profs[DEFAULT_PROFS] = {
-    { 'm', { 0, 100, 25, 16, 9 } },
-    { 't', { 0, 25, 100, 9, 16 } },
-    { 'r', { 0, 16, 9, 100, 25 } },
-    { 'w', { 0, 9, 16, 25, 100 } },
-    { 'n', { 0, 64, 64, 9, 13 } },
-    { 'i', { 0, 121, 16, 9, 4 } },
-    { 'h', { 0, 25, 121, 0, 4 } },
-    { 's', { 0, 9, 13, 64, 64 } },
-    { 'b', { 0, 0, 4, 25, 121 } },
-    { 'a', { 0, 36, 36, 36, 42 } },
-};
+namespace {
+
+bool should_defer_account_backed_birth_persistence(const char_data* character)
+{
+    if (character == nullptr || character->desc == nullptr || *character->desc->account_name == '\0')
+        return false;
+
+    switch (character->desc->connected) {
+    case CON_QSEX:
+    case CON_QRACE:
+    case CON_QPROF:
+    case CON_CREATE:
+    case CON_CREATE2:
+    case CON_COLOR:
+    case CON_LATIN:
+        return true;
+    default:
+        return false;
+    }
+}
+
+}
 
 sh_int race_modifiers[MAX_RACES][8] = {
     { 0, 0, 0, 0, 0, 0, 0, 0 }, // God
@@ -155,7 +166,7 @@ void draw_line(char* buf, int length)
     strcat(buf, buff);
 }
 
-void draw_coofs(char* buf, struct char_data* ch)
+void draw_coofs(char* buf, const struct char_data* ch)
 {
     char buf2[80];
 
@@ -180,11 +191,6 @@ void draw_coofs(char* buf, struct char_data* ch)
     draw_line(buf2, GET_PROF_COOF(4, ch) / 20);
     strcat(buf, buf2);
     strcat(buf, "\n\r\0");
-}
-
-int points_used(char_data* character)
-{
-    return GET_PROF_POINTS(PROF_MAGE, character) + GET_PROF_POINTS(PROF_CLERIC, character) + GET_PROF_POINTS(PROF_RANGER, character) + GET_PROF_POINTS(PROF_WARRIOR, character);
 }
 
 void advance_level_prof(int prof, char_data* character)
@@ -369,7 +375,7 @@ void check_stat_increase(char_data* character)
 }
 } // end anonymous helper namespace
 
-void check_for_special_levels(char_data* character)
+void check_for_special_levels(const char_data* character)
 {
     switch (GET_LEVEL(character)) {
     case 6:
@@ -391,6 +397,8 @@ void check_for_special_levels(char_data* character)
 
 void advance_level(char_data* character)
 {
+    const bool defer_account_birth_persistence = should_defer_account_backed_birth_persistence(character);
+
     send_to_char("You feel more powerful!\n\r", character);
 
     if (GET_LEVEL(character) >= LEVEL_IMMORT) {
@@ -404,11 +412,11 @@ void advance_level(char_data* character)
     mudlog(buf, BRF, std::max(LEVEL_IMMORT, GET_INVIS_LEV(character)), TRUE);
 
     /* log following levels in exploits */
-    if ((GET_LEVEL(character) == 6) || ((GET_LEVEL(character) > 6) && !(GET_LEVEL(character) % 5)))
+    if (!defer_account_birth_persistence && ((GET_LEVEL(character) == 6) || ((GET_LEVEL(character) > 6) && !(GET_LEVEL(character) % 5))))
         add_exploit_record(EXPLOIT_LEVEL, character, GET_LEVEL(character), NULL);
 
     /* add birth exploit */
-    if (GET_LEVEL(character) == 1) {
+    if (!defer_account_birth_persistence && GET_LEVEL(character) == 1) {
         add_exploit_record(EXPLOIT_BIRTH, character, 0, NULL);
     }
 
@@ -426,7 +434,8 @@ void advance_level(char_data* character)
 
     character->update_available_practice_sessions();
 
-    save_char(character, NOWHERE, 0);
+    if (!defer_account_birth_persistence)
+        save_char(character, NOWHERE, 0);
 }
 
 namespace {

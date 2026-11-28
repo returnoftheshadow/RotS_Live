@@ -67,6 +67,11 @@ the ceiling and a cold draft comes from the north.
 ### Virtual vs real numbers
 Files reference **virtual numbers** (vnums). After load, `renum_world`/`renum_zone_table`
 convert them to **real** array indices (`db.cpp:926`, `zone.cpp:173`). On-disk = always vnums.
+Zone commands are converted in place, so the original vnum only exists during
+`renum_zone_one`: that is where a vnum that names nothing is reported (and the command
+disabled when the vnum is required). Scripts keep their vnums and convert them when each
+line runs; `check_script_table` reports bad ones at boot. Builder-facing messages are
+listed in `shape_zone.md` and `shape_script.md` ("Error messages").
 
 ---
 
@@ -142,6 +147,26 @@ Notes:
 - Most of these (energy/regen, OB/parry/dodge, perception, resistance/vulnerability,
   spirit, prof, languages, script_number, butcher_item, rp_flag) are **RotS additions**;
   stock Diku mobiles are far simpler.
+- **Options (optional, RotS 2026-09):** one `~`-terminated text block after the last number
+  line, present only when the mob has options. The loader reads it only when the next
+  non-space character isn't `#` or `$` (`read_mob_options`, `src/mob_options.cpp`). Text
+  can't contain `~` or `#` anywhere, and can't start with `$`; max 4000 characters. Used by
+  mob programs; see `docs/systems/barter-vendors.md`. **Rollback:** a server older than
+  this change can't read a mob file containing an options block, and fails unpredictably:
+  its loader reads the next word into `char chk[10]` with an unbounded `%s`, so a line like
+  `store=12345` overruns it (the boot may stop with `Format error in mob file`, or crash). To roll back, (a) remove every options block from the mob files
+  **and** (b) move field 29 (program number) off 33, or clear `MOB_SPEC`, on every vendor
+  mob — otherwise the old binary crashes when a player looks at a program-33 mob (it reads
+  `spec_pro_message[33]`, past the end of its table).
+- **There is no affect list on a mobile.** The record ends at the
+  `language … will_teach` line above (or the options block, if any) and the parser moves straight to the next `#vnum`.
+  Objects carry `MAX_OBJ_AFFECT` `A <location> <modifier>` slots; mobiles have no
+  equivalent, so a mob cannot carry `APPLY_SPELL` (or any other apply) in its own record.
+- Consequently `resistance`/`vulnerability` are **flag-only: a bit, with no strength**.
+  A mob can be "resistant to fire" but not "80 % resistant to fire". To give a mob a
+  graded resistance, put `A 27 <strength*256 + spell>` on an object and equip it with the
+  zone `E` command — that path runs `equip_char` (`zone.cpp:844`) and produces a real
+  affect. See `docs/shape_mob.md` for the bit table and the builder recipe.
 
 ---
 
@@ -157,8 +182,11 @@ Per record:
 <type_flag> <extra_flags> <wear_flags>
 <value0> <value1> <value2> <value3> <value4>
 <weight> <cost> <cost_per_day>
-<level> <rarity> <material> <script_number> <reserved>
+<level> <rarity> <material> <script_number> <version>
 ```
+A skin (see `docs/systems/object-skins.md`) has a 7-number level line, `... <version> <skin_base>
+<skin_own>`; a plain object has 5. An old 4-number line reads as version 0. The line is read by
+`read_object_level_line` (`object_skins.cpp:151`).
 Then, optionally:
 - Zero or more `E` extra-description blocks: `E` then `<keyword>~` `<description>~`
   (`:1548`).
@@ -169,7 +197,17 @@ Notes:
 - `value[0..4]` meaning depends on `type_flag` (weapon dice, container capacity, light
   duration, etc.) — to be enumerated in the Objects system doc.
 - `level`, `rarity`, `material`, `script_number` are **RotS additions** (`:1531-1535`);
-  a 5th int on that line is read but currently unused. The old `poisoned`/`poisondata`
+  the 5th int is the object `version` (`obj_flag_data::version`): `0` = never versioned,
+  `N` = on, `-N` = off (keeps `N` for the next bump). Set only through the object editor's
+  field 22 (bump / off). When it is on and a player's saved copy holds a different number, the
+  copy's affects, extra flags (except `ITEM_BROKEN`) and bitvector are refreshed from the
+  prototype at login, or when it is withdrawn from a bank vault; an enchant recorded on the
+  copy is put back if the object can still take it
+  (`refresh_object_to_prototype_version`, `utility.cpp`; called from `Crash_refresh_object`).
+  The copy's version is saved with it: an optional `"version"` in the character's objects
+  JSON, and in the binary record after a `VERSIONED_ID_VALUE` or `ENCHANTED_ID_VALUE` marker
+  (`structs.h`; see `object-rent-files.md`).
+  The old `poisoned`/`poisondata`
   fields are commented out (`:1536-1540`).
 
 ---
@@ -204,6 +242,8 @@ Each command is:
   others read five args (`load_zones:127-143`).
 - `S` terminates the command list (`:98`).
 - The trailing text on each line is a human comment (only preserved by the OLC `shapezon`).
+- The `int` args are read with `%hd` (16-bit): a negative vnum reads back as 65536+n and
+  `-1`/NOWHERE as `65535`.
 
 The RotS command letters seen in `renum_zone_one` (`zone.cpp:196-`) include at least
 `A`, `L`, `M`, `N`, `X`, `H`, `E`, `K`, `Q`, `P` — a richer set than Diku's

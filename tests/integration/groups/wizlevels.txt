@@ -1,0 +1,1 @@
+teleport needs level 93 and refuses malformed requests; shutdown is refused at level 95 and reached at 96, where an unknown option shuts nothing down

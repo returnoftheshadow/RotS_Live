@@ -34,7 +34,7 @@ public:
         int command, int sub_command, int priority, long affect_flag);
 
     void wait_state_full(char_data* character, int cycle, int command,
-        int sub_command, int priority, int delay_flag, signed short ch_num,
+        int sub_command, int priority, int delay_flag, int ch_num,
         void* argument, long affect_flag, signed char data_type);
 
     void abort_delay(char_data* wait_ch);
@@ -45,7 +45,7 @@ public:
     void update();
 
 private:
-    bool in_waiting_list(char_data* ch);
+    bool in_waiting_list(const char_data* ch);
 
 private:
     // TODO(dgurley):  Use a more efficient data structure once you

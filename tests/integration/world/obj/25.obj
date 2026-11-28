@@ -1,0 +1,100 @@
+#2500
+bell small~
+a small bell~
+A small bell hangs here by the arch.~
+~
+12 0 0
+0 0 0 0 0
+1 0 -1
+0 0 0 2550 0
+#2501
+lantern paper~
+a paper lantern~
+A paper lantern hangs here.~
+~
+12 0 0
+0 0 0 0 0
+1 0 -1
+0 0 0 2551 0
+#2503
+diadem thorned~
+a thorned diadem~
+A thorned diadem lies here.~
+~
+9 0 17
+0 0 0 0 0
+5 10 -1
+0 0 0 2553 0
+#2504
+coronet silver~
+a silver coronet~
+A silver coronet lies here.~
+~
+9 0 17
+0 0 0 0 0
+5 10 -1
+0 0 0 2554 0
+#2505
+lever iron~
+an iron lever~
+An iron lever juts from the wall beside the hatch.~
+~
+25 0 0
+2501 1 0 0 0
+50 0 -1
+0 0 0 2555 0
+#2506
+ledger~
+a ledger~
+A ledger lies here.~
+Columns of small figures fill the ledger.~
+12 0 1
+0 0 0 0 0
+2 0 -1
+0 0 0 2556 0
+#2507
+cake honey~
+a honey cake~
+A honey cake lies here.~
+~
+19 0 1
+2 0 0 0 0
+1 0 -1
+0 0 0 2557 0
+#2508
+water flask~
+a flask~
+A flask lies here.~
+~
+17 0 1
+5 1 0 0 0
+2 0 -1
+0 0 0 2558 0
+#2509
+biscuit dry~
+a dry biscuit~
+A dry biscuit lies here.~
+~
+19 0 1
+2 0 0 0 0
+1 0 -1
+0 0 0 2559 0
+#2510
+ribbon black~
+a black ribbon~
+A black ribbon lies here.~
+~
+12 0 1
+0 0 0 0 0
+1 0 -1
+0 0 0 0 0
+#2511
+crank rusted~
+a rusted crank~
+A rusted crank juts from the wall beside the hatch.~
+~
+25 0 0
+2501 1 0 0 0
+50 0 -1
+0 0 0 2561 0
+#99999

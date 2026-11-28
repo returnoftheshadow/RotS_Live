@@ -9,6 +9,7 @@
 
 #include "big_brother.h"
 #include "structs.h"
+#include "world_clock.h"
 #include <algorithm>
 #include <assert.h>
 #include <set>
@@ -444,7 +445,7 @@ void on_attacked_character(char_data* attacker, char_data* victim)
 {
     /* Give anger */
     if (victim && !IS_NPC(attacker) && (victim != attacker)) {
-        affected_type affect;
+        affected_type affect{};
         affected_type* existing_affect;
 
         bool is_long_anger = is_victim_player(victim);
@@ -466,7 +467,8 @@ void on_attacked_character(char_data* attacker, char_data* victim)
             char_data* attacked_player = get_controlling_player(victim);
 
             game_rules::big_brother& bb_instance = game_rules::big_brother::instance();
-            bb_instance.on_character_attacked_player(attacker, attacked_player);
+            const WorldClock::time_point now = WorldClock::now();
+            bb_instance.on_character_attacked_player(attacker, attacked_player, now);
         }
     }
 }

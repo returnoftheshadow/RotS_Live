@@ -1,0 +1,1 @@
+the room editor: affections added, changed and removed, flags kept through /implement, and a room saved or implemented unedited

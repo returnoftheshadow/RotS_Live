@@ -1,26 +1,32 @@
-#Makefile for levgen
-CC = gcc
-FLAGS =  -g -w -Wall -Wformat -fstrict-aliasing -pedantic  -Wunused -Wuninitialized
-OBJFILES = config.o maz.o zon.o wld.o
+# Builds levgen, the maze-level generator that makmaz runs over the *.lev files.
+# Add -DWIN32 to CPPFLAGS for a Windows build.
 
-# Remove comment for MS Windows
-# FLAGS = -DWIN32
+MAKEFLAGS += --no-builtin-rules
+.SUFFIXES:
+.DELETE_ON_ERROR:
 
+ifeq ($(origin CC),default)
+CC := gcc
+endif
+# -w silences the legacy sources' warnings; drop it to see them.
+CFLAGS ?= -g -w -fstrict-aliasing
+DEPFLAGS = -MMD -MP
 
-all:	levgen
-clean:	
-	rm -f *.o
+OBJFILES := levgen.o config.o maz.o zon.o wld.o
+DEPFILES := $(OBJFILES:.o=.d)
 
+.DEFAULT_GOAL := all
+.PHONY: all clean
 
-# Dependencies for levgen
+all: levgen
 
-wld.o :	structs.h wld.c wld.h
-	$(CC) -c $(FLAGS) wld.c
-config.o : structs.h config.c config.h wld.h
-	$(CC) -c $(FLAGS) config.c
-maz.o : structs.h maz.c maz.h zon.h
-	$(CC) -c $(FLAGS) maz.c
-zon.o : structs.h zon.c zon.h wld.c wld.h maz.h
-	$(CC) -c $(FLAGS) zon.c
-levgen : structs.h levgen.c wld.c wld.h config.c config.h maz.c maz.h $(OBJFILES)
-	$(CC) $(FLAGS) levgen.c $(OBJFILES) -o levgen
+levgen: $(OBJFILES)
+	$(CC) $(LDFLAGS) -o $@ $(OBJFILES) $(LDLIBS)
+
+%.o: %.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+-include $(DEPFILES)
+
+clean:
+	$(RM) levgen $(OBJFILES) $(DEPFILES)

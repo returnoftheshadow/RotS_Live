@@ -1,0 +1,19 @@
+#2000
+doorwarden~
+a doorwarden~
+A doorwarden watches the tower door.~
+He runs program 22, vampire_doorkeep, which keeps the door between rooms 15345 and 15355.
+~
+3
+0 0 M
+5 10 0 0
+60 60
+2 0
+0 1000 0
+8 8 1 1 0
+150 70 22 0 0 0
+0 0 50 1
+0
+10 10 10 10 10 10
+0 10 0 0 0 100 0
+#99999

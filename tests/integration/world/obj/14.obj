@@ -1,0 +1,56 @@
+#1400
+circlet fire~
+a fire circlet~
+A thin circlet set with a red stone lies here.~
+~
+9 0 17
+0 0 0 0 0
+10 60 -1
+0 0 2 0 0
+A
+27 5281
+#1401
+pendant fire~
+a fire pendant~
+A pendant holding a flickering red stone lies here.~
+~
+11 0 5
+0 0 0 0 0
+5 60 -1
+0 0 2 0 0
+A
+27 10401
+#1402
+ring ember~
+an ember ring~
+A plain ring holding a dull ember lies here.~
+~
+11 0 3
+0 0 0 0 0
+1 60 -1
+0 0 2 0 0
+A
+30 1
+#1403
+band tinder~
+a tinder band~
+A dry wooden band lies here.~
+~
+11 0 3
+0 0 0 0 0
+1 60 -1
+0 0 2 0 0
+A
+31 1
+#1404
+bracelet kindling~
+a kindling bracelet~
+A bracelet of blackened twigs lies here.~
+~
+11 0 4097
+0 0 0 0 0
+2 60 -1
+0 0 2 0 0
+A
+27 161
+#99999

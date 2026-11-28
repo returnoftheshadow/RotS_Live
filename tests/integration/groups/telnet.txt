@@ -1,0 +1,1 @@
+the harness's telnet clients negotiate with the server: offers, refusals, the TTYPE cycle, CHARSET, MSDP, MSSP and MXP

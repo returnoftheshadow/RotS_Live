@@ -8,9 +8,11 @@
  *  CircleMUD is based on DikuMUD, Copyright (C) 1990, 1991.               *
  ************************************************************************ */
 
+#include "act_move.h"
 #include "char_utils.h"
 #include "comm.h"
 #include "db.h"
+#include "freed_watch.h"
 #include "handler.h"
 #include "interpre.h"
 #include "platdef.h"
@@ -26,6 +28,9 @@
 extern struct room_data world;
 
 #define RACE_SOME_ORC(caster) ((GET_RACE(caster) == RACE_URUK || GET_RACE(caster) == RACE_ORC || GET_RACE(caster) == RACE_MAGUS))
+
+int apply_spell_damage(char_data* caster, char_data* victim, int damage_dealt, int spell_number, int hit_location);
+bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
 
 int get_mage_caster_level(const char_data* caster)
 {
@@ -123,7 +128,6 @@ bool different_zone(int was_in, int to_room)
 extern struct obj_data* obj_proto;
 extern struct obj_data* object_list;
 extern struct char_data* character_list;
-extern void prohibit_item_stay_zone_move(char_data* ch, int was_in);
 extern int rev_dir[];
 extern int top_of_world;
 extern char* dirs[];
@@ -138,9 +142,9 @@ void list_char_to_char(struct char_data* list, struct char_data* caster, int mod
 // void do_stat_object(struct char_data *caster, struct obj_data *j);
 void stop_hiding(struct char_data* caster, char);
 ACMD(do_look);
-void do_identify_object(struct char_data*, struct obj_data*);
+void do_identify_object(const struct char_data*, struct obj_data*);
 
-char saves_spell(char_data* victim, sh_int caster_level, int bonus);
+char saves_spell(const char_data* victim, sh_int caster_level, int bonus);
 bool new_saves_spell(const char_data* caster, const char_data* victim, int save_bonus);
 
 /*
@@ -645,7 +649,7 @@ ASPELL(spell_shield)
         level += 5;
     }
 
-    affected_type af;
+    affected_type af{};
     af.type = SPELL_SHIELD;
     af.duration = level + 5;
     af.modifier = level * 5; /* % of HP */
@@ -669,7 +673,7 @@ ASPELL(spell_flash)
 {
     char_data* tmpch;
     affected_type* tmpaf;
-    affected_type newaf;
+    affected_type newaf{};
     int afflevel, maxlevel;
 
     if (caster->in_room < 0)
@@ -797,7 +801,11 @@ ASPELL(spell_summon)
     to_room = caster->in_room;
 
     if (different_zone(was_in, to_room)) {
-        prohibit_item_stay_zone_move(victim, was_in);
+        // Taking its gear off can kill or remove the victim: there is then nobody to summon.
+        const bool victim_remains = prohibit_item_stay_zone_move(victim, was_in);
+        if (!victim_remains) {
+            return;
+        }
     }
 
     ch_x = zone_table[world[caster->in_room].zone].x;
@@ -821,7 +829,7 @@ ASPELL(spell_summon)
         char_to_room(victim, caster->in_room);
         act("$N summons you!", FALSE, victim, 0, caster, TO_CHAR);
         do_look(victim, "", 0, 0, 0);
-        extern void msdp_room_update(char_data* ch);
+        extern void msdp_room_update(const char_data * ch);
 
         msdp_room_update(victim);
     } else
@@ -838,7 +846,7 @@ ASPELL(spell_summon)
 
 ASPELL(spell_identify)
 {
-    struct affected_type af;
+    struct affected_type af{};
 
     if (!obj) {
         send_to_char("You should cast this on objects only.\n\r", caster);
@@ -948,21 +956,26 @@ ASPELL(spell_blink)
         if (caster != victim)
             send_to_char("You relocated your victim.\n\r", caster);
         if (different_zone(was_in, room)) {
-            prohibit_item_stay_zone_move(caster, was_in);
+            // Taking the caster's gear off can kill or remove the caster, and the victim with it
+            // when they are one.
+            const bool caster_remains = prohibit_item_stay_zone_move(caster, was_in);
+            if (!caster_remains) {
+                return;
+            }
         }
         send_to_char("The world spinned around you, and changed.\n\r", victim);
         act("$n disappeared in a flash of light.\n\r", TRUE, victim, 0, 0, TO_ROOM);
         char_from_room(victim);
         char_to_room(victim, room);
         do_look(victim, "", 0, 15, 0);
-        extern void msdp_room_update(char_data* ch);
+        extern void msdp_room_update(const char_data * ch);
 
         msdp_room_update(victim);
         act("$n appeared in a flash of light.\n\r", TRUE, victim, 0, 0, TO_ROOM);
     }
 }
 
-bool is_teleportation_room_valid(room_data* room)
+bool is_teleportation_room_valid(const room_data* room)
 {
     // Don't teleport the caster into a room with people
     if (room->people)
@@ -992,7 +1005,7 @@ ASPELL(spell_relocate)
     int zon_start, zon_target, zon_try, dist, was_in;
     int x, y, del_x, del_y, tmp, tmp2, num, tmpnum;
     struct room_data* room;
-    struct affected_type af;
+    struct affected_type af{};
 
     if (caster->in_room == NOWHERE)
         return;
@@ -1130,7 +1143,11 @@ ASPELL(spell_relocate)
 
     if (tmp <= top_of_world) {
         if (different_zone(was_in, tmp)) {
-            prohibit_item_stay_zone_move(caster, was_in);
+            // Taking its gear off can kill or remove the caster: nobody is then left to move.
+            const bool caster_remains = prohibit_item_stay_zone_move(caster, was_in);
+            if (!caster_remains) {
+                return;
+            }
         }
         stop_riding(caster);
         act("$n screams a shrill wail of pain, and suddenly disappears.\n\r",
@@ -1142,7 +1159,7 @@ ASPELL(spell_relocate)
         send_to_char("Pain fills your body, and your vision blurs. "
                      "You now stand elsewhere.\n\r",
             caster);
-        extern void msdp_room_update(char_data* ch);
+        extern void msdp_room_update(const char_data * ch);
 
         msdp_room_update(caster);
 
@@ -1182,7 +1199,7 @@ ASPELL(spell_relocate)
 ASPELL(spell_beacon)
 {
 
-    affected_type newaf;
+    affected_type newaf{};
     int mode;
     waiting_type* wtl = &caster->delay;
     mode = 0;
@@ -1332,6 +1349,10 @@ int get_save_bonus(const char_data& caster, const char_data& victim, game_types:
 
 ASPELL(spell_magic_missile)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_MAGIC_MISSILE)) {
+        return;
+    }
+
     int mag_power = get_magic_power(caster);
     int dam = 12 + number(1, mag_power / 6);
 
@@ -1345,7 +1366,7 @@ ASPELL(spell_magic_missile)
     apply_spell_damage(caster, victim, dam, SPELL_MAGIC_MISSILE, 0);
 }
 
-void apply_chilled_effect(char_data* caster, char_data* victim)
+void apply_chilled_effect(const char_data* caster, char_data* victim)
 {
     int energy_lost = victim->specials.ENERGY / 2 + utils::get_energy_regen(*victim) * 4;
     victim->specials.ENERGY -= energy_lost;
@@ -1368,6 +1389,10 @@ void apply_chilled_effect(char_data* caster, char_data* victim)
  */
 ASPELL(spell_chill_ray)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_CHILL_RAY)) {
+        return;
+    }
+
     int mag_power = get_magic_power(caster);
     int dam = 20 + number(1, mag_power) / 2;
 
@@ -1413,6 +1438,10 @@ ASPELL(spell_chill_ray)
 
 ASPELL(spell_lightning_bolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LIGHTNING_BOLT)) {
+        return;
+    }
+
     int dam = 25 + number(0, get_magic_power(caster)) / 2;
 
     if (OUTSIDE(caster) || (utils::get_specialization(*caster) == game_types::PS_Lightning)) {
@@ -1447,6 +1476,10 @@ ASPELL(spell_lightning_bolt)
 
 ASPELL(spell_dark_bolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_DARK_BOLT)) {
+        return;
+    }
+
     int dam = 25 + number(0, get_magic_power(caster)) / 2;
     if (!SUN_PENALTY(caster)) {
         dam += 4 + number(0, get_magic_power(caster)) / 4;
@@ -1479,6 +1512,10 @@ ASPELL(spell_dark_bolt)
 
 ASPELL(spell_firebolt)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_FIREBOLT)) {
+        return;
+    }
+
     int dam = number(1, 65) + number(1, get_magic_power(caster)) / 4 + number(1, get_magic_power(caster)) / 4 + number(1, get_magic_power(caster)) / 8 + number(1, get_magic_power(caster)) / 8 + number(1, get_magic_power(caster)) / 16 + number(1, get_magic_power(caster)) / 16;
 
     // Fire spec mages get a minimum damage value on firebolt.
@@ -1636,9 +1673,13 @@ ASPELL(spell_earthquake)
     if (crack_chance)
         dam_value /= 2;
 
+    // Any hit or fall can remove the caster: a death, a damage script.
+    freed_watch caster_watch(caster);
+
     for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N withstands the vibrating earth.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -1646,6 +1687,15 @@ ASPELL(spell_earthquake)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_EARTHQUAKE, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
+            }
+
+            if (caster_watch.freed()) {
+                return;
+            }
+
+            // The tremor stops where the hit removed the next one in the room.
+            if (next_watch.freed()) {
+                break;
             }
         }
         //  return;
@@ -1700,12 +1750,18 @@ ASPELL(spell_earthquake)
                 act("$n falls in.", TRUE, tmpch, 0, 0, TO_ROOM);
                 tmpch->specials.position = POSITION_SITTING;
 
+                freed_watch next_watch(tmpch_next);
                 if (new_saves_spell(caster, tmpch, 0)) {
                     act("$N manages to land on his feet!", FALSE, caster, 0, tmpch, TO_CHAR);
                     act("You manage to land on your feet!", FALSE, caster, 0, tmpch, TO_VICT);
                     apply_spell_damage(caster, tmpch, dam_value, SPELL_EARTHQUAKE, 0);
                 } else {
                     apply_spell_damage(caster, tmpch, dam_value * 2, SPELL_EARTHQUAKE, 0);
+                }
+
+                // Nobody else falls once a fall removed the caster or the next one in the room.
+                if (caster_watch.freed() || next_watch.freed()) {
+                    return;
                 }
             }
         }
@@ -1725,6 +1781,10 @@ ASPELL(spell_earthquake)
 
 ASPELL(spell_lightning_strike)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LIGHTNING_STRIKE)) {
+        return;
+    }
+
     int dam = 40 + number(0, get_magic_power(caster)) + number(0, get_magic_power(caster)) / 2;
 
     if (!OUTSIDE(caster)) {
@@ -1763,6 +1823,10 @@ ASPELL(spell_lightning_strike)
 
 ASPELL(spell_searing_darkness)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_SEARING_DARKNESS)) {
+        return;
+    }
+
     game_types::player_specs caster_spec = utils::get_specialization(*caster);
 
     int darkness_damage = 15 + number(0, get_magic_power(caster)) / 2;
@@ -1831,7 +1895,18 @@ ASPELL(spell_fireball)
         fireball_damage = fireball_damage / 3;
     }
 
+    // A fireball that slips out of an orc's control burns the caster even from a staff.
+    if (spell_lacks_victim(caster, victim, SPELL_FIREBALL)) {
+        return;
+    }
+
     bool is_fire_spec = utils::get_specialization(*caster) == game_types::PS_Fire;
+
+    // Any hit can remove the caster or the victim: a death, a damage script.
+    freed_watch caster_watch(caster);
+    freed_watch victim_watch(victim);
+    // Asked before the hit, for the splash to use if the hit removes the victim.
+    const bool victim_was_friendly = is_fire_spec && is_friendly_taget(caster, victim);
 
     int save_bonus = get_save_bonus(*caster, *victim, game_types::PS_Fire, game_types::PS_Cold);
     bool saved = new_saves_spell(caster, victim, save_bonus);
@@ -1843,15 +1918,26 @@ ASPELL(spell_fireball)
         apply_spell_damage(caster, victim, fireball_damage, SPELL_FIREBALL, 0);
     }
 
+    // A removed caster has no room left to splash.
+    if (caster_watch.freed()) {
+        return;
+    }
+
     char_data* next_character = nullptr;
     for (char_data* potential_victim = world[caster->in_room].people; potential_victim; potential_victim = next_character) {
         next_character = potential_victim->next_in_room;
         if (potential_victim == caster || potential_victim == victim)
             continue;
 
-        /* Fire specialization mages won't hit friendly targets. */
-        if (is_fire_spec && is_friendly_taget(caster, victim))
+        // Fire specialization mages won't hit friendly targets.
+        bool victim_is_friendly = victim_was_friendly;
+        if (!victim_watch.freed()) {
+            victim_is_friendly = is_fire_spec && is_friendly_taget(caster, victim);
+        }
+
+        if (victim_is_friendly) {
             continue;
+        }
 
         double random_roll = number();
         // target_number and damage are higher if the victim is fighting with the caster
@@ -1872,7 +1958,12 @@ ASPELL(spell_fireball)
                 splash_damage = splash_damage >> 1;
             }
 
+            freed_watch next_watch(next_character);
             apply_spell_damage(caster, potential_victim, splash_damage, SPELL_FIREBALL2, 0);
+            // The splash stops where the hit removed the caster or the next one in the room.
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
+            }
         }
     }
 }
@@ -1897,6 +1988,10 @@ ASPELL(spell_fireball)
  */
 ASPELL(spell_word_of_pain)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_WORD_OF_PAIN)) {
+        return;
+    }
+
     int dam = 12 + number(1, get_magic_power(caster) / 6);
 
     bool saved = new_saves_spell(caster, victim, 0);
@@ -1917,6 +2012,10 @@ ASPELL(spell_word_of_pain)
  */
 ASPELL(spell_leach)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_LEACH)) {
+        return;
+    }
+
     int mag_power = get_magic_power(caster);
     int dam = 18 + number(1, mag_power / 4);
 
@@ -2030,6 +2129,10 @@ ASPELL(spell_word_of_shock)
  */
 ASPELL(spell_black_arrow)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_BLACK_ARROW)) {
+        return;
+    }
+
     int dam = 13 + number(1, get_magic_power(caster)) / 2 + number(1, get_magic_power(caster)) / 2;
 
     if (!SUN_PENALTY(caster) || utils::get_specialization(*caster) == game_types::PS_Darkness) {
@@ -2049,7 +2152,7 @@ ASPELL(spell_black_arrow)
         dam >>= 1;
     } else if (number(1, 50) < level && GET_HIT(victim) > min_poison_dam) {
         // TODO(drelidan):  Should this conditional poison apply after damage is applied?
-        affected_type af;
+        affected_type af{};
         af.type = SPELL_POISON;
         af.duration = level + 1;
         af.modifier = -2;
@@ -2058,7 +2161,13 @@ ASPELL(spell_black_arrow)
         affect_join(victim, &af, FALSE, FALSE);
 
         send_to_char("The vile magic poisons you!\n\r", victim);
+        // The poison's blow can remove either of them; the arrow then strikes nobody.
+        freed_watch caster_watch(caster);
+        freed_watch target_watch(victim);
         apply_spell_damage(caster, victim, min_poison_dam, SPELL_POISON, 0);
+        if (caster_watch.freed() || target_watch.freed()) {
+            return;
+        }
     }
 
     apply_spell_damage(caster, victim, dam, SPELL_BLACK_ARROW, 0);
@@ -2071,6 +2180,10 @@ ASPELL(spell_black_arrow)
  */
 ASPELL(spell_word_of_agony)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_WORD_OF_AGONY)) {
+        return;
+    }
+
     int dam = 20 + number(1, get_magic_power(caster)) / 2 + number(1, get_magic_power(caster)) / 2;
 
     bool saved = new_saves_spell(caster, victim, -2);
@@ -2096,10 +2209,13 @@ ASPELL(spell_shout_of_pain)
 
     int dam_value = number(1, 50) + get_magic_power(caster) / 2;
 
+    // As for earthquake.
+    freed_watch caster_watch(caster);
     char_data* tmpch_next = NULL;
     for (char_data* tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
         tmpch_next = tmpch->next_in_room;
         if (tmpch != caster) {
+            freed_watch next_watch(tmpch_next);
             bool saved = new_saves_spell(caster, tmpch, 0);
             if (saved) {
                 act("$N seems to resist some of the agony.", FALSE, caster, 0, tmpch, TO_CHAR);
@@ -2107,6 +2223,10 @@ ASPELL(spell_shout_of_pain)
                 apply_spell_damage(caster, tmpch, dam_value / 2, SPELL_SHOUT_OF_PAIN, 0);
             } else {
                 apply_spell_damage(caster, tmpch, dam_value, SPELL_SHOUT_OF_PAIN, 0);
+            }
+
+            if (caster_watch.freed() || next_watch.freed()) {
+                return;
             }
         }
     }
@@ -2121,6 +2241,10 @@ ASPELL(spell_shout_of_pain)
  */
 ASPELL(spell_spear_of_darkness)
 {
+    if (spell_lacks_victim(caster, victim, SPELL_SPEAR_OF_DARKNESS)) {
+        return;
+    }
+
     int dam = 0;
     if (SUN_PENALTY(caster)) {
         send_to_char("Your spell is weakened by the intensity of light.\n\r", caster);
@@ -2158,7 +2282,7 @@ ASPELL(spell_spear_of_darkness)
 
 ASPELL(spell_blaze)
 {
-    struct affected_type af;
+    struct affected_type af{};
     struct affected_type* oldaf;
     struct char_data* tmpch;
     struct char_data* tmpch_next;
@@ -2174,7 +2298,8 @@ ASPELL(spell_blaze)
         act("$n breathes out a cloud of fire!", TRUE, caster, 0, 0, TO_ROOM);
         send_to_char("You breathe out fire.\n\r", caster);
 
-        /* Damage everyone in the room */
+        // Damage everyone in the room, stopping once a hit removes the caster or the next occupant.
+        freed_watch caster_watch(caster);
         for (tmpch = world[caster->in_room].people; tmpch; tmpch = tmpch_next) {
             tmpch_next = tmpch->next_in_room;
 
@@ -2191,7 +2316,15 @@ ASPELL(spell_blaze)
                 dam = dam >> 1;
             }
 
+            freed_watch next_watch(tmpch_next);
             apply_spell_damage(caster ? caster : tmpch, tmpch, dam, SPELL_BLAZE, 0);
+            if (caster_watch.freed()) {
+                return;
+            }
+
+            if (next_watch.freed()) {
+                break;
+            }
         }
 
         /*
@@ -2262,7 +2395,12 @@ ASPELL(spell_blaze)
 ASPELL(spell_freeze)
 
 {
-    if (IS_SET(EXIT(caster, digit)->exit_info, EX_CLOSED)) {
+    // Any direction word can be cast toward, whether or not an exit lies that way.
+    room_direction_data* exit = NULL;
+    if (digit >= 0 && digit < NUM_OF_DIRS)
+        exit = EXIT(caster, digit);
+
+    if (exit && IS_SET(exit->exit_info, EX_CLOSED)) {
         /* Did they use "east", "west", etc. to target this direction? */
         if (caster->delay.targ2.choice == TAR_DIR_WAY)
             sprintf(buf, "A thick sheet of hardened frost forms %s%s%s.\r\n",
@@ -2270,7 +2408,7 @@ ASPELL(spell_freeze)
                 digit != UP && digit != DOWN ? "" : " you");
         /* Or did they actually know the name of the door? */
         else if (caster->delay.targ2.choice == TAR_DIR_NAME)
-            sprintf(buf, "The %s is frozen shut.\r\n", EXIT(caster, digit)->keyword);
+            sprintf(buf, "The %s is frozen shut.\r\n", exit->keyword);
         send_to_room(buf, caster->in_room);
         return;
     } else
@@ -2296,7 +2434,7 @@ ASPELL(spell_freeze)
  */
 ASPELL(spell_mist_of_baazunga)
 {
-    struct affected_type af, af2;
+    struct affected_type af{}, af2{};
     struct affected_type* oldaf;
     struct room_data* room;
     int modifier, direction, mod, roomnum;
@@ -2438,6 +2576,13 @@ void spell_expose_elements(char_data* caster, char* arg, int type, char_data* vi
 
     // Player is of the appropriate spec - cast the data.
     elemental_spec_data* spec_data = caster->extra_specialization_data.get_mage_spec();
+    if (spec_data == NULL) {
+        log("SYSERR: spell_expose_elements: a mage specialisation has no expose-elements data");
+        return;
+    }
+
+    // A new mark replaces the old one, along with a freed target the sweep has yet to report.
+    spec_data->reset();
     spec_data->exposed_target = victim;
 
     const room_data& current_room = world[caster->in_room];

@@ -1,0 +1,1 @@
+the shaping editors report bad zone vnums, refuse their disabled commands, explain their fields and edit room affections

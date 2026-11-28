@@ -1,0 +1,1 @@
+the hourly poison tick: a mob it kills, the characters after it in the same pass, and a sanctuary it breaks

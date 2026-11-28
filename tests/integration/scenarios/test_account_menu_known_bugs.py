@@ -1,0 +1,109 @@
+"""Known account-menu and account-tool bugs, each pinned as a strict xfail of the correct behaviour.
+
+Each pin turns into a failure (XPASS) the day its bug is fixed.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from rots_harness import world
+from rots_harness.accounts import (
+    ACCOUNT_MENU_NEW_CHARACTER,
+    NEW_CHARACTER_NAME_PROMPT,
+    account_connection,
+    closes_within,
+    playing_connection,
+)
+from rots_harness.characters import HARNESS_EMAIL, HARNESS_PASSWORD, IMPLEMENTOR, Character
+from rots_harness.immortal_commands import load_mob
+from rots_harness.session import ACCOUNT_MENU_PROMPT, LOGIN_PASSWORD_PROMPT
+from test_account_menu import FREE_NEW_NAME, ROLEPLAY_QUESTION_FORMAT, new_name_answer
+
+pytestmark = [pytest.mark.scenario, pytest.mark.account_menu, pytest.mark.real_login]
+
+# A word fill_word refuses as a name (fill[], interpre.cpp); it passes every check before the
+# confirmation.
+FILL_WORD_NAME = "The"
+# What CON_NMECNF prints for a fill word or an invalid name (nanny, interpre.cpp).
+ILLEGAL_NAME_REPLY = "Illegal name, please try another:"
+# What CON_NMECNF prints when it accepts the name (nanny, interpre.cpp).
+NEW_CHARACTER_ACCEPTED_REPLY = "New character."
+
+# A level-20 human warrior whose name is also a keyword of mob 1132, the bystander orc; it plays
+# in Arena West, away from the implementor.
+BYSTANDER = Character(
+    name="Bystander", race="human", sex="male", level=20, load_room=world.ROOM_ARENA_WEST, class_name="warrior"
+)
+# The bystander orc's line in a room.
+BYSTANDER_ORC_IN_ROOM = "A bystander orc loiters here, involved in nothing."
+# The password do_delete requires after the character's name (act_wiz.cpp).
+DELETE_PASSWORD = "rots"
+# Seconds the server is given to close the deleted player's connection.
+CLOSE_TIMEOUT_SECONDS = 5.0
+
+
+@pytest.mark.account_menu_characters
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="after `Illegal name, please try another:` at the new character confirmation, the next name "
+    "should be offered for confirmation; today it is read as an account email address",
+)
+@pytest.mark.characters(IMPLEMENTOR)
+def test_a_name_refused_at_the_new_character_confirmation_is_followed_by_another_name(server) -> None:
+    """Bug: a name refused at the new character confirmation sends the next one to the email prompt.
+
+    The confirmation of a new character from the account menu (CON_NMECNF) answers a fill word or
+    an invalid name with `Illegal name, please try another: ` but sets CON_NME, the account email
+    prompt (interpre.cpp:3150-3156), unlike its `n` answer, which returns an account player to the
+    account menu (interpre.cpp:3174-3183). The next name is parsed as an email address and refused
+    with the email error and `Account email:`. Correct: the name prompt takes it and offers it for
+    confirmation like any free name (CON_ACCTNEWCHAR, interpre.cpp:4083-4085).
+    """
+    with account_connection(server.handle, server.run_dir, "fillword") as connection:
+        connection.send_line(HARNESS_EMAIL)
+        connection.expect([LOGIN_PASSWORD_PROMPT])
+        connection.send_line(HARNESS_PASSWORD)
+        connection.expect([ACCOUNT_MENU_PROMPT])
+        connection.send_line(ACCOUNT_MENU_NEW_CHARACTER)
+        connection.expect([NEW_CHARACTER_NAME_PROMPT])
+        question = new_name_answer(connection, FILL_WORD_NAME)
+        assert ROLEPLAY_QUESTION_FORMAT.format(FILL_WORD_NAME) in question, question
+        connection.send_line("y")
+        refused = connection.expect([ILLEGAL_NAME_REPLY, NEW_CHARACTER_ACCEPTED_REPLY])
+        assert ILLEGAL_NAME_REPLY in refused and NEW_CHARACTER_ACCEPTED_REPLY not in refused, refused
+
+        retried = new_name_answer(connection, FREE_NEW_NAME)
+        assert ROLEPLAY_QUESTION_FORMAT.format(FREE_NEW_NAME) in retried, retried
+
+
+@pytest.mark.account_menu_store
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="`delete <player> rots` should delete and disconnect that player; it extracts a mob answering to "
+    "the name in the implementor's room instead and leaves the player connected",
+)
+@pytest.mark.characters(IMPLEMENTOR, BYSTANDER)
+def test_delete_disconnects_the_named_player_and_leaves_a_mob_of_the_same_keyword(server) -> None:
+    """Bug: delete extracts a mob of the player's keyword and leaves the player connected.
+
+    do_delete finds the character to disconnect with get_char_vis (act_wiz.cpp:3199-3208), which
+    looks in the implementor's room first and matches mob keywords, where `wizset player` uses
+    get_player_vis. With the bystander orc in the implementor's room, `delete bystander rots`
+    extracts the orc, leaves the player Bystander connected, and still deletes Bystander's records;
+    its next save prints `Error: you are not being saved.  Please contact an immortal.` (save_char,
+    db.cpp:3487-3496). Correct: the player is disconnected and the orc stays.
+    """
+    implementor = server.login(IMPLEMENTOR.name)
+    with playing_connection(server.handle, server.run_dir, BYSTANDER) as bystander:
+        load_mob(implementor, world.MOB_BYSTANDER_ORC, world.MOB_BYSTANDER_ORC_SHORT_DESCRIPTION)
+        before = implementor.command("look")
+        assert BYSTANDER_ORC_IN_ROOM in before.text, before.text
+
+        implementor.command(f"delete {BYSTANDER.name.lower()} {DELETE_PASSWORD}")
+
+        after = implementor.command("look")
+        assert BYSTANDER_ORC_IN_ROOM in after.text, after.text
+        assert closes_within(bystander, CLOSE_TIMEOUT_SECONDS), "the deleted player's connection stayed open"

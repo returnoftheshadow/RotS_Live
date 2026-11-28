@@ -43,6 +43,45 @@ casual play, knowing the room VNUM can help with navigation, bug reporting, and
 quest tracking.
 
 #
+ROOM
+
+This variable is a table describing the room your character is in, updated each
+time you are shown a room: when you move, look, or are summoned, teleported or
+moved by an immortal. Mapping scripts use it to draw the map as you walk.
+
+  VNUM     the room's number, the same as ROOM_VNUM
+  NAME     the room's name, the same as ROOM_NAME
+  EXITS    the exits you can see, each direction letter (n, e, s, w, u, d)
+           with the number of the room it leads to, for example
+           EXITS { n 3001 e 3005 }
+  TERRAIN  the kind of ground, such as Forest or City
+
+EXITS lists the same exits as the "Exits are:" line under the room's name,
+closed doors included. When you cannot see, because the room is dark or you
+are blind or asleep, the room's name and number are still sent but EXITS is
+empty.
+
+If an older script expects EXITS as a plain list of room numbers, type
+SET LEGACYEXITS ON. EXITS is then sent as a list such as [ 3001 3005 ], in
+the same order as ROOM_EXITS. SET LEGACYEXITS OFF sends the table again. The
+setting is kept for every character on your account.
+
+New entries may be added to this table in future, but the existing entries
+keep their names and shapes, so a script that reads entries by name keeps
+working.
+
+See also: ROOM_EXITS, ROOM_NAME, ROOM_VNUM
+
+#
+ROOM_EXITS
+
+This variable lists the direction letters (n, e, s, w, u, d) of the exits you
+can see, in that order. It holds the same exits as the EXITS entry of ROOM and
+is empty when you cannot see.
+
+See also: ROOM
+
+#
 LEVEL
 
 This variable shows your character’s current level, which reflects their
@@ -111,6 +150,16 @@ to rest or recover. Your max movement is influenced by your level, stats like
 dexterity, class, equipment, and temporary effects such as buffs or debuffs.
 Maintaining a high movement max is important for exploring, escaping, and
 surviving in challenging environments.
+
+#
+GROUP
+
+This variable reports your current group as an MSDP table. The table contains
+a MEMBERS array, and each member entry is a table with NAME, HEALTH, MANA, and
+MOVEMENT. HEALTH, MANA, and MOVEMENT are percentages.
+
+When you are not grouped, MEMBERS is sent as an empty array so clients can
+clear any previous group display.
 
 #
 MONEY
@@ -337,7 +386,14 @@ See also: help weather
 #
 OPPONENT_HEALTH
 
-This variable shows your currently engaged opponent's health percentage.
+This variable shows your currently engaged opponent's health as a percentage,
+from 0 to 100. It is 0 when you are not fighting.
+
+#
+OPPONENT_HEALTH_MAX
+
+This variable is the most OPPONENT_HEALTH can be: 100 while you are
+fighting, and 0 when you are not.
 
 #
 OPPONENT_NAME
@@ -348,6 +404,13 @@ This variable shows your currently engaged opponent's name.
 OPPONENT_LEVEL
 
 This variable shows your currently engaged opponent's level.
+
+#
+OPPONENT_AGE
+
+This variable shows how long your currently engaged opponent has been here,
+the same line diagnose shows. It is empty when fighting a player or an
+orc-friend pet.
 
 #
 SPIRIT
